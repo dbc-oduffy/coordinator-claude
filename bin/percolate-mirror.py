@@ -539,7 +539,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         with _round._round_held_lock(
             Path(repo_root),
             holder_label=f"percolate-mirror:{Path(mirror_root).name}",
-            timeout=_round._round_lock_wait_secs(),
+            timeout=_round.publish_contention_wait_secs(),
         ):
             # The destination-dirtiness preflight is GONE (plan AC5). It existed
             # only because a stdout-derived pathspec could not tell this round's
@@ -629,9 +629,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                 )
                 return _round._EXIT_CONFIRM_REQUIRED
 
+            # Third leg of the same mirror history, so it carries the same
+            # currency stamp the other two do -- a signal present on only
+            # SOME publish commits is worse than none, because a consumer
+            # reading an unstamped one cannot tell "old publisher" from
+            # "this leg never stamps".
             subject = (
                 f"percolate publish: {Path(mirror_root).name} "
                 f"({len(targets)} row(s), {len(pathspec)} file(s))"
+                f"{_round._source_sha_suffix()}"
             )
             print(f"=== percolate-mirror {mirror_root} — commit ({len(pathspec)} file(s)) ===")
             # `ceremony.scoped_git_commit` was KILLED 2026-08-23 (DR-344) and
@@ -691,8 +697,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"  pushed:    {repo_root}")
             return _round._EXIT_OK
     except _round._RoundLockTimeout as exc:
+        from percolate.wire_contract import lock_busy_message  # noqa: PLC0415 - engine bound by _bootstrap_engine() above
+
         print(
-            f"percolate-mirror: {_round._lock_busy_message(repo_root, exc)}",
+            f"percolate-mirror: {lock_busy_message(repo_root, exc)}",
             file=sys.stderr,
         )
         return _round._EXIT_LOCK_BUSY

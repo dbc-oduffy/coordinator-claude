@@ -190,6 +190,9 @@ def cmd_run_step1(extra: list[str]) -> int:
     existed to avoid)."""
     step1_path = os.path.join(_BIN_DIR, "workday-complete-step1-validate.py")
     if not os.path.isfile(step1_path):
+        # foreign-identity: SUBJECT — invoked from the DoE ceremony fence (a third-repo
+        # session); the name tells the reader it is the resolved claude-klabauter engine
+        # checkout that is stale/partial, not their own working repo, so they know what to fix.
         _err(
             f"ERROR: {step1_path} not found — stale or partial claude-klabauter "
             "checkout."

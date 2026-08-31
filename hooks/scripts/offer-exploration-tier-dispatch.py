@@ -68,6 +68,14 @@ if _HOOKS_DIR not in sys.path:
 
 from _message_envelope import CHANNEL_ADDITIONAL_CONTEXT, compose, emit  # noqa: E402
 try:
+    from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir  # noqa: E402
+except Exception:
+    # Defensive fallback -- a deploy missing its sibling _git_common_dir.py
+    # must still fail open (empty common dir -> callers skip) rather than
+    # crash on import.
+    def _resolve_git_common_dir(git_root: str) -> str:
+        return ""
+try:
     from _session_hub import session_id_is_real, ensure_session_dir  # noqa: E402
 except Exception:
     # Defensive fallback -- a deploy missing its sibling _session_hub.py must
@@ -208,54 +216,6 @@ def _git_root(start: str) -> str:
             if parent == cur:
                 return ""
             cur = parent
-    except Exception:
-        return ""
-
-
-def _resolve_git_common_dir(git_root: str) -> str:
-    """Resolve the git COMMON dir for `git_root` without spawning a
-    subprocess. Fails open to "" on any error, including the plain-clone
-    case where `.git` is simply a directory.
-
-    THIS IS THE CANONICAL COPY. Hooks are standalone scripts and cannot
-    import each other, so byte-identical (or near-identical, save for
-    return-shape refactors that don't change behavior) duplicates of this
-    helper live in `nudge-multiwave-workflow.py` and
-    `runtime-tripwire-em-check.py` (the latter's own docstring further
-    cross-references a twin in `subagent-zero-tool-use-detect.py`). Keep
-    every copy in step -- a divergence would mean different hooks resolve
-    the same session's bookkeeping directory to different locations under
-    a worktree, silently breaking correlation between them."""
-    try:
-        dot_git = os.path.join(git_root, ".git")
-        if os.path.isdir(dot_git):
-            return dot_git
-        if os.path.isfile(dot_git):
-            with open(dot_git, "r", encoding="utf-8", errors="replace") as fh:
-                text = fh.read().strip()
-            if not text.startswith("gitdir:"):
-                return ""
-            gitdir_value = text[len("gitdir:"):].strip()
-            git_dir = (
-                gitdir_value
-                if os.path.isabs(gitdir_value)
-                else os.path.normpath(os.path.join(git_root, gitdir_value))
-            )
-            if not os.path.isdir(git_dir):
-                return ""
-            commondir_file = os.path.join(git_dir, "commondir")
-            if os.path.isfile(commondir_file):
-                with open(commondir_file, "r", encoding="utf-8", errors="replace") as fh:
-                    common_value = fh.read().strip()
-                if not common_value:
-                    return git_dir
-                return (
-                    common_value
-                    if os.path.isabs(common_value)
-                    else os.path.normpath(os.path.join(git_dir, common_value))
-                )
-            return git_dir
-        return ""
     except Exception:
         return ""
 

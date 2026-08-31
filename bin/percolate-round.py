@@ -184,10 +184,9 @@ _COORDINATOR_LIB = _BIN_DIR.parent / "lib"
 
 _ENGINE_BOUND_NAMES = (
     "_RoundLockTimeout",
-    "_CONTENDED_LOCK_WAIT_ENV",
-    "_round_lock_wait_secs",
     "_round_held_lock",
     "_INHERITED_LOCK_ROOTS_ENV",
+    "publish_contention_wait_secs",
     "publish_lane",
     "_RoundManifest",
     "_read_manifest",
@@ -240,12 +239,11 @@ def _bootstrap_engine() -> None:
 
     from coordinator_core.locked_write import (  # type: ignore[import-not-found]
         LockTimeout as _RoundLockTimeout_,
-        CONTENDED_LOCK_WAIT_ENV as _CONTENDED_LOCK_WAIT_ENV_,
-        contended_lock_wait_secs as _round_lock_wait_secs_,
         held_lock as _round_held_lock_,
     )
     from percolate.wire_contract import (  # type: ignore[import-not-found]
         INHERITED_LOCK_ROOTS_ENV as _INHERITED_LOCK_ROOTS_ENV_,
+        publish_contention_wait_secs as publish_contention_wait_secs_,
     )
     from coordinator_core import publish_lane as _publish_lane_  # type: ignore[import-not-found]
     from coordinator_core.percolate.manifest import (  # type: ignore[import-not-found]
@@ -258,10 +256,9 @@ def _bootstrap_engine() -> None:
 
     for _name, _value in (
         ("_RoundLockTimeout", _RoundLockTimeout_),
-        ("_CONTENDED_LOCK_WAIT_ENV", _CONTENDED_LOCK_WAIT_ENV_),
-        ("_round_lock_wait_secs", _round_lock_wait_secs_),
         ("_round_held_lock", _round_held_lock_),
         ("_INHERITED_LOCK_ROOTS_ENV", _INHERITED_LOCK_ROOTS_ENV_),
+        ("publish_contention_wait_secs", publish_contention_wait_secs_),
         ("publish_lane", _publish_lane_),
         ("_RoundManifest", _RoundManifest_),
         ("_read_manifest", _read_manifest_),
@@ -286,31 +283,21 @@ _EXIT_CONFIRM_REQUIRED = 3
 _EXIT_LOCK_BUSY = 75
 
 def _lock_busy_message(dest: str, exc: Exception) -> str:
-    """One refusal line for a contended per-destination lock.
-
-    Register (docs/wiki/guard-messaging.md): the fact is "a peer holds this
-    dest and nothing was written"; the alternative is the wait knob. The old
-    text read as a failure — it led with "could not acquire" and exited the
-    same code as a broken round — so a session that needed a specific commit
-    in a mirror would retry harder, spawning a fresh process per attempt
-    against a queue that was never going to clear faster for the pressure.
-
-    Negative-spec: does NOT advise retrying in a loop, and does NOT offer the
-    knob as a way to wait LONGER. `coordinator_core.locked_write ::
-    contended_lock_wait_secs` clamps both the env var and its `default`
-    parameter with `min` against `CONTENDED_LOCK_WAIT_SECS` — the knob narrows
-    only, by the 2026-08-21 PM ruling (DR-344), because a session that raises
-    it leaves a process asleep on a box with 50-70 peers queued. Saying
-    otherwise sent an operator to set a larger number, wait the same ceiling,
-    and hit this line again — the retry loop this message exists to stop.
+    """Thin delegate onto `percolate.wire_contract.lock_busy_message` (C3,
+    staff-eng finding 0) — the builder itself now lives there, shared with
+    `publish.py`'s own inline BUSY branch, so round/mirror/publish all emit
+    one text. `percolate-mirror.py` no longer calls this delegate — it was
+    repointed directly at `percolate.wire_contract.lock_busy_message`. The
+    real reader left is
+    `test_publish_lock_denies_fast.py::test_publish_emits_the_same_text_round_does`,
+    which calls this delegate directly to prove round and publish emit
+    byte-identical text; do not delete it without updating that test.
     """
-    _bootstrap_engine()
-    return (
-        f"dest '{dest}' is held by another round — waited "
-        f"{_round_lock_wait_secs():.0f}s, nothing was written. Re-run once it "
-        f"lands. {_CONTENDED_LOCK_WAIT_ENV}=<seconds> only SHORTENS this wait; "
-        f"the ceiling cannot be raised. ({exc})"
+    from percolate.wire_contract import (  # noqa: PLC0415 - thin delegate, deferred import
+        lock_busy_message as _lock_busy_message_shared,
     )
+
+    return _lock_busy_message_shared(dest, exc)
 
 
 _PERCOLATE_GATE = _BIN_DIR / "percolate-gate.py"
@@ -1141,6 +1128,11 @@ def _pathspec_from_manifest(
     sufficient)."""
     import os
 
+    from coordinator_core.percolate.surface import (  # noqa: PLC0415 - lazy, engine-only path
+        STRUCTURAL_NEVER_PUBLISHED_PREFIXES,
+        matches_exclude_prefix,
+    )
+
     repo_root_path = Path(repo_root)
     repo_root_norm = os.path.normpath(str(repo_root_path))
 
@@ -1185,6 +1177,30 @@ def _pathspec_from_manifest(
             for rel in head_tree
             if scopes_whole_tree
             or any(rel == d or rel.startswith(d + "/") for d in row_scope_dirs)
+        }
+        # A path the SSOT calls STRUCTURALLY NEVER PUBLISHED is neither
+        # declarable nor removable, and both halves have to agree or the round
+        # refuses on its own bookkeeping. `_walk_published_payload` prunes this
+        # exact prefix set out of `declared_payload` deliberately (§ its own
+        # NEGATIVE SPEC: an unpruned walk declared 44,264 `.fleet-env/` paths
+        # and silently disabled the removal side). `row_scope` did not prune
+        # it, so any such path TRACKED at dest HEAD fell out of
+        # `row_scope - declared_payload` as a removal candidate, was found on
+        # disk, and refused the round before sync.
+        #
+        # Measured witness (`coordinator-claude`, 2026-08-31): percolate writes
+        # its own `.percolate/round-manifest.json` into the mirror and that file
+        # is tracked at the mirror's HEAD, so every round after a fail-closed
+        # one died at `_refuse_removals_present_on_disk` naming percolate's own
+        # bookkeeping -- an error whose remedy text ("widen `declared_payload`")
+        # is the one fix that must NOT be applied here: re-admitting `.percolate`
+        # to the declaration would over-declare it back into the same
+        # removal-side suppression the walker's prune exists to prevent. The
+        # asymmetry is the defect, not the prune.
+        row_scope -= {
+            rel
+            for rel in row_scope
+            if matches_exclude_prefix(rel, list(STRUCTURAL_NEVER_PUBLISHED_PREFIXES))
         }
         removal_candidates = sorted(row_scope - manifest.declared_payload)
         _refuse_removals_present_on_disk(repo_root_path, removal_candidates)
@@ -1866,6 +1882,18 @@ def _partition_carried_changes(
     return carried, dropped
 
 
+def _source_sha_suffix() -> str:
+    """`git_state.source_sha_suffix(_REPO_ROOT)` -- one definition shared with
+    `publish.py`'s wrapper and, through `_round`, with `percolate-mirror.py`,
+    so all three legs of mirror history stamp byte-identically. Rationale and
+    the degrade contract live on the engine function.
+    """
+    _bootstrap_engine()
+    from coordinator_core.git.git_state import source_sha_suffix  # noqa: PLC0415
+
+    return source_sha_suffix(_REPO_ROOT)
+
+
 def _build_commit_subject(
     target: str, real_changes: List[Tuple[str, str]], pathspec: List[str]
 ) -> str:
@@ -1918,6 +1946,7 @@ def _build_commit_subject(
         f"percolate publish: {target} "
         f"({len(pathspec)} file(s) to commit; carries "
         f"{added} added, {modified} modified, {removed} removed{residual})"
+        f"{_source_sha_suffix()}"
     )
 
 
@@ -2359,7 +2388,7 @@ def _publish_unpushed_dest_commits(
         with _round_held_lock(
             Path(dest),
             holder_label=f"percolate-round:{target}",
-            timeout=_round_lock_wait_secs(),
+            timeout=publish_contention_wait_secs(),
         ):
             ahead = _dest_ahead_count(dest)
             # Review: review-integrator — distinguish "the ahead-count probe
@@ -2444,7 +2473,7 @@ def _cmd_round_default(
         with _round_held_lock(
             Path(dest),
             holder_label=f"percolate-round:{target}",
-            timeout=_round_lock_wait_secs(),
+            timeout=publish_contention_wait_secs(),
         ):
             # --- Step 1: real run (sync) -- no dry run by default ----------
             print(f"=== percolate-round {target} — Step 1: real run (sync) ===")

@@ -189,6 +189,14 @@ _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 try:
+    from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir  # noqa: E402
+except Exception:
+    # Defensive fallback -- a deploy missing its sibling _git_common_dir.py
+    # must still fail open (empty common dir -> callers skip) rather than
+    # crash on import.
+    def _resolve_git_common_dir(git_root: str) -> str:
+        return ""
+try:
     from _session_hub import ensure_session_dir as _ensure_session_dir  # noqa: E402
 except Exception:
     # Defensive fallback -- a deploy missing its sibling _session_hub.py must
@@ -340,72 +348,24 @@ except Exception:
 _arm_lazy_ops()
 
 
-def _resolve_git_common_dir(git_root: str) -> str:
-    """Resolve the git COMMON dir for `git_root` without spawning a
-    subprocess. Fail-open to "" on any error.
+def _fail_open(fn, *args, default=None):
+    """Run one detector, yielding `default` on any exception.
 
-    KEEP THIS HELPER BYTE-IDENTICAL to its twin in
-    `subagent-zero-tool-use-detect.py` -- hooks are standalone scripts and
-    cannot import each other, so the duplication is deliberate. A
-    divergence between the two copies would mean Stage 1's own-session
-    filter and Stage 2's store/cursor paths resolve to different
-    directories under a worktree, silently breaking correlation between the
-    two stages.
+    Every advisory leg in `main()` is independently wrapped so that a bug in one
+    can never take down another -- the module's fail-open contract. This is that
+    wrapper, once, rather than once per leg.
 
-    Originally scoped to ONLY the ZERO-TOOL-USE-DETECT-SURFACE part below
-    (see `_zero_tool_use_paths`'s docstring). Widened (portability fix) to
-    also root `sessions_dir` in `main()` and `_check_push_failures`'s cursor
-    dir -- both previously joined `git_root + ".git" + "coordinator-sessions"` directly,
-    which silently never persisted under a worktree (`<git_root>/.git` is a
-    FILE there, not a directory). Every caller of this helper degrades to ""
-    on an unresolvable common dir and treats that as "skip, do not build a
-    path from empty string" -- never as "already fired"/"already present".
-
-    In an ordinary clone, `<git_root>/.git` IS the common dir (a
-    directory). In a worktree, `<git_root>/.git` is a FILE containing a
-    single `gitdir: <path>` line pointing at the worktree's own private git
-    dir (`<path>` may be relative to `git_root`); that private git dir in
-    turn contains a `commondir` file naming the actual shared common dir
-    (again possibly relative -- this time to the private git dir itself).
-    Blindly joining `git_root + ".git"` silently resolves to a location
-    that doesn't exist as a directory under a worktree -- a write there
-    fails and a best-effort `except` swallows it; a read there simply finds
-    nothing. Subagents DO run in worktrees (the `Agent` tool's
-    `isolation: "worktree"` mode), so this is a live fail-open portability
-    defect, not a theoretical one.
+    Negative spec: catches `Exception`, NOT `BaseException` -- a KeyboardInterrupt
+    or SystemExit must still terminate the hook rather than be swallowed into an
+    advisory that silently goes missing. Do not widen it. Do not add logging on
+    the failure path either: this runs on every session event across every live
+    session, and a detector that fails on every fire would write a stderr line
+    every time.
     """
     try:
-        dot_git = os.path.join(git_root, ".git")
-        if os.path.isdir(dot_git):
-            return dot_git
-        if os.path.isfile(dot_git):
-            with open(dot_git, "r", encoding="utf-8", errors="replace") as fh:
-                text = fh.read().strip()
-            if not text.startswith("gitdir:"):
-                return ""
-            gitdir_value = text[len("gitdir:"):].strip()
-            git_dir = (
-                gitdir_value
-                if os.path.isabs(gitdir_value)
-                else os.path.normpath(os.path.join(git_root, gitdir_value))
-            )
-            if not os.path.isdir(git_dir):
-                return ""
-            commondir_file = os.path.join(git_dir, "commondir")
-            if os.path.isfile(commondir_file):
-                with open(commondir_file, "r", encoding="utf-8", errors="replace") as fh:
-                    common_value = fh.read().strip()
-                if not common_value:
-                    return git_dir
-                return (
-                    common_value
-                    if os.path.isabs(common_value)
-                    else os.path.normpath(os.path.join(git_dir, common_value))
-                )
-            return git_dir
-        return ""
+        return fn(*args)
     except Exception:
-        return ""
+        return default
 
 
 def _resolve_zero_tool_use_sessions_dir(git_root: str) -> str:
@@ -598,7 +558,7 @@ def _unpushed_commit_count(git_root: str) -> int | None:
         return None
 
 
-def _push_failure_verdict(git_root: str) -> dict | None:
+def _push_failure_verdict(git_root: str) -> tuple[dict | None, str | None]:
     """Classify a growing `.git/push-failures.log` via the engine op
     `git.push_failure_verdict` (registered commit `f17ea2f78`) -- the
     five-state classifier that replaced this file's own two-string
@@ -618,30 +578,53 @@ def _push_failure_verdict(git_root: str) -> dict | None:
     registered AND exercising this script end-to-end on a real
     Stop/UserPromptSubmit/PostToolUse payload.
 
-    Returns the raw `{"verdict": ..., "evidence": {...}, "remedy_hint": ...}`
-    result dict on a well-formed response (verdict is one of the five known
-    strings AND evidence is a dict), else None on ANY failure -- engine root
-    unresolvable, import error, dispatch exception, non-dict response, an
-    unrecognized verdict string, or a missing/malformed evidence object. The
-    caller (`_check_push_failures`) treats None as "fall back to the
-    pre-op two-string rendering", never as "say nothing" -- fail-open on the
-    op, fail-toward-firing on the answer.
+    Returns `(result, degrade_reason)`. On a well-formed response the first
+    element is the raw `{"verdict": ..., "evidence": {...}, "remedy_hint":
+    ...}` dict and the second is None. On ANY failure the first element is
+    None -- engine root unresolvable, import error, dispatch exception,
+    non-dict response, an unrecognized verdict string, or a missing/malformed
+    evidence object -- and the second names WHICH condition:
+
+      `"contract"`     -- the op rejected our envelope (JSON-RPC -32602,
+                          invalid params: a missing or malformed routing key).
+                          This is a bug in THIS call site, not a sick engine,
+                          and it never fixes itself.
+      `"unreachable"`  -- engine root unresolvable, unimportable, or the
+                          dispatch raised anything else. Environmental.
+      `"malformed"`    -- the op answered, but not in the shape the contract
+                          promises.
+
+    The caller (`_check_push_failures`) treats a None result as "fall back to
+    the pre-op two-string rendering", never as "say nothing" -- fail-open on
+    the op, fail-toward-firing on the answer. `degrade_reason` does not change
+    THAT: it only decides whether the fallback text also says the classifier
+    was called wrongly. Distinguishing the two is the whole point --
+    `origin_worktree` was dropped from this very call for a year and the
+    silent fallback is what hid it, so a routing-contract violation is
+    reported on its first firing rather than looking like a quiet outage.
     """
     try:
         root = _resolve_claude_klabauter_root()
         if not root:
-            return None
+            return None, "unreachable"
         if root not in sys.path:
             sys.path.insert(0, root)
         from coordinator_core.ops import push_failure_verdict as _op  # noqa: F401
         from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
-
-        result = dispatch_from_hook("git.push_failure_verdict", {})
     except Exception:
-        return None  # engine root unresolvable/unimportable/erroring -> caller falls back
+        return None, "unreachable"  # root unresolvable/unimportable -> caller falls back
+
+    try:
+        result = dispatch_from_hook(
+            "git.push_failure_verdict", {}, origin_worktree=git_root
+        )
+    except HookDispatchError as exc:
+        return None, ("contract" if getattr(exc, "code", None) == -32602 else "unreachable")
+    except Exception:
+        return None, "unreachable"
 
     if not isinstance(result, dict):
-        return None
+        return None, "malformed"
     verdict = result.get("verdict")
     evidence = result.get("evidence")
     if verdict not in (
@@ -651,10 +634,10 @@ def _push_failure_verdict(git_root: str) -> dict | None:
         "resolved_since",
         "indeterminate",
     ):
-        return None
+        return None, "malformed"
     if not isinstance(evidence, dict):
-        return None
-    return result
+        return None, "malformed"
+    return result, None
 
 
 # Trailing reference line every AUTO-PUSH-MID-SESSION-DETECT advisory carries,
@@ -1111,7 +1094,7 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
     # Primary path: render the engine's five-state classification. A
     # well-formed result renders unconditionally distinct text per verdict
     # (see `_render_push_failure_verdict`) -- never the prior binary split.
-    verdict_result = _push_failure_verdict(git_root)
+    verdict_result, degrade_reason = _push_failure_verdict(git_root)
     if verdict_result is not None:
         rendered = _render_push_failure_verdict(verdict_result, n_new, branch, last_line)
         if rendered is not None:
@@ -1125,6 +1108,23 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
     # HISTORICAL one. Ask the question the text claims to answer before
     # making it in the present tense. None (unresolvable upstream, offline
     # repo, git error) falls through to the full alarm on purpose.
+    #
+    # A `"contract"` degrade is not an outage and must not read as one: the op
+    # answered that OUR envelope was wrong (-32602). That is a defect in this
+    # file, invisible for as long as the fallback looks identical to a sick
+    # engine -- which is exactly how a dropped `origin_worktree` kwarg survived
+    # here undetected. Name it in the text so the next dropped field is caught
+    # on its first firing, not by a peer repo reading our source.
+    contract_note = (
+        "\n(The five-state classifier did not run: `git.push_failure_verdict` "
+        "rejected this hook's envelope as invalid params (JSON-RPC -32602). "
+        "That is a routing-contract bug in `_push_failure_verdict`, not an "
+        "unreachable engine — the text above is the cruder pre-classifier "
+        "fallback and will keep firing until the call site is fixed.)\n"
+        if degrade_reason == "contract"
+        else ""
+    )
+
     if _unpushed_commit_count(git_root) == 0:
         return (
             "AUTO-PUSH mid-session note — {n} push failure(s) landed in "
@@ -1133,7 +1133,9 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
             "commits) — crash insurance is not at risk right now. Most recent "
             "failure:\n"
             "  {last}\n"
-        ).format(n=n_new, branch=branch, last=last_line) + resolve_wiki_citation(
+        ).format(
+            n=n_new, branch=branch, last=last_line
+        ) + contract_note + resolve_wiki_citation(
             "Reference: docs/wiki/coordinator-tripwires/tripwire-registry/auto-push-mid-session-detector-auto-push-mid-session-detect.md"
         )
 
@@ -1145,7 +1147,9 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
         "  {last}\n"
         "Crash insurance may be silently NOT insuring right now — consider "
         "`git push`, or read the full log for the failure class.\n"
-    ).format(n=n_new, branch=branch, last=last_line) + resolve_wiki_citation(
+    ).format(
+        n=n_new, branch=branch, last=last_line
+    ) + contract_note + resolve_wiki_citation(
         "Reference: docs/wiki/coordinator-tripwires/tripwire-registry/auto-push-mid-session-detector-auto-push-mid-session-detect.md"
     )
 
@@ -2105,10 +2109,9 @@ def main() -> int:
     # git-common-dir walk is wasted work on every Stop fire from inside a
     # subagent's own session, the common case those early returns exist to
     # short-circuit.
-    try:
-        zero_tool_use_sessions_dir = _resolve_zero_tool_use_sessions_dir(git_root)
-    except Exception:
-        zero_tool_use_sessions_dir = ""
+    zero_tool_use_sessions_dir = _fail_open(
+        _resolve_zero_tool_use_sessions_dir, git_root, default=""
+    )
 
     # --- AUTO-PUSH-MID-SESSION-DETECT (see _check_push_failures docstring) ---
     # Computed here, once EM-session-ness is confirmed, independently of the
@@ -2116,10 +2119,7 @@ def main() -> int:
     # dispatched agents this session and still have a mid-session push-failure
     # flood to surface). Wrapped so a bug here can never take down the
     # existing runtime-tripwire advisory -- fail-open per module contract.
-    try:
-        push_failure_msg = _check_push_failures(git_root, session_id)
-    except Exception:
-        push_failure_msg = None
+    push_failure_msg = _fail_open(_check_push_failures, git_root, session_id)
 
     # --- PLUGIN-HOOKS-JSON-RESTART-GATED (see _check_hooks_json_staleness
     # docstring + the module-level comment block above that function).
@@ -2128,10 +2128,9 @@ def main() -> int:
     # hook_event: this session's registrations can be stale relative to a
     # matcher edit regardless of which of Stop/UserPromptSubmit/PostToolUse
     # fired, and the read is cheap (one file hash, no subprocess). ---
-    try:
-        hooks_json_stale_msg = _check_hooks_json_staleness(git_root, session_id, common_dir)
-    except Exception:
-        hooks_json_stale_msg = None
+    hooks_json_stale_msg = _fail_open(
+        _check_hooks_json_staleness, git_root, session_id, common_dir
+    )
 
     # --- ZERO-TOOL-USE-DETECT-SURFACE (see module docstring + the section
     # immediately above _emit_advisory). Independently wrapped, same as the
@@ -2139,12 +2138,14 @@ def main() -> int:
     # pre-existing advisory. Gated to UserPromptSubmit inside the function
     # itself (checked first, before any stat call), so this costs nothing
     # extra on Stop/PostToolUse:Agent fires. ---
-    try:
-        zero_tool_use_msg, _zero_tool_use_advance = _check_zero_tool_use_surface(
-            git_root, session_id, zero_tool_use_sessions_dir, hook_event
-        )
-    except Exception:
-        zero_tool_use_msg, _zero_tool_use_advance = None, None
+    zero_tool_use_msg, _zero_tool_use_advance = _fail_open(
+        _check_zero_tool_use_surface,
+        git_root,
+        session_id,
+        zero_tool_use_sessions_dir,
+        hook_event,
+        default=(None, None),
+    )
 
     # --- SESSION-BATON-MINT (see module comment block above
     # _mint_session_baton). Independently wrapped, same as the checks above --
@@ -2156,12 +2157,14 @@ def main() -> int:
     # adoption) -- see `_mint_session_baton`'s docstring. ---
     # --- REPLY-CAP-ESCAPE-FOLD-IN (C3, see block above _check_reply_cap_
     # escape). Independently wrapped, same as the checks above -- a bug here
-    try:
-        baton_msg = _mint_session_baton(
-            git_root, session_id, sessions_dir, hook_event, payload.get("prompt")
-        )
-    except Exception:
-        baton_msg = None
+    baton_msg = _fail_open(
+        _mint_session_baton,
+        git_root,
+        session_id,
+        sessions_dir,
+        hook_event,
+        payload.get("prompt"),
+    )
 
     # --- Subagent-overrun tripwire: REMOVED (PM ruling 2026-07-31 stood it
     # down; excised on the finding the gate had been False since -- see the

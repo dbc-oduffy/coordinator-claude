@@ -35,16 +35,24 @@ implement the skeleton-stamper engine itself — thin transport veneer only.
 #   Returns: {"script": "<conformant Workflow skeleton text>"}
 #
 # Usage:
-#   coordinator-workflow-scaffold.py --name <kebab> [--description "<line>"] \
-#       [--title "<line>"] [--phase "Title::Detail"]... [--pattern <p>] \
+#   coordinator-workflow-scaffold.py --name <kebab> [--description "<line>" | --description-file <path>] \
+#       [--title "<line>" | --title-file <path>] [--phase "Title::Detail"]... [--pattern <p>] \
 #       [--out PATH]
 #
 #   --name         kebab-case workflow name (op `name`). Defaults to a slugified
 #                  --title when --name is omitted but --title is given.
 #   --title        Human-readable line; used as `description` fallback and as the
 #                  --name slugify source when --name is absent.
+#   --title-file   Lossless file-transport sibling for --title (mutually exclusive
+#                  with --title). A newline-bearing inline --title is refused
+#                  outright — the generated .cmd launcher forwards argv via an
+#                  un-re-quoted `%*`, which silently truncates a multi-line inline
+#                  value at the first newline; see coordinator_core/argv_fidelity.py.
 #   --description  Op `description` (one-line). Overrides --title for `description`
 #                  when both are given.
+#   --description-file
+#                  Lossless file-transport sibling for --description (mutually
+#                  exclusive with --description). Same newline refusal as --title.
 #   --phase        Repeatable. "Title::Detail" — split on the FIRST "::" only, so a
 #                  Detail string containing "::" is preserved intact. Each becomes
 #                  one {"title":..., "detail":...} entry in `phases[]`, in the order
@@ -185,7 +193,9 @@ def _cc_invoke(op: str, params: dict, repo_root: str) -> dict:
 
 def _usage() -> str:
     return (
-        f"  Usage: {_PROG} --name <kebab> [--description \"<line>\"] "
+        f"  Usage: {_PROG} --name <kebab> "
+        "[--description \"<line>\" | --description-file <path>] "
+        "[--title \"<line>\" | --title-file <path>] "
         "[--phase \"Title::Detail\"]... [--pattern <p>] [--out PATH]"
     )
 
@@ -193,8 +203,10 @@ def _usage() -> str:
 def main(argv: list[str]) -> int:
     _bootstrap_imports()
     name = ""
-    title = ""
-    description = ""
+    title: str | None = None
+    title_file: str | None = None
+    description: str | None = None
+    description_file: str | None = None
     pattern = "pipeline-default"
     out_path = ""
     phases_raw: list[str] = []
@@ -208,8 +220,14 @@ def main(argv: list[str]) -> int:
         elif arg == "--title":
             title = argv[i + 1] if i + 1 < len(argv) else ""
             i += 2
+        elif arg == "--title-file":
+            title_file = argv[i + 1] if i + 1 < len(argv) else ""
+            i += 2
         elif arg == "--description":
             description = argv[i + 1] if i + 1 < len(argv) else ""
+            i += 2
+        elif arg == "--description-file":
+            description_file = argv[i + 1] if i + 1 < len(argv) else ""
             i += 2
         elif arg == "--phase":
             phases_raw.append(argv[i + 1] if i + 1 < len(argv) else "")
@@ -233,6 +251,32 @@ def main(argv: list[str]) -> int:
             print(f"{_PROG}: unknown arg: {arg}", file=sys.stderr)
             print(_usage(), file=sys.stderr)
             return 1
+
+    from coordinator_core.argv_fidelity import ArgvFidelityError, resolve_optional_prose
+
+    # allow_empty is NOT set on either flag, deliberately. resolve_optional_prose's
+    # docstring names "a title" as an example of a flag whose emptiness means the
+    # caller forgot, and the refusal it produces ("--title must not be empty") is
+    # strictly more precise than the "--name or --title is required" the empty
+    # string would otherwise fall through to.
+    try:
+        title = resolve_optional_prose(
+            title, title_file, flag_name="--title"
+        )
+    except ArgvFidelityError as exc:
+        print(f"{_PROG}: {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        description = resolve_optional_prose(
+            description, description_file, flag_name="--description"
+        )
+    except ArgvFidelityError as exc:
+        print(f"{_PROG}: {exc}", file=sys.stderr)
+        return 1
+
+    title = title or ""
+    description = description or ""
 
     if not name and not title:
         print(f"{_PROG}: --name or --title is required", file=sys.stderr)

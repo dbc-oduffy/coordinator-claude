@@ -415,7 +415,9 @@ def _outbox_root() -> str:
     Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1
     """
     _bootstrap_engine()
-    override = os.environ.get(_OUTBOX_ROOT_ENV)
+    override = cli_shared.isolation_root_if_under_test(
+        _OUTBOX_ROOT_ENV, caller_name="coordinator-lesson-promote"
+    )
     if override:
         return override
     # Central state (lessons-outbox) routes to DoE — doctrine class.
@@ -717,8 +719,22 @@ def _build_parser(change_kind_values: tuple[str, ...]) -> argparse.ArgumentParse
     )
     parser.add_argument(
         "--title",
-        required=True,
-        help="One-line lesson title (bold heading in lessons.md format).",
+        default=None,
+        help=(
+            "One-line lesson title (bold heading in lessons.md format). "
+            "Exactly one of --title / --title-file is required."
+        ),
+    )
+    parser.add_argument(
+        "--title-file",
+        dest="title_file",
+        default=None,
+        help=(
+            "Read the lesson title from PATH ('-' for stdin) instead of --title. "
+            "Exactly one of --title / --title-file is required. The only title "
+            "transport that survives every launcher leg intact — see --title's "
+            "own refusal for why."
+        ),
     )
     parser.add_argument(
         "--body",
@@ -832,6 +848,9 @@ def main(argv: list[str] | None = None) -> int:
         # that shells out to this CLI (coordinator-harvest-deferrals.py)
         # only ever branches on `returncode != 0`, never on the specific
         # code, so a distinct exit code would buy no caller anything today.
+        # foreign-identity: SUBJECT — names which prerequisite checkout (claude-klabauter,
+        # not e.g. DoE-claude) failed to resolve, context the appended {exc} resolver
+        # diagnostic needs to be actionable; reachable from any repo via routine lesson capture.
         print(
             f"warn: coordinator-lesson-promote: claude-klabauter root unresolvable — "
             f"skipping central lessons-outbox write: {exc}",
@@ -841,6 +860,8 @@ def main(argv: list[str] | None = None) -> int:
     from coordinator_core.argv_fidelity import ArgvFidelityError, refuse_newline_argv, resolve_body
 
     try:
+        refuse_newline_argv(args.title, flag_name="--title")
+        args.title = resolve_body(args.title, args.title_file, flag_name="--title")
         refuse_newline_argv(args.body, flag_name="--body")
         args.body = resolve_body(args.body, args.body_file)
     except ArgvFidelityError as exc:
@@ -1001,7 +1022,9 @@ def main(argv: list[str] | None = None) -> int:
     # coordinator-queue-append's identical QUEUE_APPEND_OUTPUT_ROOT gate immediately
     # above _cc_route("queue.append", ...) in that sibling CLI. In production,
     # LESSON_PROMOTE_OUTBOX_ROOT is NEVER set, so this check is a no-op.
-    if os.environ.get(_OUTBOX_ROOT_ENV):
+    if cli_shared.isolation_root_if_under_test(
+        _OUTBOX_ROOT_ENV, caller_name="coordinator-lesson-promote"
+    ):
         return _run_legacy_with_write_declaration()
 
     result = _cc_route("queue.promote", params, repo_root, _run_legacy_with_write_declaration)

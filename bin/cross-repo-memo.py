@@ -316,8 +316,11 @@ _TOPIC_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]*$")
 # Spec backlink: docs/plans/2026-05-23-cross-repo-inbox-archive-restructure.md § B2
 #
 # The DoE-claude repo (repos.doe_claude in the machine-local registry) is the
-# authoritative delivery target for central memos. `--to claude-central-em`
-# (or any alias) resolves to repos.doe_claude — NOT to ~/.claude.
+# authoritative delivery target for central memos. `--to doe-claude-em` (or a
+# redirect alias) resolves to repos.doe_claude — NOT to ~/.claude. The legacy
+# ids `claude-central-em` / `central-em` / `central` no longer resolve at all:
+# DoE retired them from identity.centralReceiverIds (their b787bf0f0), and a
+# send to one fails loudly on purpose.
 #
 # Guards BOTH the receiver path resolver (_resolve_receiver_path) AND the sender
 # identity (em_id_for_root emits the canonical central identity — see
@@ -1620,45 +1623,6 @@ def _check_summary_over_cap(summary: str | None) -> str | None:
     return None
 
 
-def _read_body_from_file_or_stdin(
-    body_file: str | None, empty_body_ok: bool
-) -> tuple[str | None, str | None]:
-    """Shared body read + empty-body guard for every live send path.
-
-    `body_file` is `--body-file` (None / '-' / a path) — the '-' stdin
-    sentinel and an omitted --body-file both read stdin (Unix curl/tar/git
-    convention). Empty-body guard (2026-07-22 body-drop root-cause verdict
-    memo): under Claude Code's Bash tool, stdin is /dev/null — a send whose
-    heredoc never arrived on the terminal used to yield body="" with no
-    warning, silently composing a hollow frontmatter-only memo (claude-klabauter
-    1d44757c). Both transport shapes (stdin AND a zero-byte --body-file) get
-    the same guard; `empty_body_ok` (--empty-body) is the explicit opt-in
-    for a deliberately body-less memo.
-
-    Returns (body, error) — exactly one is None.
-    """
-    if body_file and body_file != "-":
-        try:
-            with open(body_file, "r", encoding="utf-8") as f:
-                body = f.read()
-        except OSError as exc:
-            return None, f"cross-repo-memo: cannot read body file: {exc}"
-        if not body.strip() and not empty_body_ok:
-            return None, (
-                f"cross-repo-memo: --body-file {body_file!r} was empty — "
-                f"pass --empty-body to send a deliberately body-less memo."
-            )
-        return body, None
-    body = sys.stdin.read()
-    if not body.strip() and not empty_body_ok:
-        return None, (
-            "cross-repo-memo: body read from stdin was empty — under Claude "
-            "Code's Bash tool stdin is /dev/null; pass --body-file <path>, "
-            "or pass --empty-body to send a deliberately body-less memo."
-        )
-    return body, None
-
-
 def _sender_identity_guard_and_warn() -> str | None:
     """Shared sender-identity guard + unregistered-sender warning.
 
@@ -2120,7 +2084,7 @@ _OUTBOX_REQUIRED_FIELDS = ("title", "from", "to", "created", "status", "delivery
 # (validKinds) — the receiver-side cross-field rule. Checked here too so a
 # malformed kind fails loud on the SENDER side, before delivery, instead of
 # jamming the receiver's lifecycle wrappers at stamp time.
-_VALID_KINDS = ("ask", "consult", "fyi", "proposal")
+_VALID_KINDS = ("ask", "consult", "fyi", "proposal", "bug")
 
 # The kinds that assert a premise about the RECEIVER's tree state, and so earn
 # the premise-check advisory. `fyi`/`consult` are deliberately excluded: they
@@ -2298,6 +2262,88 @@ def _print_route_mutation_failure_reasons(exc: BaseException) -> None:
             print(f"  op stderr: {op_stderr_stripped}", file=sys.stderr)
 
 
+#: Exit codes for a `draft` that ended indeterminate. Deliberately distinct
+#: from the rejection codes 1/2/3 (`publish_target_rejected` / `unknown_receiver`
+#: + collision / `registry_error` + `ambiguous_receiver`) — an indeterminate is
+#: not a rejection, and a caller that collapses them re-acquires the ambiguity
+#: this whole branch exists to remove.
+DRAFT_INDETERMINATE_LANDED = 4      # the draft IS on disk; do not re-run `draft`
+DRAFT_INDETERMINATE_NO_WRITE = 5    # nothing new landed; re-running `draft` is safe
+
+
+def reconcile_indeterminate_draft(
+    target_path: str, existed_before: bool, topic: str
+) -> "tuple[int, str]":
+    """Answer, by stat, the question a `-32004` envelope structurally cannot.
+
+    `WarmDispatchIndeterminate` means the request reached the warm engine and
+    the engine never answered — and `warm/client.py` cannot narrow that, because
+    it marks `delivered` after `flush()` and flush only proves the bytes left
+    THIS process into the pipe buffer (that module's own zero-byte branch says
+    so). There is no acknowledgement between kernel buffer and dispatch, so the
+    envelope covers both a landed write and no write at all.
+
+    `memo.draft` is reconcilable anyway, because its entire effect is one path
+    that is a pure function of argv: `<sender_root>/state/memo-outbox/
+    <topic>.md`. Stat it and the ambiguity is gone.
+
+    `existed_before` is what makes the answer sound, and is why the caller must
+    sample it BEFORE dispatch. A bare post-hoc `exists()` cannot tell "my write
+    landed" from "a draft for this topic was already sitting there and the op
+    refused on collision" — both leave a file at the same path.
+
+    Returns `(exit_code, operator_note)`. Three outcomes, never two:
+      - appeared (not there before, there now) -> LANDED. The op ran.
+      - was already there -> genuinely undecidable BY STAT, and reported as
+        undecidable rather than guessed. Reported under the NO_WRITE code
+        because that is the safe half: it steers to reading the file, not to
+        re-running. The file's own `created:`/`to:` settle it, and `memo.draft`
+        is O_EXCL + collision-checked, so a re-run cannot clobber either way.
+      - absent -> nothing landed. Re-running `draft` is safe.
+
+    Negative-spec: this NEVER retries and never re-runs the op cold. Re-executing
+    a delivered mutation is the double-execution the refusal exists to prevent
+    (`state/bug-backlog/2026-08-19-scoped-git-commit-still-reports-a-landed-
+    d4c7d9dc8e14.yaml`). It only reports.
+    """
+    exists_now = os.path.exists(target_path)
+    if exists_now and not existed_before:
+        return (
+            DRAFT_INDETERMINATE_LANDED,
+            f"RECONCILED — the draft DID land at {target_path} despite the error "
+            f"above. Do NOT re-run `draft`; it would refuse on collision. "
+            f"Continue with `cross-repo-memo compose {topic}` / `send {topic}`, "
+            f"or `discard {topic}` to start over.",
+        )
+    if existed_before:
+        return (
+            DRAFT_INDETERMINATE_NO_WRITE,
+            f"RECONCILED — a draft was ALREADY at {target_path} before this call, "
+            f"so the stat cannot tell you whether this call refused on collision "
+            f"or never ran. Read that file's `created:`/`to:` before assuming "
+            f"either; nothing was clobbered in any case.",
+        )
+    return (
+        DRAFT_INDETERMINATE_NO_WRITE,
+        f"RECONCILED — NO draft was written; {target_path} does not exist. "
+        f"Nothing landed, so re-running `draft` is safe.",
+    )
+
+
+def _supersedes_invoke_value(supersedes: "list[str] | None") -> "str | list[str] | None":
+    """Reduce argparse's `--supersedes` accumulation to the op's invoke shape.
+
+    A single occurrence (a length-1 list, `action="append"`'s minimum) threads
+    the bare string the op's `_validate_supersedes_param` accepts for one
+    value; two-plus occurrences thread the list as-is. Returns None for an
+    absent/empty flag so the caller can skip the key entirely rather than
+    threading a falsy placeholder.
+    """
+    if not supersedes:
+        return None
+    return supersedes[0] if len(supersedes) == 1 else supersedes
+
+
 def _cmd_draft(args: argparse.Namespace) -> int:
     """Handle: cross-repo-memo draft <topic> --to <em> --title <line> --kind <k> [--summary] [--in-reply-to]
 
@@ -2324,6 +2370,38 @@ def _cmd_draft(args: argparse.Namespace) -> int:
     topic = args.topic
     to = args.to
     title = args.title
+
+    # C3 (docs/plans/2026-08-31-prose-flags-travel-as-files-through-the...):
+    # --title has no --title-file sibling (see the flag definition's comment
+    # for why), so it gets ONLY the newline refusal — a value already
+    # truncated by cmd.exe's own LF-truncating parse must be refused, never
+    # silently written as a corrupted title. --summary gets the full
+    # resolve_optional_prose treatment (refusal + --summary-file leg) since a
+    # summary is prose an agent types, quotes included. refuse_newline_argv
+    # is also called directly for --summary (mirrors priority-set.py's
+    # _resolve_note) so the flag-scoped refusal is visible to a source-level
+    # scan of THIS file, not only inside resolve_optional_prose's own body —
+    # resolve_optional_prose performs the identical check itself, so this is
+    # belt-and-suspenders, never a behavior difference.
+    #
+    # require_colocated_engine_on_path is needed FIRST: this CLI is invoked
+    # with cwd set to the SENDER repo (an arbitrary EM working tree, never
+    # this engine checkout), so `import coordinator_core...` would otherwise
+    # ModuleNotFoundError there — cross-repo-memo.py lives inside the engine
+    # checkout itself (coordinator/bin/), so the colocated (self-location)
+    # resolver is the right one.
+    cc_invoke.require_colocated_engine_on_path(__file__)
+    from coordinator_core.argv_fidelity import ArgvFidelityError, refuse_newline_argv, resolve_optional_prose
+
+    summary_inline = getattr(args, "summary", None)
+    summary_file = getattr(args, "summary_file", None)
+    try:
+        refuse_newline_argv(title, flag_name="--title")
+        refuse_newline_argv(summary_inline, flag_name="--summary")
+        summary = resolve_optional_prose(summary_inline, summary_file, flag_name="--summary")
+    except ArgvFidelityError as exc:
+        print(f"cross-repo-memo draft: {exc}", file=sys.stderr)
+        return 2
 
     # Validate topic slug (reuse existing guard — path traversal prevention).
     if not _TOPIC_SLUG_RE.fullmatch(topic):
@@ -2362,7 +2440,7 @@ def _cmd_draft(args: argparse.Namespace) -> int:
         "topic": topic,
         "to": to,
         "title": title,
-        "summary": getattr(args, "summary", None),
+        "summary": summary,
         "kind": getattr(args, "kind", None),
         "classify_receiver": True,
         # Root-cause fix (2026-07-21, state/bug-backlog/2026-07-21-cross-repo-memo-
@@ -2382,6 +2460,14 @@ def _cmd_draft(args: argparse.Namespace) -> int:
     if in_reply_to:
         invoke_params["in_reply_to"] = in_reply_to
 
+    # supersedes: draft-only flag, forwarded as-is — a single occurrence
+    # (action="append" list of length 1) threads the bare string, multiple
+    # occurrences thread the list. The op's own _validate_supersedes_param
+    # accepts both shapes; no CLI-side re-validation.
+    supersedes_value = _supersedes_invoke_value(getattr(args, "supersedes", None))
+    if supersedes_value is not None:
+        invoke_params["supersedes"] = supersedes_value
+
     def legacy_draft() -> None:
         """Fail-loud legacy stub — mirrors _send_via_engine.legacy_send.
 
@@ -2398,8 +2484,33 @@ def _cmd_draft(args: argparse.Namespace) -> int:
             "engine to draft cross-repo memos."
         )
 
+    # RECONCILE KEY, computed BEFORE dispatch because after a -32004 there is
+    # nothing left to compute it from. `memo.draft` writes exactly one path,
+    # `<sender_root>/state/memo-outbox/<topic>.md` (memo_draft.py's own
+    # `outbox_dir / f"{topic}.md"`), and it is a pure function of argv — so the
+    # one fact a delivered-but-unanswered mutation destroys is recoverable by
+    # stat, without the engine answering anything. `_draft_existed_before`
+    # separates "my write landed" from "a draft was already sitting there",
+    # which a post-hoc stat alone cannot tell apart.
+    _draft_target = os.path.join(sender_root, "state", "memo-outbox", f"{topic}.md")
+    _draft_existed_before = os.path.exists(_draft_target)
+
     try:
         result = cc_invoke.route_mutation("memo.draft", invoke_params, sender_root, legacy_draft)
+    except cc_invoke.WarmDispatchIndeterminate as exc:
+        # The refusal is correct and is NOT retried here — re-running a
+        # delivered mutation is the double-execution it exists to prevent. What
+        # this branch adds is the answer the envelope cannot carry: one stat,
+        # reported as two distinguishable outcomes with two distinct exit codes,
+        # so no caller can receive "it may or may not have landed".
+        print(f"cross-repo-memo draft: {exc}", file=sys.stderr)
+        code, note = reconcile_indeterminate_draft(
+            _draft_target, _draft_existed_before, topic
+        )
+        print(f"cross-repo-memo draft: {note}", file=sys.stderr)
+        if code == DRAFT_INDETERMINATE_LANDED:
+            print(_draft_target)
+        return code
     except RuntimeError as exc:
         # route_mutation raises RouteMutationError (a RuntimeError subclass
         # with a `.result` attribute) on ANY non-zero exit_code — both the
@@ -2539,6 +2650,15 @@ def _unquote_yaml_scalar(v: str) -> str:
 # flattened to fm["scoped_to_<subkey>"] on read so downstream code
 # (_scoped_to_errors, _validate_outbox_frontmatter, the send params) needs no
 # change; see _parse_outbox_file's docstring for the two accepted shapes.
+#
+# Review: overengineering-reviewer — a nested `supersedes:` YAML-sequence
+# reader (in_supersedes_list state, supersedes_list accumulator, the
+# dict[str, str | list[str]] return-type widening) was removed here. No CLI
+# consumer read fm["supersedes"]: the two call sites of this function's
+# return value read only `to` and `scoped_to_*`, and the op layer does its
+# own parse_frontmatter on the delivered draft. `--supersedes` itself still
+# reaches the engine via the argparse flag + `_cmd_draft` threading below
+# (untouched) — this file only removed the dead round-trip-back-out reader.
 _SCOPED_TO_SUBKEYS = ("artifact", "version", "sha", "seam")
 
 
@@ -2993,6 +3113,10 @@ def _cmd_send(args: argparse.Namespace) -> int:
     receiver_side_path = acted_item.get("id")
     if receiver_side_path:
         print(f"Receiver-side: {os.path.abspath(receiver_side_path)}")
+        print(
+            "That commit is the channel, not a cross-repo write grant — it "
+            "touches cross-repo/ only."
+        )
     if acted_item.get("sender_unattributed"):
         # Not a failure: the memo IS delivered. But it carries no sender, so
         # the receiver cannot reply to it by message and the only route back
@@ -3388,12 +3512,24 @@ def _build_combined_parser(for_help: bool = False) -> argparse.ArgumentParser:
     )
     draft_p.add_argument("topic", metavar="TOPIC", help="Topic slug (lowercase-alphanum + dashes)")
     draft_p.add_argument("--to", required=True, metavar="RECEIVER_EM_ID", help="Receiver-EM identifier")
+    # --title has NO --title-file sibling: every real call site surveyed
+    # (bin/cross-repo-memo.md, cross-repo/README.md, and every historical
+    # `draft ... --title "..."` invocation under archive/ and cross-repo/)
+    # carries a plain one-line summary with no embedded quote — a title is
+    # a heading, not free prose, so the newline-refusal half of the C3
+    # remedy (below, in main()) is the whole fix here; adding a file leg
+    # for a shape that never occurs would be unused surface, not safety.
     draft_p.add_argument("--title", required=True, metavar="ONE_LINE", help="One-line memo title")
     draft_p.add_argument("--summary", metavar="TEXT", default=None, help=f"One-line tl;dr (≤{_SUMMARY_MAX_CHARS} chars)")
+    draft_p.add_argument(
+        "--summary-file", metavar="PATH", default=None,
+        help="Read --summary from PATH instead ('-' for stdin) — lossless transport "
+             "for a summary that legitimately carries a quote; mutually exclusive with --summary.",
+    )
     # REQUIRED, matching `send`'s own gate on the same field: a kindless
     # draft is an artifact this CLI's own send verb refuses. See
     # memo_draft.py::_validate_draft_params for the full note.
-    draft_p.add_argument("--kind", choices=list(_VALID_KINDS), required=True, help="REQUIRED. Memo kind (ask | consult | fyi | proposal)")
+    draft_p.add_argument("--kind", choices=list(_VALID_KINDS), required=True, help="REQUIRED. Memo kind (ask | consult | fyi | proposal | bug)")
     draft_p.add_argument(
         "--in-reply-to", metavar="MEMO", default=None,
         help="OPTIONAL. Basename (or path — normalized to basename) of the "
@@ -3412,6 +3548,17 @@ def _build_combined_parser(for_help: bool = False) -> argparse.ArgumentParser:
     draft_p.add_argument("--scoped-to-version", metavar="VERSION", default=None, help="scoped_to.version — point-in-time pin (mutually exclusive with --scoped-to-sha); use this arm when the artifact is only reachable via a publish mirror, since it is never sha-verified against the receiver's clone")
     draft_p.add_argument("--scoped-to-sha", metavar="SHA", default=None, help="scoped_to.sha — 7-40 hex chars, point-in-time pin (mutually exclusive with --scoped-to-version)")
     draft_p.add_argument("--scoped-to-seam", metavar="SEAM", default=None, help="scoped_to.seam — the boundary/interface this decision applies at")
+    # --supersedes: draft-only (send reads it off staged frontmatter — a flag
+    # there would need a second write path into an already-staged file).
+    # Repeatable (action="append"): one occurrence threads the bare string,
+    # multiple thread the list — memo_draft.py's _validate_supersedes_param
+    # already accepts both shapes, so this CLI forwards without re-validating,
+    # matching how --scoped-to-* is handled above.
+    draft_p.add_argument(
+        "--supersedes", metavar="MEMO", action="append", default=None,
+        help="OPTIONAL. Basename (or path) of a prior memo this draft supersedes. "
+             "Repeatable — pass once for a single reference, multiple times for a list.",
+    )
 
     # compose subparser (handler is _cmd_compose)
     compose_p = subparsers.add_parser(

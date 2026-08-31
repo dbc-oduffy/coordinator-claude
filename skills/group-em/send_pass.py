@@ -1,104 +1,58 @@
 """Select and throttle the Group EM's nudge population (roadmap `gem-01`,
 baton `gem-14`).
 
-PURPOSE. This is the Group EM send half: given `read_pass.build_candidate_roster`'s
-read-only candidate list, it narrows to the peers a nudge may be *offered*
-for, throttles the offer so no per-peer-per-tick pattern is reachable, and
-emits a single digest. It selects and throttles. **It does not send.** The
-send itself is an explicit per-send act performed by the Group EM under
-`SKILL.md` § "Send pass (gem-14)", with GATE 1 and GATE 2 declared in prose
-for each entry. That split is the design, not an omission -- GATE 2 has no
-instrument (see below), so no code can clear it, and a module that sent
-anyway would be clearing a gate it cannot evaluate.
+Rationale, measurements, the superseded first shape, and the PM ruling that
+licensed this: `docs/decisions/DR-group-em-send-narrows-on-the-obligation-ledger.md`.
+Tripwire: `A-PAUSED-ROSTER-IS-NOT-A-NUDGE-LIST`. The rules alone are below.
 
-PM RULING (`state/roadmap/gem-01/pm-gates.md`, gem-14 row). The auto-messaging
-crossing is **ruled IN, with a bar**: an interrupt is justified by its cost to
-the *receiver*, not by the sender's convenience or the topic's importance --
-"is this worth tapping the busy engineer on the shoulder and saying 'stop what
-you're doing and listen to me'". The bar is **per send**. The ruling licenses
-the send half to be built; it does not pre-answer the design questions this
-module settles.
+**It selects and throttles. It does not send.** GATE 1/GATE 2 are declared
+per entry, in prose, by the Group EM. GATE 2 has no instrument, so no code can
+clear it; a module that sent anyway would clear a gate it cannot evaluate.
 
-WHY THIS IS NOT THE STOOD-DOWN WATCHER. `runtime-tripwire-stop-watcher.py`
-inferred a STATE ("is this session stalled?") from timing and transcript
-shape, fired 681 times in 26 days at ~99.4% wrong, and was stood down by PM
-ruling (`coordinator/docs/wiki/runtime-tripwire.md:11-24`); its restore recipe
-is three lines (`:20-22`). This module **infers NOTHING**. It reads two
-concrete observed records and intersects them:
+**The roster is the population** -- `read_pass` bounds it, a human adjudicates
+it. This module adds throttling and the gate, never another filter.
 
-  1. a `read_pass` verdict, itself sourced from `receiver-state.json` (written
-     at the peer's own Stop seam) or a bounded transcript-tail marker; and
-  2. an **undischarged obligation** in that peer's own next-move ledger
-     (`state/subagent-share/<session-id>/next-move-ledger.jsonl`), opened only
-     by a PostToolUse observation of a seam-opening call and discharged only
-     by a PostToolUse observation of the matching terminal call
-     (`coordinator/hooks/scripts/_next_move_ledger.py`).
+**The obligation ledger ranks; it does not admit.** An undischarged, unfired
+record orders the digest most-owed-first. `None` means no ledger exists at all
+-- a producer coverage gap, never evidence the peer owes nothing, and never
+grounds to exclude. Gating on it was built first and measured inert.
 
-No elapsed-time, idle-duration, session-age, or transcript-shape predicate
-exists anywhere in this module's trigger path -- the only clock reading here
-is the send-log cooldown, which throttles *this session's own past sends* and
-never classifies a peer. Grep-asserted by the test suite.
+**The `fired` latch is honoured, not just `discharged_at`** -- the ledger
+hook's own predicate (`discharged_at is None and not fired`), implemented here
+rather than called, held equivalent against the real producer by a wire-path
+test. A fired record already reached that peer once; re-presenting it is the
+repeat-fire class AC6 forbids.
 
-THE NARROWING PREDICATE, AND WHY IT IS THE OBLIGATION LEDGER.
-`DR-group-em-roster-excludes-mid-work-peers.md` § "What this ruling does NOT
-fix" left this stub one direction-class choice: carry an obligation signal
-alongside the carrier, narrow on another predicate, or accept that a human
-adjudicates the full list. The roster is not a bounded candidate list --
-`receiver-state.json` is written at the Stop seam, so nearly every classifiable
-peer reads `PAUSED` (8 of 10 measured). What bounded the population under the
-losing Arm B was an obligation predicate that died with Arm B's reader.
+**Infers NOTHING.** Every input is a record something else concretely
+observed. No elapsed-time, idle-duration, session-age, or transcript-shape
+predicate exists in the eligibility path -- `send_suppression_reason`, the
+admission rule the emission path calls, takes no clock; pinned. The one clock
+is the cooldown, throttling this session's own offers, never a peer.
 
-This module carries the obligation signal back, from a *different and still-live*
-carrier -- the doctrine-plane next-move ledger the surviving watchdog already
-writes. Measured on this repo, 2026-08-30: 41 live agents machine-wide, 9 repo
-peers, 6 roster candidates, of which **1** carried an undischarged obligation.
-124 ledgers exist machine-wide; 3 carry an undischarged record.
+NEGATIVE SPEC -- deliberately absent:
 
-The predicate bounds hard, and ledger COVERAGE is what binds -- a second tick
-minutes later returned 7 candidates and 0 eligible, 6 of the 7 having no
-ledger file at all. `_next_move_ledger` writes one only after a seam in its
-static table has fired for that session, and most sessions never trip one.
-**An empty digest is the expected steady state, not a failure to report.**
-Widening the population is a change to that seam table, never a softening of
-`is_send_eligible`.
-
-ABSENCE OF A LEDGER IS NOT ABSENCE OF OBLIGATION. A peer with no ledger file
-at all returns `None`, never `0`, and is **not eligible** -- absence of
-evidence never becomes a trigger. This is the same rule `read_pass` applies to
-an unrecognised transcript tail (AC6): never guessed into a nudgeable state.
-
-NEGATIVE SPEC -- what this module deliberately does NOT do:
-
-- **No send.** Nothing here writes to, messages, or otherwise touches a peer
-  session. The only write is this session's own send log (below).
-- **No `PAUSED:away` nudge, ever.** `away` is excluded by name, and any reason
-  string this module does not recognise is ineligible rather than assumed
-  benign. Note the empirical caveat carried from `gem-11`: `away` was not
-  observed in the 2026-08-30 measurement window, so the exclusion is
-  structural and has not been exercised against live `away` traffic.
-- **No shouldn't-be adjudication.** Nothing here judges whether a paused peer
-  "should" have kept moving -- that population is unmeasurable by PM ruling.
-  An undischarged obligation says the peer resolved a next move and has not
-  invoked it; it does not say the peer is stuck, and this module never says so.
-- **No GATE 2 instrument.** `peer_roster`'s `status` is never read (it is
-  negative-spec'd; measured 1465 s stale, unbounded to 6.9 h), and the
-  obligation ledger is deliberately **not** repurposed as a receiver-state
-  proxy -- it answers "does this peer owe a move", not "is this message
-  cheaper to them now than later". Every digest entry therefore carries
-  `gate1`/`gate2` as `None`, and the send procedure requires the Group EM to
-  fill both in prose per send.
-- **No CPU-delta leg.** The CPU-band separation finding is RETRACTED (adjacent
-  bands, 0.01 cpu-s apart); the signal remains an open work item on the
-  engine-plane side and is not read here, gated or otherwise.
-- **No `Stop` hook registration and no re-derivation of the stood-down
-  watcher's restore recipe** (AC6). This module is invoked from a PM-gated
-  skill body, never from an unattended hook.
+- **No send, no write to any peer's state.** Only this session's own log.
+- **No `PAUSED:away` nudge, ever** -- excluded by name and by allow-list, and
+  reported as `never-send-reason` ahead of any bookkeeping cause. `away` was
+  unobserved in the 2026-08-30 window, so the exclusion is structural and
+  untested against live traffic.
+- **No shouldn't-be adjudication.** An open obligation says the peer resolved
+  a next move and has not invoked it -- not that it is stuck.
+- **No GATE 2 instrument.** `peer_roster.status` is never read (negative-
+  spec'd; 1465 s stale measured, unbounded to 6.9 h), and the obligation
+  ledger is not repurposed as a receiver-state proxy -- it answers a different
+  question. Every entry carries `gate1`/`gate2` as `None`.
+- **No CPU-delta leg** -- the band-separation finding is RETRACTED.
+- **No `Stop` registration**, no re-derivation of the stood-down watcher's
+  restore recipe (AC6). Invoked from a PM-gated skill body, never a hook.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import time
 from typing import Any, Optional
 
@@ -125,22 +79,38 @@ DEFAULT_MAX_ENTRIES = 5
 _SEND_LOG_FILENAME = "group-em-send-log.jsonl"
 _LEDGER_FILENAME = "next-move-ledger.jsonl"
 
+#: A session id arrives from `claude agents --json` (peers) and the
+#: environment (the caller), and is joined straight into a path
+#: `_record_offer` will `makedirs`. The sibling reader
+#: (`receiver_state_reader.receiver_state_path`) rejects an unsafe component,
+#: a bare `.`/`..` the character class alone would pass included; the same
+#: guard applies here rather than trusting the producer.
+_SAFE_SID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def _safe_session_id(session_id: Any) -> bool:
+    return (
+        isinstance(session_id, str)
+        and bool(session_id)
+        and session_id not in (".", "..")
+        and bool(_SAFE_SID_RE.match(session_id))
+    )
+
 
 def _session_share_dir(repo_root: str, session_id: str) -> str:
     return os.path.join(repo_root, "state", "subagent-share", session_id)
 
 
 def undischarged_obligations(repo_root: str, session_id: str) -> Optional[int]:
-    """Count this peer's open obligations, or `None` when it has no ledger.
+    """Count this peer's open, unfired obligations; `None` if it has no ledger.
 
-    `None` and `0` are deliberately distinct: `None` is "this peer has no
-    ledger file at all" (the hook never ran for it, or the session predates
-    the ledger), which is absence of evidence and never a trigger. `0` is a
-    ledger that exists and says the peer owes nothing.
-
-    Unparseable lines are skipped, not raised -- a malformed ledger degrades
-    to a lower count, never to a crash or to an inferred obligation.
+    `None` (no ledger file at all) and `0` (a ledger saying nothing is owed)
+    are deliberately distinct -- the first is a producer coverage gap.
+    Unparseable lines are skipped: a malformed ledger degrades to a lower
+    count, never to a crash or an inferred obligation.
     """
+    if not _safe_session_id(session_id):
+        return None
     path = os.path.join(_session_share_dir(repo_root, session_id), _LEDGER_FILENAME)
     if not os.path.exists(path):
         return None
@@ -155,46 +125,56 @@ def undischarged_obligations(repo_root: str, session_id: str) -> Optional[int]:
                     record = json.loads(raw)
                 except ValueError:
                     continue
-                if isinstance(record, dict) and record.get("discharged_at") is None:
+                if not isinstance(record, dict):
+                    continue
+                if record.get("discharged_at") is None and not record.get("fired"):
                     count += 1
     except OSError:
         return None
     return count
 
 
-def is_send_eligible(verdict: dict[str, Any], obligations: Optional[int]) -> bool:
-    """Both concrete signals must be positive; neither alone is enough.
+def send_suppression_reason(verdict: dict[str, Any]) -> Optional[str]:
+    """Why the send path must not offer this verdict, or `None` to admit it.
 
-    Fails closed on every unrecognised shape: a reason string outside
-    `SEND_ELIGIBLE_REASONS`, an `away` reason, a non-candidate verdict, a
-    missing ledger (`None`), or a ledger with nothing open.
+    The single admission rule, the one `build_send_digest` itself calls, so the
+    pins bind what entries actually have. Doubles as the `suppressed[].why`
+    label. Takes no clock and no obligation count -- the ledger ranks, never
+    admits. Fails closed on every unrecognised shape.
     """
     if not verdict.get("candidate"):
-        return False
+        return "not-a-candidate"
     reason = verdict.get("reason")
     if reason in NEVER_SEND_REASONS:
-        return False
+        return "never-send-reason"
     if reason not in SEND_ELIGIBLE_REASONS:
-        return False
-    if obligations is None or obligations <= 0:
-        return False
-    return True
+        return "reason-not-eligible"
+    return None
 
 
 def send_log_path(repo_root: str, caller_session_id: str) -> str:
     """This session's own record of which peers it has already offered.
 
-    Per-session bookkeeping of *this session's actions*, following the
-    existing `state/subagent-share/<session-id>/advisory-fire-counts.jsonl`
-    convention -- not a peer roster, address, or reachability fact, which
-    `SKILL.md` § "No registration ceremony, no persistence" forbids
-    persisting. Session-scoped by construction: a new Group EM session starts
-    with an empty cooldown, matching the DACI-is-a-frame ruling that the
-    Driver role ends with the session.
+    Per-session bookkeeping beside `advisory-fire-counts.jsonl`. Session-
+    scoped: a new Group EM starts with an empty cooldown, matching the DACI
+    ruling that the Driver role ends with the session.
     """
     return os.path.join(
         _session_share_dir(repo_root, caller_session_id), _SEND_LOG_FILENAME
     )
+
+
+def offer_key(caller_session_id: str, peer_session_id: str) -> str:
+    """The cooldown's key: a salted digest, never the peer's session id.
+
+    A peer session id IS an address here -- its receiver-state path, share
+    directory, and transcript path are all built from that string -- so
+    storing one would breach `SKILL.md`'s no-persisted-address rule. The
+    caller's own id salts it; the log answers only "did I offer this, when".
+    """
+    return hashlib.sha256(
+        (caller_session_id + "|" + peer_session_id).encode("utf-8")
+    ).hexdigest()
 
 
 def read_send_log(repo_root: str, caller_session_id: str) -> list[dict[str, Any]]:
@@ -220,46 +200,72 @@ def read_send_log(repo_root: str, caller_session_id: str) -> list[dict[str, Any]
     return records
 
 
-def record_offer(
+def _record_offer(
     repo_root: str,
     caller_session_id: str,
     peer_session_id: str,
     now: Optional[float] = None,
-) -> None:
-    """Append one offer to this session's send log, starting its cooldown."""
+) -> bool:
+    """Append one offer, starting its cooldown. `False` if the write failed.
+
+    Internal: `build_send_digest` calls this per emitted entry, so the cooldown
+    arms itself rather than depending on the caller. Failure is reported, never
+    raised -- the caller must be able to say so.
+    """
     now = time.time() if now is None else now
+    if not _safe_session_id(caller_session_id) or not _safe_session_id(peer_session_id):
+        return False
     path = send_log_path(repo_root, caller_session_id)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
     line = json.dumps(
-        {"peer_session_id": peer_session_id, "offered_at": now}, sort_keys=True
+        {"offer_key": offer_key(caller_session_id, peer_session_id), "offered_at": now},
+        sort_keys=True,
     )
-    with open(path, "a", encoding="utf-8") as handle:
-        handle.write(line + "\n")
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+    except OSError:
+        return False
+    return True
 
 
 def _cooldown_remaining(
     records: list[dict[str, Any]],
-    peer_session_id: str,
+    key: str,
     now: float,
     cooldown_seconds: int,
 ) -> float:
     """Seconds left on this peer's cooldown; `0.0` when it may be offered.
 
-    A record with a non-numeric or absent `offered_at` is ignored rather than
-    treated as "just offered" -- a corrupt log must not silently suppress a
-    peer forever.
+    Degenerate timestamps are neutralised, not trusted: non-numeric ignored,
+    future (skew, ms-epoch) ignored, result clamped to the window. A corrupt
+    log must not silently suppress a peer forever -- nothing would surface it.
     """
     remaining = 0.0
     for record in records:
-        if record.get("peer_session_id") != peer_session_id:
+        if record.get("offer_key") != key:
             continue
         offered_at = record.get("offered_at")
-        if not isinstance(offered_at, (int, float)):
+        if not isinstance(offered_at, (int, float)) or isinstance(offered_at, bool):
             continue
-        left = cooldown_seconds - (now - offered_at)
+        if offered_at > now:
+            continue
+        left = min(cooldown_seconds - (now - offered_at), float(cooldown_seconds))
         if left > remaining:
             remaining = left
     return remaining
+
+
+def _suppressed(session_id, why, reason=None, obligations=None, remaining=None):
+    """One `suppressed` row. Every row carries the same keys -- `None` where
+    inapplicable -- so a consumer never has to key-check by variant."""
+    return {
+        "session_id": session_id,
+        "why": why,
+        "reason": reason,
+        "undischarged_obligations": obligations,
+        "cooldown_remaining_seconds": remaining,
+    }
 
 
 def build_send_digest(
@@ -272,85 +278,103 @@ def build_send_digest(
 ) -> dict[str, Any]:
     """One digest per invocation -- the batching discipline itself (AC5).
 
-    A digest is the only shape this module emits. There is no per-peer entry
-    point and no loop a caller can drive one peer at a time, so the
-    per-peer-per-tick firehose §5.3 forbids is unreachable from this API
-    rather than merely discouraged by it.
+    The only shape this module emits, and the only route to an entry: no
+    per-peer entry point exists, so the firehose is unreachable from this API
+    rather than discouraged by it. **Emitting an entry IS the offer and arms
+    its cooldown here** -- a throttle left to the actor it throttles is not
+    one. A cooldown that could not be written is named in `unrecorded` and its
+    entry still stands, so the caller learns the throttle is unarmed.
 
-    Every entry carries `gate1`/`gate2` as `None`: the two gates are checked
-    per send, in prose, by the Group EM. A digest is a list of peers a nudge
-    may be *offered* for, never a list of peers to message.
+    Entries carry `gate1`/`gate2` as `None`; both are checked per send, in
+    prose. `suppressed` says why each held peer was held, verdict reasons
+    ahead of bookkeeping ones -- `away` is never filed under a ledger detail.
 
-    `suppressed` records every roster peer that did not make the digest and
-    why, so a shrinking population is legible rather than silent.
+    Known limitation -- no lock spans the log read and the per-entry appends,
+    so this assumes one caller at a time per `caller_session_id`. Violate it
+    and two calls both read the pre-write log, both see zero cooldown for the
+    same peer, and both offer it. Bounded: the log path is caller-scoped, so
+    it cannot cross sessions.
     """
+    if max_entries < 1:
+        raise ValueError("max_entries must be >= 1; got %r" % (max_entries,))
     now = time.time() if now is None else now
     log = read_send_log(repo_root, caller_session_id)
 
-    entries: list[dict[str, Any]] = []
+    eligible: list[dict[str, Any]] = []
     suppressed: list[dict[str, Any]] = []
-    eligible_count = 0
 
     for verdict in roster:
-        peer_session_id = verdict.get("session_id")
-        if not isinstance(peer_session_id, str) or not peer_session_id:
-            suppressed.append({"session_id": peer_session_id, "why": "no-session-id"})
+        raw_session_id = verdict.get("session_id")
+        if not isinstance(raw_session_id, str) or not _safe_session_id(raw_session_id):
+            suppressed.append(_suppressed(raw_session_id, "unusable-session-id"))
+            continue
+        peer_session_id: str = raw_session_id
+
+        reason = verdict.get("reason")
+        why = send_suppression_reason(verdict)
+        if why is not None:
+            suppressed.append(_suppressed(peer_session_id, why, reason))
             continue
 
+        # Corroboration, not a gate. `None` is a producer coverage gap, never
+        # evidence the peer owes nothing; gating on it emptied the digest on
+        # absence (5 of 5 measured) and shipped the feature inert.
         obligations = undischarged_obligations(repo_root, peer_session_id)
-        if not is_send_eligible(verdict, obligations):
-            suppressed.append(
-                {
-                    "session_id": peer_session_id,
-                    "why": (
-                        "no-ledger"
-                        if obligations is None
-                        else "no-open-obligation"
-                        if obligations <= 0
-                        else "reason-not-eligible"
-                    ),
-                    "reason": verdict.get("reason"),
-                    "undischarged_obligations": obligations,
-                }
-            )
-            continue
 
-        eligible_count += 1
-        remaining = _cooldown_remaining(log, peer_session_id, now, cooldown_seconds)
+        remaining = _cooldown_remaining(
+            log, offer_key(caller_session_id, peer_session_id), now, cooldown_seconds
+        )
         if remaining > 0:
             suppressed.append(
-                {
-                    "session_id": peer_session_id,
-                    "why": "cooldown",
-                    "cooldown_remaining_seconds": remaining,
-                }
+                _suppressed(
+                    peer_session_id, "cooldown", reason, obligations, remaining
+                )
             )
             continue
 
-        entries.append(
+        eligible.append(
             {
                 "session_id": peer_session_id,
                 "state": verdict.get("state"),
-                "reason": verdict.get("reason"),
+                "reason": reason,
                 "source": verdict.get("source"),
                 "undischarged_obligations": obligations,
-                "trigger": "paused-turn-ended+undischarged-obligation",
+                "trigger": "paused-turn-ended-uncontradicted-by-live-status",
                 "gate1": None,
                 "gate2": None,
             }
         )
 
-    truncated = len(entries) > max_entries
-    if truncated:
-        for entry in entries[max_entries:]:
-            suppressed.append({"session_id": entry["session_id"], "why": "rate-ceiling"})
-        entries = entries[:max_entries]
+    # Deterministic before the ceiling cuts: most-owed first, then session id.
+    # `claude agents --json` order is arbitrary and unstable between ticks, so
+    # an unsorted cut makes ceiling survival random between digests.
+    eligible.sort(
+        key=lambda e: (-(e["undischarged_obligations"] or 0), e["session_id"])
+    )
+
+    entries = eligible[:max_entries]
+    for entry in eligible[max_entries:]:
+        suppressed.append(
+            _suppressed(
+                entry["session_id"],
+                "rate-ceiling",
+                entry["reason"],
+                entry["undischarged_obligations"],
+            )
+        )
+
+    unrecorded = [
+        entry["session_id"]
+        for entry in entries
+        if not _record_offer(repo_root, caller_session_id, entry["session_id"], now=now)
+    ]
 
     return {
         "entries": entries,
         "suppressed": suppressed,
-        "truncated": truncated,
+        "truncated": len(eligible) > max_entries,
         "roster_size": len(roster),
-        "eligible_before_throttle": eligible_count,
+        "eligible_before_ceiling": len(eligible),
+        "unrecorded": unrecorded,
         "gate_declaration_required": True,
     }

@@ -251,7 +251,7 @@ SPEC_BACKLINK_REGISTRY = Path(__file__).resolve().parent / "launcher-spec-backli
 # `parallel-review-orthogonality-guard.py`, and `wsc-coverage-gate-runner.py`
 # all take an arbitrary git rev/range directly from an agent's typed CLI
 # invocation (never defaulted, never composed internally via a Python-list
-# subprocess call the way e.g. wsc-close.py's --review-sha-range is), so a
+# subprocess call), so a
 # literal `^` (`sha^..sha`, the per-commit predecessor-range shape `--scope
 # chain` callers use) is genuinely reachable in normal use on each. Every
 # other git-rev/sha-taking bin/ CLI surveyed at the same time (`close-origin-
@@ -259,9 +259,32 @@ SPEC_BACKLINK_REGISTRY = Path(__file__).resolve().parent / "launcher-spec-backli
 # single 40-hex SHA with no range/caret shape, and was deliberately NOT
 # enrolled -- see this generator's own module docstring § RAW-CMDLINE-
 # PRESERVATION ENTRYPOINTS for why this stays a narrow, named, opt-in set.
+# MEMBERSHIP RULE, stated once here because it was previously only inferable
+# from the incident comments above. A target earns a row when a literal `^`,
+# a quote, or an embedded newline is REACHABLE IN NORMAL USE in an argument
+# an agent types directly:
+#   - an arbitrary git rev/range taken straight from the typed invocation
+#     (`sha^..sha`), never defaulted and never composed internally; or
+#   - a free-text/multi-line value as a matter of course (commit message,
+#     memo body).
+# It does NOT earn a row for taking a single 40-hex SHA with no range shape
+# (`close-origin-stub-on-ship.py --sha`, `install-sentinel-write.py --sha`),
+# and enrolment is not free: it costs every invocation of that target a
+# capture file (`lib/entry_point_shim.py`'s own note on the same discipline).
+# Narrow and named on purpose -- when a payload is prose rather than a rev,
+# prefer the `--<flag>-file <path>` sibling `docs/wiki/windows-first-class.md`
+# rules for, which removes the exposure instead of recovering from it.
+#
+# 2026-08-31: `coordinator-write-review-trail.py` dropped from BOTH sets. Its
+# op (`review_trail.write`) was gravestoned K-060 on 2026-08-27 and the file
+# is not in the tree; like `scoped-git-commit` before it, an entry naming a
+# non-existent target renders nothing, so the residue was inert at runtime and
+# invisible to the parity guard -- which compares the two sets to EACH OTHER
+# and never to the filesystem. `test_raw_cmdline_members_all_exist` now closes
+# that gap; the pair-equality guard alone cannot, because two sets can agree
+# perfectly on a file that is gone.
 _RAW_CMDLINE_ENTRYPOINTS = frozenset(
     {
-        "coordinator/bin/coordinator-write-review-trail.py",
         "coordinator/bin/cross-repo-memo.py",
         "coordinator/bin/freeze-review-diff.py",
         "coordinator/bin/parallel-review-gate-decision.py",

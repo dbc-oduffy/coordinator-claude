@@ -20,7 +20,7 @@ recovery, PR creation, the merge, local cleanup).
 
 On a PowerShell host, use the `.cmd` sibling through the call operator (Shape W) — ladder and
 shapes: `snippets/resolve-coordinator-bin.md`.
-Compute: `merge-assemble brief [--tag-prefix <prefix>]`, resolved per that ladder. Resolve every `judgment_points[]` entry before its gated directive(s) proceed. Apply: same CLI's `apply [--session-id <id>] [--force] [--decisions <json>]` — `apply`'s own `--force` bypasses only the node ceremony hard-gate (`d0`).
+Compute and apply are one verb — `brief` was removed (K-114): `merge-assemble apply [--session-id <id>] [--force] [--decisions <json>]`, resolved per that ladder. Resolve every `judgment_points[]` entry it returns, via `--decisions`, before its gated directive(s) proceed. `--force` bypasses only the node ceremony hard-gate (`d0`).
 
 **First Officer Doctrine:** EM may refuse to merge and alert the PM on a branch with known issues.
 

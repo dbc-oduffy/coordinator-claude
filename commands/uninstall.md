@@ -94,9 +94,13 @@ set: `REVERSE`, `DELIBERATELY-NOT-REVERSED`, `CANNOT-REVERSE-SAFELY`. Rationale 
     line from `~/.config/git/allowed_signers`.
 13. **`origin` remote SSH flip** — DELIBERATELY-NOT-REVERSED. Manual:
     `git remote set-url origin <original-https-url>`.
-14. **Git-config hardening** — REVERSE. Unset `core.checkStat`, `gc.autoDetach`, and the
+14. **Git-config hardening** — REVERSE. Unset the machine-wide keys — `core.checkStat` and the
     Windows-only `help.format`/`web.browser`/`browser.noop.cmd` triple (as a unit — never
-    partial), each only when unchanged since install.
+    partial) — each only when unchanged since install. `gc.auto`, `maintenance.strategy`/
+    `maintenance.auto`, and `maintenance.prefetch.enabled` are NOT global-unset here: per the
+    2026-08-07 per-key scope ruling, these are per-repo keys, each reached through the Phase 3
+    git-perf-config fleet sweep across every registered worktree, never through a `--global`
+    line.
 15. **Global `git lfs install --skip-repo` filters** — DELIBERATELY-NOT-REVERSED. Config-only (never
     touched repo hooks — Phase 1's git-LFS step never runs a repo-level `git lfs install`, only this
     global-config form). No manual command offered; `git lfs uninstall` is the operator's own call.

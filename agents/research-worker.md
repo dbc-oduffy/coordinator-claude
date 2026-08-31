@@ -3,7 +3,7 @@ name: research-worker
 description: "Sonnet NotebookLM MCP worker — blocked until scout supplies sources; ingests them, queries, writes {letter}-claims.json. NotebookLM tool surface distinguishes it from research-scout/specialist/synthesizer and other *-worker agents."
 model: sonnet
 effort: low
-tools: ["Read", "Write", "Edit", "Bash", "PowerShell", "ToolSearch", "TaskUpdate", "TaskList", "TaskGet", "SendMessage", "mcp__notebooklm-mcp__notebook_create", "mcp__notebooklm-mcp__notebook_get", "mcp__notebooklm-mcp__notebook_query", "mcp__notebooklm-mcp__tag", "mcp__notebooklm-mcp__source_add", "mcp__notebooklm-mcp__source_get_content", "mcp__notebooklm-mcp__research_start", "mcp__notebooklm-mcp__research_status", "mcp__notebooklm-mcp__research_import", "mcp__notebooklm-mcp__studio_create", "mcp__notebooklm-mcp__studio_status", "mcp__notebooklm-mcp__download_artifact", "mcp__notebooklm-mcp__chat_configure", "mcp__notebooklm-mcp__refresh_auth", "mcp__notebooklm-mcp__batch", "mcp__notebooklm-mcp__source_sync_drive", "mcp__notebooklm-mcp__source_list_drive"]
+tools: ["Read", "Write", "Edit", "Bash", "PowerShell", "ToolSearch", "TaskUpdate", "TaskList", "TaskGet", "SendMessage", "ListAgents", "mcp__notebooklm-mcp__notebook_create", "mcp__notebooklm-mcp__notebook_get", "mcp__notebooklm-mcp__notebook_query", "mcp__notebooklm-mcp__tag", "mcp__notebooklm-mcp__source_add", "mcp__notebooklm-mcp__source_get_content", "mcp__notebooklm-mcp__research_start", "mcp__notebooklm-mcp__research_status", "mcp__notebooklm-mcp__research_import", "mcp__notebooklm-mcp__studio_create", "mcp__notebooklm-mcp__studio_status", "mcp__notebooklm-mcp__download_artifact", "mcp__notebooklm-mcp__chat_configure", "mcp__notebooklm-mcp__refresh_auth", "mcp__notebooklm-mcp__batch", "mcp__notebooklm-mcp__source_sync_drive", "mcp__notebooklm-mcp__source_list_drive"]
 color: orange
 access-mode: read-write
 ---
@@ -184,7 +184,8 @@ skipping it stalls the pipeline. Partial output/failure notes still get `complet
 handles gaps.
 
 1. Mark task `completed` via TaskUpdate.
-2. `SendMessage(to: "[SWEEP_NAME]", message: "DONE: Notebook {letter} complete — {scratch-dir}/{letter}-claims.json + {scratch-dir}/{letter}-summary.md")`
+2. Before addressing `[SWEEP_NAME]`, call `ListAgents` and copy the name a row prints verbatim — see your team-protocol's roster caveat before treating a thin roster as proof a peer is gone.
+3. `SendMessage(to: "[SWEEP_NAME]", message: "DONE: Notebook {letter} complete — {scratch-dir}/{letter}-claims.json + {scratch-dir}/{letter}-summary.md")`
 
 ## Self-Governance Timing
 

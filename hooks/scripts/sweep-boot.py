@@ -643,23 +643,25 @@ def _run_boot_sweep(root: Optional[str]) -> None:
     """
     if not root:
         print(
-            "sweep-boot.py: WARN: claude-klabauter root unresolved — skipping boot sweep",
+            "sweep-boot.py: WARN: engine root unresolved — skipping boot sweep "
+            "(run /coordinator:setup to repair)",
             file=sys.stderr,
         )
-        _record_failure(None, "claude-klabauter root unresolved — skipping boot sweep")
+        _record_failure(None, "engine root unresolved — skipping boot sweep (run /coordinator:setup to repair)")
         print("0")
         return
 
     target = os.path.join(root, "coordinator", "bin", "sweep-boot.py")
     if not os.path.isfile(target):
         print(
-            f"sweep-boot.py: WARN: '{target}' missing -- stale/incomplete "
-            "claude-klabauter clone, skipping boot sweep",
+            "sweep-boot.py: WARN: engine boot-sweep entry point missing -- stale/incomplete "
+            "engine checkout, skipping boot sweep (run /coordinator:setup to repair)",
             file=sys.stderr,
         )
         _record_failure(
             root,
-            f"'{target}' does not exist — stale or incomplete claude-klabauter clone",
+            "engine boot-sweep entry point does not exist — stale or incomplete "
+            "engine checkout (run /coordinator:setup to repair)",
         )
         print("0")
         return
@@ -671,10 +673,10 @@ def _run_boot_sweep(root: Optional[str]) -> None:
         )
     except OSError as exc:
         print(
-            f"sweep-boot.py: WARN: failed to exec claude-klabauter sweep-boot.py — {exc}",
+            f"sweep-boot.py: WARN: failed to exec engine sweep-boot.py — {exc}",
             file=sys.stderr,
         )
-        _record_failure(root, f"failed to exec claude-klabauter sweep-boot.py — {exc}")
+        _record_failure(root, f"failed to exec engine sweep-boot.py — {exc}")
         print("0")
         return
 
@@ -684,13 +686,13 @@ def _run_boot_sweep(root: Optional[str]) -> None:
         # not wedge SessionStart boot. Surface the real exit code as a
         # diagnostic, but never forward it.
         print(
-            f"sweep-boot.py: WARN: claude-klabauter sweep-boot.py exited "
+            f"sweep-boot.py: WARN: engine sweep-boot.py exited "
             f"{result.returncode} — boot proceeds anyway (fail-open)",
             file=sys.stderr,
         )
         _record_failure(
             root,
-            f"claude-klabauter sweep-boot.py exited {result.returncode}",
+            f"engine sweep-boot.py exited {result.returncode}",
             exit_code=result.returncode,
         )
 
@@ -795,22 +797,24 @@ def _reap_sessions(root: Optional[str]) -> None:
 
     if not root:
         print(
-            "sweep-boot.py: WARN: claude-klabauter root unresolved -- skipping session reap",
+            "sweep-boot.py: WARN: engine root unresolved -- skipping session reap "
+            "(run /coordinator:setup to repair)",
             file=sys.stderr,
         )
-        _record_failure(None, "claude-klabauter root unresolved -- skipping session reap")
+        _record_failure(None, "engine root unresolved -- skipping session reap (run /coordinator:setup to repair)")
         return
 
     target = os.path.join(root, "coordinator", "bin", "reap-sessions.py")
     if not os.path.isfile(target):
         print(
-            f"sweep-boot.py: WARN: '{target}' missing -- stale/incomplete "
-            "claude-klabauter clone, skipping session reap",
+            "sweep-boot.py: WARN: engine session-reap entry point missing -- stale/incomplete "
+            "engine checkout, skipping session reap (run /coordinator:setup to repair)",
             file=sys.stderr,
         )
         _record_failure(
             root,
-            f"'{target}' does not exist -- stale or incomplete claude-klabauter clone",
+            "engine session-reap entry point does not exist -- stale or incomplete "
+            "engine checkout (run /coordinator:setup to repair)",
         )
         return
 
@@ -839,10 +843,10 @@ def _reap_sessions(root: Optional[str]) -> None:
         return
     except OSError as exc:
         print(
-            f"sweep-boot.py: WARN: failed to exec claude-klabauter reap-sessions.py -- {exc}",
+            f"sweep-boot.py: WARN: failed to exec engine reap-sessions.py -- {exc}",
             file=sys.stderr,
         )
-        _record_failure(root, f"failed to exec claude-klabauter reap-sessions.py -- {exc}")
+        _record_failure(root, f"failed to exec engine reap-sessions.py -- {exc}")
         return
 
     if result.stderr:
@@ -850,13 +854,13 @@ def _reap_sessions(root: Optional[str]) -> None:
 
     if result.returncode != 0:
         print(
-            f"sweep-boot.py: WARN: claude-klabauter reap-sessions.py exited "
+            f"sweep-boot.py: WARN: engine reap-sessions.py exited "
             f"{result.returncode} -- boot proceeds anyway (fail-open)",
             file=sys.stderr,
         )
         _record_failure(
             root,
-            f"claude-klabauter reap-sessions.py exited {result.returncode}",
+            f"engine reap-sessions.py exited {result.returncode}",
             exit_code=result.returncode,
         )
 

@@ -196,10 +196,35 @@ def main(argv: list[str] | None = None) -> int:
     from coordinator_core.cli_entry import recording_declared_writes
     from coordinator_core.session.declared_writes import declare_write
 
+    # Format-preserving edit: this manifest is hand-maintained JSON (comments
+    # via `_comment_*` keys, deliberate inline arrays elsewhere). A whole-file
+    # `json.dump` reflows every field it touches -- escapes non-ASCII prose to
+    # `\uXXXX`, and re-indents any hand-inlined array in the file, not just
+    # `tested_platforms`. Splice only the `tested_platforms` array's own text
+    # region instead of re-serializing the document.
+    # cross-repo/archive/2026-08-26-doe-claude-em-generate-tested-platforms-write-reflows-the-manifest.md
+    import re
+
+    with open(manifest_path, "r", encoding="utf-8") as fh:
+        raw = fh.read()
+    new_array = json.dumps(derived, indent=2, ensure_ascii=False)
+    # Re-indent the array literal to match the field's own indentation level.
+    field_match = re.search(r'([ \t]*)"tested_platforms":\s*\[[^\]]*\]', raw)
+    if field_match is None:
+        print(
+            f"ERROR: could not locate a \"tested_platforms\": [...] literal to splice "
+            f"in {manifest_path}; refusing a whole-file reflow.",
+            file=sys.stderr,
+        )
+        return 1
+    indent = field_match.group(1)
+    new_array_indented = new_array.replace("\n", "\n" + indent)
+    new_field = f'{indent}"tested_platforms": {new_array_indented}'
+    new_raw = raw[: field_match.start()] + new_field + raw[field_match.end() :]
+
     with recording_declared_writes():
         with open(manifest_path, "w", encoding="utf-8", newline="\n") as fh:
-            json.dump(manifest, fh, indent=2)
-            fh.write("\n")
+            fh.write(new_raw)
         declare_write(manifest_path)
     print(f"wrote tested_platforms to {manifest_path}")
     return 0

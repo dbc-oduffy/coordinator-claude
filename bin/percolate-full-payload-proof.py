@@ -851,6 +851,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             )
             for note in head_movement_notes:
                 print(f"    {note}")
+        # foreign-identity: NOT-REACHABLE — basis: DELIBERATE INVOCATION, not true
+        # unreachability. Publish payload-proof/verify CLI (same shape as
+        # verify_dist_publish_repo_sync.py, audit row 16); a third-repo session cannot
+        # hit this ambiently, but a maintainer CAN reach it by deliberately verifying a
+        # publish.
         for pass_result in (pass1, pass2):
             declared_n = len(pass_result.declared_rows)
             not_processed = sorted(set(pass_result.skipped_rows) | set(pass_result.missing_rows))

@@ -395,6 +395,10 @@ def _schema_cli_validate(schema_name: str, fields: dict) -> tuple[bool, list[str
 # universal patterns destined for claude-klabauter's central improvement queue / lessons
 # store (docs/wiki/state-placement-law.md § Taxonomy "Central/global state").
 _VALID_QUEUE_SCOPES = ("central", "project")
+# Mirrors the `scope` enum in frontmatter/schemas/lesson-entry.schema.json. Duplicated
+# deliberately: the schema rejects an invalid value downstream with no diagnostic the
+# caller can act on, so the CLI owes its own named refusal at the boundary.
+_VALID_LESSON_SCOPES = ("universal", "project", "wiki-only")
 
 # output_dir routing: maps schema name → state/<queue> directory.
 # Derived from the applies_to glob in each coordinator/schemas/*.yaml file
@@ -698,7 +702,9 @@ def _output_path(
     """
     _bootstrap_imports()
     output_dir = _SCHEMA_OUTPUT_DIRS[schema_name]
-    override_root = os.environ.get(_QUEUE_APPEND_OUTPUT_ROOT_ENV)
+    override_root = cli_shared.isolation_root_if_under_test(
+        _QUEUE_APPEND_OUTPUT_ROOT_ENV, caller_name="coordinator-queue-append"
+    )
     if override_root:
         # Non-absolute has no legitimate use-case — defense-in-depth for the test knob.
         if not os.path.isabs(override_root):
@@ -1304,7 +1310,7 @@ Examples:
       --schema debt-backlog \\
       --title "Fan-out overlap pass verifies interface presence, not correctness" \\
       --body "The overlap pass verifies a pinned interface file exists..." \\
-      --source "daily-review/the Staff Engineer/2026-06-15" \\
+      --source "daily-review/staff-eng/2026-06-15" \\
       --status open \\
       --risk "Wrong pin causes divergent executor outputs." \\
       --proposed-action "Add interface-pin verification gate." \\
@@ -1550,7 +1556,20 @@ Spec backlink: docs/plans/2026-06-25-example-initiative-tc-2-queues-lessons-cons
         metavar="TEXT",
         help=(
             "(lessons) Root-cause explanation — why this matters and what breaks without it. Optional. "
-            "author-supplied; do NOT LLM-extract from existing prose."
+            "author-supplied; do NOT LLM-extract from existing prose. A newline-bearing "
+            "inline value is refused -- pass --why-file for anything multi-line."
+        ),
+    )
+    parser.add_argument(
+        "--why-file",
+        dest="why_file",
+        default=None,
+        metavar="PATH",
+        help=(
+            "(lessons) Read --why from a UTF-8 file instead of argv. Mutually "
+            "exclusive with --why. The lossless transport for a multi-line "
+            "rationale -- see --body-file's doc-comment for why an inline value "
+            "carrying a real newline cannot survive the .cmd launcher leg."
         ),
     )
     parser.add_argument(
@@ -1796,6 +1815,48 @@ def main(argv: "list[str] | None" = None) -> int:
     parser = _build_parser()
     args = parser.parse_args()
 
+    from coordinator_core.argv_fidelity import (
+        ArgvFidelityError,
+        refuse_newline_argv,
+        resolve_optional_prose,
+    )
+
+    # --title earns the refusal but has no file sibling -- the slug derived
+    # from it (_slug_from_title) feeds the output filename, which cannot
+    # carry a newline losslessly, so an explicit remedy is passed rather
+    # than letting the seam name a --title-file that does not exist.
+    try:
+        refuse_newline_argv(
+            args.title,
+            flag_name="--title",
+            remedy=(
+                "pass a single-line --title (the slug-derived output filename "
+                "cannot carry a newline losslessly, so this flag has no "
+                "file-based alternative by design)."
+            ),
+        )
+    except ArgvFidelityError as exc:
+        parser.error(str(exc))
+
+    # --why (lessons) is a free-form rationale sentence -- earns a lossless
+    # --why-file leg like --body-file, resolved the same way.
+    try:
+        args.why = resolve_optional_prose(args.why, args.why_file, flag_name="--why")
+    except ArgvFidelityError as exc:
+        parser.error(str(exc))
+
+    # VERIFIED GAP (staff-eng review, the Staff Engineer) -- --body already has a
+    # --body-file sibling but had NO refuse_newline_argv call on the inline
+    # path: a newline-bearing inline --body was silently truncated by
+    # cmd.exe's own command-line parse rather than refused (exactly the
+    # failure mode this seam exists to close). Same unconditional refusal
+    # --title/--why get above, ahead of the existing mutual-exclusion check
+    # below.
+    try:
+        refuse_newline_argv(args.body, flag_name="--body")
+    except ArgvFidelityError as exc:
+        parser.error(str(exc))
+
     # --body-file: the argv-immune body transport.
     #
     # cmd.exe truncates its ENTIRE command line at the first LF during its own
@@ -1930,6 +1991,18 @@ def main(argv: "list[str] | None" = None) -> int:
             )
             return 1
         queue_scope = args.queue_scope
+
+    # Validate --scope (lessons only; fail-loud on invalid). Without this the value
+    # reaches schema validation, which rejects it and exits 1 with NOTHING on stderr --
+    # indistinguishable from success to anyone not checking the return code, so a lesson
+    # reads as filed when it was dropped. Same fail-loud shape as --queue-scope above.
+    if args.scope is not None and args.scope not in _VALID_LESSON_SCOPES:
+        print(
+            f"error: invalid --scope value: '{args.scope}'. "
+            f"Valid values: {', '.join(_VALID_LESSON_SCOPES)}.",
+            file=sys.stderr,
+        )
+        return 1
 
     # Review: code-reviewer — F1: schema guard for --queue-scope; only improvement-queue supports it.
     # --queue-scope central on debt-backlog or bug-backlog would silently redirect those entries
@@ -2269,9 +2342,12 @@ def main(argv: "list[str] | None" = None) -> int:
 
     # Test isolation gate: QUEUE_APPEND_OUTPUT_ROOT redirects the output path, which the
     # native op does not honour (it constructs its own path from schema + title).
-    # When set, routing native would write to the wrong location — use legacy instead.
-    # In production, QUEUE_APPEND_OUTPUT_ROOT is NEVER set, so this check is a no-op.
-    if os.environ.get(_QUEUE_APPEND_OUTPUT_ROOT_ENV):
+    # When honoured, routing native would write to the wrong location — use legacy instead.
+    # Gated on the same under-test predicate _output_path() uses, so an override this
+    # process merely INHERITED cannot pull the write off the native route either.
+    if cli_shared.isolation_root_if_under_test(
+        _QUEUE_APPEND_OUTPUT_ROOT_ENV, caller_name="coordinator-queue-append"
+    ):
         _run_legacy_with_write_declaration()
         return
 

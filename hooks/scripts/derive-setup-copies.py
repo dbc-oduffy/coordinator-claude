@@ -12,19 +12,11 @@ every such pair, each row declaring its own parity MODE:
 - **byte-copy** — the derived copy should be byte-identical to canonical
   (`percolate-store.yaml`). On a canonical write, this hook copies
   canonical -> derived directly.
-- **contract-only** — this hook never rewrites the derived copy. Two DIFFERENT
-  reasons currently land a row here, and they are not the same claim:
+- **contract-only** — this hook never rewrites the derived copy.
     * `publish_sync.py` — a PERMANENT, deliberate, hand-maintained divergence.
       The install template keeps its own `_locate_percolate_lib()` resolver
       ladder that a live install needs and a byte-copy would destroy. Parity is
       enforced on the *public callable signature*, not on bytes.
-    * `percolate-hooks/README.md` — TEMPORARY, pending reconciliation. Its two
-      copies currently document two different eras of the percolate mechanism,
-      and nobody has yet established which is correct. It sits here so that the
-      next canonical write cannot silently destroy the diverged derived copy —
-      NOT because the divergence is sanctioned. Tracked at
-      `state/bug-backlog/2026-08-01-percolate-hooks-readme-md-is-designated-f291a820243f.yaml`;
-      re-designate it byte-copy once the two are reconciled.
   Signature parity for the permanent case is checked by
   `coordinator/tests/test_publish_sync_copies_parity.py`. This hook never
   copies a contract-only row: `_handle_canonical_write` routes every
@@ -95,7 +87,7 @@ _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
-from _message_envelope import compose, render  # noqa: E402
+from _message_envelope import CHANNEL_STOP, compose, emit  # noqa: E402
 
 #: Wiki section carrying the relocated parity-mode explanation (permanent vs
 #: temporary contract-only rows, and the canonical->derived direction
@@ -170,20 +162,10 @@ ROWS: tuple[Row, ...] = (
         derived=Path("coordinator") / "templates" / "setup" / "percolate-hooks" / "percolate-store.yaml",
         mode=BYTE_COPY,
     ),
-    # Review (code-reviewer, 2026-08-02, Finding 1): TEMPORARILY contract-only,
-    # NOT a claim these two copies are legitimately allowed to differ the way
-    # publish_sync.py's two resolver ladders are. The two copies are already
-    # substantially diverged (they document two different eras of the
-    # percolate mechanism) with no diff/backup check and no parity test —
-    # wiring this row as byte-copy would let the next canonical edit silently
-    # `shutil.copyfile` over genuinely different content. Revert to BYTE_COPY
-    # once the divergence is reconciled or a parity test exists; see
-    # state/bug-backlog/2026-08-01-percolate-hooks-readme-md-is-designated-f291a820243f.yaml
     Row(
         canonical=Path("setup") / "percolate-hooks" / "README.md",
         derived=Path("coordinator") / "templates" / "setup" / "percolate-hooks" / "README.md",
-        mode=CONTRACT_ONLY,
-        parity_test=None,
+        mode=BYTE_COPY,
     ),
     Row(
         canonical=Path("setup") / "publish_sync.py",
@@ -290,18 +272,13 @@ def _compose_derived_write_advisory(file_path: str, row: ResolvedRow):
 
 
 def _advise_derived_write(file_path: str, row: ResolvedRow) -> None:
-    # NOTE (review-integrator): this hook has the same CRLF byte-fidelity
-    # bug as Finding 2 (bypasses `emit()`, writes `render()`'s output via
-    # text-mode `sys.stderr.write`), but the fix is NOT applied here -- see
-    # this dispatch's run-report. `tests/fixtures/hook-message-sweeps/
-    # test_alternative_exemption.py::
-    # test_derive_setup_copies_bypasses_emit_and_alternative_is_not_exempt_on_its_real_channel`
-    # captures this hook's real-channel stderr via a plain `io.StringIO()`
-    # (no `.buffer`), so switching to `.buffer.write` breaks that test with
-    # an `AttributeError`. Fixing the test capture is out of this
-    # dispatch's scope (fixtures are off-limits); escalated instead of
-    # silently breaking a passing test.
-    sys.stderr.write(render(_compose_derived_write_advisory(file_path, row)) + "\n")
+    # Routed through `_message_envelope.emit()` (CHANNEL_STOP) rather than
+    # hand-rolling `render()` + a text-mode `sys.stderr.write()` -- `emit()`'s
+    # CHANNEL_STOP branch writes via `sys.stderr.buffer.write()`, which
+    # bypasses Python's Windows text-mode LF->CRLF translation (a real
+    # byte-fidelity loss the hand-rolled path used to carry silently). See
+    # `state/bug-backlog/2026-08-06-derive-hooks-hand-roll-stop-shape-and-lo-4c1e9a7b03d5.yaml`.
+    emit(_compose_derived_write_advisory(file_path, row), CHANNEL_STOP)
 
 
 def _exc_reason(exc: Exception) -> str:
@@ -358,28 +335,25 @@ def _compose_success_message(row: ResolvedRow, source_bytes: bytes):
 
 
 def _handle_canonical_write(row: ResolvedRow) -> int:
-    # NOTE (review-integrator): same CRLF-fix-vs-fixture-capture conflict
-    # as `_advise_derived_write` above -- not applied here, see that
-    # function's note and this dispatch's run-report.
+    # Routed through `_message_envelope.emit()` -- see `_advise_derived_write`
+    # above for the CRLF byte-fidelity rationale.
     try:
         source_bytes = row.canonical.read_bytes()
     except Exception as exc:
-        sys.stderr.write(render(_compose_read_failure_message(row, exc)) + "\n")
-        return 2
+        rc = emit(_compose_read_failure_message(row, exc), CHANNEL_STOP)
+        return rc if rc is not None else 2
 
     try:
         _derive_or_raise(row)
     except ContractOnlyNotOverwritten:
-        sys.stderr.write(render(_compose_contract_only_message(row)) + "\n")
-        return 2
+        rc = emit(_compose_contract_only_message(row), CHANNEL_STOP)
+        return rc if rc is not None else 2
     except Exception as exc:
-        sys.stderr.write(
-            render(_compose_write_failure_message(row, exc, source_bytes)) + "\n"
-        )
-        return 2
+        rc = emit(_compose_write_failure_message(row, exc, source_bytes), CHANNEL_STOP)
+        return rc if rc is not None else 2
 
-    sys.stderr.write(render(_compose_success_message(row, source_bytes)) + "\n")
-    return 2
+    rc = emit(_compose_success_message(row, source_bytes), CHANNEL_STOP)
+    return rc if rc is not None else 2
 
 
 def main() -> int:

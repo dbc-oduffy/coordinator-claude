@@ -161,6 +161,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _touch_record import _touch_lines  # noqa: E402
 from _posture import resolve_posture  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -451,21 +452,6 @@ def _resolve_git_dir(dot_git: str) -> str | None:
     return os.path.normpath(target)
 
 
-def _touch_path(line: str) -> str | None:
-    """Return the bare repo-relative path a `touched.txt` line records.
-
-    Tolerates both the verb-prefixed event shape ('T <ISO-8601> <path>') and
-    the bare legacy `<path>`-only line.
-    """
-    line = line.strip()
-    if not line:
-        return None
-    parts = line.split()
-    if len(parts) >= 3 and parts[0] in ("T", "R"):
-        return parts[-1]
-    return line
-
-
 def _extract_scalar(lines: list[str], key: str) -> str | None:
     """Flat `key: value` line-scan, matching `_posture.py`'s own idiom."""
     prefix = key + ":"
@@ -611,18 +597,9 @@ def _sizing_exemption_applies(payload: dict) -> bool:
     git_dir = _resolve_git_dir(os.path.join(repo_root, ".git"))
     if not git_dir:
         return False
-    touched_path = os.path.join(git_dir, "coordinator-sessions", session_id, "touched.txt")
-    try:
-        with open(touched_path, "r", encoding="utf-8", errors="replace") as fh:
-            raw_lines = fh.readlines()
-    except OSError:
-        return False
-
-    sizing_paths = []
-    for raw_line in raw_lines:
-        rel = _touch_path(raw_line)
-        if rel and _SIZING_PATH_RE.match(rel):
-            sizing_paths.append(rel)
+    sizing_paths = [
+        rel for rel in _touch_lines(git_dir, session_id) if _SIZING_PATH_RE.match(rel)
+    ]
 
     return any(_sizing_object_exempts(repo_root, rel) for rel in sizing_paths)
 

@@ -133,67 +133,6 @@ from typing import Any
 _ID_CHARSET_RE = re.compile(r"^[A-Za-z0-9_@-]+$")
 
 
-def _resolve_git_common_dir(git_root: str) -> str:
-    """Resolve the git COMMON dir for `git_root` without spawning a
-    subprocess. Fail-open to "" on any error.
-
-    KEEP THIS HELPER BYTE-IDENTICAL to its twin in
-    `runtime-tripwire-em-check.py` -- hooks are standalone scripts and
-    cannot import each other, so the duplication is deliberate (see this
-    module's docstring). A divergence between the two copies would mean
-    Stage 1's own-session filter and Stage 2's store/cursor paths resolve
-    to different directories under a worktree, silently breaking
-    correlation between the two stages.
-
-    In an ordinary clone, `<git_root>/.git` IS the common dir (a
-    directory). In a worktree, `<git_root>/.git` is a FILE containing a
-    single `gitdir: <path>` line pointing at the worktree's own private git
-    dir (`<path>` may be relative to `git_root`); that private git dir in
-    turn contains a `commondir` file naming the actual shared common dir
-    (again possibly relative -- this time to the private git dir itself).
-    Blindly joining `git_root + ".git"` (this file's shape before this fix)
-    silently resolves to a location that doesn't exist as a directory under
-    a worktree -- a write there fails and a best-effort `except` swallows
-    it; a read there simply finds nothing. Subagents DO run in worktrees
-    (the `Agent` tool's `isolation: "worktree"` mode), so this is a live
-    fail-open portability defect, not a theoretical one.
-    """
-    try:
-        dot_git = os.path.join(git_root, ".git")
-        if os.path.isdir(dot_git):
-            git_dir = dot_git
-        elif os.path.isfile(dot_git):
-            with open(dot_git, "r", encoding="utf-8", errors="replace") as fh:
-                text = fh.read().strip()
-            if not text.startswith("gitdir:"):
-                return ""
-            gitdir_value = text[len("gitdir:"):].strip()
-            git_dir = (
-                gitdir_value
-                if os.path.isabs(gitdir_value)
-                else os.path.normpath(os.path.join(git_root, gitdir_value))
-            )
-            if not os.path.isdir(git_dir):
-                return ""
-        else:
-            return ""
-
-        commondir_file = os.path.join(git_dir, "commondir")
-        if os.path.isfile(commondir_file):
-            with open(commondir_file, "r", encoding="utf-8", errors="replace") as fh:
-                common_value = fh.read().strip()
-            if not common_value:
-                return git_dir
-            return (
-                common_value
-                if os.path.isabs(common_value)
-                else os.path.normpath(os.path.join(git_dir, common_value))
-            )
-        return git_dir
-    except Exception:
-        return ""
-
-
 def _read_stdin(timeout: float = 2.0) -> str:
     """Bounded stdin read (Windows hang guard) -- shape copied from
     `track-dispatched-agents.py:107-127` / `runtime-tripwire-stop-watcher.py`.
@@ -228,6 +167,14 @@ except Exception:
     # deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
+try:
+    from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir  # noqa: E402
+except Exception:
+    # Defensive fallback -- a deploy missing its sibling _git_common_dir.py
+    # must still fail open (empty common dir -> callers skip) rather than
+    # crash on import.
+    def _resolve_git_common_dir(git_root: str) -> str:
+        return ""
 
 
 def _git_root(start: str) -> str:

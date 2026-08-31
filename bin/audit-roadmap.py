@@ -21,8 +21,8 @@ carve-out in DoE-claude's coordinator/docs/wiki/bash-on-windows-gotchas.md §
 Carve-out (cross-repo — this wiki lives in the DoE-claude repo, not
 here).
 
-Exit convention: this is a fail-loud GATE script (exit 1 blocks Phase 3
-dispatch on any audit failure; exit 2 on usage/config error; exit 3 on a hard
+Exit convention: this is a fail-loud GATE script (exit 1 blocks Phase 2
+close on any audit failure; exit 2 on usage/config error; exit 3 on a hard
 internal error) — never a never-block/best-effort script. A claude-klabauter-link
 failure (the engine root unresolvable, or coordinator_core.roadmap.audit not
 importable) is therefore surfaced as exit 3, mirroring the ported module's

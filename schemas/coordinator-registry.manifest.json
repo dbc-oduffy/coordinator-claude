@@ -77,6 +77,8 @@
 
   "identity": {
     "centralReceiverIds": ["doe-claude-em"],
+    "retiredCentralReceiverIds": { "claude-central-em": "doe-claude-em", "central-em": "doe-claude-em", "central": "doe-claude-em" },
+    "_retiredCentralReceiverIdsNote": "Retired central-EM ids mapped to their live successor. These are NOT receiver aliases and MUST keep failing at send -- their absence from centralReceiverIds is the operative rule. This map is read only AFTER a send has already failed, so the did-you-mean names the real successor instead of a fuzzy match. Without it, difflib over registered receivers points the operator at an unrelated repo. Declarative here rather than pinned in a consumer, for the reason _redirectAliasesNote records: two copies of this identity data drift.",
     "repoAliases": [
       { "registryKey": "example_game_workbench_repo", "shortname": "example-game-repo", "dirBasename": "example-game-workbench-repo" }
     ],

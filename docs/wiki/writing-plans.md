@@ -288,7 +288,9 @@ This is the **plan-time twin** of the dispatch-time "promote shared-API to a pre
 
 Global or cadence-scoped verification (Tier F/Tier U) still has a legitimate home — it is just never a chunk's test surface and never a plan deliverable. It is **EM-owned, at the wave boundary or the cadence gate**: `execute-plan/SKILL.md` (line ~209) specifies that mechanism (the EM runs the global/registry check itself, once, after a wave's chunks land Tier-T-green, under a live test-invocation grant). A plan should rely on that mechanism existing, not re-author it into a chunk brief.
 
-**The rule holds at every altitude a plan states a criterion, not only at the chunk's test-surface row.** A fast-tier or full-suite run going green is never a valid criterion anywhere on the plan artifact — not a chunk's test surface, not `prime_exit_criterion`, not a `gated_exit_criteria` row. The plan's own targeted tests (plus its acceptance oracle, if any) are its exit step, scaffolded into the plan rather than left for an executor to remember from this wiki page. `coordinator/templates/plans/plan.md.tmpl` § `## Exit criteria — verification` is the scaffold SSOT for that rule's text — read it there; this section does not restate it.
+**The rule holds at every altitude a plan states a criterion, not only at the chunk's test-surface row.** `coordinator/templates/plans/plan.md.tmpl` § `## Exit criteria — verification` is the scaffold SSOT for this rule's full enumerated text — read it there rather than here; this page states only the plan-altitude framing above and does not restate the enumeration, to keep one home for the rule's prose.
+<!-- Review: overengineering-reviewer (Finding 4) — a full-prose restatement here duplicates plan.md.tmpl's enumerated list and drifts from it. This page cites the template instead; plan.md.tmpl is the sole full-text home. -->
+
 
 **Worked example.** One plan's chunk row named, among its deliverables, "run full suite green" — a Tier-U instruction baked into the chunk brief itself. That's the anti-pattern this section exists to catch: it reads fine at plan-review time and only surfaces as malformed once execute-plan tries to dispatch it. A corrected row would instead name the chunk's own scoped test file — the file the chunk itself writes, run at Tier T — as the test surface, with the full-suite run dropped from the chunk entirely; if a global check is warranted it belongs to the EM's wave-boundary verification, not the chunk's write-files or deliverables list. That plan's dispatch-ledger row went uncorrected on disk for a time — a live specimen of the anti-pattern this section exists to catch.
 
@@ -445,8 +447,16 @@ narrow its `statement` instead. `plan.schema.json` requires all five slugs to be
 `gated_exit_criteria` is set, so this is schema-gated, not convention-only.
 
 `work-vs-question-ratio` is narrower than `work-proportionate-to-question` by design: discharge it
-by naming, per function or corpus-scale value introduced, the bounded question it answers. See
-`coordinator/docs/wiki/coordinator-tripwires/waste-is-gated-at-authoring-not-caught-at-review.md`.
+by naming, per function, corpus-scale value, or durable artifact introduced, the bounded question
+it answers. The two rows are per-unit versus whole: `work-proportionate-to-question` weighs the
+delivered work as a whole against the size of the question, `work-vs-question-ratio` interrogates
+each introduced unit on its own. One sentence discharging both is one row doing no work.
+
+A doc-only plan has no vacuous exit here. "This plan adds zero executable code, so there is nothing
+to justify" is not a discharge — the unit a documentation plan introduces is the *artifact*, and
+artifact-count-to-question is precisely the imbalance this repo's plans are prone to. Enumerate the
+sizing object, the plan, the decision record, the wiki page, the discharge marker, and answer each.
+See `coordinator/docs/wiki/coordinator-tripwires/waste-is-gated-at-authoring-not-caught-at-review.md`.
 
 `right-not-merely-working` gates code quality, never test-suite outcome. Discharge it by naming,
 per surface delivered, the simpler or cheaper shape considered and rejected and why the delivered

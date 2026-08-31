@@ -36,7 +36,7 @@ briefing), then `coordinator-ensure-hooks-fleet` (both hooks, EVERY registered r
 `coordinator-ensure-*-hook` entrypoints heal only the cwd repo, leaving the rest of the fleet
 silently un-pushed and un-trailered — idempotent, note only on actual repair), then
 `install-meta-repo-precommit-hook "$HOME/.claude"`, then
-`python3 coordinator/bin/check-gitignore-template-drift.py` (report-only; renders its output under
+`python3 <plugin-root>/bin/check-gitignore-template-drift.py` (report-only; renders its output under
 the advisory-probe convention — the `/coordinator:install` Phase 4 diff only fires on a full
 install, so this is the daily cadence that catches drift between installs;
 see `docs/wiki/coordinator-tripwires/gitignore-template-drift-is-a-cadence-gate-not-an-install-only-step.md`).
@@ -98,11 +98,22 @@ unverified rather than hand-deriving closure. Degraded pending an engine produce
 fallback: `archive/completed/legacy/<YYYY-MM>.md`) — match on workstream/feature/commit-hash/
 keyword, flag likely-shipped items.
 
-**1.47** One shell call, in this order (idempotent, safe every run): `sweep-shipped-handoffs`,
+**1.47** One shell call, in this order (idempotent, safe every run): `sweep-terminal-handoffs`,
 `promote-shipped-in-flight-stubs` (must precede the reaper, so a shipped deliverable isn't mistaken
-for a crash orphan — ordering preserved inside the batch), `d-reaper-orphaned-handoffs` (Step -0.9;
-dry-run then live). Surface verbatim under `### Handoffs`. Reaper never touches frontmatter
+for a crash orphan — ordering preserved inside the batch), `reap-orphaned-in-flight-handoffs` (Step
+-0.9; dry-run then live). Surface verbatim under `### Handoffs`. Reaper never touches frontmatter
 directly — releases a dead holder's claim to the pool, never abandons/archives.
+
+**This is the on-demand drain, not the owner.** The abandoned-session case — a session that dies
+mid-close and never stamps its baton — belongs to the `/workday-complete` spine's
+`reap-orphaned-in-flight-handoffs` + `handoff-housekeeping` pair, which reclaims dead-holder claims
+and archives everything terminal in one batch. This step covers the same population on demand, so
+that residue does not wait on the day's close. **`session.boot_sweep` is not behind either** — its
+archival composite was killed (`sweep-boot.py` carries `never dispatches an op` as a negative spec).
+Skipping this step is survivable; skipping `/workday-complete` is what lets residue accumulate.
+Measured 2026-08-30: five terminal batons unswept and the gem-01 roadmap reading seven batons behind
+its real state, on a stretch where `/workday-complete` had not run.
+→ `coordinator/docs/wiki/coordinator-tripwires/archival-lands-at-the-next-ceremony-not-at-session-end.md`
 
 **1.5** _"{N} actionable ({K} continuations, {S} spinoffs incl. {R} roadmap in {G} groups). {G}
 awaiting_gate ({M} >6d). {X} verified-closed."_ Omit zero clauses.
@@ -236,23 +247,24 @@ run together instead of as four cold starts.
 - improvement-queue: notable at central ≥5/oldest >14d/`recurring≥3`/local ≥1 (judgment, not a
   trigger). Also cross-repo-commitments open count ≥1.
 - push-failures: `recent_24h≥1`/`total≥5` → `### Auto-Push Health`; cleanup `> .git/push-failures.log`
-  (truncate, never delete).
+  (truncate, never delete). **These counters and the `local-ahead` recovery hint below survive the
+  no-ceremony-instructs-a-push ruling deliberately: a health report is an observation, a checkpoint
+  is an instruction.** Push handles itself, and a push that has stopped handling itself is exactly
+  what nothing else would surface here.
 - local-ahead: `ahead_count≥1` → `### Local-Only Branch Warning`; recover `git push origin
   <branch>`, GH007 fix `git config user.email '<id>+<user>@users.noreply.github.com'`.
 - stale-stashes: → `### Stale Stashes`, then `advice` verbatim — leads with the safe forward
   action, never a scold (a stash may hold a sibling's only copy of real work). Read-only, never
   `pop`/`apply`/`drop`.
 
-**Push checkpoint — `push.outstanding`.** Push runs on a cadence, not on every commit, and this
-is one of its named checkpoints. Once the commit has landed, call the primitive once and block on
-it (~150ms, synchronous — no detach or background wrapper):
 
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" push.outstanding '{}' --repo "<repo-root>"`
+**Maintenance checkpoint — `git.maintenance` daily tier.** Advisory, non-zero reported, ceremony
+continues:
 
-Shape W above (PowerShell host); Shape A/B on a POSIX host — `snippets/resolve-coordinator-bin.md`.
-`skipped: push:nothing-outstanding` is the ordinary no-op result, not a failure. The op owns the
-branch-gate refusal, the protected-branch policy, the retry ladder, and the LFS-range predicate —
-never hand-roll a `git push` beside it.
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" git.maintenance '{"tier":"daily","repo":"<repo-root>"}'`
+
+Shape W above / Shape A/B POSIX — `snippets/resolve-coordinator-bin.md`. `--repo` flag refused
+(`scope='none'`); `repo` goes in the JSON params, not omitted.
 
 ## Step 1.10: Addon Health Sentinels
 
@@ -273,7 +285,7 @@ a fleet-topology fact, never a health regression. No multiplexer CLI for these e
 this is the interim shell-level batch, not a new engine CLI — do not invent one here, that surface
 is engine-owned, not this skill's to add.
 
-**Memo-outbox tracking.** `python coordinator/bin/memo-outbox-tracking-guard.py` — delivered memos
+**Memo-outbox tracking.** `python <plugin-root>/bin/memo-outbox-tracking-guard.py` — delivered memos
 losing their sender-side record. Exit 1 renders under `### Addon Health`. Daily, because leg 2
 fires while a phantom staged deletion is still armed. Repair a leg-1 finding, then record its sha
 in `state/memo-outbox/acknowledged-sweeps.json`. Read the module docstring before touching the leg
@@ -397,6 +409,30 @@ repomap content); skip if `tasks/` absent. Full derivation: wiki.
 `d-ceremony-hook-output` (Step -0.9) — print verbatim as a standalone trailing line, after the
 briefing (this ceremony's summary settles before this step, unlike the other three). Silent no-op
 absent a `workday_start_post_command:` key in `coordinator.local.md`.
+
+## Step 5.7: Offer to Volunteer as Group EM
+
+**This ceremony never nominates.** Run the READ verb only —
+`<plugin-root>/bin/group-em-nomination.py who --repo <root>`
+(`snippets/resolve-coordinator-bin.md` § CLIs with no launcher) — and report what it says in one
+line, followed by a one-line offer to take the role. Then stop. `nominate` runs on the PM's
+explicit yes to that offer and on nothing else: not on an empty record, not on a dead holder, not
+on a session that looks idle, not because the offer went unanswered.
+
+**Who was nominated is not whether anyone is still watching.** Also run
+`<plugin-root>/bin/group-em-watch-cli.py --repo-root <root>` and report its
+`GROUP EM WATCH: <verdict>` line alongside the nomination read — different questions, neither
+substitutes. Report the verdict as-is; never nominate or nudge off it.
+
+The reason is that `nominate` is last-writer-wins and never refuses. It cannot decline a bad take,
+so the judgment has to sit upstream of it — and a ceremony that runs every morning would silently
+pass the role around the fleet, displacing live holders who learn about it only if someone
+remembers to tell them. Volunteering is a direction-class call: it is the PM's to make.
+
+On the PM's yes, run `nominate --repo <root> --session-id <this session>` and report the verdict.
+If it names a displaced holder that is still running, tell that session the role has moved.
+Claiming the record is still not entering the mode — `/group-em` stays PM-gated, sends stay gated
+per send.
 
 ## What This Does NOT Do
 

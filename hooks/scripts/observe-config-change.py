@@ -42,6 +42,16 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir_str  # noqa: E402
+except Exception:
+    # Defensive fallback -- a deploy missing its sibling _git_common_dir.py
+    # must still fail open (empty common dir -> caller returns None) rather
+    # than crash on import.
+    def _resolve_git_common_dir_str(git_root: str) -> str:
+        return ""
+
 _EVENT_NAME = "ConfigChange"
 
 # Fields measured live on harness 2.1.220 for this event (see module docstring). Recorded by
@@ -58,11 +68,12 @@ _KNOWN_FIELDS = (
 )
 
 
-# Review: coordinator:code-reviewer (Finding 2) — `_read_stdin`, `_resolve_git_common_dir`, and
-# `_append_record` below are duplicated verbatim in `observe-post-compact.py` and again (as
-# `track-dispatched-agents.py`'s canary helper). This is deliberate: both observer scripts must
-# run standalone through the fail-open site-packages seam, and a shared-module import is a real
-# risk to that seam. A fix to any one copy MUST be mirrored to the other two.
+# Review: coordinator:code-reviewer (Finding 2) — `_read_stdin` and `_append_record` below are
+# duplicated verbatim in `observe-post-compact.py` and again (as `track-dispatched-agents.py`'s
+# canary helper). This is deliberate: both observer scripts must run standalone through the
+# fail-open site-packages seam, and a shared-module import is a real risk to that seam. A fix to
+# either copy MUST be mirrored to the other. `_resolve_git_common_dir`'s commondir-resolution
+# core now delegates to the shared `_git_common_dir` module instead (see its own docstring).
 def _read_stdin(timeout: float = 2.0) -> str:
     """Bounded stdin read (Windows hang guard) — same pattern as
     track-dispatched-agents.py._read_stdin."""
@@ -82,49 +93,26 @@ def _read_stdin(timeout: float = 2.0) -> str:
 
 def _resolve_git_common_dir(start: Path) -> Path | None:
     """Walk up from `start` to the nearest `.git` (directory or gitdir-pointer file), then
-    resolve its `commondir` file if present. Returns None on any failure — never raises."""
+    resolve its `commondir` file if present via the shared `_git_common_dir` helper. Returns
+    None on any failure — never raises."""
     try:
         probe = start.resolve()
     except Exception:
         return None
 
-    git_dir = None
+    git_root = None
     for candidate in (probe, *probe.parents):
         try:
-            marker = candidate / ".git"
-            if marker.is_dir():
-                git_dir = marker
-                break
-            if marker.is_file():
-                raw_pointer = marker.read_text(encoding="utf-8", errors="replace")
-                if not raw_pointer.startswith("gitdir:"):
-                    return None
-                pointer = raw_pointer[len("gitdir:") :].strip()
-                if not pointer:
-                    return None
-                pointer_path = Path(pointer)
-                if not pointer_path.is_absolute():
-                    pointer_path = (candidate / pointer_path).resolve()
-                git_dir = pointer_path
+            if (candidate / ".git").exists():
+                git_root = candidate
                 break
         except Exception:
             return None
-    if git_dir is None:
+    if git_root is None:
         return None
 
-    try:
-        commondir_file = git_dir / "commondir"
-        if commondir_file.is_file():
-            raw_common = commondir_file.read_text(encoding="utf-8", errors="replace").strip()
-            if not raw_common:
-                return git_dir
-            common_path = Path(raw_common)
-            if not common_path.is_absolute():
-                common_path = (git_dir / common_path).resolve()
-            return common_path
-        return git_dir
-    except Exception:
-        return git_dir
+    common = _resolve_git_common_dir_str(str(git_root))
+    return Path(common) if common else None
 
 
 def _append_record(git_common_dir: Path, record: dict) -> None:

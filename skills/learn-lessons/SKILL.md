@@ -14,6 +14,11 @@ and queues evolve, not did the file shrink. **Supersedes `coordinator:lesson-tri
 no alias shim). Modes, the routing schema, the fabrication-verify-gate mechanics + recovery
 playbook, the Phase 8 report shape, and the heavy-queue promotion-sprint procedure: wiki.
 
+**Every coordinator CLI named on this page is engine-homed and has a settings-home launcher** —
+resolve each by absolute path per `snippets/resolve-coordinator-bin.md` (Shape W on a PowerShell
+host, Shape A/B on POSIX). Never a bareword, and never `coordinator/bin/<cli>.py` cwd-relative:
+this skill runs with cwd set to the consuming repo, where that path does not exist.
+
 **Announce:** "I'm using the coordinator:learn-lessons skill in `<mode>` mode." Mode default: cwd
 `~/.claude` central → `central`; else `local`; PM can override.
 
@@ -25,7 +30,7 @@ playbook, the Phase 8 report shape, and the heavy-queue promotion-sprint procedu
 - **Wikis are the default destination.** `doctrine-edit`/`memory-pointer` are doctrine-plane-only
   — a worker NEVER emits either; downgrade to `wiki-*` + `doe_escalation: true` before the record
   reaches the PM gate.
-- **Extraction never runs through an LLM** (`coordinator/bin/extract-lessons.py` — a parse, not a
+- **Extraction never runs through an LLM** (`extract-lessons` — a parse, not a
   judgment call; an LLM extraction pass produced a real fabrication incident). Routing judgment
   can, behind the verify gate.
 - **Mechanical-contract lessons need an executable witness** (a passing test, live tool behavior,
@@ -50,7 +55,7 @@ playbook, the Phase 8 report shape, and the heavy-queue promotion-sprint procedu
 
 ## Phase Flow (invocation pointers — mechanics: wiki)
 
-Discovery roots: `coordinator/bin/learn-lessons-roots.py` (machine-registry-derived, never a
+Discovery roots: `learn-lessons-roots` (machine-registry-derived, never a
 committed list). Baton lift source: batons joined to the plan under distillation by
 `deliverable_id`; each baton's `## What I Learned` section is a flat bullet list, one standalone
 lesson per line, no sub-headings and no nesting — that shape is fixed so a line survives being
@@ -69,7 +74,7 @@ age-sweep bounds `state/lessons/`: `learn-lessons-age-sweep cutoff` then `age-sw
 `coordinator-lesson-promote` (central-wiki target) / auto-apply (project-local wiki) /
 `coordinator-queue-append --schema improvement-queue` (project scope). Recheck-mode delta:
 `query-records --type lesson --since <date>`, cadence marker at `state/lesson-triage-recheck-due-
-<date>.md`, volume nudge via `coordinator/bin/central-run-due.py`.
+<date>.md`, volume nudge via `central-run-due`.
 
 Emit the Phase 8 end-of-run report (exempt from the ≤200-word budget — the run's only audit
 trail; do not convert to report-by-exception) before writing the `COMPLETE` sentinel; the sentinel

@@ -22,7 +22,7 @@ dispatch-and-spot-check; defer needs named evidence. Big items surface for your 
 
 ## Default Stance
 
-Dispatch, don't defer. Defer ONLY with cited evidence: `already-fixed` (SHA), `file-removed`,
+Dispatch, don't defer. Defer ONLY with cited evidence: `already-fixed` (ran it), `file-removed`,
 `big` (≥3 files / new module / schema change / new fixtures — "I'd need to think about it" isn't
 `big`), `plan-substrate-collision` (named file collision with an actively-rewriting plan).
 **NOT valid defer reasons — dispatch signals instead:** "summary-form"/"lacks standalone entry"
@@ -95,7 +95,8 @@ wrong-behavior/breaking-flow → P1), route by tier, emit counts.
 ## Phase 1 — Verify + Triage
 
 P1/P0 only; P2 skips to Phase 3. Per item: verify still-applies against HEAD
-(`still-open`/`already-fixed`/`pattern-changed`/`file-removed`), size-classify if open
+(`still-open`/`already-fixed`/`pattern-changed`/`file-removed`; `already-fixed` carries
+`evidence: ran|inspected` — the run's split count sums these), size-classify if open
 (`small` default / `big` / `needs-investigation` as a non-terminal flag), declare footprint,
 fan out summary-form rows. Never weaken a test assertion to green without evidence it was
 wrong — `BLOCKED: assertion-weakening-without-evidence`.
@@ -103,8 +104,12 @@ wrong — `BLOCKED: assertion-weakening-without-evidence`.
 **Pattern-shifted is a dispatch signal, not a defer reason** — a missing symbol at the cited line
 is usually the same bug with the symbol renamed or code reshuffled nearby, not a moved/resolved
 bug; re-grep the recommended-fix's central noun-phrase before treating it as deferral-eligible.
-Evidence bar: `file-removed` needs `ls` confirming absence, `already-fixed` needs a commit SHA —
-neither closes on "can't find it" alone. Output schema, worked examples: wiki.
+Evidence bar: `file-removed` needs `ls` confirming absence; `already-fixed` needs the failing case
+**run against HEAD** — a sha attests a write, never that this defect stopped reproducing. Where the
+artifact resolves through a published mirror, run what the resolver returns
+(`[[actioned-means-routed-not-fixed]]`). Tag each closure `ran` or `inspected` (pattern absent plus
+a sha) and report the counts separately — both close, but one number hides the weak ones. Neither
+closes on "can't find it" alone. Output schema, worked examples: wiki.
 
 ## Phase 2 — Plan Waves + Auto-Spinoffs
 
@@ -119,7 +124,13 @@ plan, fire Phase 3 immediately — no wait (2.5); `--dry-run` stops here. Full m
 
 **Single committer, no exceptions.** Executors edit-and-report only, never stage or commit. EM
 commits at the wave gate via `backlog-grind-assemble apply bug-blitz --wave-path <path>...
---granularity per-item --message <msg>` — one commit per item, never collapsed to `per-wave`.
+--granularity per-item --message <msg> --decisions
+'{"j-bug-blitz-commit-readiness": {"disposition": "ready-to-commit"}}'` — one commit per item,
+never collapsed to `per-wave`. **The judgment point is not optional and its value is an OBJECT.**
+Omit `--decisions` and the commit directive stays gated; pass the bare string
+`"ready-to-commit"` and older engines read it as a WITHHELD authorization and gate silently,
+reporting only `unresolved_judgment_points` with no shape complaint. Current engines widen the
+bare string, but write the object form — it is the one shape every version reads as authorized.
 Dispatch executors via the `executor-dispatch-prompt-template` directive; verify each DONE with a
 Haiku diff-reader (`PASS`/`PATTERN-STILL-PRESENT`/`FOOTPRINT-VIOLATION`/`REGRESSION`); commit PASS
 items in deterministic ID order after re-polling `$BLITZ_BRANCH`; `git checkout --` to revert
@@ -152,7 +163,9 @@ no-op. Clean scratch after the backlog commit succeeds. Full mechanics: wiki.
 ```
 
 Add `**Spun off (need plan):**` / `**Re-attempted (still blocked):**` / `**Suite gate:**` /
-`**Suite noise (not chased):**` only when non-empty. Never restore a run-id line, a silent
+`**Suite noise (not chased):**` / `**Closed already-fixed:** R ran / I inspected` only when
+non-empty — that last one splits by evidence rung because one number over two standards hides
+the weaker half from the reader, and from you. Never restore a run-id line, a silent
 already-fixed line, or a clean `Suite gate: PASS` line — their absence already means clean.
 
 ## Failure Modes, Stop-Early, Relationship to Other Commands

@@ -303,6 +303,12 @@ dispatch_tier:
   # scratch path it runs, and returns the baseline verdict as final message text, so it
   # can hold no sidecar. Absent from report_sidecar: accordingly.
   coordinator:exit-criterion-falsifier: exploration
+  # Holds Write, passing clause (1), but its own body declares no affirmative sidecar
+  # contract (no provisioned-home paragraph, no DONE:/done: <path> return, no
+  # inline-summary-is-task-failure prose) and its output — clearing one Group EM's
+  # pre-assembled memo triage brief — returns to the dispatching Group EM inline.
+  # Absent from report_sidecar:/report_type_map: accordingly.
+  coordinator:group-em-assistant: exploration
   # Holds Edit, so clause (1) passes. Clause (2)(c): its body hard-requires the
   # pre-provisioned sidecar (Edit only — "never `Write` a new file, never guess a
   # path") and its return is a bare `DONE: <sidecar-path> — <verdict>`, so the whole
@@ -485,6 +491,7 @@ contract_blocks:
     - sidecar-frontmatter-contract
     - persona-persisting-findings
     - context7-lazy-load-bootstrap
+    - subagent-messaging-constraints
   coordinator:staff-ux:
     - persona-dispatch-contract
     - docs-checker-consumption
@@ -713,6 +720,11 @@ contract_blocks:
     - quota-self-detect-preamble
   coordinator:drive-worker:
     - quota-self-detect-preamble
+  # Exploration tier, no sidecar (see dispatch_tier: above) — carries the one
+  # block its own body promises: the SendMessage-to-EM constraints shared with
+  # apm, injected rather than pasted per C1's correction.
+  coordinator:group-em-assistant:
+    - subagent-messaging-constraints
 
 # bash_policy:  dict[str, dict] — subagent_type -> a mapping describing that
 # subagent_type's allowed Bash surface. Sibling of report_sidecar: /

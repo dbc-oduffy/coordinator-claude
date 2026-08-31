@@ -5,6 +5,12 @@ pair coordinator-ensure-post-commit-hook / coordinator-ensure-prepare-commit-msg
 Exposes two entrypoint functions, each idempotent, self-healing, and always
 returning 0 (a session-boot / commit-time helper must never block).
 
+POST-COMMIT INSTALLER REMOVED (2026-08-30, C7 of docs/plans/2026-08-30-the-
+Cockpit-publish-rejoins-the-push-that-survived.md). `ensure_post_commit_hook`
+and its no-op-body machinery are gone — see the gravestone comment at their
+former location, above `ensure_prepare_commit_msg_hook`. The "via python,
+NEVER via bash" invariant below binds `ensure_prepare_commit_msg_hook` only.
+
 Load-bearing Windows change vs. the bash predecessors: the INSTALLED hook bodies
 these write into .git/hooks/ no longer depend on `bash`. A Windows box running git
 always has `sh` (Git-for-Windows / MinGit ship it — git itself runs hooks through
@@ -138,6 +144,36 @@ def _resolve_machine_local_bin(bin_dir: str) -> Optional[str]:
     return which("machine-local")
 
 
+#: Machine-local registry answers already read this process, keyed
+#: `(ml_bin, key)`. Holds negative results too — an unset key is an answer,
+#: and re-spawning to be told "unset" again costs the same as being told a
+#: value.
+#:
+#: Why a cache and not just a hoist: the reads are loop-invariant but the loop
+#: is a FLEET WALK, and the call sites are scattered across body generation
+#: (`_shim_body`, `_append_block`) and resolution (`_resolve_coord_bin`,
+#: `_resolve_claude_klabauter_bin_sh`) rather than gathered at the top. Hoisting would
+#: mean threading a resolved value through two public entrypoints and every
+#: body-template helper; caching the one primitive they all funnel through
+#: covers present and future callers alike.
+#:
+#: Measured 2026-08-31, `_read_hook_currency` over 19 registered repos:
+#: 36 spawns, 1.906s process time. One `machine-local get` is 0.606s wall /
+#: 0.172s cpu, and 35 of the 36 asked for `repos.claude_klabauter` — the same
+#: key, the same answer, 35 times. This is what kept `orient-assemble brief`
+#: over the door's 40s ceiling; removing the fleet REPAIR did not touch it,
+#: because the cost was always the walk rather than the write.
+#:
+#: Staleness, named rather than hidden: process-lifetime, and the warm engine
+#: is long-lived, so a registry edit made after a read is not seen until the
+#: engine restarts. Accepted because the registry is install-time
+#: configuration and because `_ml_get` is already best-effort by contract
+#: (15s timeout, any failure yields None, callers must handle None). Bust it
+#: with `_ML_GET_CACHE.clear()` if a caller ever re-points the registry
+#: in-process; nothing does today.
+_ML_GET_CACHE: dict = {}
+
+
 def _ml_get(ml_bin: Optional[str], key: str) -> Optional[str]:
     """Best-effort `machine-local get <key>` — returns stripped stdout, or None
     on any failure (missing binary, missing key, timeout, non-zero exit).
@@ -156,6 +192,9 @@ def _ml_get(ml_bin: Optional[str], key: str) -> Optional[str]:
     on the session-boot / hook-install path and must never block."""
     if not ml_bin:
         return None
+    cache_key = (ml_bin, key)
+    if cache_key in _ML_GET_CACHE:
+        return _ML_GET_CACHE[cache_key]
     try:
         out = subprocess.run(
             [*resolve_launchable(ml_bin), "get", key],
@@ -165,7 +204,11 @@ def _ml_get(ml_bin: Optional[str], key: str) -> Optional[str]:
             **no_console_creationflags(),
         )
         val = (out.stdout or "").strip()
-        return val or None
+        # Cached on the CLEAN-EXIT path only. A failure below is a broken
+        # resolver or a timeout, not an answer about the key, and caching it
+        # would pin one bad moment for the life of the process.
+        _ML_GET_CACHE[cache_key] = val or None
+        return _ML_GET_CACHE[cache_key]
     except OSError as exc:
         print(
             f"[git_hook_install] WARNING: could not execute machine-local "
@@ -376,7 +419,18 @@ def _resolve_claude_klabauter_bin_sh(bin_dir: str, script_name: str) -> Optional
 # APPLIED`, distinct from post-commit's) -- an already-installed
 # prepare-commit-msg hook from generation 6 has no sentinel line at all and
 # must be recognized as stale for the same reason generation 5 was.
-_HOOK_GEN_STAMP = 10
+#
+# Bumped to 11 (2026-08-30, C7 of docs/plans/2026-08-30-who-pushes-and-
+# when.md): `ensure_post_commit_hook` no longer bakes an invocation of
+# `coordinator-auto-push` at all -- see that function's own docstring. Every
+# installed post-commit hook body predates this change and still `exec`s a
+# Python interpreter to push; without the bump `_ensure_hook`'s currency
+# check would certify those bodies "already-current" forever (same failure
+# class the stamp itself exists to close, see the paragraph above), leaving
+# the fleet pushing indefinitely. The bump forces one rewrite pass over
+# every installed repo, on the next self-heal or session-boot install call,
+# to the new no-op body.
+_HOOK_GEN_STAMP = 11
 
 
 def _hook_gen_stamp_line() -> str:
@@ -425,20 +479,17 @@ def _shim_body(
     chunk-id subject, and such a session sets one of these vars by definition.
 
     `invoke_line` is the final line that runs the resolved target via "$_PY" —
-    both hooks now `exec` synchronously at the shell level; any async self-detach
-    (post-commit's coordinator-auto-push) is owned by the invoked Python, not the shim.
+    the hook `exec`s synchronously at the shell level.
 
     `skip_env`, when supplied, names an environment variable whose presence
     (set AND non-empty) means the caller is publishing this commit itself —
     the shim exits 0 immediately, AHEAD of `baked_python_lines`' interpreter
     probe, so a sole-publisher commit pays zero interpreter-resolution cost.
-    Per-hook, not global: `ensure_post_commit_hook` is the only caller passing
-    this in this chunk (`COORDINATOR_AUTO_PUSH_SUPPRESS_FOR_SYNC_PUSH`, already
-    set on every engine sync/never commit by `git_native._sole_publisher_env`
-    — no new mechanism). Fail-open (the whole safety story): absent or empty,
-    the guard line is not even emitted, and the full body runs unchanged.
-    Never generalize this into a "skip all hooks" flag — that is the
-    hooksPath redirect wearing a disguise.
+    Per-hook, not global: `ensure_prepare_commit_msg_hook` passes its own
+    (`COORDINATOR_TRAILERS_ALREADY_APPLIED`). Fail-open (the whole safety
+    story): absent or empty, the guard line is not even emitted, and the
+    full body runs unchanged. Never generalize this into a "skip all hooks"
+    flag — that is the hooksPath redirect wearing a disguise.
 
     The shell fallback chain (settings-home forwarder → baked SCRIPT →
     .doe-root pointer → engine-repo-bin candidate → marketplace) means
@@ -566,8 +617,16 @@ def _shim_body(
         # `baton-assemble apply`.
         # Pure parameter expansion, never `cygpath` in a subshell: this runs on
         # every commit, and a spawn here is a DR-344 cost the hook must not pay.
-        # /c/Users/... -> C:/Users/... ; the MSYS single-letter drive form is the
+        # /c/Users/... -> c:/Users/... ; the MSYS single-letter drive form is the
         # only shape $HOME or $COORDINATOR_SETTINGS_HOME ever takes here.
+        # LOWERCASE `c:` -- this line read "-> C:/Users/..." until 2026-08-31
+        # and was wrong. The expansion relocates the drive letter, it does not
+        # upcase it. Harmless (Windows drive letters are case-insensitive, so
+        # the native python.exe resolves either), but corrected because a
+        # reader who trusts the wording writes a test asserting `C:` and
+        # watches it fail against a fix that works -- which is exactly what
+        # happened while `test_append_block_msys_normalisation_actually_
+        # transforms_the_path` was being written.
         'case "$SCRIPT" in /?/*) _sd="${SCRIPT#/}"; '
         'SCRIPT="${_sd%%/*}:/${_sd#*/}" ;; esac\n'
         f"{invoke_line}\n"
@@ -626,6 +685,15 @@ def _append_block(
     start_marker, _end_marker = _append_markers(header)
     return (
         f"\n{start_marker}\n"
+        # CURRENCY STAMP, inside our own markers. Without it, an installed
+        # append block was never refreshed: `_ensure_hook` saw both markers and
+        # returned `left-append-form` unconditionally, so a repo on the append
+        # path kept whatever body it was installed with forever and every later
+        # fix reached only repos that had no block yet. The whole-file branch has
+        # had this predicate all along; this leg simply never grew one. Emitted
+        # as a `#` comment so it is inert to `sh` inside a foreign hook, and
+        # compared -- never parsed -- by `_ensure_hook`.
+        f"{_hook_gen_stamp_line()}\n"
         # `_have_py`, not `[ -f ]`, on every rung below — see `_shim_body`'s
         # WINDOWS TRAP comment for the MSYS `.exe`-sibling mechanism. Emitted
         # here rather than shared: an append block lands inside a foreign hook
@@ -657,6 +725,23 @@ def _append_block(
         '[ -n "$_PY" ] || echo "[coordinator] WARNING: hook installed but no '
         'python3/python/py interpreter found on PATH — commits are NOT being '
         'auto-pushed / annotated by this hook" 1>&2; '
+        # MSYS drive-letter normalisation on `$_T`, mirroring `_shim_body`'s
+        # identical expansion on `$SCRIPT` — see its WINDOWS TRAP comment for
+        # the full mechanism. Every rung above resolves `_T` under git's MSYS
+        # `sh`, which reads /c/Users/... happily; `{invoke_expr}` then hands
+        # that same string to a NATIVE python.exe, which has no /c mount and
+        # takes the leading slash as repo-relative. The rung passes its own
+        # existence test and execs a path rooted at the repo drive.
+        # `_shim_body` has carried this fix since the memo that reported it;
+        # this leg did not, and the two emitters' own docstrings say they must
+        # change together (pinned by
+        # `test_both_hook_emitters_normalise_msys_drive_letters`).
+        # Scratch var is `_td`, not `_shim_body`'s `_sd`: an append block lands
+        # inside a foreign hook and must not collide with names above it.
+        # Pure parameter expansion, never `cygpath` — this runs on every
+        # commit, and a spawn here is a DR-344 cost the hook must not pay.
+        'case "$_T" in /?/*) _td="${_T#/}"; '
+        '_T="${_td%%/*}:/${_td#*/}" ;; esac; '
         f'[ -n "$_PY" ] && _have_py "$_T" && {invoke_expr}; fi; }}'
     )
 
@@ -716,12 +801,58 @@ def _has_line(text: str, exact_line: str) -> bool:
     return any(line.strip() == exact_line for line in text.splitlines())
 
 
+def _block_extent(text: str, start_marker: str, end_marker: str):
+    """Line indices `(start, end)` of the marker-delimited block, or None.
+
+    Exact-line matching, same predicate as `_has_line` -- a marker mentioned
+    inside a string or a longer comment is not a marker.
+
+    Returns None on every shape this cannot identify UNAMBIGUOUSLY, and that is
+    the point rather than a limitation: this function's caller is about to
+    rewrite bytes inside a hook file somebody else owns, and `_ensure_hook`'s
+    own docstring is emphatic about refusing rather than guessing. A repeated
+    start marker (two installs racing, or a hand-edit), an end marker that
+    precedes its start, or either marker missing all yield None, and the caller
+    leaves the file untouched and says so.
+    """
+    lines = text.splitlines()
+    starts = [i for i, ln in enumerate(lines) if ln.strip() == start_marker]
+    ends = [i for i, ln in enumerate(lines) if ln.strip() == end_marker]
+    if len(starts) != 1 or len(ends) != 1:
+        return None
+    if ends[0] < starts[0]:
+        return None
+    return starts[0], ends[0]
+
+
+def _replace_block(text: str, start: int, end: int, block: str) -> str:
+    """Splice `block` over lines [start, end] of `text`, preserving everything
+    outside that range byte-for-byte.
+
+    Everything above the block is a foreign hook's own content and everything
+    below it may be too (our block is not necessarily last on the chain), so
+    neither side is regenerated, reordered, or re-indented -- only the extent
+    `_block_extent` positively identified is replaced. `block` is
+    `_ensure_hook`'s `append_block` argument, which carries its own leading
+    newline for the append path; that blank separator already exists in the
+    installed file here, so it is stripped rather than accumulating one blank
+    line per refresh.
+    """
+    lines = text.splitlines(keepends=True)
+    trailing_newline = text.endswith("\n")
+    replacement = block.lstrip("\n").rstrip("\n") + "\n"
+    out = "".join(lines[:start]) + replacement + "".join(lines[end + 1:])
+    if trailing_newline and not out.endswith("\n"):
+        out += "\n"
+    return out
+
+
 def _git_root() -> Optional[str]:
     """Resolve the cwd's repo root via the checked resolver
     (`repo_identity.resolve_checked_repo_root`).
 
     Classification: READER (AC10). This is a self-heal default (`root=None`
-    in `ensure_post_commit_hook`/`ensure_prepare_commit_msg_hook`/`_ensure_hook`)
+    in `ensure_prepare_commit_msg_hook`/`_ensure_hook`)
     that installs/repairs a hook into whichever repo the resolved root names —
     a hook installer "must never fail loudly enough to block a commit" (see
     this module's own docstring), so on MISMATCH — positive evidence the cwd
@@ -753,6 +884,8 @@ def _ensure_hook(
     header: str,
     root: Optional[str] = None,
     outcome: Optional[List[str]] = None,
+    *,
+    check_only: bool = False,
 ) -> int:
     """Idempotent install/repair of a single git hook. Always returns 0.
 
@@ -763,10 +896,19 @@ def _ensure_hook(
     the one it is running inside; see `ensure_hooks_fleet` for why that
     matters.
 
+    `check_only`: keyword-only, default False (byte-identical behaviour to
+    every existing caller). When True, this function reaches the SAME
+    classification via the SAME code path (`_hook_gen_stamp_line()`, the one
+    currency predicate) and returns it via `outcome` without performing the
+    write (`_atomic_write`/`_chmod_x`) that classification would otherwise
+    trigger. One predicate, two behaviours — see C1 of
+    docs/plans/2026-08-31-orient-assemble-stops-running-a-fleet-re.md.
+
     `outcome`: optional out-param. When supplied, exactly one classification
     string is appended describing what this call actually DID —
     `installed-absent`, `rewritten-stale`, `appended`, `already-current`,
-    `left-append-form`, `left-legacy-append-form`, `skipped-no-root`, or
+    `refreshed-append-form`, `left-append-form`, `left-legacy-append-form`,
+    `skipped-no-root`, or
     `skipped-no-helper`. Deliberately an out-param rather than a changed
     return type: this function's `-> int` is a process exit code consumed by
     two entrypoints and a hook installer must never fail loudly enough to
@@ -829,15 +971,42 @@ def _ensure_hook(
         # Broken coordinator install — not this helper's to diagnose. Still
         # classified rather than silently 0: on the fleet path this is the
         # difference between "that repo is fine" and "we could not even try".
+        #
+        # Loud stderr WARNING (2026-08-31, P1 item (b) of state/bug-backlog/
+        # 2026-08-14-a-prepare-commit-msg-outage-permanently-07d3a77f3d56.yaml):
+        # this same `_resolve_coord_bin`/`_helper_present` probe is the ONLY
+        # check standing between "target script present" and "target script
+        # deleted from disk", and it runs on every call BEFORE the installed
+        # hook's own generation-stamp currency is even read — so it already
+        # catches the "shim body says current, but its target is gone" case
+        # as a strict subset of "no fresh candidate resolves". The gap was
+        # never detection, it was silence: the single-repo entrypoint
+        # (coordinator-ensure-prepare-commit-msg-hook.py) calls this function
+        # without collecting `outcome`, so `skipped-no-helper` used to return
+        # bare 0 with nothing printed anywhere — a re-run "self-healed"
+        # nothing and said nothing, forever. Printing here (independent of
+        # whether the caller collects `outcome`) is what actually surfaces
+        # the missing-target state on the session-boot self-heal path, not
+        # only on the fleet driver's aggregated report.
+        print(
+            f"[git_hook_install] WARNING: {hook_name} target '{script_name}' "
+            f"not found under resolved bin dir '{coord_bin}' — hook "
+            "install/repair skipped this run. If a hook is already installed "
+            "here, it is UNCHANGED and may still be pointing at a script "
+            "that no longer exists on disk; commits may silently stop being "
+            "pushed / annotated until the target is restored.",
+            file=sys.stderr,
+        )
         return _note("skipped-no-helper")
 
     hook_path = os.path.join(root, ".git", "hooks", hook_name)
 
     # Hook absent → install canonical bash-free shim.
     if not os.path.exists(hook_path):
-        os.makedirs(os.path.dirname(hook_path), exist_ok=True)
-        _atomic_write(hook_path, fresh_body)
-        _chmod_x(hook_path)
+        if not check_only:
+            os.makedirs(os.path.dirname(hook_path), exist_ok=True)
+            _atomic_write(hook_path, fresh_body)
+            _chmod_x(hook_path)
         return _note("installed-absent")
 
     body = _read(hook_path)
@@ -856,10 +1025,41 @@ def _ensure_hook(
                 "block by hand to pick up current fixes.",
                 file=sys.stderr,
             )
-            _chmod_x(hook_path)
+            if not check_only:
+                _chmod_x(hook_path)
             return _note("left-legacy-append-form")
-        _chmod_x(hook_path)
-        return _note("left-append-form")
+        # Modern append form (both markers present, so the extent is
+        # positively identifiable). Currency is decided by the SAME predicate
+        # the whole-file branch uses -- `_hook_gen_stamp_line()` -- not by
+        # byte-comparing the generated block: the block interpolates a baked
+        # interpreter path that legitimately differs between machines and
+        # resolutions, and comparing it would rewrite a foreign hook on churn
+        # rather than on drift.
+        extent = _block_extent(body, start_marker, end_marker)
+        if extent is None:
+            print(
+                f"[git_hook_install] WARNING: {hook_path} carries a coordinator "
+                f"append block whose extent is ambiguous (repeated or "
+                f"out-of-order '{start_marker}' / '{end_marker}' lines) — "
+                "leaving it untouched. Repair the markers by hand to pick up "
+                "current fixes.",
+                file=sys.stderr,
+            )
+            if not check_only:
+                _chmod_x(hook_path)
+            return _note("left-append-form")
+        start_idx, end_idx = extent
+        installed = "".join(body.splitlines(keepends=True)[start_idx:end_idx + 1])
+        if _has_line(installed, _hook_gen_stamp_line()):
+            if not check_only:
+                _chmod_x(hook_path)
+            return _note("already-current")
+        if not check_only:
+            _atomic_write(
+                hook_path, _replace_block(body, start_idx, end_idx, append_block)
+            )
+            _chmod_x(hook_path)
+        return _note("refreshed-append-form")
 
     if _marker_in_noncomment(body, marker):
         # Whole-file shim host (current, or a historical stale shape —
@@ -869,16 +1069,19 @@ def _ensure_hook(
         # wholesale rewrite here can only ever replace content WE generated.
         first_line = body.splitlines()[0] if body else ""
         if first_line == "#!/bin/sh" and _has_line(body, _hook_gen_stamp_line()):
-            _chmod_x(hook_path)
+            if not check_only:
+                _chmod_x(hook_path)
             return _note("already-current")
         # Stale shim form → rewrite atomically to current bash-free form.
-        _atomic_write(hook_path, fresh_body)
-        _chmod_x(hook_path)
+        if not check_only:
+            _atomic_write(hook_path, fresh_body)
+            _chmod_x(hook_path)
         return _note("rewritten-stale")
 
     # Marker absent (or only in a comment) → append, preserving the existing chain.
-    _atomic_write(hook_path, body + append_block + "\n")
-    _chmod_x(hook_path)
+    if not check_only:
+        _atomic_write(hook_path, body + append_block + "\n")
+        _chmod_x(hook_path)
     return _note("appended")
 
 
@@ -886,68 +1089,33 @@ def _ensure_hook(
 # Public entrypoints.
 # ---------------------------------------------------------------------------
 
-def ensure_post_commit_hook(
-    bin_dir: str,
-    root: Optional[str] = None,
-    outcome: Optional[List[str]] = None,
-) -> int:
-    """Install/repair .git/hooks/post-commit → execs coordinator-auto-push directly.
-
-    Synchronous exec, not backgrounded at the shell level: coordinator-auto-push
-    (the Python trampoline into the engine repo's auto_push.py) self-detaches internally
-    (os.fork() on POSIX, detached Popen respawn on Windows) when async is wanted,
-    so the shim never needs shell-level `nohup … &`.
-
-    `root`/`outcome` are pass-throughs to `_ensure_hook` — see its docstring.
-    Both default to the pre-fleet behaviour (install into cwd's repo, report
-    nothing but an exit code).
-    """
-    if root is None:
-        root = _git_root()
-    if not root:
-        if outcome is not None:
-            outcome.append("skipped-no-root")
-        return 0
-    coord_bin = _resolve_coord_bin(bin_dir, "coordinator-auto-push")
-    script = "coordinator-auto-push"
-    header = "coordinator auto-push (crash insurance)"
-    invoke = 'exec "$_PY" "$SCRIPT" "$@"'
-    fresh = _shim_body(
-        coord_bin,
-        script,
-        invoke,
-        bin_dir=bin_dir,
-        skip_env="COORDINATOR_AUTO_PUSH_SUPPRESS_FOR_SYNC_PUSH",
-    )
-    _start_marker, end_marker = _append_markers(header)
-    append = _append_block(
-        coord_bin,
-        script,
-        header,
-        '"$_PY" "$_T" "$@"',
-        bin_dir=bin_dir,
-    ) + f" || true\n{end_marker}"
-    return _ensure_hook(
-        bin_dir,
-        hook_name="post-commit",
-        script_name=script,
-        marker=script,
-        fresh_body=fresh,
-        append_block=append,
-        header=header,
-        root=root,
-        outcome=outcome,
-    )
+# GRAVESTONE (2026-08-30, C7 of docs/plans/2026-08-30-the-cockpit-publish-
+# rejoins-the-push-that-survived.md): `ensure_post_commit_hook`,
+# `_post_commit_noop_body`, `_post_commit_append_block`, and
+# `_POST_COMMIT_NOOP_MARKER` (plus the fleet-driver row that called the
+# installer) are deleted. They existed only to install/self-heal a
+# permanent `#!/bin/sh` no-op body whose sole job was overwriting any
+# still-pushing shim installed on a box that had not yet turned over. PM
+# ruling on that date: this is the only box, and a direct check found no
+# installed post-commit hook anywhere left in the pushing form — the
+# overwrite target no longer exists, so the horizon is zero. The
+# `.git/hooks/post-commit` files already installed on this box are inert
+# (`exit 0`, no invocation of anything) and are left in place; only the
+# installer that maintained them is gone.
 
 
 def ensure_prepare_commit_msg_hook(
     bin_dir: str,
     root: Optional[str] = None,
     outcome: Optional[List[str]] = None,
+    *,
+    check_only: bool = False,
 ) -> int:
     """Install/repair .git/hooks/prepare-commit-msg → synchronous coordinator-prepare-commit-msg.
 
     `root`/`outcome` are pass-throughs to `_ensure_hook` — see its docstring.
+    `check_only` is a pass-through too: default False is byte-identical to
+    every existing caller.
     """
     if root is None:
         root = _git_root()
@@ -960,23 +1128,17 @@ def ensure_prepare_commit_msg_hook(
     header = "coordinator Session-Id trailer injection"
     invoke = 'exec "$_PY" "$SCRIPT" "$@"'
     # C2 (docs/dispatch-briefs/2026-08-25-the-engine-commits-without-re-
-    # entering-itself/C2.md): a DIFFERENT `skip_env` value from
-    # `ensure_post_commit_hook`'s `COORDINATOR_AUTO_PUSH_SUPPRESS_FOR_SYNC_
-    # PUSH` (AC11 pins the emitted body carries no reference to that other
-    # var) -- set ONLY by `git_native._trailer_sentinel_env()`, ONLY
-    # immediately after `_apply_trailers` returns with no error on
-    # `commit_scoped`'s agree branch. See that function's own docstring for
-    # why nowhere else may set it.
+    # entering-itself/C2.md): `skip_env` here is set ONLY by
+    # `git_native._trailer_sentinel_env()`, ONLY immediately after
+    # `_apply_trailers` returns with no error on `commit_scoped`'s agree
+    # branch. See that function's own docstring for why nowhere else may
+    # set it.
     fresh = _shim_body(
         coord_bin,
         script,
         invoke,
         bin_dir=bin_dir,
         skip_env="COORDINATOR_TRAILERS_ALREADY_APPLIED",
-        # The no-session backstop. NOT passed by `ensure_post_commit_hook`:
-        # auto-push is the SOLE PUBLISHER on a non-engine commit and must run
-        # precisely when no session exists, so the same gate there would
-        # silently stop pushing the commits most in need of it.
         skip_if_all_unset=SESSION_ENV_PRECEDENCE,
     )
     _start_marker, end_marker = _append_markers(header)
@@ -997,6 +1159,7 @@ def ensure_prepare_commit_msg_hook(
         header=header,
         root=root,
         outcome=outcome,
+        check_only=check_only,
     )
 
 
@@ -1008,7 +1171,13 @@ def ensure_prepare_commit_msg_hook(
 #: the fleet report must never swallow. `already-current` is the silent case;
 #: the two `left-*-append-form` states are neither drift nor repair (a foreign
 #: hook chain we deliberately refuse to touch) and are reported separately.
-_HEALED_OUTCOMES = frozenset({"installed-absent", "rewritten-stale", "appended"})
+#: `refreshed-append-form` joins this set for the reason the set exists: it is
+#: a repo that was carrying a stale body and just got a current one. It is NOT
+#: a `left-*` state -- those mean "a foreign chain we deliberately did not
+#: touch", and a refresh is the opposite of not touching.
+_HEALED_OUTCOMES = frozenset(
+    {"installed-absent", "rewritten-stale", "appended", "refreshed-append-form"}
+)
 
 #: `repos.*` keys whose value is a CONTAINER of repos rather than a repo. They
 #: share the `repos.` prefix but not its semantics, so the heal sweep must not
@@ -1096,9 +1265,21 @@ def _is_coordinator_worktree(root: str) -> bool:
     )
 
 
-def ensure_hooks_fleet(bin_dir: str) -> int:
-    """Install/repair both coordinator hooks in EVERY registered repo, and say
-    what changed. Always returns 0.
+def ensure_hooks_fleet(bin_dir: str, *, check_only: bool = False) -> int:
+    """Install/repair the coordinator prepare-commit-msg hook in EVERY
+    registered repo, and say what changed. Always returns 0 — that is true
+    in BOTH forms; `check_only` changes what is written to disk, never this
+    function's own return contract (see `_ensure_hook`'s own `check_only`
+    docstring for the exit-code signal that actually distinguishes clean
+    from dirty, which lives one layer up in `cmd_hook_currency`).
+
+    `check_only`: keyword-only, default False (byte-identical to every
+    existing caller). When True, every classification below is reached via
+    the exact same walk and the exact same `_ensure_hook`/currency
+    predicate — only the write is skipped (threaded through
+    `ensure_prepare_commit_msg_hook`). The `healed`/`missing` stderr report
+    is unchanged in shape: at `check_only=True` it names what WOULD be
+    repaired, not what was.
 
     The defect this closes (2026-08-08): the per-day self-heal added to
     `/workday-start` — itself the replacement for the boot hook killed by the
@@ -1144,10 +1325,9 @@ def ensure_hooks_fleet(bin_dir: str) -> int:
             continue
         for label, fn in (
             ("prepare-commit-msg", ensure_prepare_commit_msg_hook),
-            ("post-commit", ensure_post_commit_hook),
         ):
             states: List[str] = []
-            fn(bin_dir, root=root, outcome=states)
+            fn(bin_dir, root=root, outcome=states, check_only=check_only)
             state = states[0] if states else "unknown"
             if state in _HEALED_OUTCOMES:
                 healed.append(f"{key} {label}: {state}")

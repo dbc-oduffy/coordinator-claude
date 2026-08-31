@@ -14,7 +14,7 @@ literally.
 
 ## The Default: Scoped Commit Form
 
-**The trailing pathspec is not the scope guarantee — it is a cheap proxy for one, and the proxy is only valid while the index and the worktree agree on those paths (per SC-DR-015).** When they agree — the common case, you edited, you staged, nothing else changed those paths — `git add -- <paths> && git commit -m "<subject>" -- <paths>` is the default for scoped commits (per SC-DR-008). When you deliberately staged something the worktree does not match (partial-hunk staging, `git apply --cached`, a private `GIT_INDEX_FILE`), the trailing pathspec destroys your staging silently — **and a bare pathspec-less commit against the shared index is not the fix either** (that horn absorbs whatever a peer staged in the meantime; see SC-DR-015 below). Use `ceremony.scoped_git_commit` (the coordinator engine's op) — it selects the mechanism from the index/worktree state so you don't have to classify the horn yourself — or the private-index recipe at § SC-DR-015 if the op isn't reachable. See § SC-DR-015 for the full ruling. `coordinator-safe-commit` is reserved for the authorized sites below.
+**The trailing pathspec is not the scope guarantee — it is a cheap proxy for one, and the proxy is only valid while the index and the worktree agree on those paths (per SC-DR-015).** When they agree — the common case, you edited, you staged, nothing else changed those paths — `git add -- <paths> && git commit -m "<subject>" -- <paths>` is the default for scoped commits (per SC-DR-008). When you deliberately staged something the worktree does not match (partial-hunk staging, `git apply --cached`, a private `GIT_INDEX_FILE`), the trailing pathspec destroys your staging silently — **and a bare pathspec-less commit against the shared index is not the fix either** (that horn absorbs whatever a peer staged in the meantime; see SC-DR-015 below). Use `ceremony.commit_v2` (`coordinator_core/git/commit.py` :: `commit_paths`) — it builds the commit's tree from the paths you name rather than reading the shared index, so there is no horn to classify — or the private-index recipe at § SC-DR-015 if the op isn't reachable. `ceremony.scoped_git_commit` is deleted; a plain `git commit` is NOT its fallback, and for a dispatched agent it is hard-denied by caller identity. See § SC-DR-015 for the full ruling. `coordinator-safe-commit` is reserved for the authorized sites below.
 
 **Structural floor (per SC-DR-014):** `block-blanket-git-add.sh` (folded into the coordinator engine's `coordinator_core.bash_guards` via `preuse-bash-dispatch.py`; the old shell-script version removed) (BLOCK-BLANKET-GIT-ADD tripwire) hard-denies `git add -A` / `git add .` / `git add -u` and bundled blanket-flag forms when cwd is the Claude Code meta-repo. The hook bypasses the Phase-5 warn-first soak gate (SC-DR-003) under the unambiguous-command-class carve-out — literal pattern-match, no per-session state, zero legitimate in-repo uses outside the override paths. Helper's `--blanket`/`--override` paths use `_COORDINATOR_SAFE_COMMIT_INTERNAL_BLANKET=1` to bypass; emergency callers use `COORDINATOR_OVERRIDE_BLANKET_ADD=1` (env-only, NOT inline prefix). Also: `coordinator-safe-commit` defaults to `--expected-owner em-only` when no ownership flag and no `--expected-branch` is passed — a defence-in-depth gate against executor self-commit on executors that forget the no-commit rule. See SC-DR-014 below.
 
@@ -78,9 +78,9 @@ The session directory is created on first touch (or at `/workstream-start`). It 
 │   └── meta.json           # session goal, branch, last-activity, PID
 ```
 
-**Bash tool calls are not tracked by the hook.** Parsing arbitrary shell for write effects is unsound — heredocs, xargs, redirections in subshells, scripts invoking scripts. This is intentional; the hook does not maintain a regex catalog of Bash write patterns. **Nothing detects a Bash write in its place** — always-on adoption of unclaimed dirt is retired (§ Component 2), so the gap is total, named, and closes only at an operator's explicit pathspec (SC-DR-022).
+**Bash tool calls are tracked only where the caller's own command text names the path it writes.** A write sink the command literally names — a `>`/`>>` redirect, `tee`, `sed -i`, a `cp`/`mv`/`git mv` destination, an `open(..., "w")` inside a heredoc payload — records a claim like any Edit/Write. A write the command does not name — a script computing its target at runtime, a path arriving through `xargs`, a nested script's own writes — records nothing, and that residue is **enumerated pre-commit in the `unclaimed` bucket** (§ Component 2), never silently absorbed. Coverage is deliberately partial and under-claiming: extraction never guesses a path the command does not state, so it cannot reach a peer's file. **A shape the extractor misses is an ordinary coverage bug against that named list, not a reopening of this rule.**
 
-**Negative-spec — this exclusion is about PARSING, never about attribution.** SC-DR-001 rejected shell-parsing on static-analysis grounds alone (see Decision Records). It does not license the inverse reading that some *other* write-time detector would be admissible if only it avoided parsing: no write-time detector attributes soundly either, because a post-hoc mtime or `git status` delta bracketing a Bash call cannot distinguish "my Bash wrote this" from "a live peer wrote it during my Bash call." **The architecture never attributes Bash writes at write time and does not need to** — detection is session-local and post-hoc; *attribution is resolved at read time, by subtraction, biased safe* (Component 2: mtime is included only where no other active session claims the path; Component 3's Foreign-set subtract; `:146`'s named residual). Any future proposal to close a Bash-write gap belongs at the read-time projection, not at the hook matcher.
+**Negative-spec — the admitted mechanism is EXTRACTION from the caller's own command; the banned one is ATTRIBUTION by timing.** The line is which question the mechanism has to answer. Reading a path out of the command text answers none — the command is the calling session's own by construction, so a target it names is that session's write, with no race and no peer to mis-claim. A post-hoc mtime scan or a `git status` delta bracketing a Bash call answers "who wrote this in that window," and on a tree with a dozen concurrent sessions it cannot distinguish "my Bash wrote this" from "a live peer wrote it during my Bash call." **That ban is unconditional and is not softened by anything above** — no timing-derived detector is admissible, however cheap or however narrow its window. Where extraction is silent, *attribution is still resolved at read time, by subtraction, biased safe* (Component 2's `unclaimed` enumeration; Component 3's Foreign-set subtract; `:146`'s named residual). A proposal to widen Bash-write coverage belongs at the extractor's shape list or at the read-time projection — never at a clock.
 
 **Release events (ratified by a sibling-repo decision).** `touched.txt` is a record of *currently-claimed* work, not a durable history, so a session may release a path it has committed clean. Release is an **append**, never a deletion: deletion needs read-modify-write on a file whose lock-free append discipline exists to forbid exactly that. `T <path>` claims, `R <path>` releases, last event wins per path, a bare line is a legacy `T`. Every reader therefore needs a last-event-wins projection, not a bare line set. **Confirmed against the engine writer** (`coordinator_core/ops/session/scope.py` — `compute_scope` folds through `parse_touch_event`; `project_self_scope` and `project_peer_claims` both project last-event-wins rather than pruning): a reader that greps for a path and stops at the first hit reads a released path as still held.
 
@@ -131,7 +131,7 @@ This prevents `--blanket` from becoming `git add -A` by another name. `update-do
 
 Motivated by TWO distinct failure shapes: (1) a session ran `git add -- <path>` then a **bare** `git commit`, twice — the bare commit inherited the whole shared index and swept a peer session's staged work into a commit describing something else; (2) the larger concern — some sessions finish their work while forgetting to commit at all, which is real data loss on a machine failure, not just misattribution. A hard deny was rejected as the fix (too blunt a salve), and an initial offer-with-one-confirmation design was rejected too — being asked whether to commit was itself the defect. Run it and report the outcome after the fact, with no confirmation gate.
 
-`session.safe_commit_offer` is a registered engine op (scope `"none"` — identity is not taken from the environment), dialed via `coordinator-invoke session.safe_commit_offer '{"cwd": "<repo>", "session_id": "<caller's id>", "message": "<subject>"}'`, never a bareword. The payload is one positional JSON string; a `k=v` argument list does not parse, and `--repo` is refused outright on a scope-`"none"` op (`-32603`, DR-279). **Every caller passes both `cwd` and `session_id`.** `cwd` selects which tree is scanned; it does NOT establish identity. The op refuses outright — `caller identity could not be established` — when neither an explicit `params.session_id` nor an identity carried on the wire is present, rather than degrading to the environment of whoever spawned the warm server. Degrading to ambient identity is a defensible fail-safe for a READ; on a commit it is not a degrade but a misattribution of someone else's work, which on a MUTATING no-confirmation op is the worst available failure mode. It computes this session's safe pathspec — the same `MY_SCOPE` computation Component 3 uses (`compute_scope()`, with a dispatched sub-agent's touched-files union added in as an additional candidate set, `"exact"` mode only, never `"broadened"` — see the engine module's own docstring for why: `"broadened"` returns an identical candidate union for every concurrent session, empirically confirmed, which would hand a live peer's files to whichever session's stop-event fires first under an UNATTENDED committer) — and then **commits and pushes it, with no confirmation step of any kind.** Push reuses `ceremony.scoped_git_commit`'s own push-with-retry (Component 3's `scoped-git-commit`) — not a second push path. It returns what it committed (paths, sha, push state) and what it excluded and why (`owned by session <id>` / `untouched by this session`) in its `rendered` field — echoed AFTER the fact, never as a gate before it. An empty result is a valid "nothing to commit" outcome, not a failure. `/handoff`'s § Safe-Commit Auto-Commit step is the consumer.
+`session.safe_commit_offer` is a registered engine op (scope `"none"` — identity is not taken from the environment), dialed via `coordinator-invoke session.safe_commit_offer '{"cwd": "<repo>", "session_id": "<caller's id>", "message": "<subject>"}'`, never a bareword. The payload is one positional JSON string; a `k=v` argument list does not parse, and `--repo` is refused outright on a scope-`"none"` op (`-32603`, DR-279). **Every caller passes both `cwd` and `session_id`.** `cwd` selects which tree is scanned; it does NOT establish identity. The op refuses outright — `caller identity could not be established` — when neither an explicit `params.session_id` nor an identity carried on the wire is present, rather than degrading to the environment of whoever spawned the warm server. Degrading to ambient identity is a defensible fail-safe for a READ; on a commit it is not a degrade but a misattribution of someone else's work, which on a MUTATING no-confirmation op is the worst available failure mode. It computes this session's safe pathspec — the same `MY_SCOPE` computation Component 3 uses (`compute_scope()`, with a dispatched sub-agent's touched-files union added in as an additional candidate set, `"exact"` mode only, never `"broadened"` — see the engine module's own docstring for why: `"broadened"` returns an identical candidate union for every concurrent session, empirically confirmed, which would hand a live peer's files to whichever session's stop-event fires first under an UNATTENDED committer) — and then **commits and pushes it, with no confirmation step of any kind.** It commits via `coordinator_core.git.commit.commit_paths` (the same call `ceremony.commit_v2` makes) and **owns no push at all** — publication is left to whichever cadence checkpoint runs `push_outstanding()` next. `ceremony.scoped_git_commit` and its push-with-retry are deleted. It returns what it committed (paths, sha, push state) and what it excluded and why (`owned by session <id>` / `untouched by this session`) in its `rendered` field — echoed AFTER the fact, never as a gate before it. An empty result is a valid "nothing to commit" outcome, not a failure. `/handoff`'s § Safe-Commit Auto-Commit step is the consumer.
 
 **Grouping and messaging.** Bare invocation (`message` omitted) groups mechanically by directory with a bounded subject and the full path list in the commit BODY (not the subject — an enumerated file list in the subject is unreadable past a handful of files and is worse archaeology than no automation). A caller with real judgment (an EM mid-`/handoff`) should prefer the `message` param or the `groups` param (an inline list of `{"paths": [...], "message": "..."}` objects, mutually exclusive with `message`) to author real per-group descriptions instead of relying on the mechanical default — any path named that isn't actually in the computed safe pathspec is silently dropped, never committed, so this is strictly additive judgment, not a way to widen scope.
 
@@ -570,7 +570,7 @@ Path-scoped `git add` does not protect the commit. A concurrent EM's `git add -A
 
 **The triggering condition is index/worktree divergence for the named paths, whoever caused it — not "an automated op with a private index."** That framing was the boundary this section originally drew, and it is too narrow: an automated op holding its own private `GIT_INDEX_FILE` is one way to produce divergence, but a human EM produces the identical hazard by staging a partial hunk (`git apply --cached`) on the ordinary **shared** index — no private index involved. Whenever the index for a path holds content the worktree does not match, the trailing pathspec silently discards the divergence and re-reads the worktree instead. See SC-DR-015 for the full ruling and the discriminator to apply before choosing a commit form.
 
-**Carve-out, not a reversal.** Once you've established the index and worktree diverge for your paths (correctly staged, correctly scoped), passing `-- <paths>` silently overrides your staging — it re-reads the shared worktree and absorbs whatever foreign edits happen to sit on those paths. So the trailing pathspec is not the fix here. **Neither is a bare pathspec-less `git commit` against the shared index** — that was this carve-out's original prescription (verify via `git diff --cached --name-only`, then commit with no pathspec) and it was withdrawn the same day, in the SC-DR-015 amendment below: the shared index stays mutable by peers between your check and your commit, a real TOCTOU window, not a theoretical one. The form that actually closes the hazard is a **private index**, isolated from concurrent mutation for the whole build-verify-land sequence — invoke `ceremony.scoped_git_commit` (the coordinator engine's op; it selects this mechanism automatically once it detects divergence, so you never classify the horn by hand) or hand-roll the recipe at § SC-DR-015 if the op isn't available. The scoped-pathspec guidance elsewhere on this page stays correct for the ordinary hand-commit case (index and worktree agree) — this carve-out applies only when you've deliberately created divergence.
+**Carve-out, not a reversal.** Once you've established the index and worktree diverge for your paths (correctly staged, correctly scoped), passing `-- <paths>` silently overrides your staging — it re-reads the shared worktree and absorbs whatever foreign edits happen to sit on those paths. So the trailing pathspec is not the fix here. **Neither is a bare pathspec-less `git commit` against the shared index** — that was this carve-out's original prescription (verify via `git diff --cached --name-only`, then commit with no pathspec) and it was withdrawn the same day, in the SC-DR-015 amendment below: the shared index stays mutable by peers between your check and your commit, a real TOCTOU window, not a theoretical one. The form that actually closes the hazard is a **private index**, isolated from concurrent mutation for the whole build-verify-land sequence — invoke `ceremony.commit_v2` (`coordinator_core/git/commit.py` :: `commit_paths`; it builds the tree from the paths you name, so divergence never arises) or hand-roll the recipe at § SC-DR-015 if the op isn't available. `ceremony.scoped_git_commit` is deleted, and plain `git commit` is not what replaces it. The scoped-pathspec guidance elsewhere on this page stays correct for the ordinary hand-commit case (index and worktree agree) — this carve-out applies only when you've deliberately created divergence.
 
 *Empirical basis — two instances, no private index required for the second.* (1) The coordinator engine's `archive_and_commit` op followed exactly the recommended `git add -- <paths> && git commit -- <paths>` form and laundered 34 hand-edited memo frontmatter changes into commits stamped `[fleet.archive_actioned_memos]`. It held a private `GIT_INDEX_FILE` the whole time; the trailing pathspec overrode it. the engine repo named the hazard **FORWARD-B (worktree vector)** and amended its own decision record accordingly — FORWARD-B sits on the same DIRECTION axis: FORWARD is "op absorbs foreign *staged* work" (closed by the scoped pathspec); FORWARD-B is the same direction, different vector — foreign *worktree* content on paths the op owns. Their fix was subtractive: drop the trailing pathspec, let the private index be the scope. Adding `git add` in front does NOT help, for the reason above. (source: a cross-repo memo from the engine repo's EM.)
 
@@ -674,13 +674,13 @@ The whole concurrency catalog above is EM-vs-EM (two interactive sessions sharin
 
 **Verify before committing any file an agent touched concurrently.** Run a uniqueness grep (duplicate IDs, duplicate rows, duplicate frontmatter keys) on the file before staging it. A self-dispatched agent's edits and the EM's edits both landing in one commit is the signature; the uniqueness grep is the cheap catch the luck-dependent visual read should not be relied on to replace.
 
-*Source: sibling-repo `state/lessons.md` (central-promoted). Distinct from § Concurrent-EM Git Operations (EM-vs-EM commits) — this is the EM-vs-agent two-writer race on a single file.*
+*Source: sibling-repo `state/lessons/` (central-promoted). Distinct from § Concurrent-EM Git Operations (EM-vs-EM commits) — this is the EM-vs-agent two-writer race on a single file.*
 
 ### Edit-out/commit/edit-back to scope a sibling's uncommitted change is unsafe
 
 Manually editing a shared file to remove a sibling EM's uncommitted change, committing, then editing it back is a hazardous scope-isolation technique. If a concurrent session commits the sibling's change between your edit-out and your commit, your edit-out commit becomes a silent revert of their work when it lands. Prefer committing shared files wholesale when the sibling's change is a legitimate in-progress edit on the shared surface, or use `git stash push -- <file>` / `git stash pop` with explicit verification (see the stash-pop warning above). The edit-out/commit/edit-back pattern has no concurrency-safe execution window on a shared branch.
 
-*Source: self `state/lessons.md`.*
+*Source: self `state/lessons/`.*
 
 ### Stash-pop primitive for cross-EM file isolation at dispatch time
 
@@ -738,13 +738,15 @@ The upstream plugin source lives in the doctrine-authoring repo, resolved via th
 
 ## Decision Records
 
-**SC-DR-001 — Bash writes excluded from touch-tracker hook**
+**SC-DR-001 — Bash writes claimed where the command names its own sink**
 
-*Problem:* Should the hook parse Bash tool calls to detect write effects (heredocs, redirections, `tee`, etc.)?
+*Problem:* Should the hook read Bash tool calls to detect write effects (heredocs, redirections, `tee`, etc.)?
 
-*Decision:* No. Parsing arbitrary shell for write effects is unsound and creates a growing regex catalog with false confidence. The gap is total and named rather than papered over with an unsound heuristic: no write-time detector replaces the parse, and always-on read-time adoption of unclaimed dirt is retired (§ Component 2, SC-DR-022).
+*Decision:* Yes, for sinks the command literally names, and only those. Extraction from the caller's own command text makes no attribution inference — a target the command states is that session's write — so the soundness objection that once closed this rule does not reach it. Coverage is partial by construction and under-claiming; the residue is enumerated in the pre-commit `unclaimed` bucket rather than left invisible, which is what makes partial coverage honest instead of falsely confident. A missed shape is a coverage bug, not a doctrine question.
 
-*Alternatives considered:* Bash-write heuristic regex (rejected — too many edge cases). Requiring explicit `git add` for all Bash-driven edits (acceptable fallback, documented in Troubleshooting).
+*Still rejected, unconditionally:* any detector that infers authorship from timing — a PostToolUse mtime scan, a pre/post `git status` delta. Those answer an attribution question that has no sound answer on a shared tree, and a false claim on a peer's path is strictly worse than no claim on your own.
+
+*Alternatives considered:* Total exclusion (the prior rule — its premise, that a partial catalog would carry false confidence with nothing to check it against, no longer holds once the `unclaimed` bucket is reported before the commit decision). Requiring explicit `git add` for all Bash-driven edits (retained as the fallback wherever extraction is silent, documented in Troubleshooting).
 
 **SC-DR-002 — `/handoff` and `/pickup` are not carve-outs**
 
@@ -1079,8 +1081,8 @@ retraction stands; Option B does not reopen it. What Option B actually needs —
 `100755` without the trailing pathspec re-reading the worktree's `100644` — is the same private-index
 mechanism SC-DR-015's diverge-case already uses, for a different reason: SC-DR-015 isolates from the
 shared index to avoid absorbing a peer's staged *content*; here it's to avoid a trailing pathspec
-re-reading the worktree's *mode*. Same tool, different hazard. Use `ceremony.scoped_git_commit`
-(the coordinator engine's op) — its private-index path builds the tree from the index (preserving the staged
+re-reading the worktree's *mode*. Same tool, different hazard. Use `ceremony.commit_v2`
+(`coordinator_core/git/commit.py` :: `commit_paths`) — it builds the tree from the paths it is given (preserving the staged
 `100755`) and never touches the worktree mode. Where the op isn't reachable, the hand-rolled private-index
 recipe in SC-DR-015 above is the fallback: run `git update-index --chmod=+x <file>` first so the private
 index inherits the `100755` entry, then follow that recipe verbatim (`GIT_INDEX_FILE`-scoped `add`,
@@ -1208,7 +1210,7 @@ The single-quoted heredoc delimiter (`'MSG'`) suppresses all expansion, so the b
 belongs solely to § SC-DR-016 (the self-contained-oracle ruling, :976) — that one keeps the number
 because it is cited across the engine-plane boundary (the engine's `schema_validate.py` backlink
 comment and its guard-override-keys reference table) and in
-`docs/wiki/coordinator-tripwires.md`. This record was cited by number nowhere, so it is the cheap
+`coordinator/docs/wiki/coordinator-tripwires/`. This record was cited by number nowhere, so it is the cheap
 side to move. Nothing about either ruling changes. A pre-2026-08-03 citation of "SC-DR-016"
 resolves to the self-contained-oracle record; if it reads on stashing, it means this one.
 
@@ -1420,7 +1422,7 @@ review:
 > A plan chunk's `surface:` list is **not** provenance: it states intent, not what was written, and
 > is unenforceable at the recording site — a wrong declaration would falsely *grant* a path rather
 > than merely withhold one. See `A-CLAIM-IS-WHAT-YOU-WROTE-NOT-WHAT-YOU-PLANNED` in
-> `coordinator/docs/wiki/coordinator-tripwires.md`.
+> `coordinator/docs/wiki/coordinator-tripwires/`.
 
 This already binds fleet EMs via `snippets/em-operating-doctrine.md`; it belongs here so it is
 greppable at the point of use. **SC-DR-017 is its nearest neighbour** and reached the same
@@ -1462,7 +1464,7 @@ incoherent. SC-DR-014's
 structural floor and SC-DR-008's scoped-commit default are untouched.
 
 Greppable token: `REFUSAL-EXPOSURE-IS-DURATION-TIMES-SET`. Registered in
-`docs/wiki/coordinator-tripwires.md`.
+`coordinator/docs/wiki/coordinator-tripwires/`.
 
 ---
 
@@ -1491,7 +1493,7 @@ where it means to read semantics.
 **Pedagogy is not the guard's job here, and this shape does it harm.** SC-DR-008 ratifies
 `git add -- <paths> && git commit -m "<subject>" -- <paths>` as the canonical spelling and that
 stands unchanged — it is enforced by prose, by what skill bodies and dispatch prompts emit, and by
-`ceremony.scoped_git_commit` being the preferred path. An advisory that fires on a form already
+`ceremony.commit_v2` being the preferred path. An advisory that fires on a form already
 proven safe is not teaching the canonical spelling; it is spending the operator's attention on a
 non-hazard. Warning-blindness is not a hypothetical cost on this surface — the fleet-wide
 measurement above records 6197 warn lines, 98.1% of them correct-but-unactionable, and a sweep got
@@ -1514,7 +1516,7 @@ through anyway. Do not add a 6198th on a commit that was already scoped.
 
 **This does not widen the SC-DR-015 hazard.** A positional pathspec reads the **worktree**, exactly
 as `-- <paths>` does — so under index/worktree divergence for the named paths it destroys deliberate
-staging in precisely the same way, and the private-index form (`ceremony.scoped_git_commit`) remains
+staging in precisely the same way, and the tree-from-paths form (`ceremony.commit_v2`) remains
 the answer for that case. Counting it as scope inherits that hazard unchanged rather than enlarging
 it, which is the correct outcome: same operation, same treatment, one rule instead of two.
 
@@ -1533,7 +1535,7 @@ does not reopen the strict-mode posture, and does not mint an override path. It 
 thing: which spellings of a genuinely self-scoped commit the advisory should stop warning about.
 
 Greppable token: `SEPARATOR-IS-DISAMBIGUATION-NOT-SCOPE`. Registered in
-`docs/wiki/coordinator-tripwires.md`.
+`coordinator/docs/wiki/coordinator-tripwires/`.
 
 ---
 
@@ -1648,7 +1650,7 @@ shipped and gated, and its gate emptying the orphan set under an agent-race over
 failing *closed*, which is an argument for it rather than against.
 
 Greppable token: `A-CLAIM-IS-WHAT-YOU-WROTE-NOT-WHAT-YOU-PLANNED`. Registered in
-`docs/wiki/coordinator-tripwires.md`.
+`coordinator/docs/wiki/coordinator-tripwires/`.
 
 ---
 
@@ -1693,8 +1695,9 @@ text is not authorization.
 ### Verified properties this ruling rests on
 
 Read from the engine as written, not as assumed (as of 2026-08-04, against the since-deleted
-`coordinator_core/ops/ceremony/scoped_git_commit.py` and `ops/session/safe_commit_offer.py`; the
-current route is `coordinator_core/git/commit.py` :: `commit_paths`):
+`coordinator_core/ops/ceremony/scoped_git_commit.py`, and against `ops/session/safe_commit_offer.py`,
+which is still live but has since been repointed; the current route for both is
+`coordinator_core/git/commit.py` :: `commit_paths`):
 
 - **Adoption never relaxes the live-peer case.** `include_orphans` threads to
   `assert_paths_in_session_scope(allow_orphans=…)`, which denies a live-peer-claimed path
@@ -1743,4 +1746,4 @@ orphan denial should first ask why the path carries no claim — SC-DR-021's (d1
 structural producers, and a denial outside those is a signal worth reading before it is adopted.
 
 Greppable token: `ADOPTION-IS-AN-OPERATORS-ANSWER-NOT-AN-AGENTS-DEFAULT`. Registered in
-`docs/wiki/coordinator-tripwires.md`.
+`coordinator/docs/wiki/coordinator-tripwires/`.

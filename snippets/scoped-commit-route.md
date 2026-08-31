@@ -23,7 +23,12 @@ a helper-missing error (exit 127 on every host measured), **not** the `-32006` t
 contract prescribes. A caller written against that contract handles the wrong failure shape. Never
 route a ceremony commit through those launchers.
 
-**The route is `ceremony.commit_v2`, over `coordinator_core.git.commit.commit_paths`.**
+**The route is the op `ceremony.commit_v2`, INVOKED — `coordinator-invoke ceremony.commit_v2
+'{...}'`, or the `python3 -m coordinator_core.invoke` spelling of it.** It runs
+`coordinator_core.git.commit.commit_paths` underneath, but naming that function is not naming the
+route: `block_subagent_commit` reads literal argv and does not unwrap `python -c` payloads, so an
+in-process `commit_paths` import is DENIED for a subagent however faithfully it reproduces the
+call. Name the invocation, not the function that ends up running.
 `run_commit_pipeline` is gone — killed at the process-time bar, not deprecated, so an import of
 `coordinator_core.ops.ceremony.commit_pipeline` raises `ModuleNotFoundError`. Its replacement
 builds a tree from the explicit paths handed to it rather than reading the index, which is what

@@ -1641,6 +1641,43 @@ def _looks_quoted_content_shaped(cmd: str) -> bool:
         target = _redirect_target_token(segment)
         if target and _mentions_governed_identifier(target):
             return False
+        # The same reasoning for the write sinks that take their
+        # destination as a PATH OPERAND: `cp src "CLAUDE.md"`, `mv`,
+        # `tee "CLAUDE.md"`, `sed -i ... "CLAUDE.md"`, `rsync`/`patch`.
+        # The governed name is quoted, so the `all(...)` below reads it as
+        # prose -- but quoting a destination is ordinary shell hygiene,
+        # not a signal about intent. The redirect arm above covered only
+        # the one sink whose destination this file can locate positionally;
+        # these have the same property and were missed for that reason
+        # alone. Here the remedy would say "edit the real destination"
+        # about a command whose real destination IS the governed file just
+        # blocked: there is no other destination to edit, so the sentence
+        # does not merely fail to help, it contradicts its own block.
+        #
+        # Deliberately NOT every write marker. An interpreter payload
+        # (`p.write_text(...)`, `open(p, "w")`) takes its destination as an
+        # EXPRESSION, so a governed mention inside it really can be prose
+        # bound for a non-governed path -- which is the exact shape
+        # `test_deny_write_text_quoting_governed_filename_in_prose_names_edit_fix`
+        # pins, and those keep the quoted-content remedy. Operand grammar
+        # is the discriminator, not writing-ness.
+        #
+        # Diagnostic only, like the redirect arm: this narrows WHICH
+        # message is composed and never re-derives the deny verdict.
+        without_redirect = _BARE_REDIRECT_RE.sub(
+            " ", _SAFE_REDIRECT_RE.sub(" ", segment)
+        )
+        if any(
+            pattern.search(without_redirect)
+            for pattern in (
+                _CP_MV_RE,
+                _TEE_RE,
+                _SED_INPLACE_RE,
+                _PERL_INPLACE_RE,
+                _PATCH_RSYNC_RE,
+            )
+        ):
+            return False
     return all(
         not _mentions_governed_identifier(_strip_quoted_spans(segment))
         for segment in mentioning_segments

@@ -52,7 +52,17 @@ same process. Does NOT reintroduce a `git rev-parse` spawn anywhere.
 PostToolUse(Skill|Agent) -- untouched by this dispatcher, which only replaces
 its Stop-event registration.
 
-Negative spec: do not add a seventh guard here without updating this module's
+`guard-kira-verdict-routed.py` (docs/plans/2026-08-30-kira-verdict-routing-
+join-key.md chunk C5) hard-stops a close whose Kira (overengineering-
+reviewer) verdict was never routed to review-integrator or a refactor
+executor -- see that module's own docstring for the full detection contract.
+Registered here, not on `postuse-stop-family-dispatch.py`, because that
+runner's `GuardScopeDescriptor` matches `tool_input.file_path` and this
+guard's predicate has no file-path key to match against -- registering it
+there would fire zero times, forever
+(`docs/research/spike-verdicts/2026-08-29-six-detectors-onto-stop-family-runner.md`).
+
+Negative spec: do not add another guard here without updating this module's
 docstring and the hooks.json comment naming the fold set; do not reintroduce a
 `COORDINATOR_STOP_DISPATCH_LAZY`-style eager fallback path in production (the
 lazy+shared-root config is the only shipped behaviour -- the eager mode lived
@@ -236,6 +246,22 @@ def _pre_em_report_altitude(ctx: Ctx) -> bool:
     return bool(ctx.final_assistant_text())
 
 
+def _pre_kira_verdict_routed(ctx: Ctx) -> bool:
+    # guard-kira-verdict-routed.py is only ever relevant on the EM's OWN
+    # Stop (never a subagent's, including Kira's own -- see that guard's
+    # module docstring TRIGGER SCOPE section) in a session that has a
+    # share dir at all. A session with no `state/subagent-share/<sid>/`
+    # directory has nothing to route and is provably a no-op.
+    if ctx.agent_id or ctx.stop_hook_active:
+        return False
+    root = ctx.repo_root()
+    if not root or not ctx.session_id:
+        return False
+    return os.path.isdir(
+        os.path.join(root, "state", "subagent-share", ctx.session_id)
+    )
+
+
 def _pre_receiver_state(ctx: Ctx) -> bool:
     # The producer shim needs a session_id and this session's own transcript;
     # without either the op is a silent no-op engine-side, so skip the import
@@ -266,6 +292,8 @@ REGISTRY: Tuple[StopGuard, ...] = (
               "guard-manufactured-blocker.py", _pre_manufactured_blocker),
     StopGuard("stop_em_report_altitude",
               "stop-em-report-altitude.py", _pre_em_report_altitude),
+    StopGuard("guard_kira_verdict_routed",
+              "guard-kira-verdict-routed.py", _pre_kira_verdict_routed),
     # A PRODUCER, not a guard -- it always exits 0 with empty stdout, so it
     # contributes nothing to this dispatcher's CONCATENATE-ALL aggregation and
     # cannot change any verdict. It rides the fan-in rather than taking a

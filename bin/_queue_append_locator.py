@@ -18,8 +18,66 @@ Import only; never invoked directly.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
+
+
+def _is_console_python_basename(path: str) -> bool:
+    """True if `path`'s basename names a console CPython interpreter.
+
+    Negative spec: `pythonw`/`pythonw3` (any extension) are excluded even
+    though they start with "python". `pythonw.exe` is the GUI-subsystem
+    build with no usable stdout by default -- this locator's whole contract
+    is that `coordinator-queue-append` PRINTS the path it wrote, so handing
+    a `pythonw`-resolved interpreter back here would reproduce the exact
+    silent-loss class this module exists to close, just one level down: a
+    plausible exit code with nothing on stdout. Console-flash avoidance
+    (`coordinator_core/win_portability.py`, `verify-no-console-flash.py`) is
+    an active pattern in this repo, so a launcher chosen specifically to
+    avoid a console flash is exactly the context where `sys.executable`
+    would be `pythonw.exe` -- do not "simplify" this back to a bare
+    `startswith("python")`.
+    # Review: code-reviewer P2 — pythonw.exe/pythonw3.exe silently accepted.
+    """
+    stem = os.path.splitext(os.path.basename(path))[0].lower()
+    # Review: code-reviewer — nit: `startswith("python")` would also accept a
+    # hypothetical non-python `pythonstub.exe` on PATH with no further
+    # validation here. Defended in depth: the sibling `--help` probe in
+    # `find_cli_cmd` (`returncode == 0` check) gates the value before it is
+    # ever handed back as the final argv, so this is not a live hole.
+    return stem.startswith("python") and not stem.startswith("pythonw")
+
+
+def _resolve_python_interpreter() -> str | None:
+    """Resolve a real CPython interpreter, never a non-python launcher exe.
+
+    Negative spec: `sys.executable` is NOT trustworthy as-is here. A sibling
+    CLI reached through an installed `.exe` forwarder (e.g.
+    `coordinator-lesson-add.exe`) reports that forwarder's own embedded
+    interpreter as `sys.executable`. Handing that exe a script path re-enters
+    the FORWARDER's own argv parsing with the script as an unknown
+    positional -- the child never runs the intended script, while the
+    forwarder still exits 0, so the failure is silent.
+
+    A `pythonw`-named `sys.executable` is rejected on the same theory (see
+    `_is_console_python_basename`) but does NOT return None immediately --
+    it falls through to `sys._base_executable` and then `shutil.which`,
+    either of which may resolve a console interpreter. Returning None early
+    on a `pythonw` `sys.executable` would turn a recoverable case into a
+    refusal.
+    """
+    exe = sys.executable or ""
+    if _is_console_python_basename(exe):
+        return exe
+    base = getattr(sys, "_base_executable", None)
+    if base and _is_console_python_basename(base):
+        return base
+    for name in ("python3", "python"):
+        found = shutil.which(name)
+        if found:
+            return found
+    return None
 
 
 def find_cli_cmd(caller_dir: str, cli_name: str) -> list[str] | None:
@@ -49,6 +107,14 @@ def find_cli_cmd(caller_dir: str, cli_name: str) -> list[str] | None:
     """
     for candidate in (cli_name, cli_name + ".py"):
         try:
+            # Review: code-reviewer — pre-existing hazard, untouched by this
+            # diff: this bare-PATH probe validates only `returncode == 0` on
+            # a name found via PATH lookup, so a forwarder that answers
+            # `--help` with exit 0 for an unrelated reason would still pass.
+            # Seen and left deliberately: the probe order (PATH bare name →
+            # PATH .py → interpreter+sibling) is load-bearing and currently
+            # correct -- the bare-name probe resolving queue-append's own
+            # forwarder is the right door. Do not change the probe order.
             result = subprocess.run(  # popup-intentional-last-resort
                 [candidate, "--help"],
                 capture_output=True,
@@ -59,18 +125,22 @@ def find_cli_cmd(caller_dir: str, cli_name: str) -> list[str] | None:
         if result.returncode == 0:
             return [candidate]
 
+    interpreter = _resolve_python_interpreter()
+    if interpreter is None:
+        return None
+
     for sibling_candidate in (cli_name, cli_name + ".py"):
         sibling = os.path.join(caller_dir, sibling_candidate)
         if not os.path.exists(sibling):
             continue
         try:
             result = subprocess.run(  # popup-intentional-last-resort
-                [sys.executable, sibling, "--help"],
+                [interpreter, sibling, "--help"],
                 capture_output=True,
                 text=True,
             )
             if result.returncode == 0:
-                return [sys.executable, sibling]
+                return [interpreter, sibling]
         except OSError:
             pass
 

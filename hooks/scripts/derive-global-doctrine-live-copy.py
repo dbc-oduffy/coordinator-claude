@@ -98,7 +98,7 @@ _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
-from _message_envelope import compose, render  # noqa: E402
+from _message_envelope import CHANNEL_STOP, compose, emit  # noqa: E402
 
 #: Wiki section carrying the relocated mirror-direction, OSS-clobber-hazard,
 #: and fail-loud-contract explanation -- see this hook's own relocation
@@ -232,21 +232,17 @@ def _derive_live_copy(tracked: Path, live: Path) -> int:
     a real derivation happens (drift found and corrected) or a read/write
     failure occurs.
     """
-    # NOTE (review-integrator): this hook has the same CRLF byte-fidelity
-    # bug as Finding 2 (bypasses `emit()`, writes `render()`'s output via
-    # text-mode `sys.stderr.write`) but the fix is NOT applied here -- see
-    # this dispatch's run-report. `message_measurement_harness.py`'s
-    # `_adapt_derive_global_doctrine_live_copy` captures stderr via a plain
-    # `io.StringIO()` (no `.buffer`), so switching to `.buffer.write` turns
-    # this hook into a measurement coverage gap (`AttributeError:
-    # '_io.StringIO' object has no attribute 'buffer'`). Fixing the
-    # adapter is out of this dispatch's scope (fixtures are off-limits);
-    # escalated instead of silently regressing corpus coverage.
+    # Routed through `_message_envelope.emit()` (CHANNEL_STOP) rather than
+    # hand-rolling `render()` + a text-mode `sys.stderr.write()` -- `emit()`'s
+    # CHANNEL_STOP branch writes via `sys.stderr.buffer.write()`, which
+    # bypasses Python's Windows text-mode LF->CRLF translation (a real
+    # byte-fidelity loss the hand-rolled path used to carry silently). See
+    # `state/bug-backlog/2026-08-06-derive-hooks-hand-roll-stop-shape-and-lo-4c1e9a7b03d5.yaml`.
     try:
         source_bytes = tracked.read_bytes()
     except Exception as exc:
-        sys.stderr.write(render(_compose_read_failure_message(tracked, exc)) + "\n")
-        return 2
+        rc = emit(_compose_read_failure_message(tracked, exc), CHANNEL_STOP)
+        return rc if rc is not None else 2
 
     try:
         live_bytes = live.read_bytes()
@@ -261,13 +257,11 @@ def _derive_live_copy(tracked: Path, live: Path) -> int:
         live.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(tracked, live)
     except Exception as exc:
-        sys.stderr.write(
-            render(_compose_write_failure_message(live, tracked, exc, source_bytes)) + "\n"
-        )
-        return 2
+        rc = emit(_compose_write_failure_message(live, tracked, exc, source_bytes), CHANNEL_STOP)
+        return rc if rc is not None else 2
 
-    sys.stderr.write(render(_compose_success_message(live, tracked, source_bytes)) + "\n")
-    return 2
+    rc = emit(_compose_success_message(live, tracked, source_bytes), CHANNEL_STOP)
+    return rc if rc is not None else 2
 
 
 def main() -> int:

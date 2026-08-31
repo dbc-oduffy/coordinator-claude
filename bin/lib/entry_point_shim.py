@@ -356,25 +356,22 @@ def _merge_assemble_checked_repo_root() -> Optional[str]:
 
 
 def _merge_assemble_cold_call(op: str, params: dict) -> dict:
-    """Calls `brief()`/`apply()` directly (never through
+    """Calls `apply()` directly (never through
     `coordinator/bin/merge-assemble.py`, which would recurse back into this
     module) and reshapes the return value into the SAME envelope
-    `coordinator_core.merge_assemble.ops`'s registered adapters return —
-    `{"exit_code": ..., "decision_object": ...}` for brief,
-    `{"exit_code": ..., "report": ...}` for apply — so the caller's
-    exit-code/refusal inspection is identical on both the warm and cold
-    branches. `repo_root=None` on both calls matches today's CLI-invoked
-    behaviour exactly: each function's own `resolve_repo_root()` fallback
-    applies, the same as `merge_assemble.ops`'s adapters document for a
-    `None` (out-of-repo/unresolved) request."""
-    if op == "merge_assemble.brief":
-        mod = _import_engine_module("coordinator_core.merge_assemble")
-        result = mod.brief(
-            decisions=params.get("decisions"),
-            repo_root=None,
-            tag_prefix=params.get("tag_prefix", "v"),
-        )
-        return {"exit_code": result.exit_code, "decision_object": result.decision_object}
+    `coordinator_core.merge_assemble.ops`'s registered adapter returns —
+    `{"exit_code": ..., "report": ...}` — so the caller's exit-code/refusal
+    inspection is identical on both the warm and cold branches. `repo_root=
+    None` matches today's CLI-invoked behaviour exactly: `apply()`'s own
+    `resolve_repo_root()` fallback applies, the same as `merge_assemble.ops`'s
+    adapter documents for a `None` (out-of-repo/unresolved) request.
+
+    `merge_assemble.brief` carries no branch here: the CLI's `brief`
+    subcommand was removed (K-114's residue cleanup), so this function is
+    never reached with that op string. Do not re-add it — the op is
+    gravestoned in `op_budget_suspension.py`, and it answers `-32006` on the
+    warm path, never `-32601`, so this cold path stays unreachable for it
+    regardless."""
     if op == "merge_assemble.apply":
         apply_mod = _import_engine_module("coordinator_core.merge_assemble.apply")
         exit_code, report = apply_mod.apply(
@@ -510,9 +507,8 @@ def _merge_assemble_entry(argv: List[str]) -> int:
     prog = "merge-assemble"
 
     def _usage_top() -> int:
-        print(f"usage: {prog} brief [--tag-prefix <prefix>]", file=sys.stderr)
         print(
-            f"       {prog} apply [--session-id <id>] [--force] [--decisions <json>]",
+            f"usage: {prog} apply [--session-id <id>] [--force] [--decisions <json>]",
             file=sys.stderr,
         )
         return _USAGE_FAIL
@@ -529,13 +525,21 @@ def _merge_assemble_entry(argv: List[str]) -> int:
         return _usage_top()
 
     if argv[0] in ("--help", "-h"):
-        print(f"usage: {prog} brief [--tag-prefix <prefix>]")
-        print(f"       {prog} apply [--session-id <id>] [--force] [--decisions <json>]")
+        print(f"usage: {prog} apply [--session-id <id>] [--force] [--decisions <json>]")
         return 0
 
     subcmd, rest = argv[0], argv[1:]
 
-    if subcmd not in ("brief", "apply"):
+    if subcmd == "brief":
+        print(
+            f"{prog}: 'brief' was removed (K-114) — the compute step is no "
+            "longer a standalone verb. Use 'apply', which recomputes the "
+            "same brief in-process.",
+            file=sys.stderr,
+        )
+        return _usage_top()
+
+    if subcmd != "apply":
         print(f"{prog}: unknown subcommand {subcmd!r}", file=sys.stderr)
         return _usage_top()
 
@@ -548,30 +552,19 @@ def _merge_assemble_entry(argv: List[str]) -> int:
         # the resolved root can legitimately be a sibling publish tree that
         # still only carries the pre-plan `coordinator_core.merge_assemble`
         # package). Nothing has parsed argv or dispatched anything yet, so
-        # per AC6 this falls back cold for BOTH verbs — to the exact
-        # pre-warm-routing `_simple_entry` shape, which targets the package
-        # itself (not `.cli`) and always existed there.
+        # per AC6 this falls back cold — to the exact pre-warm-routing
+        # `_simple_entry` shape, which targets the package itself (not
+        # `.cli`) and always existed there.
         return _merge_assemble_legacy_entry(argv)
 
-    if subcmd == "apply":
-        try:
-            params = cli_mod.parse_apply_argv(rest)
-        except cli_mod.UsageError as exc:
-            if exc.message is not None:
-                print(exc.message, file=sys.stderr)
-            return _usage_apply()
-        return _merge_assemble_dispatch(
-            "merge_assemble.apply", params, cli_mod.print_apply_result, "report", is_apply=True
-        )
-
     try:
-        params = cli_mod.parse_brief_argv(rest)
+        params = cli_mod.parse_apply_argv(rest)
     except cli_mod.UsageError as exc:
         if exc.message is not None:
             print(exc.message, file=sys.stderr)
-        return _usage_top()
+        return _usage_apply()
     return _merge_assemble_dispatch(
-        "merge_assemble.brief", params, cli_mod.print_brief_result, "decision_object", is_apply=False
+        "merge_assemble.apply", params, cli_mod.print_apply_result, "report", is_apply=True
     )
 
 

@@ -3,7 +3,7 @@ name: repo-specialist
 description: "Sonnet repo-research specialist — deep-reads a scout's file inventory, challenges peer claims, writes verified claims.json."
 model: sonnet
 effort: medium
-tools: ["Read", "Write", "Edit", "Bash", "PowerShell", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet"]
+tools: ["Read", "Write", "Edit", "Bash", "PowerShell", "ToolSearch", "SendMessage", "ListAgents", "TaskUpdate", "TaskList", "TaskGet"]
 color: green
 access-mode: read-write
 ---
@@ -99,13 +99,18 @@ Distil your assessment into discrete, assertable findings (5–15 per chunk) and
   "source_date": "<YYYY-MM-DD — repo version date from scope>",
   "topic_tags": ["<chunk description>", "<area name if narrower than chunk>"],
   "type": "fact|limitation|pattern|recommendation",
-  "counter_evidence": null
+  "counter_evidence": "<contesting evidence — OMIT THIS KEY ENTIRELY when there is none>"
 }
 ```
 
+**Optional fields carry a scalar of their declared type, or the key is absent — never `null`.**
+`research-claim.schema.json` types `counter_evidence` (and `source_date`, `source_url`) as
+strings; a `null` fails the type check and `claims-emit` rejects the whole batch on record 0.
+Leave the key out when there is no value.
+
 ### Converging — signal, don't just stop
 
-With your assessment and claims on disk, `SendMessage` `CONVERGING` to peer specialists and `DONE` to the synthesizer — a protocol obligation, not a courtesy: the synthesizer is `blockedBy` your task and **a teammate idle on `blockedBy` does not auto-resume, the unblocker must wake it**; finishing silently stalls the pipeline. (Distinct from the `DONE: <path>` reply to the EM above.)
+Before addressing a peer, call `ListAgents` and copy the name a row prints verbatim — see your team-protocol's roster caveat before treating a thin roster as proof a peer is gone. With your assessment and claims on disk, `SendMessage` `CONVERGING` to peer specialists and `DONE` to the synthesizer — a protocol obligation, not a courtesy: the synthesizer is `blockedBy` your task and **a teammate idle on `blockedBy` does not auto-resume, the unblocker must wake it**; finishing silently stalls the pipeline. (Distinct from the `DONE: <path>` reply to the EM above.)
 
 ### Mapping from assessment findings
 

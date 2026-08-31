@@ -210,7 +210,7 @@ You write exactly **one file**: the sidecar at `report_sidecar:` — never the p
 
 If 3+ consecutive `grep`/`Read` calls return empty for a single oracle item, mark it AMBIGUOUS with a note ("Searched [terms]; no signal found in slate — classifying AMBIGUOUS") and move on — don't loop. Add a summary line: "Verification degraded after N consecutive empty searches on N items — partial coverage." ≥3 degradation notes → verdict **DEGRADED**.
 
-Soft target: under 10K tokens per check; exceeds 50K → verdict **DEGRADED**, reason "cost overrun." The cost footer (`**Cost estimate:** ~N tokens`) should note its basis.
+Soft target: under 10K tokens per check; exceeds 50K → verdict **DEGRADED**, reason "cost overrun."
 
 Aggregate iteration ceiling (separate from the token target):
 - **Lens 3:** ≤100 total `grep`/`Read`/`Bash` calls across all cited paths/symbols. Exceeded → batch-sample remaining citations (every Nth) and note "Lens 3 sampled at 1/N — full coverage exceeded iteration ceiling."

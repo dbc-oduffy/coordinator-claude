@@ -86,7 +86,8 @@ install/repair/exec-bit self-heal in one call. Skip if a custom hook exists with
 self-heal pattern; silent no-op when no session-id env var resolves.
 
 **Git config hardening**: `coordinator-configure-git` (Shape W) —
-`gc.autoDetach false` + `core.checkStat minimal`. Idempotent. Cwd-only, and not the sole
+`gc.auto 0` + `core.checkStat minimal` + `maintenance.strategy incremental` +
+`maintenance.auto false` + `maintenance.prefetch.enabled false`. Idempotent. Cwd-only, and not the sole
 mechanism: the install's git-perf-config fleet sweep (`coordinator_core.install.git_perf_config`,
 Claude-klabauter) applies per-repo git settings across every registered worktree. This call stays as
 belt-and-braces for a repo onboarded between sweeps.

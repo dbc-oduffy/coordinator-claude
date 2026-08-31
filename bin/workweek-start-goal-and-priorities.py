@@ -352,6 +352,12 @@ def cmd_emit_goal_event(args: argparse.Namespace) -> int:
     period_value = doc.get("period_value", "") or ""
     text = doc.get("objective", "") or ""
 
+    # NOTE (prose-flags-travel-as-files C5 row close-out): the `--text` token
+    # below is an outgoing argv element this process BUILDS as a Python list
+    # and passes to an in-process sys.executable invocation -- never through
+    # a .cmd forwarder -- so there is no corrupting transport here to wire a
+    # refusal or file leg into. The real parse site for this text is
+    # append-goal-event.py's own `--text`, covered by that row (C8).
     append_goal_event = _HERE / "append-goal-event.py"
     proc = subprocess.run(
         [
@@ -501,8 +507,10 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="subcommand", required=True)
 
     sg = sub.add_parser("scaffold-goal", help="Step 5: author + fill a period=week goal artifact")
-    sg.add_argument("--title", required=True, help="priority title (also the objective prose unless --objective given)")
-    sg.add_argument("--objective", default=None, help="override objective prose (defaults to --title)")
+    sg.add_argument("--title", default=None, help="priority title (also the objective prose unless --objective given); mutually exclusive with --title-file")
+    sg.add_argument("--title-file", default=None, help="lossless file transport for --title (a '-' argument reads stdin)")
+    sg.add_argument("--objective", default=None, help="override objective prose (defaults to --title); mutually exclusive with --objective-file")
+    sg.add_argument("--objective-file", default=None, help="lossless file transport for --objective (a '-' argument reads stdin)")
     sg.add_argument("--sid-short", required=True, help="session-id short (first 8 chars) — the collision-breaker for the default --out path")
     sg.add_argument("--iso-week", default=None, help="ISO week e.g. 2026-W29 (default: computed via UTC now)")
     sg.add_argument("--out", default=None, help="output path (default: state/goals/<date>-<slug>-<sid-short>.yaml)")
@@ -514,12 +522,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
     cp = sub.add_parser("commit-priorities", help='Step 6 "In both cases": session-scoped priorities commit+push')
     cp.add_argument("--sid-short", required=True)
-    cp.add_argument("--message", default=None)
+    cp.add_argument("--message", default=None, help="commit message; mutually exclusive with --message-file")
+    cp.add_argument("--message-file", default=None, help="lossless file transport for --message (a '-' argument reads stdin)")
     cp.set_defaults(func=cmd_commit_priorities)
 
     car = sub.add_parser("commit-archive-reset", help="Step 6 full-reset branch: archived changelog commit+push")
     car.add_argument("--prior-week-start", required=True, help="YYYY-MM-DD prior week start date (archive dir name)")
-    car.add_argument("--message", default=None)
+    car.add_argument("--message", default=None, help="commit message; mutually exclusive with --message-file")
+    car.add_argument("--message-file", default=None, help="lossless file transport for --message (a '-' argument reads stdin)")
     car.set_defaults(func=cmd_commit_archive_reset)
 
     ch = sub.add_parser("ceremony-hook", help="Step 6.5: run the post-ceremony command hook (non-blocking)")
@@ -529,8 +539,74 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _validate_scaffold_goal_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Post-parse argv-fidelity validation for the `sg` subparser's four
+    prose-bearing flags -- `--title`/`--title-file`, `--objective`/
+    `--objective-file`. `--title` is prose (it doubles as the objective text
+    absent `--objective`, per its own help text), so it is resolved via
+    `resolve_body` (required, exactly one of the pair) rather than treated
+    as an identifier; `--objective` is optional, resolved via
+    `resolve_optional_prose`."""
+    from coordinator_core.argv_fidelity import (
+        ArgvFidelityError,
+        refuse_newline_argv,
+        resolve_body,
+        resolve_optional_prose,
+    )
+
+    try:
+        refuse_newline_argv(args.title, flag_name="--title")
+        args.title = resolve_body(args.title, args.title_file, flag_name="--title")
+        args.objective = resolve_optional_prose(
+            args.objective, args.objective_file, flag_name="--objective"
+        )
+    except ArgvFidelityError as exc:
+        parser.error(str(exc))
+
+
+def _validate_commit_priorities_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Post-parse argv-fidelity validation for the `cp` subparser's
+    `--message`/`--message-file` pair. Optional (falls back to a default
+    commit message when neither is given), so resolved via
+    `resolve_optional_prose`."""
+    from coordinator_core.argv_fidelity import ArgvFidelityError, resolve_optional_prose
+
+    try:
+        args.message = resolve_optional_prose(
+            args.message, args.message_file, flag_name="--message"
+        )
+    except ArgvFidelityError as exc:
+        parser.error(str(exc))
+
+
+def _validate_commit_archive_reset_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Post-parse argv-fidelity validation for the `car` subparser's
+    `--message`/`--message-file` pair -- same disposition as `cp`'s, wired
+    separately per this row's instruction not to hoist one shared check
+    across subparsers."""
+    from coordinator_core.argv_fidelity import ArgvFidelityError, resolve_optional_prose
+
+    try:
+        args.message = resolve_optional_prose(
+            args.message, args.message_file, flag_name="--message"
+        )
+    except ArgvFidelityError as exc:
+        parser.error(str(exc))
+
+
+_SUBCOMMAND_VALIDATORS = {
+    "scaffold-goal": _validate_scaffold_goal_args,
+    "commit-priorities": _validate_commit_priorities_args,
+    "commit-archive-reset": _validate_commit_archive_reset_args,
+}
+
+
 def main(argv: list[str]) -> int:
-    args = _build_parser().parse_args(argv)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    validator = _SUBCOMMAND_VALIDATORS.get(args.subcommand)
+    if validator is not None:
+        validator(parser, args)
     return args.func(args)
 
 

@@ -88,6 +88,7 @@ def _default_hooks_json() -> str:
     --hooks-json is given) so an unresolvable default cannot explode at import
     time and an explicit override never pays this cost.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from coordinator_data_root import data_root
 
     return str(data_root("hooks") / "hooks.json")

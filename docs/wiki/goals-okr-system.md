@@ -590,9 +590,9 @@ When a sibling repo wants to adopt the goals/OKR system:
    intended); they are queryable via the records-SQL relational tier
    (`query-records --type handoff --where "kind=spinoff-goal"`).
 
-5. **`period`/`period_value` + `goal_id` filtering runs through a `[[structured_records]]`
+5. **`period`/`period_value` + `goal_id` filtering runs through a `structured_records`
    config entry — zero index-side code.** A config-only path was chosen over an earlier
-   candidate that would have added index-side filtering code: a `[[structured_records]]`
+   candidate that would have added index-side filtering code: a `structured_records`
    entry in the consuming repo's RAG config declares `period`/`period_value` as
    structured-record filter fields and `goal_id` as the stable identity field, letting the
    existing structured-records machinery do period-scoped and identity-scoped goal lookups

@@ -133,7 +133,9 @@ hand-authored wave map, or a chat emission of a wave table.
 <!-- engine-gap: field=execute_plan.wave_map_validation.violations producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 
 **Emit and dispatch are ONE action, and the dispatch leg is not optional.** In an interactive
-session the EM runs `python coordinator/bin/emit-dispatch-workflow.py --plan <plan-path>`, then
+session the EM runs `python <plugin-root>/bin/emit-dispatch-workflow.py --plan <plan-path>`
+(plugin-local, no settings-home launcher — resolve per `snippets/resolve-coordinator-bin.md`
+§ CLIs with no launcher; never cwd-relative), then
 calls `Workflow({scriptPath: "<emitted path>"})` in this session. The emitter's output is already a
 valid `scriptPath` input — no flag, no re-authoring. That call carries the same imperative force as
 the emit: it is not EM discretion about whether to dispatch, and it is not hand-dispatch — it is
@@ -181,6 +183,27 @@ MAY still halt the run (`return { halted: ... }`, wiki: `workflow-orchestration.
 or edited phase resumes via `resumeFromRunId` without re-paying phases that already succeeded.
 Removing the prompt is not removing the gates.
 
+**One emit per plan — a partial re-run resumes, it does not re-emit.** The emitted script already
+carries every open wave, preflight through terminal test phase; firing it once is the whole plan.
+When a run halts — a `Commit wave N` phase with no `COMMIT-LANDED <sha>`, a BLOCKed executor — the
+recovery is `Workflow({scriptPath, resumeFromRunId: <run>})` in the same session — but resume
+alone does not recover. Resume serves the longest UNCHANGED prefix of `agent()` calls from cache,
+and the commit agent that refused *completed*; its refusal is cached. Relaunching the script
+untouched replays that cached refusal and re-halts at the same gate. **Edit the halting phase's
+agent step first** — fix what the refusal named — then **re-stamp the receipt**, then resume; the
+run id comes back in the `Workflow` tool result, not from anything the script can read about
+itself. The re-stamp is not a formality: `block-workflow-foreign-emission.py` denies a fire whose
+bytes differ from the receipt beside the script, and the edit is exactly that difference.
+`emit-dispatch-workflow.py --restamp <script>` re-stamps it and prints the phase spine it
+authorizes, refusing unless the receipt already names this session. A second
+`emit-dispatch-workflow.py` is not the recovery: `read_spine` excludes rows whose `disposition` is
+closed, so an emit against a plan whose early chunks have landed silently produces a narrowed
+one-wave script, indistinguishable on disk from an emit that was always meant to be partial, and
+re-pays the preflight and every phase that already succeeded. An `--out` naming a chunk id
+(`<plan>.c9.workflow.mjs`) is the tell. Re-emit only when the spine itself changed — a row added, a
+gate cleared, a `writes:` corrected — and name the change in the report. Tripwire:
+`A-SECOND-EMIT-AFTER-A-PARTIAL-RUN-NARROWS-SILENTLY`.
+
 **Watching without waiting — arm a `Monitor`, don't poll by hand.** Roll-on removes the checkpoint
 prompt, not the EM's eyes on the run. Once the workflow is fired, arm the harness `Monitor` tool
 against the run's own progress signal — the transcript directory's `journal.jsonl` plus the
@@ -206,9 +229,19 @@ unattended by design — so `Monitor` is the fit there and cron is not the shape
 ## Phase 2: Create Flight Recorder
 
 TaskCreate: one session-goal task (objective + plan path), one task per plan phase/major task,
-session-goal marked `in_progress` immediately. `TaskCreate` absent from this session's surface
-(`ToolSearch("select:TaskCreate")` returns nothing) → fall back to `coordinator-tasks-mirror` for
-the same flight-recorder role; do not assume either state without checking.
+session-goal marked `in_progress` immediately.
+<!-- BEGIN task-tool-availability (synced from snippets/task-tool-availability.md) -->
+`TaskCreate` absent from this session's surface (`ToolSearch("select:TaskCreate")` returns nothing)
+→ fall back to `coordinator-tasks-mirror` for the same flight-recorder role; do not assume either
+state without checking. When Task* is unavailable, dispatch the phases in order, waiting on each
+completion notification — that is the ordering a `blockedBy` chain would otherwise express.
+<!-- END task-tool-availability -->
+
+Executing a plan in a repo other than the one this session is anchored in → pass
+`coordinator-tasks-mirror --repo-root <plan's repo>`. Bare, the mirror resolves its root from cwd
+and the repo-identity gate refuses the write as a MISMATCH — a deliberate cross-repo call is
+otherwise indistinguishable from the `cd`-drift accident that gate exists to catch. The flag takes
+the ungated EXPLICIT arm; it never softens the gate on the bare arm.
 
 ---
 

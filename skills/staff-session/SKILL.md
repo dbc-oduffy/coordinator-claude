@@ -43,9 +43,9 @@ Announce: "Running `/staff-session --mode {mode} --tier {tier}` on '{topic}'."
 `/review-code` (code artifacts) with the specified member (default `the Staff Engineer`). Announce and
 **STOP — the rest of this command does not execute.**
 
-**`standard`/`full`:** forms a team — raise `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` to `"1"` now
-(re-read per spawn, no restart) and lower it when the run ends, however it ends: left raised, every
-named `Agent` call anywhere becomes a teammate that returns no result. Continue to Step 3.
+**`standard`/`full`:** forms a team. `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` is `"1"` by default and
+this skill forms one on that default — every named `Agent` call anywhere becomes a teammate that
+returns no result. Continue to Step 3.
 
 ## Step 3 — Scope (EM Direct)
 

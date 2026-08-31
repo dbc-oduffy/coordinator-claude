@@ -28,7 +28,7 @@ cc_invoke(), scoped to this one call site.
 Usage (extended from the pre-port bash body — zero caller repoints for the
 pre-existing flags, AC8; --status is new, see below):
     append-goal-event.sh --period <day|week|repo> --period-value <v>
-                          --text <s> [--repo <r>] [--root <p>]
+                          (--text <s> | --text-file <path>) [--repo <r>] [--root <p>]
                           [--weekly-perceptible <true|false>] [--parent-goal-id <id>]
                           [--key-results-status <json-array>] [--goal-id <id>]
                           [--status <active|done|dropped|...>]
@@ -71,6 +71,16 @@ precedent below).
 this trampoline does not duplicate that enum. Callers computing a
 wire-status from an artifact's authored status (e.g. emit-goal-from-artifact.py's
 `_map_status()`) pass the already-mapped wire value here.
+
+--text-file <path> is the lossless transport for a goal-event's prose --text:
+the `.cmd` forwarder's `%*` expansion truncates a newline-bearing inline value
+at its first line before this process's argv parse ever runs (see
+docs/wiki/windows-first-class.md), so a newline-bearing --text is refused
+outright here (naming --text-file) rather than silently landing short.
+--text and --text-file are mutually exclusive; `-` as --text-file reads
+stdin. Resolution goes through the shared coordinator_core.argv_fidelity seam
+already used by archive-stamp-cli.py and coordinator-queue-append.py, not a
+fourth local shape.
 
 --goal-id, when supplied, IS forwarded into the dispatched params (as
 `goal_id`) — the op honours an explicitly-supplied goal_id, using it verbatim
@@ -289,6 +299,7 @@ _FLAGS_WITH_VALUE = frozenset(
         "--period",
         "--period-value",
         "--text",
+        "--text-file",
         "--repo",
         "--root",
         "--weekly-perceptible",
@@ -304,7 +315,8 @@ _FLAGS_WITH_VALUE = frozenset(
 def _parse_args(argv: list[str]) -> dict[str, object]:
     period = ""
     period_value = ""
-    text = ""
+    text: str | None = None
+    text_file: str | None = None
     repo = ""
     root = "."
     weekly_perceptible: str | None = None
@@ -326,6 +338,8 @@ def _parse_args(argv: list[str]) -> dict[str, object]:
                 period_value = val
             elif tok == "--text":
                 text = val
+            elif tok == "--text-file":
+                text_file = val
             elif tok == "--repo":
                 repo = val
             elif tok == "--root":
@@ -351,6 +365,7 @@ def _parse_args(argv: list[str]) -> dict[str, object]:
         "period": period,
         "period_value": period_value,
         "text": text,
+        "text_file": text_file,
         "repo": repo,
         "root": root,
         "weekly_perceptible": weekly_perceptible,
@@ -362,12 +377,45 @@ def _parse_args(argv: list[str]) -> dict[str, object]:
     }
 
 
+def _resolve_text(parsed: dict[str, object]) -> str | None:
+    """Resolve --text/--text-file losslessly via the shared argv-fidelity seam.
+
+    A goal-event text is prose forwarded through a `.cmd` launcher's un-re-quoted
+    `%*` expansion (see module docstring / docs/wiki/windows-first-class.md): a
+    newline-bearing inline value is silently truncated to its first line before
+    this process's argv parse ever sees it. `refuse_newline_argv` catches that
+    case loud (naming `--text-file`) instead of letting a short record land;
+    `resolve_body`'s `-` sentinel reads stdin, matching the sibling CLIs already
+    on this pattern (archive-stamp-cli, coordinator-queue-append.py).
+
+    Neither flag supplied returns None unchanged (the pre-existing "let the
+    op raise ValueError: text is required" contract, exit code 2 per the
+    module's Exit codes section) -- this function only tightens the newline
+    and mutual-exclusion cases, both of which raise ArgvFidelityError, caught
+    by the caller and turned into a client-side exit 1 (mirrors the
+    --key-results-status parse-error precedent immediately below).
+    """
+    inline = parsed["text"]
+    from_file = parsed["text_file"]
+    if inline is None and from_file is None:
+        return None
+
+    from coordinator_core.argv_fidelity import ArgvFidelityError, refuse_newline_argv, resolve_body
+
+    try:
+        refuse_newline_argv(inline, flag_name="--text")
+        return resolve_body(inline, from_file, flag_name="--text", allow_empty=True)
+    except ArgvFidelityError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
 def _build_params(parsed: dict[str, object]) -> dict[str, object]:
     """Build the goal.append params dict, matching the bash body's jq filter (D9 nullability)."""
     params: dict[str, object] = {
         "period": parsed["period"],
         "period_value": parsed["period_value"],
-        "text": parsed["text"],
+        "text": _resolve_text(parsed),
         "repo": parsed["repo"] or None,
         "coordinator_root_path": parsed["root"],
         "parent_goal_id": parsed["parent_goal_id"] or None,

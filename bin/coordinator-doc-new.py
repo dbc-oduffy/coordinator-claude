@@ -62,7 +62,8 @@ Supported types:
   subagent-sidecar   — agent-side decision-object container (schemas/decision-object.schema.json
                        subagent_sidecar schema definition) requires --plan, --chunk and --out
                        --out is REQUIRED (no default); the LIVE sidecar path is computed by
-                       coordinator_core.dispatch.provision at spawn time under
+                       coordinator_core.subagent_sandbox.provision_report at spawn time, reached
+                       from coordinator_core.hooks.cater_subagent_start on SubagentStart, under
                        state/subagent-share/<session-id>/<key>.md. This CLI branch is the
                        manual/test scaffold path only. Carries completion_status (backlinks the
                        existing query-completions surface, not a fourth store),
@@ -522,24 +523,48 @@ def _resolve_session_id() -> str:
     (currently: --type review-findings's fallback path, when no sidecar arrived
     pre-provisioned).
 
-    Same env var + precedence chain this file already uses for --type run-report
-    and --type subagent-sidecar's `dispatched_by` field (COORDINATOR_SESSION_ID >
-    CLAUDE_SESSION_ID > CLAUDE_CODE_SESSION_ID) -- and the same overall harness
-    session identity coordinator_core.subagent_sandbox.provision_report reads via
-    its spawn-time hook payload's `session_id` field (see that module's
-    _provision()). The EM and every subagent it spawns via the Task tool share
-    ONE harness session; provision_report captures that identity from the
-    EM-side spawn hook's payload, while this self-scaffold path reads it directly
-    from the running process's own environment -- same identity, two different
-    capture points, not two mechanisms. Falls back to the literal 'em-unknown'
-    when unset, matching this file's existing dispatched_by fallback.
+    Resolves through the canonical warm-safe resolver,
+    ``coordinator_core.ops.session_context.resolve_current_session_id``, which
+    reads the per-request identity binding first and falls back COLD to the same
+    precedence chain (COORDINATOR_SESSION_ID > CLAUDE_SESSION_ID >
+    CLAUDE_CODE_SESSION_ID) this file used to walk here directly. It is the same
+    overall harness session identity coordinator_core.subagent_sandbox
+    .provision_report reads via its spawn-time hook payload's `session_id` field
+    (see that module's _provision()). The EM and every subagent it spawns via the
+    Task tool share ONE harness session; provision_report captures that identity
+    from the EM-side spawn hook's payload, while this path resolves it for the
+    request being served -- same identity, two different capture points, not two
+    mechanisms.
+
+    WHY NOT A RAW ENV READ, which is what this was until 2026-08-30.
+    `coordinator_core.baton_assemble.apply._load_doc_new_module` loads this file
+    as a module and calls its scaffolder functions IN-PROCESS, and that module is
+    reached from the registered op `handoff.correct_body`. So these functions run
+    inside a warm server roughly 50 sessions share, where `os.environ` names
+    whoever spawned the server rather than the session whose request is being
+    served. The stamp was therefore intermittently correct -- right whenever the
+    frozen env happened to match the caller -- which is worse than constantly
+    wrong: five confirmed misattributions across claude-klabauter and project-rag in
+    a single day, three of which reached a peer as a false ownership claim.
+    Audit: state/audits/2026-08-30-author-stamp-resolves-machine-wide.md.
+
+    Falls back to the literal 'em-unknown' when the identity does not resolve OR
+    when the engine seam is unavailable. It does NOT fall back to a local env
+    ladder: an unimportable `coordinator_core` cannot be distinguished from a warm
+    context here, and a wrong id is not a better answer than a declared unknown.
+    In practice `_ensure_engine_on_path`'s self-location rung resolves off this
+    file's own path, so the no-engine leg is a broken install, not a consumer-repo
+    cwd.
     """
-    return (
-        os.environ.get("COORDINATOR_SESSION_ID")
-        or os.environ.get("CLAUDE_SESSION_ID")
-        or os.environ.get("CLAUDE_CODE_SESSION_ID")
-        or "em-unknown"
-    )
+    try:
+        _ensure_engine_on_path()
+        from coordinator_core.ops.session_context import resolve_current_session_id
+    except Exception:  # noqa: BLE001 -- engine seam absent; declare unknown, never guess
+        return "em-unknown"
+    try:
+        return resolve_current_session_id() or "em-unknown"
+    except Exception:  # noqa: BLE001 -- a scaffold must not die on an identity seam
+        return "em-unknown"
 
 
 def _sanitize_session_segment(seg: str) -> str:
@@ -572,8 +597,8 @@ def _missing_out_message(type_label: str) -> str:
     sidecar types (--type run-report and --type subagent-sidecar).
 
     Neither type gains a derived default here, and this function does not add
-    one: the live path is computed by ``coordinator_core.dispatch.provision`` at
-    spawn time, and a scaffold that guessed a session-scoped path would write a
+    one: the live path is computed by ``coordinator_core.subagent_sandbox.provision_report``
+    at spawn time, and a scaffold that guessed a session-scoped path would write a
     sidecar into a directory nothing reaps (the DEC-3 rationale pinned at both
     call sites and in ``_default_path``). What differs is the *remediation named
     to the reader*, per docs/wiki/guard-messaging.md § Key Patterns — "only offer
@@ -599,7 +624,7 @@ def _missing_out_message(type_label: str) -> str:
     head = (
         f"error: --out <path> is required for --type {type_label}. "
         "There is no default output path -- the live sidecar path is computed by "
-        "coordinator_core.dispatch.provision at spawn time and travels in the dispatch brief."
+        "coordinator_core.subagent_sandbox.provision_report at spawn time and travels in the dispatch brief."
     )
     if session_id == "em-unknown":
         return (
@@ -1226,13 +1251,31 @@ def _resolve_from_repo() -> str:
     return _em_id_for_root(root, paths_dict)
 
 
-def _resolve_session_display_name() -> str | None:
-    """Resolve THIS session's human-readable harness name (e.g.
-    `claude-klabauter-76`), or `None` when it can't be resolved.
+def _resolve_session_display_name(session_id: str) -> str | None:
+    """Resolve the human-readable harness name (e.g. `claude-klabauter-76`) of
+    `session_id`, or `None` when it can't be resolved. `session_id` is
+    required — every production caller already holds a resolved sid (from
+    `_resolve_session_id()`) before calling this, so an optional default here
+    would only re-open a second, independent resolution.
 
-    Reads `coordinator_core.session.harness_registry.self_record()` — the O(1)
-    single-file read of this process's own registry record, keyed off
-    `CLAUDE_PID` — and takes its `name` field directly. That name is the
+    Reads `coordinator_core.session.harness_registry.lookup(session_id)` and
+    takes the record's `name` field. warm-safe: was `self_record()` keyed on
+    `CLAUDE_PID` until 2026-08-30 — see `_resolve_session_id`'s docstring for
+    the full warm-server incident this resolver was rewritten to avoid; audit
+    `state/audits/2026-08-30-author-stamp-resolves-machine-wide.md`.
+
+    Cost, MEASURED not reasoned (2026-08-30, this box, 34 live registry
+    records): `lookup(sid)` is `snapshot().get(sid)` — a directory glob plus a
+    parse of EVERY live session's record, not the single keyed read its name
+    suggests. 4.69ms cpu / 5.18ms wall per call, against `self_record()`'s
+    1.56ms for the one file it read. A ~3ms delta, once per scaffold
+    invocation and never in a loop, is 0.6% of the 500ms brightline and
+    clears it. Do not restore the O(1) leg to buy that back: `self_record()`
+    is keyed on `CLAUDE_PID`, which is the defect. If this ever moves onto a
+    per-item path, hoist one `snapshot()` above the loop rather than reverting
+    the key.
+
+    The name this returns is the
     harness's own per-session identity (`slug(basename(cwd)) + "-" +
     one-random-byte-hex`, see `coordinator_core.session.reachability`'s module
     docstring), generated independently of whether cross-session messaging is
@@ -1257,30 +1300,54 @@ def _resolve_session_display_name() -> str | None:
         from coordinator_core.session import harness_registry as _harness_registry
     except Exception:  # noqa: BLE001 -- engine seam absent; degrade to no display name
         return None
+    if not session_id or session_id == "em-unknown":
+        return None
     try:
-        self_info = _harness_registry.self_record()
+        record = _harness_registry.lookup(session_id)
     except Exception:  # noqa: BLE001 -- registry read failed; degrade to no display name
         return None
-    if self_info is None:
+    if record is None:
         return None
-    _sid, record = self_info
     return record.name or None
 
 
 def _resolve_plan_author() -> str:
-    """Stamp a plan's `author:` with the MINTING SESSION's own resolvable
-    name (e.g. `claude-klabauter-76`), not the repo-wide EM role string
+    """Stamp a plan's `author:` with the minting session's name AND its uuid,
+    as `claude-klabauter-76 (7f3a...-...)`, not the repo-wide EM role string
     `_resolve_from_repo()` returns.
 
-    Thin wrapper over `_resolve_session_display_name()` with a required-field
-    fallback: when that resolver returns `None` (registry seam unavailable,
-    `CLAUDE_PID` doesn't resolve, or the record carries no `name`), falls back
-    to `_resolve_from_repo()` — today's repo-level EM identity. Honest
-    degrade: it never fabricates a session number, it reuses the same
-    deterministic-but-coarser identity the field already carried before this
-    change.
+    WHY THE UUID IS NOT OPTIONAL HERE. A display name is not an identifier:
+    the harness mints it as `slug(basename(cwd)) + one random byte`, so two
+    live sessions in one repo collide on it routinely — three duplicate pairs
+    were visible in a single `ListAgents` on 2026-08-30. A name alone in a
+    durable record cannot be resolved back to a session by any later reader,
+    and there is no historical name->uuid map to recover it from, so the value
+    has to be written at mint time or it is lost. It was: a bug row crediting
+    "claude-klabauter-49" reached the wrong one of two live sessions with that
+    name, and the correction had to be hand-applied.
+
+    The name is KEPT rather than replaced. It is what a human scanning
+    frontmatter recognises, and it is what `ListAgents` shows; the uuid beside
+    it is what makes the line checkable. `self_record()` already returns the
+    pair, so the uuid costs nothing but was being discarded.
+
+    Fallbacks — the field is required, so this never returns empty: name plus
+    uuid when the session resolves, else `_resolve_from_repo()`'s repo-level
+    identity. Never fabricates either half. Both halves now derive from a
+    SINGLE `_resolve_session_id()` result (see WHY THE UUID IS NOT OPTIONAL
+    HERE, below), so the bare-name shape (`author: claude-klabauter-d8`, a name
+    with no uuid) that a two-ladder resolution used to permit is unreachable:
+    an unresolvable session yields no name either and drops straight to the
+    repo identity.
     """
-    return _resolve_session_display_name() or _resolve_from_repo()
+    try:
+        sid = _resolve_session_id()
+    except Exception:  # noqa: BLE001 — a scaffold must not die on an identity seam
+        sid = ""
+    name = _resolve_session_display_name(sid)
+    if not name:
+        return _resolve_from_repo()
+    return f"{name} ({sid})"
 
 
 # ---------------------------------------------------------------------------
@@ -1496,7 +1563,7 @@ def _resolve_session_chain_deliverable_id(
         )
 
         return resolve_session_chain_deliverable_id(
-            _read_frontmatter_field, _chain_path
+            _read_frontmatter_field, _chain_path, doc_type=doc_type
         )
     except Exception:  # noqa: BLE001 -- discovery is best-effort; never blocks scaffolding
         return None
@@ -2080,6 +2147,7 @@ def _scaffold_handoff(
     gated_predicate: str | None = None,
     deliverable_ids: list[str] | None = None,
     plan_ids: list[str] | None = None,
+    carried_items: list[dict] | None = None,
 ) -> str:
     """Generate validator-clean handoff frontmatter + canonical section skeleton.
 
@@ -2451,6 +2519,27 @@ def _scaffold_handoff(
     if plan_ids is not None:
         lines.append("plan_ids:")
         lines.extend(f"  - {_yaml_quote(_entry)}" for _entry in plan_ids)
+    # carried_items (multi-baton fan-in carry, DR-388's sibling stub): pure
+    # carry-through of an already-vetted item dict (see baton_assemble's own
+    # `resolve_lineage` union, which only ever hands this a `disposition:
+    # carried` item, deduped by carry_id) -- this scaffolder does not
+    # re-validate the gate, it only emits what it is handed, same
+    # optional-omit convention as deliverable_ids/plan_ids above (omitted
+    # entirely when None, never `[]`).
+    if carried_items is not None:
+        lines.append("carried_items:")
+        for _item in carried_items:
+            lines.append(f"  - carry_id: {_yaml_quote(_item['carry_id'])}")
+            lines.append(f"    description: {_yaml_quote(_item['description'])}")
+            lines.append(f"    disposition: {_yaml_quote(_item['disposition'])}")
+            if _item.get("disposition_detail"):
+                lines.append(
+                    f"    disposition_detail: {_yaml_quote(_item['disposition_detail'])}"
+                )
+            if _item.get("first_seen_handoff_id"):
+                lines.append(
+                    f"    first_seen_handoff_id: {_yaml_quote(_item['first_seen_handoff_id'])}"
+                )
     _authoring_session = _resolve_session_id()
     if _authoring_session != "em-unknown":
         # Readable-name annotation (2026-08-20 extension): the id above is a
@@ -2458,7 +2547,7 @@ def _scaffold_handoff(
         # display name is a YAML trailing COMMENT, not a new field -- it
         # changes no schema shape, so it degrades to nothing (not a stray
         # placeholder) when unresolvable rather than blocking the id itself.
-        _display_name = _resolve_session_display_name()
+        _display_name = _resolve_session_display_name(_authoring_session)
         if _display_name:
             lines.append(f"# minted by {_display_name}")
         lines.append(f"authoring_session: {_yaml_quote(_authoring_session)}")
@@ -2727,16 +2816,36 @@ def _scaffold_spinoff(
     # that isn't one.
     _authoring_session_value = _resolve_session_id()
     if _authoring_session_value == "em-unknown":
-        print(
-            "coordinator-doc-new: --type spinoff could not resolve the authoring "
-            "session id (COORDINATOR_SESSION_ID / CLAUDE_SESSION_ID / "
-            "CLAUDE_CODE_SESSION_ID all unset). authoring_session must be a "
-            "machine-trustworthy fact, not a hand-typed placeholder -- set one "
-            "of those env vars and retry.",
-            file=sys.stderr,
-        )
+        # review coordinatorcode-reviewer.a30b09ca0a63129e4 finding 2: the
+        # warm leg (in_warm_served_request()) never reads os.environ, so the
+        # old env-var advice is inert there -- branch the message on warm vs.
+        # cold rather than telling every caller to set vars that can't help.
+        try:
+            _ensure_engine_on_path()
+            from coordinator_core.session.core import in_warm_served_request
+            _warm = in_warm_served_request()
+        except Exception:  # noqa: BLE001 -- engine seam absent; treat as cold
+            _warm = False
+        if _warm:
+            print(
+                "coordinator-doc-new: --type spinoff could not resolve the "
+                "authoring session id. This request ran warm and carried no "
+                "per-request session identity -- setting an env var here "
+                "will not help. Fix the dispatch/session-binding seam that "
+                "carries session_id to this request.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "coordinator-doc-new: --type spinoff could not resolve the authoring "
+                "session id (COORDINATOR_SESSION_ID / CLAUDE_SESSION_ID / "
+                "CLAUDE_CODE_SESSION_ID all unset). authoring_session must be a "
+                "machine-trustworthy fact, not a hand-typed placeholder -- set one "
+                "of those env vars and retry.",
+                file=sys.stderr,
+            )
         sys.exit(1)
-    _display_name = _resolve_session_display_name()
+    _display_name = _resolve_session_display_name(_authoring_session_value)
     _authoring_session_line = (
         f"# minted by {_display_name}\n" if _display_name else ""
     ) + f"authoring_session: {_yaml_quote(_authoring_session_value)}"
@@ -3158,7 +3267,7 @@ def _scaffold_goal_seed(
     # an unverified ceremony.
     _authoring_session_value = _resolve_session_id()
     if _authoring_session_value != "em-unknown":
-        _display_name = _resolve_session_display_name()
+        _display_name = _resolve_session_display_name(_authoring_session_value)
         if _display_name:
             lines.append(f"# minted by {_display_name}")
         lines.append(f"authoring_session: {_yaml_quote(_authoring_session_value)}")
@@ -3322,7 +3431,7 @@ def _scaffold_roadmap_seed(
     # (matching _scaffold_roadmap_baton's identical field).
     _authoring_session_value = _resolve_session_id()
     if _authoring_session_value != "em-unknown":
-        _display_name = _resolve_session_display_name()
+        _display_name = _resolve_session_display_name(_authoring_session_value)
         if _display_name:
             lines.append(f"# minted by {_display_name}")
         lines.append(f"authoring_session: {_yaml_quote(_authoring_session_value)}")
@@ -3553,7 +3662,7 @@ def _scaffold_plan(
         # the `prime_exit_criterion` block directly above. That block is
         # conditionally owed (read-side keyed on `estimate.tshirt` M/L/XL, which
         # scaffold time cannot know), so a live stub there would declare a
-        # criterion no sizing asked for. These four are owed by every plan
+        # criterion no sizing asked for. These five are owed by every plan
         # unconditionally, and a commented block would leave each plan born
         # without the brightlines its close-out is gated on — the defect this
         # emitter had from plan.schema.json 2.10.0 until now.
@@ -3561,7 +3670,7 @@ def _scaffold_plan(
         # Row text is byte-parity with the other producer of this block, DoE's
         # `coordinator/templates/plans/plan.md.tmpl`. The slug set is closed by
         # the schema's `brightline` enum plus one `contains` branch per slug: a
-        # fifth brightline arrives as a vendored schema bump, never as an edit
+        # further brightline arrives as a vendored schema bump, never as an edit
         # here alone.
         "gated_exit_criteria:",
         "  - brightline: work-proportionate-to-question",
@@ -3584,6 +3693,13 @@ def _scaffold_plan(
         "      <REPLACE: for every function or corpus-scale value this plan introduces, name the bounded",
         "      question it answers — an act to discharge (cite the function/value and its question), never",
         "      a disposition to assert (\"proportionate\" alone does not discharge this row).>",
+        "    met: false",
+        "  - brightline: right-not-merely-working",
+        "    statement: >-",
+        "      The delivered code is efficient and elegant — right, not merely working.",
+        "      <REPLACE: for every surface this plan delivers, name the simpler or cheaper shape",
+        "      considered and rejected, and why the delivered one is right — not merely working.",
+        "      Portability stays multi-os-first-class's row, never this one's.>",
         "    met: false",
         "  # `met` starts false and is flipped only by the session writing exit_criterion_met — see",
         "  # coordinator/docs/wiki/writing-plans.md § Gated Exit Criteria (Fleet Brightlines) and",
@@ -3657,6 +3773,22 @@ def _scaffold_plan(
         "  body: |",
         "    Optional multi-line detail.",
         "```",
+        "",
+        "## Exit criteria — verification",
+        "",
+        "The plan is finished when, and only when:",
+        "",
+        "1. `<REPLACE: python -m pytest <this plan's own targeted test paths>>` is green — the targeted",
+        "   tests for this plan's own surface, never the repo's fast tier or full suite.",
+        "2. <REPLACE: the plan's acceptance oracle, named and run — or \"none — no acceptance oracle in",
+        "   play,\" a positive claim, not an omission.>",
+        "3. <REPLACE: any further plan-specific exit steps, e.g. gated_exit_criteria rows carrying",
+        "   close-out evidence and flipping met: true.>",
+        "",
+        "The repo's fast tier and full suite are **never** a criterion for this plan — not the prime exit",
+        "criterion, not a gated exit criterion, not a chunk's test surface, and not a plan deliverable.",
+        "They are EM-owned, run only at the wave boundary or cadence gate, and running either proves",
+        "nothing about this plan.",
         "",
     ]
     return "\n".join(lines)
@@ -4584,9 +4716,10 @@ def _scaffold_review_findings(slice_id: str, scope: str, spawned_at: str, lead_s
 
     This is the SOLE self-persist scaffold path -- reached only when a code-reviewer
     dispatch arrived with NO sidecar pre-provisioned by the dispatching EM (the common
-    case is engine-side spawn-time provisioning via coordinator_core.dispatch.provision /
-    coordinator_core.subagent_sandbox.provision_report, which this scaffolder never
-    duplicates). Code-reviewer returns the path in its DONE line either way.
+    case is engine-side spawn-time provisioning via
+    coordinator_core.subagent_sandbox.provision_report, reached from
+    coordinator_core.hooks.cater_subagent_start on SubagentStart, which this scaffolder
+    never duplicates). Code-reviewer returns the path in its DONE line either way.
 
     Output path: state/subagent-share/<session-id>/YYYY-MM-DD-codereview-slice<ID>-<SLUG>.md
     -- the DR-091 one-home (docs/decisions/DR-091-agent-citizenship-identity-typed-sidecar-
@@ -4717,8 +4850,8 @@ def _scaffold_subagent_sidecar(
         "<!-- Subagent-sidecar decision-object container (schemas/decision-",
         "     object.schema.json $defs/subagent_sidecar). Lives at",
         "     state/subagent-share/<session-id>/<key>.md, path owned and",
-        "     computed by coordinator_core.dispatch.provision at spawn time.",
-        "     This scaffold's --out path is caller-supplied; there is no",
+        "     computed by coordinator_core.subagent_sandbox.provision_report",
+        "     at spawn time. This scaffold's --out path is caller-supplied; there is no",
         "     default path. See docs/plans/2026-07-24-canonical-resolution-",
         "     engine.md § W2-B3. -->",
         "",
@@ -5514,8 +5647,22 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
             "truncated) when blank or over the handoff schema's 140-char cap — "
             "the caller fixes it here rather than authoring frontmatter the "
             "validator will then reject. Handoff-scoped: refused fail-loud for "
-            "every other --type. "
+            "every other --type. A newline-bearing inline value is refused "
+            "outright (the .cmd forwarder's argv re-expansion cannot carry one "
+            "intact) — pass --summary-file instead. "
             "Spec: docs/plans/2026-08-19-promote-fills-its-own-placeholders.md"
+        ),
+    )
+    parser.add_argument(
+        "--summary-file",
+        dest="summary_file",
+        default=None,
+        metavar="PATH",
+        help=(
+            "(handoff) Read --summary from PATH ('-' for stdin) instead of the "
+            "inline flag. Mutually exclusive with --summary. The lossless leg "
+            "for a summary the .cmd forwarder's un-re-quoted argv expansion "
+            "would otherwise corrupt."
         ),
     )
     parser.add_argument(
@@ -5670,6 +5817,25 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
         ),
     )
     parser.add_argument(
+        "--carried-items",
+        dest="carried_items",
+        action="append",
+        default=None,
+        metavar="JSON",
+        help=(
+            "(handoff ONLY) Repeatable, one carried_items[] entry per occurrence, "
+            "each a JSON object with keys carry_id/description/disposition and "
+            "optionally disposition_detail/first_seen_handoff_id -- NOT comma-"
+            "joined, same rationale as --deliverable-ids. Carried as-is verbatim: "
+            "never re-derived or gate-checked here (the caller, "
+            "baton_assemble.resolve_lineage, already filtered to open/'carried' "
+            "items and deduped by carry_id before handing them to this flag). "
+            "Emitted as a YAML block sequence (carried_items:) ONLY when this "
+            "flag is supplied at all; omitted entirely (not [], not null) when "
+            "not supplied."
+        ),
+    )
+    parser.add_argument(
         "--predecessor-id",
         dest="predecessor_id",
         default=None,
@@ -5783,6 +5949,59 @@ def main(argv: "list[str] | None" = None) -> int:
 
     parser = _build_parser()
     args = parser.parse_args(argv)
+
+    # Prose-flag argv fidelity (post-parse, ahead of any id mint below): a
+    # newline-bearing --title/--summary reaching this CLI through its
+    # generated .cmd forwarder has already been silently truncated by
+    # cmd.exe's own LF-at-parse-time cut, before this process's first line
+    # runs — refuse outright rather than mint an id or write a scaffold off
+    # the truncated remainder.
+    #
+    # --title earns the newline refusal but deliberately has NO --title-file
+    # sibling: the title is slugged into a durable deliverable/handoff/
+    # completion id (_slug_from_title, via _mint_deliverable_id_from_title /
+    # _mint_artifact_id_from_title below), and that mint path forecloses a
+    # legitimate multi-line or quote-bearing title by its own design — there
+    # is nothing a file leg could losslessly carry that the slug path would
+    # accept anyway. Checked against args.title (pre-placeholder-default) so
+    # the refusal fires only on a caller-supplied value, never the literal
+    # placeholder strings this file defaults to below.
+    #
+    # --summary is prose comparable to cross-repo-memo --summary (which
+    # earns a --summary-file sibling): it is free-form frontmatter prose
+    # with no id-mint dependency, so a lossless file transport is added
+    # rather than merely refusing the newline.
+    from coordinator_core.argv_fidelity import (
+        ArgvFidelityError,
+        refuse_newline_argv,
+        resolve_optional_prose,
+    )
+
+    # --title earns the refusal but has no file sibling, so it passes an
+    # explicit `remedy` rather than letting the seam name a "--title-file"
+    # that does not exist. This routes through the seam deliberately: the
+    # hand-rolled parser.error this replaces produced the same refusal but
+    # was invisible to the transport probe, which credits only refusals it
+    # can see.
+    try:
+        refuse_newline_argv(
+            args.title,
+            flag_name="--title",
+            remedy=(
+                "pass a single-line --title (the id-mint path, _slug_from_title, "
+                "cannot carry a newline losslessly, so this flag has no "
+                "file-based alternative by design)."
+            ),
+        )
+    except ArgvFidelityError as exc:
+        parser.error(str(exc))
+
+    try:
+        args.summary = resolve_optional_prose(
+            args.summary, args.summary_file, flag_name="--summary"
+        )
+    except ArgvFidelityError as exc:
+        parser.error(str(exc))
 
     doc_type = args.doc_type
 
@@ -6004,8 +6223,8 @@ def main(argv: "list[str] | None" = None) -> int:
             )
             return 1
         # --out is REQUIRED — the live sidecar path is computed by
-        # coordinator_core.dispatch.provision at spawn time, exactly the same
-        # rationale as --type run-report's --out requirement above.
+        # coordinator_core.subagent_sandbox.provision_report at spawn time, exactly
+        # the same rationale as --type run-report's --out requirement above.
         if not args.out:
             print(_missing_out_message("subagent-sidecar"), file=sys.stderr)
             return 1
@@ -6506,17 +6725,53 @@ def main(argv: "list[str] | None" = None) -> int:
     # fail-loud for every other --type rather than silently dropped (same
     # cross-repo/inbox/2026-08-18-project-rag-em-doc-new-silently-drops-
     # type-inapplicable-flags.md precedent).
-    if (args.deliverable_ids or args.plan_ids) and doc_type != "handoff":
+    if (args.deliverable_ids or args.plan_ids or args.carried_items) and doc_type != "handoff":
         if args.deliverable_ids:
             _bad_flag = "--deliverable-ids"
-        else:
+        elif args.plan_ids:
             _bad_flag = "--plan-ids"
+        else:
+            _bad_flag = "--carried-items"
         print(
             f"coordinator-doc-new: {_bad_flag} is not accepted for --type {doc_type}. "
-            "--deliverable-ids and --plan-ids are handoff-only fields.",
+            "--deliverable-ids, --plan-ids, and --carried-items are handoff-only fields.",
             file=sys.stderr,
         )
         return 1
+
+    # --goals is scoped to goal-seed/roadmap-seed only (same posture as
+    # --additional-predecessor/--summary/--deliverable-ids above): refused
+    # fail-loud for every other --type. Before this block, a caller could
+    # pass --goals to e.g. --type handoff and it would parse, exit 0, and
+    # never be read or emitted -- the same silent-drop the 2026-08-18
+    # cross-repo/inbox memo reported (verified still open for this flag
+    # specifically: only goal-seed/roadmap-seed's scaffold calls ever read
+    # args.goals).
+    if args.goals and doc_type not in ("goal-seed", "roadmap-seed"):
+        print(
+            f"coordinator-doc-new: --goals is not accepted for --type {doc_type}. "
+            "--goals is scoped to --type goal-seed and --type roadmap-seed.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # --scope is review-findings-scoped only, same posture. Before this
+    # block, --scope silently parsed and was dropped for every --type but
+    # review-findings -- the same silent-drop pattern the memo above
+    # reported for --goals.
+    if args.scope and doc_type != "review-findings":
+        print(
+            f"coordinator-doc-new: --scope is not accepted for --type {doc_type}. "
+            "--scope is scoped to --type review-findings.",
+            file=sys.stderr,
+        )
+        return 1
+
+    _parsed_carried_items: list[dict] | None = None
+    if args.carried_items is not None:
+        import json as _json
+
+        _parsed_carried_items = [_json.loads(_raw) for _raw in args.carried_items]
 
     # Generate scaffold content.
     if doc_type == "handoff":
@@ -6537,6 +6792,7 @@ def main(argv: "list[str] | None" = None) -> int:
             gated_predicate=args.gated_predicate,
             deliverable_ids=args.deliverable_ids,
             plan_ids=args.plan_ids,
+            carried_items=_parsed_carried_items,
         )
     elif doc_type == "recovery":
         content = _scaffold_recovery(
@@ -6650,8 +6906,8 @@ def main(argv: "list[str] | None" = None) -> int:
     elif doc_type == "run-report":
         # dispatched_at: current UTC time in ISO 8601 format (matches fan-out-dispatch.sh: date -u +%Y-%m-%dT%H:%M:%SZ).
         dispatched_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")  # Review: code-reviewer item-5 F4 — utcnow() deprecated Python 3.12+; now(tz) is identical output
-        # dispatched_by: CLAUDE_CODE_SESSION_ID env var, falls back to 'em-unknown' (matches fan-out-dispatch.sh).
-        dispatched_by = os.environ.get("CLAUDE_CODE_SESSION_ID", "em-unknown")
+        # dispatched_by: warm-safe -- see _resolve_session_id's docstring.
+        dispatched_by = _resolve_session_id()
         content = _scaffold_run_report(
             plan_path=args.plan,
             chunk_id=args.chunk,
@@ -6661,7 +6917,7 @@ def main(argv: "list[str] | None" = None) -> int:
         )
     elif doc_type == "subagent-sidecar":
         dispatched_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        dispatched_by = os.environ.get("CLAUDE_CODE_SESSION_ID", "em-unknown")
+        dispatched_by = _resolve_session_id()  # see run-report above
         content = _scaffold_subagent_sidecar(
             plan_path=args.plan,
             chunk_id=args.chunk,

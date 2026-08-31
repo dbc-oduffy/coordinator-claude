@@ -95,12 +95,63 @@ CLAUDE_HOME_ENV = "CLAUDE_HOME"
 COORDINATOR_ENGINE_ROOT_ENV = "COORDINATOR_ENGINE_ROOT"
 CLAUDE_KLABAUTER_ROOT_ENV = "CLAUDE_KLABAUTER_ROOT"
 
+# pytest sets this for the duration of every test, in-process; a test that
+# hands a subprocess `dict(os.environ)` (the shape every setter of the
+# test-isolation roots below uses) carries it into the child. Its ABSENCE is
+# what marks a process that inherited a redirect it never asked for.
+UNDER_TEST_ENV = "PYTEST_CURRENT_TEST"
+
+# One fact, once: a CLI may consult the same override twice in a run (route
+# gate, then write-path resolution) and the operator needs the line once.
+_ISOLATION_ROOT_WARNED: set[str] = set()
+
 # Bounded retry attempts before write_path_excl fails loud.
 COLLISION_RETRY_CAP = 1000
 
 # Windows: suppresses the console popup a subprocess.run(...) would otherwise
 # trigger under the headless Claude Code Bash-tool parent. No-op (0) elsewhere.
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def isolation_root_if_under_test(env_var: str, *, caller_name: str) -> str | None:
+    """The value of test-isolation write-root override `env_var`, but only
+    when this process is actually running under a test.
+
+    Negative spec: these overrides (`QUEUE_APPEND_OUTPUT_ROOT`,
+    `LESSON_PROMOTE_OUTBOX_ROOT`) are a property of a CALLING process that
+    redirects its own writes into a tmpdir. Nothing confined them to one.
+    An interactive session that inherits one -- from a shell descended from a
+    test run, or from a warm engine spawned by one -- silently redirects every
+    subsequent queue write into a swept temp directory while the CLI prints a
+    plausible path and exits 0. Measured 2026-08-31: real improvement-queue
+    entries landed in `Temp/harvest-test-*/state/improvement-queue/` from a
+    live session, twice, with the filer holding a success receipt
+    (state/bug-backlog/2026-08-31-coordinator-queue-append-writes-into-a-s-1236db3da983.yaml).
+    For a queue whose whole job is not losing items, a silent misroute is the
+    worst available failure.
+
+    `coordinator_core.ops.queue_append._output_root_override` closes the same
+    hole on the warm-server route by refusing the read off-process; this closes
+    it on the CLI route, which reaches the legacy in-process write instead and
+    had no gate at all.
+
+    Never a raise, and never silent: an override that cannot be honoured is
+    dropped with a stderr line naming it, and the write lands where it should
+    have all along.
+    """
+    value = (os.environ.get(env_var) or "").strip()
+    if not value:
+        return None
+    if os.environ.get(UNDER_TEST_ENV):
+        return value
+    if env_var not in _ISOLATION_ROOT_WARNED:
+        _ISOLATION_ROOT_WARNED.add(env_var)
+        print(
+            f"{caller_name}: ignoring inherited {env_var}={value} — a test-isolation "
+            f"redirect outside a test run. Writing to the resolved repo path instead.",
+            file=sys.stderr,
+        )
+    return None
 
 
 def claude_home() -> str:

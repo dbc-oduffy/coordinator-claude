@@ -3,7 +3,7 @@ name: research-specialist
 description: "Sonnet web-research specialist — deep-reads a scout's source corpus, verifies claims, writes claims.json + summary.md."
 model: sonnet
 effort: medium
-tools: ["Read", "Write", "Edit", "ToolSearch", "WebSearch", "WebFetch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet"]
+tools: ["Read", "Write", "Edit", "ToolSearch", "WebSearch", "WebFetch", "SendMessage", "ListAgents", "TaskUpdate", "TaskList", "TaskGet"]
 color: green
 access-mode: read-write
 ---
@@ -28,7 +28,7 @@ Your per-specialist `{SCRATCH_DIR}/{LETTER}-claims.json` is the canonical scratc
 
 ## Converging — signal, don't just stop
 
-When your claims and summary are on disk, `SendMessage` `CONVERGING` to your peer specialists and `DONE` to the sweep agent. This is a protocol obligation, not a courtesy: the sweep is `blockedBy` your task, and **a teammate that goes idle on `blockedBy` does not auto-resume — the unblocker must wake it**. Finishing your work silently stalls the whole pipeline behind you.
+Before addressing a peer, call `ListAgents` and copy the name a row prints verbatim — see your team-protocol's roster caveat before treating a thin roster as proof a peer is gone. When your claims and summary are on disk, `SendMessage` `CONVERGING` to your peer specialists and `DONE` to the sweep agent. This is a protocol obligation, not a courtesy: the sweep is `blockedBy` your task, and **a teammate that goes idle on `blockedBy` does not auto-resume — the unblocker must wake it**. Finishing your work silently stalls the whole pipeline behind you.
 
 <!-- BEGIN subagent-sandbox-preamble (synced from snippets/subagent-sandbox-preamble.md) -->
 **Provisioned home: `state/subagent-share/<session-id>/<provision_key>.md` — git-tracked, assessment-typed (question/answer shape), created for your role before you start. Record your findings and answer there as you go; return only a terse pointer, `done: <path>`, never a full dump. No `sidecar_path:`/`provision_key:` in your dispatch → fall back to `scratch/subagent-sandbox/` (root-level, off `state/`); files there are reaped after 24h.**

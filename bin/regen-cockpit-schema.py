@@ -399,6 +399,12 @@ def main(argv: list[str] | None = None) -> int:
 
     mak_root = claude_klabauter_root()
     if not mak_root or not os.path.isdir(mak_root):
+        # foreign-identity: NOT-REACHABLE — basis: DELIBERATE INVOCATION, not true
+        # unreachability. Schema-regen maintenance CLI (Usage: `python
+        # coordinator/bin/regen-cockpit-schema.py`, deliberately typed); a third-repo
+        # session cannot hit this ambiently, but a foreign-repo operator CAN reach it
+        # by typing the command — matching the audit's row 9/16 precedent for
+        # deliberately-invoked maintenance ops.
         print("ERROR: could not resolve the claude-klabauter repo path.", file=sys.stderr)
         print("  This script regenerates the cockpit-contract schema via claude-klabauter's Python emitter.", file=sys.stderr)
         print("  Prerequisite: a local checkout of claude-klabauter, registered as machine-local key", file=sys.stderr)

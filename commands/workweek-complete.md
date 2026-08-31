@@ -314,7 +314,7 @@ at completion (best-effort).
 
 **Push checkpoint — `push.outstanding`.** Push runs on a cadence, not on every commit, and this
 is one of its named checkpoints. Once the commit has landed, call the primitive once and block on
-it (~150ms, synchronous — no detach or background wrapper):
+it (synchronous — no detach or background wrapper; a no-op returns in ms, but a real push blocks for seconds, p50 ~2s and p90 ~13s under fleet load, so do not read a long block as a hang):
 
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" push.outstanding '{}' --repo "<repo-root>"`
 
@@ -322,6 +322,16 @@ Shape W above (PowerShell host); Shape A/B on a POSIX host — `snippets/resolve
 `skipped: push:nothing-outstanding` is the ordinary no-op result, not a failure. The op owns the
 branch-gate refusal, the protected-branch policy, the retry ladder, and the LFS-range predicate —
 never hand-roll a `git push` beside it.
+
+**Maintenance checkpoint — `git.maintenance` weekly tier.** Advisory, non-zero reported, ceremony
+continues:
+
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" git.maintenance '{"tier":"weekly","repo":"<repo-root>"}'`
+
+Shape W above / Shape A/B POSIX — `snippets/resolve-coordinator-bin.md`. `--repo` flag refused
+(`scope='none'`); `repo` goes in the JSON params, not omitted. One call, one tier — the op prunes,
+runs the weekly schedule (superset of daily+hourly), then sweeps orphan packs, in that order
+internally; never sequence prune and maintenance as separate call-site steps.
 
 ---
 

@@ -71,10 +71,10 @@ so a second renderer would drift from the one every other entry path uses.
 gate on a **plan chunk row** is read by nothing, so a chunk naming this ceremony as its expiry
 never surfaces itself. Both plan-row spellings count: the declared `external_gate[]` the emitter
 schedules against, and the undeclared `awaiting_gate` straggler. Check non-terminal plans only:
-`python coordinator/bin/expired-plan-gates.py`. An expiry naming an action is a directive — fire
+`python <plugin-root>/bin/expired-plan-gates.py`. An expiry naming an action is a directive — fire
 it or record why not; one that silently rolls to next week is the failure this catches.
 
-**Anchor-freshness flag.** `python coordinator/bin/check-anchor-freshness.py` — prints the digest
+**Anchor-freshness flag.** `python <plugin-root>/bin/check-anchor-freshness.py` — prints the digest
 line verbatim when no commit changed `.version` in `coordinator/.claude-plugin/plugin.json` in the
 prior week, and the matching commits when one did. Render the flag line as printed; silence is not
 a finding. Scoped to the coordinator plugin triple only — the engine anchor has no cadence to
@@ -229,6 +229,19 @@ Shape per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`; PowerShel
 
 Empty `$_HOOK_OUT` when unconfigured — nothing renders. A configured command's summary line
 renders in the Output section below.
+
+---
+
+## Step 9.5: Maintenance Checkpoint
+
+`git.maintenance` weekly tier. Advisory, non-zero reported, ceremony continues:
+
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" git.maintenance '{"tier":"weekly","repo":"<repo-root>"}'`
+
+Shape W above / Shape A/B POSIX — `snippets/resolve-coordinator-bin.md`. `--repo` flag refused
+(`scope='none'`); `repo` goes in the JSON params, not omitted. One call, one tier — the op prunes,
+runs the weekly schedule (superset of daily+hourly), then sweeps orphan packs, in that order
+internally; never sequence prune and maintenance as separate call-site steps.
 
 ---
 

@@ -349,6 +349,8 @@ def _claude_klabauter_root_gate_empty_remediation(candidate: str, *, source: str
     """
     if source == "machine-local repos.claude_klabauter":
         return _CLAUDE_KLABAUTER_ROOT_REMEDIATION
+    # foreign-identity: SUBJECT — remedy names the candidate/checkout the reader must
+    # confirm or register (machine-local set repos.claude_klabauter); the name is the fix.
     return (
         f"cc_invoke: cannot resolve the engine root — candidate {candidate!r} (from {source}) "
         "imported coordinator_core.engine_root but the gated ladder returned no root.\n"

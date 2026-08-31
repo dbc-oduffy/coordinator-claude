@@ -475,60 +475,6 @@ def _describe_engine_import_failure(engine_root: "Optional[str]", exc: Exception
     return f"claude-klabauter percolate engine import failed: {exc}"
 
 
-# The REAL import set `_import_claude_klabauter_percolate` pulls from the engine repo --
-# not `coordinator_core/percolate/` alone. `run_percolate`, the callable that
-# actually rewrites pinned payload, lives in `ops/percolate_run.py`, outside
-# that directory; `frontmatter/schema_validate.py`, `ops/
-# percolate_identity_check.py`, and `diagnostics/contained_run.py` are pulled
-# too (§ `_import_claude_klabauter_percolate`'s own import block). A dirty-check scoped
-# to `percolate/` alone passes while uncommitted edits to any of these rewrite
-# published bytes with no commit attesting what produced them -- the ruled-
-# against "publish runs uncommitted code" pattern surviving inside its own
-# fix. Engine-root-relative POSIX paths -- handed straight to `git status`'s
-# pathspec, which accepts a directory (covers every file beneath it) or a
-# single file.
-_PERCOLATE_TRANSFORM_SET_PATHS: "tuple[str, ...]" = (
-    "coordinator_core/percolate",
-    "coordinator_core/frontmatter/schema_validate.py",
-    "coordinator_core/ops/percolate_run.py",
-    "coordinator_core/ops/percolate_identity_check.py",
-    "coordinator_core/diagnostics/contained_run.py",
-)
-
-
-def _assert_percolate_transform_set_clean(engine_root: str) -> None:
-    """Refuse the publish when any path in `_PERCOLATE_TRANSFORM_SET_PATHS` is
-    dirty at `engine_root` -- fail-closed, AC9. Every content transform and
-    every guard `_import_claude_klabauter_percolate` goes on to import runs from these
-    files; an uncommitted edit to any of them changes published bytes with no
-    commit attesting what produced them.
-
-    Names the exact dirty paths in the raised message (`docs/wiki/
-    guard-messaging.md` § Register) -- a bare "percolate is dirty, refusing"
-    on a cold publish path costs the reader a `git status` and a guess.
-
-    Raises `EngineUnavailableError` both when the transform set IS dirty and
-    when the git probe itself fails (cannot verify clean is never treated as
-    clean -- same fail-closed posture as every other AC15 leg on this seam).
-    """
-    from coordinator_core.ops.ceremony import git_native  # noqa: PLC0415 - lazy, engine only on path here
-
-    probe = git_native.status_porcelain_scoped(engine_root, _PERCOLATE_TRANSFORM_SET_PATHS)
-    if not probe.ok:
-        raise EngineUnavailableError(
-            f"could not verify the percolate transform set is clean at {engine_root} "
-            f"(git status probe failed) -- refusing to publish against an unknown state"
-        )
-    dirty_paths = _parse_porcelain_z(probe.stdout)
-    if dirty_paths:
-        named = ", ".join(dirty_paths)
-        raise EngineUnavailableError(
-            f"percolate transform set is dirty at {engine_root} -- refusing to publish: "
-            f"{named} carry uncommitted edits that would run against pinned payload with "
-            f"no commit attesting what produced them. Commit or revert these paths first."
-        )
-
-
 def _import_claude_klabauter_percolate() -> ClaudeKlabauterPercolate:
     """Resolve the engine root via the same `cc_invoke.resolve_engine_root()` shim
     (§ module docstring), then import the engine repo's percolate-engine
@@ -542,10 +488,7 @@ def _import_claude_klabauter_percolate() -> ClaudeKlabauterPercolate:
     Raises `EngineUnavailableError` — never returns partially — on: no
     `cc_invoke.py` resolvable on any of the 3 search rungs, a
     `resolve_engine_root()` failure (raises RuntimeError when every rung
-    misses), a dirty `_PERCOLATE_TRANSFORM_SET_PATHS` at the resolved root
-    (§ `_assert_percolate_transform_set_clean`, AC9 -- checked before any of
-    the imports below run, so a dirty transform never dispatches a single
-    phase call), or ANY exception importing the engine repo's modules
+    misses), or ANY exception importing the engine repo's modules
     (missing checkout, syntax error, ImportError, etc.). This is the AC15
     engine-absent / import-failure fail-closed path.
     """
@@ -569,7 +512,6 @@ def _import_claude_klabauter_percolate() -> ClaudeKlabauterPercolate:
             raise
 
         engine_root = module.require_engine_on_path(__file__)
-        _assert_percolate_transform_set_clean(engine_root)
 
         from coordinator_core.frontmatter.schema_validate import (  # type: ignore[import-not-found]
             SchemaVersionError as _SchemaVersionError,
@@ -3737,6 +3679,116 @@ def _load_assembled_mirror_gate_exemptions(
     return exemptions
 
 
+def _drop_ratified_test_denials(coverage, rows):
+    """Filter the coverage leg's `missing` set against each row's own `!`
+    allowlist denials -- the exemption wiring `assembled_mirror_gate`
+    explicitly leaves to this module.
+
+    That gate is MECHANISM ONLY and says so in its own module docstring: it
+    "does not itself read `setup/publish-allowlist-declarations.yaml` or any
+    exemption ledger -- that wiring is `coordinator/bin/publish.py`'s job".
+    Until now nothing here did it, so a test DELIBERATELY denied in field 7 of
+    `setup/publish-targets.portable` came back as an unexplained WARN every
+    round, indistinguishable from an accidental payload gap.
+
+    Worked example, the entry that exposed this: `!ops/tests/
+    test_sizing_spike_verdict.py` is a dated, reasoned denial (2026-08-14,
+    dc3eb5cb9) -- the test imports `coordinator_core.plan_assemble.predicates`
+    at module level, `plan_assemble` is not on this row's published surface,
+    and shipping the test would drag a whole predicate subsystem into the
+    mirror to satisfy one cross-check. Its subject module ships unexcluded, so
+    the gate correctly saw "module shipped, test did not" and warned -- on a
+    decision already ratified in the file it could not read.
+
+    A denial is matched by BASENAME, not full path: the gate reports subject
+    paths relative to the assembled tree while denials are written relative to
+    a row's own source dir, so the two never share a prefix to compare on.
+    Only the `test_<subject stem>.py` name is derived, so a denial can never
+    silence a subject other than the one it names.
+    """
+    denied: "set[str]" = set()
+    for row in rows:
+        for entry in (getattr(row, "allowlist", "") or "").split(","):
+            entry = entry.strip()
+            if entry.startswith("!"):
+                denied.add(PurePosixPath(entry[1:]).name)
+    if not denied:
+        return coverage
+    kept = tuple(
+        path
+        for path in coverage.missing
+        if f"test_{PurePosixPath(path).stem}.py" not in denied
+    )
+    return replace(coverage, missing=kept)
+
+
+def _declared_repo_roots_carrying_coordinator_core() -> "tuple[set[Path], set[Path]]":
+    """Return `(engine_roots, all_declared_roots)`: `engine_roots` is every
+    destination repo root whose DECLARED scope — the UNFILTERED target row
+    set, never the current invocation's possibly `--target`-filtered
+    subset — includes a row sourced from `coordinator_core`; `all_declared_
+    roots` is every destination repo root ANY declared row resolves to,
+    regardless of source. This is the caller-side discriminator `assembled_
+    mirror_gate.run_assembled_mirror_gate`'s `coordinator_core_in_declared_
+    scope` argument needs (see that module's own "The third verdict"
+    docstring section): it is MECHANISM ONLY and cannot read `setup/
+    publish-targets.portable` itself, so this function reads it here, in
+    the wiring layer, once per end-of-run dispatch.
+
+    The second set exists so the caller can tell "declared, and known not
+    to carry the engine" (eligible for NOT-APPLICABLE) apart from "not a
+    recognised declared destination at all" (a repo_root this function has
+    no opinion on — e.g. a synthetic scratch tree in a test, or any future
+    caller of the gate with a destination this ledger has never heard of).
+    Only the former is NOT-APPLICABLE; the latter falls back to the SAME
+    safe default `run_assembled_mirror_gate` itself uses when the caller
+    omits `coordinator_core_in_declared_scope` entirely (`True` — keep
+    refusing) — an unrecognised destination must never be read as
+    "declared out of scope" merely because it never appeared in the
+    declared row set.
+
+    Reuses the exact unfiltered-load shape already established at this
+    file's own `_required_pathspec_for` (`load_targets(setup_dir,
+    target_filter="", err=io.StringIO())`) — `err=io.StringIO()` is
+    load-bearing there and here alike: `main()`'s own `load_targets` call
+    already printed shadow-collision diagnostics to stderr once this run,
+    and an unfiltered re-resolution would otherwise reprint them verbatim.
+
+    Deliberately does NOT swallow `TargetsError` the way `_required_
+    pathspec_for` does — that site's empty-list fallback is safe there
+    (no rows just narrows a pathspec, a widening). It would be catastrophic
+    here: an empty list from a swallowed load failure reads as "coordinator_
+    core is not in this destination's declared scope" -> NOT-APPLICABLE ->
+    a failure to load the targets file waiving the gate on itself, the same
+    fail-open shape as the exemption bug this whole change exists to close.
+    A `TargetsError` here is INCOMPLETE (no claim could be determined), so
+    it is left to propagate; the caller catches it and reports the round as
+    unable to determine declared scope rather than reading absence as
+    not-applicable.
+
+    Rows come back FIRST-TIER-WINS on a name collision (`load_targets`'s
+    own resolution order) — "every row registered against a dest" here
+    means every row SURVIVING shadowing; a row shadowed by an earlier tier
+    is not in the set this function reads, and is never consulted."""
+    _bootstrap_engine()
+    percolate_root, _rung = _resolve_percolate_root_and_rung()
+    setup_dir = percolate_root / "setup"
+    rows = load_targets(setup_dir, target_filter="", err=io.StringIO())
+
+    engine_roots: "set[Path]" = set()
+    all_declared_roots: "set[Path]" = set()
+    for row in rows:
+        try:
+            target = parse_target_row(row)
+        except TargetsError:
+            continue
+        repo_root = _dest_repo_root(target.dest_dir) or target.dest_dir
+        all_declared_roots.add(repo_root)
+        if target.source_dir.name == "coordinator_core":
+            engine_roots.add(repo_root)
+    return engine_roots, all_declared_roots
+
+
 def dispatch_end_of_run_assembled_mirror_gate(
     repo_roots: "List[Path]",
     *,
@@ -3827,6 +3879,35 @@ def dispatch_end_of_run_assembled_mirror_gate(
     _bootstrap_engine()
     exemptions = _load_assembled_mirror_gate_exemptions()
 
+    # Declared-scope lookup (§ `_declared_repo_roots_carrying_coordinator_
+    # core`'s own docstring): a `TargetsError` here means declared scope
+    # could NOT be determined for any repo_root this round -- that is an
+    # INCOMPLETE-shaped failure, never grounds to read absence as NOT-
+    # APPLICABLE. `declared=None` is the "could not determine" sentinel;
+    # every repo_root then falls through to `run_assembled_mirror_gate`'s
+    # own default (`coordinator_core_in_declared_scope=True`), which can
+    # never produce `not_applicable=True` -- a missing coordinator_core/
+    # directory keeps refusing via the pre-existing `isolation_unverified`
+    # path exactly as it did before this leg existed. A repo_root absent
+    # from BOTH returned sets (never declared at all -- e.g. a scratch
+    # tree in a test, or any future caller with an unrecognised
+    # destination) gets the same safe default, never read as "declared out
+    # of scope" by mere absence.
+    declared: "Optional[tuple[set[Path], set[Path]]]"
+    try:
+        declared = _declared_repo_roots_carrying_coordinator_core()
+    except TargetsError as exc:
+        declared = None
+        print(
+            "  Error: end-of-run assembled-mirror gate could not resolve the "
+            "declared target row set to determine coordinator_core scope -- "
+            f"{exc.message}. Proceeding with the safe default (every "
+            "destination treated as if coordinator_core IS in its declared "
+            "scope), so a missing coordinator_core/ directory still refuses "
+            "rather than being read as not-applicable.",
+            file=sys.stderr,
+        )
+
     ok = True
     for repo_root in repo_roots:
         if not repo_root.is_dir():
@@ -3839,7 +3920,31 @@ def dispatch_end_of_run_assembled_mirror_gate(
             ok = False
             continue
 
-        result = run_assembled_mirror_gate(repo_root)
+        if declared is None:
+            coordinator_core_in_declared_scope = True
+        else:
+            engine_roots, all_declared_roots = declared
+            coordinator_core_in_declared_scope = (
+                True if repo_root not in all_declared_roots else repo_root in engine_roots
+            )
+        result = run_assembled_mirror_gate(
+            repo_root,
+            coordinator_core_in_declared_scope=coordinator_core_in_declared_scope,
+        )
+        if result.not_applicable:
+            # Gate does not refuse; the round proceeds. Never reaches the
+            # coverage leg / passed / is_load_indeterminate / exemption
+            # branches below -- there is no claim about this tree for any
+            # of them to act on (see `MirrorCollectionResult.not_
+            # applicable`'s own docstring for why this must be read before
+            # `passed`/`is_incomplete`).
+            print(
+                f"  assembled-mirror-gate: NOT APPLICABLE — {repo_root} does not "
+                "declare coordinator_core in scope and its tree carries none; "
+                "this gate has nothing to say about this destination.",
+                file=out,
+            )
+            continue
         # C6's inverse pass, on the same assembled tree the gate just walked:
         # a shipped subject whose tests stayed home. WARN only — plenty of
         # modules legitimately have no test, and a hard gate here would be
@@ -3865,9 +3970,14 @@ def dispatch_end_of_run_assembled_mirror_gate(
         # ground truth for "did this subject's test exist at all", so the
         # coverage leg is skipped for this repo root and says why, rather
         # than emitting a WARN count it cannot stand behind.
-        source_roots = [row.source_dir for row in rows_by_repo_root.get(repo_root, [])]
+        contributing_rows = rows_by_repo_root.get(repo_root, [])
+        source_roots = [row.source_dir for row in contributing_rows]
         if source_roots:
             coverage = find_modules_missing_tests(repo_root, source_roots)
+            # Ratified `!` denials are not payload gaps. See
+            # `_drop_ratified_test_denials` -- the gate is mechanism-only and
+            # delegates exemption-awareness here by name.
+            coverage = _drop_ratified_test_denials(coverage, contributing_rows)
             print(format_test_coverage_warning(coverage), file=out)
         else:
             print(
@@ -3885,6 +3995,38 @@ def dispatch_end_of_run_assembled_mirror_gate(
             continue
 
         row_names = [row.name for row in rows_by_repo_root.get(repo_root, [])]
+
+        if result.is_load_indeterminate:
+            # A LOAD-INDETERMINATE result (a timeout, and every further
+            # no-verdict cause `is_incomplete` grows) carries no claim
+            # about the tree at all -- see `MirrorCollectionResult.
+            # is_load_indeterminate`'s own docstring. The exemption ledger
+            # waives a KNOWN, REPRODUCIBLE tree property; it has nothing to
+            # waive here, so the lookup is skipped entirely rather than
+            # letting a load-driven timeout on an exempted row pass through
+            # this branch as declared content debt.
+            #
+            # The predicate is deliberately NOT `is_incomplete`: that one
+            # also covers `isolation_unverified`, which is a deterministic
+            # function of the destination tree's contents rather than of
+            # the box, and is precisely the case the single live ledger
+            # entry was declared to cover. Gating here on `is_incomplete`
+            # made that entry unreachable and shut the DoE ->
+            # coordinator-claude publish lane
+            # (cross-repo/inbox/2026-08-31-doe-claude-em-mirror-gate-
+            # completeness-reclosed-the-oss-lane.md).
+            print(
+                f"  Error: end-of-run assembled-mirror gate did not complete for "
+                f"{repo_root} -- no declared exemption applies because this "
+                "result carries no claim about the tree for an exemption to "
+                f"cover ({_ASSEMBLED_MIRROR_GATE_DECLARATIONS_PATH} was not "
+                "consulted).",
+                file=sys.stderr,
+            )
+            print(format_assembled_mirror_gate_refusal(result), file=sys.stderr)
+            ok = False
+            continue
+
         exempted_reason = next((exemptions[name] for name in row_names if name in exemptions), None)
         if exempted_reason is not None:
             print(
@@ -6710,6 +6852,34 @@ def _is_git_repo(path: Path) -> bool:
     return _resolve_git_dir(cwd=str(path)) is not None
 
 
+def _source_sha_suffix() -> str:
+    """The mirror-currency stamp appended to every percolate commit subject.
+
+    WHY THIS EXISTS. A percolate commit subject named the paths it carried
+    and the rows that produced them, but never the SOURCE commit those bytes
+    were cut from — so neither party to the publish seam could tell whether a
+    given mirror was current. A consumer executing the mirror could only
+    answer "does my fix live here?" by grepping engine source for the fix's
+    own text (project-rag-ue-addon-em, 2026-08-31: a fix committed here at
+    `40abe011d` stayed live as a crash for a mirror consumer, and the only
+    available currency check was a hand-rolled grep for `if parsed.tzinfo is
+    None`). With the source sha in the subject, `git -C <mirror> log -1`
+    answers it, and `git -C <source> merge-base --is-ancestor <fix> <stamp>`
+    answers it exactly.
+
+    Degrades to `""` rather than raising or blocking a publish: `head_sha`
+    returns `None` on an unborn/detached-nothing HEAD, and a commit subject
+    without the stamp is strictly what this function's absence produced.
+    Zero-spawn by construction (`head_sha` reads `HEAD`/`packed-refs`
+    directly) — this runs once per destination repo on the publish hot path.
+    """
+    _bootstrap_engine()
+    from coordinator_core.git.git_state import head_sha  # noqa: PLC0415
+
+    sha = head_sha(_REPO_ROOT)
+    return f" [source {sha[:12]}]" if sha else ""
+
+
 def _git_head(path: Path) -> str:
     """Native (non-spawning) resolution of `git -C <path> rev-parse HEAD` —
     replaces a prior `subprocess.run` that made this a per-item spawn at
@@ -8108,7 +8278,10 @@ def _commit_published_dests(
             print(f"  {repo_root}: already clean — nothing to commit.")
             continue
         rows = ", ".join(succeeded_row_names) if succeeded_row_names else "no named rows"
-        subject = f"percolate: sync {len(paths)} path(s) to {repo_root.name} ({rows})"
+        subject = (
+            f"percolate: sync {len(paths)} path(s) to {repo_root.name} ({rows})"
+            f"{_source_sha_suffix()}"
+        )
         # `deleted_paths` split out explicitly: `commit_paths` reads a
         # present path's bytes off the worktree, so a path the sync deleted
         # must go through its `deleted_paths` kwarg instead of `paths` --
@@ -10363,14 +10536,14 @@ def process_target(
                     #   * `renamed_file_names` is None, not empty, whenever the
                     #     rename-exemption block above did not run -- most
                     #     commonly because the percolate engine is unavailable
-                    #     (a dirty transform set refuses to load it). Empty and
-                    #     unknown are NOT the same: an empty exemption means "no
-                    #     renames exist", while None means "renames may exist and
-                    #     I cannot enumerate them", and sweeping under None
-                    #     deletes every engine-renamed published file. Observed
-                    #     live before this guard existed -- an uncommitted edit
-                    #     to `rewrite_basename.py` was enough to make the engine
-                    #     unavailable and put 10 renamed files on the delete list.
+                    #     (an unresolvable engine root, or an import that
+                    #     raises). Empty and unknown are NOT the same: an empty
+                    #     exemption means "no renames exist", while None means
+                    #     "renames may exist and I cannot enumerate them", and
+                    #     sweeping under None deletes every engine-renamed
+                    #     published file. Observed live before this guard
+                    #     existed -- an engine that failed to load was enough to
+                    #     put 10 renamed files on the delete list.
                     #
                     # The cost of failing closed is one round that does not reap
                     # an orphan; the cost of failing open is deleting published
@@ -11451,10 +11624,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     from contextlib import ExitStack
 
     from coordinator_core.locked_write import (  # type: ignore[import-not-found]
-        CONTENDED_LOCK_WAIT_ENV as _PUBLISH_LOCK_WAIT_ENV,
         LockTimeout as _PublishLockTimeout,
-        contended_lock_wait_secs as _publish_lock_wait_secs,
         held_lock as _publish_held_lock,
+    )
+    from percolate.wire_contract import (  # type: ignore[import-not-found]
+        lock_busy_message as _lock_busy_message,
+        publish_contention_wait_secs as _publish_lock_wait_secs,
     )
 
     # Review: code-reviewer P3 — parse each row exactly once and reuse the
@@ -11586,15 +11761,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         except _PublishLockTimeout as exc:
             publish_lock_stack.close()
             # Not FATAL and not exit 1: a held destination lock is a queue,
-            # not a defect (`percolate-round.py::_lock_busy_message` carries
-            # the same distinction on its side of the seam). Exit 75 is
-            # EX_TEMPFAIL, so a caller can tell "a peer is mid-publish" from
-            # "this publish is broken" without parsing stderr.
+            # not a defect (`percolate.wire_contract.lock_busy_message`
+            # carries the same distinction on its side of the seam, shared
+            # verbatim with `percolate-round.py`/`percolate-mirror.py`).
+            # Exit 75 is EX_TEMPFAIL, so a caller can tell "a peer is
+            # mid-publish" from "this publish is broken" without parsing
+            # stderr. Refuses on the FIRST contended root in
+            # `lock_repo_roots`' canonical sorted order — a multi-row
+            # publish never flattens a per-row refusal into a generic FAIL.
             print(
-                f"[publish.py] BUSY: {_lock_root} is held by another publish — "
-                f"waited {_publish_lock_wait_secs():.0f}s, nothing was written. "
-                f"Re-run once it lands. {_PUBLISH_LOCK_WAIT_ENV}=<seconds> only "
-                f"SHORTENS this wait; the ceiling cannot be raised. ({exc})",
+                f"[publish.py] BUSY: {_lock_busy_message(str(_lock_root), exc)}",
                 file=sys.stderr,
             )
             return 75
@@ -11781,7 +11957,25 @@ def main(argv: Optional[List[str]] = None) -> int:
                 f"Mirror publish: '{mirror_key}' ({len(sibling_names)} rows, "
                 f"requested via row name '{requested_row_name}')."
             )
-        print(f"Done. {totals.processed} target(s) processed.")
+        # HEADLINE STATES THE VERDICT, not just the count. A bare "Done. N
+        # target(s) processed." reads as success to both a human skimming and
+        # a log scanner, even on a run where a row fail-closed -- the row
+        # detail sat 4 lines further down under "Rows FAILED". Measured cost
+        # of that shape (2026-08-30): the claude-klabauter toplevel row had
+        # been refusing its payload parity gate since 810d64a1a1 -- the
+        # creating commit of the test whose call was always-red -- while the
+        # other 9 rows succeeded every round. Nothing looked broken, the
+        # mirror silently stopped committing, and every fix synced into it
+        # stranded unpublished for as long as it took someone to read past
+        # the headline. Three separate rows fail-closed this way in one
+        # evening. The exit code was always correct; the first line was not.
+        headline = (
+            f"FAILED. {totals.processed} target(s) processed, "
+            f"{len(failed_row_names)} row(s) fail-closed."
+            if failed_row_names
+            else f"Done. {totals.processed} target(s) processed."
+        )
+        print(headline)
         print(f"  Files synced:   {totals.synced}")
         print(f"  Files deleted:  {totals.deleted}")
         print(f"  Warnings:       {totals.warnings}")

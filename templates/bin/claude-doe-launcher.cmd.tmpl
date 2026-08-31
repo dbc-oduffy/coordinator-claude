@@ -236,24 +236,55 @@ rem must be on the .ps1 launcher, which honours it; that is also the
 rem console-integrity-correct surface on Windows.
 if not defined CLAUDE_CODE_HARBOR_KITE set "CLAUDE_CODE_HARBOR_KITE=1"
 
-rem Export the resolved coordinator CLONE ROOT as the http-hook routing key
-rem (DR-http-hook-forwarder-fixed-port, Decision 1). The forwarder cannot route
-rem a fired hook to the right engine clone from the port alone -- the port is
-rem machine-global and single -- and `body.cwd` was refused as the key because
-rem it names the operator's live shell directory, not the clone the session
-rem launched from.
+rem Export COORDINATOR_CLONE_ROOT = the STAMPED ENGINE clone -- see the .ps1
+rem launcher's block, which is the primary surface, for the full rationale.
+rem Short version: the plugin dir is the DOCTRINE clone and answers
+rem root_unstamped; the ladder is pointer then registry, each gated on
+rem coordinator_core\_engine_stamp; fail closed.
 rem
-rem The value is the CLONE ROOT, not PLUGINDIR: PLUGINDIR is <clone>\coordinator
-rem (the --plugin-dir the harness consumes), and the routing key names the clone
-rem itself. `%%~fR` on "<PLUGINDIR>\.." resolves the parent to a full path with
-rem no trailing separator.
+rem cmd.exe cannot parse TOML, so rung 2 needs a Python hop; the hop is gated
+rem on rung 1 missing, so the steady state pays no interpreter.
 rem
 rem setdefault, never overwrite: an operator who has already exported this key
-rem is pinning a clone deliberately, and this launcher must not silently
-rem override that. Same posture as CLAUDE_CODE_HARBOR_KITE above, and `setlocal`
-rem at the top of this script scopes the assignment to this process, so no
-rem restore is needed here (unlike the .ps1, which runs in the operator's shell).
-for %%R in ("%PLUGINDIR%\..") do if not defined COORDINATOR_CLONE_ROOT set "COORDINATOR_CLONE_ROOT=%%~fR"
+rem is pinning a clone deliberately. Same posture as CLAUDE_CODE_HARBOR_KITE
+rem above, and `setlocal` at the top of this script scopes the assignment to
+rem this process, so no restore is needed here (unlike the .ps1, which runs in
+rem the operator's shell).
+if not defined COORDINATOR_CLONE_ROOT (
+  rem CLAUDE_HOME -> HOME -> USERPROFILE, the same order claude-doe.py ::
+  rem _resolve_home_for_clone_shim walks.
+  set "CDL_SETH=!COORDINATOR_SETTINGS_HOME!"
+  if not defined CDL_SETH (
+    set "CDL_HOMED=!CLAUDE_HOME!"
+    if not defined CDL_HOMED set "CDL_HOMED=!HOME!"
+    if not defined CDL_HOMED set "CDL_HOMED=!USERPROFILE!"
+    if defined CDL_HOMED set "CDL_SETH=!CDL_HOMED!\.coordinator-claude-settings"
+  )
+  if defined CDL_SETH (
+    set "CDL_MLDIR=!MACHINE_LOCAL_REGISTRY_DIR!"
+    if not defined CDL_MLDIR set "CDL_MLDIR=!CDL_SETH!\machine-local"
+    set "CDL_ENGROOT="
+    rem Rung 1 -- the pointer file. `set /p` reads the first line and strips the
+    rem trailing CRLF.
+    set "CDL_CAND="
+    if exist "!CDL_MLDIR!\.claude-klabauter-root" set /p CDL_CAND=<"!CDL_MLDIR!\.claude-klabauter-root"
+    call :cdl_stamp_gate
+    rem Rung 2 -- the registry, only if rung 1 produced no stamped root.
+    if not defined CDL_ENGROOT (
+      set "CDL_REGVAL="
+      for %%F in (registry.local.toml registry.toml) do (
+        if not defined CDL_REGVAL if exist "!CDL_MLDIR!\%%F" (
+          for /f "usebackq delims=" %%V in (`python3 -c "import sys,tomllib;sys.stdout.write((tomllib.load(open(sys.argv[1],'rb')).get('repos.claude_klabauter') or '').strip())" "!CDL_MLDIR!\%%F" 2^>nul`) do set "CDL_REGVAL=%%V"
+        )
+      )
+      if defined CDL_REGVAL (
+        set "CDL_CAND=!CDL_REGVAL!"
+        call :cdl_stamp_gate
+      )
+    )
+    if defined CDL_ENGROOT set "COORDINATOR_CLONE_ROOT=!CDL_ENGROOT!"
+  )
+)
 
 rem Export the http-hook override-channel CANARY -- see the .ps1 launcher's
 rem block, which is the primary surface, for the full rationale. Short version:
@@ -359,4 +390,34 @@ if "!_cdl_t:~-1!"=="\" (
   goto :cdl_bscount
 )
 set "PASSTHRU=!PASSTHRU! "!TOK!!_cdl_bs!""
+exit /b 0
+
+:cdl_stamp_gate
+rem Promote !CDL_CAND! to !CDL_ENGROOT! iff it is a directory carrying a
+rem readable, non-empty `coordinator_core\_engine_stamp`. Only the stamp's
+rem BYTES matter (`skew.write_engine_stamp`'s own contract), so this validates
+rem non-emptiness and never parses the content -- `%%~zS` reads 0 for a file
+rem that does not exist, which is the same miss as an empty one.
+rem
+rem No-ops on an empty candidate rather than erroring: every caller is a
+rem best-effort routing-key rung, and a launch must never fail over one.
+if not defined CDL_CAND exit /b 0
+rem TRIM FIRST, and here rather than at each rung, so both rungs cannot disagree.
+rem `set /p` strips the trailing CRLF but NOT surrounding spaces or tabs, while the
+rem .ps1 leg does `.Trim()` and claude-doe.py does `.strip()` on the same pointer
+rem file. Untrimmed, a pointer written with a trailing space would fail the
+rem directory test below and fall silently through to rung 2 on THIS leg while the
+rem other two resolved it -- a disagreement between the legs that raises no error
+rem anywhere, which is the exact failure mode this ladder exists to close.
+rem `tokens=*` drops leading spaces and tabs; the loop below takes the trailing
+rem ones, cmd having no single-expression trim.
+for /f "tokens=* delims= " %%T in ("!CDL_CAND!") do set "CDL_CAND=%%T"
+:cdl_stamp_gate_rtrim
+if not defined CDL_CAND exit /b 0
+if "!CDL_CAND:~-1!"==" " (
+  set "CDL_CAND=!CDL_CAND:~0,-1!"
+  goto :cdl_stamp_gate_rtrim
+)
+if not exist "!CDL_CAND!\" exit /b 0
+for %%S in ("!CDL_CAND!\coordinator_core\_engine_stamp") do if %%~zS GTR 0 set "CDL_ENGROOT=!CDL_CAND!"
 exit /b 0

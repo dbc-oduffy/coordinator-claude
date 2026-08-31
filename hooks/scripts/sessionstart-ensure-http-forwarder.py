@@ -14,9 +14,21 @@ bind. This module uses the SAME exclusive-bind primitive the forwarder itself bi
 (`http_hook_forwarder.make_server`, `_ExclusiveServer.allow_reuse_address = False` plus
 `SO_EXCLUSIVEADDRUSE` on Windows) as the arbiter: it attempts a probe bind on `FIXED_PORT`, and
 treats a losing bind ("already bound") as SUCCESS, not failure -- something is already listening
-there, whether or not it is healthy. It never health-checks the winner; the forwarder's own module
-docstring is what defines "no live engine backend reachable" behaviour once a request actually
-lands, not this hook's job to duplicate. This has a narrow race (the probe socket closes before the
+there. It never health-checks the winner; the forwarder's own module docstring is what defines "no
+live engine backend reachable" behaviour once a request actually lands, not this hook's job to
+duplicate.
+
+ONE INSPECTION, AND IT IS NOT A HEALTH CHECK: IS THE WINNER RUNNING THE CODE ON DISK. A bound port
+is the only thing the probe can see, and a forwarder serving SUPERSEDED code holds it exactly as a
+current one does. The forwarder is a long-lived resident, so an edit to its module is inert until
+that process happens to die -- and nothing makes it die. Measured 2026-08-30: `6b136a38d` fixed a
+guard-execution timeout and the box went on denying at the old bound for over an hour beneath a
+process bound 20 h earlier, 259/18357 dials (1.41%) never forwarded and the rate climbing, with the
+fix committed the whole time. So this script compares the fingerprint the running process stamped
+into the dial-count file at ITS bind against the module on disk now, and on a mismatch retires the
+stale process and spawns a successor. That is a code-identity question with a recorded answer, not
+a health question with a probed one -- it stays out of the "does the backend work" business the
+paragraph above refuses. This has a narrow race (the probe socket closes before the
 winner spawns and rebinds), accepted deliberately: the machine-wide binder election
 (`DR-http-hook-forwarder-fixed-port.md` Decision 4) is the portable floor this hardening layer sits
 on top of, not a substitute for it -- exactly the same relationship the forwarder's own exclusivity
@@ -46,18 +58,29 @@ NEGATIVE SPEC. This module does not call any engine-plane `ensure_*` seam -- non
 yet (DR, "What this DR does not settle"). It does not import `coordinator_core` and does not resolve
 an engine root: starting the forwarder body needs only the sibling file
 `coordinator/hooks/http_hook_forwarder.py` on this same checkout, not the engine. It does not
-health-check, poll, or retry the forwarder once spawned or once found already bound -- see "ensure,
-not spawn-blindly" above for why a losing bind is trusted as success without inspection.
+health-check, poll, or retry the forwarder once spawned or once found already bound: the single
+inspection it makes of a running winner is the code-identity comparison above, which reads a file
+the forwarder already writes and never dials it. It does not kill a process it has not confirmed to
+be a forwarder, and it treats every "cannot tell" -- absent record, absent fingerprint, unreadable
+process table -- as DO NOT RESTART, because a wrongly-retired forwarder is a box-wide silent
+guard-disarm and a wrongly-kept one is the status quo.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
+import signal
 import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Optional
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _win_portability import no_console_creationflags  # noqa: E402
 
 # Sibling module this script starts -- see module docstring, "not registered here" / negative-spec.
 _FORWARDER_MODULE_PATH = Path(__file__).resolve().parents[1] / "http_hook_forwarder.py"
@@ -111,6 +134,225 @@ def _probe_bind_wins(port: int = _FIXED_PORT) -> Optional[bool]:
             sock.close()
         except Exception:
             pass
+
+
+def _dial_count_path() -> Path:
+    """Where the running forwarder stamped its bind record.
+
+    Mirrors `http_hook_forwarder.dial_count_path` BY VALUE, for the same reason `_FIXED_PORT`
+    does: this script must not import the forwarder module, which would bind and serve inside a
+    short-lived hook process. The two ladders must not drift -- a mismatch here reads as "no
+    record", which is the do-not-restart case, so drift fails toward leaving a stale forwarder up
+    rather than toward killing a healthy one.
+    """
+    override = os.environ.get("COORDINATOR_FORWARDER_DIAL_COUNT_PATH")
+    if override and override.strip():
+        return Path(override.strip())
+    base = os.environ.get("CLAUDE_HOME") or str(Path.home())
+    return Path(base) / ".claude" / "http-hook-forwarder-dial-count.json"
+
+
+def _module_fingerprint_on_disk() -> Optional[str]:
+    """Fingerprint of the forwarder module as it exists on disk RIGHT NOW.
+
+    Mirrors `http_hook_forwarder.module_fingerprint`'s algorithm by value (sha256 of the file
+    bytes, first 16 hex) for the same no-import reason as the two above. Content, never mtime: a
+    checkout or a branch switch rewrites mtime without changing a byte, and each spurious mismatch
+    costs a real forwarder restart on a box carrying dozens of live sessions.
+    """
+    try:
+        return hashlib.sha256(_FORWARDER_MODULE_PATH.read_bytes()).hexdigest()[:16]
+    except Exception:
+        return None
+
+
+def _running_forwarder_record() -> Optional[dict]:
+    """The bind record the resident forwarder wrote, or `None` if it cannot be read or parsed."""
+    try:
+        with _dial_count_path().open("r", encoding="utf-8") as handle:
+            record = json.load(handle)
+    except Exception:
+        return None
+    return record if isinstance(record, dict) else None
+
+
+def _pid_is_a_forwarder(pid: int) -> Optional[bool]:
+    """Whether `pid` is actually a forwarder process, asked of the OS process table.
+
+    WHY THIS GATE EXISTS AT ALL. The pid comes off a file that a long-dead process may have
+    written, and pids are recycled. Killing on the record alone means that in the one scenario
+    where the record is stale -- the forwarder died and something ELSE took the fixed port -- this
+    script terminates whatever unrelated program inherited the number. The kill path is rare (only
+    a fingerprint mismatch reaches it), so it can afford one subprocess to be sure.
+
+    RESIDUAL, NOT CLOSED BY THIS CHECK. The confirmation and the `os.kill` that follows it are not
+    atomic: a pid confirmed here can exit and be recycled before the signal lands. The window is one
+    Python call wide and this check shrinks the hazard by orders of magnitude, but it does not
+    eliminate it -- so this is a reduction, not a guarantee, and a future edit must not lean on it
+    as though the pid were pinned.
+
+    Returns `True`/`False` when the process table answered, and `None` when it could not be read
+    -- which the caller treats as do-not-kill, never as `True`.
+    """
+    if os.name == "nt":
+        argv = [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            '(Get-CimInstance Win32_Process -Filter "ProcessId={0}").CommandLine'.format(int(pid)),
+        ]
+    else:
+        argv = ["ps", "-p", str(int(pid)), "-o", "args="]
+    try:
+        completed = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            # A SessionStart hook runs headless; without this the query flashes a console window
+            # on every boot that reaches it. The helper is a no-op mapping on POSIX, so one splat
+            # covers both dialects above.
+            **no_console_creationflags(),
+        )
+    except Exception:
+        return None
+    if completed.returncode != 0 and not (completed.stdout or "").strip():
+        # No such process, or the query failed outright. Either way there is nothing to retire,
+        # and "nothing to retire" is not the same claim as "this is a forwarder".
+        return False
+    return bool(_FORWARDER_ARGV_RE.search(completed.stdout or ""))
+
+
+#: What a command line has to look like for its process to be a forwarder worth SIGTERMing.
+#:
+#: A BARE SUBSTRING IS NOT THIS TEST, and the difference is a wrongly-killed process. Matching
+#: `http_hook_forwarder` anywhere in the command line also matches every process that merely NAMES
+#: the module: `pytest coordinator/tests/test_http_hook_forwarder_staleness.py`, an editor holding
+#: the file open, a `grep` over the hooks tree. This requires the module's own filename as a whole
+#: path component -- so `test_http_hook_forwarder_staleness.py` and `http_hook_forwarder_decoy.py`
+#: both correctly fail to match, while `python X:\...\hooks\http_hook_forwarder.py` matches.
+_FORWARDER_ARGV_RE = re.compile(r"""(?:^|[\s"'/\\])http_hook_forwarder\.py(?:["'\s]|$)""")
+
+#: How long, in total, to wait for a spawned successor to actually take the port before declaring
+#: the box forwarderless. Ten polls at 200 ms.
+_BIND_CONFIRM_ATTEMPTS = 10
+_BIND_CONFIRM_INTERVAL_SECS = 0.2
+
+
+def _forwarder_is_listening(port: int = _FIXED_PORT) -> bool:
+    """Whether ANYTHING is serving the fixed port right now, asked by CONNECTING, never binding.
+
+    WHY NOT `_probe_bind_wins`. That probe answers the same question, and asking it here would be
+    a self-inflicted wound: it binds exclusively, so a probe issued while a freshly-spawned
+    successor is still racing for the port can WIN it, and the successor -- which treats a bind
+    failure as fatal and does not retry -- dies on the spot. The confirmation would cause the
+    failure it exists to detect. A connect touches nothing.
+    """
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.25):
+            return True
+    except OSError:
+        return False
+
+
+def _await_successor_bind() -> bool:
+    """Block briefly until a successor has actually taken the port. Returns whether one did.
+
+    THE ONE PLACE THIS MODULE IS ALLOWED TO WAIT, and the module docstring's "NEVER WAIT" is not
+    weakened by it. That rule is about the ordinary path, where nothing was killed and a spawn that
+    has not yet bound costs nobody anything. This path has already terminated a live listener: the
+    box is unguarded RIGHT NOW, and returning without confirming trades a bounded ~2 s on a rare
+    branch for an unbounded window in which every Bash call on the machine fails open silently.
+    Launching is not binding -- `_spawn_forwarder_detached` returns on `Popen`, while the successor
+    still has to win `SO_EXCLUSIVEADDRUSE` against the socket the process we just killed has not
+    finished tearing down, and it treats losing that race as fatal without retrying.
+    """
+    for _ in range(_BIND_CONFIRM_ATTEMPTS):
+        if _forwarder_is_listening():
+            return True
+        time.sleep(_BIND_CONFIRM_INTERVAL_SECS)
+    return _forwarder_is_listening()
+
+
+def _retire_stale_forwarder(pid: int) -> bool:
+    """Terminate a confirmed stale forwarder so the caller can spawn a current one.
+
+    THE WINDOW THIS OPENS IS THE WHOLE COST, AND IT IS THE PERMISSIVE DIRECTION. Between this kill
+    and the successor's bind there is no forwarder, and a dead forwarder is a connection refusal,
+    which the harness FAILS OPEN on -- silently, on `PreToolUse`. Every Bash call that fires on the
+    box in that window runs unguarded. Measured by hand on 2026-08-30 at sub-second on a box with
+    ~41 live sessions, which is what makes it payable against a defect rate of 1.41% and climbing.
+    It is NOT payable speculatively: that is why a fingerprint mismatch, and never the bind probe
+    alone, is the only thing that reaches here.
+    """
+    try:
+        os.kill(int(pid), signal.SIGTERM)
+        return True
+    except Exception:
+        return False
+
+
+def _ensure_current_forwarder() -> None:
+    """Handle the already-bound case: retire and replace the winner IF it runs superseded code.
+
+    Every early return is a "cannot tell" and leaves the running forwarder alone -- see this
+    module's negative spec for why that asymmetry is deliberate.
+    """
+    on_disk = _module_fingerprint_on_disk()
+    if on_disk is None:
+        return
+    record = _running_forwarder_record()
+    if record is None:
+        return
+    running = record.get("module_fingerprint")
+    if not isinstance(running, str) or not running:
+        # A forwarder that predates the fingerprint stamp. It is very likely stale, but "likely"
+        # does not buy a kill: nothing here can confirm what code it runs, and that generation's
+        # record carries no pid to verify either. It self-heals the first time a stamping forwarder
+        # binds.
+        return
+    if running == on_disk:
+        return
+    pid = record.get("pid")
+    # `isinstance(True, int)` is True in Python, so a record carrying `"pid": true` would otherwise
+    # reach `os.kill(1, ...)` -- init on POSIX. Bools and non-positives are rejected explicitly.
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        return
+    if _pid_is_a_forwarder(pid) is not True:
+        _disclose_failure(
+            "the resident forwarder runs superseded code (running {0}, on disk {1}) but pid {2} "
+            "could not be confirmed to be a forwarder -- left running, restart it by hand".format(
+                running, on_disk, pid
+            )
+        )
+        return
+    if not _retire_stale_forwarder(pid):
+        _disclose_failure(
+            "the resident forwarder runs superseded code (running {0}, on disk {1}) and pid {2} "
+            "could not be terminated -- left running, restart it by hand".format(
+                running, on_disk, pid
+            )
+        )
+        return
+    if not _spawn_forwarder_detached():
+        _disclose_failure(
+            "retired the superseded forwarder at pid {0} but failed to spawn its successor -- THE "
+            "BOX HAS NO FORWARDER AND BASH GUARDS ARE FAILING OPEN until one binds".format(pid)
+        )
+        return
+    if _await_successor_bind():
+        return
+    # The successor launched and did not take the port -- almost always the exclusive-bind race
+    # against the socket the retired process had not finished tearing down. One retry, because by
+    # now that teardown has had the confirmation window to complete.
+    if _spawn_forwarder_detached() and _await_successor_bind():
+        return
+    _disclose_failure(
+        "retired the superseded forwarder at pid {0} and its successor did not take port {1} "
+        "(launched, then lost the bind or exited) -- THE BOX HAS NO FORWARDER AND BASH GUARDS ARE "
+        "FAILING OPEN until one binds".format(pid, _FIXED_PORT)
+    )
 
 
 def _spawn_forwarder_detached() -> bool:
@@ -176,8 +418,10 @@ def main() -> int:
     try:
         result = _probe_bind_wins()
         if result is False:
-            # Already bound -- something is listening on FIXED_PORT. Trusted as success without
-            # inspection; see module docstring, "ensure, not spawn-blindly".
+            # Already bound -- something is listening on FIXED_PORT. Not health-checked; the one
+            # question asked of the winner is whether it runs the module on disk. See module
+            # docstring, "one inspection, and it is not a health check".
+            _ensure_current_forwarder()
             return 0
         if result is True:
             if not _spawn_forwarder_detached():

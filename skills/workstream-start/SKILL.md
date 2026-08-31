@@ -83,8 +83,11 @@ Otherwise read whichever of `ACTION-ITEMS.md`, `ROADMAP.md` (or their `docs/` va
 first match wins; it gets a brief active/blocked/ready summary feeding the Engage menu.
 
 **Orientation check.** SessionStart already injected orientation context — don't re-read it. No
-fresh cache → point at `/workday-start` or `/update-docs`. Surface the most recent
-`list-review-trail-records` path so the EM knows where the un-reviewed gap begins.
+fresh cache → point at `/workday-start` or `/update-docs`. There is no lister CLI — the
+per-commit review-trail writer/lister family was retired with no launcher of any kind — surface
+the most recent record's path directly instead: glob `state/review-trail/**/*.json` and
+`archive/review-trail/**/*.json`, sort by basename, take the last. The corpus is frozen (no live
+writer), so this marks the historical trail's stopping point, not a live un-reviewed gap.
 
 **Doc index / fan-out.** `docs/README.md` present → note wiki/research/plan counts;
 `docs/guides/`/`docs/research/` without an index → note `/update-docs` builds one.
