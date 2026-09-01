@@ -19,13 +19,13 @@ with `group-em` and `staff-session`; no hook enforces it.
 `<plugin-root>/bin/uhura-mode.py enter --repo <root> --session-id <this-session> --name <peer-name>`
 
 Resolve per `snippets/resolve-coordinator-bin.md`. Entry never refuses: last writer wins, exactly
-as the crown does, because a stale record outliving its session must not become a lock needing a
+as the Group EM does, because a stale record outliving its session must not become a lock needing a
 human. `who` reports the holder; `stand-down` releases it and is **scoped to the caller** — you
 cannot stand another session down, since a fleet believing there is no channel while a live session
 believes it is the channel is worse than a stale record.
 
 **Your window takes the receiver and turns scarlet.** `statusline.py` leads the line with a scarlet
-📞, then renders this session's label in scarlet, outranking the crown; both glyphs coexist when a
+📞, then renders this session's label in scarlet, outranking the Group EM; both glyphs coexist when a
 session holds both roles. `NO_COLOR` drops the colour but keeps both glyphs.
 
 You are the filter. **The channel is only worth having while it stays quiet.**
@@ -116,4 +116,4 @@ baton. Tripwire: `A-RELAYED-DECISION-IS-A-POINTER-NOT-AN-AUTHORITY`.
   PM is an answer about priority.
 - **Does not persist anything but the holder record.** No triage log, no escalation queue, no peer
   facts — `/group-em`'s no-registry rule applies here unchanged, and the one-line holder record is
-  the same legibility carve-out the crown already won.
+  the same legibility carve-out the Group EM already won.

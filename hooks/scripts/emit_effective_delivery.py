@@ -39,8 +39,11 @@ nothing -- see AC-9's superset check instead), does not transcribe the engine pl
 `_build_guard_chain`, does not re-derive guard identity by filename-globbing,
 and never uses the word "filename" for the tail-key join field.
 
-Emission provenance: the block carries three top-level keys
-(`PROVENANCE_KEYS`) beside `version` -- `generated_from_sha` (the full
+Emission provenance: the block carries six top-level keys
+(`PROVENANCE_KEYS`) beside `version` -- three naming THIS repo at emission
+time, three naming the ENGINE revision the cross-plane half was read off
+(`_engine_source_provenance`, which states why the second set is not
+optional). The repo-side three: `generated_from_sha` (the full
 40-char git HEAD SHA of THIS repo at emission time -- i.e. the commit the
 emitter ran at, which is by construction the PARENT of whatever commit ends
 up carrying the emitted block, since the block is written before that
@@ -65,12 +68,35 @@ import subprocess
 import sys
 from collections import namedtuple
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path, PureWindowsPath
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+import _engine_root as _er  # noqa: E402 -- sibling module, resolved off this script's own directory
+
 SCRIPTS_DIR = Path(__file__).resolve().parent
-REPO_ROOT = SCRIPTS_DIR.parents[2]
-HOOKS_JSON_PATH = REPO_ROOT / "coordinator" / "hooks" / "hooks.json"
+
+#: `SCRIPTS_DIR.parents[2]` was correct only under the nested plugin layout
+#: (`<repo>/coordinator/hooks/scripts/`) -- under the flat mirror layout this
+#: file also ships into (`<repo>/hooks/scripts/`), that fixed count lands one
+#: level above the actual repo. `_find_plugin_root` walks upward to the
+#: nearest `.claude-plugin/` ancestor instead, which is the plugin root under
+#: BOTH layouts (see `_engine_root._find_plugin_root`'s own docstring).
+_PLUGIN_ROOT = _er._find_plugin_root(SCRIPTS_DIR)
+if _PLUGIN_ROOT is None:
+    raise RuntimeError(
+        f"emit_effective_delivery: no .claude-plugin/ ancestor found walking "
+        f"up from {SCRIPTS_DIR} -- cannot resolve the plugin root under "
+        f"either shipped layout."
+    )
+
+#: Repo root is the plugin root itself under the flat mirror layout (where
+#: the plugin root's own `.git` is the repo's), or the plugin root's parent
+#: under the nested layout (where the plugin root is `<repo>/coordinator`
+#: and `.git` lives one level up). Probed directly rather than assumed from
+#: a fixed depth, matching `_engine_root`'s own dual-layout discipline.
+REPO_ROOT = _PLUGIN_ROOT if (_PLUGIN_ROOT / ".git").exists() else _PLUGIN_ROOT.parent
+HOOKS_JSON_PATH = _PLUGIN_ROOT / "hooks" / "hooks.json"
 
 MAX_STRING_LEN = 200
 
@@ -78,7 +104,14 @@ MAX_STRING_LEN = 200
 #: -- named here as the single source of truth so `render_block`'s
 #: content-idempotence contract (AC-8) and this suite's own tests strip
 #: exactly this set, never a hand-typed tuple that can silently desync.
-PROVENANCE_KEYS = ("generated_from_sha", "generated_at", "generated_from_dirty_tree")
+PROVENANCE_KEYS = (
+    "generated_from_sha",
+    "generated_at",
+    "generated_from_dirty_tree",
+    "engine_source_sha",
+    "engine_source_dirty_tree",
+    "engine_source_resolution",
+)
 
 _GIT_TIMEOUT_SECONDS = 10
 
@@ -811,15 +844,17 @@ def build_retired_entries() -> List[Dict[str, Any]]:
     return retired
 
 
-def _run_git(*args: str) -> str:
-    """Runs `git <args>` with `cwd=REPO_ROOT`, an explicit timeout, and
-    never `shell=True`. Any non-zero exit, missing `git`, or timeout raises
-    `EmitterError` -- resolving emission provenance fails closed like every
-    other half of this generator (this module's own docstring)."""
+def _run_git(*args: str, cwd: Any = None) -> str:
+    """Runs `git <args>` with an explicit timeout and never `shell=True`,
+    in `REPO_ROOT` unless `cwd` names another tree (the resolved engine
+    root, for the engine half of the provenance). Any non-zero exit,
+    missing `git`, or timeout raises `EmitterError` -- resolving emission
+    provenance fails closed like every other half of this generator (this
+    module's own docstring)."""
     try:
         result = subprocess.run(
             ["git", *args],
-            cwd=REPO_ROOT,
+            cwd=REPO_ROOT if cwd is None else cwd,
             capture_output=True,
             text=True,
             timeout=_GIT_TIMEOUT_SECONDS,
@@ -835,10 +870,68 @@ def _run_git(*args: str) -> str:
     return result.stdout
 
 
+@lru_cache(maxsize=1)
+def _engine_source_provenance() -> Dict[str, Any]:
+    """The engine half of `PROVENANCE_KEYS`: which engine revision the
+    cross-plane half of this block was actually read off.
+
+    The three repo-side keys all describe THIS repo, and half this block is
+    not from this repo. Without these, a block emitted against a six-week-old
+    published mirror is byte-indistinguishable from one emitted against the
+    current engine: well-formed, correctly stamped, and silently short every
+    guard landed since -- a receipt that reads correct and is about a
+    different state than its reader assumes.
+
+    `engine_source_resolution` joins the resolution CLASS to the RUNG that
+    answered (`_engine_root.resolve_claude_klabauter_root_with_provenance`), because a
+    SHA off a live working tree and a SHA off a published mirror are not the
+    same claim even when the two strings match. The resolved root PATH is
+    deliberately absent: it is machine-specific, and `hooks.json` is
+    committed (`guard-foreign-platform-paths.py`).
+
+    Fails closed like every other cross-plane read here -- an engine whose
+    revision cannot be identified is precisely the unidentifiable state
+    these keys exist to close, so emitting the block without them would
+    reintroduce the defect under a stamp asserting it was closed.
+
+    Cached per process: one emitter run reads one engine revision by
+    construction, and the two git invocations are otherwise paid on every
+    `build_block()` -- which the drift suite calls ~20 times, on a machine
+    where a contended `git status` already runs to seconds."""
+    try:
+        sys.path.insert(0, str(SCRIPTS_DIR))
+        from _engine_root import (  # noqa: E402  pylint: disable=import-outside-toplevel
+            resolve_claude_klabauter_root_with_provenance,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise EmitterError(f"cannot import _engine_root seam for provenance: {exc}") from exc
+
+    root, resolution_class, rung = resolve_claude_klabauter_root_with_provenance()
+    if not root:
+        raise EmitterError(
+            "engine root did not resolve -- cannot stamp which engine revision "
+            "the cross-plane half was read from; aborting closed"
+        )
+
+    sha = _run_git("rev-parse", "HEAD", cwd=root).strip()
+    if len(sha) != 40 or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise EmitterError(
+            f"'git rev-parse HEAD' in engine root did not return a 40-char hex SHA: {sha!r}"
+        )
+    status = _run_git("status", "--porcelain", "--untracked-files=no", cwd=root)
+
+    return {
+        "engine_source_sha": sha,
+        "engine_source_dirty_tree": bool(status.strip()),
+        "engine_source_resolution": f"{resolution_class}/{rung}",
+    }
+
+
 def _emission_provenance() -> Dict[str, Any]:
     """Resolves `PROVENANCE_KEYS` at emission time: the full HEAD SHA, a
-    UTC ISO-8601 second-precision `Z`-suffixed timestamp, and whether the
-    working tree has uncommitted changes to TRACKED files
+    UTC ISO-8601 second-precision `Z`-suffixed timestamp, whether the
+    working tree has uncommitted changes to TRACKED files, and the engine
+    half from `_engine_source_provenance()`
     (`--untracked-files=no`, so a peer session's scratch files never flip
     this flag). Fails closed (`EmitterError`) on any git resolution
     failure -- see this module's docstring."""
@@ -855,6 +948,7 @@ def _emission_provenance() -> Dict[str, Any]:
         "generated_from_sha": sha,
         "generated_at": generated_at,
         "generated_from_dirty_tree": dirty,
+        **_engine_source_provenance(),
     }
 
 

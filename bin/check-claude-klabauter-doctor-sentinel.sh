@@ -19,14 +19,39 @@ sentinel — claude-klabauter's `bin/claude-klabauter-doctor-probe.py` owns that
 
 Shebang note: the SHEBANG line above is `#!/usr/bin/env python3`, generator-
 owned by `gen-launcher-shim.py --ensure-unix`, and correct for this shape. On
-Windows, this file's co-located `.cmd` twin wins via `PATHEXT` when invoked as
-a bareword, so the shebang is never read there; on macOS/Linux `python3` is the
-right interpreter. Caution: callers must invoke via the extensionless name or a
-resolved-interpreter prefix, never a bareword `.py` through git-bash — git-bash
-DOES honor the shebang and would exec-127 with no `python3` present. See the
-carve-out in DoE-claude's coordinator/docs/wiki/bash-on-windows-gotchas.md §
-Carve-out (cross-repo — this wiki lives in the DoE-claude repo, not
-here).
+macOS/Linux `python3` is the right interpreter. Caution: callers must invoke
+via the extensionless name or a resolved-interpreter prefix, never a bareword
+`.py` through git-bash — git-bash DOES honor the shebang and would exec-127
+with no `python3` present. See the carve-out in DoE-claude's
+coordinator/docs/wiki/bash-on-windows-gotchas.md § Carve-out (cross-repo —
+this wiki lives in the DoE-claude repo, not here).
+
+NO INSTALLED `.cmd` TWIN, ON EITHER PLATFORM. This paragraph used to claim
+one won bare-name resolution via PATHEXT on Windows. Two later rulings
+retired that: `91771f631d` deleted the installed-`.cmd` writer under ONE
+ENTRYPOINT PER PLATFORM, and the 2026-08-29 PM ruling gives NO launcher at
+all to a name the published engine cannot serve
+(`door_install.launcher_is_installable`). This name is in that second set
+for the RENAME reason `door_install.engine_carries_entrypoint_script`
+records by name: `setup/percolate-hooks/percolate-store.yaml`'s
+`substitute` section rewrites it, so the engine carries
+`check-claude-klabauter-doctor-sentinel.py` and no claude-klabauter-spelled sibling.
+A door image dispatches on its own argv[0] basename and the server's
+`_resolve_entrypoint_script` hardcodes `<engine root>/coordinator/bin/
+<name>.py`, so the claude-klabauter spelling has no working leg there — refusing it a
+launcher is correct, not a gap.
+
+So: on a claude-klabauter-front box this is a repo-side tool, run as `python
+coordinator/bin/check-claude-klabauter-doctor-sentinel.sh`. The FLEET surface is the
+published spelling, which a klabauter-front box installs and which does get
+a door image. Do not read the absent launcher as a missing capability.
+Restoring a `.cmd` is already refused by
+`test_no_interpreter_starting_forwarder_is_emitted.py` (DR-365); widening
+`launcher_is_installable` to be rename-aware is the tempting non-fix
+nothing pins — its narrowing is what keeps the extensionless twelve
+(`chunk-commits`, `static-check`, `with-suite-mutex`, the precommit checks)
+out of the refused set, and the version that could not tell them apart
+"queued all 26 for removal, hook CLIs included".
 
 Always exits 0 — advisory only, never gating (matches check-plugin-drift.py /
 scan-addon-health.py convention of "probe never fails the ceremony"). This

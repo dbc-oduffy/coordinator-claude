@@ -666,7 +666,23 @@ targets:
     # those four files, so no other target needs this entry. See
     # coordinator_core/percolate/strip_sentinel.py (claude-klabauter) for the
     # engine-side mechanism this registers into.
+    #
+    # A second, `#`-comment-shaped pair (F-016) does the same job for
+    # coordinator/templates/machine-local/registry.toml.example: the HTML-comment
+    # form above is not valid TOML syntax, so a TOML source file needs its own
+    # marker form. It fences the file's two `repos.claude_klabauter` rows (root
+    # table + `[regeneratability]`) -- DoE-plane-only, engine-source-working-tree
+    # rows with no OSS meaning. Without this, the depersonalize table's
+    # claude_klabauter -> claude_klabauter rewrite (below) collapses each fenced row
+    # onto its `repos.claude_klabauter` sibling, producing a DUPLICATE KEY --
+    # invalid TOML -- on every publish (the `[regeneratability]` pair additionally
+    # disagreeing in value: session-accumulated-must-survive-crash vs
+    # idempotent-regeneratable). Stripping removes the row instead of renaming it,
+    # keeping the projection injective, regardless of pass order: stripping
+    # deletes the whole fenced region outright, so the row never reaches the
+    # projection whether or not depersonalize has already renamed it first.
     sentinel_strip:
+      - start_marker: ""
       - start_marker: ""
     inject:
       # Confirmed 2026-07-17: coordinator/dist/oss-only-skills/ currently has

@@ -26,6 +26,26 @@ ladder. `machine_local_resolve.resolve_machine_local_bin` is unused here —
 internally (via `machine_local_impl_resolve`), so this script never needs to
 locate that binary itself.
 
+Root cause of `ModuleNotFoundError: No module named 'cc_invoke'` (oracle item
+15, `docs/problems/2026-09-01-every-defect-the-oss-install-dogfood-sur.md`
+#15; confirmed by staff-eng review at
+`state/subagent-share/fd90860d-.../coordinatorstaff-eng.a3dc2f765549cecc2.md`
+finding 1(b)): `coordinator_core/install/fleet_env.py::_load_c1_resolver`
+loads THIS file via `importlib.util.spec_from_file_location` +
+`exec_module` — not as the interpreter's top-level script. Only a script
+run directly as `__main__` gets its own directory auto-prepended to
+`sys.path[0]`; an `exec_module`-loaded module gets no such prepend. The old
+`import lib` bootstrap relied entirely on that auto-prepend (this file's own
+directory being on `sys.path` so the bare-name `lib` package resolves), so
+under the installer's real load path it silently failed to put
+`coordinator/bin/lib` on `sys.path`, and the subsequent `import cc_invoke`
+had nowhere to find it. `resolve_fleet_env_root` below computes the lib
+directory from its own `__file__` instead (the same `__file__`-based
+pattern `cc_invoke.py` itself uses for its self-bootstrap, ` :441-443`),
+which is invocation-path-independent — it works identically whether this
+file is run as `__main__`, `exec_module`-loaded, or imported by package
+path.
+
 Day-one absent-key behaviour (AC5b, priced here per C1's own body, not C5):
 absent-or-unreadable resolves to the documented default AT THE READ SITE
 (`resolve_fleet_env_root` below), never as a second stored registry value.
@@ -56,6 +76,31 @@ _FLEET_ENV_ROOT_KEY = "fleet_env.root"
 _USAGE_FAIL = 2
 _ABSENT = 3
 
+#: `coordinator/bin/lib`, derived from this file's own `__file__` — never
+#: from `sys.path[0]`. See module docstring's "Root cause" note: an
+#: `exec_module`-loaded copy of this file (the installer's real load path,
+#: `coordinator_core/install/fleet_env.py::_load_c1_resolver`) gets no
+#: auto-prepended script directory, so the bootstrap must be
+#: invocation-path-independent.
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+
+
+def _import_cc_invoke():
+    """Import `cc_invoke` with an invocation-path-independent bootstrap.
+
+    Inserts `_LIB_DIR` onto `sys.path` directly (mirroring `cc_invoke.py`'s
+    own `__file__`-based self-bootstrap, ` :441-443`) rather than going
+    through the bare-name `lib` package, whose own bootstrap only fires
+    reliably when this file's directory is already on `sys.path` — true for
+    `python fleet-env.py ...` but NOT true for `exec_module` loading. See
+    module docstring's "Root cause" note for the failure this replaces.
+    """
+    if _LIB_DIR not in sys.path:
+        sys.path.insert(0, _LIB_DIR)
+    import cc_invoke
+
+    return cc_invoke
+
 
 def resolve_fleet_env_root() -> "str | None":
     """Return the fleet environment's root path, or None if the key is absent
@@ -71,11 +116,38 @@ def resolve_fleet_env_root() -> "str | None":
     day-one absent-key property — this function names no fallback directory
     of its own. A caller wanting a working fallback location for the absent
     case uses `coordinator_core/install/fleet_env_resolve.py` (C5).
-    """
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    import cc_invoke
 
-    return cc_invoke._machine_local_get(_FLEET_ENV_ROOT_KEY)
+    DR-402 rung 3 (`docs/decisions/DR-402-...md`): if the bootstrap or the
+    read itself fails for any reason (e.g. a packaging defect that leaves
+    `cc_invoke` unimportable), this step PROCEEDS — it never aborts the
+    install over it — but the failure is recorded as a durable, attributable
+    degrade row (`warm/telemetry.py::record_degrade`) rather than left
+    silent. Best-effort: a failure to record the row itself is swallowed by
+    `record_degrade`, never allowed to mask the original failure.
+    """
+    try:
+        cc_invoke = _import_cc_invoke()
+        return cc_invoke._machine_local_get(_FLEET_ENV_ROOT_KEY)
+    except Exception as exc:
+        try:
+            cc_invoke = _import_cc_invoke()
+            claude_klabauter_root = cc_invoke._resolve_claude_klabauter_root()
+            if claude_klabauter_root not in sys.path:
+                sys.path.insert(0, claude_klabauter_root)
+            from coordinator_core.warm import telemetry
+
+            telemetry.record_degrade(
+                kind=telemetry.KIND_COLD_FAILED,
+                cause=(
+                    "fleet-env.py::resolve_fleet_env_root: fleet_env.root "
+                    f"read failed ({type(exc).__name__}: {exc}); fleet "
+                    "environment provisioning proceeds without it "
+                    "(DR-402 rung 3)"
+                ),
+            )
+        except Exception:
+            pass
+        return None
 
 
 def main(argv: "list[str] | None" = None) -> int:

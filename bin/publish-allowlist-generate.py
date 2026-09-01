@@ -9,15 +9,52 @@ including the warm engine's own operator stop hatch) because nothing forced
 every git-tracked top-level name under a row's source dir to be CLASSIFIED —
 admitted or denied — before the file was hand-edited. This script closes that
 gap for the two `claude-klabauter` / `claude-klabauter-coordinator-bin` rows:
-it reads `setup/publish-allowlist-declarations.yaml`'s `deny` and
-`include_root` lists for a row, asserts they are disjoint and their union
-covers every `git ls-files`-tracked top-level name under that row's source
-dir (AC15 — a name in NEITHER declaration is a hard error naming the file,
-never a silent omission), and regenerates the row's field-7 CSV as
-`sorted(include_root)` followed by the row's EXISTING `!`-prefixed narrow
-exclusions carried over verbatim (this script never re-derives the deny-
-segment/fixture-tree narrows already hand-authored on the row — see each
-row's own comment block in `setup/publish-targets.portable` for those).
+it reads `setup/publish-allowlist-declarations.yaml`'s `deny` list for a row
+and regenerates the row's field-7 CSV as `sorted(tracked - deny)` followed by
+the row's EXISTING `!`-prefixed narrow exclusions carried over verbatim (this
+script never re-derives the deny-segment/fixture-tree narrows already
+hand-authored on the row — see each row's own comment block in
+`setup/publish-targets.portable` for those).
+
+POLARITY — inverted 2026-09-01, PM ruling, and AC15 went with it.
+
+Until then a row declared BOTH an `include_root` enumeration and a `deny`
+list, and AC15 hard-errored on any tracked top-level name in neither. That is
+deny-by-default, and it is why a misclassified file failed to PUBLISH:
+annoying, recoverable, and the correct direction for a mirror feeding an OSS
+twin. It also meant a growing repo carried a hand-maintained enumeration of
+everything it admitted — 184 names on the engine row, 951 on the bin row —
+and on 2026-08-31 six unclassified `test_*_prose.py` jammed the generator,
+after which field 7 was maintained by hand for a day.
+
+The PM's ruling, verbatim in substance: *"we're not running Fort Knox here,
+the worst case of a denylist not being kept up to date is that we leak some
+plan documents or whatever. better that than trying to manually manage an
+allowlist for a repo that keeps growing."* A permanent classification tax paid
+by every session, against a bounded disclosure risk on documents that are not
+secrets.
+
+So `include_root` is gone and admission is `tracked - deny`. What that costs,
+recorded because the next reader will want it and should not have to rederive
+it:
+
+  - An unclassified new file now PUBLISHES rather than jamming. That is the
+    ruling, not a defect. The unit of admission is a TOP-LEVEL NAME, and under
+    `coordinator_core`/`coordinator/bin` that is frequently a whole
+    subpackage: an unclassified new top-level DIRECTORY publishes its entire
+    recursive tree on first commit, unreviewed, and a directory can arrive
+    with many files in one commit.
+  - The transition shipped nothing new: AC15's own invariant guaranteed
+    `deny ∪ include_root == tracked`, so `tracked - deny` IS the enumeration
+    it replaced, byte for byte in field 7. Verified at the flip.
+  - `state/` and `docs/plans/` were never reachable and still are not — no
+    publish row is rooted at the repo root, so the PM's stated worst case is
+    not reachable by this change at all.
+  - The bin row's `deny` was the FROZEN output of a hand-run import closure.
+    Under the old polarity a new CLI reaching a denied package was
+    unclassified and refused; now it would publish and raise ImportError on an
+    OSS clone. `--verify-bin-deny` (this script) re-derives that set, and it
+    must be run when a bin entrypoint is added.
 
 Never enumerates the filesystem (`os.walk`) as the mechanism that DISCOVERS
 what a row could ship — `git ls-files` only, so an untracked `.bak` sitting
@@ -52,17 +89,41 @@ Usage:
                                               disk for both rows (idempotent),
                                               exit 1 and print the divergence
                                               otherwise. Writes nothing.
+    publish-allowlist-generate.py
+        --verify-bin-deny                    exit 0 if every bin-row CLI whose
+                                              coordinator_core import closure
+                                              reaches an engine-row-denied
+                                              package is covered by the bin
+                                              row's authored `deny`; exit 1
+                                              naming the offenders. Off by
+                                              default — see `derive_bin_deny`'s
+                                              docstring for why this walk is
+                                              not on this script's hot path.
+                                              Was a separate CLI
+                                              (`verify-bin-deny.py`, deleted
+                                              2026-09-01): cost-placement is a
+                                              property of when code runs, not
+                                              which file it lives in, and a
+                                              flag not passed costs the same
+                                              zero as a CLI not invoked.
 
 Negative-spec:
-    - Does NOT compute the bin row's reachability-import closure at runtime.
-      That computation (which `coordinator/bin` CLIs' `coordinator_core.*`
-      import closure reaches an engine-row-denied package) was performed
-      once, by hand, to author `setup/publish-allowlist-declarations.yaml`'s
-      `claude-klabauter-coordinator-bin.deny` list — see that list's own
-      comment for the rule and the 2026-08-20 count it produced. Re-deriving
-      it here on every run would just re-read the same input a second way,
-      at real per-run cost, for a rule that does not change between runs
-      unless a human re-authors the yaml.
+    - Does NOT run the bin row's reachability-import closure on `--check` or
+      the default (write) path. `derive_bin_deny` / `_assert_bin_deny_covers_
+      derived` live here, beside the declarations they read, and are reachable
+      only via `--verify-bin-deny`, off by default — see `derive_bin_deny`'s
+      docstring for why the ~3.1s walk is charged to the act of adding a bin
+      entrypoint rather than to every run of this generator.
+
+      The ORIGINAL negative-spec here claimed the closure need not be
+      re-derived because it is "a rule that does not change between runs unless
+      a human re-authors the yaml". That was true of the RULE and false of its
+      OUTPUT: the output changes whenever anyone adds a `coordinator/bin` CLI,
+      which is exactly when nobody re-authors the yaml. Frozen output was safe
+      only because an unclassified name hard-errors under an allowlist; under
+      the ratified deny-by-default inversion the same CLI would publish and
+      raise ImportError on an OSS clone. So the derivation exists now — just
+      not on this script's hot paths.
     - Does NOT touch the declarations yaml. It is this script's INPUT, hand-
       authored, never generated output — see that file's own header.
     - Does NOT run a publish round or touch `coordinator/lib/percolate/*`.
@@ -107,6 +168,17 @@ _CONTRACT_ROOTS: List[Tuple[str, str]] = [
     ("coordinator_core/frontmatter/schema_validate.py", "frontmatter"),
     ("coordinator_core/contract/cockpit_schema/emit_schema.py", "contract"),
 ]
+
+
+#: The bin row's rule, restated once: a top-level CLI whose `coordinator_core.*`
+#: import closure reaches a package the ENGINE row denies cannot ship, because a
+#: published bin CLI importing a package the mirror's engine row never carries
+#: raises ImportError on an OSS clone the instant it runs. The denied set is read
+#: from the engine row's own `deny` at runtime, never duplicated here — two
+#: spellings of "which packages are denied" is exactly the drift this file exists
+#: to remove.
+_BIN_ROW_NAME = "claude-klabauter-coordinator-bin"
+_BIN_SOURCE_SUBDIR = "coordinator/bin"
 
 
 class GeneratorError(Exception):
@@ -155,16 +227,20 @@ def _load_declarations() -> Dict:
     return data["rows"]
 
 
-def _row_declarations(rows: Dict, row_name: str) -> Tuple[List[str], List[str]]:
+def _row_declarations(rows: Dict, row_name: str) -> List[str]:
+    """The row's `deny` list — the ONLY membership declaration a row carries.
+
+    `include_root` was a literal enumeration of everything else (184 names on
+    the engine row, 951 on the bin row) and is gone: it is now DERIVED as
+    `tracked - deny` by `_derive_row`. See this module's docstring for the
+    ruling and why the enumeration was the thing that had to go."""
     row = rows.get(row_name)
     if row is None:
         raise GeneratorError(f"{_DECLARATIONS_PATH} declares no '{row_name}' row")
     deny_entries = row.get("deny") or []
-    deny_names = sorted(
+    return sorted(
         entry["name"] if isinstance(entry, dict) else entry for entry in deny_entries
     )
-    include_root = sorted(row.get("include_root") or [])
-    return deny_names, include_root
 
 
 def _existing_row_line(portable_text: str, row_name: str) -> Tuple[int, str]:
@@ -183,44 +259,204 @@ def _existing_exclusions(row_line: str) -> List[str]:
     return [e for e in entries if e.startswith("!")]
 
 
+def _core_module_imports(path: Path) -> "set":
+    """Every `coordinator_core` dotted remainder `path` imports. Deliberately
+    NOT guard-aware: an import this walk skips is an edge the derivation cannot
+    see, and for a deny rule the safe direction is to over-collect edges (a
+    CLI wrongly denied fails to publish, recoverably) rather than under-collect
+    (a CLI wrongly published is dead on import on a clone)."""
+    import ast
+
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"), filename=str(path))
+    except (SyntaxError, OSError):
+        return set()
+    refs = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.level or not node.module:
+                continue
+            if node.module == "coordinator_core":
+                for alias in node.names:
+                    refs.add(alias.name)
+            elif node.module.startswith("coordinator_core."):
+                refs.add(node.module[len("coordinator_core.") :])
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.startswith("coordinator_core."):
+                    refs.add(alias.name[len("coordinator_core.") :])
+    return refs
+
+
+def derive_bin_deny(rows: Dict) -> List[str]:
+    """Derive the MECHANICAL half of the bin row's `deny` list.
+
+    Returns the sorted names: the tracked `.py`/`.cmd`/
+    `.ps1` members of every top-level bin CLI whose `coordinator_core` import
+    closure reaches a package the engine row denies.
+
+    This is the walk `setup/publish-allowlist-declarations.yaml` records as
+    having been run once by hand on 2026-08-20 and frozen ever since. Frozen was
+    safe under an allowlist — a later CLI reaching a denied package is
+    unclassified, so this generator refuses and it cannot ship. It is NOT safe
+    under deny-by-default, where the same CLI would publish and then ImportError
+    on an OSS clone. Deriving it here is the precondition for that inversion.
+
+    Measured 2026-09-01: ~3.1s own-CPU, 431 top-level bin `.py` files, 883
+    modules parsed, 2 `git ls-files` spawns. Paid only when `--verify-bin-deny`
+    is passed — off this script's hot path, since the set only changes when a
+    `coordinator/bin` entrypoint is added.
+
+    A content fingerprint over exactly these inputs was built to skip the walk
+    and then DELETED, measured rather than reasoned: this repo's shared branch
+    took 44 commits in one hour, 3 of them touching `coordinator_core` or
+    `coordinator/bin` within 20 minutes, so the fingerprint missed essentially
+    always and the cache bought nothing while adding a sidecar, a schema, and a
+    second artifact that could itself go stale. Do not re-add one without first
+    measuring the hit rate on a live shared branch — "it costs 0ms when it hits"
+    is not the question; how often it hits is."""
+    denied_packages = {
+        (entry["name"] if isinstance(entry, dict) else entry).removesuffix(".py")
+        for entry in (rows["claude-klabauter"].get("deny") or [])
+    }
+
+    core_files = _git_ls_files("coordinator_core")
+    bin_files = _git_ls_files(_BIN_SOURCE_SUBDIR)
+
+    known: "set" = set()
+    for rel in core_files:
+        parts = Path(rel).parts[1:]
+        if not parts:
+            continue
+        if parts[-1].endswith(".py"):
+            stem = parts[:-1] + (parts[-1][:-3],)
+            known.add(".".join(stem))
+            if stem[-1] == "__init__":
+                known.add(".".join(stem[:-1]))
+        for i in range(1, len(parts)):
+            known.add(".".join(parts[:i]))
+
+    top_level = sorted(
+        p for p in bin_files if len(Path(p).parts) == 3 and p.endswith(".py")
+    )
+    tracked_names = {Path(p).parts[2] for p in bin_files if len(Path(p).parts) == 3}
+
+    memo: Dict[str, set] = {}
+
+    def closure(mod: str) -> "set":
+        if mod in memo:
+            return memo[mod]
+        memo[mod] = set()
+        reached = {mod.split(".", 1)[0]}
+        base = Path(*mod.split("."))
+        for candidate in (
+            Path("coordinator_core") / base / "__init__.py",
+            (Path("coordinator_core") / base).with_suffix(".py"),
+        ):
+            if (_REPO_ROOT / candidate).is_file():
+                for ref in _core_module_imports(_REPO_ROOT / candidate):
+                    if ref in known or ref.split(".", 1)[0] in known:
+                        reached |= closure(ref)
+                    else:
+                        reached.add(ref.split(".", 1)[0])
+                break
+        memo[mod] = reached
+        return reached
+
+    derived: "set" = set()
+    for rel in top_level:
+        reached: "set" = set()
+        for ref in _core_module_imports(_REPO_ROOT / rel):
+            reached |= closure(ref)
+        if reached & denied_packages:
+            stem = Path(rel).parts[2][:-3]
+            derived |= {
+                n
+                for n in (f"{stem}.py", f"{stem}.cmd", f"{stem}.ps1")
+                if n in tracked_names
+            }
+
+    return sorted(derived)
+
+
+def _assert_bin_deny_covers_derived(rows: Dict) -> List[str]:
+    """Assert every mechanically-derived bin deny name is present in the bin
+    row's hand-authored `deny`. Returns the derived names.
+
+    This is the AUTHORING-TIME half of the fix: the walk (cost recorded once,
+    on `derive_bin_deny`) runs only under `--verify-bin-deny`, the act that
+    can change the answer — adding a `coordinator/bin` entrypoint.
+
+    It VERIFIES rather than REPLACES the authored list, deliberately. That list
+    is a SUPERSET: 20 of its 32 entries are mechanical, and 12 are edges no AST
+    walk can see (`coordinator-publish.py`'s `runpy.run_path`,
+    `percolate-push.py`'s shell-out to `percolate-gate.py`) or conventions
+    (`.percolate-ignore`, the top-level prose tests). Replacing the list with
+    the derivation would silently drop those twelve — which is why the polarity
+    inversion, when it lands, must keep a declared half rather than deriving
+    everything.
+
+    What it catches that nothing catches today: a NEW CLI whose closure reaches
+    a denied package and that nobody noticed. Today that ships and raises
+    ImportError on the first OSS clone to run it."""
+    # No-op when the real rows are absent. `_ROWS`/`_DECLARATIONS_PATH` are
+    # module-level constants the test harness monkeypatches to point at a
+    # throwaway fixture repo (see coordinator/tests/
+    # test_publish_allowlist_generate.py's header), and a fixture declares
+    # neither production row. NOT a fail-open: both rows are present in the
+    # real declarations file, and their absence there hard-errors in
+    # `_row_declarations` before reaching here.
+    if _BIN_ROW_NAME not in rows or "claude-klabauter" not in rows:
+        return []
+
+    derived = derive_bin_deny(rows)
+    authored = set(rows[_BIN_ROW_NAME].get("deny") or [])
+    missing = sorted(set(derived) - authored)
+    if missing:
+        raise GeneratorError(
+            f"'{_BIN_ROW_NAME}': {len(missing)} name(s) whose coordinator_core "
+            f"import closure reaches an engine-row-denied package are NOT in this "
+            f"row's 'deny' — publishing them ships a CLI that raises ImportError "
+            f"on a fresh clone the instant it runs: {missing}"
+        )
+    return derived
+
+
 def _derive_row(rows: Dict, row_name: str, source_subdir: str, portable_text: str) -> Dict:
     tracked = _tracked_top_level_names(source_subdir)
-    deny_names, include_root = _row_declarations(rows, row_name)
+    deny_names = _row_declarations(rows, row_name)
 
-    overlap = sorted(set(deny_names) & set(include_root))
-    if overlap:
-        raise GeneratorError(
-            f"'{row_name}': {len(overlap)} name(s) declared in BOTH 'deny' and "
-            f"'include_root' — a whole-entry deny and an admission cannot "
-            f"coexist for the same name: {overlap}"
-        )
+    # THE INVERSION (PM ruling, 2026-09-01). Admission is `tracked - deny`, not
+    # an enumerated `include_root`. An unclassified name no longer hard-errors;
+    # it publishes. See the module docstring for the ruling and its cost.
+    include_root = sorted(set(tracked) - set(deny_names))
 
-    classified = set(deny_names) | set(include_root)
-    unclassified = sorted(set(tracked) - classified)
-    if unclassified:
-        raise GeneratorError(
-            f"'{row_name}': {len(unclassified)} git-tracked top-level name(s) under "
-            f"'{source_subdir}' appear in NEITHER 'deny' nor 'include_root' in "
-            f"{_DECLARATIONS_PATH} — unclassified, so this row cannot ship them "
-            f"(deny-by-default, not opt-out): {unclassified}"
-        )
-
-    stale = sorted(classified - set(tracked))
+    stale = sorted(set(deny_names) - set(tracked))
     if stale:
         raise GeneratorError(
-            f"'{row_name}': {len(stale)} name(s) declared in "
-            f"{_DECLARATIONS_PATH} are no longer git-tracked under "
-            f"'{source_subdir}' — the declaration is stale (renamed/removed "
-            f"upstream), remove or update it: {stale}"
+            f"'{row_name}': {len(stale)} name(s) in 'deny' are no longer "
+            f"git-tracked under '{source_subdir}' — the declaration is stale "
+            f"(renamed/removed upstream), remove or update it: {stale}"
         )
 
     if row_name == "claude-klabauter":
         for contract_path, owning_root in _CONTRACT_ROOTS:
-            if owning_root not in include_root:
+            # Restated for the inverted polarity: under an enumeration this
+            # asked "is the parent admitted?"; now admission is the default, so
+            # the only way to lose the parent is to DENY it. Same guarantee,
+            # opposite question.
+            if owning_root in deny_names:
                 raise GeneratorError(
                     f"'{row_name}': AC9 contract root {contract_path!r} depends on "
-                    f"directory-granular admission of {owning_root!r}, which is not "
-                    f"in 'include_root' — this row can no longer carry it"
+                    f"directory-granular admission of {owning_root!r}, which is in "
+                    f"'deny' — this row can no longer carry it"
+                )
+            if owning_root not in tracked:
+                raise GeneratorError(
+                    f"'{row_name}': AC9 contract root {contract_path!r} depends on "
+                    f"{owning_root!r}, which is not git-tracked under "
+                    f"'{source_subdir}' — nothing admits it and this row cannot "
+                    f"carry it"
                 )
             if not (_REPO_ROOT / contract_path).exists():
                 raise GeneratorError(
@@ -228,19 +464,19 @@ def _derive_row(rows: Dict, row_name: str, source_subdir: str, portable_text: st
                     f"from disk — a silent drop here breaks a cross-repo consumer "
                     f"with no failing test in this repo"
                 )
-        missing_directory_granular = sorted(
-            _DIRECTORY_GRANULAR_NAMES - set(include_root)
+        denied_directory_granular = sorted(
+            _DIRECTORY_GRANULAR_NAMES & set(deny_names)
         )
-        if missing_directory_granular:
+        untracked_directory_granular = sorted(_DIRECTORY_GRANULAR_NAMES - set(tracked))
+        if denied_directory_granular or untracked_directory_granular:
+            lost = sorted(set(denied_directory_granular) | set(untracked_directory_granular))
             raise GeneratorError(
-                f"'{row_name}': AC9 directory-granular name(s) not present in "
-                f"'include_root' — {missing_directory_granular} must be INCLUDED "
-                f"at directory granularity, not merely classified (a whole-entry "
-                f"'deny' does not satisfy AC9): roughly 30 sibling-visible modules "
-                f"ship today only because these entries are coarse, including "
-                f"sixteen hook handlers on every session's hot path — siblings "
-                f"resolve the engine root and import 'coordinator_core.*' in "
-                f"their own process: {missing_directory_granular}"
+                f"'{row_name}': AC9 directory-granular name(s) would not ship — "
+                f"{lost} must be INCLUDED at directory granularity: roughly 30 "
+                f"sibling-visible modules ship today only because these entries "
+                f"are coarse, including sixteen hook handlers on every session's "
+                f"hot path — siblings resolve the engine root and import "
+                f"'coordinator_core.*' in their own process: {lost}"
             )
 
     idx, row_line = _existing_row_line(portable_text, row_name)
@@ -276,7 +512,43 @@ def main(argv=None) -> int:
         action="store_true",
         help="exit 0 if generation is idempotent against the file on disk; write nothing",
     )
+    parser.add_argument(
+        "--verify-bin-deny",
+        action="store_true",
+        help=(
+            "exit 0 if every derived bin-row deny name is present in the "
+            "authored 'deny' list; exit 1 naming the offenders. Asserts "
+            "nothing about field 7, writes nothing."
+        ),
+    )
     args = parser.parse_args(argv)
+
+    if args.verify_bin_deny:
+        rows = _load_declarations()
+        try:
+            derived = _assert_bin_deny_covers_derived(rows)
+        except GeneratorError as exc:
+            print(f"publish-allowlist-generate --verify-bin-deny: {exc}", file=sys.stderr)
+            print(
+                "  Remedy: add the named entries to "
+                "setup/publish-allowlist-declarations.yaml's "
+                "'claude-klabauter-coordinator-bin.deny' list, with the rationale "
+                "at the point of enforcement.",
+                file=sys.stderr,
+            )
+            print(
+                "  Two sibling legs of the same complement, NOT checked here — run "
+                "them too when adding a bin entrypoint:\n"
+                "    forwarder parity:  pytest coordinator_core/test_bin_launcher_parity.py\n"
+                "    classification:    coordinator/bin/publish-allowlist-generate.py --check",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            f"publish-allowlist-generate --verify-bin-deny: {len(derived)} derived "
+            f"name(s), all present in the bin row's deny list."
+        )
+        return 0
 
     rows = _load_declarations()
     portable_text = _PORTABLE_PATH.read_text(encoding="utf-8")

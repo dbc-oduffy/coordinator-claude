@@ -185,7 +185,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{manifest_path} already up to date; nothing written.")
         return 0
 
-    manifest["tested_platforms"] = derived
+    # Review: reviewer — manifest["tested_platforms"] = derived is dead code:
+    # the write path below splices raw text read fresh from disk, never the
+    # parsed manifest dict, so this assignment silently affected nothing.
     # DR-276: this CLI owns its own main() and writes the manifest directly
     # (no separate op `main(argv)` to route through `run_op_main` -- the
     # imports above are library helpers, not an op entrypoint), so the write

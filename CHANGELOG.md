@@ -2,6 +2,27 @@
 
 All notable changes to coordinator-claude are documented here.
 
+## [Unreleased]
+
+## [4.1.0] — 2026-09-01
+
+A cold install of 4.0.0 from the published mirror, on a clean machine, did not work. This release
+fixes what broke:
+
+- **`registry.toml.example` was invalid TOML.** A rename collision in the publish step duplicated
+  a key, so the file the installer seeds your machine-local registry from failed to parse.
+- **The plugin was missing a file its own installer required.** `governed-authoring-surfaces.json`
+  existed in the source repo but never reached the published plugin, so a fresh install hard-failed
+  looking for it.
+- **The install could deadlock looking for the coordination engine.** A path assumption that only
+  held for the authoring team's own layout meant a plain install could not find its engine
+  dependency and stalled.
+- **`INSTALL.md` and the guided `/coordinator:install` runbook named scripts, paths, and steps that
+  did not match what the plugin actually ships** — corrected throughout.
+
+If you installed 4.0.0, `machine-local keys` may look fine while `machine-local get` fails against
+a corrupted registry file — re-run the install against this version rather than hand-patching it.
+
 ## [4.0.0] — 2026-08-06
 
 **v4.0.0 does things no earlier version of coordinator-claude could do.** It is not a port of the same

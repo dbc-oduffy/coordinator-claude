@@ -5,7 +5,7 @@ things land in one line of `additionalContext`, both facts, neither a
 solicitation:
 
 1. A presence FACT, never a report request -- "a Group EM holds this repo's
-   crown and can be reached by name" if the roster names one, phrased so a
+   standing and can be reached by name" if the roster names one, phrased so a
    session with no work in flight reads it and moves on rather than being
    asked to reply. The plan's `## What is NOT the problem` explicitly
    declines the broadcast-invitation shape (`Stop` cannot tell "finished
@@ -65,6 +65,14 @@ def render_presence_line(watch_result: dict | None) -> str | None:
     A holder the registry cannot name gets the session id and NOT the
     promise of a name: "reachable by name" over a bare uuid is a sentence
     that is false exactly when the reader tries to act on it.
+
+    A nameless holder has two causes and they need different sentences. On
+    a `vacant` verdict the holder is not in the registry at all -- that
+    session has ended, and there is nobody to reach under any name. Any
+    other verdict means the holder is live but its registry row carried no
+    name, which IS a lookup the reader can finish themselves. Saying "the
+    registry does not name it" for both sends a reader hunting a live
+    session for a Group EM nobody holds.
     """
     if not watch_result:
         return None
@@ -73,10 +81,16 @@ def render_presence_line(watch_result: dict | None) -> str | None:
     if not holder_name and not holder_session_id:
         return None
     if holder_name:
-        return f"This repo's Group EM crown is held by {holder_name}, reachable by that name."
+        return f"This repo's Group EM standing is held by {holder_name}, reachable by that name."
+    if watch_result.get("verdict") == _watch_module.vacant_verdict():
+        return (
+            f"This repo's Group EM standing is on record to session {holder_session_id}, which is "
+            "no longer in the live registry -- that session has ended, so the record names a "
+            "holder nobody is. Do not go looking for them."
+        )
     return (
-        f"This repo's Group EM crown is held by session {holder_session_id}, which the live "
-        "registry does not name -- `ListAgents` resolves it if you need to reach them."
+        f"This repo's Group EM standing is held by session {holder_session_id}, whose registry row "
+        "carries no name -- `ListAgents` resolves it if you need to reach them."
     )
 
 
@@ -104,10 +118,12 @@ def main() -> int:
         except Exception:  # noqa: BLE001
             watch_result = None
 
-    watch_line = f"GROUP EM WATCH: {watch_result['verdict']}" if watch_result else None
-    # Review: overengineering-reviewer -- format kept inline (watch_result is
-    # already read above to feed render_presence_line); _watch_module.render_watch_line
-    # is the shared shape used by the CLI and autofire, which re-read via read_watch.
+    # Formatting is `_watch_module.render_verdict_line`, not an inline f-string:
+    # the line now carries tick age and a re-arm instruction, and a second copy
+    # of that shape would drift from the one autofire prints. It takes the
+    # already-read `watch_result` rather than re-reading, which is why
+    # `render_watch_line` (read-then-format) is not what is called here.
+    watch_line = _watch_module.render_verdict_line(watch_result)
     presence_line = render_presence_line(watch_result)
 
     lines = [line for line in (presence_line, watch_line) if line]

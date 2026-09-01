@@ -49,20 +49,43 @@ future edit must not "fix" the asymmetry by copy-paste:
   - **Dials the `127.0.0.1` literal, never `localhost`.** Dialling the name costs ~2s per call on
     this host (IPv6-first dual-stack resolution racing an IPv4-only listener). The literal comes
     from `http_listener.bind_host()` -- one place decides it so no caller here re-derives it.
-  - **Distinguishes "no backend" from "backend said no," and DENIES on the first.** This is the
-    load-bearing property. Reporting unreachability truthfully is NOT the fix: the harness fails
-    open on a genuinely unreachable http hook endpoint (2026-08-19 spike, arm C), so a forwarder
-    that merely answers truthfully about a dead backend still terminates in a permitted Bash call
-    -- the forwarder is the only component of ours left in the path once the registration is
-    `type: "http"`, and a down backend cannot author its own refusal. So an unreachable or
-    undiscoverable backend gets an AFFIRMATIVE `permissionDecision: deny` whose reason names the
-    guard as not having run (this is AC1c). Confirmed at the harness level, not just at this
-    module's own response shape, by
-    `docs/research/2026-08-25-forwarder-deny-on-dead-backend.md` (C0a): a forwarder-shaped
-    process that itself failed to reach its backend and only then emitted this deny shape blocked
-    a real, live Bash tool call. Every OTHER response -- any status/body the backend itself
-    returned, allow included -- is relayed verbatim; this module makes exactly one permission
-    decision of its own.
+  - **Distinguishes "no backend" from "backend said no," and runs the THREE-RUNG LADDER on the
+    first.** This is the load-bearing property, and its bottom rung lets the act proceed. DR-402
+    (`DR-402-a-guard-that-cannot-run-allows-and-says-so.md`, on the engine plane's decisions
+    surface) settles the classification these guards are built on: they are PERFORMANCE AND
+    ERGONOMICS instruments, never security controls. Nothing on this seam is a trust boundary. A
+    security control may correctly fail closed because wrongly permitting costs more than wrongly
+    denying; that calculus does not hold here and never did. Wrongly denying costs every session
+    on a ~50-LLM box its shell for the length of an infrastructure flap; wrongly permitting costs
+    one unlinted command. So an unreachable or undiscoverable backend does NOT deny. It descends:
+
+      1. **Warm** -- the listener answered. Relayed verbatim, silent. Unchanged.
+      2. **Cold** -- nothing reachable, so the guard chain runs IN PROCESS via the engine's
+         `warm.hook_http.evaluate_cold` and returns its REAL verdict, which may legitimately be a
+         deny because the guard actually evaluated. Loud and durable: `evaluate_cold` writes its
+         own `record_degrade(kind="cold_run")` row, so rung 2's durability is the engine's, not
+         ours.
+      3. **Proceed** -- cold itself failed (engine unimportable, unstamped root, crash, anything).
+         The act proceeds, loudly and durably, never silently.
+
+    A DENY MUST BE A VERDICT, NEVER AN ABSENCE OF ONE. The retired message
+    ("...the Bash guard did not run, denying rather than permitting a command it never evaluated")
+    stated its own defect in its own text: a guard that never evaluated holds no verdict to
+    report, and emitting a deny in place of one is the bug rather than the safe default. The
+    earlier reasoning this replaces -- that the harness fails open on an unreachable endpoint
+    (2026-08-19 spike, arm C), so the forwarder had to author the refusal itself -- was
+    mechanically correct and is now beside the point: falling open is the DESIRED outcome on this
+    seam, and the ladder reaches it deliberately and loudly instead of silently.
+
+    Every OTHER response -- any status/body the backend itself returned, allow included -- is
+    relayed verbatim. The permission decisions this module authors itself are now only the ones
+    the ladder cannot cover (see `VETOED_ENV_REASON`).
+
+    NOT LICENSED BY THE ABOVE, per DR-402's own limits: not silence (every rung below warm writes
+    a durable attributable row); not a bypass for a guard that RAN and said no; not a wider
+    timeout or wait; and not extended to any guard whose purpose is preventing unrecoverable
+    loss rather than performance -- such a guard claims exemption explicitly at its own site,
+    never by inference from its importance.
 
 Reference: `hookSpecificOutput.permissionDecision: "deny"` is the documented and measured block
 channel for a `type: "http"` hook response
@@ -88,6 +111,10 @@ __all__ = [
     "REFUSED_REASON",
     "UNREACHABLE_REASON",
     "VETOED_ENV_REASON",
+    "RUNG_COLD",
+    "RUNG_PROCEED",
+    "DEGRADE_LOG_PATH_ENV",
+    "degrade_log_path",
     "DIAL_COUNT_PATH_ENV",
     "FIXED_PORT",
     "HEALTH_PATH",
@@ -106,14 +133,16 @@ __all__ = [
     "main",
 ]
 
-#: Reason text placed on the one permission decision this module authors itself. Named so a
-#: consumer reading a transcript can tell "the forwarder denied because its backend was
-#: unreachable" apart from "the engine's own guard denied the command" -- the two must never be
-#: mistaken for each other; the caller-facing text says which happened.
-DENY_REASON = (
-    "http-hook-forwarder: no live engine backend reachable -- the Bash guard did not run, "
-    "denying rather than permitting a command it never evaluated"
-)
+#: RETIRED AS A VERDICT BY DR-402, KEPT AS A CAUSE LABEL. This text was the deny this module
+#: emitted when discovery resolved no backend, and emitting it is now the defect: a guard that
+#: never evaluated holds no verdict to report. It survives ONLY as the `cause` string the ladder
+#: stamps into its durable rung records and its loud proceed message, where "no live engine
+#: backend reachable" is a true statement of fact rather than a permission decision.
+#:
+#: DO NOT REATTACH THIS TO A `permissionDecision`. A successor reading a deny storm and reaching
+#: for the "safe default" is exactly the misunderstanding DR-402 names -- see the module
+#: docstring's ladder.
+DENY_REASON = "http-hook-forwarder: no live engine backend reachable"
 
 #: Reason text for the OTHER case this module must author a decision for: a backend that was
 #: reached and answered, but answered with a transport-level refusal rather than a verdict.
@@ -132,10 +161,10 @@ DENY_REASON = (
 #: it failed to read, and under a deny storm those have entirely different diagnoses. Reading
 #: the cookie a second way to tell them apart is deliberately NOT done here: it would add a
 #: failure path to the hot path of every Bash call on the box to improve a log line.
-REFUSED_REASON = (
-    "http-hook-forwarder: engine backend refused the request -- the Bash guard did not run, "
-    "denying rather than permitting a command it never evaluated"
-)
+#: RETIRED AS A VERDICT BY DR-402, KEPT AS A CAUSE LABEL -- see `DENY_REASON`'s note; same
+#: disposition applies here. A backend that answered with a transport error still did not
+#: evaluate the guard, so this is a ladder entry (rung 2, then 3), never a deny.
+REFUSED_REASON = "http-hook-forwarder: engine backend refused the request"
 
 #: Reason text for the third deny this module authors: the override channel was DECLARED and then
 #: VETOED (`_env_from_request_headers` found an `httpHookAllowedEnvVars` setting vetoing the
@@ -154,10 +183,11 @@ VETOED_ENV_REASON = (
 #: Discovery resolved a backend and it could not be reached -- distinct from `DENY_REASON`'s
 #: "nothing resolved at all". A stale record pointing at a dead process denies exactly like an
 #: absent one, but the two want different first moves: this one names the address that failed.
+#: RETIRED AS A VERDICT BY DR-402, KEPT AS A CAUSE LABEL -- see `DENY_REASON`'s note; same
+#: disposition applies here.
 UNREACHABLE_REASON = (
     "http-hook-forwarder: discovery named an engine backend but it could not be reached "
-    "(refused, timed out, or reset mid-response) -- the Bash guard did not run, denying rather "
-    "than permitting a command it never evaluated. The discovery record may be stale"
+    "(refused, timed out, or reset mid-response); the discovery record may be stale"
 )
 
 #: Same cap `http_listener.py` applies to its own POST bodies -- a hook event is a small JSON
@@ -308,6 +338,65 @@ DENY_ARM_NO_BACKEND = "no_backend"
 DENY_ARM_UNREACHABLE = "unreachable"
 DENY_ARM_SKEW = "skew"
 
+#: The two below-warm rungs of DR-402's ladder, as recorded in `degrade_log_path()` and counted
+#: in `DialCounter.rungs`. Rung 1 (warm) is not named here because it is the absence of a rung
+#: record -- a served call writes nothing, which is what keeps the degrade log readable as
+#: "everything in this file is a departure from normal".
+#:
+#: THE ARMS ABOVE DID NOT BECOME REDUNDANT. `DENY_ARM_*` says WHY warmth was unavailable (whose
+#: bug: no record published, a record naming a dead port, a version-skewed record); the rungs say
+#: WHAT WE DID ABOUT IT. A box where every call is rung 2 is healthy-ish and slow; a box where
+#: every call is rung 3 is running unguarded. Collapsing the two axes loses the second question.
+RUNG_COLD = "cold"
+RUNG_PROCEED = "proceed"
+
+#: Not a rung of the ladder -- a lifecycle event recorded on the same surface, because a reader
+#: chasing a degrade run needs to see that the process changed its mind about where the engine is
+#: IN THE SAME TIMELINE as the denials around it. Filed here rather than in a second log for the
+#: reason the rungs are: a fact split across two files is a fact nobody correlates.
+RUNG_ENGINE_ROOT_INVALIDATED = "engine_root_invalidated"
+
+#: WHY `no_backend` NEEDED SPLITTING, and this is the whole P1. On 2026-09-01 a forwarder denied
+#: for ~38 minutes against a live, healthy listener, and its own dial file could not say why: the
+#: `no_backend` arm collapses ELEVEN distinct return sites -- no routing key, a header naming no
+#: real clone, no engine root resolvable, `coordinator_core` unimportable, a root that fails
+#: `is_engine_root`, no discovery record, a malformed record, a bad port, an unresolvable bind
+#: host -- into a single integer. Those have different owners and different first moves, and no
+#: arithmetic over the other counters recovers which fired. This is the identical defect
+#: `DENY_ARM_*` was introduced to fix one level up, repeated one level down; the incident could
+#: not diagnose itself for exactly that reason.
+#:
+#: THE ARM IS UNCHANGED AND STAYS COARSE. `denied_by_arm` remains the three-way whose-bug-is-it
+#: axis that existing readers and tests depend on; the cause is a strictly additive second
+#: dimension recorded beside it. A cause is never a verdict and never changes one.
+CAUSE_NO_ROUTING_KEY = "no_routing_key"
+CAUSE_CLONE_UNRESOLVED = "clone_root_unresolvable"
+CAUSE_NO_ENGINE_ROOT = "engine_root_unresolved"
+CAUSE_ENGINE_UNIMPORTABLE = "coordinator_core_unimportable"
+CAUSE_NOT_ENGINE_ROOT = "not_a_stamped_engine_root"
+CAUSE_NO_DISCOVERY_RECORD = "no_discovery_record"
+CAUSE_DISCOVERY_RAISED = "discovery_read_raised"
+CAUSE_RECORD_MALFORMED = "record_not_a_dict"
+CAUSE_RECORD_BAD_PORT = "record_port_missing_or_invalid"
+CAUSE_NO_BIND_HOST = "bind_host_unresolvable"
+CAUSE_SKEWED = "record_version_skewed"
+
+#: Env var overriding where the rung records are persisted. Exists for tests, like
+#: `DIAL_COUNT_PATH_ENV`; a deployment never sets it.
+DEGRADE_LOG_PATH_ENV = "COORDINATOR_FORWARDER_DEGRADE_LOG_PATH"
+
+#: Cap on the rung record file before it is truncated and restarted. Small on purpose -- this is
+#: a bounded breadcrumb like `DialCounter`'s ring, not an archive. A box in sustained rung 3
+#: writes one row per Bash call, and the reader's question ("is this happening, and since when")
+#: is answered by the recent tail, never by the whole history.
+_DEGRADE_LOG_MAX_BYTES = 2 << 20
+
+# Review: coordinator:code-reviewer (a4d565927c67359bc) -- guards the stat/truncate/append
+# sequence in `_record_rung` across `ThreadingHTTPServer` handler threads, same reasoning
+# `DialCounter._lock` documents for its own write path: an unsynchronized truncate racing an
+# append can silently drop a degrade row on the exact hot path DR-402 exists to make loud.
+_degrade_log_lock = threading.Lock()
+
 _DIAL_RING_SIZE = 20
 
 #: Bounded ladder for the counter's atomic replace. CPython's ``open()`` does not request
@@ -432,6 +521,8 @@ class DialCounter:
         self._received_by_event: dict = {}
         self._forwarded_by_event: dict = {}
         self._denied_by_arm: dict = {}
+        self._denied_by_cause: dict = {}
+        self._rungs: dict = {}
         self._last_received_at: Optional[str] = None
         self._recent: list = []
 
@@ -449,7 +540,11 @@ class DialCounter:
 
     def _snapshot_locked(self) -> dict:
         return {
-            "schema": 3,
+            # Schema 5 adds `denied_by_cause` and `engine` -- the two facts the 2026-09-01
+            # incident needed and could not get. Schema 4 added `rungs` (DR-402's ladder). Every
+            # bump here has been purely additive; a reader that only knows an older schema still
+            # parses every field it knew.
+            "schema": 5,
             "boot_id": self._boot_id,
             "pid": self._pid,
             "module_fingerprint": self._module_fingerprint,
@@ -458,6 +553,9 @@ class DialCounter:
             "received_by_event": dict(self._received_by_event),
             "forwarded_by_event": dict(self._forwarded_by_event),
             "denied_by_arm": dict(self._denied_by_arm),
+            "denied_by_cause": dict(self._denied_by_cause),
+            "rungs": dict(self._rungs),
+            "engine": engine_root_snapshot(),
             "last_received_at": self._last_received_at,
             "recent": list(self._recent),
         }
@@ -514,6 +612,36 @@ class DialCounter:
         """
         with self._lock:
             self._denied_by_arm[arm] = self._denied_by_arm.get(arm, 0) + 1
+
+    def record_cause(self, cause: Optional[str]) -> None:
+        """WHICH of the arm's many return sites produced it -- the P1 fix.
+
+        `denied_by_arm` says whose bug it is at three-way resolution; `no_backend` alone covers
+        eleven distinct return sites with different owners and different first moves. On
+        2026-09-01 a forwarder denied for ~38 minutes against a healthy listener and this file,
+        the only surface anyone reads, could not narrow it past "no_backend: 162". Recorded, not
+        derived: no arithmetic over the other fields recovers it, exactly as `record_denied`'s own
+        note says of the arm.
+
+        A `None` cause is filed under `<unattributed>` rather than dropped. Dropping it would let
+        the causes silently sum to less than the arm and make the pair look inconsistent, which is
+        the failure this whole instrument exists to avoid.
+        """
+        key = cause or "<unattributed>"
+        with self._lock:
+            self._denied_by_cause[key] = self._denied_by_cause.get(key, 0) + 1
+
+    def record_rung(self, rung: str) -> None:
+        """Which of DR-402's below-warm rungs this arrival ended on.
+
+        A SECOND AXIS OVER `record_denied`, not a replacement -- see `RUNG_COLD`'s own note. The
+        arm says why warmth was unavailable; this says what happened instead. The pair is what
+        lets a reader distinguish a box that is merely slow (every call rung 2, guards still
+        evaluating) from one that is running unguarded (every call rung 3), which are the same
+        number of non-forwarded dials and completely different situations.
+        """
+        with self._lock:
+            self._rungs[rung] = self._rungs.get(rung, 0) + 1
 
     def persist(self) -> None:
         """Rewrite the file atomically.
@@ -599,28 +727,137 @@ except Exception:
 
 _engine_root_lock = threading.Lock()
 _engine_root_cache: Optional[str] = None
+_engine_root_provenance: Optional[Tuple[str, str]] = None
+_engine_root_resolved_at: Optional[str] = None
+_engine_root_last_reresolve: float = 0.0
+_engine_discovery_path: Optional[str] = None
+
+#: Minimum gap between two re-resolutions of the engine root. See `invalidate_engine_root`.
+#:
+#: BOUNDED, BECAUSE THE LADDER IS NOT FREE. `_resolve_engine` reads a machine-local registry and
+#: touches disk; the original "resolve once" decision was right about that cost and this does not
+#: reverse it. What it reverses is resolving once and then trusting the answer FOREVER, including
+#: through the entire lifetime of a wrong answer. Re-resolution happens only on the failure path
+#: and at most this often, so a healthy forwarder never runs the ladder twice.
+_ENGINE_ROOT_RERESOLVE_MIN_GAP_SECS = 30.0
 
 
 def _ensure_engine_on_sys_path() -> bool:
-    """Resolve the sibling engine checkout onto `sys.path`, once, caching the resolved root.
+    """Resolve the sibling engine checkout onto `sys.path`, caching the resolved root.
 
     Only the `sys.path` insertion is cached -- never the discovery record or the backend port,
     which this module re-reads on every request (see module docstring). Re-running the engine
     resolution ladder on every fire would spend real work (registry reads) for no benefit, since
     the answer to "where is the coordinator_core checkout" does not change mid-session the way
     the discovery record does.
+
+    THE CACHE IS NOW INVALIDATABLE, AND THAT IS A BUG FIX RATHER THAN A REFINEMENT. Measured
+    2026-09-01: a resident forwarder answered `no live engine backend reachable` for ~38 minutes
+    while the warm listener was alive and returning 200 on the port its own discovery record
+    named, and left that state only by being killed by hand -- ~38 sessions across 5 repos lost
+    their shell. A root cached here is the one piece of per-process state that can be WRONG and
+    stay wrong: every discovery read is keyed on it (`read_discovery` hashes the resolved root to
+    pick a per-clone svc dir), so a root resolved at boot from a rung that later stops applying --
+    a live-tree env override, a moving working tree, a registry answer that changed -- sends every
+    subsequent read to a directory no live listener publishes into. The module's own docstring
+    promises it "re-reads discovery on every fire, never caches the backend port"; that promise
+    was quietly void, because it re-read the same wrong place every time.
     """
-    global _engine_root_cache
     with _engine_root_lock:
-        if _engine_root_cache is not None:
-            return True
-        root, _resolution_class, _provenance = _resolve_engine()
-        if not root:
+        return _ensure_engine_on_sys_path_locked() is not None
+
+
+def _ensure_engine_on_sys_path_locked() -> Optional[str]:
+    """Do the resolve-and-cache work of `_ensure_engine_on_sys_path`. Caller MUST already hold
+    `_engine_root_lock` -- this is the shared body behind both that function's bool contract and
+    `_resolved_engine_root`'s value contract, so the two never observe two different lock
+    acquisitions of the same fact (Review: coordinator:code-reviewer, Finding 3 -- a caller
+    reading `_engine_root_cache` after `_ensure_engine_on_sys_path` released the lock could race
+    a concurrent `invalidate_engine_root`; folding the read into the same critical section
+    closes that window).
+    """
+    global _engine_root_cache, _engine_root_provenance, _engine_root_resolved_at
+    if _engine_root_cache is not None:
+        return _engine_root_cache
+    root, resolution_class, provenance = _resolve_engine()
+    if not root:
+        return None
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    _engine_root_cache = root
+    _engine_root_provenance = (str(resolution_class), str(provenance))
+    _engine_root_resolved_at = _utc_now()
+    return root
+
+
+def invalidate_engine_root(reason: str) -> bool:
+    """Drop the cached engine root so the next resolution re-runs the ladder. Returns whether it
+    actually dropped one.
+
+    CALLED ONLY FROM THE FAILURE PATH, AND DEBOUNCED. The caller invokes this when the cached root
+    has demonstrably stopped working -- it no longer passes `is_engine_root`, or no discovery
+    record has appeared behind it -- never on a healthy call. Without the debounce a genuinely
+    engine-less box would re-run the registry ladder on every Bash call on the machine, which is
+    the cost the original resolve-once decision correctly refused to pay.
+
+    THE STALE `sys.path` ENTRY IS REMOVED. Leaving it means a later, different root is inserted in
+    front of a stale one while `coordinator_core` is already bound in `sys.modules` from the old
+    tree -- so the import cache would go on serving the old engine's code from a path this module
+    no longer believes in, which is a subtler version of the bug being fixed. Removing the entry
+    does not evict `sys.modules`, and deliberately so: tearing modules out from under live handler
+    threads mid-request is a worse failure than a stale import, and a root that changes identity
+    wants the process restarted, which the ensure script's fingerprint check already does.
+    """
+    global _engine_root_cache, _engine_root_provenance, _engine_root_resolved_at
+    global _engine_root_last_reresolve, _engine_discovery_path
+    now = time.monotonic()
+    with _engine_root_lock:
+        if _engine_root_cache is None:
             return False
-        if root not in sys.path:
-            sys.path.insert(0, root)
-        _engine_root_cache = root
-        return True
+        if now - _engine_root_last_reresolve < _ENGINE_ROOT_RERESOLVE_MIN_GAP_SECS:
+            return False
+        _engine_root_last_reresolve = now
+        stale = _engine_root_cache
+        _engine_root_cache = None
+        _engine_root_provenance = None
+        _engine_root_resolved_at = None
+        _engine_discovery_path = None
+        try:
+            while stale in sys.path:
+                sys.path.remove(stale)
+        except ValueError:
+            pass
+    _record_rung(
+        RUNG_ENGINE_ROOT_INVALIDATED,
+        reason,
+        "<none>",
+        detail="dropped engine root {0}".format(stale),
+        kind="lifecycle",
+    )
+    return True
+
+
+def engine_root_snapshot() -> Dict[str, Optional[str]]:
+    """What this process currently believes about the engine, for the dial file.
+
+    THE FACT THAT WOULD HAVE ENDED THE 2026-09-01 INCIDENT IN ONE READ. Everything else on the box
+    that night was consistent with a healthy system -- a live listener, a fresh discovery record, a
+    forwarder holding the port and answering. The single unobservable was WHICH engine root this
+    process was asking about, and whether the ladder that produced it had answered
+    `('<klabauter>', 'resolved-engine', 'published-target')` or something else. It was resolved
+    once, at bind, and then discarded; `_resolve_engine` returns the resolution class and
+    provenance and this module threw both away. Recorded now, so the question is answered by
+    reading a file rather than by reasoning about it.
+    """
+    with _engine_root_lock:
+        provenance = _engine_root_provenance
+        return {
+            "engine_root": _engine_root_cache,
+            "resolution_class": provenance[0] if provenance else None,
+            "provenance": provenance[1] if provenance else None,
+            "resolved_at": _engine_root_resolved_at,
+            "discovery_path": _engine_discovery_path,
+        }
 
 
 def _resolved_engine_root() -> Optional[str]:
@@ -633,9 +870,8 @@ def _resolved_engine_root() -> Optional[str]:
     path is exactly what the tests assert. The routing key's job is to say WHICH CLONE IS ASKING
     (the deny gate above), not to name the backend's location.
     """
-    if not _ensure_engine_on_sys_path():
-        return None
-    return _engine_root_cache
+    with _engine_root_lock:
+        return _ensure_engine_on_sys_path_locked()
 
 
 def _parse_hook_event_name(body: bytes) -> Optional[str]:
@@ -727,6 +963,232 @@ def _deny_body(hook_event_name: str, reason: str = DENY_REASON) -> bytes:
         }
     }
     return json.dumps(payload).encode("utf-8")
+
+
+def degrade_log_path() -> Path:
+    """Where THIS module writes its own durable rung records.
+
+    DELIBERATELY NOT `warm/degrade.jsonl`, and the separation is the point rather than an
+    oversight. The engine's `warm.telemetry.record_degrade` owns rung 2's row and writes it from
+    inside `evaluate_cold` -- but rung 3 fires precisely when the engine could not be imported or
+    could not run, which is the one condition under which reaching for its telemetry writer is
+    guaranteed to fail. A durability mechanism that shares a failure mode with the thing it
+    records is not durability. So rung 3's record lands here, on a path resolved exactly like
+    `dial_count_path` (`CLAUDE_HOME`, then `~/.claude`) and needing nothing but the standard
+    library.
+
+    THE ARGUMENT ABOVE SETTLES "NOT THE ENGINE'S LOG", AND NOTHING MORE. It does NOT justify a
+    file beside `dial_count_path`, and the first draft of this docstring wrongly implied it did.
+    `DialCounter` is itself stdlib-only, writes atomically, and already carries `rungs` and
+    `denied_by_cause`, so it shares none of the failure mode just described. The reason a second
+    sink earns its place is different and narrower: COUNTERS HAVE NO TIMELINE. `denied_by_cause`
+    can say a box took 162 no-backend calls and never when they started, and `DialCounter._recent`
+    is a 20-entry ring of ARRIVALS, not degrades -- on a box doing a Bash call a second it spans
+    about twenty seconds and cannot hold a degrade history at all. "Since when has this box been
+    running unguarded" is the question a rung-3 reader actually arrives with, and no counter
+    answers it. This file does.
+
+    Rung 2 is ALSO recorded here, in addition to the engine's own row. Duplication is cheap and
+    the alternative is a reader who has to have both surfaces to see one ladder.
+    """
+    override = os.environ.get(DEGRADE_LOG_PATH_ENV)
+    if override and override.strip():
+        return Path(override.strip())
+    base = os.environ.get("CLAUDE_HOME") or str(Path.home())
+    return Path(base) / ".claude" / "http-hook-forwarder-degrade.jsonl"
+
+
+def _record_rung(
+    rung: str,
+    cause: str,
+    hook_event_name: str,
+    detail: str = "",
+    kind: str = "rung",
+) -> None:
+    """Append one durable, attributable row for a below-warm rung, or for a same-surface
+    lifecycle/marker event that shares this log for the reason `RUNG_ENGINE_ROOT_INVALIDATED`'s
+    own note gives. Never raises.
+
+    DR-402's "not silence" limit is what this discharges: a box running rung 2 or rung 3 for
+    weeks with nobody noticing is the failure state that ruling most wants to avoid, and an allow
+    nobody can later account for is explicitly non-compliant with it. One line per invocation,
+    carrying which rung fired, why, and for which event.
+
+    `kind` DISCRIMINATES THE ROW SHAPE (`rung` | `lifecycle` | `marker`) -- `rung` is a
+    two-valued enum (`RUNG_COLD`/`RUNG_PROCEED`), and `RUNG_ENGINE_ROOT_INVALIDATED` was never
+    a third value of it despite sharing the field, nor was the log-cap marker's literal
+    `"truncated"`. The `rung` key is populated ONLY when `kind == "rung"`; the other two kinds
+    carry their identifier under `event` instead, so a reader filtering on `rung` never has to
+    know two other row shapes exist on the same field.
+
+    `cause` IS THE MACHINE-READABLE TOKEN, NEVER PROSE. Callers pass a `CAUSE_*`/arm constant
+    (or, where no finer-grained one exists yet, the same short reason string used elsewhere) --
+    the human-facing sentence belongs only in `_proceed_body`'s loud message, never in this
+    durable row (see `_ladder_response`).
+
+    TRUNCATED, NEVER ROTATED. This sits on the hot path of every Bash call on the box, so it must
+    not grow without bound and must not pay for a rotation dance. When the file exceeds the cap
+    it is truncated and restarted with a marker row -- a bounded breadcrumb, like `DialCounter`'s
+    ring, not a log anyone is expected to archive.
+    """
+    try:
+        path = degrade_log_path()
+        row = {
+            "at": _utc_now(),
+            "kind": kind,
+            "cause": cause,
+            "hook_event_name": hook_event_name,
+            "pid": os.getpid(),
+        }
+        if kind == "rung":
+            row["rung"] = rung
+        else:
+            row["event"] = rung
+        if detail:
+            row["detail"] = detail[:500]
+        line = json.dumps(row, sort_keys=True) + "\n"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Review: coordinator:code-reviewer (a4d565927c67359bc) -- hold the lock across the
+        # whole stat-check + truncate + append sequence, not just the append, mirroring
+        # `DialCounter.persist`'s own reasoning: a truncating open racing an appending open on
+        # another thread can lose a row with no error raised on either side.
+        with _degrade_log_lock:
+            try:
+                if path.stat().st_size > _DEGRADE_LOG_MAX_BYTES:
+                    path.write_text(
+                        json.dumps(
+                            {"at": _utc_now(), "kind": "marker", "cause": "degrade log capped"}
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+            except OSError:
+                pass
+            with open(path, "a", encoding="utf-8") as handle:
+                handle.write(line)
+    except Exception:
+        return
+
+
+def _evaluate_cold(body: bytes) -> Optional[bytes]:
+    """RUNG 2 -- run the guard chain IN PROCESS and return its real verdict body, or `None`.
+
+    `None` means cold itself could not run (engine unimportable, unstamped root, a crash inside
+    the chain, an unserializable answer) and the caller must descend to rung 3. It NEVER means
+    "the guard allowed": a cold evaluation that returns a deny returns that deny, because the
+    guard actually evaluated and holds a verdict -- which is the whole distinction DR-402 draws
+    between a rung-2 deny (legitimate) and the retired no-backend deny (an absence of a verdict
+    dressed as one).
+
+    IMPORTED LAZILY, ON THIS PATH ONLY. A forwarder whose backend is healthy never imports
+    `coordinator_core` for this purpose and pays nothing for the rung's existence -- matching the
+    module's existing convention (`_import_supervisor`) and the engine's own hot-path rule.
+
+    NO SUBPROCESS, DELIBERATELY. The engine publishes `evaluate_cold` precisely so a long-lived
+    process that has already imported `coordinator_core` pays ~9.5 ms rather than the 0.4-2.3 s a
+    `python -c` interpreter start costs on this box under load. Shelling out here would put a
+    full interpreter start on the hot path of every Bash call during an outage -- turning a
+    degraded box into an unusable one, which is the outcome the ladder exists to prevent.
+    """
+    try:
+        event = json.loads(body.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(event, dict):
+        return None
+    if not _ensure_engine_on_sys_path():
+        return None
+    try:
+        from coordinator_core.warm.hook_http import evaluate_cold
+
+        result = evaluate_cold(event)
+    except Exception:
+        return None
+    if not isinstance(result, dict):
+        return None
+    try:
+        return json.dumps(result).encode("utf-8")
+    except (TypeError, ValueError):
+        return None
+
+
+def _proceed_body(hook_event_name: str, cause: str) -> bytes:
+    """RUNG 3 -- the act proceeds, said out loud.
+
+    NOT AN AFFIRMATIVE `permissionDecision: "allow"`, AND THE DIFFERENCE IS THE WHOLE CARE TAKEN
+    HERE. An explicit allow does not merely decline to object: on `PreToolUse` it AUTO-APPROVES,
+    suppressing the permission prompt the user's own settings would otherwise raise. That is
+    strictly MORE permissive than the guard not existing, and the PM's ruling asks for exactly
+    the opposite bound -- "better to have no guards at all", i.e. the harness's normal permission
+    flow, untouched, as though this hook were absent. So this body carries a reason and no
+    decision: the forwarder states why it could not evaluate, and declines to substitute its own
+    judgement for the user's in either direction.
+
+    A successor "fixing" this into `permissionDecision: "allow"` would be converting an
+    availability fix into a permission bypass. Don't.
+
+    The reason still rides `hookSpecificOutput` so it surfaces in the transcript rather than
+    vanishing -- loudness is a DR-402 requirement, not a nicety, and the durable row in
+    `degrade_log_path()` is its other half.
+    """
+    payload = {
+        "hookSpecificOutput": {
+            "hookEventName": hook_event_name,
+            "additionalContext": (
+                "COORDINATOR GUARD DEGRADED (rung 3 of 3, proceeding): {0}, and the in-process "
+                "cold evaluation could not run either. The command was NOT evaluated by any "
+                "guard and is proceeding under the harness's normal permission flow, per DR-402 "
+                "-- these guards are performance and ergonomics instruments, not security "
+                "controls, and failing closed on an unreachable engine borks the fleet for no "
+                "good reason. This is recorded at {1}. If you are seeing this repeatedly, the "
+                "engine's warm listener is down and wants fixing.".format(cause, degrade_log_path())
+            ),
+        }
+    }
+    return json.dumps(payload).encode("utf-8")
+
+
+def _ladder_response(
+    body: bytes,
+    hook_event_name: str,
+    reason: str,
+    cause: Optional[str] = None,
+) -> Tuple[bytes, str]:
+    """Descend the ladder from rung 2 and return `(response_body, rung_recorded)`.
+
+    The single place rungs 2 and 3 are sequenced, so all three of `do_POST`'s
+    guard-did-not-run exits -- no backend, unreachable backend, backend refused -- take the
+    identical path. They differ only in the `reason`/`cause` they carry.
+
+    TWO AXES, NOT ONE DUPLICATED TWICE. `reason` is the coarse, human-facing sentence
+    (`DENY_REASON`/`REFUSED_REASON`/`UNREACHABLE_REASON`) -- it reaches ONLY the loud proceed
+    message `_proceed_body` writes into the transcript, never the durable row. `cause` is the
+    machine-readable `CAUSE_*`/arm token where one exists -- it is what `_record_rung` stamps
+    into the JSONL row's own `cause` field. A call site with no finer-grained token yet falls
+    back to `reason` itself, which lands the prose sentence in the durable row's `cause` field
+    at that site; that is not a bug in the fallback, only a gap still open at that one site.
+    Recording the prose sentence in the durable row's `cause` field while ALSO burying the
+    actual `CAUSE_*` token mid-string in `detail` was the defect this signature replaces --
+    a site with no token yet stays honest about carrying none, rather than faking one.
+    #
+    # Review: coordinator:code-reviewer (a4d565927c67359bc) -- the unreachable call site
+    # gained a real `CAUSE_*` token in this same diff, so today only the refused-backend call
+    # site (no finer-grained token exists there yet) falls back to `reason`. The prior wording
+    # both overclaimed ("cause is NEVER prose", contradicted by that same fallback) and was
+    # stale (still listing "unreachable" among the sites with no token).
+    """
+    recorded_cause = cause if cause is not None else reason
+    cold = _evaluate_cold(body)
+    if cold is not None:
+        _record_rung(RUNG_COLD, recorded_cause, hook_event_name)
+        return cold, RUNG_COLD
+    _record_rung(
+        RUNG_PROCEED,
+        recorded_cause,
+        hook_event_name,
+        detail="cold evaluation unavailable",
+    )
+    return _proceed_body(hook_event_name, reason), RUNG_PROCEED
 
 
 def _extract_cwd(body: bytes) -> Optional[str]:
@@ -863,6 +1325,51 @@ def _wait_for_discovery(
         time.sleep(tick_secs)
 
 
+_ensure_listener_lock = threading.Lock()
+_ensure_listener_last_at: float = 0.0
+
+#: Minimum gap between two `ensure_listener` calls from THIS process, across all handler threads.
+#:
+#: WHY A DEBOUNCE IS REQUIRED AND NOT A NICETY. `ensure_listener` health-checks and, when nothing
+#: answers, best-effort spawns a detached interpreter -- and the engine's own `should_spawn`
+#: returns True unconditionally while the discovery record is absent, so it does not debounce on
+#: its side. One trigger per request against a down backend therefore means one interpreter start
+#: per Bash call, on a box with ~50 live sessions. That was already latent; DR-402's ladder makes
+#: it WORSE rather than better, because rungs 2 and 3 let the calls SUCCEED, so the box goes back
+#: to full command volume while the backend is still down. Trading a deny storm for a spawn storm
+#: would be a worse outage than the one being fixed -- the spawns compete for the same CPU the
+#: cold evaluations now need.
+#:
+#: THE RECOVERY PROPERTY IS PRESERVED. The point of the trigger is that a listener exists for a
+#: LATER call, never this one (`ensure_listener` never waits, by contract). One attempt every few
+#: seconds recovers a downed listener just as surely as one per request, because the listener's
+#: own boot is p50 0.783s / p90 1.189s -- far inside this window. What is lost is only the
+#: redundant attempts, which never helped anyone.
+#:
+#: PROCESS-LOCAL, DELIBERATELY. This forwarder is the single machine-wide resident on the fixed
+#: port, so a process-local gate IS the box-wide gate for hook-driven spawns -- no shared file,
+#: no lock, nothing that can itself fail on the hot path.
+_ENSURE_LISTENER_MIN_GAP_SECS = 5.0
+
+
+def _ensure_listener_debounced(supervisor, engine_root: Path) -> None:
+    """`supervisor.ensure_listener(engine_root)`, at most once per `_ENSURE_LISTENER_MIN_GAP_SECS`.
+
+    Never raises: the call it wraps is already best-effort, and a spawn trigger that could take
+    down the forwarder would be a worse defect than the one it recovers from.
+    """
+    global _ensure_listener_last_at
+    now = time.monotonic()
+    with _ensure_listener_lock:
+        if now - _ensure_listener_last_at < _ENSURE_LISTENER_MIN_GAP_SECS:
+            return
+        _ensure_listener_last_at = now
+    try:
+        supervisor.ensure_listener(engine_root)
+    except Exception:
+        return
+
+
 def _import_supervisor():
     """The engine's `warm.supervisor` module, or `None` when it cannot be imported.
 
@@ -934,7 +1441,7 @@ def _retry_forward_after_wait(    host: str,
 
 def _resolve_backend(
     clone_root_header: Optional[str],
-) -> Tuple[Optional[Tuple[str, int, str, Optional[str]]], Optional[str]]:
+) -> Tuple[Optional[Tuple[str, int, str, Optional[str]]], Optional[str], Optional[str]]:
     """Fresh discovery read for THIS request -- never cached across requests (module docstring).
 
     `clone_root_header` is the raw `ROUTING_HEADER_NAME` header value off the incoming request
@@ -954,26 +1461,35 @@ def _resolve_backend(
     every case above, `DENY_ARM_SKEW` only for the skewed-record case below.
     """
     if not clone_root_header or not clone_root_header.strip():
-        return None, DENY_ARM_NO_BACKEND
+        return None, DENY_ARM_NO_BACKEND, CAUSE_NO_ROUTING_KEY
     clone_root = _normalize_clone_root(clone_root_header)
     if clone_root is None:
-        return None, DENY_ARM_NO_BACKEND
+        return None, DENY_ARM_NO_BACKEND, CAUSE_CLONE_UNRESOLVED
 
     engine_root = _resolved_engine_root()
     if not engine_root:
-        return None, DENY_ARM_NO_BACKEND
+        return None, DENY_ARM_NO_BACKEND, CAUSE_NO_ENGINE_ROOT
     try:
         from coordinator_core.warm import cookie as _cookie
         from coordinator_core.warm import http_listener as _http_listener
         from coordinator_core.warm import supervisor as _supervisor
     except Exception:
-        return None, DENY_ARM_NO_BACKEND
+        return None, DENY_ARM_NO_BACKEND, CAUSE_ENGINE_UNIMPORTABLE
 
     try:
-        if not _supervisor.is_engine_root(Path(engine_root)):
-            return None, DENY_ARM_NO_BACKEND
+        stamped = _supervisor.is_engine_root(Path(engine_root))
     except Exception:
-        return None, DENY_ARM_NO_BACKEND
+        stamped = False
+    if not stamped:
+        # THE CACHED ROOT HAS STOPPED BEING AN ENGINE. This is the sharpest available signal that
+        # the answer cached at bind is no longer the right one -- the path either never was a
+        # stamped build or has ceased to be one, and every discovery read keyed on it is looking
+        # in a directory no listener publishes into. Dropping it costs one debounced re-run of
+        # the ladder; keeping it costs what it cost on 2026-09-01, which was the box.
+        invalidate_engine_root(CAUSE_NOT_ENGINE_ROOT)
+        return None, DENY_ARM_NO_BACKEND, CAUSE_NOT_ENGINE_ROOT
+
+    _note_discovery_path(_supervisor, engine_root)
 
     try:
         record = _supervisor.read_discovery(Path(engine_root))
@@ -1000,10 +1516,7 @@ def _resolve_backend(
             # re-read lands inside that window essentially always. The wait below is what turns
             # "spawned one for the next call" into "served this one" -- ticking on discovery
             # reads alone, per `_wait_for_discovery`'s negative spec.
-            try:
-                _supervisor.ensure_listener(Path(engine_root))
-            except Exception:
-                pass
+            _ensure_listener_debounced(_supervisor, Path(engine_root))
             record = _wait_for_discovery(
                 _supervisor, Path(engine_root), lambda rec: not _record_is_skewed(rec, Path(engine_root))
             )
@@ -1017,10 +1530,7 @@ def _resolve_backend(
         # holds unchanged: it still authors no permission decision about a VERDICT, because a
         # skewed listener never produces one.
         if record is not None and _record_is_skewed(record, Path(engine_root)):
-            try:
-                _supervisor.ensure_listener(Path(engine_root))
-            except Exception:
-                pass
+            _ensure_listener_debounced(_supervisor, Path(engine_root))
             record = _wait_for_discovery(
                 _supervisor, Path(engine_root), lambda rec: not _record_is_skewed(rec, Path(engine_root))
             )
@@ -1029,18 +1539,28 @@ def _resolve_backend(
                 # exactly like "no record at all" in the dial file, which is why the original
                 # bug row could not diagnose itself. The arm names it; it never changes the
                 # verdict.
-                return None, DENY_ARM_SKEW
+                return None, DENY_ARM_SKEW, CAUSE_SKEWED
     except Exception:
         # `read_discovery` is documented never to raise; this except is belt-and-braces so an
         # engine-side regression cannot turn "no backend" into an unhandled exception that would
         # otherwise 500 rather than deny.
-        return None, DENY_ARM_NO_BACKEND
+        return None, DENY_ARM_NO_BACKEND, CAUSE_DISCOVERY_RAISED
     if not isinstance(record, dict):
-        return None, DENY_ARM_NO_BACKEND
+        if record is None:
+            # NO RECORD BEHIND A ROOT THAT PASSES `is_engine_root`. The root is a stamped build
+            # and still nothing publishes there, which is the OTHER shape the 2026-09-01 stuck
+            # state could have taken: a plausible-looking root that is simply not the one the
+            # live listener belongs to. `ensure_listener` above has already had its (debounced)
+            # go at spawning one, and the bounded wait has already elapsed, so a re-resolution is
+            # the only remaining move that can change the answer. Debounced, and a no-op when the
+            # ladder returns the same root -- which is the healthy engine-genuinely-down case.
+            invalidate_engine_root(CAUSE_NO_DISCOVERY_RECORD)
+            return None, DENY_ARM_NO_BACKEND, CAUSE_NO_DISCOVERY_RECORD
+        return None, DENY_ARM_NO_BACKEND, CAUSE_RECORD_MALFORMED
 
     port = record.get("port")
     if not isinstance(port, int) or isinstance(port, bool) or port <= 0:
-        return None, DENY_ARM_NO_BACKEND
+        return None, DENY_ARM_NO_BACKEND, CAUSE_RECORD_BAD_PORT
 
     hook_path = record.get("hook_path")
     if not isinstance(hook_path, str) or not hook_path:
@@ -1049,9 +1569,9 @@ def _resolve_backend(
     try:
         host = _http_listener.bind_host()
     except Exception:
-        return None, DENY_ARM_NO_BACKEND
+        return None, DENY_ARM_NO_BACKEND, CAUSE_NO_BIND_HOST
     if not isinstance(host, str) or not host:
-        return None, DENY_ARM_NO_BACKEND
+        return None, DENY_ARM_NO_BACKEND, CAUSE_NO_BIND_HOST
 
     # BEST-EFFORT, AND DELIBERATELY NOT A DENY ON ABSENCE. The listener's cookie gate
     # (`supervisor.py` `_cookie_is_valid`) refuses an uncredentialed caller with a bare 401, so
@@ -1079,7 +1599,40 @@ def _resolve_backend(
     except Exception:
         cookie_value = None
 
-    return (host, port, hook_path, cookie_value), None
+    return (host, port, hook_path, cookie_value), None, None
+
+
+def _note_discovery_path(supervisor, engine_root: str) -> None:
+    """Memoise WHICH FILE this process reads for discovery, once per resolved root.
+
+    THE FIELD THAT DISCRIMINATES THE 2026-09-01 HYPOTHESIS. `svc_dir` is keyed by a hash of the
+    resolved engine root, so two roots resolve two different `warm-http.json` files. A forwarder
+    resolving a different root than the running listener reads a different file and reports a
+    stable, self-consistent absence WHILE a healthy listener answers 200 on the port its own
+    record names -- indefinitely, with no bug anywhere, and invisible to every counter. That is
+    the exact shape of the incident, and `engine_root` alone does not settle it: a reader still
+    has to recompute the hash by hand to compare. Recording the resolved path makes the
+    comparison a diff of two strings.
+
+    Memoised because it is a pure function of the root, which changes only across an
+    invalidation -- `invalidate_engine_root` clears this with it. Best-effort and silent: an
+    engine too old to expose `discovery_path` must not take the hot path down over a log field.
+    """
+    global _engine_discovery_path
+    if _engine_discovery_path is not None:
+        return
+    try:
+        resolved = str(supervisor.discovery_path(Path(engine_root)))
+    except Exception:
+        return
+    with _engine_root_lock:
+        # Review: coordinator:code-reviewer — double-checked locking needs a second check.
+        # A concurrent invalidate_engine_root() between the unlocked read above and this
+        # acquisition clears both fields for a reason; re-check under the lock so a resolution
+        # computed against the now-invalidated root is not written back in.
+        if _engine_discovery_path is not None or engine_root != _engine_root_cache:
+            return
+        _engine_discovery_path = resolved
 
 
 def _compute_plugin_root(clone_root: Path) -> Optional[Path]:
@@ -1375,27 +1928,53 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
             clone_root_header = self.headers.get(ROUTING_HEADER_NAME)
             if not clone_root_header or not clone_root_header.strip():
                 clone_root_header = _extract_cwd(body)
-            backend, deny_arm = _resolve_backend(clone_root_header)
-            if backend is None:
-                # NO BACKEND -- the module's own affirmative deny, never a passthrough error
-                # status.
-                if counter is not None:
-                    counter.record_denied(deny_arm or DENY_ARM_NO_BACKEND)
-                self._respond(200, _deny_body(hook_event_name))
-                return
 
-            host, port, hook_path, cookie_value = backend
-            hook_path = _apply_registration_op(hook_path, self.path)
+            # THE ENV CHANNEL AND THE BODY PREPARATION BOTH MOVED ABOVE BACKEND RESOLUTION, and
+            # the reorder is load-bearing rather than tidying. Under DR-402 the no-backend exit no
+            # longer terminates the request -- it descends to a COLD IN-PROCESS evaluation, and
+            # that evaluation must see the SAME payload the warm listener would have seen. Leaving
+            # the injections below the resolution would have rung 2 evaluate a body with no
+            # `plugin_root` and no `env`, so a `COORDINATOR_OVERRIDE_*` the caller really did set
+            # would read to the cold guard as "no override requested" -- the permissive direction,
+            # arrived at by accident, which is exactly what `_env_from_request_headers` exists to
+            # prevent. Rung 2's verdict has to be the verdict, not an approximation of it.
             header_env, env_disarm = _env_from_request_headers(self.headers)
             if env_disarm is not None:
                 # A DECLARED-BUT-VETOED CHANNEL IS AN UNRUN GUARD, NOT A CLEAN ONE -- the same
                 # call the engine's own listener makes. Forwarding with an emptied env would
                 # have every guard read "no override requested" and decide in the permissive
                 # direction, so refuse the verdict instead.
+                #
+                # STILL A DENY UNDER DR-402, AND DELIBERATELY OUTSIDE THE LADDER. That record
+                # covers a guard that could not RUN because warmth was unreachable; this is a
+                # live, healthy, reachable backend plus a misconfigured registration, and the
+                # cold rung would inherit the identical emptied channel and reach the identical
+                # wrong answer -- descending would launder a config fault into a permissive
+                # verdict rather than surface it. DR-402's own limit applies: membership in the
+                # ladder is claimed explicitly, never inferred. The fix here is the setting, and
+                # the deny is what makes anyone go look at it.
                 self._respond(200, _deny_body(hook_event_name, VETOED_ENV_REASON))
                 return
             body_to_forward = _with_injected_plugin_root(body, clone_root_header)
             body_to_forward = _with_injected_env(body_to_forward, header_env)
+
+            backend, deny_arm, deny_cause = _resolve_backend(clone_root_header)
+            if backend is None:
+                # NO BACKEND -- rung 1 unavailable, so descend. Never a deny: the guard holds no
+                # verdict to report (module docstring's ladder, DR-402).
+                if counter is not None:
+                    counter.record_denied(deny_arm or DENY_ARM_NO_BACKEND)
+                    counter.record_cause(deny_cause)
+                ladder_body, rung = _ladder_response(
+                    body_to_forward, hook_event_name, DENY_REASON, cause=deny_cause
+                )
+                if counter is not None:
+                    counter.record_rung(rung)
+                self._respond(200, ladder_body)
+                return
+
+            host, port, hook_path, cookie_value = backend
+            hook_path = _apply_registration_op(hook_path, self.path)
             try:
                 status, resp_body = _forward(host, port, hook_path, body_to_forward, cookie_value)
             except OSError:
@@ -1417,8 +1996,20 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
                 )
                 if retried is None:
                     if counter is not None:
+                        # Review: coordinator:code-reviewer — record_cause must accompany every
+                        # record_denied, or denied_by_cause silently undercounts denied_by_arm
+                        # for this arm (record_cause's own docstring states the invariant).
                         counter.record_denied(DENY_ARM_UNREACHABLE)
-                    self._respond(200, _deny_body(hook_event_name, UNREACHABLE_REASON))
+                        counter.record_cause(DENY_ARM_UNREACHABLE)
+                    ladder_body, rung = _ladder_response(
+                        body_to_forward,
+                        hook_event_name,
+                        UNREACHABLE_REASON,
+                        cause=DENY_ARM_UNREACHABLE,
+                    )
+                    if counter is not None:
+                        counter.record_rung(rung)
+                    self._respond(200, ladder_body)
                     return
                 status, resp_body = retried
 
@@ -1445,8 +2036,20 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
                 # 2xx ONLY IS THE WHOLE TEST. A verdict rides a 200 body; nothing else here is
                 # one. Note this deliberately catches the listener's own 409 skew refusal too:
                 # `_resolve_backend` already screens skewed records, and a 409 arriving anyway
-                # means the guard did not run, which is a deny for the same reason.
-                self._respond(200, _deny_body(hook_event_name, REFUSED_REASON))
+                # means the guard did not run, which descends for the same reason.
+                #
+                # DESCENDS RATHER THAN DENIES, PER DR-402, AND THE ORIGINAL MEASUREMENT SURVIVES
+                # THE CHANGE. Relaying the raw non-2xx is still forbidden -- the harness fails
+                # open on it SILENTLY, which is the guard-bypass hole this branch was built to
+                # close. What changed is only where the branch terminates: a silent fail-open
+                # becomes a cold evaluation, and failing that, a LOUD and durably recorded one.
+                # The hole stays shut; the fleet stays working.
+                ladder_body, rung = _ladder_response(
+                    body_to_forward, hook_event_name, REFUSED_REASON
+                )
+                if counter is not None:
+                    counter.record_rung(rung)
+                self._respond(200, ladder_body)
                 return
 
             # BACKEND SAID SOMETHING -- relayed verbatim, allow included. This module authors no

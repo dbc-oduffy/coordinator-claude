@@ -95,7 +95,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Callable, NamedTuple, cast
+from typing import Any, Callable, NamedTuple, Optional, cast
 
 GENERATES = []  # writes only tempfile.mkstemp() params files (cc_invoke + cc_invoke_bare), always unlinked; no tracked artifact
 
@@ -1464,14 +1464,17 @@ _OP_ERROR_DETAIL_CAP = 2000
 _WARM_DISPATCH_INDETERMINATE_CODE = -32004
 
 
-def _stdout_error_code(stdout_text: str):
-    """The JSON-RPC `error.code` on a child's stdout envelope, or None.
+def _parse_stdout_envelope(stdout_text: str) -> Optional[dict]:
+    """Parse a child's stdout as a JSON-RPC envelope dict, or None.
 
-    Sibling of `_op_error_detail` below, which renders the same envelope for a
-    human; this one recovers the single field the ladder ROUTES on. Split rather
-    than folded into that function because their contracts differ: the detail
-    string is best-effort presentation, while a wrong answer here reclassifies a
-    failure. Never raises — same standing as its sibling, for the same reason.
+    Shared by `_stdout_error_code` and `_op_error_detail` (review:
+    overengineering-reviewer finding #5): both used to re-parse the same
+    stdout text independently on the same failing call in
+    `_raise_on_process_failure`, a re-derivation of something already
+    computed a few lines earlier. Extracted here so a caller that already
+    has the parse (`_raise_on_process_failure`) can pass it through once;
+    a caller with only the raw text (tests, or either function called on
+    its own) still gets a correct single parse per call.
     """
     text = (stdout_text or "").strip()
     if not text:
@@ -1480,7 +1483,25 @@ def _stdout_error_code(stdout_text: str):
         parsed = json.loads(text)
     except (ValueError, TypeError):
         return None
-    if not isinstance(parsed, dict):
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _stdout_error_code(stdout_text: str, _parsed: Optional[dict] = None):
+    """The JSON-RPC `error.code` on a child's stdout envelope, or None.
+
+    Sibling of `_op_error_detail` below, which renders the same envelope for a
+    human; this one recovers the single field the ladder ROUTES on. Split rather
+    than folded into that function because their contracts differ: the detail
+    string is best-effort presentation, while a wrong answer here reclassifies a
+    failure. Never raises — same standing as its sibling, for the same reason.
+
+    `_parsed`, when supplied, is a caller's own already-parsed envelope
+    (`_parse_stdout_envelope(stdout_text)`) — reused rather than re-derived.
+    Absent (the normal calling shape, including every direct test call),
+    this parses `stdout_text` itself.
+    """
+    parsed = _parsed if _parsed is not None else _parse_stdout_envelope(stdout_text)
+    if parsed is None:
         return None
     err = parsed.get("error")
     if isinstance(err, dict):
@@ -1488,8 +1509,12 @@ def _stdout_error_code(stdout_text: str):
     return None
 
 
-def _op_error_detail(stdout_text: str) -> str:
+def _op_error_detail(stdout_text: str, _parsed: Optional[dict] = None) -> str:
     """Recover the engine's own failure text from a nonzero-exit child's STDOUT.
+
+    `_parsed`, when supplied, is a caller's own already-parsed envelope
+    (`_parse_stdout_envelope(stdout_text)`) — see `_stdout_error_code`'s
+    matching parameter for why.
 
     ``coordinator_core.invoke`` splits its two failure channels by ORIGIN, not by
     severity, and the split is easy to misread as "errors go to stderr":
@@ -1525,10 +1550,7 @@ def _op_error_detail(stdout_text: str) -> str:
     text = (stdout_text or "").strip()
     if not text:
         return ""
-    try:
-        parsed = json.loads(text)
-    except (ValueError, TypeError):
-        parsed = None
+    parsed = _parsed if _parsed is not None else _parse_stdout_envelope(stdout_text)
     if isinstance(parsed, dict):
         err = parsed.get("error")
         if isinstance(err, dict):
@@ -1581,7 +1603,8 @@ def _raise_on_process_failure(
     cover them instead.
     """
     if rc != 0:
-        detail = _op_error_detail(stdout_text)
+        _parsed_stdout = _parse_stdout_envelope(stdout_text)
+        detail = _op_error_detail(stdout_text, _parsed_stdout)
 
         def _engine_wont_start(token_origin: str) -> RuntimeError:
             """Build the engine-won't-start error, naming which channel accused the engine.
@@ -1631,7 +1654,7 @@ def _raise_on_process_failure(
             raise StructuralPinError(f"{message}\n{detail}" if detail else message)
         if any(tok in detail.lower() for tok in _IMPORT_ERROR_TOKENS):
             raise _engine_wont_start("stdout")
-        if _stdout_error_code(stdout_text) == _WARM_DISPATCH_INDETERMINATE_CODE:
+        if _stdout_error_code(stdout_text, _parsed_stdout) == _WARM_DISPATCH_INDETERMINATE_CODE:
             # THE COLD SPAWN IS HOW THIS SHAPE USUALLY ARRIVES, which is not
             # obvious and is why the rung is here rather than only on the warm
             # branch. `cc_invoke` warm-reaches first; on a miss it spawns

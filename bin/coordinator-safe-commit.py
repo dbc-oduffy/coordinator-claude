@@ -636,7 +636,9 @@ def do_pathspec(args: "Args") -> None:
     print(f"committed sha={result.get('sha')}", file=sys.stderr)
 
 
-def _holder_context(worktree_root: str, sid: str, path: str) -> str:
+def _holder_context(
+    worktree_root: str, sid: str, path: str, registry_snapshot: Optional[dict] = None
+) -> str:
     """One holder's identity, rendered so the caller can act on the refusal.
 
     A bare `sid[:8]` is not an address, and worse, it is stale by default: a
@@ -669,15 +671,22 @@ def _holder_context(worktree_root: str, sid: str, path: str) -> str:
     distinguish them.
 
     Best-effort in every part: an unreadable baton, a missing sink, or any
-    exception degrades to the bare sid rather than raising. This runs only
-    in the already-contested branch, never on the common path.
+    `Exception` degrades to the bare sid rather than raising. This runs only
+    in the already-contested branch, after `_refuse_contested_pathspec`'s own
+    `_import_session()` call has already put `coordinator_core.session` on
+    `sys.path` -- calling it again here would be redundant AND would break
+    this function's own best-effort contract: `_import_session()` degrades
+    failure via `sys.exit(3)`, which is `SystemExit`, not a subclass of
+    `Exception`, so it would pass straight through the `except Exception`
+    below and kill the whole invocation instead of degrading to the bare sid.
     """
     bits: List[str] = []
     try:
-        _import_session()
-        from coordinator_core.session import harness_registry  # noqa: PLC0415
+        if registry_snapshot is None:
+            from coordinator_core.session import harness_registry  # noqa: PLC0415
 
-        record = harness_registry.snapshot().get(sid)
+            registry_snapshot = harness_registry.snapshot()
+        record = registry_snapshot.get(sid)
     except Exception:
         record = None
     name = getattr(record, "name", None) if record is not None else None
@@ -718,6 +727,126 @@ def _holder_context(worktree_root: str, sid: str, path: str) -> str:
     except Exception:
         pass
     return " ".join(bits)
+
+
+def _norm(path: object) -> str:
+    """Backslashes to forward slashes, strip leading/trailing `/` -- the one
+    spelling of this rule, used everywhere `_paths_with_no_uncommitted_content`
+    and `_refuse_contested_pathspec` compare a git-porcelain path against a
+    caller-supplied one.
+
+    Review: overengineering-reviewer (finding #6, nitpick, accepted) -- this
+    normalisation used to be spelled out three times (building `wanted`, per
+    porcelain entry, and again filtering `contested`); one drifting from the
+    other two would have quietly stopped `clean`/`contested` from matching.
+    """
+    return str(path).replace("\\", "/").strip("/")
+
+
+def _paths_with_no_uncommitted_content(
+    paths: "Sequence[str]", worktree_root: str
+) -> "Set[str]":
+    """Of `paths`, those whose worktree state matches HEAD exactly.
+
+    THE NARROWING THE REFUSAL NEVER HAD. `_refuse_contested_pathspec` takes the
+    raw pathspec with no dirtiness filter, so a path a live peer holds a TOUCH
+    on refuses the whole commit even when that path carries no uncommitted
+    content of anyone's. A touch is unreleased until its own session releases
+    it, and a session releases nothing when it commits its work and moves on --
+    so a file touched hours ago, long since committed, contests against every
+    peer for the rest of that session's lifetime. Measured 2026-08-31: one
+    holder blocked `coordinator/bin/publish.py` for 11.3h with zero
+    uncommitted content in it, with bypass as the only exit, and a bypass
+    normalised is how the true positives die too.
+
+    The named harm is "committing it lands their uncommitted work under your
+    message". A path identical to its HEAD blob has no uncommitted work in it
+    to land -- anyone's -- so that harm is impossible regardless of who holds a
+    touch. This is the only narrowing available without per-hunk provenance,
+    which `docs/research/2026-08-27-hunk-level-ownership-spike.md` anti-scopes.
+    Explicitly NOT the tempting one: dropping the refusal when the holder's
+    recorded `content_hash` differs from disk looks sound and is not -- a
+    peer's hunk already sitting in a file this session then edits produces
+    exactly that mismatch, which is the incident the guard was built for.
+
+    FAILS CLOSED, to the empty set: an unrunnable git, a timeout, a nonzero
+    exit, or an unparseable line all mean "cannot establish that anything is
+    clean", and the refusal stands whole. The one thing this must never do is
+    turn "I could not tell" into "safe to commit".
+
+    UNTRACKED COUNTS AS DIRTY, which is why this reads `status --porcelain`
+    rather than `diff HEAD`: a peer's brand-new file is absent from HEAD, so a
+    diff would call it clean while committing it lands exactly their work.
+
+    ONE spawn for the whole set, on the already-rare contested path (~25ms,
+    against the ~140ms this refusal already costs) -- never one per path, per
+    the amplification gate.
+    """
+    wanted = {_norm(p) for p in paths if str(p).strip()}
+    if not wanted:
+        return set()
+    try:
+        # Review: coordinator:code-reviewer af0c0865daafdd73a, Finding P1 --
+        # the subprocess argv MUST carry the same normalized form `wanted`
+        # already is, not raw `paths`. A backslash-bearing contested path
+        # (this is a Windows-first repo) can fail git's pathspec matching as
+        # a literal argument, produce empty porcelain output with
+        # returncode==0, and silently be classified `clean` -- exactly the
+        # "I could not tell -> safe to commit" flip this function's own
+        # docstring forbids. `sorted(wanted)` is the same set `dirty` is
+        # compared against below, deterministic argv order for free.
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "-z", "--untracked-files=all", "--"]
+            + sorted(wanted),
+            cwd=worktree_root,
+            capture_output=True,
+            text=True,
+            # Review: coordinator:code-reviewer af0c0865daafdd73a, Finding P2
+            # -- was 10s, 20x this repo's 500ms brightline for a call on
+            # every explicit-pathspec commit's hot path. Fails closed to the
+            # empty (refuse-everything) set on timeout, never a corruption
+            # risk, so shortening this costs a spurious refusal under a truly
+            # stuck git, not a wrong answer -- reusing SUSPENSION_BAR_MS
+            # (2000ms, `docs/decisions/DR-344-*`) as the ceiling here, not as
+            # a target: ~80x the ~25ms typical cost this function already
+            # measures, and the same number this repo already treats as
+            # "switch off before this" everywhere else.
+            timeout=2,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    if result.returncode != 0:
+        return set()
+
+    dirty: "Set[str]" = set()
+    fields = [f for f in result.stdout.split("\x00") if f]
+    index = 0
+    while index < len(fields):
+        entry = fields[index]
+        index += 1
+        if len(entry) < 4:
+            # A porcelain entry is `XY <path>`; anything shorter is a shape
+            # this parser does not understand, and an unparsed line must not
+            # silently reduce the dirty set.
+            return set()
+        status_code, path_field = entry[:2], entry[3:]
+        dirty.add(_norm(path_field))
+        if "R" in status_code or "C" in status_code:
+            # A rename/copy entry is followed by its ORIGIN path in its own
+            # NUL-separated field; both ends are dirty.
+            if index < len(fields):
+                dirty.add(_norm(fields[index]))
+                index += 1
+            else:
+                return set()
+
+    clean = set()
+    for path in wanted:
+        prefix = path + "/"
+        if not any(d == path or d.startswith(prefix) for d in dirty):
+            clean.add(path)
+    return clean
 
 
 def _refuse_contested_pathspec(paths: Sequence[str], worktree_root: str) -> None:
@@ -779,9 +908,35 @@ def _refuse_contested_pathspec(paths: Sequence[str], worktree_root: str) -> None
         return
     if not contested:
         return
+
+    # A claim has a birth and no death: a TOUCH outlives the work that made it,
+    # so most of what reaches here is residue rather than a live hold. Drop the
+    # paths that provably cannot carry the harm -- worktree identical to HEAD --
+    # before naming anyone. Fails closed: an undeterminable answer leaves the
+    # whole refusal standing.
+    clean = _paths_with_no_uncommitted_content(sorted(contested), worktree_root)
+    if clean:
+        contested = {
+            path: holders
+            for path, holders in contested.items()
+            if _norm(path) not in clean
+        }
+        if not contested:
+            return
+
+    # Review: coordinatorcode-reviewer.a075e39a58642def2, Finding 4 -- one
+    # registry read for the whole refusal instead of one per (path, holder)
+    # pair; `_holder_context` still degrades to its own read if this is None.
+    try:
+        from coordinator_core.session import harness_registry  # noqa: PLC0415
+
+        registry_snapshot = harness_registry.snapshot()
+    except Exception:
+        registry_snapshot = None
     for path in sorted(contested):
         owners = "; ".join(
-            _holder_context(worktree_root, o, path) for o in contested[path]
+            _holder_context(worktree_root, o, path, registry_snapshot)
+            for o in contested[path]
         )
         print(
             f"BLOCKED: {path} is also held by live session(s) {owners} -- "

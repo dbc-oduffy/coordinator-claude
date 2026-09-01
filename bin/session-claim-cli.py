@@ -74,8 +74,9 @@
 #       exit 1 below):
 #       "liveness_basis:<value>", where <value> is holder_evidence.
 #       liveness_basis()'s vocabulary ("harness-registry" | "stable-pid" |
-#       "recency-window" | "recency-window-mtime" | "harness-registry-
-#       elsewhere" | "unknown") — additive output (AC7/AC8), never emitted
+#       "stable-pid-shared" | "recency-window" | "recency-window-mtime" |
+#       "harness-registry-elsewhere" | "unknown") — additive output
+#       (AC7/AC8), never emitted
 #       on the malformed-SID or transport-failure paths since those carry no
 #       decided verdict to attach a basis to. A basis-derivation failure
 #       degrades to "unknown" on this line; it never changes the line-1
@@ -112,7 +113,18 @@
 #     gate) and no CLI, so an EM hit by that gate's refusal had no way to
 #     ask "who touched this path, and are they live?" without reading
 #     touched.txt files by hand.
-#     stdout: one line per claimant, TAB-delimited "<sid>\t<live|dead>".
+#     stdout: one line per claimant, TAB-delimited "<sid>\t<live|dead>\t<name>".
+#     The third column (C2, docs/plans/2026-09-01-the-claim-record-carries-
+#     the-name.md) is PROVENANCE, not an address ready for SendMessage --
+#     see _render_claimant_name's docstring for the three-rung resolution
+#     ladder (recorded name on the claim -> live harness_registry.lookup(sid)
+#     -> an explicit unnamed marker) and why rendering it as reachable would
+#     repeat the exact fail-open shape a stale sid already produces. Exists
+#     because this CLI is the human-facing inspection instrument
+#     scoped_git_commit.py's own commit-conflict refusal names
+#     (_CLAIM_CONFLICT_REMEDY) -- a blocked EM sent here by that refusal was,
+#     before this column, handed the identical unresolvable sid the refusal
+#     already gave them.
 #     exit 0   -> enumeration completed (0 or more claimant lines printed);
 #                 no claimant is empty output + exit 0, same "empty ==
 #                 success" convention as list-claims-by-session.
@@ -229,6 +241,17 @@ def _import_claim_index_module():
     return _mod
 
 
+def _import_harness_registry_module():
+    """Separate seam from ``_import_liveness_module`` so ``who-claims-path``'s
+    rung-2 name resolution (``harness_registry.lookup(sid)``) can be stubbed
+    independently of the live/dead verdict in tests, mirroring the
+    per-functional-area seam split above."""
+    claude_klabauter_root = _bootstrap_engine()
+    import coordinator_core.session.harness_registry as _mod
+
+    return _mod
+
+
 def _import_holder_evidence_module():
     """Separate seam from ``_import_liveness_module`` so ``is-session-live``'s
     AC7 basis line can be stubbed independently of the live/dead verdict in
@@ -251,6 +274,113 @@ def _liveness_basis_for(sid: str, cwd) -> str:
         return mod.liveness_basis(sid, cwd)
     except Exception:  # noqa: BLE001 - fail-soft additive output, see docstring
         return "unknown"
+
+
+_UNNAMED_MARKER = "<unnamed>"
+
+#: Rung 3 split into its two DISTINGUISHABLE outcomes (doe-claude-em,
+#: 2026-08-31, `who-claims-path-hands-back-an-unroutable-sid`): "the registry
+#: has no record for this sid" and "the registry could not be asked" are
+#: different facts, and a single `<unnamed>` for both is a degradation wearing
+#: a fact's clothes -- the caller cannot tell whether to re-check with a
+#: workstream path or to distrust the column entirely. The distinction mirrors
+#: `resolve-peer-address.py`'s own exit codes, which the memo asked be kept
+#: intact here: rc 3 (no live-session record -- NOT proof the session ended,
+#: since a resume or /clear mints a new sid while the name and pid persist)
+#: and rc 4 (record found, process gone). `_UNNAMED_MARKER` is retained above
+#: for the third case it always meant: a record that resolved and simply
+#: carries no name.
+_NO_REGISTRY_RECORD_MARKER = "<no registry record -- not proof the session ended>"
+_NAME_UNRESOLVED_MARKER = "<name unresolved: registry lookup failed>"
+
+
+def _format_claim_age(seconds: float) -> str:
+    """"held Nh"/"held Nm", the SAME rendering ``coordinator-safe-commit.py``'s
+    ``_holder_context`` already uses for its identical "how stale is this"
+    question -- reused verbatim rather than a second phrasing invented here."""
+    hours = seconds / 3600.0
+    if hours >= 1:
+        return f"held {hours:.1f}h"
+    return f"held {max(seconds, 0.0) / 60.0:.0f}m"
+
+
+def _render_claimant_name(sid: str, path: str, lookup_result) -> str:
+    # Review: overengineering-reviewer -- dropped unused `cwd` param, carried
+    # only because the neighbouring `_liveness_basis_for` takes one.
+    """The three-rung resolution ladder (C2, docs/plans/2026-09-01-the-claim-
+    record-carries-the-name.md): (1) the name RECORDED on the claim at write
+    time -- survives the writer exiting, re-pointing its session id, or the
+    machine restarting; (2) failing that, a LIVE ``harness_registry.
+    lookup(sid)`` -- cheap, and correct for a pre-C1 record whose writer
+    session is still resident; (3) failing both, one of THREE distinct
+    markers -- never an error, and each visually distinct from a bare sid so
+    a reader cannot mistake it for one.
+
+    RUNG 3 IS THREE OUTCOMES, NOT ONE. ``_NO_REGISTRY_RECORD_MARKER`` (the
+    registry was asked and holds nothing for this sid), ``_NAME_UNRESOLVED_
+    MARKER`` (the registry could not be asked -- import failure or a raise
+    from ``lookup``), and ``_UNNAMED_MARKER`` (a record resolved and simply
+    carries no name, which is what a pre-C1 record from an exited session
+    renders as). Collapsing the first two into one marker, as this function
+    did until 2026-09-01, made a DEGRADATION indistinguishable from a FACT:
+    a caller cannot tell "re-check this against a workstream path" from
+    "distrust this column entirely" when both print the same token. The
+    split mirrors ``resolve-peer-address.py``'s own rc 3 / rc 4 distinction,
+    which doe-claude-em's memo asked be kept intact at this seam.
+
+    RENDERED AS PROVENANCE, NEVER AS AN ADDRESS. Rung 1's name is an
+    identity the CLAIMANT claimed for itself at write time, not a live
+    resolution performed now -- the whole reason C2 exists is that the sid
+    beside it may no longer resolve to anything, and a name inherited from
+    the same stale record is not proof it still does either. It is rendered
+    with its age (``_format_claim_age``, following ``_holder_context``'s
+    "held 33.8h" precedent) and an explicit staleness warning: the name may
+    now belong to someone else, and a caller MUST verify liveness/identity
+    before sending to it -- this function never claims present-tense
+    reachability for a rung-1 answer. Rung 2's name IS a fresh live lookup,
+    so it carries no age or staleness qualifier of its own, but it is still
+    not a reachability claim: the caller decides, this function only names.
+
+    Best-effort: an import failure, a raise from ``harness_registry.lookup``
+    (which per its own docstring never raises, but this stays defensive
+    should that contract ever change), or any other exception on the rung-2
+    path degrades to rung 3 rather than propagating -- this column is
+    additive display output on an already-decided claimant row and must
+    never take down the row's ``sid``/``live|dead`` columns.
+    """
+    from coordinator_core.session import name_ladder  # noqa: PLC0415
+
+    recorded = getattr(lookup_result, "recorded_name", None) or {}
+    recorded_name = (recorded.get(path) or {}).get(sid)
+
+    def _lookup(_sid: str):
+        return _import_harness_registry_module().lookup(_sid)
+
+    name, rung, reason = name_ladder.resolve_name(recorded_name, sid, _lookup)
+
+    if rung == name_ladder.RUNG_RECORDED:
+        edit_ts = getattr(lookup_result, "edit_ts", None) or {}
+        ts = (edit_ts.get(path) or {}).get(sid)
+        age = ""
+        if ts is not None:
+            try:
+                from datetime import datetime, timezone  # noqa: PLC0415
+
+                now = datetime.now(timezone.utc)
+                age = f", {_format_claim_age((now - ts).total_seconds())}"
+            except Exception:  # noqa: BLE001 - additive display only
+                age = ""
+        return (
+            f"{name} (recorded name{age} -- provenance only, not a live "
+            "address; verify the holder before sending)"
+        )
+    if rung == name_ladder.RUNG_LIVE_LOOKUP:
+        return f"{name} (live harness registry lookup)"
+    if reason == name_ladder.REASON_LOOKUP_FAILED:
+        return _NAME_UNRESOLVED_MARKER
+    if reason == name_ladder.REASON_NO_REGISTRY_RECORD:
+        return _NO_REGISTRY_RECORD_MARKER
+    return _UNNAMED_MARKER
 
 
 _SID_ALLOWED_CHARS = frozenset(
@@ -306,7 +436,10 @@ _SUBCOMMANDS = (
     "list-stale-claim-handoffs | list-claims-by-session | who-claims-path\n"
     "  <class>: handoff | memo | plan (basename-keyed claim records), or "
     "'artifact' (path-touch plane — basename is a repo-relative PATH; this "
-    "is how a path claim who-claims-path reports is released)"
+    "is how a path claim who-claims-path reports is released)\n"
+    "  'artifact' is valid on release-artifact and clear-claim-if-dead ONLY. "
+    "claim-artifact refuses it: a touch-claim is recorded by touching the "
+    "path, never declared ahead of one."
 )
 
 _HELP_FLAGS = ("--help", "-h", "help")
@@ -644,7 +777,8 @@ def _dispatch(argv: list[str]) -> int:
                     file=sys.stderr,
                 )
                 return _TRANSPORT_FAIL
-            rows.append(f"{sid}\t{'live' if live else 'dead'}")
+            name_col = _render_claimant_name(sid, path, lookup_result)
+            rows.append(f"{sid}\t{'live' if live else 'dead'}\t{name_col}")
         for row in rows:
             print(row)
         return 0

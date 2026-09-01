@@ -1957,7 +1957,11 @@ def _source_sha_suffix() -> str:
 
 
 def _build_commit_subject(
-    target: str, real_changes: List[Tuple[str, str]], pathspec: List[str]
+    target: str,
+    real_changes: List[Tuple[str, str]],
+    pathspec: List[str],
+    *,
+    deletion_paths: "Optional[Sequence[str]]" = None,
 ) -> str:
     """Two numbers, both labelled, never one presented as the other (see
     module-level defect this replaces): `real_changes` is publish.py's own
@@ -2001,6 +2005,17 @@ def _build_commit_subject(
     """
     carried, dropped = _partition_carried_changes(real_changes, pathspec)
     added, modified, removed = _summarize_change_lines(carried)
+    # A REMOVAL REACHES THE PATHSPEC WITHOUT A CHANGE LINE, so counting only
+    # `carried` under-reports it to zero. `real_changes` is this run's own
+    # worktree comparison; the removal side derives from dest HEAD instead
+    # (§ `_pathspec_from_manifest`) -- which is exactly what the divergence
+    # warning means by "carried into the pathspec beyond what this run's own
+    # worktree comparison reported". Measured on coordinator-claude
+    # 2026-09-01: a commit carrying eight file deletions and 1,217 deleted
+    # lines announced "0 removed" in its own subject, in the OSS mirror's
+    # permanent history. Set difference, so a path that DOES carry a
+    # DELETE/REMOVE change line is never counted twice.
+    removed += len(set(deletion_paths or ()) - {path for _tag, path in carried})
     residual = (
         f"; {len(dropped)} reported change(s) not carried" if dropped else ""
     )
@@ -2012,8 +2027,62 @@ def _build_commit_subject(
     )
 
 
+def _print_pathspec_surplus(
+    target: str,
+    real_changes: List[Tuple[str, str]],
+    pathspec: List[str],
+    deletion_paths: "Optional[Sequence[str]]",
+) -> None:
+    """Informational note when the pathspec carries MORE than this run's own
+    change lines reported, with no intended change dropped.
+
+    Not a warning and deliberately not counted as one -- see
+    `_report_commit_residual`'s own early return. `real_changes` is the
+    worktree comparison; a removal reaches the pathspec from the dest-HEAD
+    comparison instead, so a round that deletes anything lands here BY
+    CONSTRUCTION rather than by anomaly. Names the removals separately from
+    the remainder so a reader can tell "this round deleted eight files" from
+    "eight paths appeared that nothing in this run explains" -- the second is
+    still worth an eye, and the two used to render identically.
+
+    Silent when there is no surplus.
+    """
+    surplus = len(pathspec) - len(real_changes)
+    if surplus <= 0:
+        return
+    removals = len(set(deletion_paths or ()) & set(pathspec))
+    if removals:
+        residue = surplus - removals
+        breakdown = f"{removals} removal(s) this round carries"
+        if residue > 0:
+            breakdown += (
+                f" and {residue} path(s) from an earlier round's "
+                "declared-payload-vs-HEAD gap"
+            )
+    else:
+        breakdown = (
+            "stranded residue from an earlier round's declared-payload-vs-HEAD gap"
+        )
+    # Wording note: "<n> carried into the pathspec beyond this run's own
+    # worktree comparison" is kept verbatim from the counted-warning this
+    # replaced. `test_percolate_round.py :: test_report_commit_residual_
+    # reports_pathspec_larger_than_real_changes` pins that phrase, and the
+    # phrase is accurate -- so the register changes without breaking a pin
+    # that is testing the right thing.
+    print(
+        f"percolate-round: {target} — {surplus} carried into the pathspec "
+        f"beyond this run's own worktree comparison ({breakdown}). Every "
+        "reported change is carried; this is not a warning.",
+        file=sys.stderr,
+    )
+
+
 def _report_commit_residual(
-    target: str, real_changes: List[Tuple[str, str]], pathspec: List[str]
+    target: str,
+    real_changes: List[Tuple[str, str]],
+    pathspec: List[str],
+    *,
+    deletion_paths: "Optional[Sequence[str]]" = None,
 ) -> Optional[str]:
     """Surfaces, on stderr, the gap this module used to discard silently:
     `real_changes` is publish.py's own dest-working-tree comparison (see
@@ -2052,30 +2121,31 @@ def _report_commit_residual(
     flipped back.
     """
     carried, dropped = _partition_carried_changes(real_changes, pathspec)
-    if not dropped and len(real_changes) == len(pathspec):
+    if not dropped and len(pathspec) >= len(real_changes):
+        # NOTHING INTENDED WAS LOST, so this is not a warning. The equality
+        # case always returned None; the pathspec-is-LARGER case did not, and
+        # counted toward the round's `Warnings:` tally -- so a healthy round
+        # that carried removals announced its own success in the register of a
+        # warning (DoE, 2026-09-01, on the first round that carried deletions
+        # at all). The asymmetry was an artefact of when this function was
+        # written: a bigger pathspec could only mean stranded residue back
+        # then, because the removal channel did not work. It is now the
+        # ordinary shape of a round that deletes something. The informational
+        # line still prints below either way; only the counted warning goes.
+        _print_pathspec_surplus(target, real_changes, pathspec, deletion_paths)
         return None
     delta = len(real_changes) - len(pathspec)
-    if delta >= 0:
-        detail = (
-            f"{delta} not carried into the pathspec by filtering/containment/dedup"
-        )
-    else:
-        detail = (
-            f"{-delta} carried into the pathspec beyond what this run's own "
-            "worktree comparison reported -- stranded residue from an earlier "
-            "round's declared-payload-vs-HEAD gap, not new filtering"
-        )
+    detail = f"{delta} not carried into the pathspec by filtering/containment/dedup"
     print(
         f"percolate-round: {target} — intent vs commit pathspec diverge: "
         f"{len(real_changes)} change line(s) reported by the real publish run vs "
-        f"{len(pathspec)} path(s) in the derived commit pathspec ({detail}).",
+        f"{len(pathspec)} path(s) named to the derived commit pathspec ({detail}).",
         file=sys.stderr,
     )
-    if not dropped:
-        return (
-            f"intent vs commit pathspec diverge: {len(real_changes)} change "
-            f"line(s) reported vs {len(pathspec)} path(s) committed ({detail})"
-        )
+    # No `if not dropped` branch here: nothing dropped means every reported
+    # change is in the pathspec, so the pathspec cannot be the smaller of the
+    # two, and the surplus case returned above. Reaching this point always
+    # means at least one intended change did not make it.
     dropped_removals = sum(1 for tag, _ in dropped if tag in ("DELETE", "REMOVE"))
     warning = (
         f"{len(dropped)} change(s) the real run reported were NOT committed "
@@ -2840,8 +2910,20 @@ def _cmd_round_default(
                 )
                 return _EXIT_OK
 
-            residual_warning = _report_commit_residual(target, real_changes, pathspec)
-            subject = _build_commit_subject(target, real_changes, pathspec)
+            # Partitioned BEFORE the subject is composed, not merely before the
+            # commit: the subject's removed-count is only truthful if it can see
+            # the deletion channel, and a removal reaches the pathspec from the
+            # dest-HEAD comparison rather than from this run's change lines.
+            head_tracked = _dest_head_tree(repo_root)
+            present_paths, deletion_paths, declined_paths = (
+                _partition_pathspec_for_commit(pathspec, repo_root, head_tracked)
+            )
+            residual_warning = _report_commit_residual(
+                target, real_changes, pathspec, deletion_paths=deletion_paths
+            )
+            subject = _build_commit_subject(
+                target, real_changes, pathspec, deletion_paths=deletion_paths
+            )
             print(f"=== percolate-round {target} — commit ({len(pathspec)} file(s)) ===")
             pathspec_file_path = tmp / "commit-pathspec.txt"
             pathspec_file_path.write_text(
@@ -2894,10 +2976,6 @@ def _cmd_round_default(
             # reappearing between the pre-commit filter and this call) is
             # still excluded rather than committed.
             #
-            head_tracked = _dest_head_tree(repo_root)
-            present_paths, deletion_paths, declined_paths = (
-                _partition_pathspec_for_commit(pathspec, repo_root, head_tracked)
-            )
             ignore_result = _gn.check_ignore(repo_root, present_paths) if present_paths else None
             gitignored_set = set()
             if ignore_result is not None and ignore_result.ok:
