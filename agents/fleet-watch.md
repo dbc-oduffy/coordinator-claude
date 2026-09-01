@@ -83,6 +83,11 @@ it with `ToolSearch("select:Monitor")` first — it is a deferred tool and calli
    them** — you are watching on their standing, and it just ended.
 2. **Read what each peer is actually doing** — its transcript tail, not its status field. Busy is
    never a reason to skip a peer, only a reason not to interrupt it.
+   **A file's mtime is not evidence that anything happened in it.** Derive idle from the last
+   RECORD INSIDE the transcript; a large mtime-vs-record gap means something touched the file
+   without appending. Never take the minimum across clocks — that picks the corrupted one and
+   reports a suspended fleet as fully active. Selective, so per-peer:
+   `A-FILE-MTIME-IS-NOT-EVIDENCE-OF-ACTIVITY-IN-THE-FILE`.
 3. **Nudge what has stopped.** Below.
 4. **Report to your Group EM**: one line per peer, and anything that needs adjudicating.
 
