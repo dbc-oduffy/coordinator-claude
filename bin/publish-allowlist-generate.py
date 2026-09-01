@@ -62,12 +62,16 @@ it:
   - The bin row's `deny` was the FROZEN output of a hand-run import closure.
     Under the old polarity a new CLI reaching a denied package was
     unclassified and refused; now it would publish and raise ImportError on an
-    OSS clone. `--verify-bin-deny` (this script) re-derives that set, but
-    nothing invokes it automatically: it is a manual flag, not a wired
-    control. # Review: coordinator:code-reviewer — no CI/pre-commit/hook
-    # calls this flag on any bin-entrypoint addition today; treat the risk
-    # as an accepted residual, not a discharged one, until something does.
-    This is an accepted residual risk with no automated detector today.
+    OSS clone. `--verify-bin-deny` (this script) re-derives that set on
+    demand; `test_derived_bin_deny_is_a_subset_of_the_authored_list` runs the
+    same derivation against the real declarations in the `cadence` tier,
+    which is where the ~4.3s belongs: off every hot path, fired by a gate
+    rather than by an operator remembering. The flag and the cadence test
+    are the on-demand and periodic forms of one control, not two.
+
+    A grep for the flag name finds no caller and reads as an unwired
+    control. The caller is a `cadence`-marked test calling `derive_bin_deny`
+    directly. Search for the function, not the flag.
 
 Never enumerates the filesystem (`os.walk`) as the mechanism that DISCOVERS
 what a row could ship — `git ls-files` only, so an untracked `.bak` sitting
