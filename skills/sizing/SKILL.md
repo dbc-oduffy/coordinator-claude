@@ -44,7 +44,7 @@ mechanism.
 
 **3. Compute the route — never hand-derive the table.**
 Invoke `sizing-assemble` per the ladder in `snippets/resolve-coordinator-bin.md` — rung 0 (Shape W,
-the `.cmd` sibling through the call operator) on a PowerShell host:
+the `.exe` launcher through the call operator) on a PowerShell host:
 
     `& "$env:COORDINATOR_SETTINGS_HOME\bin\sizing-assemble.exe" --tshirt <XS|S|M|L|XL|XXL>`
 `--tshirt` is the only required flag; never pass/invent `--appetite` unless the PM volunteered one

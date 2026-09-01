@@ -17,9 +17,9 @@ subject; it refuses an unbounded or missing pathspec rather than guessing.
 ## Why the mechanism is not named here
 
 `ceremony.scoped_git_commit` is **retired** — the op, its trampoline, and its tests are deleted in
-the engine repo's relocation ledger. The `scoped-git-commit` launchers survive under the
-settings-home `bin/` and are dead: they point at helpers deleted from the engine tree and fail with
-a helper-missing error (exit 127 on every host measured), **not** the `-32006` the kill-switch
+the engine repo's relocation ledger. Where a pre-retirement install left a `scoped-git-commit`
+launcher behind in the settings-home `bin/`, it is dead: it points at helpers deleted from the
+engine tree and fails with a helper-missing error (exit 127 on every host measured), **not** the `-32006` the kill-switch
 contract prescribes. A caller written against that contract handles the wrong failure shape. Never
 route a ceremony commit through those launchers.
 
@@ -60,16 +60,18 @@ all four.** `run_commit_pipeline` ran four gates immediately before landing: `de
 `dirty_tree_gate`, `carry_gate`, `op_scope_coverage_gate`. It was killed at the 500ms brightline
 and the replacement runs none of them. That is recorded, not accidental: claude-klabauter
 `docs/plans/2026-08-29-the-push-subsystem-leaves-and-then-the-pipeline-can-go.md` § C4, with the
-exposure tracked at `state/bug-backlog/2026-08-29-the-commit-v2-route-runs-none-of-the-fou-3e8811d511b7.yaml`.
+exposure tracked at that same repo's `state/bug-backlog/2026-08-29-the-commit-v2-route-runs-none-of-the-fou-3e8811d511b7.yaml`.
 
 **Unwired is not absent, and the difference decides what you do about it.** Two of the four keep a
 standalone route you can run by hand:
 
 - `deletion_block_gate` — live via `commit_gates.main()`, reached by
-  `coordinator/bin/check-workstream-complete-deletion-blocks`. The Step-2.67 Kept/Deleted claim
-  check still exists; it just no longer fires automatically inside your commit.
+  `check-workstream-complete-deletion-blocks` (resolved per `snippets/resolve-coordinator-bin.md`:
+  Shape A/B on POSIX hosts, Shape W on PowerShell). The Step-2.67 Kept/Deleted claim check still
+  exists; it just no longer fires automatically inside your commit.
 - `carry_gate` — live via `baton_assemble/apply.py`'s `_dispatch_handoff_carry_gate` (over the
-  PREDECESSOR's array only) and the standalone `coordinator/bin/handoff-carry-gate` CLI.
+  PREDECESSOR's array only) and the standalone `handoff-carry-gate` CLI (resolved per
+  `snippets/resolve-coordinator-bin.md`: Shape A/B on POSIX hosts, Shape W on PowerShell).
 - `dirty_tree_gate` — **no caller anywhere.** Nothing imports it, no CLI reaches it, only its own
   tests. `commit_paths` building its tree from explicit paths subsumes part of what it protected,
   which is likely why it went quietly.

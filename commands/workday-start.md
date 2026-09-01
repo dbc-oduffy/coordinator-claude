@@ -39,7 +39,7 @@ silently un-pushed and un-trailered — idempotent, note only on actual repair),
 `python3 <plugin-root>/bin/check-gitignore-template-drift.py` (report-only; renders its output under
 the advisory-probe convention — the `/coordinator:install` Phase 4 diff only fires on a full
 install, so this is the daily cadence that catches drift between installs;
-see `docs/wiki/coordinator-tripwires/gitignore-template-drift-is-a-cadence-gate-not-an-install-only-step.md`).
+see `coordinator/docs/wiki/coordinator-tripwires/gitignore-template-drift-is-a-cadence-gate-not-an-install-only-step.md`).
 
 `untested-platform-advisory` moves to the install surface — it changes only on new-platform
 install, never on a normal morning. Not part of this ceremony.
@@ -315,9 +315,12 @@ against the kill bar. Do not wire it, and do not read its absence as a gap.
 No CLI yet derives commit-delta staleness for docs, tests, or the bug sweep from git history —
 degraded pending engine producers on all three:
 - Doc freshness: `check-harvest-debt` moves to the weekly group.
+  <!-- engine-gap: field=freshness.doc_commit_delta producer=unknown memo=cartography-churn-live-caller-and-workday-start-staleness.md -->
 - Test staleness: skip this cadence.
+  <!-- engine-gap: field=freshness.test_commit_delta producer=unknown memo=cartography-churn-live-caller-and-workday-start-staleness.md -->
 - Bug-sweep staleness: `state/bug-backlog/.meta.yaml` date signal only (no commit-count trigger) —
   no backlog and >50 tracked source files suggests a first sweep. Read directly, no spawn.
+  <!-- engine-gap: field=freshness.bug_sweep_commit_delta producer=unknown memo=cartography-churn-live-caller-and-workday-start-staleness.md -->
 
 **3.6** `d-rag-staleness-regen` (Step -0.9) → **Project-RAG** line when fired. Flag-only, PM
 invokes manually (a reindex can race an open editor).

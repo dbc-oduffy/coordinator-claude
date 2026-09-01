@@ -12,7 +12,7 @@ workday or workweek, or an explicit "does everything pass?" ask.
 
 ## Run It
 
-On a PowerShell host, use the `.cmd` sibling through the call operator (Shape W) for every
+On a PowerShell host, invoke the `.exe` launcher through the call operator (Shape W) for every
 invocation on this page, never the `${...}` POSIX-shell form shown below. Ladder and shapes:
 `snippets/resolve-coordinator-bin.md`.
 

@@ -18,8 +18,8 @@ recovery, PR creation, the merge, local cleanup).
 
 **Announce at start:** "I'm using the coordinator:merging-to-main skill to merge this branch to main."
 
-On a PowerShell host, use the `.cmd` sibling through the call operator (Shape W) — ladder and
-shapes: `snippets/resolve-coordinator-bin.md`.
+On a PowerShell host, invoke the `.exe` launcher by absolute path through the call operator
+(Shape W) — ladder and shapes: `snippets/resolve-coordinator-bin.md`.
 Compute and apply are one verb — `brief` was removed (K-114): `merge-assemble apply [--session-id <id>] [--force] [--decisions <json>]`, resolved per that ladder. Resolve every `judgment_points[]` entry it returns, via `--decisions`, before its gated directive(s) proceed. `--force` bypasses only the node ceremony hard-gate (`d0`).
 
 **First Officer Doctrine:** EM may refuse to merge and alert the PM on a branch with known issues.
@@ -38,7 +38,7 @@ project-specific from `CLAUDE.md`/`package.json`). **This is the most expensive 
 ceremony** — the project's full suite is a machine-wide event, not a cheap check; its actual
 magnitude is whatever `python coordinator/tests/_spawn_budget.py` reports for this repo, never a
 hardcoded figure here, but treat "run the suite" as heavy every time you grant it. Fail on either →
-halt: _"Test suite failed. Fix first, or use `/merge-to-main --force` to bypass for hotfixes."_
+halt: _"Test suite failed. Fix first, or use `/merging-to-main --force` to bypass for hotfixes."_
 
 **`--force`** (skill flag, distinct from `apply`'s): skips this step including the Tier-U grant and
 `d0`. Log: _"Force-merge requested — test suite gate bypassed."_
@@ -128,7 +128,7 @@ bump: patch ({old} → {new}) — confirm before tagging."_
 ## Step 6: Wait for CI
 
 `gh pr checks --watch`. `ci_failure_interpretation`: "no checks reported" (exit 1) is a pass; a real
-failure blocks merge — _"CI failed on {check}. Fix and re-run `/merge-to-main`, or investigate via
+failure blocks merge — _"CI failed on {check}. Fix and re-run `/merging-to-main`, or investigate via
 `coordinator:systematic-debugging`."_ A flaky-retry re-runs CI instead of blocking.
 
 ---

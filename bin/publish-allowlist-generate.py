@@ -16,62 +16,14 @@ script never re-derives the deny-segment/fixture-tree narrows already
 hand-authored on the row — see each row's own comment block in
 `setup/publish-targets.portable` for those).
 
-POLARITY — inverted 2026-09-01, PM ruling, and AC15 went with it.
-
-Until then a row declared BOTH an `include_root` enumeration and a `deny`
-list, and AC15 hard-errored on any tracked top-level name in neither. That is
-deny-by-default, and it is why a misclassified file failed to PUBLISH:
-annoying, recoverable, and the correct direction for a mirror feeding an OSS
-twin. It also meant a growing repo carried a hand-maintained enumeration of
-everything it admitted — 184 names on the engine row, 951 on the bin row —
-and on 2026-08-31 six unclassified `test_*_prose.py` jammed the generator,
-after which field 7 was maintained by hand for a day.
-
-The PM's ruling, verbatim in substance: *"we're not running Fort Knox here,
-the worst case of a denylist not being kept up to date is that we leak some
-plan documents or whatever. better that than trying to manually manage an
-allowlist for a repo that keeps growing."* A permanent classification tax paid
-by every session, against a bounded disclosure risk on documents that are not
-secrets.
-
-So `include_root` is gone and admission is `tracked - deny`. What that costs,
-recorded because the next reader will want it and should not have to rederive
-it:
-
-  - An unclassified new file now PUBLISHES rather than jamming. That is the
-    ruling, not a defect. The unit of admission is a TOP-LEVEL NAME, and under
-    `coordinator_core`/`coordinator/bin` that is frequently a whole
-    subpackage: an unclassified new top-level DIRECTORY publishes its entire
-    recursive tree on first commit, unreviewed, and a directory can arrive
-    with many files in one commit.
-  - The transition shipped nothing new IF AC15's invariant held at the
-    moment `include_root` was deleted: `deny ∪ include_root == tracked`
-    would make `tracked - deny` byte-for-byte the enumeration it replaced.
-    # Review: coordinator:code-reviewer — AC15 had lapsed days earlier (the
-    # 08-31 jam, field 7 hand-maintained) and was presumably restored by
-    # `5c02cdf21b` ("publish-allowlist unjam") immediately before this
-    # commit; that is what the claim actually rests on, not an in-diff check.
-    Confirmed post hoc, not at the flip: field 7 for the `claude-klabauter*`
-    rows is byte-identical between `33280385f5^` and `33280385f5` (md5
-    `8bf3cd1ba9be0b4f26078553bd7b8d70`), and the only divergence from that
-    pair through current HEAD is the later, unrelated `verify-bin-deny.py`
-    CLI removal (`ffe4e68d32`).
-  - `state/` and `docs/plans/` were never reachable and still are not — no
-    publish row is rooted at the repo root, so the PM's stated worst case is
-    not reachable by this change at all.
-  - The bin row's `deny` was the FROZEN output of a hand-run import closure.
-    Under the old polarity a new CLI reaching a denied package was
-    unclassified and refused; now it would publish and raise ImportError on an
-    OSS clone. `--verify-bin-deny` (this script) re-derives that set on
-    demand; `test_derived_bin_deny_is_a_subset_of_the_authored_list` runs the
-    same derivation against the real declarations in the `cadence` tier,
-    which is where the ~4.3s belongs: off every hot path, fired by a gate
-    rather than by an operator remembering. The flag and the cadence test
-    are the on-demand and periodic forms of one control, not two.
-
-    A grep for the flag name finds no caller and reads as an unwired
-    control. The caller is a `cadence`-marked test calling `derive_bin_deny`
-    directly. Search for the function, not the flag.
+POLARITY — inverted 2026-09-01 by PM ruling; AC15 went with it. Admission is
+`tracked - deny`, so an unclassified tracked name PUBLISHES rather than being
+withheld. What that costs, what it provably did not move, and the one hazard
+it creates (a new `coordinator/bin` CLI whose closure reaches a denied
+package) are recorded once in
+`docs/decisions/DR-the-publish-allowlist-became-a-denylist.md` — including
+why a grep for `--verify-bin-deny` finds no caller when the detector is a
+`cadence`-marked test calling `derive_bin_deny` directly.
 
 Never enumerates the filesystem (`os.walk`) as the mechanism that DISCOVERS
 what a row could ship — `git ls-files` only, so an untracked `.bak` sitting

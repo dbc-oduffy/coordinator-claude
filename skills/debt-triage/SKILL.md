@@ -15,7 +15,7 @@ An **EM-PM conversation**, not a dispatched agent — the EM reads the backlog, 
 and presents recommendations. Trigger on demand, at >20 open items, or after a refactor that may
 have resolved several. Rationale, clustering detail, structural-probe calibration: wiki.
 
-**On a PowerShell host, every CLI below takes its `.cmd` sibling through the call operator**
+**On a PowerShell host, every CLI below takes its `.exe` launcher through the call operator**
 (Shape W), never the `${...}` POSIX-shell form shown. Ladder and shapes:
 `snippets/resolve-coordinator-bin.md`.
 

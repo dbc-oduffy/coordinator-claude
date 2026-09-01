@@ -60,7 +60,7 @@ long-hand. This is THE resolution, not a second one — prepend it and carry on:
 
 The bootstrap resolver cannot serve this rung: the installer places `coordinator-settings-home.cmd`
 inside `<settings-home>\bin\`, so reaching it needs the value it produces, and the copy under a
-source-template `templates/bin/` exists only in a development checkout. Never invoke it from there,
+source-template `coordinator/templates/bin/` exists only in a development checkout. Never invoke it from there,
 and never substitute a bareword — the opening rule bars that on every host.
 
 `.exe` is the spelling for **every** settings-home CLI here, `coordinator-invoke` included — there
@@ -173,7 +173,9 @@ double-counts the segment and resolves nowhere under either layout.
 deliberately not carried into it, so no launcher is written for them and none will be. Invoke them
 repo-relative out of the engine's own source checkout —
 `python "<engine-root>/coordinator/bin/<cli>.py" …` — never through the settings home, and never
-file the absence as an install defect.
+file the absence as an install defect. A POSIX forwarder for each DOES sit in the settings-home
+`bin/`; with no launcher beside it, PowerShell ShellExecutes it as a document and returns at once
+with no output and an empty `$LASTEXITCODE`. Present-but-silent, not absent.
 
 > Portability: no GNU-isms (`sed -i`, `grep -P`, `realpath`, `mapfile`, `declare -A`).
 > No wrapper CLI is invoked in this bootstrap — the launcher is execed directly by absolute path —

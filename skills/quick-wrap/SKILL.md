@@ -24,8 +24,8 @@ negotiating. Every computable condition names a single field read
 
 | # | Condition | Read | If it fails |
 |---|---|---|---|
-| 1 | **No governing plan** drove this session's work † | `close_gate.governing_plan` — `quick-wrap-assemble brief` <!-- engine-gap: field=close_gate.governing_plan producer=unknown memo=2026-08-14-doe-claude-em-quick-wrap-has-no-assembler-at-all.md --> | `/workstream-complete` |
-| 2 | **Diff under the review brightline** — <500 novel LOC, <5 commits, <4 surfaces | `close_gate.diff` (session-scoped, carve-outs pre-applied) — `quick-wrap-assemble brief` <!-- engine-gap: field=close_gate.diff producer=unknown memo=2026-08-14-doe-claude-em-quick-wrap-has-no-assembler-at-all.md --> | **Scoped review, then wrap** (below), not `/workstream-complete` |
+| 1 | **No governing plan** drove this session's work † | `close_gate.governing_plan` — `quick-wrap-assemble brief` <!-- engine-gap: field=close_gate.governing_plan producer=claude_klabauter:quick_wrap_assemble.brief memo=2026-08-14-doe-claude-em-quick-wrap-has-no-assembler-at-all.md --> | `/workstream-complete` |
+| 2 | **Diff under the review brightline** — <500 novel LOC, <5 commits, <4 surfaces | `close_gate.diff` (session-scoped, carve-outs pre-applied) — `quick-wrap-assemble brief` <!-- engine-gap: field=close_gate.diff producer=claude_klabauter:quick_wrap_assemble.brief memo=2026-08-14-doe-claude-em-quick-wrap-has-no-assembler-at-all.md --> | **Scoped review, then wrap** (below), not `/workstream-complete` |
 | 3 | **What this session claimed has no ancestors** ‡ | `artifact.chain.ancestor_count == 0` — `pickup-assemble brief <path>` for the artifact this session claimed; nothing claimed means nothing to read, test passes | `/workstream-complete` — a chain that accumulated history owes a coverage gate |
 | 4 | **Work is finished** — nothing in-flight for a successor | judgment | `/handoff`, only if context pressure genuinely forces the stop |
 
@@ -138,7 +138,7 @@ caller-widened.
 - **A `dispatch`-routed sizing that routed this session**, work done: write `status: shipped`
   directly — no plan means this is its only write path.
 - **Every terminal sizing-object THAT NO PLAN CITES** (`shipped`/`declined`/`superseded`):
-  `close_gate.terminal_sizings` <!-- engine-gap: field=close_gate.terminal_sizings producer=unknown memo=2026-08-14-doe-claude-em-quick-wrap-has-no-assembler-at-all.md -->
+  `close_gate.terminal_sizings` <!-- engine-gap: field=close_gate.terminal_sizings producer=claude_klabauter:quick_wrap_assemble.brief memo=2026-08-14-doe-claude-em-quick-wrap-has-no-assembler-at-all.md -->
   `git mv` each to `archive/sizings/<YYYY-MM>/` unmodified — no `closed_at`/`closed_by` (schema
   disallows both). A record still at `sized`, `routed`, or `draft` is untouched no matter how
   finished it looks — only what a prior step already marked terminal moves.

@@ -182,6 +182,7 @@ supersede flip, and archive-fallback resolution are engine-computed bookkeeping.
 - "Key Decisions Made" is context to internalize, not to re-litigate absent evidence it was wrong.
 
 **Recovery only — no brief arrived with your prompt.** Run `pickup-assemble brief
-<artifact-path>`, resolved per `snippets/resolve-coordinator-bin.md` (Shape W, the `.cmd`
-sibling through the call operator, on a PowerShell host), then proceed as above. Never run it
+<artifact-path>`, resolved per `snippets/resolve-coordinator-bin.md` (Shape W, the `.exe`
+launcher by absolute path through the call operator, on a PowerShell host), then proceed as
+above. Never run it
 to check work already done for you.

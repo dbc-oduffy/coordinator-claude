@@ -71,7 +71,7 @@ _Condition: body drafted and saved to `docs/plans/YYYY-MM-DD-<slug>.md`. Which t
 
 **Invocation point 1 — scaffold.** The generator is the single emission point for frontmatter — never hand-author field lists against `schemas/plan.schema.json`. If frontmatter was hand-authored, conform it now through the same invocation.
 
-Invoke through the `.cmd` sibling by absolute path via the PowerShell call operator (Shape W) —
+Invoke the `.exe` launcher by absolute path via the PowerShell call operator (Shape W) —
 ladder and shapes: `snippets/resolve-coordinator-bin.md`.
 
     `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.exe" --type plan --title "<title>" --sizing-object state/sizings/<the-object-that-routed-you-here>.yaml --out docs/plans/YYYY-MM-DD-<slug>.md`

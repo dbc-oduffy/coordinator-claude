@@ -29,9 +29,9 @@ other surface.
 ## Gate, Chunk, and Resolver Decisions
 
 Three CLI calls drive dispatch shape; each prints a decision envelope whose `next_move` field is
-the literal next step to take. **On a PowerShell host, use the `.cmd` sibling through the call
-operator** (Shape W) for every invocation on this page, never the `${...}` POSIX-shell form shown
-below. Ladder and shapes: `snippets/resolve-coordinator-bin.md`.
+the literal next step to take. **On a PowerShell host, invoke the `.exe` launcher by absolute path
+through the call operator** (Shape W) for every invocation on this page, never the `${...}`
+POSIX-shell form shown below. Ladder and shapes: `snippets/resolve-coordinator-bin.md`.
 
 - **Gate:** invoke `parallel-review-gate-decision gate --range "origin/main...HEAD" [--force]`,
   resolved per `snippets/resolve-coordinator-bin.md` (Shape A/B on POSIX hosts, Shape W on

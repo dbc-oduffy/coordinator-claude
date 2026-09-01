@@ -341,7 +341,7 @@ prime_exit_criterion:
 ```
 
 **Why these fields are required:**
-- **Scope mode** routes review depth and the evidence bar. Reviewers and `/merge-to-main` read it.
+- **Scope mode** routes review depth and the evidence bar. Reviewers and `/merging-to-main` read it.
 - **Acceptance criteria** are what reviewers check against and what the ship verdict scores. Without them, "done" reduces to "the agent says it implemented it." A criterion that must be discharged is a spine row (see § Machine-Parseable Task Spine below); everything else is carried by the prime exit criterion and its falsifier (see § Prime Exit Criterion below).
 - **Non-goals** are the most-skipped field and the single highest source of scope drift. Spend 30 seconds on them.
 - **Prime exit criterion** is the one thing this replaces "AC-by-AC discharge" as evidence for: see § Prime Exit Criterion below.

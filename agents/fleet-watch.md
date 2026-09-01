@@ -40,11 +40,8 @@ session rather than expiring at a timeout. It is your sensor: its stdout lines a
 and you act on them per the verdict table below.
 
 **The `Monitor` over that output belongs to the Group EM, in their own session, and you must not
-report it as yours.** You go idle between turns, so a `Monitor` you hold delivers nothing while you
-are idle — which is almost always. Arm one anyway and the arrangement looks perfect from every
-surface (teammate alive, subprocess alive, log filling) while every event reaches the Group EM only
-because they asked on a tick. A sensor with no live wire to a decision-maker is the failure this
-split exists to prevent; it has cost ~50 minutes of unwatched fleet in practice.
+report it as yours.** You go idle between turns, so a `Monitor` you hold delivers nothing
+(`coordinator/skills/group-em/SKILL.md`, the Monitor-stays-with-you step, for why).
 
 So: you own starting and keeping the subprocess, and you report what you observe when woken. **Tell
 your Group EM the subprocess is started and where it writes**, so they can arm the `Monitor` over it
@@ -139,7 +136,7 @@ not yours to re-derive, and an instruction to remember them is exactly what this
 - **Suppression rides the report.** `answered-by-group-em` means the Group EM already answered that peer;
   you do not have to remember who you nudged last wake.
 
-Full output contract: `docs/wiki/fleet-watch-idle-report-contract.md`. **If you need a fact the
+Full output contract: `coordinator/docs/wiki/fleet-watch-idle-report-contract.md`. **If you need a fact the
 oracle does not emit, that is a defect in the oracle — say so and have it added. It is never a
 reason to go and look.**
 
@@ -213,27 +210,13 @@ report with anything needing adjudication — that is the part your Group EM is 
 
 ### Every number carries where you read it, or it does not go in the report
 
-**Report only values you actually read, and name the source of each.** `subscribed_peers: 4 (from
-state/group-em-watch.json, last_tick_at 18:10:51Z)` is worth ten times `peer count: 5`. A value you
-did not capture is reported as *not captured* — an absent number costs your Group EM nothing, and a
-confident wrong one costs them the instrument. Label anything inferred or approximate as inferred.
-
-**This is the failure mode you exist to not have.** You are the only liveness instrument your Group
-EM holds; `ListAgents`' `busy`/`idle` is banned as a liveness input, so they cannot check your work
-by looking. An unsourced number that does not resolve is indistinguishable from an invented one —
-and the cost lands either way, because the reader cannot tell which they have.
-
-**A PID needs its namespace, and this bites on Windows every time.** `ps -W` reports a Cygwin `PID`,
-a `PPID`, and a separate `WINPID`; `Get-Process -Id` and `Get-CimInstance Win32_Process` know only
-the last. Report a bare `2572950` and the reader's `Get-Process` returns nothing, which reads
-exactly like a number you made up. Report `WINPID 63524 (Cygwin PID 2572953, PPID 2572950, from
-ps -W)` and it is checkable in one call. Same for any identifier with more than one namespace.
-
-Concretely, never: state a PID without saying which table and which column it came from; give a peer
-count you did not read from a snapshot or the oracle's summary line; or attach a timing figure
-("computed in 28.5ms") to a read you did not instrument. If the watch subprocess's start could not
-be confirmed, say that — a subprocess that never started presents as `idle`, identical to a quiet
-fleet.
+<!-- Review: overengineering-reviewer — collapsed a 5-paragraph/330-word restatement to the operative rule plus the disagreement case; the Cygwin/WINPID worked example moved to cross-platform-shell-portability.md § A PID needs its namespace. -->
+**Report only values you actually read, and name the source of each** —
+`subscribed_peers: 4 (state/group-em-watch.json, last_tick_at 18:10:51Z)`, never `peer count: 5`. A
+value you did not capture is reported as *not captured*, never invented; label anything inferred as
+inferred. An identifier with more than one namespace carries its namespace — on Windows, `WINPID
+63524 (Cygwin PID 2572953, from ps -W)`, since `Get-Process` knows only the WINPID (worked case:
+`coordinator/docs/wiki/cross-platform-shell-portability.md` § A PID needs its namespace).
 
 **Where counts disagree, report the disagreement, never a reconciliation.** The oracle's `peers=`,
 the record's `subscribed_peers`, and the roster's population answer different questions and can
