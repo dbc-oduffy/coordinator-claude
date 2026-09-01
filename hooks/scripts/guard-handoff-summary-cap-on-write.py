@@ -4,7 +4,7 @@
 # registration calls in-process. This basename is deliberately never
 # referenced literally in hooks.json text -- that IS the mechanism, not an
 # omission.
-"""PreToolUse hook (matcher: Write|Edit|MultiEdit): denies a write that
+"""PreToolUse hook (matcher: Write|Edit|MultiEdit): warns on a write that
 would leave a handoff's `summary:` frontmatter field over its 140-char cap.
 
 Why this exists
@@ -15,12 +15,18 @@ cover-a-later-hand-edit.md` names the gap directly: `handoff_normalize
 *creation* (`coordinator_core.ops.handoff_author_fork`). A skill that then
 has the EM hand-edit the scaffolded file (e.g. `skills/spinoff/SKILL.md`
 Step 2) runs entirely after that normalizer -- a 207-char `summary:` typed
-at that step sailed straight through to `pickup-assemble apply`, which
-refused the claim outright, at a surface owned by whoever consumes the
+at that step sails straight through to `pickup-assemble apply`, which
+refuses the claim outright, at a surface owned by whoever consumes the
 handoff rather than whoever wrote it. This guard is the authoring-time
-correction the tripwire names but never built: catch the over-cap value at
-the moment it is TYPED, in this repo's own hook surface, rather than
-leaving the only enforcement in a downstream engine-plane consumer.
+correction the tripwire names but never built: flag the over-cap value at
+the moment it is TYPED, in this repo's own hook surface, as advisory
+context alongside the write rather than leaving the author to discover it
+only at the downstream engine-plane consumer. The write proceeds either
+way -- `pickup-assemble apply`'s own refusal is the backstop that actually
+blocks an over-cap claim, and this guard deliberately does not duplicate
+that as a second block at authoring time: an over-cap `summary:` is loud
+and one-line-recoverable there, while a deny here costs the author a full
+body re-send on every miss.
 
 Schema is the source of the cap, not a local guess
 ----------------------------------------------------
@@ -33,11 +39,13 @@ from the schema file at hook time, since a plain non-JSON-Schema prose
 cap has nothing machine-parseable to derive it FROM.
 
 Only handoffs are in scope. `cross-repo-memo.schema.json` carries a
-sibling capped `summary` (120 chars), but its cross-field rule
-(`_memo_cf_summary_length_cap`) is enforced by `memo_send.py`'s own SEND-time
-gate, which normalizes ahead of itself rather than refusing outright -- the
-tripwire's own "stronger complement" already exists on that path. Handoffs
-have no such send-time normalizer; `pickup-assemble apply` only refuses.
+sibling capped `summary` (120 chars), warned rather than denied by its own
+guard because `memo_send.py`'s own SEND-time gate normalizes ahead of
+itself -- an over-cap memo summary never reaches a downstream refusal.
+Handoffs have no such send-time normalizer; `pickup-assemble apply` is the
+only place an over-cap `summary:` is ever caught outright, which is why
+this guard warns at authoring time too: give the author the diagnosis
+early, without gating the write on it.
 
 Scope, mirroring `guard-python-syntax-on-write.py`
 -----------------------------------------------------
@@ -56,14 +64,14 @@ reconstructed after-text; unparseable YAML frontmatter (PyYAML unavailable
 included); no `summary` key, or a non-string `summary` value (schema
 compliance is this guard's business only for the field it caps, never a
 general frontmatter validator); a `summary` at or under the cap. A guard
-that cannot compute its own input has no basis to deny.
+that cannot compute its own input has no basis to warn.
 
-Deny message
+Warn message
 -------------
 Names the actual length and the cap -- the reader is mid-edit on the exact
 file the count is wrong in, so no wiki anchor is spent sending them
 elsewhere (same reasoning as `guard-python-syntax-on-write.py`'s own
-deny-message note).
+message note).
 """
 
 from __future__ import annotations
@@ -77,7 +85,7 @@ if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
 from _sentinel_write_guard import extract_target_path, reconstruct_after  # noqa: E402
-from _message_envelope import CHANNEL_DENY, Message, compose, emit  # noqa: E402
+from _message_envelope import CHANNEL_ADDITIONAL_CONTEXT, Message, compose, emit  # noqa: E402
 
 try:
     import yaml
@@ -133,20 +141,20 @@ def _split_frontmatter(text: str) -> "tuple[dict | None, str]":
     return fm, body
 
 
-def _deny_reason(target: str, length: int) -> str:
+def _warn_reason(target: str, length: int) -> str:
     """The prose diagnosis (the only part `_message_envelope.CEILING`
     counts)."""
     return (
         f"summary-cap: {target}'s `summary:` frontmatter is {length} chars, "
         f"over the {_HANDOFF_SUMMARY_CAP}-char cap "
         "(coordinator/schemas/handoff.schema.json). A normalizer caps this "
-        "field at handoff creation but not on a later hand-edit -- trim it "
-        "before saving."
+        "field at handoff creation but not on a later hand-edit -- the "
+        "write proceeds; fix the field on the next edit."
     )
 
 
-def _deny_message(target: str, length: int) -> Message:
-    return compose(_deny_reason(target, length))
+def _warn_message(target: str, length: int) -> Message:
+    return compose(_warn_reason(target, length))
 
 
 def main() -> int:
@@ -204,7 +212,7 @@ def main() -> int:
     if length <= _HANDOFF_SUMMARY_CAP:
         return 0
 
-    emit(_deny_message(target_raw, length), CHANNEL_DENY)
+    emit(_warn_message(target_raw, length), CHANNEL_ADDITIONAL_CONTEXT)
     return 0
 
 

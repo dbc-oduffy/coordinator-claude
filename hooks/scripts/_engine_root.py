@@ -106,10 +106,15 @@ RESOLUTION_RESOLVED_ENGINE = "resolved-engine"
 RESOLUTION_LIVE_WORKING_TREE = "live-working-tree"
 RESOLUTION_UNRESOLVED = "unresolved"
 
-#: Literal sibling-repo dirname rung 3's last-resort walk matches against —
-#: see that rung's negative-spec and the OSS-locality allowlist entry
-#: covering this site.
+#: Literal sibling-repo dirname the sibling-walk rung's last-resort probe
+#: matches against — see that rung's negative-spec and the OSS-locality
+#: allowlist entry covering this site.
 _CLAUDE_KLABAUTER_SIBLING_DIR_NAME = "claude-klabauter"
+
+#: NEGATIVE-SPEC: no `_LIVE_TREE_POINTER` constant here, and none should be
+#: re-added — see `_resolve_live_working_tree`'s own negative-spec below for
+#: the full reasoning (the retirement, the same-name settings-home perf
+#: cache trap, and the same-day revert this replaced).
 
 #: Env vars rung 1 consults, in ratified precedence order (see
 #: `_resolve_live_working_tree`). Exported as a constant rather than inlined at
@@ -894,7 +899,8 @@ def resolve_claude_klabauter_root_with_provenance() -> tuple[str | None, str, st
     per-session rather than silently inferred. When no published engine
     exists at all, rung 3 keeps reporting whichever live sub-rung answered
     (`"live-env-dup"` / `"live-registry"` / `"sibling-walk"`) exactly as
-    before — `"live-no-target"` names a specifically UNREALIZED divert
+    before — `"live-no-target"` names a
+    specifically UNREALIZED divert
     opportunity, not "no live tree found."
 
     **Rung 0 gained a health guard (AC19, C4).** Under this ladder, rung 0
@@ -967,8 +973,9 @@ def resolve_claude_klabauter_root_with_provenance() -> tuple[str | None, str, st
              fail to divert to; covers working repos, undeterminable repos,
              and (pre-activation) every repo. `_resolve_live_working_tree`
              reports its OWN answering rung — `"live-env-dup"`,
-             `"live-registry"`, or `"sibling-walk"` (matching § The
-             provenance seam's vocabulary verbatim) — rather than this
+             `"live-registry"`, or `"sibling-walk"`
+             (matching § The provenance seam's vocabulary verbatim) —
+             rather than this
              function collapsing them to one value from outside. Recording
              it at the rung that answers, instead of re-deriving which
              sub-check fired by re-running the checks here, is what keeps
@@ -1170,9 +1177,42 @@ def _resolve_live_working_tree() -> tuple[str | None, str]:
     registry key the published-engine rung reads; the two-rung distinction
     the engine-source plane preserves collapses to one key here.
 
+    NEGATIVE-SPEC — no pointer-file rung, and the reason is narrower than
+    "the file does not exist". `repos.claude_klabauter` is the sole carrier
+    of published-engine LOCATION, by joint ratification across the doctrine
+    and engine planes — see `state/memo-outbox/sent/klabauter-location-
+    belongs-in-the-registry-not-a-pointer-file.md`. What that ruling retired
+    is the pointer's LOCATION-CARRYING JOB, with the memo's stated
+    semantics: absent key → `None` → fall through to the sibling walk.
+
+    A settings-home pointer file of a similar name IS live on an engine box
+    and must not be read as a location rung. The engine's own resolver
+    keeps a zero-spawn perf cache at `<settings-home>/machine-local/` whose
+    published name collides with the retired one, and whose contract is the
+    opposite of a rung's: absence is a NORMAL fallback there, never a
+    failure. Reading it here would resolve a different repo's root under a
+    name that looks like this one's.
+
+    Same-name-different-job across a publish rename is the trap: a rung was
+    reintroduced here once on the strength of the name alone, and reverted
+    the same day. Do not restore it, and do not "repair" any inventory row
+    that FAILs on that file's absence — that row belongs to the engine's
+    perf cache, not to this ladder.
+
     Rung 3, provenance `"sibling-walk"`: the last-resort directory-next-to-
     this-repo walk — see `resolve_claude_klabauter_root`'s own negative-spec for why
-    it is kept despite its layout-specific fragility.
+    it is kept despite its layout-specific fragility. The anchor is DERIVED
+    by walking upward from `__file__` to the nearest ancestor containing a
+    `.claude-plugin/` directory (`_find_plugin_root`), never by counting a
+    fixed number of `Path.parents[]` — a fixed-depth count is correct only
+    under the nested plugin layout (`<repo>/coordinator/hooks/scripts/`)
+    and is silently wrong under the flat mirror layout this file is ALSO
+    published into (`<repo>/hooks/scripts/`), where the plugin root IS the
+    repo root. Both layouts are probed: the sibling of the plugin root
+    itself (flat layout, where the plugin root is the repo root) and the
+    sibling of the plugin root's parent (nested layout, where the repo
+    root is one level above the plugin root) — the first that `is_dir()`
+    wins.
     """
     for env in LIVE_TREE_ENV_VARS:
         v = os.environ.get(env)
@@ -1188,15 +1228,53 @@ def _resolve_live_working_tree() -> tuple[str | None, str]:
         pass
 
     try:
-        # __file__ = <repo>/coordinator/hooks/scripts/_engine_root.py
-        repo_root = Path(__file__).resolve().parents[3]
-        sibling = repo_root.parent / _CLAUDE_KLABAUTER_SIBLING_DIR_NAME
-        if sibling.is_dir():
-            return str(sibling), "sibling-walk"
+        plugin_root = _find_plugin_root(Path(__file__).resolve().parent)
+        if plugin_root is not None:
+            for sibling in (
+                plugin_root.parent / _CLAUDE_KLABAUTER_SIBLING_DIR_NAME,
+                plugin_root.parent.parent / _CLAUDE_KLABAUTER_SIBLING_DIR_NAME,
+            ):
+                if sibling.is_dir():
+                    return str(sibling), "sibling-walk"
     except Exception:
         pass
 
     return None, "none"
+
+
+_PLUGIN_ROOT_WALK_MAX_LEVELS = 12
+
+
+def _find_plugin_root(start: Path) -> Path | None:
+    """Walk upward from `start` to the nearest ancestor containing a
+    `.claude-plugin/` directory — the plugin root under BOTH shipped
+    layouts. Under the nested layout the plugin root is `<repo>/
+    coordinator`; under the flat mirror layout the plugin root IS the repo
+    root (`.claude-plugin/` sits directly under it). Bounded to
+    `_PLUGIN_ROOT_WALK_MAX_LEVELS` ancestors so a filesystem with no `.claude-plugin/`
+    anywhere above `start` (a stray copy of this file, a test fixture)
+    cannot walk indefinitely — returns `None` once the walk reaches the
+    filesystem root or exhausts the bound, whichever comes first.
+
+    Negative-spec: this replaces a fixed `Path(__file__).resolve().parents[3]`
+    count that was correct only for the nested layout
+    (`<repo>/coordinator/hooks/scripts/_engine_root.py`) and silently wrong
+    under the flat mirror layout this file also ships into
+    (`<repo>/hooks/scripts/_engine_root.py`), where that same fixed count
+    lands two levels above the clone and the sibling probe below it could
+    never hit — the hidden cause of a cold-box bootstrap deadlock on the
+    recommended install path, where the installed-plugin-cache anchor makes
+    every other rung dead by construction too.
+    """
+    current = start
+    for _ in range(_PLUGIN_ROOT_WALK_MAX_LEVELS):
+        if (current / ".claude-plugin").is_dir():
+            return current
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+    return None
 
 
 def run_stop_hook_pointer_shim(module_name: str) -> int:

@@ -144,7 +144,6 @@ for the denominator-carrying, capped render.
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import re
 import subprocess
@@ -154,47 +153,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-_NESTED_ENV_SCRUB_SOURCE = (
-    Path(__file__).resolve().parents[2] / "bin" / "tests" / "test_zero_test_module_ratchet.py"
+_PYTEST_ENV_SCRUB = (
+    "PYTEST_ADDOPTS",
+    "PYTEST_XDIST_WORKER",
+    "PYTEST_XDIST_WORKER_COUNT",
+    "PYTEST_XDIST_TESTRUNUID",
 )
-"""This module already spawns pytest as a nested subprocess and already
-solved scrubbing the outer run's own pytest env vars out of that child's
-environment (`_NESTED_PYTEST_ENV_SCRUB`) — a peer's `PYTEST_ADDOPTS`
-turning xdist worker death under memory pressure into a partial-collection
-summary this gate would otherwise misread as a tree defect. Reused by
-file-path import (this file lives outside any package `bin/` or `bin/tests`
-participates in from here) rather than duplicated into a second list that
-could drift from the one actually exercised by that suite."""
-
-
-def _load_nested_pytest_env_scrub() -> "tuple[str, ...]":
-    spec = importlib.util.spec_from_file_location(
-        "_zero_test_module_ratchet_env_scrub", _NESTED_ENV_SCRUB_SOURCE
-    )
-    if spec is None or spec.loader is None:
-        raise ImportError(f"could not build a module spec for {_NESTED_ENV_SCRUB_SOURCE}")
-    module = importlib.util.module_from_spec(spec)
-    # That module imports from `coordinator_core`, so executing it requires
-    # the repo root on `sys.path`. Under pytest the rootdir supplies it and
-    # this is invisible; a caller importing THIS module standalone (the
-    # exit-criterion falsifier does exactly that) gets a ModuleNotFoundError
-    # from a line that reads like a pure constant lookup. The reuse is
-    # deliberate -- one scrub list, not two that drift -- but reuse across a
-    # package boundary owes its own import precondition rather than
-    # inheriting one by luck.
-    repo_root = str(_NESTED_ENV_SCRUB_SOURCE.parents[3])
-    added = repo_root not in sys.path
-    if added:
-        sys.path.insert(0, repo_root)
-    try:
-        spec.loader.exec_module(module)
-    finally:
-        if added:
-            sys.path.remove(repo_root)
-    return module._NESTED_PYTEST_ENV_SCRUB
-
-
-_PYTEST_ENV_SCRUB = _load_nested_pytest_env_scrub()
+# Review: overengineering-reviewer — this module already spawns pytest as a
+# nested subprocess and needs the outer run's own pytest env vars scrubbed
+# out of that child's environment: a peer's `PYTEST_ADDOPTS` or xdist worker
+# identity would turn a genuine collection into one this gate misreads as a
+# tree defect. `coordinator/bin/tests/test_zero_test_module_ratchet.py`
+# carries the identical tuple under the same name (`_NESTED_PYTEST_ENV_SCRUB`)
+# for the same nested-subprocess reason; kept as a literal here rather than
+# loaded from that file by path (importlib spec, sys.path mutation, and a
+# transitive `coordinator_core` import on every publish round, to read four
+# strings) because the drift risk between two four-element literals is near
+# zero and any divergence is caught by that suite's own scrub test.
 
 MARKER_EXPRESSION = "not cadence and not pending_fix and not designed_red"
 """The tree's own documented fast-tier marker expression (parent plan's
@@ -202,17 +177,45 @@ prime exit criterion, verbatim) — never widened or narrowed here; a tree
 that changes its own marker vocabulary changes what this gate runs, not
 the other way around."""
 
-DEFAULT_TIMEOUT_S = 60.0
-"""Parent plan's own budget note: "one pytest collection per publish, not
-per op ... If it exceeds ~60s, run C1 first and escalate to the full
-collection only when C1 is clean". This module DOES enforce this number as
-a literal `subprocess.run(..., timeout=timeout_s)` value — a run that
-exceeds it is killed and reported as `timed_out=True`. What this module
-does NOT enforce is the ESCALATION that number is meant to signal ("run C1
-first"): that decision belongs to the wiring caller (C3), which sees
-`timed_out=True` and decides whether to escalate. The default here is the
-same number so a caller that does not override `timeout_s` inherits the
-documented budget rather than an arbitrary one."""
+DEFAULT_TIMEOUT_S = 300.0
+"""A HANG GUARD, not a performance bar — and the distinction is why this
+number changed from 60.0 on 2026-09-01.
+
+`subprocess.run(..., timeout=...)` can only measure WALL CLOCK, and this
+repo's own load norm forbids wall clock as a measurement axis precisely
+because it reports peer load rather than the work
+(`CLAUDE.md` § The brightline: "Process time and spawn count, never wall
+clock -- wall clock measures peer load"). At 60.0 this module was therefore
+enforcing a bar on an axis its own doctrine says means nothing, at the one
+place where the answer fail-closes every publish on the fleet.
+
+MEASURED, 2026-09-01, this repo, ~50 concurrent sessions (the documented
+norm, not a spike):
+
+  - the collection itself:      23.97s, 52065 tests (pytest's own figure)
+  - direct invocation:          31.9s wall
+  - inside a real round:        54.06s wall / 2.88s driver cpu
+  - a peer's round, same hour:  60.3s wall -> TIMED OUT, round FATAL
+
+Same tree, same command, same day: 32s to 60.3s, decided by how many peers
+were running. A 60s bar over that distribution is a coin flip, and the side
+it lands on is "this publish is unverified, fleet-wide".
+
+Raising the number does NOT make a slow collection acceptable, because
+nothing here was ever acting on slowness: this module explicitly does not
+enforce the parent plan's "if it exceeds ~60s, run C1 first" escalation
+(that is the wiring caller's call, off `timed_out`), so the only job the
+value has ever done is kill the child. 300.0 is derived to do exactly that
+job and no other -- ~12x the measured collection cost and ~5x the worst
+observed wall time, which puts it clear of peer-load variance while still
+bounding a genuinely wedged child.
+
+NEGATIVE SPEC: do not re-tune this downward as a speed target. If the
+question is "has collection got slower", the answer is a process-time
+measurement of the collection itself, not this wall-clock kill switch --
+tightening it back toward the measured cost reinstates the coin flip
+without measuring anything. A timeout here remains `is_incomplete=True`
+(no claim about the tree), which is the hard-won part and is unchanged."""
 
 _NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 # See coordinator/lib/percolate/publish_sync.py's identical constant for the
@@ -260,6 +263,14 @@ class MirrorCollectionResult:
     passed: bool
     collected_count: int
     errored: bool
+    # Review: coordinator:code-reviewer (finding 8) — `errored=True` alone
+    # does NOT mean "a content verdict was reached and the tree is bad": it
+    # is now also set for an unrecognised/empty summary, a signal-killed
+    # child, and a spawn OSError, none of which reached a verdict at all.
+    # Always read `is_incomplete` first; `errored` without that check
+    # conflates "the tree has real collection errors" with "the box
+    # couldn't even start/finish the child" — see `is_incomplete`'s own
+    # docstring for the full enumeration.
     exit_code: "int | None"
     timed_out: bool
     elapsed_s: float

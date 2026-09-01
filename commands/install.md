@@ -8,23 +8,34 @@ argument-hint: "[--check-only] [--non-interactive] [--accept-no-git-auth]"
 
 Guided install — agent runs mechanism, operator decides shape. Re-run anytime; skips what's configured.
 
-If `/coordinator:install` already resolves, skip to Step Zero. COLD machine (nothing wired): run `python3 coordinator/scripts/install-maximalist.py` instead — do not hand-transcribe this doc's fences there (wiki). Reverses via `coordinator/commands/uninstall.md`, which stays in lockstep: a write surface added here gets its disposition there in the same change.
+If `/coordinator:install` already resolves, skip to Step Zero.
+<!-- INSTALL-DOE-ONLY:BEGIN -->
+COLD machine (nothing wired): run `python3 coordinator/scripts/install-maximalist.py` from an authoring clone of the engine repo instead — that path exists only there, and the script self-resolves its own root, so cwd must be the clone — do not hand-transcribe this doc's fences there (wiki).
+<!-- INSTALL-DOE-ONLY:END -->
+Reverses via `coordinator/commands/uninstall.md`, which stays in lockstep: a write surface added here gets its disposition there in the same change.
 
-Every fence below resolves the same ladder, not restated per step: `COORDINATOR_PYTHON` (interpreter); `REPO_CLAUDE_KLABAUTER` (repo-identity override, stays first); then the engine-root rung itself — `COORDINATOR_ENGINE_ROOT` preferred, `CLAUDE_KLABAUTER_ROOT` as its live fallback during the open dual-read window (neither name is permanent; the window closes onto a single rung); and `COORDINATOR_SETTINGS_HOME`. All unset: resolve the registry first, then reuse the result for the rest of the run.
+Every fence below resolves the same ladder, not restated per step: `COORDINATOR_PYTHON` (interpreter); `REPO_CLAUDE_KLABAUTER` (repo-identity override, stays first); then the engine-root rung itself — `COORDINATOR_ENGINE_ROOT`; and `COORDINATOR_SETTINGS_HOME`. All unset: resolve the registry first, then reuse the result for the rest of the run.
 
-**PowerShell hosts (rung 0, Shape W — `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`).** `${...}` POSIX expansion is not runnable at all here. Every fence below ships a paired ```powershell block, one command per fence. **Assign these two ONCE per shell session, before the fences — not per fence.** The PowerShell fences below consume them by name and show no inline assignment; if you are running each fence in a fresh shell, re-run both assignments in it first, and stop if either comes back empty rather than letting an empty root concatenate into a path:
+**PowerShell hosts (rung 0, Shape W — `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`).** `${...}` POSIX expansion is not runnable at all here. Every fence below ships a paired ```powershell block, one command per fence. **Assign these ONCE per shell session, before the fences — not per fence.** The PowerShell fences below consume them by name and show no inline assignment; if you are running each fence in a fresh shell, re-run the assignments in it first, and stop if one comes back empty rather than letting an empty root concatenate into a path:
 - `$pythonExe` = `$env:COORDINATOR_PYTHON`, else `python3` (real interpreter, guaranteed by Phase 3's install step).
 - `$engineRoot` = `& $pythonExe "$env:CLAUDE_PLUGIN_ROOT\hooks\scripts\_engine_root.py"` — the ratified resolver. It owns the whole ladder, including the `REPO_CLAUDE_KLABAUTER`/`COORDINATOR_ENGINE_ROOT` live-tree overrides, and lands on the **published engine mirror**. Never re-derive that order by hand.
-- `$authoringRoot` = `& "$env:COORDINATOR_SETTINGS_HOME\bin\machine-local.cmd" get repos.claude_klabauter` — used ONLY by the three `coordinator\scripts\` fences below, whose targets the published mirror does not carry. Everything else uses `$engineRoot`.
 - `$claudeHome` = `$env:CLAUDE_HOME ?? $HOME`.
 
-**POSIX hosts (macOS/Linux, rungs 1-2).** Every fence below consumes `COORDINATOR_SETTINGS_HOME`/`ENGINE_ROOT`/`AUTHORING_ROOT` by bare name and shows no inline re-resolution — a `${VAR:-default}` shell-parameter expansion reaching a settings-home forwarder inline, per fence, is out of scope for this doctrine surface (`resolve-coordinator-bin.md` rung 0). **Assign these three ONCE per shell session, before any fence below — not per fence.** If you are running a fence in a fresh shell, re-run all three assignments in it first, and stop if one comes back empty rather than letting an empty root concatenate into a path:
+<!-- INSTALL-DOE-ONLY:BEGIN -->
+- `$authoringRoot` = `& "$env:COORDINATOR_SETTINGS_HOME\bin\machine-local.cmd" get repos.claude_klabauter` — used ONLY by the three `coordinator\scripts\` fences below, whose targets the published mirror does not carry. Everything else uses `$engineRoot`.
+<!-- INSTALL-DOE-ONLY:END -->
+
+**POSIX hosts (macOS/Linux, rungs 1-2).** Every fence below consumes `COORDINATOR_SETTINGS_HOME`/`ENGINE_ROOT` by bare name and shows no inline re-resolution — a `${VAR:-default}` shell-parameter expansion reaching a settings-home forwarder inline, per fence, is out of scope for this doctrine surface (`resolve-coordinator-bin.md` rung 0). **Assign these two ONCE per shell session, before any fence below — not per fence.** If you are running a fence in a fresh shell, re-run both assignments in it first, and stop if one comes back empty rather than letting an empty root concatenate into a path:
 - `COORDINATOR_SETTINGS_HOME`: default `$HOME/.coordinator-claude-settings` if not already set, then `export` it.
 - `ENGINE_ROOT`: set to the output of running `"${COORDINATOR_PYTHON:-python3}" "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_engine_root.py"`, then `export` it — the ratified resolver; owns the whole ladder including the `REPO_CLAUDE_KLABAUTER`/`COORDINATOR_ENGINE_ROOT` live-tree overrides, and lands on the **published engine mirror**. Never re-derive that order by hand.
+
+<!-- INSTALL-DOE-ONLY:BEGIN -->
 - `AUTHORING_ROOT`: set to the output of running `"${COORDINATOR_SETTINGS_HOME:?COORDINATOR_SETTINGS_HOME unset — run the POSIX preamble above first}/bin/machine-local" get repos.claude_klabauter`, then `export` it — used ONLY by the three `coordinator/scripts/` fences below, whose targets the published mirror does not carry. Everything else uses `$ENGINE_ROOT`.
 
 Two roots are in play and they are not interchangeable: fences targeting `coordinator/lib/`, `coordinator/bin/`, or `coordinator_core` want `ENGINE_ROOT` (the **published engine mirror**); the three `coordinator/scripts/` fences want `AUTHORING_ROOT` (`repos.claude_klabauter`, since the mirror does not ship that directory). **Do not `export REPO_CLAUDE_KLABAUTER` to make a fence resolve** — it is a live-tree override (rung 0, the manual test-and-execute carve-out), so exporting it routinely runs the engine from a checkout that moves under concurrent sessions.
+<!-- INSTALL-DOE-ONLY:END -->
 
+<!-- INSTALL-DOE-ONLY:BEGIN -->
 ## Step Zero — preflight and env-normalization
 
 ```bash
@@ -62,6 +73,7 @@ PowerShell host (rung 0):
 Resolve hard `--preflight` failures before Phase 1.
 
 <!-- engine-gap: field=install.phase_status_table producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
+<!-- INSTALL-DOE-ONLY:END -->
 
 ---
 
@@ -70,8 +82,11 @@ Resolve hard `--preflight` failures before Phase 1.
 - bash: no version floor — macOS's stock 3.2 is fine.
 - git, Python 3, jq.
 - uv (Pipeline D), scc (optional), PowerShell 7+ / Windows Terminal (default-on, not hard blockers).
-- Engine repo cloned AND `repos.claude_klabauter` registered (hard, not auto-discovered): `machine-local set repos.claude_klabauter <path>`. Private repo — maintainer grants access on request.
-- **Sequence, exactly:** (1) clone the engine repo and register `repos.claude_klabauter` — a clone, not an install; (2) run this coordinator install; (3) restart Claude Code; (4) only then run the engine repo's own installer. Steps 1 and 2 read as circular only if "clone" and "install" are conflated — they are not the same step, and the engine's installer legitimately depends on coordinator already being installed.
+- Engine repo cloned (hard, not auto-discovered).
+<!-- INSTALL-DOE-ONLY:BEGIN -->
+  Authoring clone additionally registers `repos.claude_klabauter`: `machine-local set repos.claude_klabauter <path>`.
+<!-- INSTALL-DOE-ONLY:END -->
+- **Sequence, exactly:** (1) clone the engine repo; (2) run this coordinator install; (3) restart Claude Code; (4) only then run the engine repo's own installer. Steps 1 and 2 read as circular only if "clone" and "install" are conflated — they are not the same step, and the engine's installer legitimately depends on coordinator already being installed.
 
 ## Structural fork
 
@@ -295,7 +310,9 @@ PowerShell host (rung 0):
 
 Runs `bin/install-health/*.sh`, each self-gating; aggregates failures without aborting on first.
 
+<!-- INSTALL-DOE-ONLY:BEGIN -->
 Windows Defender process-exclusion offer (Windows-only, admin-gated, `[y/N]` default DECLINED, never applied non-interactively): implemented in `install-maximalist.py`, not a separate call here (rollback: wiki).
+<!-- INSTALL-DOE-ONLY:END -->
 
 Optional interactive seed prompt (declinable, skipped if a registry file already exists): offers to seed the standard `repos.*` keys and machine/contributor slugs via `machine-local set`.
 
@@ -493,6 +510,7 @@ PowerShell host (rung 0):
 
 **Persona customization.** `--check-only`/`--non-interactive`: keep defaults. Interactive: offer **Customize** (runs `name-personas.sh`, reversible; exclude the engine repo's `publish-time-transform-py` from search-replace).
 
+<!-- INSTALL-DOE-ONLY:BEGIN -->
 **GitHub Auth via 1Password.** Opt-in, `--non-interactive` skips silently.
 
 ```bash
@@ -504,6 +522,7 @@ PowerShell host (rung 0):
     `& $pythonExe "$authoringRoot\coordinator\scripts\setup-github-auth-1password.py" --check`
 
 `--check-only` uses `--check`; interactive on Y runs the same command without `--check` (offers each change individually, backs up `~/.ssh/config`).
+<!-- INSTALL-DOE-ONLY:END -->
 
 **Git Bash fast profile.** Windows only — a POSIX host has no Git-for-Windows `/etc/profile`
 and skips silently. The Bash tool invokes `bash -c -l`, so the stock profile is sourced and

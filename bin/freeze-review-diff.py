@@ -33,60 +33,39 @@ caller. The caller owns range resolution; this tool only owns freezing it.
 Usage:
     freeze-review-diff.py --range <RANGE> --slice-id <ID>
                            [--paths <pathspec> ...] [--repo-root <path>]
-                           [--reviewer <name>]
-                           [--scope <chain|session|workstream-close-auto>]
-                           [--print-trail-record | --no-trail-record]
 
-Open-loop record (ON BY DEFAULT)
---------------------------------
-A freeze that never gets a verdict leaves no trace: the review-trail record is
-written separately, after the review, by whoever dispatched it, so a session
-that ends mid-round emits nothing and the chain coverage gate reads that
-silence identically to a session that never reviewed at all
-(docs/plans/2026-08-03-open-review-loops-are-a-named-gap.md § Problem).
-EVERY freeze therefore writes a ``verdict: pending`` review-trail record for
-the SAME range it resolved, routed through the native ``review_trail.write``
-op via ``cc_invoke.route_mutation()`` — the same seam
-``coordinator-write-review-trail.py`` uses (never a shell-out to that CLI,
-never an open-coded record write). Record fields: ``sha_range`` = ``--range``,
-``verdict`` = ``pending``, ``scope_kind`` = ``diff``, ``reviewed_paths`` =
-``--paths`` when supplied, ``diff_loc`` = the frozen diff's line count,
-``reviewer``/``scope`` from the two flags above.
+No open-loop trail record (RETIRED 2026-09-01)
+---------------------------------------------
+This CLI used to write a ``verdict: pending`` ``state/review-trail/*.json``
+record on every freeze, routed through the ``review_trail.write`` op, with
+``--print-trail-record`` / ``--no-trail-record`` / ``--reviewer`` / ``--scope``
+attached to it. ``review_trail.write`` is a gravestone (kill-ledger K-060,
+2026-08-27) with ``_no_fallback`` by design, so the write could not succeed
+under any configuration and the leg emitted only stderr noise — or, for the
+one caller that asked for the record path, an unconditional exit 3.
 
-Emission is unconditional BY DESIGN, per that plan's discharge test: a
-mechanism that only fires when a caller remembers a flag has discharged
-nothing, and the callers that would have to remember are a sibling repo's
-prose fences (DoE-claude's mise ``PIPELINE.md``, ``review-wave.mjs``) — which
-relocates the obligation instead of discharging it.
+The record was never the binding. ``artifact-shape-contract.schema.json`` says
+of ``reviewed_range``, verbatim, that it "ADMITS, NEVER REPLACES" a
+``state/review-trail/*.json`` record and "does not credit coverage, does not
+duplicate or re-implement the trail record" — the reviewer's own attestation
+was always the binding, and a retired writer leaves nothing to admit. DR-372's
+receipt stamped on the reviewer's sidecar is the replacement; K-060's
+``Returns-when`` is "Not applicable". So the leg and its four flags came out
+together, in sequence behind DoE-claude's ``compose-review-wave`` dropping the
+``trailRecord`` key it fed (DoE f3d3128c8, closed b427d44b1) — that repo held
+the only live caller, and removing our half first would have broken theirs.
 
-``pending`` is the open state — no new record field exists for it, and no
-canonical filter credits a pending record with coverage
-(``review_coverage_core._classify``, ``coverage._verdict_counts``).
+The four flags are GONE, not accepted no-ops: an unrecognized-argument exit 2
+tells a caller carrying a stale invocation that the mechanism is retired,
+where a silently-tolerated flag would document one that does not exist.
 
-STDOUT stays exactly one line by default (the ``.diff`` path), record or no
-record. ``parallel-review-orthogonality-guard.py``'s ``snapshot`` subcommand
-(``_cmd_snapshot``) consumes this CLI's stdout as ``proc.stdout.strip()`` — a
-whole-stdout slurp treated as one path, from which it derives the
-``.head.sha`` sibling by suffix substitution; DoE-claude's fences slurp the
-same way via ``$(...)`` command substitution. A second unconditional stdout
-line would silently corrupt those derived paths while still exiting 0. So
-what is opt-in is the PRINTING, never the writing: ``--print-trail-record``
-adds the record path as a second stdout line (``.diff`` path first).
-
-``--no-trail-record`` is the opt-OUT, and exists for the narrow class of
-caller that must freeze a diff WITHOUT asserting an open review loop: a probe
-or dry-run that freezes only to measure (the orthogonality guard's snapshot is
-the shape in question), and a test harness exercising the freeze contract
-itself, for which a real trail record would be fixture pollution the chain
-coverage gate later reads as truth. It is deliberately not a
-convenience — suppressing the record re-opens the silence AC1 exists to close.
-
-Exit 3 (record write failed) is reserved for a caller that ASKED for the
-record path: a failed write on the default path leaves a successful freeze
-successful (exit 0 + stderr warning), because the record write can still fail
-for reasons a freeze does not care about (an unresolvable session_id, an
-absent native seam), and turning those freezes into failures would break
-callers that pass today.
+STDOUT is exactly one line — the ``.diff`` path.
+``parallel-review-orthogonality-guard.py``'s ``snapshot`` subcommand
+(``_cmd_snapshot``) consumes it as ``proc.stdout.strip()``, a whole-stdout
+slurp treated as one path from which it derives the ``.head.sha`` sibling by
+suffix substitution; DoE-claude's fences slurp the same way via ``$(...)``. A
+second stdout line would silently corrupt those derived paths while still
+exiting 0.
 
 --slice-id is a filename component, not a path: a value containing a path
 separator or `..` is rejected (exit 1, nothing written) rather than silently
@@ -104,37 +83,24 @@ is deliberately NOT the die-silent-on-zero-match gate review-brightline-gate.py
 reproduces from its bash oracle; that gate's negative-spec is a faithfully-
 carried-over bash quirk, not a contract this new tool inherits.
 
-Exit codes (the full matrix — freeze outcome x record outcome x flags):
+Exit codes:
     0 — the freeze succeeded (diff, possibly empty, plus head.sha written;
-        `.diff` path printed). Covers all four record outcomes that leave a
-        successful freeze successful:
-          * record written, path NOT printed (the default: one stdout line);
-          * record written, path printed as stdout line 2
-            (--print-trail-record);
-          * record write FAILED and the caller did not ask for the path —
-            the reason on stderr as a warning, stdout still one line;
-          * record suppressed by --no-trail-record.
+        `.diff` path printed as the single stdout line).
     1 — the FREEZE failed: missing/empty --range, invalid --slice-id,
         unresolvable repo root, unresolvable HEAD, or `git diff` itself
         failing over --range (that failure's own stderr is surfaced verbatim,
-        never swallowed). No record is attempted.
-    2 — argparse usage error (unrecognized argument, e.g. a stray `--` /
-        typo'd flag; or --print-trail-record together with --no-trail-record,
-        which are mutually exclusive). This is `parser.parse_args` fail-loud
-        by design, NOT `parse_known_args` — an unrecognized argument must
-        never be silently dropped: a dropped `--paths` restriction would
-        freeze the WRONG (over-broad) diff while still reporting exit 0, the
-        exact silent-wrong-artifact failure this CLI exists to prevent.
-    3 — the freeze SUCCEEDED (both files written, `.diff` path printed) but
-        the record write failed (an unresolvable session_id, an absent native
-        seam, or any other op-side error — the foreign-session scope guard
-        that used to be the headline cause is gone, K-010, but this row stays
-        reachable through the rest) AND
-        --print-trail-record was passed. Distinct from 1 so a caller can tell
-        "no frozen diff" from "frozen diff, no open-loop record". Gated on the
-        flag because a caller that asked for the record path and did not get
-        one deserves the nonzero, while a default-path caller's freeze must
-        not start failing merely because record emission became automatic.
+        never swallowed).
+    2 — argparse usage error (unrecognized argument, e.g. a stray `--`, a
+        typo'd flag, or one of the four retired trail-record flags above).
+        This is `parser.parse_args` fail-loud by design, NOT
+        `parse_known_args` — an unrecognized argument must never be silently
+        dropped: a dropped `--paths` restriction would freeze the WRONG
+        (over-broad) diff while still reporting exit 0, the exact
+        silent-wrong-artifact failure this CLI exists to prevent.
+    There is no exit 3. It meant "freeze succeeded, trail record refused, and
+    the caller asked for the record path", and it retired with the record —
+    stated affirmatively so its absence from this matrix reads as the
+    retirement it is rather than as a dropped row.
 
 Spec backlink: cross-repo/inbox/2026-07-23-claude-central-em-review-diff-freeze-op-wanted.md
 Prior pattern: coordinator/skills/parallel-code-review/SKILL.md (DoE-claude) — the
@@ -158,26 +124,21 @@ Negative-spec:
       drift risk this tool's own docstring warns the five shell fences created.
     - Does NOT delete or rotate prior diffs under the same slice-id — a
       second freeze under the same id silently overwrites the prior pair.
-    - Does NOT add a stdout line for the record unless --print-trail-record
-      is passed — see the stdout-slurping callers named above. The WRITE is
-      not gated on any flag; only the printing is.
-    - Does NOT make the record write a precondition of the freeze. A failed
-      record never unwrites the frozen diff and never fails the freeze on the
-      default path.
-    - Does NOT open-code the record write or shell out to
-      coordinator-write-review-trail.py — the native `review_trail.write` op
-      via cc_invoke.route_mutation() is the only path, so symbolic-ref
-      concretization and never-clobber filename reservation both still apply
-      to a pending record.
-    - Does NOT invent an open/closed record field. `verdict: pending` IS the
-      open state (docs/plans/2026-08-03-open-review-loops-are-a-named-gap.md
-      § Anti-scope); a parallel `loop_state` key would be a second source of
-      truth for the same fact.
+    - Does NOT emit a second stdout line under any flag — see the
+      stdout-slurping callers named above.
+    - Does NOT write, route to, or name any `state/review-trail/*.json`
+      record. `review_trail.write` is a gravestone and this CLI is no longer
+      one of its callers; a freeze asserts nothing about an open review loop.
+      The only `state/review-trail/` path it touches is the `diffs/`
+      subdirectory it writes its own two artifacts into.
+    - Does NOT accept `--print-trail-record`, `--no-trail-record`,
+      `--reviewer`, or `--scope`. They existed only to shape the retired
+      record and are refused as unrecognized arguments (exit 2), never
+      tolerated as no-ops.
 """
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 from pathlib import Path
@@ -211,7 +172,7 @@ def _bootstrap_engine() -> None:
 #: capture (see `raw_cmdline_recovery` module docstring). `--range` is a git
 #: rev/range this CLI's caller types directly (never defaulted — see module
 #: docstring), and git revision syntax leans on a literal `^` (`sha^..sha`,
-#: the per-commit predecessor-range shape `--scope chain` callers use) --
+#: the per-commit predecessor-range shape a chain-scoped caller types) --
 #: exactly the character cmd.exe's `%*` batch-parameter population strips
 #: silently. Refuses on an unvouchable capture (coordinator-write-review-
 #: trail.py's C2 posture, not scoped-git-commit's C2b detect-and-record --
@@ -236,103 +197,6 @@ def _resolve_repo_root(explicit: str) -> Path | None:
     return Path(root)
 
 
-_PENDING_VERDICT = "pending"
-_DEFAULT_RECORD_REVIEWER = "code-reviewer"
-_DEFAULT_RECORD_SCOPE = "session"
-
-
-def _diff_loc(diff_path: str) -> int:
-    """Line count of the frozen diff, for the record's ``diff_loc`` field.
-
-    Derived here rather than taken from ``freeze_diff``'s envelope: that op
-    returns only a boolean ``empty``, never a count (its contract is fixed and
-    shared with the ``review.freeze_diff`` JSON-RPC handler, so widening it is
-    not this CLI's call). Reads the file the freeze just wrote instead of
-    re-running git — the bytes on disk are the artifact the record attests.
-
-    An unreadable file yields 0: a record whose LOC count is 0 is honest-ish
-    and still fully usable as the open-loop marker, whereas failing the whole
-    freeze over a count would be a worse trade.
-    """
-    try:
-        return len(Path(diff_path).read_text(encoding="utf-8", errors="replace").splitlines())
-    except OSError as exc:
-        print(f"{_PROG}: note: could not count diff lines for diff_loc ({exc}) — using 0", file=sys.stderr)
-        return 0
-
-
-def _no_fallback() -> None:
-    """No bash legacy body exists for ``review_trail.write`` — a missing seam
-    fails loud (finish-strangler cutover, parity with
-    coordinator-write-review-trail.py's own ``_no_fallback``)."""
-    raise RuntimeError(
-        "review_trail.write: native seam required (no legacy fallback — finish-strangler cutover)"
-    )
-
-
-def _open_pending_trail_record(
-    repo_root: Path,
-    range_: str,
-    reviewer: str,
-    scope: str,
-    paths: list[str],
-    diff_path: str,
-) -> str | None:
-    """Write the ``verdict: pending`` open-loop record for the frozen range and
-    return its path, or None (diagnostic already on stderr) on refusal.
-
-    Routes through the native ``review_trail.write`` op via
-    ``cc_invoke.route_mutation()`` — the seam
-    ``coordinator/bin/coordinator-write-review-trail.py`` uses. ``cc_invoke``
-    is imported here rather than at module scope so a ``--no-trail-record``
-    invocation keeps the narrower import surface and cannot be broken by a
-    transport-module import failure it never needed.
-
-    Every refusal path returns None after printing its reason; the caller
-    decides whether that is fatal (see the module docstring's exit matrix).
-    """
-    lib_dir = Path(__file__).resolve().parent / "lib"
-    if str(lib_dir) not in sys.path:
-        sys.path.insert(0, str(lib_dir))
-    try:
-        import cc_invoke
-    except ImportError as exc:
-        print(f"{_PROG}: open-loop trail record: cannot import cc_invoke transport: {exc}", file=sys.stderr)
-        return None
-
-    params: dict[str, object] = {
-        "sha_range": range_,
-        "reviewer": reviewer,
-        "scope": scope,
-        "verdict": _PENDING_VERDICT,
-        "diff_loc": _diff_loc(diff_path),
-        "scope_kind": "diff",
-    }
-    if paths:
-        params["reviewed_paths"] = list(paths)
-
-    try:
-        result = cc_invoke.route_mutation(
-            "review_trail.write", params, str(repo_root), _no_fallback
-        )
-    except cc_invoke.RouteMutationError as exc:
-        payload = exc.result if isinstance(exc.result, dict) else {"error": str(exc)}
-        print(f"{_PROG}: open-loop trail record refused: {json.dumps(payload)}", file=sys.stderr)
-        return None
-    except RuntimeError as exc:
-        print(f"{_PROG}: open-loop trail record failed: {exc}", file=sys.stderr)
-        return None
-
-    out_path = result.get("out_path") if isinstance(result, dict) else None
-    if not out_path:
-        print(
-            f"{_PROG}: open-loop trail record: review_trail.write returned no out_path: {result!r}",
-            file=sys.stderr,
-        )
-        return None
-    return str(out_path)
-
-
 def main(argv: list[str]) -> int:
     _bootstrap_engine()
     from coordinator_core.cli_entry import recording_declared_writes
@@ -343,20 +207,13 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--slice-id", dest="slice_id", default="")
     parser.add_argument("--paths", dest="paths", nargs="*", default=[])
     parser.add_argument("--repo-root", dest="repo_root", default="")
-    # Mutually exclusive so "print it" and "do not write it" cannot both be
-    # asserted — argparse rejects the pair as a usage error (exit 2) rather
-    # than this CLI silently ranking one over the other.
-    record_group = parser.add_mutually_exclusive_group()
-    record_group.add_argument(
-        "--print-trail-record", dest="print_trail_record", action="store_true",
-    )
-    record_group.add_argument(
-        "--no-trail-record", dest="no_trail_record", action="store_true",
-    )
-    parser.add_argument("--reviewer", dest="reviewer", default=_DEFAULT_RECORD_REVIEWER)
-    parser.add_argument("--scope", dest="scope", default=_DEFAULT_RECORD_SCOPE)
     args = parser.parse_args(argv)
 
+    # OUTLIVED the retired trail record rather than depending on it: a range
+    # that never reaches the reviewer's frozen payload can never be attested
+    # by anyone, whatever else is or is not written alongside it. That is what
+    # the 2026-06-15 multi-EM-brightline-noise failure was, and it is still
+    # live.
     if not args.range_:
         print(
             f"{_PROG}: --range is required and is never defaulted — the caller "
@@ -377,9 +234,7 @@ def main(argv: list[str]) -> int:
 
     # DR-276: freeze_diff() is a plain function called directly (not an op
     # main(argv)), so its declared writes are claimed via
-    # recording_declared_writes rather than run_op_main. The separate
-    # review_trail.write RPC-routed record below already reaches the engine
-    # via cc_invoke.route_mutation() dispatch and needs no wrapping here.
+    # recording_declared_writes rather than run_op_main.
     with recording_declared_writes(cwd=str(repo_root)):
         result = freeze_diff(repo_root, args.range_, args.slice_id, args.paths or None)
     if result["error"] is not None:
@@ -393,32 +248,6 @@ def main(argv: list[str]) -> int:
             file=sys.stderr,
         )
     print(result["diff_path"])
-
-    if args.no_trail_record:
-        return 0
-
-    record_path = _open_pending_trail_record(
-        repo_root,
-        args.range_,
-        args.reviewer,
-        args.scope,
-        args.paths or [],
-        str(result["diff_path"]),
-    )
-    if record_path is None:
-        if args.print_trail_record:
-            return 3
-        print(
-            f"{_PROG}: warning: the freeze SUCCEEDED but no open-loop trail "
-            "record was written (reason above) — this review round is not "
-            "recorded as open. Exit 0 because the frozen diff is the "
-            "requested artifact; pass --print-trail-record to make a refused "
-            "record exit 3 instead.",
-            file=sys.stderr,
-        )
-        return 0
-    if args.print_trail_record:
-        print(record_path)
     return 0
 
 

@@ -448,6 +448,13 @@ def _machine_local_mirror_keys() -> "list[str] | None":
 
     Spec backlink: docs/plans/2026-06-30-registry-publish-vs-working-targets.md § C4
     """
+    dump = _machine_local_dump()
+    if dump is not None:
+        # `dump --include-unset` emits every DECLARED key (unresolvable ones as
+        # null), so its key set is `keys`'s key set — the enumeration this
+        # function needs — without a second interpreter start.
+        return _mirror_keys_from(dump.keys())
+
     impl = _machine_local_impl()
     python = _resolve_python()
     if impl.endswith(".py") or impl.endswith(".py3"):
@@ -480,9 +487,18 @@ def _machine_local_mirror_keys() -> "list[str] | None":
     # substitutes a placeholder owner string when `.owner` is genuinely unset
     # so the guard still fires (with an actionable message) rather than
     # silently trusting an incomplete registration.
+    return _mirror_keys_from(line.strip() for line in result.stdout.splitlines())
+
+
+def _mirror_keys_from(raw_keys) -> "list[str]":
+    """Extract publish mirror names from an iterable of raw registry keys.
+
+    The `.owner`/`.path` sentinel filter, shared by the batch-read path and the
+    `machine-local keys` fallback in `_machine_local_mirror_keys` so the two
+    cannot diverge on which registrations the publish-target guard sees.
+    """
     mirror_keys = set()
-    for line in result.stdout.splitlines():
-        key = line.strip()
+    for key in raw_keys:
         for suffix in (".owner", ".path"):
             if key.startswith("publish.mirrors.") and key.endswith(suffix):
                 middle = key[len("publish.mirrors."):-len(suffix)]
@@ -785,6 +801,82 @@ def _machine_local_impl() -> str:
     return _mlir_machine_local_impl_path("MACHINE_LOCAL_IMPL")
 
 
+# Process-lifetime memo for the interpreter probe (see `_resolve_python`).
+# A dict rather than a bare module global so a value of `None` and "not yet
+# probed" stay distinguishable without a second sentinel name.
+_RESOLVED_PYTHON_SENTINEL = "__probed__"
+_RESOLVED_PYTHON_CACHE: "dict[str, str]" = {}
+
+# Process-lifetime memo for machine-local registry reads. Keys are
+# ("dump" | "get" | "keys", <cache-key>, ...) where <cache-key> is the pair of
+# environment overrides that can repoint resolution inside ONE interpreter —
+# see `_machine_local_cache_key`.
+_MACHINE_LOCAL_CACHE: dict = {}
+
+# Distinguishes "cached the fact that the batch read is unavailable" (a stored
+# None) from "never attempted" — a plain `.get(key)` cannot.
+_CACHE_MISS = object()
+
+
+def _machine_local_cache_key() -> tuple:
+    """Cache identity for machine-local reads within one interpreter.
+
+    The registry itself cannot change mid-run, but the two env overrides that
+    decide WHICH registry and WHICH interpreter answer can — pytest repoints
+    MACHINE_LOCAL_IMPL at a per-test stub inside a single process. Keying every
+    memo on that pair is what keeps the caches from leaking one test's stub
+    answers into the next.
+    """
+    return (
+        os.environ.get("MACHINE_LOCAL_IMPL"),
+        os.environ.get("CROSS_REPO_MEMO_PYTHON"),
+    )
+
+
+def _machine_local_dump() -> "dict | None":
+    """One-process batch read of the whole machine-local registry, or None.
+
+    `machine-local dump --include-unset` resolves EVERY declared key in a single
+    interpreter through `resolve_one` — the same kernel `get` uses, repos 4-rung
+    ladder and env-override layer included — so a dumped value is byte-identical
+    to what `get` would print for that key. Its own docstring names this CLI's
+    former pattern (`keys`, then one `get` per key) as the mistake it exists to
+    remove: measured here at 45 `get` processes and ~19s of a single `draft`,
+    against 0.37s for one dump.
+
+    Returns None — never a partial map — when the batch is not fully answerable
+    (rc≠0, which `dump` uses for a per-key operational failure such as an
+    ambiguous autodiscovery match), when the impl is a non-Python test stub that
+    may not implement `dump` at all, or when stdout is not a JSON object. Every
+    caller falls back to the per-key `get` path on None, so an ambiguity keeps
+    reaching `_machine_local_get_detail`'s stderr channel and the diagnostic that
+    reads it, rather than being flattened into a silent absence.
+    """
+    ck = _machine_local_cache_key()
+    cached = _MACHINE_LOCAL_CACHE.get(("dump", ck), _CACHE_MISS)
+    if cached is not _CACHE_MISS:
+        return cached
+
+    impl = _machine_local_impl()
+    python = _resolve_python()
+    if impl.endswith(".py") or impl.endswith(".py3"):
+        cmd = [python, impl, "dump", "--include-unset"]
+    else:
+        cmd = [impl, "dump", "--include-unset"]
+
+    payload = None
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            parsed = json.loads(result.stdout or "{}")
+            if isinstance(parsed, dict):
+                payload = parsed
+    except (OSError, ValueError):
+        payload = None
+    _MACHINE_LOCAL_CACHE[("dump", ck)] = payload
+    return payload
+
+
 def _resolve_python() -> str:
     """Return the Python interpreter path for subprocesses.
 
@@ -801,10 +893,21 @@ def _resolve_python() -> str:
     candidate python must observe that candidate's own process exit, not
     this script's. Reason recorded in
     state/audits/2026-08-06-self-spawn-isolation-boundary-classification.md.
+
+    The probe RESULT is memoized for the process lifetime. The isolation
+    boundary above is about WHAT is probed (a separate interpreter's own
+    exit), never about how often: which python is on PATH cannot change
+    inside one run, and re-probing it per registry read is what put 45
+    `python3 --version` spawns and ~10-18s into a single `draft`. The memo
+    is keyed on CROSS_REPO_MEMO_PYTHON so an in-process test that repoints
+    the override is never served a prior test's interpreter.
     """
     override = os.environ.get("CROSS_REPO_MEMO_PYTHON")
     if override:
         return override
+    cached = _RESOLVED_PYTHON_CACHE.get(_RESOLVED_PYTHON_SENTINEL)
+    if cached is not None:
+        return cached
     # python3-first is correct HERE (subprocess calls to _machine_local.py): macOS
     # ships python3 and no bare `python` post-Catalina; Windows clean installs have
     # `python` but no `python3`, so the fallback covers it. This is NOT in tension
@@ -819,10 +922,12 @@ def _resolve_python() -> str:
                 text=True,
             )
             if result.returncode == 0:
+                _RESOLVED_PYTHON_CACHE[_RESOLVED_PYTHON_SENTINEL] = candidate
                 return candidate
         except FileNotFoundError:
             continue
     # sys.executable is always valid — the interpreter running this script.
+    _RESOLVED_PYTHON_CACHE[_RESOLVED_PYTHON_SENTINEL] = sys.executable
     return sys.executable
 
 
@@ -855,7 +960,37 @@ def _machine_local_get_detail(key: str) -> "tuple[str | None, bool, str]":
     CLI to fall back to a generic message naming two remediations that are both
     wrong for that fault. Callers that must tell an ambiguity apart from a
     genuine read failure use this; everything else keeps the two-tuple.
+
+    Answered from the one-process batch read (`_machine_local_dump`) where that
+    read resolved the key, and memoized per key either way — the registry cannot
+    change mid-run, so the same key asked twice used to buy a second interpreter
+    start for a byte-identical answer. Keys the batch did NOT resolve (absent
+    from a stub's output, or a repos.<slug> the ladder autodiscovers without it
+    being declared) still take the real `get` spawn, which is what preserves the
+    ambiguity stderr this function's third element exists to carry.
     """
+    ck = _machine_local_cache_key()
+    memo_key = ("get", ck, key)
+    cached = _MACHINE_LOCAL_CACHE.get(memo_key, _CACHE_MISS)
+    if cached is not _CACHE_MISS:
+        return cached
+    detail = _machine_local_get_detail_uncached(key)
+    _MACHINE_LOCAL_CACHE[memo_key] = detail
+    return detail
+
+
+def _machine_local_get_detail_uncached(key: str) -> "tuple[str | None, bool, str]":
+    """`_machine_local_get_detail` without the memo — see its docstring."""
+    dump = _machine_local_dump()
+    if dump is not None and key in dump:
+        value = dump.get(key)
+        if isinstance(value, str) and value:
+            return value, True, ""
+        # Declared but unresolvable: `dump --include-unset` emits as JSON null
+        # exactly the keys `get` would exit EXIT_NOT_FOUND on. Clean absence,
+        # not a read failure.
+        return None, True, ""
+
     impl = _machine_local_impl()
     python = _resolve_python()
 
@@ -967,6 +1102,16 @@ def _machine_local_repos_keys() -> "list[str] | None":
 
     Spec backlink: docs/plans/2026-06-30-registry-publish-vs-working-targets.md § C4
     """
+    dump = _machine_local_dump()
+    if dump is not None:
+        # Same key set as `machine-local keys` — `dump --include-unset` emits
+        # every declared key, unresolvable ones as null — without the second
+        # interpreter start. The None-vs-[] contract is preserved: a batch read
+        # that was not fully answerable returns None from `_machine_local_dump`
+        # and falls through to the `keys` spawn below, which keeps its own None
+        # branch.
+        return [k for k in dump if k.startswith("repos.")]
+
     impl = _machine_local_impl()
     python = _resolve_python()
     if impl.endswith(".py") or impl.endswith(".py3"):
@@ -2273,15 +2418,12 @@ DRAFT_INDETERMINATE_NO_WRITE = 5    # nothing new landed; re-running `draft` is 
 
 def reconcile_indeterminate_draft(
     target_path: str, existed_before: bool, topic: str
-) -> "tuple[int, str]":
+) -> tuple[int, str]:
     """Answer, by stat, the question a `-32004` envelope structurally cannot.
 
-    `WarmDispatchIndeterminate` means the request reached the warm engine and
-    the engine never answered — and `warm/client.py` cannot narrow that, because
-    it marks `delivered` after `flush()` and flush only proves the bytes left
-    THIS process into the pipe buffer (that module's own zero-byte branch says
-    so). There is no acknowledgement between kernel buffer and dispatch, so the
-    envelope covers both a landed write and no write at all.
+    Why the envelope can't answer it: `cc_invoke.WarmDispatchIndeterminate`'s
+    own class docstring (the canonical telling — see it for the flush/
+    delivered mechanics this reconcile works around).
 
     `memo.draft` is reconcilable anyway, because its entire effect is one path
     that is a pure function of argv: `<sender_root>/state/memo-outbox/
@@ -2299,6 +2441,12 @@ def reconcile_indeterminate_draft(
         because that is the safe half: it steers to reading the file, not to
         re-running. The file's own `created:`/`to:` settle it, and `memo.draft`
         is O_EXCL + collision-checked, so a re-run cannot clobber either way.
+        # Review: this branch does not re-check `exists_now` at reconcile
+        # time — narrow race if the draft was concurrently `discard`ed
+        # between the pre-dispatch sample and this call, the operator note
+        # below would point at a file that is no longer there. Single-
+        # operator CLI, not blocking; named here since the outcome list
+        # above doesn't otherwise cover it.
       - absent -> nothing landed. Re-running `draft` is safe.
 
     Negative-spec: this NEVER retries and never re-runs the op cold. Re-executing
@@ -3799,9 +3947,11 @@ def main(argv: list[str] | None = None) -> int:
     #
     # Review: the comparison MUST be path-based (realpath of the resolved
     # repo roots), NOT a string compare on the ids — _normalize_receiver_id
-    # is only .strip().lower() and does not resolve aliases ("central" /
-    # "central-em" both resolve to claude-central-em's repo path). A naive id
-    # string compare would false-fire on an aliased `to:` value.
+    # is only .strip().lower() and does not resolve aliases. "central" /
+    # "central-em" no longer resolve at all (DoE retired them from
+    # `identity.centralReceiverIds`; see the module comment above), so a
+    # naive id string compare would false-fire on neither resolving, not on
+    # an aliased `to:` value resolving to the wrong repo.
     if args.check_addressee is not None:
         # Review: mirror --to's `not val` empty-string handling — an explicit
         # empty string already fails safe via _resolve_receiver_path("")

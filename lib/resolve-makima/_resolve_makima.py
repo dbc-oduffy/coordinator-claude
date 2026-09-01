@@ -516,7 +516,7 @@ def _currency_line(published: str, live: Optional[str]) -> Optional[str]:
     if behind is not None:
         return (
             f"        behind  {behind} commit(s) touching engine code — "
-            "publish: python coordinator/bin/percolate-round.py claude-klabauter\n"
+            "publish: python coordinator/bin/coordinator-publish.py\n"
         )
     if live is not None:
         # A box holding the source history is the population for which the

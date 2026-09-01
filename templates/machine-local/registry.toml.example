@@ -46,7 +46,6 @@ schema = 1
 # Check 2 once classified below without a matching declaration here).
 "repos.example-os-repo"                   = ""
 "repos.example_league_data_repo"           = ""
-"repos.claude_klabauter"             = ""
 "repos.example_cockpit_repo"            = ""
 "repos.project_rag_template_addon" = ""
 # Review: code-reviewer (Finding 7) — repos.example_store_repo and
@@ -63,7 +62,12 @@ schema = 1
 # Written at install time by that mirror's OWN installer
 # (`scripts/setup.py::register_claude_klabauter_root()` in the engine-source repo,
 # commit 5080edc48d3f) when it identifies the current checkout as a
-# published mirror rather than the engine-source tree — never hand-set.
+# published mirror rather than the engine-source tree — after that
+# installer has run at least once. On a cold box, before it has ever run,
+# INSTALL.md's Step 1e hand-set is the bootstrap that lets Phase 3 resolve
+# the engine root at all (the installer that writes this key cannot run
+# until the substrate it depends on exists) — never hand-set once the
+# mirror's installer has taken over.
 # Consumed by `coordinator/hooks/scripts/_engine_root.py::_resolve_published_engine()`.
 # Deliberately no accompanying ref/sha key — see that function's docstring
 # for why a stored value nothing compares against is a liability, not a
@@ -236,7 +240,6 @@ concerns = ["project_rag", "unreal"]
 # something an idempotent script can re-derive.
 "repos.example-os-repo"                   = "session-accumulated-must-survive-crash"
 "repos.example_league_data_repo"           = "session-accumulated-must-survive-crash"
-"repos.claude_klabauter"             = "session-accumulated-must-survive-crash"
 "repos.example_cockpit_repo"            = "session-accumulated-must-survive-crash"
 "repos.project_rag_template_addon" = "session-accumulated-must-survive-crash"
 # Review: code-reviewer (Finding 7) — repos.example_store_repo and

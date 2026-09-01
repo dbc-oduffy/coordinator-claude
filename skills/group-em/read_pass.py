@@ -430,6 +430,39 @@ def classify_peer(
     }
 
 
+def build_roster(
+    repo_root: str,
+    agents: Optional[list[dict[str, Any]]] = None,
+    caller_session_id_value: Optional[str] = None,
+    now: Optional[datetime] = None,
+    run: Callable[..., "subprocess.CompletedProcess[str]"] = subprocess.run,
+    read_tail: Optional[Callable[[str, str], list[str]]] = None,
+) -> list[dict[str, Any]]:
+    """Every classified peer in this repo, candidates and non-candidates alike.
+
+    The population, not the shortlist. `candidate` is a field on each verdict
+    here, never a filter applied before the caller sees it -- so a caller can
+    tell "no peer is paused" (a roster of 12, none candidate) from "no peer is
+    here" (a roster of 0). Those are different states and an instrument that
+    returns the same value for both is the failure this roster exists to
+    prevent.
+
+    This is the shape the send pass wants: `send_pass.send_suppression_reason`
+    declines a non-candidate itself, under the label `not-a-candidate`, and
+    that declination is the visible record of a peer having been considered.
+    Filtering before the digest deletes that record rather than producing it.
+    """
+    if agents is None:
+        agents = fetch_live_agents(run=run)
+    if caller_session_id_value is None:
+        caller_session_id_value = caller_session_id()
+
+    peers = enumerate_repo_peers(agents, repo_root, caller_session_id_value)
+    return [
+        classify_peer(repo_root, peer, now=now, read_tail=read_tail) for peer in peers
+    ]
+
+
 def build_candidate_roster(
     repo_root: str,
     agents: Optional[list[dict[str, Any]]] = None,
@@ -438,27 +471,32 @@ def build_candidate_roster(
     run: Callable[..., "subprocess.CompletedProcess[str]"] = subprocess.run,
     read_tail: Optional[Callable[[str, str], list[str]]] = None,
 ) -> list[dict[str, Any]]:
-    """Present the bounded, paused-only candidate population.
+    """The paused-only shortlist -- `build_roster` with non-candidates cut.
 
-    Read-only end to end: enumerates via `fetch_live_agents` (or the injected
-    `agents`, for tests), classifies each surviving peer, and returns only
-    the verdicts marked `candidate`. `STATE_PRODUCING` and `STATE_UNKNOWN`
-    peers are never included here, and never folded into each other -- this
-    is a candidate list for a human to adjudicate, not a filtered verdict
-    about who "shouldn't" be paused. See
+    Read-only end to end. `STATE_PRODUCING` and `STATE_UNKNOWN` peers are
+    never included here, and never folded into each other -- this is a
+    candidate list for a human to adjudicate, not a filtered verdict about who
+    "shouldn't" be paused. See
     `docs/decisions/DR-group-em-roster-excludes-mid-work-peers.md` for why a
     mid-work peer is excluded identically on both classification legs.
-    """
-    if agents is None:
-        agents = fetch_live_agents(run=run)
-    if caller_session_id_value is None:
-        caller_session_id_value = caller_session_id()
 
-    peers = enumerate_repo_peers(agents, repo_root, caller_session_id_value)
-    verdicts = [
-        classify_peer(repo_root, peer, now=now, read_tail=read_tail) for peer in peers
+    **Not the digest's input.** `send_pass.build_send_digest` takes the full
+    `build_roster` population and declines the rest itself; handing it this
+    shortlist starves its `suppressed` list of every peer that was considered
+    and passed over. Use this where a human reads the shortlist directly.
+    """
+    return [
+        verdict
+        for verdict in build_roster(
+            repo_root,
+            agents=agents,
+            caller_session_id_value=caller_session_id_value,
+            now=now,
+            run=run,
+            read_tail=read_tail,
+        )
+        if verdict["candidate"]
     ]
-    return [verdict for verdict in verdicts if verdict["candidate"]]
 
 
 #: Every refusal reason `resolve_addressee` can return. Closed set: a caller

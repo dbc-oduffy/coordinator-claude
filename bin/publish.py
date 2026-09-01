@@ -5562,6 +5562,105 @@ def warn_machine_slug_net(
         )
 
 
+#: Memoized `_field7_declaration_check` result for this process — one publish
+#: round is one process, and the validator reads the same two files whichever
+#: row asks, so running it once keeps this gate at the two `git ls-files`
+#: spawns the validator itself costs rather than two per row.
+_FIELD7_DECLARATION_CHECK: "Optional[tuple[bool, str, Optional[frozenset]]]" = None
+
+
+def _load_allowlist_generator():
+    """Load `publish-allowlist-generate.py` by path — its filename carries
+    hyphens and is not an importable module name, the same reason
+    `coordinator/tests/test_publish_allowlist_generate.py` loads it this way."""
+    generator_path = Path(__file__).resolve().parent / "publish-allowlist-generate.py"
+    spec = importlib.util.spec_from_file_location(
+        "_publish_allowlist_generate", generator_path
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load {generator_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _field7_declaration_check() -> "tuple[bool, str, Optional[frozenset]]":
+    """Run `publish-allowlist-generate.py --check` in-process, once per round,
+    and return `(ok, message, generator_owned_row_names)`.
+
+    WHY THIS EXISTS. `publish-allowlist-generate.py` derives field 7 of the two
+    `claude-klabauter*` rows from `setup/publish-allowlist-declarations.yaml`.
+    When it refuses — a stale (no-longer-tracked) `deny` entry, a missing AC9
+    contract root, a directory-granular name denied or untracked — it writes
+    nothing and field 7 keeps its last good value. Every gate downstream then reads a
+    CSV that is internally consistent, importable, and no longer what the
+    declarations imply, and the round publishes green. That happened three
+    times on 2026-09-01, and `--check` had been red at HEAD since 2026-08-28
+    with an open backlog row naming it, because nothing between a red `--check`
+    and a published mirror stopped the mirror
+    (`state/bug-backlog/2026-08-28-the-publish-path-never-runs-the-validator-
+    that-declares-its-allowlist-valid.yaml`, whose negative spec forbids
+    closing this by adding `--check` to yet another test — three already
+    existed and all three were red).
+
+    This is the production caller that validator never had, and it is the same
+    promotion `find_import_closure_violations` got on 2026-08-13 after two
+    broken mirror rounds shipped past a detector that lived only inside a test
+    file. See `run_pre_sync_gates` for the wiring.
+
+    WHY RE-DERIVATION RATHER THAN A STAMP. Field 7 could have carried the tree
+    state it was generated from, so a stale one reads as stale. That is a
+    second artifact needing its own freshness guarantee — the defect wearing a
+    hat. Re-deriving at publish time has no cached half that can itself go
+    stale, and it compares CONTENT rather than asking which file is older: a
+    field 7 can be NEWER than its sources and still wrong, because the
+    generator that would have changed it never ran to completion. The stamp
+    axis cannot close that, and for this artifact it cannot even be declared —
+    `setup/publish-targets.portable` is `#`-commented pipe-delimited text with
+    no `.json` key and no `---` frontmatter, so `compute_pair_staleness`
+    short-circuits UNSTAMPED before it reaches `sources`
+    (measured by claude-klabauter-a8, 2026-09-01).
+
+    Fail-closed on its own failure to run: if the validator cannot be loaded or
+    raises, the third element is None, meaning "row scope unknown — refuse
+    every allowlisted row". A gate that cannot say which rows it governs must
+    not silently govern none, and this driver aborts rather than degrades
+    everywhere else it cannot complete a check (see the module docstring's
+    AC15 fail-closed paragraph). This is NOT the DR-402 case: that decision
+    governs a session-hot-path guard whose engine is unreachable, and its
+    § "What this does NOT license" is explicit that its allow rung is for a
+    guard that could not run, never a publish path granting itself a bypass."""
+    global _FIELD7_DECLARATION_CHECK
+    if _FIELD7_DECLARATION_CHECK is not None:
+        return _FIELD7_DECLARATION_CHECK
+
+    try:
+        module = _load_allowlist_generator()
+        owned = frozenset(row_name for row_name, _src in module._ROWS)
+    except Exception as exc:
+        _FIELD7_DECLARATION_CHECK = (
+            False,
+            f"the field-7 declaration validator could not be loaded: {exc}",
+            None,
+        )
+        return _FIELD7_DECLARATION_CHECK
+
+    captured = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(captured), contextlib.redirect_stdout(io.StringIO()):
+            rc = module.main(["--check"])
+    except Exception as exc:
+        _FIELD7_DECLARATION_CHECK = (
+            False,
+            f"the field-7 declaration validator raised: {exc}",
+            owned,
+        )
+        return _FIELD7_DECLARATION_CHECK
+
+    _FIELD7_DECLARATION_CHECK = (rc == 0, captured.getvalue().strip(), owned)
+    return _FIELD7_DECLARATION_CHECK
+
+
 # ---------------------------------------------------------------------------
 # Gate seam — wires the above into the per-target dispatch loop.
 # ---------------------------------------------------------------------------
@@ -5747,6 +5846,40 @@ def run_pre_sync_gates(
     if target.allowlist:
         print("", file=out)
         print(f"  Allowlist enforcement: {target.allowlist.replace(',', ', ')}", file=out)
+
+        # Field-7 declaration gate (§ `_field7_declaration_check`): refuse a row
+        # whose field 7 is no longer what `setup/publish-allowlist-
+        # declarations.yaml` derives, or whose derivation cannot be computed at
+        # all. Fail-closed, no override env var — the same discipline as
+        # `assert_allowlist_applied` and `find_import_closure_violations` below,
+        # and for the same reason: a stale allowlist has no legitimate "publish
+        # anyway" case, because the row ships a set nobody declared.
+        #
+        # Runs FIRST inside this branch, before `build_allowlisted_source`: the
+        # check reads only `target.allowlist` and the two declaration files, so
+        # a row refused here never builds a restricted tree there is then
+        # nothing to clean up.
+        decl_ok, decl_message, decl_rows = _field7_declaration_check()
+        if not decl_ok and (decl_rows is None or target.name in decl_rows):
+            print(
+                f"  Error: {target.name}'s field-7 allowlist is not what "
+                f"setup/publish-allowlist-declarations.yaml derives — the "
+                f"declaration validator is RED, so this row would publish a set "
+                f"nobody declared:",
+                file=err,
+            )
+            for line in (decl_message or "(the validator reported no detail)").splitlines():
+                print(f"    {line}", file=err)
+            print(
+                "  Remedy: run coordinator/bin/publish-allowlist-generate.py "
+                "(without --check) and commit the regenerated field 7, or fix "
+                "the declaration it names.",
+                file=err,
+            )
+            print(f"  Skipping {target.name}.", file=out)
+            print("", file=out)
+            return GateResult(proceed=False, source_dir=target.source_dir, shadow_roots=tuple(shadow_toplevels))
+
         source_map_dict = _parse_source_map(target.source_map)
         shadow_source_map = {entry: shadow[root] for entry, root in source_map_dict.items()}
         _allowlist_block_start = time.perf_counter()
@@ -6872,11 +7005,47 @@ def _source_sha_suffix() -> str:
     without the stamp is strictly what this function's absence produced.
     Zero-spawn by construction (`head_sha` reads `HEAD`/`packed-refs`
     directly) — this runs once per destination repo on the publish hot path.
+
+    NOT what `_commit_published_dests` uses (§ `_pinned_source_sha_suffix`
+    below): this reads `HEAD` fresh at call time, which is exactly the race
+    `_round_pin_source_sha` exists to close (a peer commit landing mid-run
+    between round-start pinning and this end-of-run commit would stamp a
+    SHA the round never actually published from). Kept as the shared
+    formatter shape the test suite pins identity against
+    (`test_round_leg_stamps_the_same_shape`) and as the CLI-standalone
+    fallback for a caller with no `round_pinned_shas` in hand.
     """
     _bootstrap_engine()
     from coordinator_core.git.git_state import head_sha  # noqa: PLC0415
 
     sha = head_sha(_REPO_ROOT)
+    return f" [source {sha[:12]}]" if sha else ""
+
+
+def _pinned_source_sha_suffix(round_pinned_shas: "dict[str, str]") -> str:
+    """The mirror-currency stamp `_commit_published_dests` actually uses:
+    the round's PINNED source sha (`_round_pin_source_sha`), never a fresh
+    `HEAD` read.
+
+    `_source_sha_suffix()` above reads `HEAD` at call time, which is the
+    exact defect `_round_pin_source_sha` was written to close — a row
+    processed later in a multi-target run could see a peer's commit land
+    mid-run (docs/plans/2026-08-04-publish-from-a-committed-ref.md: four
+    distinct SHAs observed across one round). `_commit_published_dests`
+    runs at the very END of the run, after every row, so it is the site
+    furthest from round-start and most exposed to that drift — stamping it
+    with `_round_pin_source_sha`'s cached value keeps the subject naming
+    the SAME sha the run actually published bytes from.
+
+    Degrades to `""` on the identical failure modes `_source_sha_suffix`
+    degrades on (`GitMaterializeError` — not inside a git work tree, or
+    `HEAD` unresolvable) — a commit subject without the stamp, never a
+    blocked publish.
+    """
+    try:
+        sha = _round_pin_source_sha(_REPO_ROOT, round_pinned_shas, late=True)
+    except GitMaterializeError:
+        return ""
     return f" [source {sha[:12]}]" if sha else ""
 
 
@@ -8182,6 +8351,7 @@ def _commit_published_dests(
     published_dest_dirs_by_repo_root: "dict[Path, set[Path]]",
     *,
     succeeded_row_names: Sequence[str],
+    round_pinned_shas: "dict[str, str]",
 ) -> bool:
     """Commit each destination repo's synced bytes, once, at the successful
     conclusion of a percolation. Returns `True` when every destination either
@@ -8280,7 +8450,7 @@ def _commit_published_dests(
         rows = ", ".join(succeeded_row_names) if succeeded_row_names else "no named rows"
         subject = (
             f"percolate: sync {len(paths)} path(s) to {repo_root.name} ({rows})"
-            f"{_source_sha_suffix()}"
+            f"{_pinned_source_sha_suffix(round_pinned_shas)}"
         )
         # `deleted_paths` split out explicitly: `commit_paths` reads a
         # present path's bytes off the worktree, so a path the sync deleted
@@ -12395,6 +12565,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             if not _commit_published_dests(
                 end_of_run_published_dest_dirs_by_repo_root,
                 succeeded_row_names=succeeded_row_names,
+                round_pinned_shas=round_pinned_shas,
             ):
                 # Exit 3, not 0: the bytes landed and verified, but the
                 # destination is still dirty — which is precisely the state

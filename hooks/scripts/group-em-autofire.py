@@ -2,7 +2,7 @@
 
 Purpose: when a session types `/group-em`, this hook fires ahead of
 `UserPromptSubmit`, runs the entry op (`coordinator/bin/group-em-enter.py`),
-and injects the assembled result as `additionalContext` — so the crown is
+and injects the assembled result as `additionalContext` — so the Group EM is
 already claimed and the roster and digest already built by the time the
 session's own turn begins. Without it, `SKILL.md` can only *tell* the reading
 session to run a command, which is the discharge-test failure the entry op was
@@ -33,14 +33,14 @@ it to anything but the typed verb would re-derive the stood-down watcher that
 SESSION ID IS PROPAGATED, NEVER AMBIENT. The payload carries the originating
 `session_id`; it is passed explicitly via `--session-id`. The entry op would
 otherwise read `CLAUDE_SESSION_ID` from this hook process's environment, which
-is not reliably the invoking session's under concurrency — and a crown claimed
+is not reliably the invoking session's under concurrency — and a Group EM claimed
 under the wrong id is worse than no claim, because it looks correct.
 
 A REFUSAL IS REPORTED, NEVER SWALLOWED. Exit 5 (a live incumbent), exit 6 (an
-engine that returned a digest under a refused crown) and exit 7 (unreachable
+engine that returned a digest under a refused standing) and exit 7 (unreachable
 engine, no silent fallback) each produce their own `additionalContext` naming
 what happened. A hook that fired, was refused, and said nothing would leave the
-session believing it holds a crown it does not.
+session believing it holds a Group EM it does not.
 
 NEGATIVE SPEC — what this hook deliberately does NOT do:
 
@@ -137,8 +137,8 @@ def render_additional_context(payload: dict, exit_code: int, stderr: str) -> str
 
     A refusal renders as loudly as a success -- see the module docstring's
     refusal clause. Truncated from the tail to stay inside the budget; the
-    crown verdict and the gate reminder are never dropped, because a session
-    that loses the crown line believes it holds one, and a session that loses
+    standing verdict and the gate reminder are never dropped, because a session
+    that loses the Group EM line believes it holds one, and a session that loses
     the gate line is the one the send gate exists to stop.
     """
     if exit_code in (6, 7):
@@ -148,20 +148,20 @@ def render_additional_context(payload: dict, exit_code: int, stderr: str) -> str
         return (
             f"## Group EM entry: NOT ENTERED ({head})\n\n"
             f"{reason}\n\n"
-            "The crown was NOT claimed and no roster or digest exists. Do not act as this "
+            "The Group EM was NOT claimed and no roster or digest exists. Do not act as this "
             "repo's Group EM until entry succeeds."
         )
 
-    crown = (payload or {}).get("crown") or {}
-    if not crown.get("claimed"):
-        message = crown.get("message") or "nomination refused"
-        pm_call = crown.get("needs_pm_decision") or _PM_CALL_DEFAULT
+    standing = (payload or {}).get("standing") or {}
+    if not standing.get("claimed"):
+        message = standing.get("message") or "nomination refused"
+        pm_call = standing.get("needs_pm_decision") or _PM_CALL_DEFAULT
         return (
             "## Group EM entry: REFUSED\n\n"
             f"{message}\n\n"
             f"{pm_call}\n\n"
             "No roster or digest was built. Entry is last-writer-wins and vacates any incumbent "
-            "before re-entering, so a refusal that reaches here is NOT a crown-ownership "
+            "before re-entering, so a refusal that reaches here is NOT a standing-ownership "
             "problem -- do not reach for an override. Something else refused."
         )
 
@@ -174,20 +174,20 @@ def render_additional_context(payload: dict, exit_code: int, stderr: str) -> str
     lines = [
         "## Group EM entry: ACTIVE",
         "",
-        f"Crown: {crown.get('message') or 'claimed'}",
+        f"Group EM: {standing.get('message') or 'claimed'}",
         f"Roster: {len(roster)} peer(s), {candidates} candidate(s)",
     ]
-    if crown.get("displaced_holder"):
+    if standing.get("displaced_holder"):
         # The one message this mode owes rather than offers. A displaced holder that is still
         # running believes it is this repo's Group EM and will act on that; the ordinary send
         # gates ask whether an interrupt is worth its cost to the receiver, and a peer acting
         # under a role it no longer holds is the case where the answer is not in doubt.
         lines.append(
-            f"DISPLACED: {crown['displaced_holder']} — "
+            f"DISPLACED: {standing['displaced_holder']} — "
             + (
-                "still running and does not know yet. Tell it, this turn: it holds no crown and "
+                "still running and does not know yet. Tell it, this turn: it holds no standing and "
                 "must not act as Group EM. This send is owed, not offered."
-                if crown.get("displaced_holder_live")
+                if standing.get("displaced_holder_live")
                 else "not running; nobody to tell."
             )
         )

@@ -3,7 +3,7 @@
 absence loud (roadmap plan `pln-the-watch-leaves-a-trace-b884a8`, chunks C1/C2).
 
 PURPOSE. `state/group-em-watch.json` is stamped once per tick by whichever
-session currently holds the crown, and read by sessions OTHER than the
+session currently holds the Group EM, and read by sessions OTHER than the
 watcher at the entry points a session already passes through (`/group-em`
 entry, `/workday-start` Step 5.7, SessionStart orientation -- wired in C3).
 A watch that armed successfully and has since gone silent, or thinned to
@@ -15,7 +15,7 @@ ONE WRITER, NO FOLD. Unlike the sibling ledger
 (`coordinator/hooks/scripts/_next_move_ledger.py`), which is written by TWO
 planes (this repo's own hook and the engine's cross-repo intake) and needs an
 append-then-fold path to avoid a read-modify-whole-file-rewrite collision,
-this file has exactly one writer per repo: the current crown holder, which is
+this file has exactly one writer per repo: the current Group EM, which is
 itself a filesystem invariant enforced by `group-em-nomination.py`. Every
 tick's `stamp()` call is a full rewrite of the whole record, not an append --
 there is nothing to fold and no second producer to collide with. Its absence
@@ -101,7 +101,7 @@ def _read_existing(path: str) -> Optional[dict]:
 def _write_atomic(path: str, payload: dict) -> bool:
     """Rewrite the whole heartbeat via temp file + `os.replace` -- atomic on
     both POSIX and Windows (see `_next_move_ledger._write_records`, the same
-    pattern). No cross-process lock: at most one writer, the crown holder,
+    pattern). No cross-process lock: at most one writer, the Group EM,
     ever calls `stamp()` for a given repo, so there is no race to arbitrate.
     """
     directory = os.path.dirname(path)
@@ -144,7 +144,7 @@ def stamp(
     subscribed_peers: int = 0,
 ) -> bool:
     """Rewrite `state/group-em-watch.json` for this tick. One writer per
-    repo (the crown holder); the whole file is replaced, never folded, and
+    repo (the Group EM); the whole file is replaced, never folded, and
     never read first -- a plain write.
 
     `source` must be one of `cron` | `monitor` | `entry` (P2b/P3's `tick_source`

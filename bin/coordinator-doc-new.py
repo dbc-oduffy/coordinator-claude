@@ -482,7 +482,18 @@ _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]*$")
 #: `_memo_compose._VALID_KINDS` -- the scaffolder must refuse exactly what the
 #: sender would, and in the same words. `ack` is deliberately absent:
 #: acknowledgement is receipt-state, not a kind.
-_MEMO_KINDS = ("ask", "consult", "fyi", "proposal")
+#:
+#: HAND-MIRRORED ON PURPOSE, and pinned rather than imported. Importing
+#: `_memo_compose` here would put its transitive chain (session.core,
+#: ops.ceremony.git_native, git.commit_trailers, dag, lifecycle) on this
+#: scaffolder's interpreter start, which every `coordinator-doc-new` call pays.
+#: The drift that mirroring invites is caught instead by
+#: `coordinator/bin/tests/test_memo_kind_enum_mirrors.py`, which fails when this
+#: tuple and `cross-repo-memo._VALID_KINDS` stop matching the engine's own list.
+#: That test exists because this tuple sat one value stale (`bug` landed in the
+#: engine and in cross-repo-memo, not here) and the scaffolder refused a kind
+#: the sender accepted.
+_MEMO_KINDS = ("ask", "consult", "fyi", "proposal", "bug")
 
 # Slice ID regex — allows uppercase because slice IDs like "Z", "A", "B1" are common in wave-maps.
 _SLICE_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9\-]*$")
@@ -3704,6 +3715,62 @@ def _scaffold_plan(
         "  # `met` starts false and is flipped only by the session writing exit_criterion_met — see",
         "  # coordinator/docs/wiki/writing-plans.md § Gated Exit Criteria (Fleet Brightlines) and",
         "  # coordinator/docs/wiki/coordinator-tripwires/brightlines-are-gated-not-remembered.md.",
+        # Emitted LIVE, and for the same reason `gated_exit_criteria` above is:
+        # bare presence of this key is the entire governed/legacy discriminator
+        # (plan.schema.json's own description says so), so a commented block
+        # leaves every plan born LEGACY. That was not a policy anyone chose. A
+        # census of 27 closed rows on 2026-09-01 found the gate had never fired
+        # once, and the reason was mechanical rather than cultural: this
+        # emitter is the sanctioned way to produce a plan, it could not write
+        # the key, so an EM following the rules exactly could not author a
+        # governed plan. Opting in meant hand-editing frontmatter the plan
+        # skill forbids hand-authoring.
+        #
+        # PM ruling 2026-09-01, verbatim: "we can have it by default yeah,
+        # because I don't want a plan to execute that has deferred, won't do,
+        # spunoff without getting approval. that approval can come from the
+        # `Uhura` or `G-EM` and not just myself. that's better than only
+        # discovering at our workstream-complete exit!"
+        #
+        # Two things that ruling settles, and one it does not. It settles that
+        # the default is governed, and that the approving authority is wider
+        # than the PM -- `approver` is a free string and already carries a
+        # handle, so a G-EM or Uhura approval is expressible today with no
+        # schema change; `pm_utterance`'s name is residue from when the PM was
+        # the only approver, and it holds whoever's verbatim reasoning
+        # `approver` names. It does NOT make approval derivable: every block
+        # is born `pending`, and `approved` still requires a real utterance
+        # plus a membership digest, so nothing here can approve itself.
+        #
+        # `do` is emitted alongside the three gated groupings even though it
+        # gates nothing. Omitting it would make its absence indistinguishable
+        # from a block someone deleted, on the one grouping where absence is
+        # harmless -- which is exactly how a reader learns to treat a missing
+        # block as ordinary.
+        "grouping_approvals:",
+        "  # Groupings are DERIVED from each task-spine row's `disposition`, never stored",
+        "  # per-row: do <- open/coded; spun_off <- spun_off; defer <- backlogged;",
+        "  # ruled_out <- wont_do. A row may not CLOSE into a gated grouping until that",
+        "  # grouping's block reads `approved`. Flipping one needs three things together:",
+        "  # `approver` (PM, G-EM, or Uhura handle), `pm_utterance` (their verbatim words —",
+        "  # testimonial, never inferred or backfilled from disk), and a `digest` recomputed",
+        "  # over the CURRENT membership of that grouping (schema_validate.py's",
+        "  # compute_grouping_digest). Adding a row to an approved grouping invalidates the",
+        "  # digest, which is the point: the assent was to a set, not to a heading.",
+        "  do:",
+        "    status: pending  # `do` gates nothing (shipping what the plan committed to needs no",
+        "                     # assent), so this stays `pending` for its whole life and no one",
+        "                     # ever flips it. It is emitted, not omitted, so that a MISSING",
+        "                     # block always reads as damage. `approved` would be the wrong",
+        "                     # spelling of harmless anyway: the schema requires a real utterance",
+        "                     # and a digest beside it, so a scaffolder writing it would be",
+        "                     # inventing assent no one gave.",
+        "  spun_off:",
+        "    status: pending",
+        "  defer:",
+        "    status: pending",
+        "  ruled_out:",
+        "    status: pending",
         "---",
         "",
         f"# {title}",

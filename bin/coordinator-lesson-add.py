@@ -325,8 +325,11 @@ def main(argv: "list[str] | None" = None) -> int:
         help=(
             "Read the lesson title from PATH ('-' for stdin) instead of "
             "--title. Exactly one of --title / --title-file is required. "
-            "The only title transport that survives every launcher leg "
-            "intact — see --title's own refusal for why."
+            "Survives the LAUNCHER leg intact — see --title's own refusal "
+            "for why. It does NOT make a title multi-line: the title becomes "
+            "the output filename's slug, so it is resolved to a single-line "
+            "value here and passed inline to coordinator-queue-append, which "
+            "has no --title-file for that same reason."
         ),
     )
     parser.add_argument(
@@ -404,8 +407,24 @@ def main(argv: "list[str] | None" = None) -> int:
     try:
         refuse_newline_argv(args.body, flag_name="--body")
         args.body = resolve_body(args.body, args.body_file)
-        refuse_newline_argv(args.title, flag_name="--title")
         args.title = resolve_body(args.title, args.title_file, flag_name="--title")
+        # AFTER the resolve, and ONLY after it. Checking the raw argv value
+        # missed --title-file entirely (it is None then), and the default
+        # remedy it carried -- "pass --title-file instead" -- is the very
+        # advice this refusal exists to contradict. `resolve_body` returns an
+        # inline --title unchanged, so one post-resolve call covers both flags.
+        # The remedy is spelled out because --title-file may be what the
+        # operator just used: the constraint is the filename slug
+        # (`coordinator-queue-append :: _slug_from_title`), not the transport.
+        refuse_newline_argv(
+            args.title,
+            flag_name="--title-file" if args.title_file else "--title",
+            remedy=(
+                "a lesson title must be a single line -- it becomes the output "
+                "filename's slug, which cannot carry a newline losslessly. "
+                "Put the detail in --body/--body-file instead."
+            ),
+        )
         args.why = resolve_optional_prose(args.why, args.why_file, flag_name="--why")
     except ArgvFidelityError as exc:
         parser.error(str(exc))
@@ -441,13 +460,25 @@ def main(argv: "list[str] | None" = None) -> int:
         )
         return 1
 
+    # FORWARD THE FILE, NEVER THE RESOLVED PROSE. `resolve_body` above reads
+    # `--body-file` INTO `args.body`, which is right for the dedup check and
+    # wrong for argv: `coordinator-queue-append` refuses a `--body` carrying a
+    # newline and answers "pass --body-file instead" -- advice the caller had
+    # already taken, one hop up. Every multi-line lesson therefore died at
+    # exit 2 with `no lesson was written`, and from a close ceremony that
+    # lands AFTER the commit tail, so the ceremony read as done and the
+    # lesson was simply gone. Inline `--body` stays inline: it is
+    # newline-free by `refuse_newline_argv` above, so it cannot hit that arm.
     cmd = [
         *cli_cmd,
         "--schema", "lessons",
         "--title", args.title,
-        "--body", args.body,
         "--scope", args.scope,
     ]
+    if args.body_file:
+        cmd += ["--body-file", args.body_file]
+    else:
+        cmd += ["--body", args.body]
     if args.target_wiki:
         cmd += ["--target-wiki", args.target_wiki]
     if args.proposed_target:
@@ -456,7 +487,10 @@ def main(argv: "list[str] | None" = None) -> int:
         cmd += ["--evidence", args.evidence]
     if args.trigger:
         cmd += ["--trigger", args.trigger]
-    if args.why:
+    if args.why_file:
+        # Same seam as `--body-file` above, same failure mode.
+        cmd += ["--why-file", args.why_file]
+    elif args.why:
         cmd += ["--why", args.why]
     if args.how_to_apply:
         cmd += ["--how-to-apply", args.how_to_apply]
@@ -474,15 +508,42 @@ def main(argv: "list[str] | None" = None) -> int:
     # `subprocess_identity_env` carries the caller's resolved id across the
     # boundary, and STRIPS the identity vars when there is none to carry --
     # see its own docstring for why inheritance is never the fallback.
+    # `no_console_passthrough_kwargs()` hands the child REAL fds, and its own
+    # docstring names the case where it cannot: "a captured-object stream has
+    # no fd at all -- there is nothing to pass through, so those degrade to
+    # plain inheritance". That degradation is not hypothetical here. This CLI
+    # is a CONSUMES_MANIFEST member `workstream_complete.apply` runs
+    # IN-PROCESS inside the warm server (see the `env=` note above), where
+    # stdio is a captured object -- so the child's stderr landed in the warm
+    # server's streams and never reached the caller. Example-game-repo-em got exactly
+    # `coordinator-queue-append exited 2` and nothing else, for a multi-line
+    # `--body` the child had refused by name, and nearly closed a workstream
+    # with the lesson silently missing (memo `cross-repo/inbox/2026-09-01-
+    # example-game-repo-em-close-ceremony-engine-defects-seven.md` defect 4; mechanism
+    # identified by project-rag-em).
+    #
+    # So: passthrough when there IS an fd to pass through, capture when there
+    # is not, and re-emit what we captured. Capturing unconditionally would
+    # cost the interactive leg its live streaming for no gain; inheriting
+    # unconditionally is what lost the message.
+    _passthrough = no_console_passthrough_kwargs()
+    _relay_stderr = "stderr" not in _passthrough
+    if _relay_stderr:
+        _passthrough["stderr"] = subprocess.PIPE
     result = subprocess.run(
         cmd,
         env=subprocess_identity_env(),
-        **no_console_passthrough_kwargs(),
+        **_passthrough,
     )
     if result.returncode != 0:
+        child_stderr = (result.stderr or b"") if _relay_stderr else b""
+        if isinstance(child_stderr, bytes):
+            child_stderr = child_stderr.decode("utf-8", errors="replace")
+        detail = child_stderr.strip()
         print(
             "coordinator-queue-append exited " + str(result.returncode)
-            + " — no lesson was written",
+            + " — no lesson was written"
+            + (f"\ncoordinator-queue-append stderr:\n{detail}" if detail else ""),
             file=sys.stderr,
         )
     return result.returncode

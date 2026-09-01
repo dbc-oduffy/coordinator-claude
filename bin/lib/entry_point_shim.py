@@ -260,16 +260,23 @@ def _target_path(name: str) -> Path:
 
 
 def _cc_invoke_resolve_claude_klabauter_root():
-    """Import and return `cc_invoke._resolve_claude_klabauter_root`, ensuring
+    """Import and return `cc_invoke._resolve_engine_root`, ensuring
     `coordinator/bin/lib` is on `sys.path` first (a caller that reached this
     module via `coordinator-assemble.py` or a converted shim already put it
-    there; this is a defensive belt-and-braces insert for any other caller)."""
+    there; this is a defensive belt-and-braces insert for any other caller).
+
+    BINDS `_resolve_engine_root`, NOT the `_resolve_claude_klabauter_root` alias. The
+    alias carries a repo noun that the publish transform rewrites in the
+    mirror, so it is absent whenever a source-tree shim resolves the published
+    `cc_invoke`; the failure is `sys.path`-order dependent, so it reproduces on
+    one ceremony and not another. Do NOT restore it here for symmetry with the
+    sibling entrypoints."""
     lib_dir = str(BIN_DIR / "lib")
     if lib_dir not in sys.path:
         sys.path.insert(0, lib_dir)
-    from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+    from cc_invoke import _resolve_engine_root  # noqa: E402
 
-    return _resolve_claude_klabauter_root
+    return _resolve_engine_root
 
 
 def _import_engine_module(dotted: str):
