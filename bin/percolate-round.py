@@ -1473,6 +1473,68 @@ def _no_filter_drops() -> Dict[str, int]:
     return {name: 0 for name in _FILTER_DROP_LABELS}
 
 
+def _partition_pathspec_for_commit(
+    pathspec: "Sequence[str]", repo_root: str, head_tracked: "set"
+) -> "Tuple[List[str], List[str], List[Dict[str, str]]]":
+    """Split a commit pathspec into (present, tracked-deletions, declined).
+
+    ABSENT-FROM-DISK IS TWO CASES, NOT ONE. A path can be missing from the
+    worktree because it never existed there, or because it is TRACKED AT DEST
+    HEAD and this round means to delete it -- the removal side's entire
+    payload. Collapsing both into a decline made a round structurally
+    incapable of carrying a removal: the file stayed at dest HEAD, returned as
+    a removal candidate next round, and the round refused on its own backlog
+    forever.
+
+    `head_tracked` is the caller's `_dest_head_tree` read, passed in rather
+    than taken here so the whole pathspec costs ONE spawn (§ that function's
+    own AC4: "one process, never one per path").
+
+    PATH FORM IS THE WHOLE DEFECT SURFACE, and is why this is a named function
+    with its own tests rather than a loop inline in the round. Entries arrive
+    DEST-RELATIVE and POSIX from `_filter_commit_pathspec` (§ its `rel_paths`),
+    which is exactly the key form `_dest_head_tree` emits -- so a relative
+    entry is already the key and must NOT be resolved. Resolving one against
+    the process CWD (claude-klabauter's own repo, never the destination) puts every
+    entry outside `repo_root`, so the membership test misses ALL of them and
+    every tracked deletion declines. A total miss reads exactly like a working
+    filter, which is how it shipped: measured on the coordinator-claude mirror
+    2026-08-31, eight `bin/` deletions declined across three rounds while
+    `git ls-tree HEAD` listed every one. Absolute entries are still accepted,
+    for a caller that supplies them, without `resolve()`.
+
+    Never raises, and never consults `.gitignore` -- the caller applies that
+    filter to the returned `present` list separately.
+    """
+    present: "List[str]" = []
+    deletions: "List[str]" = []
+    declined: "List[Dict[str, str]]" = []
+    for entry in pathspec:
+        if (Path(repo_root) / entry).exists():
+            present.append(entry)
+            continue
+        candidate = Path(entry)
+        if candidate.is_absolute():
+            try:
+                rel = candidate.relative_to(Path(repo_root)).as_posix()
+            except ValueError:
+                rel = None
+        else:
+            rel = candidate.as_posix()
+        if rel is not None and rel in head_tracked:
+            deletions.append(entry)
+        else:
+            declined.append({
+                "path": entry,
+                "reason": (
+                    "absent from the worktree AND untracked at dest HEAD, so "
+                    "there is no deletion to commit (never existed, or already "
+                    "removed by something other than a tracked deletion)"
+                ),
+            })
+    return present, deletions, declined
+
+
 def _filter_commit_pathspec(
     dest_root: Path, dest_root_norm: str, seen: dict, *, repo_root: Optional[str] = None
 ) -> Tuple[List[str], Dict[str, int]]:
@@ -2832,51 +2894,10 @@ def _cmd_round_default(
             # reappearing between the pre-commit filter and this call) is
             # still excluded rather than committed.
             #
-            # ABSENT-FROM-DISK IS TWO CASES, NOT ONE. A path can be missing
-            # from the worktree because it never existed there, or because it
-            # is TRACKED AT HEAD and this round means to delete it. The second
-            # is the entire removal side's payload. Classifying both as a
-            # decline made every round structurally incapable of carrying a
-            # deletion: the removal leg named the path, this loop dropped it,
-            # and `commit_paths` was called without `deleted_paths` at all --
-            # so the file stayed at dest HEAD, reappeared as a removal
-            # candidate next round, and the round refused on its own backlog
-            # forever. Measured witness: 8 `bin/` deletions on the
-            # `coordinator-claude` mirror, reproduced byte-identically across
-            # two consecutive rounds 2026-08-31, every one of them ` D` in
-            # `git status` (i.e. present in the index) while being declined
-            # with a reason that asserts the index was consulted.
-            #
-            # `_dest_head_tree` is the discriminator and costs ONE spawn for
-            # the whole pathspec (§ its own docstring, AC4: "one process,
-            # never one per path") -- the same read `_pathspec_from_manifest`
-            # already makes, so the per-round spawn shape is unchanged.
             head_tracked = _dest_head_tree(repo_root)
-            declined_paths: "List[Dict[str, str]]" = []
-            present_paths: List[str] = []
-            deletion_paths: List[str] = []
-            for p in pathspec:
-                if not (Path(repo_root) / p).exists():
-                    try:
-                        rel = Path(p).resolve().relative_to(
-                            Path(repo_root).resolve()
-                        ).as_posix()
-                    except ValueError:
-                        rel = None
-                    if rel is not None and rel in head_tracked:
-                        deletion_paths.append(p)
-                    else:
-                        declined_paths.append({
-                            "path": p,
-                            "reason": (
-                                "absent from the worktree AND untracked at dest "
-                                "HEAD, so there is no deletion to commit "
-                                "(never existed, or already removed by "
-                                "something other than a tracked deletion)"
-                            ),
-                        })
-                else:
-                    present_paths.append(p)
+            present_paths, deletion_paths, declined_paths = (
+                _partition_pathspec_for_commit(pathspec, repo_root, head_tracked)
+            )
             ignore_result = _gn.check_ignore(repo_root, present_paths) if present_paths else None
             gitignored_set = set()
             if ignore_result is not None and ignore_result.ok:
