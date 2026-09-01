@@ -213,10 +213,14 @@ def _resolve_claude_klabauter_root(ml_dir: Path) -> str:
 
     if not claude_klabauter_root:
         raise ClaudeKlabauterResolutionError(
-            "ERROR: cannot resolve claude-klabauter — set it via 'machine-local set "
+            "ERROR: cannot resolve claude-klabauter. Bootstrap remedies (work "
+            "before machine-local is configured): pass --engine-root <path> "
+            "to install-substrate, or set COORDINATOR_ENGINE_ROOT=<path>, or "
+            f"write <path> to {ml_dir}/.claude-klabauter-root. Post-bootstrap remedies "
+            "(once machine-local is set up): 'machine-local set "
             f"repos.claude_klabauter <path>' (writes {ml_dir}/registry.local.toml), "
-            f"or write the path to {ml_dir}/.claude-klabauter-root, or register a published "
-            "engine mirror via 'machine-local set repos.claude_klabauter <path>'\n"
+            "or register a published engine mirror via 'machine-local set "
+            "repos.claude_klabauter <path>'\n"
         )
 
     # Corrupted/typo'd-config guard, not a hostile-input guard — see module

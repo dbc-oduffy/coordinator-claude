@@ -88,8 +88,10 @@ def _derive_plugin_root() -> str:
             file=sys.stderr,
         )
         print(
-            "  Set repos.doe_claude in the machine-local registry, or set REPO_DOE_CLAUDE "
-            "(or legacy DOE_ROOT), or set CLAUDE_PLUGIN_ROOT explicitly.",
+            "  Set CLAUDE_PLUGIN_ROOT explicitly (the remedy that works for an OSS "
+            "installer, which has no repos.doe_claude to resolve), or set "
+            "repos.doe_claude in the machine-local registry, or set REPO_DOE_CLAUDE "
+            "(or legacy DOE_ROOT).",
             file=sys.stderr,
         )
         sys.exit(1)

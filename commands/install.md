@@ -9,9 +9,6 @@ argument-hint: "[--check-only] [--non-interactive] [--accept-no-git-auth]"
 Guided install — agent runs mechanism, operator decides shape. Re-run anytime; skips what's configured.
 
 If `/coordinator:install` already resolves, skip to Step Zero.
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-COLD machine (nothing wired): run `python3 coordinator/scripts/install-maximalist.py` from an authoring clone of the engine repo instead — that path exists only there, and the script self-resolves its own root, so cwd must be the clone — do not hand-transcribe this doc's fences there (wiki).
-<!-- INSTALL-DOE-ONLY:END -->
 Reverses via `coordinator/commands/uninstall.md`, which stays in lockstep: a write surface added here gets its disposition there in the same change.
 
 Every fence below resolves the same ladder, not restated per step: `COORDINATOR_PYTHON` (interpreter); `REPO_CLAUDE_KLABAUTER` (repo-identity override, stays first); then the engine-root rung itself — `COORDINATOR_ENGINE_ROOT`; and `COORDINATOR_SETTINGS_HOME`. All unset: resolve the registry first, then reuse the result for the rest of the run.
@@ -21,59 +18,12 @@ Every fence below resolves the same ladder, not restated per step: `COORDINATOR_
 - `$engineRoot` = `& $pythonExe "$env:CLAUDE_PLUGIN_ROOT\hooks\scripts\_engine_root.py"` — the ratified resolver. It owns the whole ladder, including the `REPO_CLAUDE_KLABAUTER`/`COORDINATOR_ENGINE_ROOT` live-tree overrides, and lands on the **published engine mirror**. Never re-derive that order by hand.
 - `$claudeHome` = `$env:CLAUDE_HOME ?? $HOME`.
 
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-- `$authoringRoot` = `& "$env:COORDINATOR_SETTINGS_HOME\bin\machine-local.cmd" get repos.claude_klabauter` — used ONLY by the three `coordinator\scripts\` fences below, whose targets the published mirror does not carry. Everything else uses `$engineRoot`.
-<!-- INSTALL-DOE-ONLY:END -->
 
 **POSIX hosts (macOS/Linux, rungs 1-2).** Every fence below consumes `COORDINATOR_SETTINGS_HOME`/`ENGINE_ROOT` by bare name and shows no inline re-resolution — a `${VAR:-default}` shell-parameter expansion reaching a settings-home forwarder inline, per fence, is out of scope for this doctrine surface (`resolve-coordinator-bin.md` rung 0). **Assign these two ONCE per shell session, before any fence below — not per fence.** If you are running a fence in a fresh shell, re-run both assignments in it first, and stop if one comes back empty rather than letting an empty root concatenate into a path:
 - `COORDINATOR_SETTINGS_HOME`: default `$HOME/.coordinator-claude-settings` if not already set, then `export` it.
 - `ENGINE_ROOT`: set to the output of running `"${COORDINATOR_PYTHON:-python3}" "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_engine_root.py"`, then `export` it — the ratified resolver; owns the whole ladder including the `REPO_CLAUDE_KLABAUTER`/`COORDINATOR_ENGINE_ROOT` live-tree overrides, and lands on the **published engine mirror**. Never re-derive that order by hand.
 
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-- `AUTHORING_ROOT`: set to the output of running `"${COORDINATOR_SETTINGS_HOME:?COORDINATOR_SETTINGS_HOME unset — run the POSIX preamble above first}/bin/machine-local" get repos.claude_klabauter`, then `export` it — used ONLY by the three `coordinator/scripts/` fences below, whose targets the published mirror does not carry. Everything else uses `$ENGINE_ROOT`.
 
-Two roots are in play and they are not interchangeable: fences targeting `coordinator/lib/`, `coordinator/bin/`, or `coordinator_core` want `ENGINE_ROOT` (the **published engine mirror**); the three `coordinator/scripts/` fences want `AUTHORING_ROOT` (`repos.claude_klabauter`, since the mirror does not ship that directory). **Do not `export REPO_CLAUDE_KLABAUTER` to make a fence resolve** — it is a live-tree override (rung 0, the manual test-and-execute carve-out), so exporting it routinely runs the engine from a checkout that moves under concurrent sessions.
-<!-- INSTALL-DOE-ONLY:END -->
-
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-## Step Zero — preflight and env-normalization
-
-```bash
-"${COORDINATOR_PYTHON:-python3}" "${AUTHORING_ROOT:?AUTHORING_ROOT unset — run the POSIX preamble above first, or: machine-local set repos.claude_klabauter <path>}/coordinator/scripts/chain-walk.py" --preflight
-```
-
-PowerShell host (rung 0):
-
-    `& $pythonExe "$authoringRoot\coordinator\scripts\chain-walk.py" --preflight`
-
-`scripts/setup.py` is a deprecated shim forwarding to this file — call `chain-walk.py` directly. Needs `repos.claude_klabauter` registered first (`machine-local set repos.claude_klabauter <path>`). `python` probe hard-fails the install; `clone_auth` blocks unless `--accept-no-git-auth` or resolved interactively (`gh auth login`); rest advisory. `--non-interactive` + no auth + no `--accept-no-git-auth`: fail-loud. `--check-only`: report only. Full probe table and PowerShell-5.1-fallback note: wiki.
-
-Preview first:
-
-```bash
-"${COORDINATOR_PYTHON:-python3}" "${AUTHORING_ROOT:?AUTHORING_ROOT unset — run the POSIX preamble above first, or: machine-local set repos.claude_klabauter <path>}/coordinator/scripts/normalize-env.py" --dry-run
-```
-
-PowerShell host (rung 0):
-
-    `& $pythonExe "$authoringRoot\coordinator\scripts\normalize-env.py" --dry-run`
-
-Then apply — consent-gated per mutation:
-
-```bash
-"${COORDINATOR_PYTHON:-python3}" "${AUTHORING_ROOT:?AUTHORING_ROOT unset — run the POSIX preamble above first, or: machine-local set repos.claude_klabauter <path>}/coordinator/scripts/normalize-env.py" --yes
-```
-
-PowerShell host (rung 0):
-
-    `& $pythonExe "$authoringRoot\coordinator\scripts\normalize-env.py" --yes`
-
-`--check-only`: no mutating flag.
-
-Resolve hard `--preflight` failures before Phase 1.
-
-<!-- engine-gap: field=install.phase_status_table producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
-<!-- INSTALL-DOE-ONLY:END -->
 
 ---
 
@@ -83,9 +33,6 @@ Resolve hard `--preflight` failures before Phase 1.
 - git, Python 3, jq.
 - uv (Pipeline D), scc (optional), PowerShell 7+ / Windows Terminal (default-on, not hard blockers).
 - Engine repo cloned (hard, not auto-discovered).
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-  Authoring clone additionally registers `repos.claude_klabauter`: `machine-local set repos.claude_klabauter <path>`.
-<!-- INSTALL-DOE-ONLY:END -->
 - **Sequence, exactly:** (1) clone the engine repo; (2) run this coordinator install; (3) restart Claude Code; (4) only then run the engine repo's own installer. Steps 1 and 2 read as circular only if "clone" and "install" are conflated — they are not the same step, and the engine's installer legitimately depends on coordinator already being installed.
 
 ## Structural fork
@@ -310,105 +257,9 @@ PowerShell host (rung 0):
 
 Runs `bin/install-health/*.sh`, each self-gating; aggregates failures without aborting on first.
 
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-Windows Defender process-exclusion offer (Windows-only, admin-gated, `[y/N]` default DECLINED, never applied non-interactively): implemented in `install-maximalist.py`, not a separate call here (rollback: wiki).
-<!-- INSTALL-DOE-ONLY:END -->
 
 Optional interactive seed prompt (declinable, skipped if a registry file already exists): offers to seed the standard `repos.*` keys and machine/contributor slugs via `machine-local set`.
 
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-**Doctrine-plane clone and launch surface** (idempotent, one command per artifact):
-
-```bash
-"${COORDINATOR_SETTINGS_HOME:?COORDINATOR_SETTINGS_HOME unset — run the POSIX preamble above first}/bin/ensure-doe-clone" ${ARGUMENTS}
-```
-
-PowerShell host (rung 0):
-
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\ensure-doe-clone.exe" $ARGUMENTS`
-
-Resolves target from `repos.doe_claude`/`REPO_DOE_CLAUDE`; interactive asks if unresolved; `--non-interactive` with neither: fail-loud, as does an unresolved `DOE_CLONE` post-prompt.
-
-```bash
-"${COORDINATOR_SETTINGS_HOME:?COORDINATOR_SETTINGS_HOME unset — run the POSIX preamble above first}/bin/gen-doe-root-pointer" ${ARGUMENTS} --graceful-skip-unresolved
-```
-
-PowerShell host (rung 0):
-
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\gen-doe-root-pointer.exe" $ARGUMENTS --graceful-skip-unresolved`
-
-Then the shim itself:
-
-```bash
-"${COORDINATOR_SETTINGS_HOME:?COORDINATOR_SETTINGS_HOME unset — run the POSIX preamble above first}/bin/gen-claude-doe-shim" ${ARGUMENTS} --graceful-skip-unresolved
-```
-
-PowerShell host (rung 0):
-
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\gen-claude-doe-shim.exe" $ARGUMENTS --graceful-skip-unresolved`
-
-Windows-only, additionally (skip on macOS/Linux):
-
-PowerShell 7+ profile:
-
-```bash
-"${COORDINATOR_SETTINGS_HOME:?COORDINATOR_SETTINGS_HOME unset — run the POSIX preamble above first}/bin/gen-claude-doe-shim" --shell powershell --rc "$HOME/Documents/PowerShell/profile.ps1" --template "${DOE_CLONE}/coordinator/templates/shell/claude-doe-shim.ps1.tmpl" --graceful-skip-unresolved
-```
-
-PowerShell host (rung 0):
-
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\gen-claude-doe-shim.exe" --shell powershell --rc "$HOME\Documents\PowerShell\profile.ps1" --template "$DOE_CLONE\coordinator\templates\shell\claude-doe-shim.ps1.tmpl" --graceful-skip-unresolved`
-
-Windows PowerShell 5.1 profile:
-
-```bash
-"${COORDINATOR_SETTINGS_HOME:?COORDINATOR_SETTINGS_HOME unset — run the POSIX preamble above first}/bin/gen-claude-doe-shim" --shell powershell --rc "$HOME/Documents/WindowsPowerShell/profile.ps1" --template "${DOE_CLONE}/coordinator/templates/shell/claude-doe-shim.ps1.tmpl" --graceful-skip-unresolved
-```
-
-PowerShell host (rung 0):
-
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\gen-claude-doe-shim.exe" --shell powershell --rc "$HOME\Documents\WindowsPowerShell\profile.ps1" --template "$DOE_CLONE\coordinator\templates\shell\claude-doe-shim.ps1.tmpl" --graceful-skip-unresolved`
-
-```bash
-"${COORDINATOR_SETTINGS_HOME:?COORDINATOR_SETTINGS_HOME unset — run the POSIX preamble above first}/bin/install-claude-doe-wrapper" ${ARGUMENTS}
-```
-
-PowerShell host (rung 0):
-
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\install-claude-doe-wrapper.exe" $ARGUMENTS`
-
-**§ canonical launch trinity.** The three calls above write the maximalist launch surface as one
-coordinated unit, all derived from `repos.doe_claude` as single source of truth — each has a
-matching removal leg on the uninstall side (#4/#6/#10):
-
-1. `.doe-root` pointer (`gen-doe-root-pointer`) — cold-readable bootstrap cache of the
-   doctrine-plane repo root.
-2. `claude-doe` wrapper (`install-claude-doe-wrapper`) — the exec target under the local bin dir;
-   regenerates the settings.json hook block and execs `claude` with the doctrine plugin dir.
-3. `claude()` shell shim (`gen-claude-doe-shim`) — shadows bare `claude` so the operator doesn't
-   need to set env manually; resolves the `.doe-root` pointer.
-
-Enumerated together as the audit anchor the uninstall lockstep cross-checks against — a live-disk
-survey alone is a structural blind spot on a box where a given member was never installed.
-
-Graceful no-op if the engine repo isn't checked out:
-
-```bash
-"${COORDINATOR_SETTINGS_HOME:?COORDINATOR_SETTINGS_HOME unset — run the POSIX preamble above first}/bin/install-shell-init-guard-seam" ${ARGUMENTS}
-```
-
-PowerShell host (rung 0):
-
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\install-shell-init-guard-seam.exe" $ARGUMENTS`
-
-**Windows dogfood shape — verify the launch shape after rendering, not before.** The launchers and
-the `claude` shim are only correct if the interactive `claude.exe` ends up a DIRECT child of the
-invoking shell; an interposed `cmd.exe`/`python.exe` corrupts the console input mode and the only
-mitigation is disabling the shim, which strips the plugin from every session. Run
-`python -m pytest coordinator/tests/test_dogfood_launch_shape.py` from the DoE clone — it reads the
-rendered artifacts these two calls just wrote and walks the real Win32 process tree to prove
-parentage. Self-skips off the dogfood shape.
-<!-- INSTALL-DOE-ONLY:END -->
 
 ```bash
 "${COORDINATOR_SETTINGS_HOME:?COORDINATOR_SETTINGS_HOME unset — run the POSIX preamble above first}/bin/gen-settings-hooks" ${ARGUMENTS}
@@ -433,9 +284,6 @@ Merge-never-clobber against `settings.json` ∪ `settings.local.json`; only `tru
 `~/.claude/plugins/` stays thin under this shape (pointer/config only, no plugin-source byte-copy) automatically — no separate mutation, verified by the singularity gate below.
 
 **Required verification, not a subagent step.** `bin/install-sandbox-check.py`'s filesystem tier runs automated; its running-in-Claude-Code tier (live skill/hook resolution via `--plugin-dir`) CANNOT run inside a subagent — the EM or PM must launch `claude --plugin-dir <sandbox>/coordinator` interactively before declaring the install surface complete.
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-On the doctrine-plane clone shape above, run `claude-doe --dry-run` first. Windows: the bare `claude-doe` isn't PowerShell/cmd-invocable — run `claude-doe.cmd --dry-run` (cmd.exe) or `claude-doe.ps1 --dry-run` (PowerShell) instead; both intercept `--dry-run` themselves and never forward it to `claude`.
-<!-- INSTALL-DOE-ONLY:END -->
 
 ```bash
 "${COORDINATOR_PYTHON:-python3}" "${ENGINE_ROOT:?ENGINE_ROOT unset — run the POSIX preamble above first (the resolver prints an empty line on a total miss — see § Backing script)}/coordinator/lib/register-coordinator-mirror.py" ${ARGUMENTS}
@@ -510,19 +358,6 @@ PowerShell host (rung 0):
 
 **Persona customization.** `--check-only`/`--non-interactive`: keep defaults. Interactive: offer **Customize** (runs `name-personas.sh`, reversible; exclude the engine repo's `publish-time-transform-py` from search-replace).
 
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-**GitHub Auth via 1Password.** Opt-in, `--non-interactive` skips silently.
-
-```bash
-"${COORDINATOR_PYTHON:-python3}" "${AUTHORING_ROOT:?AUTHORING_ROOT unset — run the POSIX preamble above first, or: machine-local set repos.claude_klabauter <path>}/coordinator/scripts/setup-github-auth-1password.py" --check
-```
-
-PowerShell host (rung 0):
-
-    `& $pythonExe "$authoringRoot\coordinator\scripts\setup-github-auth-1password.py" --check`
-
-`--check-only` uses `--check`; interactive on Y runs the same command without `--check` (offers each change individually, backs up `~/.ssh/config`).
-<!-- INSTALL-DOE-ONLY:END -->
 
 **Git Bash fast profile.** Windows only — a POSIX host has no Git-for-Windows `/etc/profile`
 and skips silently. The Bash tool invokes `bash -c -l`, so the stock profile is sourced and
