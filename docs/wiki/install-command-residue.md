@@ -6,6 +6,7 @@ procedure. Organized by the install-doc heading it was cut from.
 
 ## You are here / cold-machine bootstrap
 
+<!-- INSTALL-DOE-ONLY:BEGIN -->
 `install.md`'s fences assume the settings-home forwarders already exist,
 written by a PRIOR run's Phase 3 Step 1. On a cold machine, hand-transcribing
 these fences fails with an unresolved forwarder path, not a helpful error —
@@ -13,6 +14,7 @@ these fences fails with an unresolved forwarder path, not a helpful error —
 drives the full 14-phase sequence without needing any forwarder. Cold-bootstrap
 and re-run converge on the same substrate; the only difference is which
 entrypoint resolves `CLAUDE_PLUGIN_ROOT`/`CLAUDE_KLABAUTER_ROOT` first (F3).
+<!-- INSTALL-DOE-ONLY:END -->
 
 `uninstall.md` is the tested, symmetric counterpart — it reverses every
 out-of-repo surface this install writes (settings.json hook block, shell
