@@ -6,15 +6,6 @@ procedure. Organized by the install-doc heading it was cut from.
 
 ## You are here / cold-machine bootstrap
 
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-`install.md`'s fences assume the settings-home forwarders already exist,
-written by a PRIOR run's Phase 3 Step 1. On a cold machine, hand-transcribing
-these fences fails with an unresolved forwarder path, not a helpful error —
-`install-maximalist.py` self-resolves its own root from `Path(__file__)` and
-drives the full 14-phase sequence without needing any forwarder. Cold-bootstrap
-and re-run converge on the same substrate; the only difference is which
-entrypoint resolves `CLAUDE_PLUGIN_ROOT`/`CLAUDE_KLABAUTER_ROOT` first (F3).
-<!-- INSTALL-DOE-ONLY:END -->
 
 `uninstall.md` is the tested, symmetric counterpart — it reverses every
 out-of-repo surface this install writes (settings.json hook block, shell
@@ -359,62 +350,6 @@ idempotent and mutex-protected; there's no narrower venv-only flag.
 `_c10a_steps` retains a fallback venv with a WARN when one exists, failing
 hard only when no safe fallback is available.
 
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-### 3.5 — maximalist launch surface (canonical launch trinity)
-
-Three coordinated artifacts, all derived from `repos.doe_claude` as single
-source of truth:
-
-1. **`.doe-root` pointer** — one-line cold-readable bootstrap cache
-   projecting the doctrine-plane repo root, written atomically beside its
-   sibling `.claude-klabauter-root`. A legacy `${CLAUDE_HOME:-$HOME}/.claude/.doe-root`
-   read remains a read-only fallback rung for machines installed before this
-   pointer moved. Enables cold-terminal resolution with zero tool
-   dependency. Do NOT write it into the git-tracked `~/.claude/.doe-root`
-   instead — that path syncs between machines, and each machine committing
-   its own absolute clone path over the last one's causes the loser to
-   silently mis-resolve.
-2. **`claude-doe` wrapper** (`~/.local/bin/claude-doe`) — the exec target;
-   regenerates the settings.json hook block and execs `claude --plugin-dir
-   <doe_clone>/coordinator` on every invocation.
-3. **`claude()` shell shim** — a thin shadow letting the operator type bare
-   `claude` without manual env-setting. Resolves the settings-home
-   `.doe-root` pointer first, falling back to the legacy copy.
-
-**Supersedes sandbox-only W4.1 `~/.claude`-canonical assumptions.** W4.1 was
-authored/validated in a `CLAUDE_HOME` sandbox where `~/.claude`-canonical
-paths sufficed. The forward maximalist install ships the
-pointer+shim+resolver-tier so it's reproducible on any machine including cold
-terminals where coordinator `bin/` dirs aren't on PATH — the `.doe-root`
-pointer breaks the chicken-and-egg, since `machine-local` (the registry
-reader) lives in the doctrine-plane clone and can't be the resolver that
-*finds* that clone from a cold shell.
-
-**Dual-seed with `plugin.mirrors.coordinator-claude.source_path`.** Written
-together with `.doe-root` from the identical resolved value so the two never
-drift apart — source_path re-derivation elsewhere assumes they name the same
-repo root.
-
-**PowerShell shim distinction (3.5a.3).** Windows carries two profile
-surfaces; both are wired so `claude()` shadows the bare command regardless of
-which the operator's terminal launches. Wiring the Windows PowerShell 5.1
-profile is a bootstrap-out — it lets a 5.1 terminal launch coordinator — not a
-claim that 5.1 is a supported host. `--template` is passed explicitly because the generator's default
-resolves only the `.sh.tmpl` filename regardless of `--shell` — a `--shell
-powershell` call with no override would render bash-oracle content into a
-`.ps1`-named file. The `.ps1.tmpl` carries the same acknowledged
-shell-residual exception as the `.sh.tmpl` (a shell-rc function definition
-can't be expressed in Python; see CLAUDE.md § Runtime conventions).
-
-**3.5b.1 shell-init guard.** Backstop against a runaway-file class of
-incident — a mis-pasted blockquote hitting a live shell as a `>` redirect,
-glob-matched, with `failglob` off and no file-size cap, once wrote a 365 GB
-junk file. Claude-klabauter owns the pure stdout-emitter engine
-(`bin/shell-init-guard.py`); the doctrine plane owns the rc eval seam that
-sources it. The resolved claude-klabauter path is baked into the written block, not
-re-resolved at eval time — cold terminals lack `machine-local` on PATH, same
-principle as the `claude-doe` block baking the doctrine repo's checkout path.
-<!-- INSTALL-DOE-ONLY:END -->
 
 **3.5c settings.json hook block.** Wires all `type: command` entries from
 `hooks.json` (skipping `mcp_tool` entries — in-process ops, not settings.json
@@ -453,9 +388,6 @@ hardware/editor-gated — live skill/agent resolution via `--plugin-dir`, hooks
 firing at boot, `CLAUDE_PLUGIN_ROOT` unset). The second tier requires a real
 Claude Code boot against the sandbox and cannot run inside a subagent — the
 EM or PM must launch interactively to complete it.
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-On the doctrine-plane clone shape, run `claude-doe --dry-run` first.
-<!-- INSTALL-DOE-ONLY:END -->
 
 ## Step 7.5 — install singularity gate
 

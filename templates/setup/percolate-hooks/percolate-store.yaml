@@ -1270,9 +1270,17 @@ targets:
       - path-rewrite
       - substitute
       - stem-rewrite
+      - sentinel-strip
       - depersonalize
       - basename-rename
       - guard
+    # A wiki page that publishes is as OSS-facing as INSTALL.md, and this row
+    # carried no strip at all -- `install-command-residue.md` reached the mirror
+    # naming an authoring-only script and CLAUDE_KLABAUTER_ROOT. The containment gate does
+    # not cover wiki pages, so nothing on the source side reports it either.
+    sentinel_strip:
+      - start_marker: ""
+      - start_marker: ""
     guards:
       # Check 6 (empty-source guard) -- C-W3 item 3, resolved by the
       # `source-glob-present` primitive (ec766767): asserts the SOURCE tree
