@@ -33,7 +33,7 @@ ops and prints that op's own result object verbatim as JSON.
   runtime resolver supports it) which process/port it occupies. Read-only; makes no state
   change. `--key` is optional -- omitted, it lists every persisted handle in the repo.
 
-  Invoke through the `.cmd` sibling by absolute path via the PowerShell call operator (Shape W).
+  Invoke through the `.exe` launcher by absolute path via the PowerShell call operator (Shape W).
   Ladder and shapes: `snippets/resolve-coordinator-bin.md`.
 
   `& "$env:COORDINATOR_SETTINGS_HOME\bin\app-session.exe" census --key <target>`

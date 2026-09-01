@@ -41,6 +41,10 @@ Announce the resolved mode before starting.
 Emergent-set/chunk-K detection is engine-owned. An escalation flag in the Workflow's returned
 manifest → surface a re-bootstrap recommendation to the PM in the Phase 5 report; deciding it is
 the PM's call, not yours.
+<!-- engine-gap: field=cartography.churn.emergent producer=unknown memo=cartography-churn-live-caller-and-workday-start-staleness.md -->
+
+**A churn-related decline is this defect, not the designed path above** — the `cartography.churn`
+op step 7 calls was deleted engine-side, so refresh silently takes the costlier fallback.
 
 ## Phase 0.5-3: Invoke the Workflow
 
@@ -64,18 +68,17 @@ neither stage can run inside it. Why: wiki.
 
    **This covers path resolution only.** The atlas-specific half — symbol and record citations
    resolved by lookup, the verbatim quoted span asserted present in the cited record, and the
-   atlas-global coverage/reciprocity bookkeeping — is `atlas-citation-check.py`, which does NOT
-   exist: it is chunk C4 / AC5 of `docs/plans/2026-08-20-make-the-atlas-mechanical.md`, held open
-   by a declared `external_gate` on project-rag shipping `md_symbols`/`doc_links`/`refs`. Do not
-   invoke it and do not report its exit status until that chunk lands; a clean run of the
-   resolution check above is not a clean atlas-accuracy run.
+   atlas-global coverage bookkeeping — is `python <plugin-root>/bin/atlas-citation-check.py`
+   (no settings-home forwarder; rung 3, same as step 7). Run it and record its counts. It
+   currently reports thousands of findings against a stale atlas, so a non-zero exit is not yet a
+   stop condition — the number itself is the signal, and it must shrink run over run.
 2. Dispatch `atlas-clarity-reviewer` once per page (parallel, never batched). Collect verdicts to
    the sidecar.
 
 ## Phase 5: Integration and Report (YOU)
 
 Out of scope for every agent here: `gh pr create/merge`, `git push origin main`,
-`gh release create`, any `git commit` to `main` — surface a merge question to `/merge-to-main`.
+`gh release create`, any `git commit` to `main` — surface a merge question to `/merging-to-main`.
 
 1. Verify completeness (every system has a page + index row, atlas-wide artifacts present,
    frontmatter complete).

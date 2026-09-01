@@ -19,7 +19,7 @@ Before writing ANY handoff (spinoff or continuation), run Step 0: the successor-
 **NO-tests — any one of these → STOP, do not write a handoff.** A PM ask for a handoff, and a
 next action blocked on something outside this session, both override the whole list:
 
-1. The workstream's next action is `/merge-to-main`, or the terminal PR is already merged with no follow-up commits expected.
+1. The workstream's next action is `/merging-to-main`, or the terminal PR is already merged with no follow-up commits expected.
 2. Work is described in your head as "shipped," "complete on branch ready for merge," or "ready for the merge gate." That phrasing IS the disqualifier — write a commit message, not a handoff.
 3. All in-flight chunks of the active plan have landed and the plan doc is marked complete.
 

@@ -222,5 +222,5 @@ specific fields owed.
 
 - `/workday-complete` is a branch wrap, not a release ceremony.
 - `/workweek-complete` is the release ceremony; it reads what the daily ceremony wrote.
-- Neither ceremony merges to main directly — `/workday-complete` never merges; `/workweek-complete` delegates to `/merge-to-main`.
+- Neither ceremony merges to main directly — `/workday-complete` never merges; `/workweek-complete` delegates to `/merging-to-main`.
 - ShellCheck, scc, improvement-queue triage, and the skill-description lint are weekly-only; they do not belong in the daily wrap.

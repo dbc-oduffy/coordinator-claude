@@ -179,7 +179,6 @@ output; if it errors, surface it verbatim.
 > over HTTPS and register the local directory instead. Either way, a directory source is a
 > **snapshot**, not live edits — check drift with
 > `diff -r ~/.claude/plugins/cache/coordinator-claude/coordinator/*/ <clone>/coordinator/`.
-> Full rationale and worked detail: `docs/wiki/install-playbook-rationale.md` § Step 1d.
 
 > **No sentinel, no onboarding baton, no `/pickup` staging here.** The native CLI flow has no
 > pre-restart script, so there is nothing to seed: the post-restart `/coordinator:install`

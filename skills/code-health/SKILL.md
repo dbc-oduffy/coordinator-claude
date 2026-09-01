@@ -21,7 +21,7 @@ Failure Modes).
 
 ## Step 1: Identify Surfaces
 
-Invoke through the `.cmd` sibling by absolute path via the PowerShell call operator (Shape W).
+Invoke through the `.exe` launcher by absolute path via the PowerShell call operator (Shape W).
 Ladder and shapes: `snippets/resolve-coordinator-bin.md`.
 
     `& "$env:COORDINATOR_SETTINGS_HOME\bin\query-completions.exe" --where "created=<YYYY-MM-DD>" --format json`

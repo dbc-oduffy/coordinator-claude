@@ -106,8 +106,8 @@ proposes a revised shape, and asks the PM to confirm.
 
 ### Step 4 — Scaffold the goal artifact
 
-**On a PowerShell host, use the `.cmd` sibling through the call operator** (Shape W) for every
-invocation in Steps 4-5. Ladder and shapes: `snippets/resolve-coordinator-bin.md`.
+**On a PowerShell host, invoke the `.exe` launcher by absolute path through the call operator**
+(Shape W) for every invocation in Steps 4-5. Ladder and shapes: `snippets/resolve-coordinator-bin.md`.
 
 `coordinator-doc-new --type goal --title "<objective-slug>"`, resolved per that ladder.
 

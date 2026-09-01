@@ -6,7 +6,7 @@
 >
 > The hook polices branch *shape* at create-time, not branch *date* at workday-start — commit-time date-enforcement (Check 6) was decommissioned per PM call. The daily ritual is **reconcile with origin/main** (`/workday-start` Step 0.4.5), not branch-rotation. Cutting a fresh daily off main when an active workstream exists would abandon ongoing work; doctrine explicitly prohibits this.
 >
-> **Honest-name rule.** At midnight-rename (Step 0 Check 4): `COMMITS_AHEAD > 0` → span suffix `{start}to{today}` (honest WIP); `COMMITS_AHEAD == 0` → today-only `work/{machine}/{today}` + ff-to-main, because the history has all merged and a span would advertise WIP that has already landed. Still reconciliation, not rotation — the ref is renamed, not abandoned. (`/merge-to-main` *deletes* the merged branch; rename preserves it.)
+> **Honest-name rule.** At midnight-rename (Step 0 Check 4): `COMMITS_AHEAD > 0` → span suffix `{start}to{today}` (honest WIP); `COMMITS_AHEAD == 0` → today-only `work/{machine}/{today}` + ff-to-main, because the history has all merged and a span would advertise WIP that has already landed. Still reconciliation, not rotation — the ref is renamed, not abandoned. (`/merging-to-main` *deletes* the merged branch; rename preserves it.)
 
 > **The shape.** An active workstream branch (canonical or named) is a **shared bus for every concurrent EM session on this machine** — not a single-session workspace. Multiple sessions committing in parallel is the default; sibling commits and out-of-scope dirty files belong to peer sessions, not to contamination. Scoped-staging (`coordinator-safe-commit --scope-from`, runtime overlap gate) is the everyday discipline that makes shared-bus safe.
 
@@ -136,7 +136,7 @@ illustrative, not exhaustive — do not treat it as an enumeration of every inte
 
 - `/workday-start` Step 0 — the engine-side reconciliation op sets it on its own subprocess git
   calls during branch rename/reconcile.
-- `merging-to-main` (also referenced as `/merge-to-main` elsewhere on this page) — sets it inline
+- `merging-to-main` — sets it inline
   when operating against integration branches during the merge ceremony.
 - `consolidate-git` — the skill body itself does not set this variable at all; the override
   moved into an engine-side branch-absorption op, which sets it on its own subprocess git calls
@@ -388,7 +388,7 @@ This failure mode is not hookable at the PreToolUse layer (the script runs at Se
 
 ## Align on branch; never wait on merge-to-main
 
-The shared pushed branch is the alignment/coordination surface for all in-flight work — it is already the review buffer (global `CLAUDE.md` § Concurrent-EM Git Operations), and it is equally the *dependency* buffer. Dependent work, downstream legs, cross-repo memos, and sibling coordination proceed off branch-pushed commits. **They do NOT wait for `/merge-to-main`.**
+The shared pushed branch is the alignment/coordination surface for all in-flight work — it is already the review buffer (global `CLAUDE.md` § Concurrent-EM Git Operations), and it is equally the *dependency* buffer. Dependent work, downstream legs, cross-repo memos, and sibling coordination proceed off branch-pushed commits. **They do NOT wait for `/merging-to-main`.**
 
 Two gates, two owners, deliberately decoupled:
 

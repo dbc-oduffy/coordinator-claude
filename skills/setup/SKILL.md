@@ -43,7 +43,7 @@ Surface a needed merge to the EM instead of doing it.
 `PLUGIN_ROOT` is two levels up from this skill file (`coordinator/skills/setup/SKILL.md` →
 `coordinator/`); resolve it relative to wherever this file lives on disk.
 
-**On a PowerShell host, use the `.cmd` sibling through the call operator** (Shape W) for every
+**On a PowerShell host, invoke the `.exe` launcher through the call operator** (Shape W) for every
 `setup-verify` invocation on this page, never the `${...}` POSIX-shell form shown. Ladder and
 shapes: `snippets/resolve-coordinator-bin.md`.
 

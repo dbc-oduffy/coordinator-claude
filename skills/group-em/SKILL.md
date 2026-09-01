@@ -113,7 +113,7 @@ holders, three separate checks.
 
 **A Group EM holding neither teammate is what this sequence exists to prevent, and it is not
 hypothetical.** Worked case:
-`docs/wiki/group-em-entry-teammates.md`.
+`coordinator/docs/wiki/group-em-entry-teammates.md`.
 
 **Before arming either party, read `holder_session_id` from `state/group-em-watch.json`.** A fresh holder
 that is not you means someone is already watching; arming beside them is the half-handover and

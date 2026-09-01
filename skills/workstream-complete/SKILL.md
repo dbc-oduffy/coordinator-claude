@@ -19,11 +19,11 @@ This ceremony is computed end to end — session-shape, plan reconciliation, les
 
 ## Compute the ceremony
 
-On a PowerShell host, use the `.cmd` sibling through the call operator (Shape W) instead of the
+On a PowerShell host, invoke the `.exe` launcher through the call operator (Shape W) instead of the
 `${...}` POSIX-shell form below — ladder and shapes: `snippets/resolve-coordinator-bin.md`.
 
 ```bash
-workstream-complete-assemble brief [--decisions-file <path>]
+"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/workstream-complete-assemble" brief [--decisions-file <path>]
 ```
 **Prefer `--decisions-file` on both subcommands; `--decisions '<json>'` is the short-payload
 convenience.** A real payload carries prose (completion rationale, commit subject, review records),
@@ -105,7 +105,7 @@ Once ruled out: **commit** with provenance (per `snippets/scoped-commit-route.md
 ## Apply — execute the directives
 
 ```bash
-workstream-complete-assemble apply --decisions-file <path>   # json map of judgment_point_id -> {"disposition": "<value>"}
+"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/workstream-complete-assemble" apply --decisions-file <path>   # json map of judgment_point_id -> {"disposition": "<value>"}
 ```
 (resolved per `snippets/resolve-coordinator-bin.md`: Shape A/B on POSIX hosts, Shape W on PowerShell)
 
@@ -189,7 +189,7 @@ Append a line **only** if its condition holds:
 
 **`not-applicable` is not `indeterminate`.** `not-applicable`: nothing to look at (e.g. a `session-handoff`'s leg A resolves via `deliverable_id`/plan `status:` and finds no live plan) — stays silent, same as `clean`. `indeterminate`: the gate tried to look and couldn't — declining to look because a field said it needn't is `indeterminate` wearing the wrong token, and must be reported. Tripwire: `NOT-APPLICABLE-SPANS-TWO-SILENCES`.
 
-**Do not print** `Lessons captured`/`Work archived`/`Docs updated`/`Orientation refreshed` — counts the commit already records, not PM decisions. **An automated mechanism's routine success is never a PM line**: pushing is auto-pushed, the cache regenerates itself. Report the machine only when it *failed*, and never ask the PM to verify what it already did. **Archival is NOT in that set — it is not automatic.** This ceremony SWEEPS your baton and stamps the governing plan and any actioned memo — but it does NOT stamp the baton: no close writes `shipped_in`/`shipped_in_kind` or flips a handoff's `deployment_state`, since K-046 (2026-08-23) deleted the `wsc_tail` hop that did. Expect the sweep, never the ship-stamp; hunting the mechanism that "failed" to fire cost two sessions and a PM hand-sweep. Nothing sweeps on a trigger a dying session never reaches. Do not describe archival to the PM as something that happened by itself, and do not author a second sweep against the one that exists — the owner is the `/workday-complete` spine's `reap-orphaned-in-flight-handoffs` + `handoff-housekeeping` pair (`docs/wiki/coordinator-tripwires/archival-lands-at-the-next-ceremony-not-at-session-end.md`).
+**Do not print** `Lessons captured`/`Work archived`/`Docs updated`/`Orientation refreshed` — counts the commit already records, not PM decisions. **An automated mechanism's routine success is never a PM line**: pushing is auto-pushed, the cache regenerates itself. Report the machine only when it *failed*, and never ask the PM to verify what it already did. **Archival is NOT in that set — it is not automatic.** This ceremony SWEEPS your baton and stamps the governing plan and any actioned memo — but it does NOT stamp the baton: no close writes `shipped_in`/`shipped_in_kind` or flips a handoff's `deployment_state`, since K-046 (2026-08-23) deleted the `wsc_tail` hop that did. Expect the sweep, never the ship-stamp; hunting the mechanism that "failed" to fire cost two sessions and a PM hand-sweep. Nothing sweeps on a trigger a dying session never reaches. Do not describe archival to the PM as something that happened by itself, and do not author a second sweep against the one that exists — the owner is the `/workday-complete` spine's `reap-orphaned-in-flight-handoffs` + `handoff-housekeeping` pair (`coordinator/docs/wiki/coordinator-tripwires/archival-lands-at-the-next-ceremony-not-at-session-end.md`).
 
 **Classify flags by severity first.** A break-class defect (broken/would-break/fails/leaks/silently-bypasses) is fix-by-default — fix it and report the fix, never a passive `Flag to PM:`; only direction-class items go there. → global `CLAUDE.md § Flag Severity`.
 

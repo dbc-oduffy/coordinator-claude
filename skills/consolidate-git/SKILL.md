@@ -18,7 +18,7 @@ worktree pause, and the merge-ready call.
 
 **Consolidation and shipping are separate decisions — this skill never merges to main.** It
 leaves the repo with one current branch holding all of *my* in-flight work, no leftover sibling
-branches, no stale worktrees. Whether that branch is ready to ship is `/merge-to-main`'s call,
+branches, no stale worktrees. Whether that branch is ready to ship is `/merging-to-main`'s call,
 made after this skill reports and optionally offered via the `merge-ready` judgment point.
 
 **Announce at start:** "I'm using the coordinator:consolidate-git skill to consolidate branches
@@ -26,7 +26,7 @@ and worktrees into the current branch. Merge to main is a separate step."
 
 ## Compute the Inventory
 
-**On a PowerShell host, use the `.cmd` sibling through the call operator** (Shape W), never the
+**On a PowerShell host, use the `.exe` launcher through the call operator** (Shape W), never the
 `${...}` POSIX-shell form shown below. Ladder and shapes: `snippets/resolve-coordinator-bin.md`.
 
 `consolidate-assemble brief` (per `snippets/resolve-coordinator-bin.md`)
@@ -110,7 +110,7 @@ before a remote delete is proposed.
 ## What This Does NOT Do
 
 - **Merge to main.** Consolidation lands everything on the current branch and stops; shipping is
-  `/merge-to-main`, invoked separately by the PM (optionally recommended via `j-merge-ready`).
+  `/merging-to-main`, invoked separately by the PM (optionally recommended via `j-merge-ready`).
 - **Rebase** — merges and cherry-picks only. Rebasing rewrites history for no benefit in a
   cleanup operation.
 - **Touch other repos** — scoped to the current repository only.
