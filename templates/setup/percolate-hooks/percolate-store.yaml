@@ -684,6 +684,7 @@ targets:
     sentinel_strip:
       - start_marker: ""
       - start_marker: ""
+      - start_marker: ""
     inject:
       # Confirmed 2026-07-17: coordinator/dist/oss-only-skills/ currently has
       # exactly one child directory (coordinator-update) -- this static entry

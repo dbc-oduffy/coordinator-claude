@@ -5859,26 +5859,34 @@ def run_pre_sync_gates(
         # check reads only `target.allowlist` and the two declaration files, so
         # a row refused here never builds a restricted tree there is then
         # nothing to clean up.
-        decl_ok, decl_message, decl_rows = _field7_declaration_check()
-        if not decl_ok and (decl_rows is None or target.name in decl_rows):
+        _field7_block_start = time.perf_counter()
+        try:
+            decl_ok, decl_message, decl_rows = _field7_declaration_check()
+            if not decl_ok and (decl_rows is None or target.name in decl_rows):
+                print(
+                    f"  Error: {target.name}'s field-7 allowlist is not what "
+                    f"setup/publish-allowlist-declarations.yaml derives — the "
+                    f"declaration validator is RED, so this row would publish a set "
+                    f"nobody declared:",
+                    file=err,
+                )
+                for line in (decl_message or "(the validator reported no detail)").splitlines():
+                    print(f"    {line}", file=err)
+                print(
+                    "  Remedy: run coordinator/bin/publish-allowlist-generate.py "
+                    "(without --check) and commit the regenerated field 7, or fix "
+                    "the declaration it names.",
+                    file=err,
+                )
+                print(f"  Skipping {target.name}.", file=out)
+                print("", file=out)
+                return GateResult(proceed=False, source_dir=target.source_dir, shadow_roots=tuple(shadow_toplevels))
+        finally:
             print(
-                f"  Error: {target.name}'s field-7 allowlist is not what "
-                f"setup/publish-allowlist-declarations.yaml derives — the "
-                f"declaration validator is RED, so this row would publish a set "
-                f"nobody declared:",
-                file=err,
+                f"  [timing] {target.name}: run_pre_sync_gates: field7_declaration_check: "
+                f"{time.perf_counter() - _field7_block_start:.3f}s",
+                file=out,
             )
-            for line in (decl_message or "(the validator reported no detail)").splitlines():
-                print(f"    {line}", file=err)
-            print(
-                "  Remedy: run coordinator/bin/publish-allowlist-generate.py "
-                "(without --check) and commit the regenerated field 7, or fix "
-                "the declaration it names.",
-                file=err,
-            )
-            print(f"  Skipping {target.name}.", file=out)
-            print("", file=out)
-            return GateResult(proceed=False, source_dir=target.source_dir, shadow_roots=tuple(shadow_toplevels))
 
         source_map_dict = _parse_source_map(target.source_map)
         shadow_source_map = {entry: shadow[root] for entry, root in source_map_dict.items()}

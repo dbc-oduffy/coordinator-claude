@@ -44,17 +44,30 @@ it:
     subpackage: an unclassified new top-level DIRECTORY publishes its entire
     recursive tree on first commit, unreviewed, and a directory can arrive
     with many files in one commit.
-  - The transition shipped nothing new: AC15's own invariant guaranteed
-    `deny ∪ include_root == tracked`, so `tracked - deny` IS the enumeration
-    it replaced, byte for byte in field 7. Verified at the flip.
+  - The transition shipped nothing new IF AC15's invariant held at the
+    moment `include_root` was deleted: `deny ∪ include_root == tracked`
+    would make `tracked - deny` byte-for-byte the enumeration it replaced.
+    # Review: coordinator:code-reviewer — AC15 had lapsed days earlier (the
+    # 08-31 jam, field 7 hand-maintained) and was presumably restored by
+    # `5c02cdf21b` ("publish-allowlist unjam") immediately before this
+    # commit; that is what the claim actually rests on, not an in-diff check.
+    Confirmed post hoc, not at the flip: field 7 for the `claude-klabauter*`
+    rows is byte-identical between `33280385f5^` and `33280385f5` (md5
+    `8bf3cd1ba9be0b4f26078553bd7b8d70`), and the only divergence from that
+    pair through current HEAD is the later, unrelated `verify-bin-deny.py`
+    CLI removal (`ffe4e68d32`).
   - `state/` and `docs/plans/` were never reachable and still are not — no
     publish row is rooted at the repo root, so the PM's stated worst case is
     not reachable by this change at all.
   - The bin row's `deny` was the FROZEN output of a hand-run import closure.
     Under the old polarity a new CLI reaching a denied package was
     unclassified and refused; now it would publish and raise ImportError on an
-    OSS clone. `--verify-bin-deny` (this script) re-derives that set, and it
-    must be run when a bin entrypoint is added.
+    OSS clone. `--verify-bin-deny` (this script) re-derives that set, but
+    nothing invokes it automatically: it is a manual flag, not a wired
+    control. # Review: coordinator:code-reviewer — no CI/pre-commit/hook
+    # calls this flag on any bin-entrypoint addition today; treat the risk
+    # as an accepted residual, not a discharged one, until something does.
+    This is an accepted residual risk with no automated detector today.
 
 Never enumerates the filesystem (`os.walk`) as the mechanism that DISCOVERS
 what a row could ship — `git ls-files` only, so an untracked `.bak` sitting
@@ -259,22 +272,75 @@ def _existing_exclusions(row_line: str) -> List[str]:
     return [e for e in entries if e.startswith("!")]
 
 
-def _core_module_imports(path: Path) -> "set":
+#: Path -> parsed `ast.Module` (or `None` for an unparseable file), keyed by
+#: absolute path. `_core_module_imports` is called once per file per closure
+#: visit and closures overlap heavily (many bin CLIs share transitive
+#: dependencies), so caching the parse — not just the derived ref set, since
+#: the ref set also depends on the caller-supplied `package` argument — is
+#: what removes the redundant re-`ast.parse` cost. See `derive_bin_deny`'s
+#: docstring for the measured effect.
+_PARSE_CACHE: Dict[Path, object] = {}
+
+
+def _parse_cached(path: Path):
+    import ast
+
+    if path not in _PARSE_CACHE:
+        try:
+            _PARSE_CACHE[path] = ast.parse(
+                path.read_text(encoding="utf-8", errors="replace"), filename=str(path)
+            )
+        except (SyntaxError, OSError):
+            _PARSE_CACHE[path] = None
+    return _PARSE_CACHE[path]
+
+
+def _core_module_imports(path: Path, package: str = "") -> "set":
     """Every `coordinator_core` dotted remainder `path` imports. Deliberately
     NOT guard-aware: an import this walk skips is an edge the derivation cannot
     see, and for a deny rule the safe direction is to over-collect edges (a
     CLI wrongly denied fails to publish, recoverably) rather than under-collect
-    (a CLI wrongly published is dead on import on a clone)."""
+    (a CLI wrongly published is dead on import on a clone).
+
+    `package` is `path`'s own dotted `coordinator_core` package name (the
+    enclosing package for a regular module, or the package's own name for an
+    `__init__.py`), used to resolve `node.level` (a relative import) to an
+    absolute dotted remainder. Left empty for a file outside `coordinator_core`
+    (a `coordinator/bin` entrypoint), where a relative import cannot reach
+    `coordinator_core` and resolving one is meaningless.
+
+    A relative import is NOT a lesser edge than an absolute one: `node.level`
+    is nonzero for exactly `from . import x` / `from .mod import y`, and
+    `coordinator_core` uses these throughout (`bash_guards`, `spawn_policy`,
+    `message_register`, `ops`, and others). Dropping them was itself an
+    under-collection this function's own docstring forbids."""
+    tree = _parse_cached(path)
+    if tree is None:
+        return set()
     import ast
 
-    try:
-        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"), filename=str(path))
-    except (SyntaxError, OSError):
-        return set()
     refs = set()
+    pkg_parts = package.split(".") if package else []
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
-            if node.level or not node.module:
+            if node.level:
+                if not pkg_parts or node.level > len(pkg_parts):
+                    # Climbs above what `package` can resolve (e.g. a level-2
+                    # relative import from a top-level package) -- no
+                    # coordinator_core-rooted target to name; drop rather than
+                    # guess.
+                    continue
+                base = pkg_parts[: len(pkg_parts) - node.level + 1]
+                if node.module:
+                    refs.add(".".join(base + node.module.split(".")))
+                elif base:
+                    # `from . import x[, y, ...]` -- module is None, level 1
+                    # (or higher): each imported name IS a submodule/attribute
+                    # of the resolved base package.
+                    for alias in node.names:
+                        refs.add(".".join(base + [alias.name]))
+                continue
+            if not node.module:
                 continue
             if node.module == "coordinator_core":
                 for alias in node.names:
@@ -286,6 +352,119 @@ def _core_module_imports(path: Path) -> "set":
                 if alias.name.startswith("coordinator_core."):
                     refs.add(alias.name[len("coordinator_core.") :])
     return refs
+
+
+def _module_file_and_package(mod: str) -> Tuple[object, str]:
+    """The file `mod` (a dotted `coordinator_core` remainder) resolves to,
+    and the dotted package name to resolve THAT file's own relative imports
+    against. `(None, "")` if `mod` names no file under `coordinator_core`
+    (e.g. it is an imported NAME, not a module -- `closure()`'s existing
+    fallback for that case is unchanged)."""
+    base = Path(*mod.split("."))
+    init_candidate = _REPO_ROOT / "coordinator_core" / base / "__init__.py"
+    if init_candidate.is_file():
+        return init_candidate, mod
+    file_candidate = (_REPO_ROOT / "coordinator_core" / base).with_suffix(".py")
+    if file_candidate.is_file():
+        package = mod.rsplit(".", 1)[0] if "." in mod else ""
+        return file_candidate, package
+    return None, ""
+
+
+def _make_closure(known: "set"):
+    """Build a `closure(mod) -> set` reachable-package-name function that is
+    safe against import cycles in `coordinator_core` (P2,
+    coordinatorcode-reviewer.a8adfc8a37d0c78b6). 59 real cycles exist in the
+    current tree (`ops.fleet._common` <-> `ops.queue_append`, `ipc` <->
+    `ops._registry_map`, `warm.engine_root` <-> `warm.skew`, and more) —
+    reachable from bin CLIs, not merely theoretical.
+
+    A plain memoized recursive walk (the prior implementation) writes an
+    in-progress empty-set sentinel into its memo before recursing, so a back
+    edge inside a cycle can read that sentinel back as if it were the
+    module's COMPLETE reached-set — silently under-collecting for whichever
+    caller's memo entry gets finalized from the incomplete value, and because
+    memoization is permanent, a later, unrelated top-level closure() call can
+    reuse the same wrong cached value. This is Tarjan's strongly-connected-
+    components algorithm instead: every module in a cycle is grouped into one
+    SCC, the SCC's reached-set is computed as the union of ALL its members'
+    direct edges plus every already-known(*) external SCC's reached-set, and
+    `closure(mod)` returns that SCC's set — correct regardless of which
+    member of the cycle is entered first or which edge order `ast.walk`
+    returns.
+
+    (*) "already-known" is Tarjan's own guarantee: children are always fully
+    resolved (finalized SCC, or still-open and folded into the same SCC as
+    this frame) before a parent's SCC closes."""
+    indices: Dict[str, int] = {}
+    lowlink: Dict[str, int] = {}
+    on_stack: Dict[str, bool] = {}
+    stack: List[str] = []
+    counter = [0]
+    scc_reached: Dict[int, "set"] = {}
+    mod_scc: Dict[str, int] = {}
+    next_scc_id = [0]
+
+    def refs_of(mod: str) -> "set":
+        path, package = _module_file_and_package(mod)
+        if path is None:
+            return set()
+        return _core_module_imports(path, package)
+
+    def target_of(ref: str):
+        if ref in known:
+            return ref
+        top = ref.split(".", 1)[0]
+        return top if top in known else None
+
+    def strongconnect(mod: str) -> None:
+        indices[mod] = counter[0]
+        lowlink[mod] = counter[0]
+        counter[0] += 1
+        stack.append(mod)
+        on_stack[mod] = True
+
+        for ref in refs_of(mod):
+            target = target_of(ref)
+            if target is None:
+                continue
+            if target not in indices:
+                strongconnect(target)
+                lowlink[mod] = min(lowlink[mod], lowlink[target])
+            elif on_stack.get(target):
+                lowlink[mod] = min(lowlink[mod], indices[target])
+
+        if lowlink[mod] != indices[mod]:
+            return
+
+        scc_id = next_scc_id[0]
+        next_scc_id[0] += 1
+        component = []
+        while True:
+            w = stack.pop()
+            on_stack[w] = False
+            component.append(w)
+            mod_scc[w] = scc_id
+            if w == mod:
+                break
+
+        reached: "set" = set()
+        for member in component:
+            reached.add(member.split(".", 1)[0])
+            for ref in refs_of(member):
+                target = target_of(ref)
+                if target is None:
+                    reached.add(ref.split(".", 1)[0])
+                elif target not in component:
+                    reached |= scc_reached[mod_scc[target]]
+        scc_reached[scc_id] = reached
+
+    def closure(mod: str) -> "set":
+        if mod not in mod_scc:
+            strongconnect(mod)
+        return scc_reached[mod_scc[mod]]
+
+    return closure
 
 
 def derive_bin_deny(rows: Dict) -> List[str]:
@@ -302,10 +481,23 @@ def derive_bin_deny(rows: Dict) -> List[str]:
     under deny-by-default, where the same CLI would publish and then ImportError
     on an OSS clone. Deriving it here is the precondition for that inversion.
 
-    Measured 2026-09-01: ~3.1s own-CPU, 431 top-level bin `.py` files, 883
-    modules parsed, 2 `git ls-files` spawns. Paid only when `--verify-bin-deny`
-    is passed — off this script's hot path, since the set only changes when a
-    `coordinator/bin` entrypoint is added.
+    Measured 2026-09-01 (pre relative-import/cycle fix): ~3.1s own-CPU, 431
+    top-level bin `.py` files, 883 modules parsed, 2 `git ls-files` spawns.
+    Re-measured after coordinatorcode-reviewer.a8adfc8a37d0c78b6's P1
+    (relative imports were silently dropped -- see `_core_module_imports`)
+    and P2 (`closure()` memoization was not cycle-safe against the 59 real
+    import cycles in this tree -- see `_make_closure`) fixes: ~3.6-3.8s
+    own-CPU, 886 files parsed, same 20 derived names (the new edges reach no
+    additional denied package on the CURRENT tree). Parsing is now cached by
+    path (`_PARSE_CACHE`) rather than re-`ast.parse`d per visit -- measured
+    to have negligible effect here (886 unique files parsed either way; the
+    prior memoization already prevented most redundant closure() re-entry,
+    so there was little redundant parsing to cache away). The added edges
+    from following relative imports, not the parse, are what cost the extra
+    ~0.5-0.7s. Paid only when `--verify-bin-deny` is passed — off this
+    script's hot path (moved off `--check` at 05e05143fd after landing at
+    2812ms there), since the set only changes when a `coordinator/bin`
+    entrypoint is added.
 
     A content fingerprint over exactly these inputs was built to skip the walk
     and then DELETED, measured rather than reasoned: this repo's shared branch
@@ -341,27 +533,7 @@ def derive_bin_deny(rows: Dict) -> List[str]:
     )
     tracked_names = {Path(p).parts[2] for p in bin_files if len(Path(p).parts) == 3}
 
-    memo: Dict[str, set] = {}
-
-    def closure(mod: str) -> "set":
-        if mod in memo:
-            return memo[mod]
-        memo[mod] = set()
-        reached = {mod.split(".", 1)[0]}
-        base = Path(*mod.split("."))
-        for candidate in (
-            Path("coordinator_core") / base / "__init__.py",
-            (Path("coordinator_core") / base).with_suffix(".py"),
-        ):
-            if (_REPO_ROOT / candidate).is_file():
-                for ref in _core_module_imports(_REPO_ROOT / candidate):
-                    if ref in known or ref.split(".", 1)[0] in known:
-                        reached |= closure(ref)
-                    else:
-                        reached.add(ref.split(".", 1)[0])
-                break
-        memo[mod] = reached
-        return reached
+    closure = _make_closure(known)
 
     derived: "set" = set()
     for rel in top_level:
