@@ -83,36 +83,46 @@ that stays each session's own.
 boundary: noticing a wave is stalled, a session is blocked on a dependency that has since cleared,
 or two sessions are about to collide on the same file, and nudging accordingly.
 
-**THE WATCH HAS TWO CLOCKS, AND ARMING BOTH IS THE FIRST ACT OF THE ROLE.** Entry assembles once.
-Nothing re-runs it, no hook fires it again, and a roster read is stale within a minute — so a mode
-entered and never re-derived reports the room as it was, not as it is. Arm both, as your first act:
+**ENTRY DISPATCHES BOTH STANDING TEAMMATES, THEN ARMS WHAT IS LEFT. ALL THREE ARE MANDATORY.**
+Entry assembles once. Nothing re-runs it, no hook fires it again, and a roster read is stale within
+a minute — so a mode entered and never re-derived reports the room as it was, not as it is. In this
+order, as your first act:
 
-- **A `CronCreate` tick**, ~23 minutes, off the :00/:30 marks — fires on a schedule.
-- **A `Monitor` poller** over the session registry — fires on a transition. **The engine ships the
-  runnable; do not hand-roll one:** arm
-  `python -m coordinator_core.group_em.watch --repo-root <root> --crown-session-id <your sid>`
-  with `persistent: true`. **Pass `--crown-session-id` explicitly; never rely on the default.** It
-  is a separate id from `--caller-session-id` on purpose — the caller is whatever process polls,
-  the crown is whose offer log suppresses a already-answered peer — and they diverge the moment a
-  teammate holds the watch. That form needs the engine importable; there is no settings-home
-  `group-em-watch` launcher yet. It emits
-  one line per peer entering a parked state, derives parked from `read_pass.classify_peer` rather
-  than a registry `status` field, and stays silent while that peer's send-pass offer cooldown is
-  armed. It never disarms, so there is nothing to re-arm.
+1. **`coordinator:fleet-watch`** — dispatch it. It holds the `Monitor` poller over the session
+   registry and pokes stopped sessions along, off your context. **The engine ships the runnable; it
+   does not hand-roll one:** `python -m coordinator_core.group_em.watch --repo-root <root>
+   --crown-session-id <your sid>`, `persistent: true`. **`--crown-session-id` is passed explicitly,
+   never defaulted** — it is a separate id from `--caller-session-id` on purpose (the caller is
+   whatever process polls; the crown is whose offer log suppresses an already-answered peer), and
+   they diverge the moment a teammate holds the watch. That form needs the engine importable; there
+   is no settings-home `group-em-watch` launcher yet. It emits one line per peer entering a parked
+   state, derives parked from `read_pass.classify_peer` rather than a registry `status` field, and
+   stays silent while that peer's send-pass offer cooldown is armed. It never disarms, so there is
+   nothing to re-arm.
+2. **`coordinator:group-em-assistant`** — dispatch it. Your standing reader: transcript tails,
+   baton claimants, what landed on a path since a SHA. Warm across the session, woken by
+   `SendMessage`.
+3. **A `CronCreate` tick**, ~23 minutes, off the :00/:30 marks — the only clock that stays yours.
+   It audits the watch rather than performing it: *is nudging actually happening, what is the state
+   of the batons and the live plans, is anything stuck that nobody has poked.*
 
-**Once `coordinator:fleet-watch` is dispatched, the `Monitor` half is THEIRS and the cron half
-changes what it asks.** They hold the transition watch and every idle event lands with them; you
-stop being woken by the fleet and start being woken by your own clock.
-**You dispatch it yourself, from this session** — a watcher is a teammate of whoever dispatched it,
-so one dispatched by any other session relieves that session instead, and leaves you watching while
-believing you were relieved. What transfers is the `Monitor` poller; the `notify_when_idle` one-shot
-stays with you either way, because the harness accepts that parameter only from a main conversation
-and a teammate cannot hold it. Your cron then audits the
-watch rather than performing it — *is nudging actually happening, what is the state of the batons
-and the live plans, is anything stuck that nobody has poked* — and you jump in when the watcher
-hands you something. Reading peer transcripts to find out what a session is doing is the work you
-are delegating; adjudicating and unblocking is what the reclaimed context is for.
-**Until that agent is dispatched, both clocks are yours and the rule above stands unchanged.**
+**Dispatch them yourself, from this session.** A teammate belongs to whoever dispatched it, so one
+dispatched by any other session relieves that session instead and leaves you watching while
+believing you were relieved. What transfers to `fleet-watch` is the `Monitor` poller; the
+`notify_when_idle` one-shot stays with you either way, because the harness accepts that parameter
+only from a main conversation and a teammate cannot hold it.
+
+**A crown holding neither teammate is what this sequence exists to prevent, and it is not
+hypothetical** — until entry named them, nothing did, and both agent bodies claim to be "kept for
+the life of their session" while no step created one. Worked case:
+`docs/wiki/group-em-crown-entry-teammates.md`.
+
+**Dispatch authorization — invoking this skill IS the request, for these two dispatches.** Steps 1
+and 2 — `coordinator:fleet-watch` and `coordinator:group-em-assistant` — are constitutive steps of
+entry, not a separate thing to get cleared, on the same basis as the approvability-judge dispatch
+above and § Inbox-blitz delegation's. Narrow, as those are: it covers spawning those two named
+agents under this session's own authority at entry and nothing else, and it does not touch the
+peer-session send/nudge mechanism (§ Send pass (gem-14)), which stays gated per-send.
 
 **Before arming either party, read `holder_session_id` out of `state/group-em-watch.json`.** The
 watch stamps that file every tick, so a fresh holder that is not you means someone is already
@@ -126,10 +136,10 @@ holder. So ask whether that session is plausibly watching this repo before stand
 holder from another repo, or one carrying `subscribed_peers: 1`, ran the command once. The record
 is untracked runtime state and ages out on its own; never repair it by hand.
 
-**Both, deliberately: belt-and-suspenders, PM-ruled.** A poll and an event watch fail differently,
-and whichever survives a given interval catches what the other missed. Shipping one is the elegant
-choice and the wrong one. Arming both at entry is one act, not two — never arm the same clock
-twice in one entry.
+**Both clocks, deliberately: belt-and-suspenders, PM-ruled.** A poll and an event watch fail
+differently, and whichever survives a given interval catches what the other missed. Shipping one is
+the elegant choice and the wrong one. Entry covers both in one pass — the poller via `fleet-watch`,
+the cron yours — and never arms the same clock twice.
 
 **That is a rule about entry, and it is NOT a bar on re-arming a clock that has been spent.**
 Prefer the clock that cannot be spent. A one-shot subscription — `notify_when_idle` is one —
@@ -466,6 +476,15 @@ The Group EM may execute `/workday-start` Step 1.45a's inbox blitz on this repo'
   act under § Send pass (gem-14), with both gates declared. Building an unattended sender, a loop
   that messages each digest entry without a per-send gate declaration, or any `Stop`-registered
   trigger, is out of scope and re-derives the stood-down watcher.
+- **Mandating that the watcher EXISTS is not mandating that it sends unattended, and the entry
+  sequence above is not a hole in the bullet above.** Stated rather than left to inference, because
+  the two sit close enough in this file to be read together. `fleet-watch` nudging on an observed
+  registry transition is the "concrete observed signal" shape the ban preserves; a tick that
+  messages everyone it can see is the shape the ban forbids. The discriminator is the signal, never
+  the fact that a teammate is holding it — a teammate given a timing predicate re-derives
+  `runtime-tripwire-stop-watcher.py` (681 fires / 26 days / ~99.4% wrong) one level down, where the
+  crown loses sight of it. A mechanism wrong that often trains its reader to ignore
+  it, which is worse than not existing.
 - **That ban is about AUTOMATION, never attentiveness.** A timing predicate cannot tell a stuck
   session from a working one, so wiring one to `Stop` fires near-continuously and is wrong almost
   every time. A crown-holder re-deriving the roster each turn and judging it is the opposite
@@ -484,9 +503,12 @@ The Group EM may execute `/workday-start` Step 1.45a's inbox blitz on this repo'
   clarifies the existing ruling; it does not overturn it.
 - This skill does not otherwise carry a dispatch-authorization paragraph ("invoking this skill IS
   the request") of the general kind used by skills that dispatch subagents (`plan`, `execute-plan`,
-  `review`, `shape`, `sizing`, `workstream-complete`) — the two dispatch-authorization paragraphs it
-  does carry, the approvability-judge one above and § Inbox-blitz delegation's `group-em-assistant`
-  one, are each scoped to their own named dispatch only, not a general grant. Those skills spawn
+  `review`, `shape`, `sizing`, `workstream-complete`) — the three dispatch-authorization paragraphs
+  it does carry, the approvability-judge one above, § Inbox-blitz delegation's
+  `group-em-assistant` one, and the entry-sequence one covering `coordinator:fleet-watch` and
+  `coordinator:group-em-assistant`, are each scoped to their own named dispatch only, not a general
+  grant. The entry-sequence one is the only one that fires unconditionally; that is a statement
+  about when it applies, not a widening of what it covers. Those skills spawn
   subagents under the invoking session's own authority; `/group-em` otherwise messages **peer
   sessions** in their own windows, which is an `ask-before-external-action` question neither
   paragraph dissolves.

@@ -2831,19 +2831,50 @@ def _cmd_round_default(
             # fires, and so a gitignored dest artifact (`__pycache__/*.pyc`
             # reappearing between the pre-commit filter and this call) is
             # still excluded rather than committed.
+            #
+            # ABSENT-FROM-DISK IS TWO CASES, NOT ONE. A path can be missing
+            # from the worktree because it never existed there, or because it
+            # is TRACKED AT HEAD and this round means to delete it. The second
+            # is the entire removal side's payload. Classifying both as a
+            # decline made every round structurally incapable of carrying a
+            # deletion: the removal leg named the path, this loop dropped it,
+            # and `commit_paths` was called without `deleted_paths` at all --
+            # so the file stayed at dest HEAD, reappeared as a removal
+            # candidate next round, and the round refused on its own backlog
+            # forever. Measured witness: 8 `bin/` deletions on the
+            # `coordinator-claude` mirror, reproduced byte-identically across
+            # two consecutive rounds 2026-08-31, every one of them ` D` in
+            # `git status` (i.e. present in the index) while being declined
+            # with a reason that asserts the index was consulted.
+            #
+            # `_dest_head_tree` is the discriminator and costs ONE spawn for
+            # the whole pathspec (§ its own docstring, AC4: "one process,
+            # never one per path") -- the same read `_pathspec_from_manifest`
+            # already makes, so the per-round spawn shape is unchanged.
+            head_tracked = _dest_head_tree(repo_root)
             declined_paths: "List[Dict[str, str]]" = []
             present_paths: List[str] = []
+            deletion_paths: List[str] = []
             for p in pathspec:
                 if not (Path(repo_root) / p).exists():
-                    declined_paths.append({
-                        "path": p,
-                        "reason": (
-                            "not found in the worktree or index, and not "
-                            "attributable to a deletion (never existed, or "
-                            "already removed by something other than a "
-                            "tracked deletion)"
-                        ),
-                    })
+                    try:
+                        rel = Path(p).resolve().relative_to(
+                            Path(repo_root).resolve()
+                        ).as_posix()
+                    except ValueError:
+                        rel = None
+                    if rel is not None and rel in head_tracked:
+                        deletion_paths.append(p)
+                    else:
+                        declined_paths.append({
+                            "path": p,
+                            "reason": (
+                                "absent from the worktree AND untracked at dest "
+                                "HEAD, so there is no deletion to commit "
+                                "(never existed, or already removed by "
+                                "something other than a tracked deletion)"
+                            ),
+                        })
                 else:
                     present_paths.append(p)
             ignore_result = _gn.check_ignore(repo_root, present_paths) if present_paths else None
@@ -2869,11 +2900,16 @@ def _cmd_round_default(
             commit_diagnostics: List[str] = []
             sha = "?"
             try:
-                if present_paths:
+                if present_paths or deletion_paths:
+                    # `commit_paths` documents a deletion-only commit as legal
+                    # ("at least one of `paths` / `deleted_paths`"), so a round
+                    # whose whole payload is removals now lands instead of
+                    # reporting nothing to do.
                     outcome = commit_paths(
                         repo_root,
                         present_paths,
                         compose_message(subject=subject),
+                        deleted_paths=deletion_paths,
                         blob_fallback=partial(hash_worktree_blobs_via_spawn, cwd=repo_root),
                     )
                     sha = outcome.sha
@@ -2884,9 +2920,19 @@ def _cmd_round_default(
                 commit_failed = True
                 commit_diagnostics = [str(exc)]
                 committed = False
-            if committed and declined_paths:
+            # REPORTED ON BOTH ARMS, DELIBERATELY. This report used to hang
+            # off `committed` alone, so a round that committed NOTHING -- the
+            # arm where the operator most needs to know WHY -- printed a bare
+            # count and no reasons at all. Measured 2026-08-31: DoE grepped an
+            # 878-line round log for every reason phrase this module can emit
+            # and found none, because the only arm that renders them had not
+            # run. Two decline reasons call for opposite operator actions
+            # (re-run vs. report a derivation defect), so a count without a
+            # reason is not a smaller report, it is an unactionable one.
+            if declined_paths:
+                landed = f"commit {sha[:12]} LANDED, but " if committed else ""
                 print(
-                    f"percolate-round: commit {sha[:12]} LANDED, but "
+                    f"percolate-round: {landed}"
                     f"{len(declined_paths)} named path(s) were DECLINED and did "
                     "NOT land:",
                     file=sys.stderr,
@@ -2898,8 +2944,15 @@ def _cmd_round_default(
                         print(f"  {path} ({reason})" if reason else f"  {path}", file=sys.stderr)
                     else:
                         print(f"  {entry}", file=sys.stderr)
-                _write_round_failure_marker(target, percolate_root, "declined_paths", sha)
-                return _EXIT_FAIL
+                # A commit that FAILED outright is the more specific fault and
+                # keeps its own reporting arm below -- the declines are printed
+                # above either way, but they must not swallow the diagnostics
+                # that say the commit never happened.
+                if not commit_failed:
+                    _write_round_failure_marker(
+                        target, percolate_root, "declined_paths", sha
+                    )
+                    return _EXIT_FAIL
             if commit_failed:
                 _print_step_failure(
                     "commit (ceremony.commit_v2)",
