@@ -71,7 +71,7 @@ them — none reads another's output):
 everything that follows: main is read-only. Stay on a non-main branch if on one; on main, run
 `sync-main --quiet` (report divergence first), then create `work/{machine}/{date}` (`-2` on
 collision) — superseded by the branch-day-span directive when present. Diverged from
-`main` >2 days → recommend `/merge-to-main`, wait for the PM; ≤2 days → continue silently.
+`main` >2 days → recommend `/merging-to-main`, wait for the PM; ≤2 days → continue silently.
 
 ### Context load — not part of the shared spine
 

@@ -231,7 +231,7 @@ def _pid_is_a_forwarder(pid: int) -> Optional[bool]:
 #: the module: `pytest coordinator/tests/test_http_hook_forwarder_staleness.py`, an editor holding
 #: the file open, a `grep` over the hooks tree. This requires the module's own filename as a whole
 #: path component -- so `test_http_hook_forwarder_staleness.py` and `http_hook_forwarder_decoy.py`
-#: both correctly fail to match, while `python X:\...\hooks\http_hook_forwarder.py` matches.
+#: both correctly fail to match, while `python <repo-root>\hooks\http_hook_forwarder.py` matches.
 _FORWARDER_ARGV_RE = re.compile(r"""(?:^|[\s"'/\\])http_hook_forwarder\.py(?:["'\s]|$)""")
 
 #: How long, in total, to wait for a spawned successor to actually take the port before declaring

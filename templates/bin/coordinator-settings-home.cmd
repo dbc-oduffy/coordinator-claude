@@ -37,7 +37,11 @@ if not exist "%_impl%" (
 )
 
 set "_py=__PYTHON_BIN__"
-if "%_py%"=="__PYTHON_BIN__" set "_py="
+REM Existence, not equality: install-substrate.py rewrites EVERY occurrence of the
+REM placeholder, so an equality test against it has both sides substituted and clears
+REM the baked path precisely when substitution worked. An exist test is immune to that
+REM and additionally self-heals a baked path whose interpreter was moved or removed.
+if not exist "%_py%" set "_py="
 if not "%_py%"=="" goto :run_baked
 
 REM Host-local resolution cache (DR-303 / windows-interpreter-bake-is-empty:

@@ -86,7 +86,11 @@ REM never a wrong answer. Tier ordering is unchanged; this only skips repeated w
 set "_pycache=%_settings_home%\bin\.python-bin"
 
 set "_py=__PYTHON_BIN__"
-if "%_py%"=="__PYTHON_BIN__" set "_py="
+REM Existence, not equality: install-substrate.py rewrites EVERY occurrence of the
+REM placeholder, so an equality test against it has both sides substituted and clears
+REM the baked path precisely when substitution worked. An exist test is immune to that
+REM and additionally self-heals a baked path whose interpreter was moved or removed.
+if not exist "%_py%" set "_py="
 if not "%_py%"=="" goto :run_baked
 
 REM INTERPRETER CACHE, tier 1a, ahead of tier 1b above. Per DR-303

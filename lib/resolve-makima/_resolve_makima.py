@@ -255,6 +255,28 @@ RESOLUTION_RESOLVED_ENGINE = "resolved-engine"
 RESOLUTION_LIVE_WORKING_TREE = "live-working-tree"
 RESOLUTION_UNRESOLVED = "unresolved"
 
+#: Helper stems this engine has deliberately deleted. A forwarder image for
+#: one of these can outlive its target -- the install roster drops the name,
+#: so nothing iterates it to remove the image -- and until the next install
+#: sweeps it, `exec_cli` is what the caller actually reaches. Naming them
+#: here is the difference between "your install is damaged, repair it" (false,
+#: and the repair cannot succeed) and "this helper was retired" (true, and
+#: actionable). Confirmed live from example-cockpit-repo 2026-09-01 and 2026-09-02,
+#: where `.git/hooks/post-commit` reached the `coordinator-auto-push`
+#: forwarder on every commit.
+#:
+#: Duplicated deliberately from `coordinator_core.install.substrate.
+#: _KILLED_OP_ORPHAN_NAMES`, NOT imported: this module is copied verbatim into
+#: settings-home and runs with no `coordinator_core` on `sys.path` by
+#: construction. `coordinator_core/install/tests/test_retired_helper_names_
+#: agree.py` pins the two sets against each other so the copy cannot drift.
+RETIRED_HELPER_STEMS = frozenset({
+    "coordinator-auto-push",
+    "coordinator-write-review-trail",
+    "list-review-trail-records",
+    "repair-empty-review-trail-ranges",
+})
+
 
 # --- publisher-only targets: never resolvable from the published engine ----
 #
@@ -1439,11 +1461,26 @@ def exec_cli(target: str, argv: Optional[List[str]] = None) -> None:
         # answered) is the only root tried; a missing target here fails
         # loud rather than silently reaching a second tree. See exec_cli's
         # own docstring, "C4b (RETIRED by C13)".
-        sys.stderr.write(
-            f"ERROR: coordinator helper '{target_path}' is missing under the "
-            f"resolved {resolution_class} root ('{claude_klabauter_root}') — run "
-            "python3 <engine-clone>/scripts/setup.py to repair the plugin tree\n"
-        )
+        stem = os.path.basename(target_path)
+        if stem.endswith(".py"):
+            stem = stem[:-3]
+        if stem in RETIRED_HELPER_STEMS:
+            # Nothing is missing to repair, so the repair route is withheld
+            # rather than offered: following it would try to restore a file
+            # that was deleted on purpose, and the operator would conclude a
+            # correct install is damaged. One fact, once, plus the terse
+            # alternative (`docs/wiki/guard-messaging.md` § Register).
+            sys.stderr.write(
+                f"ERROR: coordinator helper '{stem}' was retired — this "
+                "forwarder outlived it and does nothing. Remove it with "
+                "python3 <engine-clone>/scripts/setup.py\n"
+            )
+        else:
+            sys.stderr.write(
+                f"ERROR: coordinator helper '{target_path}' is missing under "
+                f"the {resolution_class} root ('{claude_klabauter_root}') — run "
+                "python3 <engine-clone>/scripts/setup.py to repair the plugin tree\n"
+            )
         sys.exit(127)
 
     if os.name == "nt":

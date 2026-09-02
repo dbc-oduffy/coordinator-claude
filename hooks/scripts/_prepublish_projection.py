@@ -264,19 +264,33 @@ def _import_percolate_store():
         if live_root is not None and live_root != claude_klabauter_root:
             candidates.append(live_root)
 
+    import_errors: "list[str]" = []
     for root in candidates:
         if (root / "coordinator_core" / "percolate" / "store.py").is_file():
             if str(root) not in sys.path:
                 sys.path.insert(0, str(root))
-            import coordinator_core.percolate.store as store_module  # noqa: PLC0415
+            try:
+                import coordinator_core.percolate.store as store_module  # noqa: PLC0415
+            except ImportError as exc:
+                # The file is on disk under this root and the import still failed, so
+                # `sys.modules` already binds `coordinator_core` to a DIFFERENT root
+                # whose package lacks `percolate` -- a whole-process condition no later
+                # candidate can undo, and one this projector cannot repair without
+                # evicting a package another caller in the process is using. Collect and
+                # raise the module's own unavailable signal: a caller that skips is
+                # correct here, and letting a bare ModuleNotFoundError escape turns every
+                # caller's "engine not resolvable, skip" branch into a hard error.
+                import_errors.append(f"{root}: {exc}")
+                continue
 
             return store_module
 
     raise ProjectionUnavailableError(
-        "coordinator_core.percolate.store not found under any resolved engine "
+        "coordinator_core.percolate.store not importable under any resolved engine "
         f"root ({', '.join(str(c) for c in candidates)}) -- the published-engine "
         "mirror rung omits coordinator_core/percolate and no live working tree "
-        "carries it either."
+        "carries it either"
+        + (f"; import failures: {'; '.join(import_errors)}" if import_errors else ".")
     )
 
 

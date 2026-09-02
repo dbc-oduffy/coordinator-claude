@@ -150,35 +150,52 @@ def resolve_settings_home() -> Path:
     return Path(base) / ".coordinator-claude-settings"
 
 
+# --- Shared forwarder resolution ---------------------------------------------
+_HOOKS_DIR = str(Path(__file__).resolve().parent)
+if _HOOKS_DIR not in sys.path:
+    sys.path.insert(0, _HOOKS_DIR)
+try:
+    from _forwarder_resolve import forwarder_argv as _forwarder_argv
+    from _forwarder_resolve import resolve_forwarder as _resolve_forwarder
+except Exception:
+    # Defensive fallback -- a deploy missing its sibling _forwarder_resolve.py must
+    # degrade to the pre-existing extensionless-only behaviour (which the caller
+    # already treats as a fail-open transport failure), never crash on import.
+    def _resolve_forwarder(bin_dir, name):  # type: ignore[misc]
+        candidate = bin_dir / name
+        return candidate if candidate.is_file() else None
+
+    def _forwarder_argv(script_path, tail=()):  # type: ignore[misc]
+        return [sys.executable, str(script_path), *tail]
+
+
 def resolve_backlog_grind_assemble_bin(settings_home: Path) -> Path | None:
     """Resolve the installed `backlog-grind-assemble` forwarder under
     `settings_home`.
 
-    Returns the extensionless forwarder (`bin/backlog-grind-assemble`) when
-    present, or None when it cannot be found -- the caller treats a None
-    return as a transport failure and fails open.
+    Returns the extensionless script or the native `.exe`, whichever the install
+    carries, or None when neither is found -- the caller treats a None return as a
+    transport failure and fails open.
 
-    Negative-spec: this deliberately does NOT resolve
-    `bin/backlog-grind-assemble.cmd` -- mirrors
-    `pickup-autofire.py::resolve_pickup_assemble_bin`'s negative-spec:
-    invoking the extensionless forwarder directly via
-    `[sys.executable, path, ...]` reaches the same target on every platform
-    without shelling out through `cmd.exe`.
+    Probing the extensionless name alone (what this did) resolved nothing on a
+    Windows box carrying the native-forwarder generation, so this autofire simply
+    stopped firing there, silently.
+
+    Negative-spec: still does NOT resolve `bin/backlog-grind-assemble.cmd` -- see
+    `_forwarder_resolve`'s negative-spec for why (`CreateProcess` cannot launch
+    one, and the two variants this DOES probe already cover every platform).
     """
-    candidate = settings_home / "bin" / "backlog-grind-assemble"
-    if candidate.is_file():
-        return candidate
-    return None
+    return _resolve_forwarder(settings_home / "bin", "backlog-grind-assemble")
 
 
 def backlog_grind_assemble_argv(script_path: Path, tail: list[str]) -> list[str]:
     """Build the subprocess argv for invoking the resolved forwarder.
 
-    Always `[sys.executable, script_path, *tail]` -- portable across macOS,
-    Linux, and Windows; see `resolve_backlog_grind_assemble_bin`'s
-    negative-spec for why this needs no `.cmd`/`cmd.exe` branch.
+    The interpreter prefix is decided by which variant resolved, not assumed: an
+    extensionless naked-Python script requires it, a native `.exe` must be launched
+    bare. See `_forwarder_resolve.forwarder_argv`.
     """
-    return [sys.executable, str(script_path), *tail]
+    return _forwarder_argv(script_path, tail)
 
 
 # --- Subprocess invocation (fail-open) ---------------------------------------

@@ -145,6 +145,20 @@ except Exception:
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
+try:
+    from _forwarder_resolve import forwarder_argv as _forwarder_argv  # noqa: E402
+    from _forwarder_resolve import resolve_forwarder as _resolve_forwarder  # noqa: E402
+except Exception:
+    # Defensive fallback -- a deploy missing its sibling _forwarder_resolve.py must
+    # degrade to the pre-existing extensionless-only behaviour (which the caller
+    # already treats as a fail-open transport failure), never crash on import.
+    def _resolve_forwarder(bin_dir, name):  # type: ignore[misc]
+        candidate = bin_dir / name
+        return candidate if candidate.is_file() else None
+
+    def _forwarder_argv(script_path, tail=()):  # type: ignore[misc]
+        return [sys.executable, str(script_path), *tail]
+
 # --- Constants -------------------------------------------------------------
 
 # The set of `command_name` values this hook reacts to. A plain set (not a
@@ -324,33 +338,30 @@ def resolve_settings_home() -> Path:
 def resolve_pickup_assemble_bin(settings_home: Path) -> Path | None:
     """Resolve the installed `pickup-assemble` forwarder under `settings_home`.
 
-    Returns the extensionless forwarder (`bin/pickup-assemble`) when present,
-    or None when it cannot be found — the caller treats a None return as a
+    Returns the extensionless script or the native `.exe`, whichever the install
+    carries, or None when neither is found — the caller treats a None return as a
     transport failure and fails open (AC9c), never a crash.
 
-    Negative-spec: this deliberately does NOT resolve `bin/pickup-assemble.cmd`
-    — that file is a Windows `cmd.exe` launcher whose own body execs the SAME
-    extensionless forwarder via `python "%~dp0pickup-assemble" %*` (confirmed
-    by reading the generated `.cmd` at authoring time). Invoking the
-    extensionless forwarder directly via `[sys.executable, path, ...]` reaches
-    the identical target on every platform without needing to shell out
-    through `cmd.exe` at all, so resolving the `.cmd` variant would only add
-    an indirection this hook has no reason to take.
+    Probing the extensionless name alone (what this did) resolved nothing on a
+    Windows box carrying the native-forwarder generation, so pickup autofire simply
+    stopped firing there, silently.
+
+    Negative-spec: still does NOT resolve `bin/pickup-assemble.cmd` — see
+    `_forwarder_resolve`'s negative-spec for why (`CreateProcess` cannot launch one,
+    and the extensionless script and native `.exe` between them cover every platform
+    the forwarder installer targets).
     """
-    candidate = settings_home / "bin" / "pickup-assemble"
-    if candidate.is_file():
-        return candidate
-    return None
+    return _resolve_forwarder(settings_home / "bin", "pickup-assemble")
 
 
 def pickup_assemble_argv(script_path: Path, tail: list[str]) -> list[str]:
     """Build the subprocess argv for invoking the resolved forwarder.
 
-    Always `[sys.executable, script_path, *tail]` — portable across macOS,
-    Linux, and Windows (see `resolve_pickup_assemble_bin`'s negative-spec for
-    why this needs no `.cmd`/`cmd.exe` branch).
+    The interpreter prefix is decided by which variant resolved, not assumed: an
+    extensionless naked-Python script requires it, a native `.exe` must be launched
+    bare. See `_forwarder_resolve.forwarder_argv`.
     """
-    return [sys.executable, str(script_path), *tail]
+    return _forwarder_argv(script_path, tail)
 
 
 # --- Subprocess invocation (fail-open per AC9c) ------------------------------

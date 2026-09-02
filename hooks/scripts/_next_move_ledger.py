@@ -356,14 +356,14 @@ def mark_fired(session_id: str, obligation_id: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Obligations-inbound intake -- the claude-klabauter->DoE fold
+# Obligations-inbound intake -- the engine->doctrine-plane fold
 # ---------------------------------------------------------------------------
 #
-# DoE is the SOLE WRITER of this ledger. The engine plane (`coordinator_core`)
+# The doctrine plane is the SOLE WRITER of this ledger. The engine plane (`coordinator_core`)
 # resolves obligations of its own and must not write these files: both planes
 # writing the same peer's ledger on the same Stop event is a read-modify-
 # whole-file-rewrite collision, the race `mark_fired` above already documents.
-# So the engine APPENDS rows to a separate, append-only intake file and DoE
+# So the engine APPENDS rows to a separate, append-only intake file and this plane
 # folds them in. One writer, one rewrite path, no shared file.
 #
 #   producer (engine) --append--> obligations-inbound.jsonl

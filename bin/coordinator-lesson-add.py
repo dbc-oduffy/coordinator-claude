@@ -63,7 +63,6 @@ def _bootstrap_imports() -> None:
 # When set, the dedup scan looks under <QUEUE_APPEND_OUTPUT_ROOT>/state/lessons/
 # (matching where coordinator-queue-append writes when this env var is set).
 _QUEUE_APPEND_OUTPUT_ROOT_ENV = "QUEUE_APPEND_OUTPUT_ROOT"
-_ISOLATION_ROOT_WARNED: set[str] = set()
 
 
 def _isolation_root(env_var: str, caller_name: str) -> str | None:
@@ -81,13 +80,19 @@ def _isolation_root(env_var: str, caller_name: str) -> str | None:
         return None
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return value
-    if env_var not in _ISOLATION_ROOT_WARNED:
-        _ISOLATION_ROOT_WARNED.add(env_var)
-        print(
-            f"{caller_name}: ignoring inherited {env_var}={value} — a test-isolation "
-            f"redirect outside a test run. Writing to the resolved repo path instead.",
-            file=sys.stderr,
-        )
+    # WARNS EVERY TIME, not once. The dedup set that used to live at module
+    # scope made this warn-once-per-PROCESS, and this name warm-serves: in a
+    # warm server the process outlives the request, so the first caller
+    # consumed the warning and every later caller was silently redirected with
+    # no signal at all. Per-request is the semantic that was wanted and module
+    # state cannot express it. The path is rare (an inherited isolation env var
+    # outside a test run), so repeating it costs a line on stderr and buys back
+    # the signal.
+    print(
+        f"{caller_name}: ignoring inherited {env_var}={value} — a test-isolation "
+        f"redirect outside a test run. Writing to the resolved repo path instead.",
+        file=sys.stderr,
+    )
     return None
 
 

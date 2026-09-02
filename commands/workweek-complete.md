@@ -215,7 +215,7 @@ reclassifications.
 
 ## Step 13: Version Bump — PM Confirmation Gate
 
-`docs/wiki/versioning-convention.md`, if present, is authority. Fallback: Major = breaking change
+`coordinator/docs/wiki/versioning-convention.md`, if present, is authority. Fallback: Major = breaking change
 in any `Decisions:` field; Minor = new feature/command; Patch = fixes/docs/refactors only.
 
 **This step is the weekly bump for the coordinator-plugin-triple anchor** — `plugin.json`
@@ -237,7 +237,7 @@ non-zero means a surface was missed.
 
 ## Step 14: Release Publish — Backstop Un-Draft
 
-Catch-all for work reaching main via direct daily-branch commits bypassing `/merge-to-main`'s
+Catch-all for work reaching main via direct daily-branch commits bypassing `/merging-to-main`'s
 tagged-publish leg. Precondition: PM confirmed version at Step 13 (`$VERSION_TAG`).
 
 `gh release view "$VERSION_TAG" --repo dbc-oduffy/coordinator-claude --json isDraft,isLatest`:
@@ -252,7 +252,7 @@ silently on the `~/.claude` meta-repo.
 
 ---
 
-## Step 15: `/merge-to-main`
+## Step 15: `/merging-to-main`
 
 Invoke only after PM has confirmed release notes (Step 12) and version (Step 13). Do NOT inline
 merge logic.
@@ -373,7 +373,7 @@ the record, absence here is not evidence the step was skipped.
 
 - **Auto-fire.** PM-invoked; `/workday-complete` surfaces the staleness signal.
 - **Re-author from git log.** The week-changelog is the canonical record.
-- **Push directly to main.** Step 15 delegates to `/merge-to-main`.
+- **Push directly to main.** Step 15 delegates to `/merging-to-main`.
 - **Delete release notes or handoffs.** Only daily changelog files are archived.
 - **Touch trail records via `/distill` or `/update-docs`/handoff-archival.** Trail JSON is
   archived in Step 18 only.

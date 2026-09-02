@@ -76,3 +76,21 @@ exceptions:
       admitted by claude-klabauter-em during the 2026-08-21 scaffold-resolution
       close, when this check fail-closed every publish round fleet-wide; the
       decision to ship a binary at all is its author's, unchanged by this entry.
+  - path: "coordinator/bin/published-name-map.json"
+    reason: >-
+      The door-facing src->dst basename map, emitted by the process that
+      performs the rename (coordinator_core/percolate/rewrite_basename.py
+      `emit_door_name_map_for_row`, called from both sanctioned publish
+      routes). It CANNOT exist before the content-transform sweep it reports
+      on: the sweep is what produces the rename manifest the map is built
+      from, so on the `coordinator-publish` route the map is written into the
+      staging tree immediately after the post_rsync phase and "never visited
+      by this run's sweep" is the only possible outcome, not evidence of a
+      routing gap. Nothing in it needs substituting either: its values ARE
+      published names -- the sweep's own output -- and its keys are source
+      basenames the door must ask for verbatim (see that module's negative
+      spec: the mapping is not derivable from a token rewrite, so it is
+      shipped, never inferred). Same class as
+      `coordinator_core/warm/door/door.exe` above: a file the sweep is
+      structurally unable to have visited cannot be held against it for not
+      having been visited.

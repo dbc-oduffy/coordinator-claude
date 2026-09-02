@@ -137,10 +137,15 @@ and why. A tick closing on "nothing sent" with no declination is indistinguishab
 never looked.
 
 **And each tick STAMPS them to disk**, via `watch_heartbeat.stamp(repo_root, holder_session_id,
-declinations, interval_seconds, subscribed_peers=…, tick_source=…)`. Copy that order: `declinations`
-is the THIRD positional and `interval_seconds` the fourth and required, so a call shaped
-`(repo_root, session_id, name, source, declinations)` raises rather than stamping — and a tick that
-raises here is exactly the tick that cannot tell "looked, nothing to do" from "did not look".
+declinations, interval_seconds, subscribed_peers=…, tick_source=…, writer_session_id=…)`. Copy that
+order: `declinations` is the THIRD positional and `interval_seconds` the fourth and required, so a
+call shaped `(repo_root, session_id, name, source, declinations)` raises rather than stamping — and
+a tick that raises here is exactly the tick that cannot tell "looked, nothing to do" from "did not
+look". `writer_session_id` is a keyword, **optional in the signature and required at runtime**: the
+call raises on a falsy value, so an omitting call refuses once and succeeds only on the retry. It is
+YOUR session id — the instrument doing the writing — which is not `holder_session_id` when a
+delegate arm stamps on the crown's behalf; the two together are what let a reader tell one crown's
+two instruments apart from two crowns racing.
 `tick_source` is `cron` or `monitor` and is a KEYWORD, never positional; entry stamps its own.
 `declinations` is THIS tick's rows only — each `{session_id, name, gate, reason}`, never an
 accumulating history; a tick that declined nothing passes `[]`. `subscribed_peers` is the count your
@@ -152,6 +157,13 @@ in your context dies with you.
 root they raise `ModuleNotFoundError` before doing anything. Run them from an engine-rooted cwd, or
 via `<settings-home>/bin/group-em-watch`. A tick that assumes the import worked reports a stamp it
 never wrote.
+
+**The wake has a producer now; you arm nothing for it.** Every session's own `Stop` appends one
+line to `state/group-em-watch-spool.jsonl` when its park verdict lands
+(`coordinator/hooks/scripts/group-em-park-spool.py`, registered in `stop-dispatch.py`). It is a
+hook, so it needs no entry step and no holder — but it only fires where this plugin's hooks are
+installed, and the wake that drains it still has to be run by one of your three clocks. A spool
+with lines in it and no drain is not coverage.
 
 **The clock's absence is silent, which is why it is named at entry every time.** A tick is
 session-only: nothing on disk creates it or records that it existed. A fleet with no watcher and
