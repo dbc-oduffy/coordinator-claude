@@ -40,3 +40,4 @@ tasks/_*.log
 # working memory, not published product: tracking it makes each round's manifest a diff
 # in the next one. See coordinator-tripwires/a-rounds-own-manifest-is-not-payload.md.
 .percolate/
+/.percolate
