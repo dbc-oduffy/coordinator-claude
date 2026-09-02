@@ -81,16 +81,15 @@ def render_presence_line(watch_result: dict | None) -> str | None:
     if not holder_name and not holder_session_id:
         return None
     if holder_name:
-        return f"This repo's Group EM standing is held by {holder_name}, reachable by that name."
+        return f"Group EM standing is held by {holder_name}, reachable by that name."
     if watch_result.get("verdict") == _watch_module.vacant_verdict():
         return (
-            f"This repo's Group EM standing is on record to session {holder_session_id}, which is "
-            "no longer in the live registry -- that session has ended, so the record names a "
-            "holder nobody is. Do not go looking for them."
+            f"Group EM standing is on record to session {holder_session_id}, which has "
+            "ended -- the record names a holder nobody is. Do not go looking."
         )
     return (
-        f"This repo's Group EM standing is held by session {holder_session_id}, whose registry row "
-        "carries no name -- `ListAgents` resolves it if you need to reach them."
+        f"Group EM standing is held by session {holder_session_id}, whose registry row "
+        "carries no name -- `ListAgents` resolves it."
     )
 
 

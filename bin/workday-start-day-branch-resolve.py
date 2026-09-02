@@ -274,10 +274,46 @@ def cmd_day_branch_assert(args: argparse.Namespace) -> int:
     from coordinator_core.hooks.day_branch_assert import FAILED, assert_day_branch
     from coordinator_core.machine_resolver import compute_machine
 
+    from coordinator_core.ops.ceremony.push import publish_day_branch
+
     repo_root = args.repo_root if args.repo_root else os.getcwd()
     result = assert_day_branch(repo_root, compute_machine(), local_day())
     if result.message:
         print(result.message)
+
+    # The publish leg. `assert_day_branch` runs `session_ensure_branch` with
+    # `caller="boot"`, whose whole contract is NO NETWORK CALL -- it cuts the
+    # branch and leaves the upstream to someone else. Until this leg existed,
+    # nobody was that someone: the comment in `_cut_or_adopt`'s boot arm names
+    # `auto_push.push_once`, and the per-commit push that reached it was
+    # deleted by C6/C7 of docs/plans/2026-08-30-who-pushes-and-when.md. The
+    # cadence that replaced it pushes with a bare `git push`, which a branch
+    # with no upstream refuses outright. So a boot-cut day branch got an
+    # upstream from no path at all, and on 2026-09-02 carried 102 commits with
+    # no remote copy until a human published it by hand.
+    #
+    # It lives HERE, in the ceremony CLI, and not in `assert_day_branch`,
+    # because the two entry points have different budgets for the same
+    # dispatch: this subcommand is invoked by `/workday-start` and
+    # `/workweek-start`, ceremonies an operator is already waiting on, where
+    # one round trip to the remote is affordable; `assert_day_branch`'s other
+    # caller is the SessionStart fan-in, which runs under a single shared 10s
+    # timeout with no per-guard budget and must stay local (see
+    # `day_branch_assert`'s own boot-cost negative-spec). Putting the publish
+    # in the shared function would have put a cold-connection push inside that
+    # budget on every one of ~50 daily session boots.
+    #
+    # Not a nudge and not conditional on the operator noticing anything: the
+    # ceremony publishes, or says why it could not. `publish_day_branch` is
+    # idempotent and costs two config reads plus zero spawns once the day's
+    # first ceremony has run, and it will only ever publish a branch
+    # `daily_branch.is_canonical_branch` accepts.
+    outcome, detail = publish_day_branch(repo_root)
+    if outcome == "published":
+        print(f"day-branch: published {detail}")
+    elif outcome == "failed":
+        print(f"day-branch: publish FAILED -- {detail}", file=sys.stderr)
+
     return 1 if result.outcome == FAILED else 0
 
 

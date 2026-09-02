@@ -253,7 +253,7 @@ FIXED_PORT = 47623
 #: one and never becomes one; it is a legitimate ordinary-defer holder. The full holder contract
 #: -- route, status, body, version, budget, and the `POST /hook` obligation the marker also
 #: claims -- is written down at `hook-seam-warm-reach-contract.md` § The fixed-port succession
-#: (claude-klabauter `fa736c9dba`), and is pinned engine-side by
+#: (engine repo `fa736c9dba`), and is pinned engine-side by
 #: `coordinator_core/warm/tests/test_front_door_succession_contract.py`.
 #:
 #: SPELT AS LITERALS, NOT IMPORTED, for the identical reason `COOKIE_HEADER_NAME` below is: this

@@ -41,7 +41,7 @@ which reports only that the script is present and executable. It returns green o
 real invocation then fails.
 
 Full execution proof on Windows is tracked in this repo's dogfood log rather than re-run per doc
-edit — see `docs/plans/2026-08-07-windows-pc-install-repair-and-dogfood-log.md`, a DoE-claude
+edit — see `docs/plans/2026-08-07-windows-pc-install-repair-and-dogfood-log.md`, a doctrine-repo
 authoring-repo working-data doc with no OSS-mirror counterpart.
 
 ## Step 1e — engine-root export, and the retired token
@@ -90,7 +90,7 @@ with no explanation.
 ## Percolation surface — full detail
 
 Percolation (`python "$(python3 coordinator/hooks/scripts/_engine_root.py)/coordinator/bin/publish.py"`
-— this driver migrated to claude-klabauter in commit `b644d5a9`, resolved via the engine-root seam,
+— this driver migrated to the engine repo in commit `b644d5a9`, resolved via the engine-root seam,
 not this repo — driven by `/percolate`) resolves its runtime root (`PERCOLATE_ROOT`) via a
 four-rung chain — see `coordinator/docs/wiki/percolate-setup.md § PERCOLATE_ROOT Resolution` for
 the full mechanism. A fresh-machine install produces a *working* percolation surface only if all
@@ -124,7 +124,7 @@ the version-consistency gate as "not found" is not a clean install either — it
 `$(python3 coordinator/hooks/scripts/_engine_root.py)/coordinator/bin/`) didn't resolve, and
 publishing would proceed with that surface unchecked.
 
-**Why rung 2 (repo-local resolution) needs a root-level `setup/`:** DoE-claude's plugin root is the
+**Why rung 2 (repo-local resolution) needs a root-level `setup/`:** this repo's plugin root is the
 `coordinator/` subdirectory, not the repo root, so a bare clone with no root `setup/` falls through
 repo-local resolution and silently resolves against `~/.claude` instead — see the wiki's §
 one-level-offset trap. The maximalist installer keeps the repo-root `setup/` tree in sync with

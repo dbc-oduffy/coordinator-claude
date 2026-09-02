@@ -56,6 +56,16 @@ ADOPTED_EXISTING = "ADOPTED-EXISTING"
 #: for it rather than folding it into either.
 INHERITED = "INHERITED"
 
+#: Today's branch existed but lagged HEAD -- every commit it carried was
+#: already reachable from HEAD (the ordinary post-/merging-to-main state), so
+#: its ref was advanced to HEAD and checked out. Content-neutral in exactly
+#: the sense a fresh cut is: HEAD's commit does not move, no file is touched,
+#: no index entry changes, and no commit is discarded (the ancestor test
+#: below is what proves the last of those). NOT "FRESH-CUT" (no new ref was
+#: minted) and NOT "ADOPTED-EXISTING" (a ref DID move); callers branching on
+#: the result MUST carry an arm for it.
+ADVANCED_TO_HEAD = "ADVANCED-TO-HEAD"
+
 #: Bounded window a lock-loser polls for the winner's branch before falling
 #: through to the timeout arm.
 _INHERIT_POLL_SECONDS = 2.0
@@ -102,6 +112,27 @@ def _current_branch_now() -> str:
 
 def _head_sha(rev: str = "HEAD") -> str:
     return _git_capture(["git", "rev-parse", rev])
+
+
+def _is_ancestor_of_head(rev: str) -> bool:
+    """True iff every commit reachable from *rev* is already reachable from
+    HEAD -- i.e. advancing *rev* to HEAD discards nothing.
+
+    The whole safety argument for the ADVANCED_TO_HEAD arm rests on this
+    one predicate, so it fails CLOSED: `git merge-base --is-ancestor` exits
+    1 for "not an ancestor" and 128 for an unresolvable rev, and only exit 0
+    is accepted. A missing git, an unreadable object, a broken ref -- every
+    one of them reads as "not an ancestor" and routes to the unchanged
+    refusal, never to a ref move.
+    """
+    from coordinator_core.win_portability import no_console_creationflags
+
+    proc = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", rev, "HEAD"],
+        capture_output=True,
+        **no_console_creationflags(),
+    )
+    return proc.returncode == 0
 
 
 def _parses_as_branch_span(name: str) -> bool:
@@ -153,9 +184,23 @@ def session_ensure_branch(
         SYNCHRONOUS ``git push -u``.
       "boot" — the SessionStart invariant (see
         ``coordinator_core/hooks/day_branch_assert.py``). ``main`` ONLY,
-        the adopt-existing arm instead of the -N loop, and NO network call:
-        the push is left to ``auto_push.push_once``, which already pushes
-        with ``--set-upstream``.
+        the adopt-existing / advance-to-HEAD arms instead of the -N loop,
+        and NO network call.
+
+        Correction of record (2026-09-02): this used to say the boot path's
+        push "is left to ``auto_push.push_once``, which already pushes with
+        ``--set-upstream``." That has been false since C6/C7 of
+        ``docs/plans/2026-08-30-who-pushes-and-when.md`` deleted the
+        per-commit detached push; the cadence that replaced it
+        (``warm.push_cadence``) reaches ``git_native.push``, a BARE
+        ``git push``, which a branch with no upstream refuses outright. A
+        boot-cut day branch therefore got an upstream from no path at all.
+        The publish now belongs to the CEREMONY leg
+        (``coordinator/bin/workday-start-day-branch-resolve.py``'s
+        ``day-branch-assert`` subcommand, via
+        ``ops.ceremony.push.publish_day_branch``), with
+        ``push_with_retry``'s no-upstream arm as the backstop. Do not
+        re-add a network call here.
 
     Two axes (admission width and push synchrony) always move together, so
     they are one parameter rather than two booleans that could be combined
@@ -163,8 +208,13 @@ def session_ensure_branch(
     inside the fan-in's 10s budget, which is exactly the shape being
     avoided.
 
-    Negative-spec — the result vocabulary now has FIVE values and callers
+    Negative-spec — the result vocabulary now has SIX values and callers
     that branch on it MUST carry an arm for each. In particular:
+      - ``ADVANCED-TO-HEAD`` means today's branch existed but lagged HEAD
+        (the ordinary post-``/merging-to-main`` state) and its ref was
+        advanced to HEAD and checked out. NOT ``ADOPTED-EXISTING`` (a ref
+        moved) and NOT ``FRESH-CUT`` (no ref was minted). Reached ONLY when
+        the old ref is an ancestor of HEAD, so nothing is discarded.
       - ``INHERITED`` is NOT ``FRESH-CUT`` (this session did not cut) and
         NOT ``REFUSED-LIVE-PEERS`` (the invariant HOLDS — some session cut
         and this one is on the branch). Folding it into either misreports a
@@ -320,7 +370,8 @@ def _cut_or_adopt(*, target: str, is_boot: bool, env, err) -> EnsureResult:
             # raise SuffixCollisionError INSIDE a SessionStart hook on the
             # 10th. The cut mutex does not help -- it serialises CONCURRENT
             # boots, not sequential ones hours apart.
-            if _head_sha() and _head_sha() == _head_sha(new_branch):
+            head_sha = _head_sha()
+            if head_sha and head_sha == _head_sha(new_branch):
                 run_forwarding(
                     ["git", "checkout", new_branch],
                     env=_checkout_env(env),
@@ -331,10 +382,43 @@ def _cut_or_adopt(*, target: str, is_boot: bool, env, err) -> EnsureResult:
                 )
                 print(f"ADOPTED-EXISTING branch={new_branch}")
                 return EnsureResult(result=ADOPTED_EXISTING, new_branch=new_branch)
+
+            # The post-/merging-to-main state, and the reason this whole arm
+            # exists. On 2026-09-02 today's branch was merged to `main` and
+            # the tree returned to `main`, which left the local day-branch ref
+            # BEHIND HEAD. Every subsequent boot found the branch existing,
+            # found HEAD not at its tip, refused, printed the banner, and left
+            # the tree on `main` -- for forty minutes and fifteen commits,
+            # because nothing in the system ever repaired it. A detector that
+            # reports the same true fact on every boot and changes nothing is
+            # not a guard; the repair is the guard.
+            #
+            # Advancing the ref is content-neutral in exactly the sense the
+            # fresh cut this function otherwise performs is: `checkout -B` at
+            # HEAD leaves HEAD's commit where it is, touches no file and no
+            # index entry, and -- given the ancestor test -- discards no
+            # commit, because every commit the old ref named is already
+            # reachable from HEAD. What it is NOT is a `checkout` of a
+            # different commit, which is the hazard the refusal below still
+            # covers: a branch carrying commits HEAD does not have is genuine
+            # divergence, moving HEAD onto it would yank every live peer's
+            # tree, and that case is refused exactly as before.
+            if _is_ancestor_of_head(new_branch):
+                run_forwarding(
+                    ["git", "checkout", "-B", new_branch, "HEAD"],
+                    env=_checkout_env(env),
+                    stdout=err,
+                    stderr=err,
+                    check=True,
+                    **no_console_creationflags(),
+                )
+                print(f"ADVANCED-TO-HEAD branch={new_branch}")
+                return EnsureResult(result=ADVANCED_TO_HEAD, new_branch=new_branch)
+
             print(
                 f"REFUSED-LIVE-PEERS branch={new_branch} reason=today's branch "
-                "already exists and HEAD is not at its tip; checking it out "
-                "would MOVE HEAD, which case (A) does not cover -- never "
+                "already exists and carries commit(s) HEAD does not; checking "
+                "it out would MOVE HEAD, which case (A) does not cover -- never "
                 "adopted silently",
                 file=err,
             )
@@ -372,9 +456,12 @@ def _cut_or_adopt(*, target: str, is_boot: bool, env, err) -> EnsureResult:
         # a single shared 10s timeout with no per-guard budget; a cold-
         # connection push to GitHub routinely exceeds it, and a harness kill
         # mid-push leaves the cut lock held by a dead process for the whole
-        # stale-grace window. auto_push.push_once already pushes with
-        # --set-upstream, so upstream is still established -- just not from
-        # inside the fan-in's budget.
+        # stale-grace window. The upstream is established by the CEREMONY
+        # leg instead (workday-start-day-branch-resolve.py's
+        # day-branch-assert subcommand -> publish_day_branch), with
+        # push_with_retry's no-upstream arm as the backstop -- NOT by
+        # auto_push.push_once, whose per-commit caller C6/C7 of
+        # docs/plans/2026-08-30-who-pushes-and-when.md deleted.
         print(f"FRESH-CUT branch={new_branch}")
         return EnsureResult(result="FRESH-CUT", new_branch=new_branch)
 

@@ -209,6 +209,16 @@ completed YYYY-MM-DD HH:MM) — EM ratification pending`.
 Would the decision visibly affect the architecture or public surface? Flag it. Purely a factual
 question with one correct answer? Decide it.
 
+**Match the instrument to the claim's verb.** A fact you decide independently is only as good as
+the check that produced it, and the common failure is answering a different verb than the one you
+were asked. *Is this behind?* → load the module, or diff it against its own history. *Is this
+absent?* → search, with a positive control that you can see match something known-present. *Is
+this unreachable?* → construct the reachable case. *Is this broken?* → run it. A pattern search
+answers only *does this spelling appear*, and it coincides with the other verbs almost always,
+which is exactly why the gap goes unnoticed. Where verb and instrument diverge, you have strong
+evidence for a different claim, not weak evidence for this one. Why:
+`coordinator/docs/wiki/coordinator-tripwires/the-instrument-must-match-the-claims-verb.md`.
+
 ---
 
 ## NEEDS_COORDINATOR Format

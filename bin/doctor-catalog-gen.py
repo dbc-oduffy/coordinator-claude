@@ -51,8 +51,45 @@ GENERATES = []  # --write targets coordinator-doctor.md at the resolved wiki pat
 # Sentinel markers (must stay byte-identical across all write/check operations)
 # ---------------------------------------------------------------------------
 
-BEGIN_MARKER = "<!-- BEGIN generated-probe-metadata (from claude-klabauter coordinator/bin/doctor-probes.toml — regenerate via claude-klabauter coordinator/bin/doctor-catalog-gen.py; do not hand-edit) -->"
+# THE MARKER CARRIES NO REPO NAME, AND MUST NOT REGAIN ONE. It used to open
+# "from claude-klabauter coordinator/bin/doctor-probes.toml — regenerate via
+# claude-klabauter ...". Publish depersonalizes that name, so the mirror's copy of
+# this generator looked for a "from claude-klabauter ..." marker while the wiki
+# carried the claude-klabauter spelling. The two copies could never validate the same
+# page: whichever one you did not run reported markers-not-found, and its own
+# message then told you to --write, which appends a SECOND block beside the
+# existing one rather than replacing it. Reported by doe-claude-b1 2026-09-02,
+# who hit the mismatch and ran the other copy instead of following it.
+#
+# Same rule as `sentinel.py::_whoami_plugin_modules` and P-9's remediation
+# text: a depersonalized name must never reach a value that has to match. The
+# provenance it used to carry lives in this module's docstring, where a rewrite
+# costs a reader nothing.
+BEGIN_MARKER = "<!-- BEGIN generated-probe-metadata (regenerate via coordinator/bin/doctor-catalog-gen.py; do not hand-edit) -->"
 END_MARKER = "<!-- END generated-probe-metadata -->"
+
+#: Marker spellings written before the repo name came out. Recognised when
+#: LOCATING an existing block so a wiki written by either copy is migrated in
+#: place on the next --write, never appended beside. Never written back.
+LEGACY_BEGIN_MARKERS = (
+    "<!-- BEGIN generated-probe-metadata (from claude-klabauter coordinator/bin/doctor-probes.toml — regenerate via claude-klabauter coordinator/bin/doctor-catalog-gen.py; do not hand-edit) -->",
+    "<!-- BEGIN generated-probe-metadata (from claude-klabauter coordinator/bin/doctor-probes.toml — regenerate via claude-klabauter coordinator/bin/doctor-catalog-gen.py; do not hand-edit) -->",
+)
+
+
+def find_begin_marker(wiki_text: str) -> "str | None":
+    """The BEGIN marker spelling actually present in `wiki_text`, or None.
+
+    Prefers the current spelling, then any legacy one. Returning the spelling
+    rather than a bool lets the caller slice on the exact bytes it found, which
+    is what makes a legacy block get REPLACED instead of orphaned.
+    """
+    if BEGIN_MARKER in wiki_text:
+        return BEGIN_MARKER
+    for legacy in LEGACY_BEGIN_MARKERS:
+        if legacy in wiki_text:
+            return legacy
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -148,9 +185,10 @@ def replace_block_in_wiki(wiki_text: str, new_block: str) -> str:
     Exits 1 if duplicate markers are found (silently truncating on first
     occurrence would corrupt the wiki).
     """
-    begin_count = wiki_text.count(BEGIN_MARKER)
+    begin_marker = find_begin_marker(wiki_text)
+    begin_count = wiki_text.count(begin_marker) if begin_marker else 0
     end_count = wiki_text.count(END_MARKER)
-    if BEGIN_MARKER in wiki_text or END_MARKER in wiki_text:
+    if begin_marker is not None or END_MARKER in wiki_text:
         if begin_count != 1 or end_count != 1:
             print(
                 f"error: expected exactly one BEGIN and one END marker, "
@@ -159,7 +197,7 @@ def replace_block_in_wiki(wiki_text: str, new_block: str) -> str:
                 file=sys.stderr,
             )
             sys.exit(1)
-        before = wiki_text[: wiki_text.index(BEGIN_MARKER)]
+        before = wiki_text[: wiki_text.index(begin_marker)]
         after = wiki_text[wiki_text.index(END_MARKER) + len(END_MARKER) :]
         return before + new_block + after
     else:
@@ -170,9 +208,10 @@ def replace_block_in_wiki(wiki_text: str, new_block: str) -> str:
 
 def extract_committed_block(wiki_text: str) -> str | None:
     """Return the block (including markers) currently in the wiki, or None."""
-    if BEGIN_MARKER not in wiki_text or END_MARKER not in wiki_text:
+    begin_marker = find_begin_marker(wiki_text)
+    if begin_marker is None or END_MARKER not in wiki_text:
         return None
-    start = wiki_text.index(BEGIN_MARKER)
+    start = wiki_text.index(begin_marker)
     end = wiki_text.index(END_MARKER) + len(END_MARKER)
     return wiki_text[start:end]
 

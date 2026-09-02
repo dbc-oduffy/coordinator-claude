@@ -1,6 +1,6 @@
 <!-- Canonical source, read directly — NOT a synced snippet: no BEGIN sentinel, no embedding -->
 <!-- consumers, not in the snippet registry (`verify-snippet-sync` exits 2 on this name). -->
-<!-- Rule only. Rationale, measured door latencies and worked examples live in the DoE doctrine wiki (dev clone), page `coordinator-cli-resolution-rationale` -->
+<!-- Rule only. Rationale, measured door latencies and worked examples live in the doctrine wiki (dev clone), page `coordinator-cli-resolution-rationale` -->
 
 **What this is.** The ONE canonical way a skill/command/agent-prompt invokes a coordinator CLI
 (`coordinator-doc-new`, `coordinator-queue-append`, etc.): through the per-CLI launcher installed
@@ -147,10 +147,10 @@ none of them — nothing is there to invoke, so never take the launcher path; it
 **The generator gap — one CLI.** `platform-localize` installs a `.py`/`.cmd` pair only: no bare
 name, no `.exe`. Take rung 1 or 3, never a different resolution mechanism.
 
-**Plugin-local `coordinator/bin/` — the DoE-claude set, ~28 scripts.** The derived launcher set
+**Plugin-local `coordinator/bin/` — the doctrine-repo set, ~28 scripts.** The derived launcher set
 walks the ENGINE's bin, so a script that lives only in the doctrine repo's `coordinator/bin/` gets
 no launcher, ever. Cite it against the **plugin root**, never cwd-relative: a bare
-`coordinator/bin/<cli>.py` resolves only in a session whose cwd is DoE-claude, and a ceremony read
+`coordinator/bin/<cli>.py` resolves only in a session whose cwd is the doctrine repo, and a ceremony read
 from a consumer repo gets `can't open file`. The prescribed rung, correct under both the dev-tree
 and OSS-plugin-install layouts:
 

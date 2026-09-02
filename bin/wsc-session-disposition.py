@@ -798,21 +798,37 @@ def _session_claim_cli_argv(cli_path: Path) -> list[str]:
     ``find_session_claim_cli`` resolves either the in-repo
     ``session-claim-cli.py`` sibling or the settings-home installed shim
     (the bare ``session-claim-cli`` name the install chain maps ``.py``
-    sources onto) — neither carries a shebang or an exec bit post-C6/C4, so
-    a bare-path launch fails on POSIX (no exec permission) exactly as it
-    fails on Windows (CreateProcess WinError 193 — "%1 is not a valid Win32
-    application", which also does not interpret ``#!`` lines). Route through
-    this interpreter explicitly on both platforms; a ``.cmd`` sibling (never
-    produced by ``find_session_claim_cli`` today, kept for forward
-    compatibility) IS directly executable and stays bare. Mirrors
-    ``workday-complete-reconcile.py``'s ``_cruft_sweep_argv`` — the same
-    interpreter-invocation rung, not the ``.cmd``-sibling rung.
+    sources onto). A shebang-less, non-executable target must be routed
+    through this interpreter: a bare-path launch fails on POSIX (no exec
+    permission) exactly as it fails on Windows (CreateProcess WinError 193 —
+    "%1 is not a valid Win32 application", which also does not interpret
+    ``#!`` lines). A ``.cmd`` sibling (never produced by
+    ``find_session_claim_cli`` today, kept for forward compatibility) IS
+    directly executable and stays bare. Mirrors
+    ``workday-complete-reconcile.py``'s ``_cruft_sweep_argv``.
+
+    NEGATIVE SPEC — "the installed shim carries no exec bit" is no longer a
+    standing fact and must never be reintroduced as one. That premise held
+    this rung dormant, and the native-door cutover (2026-09-02) falsified it
+    by installing an executable compiled image at the same bare name: the
+    rung opened and handed a Mach-O binary to this interpreter. Discriminate
+    on the exec bit at call time, never on an assumption about the installer.
 
     Detector C reads this call's exit code as a real signal (a non-zero rc
     makes the disposition indeterminate), so an unrunnable CLI here does not
     fail open — it surfaced as a hard brief() crash before this fix.
     """
     if os.path.splitext(str(cli_path))[1] == ".cmd":
+        return [str(cli_path)]
+    # The exec bit this rung once relied on being ABSENT is now the signal that
+    # the target must NOT be interpreted: the native-door cutover installs a
+    # compiled image at the bare settings-home name and sets it executable.
+    # Mirrors `coordinator_core.launchable.resolve_launchable`'s POSIX arm,
+    # inlined rather than imported because this module binds its engine imports
+    # through `_bootstrap_engine_imports` and this helper must stay callable
+    # without it. Windows stays on the interpreter: `os.access(X_OK)` is true
+    # for any existing file there, so it carries no signal.
+    if os.name != "nt" and not str(cli_path).endswith(".py") and os.access(cli_path, os.X_OK):
         return [str(cli_path)]
     return [sys.executable, str(cli_path)]
 

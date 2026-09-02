@@ -431,7 +431,7 @@ def _exc_reason(exc: Exception) -> str:
     `del snippet_path` in the composer below drops the absolute path from that
     banner deliberately -- and `str(OSError)` puts it straight back, because
     `OSError.__str__` appends the filename it failed on. A session in a third
-    repo then reads a DoE-claude snippets path out of a plugin it never
+    repo then reads a doctrine-repo snippets path out of a plugin it never
     invoked: the exact leak class this surface exists to close, arriving
     through an exception rather than an f-string.
 

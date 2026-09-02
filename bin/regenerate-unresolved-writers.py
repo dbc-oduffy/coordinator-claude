@@ -71,8 +71,31 @@ REVIEW_WINDOW_DAYS = 90
 GENERATES = [
     {
         "artifact": "state/generator-provenance/unresolved-writers.json",
-        "stamp_key": "generated",
-        "sources": ["coordinator/bin/regenerate-unresolved-writers.py"],
+        "stamp_key": "verified_at",
+        # `stamp_key` is `verified_at`, NOT `generated`, and the two mean
+        # different things on purpose. `generated` moves only when the entry SET
+        # moves -- the reviewable signal the artifact's own `$schema_note`
+        # argues for, and worth keeping churn-free. `verified_at` moves on every
+        # successful run, including a run that changes nothing.
+        #
+        # Staleness needs the second one. Reading `generated` made this pair
+        # unclearable: a source edit that left the derived set alone marked the
+        # pair STALE, and the only sanctioned remediation ("re-run the
+        # generator") could not move a stamp gated behind `if changed:`. The
+        # probe stayed red with nothing an operator could do about it.
+        #
+        # `sources` names where the derivation actually LIVES, not just this
+        # CLI. The set is computed by `generator_provenance.discover_generators`
+        # (and the write-behaviour AST walk under it); this file only calls it
+        # and writes the result. Listing only this file meant an edit to the
+        # real derivation logic -- the change that can genuinely invalidate the
+        # baseline -- registered as no staleness at all, while an edit to this
+        # trampoline registered as staleness it could not clear. Both halves
+        # were backwards.
+        "sources": [
+            "coordinator/bin/regenerate-unresolved-writers.py",
+            "coordinator_core/ops/generator_provenance.py",
+        ],
     },
 ]
 
@@ -225,11 +248,22 @@ def main(argv: list[str] | None = None) -> int:
             )
             changed = True
 
+    # A run that changed nothing still PROVES the baseline matches the observed
+    # set right now, and that proof is the whole staleness answer -- so it is
+    # recorded whether or not the set moved. `generated` stays gated behind
+    # `changed` so it keeps meaning "the set last moved here".
+    # Only a run that was ASKED to write may stamp. The default (no-flag)
+    # invocation is a read-only drift report and stays one -- an affirmation of
+    # currency is still a write, and a reporting mode that mutates the artifact
+    # it reports on is the surprise this guard exists to prevent.
+    writing_mode = bool(args.write or args.add_missing)
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    write_needed = changed or (writing_mode and baseline.get("verified_at") != now)
     if changed:
+        baseline["generated"] = now
+    if write_needed:
         baseline["generator"] = "coordinator/bin/regenerate-unresolved-writers.py"
-        baseline["generated"] = datetime.datetime.now(datetime.timezone.utc).strftime(
-            "%Y-%m-%dT%H:%M:%SZ"
-        )
+        baseline["verified_at"] = now
         # DR-276: this CLI reads via `generator_provenance.discover_generators`
         # (a library function, not an op `main(argv)` -- no op entrypoint to
         # route through `run_op_main`) and writes the baseline itself. Wrapped

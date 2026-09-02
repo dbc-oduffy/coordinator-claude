@@ -20,6 +20,14 @@ are already installed there. Seeding the family, pruning orphans, and the bin
 manifest belong to the install substrate; a hook that added names would fight that
 manifest and silently resurrect what the installer just pruned. Falling behind and
 being absent are different failures, and only the first one is this module's.
+
+NEGATIVE-SPEC — this never overwrites a COMPILED NATIVE IMAGE. A cut-over door
+installs as `<name>.exe` on Windows and as the extensionless bare name on POSIX,
+so a template name that ever collides with a cut-over name would otherwise
+un-cut-over that door: a Mach-O/ELF/PE entry replaced by Python source, with the
+door's execute bit carried over, so every caller that execs it directly gets a
+file the loader cannot run. Name-only matching is what makes that reachable, and
+the refusal is on the file's own bytes because those are the only honest answer.
 """
 
 from __future__ import annotations
@@ -41,6 +49,21 @@ _STAMP_BASENAME = ".impl-drift-checked"
 _BAKED_PY_LINE = re.compile(r'^set "_py=.*"$', re.MULTILINE)
 
 _TOKEN_PY_LINE = 'set "_py=__PYTHON_BIN__"'
+
+# Leading bytes of every native-image format a door install can produce: Mach-O
+# (both endiannesses plus the fat/universal header), ELF, and PE. Mirrors the
+# engine's `coordinator_core.install.door_install.NATIVE_IMAGE_MAGIC`, pinned
+# against it by test_bin_impl_drift; carried locally because this hook must run
+# with no engine import at all (see `_engine_root`'s module docstring).
+_NATIVE_IMAGE_MAGIC = (
+    b"\xcf\xfa\xed\xfe",
+    b"\xce\xfa\xed\xfe",
+    b"\xfe\xed\xfa\xcf",
+    b"\xfe\xed\xfa\xce",
+    b"\xca\xfe\xba\xbe",
+    b"\x7fELF",
+    b"MZ",
+)
 
 
 def _templates_bin() -> Path:
@@ -71,6 +94,23 @@ def _normalise_for_compare(text: str) -> str:
     """
     text = text.replace("\r", "")
     return _BAKED_PY_LINE.sub(_TOKEN_PY_LINE, text)
+
+
+def _is_native_image(path: Path) -> bool:
+    """True iff `path` opens as a compiled native image; unreadable is False.
+
+    Asks the file's own bytes, never its name: under settings-home a cut-over
+    door is the extensionless bare name on POSIX and `<name>.exe` on Windows, so
+    the name carries no information about which of the two shapes is on disk.
+    Unreadable answers False because the copy that follows would fail on the same
+    file anyway, and this predicate's job is to name one refusal, not to
+    adjudicate every I/O failure.
+    """
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(8).startswith(_NATIVE_IMAGE_MAGIC)
+    except OSError:
+        return False
 
 
 def _differs(src: Path, dst: Path) -> bool:
@@ -167,6 +207,9 @@ def check_and_refresh(bin_dir: Path, now: float | None = None) -> str | None:
         dst = bin_dir / src.name
         # Refresh-only, never seed — see this module's negative-spec.
         if not dst.is_file():
+            continue
+        # Never un-cut-over a door — see this module's negative-spec.
+        if _is_native_image(dst):
             continue
         if _differs(src, dst) and _copy_atomic(src, dst):
             refreshed.append(src.name)

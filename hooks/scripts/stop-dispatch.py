@@ -1,4 +1,4 @@
-"""Stop-event fan-in dispatcher -- six hooks.json Stop registrations, one interpreter.
+"""Stop-event fan-in dispatcher -- the Stop registrations, one interpreter.
 
 Folds `runtime-tripwire-em-check.py`, `nudge-harness-directive-dispatch.py`,
 `nudge-unrouted-sizing.py`, `watchdog-undischarged-next-move.py`,
@@ -17,6 +17,14 @@ DoE-side caller anywhere in this plugin and its advisory never fired; this
 is NOT one of the five guards `runtime-tripwire-em-check.py` already
 carries live, despite an earlier stale docstring clause here claiming
 otherwise.
+
+`group-em-park-spool.py` is the Group-EM wake's producer: on a peer's park it
+appends one line to the spool the fleet watch drains. Registered LAST and
+deliberately AFTER `receiver-state-sensor.py`, whose write is the very verdict
+it reports -- see its own docstring for the cross-plane contract, and the
+REGISTRY comment beside it for why the order is load-bearing. Like the sensor
+it is a producer, not a guard: it can never fire an advisory or change an exit
+code.
 
 MEASURED (state/audits/2026-08-16-doe-hook-consolidation-feasibility.md):
 5 processes/477.9ms -> 1 process/110.7ms on the all-miss path (4.3x), min-of-15
@@ -274,6 +282,45 @@ def _pre_receiver_state(ctx: Ctx) -> bool:
     return bool(ctx.transcript_path) and os.path.isfile(ctx.transcript_path)
 
 
+def _pre_group_em_park_spool(ctx: Ctx) -> bool:
+    # Two `stat`s and nothing else -- this is the miss path on every turn end
+    # of every session in the repo, so it must never grow a read.
+    #
+    # A subagent's own Stop is not a peer session-state transition (subagents
+    # are not registry peers), so it is excluded here rather than inside the
+    # producer's import.
+    #
+    # `state/` must ALREADY exist: the spool sits beside the watch's own two
+    # records there, and a repo without that directory has no watch line at
+    # all. The producer scaffolds nothing.
+    #
+    # The receiver-state carrier must exist because the producer only ever
+    # reports a verdict someone else wrote; with no carrier there is provably
+    # nothing to spool. Ordering in REGISTRY guarantees `receiver_state_sensor`
+    # has already run by the time this is evaluated, so the file is present
+    # whenever the ladder had anything to say.
+    #
+    # The two literals below are duplicated from `receiver_state_reader`'s
+    # `_SESSIONS_DIRNAME`/`_SIBLING_FILENAME` ON PURPOSE, for the same reason
+    # `_pre_next_move` duplicates its own: this runs before any guard module is
+    # imported, and pulling the reader in here would pay that import on every
+    # Stop in the fleet to answer a one-`stat` question. The duplication is
+    # pinned by `test_stop_precondition_tracks_receiver_state_carrier_path`
+    # against the reader's own constants, so it cannot drift silently the way
+    # `_pre_next_move`'s did.
+    if ctx.agent_id or not ctx.session_id:
+        return False
+    root = ctx.repo_root()
+    if not root:
+        return False
+    if not os.path.isdir(os.path.join(root, "state")):
+        return False
+    return os.path.isfile(
+        os.path.join(root, ".git", "coordinator-sessions", ctx.session_id,
+                     "receiver-state.json")
+    )
+
+
 @dataclass(frozen=True)
 class StopGuard:
     module_key: str
@@ -302,6 +349,14 @@ REGISTRY: Tuple[StopGuard, ...] = (
     # fleet-wide, where folding it here adds no process at all.
     StopGuard("receiver_state_sensor",
               "receiver-state-sensor.py", _pre_receiver_state),
+    # ORDER IS LOAD-BEARING: this producer reports the verdict the entry
+    # ABOVE causes to be written, so it must stay after it. Moving it earlier
+    # spools the previous turn's verdict on every park -- wrong, and silently
+    # so. Like `receiver_state_sensor` it is a PRODUCER, not a guard: always
+    # exit 0, always empty stdout, contributes nothing to the CONCATENATE-ALL
+    # aggregation and cannot change any verdict.
+    StopGuard("group_em_park_spool",
+              "group-em-park-spool.py", _pre_group_em_park_spool),
 )
 
 

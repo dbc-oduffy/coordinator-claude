@@ -5,7 +5,7 @@ class: protected
 order: 10
 ---
 
-**Trigger — `--surface diff`:** EM has a code change ready for review (outgoing): mid-session diff before commit, completed task before next dispatch, branch ready for `/merge-to-main`, PR landing inline. OR a code-review's findings have landed and need processing (incoming).
+**Trigger — `--surface diff`:** EM has a code change ready for review (outgoing): mid-session diff before commit, completed task before next dispatch, branch ready for `/merging-to-main`, PR landing inline. OR a code-review's findings have landed and need processing (incoming).
 
 **`--surface diff`**
 
