@@ -430,11 +430,62 @@ def _resolve_claude_klabauter_bin_sh(bin_dir: str, script_name: str) -> Optional
 # the fleet pushing indefinitely. The bump forces one rewrite pass over
 # every installed repo, on the next self-heal or session-boot install call,
 # to the new no-op body.
-_HOOK_GEN_STAMP = 11
+#
+# Gen 12 (2026-09-02): the `.exe`-only forwarder probe was a Windows-shaped
+# read of a platform-neutral cutover. `forwarder_self_heal`'s
+# `_cut_over_to_native_door` writes the native door image at the BARE name on
+# POSIX -- there is no `.exe` sibling to find and no `-ef` pair for `_have_py`
+# to discriminate on -- so the settings-home rung passed its own existence
+# test and handed a Mach-O binary to `exec "$_PY"`. Every commit in every repo
+# on this box died with `SyntaxError: Non-UTF-8 code starting with '\xcf'` from
+# 01:57 on 2026-09-02, the moment the bin cutover landed under running
+# sessions. `_NATIVE_PROBE_DEF` closes the POSIX half; the bump forces
+# one rewrite pass over every installed repo.
+_HOOK_GEN_STAMP = 13
 
 
 def _hook_gen_stamp_line() -> str:
     return f"# coordinator-hook-gen: {_HOOK_GEN_STAMP}"
+
+
+# The `.exe` probe answers the Windows half of "is the settings-home entry a
+# native forwarder rather than Python source". POSIX has no extension to test:
+# the door image occupies the bare name itself. Discriminate on content, since
+# a coordinator-written Python CLI always opens `#!`, and a Mach-O/ELF image
+# never does. `read` is a shell builtin -- no spawn, so this stays inside the
+# DR-344 budget the hook pays on every commit. A file that is unreadable or
+# empty answers "not native" and falls through to the interpreter chain, which
+# is the pre-cutover behaviour.
+#
+# KNOWN RESIDUAL, ACCEPTED IN WRITING (code-review finding, 2026-09-02): the
+# probe's `[ -x "$1" ]` gate is a pre-filter resting on an invariant enforced
+# elsewhere (the install chain strips the exec bit from installed `.py`
+# sources), not a positive test for a native image. An executable,
+# shebang-less file at this name -- exec-bit set for any reason other than
+# the door cutover -- is classified `_native` and `exec`'d, which fails
+# ENOEXEC and can abort the commit. Two alternatives were weighed and
+# rejected for this pass: (1) treating an ENOEXEC-shaped failure of the
+# forwarder as "not actually native" and falling through to the interpreter
+# chain conflates two different failure modes -- a real native forwarder
+# that legitimately exits non-zero would ALSO fall through, silently
+# resolving and running a different (possibly stale) script instead of
+# surfacing the real error, and the exact non-zero-status convention for
+# "wrong binary format" is not portable across dash/macOS-bash-as-sh/MSYS sh
+# without an execution probe this suite cannot run; (2) a positive magic-byte
+# test (Mach-O/ELF/FAT header) cannot be spelled in POSIX `sh` using only
+# builtins -- `read` is line/newline-oriented and its handling of embedded
+# NUL and non-text bytes is shell-dependent, so it cannot reliably assert
+# specific magic bytes without a spawn (`od`/`head -c`), which the DR-344
+# per-commit budget forbids on this path (called on up to eight rungs per
+# hook invocation). The `[ -x ]`-plus-missing-`#!` heuristic therefore stays
+# as the least-bad option; the misfire is a hard commit-block, not silent
+# code execution, and is covered by
+# `test_native_probe_misclassifies_an_executable_shebangless_non_native_file`
+# below, which pins the accepted behaviour rather than leaving it unasserted.
+_NATIVE_PROBE_DEF = (
+    '_native() { [ -x "$1" ] || return 1; IFS= read -r _n1 < "$1" 2>/dev/null '
+    '|| return 1; case "$_n1" in "#!"*) return 1 ;; esac; return 0; }\n'
+)
 
 
 def _shim_body(
@@ -583,12 +634,34 @@ def _shim_body(
         # survives: `-ef` is TRUE for `foo` vs `foo.exe` exactly when the bare
         # name IS the forwarder, and FALSE for a genuine extensionless script
         # (whose `.exe` does not exist). Never replace this with `[ -f ]`.
-        '_have_py() { [ -f "$1" ] && ! [ "$1" -ef "$1.exe" ]; }\n'
+        #
+        # The shebang read is the POSIX half of the same guard, and it is
+        # load-bearing rather than belt-and-braces. `-ef` discriminates only
+        # where a `.exe` sibling exists, so on macOS and Linux a native
+        # extensionless forwarder passes every test above and the chain hands
+        # a Mach-O/ELF image to `exec "$_PY" "$SCRIPT"`. The interpreter dies
+        # on a SyntaxError and the hook's non-zero exit ABORTS THE COMMIT --
+        # machine-wide, in every repo the fleet heal touched, reported from
+        # 13 repos on one box (example-cockpit-repo-em, 2026-09-02). `_native`
+        # above is not the backstop for this: it gates on `[ -x ]`, so a
+        # forwarder whose executable bit is missing falls straight through to
+        # here. Reading the first line with the `read` BUILTIN, never
+        # `head`/`grep`, keeps this inside the DR-344 per-commit budget --
+        # this function is called on up to eight rungs per hook invocation,
+        # and a two-spawn body would put sixteen processes on the commit
+        # path. A file that is unreadable or empty answers "not a script",
+        # matching `_NATIVE_PROBE_DEF`'s own fall-through.
+        '_have_py() { [ -f "$1" ] && ! [ "$1" -ef "$1.exe" ] && { IFS= read -r _h1 < "$1" 2>/dev/null || return 1; case "$_h1" in "#!"*) return 0 ;; *) return 1 ;; esac; }; }\n'
         # An installed `.exe` forwarder is the INTENDED post-install artifact.
         # Running it through an interpreter is a category error, so exec it
         # directly and never enter the interpreter chain at all.
         f'_fwd="{settings_home_script}.exe"\n'
         '[ -f "$_fwd" ] && exec "$_fwd" "$@"\n'
+        # POSIX half of the same artifact: the door image occupies the bare
+        # name, with no extension to test. See `_NATIVE_PROBE_DEF`.
+        + _NATIVE_PROBE_DEF
+        + f'_fwd="{settings_home_script}"\n'
+        '_native "$_fwd" && exec "$_fwd" "$@"\n'
         f'SCRIPT="{settings_home_script}"\n'
         f'_have_py "$SCRIPT" || SCRIPT="{coord_bin_sh}/{script_name}"\n'
         f'_have_py "$SCRIPT" || SCRIPT="{coord_bin_sh}/{script_name}.py"\n'
@@ -698,12 +771,17 @@ def _append_block(
         # WINDOWS TRAP comment for the MSYS `.exe`-sibling mechanism. Emitted
         # here rather than shared: an append block lands inside a foreign hook
         # and can assume nothing defined above it.
-        '{ _have_py() { [ -f "$1" ] && ! [ "$1" -ef "$1.exe" ]; }\n'
+        '{ _have_py() { [ -f "$1" ] && ! [ "$1" -ef "$1.exe" ] && { IFS= read -r _h1 < "$1" 2>/dev/null || return 1; case "$_h1" in "#!"*) return 0 ;; *) return 1 ;; esac; }; }\n'
         # An installed `.exe` forwarder is the intended post-install artifact,
         # so run it and skip the interpreter chain entirely — resolving one
         # costs nothing once the answer is already on disk. RUN, not `exec`:
         # see this function's docstring for why `exec` is forbidden here.
-        f'_fwd="{settings_home_script}.exe"\n'
+        # POSIX half of the same artifact: the door image occupies the bare
+        # name, with no extension to test. See `_NATIVE_PROBE_DEF`.
+        + _NATIVE_PROBE_DEF
+        + f'_fwd="{settings_home_script}.exe"\n'
+        f'[ -f "$_fwd" ] || {{ _native "{settings_home_script}" && '
+        f'_fwd="{settings_home_script}"; }}\n'
         'if [ -f "$_fwd" ]; then "$_fwd" "$@"; else\n'
         + baked_python_lines("_PY") + "\n"
         f'_T="{settings_home_script}"; '
@@ -1098,10 +1176,30 @@ def _ensure_hook(
 # still-pushing shim installed on a box that had not yet turned over. PM
 # ruling on that date: this is the only box, and a direct check found no
 # installed post-commit hook anywhere left in the pushing form — the
-# overwrite target no longer exists, so the horizon is zero. The
-# `.git/hooks/post-commit` files already installed on this box are inert
-# (`exit 0`, no invocation of anything) and are left in place; only the
-# installer that maintained them is gone.
+# overwrite target no longer exists, so the horizon is zero.
+#
+# CORRECTION (2026-09-01): that premise did not hold, and the two claims
+# built on it were both false. A census of all 13 repos under `~/X` on this
+# box found EVERY `.git/hooks/post-commit` still stamped
+# `coordinator-hook-gen: 2` and still in the pushing form — none inert, none
+# `exit 0`, every one of them ending `exec "$_PY" "$SCRIPT" "$@"`. The
+# generation stamp was bumped to 11 precisely to force one rewrite pass over
+# the fleet (see `_HOOK_GEN_STAMP`'s own note), but the installer that would
+# have performed it was deleted before any session ran it, so the bump could
+# never be honoured — nothing left on this box can rewrite those bodies.
+#
+# What the surviving hooks do now: rung 4 of their SCRIPT cascade resolves
+# `${COORDINATOR_SETTINGS_HOME}/bin/coordinator-auto-push`, a forwarder that
+# outlived the `coordinator-auto-push.py` C8 deleted, so every commit in
+# every repo on this box exits 127 with a "missing under the resolved live-
+# working-tree root — run scripts/setup.py to repair" line whose advice
+# cannot work. Reported from example-cockpit-repo 2026-09-01. The forwarder half
+# is retired by `install.substrate._KILLED_OP_ORPHAN_NAMES` (see that set's
+# own note); the 13 installed hook bodies are UNFIXED here — they are each
+# repo's own local `.git/` state, not claude-klabauter's, and rewriting a peer's hooks
+# mid-commit on a box running ~50 concurrent sessions is not a change this
+# module may make unasked. Do not re-derive "the horizon is zero" from this
+# gravestone: measure the fleet first.
 
 
 def ensure_prepare_commit_msg_hook(

@@ -78,7 +78,7 @@ the ignore rule. Warn if `.claude/` (not just `settings.local.json`) is blanket-
 content exists under `scratch/`/`tasks/_*.log` (offer, don't auto-`git rm --cached`), or if the
 project-rag corpus paths are already tracked (break-class finding, not a nit — ~230MB in history).
 
-**Post-commit auto-push hook**: `coordinator-ensure-post-commit-hook` (Shape W) — idempotent
+**Post-commit auto-push hook**: `coordinator-ensure-hooks-fleet` (Shape W) — idempotent
 install/repair/exec-bit self-heal in one call. Skip if a custom hook exists with PM sign-off
 (judgment; see the `add-existing-project` lane's `p3f5.custom-hook-skip` policy).
 
@@ -89,7 +89,7 @@ self-heal pattern; silent no-op when no session-id env var resolves.
 `gc.auto 0` + `core.checkStat minimal` + `maintenance.strategy incremental` +
 `maintenance.auto false` + `maintenance.prefetch.enabled false`. Idempotent. Cwd-only, and not the sole
 mechanism: the install's git-perf-config fleet sweep (`coordinator_core.install.git_perf_config`,
-Claude-klabauter) applies per-repo git settings across every registered worktree. This call stays as
+engine-resident) applies per-repo git settings across every registered worktree. This call stays as
 belt-and-braces for a repo onboarded between sweeps.
 
 **Meta-repo pre-commit exec-bit gate** (conditional): `install-meta-repo-precommit-hook <meta-root>`

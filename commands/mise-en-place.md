@@ -202,7 +202,7 @@ run the full Phase 6 tail, take CONTINUANCE.
 
 ## Relationship to Other Commands
 
-`/update-docs`, `/workday-complete`, `/merge-to-main` are PM-run afterward, never auto-invoked.
+`/update-docs`, `/workday-complete`, `/merging-to-main` are PM-run afterward, never auto-invoked.
 `/autonomous` composes with this run: it governs the unattended posture (sentinel, nudge
 suppression), this command governs the backlog sequence — the sentinel is enabled here with
 `--mode mise-en-place` precisely so a reader can tell a `/mise` run's sentinel from an

@@ -45,12 +45,22 @@ _LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
 # The two helper imports below are deferred and sys.path-dependent: `coordinator_safe_name`
 # and `cc_invoke` both live in bin/lib, which is not a package and is on no default path.
 # Self-resolve it from __file__, never cwd — this runs as a pre-commit gate from any repo.
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
+#
+# DEFERRED WITH ITS CONSUMERS, not run at module scope. This name warm-serves, and a
+# warm server imports the module once and calls `main` many times, so a module-body
+# `sys.path.insert` mutates the SERVER's interpreter on behalf of one request and keeps
+# it for every later one. Idempotent here and harmless in isolation, but the rule it
+# would need an exception to is the one keeping 363 names inert in a shared process
+# (`coordinator_core.warm.serve_classifier`). The imports were already deferred; the rung
+# they depend on now defers with them.
+def _ensure_lib_on_path() -> None:
+    if _LIB_DIR not in sys.path:
+        sys.path.insert(0, _LIB_DIR)
 
 
 def _csn_check(component: str) -> str | None:
     """Return a violation reason string, or None if the component is clean."""
+    _ensure_lib_on_path()
     from coordinator_safe_name import csn_check  # noqa: E402  (sys.path-dependent)
 
     ok, reason = csn_check(component)
@@ -70,6 +80,7 @@ def _git(repo_root: str, *args: str) -> str:
 
 
 def _resolve_repo_root(explicit: str | None) -> str:
+    _ensure_lib_on_path()
     from cc_invoke import ensure_engine_on_path  # noqa: E402  (sys.path-dependent)
 
     ensure_engine_on_path(__file__)

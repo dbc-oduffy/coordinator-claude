@@ -15,7 +15,7 @@ this exact moment, and the invocation is it. Never re-ask per chunk, and never o
 fired run at that chunk's wave; a plan the PM authorized is authorized to its hot-path edit. A
 chunk gate the invocation does NOT satisfy is one naming a different act — a cross-repo commit
 (per-session assent, obtained at that dispatch) or an external-facing action. Does not chain
-into branch disposition — that's the PM-gated `/merge-to-main`. Full rationale and mechanics:
+into branch disposition — that's the PM-gated `/merging-to-main`. Full rationale and mechanics:
 wiki.
 
 Executing a plan is restructure-then-dispatch, not "type the plan's steps": build the
@@ -334,7 +334,7 @@ commit:**
 
 **Offer, stamp-aware, never parroted.** The branch is whether step 4 stamped `implemented`, never
 how shipped the session feels. Stamped → offer `/workstream-complete`, note
-`/merge-to-main`/`/workday-complete` ship it. Unstamped for **any** reason — Phase 5 halt, open
+`/merging-to-main`/`/workday-complete` ship it. Unstamped for **any** reason — Phase 5 halt, open
 spine row, a leg unmet in another repo → do not offer `/workstream-complete`; offer
 resolve-and-resume, `/handoff`, or commit-and-stop. An accurate "partial and honest" report does not
 earn the offer. Never auto-invoke any of those or `coordinator:finishing-a-development-branch`.
@@ -373,4 +373,4 @@ supporting evidence and writes an execution handoff; execution's own authorizati
 invoking `/execute-plan` (Phase 1 step 2), not from this stamp. `/enrich-and-review` runs before
 dispatch when the plan isn't chunk-ready; `/review-code` is an optional post-execution pass. `coordinator:workstream-complete`
 is offered, never auto-invoked, in Phase 4; `coordinator:finishing-a-development-branch` is not
-chained here — reached separately via `/merge-to-main`. Full failure-mode table: wiki.
+chained here — reached separately via `/merging-to-main`. Full failure-mode table: wiki.

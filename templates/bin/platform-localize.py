@@ -138,9 +138,9 @@ def _import_main():
     # (b644d5a9), so on a post-migration content root the cc_invoke import
     # below is unreachable until the engine root is already known —
     # env-pinned callers (tests, install legs) break that cycle.
-    env_claude_klabauter = os.environ.get("COORDINATOR_ENGINE_ROOT")
-    if env_claude_klabauter and os.path.isdir(env_claude_klabauter):
-        claude_klabauter_root = env_claude_klabauter
+    env_engine_root = os.environ.get("COORDINATOR_ENGINE_ROOT")
+    if env_engine_root and os.path.isdir(env_engine_root):
+        engine_root = env_engine_root
     else:
         coordinator_root = _resolve_coordinator_root()
         bin_lib_dir = os.path.join(coordinator_root, "bin", "lib")
@@ -148,11 +148,11 @@ def _import_main():
             raise RuntimeError(f"cc_invoke.py not found under resolved coordinator root: {bin_lib_dir}")
         if bin_lib_dir not in sys.path:
             sys.path.insert(0, bin_lib_dir)
-        from cc_invoke import _resolve_claude_klabauter_root
+        from cc_invoke import _resolve_engine_root
 
-        claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+        engine_root = _resolve_engine_root()
+    if engine_root not in sys.path:
+        sys.path.insert(0, engine_root)
     from coordinator_core.hooks.platform_localize import main as _op_main
 
     return _op_main

@@ -115,12 +115,10 @@ def _compose_advisory(posture: str):
     Renders no verdict on the question at hand -- it does not classify,
     match, or inspect `tool_input.questions` at all -- and blocks nothing."""
     prose = (
-        f"[first-officer posture: engagement_posture={posture}]\n"
-        "Approach, structure, naming, sequencing, and break-class fixes are yours to\n"
-        "decide and report, not to ask. Direction-class asks -- scope, product\n"
-        "direction, prioritization, an irreversible or external action -- are\n"
-        "correct to ask.\n"
-        "This advisory renders no verdict on THIS question and blocks nothing."
+        f"[first-officer posture: {posture}]\n"
+        "Structure, naming, sequencing, break-class fixes: decide, report.\n"
+        "Scope, product direction, prioritization, irreversible or external\n"
+        "actions: ask. No verdict here."
     )
     return compose(prose, anchor=_NUDGE_ANCHOR)
 

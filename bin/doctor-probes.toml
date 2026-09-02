@@ -323,10 +323,10 @@ cluster = "ue-overrides"
 weight = "standard"
 interactivity = "silent"
 fix = "none"
-symptom_keywords = ["ue override drift", "verify-ue-overrides", "example_game_workbench_repo"]
+symptom_keywords = ["ue override drift", "verify-ue-overrides", "ue plugin override", "enabledPlugins drift"]
 triage = false
 severity_if_fail = "degraded"
-remediation = "Follow the verify-ue-overrides.py remediation hint (typically set repos.example_game_workbench_repo)"
+remediation = "Run verify-ue-overrides.py (no flags, inspect-only) and follow the remediation it prints. It names the registry key and the settings.json file itself, which is why this text does not: a private repo codename hardcoded here is rewritten by the publish-time depersonalization, and the published engine would then send you to a key no registry can hold. An unregistered UE repo is reported as not-applicable, not drift."
 
 # ---------------------------------------------------------------------------
 # Cluster: structure — install singularity (canonical-locus integrity)

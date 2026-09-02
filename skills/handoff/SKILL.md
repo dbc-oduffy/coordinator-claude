@@ -18,7 +18,7 @@ self-authored. Tripwire: `A-SESSION-IS-NEVER-STANDALONE`.
 
 > **The baseline trigger is involuntary** — context pressure forcing a stop mid-workstream before
 > the next action can land. Reaching for `/handoff` because the work *feels* like a good place to
-> pause is the disqualifier. Workstreams end via `/workday-complete`, `/merge-to-main`, or
+> pause is the disqualifier. Workstreams end via `/workday-complete`, `/merging-to-main`, or
 > `/quick-wrap`, never via handoff. **Four deliberate triggers also fire. 1 — the PM asks:** their
 > ask IS the authority; no context-pressure test applies or is owed back. **2 — parking:** the next
 > action is blocked outside this session's reach (a PM decision, a sibling repo, a peer's landing)

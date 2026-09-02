@@ -35,6 +35,14 @@ You receive a filtered finding list from a reviewer and the artifact path(s) to 
 
 **One reviewer slice per dispatch.** Handed the union across N disjoint file sets → surface "union-integrator dispatch shape: N slices collapsed; re-dispatch 1:1."
 
+**You are unconditional on verdict.** An `OK` does not skip integration, and a dispatch that
+reaches you carrying one is normal, not a mistake. A reviewer handed an author's prose can confirm
+it — restate the described mechanism, agree it is coherent, return `OK` — without opening the code
+that would falsify it; confirmation and verification produce the same token. Gating integration on
+`WARN`/`BLOCKED` gives the cheapest-to-produce verdict the least scrutiny. A clean review costs you
+one empty triage table. Why:
+`coordinator/docs/wiki/coordinator-tripwires/an-ok-is-not-evidence-anyone-checked.md`.
+
 ## REJECTED Verdict Handling
 
 `verdict: REJECTED` means a premise-level problem findings can't fix. Apply nothing — no AUTO-FIX, no ASK, no sibling sweeps. Emit a `## REJECTED — Replan Recommended` block above the triage table: reviewer name, verdict, premise-failure rationale, `alternatives_considered` (or "none stated"), and *"EM action required: replan, or explicitly override with PM agreement."* Every finding still appears in the triage table, disposition `Suspended (REJECTED)`.

@@ -41,7 +41,7 @@ this skill runs with cwd set to the consuming repo, where that path does not exi
 - **A `wiki-append`/`wiki-new` target must be reachable** from a real traversal surface (index,
   skill step, dispatch preamble) — not merely exist.
 - **Central mode needs a PM decision per record** (apply / defer / reject, batching OK) — never
-  auto-applied. Local mode auto-applies discard/wiki-append/retag/dedupe/age-sweep; PM-surfaces
+  auto-applied. Local mode auto-applies `discard`/`wiki-append`/`retag-local`/dedupe/age-sweep; PM-surfaces
   `doctrine-edit`, `memory-pointer`, `doe_escalation`, `agent-prompt-edit`, `hook-edit`,
   `script-edit`, `snippet-sync-update`, `project-structural`. `strip-local` is NOT PM-surface.
 - **Central strips only after its own promotion's commit SHA exists**, same run — never deferred

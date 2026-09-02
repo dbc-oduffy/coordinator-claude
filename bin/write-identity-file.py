@@ -81,10 +81,17 @@ def main(argv: list[str]) -> int:
         return 1
 
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from cc_invoke import _resolve_claude_klabauter_root, cc_invoke  # noqa: E402
+    from cc_invoke import cc_invoke, require_dispatch_engine_on_path  # noqa: E402
 
+    # `require_dispatch_engine_on_path`, not the private `_resolve_claude_klabauter_root`,
+    # for the same reason every peer CLI in this directory uses it: resolving the
+    # root is only half the job. `cc_invoke()` reaches the warm server in-process
+    # and imports `coordinator_core.warm.settings` to do it, so a root that was
+    # resolved but never put on `sys.path` fails one frame deeper with a
+    # ModuleNotFoundError naming `coordinator_core` -- a second layer of the same
+    # missing-bootstrap defect that hid behind the first.
     try:
-        claude_klabauter_root = _resolve_claude_klabauter_root()
+        claude_klabauter_root = require_dispatch_engine_on_path()
     except RuntimeError as exc:
         print(f"write-identity-file: engine-root resolution failed: {exc}", file=sys.stderr)
         return _EXIT_TRANSPORT_FAILURE

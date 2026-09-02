@@ -110,7 +110,7 @@ coordinator-shaped and the human and their new EM can get straight to customizin
 
 The clone provides pre-install helper scripts and is the source for the offline/dev install
 variant. The **primary install in 1d does not install *from* this clone** — it registers the
-public GitHub repo as the marketplace. **Keep the clone**: the engine's `scripts/setup.py`
+public GitHub repo as the marketplace. **Keep the clone**: the engine's `<klabauter-clone>/scripts/setup.py`
 resolves coordinator-claude as a sibling at Step 4, install time, not just build time.
 
 ```bash
@@ -308,7 +308,7 @@ handoffs, memo resolution, coverage computation, and terminal stamping do not.
 
 The clone has to come first because `/coordinator:install`'s Phase 3 bootstraps coordinator's
 substrate from a script that lives *in the engine repo*. Rationale, braid-defect detail:
-`docs/wiki/install-playbook-rationale.md` § Step 4.
+`coordinator/docs/wiki/install-playbook-rationale.md` § Step 4.
 
 **`/coordinator:install` and `/coordinator:setup` are not aliases:**
 
@@ -318,7 +318,7 @@ substrate from a script that lives *in the engine repo*. Rationale, braid-defect
 | **`/coordinator:setup`** | The install-chain walker (step 5/5). Verifies the engine is satisfied, emits the chain-complete banner. A **verifier**, never a depositor. | *After* this step — the final check, below |
 
 1. **Confirm the resolver is live** before proceeding. coordinator-claude ships the forwarder at
-   `templates/bin/machine-local` (plus `machine-local.cmd`); install-time deposits it to
+   `templates/bin/machine-local` (plus `templates/bin/machine-local.cmd`); install-time deposits it to
    `$COORDINATOR_SETTINGS_HOME/bin/machine-local`, default
    `~/.coordinator-claude-settings/bin/machine-local`. There is no `bin/machine-local` in the
    plugin, so check the absolute path rather than a bare name — a `command -v machine-local` miss
