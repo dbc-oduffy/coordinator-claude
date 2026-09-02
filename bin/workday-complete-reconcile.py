@@ -102,8 +102,23 @@ def _cruft_sweep_argv(cruft_sweep_bin: str) -> list[str]:
     the sweep never once executed. Mirrors ``wsc-session-disposition.py``'s
     ``_session_claim_cli_argv``, which already cites this function as its
     precedent.
+
+    Second negative-spec, and it pulls the OTHER way: "everything but a
+    ``.cmd`` needs an interpreter" stopped being true on 2026-09-02, when the
+    native-door cutover began installing an EXECUTABLE compiled image at the
+    extensionless settings-home name this function's docstring already names
+    as an accepted input. Handing that to an interpreter is the defect that
+    took every ``git commit`` on a cut-over box down. The exec bit is the
+    discriminator, checked at call time; POSIX only, since
+    ``os.access(X_OK)`` is true for any existing file on Windows.
     """
     if os.path.splitext(cruft_sweep_bin)[1] == ".cmd":
+        return [cruft_sweep_bin]
+    if (
+        os.name != "nt"
+        and not cruft_sweep_bin.endswith(".py")
+        and os.access(cruft_sweep_bin, os.X_OK)
+    ):
         return [cruft_sweep_bin]
     return [sys.executable, cruft_sweep_bin]
 

@@ -227,19 +227,42 @@ def resolve_settings_home() -> Path:
     return Path(base) / ".coordinator-claude-settings"
 
 
+# --- Shared forwarder resolution ---------------------------------------------
+_HOOKS_DIR = str(Path(__file__).resolve().parent)
+if _HOOKS_DIR not in sys.path:
+    sys.path.insert(0, _HOOKS_DIR)
+try:
+    from _forwarder_resolve import forwarder_argv as _forwarder_argv
+    from _forwarder_resolve import resolve_forwarder as _resolve_forwarder
+except Exception:
+    # Defensive fallback -- a deploy missing its sibling _forwarder_resolve.py must
+    # degrade to the pre-existing extensionless-only behaviour (which the caller
+    # already treats as a fail-open transport failure), never crash on import.
+    def _resolve_forwarder(bin_dir, name):  # type: ignore[misc]
+        candidate = bin_dir / name
+        return candidate if candidate.is_file() else None
+
+    def _forwarder_argv(script_path, tail=()):  # type: ignore[misc]
+        return [sys.executable, str(script_path), *tail]
+
+
 def resolve_baton_assemble_bin(settings_home: Path) -> "Path | None":
-    """Resolve the installed `baton-assemble` forwarder under
-    `settings_home`. Returns the extensionless forwarder (`bin/baton-
-    assemble`) when present, or None -- the caller treats a None return as
-    a transport failure and fails open, never a crash. Deliberately does
-    NOT resolve the `.cmd` variant, same negative-spec as pickup-
-    autofire.py's `resolve_pickup_assemble_bin`."""
-    candidate = settings_home / "bin" / "baton-assemble"
-    return candidate if candidate.is_file() else None
+    """Resolve the installed `baton-assemble` forwarder under `settings_home`.
+    Returns the extensionless script or the native `.exe`, whichever the install
+    carries, or None -- the caller treats a None return as a transport failure and
+    fails open, never a crash.
+
+    Probing the extensionless name alone (what this did) resolved nothing on a
+    Windows box carrying the native-forwarder generation, silently emptying every
+    handoff segment of its predecessor/carried-items. `.cmd` stays deliberately
+    unresolved -- see `_forwarder_resolve`'s negative-spec for why."""
+    return _resolve_forwarder(settings_home / "bin", "baton-assemble")
 
 
 def _baton_assemble_argv(script_path: Path, tail: list[str]) -> list[str]:
-    return [sys.executable, str(script_path), *tail]
+    """Interpreter prefix iff the resolved variant needs one -- a native `.exe` must
+    be launched bare. See `_forwarder_resolve.forwarder_argv`."""
+    return _forwarder_argv(script_path, tail)
 
 
 # --- Repo-root resolution (spawn-free, mirrors pickup-autofire.py) ---------

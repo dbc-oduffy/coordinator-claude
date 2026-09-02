@@ -102,7 +102,8 @@ itself, and which nudge shape applies. That is everything a nudge needs.
 
 1. **Run it.**
 2. **Read the summary line**, which is last: `peers= escalate= out-of-work= exited= unknown=`, plus
-   the floor and threshold it applied. That line tells you the report is whole.
+   the floor and threshold it applied and `as_of=`, the instant the counts were struck. That line
+   tells you the report is whole, and dates it when you paste it.
 3. **Act on each verdict.** The vocabulary is closed, and each verdict has exactly one action:
 
    | Verdict | You |
@@ -222,3 +223,13 @@ inferred. An identifier with more than one namespace carries its namespace — o
 the record's `subscribed_peers`, and the roster's population answer different questions and can
 legitimately differ. Hand your Group EM all of them with their sources and let them rule; averaging
 or silently picking one destroys the only evidence that something is wrong.
+
+**A zero or an empty field is reported with the cause you are claiming for it.** An absent signal
+— a field populated on no record, a matcher with no recorded fire, a roster that came back `[]` —
+has three causes that look identical on disk: the thing never happened, the thing is structurally
+unreachable on this box, or nobody registered the producer. Only the first is a finding about the
+fleet, and only the third is anyone's to fix. Name which one you mean, or report the reading and
+say you did not establish the cause. `waitingFor: 0 of 40 records — every peer here runs bypass
+mode, so no permission dialog can open` is a report; `waitingFor is dead` is a guess wearing a
+number. Full triage:
+`coordinator/docs/wiki/coordinator-tripwires/an-absent-signal-does-not-name-its-own-cause.md`.

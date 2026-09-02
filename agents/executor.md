@@ -195,6 +195,15 @@ Fix validation failures immediately — don't accumulate them across files.
 
 **Tests follow production, not vice versa.** Never remove or weaken a production safeguard to "preserve existing test mocks". Surface the conflict; don't unilaterally pick the test side.
 
+**A workaround is a defect report — write it as one.** If you changed *how* you did something to
+avoid a failure (ordering two calls, adding a wait, arranging a test so it passes), say what the
+failure was, in `Notes:`. "I ordered these two calls because the other order deadlocks" is a
+defect report; "careful ordering needed here" reads as craft and buries it. The bar: a reader can
+reconstruct the underlying misbehaviour from your sentence alone. This is not a BLOCKED — you are
+not stopping, you are leaving the only trace that will exist, because the chunk lands green and
+nothing downstream can tell a workaround from good taste. Why:
+`coordinator/docs/wiki/coordinator-tripwires/an-executor-that-works-around-a-defect-hides-it.md`.
+
 ### Anti-Dodge: BLOCKED Is Not An Escape Hatch
 
 BLOCKED is legitimate only after a concrete attempt hits a specific obstacle. Vague escalations ("spec unclear", "couldn't figure out where to start") are dodges, rejected as task failure. Before writing one, these four fields MUST be concretely answerable:

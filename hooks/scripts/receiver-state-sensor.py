@@ -5,7 +5,7 @@ PURPOSE. Makes `hooks.receiver_state_sensor` actually fire. The engine op has
 been shipped and dispatchable in the engine repo since 2026-08-14, registered
 across five surfaces -- RPC method name, import list, op scope, authz class,
 module map -- **every one of them engine-internal**. None is a harness trigger,
-and the op's own docstring says so verbatim: *"DoE owns hooks.json and the
+and the op's own docstring says so verbatim: *"the doctrine plane owns hooks.json and the
 transport shim; this repo ships no per-hook bin entrypoint for an
 mcp_tool-dispatched op ... nothing here registers a hook trigger."* The trigger
 is this file. Its absence -- not any property of the sensor, and nothing the

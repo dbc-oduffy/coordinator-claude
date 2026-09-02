@@ -17,14 +17,17 @@ surface added to install gets a matching removal step there in the same change.
 
 `repos.claude_klabauter` is a hard precondition `setup.py --preflight` cannot
 work around — it calls `_resolve_claude_klabauter_root()` before anything else runs.
+(An engine-source-only spelling: the publish transform rewrites every engine-repo name
+identifier on the way out, so this name exists in no published mirror. The
+rename-stable name is `_resolve_engine_root`, which resolves in both trees.)
 This is a prerequisite the coordinator install path itself does not write;
-its authoritative writer is `claude-klabauter`'s own installer
+its authoritative writer is the engine repo's own installer
 (`register_claude_klabauter_root()`), never chained from here. `first-run` can seed it
 opportunistically but is interactive/opt-out — don't rely on it.
 
 `--preflight` is a superset of `--check`: manifest-dependency probes AND
 environment-prerequisite probes through one tabling + NDJSON emitter. Probe
-library: `coordinator_core.install.prereq_probe` (native Python, claude-klabauter),
+library: `coordinator_core.install.prereq_probe` (native Python, engine-resident),
 read-only SSOT that never mutates. An `inconclusive` result is advisory WARN.
 
 **`clone_auth` interactive script:**
@@ -41,7 +44,7 @@ pattern). `--check-only` never blocks — reports what would happen only.
 **PowerShell host (#03).** `pwsh` 7+ is the only supported PowerShell host.
 Windows PowerShell 5.1 (`powershell.exe`) is **out of scope** — not a fallback,
 not a compatibility target; a 5.1-only failure never blocks a release. The probe
-currently WARNs rather than blocking on absent/below-7 `pwsh` (claude-klabauter
+currently WARNs rather than blocking on absent/below-7 `pwsh` (the engine
 `prereq_probe.py` `probe_pwsh`, severity `advisory`), so nothing yet enforces
 this at install.
 
@@ -50,13 +53,13 @@ requires explicit per-mutation acceptance, blast-radius-last ordered. Windows:
 every mutation backs up, `--restore` reverts. macOS: offers-only except the
 single consent-gated bash-login-shell reconstruction. Linux: offers-only.
 
-## Requirements — claude-klabauter detail
+## Requirements — engine-repo detail
 
-`claude-klabauter` is NOT auto-discovered: it's an engine repo with no
+The engine repo is NOT auto-discovered: it has no
 `.claude-plugin/marketplace.json` marker, so rung-2 marker-autodiscovery can
-never resolve it. Remediation if `claude-klabauter`'s own `scripts/setup.py`
-hasn't been run: `machine-local set repos.claude_klabauter /path/to/claude-klabauter`.
-`claude-klabauter` is currently private; the maintainer grants access on
+never resolve it. Remediation if the engine repo's own `scripts/setup.py`
+hasn't been run: `machine-local set repos.<engine-repo> <engine-repo-root>`.
+The engine repo is currently private; the maintainer grants access on
 request, same model as `project-rag`.
 
 ## Structural fork — the three states in full
@@ -435,7 +438,7 @@ machines without 1Password. Headless machines should keep token HTTPS
 verifies `git ls-remote` before keeping a remote change.
 
 **Persona customization.** Customizing is reversible by re-running this
-install step. Exclude claude-klabauter's `coordinator/bin/publish-time-transform-py`
+install step. Exclude the engine repo's `coordinator/bin/publish-time-transform-py`
 from search-replace — it carries the canonical `NAME_TO_ROLE` table and must
 not be altered.
 

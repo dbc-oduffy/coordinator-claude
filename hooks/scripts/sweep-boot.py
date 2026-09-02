@@ -163,6 +163,17 @@ except Exception:
     def resolve_claude_klabauter_root() -> str | None:
         return None
 try:
+    from _forwarder_resolve import forwarder_argv, resolve_forwarder
+except Exception:
+    # Defensive fallback -- a deploy missing its sibling _forwarder_resolve.py must
+    # skip the self-heal (the caller's existing "no regenerator CLI resolved" leg)
+    # rather than crash SessionStart on import.
+    def resolve_forwarder(bin_dir, name):  # type: ignore[misc]
+        return None
+
+    def forwarder_argv(script_path, tail=()):  # type: ignore[misc]
+        return [sys.executable, str(script_path), *tail]
+try:
     from _git_root_walk import git_root_walk as _git_root_walk
 except Exception:
     # Defensive fallback -- a deploy missing its sibling _git_root_walk.py
@@ -464,18 +475,27 @@ def _cache_is_stale(repo_root: str) -> bool:
     return not current_head.startswith(cache_head)
 
 
-def _resolve_regenerator_path(claude_klabauter_root: Optional[str]) -> Optional[str]:
+def _resolve_regenerator_path(claude_klabauter_root: Optional[str]) -> Optional[Path]:
     """Preferred path: the settings-home forwarder. Fallback: the claude-klabauter-resident CLI
     directly, using the SAME resolved `claude_klabauter_root` this module's own trampoline logic
     in `main()` already obtained — no second `resolve_claude_klabauter_root()` call.
+
+    Both rungs go through `resolve_forwarder`, which probes the native `.exe` variant
+    as well as the extensionless script. Probing only the extensionless name resolved
+    nothing at all on a Windows box carrying the native-forwarder generation, which
+    silently disabled this whole self-heal leg — see `_forwarder_resolve`'s docstring.
+
+    Returns a `Path` (not a `str`) because the caller must pass it to
+    `forwarder_argv`, which reads the suffix to decide whether an interpreter prefix
+    is required.
     """
-    forwarder = _settings_home() / "bin" / "regenerate-orientation-cache"
-    if forwarder.is_file():
-        return str(forwarder)
+    forwarder = resolve_forwarder(_settings_home() / "bin", "regenerate-orientation-cache")
+    if forwarder:
+        return forwarder
     if claude_klabauter_root:
-        fallback = os.path.join(claude_klabauter_root, "coordinator", "bin", "regenerate-orientation-cache")
-        if os.path.isfile(fallback):
-            return fallback
+        return resolve_forwarder(
+            Path(claude_klabauter_root) / "coordinator" / "bin", "regenerate-orientation-cache"
+        )
     return None
 
 
@@ -590,13 +610,11 @@ def _selfheal_orientation_cache(claude_klabauter_root: Optional[str]) -> None:
     if jitter_seconds:
         time.sleep(jitter_seconds)
 
-    # sys.executable prefix is mandatory, not cosmetic: the regenerator CLI is an
-    # extensionless naked-Python script (shebang, no .exe/.bat wrapper). A bare-path
-    # exec works on POSIX via the shebang + exec bit, but Windows' CreateProcess
-    # (what subprocess/Popen use under shell=False) does not consult shebang lines
-    # and cannot launch an extensionless script at all without this prefix — do not
-    # "simplify" this back to a bare path.
-    cmd = [sys.executable, regenerator, "--invoker", "sweep-boot"]
+    # The interpreter prefix is decided by which forwarder variant resolved, never
+    # assumed: an extensionless naked-Python script requires it (Windows'
+    # CreateProcess does not consult shebang lines), a native .exe must not have it.
+    # `forwarder_argv` owns that branch — do not inline either form back here.
+    cmd = forwarder_argv(regenerator, ["--invoker", "sweep-boot"])
 
     try:
         result = _invoke_regenerator(cmd, repo_root, timeout=60.0)

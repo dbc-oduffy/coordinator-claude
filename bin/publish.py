@@ -4355,6 +4355,93 @@ def _import_percolate_rewrite_basename_module():
     return _rewrite_basename_module
 
 
+@dataclass(frozen=True)
+class _DoorEmissionUnavailable:
+    """Stand-in for `rewrite_basename.DoorEmission` when the engine module
+    cannot be imported at all (the sync-only preview / degraded-engine path
+    `process_target` already tolerates).
+
+    Deliberately a VALUE, never a raise and never a `None`: this driver's
+    door-artifact legs are best-effort by contract, and "the engine was not
+    importable" is a different fact from "the emitter tried and failed" —
+    both of which the operator must be able to read off one printed line.
+    """
+
+    detail: str
+    emitted: bool = False
+
+    def render(self) -> str:
+        return f"door artifact: NOT emitted -- {self.detail}"
+
+
+def _emit_engine_row_published_at(target_root: Path):
+    """Write the engine row's `_engine_published_at` vintage into
+    `target_root` (the row's restricted temp source — the SAME tree
+    `_ENGINE_STAMP_FILENAME` is written into, so it syncs as ordinary staged
+    content and is never an orphan at the destination).
+
+    Returns the emission's own report for the caller to print. Never raises:
+    an unimportable engine degrades to an unavailable report."""
+    try:
+        rewrite_basename_module = _import_percolate_rewrite_basename_module()
+    except ImportError as exc:
+        return _DoorEmissionUnavailable(f"percolate engine not importable ({exc})")
+    return rewrite_basename_module.emit_published_at(target_root)
+
+
+def _door_emission_is_reportable(target) -> bool:
+    """Whether this row's door-name-map outcome is worth a line in the run's
+    own output — true for the row the map belongs to, and only that row.
+
+    Every other row's "not the door's bin destination" is a structural
+    non-event, not news; printing it for all nine klabauter rows would bury the
+    one line that carries information. Degrades to False (no line) when the
+    engine module is unavailable to answer at all — a row whose engine is
+    unavailable is already reported by `process_target`'s own handling."""
+    try:
+        rewrite_basename_module = _import_percolate_rewrite_basename_module()
+    except ImportError:
+        return False
+    return rewrite_basename_module.is_door_bin_destination(_dest_prefix_for(target.dest_dir))
+
+
+def emit_door_name_map_for_publish_row(target, sync_target, rename_manifest):
+    """Emit the door-facing published-name map for one row on THIS route
+    (`coordinator-publish`), through the same
+    `rewrite_basename.emit_door_name_map_for_row` call path
+    `coordinator_core/percolate/round.py::run_round` takes.
+
+    THE TWO DIRECTORIES ARE DIFFERENT ON PURPOSE, the same distinction
+    `dispatch_mirror_like`'s `sweep_top_level_orphans` argument already draws:
+      * `target.dest_dir` — where the row LANDS. Only this can answer "is this
+        the door's bin destination"; `sync_target.dest_dir` is a staging tree
+        under a temp root and its path shape says nothing about the row.
+      * `sync_target.dest_dir` — the staging tree this run swaps into the
+        destination. The map is WRITTEN here so it travels as ordinary staged
+        content through the swap, exactly as `round.py` writes it into its own
+        `staging_dir` before the smack.
+
+    Called AFTER `dispatch_percolate_post_rsync`, which is the earliest point a
+    real `rename_manifest` exists on this route (the content-transform sweep
+    runs post-sync here, unlike the round driver's pre-smack transform). That
+    ordering also means the sync's top-level orphan sweep has already run
+    against the staging tree, so a map carried over from a previous publish is
+    reaped and re-emitted in the same round rather than going stale.
+
+    Never raises: an unimportable engine degrades to an unavailable report, the
+    same best-effort contract the emitter itself carries.
+    """
+    try:
+        rewrite_basename_module = _import_percolate_rewrite_basename_module()
+    except ImportError as exc:
+        return _DoorEmissionUnavailable(f"percolate engine not importable ({exc})")
+    return rewrite_basename_module.emit_door_name_map_for_row(
+        sync_target.dest_dir,
+        _dest_prefix_for(target.dest_dir),
+        rename_manifest,
+    )
+
+
 def _import_percolate_store_resolve_target():
     """Import `coordinator_core.percolate.store.resolve_target` directly —
     same engine-root-already-on-sys.path idiom as
@@ -6034,6 +6121,21 @@ def run_pre_sync_gates(
             stamp_path = Path(restricted_tmp_src) / _ENGINE_STAMP_FILENAME
             stamp_path.write_text(f"sha:{stamp_sha}\n", encoding="utf-8", newline="\n")
             print(f"  Engine build stamp: {_ENGINE_STAMP_FILENAME} = sha:{stamp_sha}", file=out)
+            # The stamp's SIBLING vintage file (`_engine_published_at`), written
+            # into the same restricted tree, in the same row guard, at the same
+            # point — `coordinator_core/percolate/round.py::stamp_engine_row`
+            # already pairs the two, and this route did not, which is why the
+            # published mirror carries `_engine_stamp` and no vintage at all.
+            # Never folded INTO the stamp: `skew.read_engine_stamp_sha` strips
+            # and splits that file on `+`, so an extra line there returns a
+            # corrupt sha with no exception raised.
+            #
+            # Best-effort by contract (`emit_published_at` never raises), so it
+            # can never turn a successful stamp write into a failed row — which
+            # is exactly why its outcome is PRINTED rather than left to a debug
+            # log nobody reads.
+            published_at_emission = _emit_engine_row_published_at(restricted_tmp_src)
+            print(f"  Engine vintage: {published_at_emission.render()}", file=out)
 
     return GateResult(
         proceed=True,
@@ -10802,6 +10904,26 @@ def process_target(
                         visited_sink=row_visited,
                         sync_changed_paths=row_sync_changed,
                     )
+                # § docs/plans/2026-08-28-the-currency-signal-stops-one-hop-
+                # short-of-the-door.md chunk C2. The door-facing name map was
+                # wired into `coordinator_core/percolate/round.py::run_round`
+                # ONLY, so which of the two sanctioned publish commands an
+                # operator typed decided whether the mirror carried a map at
+                # all — and the percolate skill routinely names this route for
+                # several registered rows against one mirror. Four installed
+                # forwarders were left naming a target the published engine
+                # could not serve. One shared call path now, not two.
+                #
+                # Emitted HERE, immediately after post_rsync: that phase is the
+                # earliest point this route holds a real rename manifest, and
+                # the staging tree it writes into is swapped into the
+                # destination below like any other staged byte.
+                with _time_phase(timing_sink, target.name, "emit_door_name_map"):
+                    door_emission = emit_door_name_map_for_publish_row(
+                        target, sync_target, rename_manifest
+                    )
+                if _door_emission_is_reportable(target):
+                    print(f"  Door name map: {door_emission.render()}", file=out)
                 with _time_phase(timing_sink, target.name, "dispatch_percolate_inject"):
                     inject_shadow_toplevels = dispatch_percolate_inject(
                         engine_ctx,

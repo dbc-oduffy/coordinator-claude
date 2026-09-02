@@ -4,7 +4,7 @@
 This doctrine-plane repo owns only this thin PLUMBING shim (DR-047
 transport-seam carve-out), following the shape `subagent-zero-tool-use-
 detect.py` and the other `dispatch_ops_from_hook`-era call sites already
-ship: parse the Stop payload, resolve the claude-klabauter engine, relay to the
+ship: parse the Stop payload, resolve the engine root, relay to the
 engine op, and translate its return into this dispatcher's own advisory
 channel. The engine owns the decision LOGIC (word-budget/citation-density
 measurement, bark-once state) -- see
@@ -85,7 +85,7 @@ def main() -> int:
     except Exception:
         return 0  # fail-open -- resolver contract is never-raise, belt+braces
     if not root:
-        return 0  # fail-open -- claude-klabauter unresolvable on this machine
+        return 0  # fail-open -- engine unresolvable on this machine
 
     if root not in sys.path:
         sys.path.insert(0, root)

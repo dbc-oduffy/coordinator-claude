@@ -411,9 +411,43 @@ def cmd_observer_sidecar_scan(argv: list[str]) -> int:
     return proc.returncode
 
 
+def _is_readable_script(path: str) -> bool:
+    """A regular file this process can actually open and read a byte from.
+
+    `os.access(R_OK)` is not enough: it answers from the permission bits and
+    can disagree with an open on a stale mount or a broken link, which is the
+    class of partial checkout this probe exists to catch.
+    """
+    if not os.path.isfile(path):
+        return False
+    try:
+        with open(path, "rb") as handle:
+            handle.read(1)
+    except OSError:
+        return False
+    return True
+
+
 def cmd_claude_klabauter_bin_sentinel(argv: list[str]) -> int:
+    """Is the engine repo's `coordinator/bin/` a populated, usable checkout?
+
+    The sentinel is READ, never exec'd, and that is what this probe tests.
+    Nothing hands `archive-stamp-cli.py` to the OS exec loader: every caller
+    reaches it through a settings-home forwarder that runs `python3 <script>`,
+    for which the executable bit is irrelevant. The tree agrees -- 1440 of
+    1444 files under `coordinator/bin` are recorded 644, so an X_OK gate here
+    failed on every machine, every morning, and its own remediation
+    (`git checkout -- <file>`) was a no-op against a file that was present and
+    unmodified. Reported by example-cockpit-repo-em, 2026-09-02, from a run where
+    the file was healthy.
+
+    Negative-spec: do NOT restore the X_OK gate on the theory that scripts
+    "should" be executable. That is a repo-wide mode convention question, and
+    settling it by way of a health probe means the probe fires on a condition
+    it cannot fix and nobody has agreed to. A daily false alarm is how a real
+    one gets ignored.
+    """
     _ensure_repo_root_on_path()
-    from coordinator_core.win_portability import is_executable
 
     del argv  # no flags accepted
     mkb_bin = _SCRIPT_DIR
@@ -425,9 +459,9 @@ def cmd_claude_klabauter_bin_sentinel(argv: list[str]) -> int:
             file=sys.stderr,
         )
         return 1
-    if not (os.path.isfile(sentinel) and is_executable(sentinel)):
+    if not _is_readable_script(sentinel):
         print(
-            f"CLAUDE-KLABAUTER-BIN PROBE: sentinel '{sentinel}' missing or not executable — "
+            f"CLAUDE-KLABAUTER-BIN PROBE: sentinel '{sentinel}' missing or unreadable — "
             f"stale/partial engine-repo migration; restore this one file, e.g. "
             f"`git checkout -- {sentinel}`",
             file=sys.stderr,

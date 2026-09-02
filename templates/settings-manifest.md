@@ -92,7 +92,7 @@ both directions.
 > blanket value here. → `docs/decisions/DR-143-...md` (supersedes DR-113 clause 1 on exactly this).
 >
 > It is a **native Claude Code variable**, not a coordinator one — nothing in this repo or
-> `claude-klabauter` reads it; the harness does, from `settings.json`. That is why it lives here and
+> the engine repo reads it; the harness does, from `settings.json`. That is why it lives here and
 > not in the machine-local registry: a value the harness reads has to be where the harness looks.
 > The rollout is progressive on Windows-with-Git-Bash, so an *unset* value is nondeterministic
 > across Claude Code updates — pinning is about removing that silent flip, not about picking a side.
@@ -148,7 +148,7 @@ A `registry.local.toml` key governs cockpit emission. It is operator-set; unset 
 
 | Key | Purpose | Consumer | Provision |
 |---|---|---|---|
-| `cockpit.meta_repo_slug` | The operator meta-repo `owner/repo` slug (e.g. `"myowner/my-meta-repo"`). Feeds `COCKPIT_META_REPO_SLUG`. | claude-klabauter `coordinator/bin/emit-cockpit-snapshot.py`, cockpit emit-path | `machine-local set cockpit.meta_repo_slug "owner/slug"` |
+| `cockpit.meta_repo_slug` | The operator meta-repo `owner/repo` slug (e.g. `"myowner/my-meta-repo"`). Feeds `COCKPIT_META_REPO_SLUG`. | the engine repo's `coordinator/bin/emit-cockpit-snapshot.py`, cockpit emit-path | `machine-local set cockpit.meta_repo_slug "owner/slug"` |
 
 **Why these are device-singular.** The operator's GitHub org membership and their choice of meta-repo slug are properties of the operator's identity on their device — they cannot be committed to the coordinator's OSS source without personalizing that source. Every operator running the coordinator will have different values; the registry is the correct store (§ Device-Singular vs. OSS-Canonical Discriminator, §4e of `machine-local-registry.md`).
 

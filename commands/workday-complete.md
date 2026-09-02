@@ -50,15 +50,17 @@ Splice `$ONLY_FLAG`/`${SCOPE_SUMMARY:+...}` exactly as shown — do not hand-der
 ## Step 3-4: RAG Nudge, Plugin Validation
 
 If `ToolSearch` finds `mcp__project-rag__*`, run the staleness survey; surface only if
-stale/very-stale. Run `node --test tests/plugin-ecosystem/run.js` — hook-behavior failures block;
+stale/very-stale. Run `node --test coordinator/tests/plugin-ecosystem/run.js` — hook-behavior failures block;
 non-hook failures report and continue.
 
 ## Step 5: Resolve Judgment Points
 
 Read each `judgment_points[]` entry verbatim — question/evidence/dispositions are fully formed.
 
-- `jp_step2_5_dirty_tree_ambiguous`: adopt-commit / discard / attribute-to-session; look harder if
-  in doubt (wiki).
+- `jp_step2_5_dirty_tree_ambiguous`: adopt-commit / discard / attribute-to-session. Attribute only
+  to a session the claim index actually shows holding the path — `liveness=dead` is an orphan, not
+  an owner, and "some peer probably wants this" is not attribution. Everything left over is
+  adopt-commit; see Step 9e, which will not let the ceremony end while any of it is still dirty.
 - `jp_step3_5_backfill_cap`: backfill all, or bounded subset (default).
 - `jp_step4b_analyst_dispatch` / `jp_step4c_observer_dispatch`: dispatch unless
   `skip_no_new_work`.
@@ -166,7 +168,7 @@ Report by exception, ≤200 words — a clean wrap is the shortest run.
 
 **Branch state:** [branch name], rebased on main, pushed
 **Day-goal closeout:** [Step 6 goal-close-day summary]
-**NOT merged to main** — use `/merge-to-main` when ready
+**NOT merged to main** — use `/merging-to-main` when ready
 ```
 
 Append only if true: day summary / targeted wrap prefix; validate exit non-zero; orphan-reap

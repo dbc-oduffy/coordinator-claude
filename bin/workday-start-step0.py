@@ -582,9 +582,16 @@ def main(argv: list[str]) -> int:
     except SuffixCollisionError as exc:
         _err(f"ERROR: {exc}")
         return 1
-    if ensure.result in ("FRESH-CUT", "ADOPTED-EXISTING", "INHERITED"):
+    if ensure.result in (
+        "FRESH-CUT",
+        "ADOPTED-EXISTING",
+        "ADVANCED-TO-HEAD",
+        "INHERITED",
+    ):
         # ADOPTED-EXISTING (today's branch already existed and HEAD was at its
-        # tip) and INHERITED (another session won the cut lock) are the same
+        # tip), ADVANCED-TO-HEAD (it existed but lagged HEAD after a merge to
+        # main, so its ref was advanced with HEAD held still) and INHERITED
+        # (another session won the cut lock) are the same
         # settled-on-a-day-branch terminal as FRESH-CUT: the invariant HOLDS.
         # They are deliberately NOT folded into REFUSED-LIVE-PEERS, which
         # reports the opposite state -- see session_ensure_branch's negative
