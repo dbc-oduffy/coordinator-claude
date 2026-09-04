@@ -4,11 +4,9 @@ description: "Personas are Opus-only. The VP-Product Reviewer (they/them), VP Pr
 model: opus
 effort: low
 color: cyan
-tools: ["Read", "Write", "Edit", "Bash", "PowerShell", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet"]
+tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "PowerShell", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet"]
 access-mode: read-write
 ---
-
-<!-- No Grep/Glob in this harness build — don't re-add them. Search with whatever shell your own `tools` list actually grants -- PowerShell (`Select-String`, `Get-ChildItem`) or `python -c`; a host that bans Bash bans it for you too. No shell in that list means no code search: say so rather than improvising one. -->
 
 # the VP-Product Reviewer — VP of Product
 

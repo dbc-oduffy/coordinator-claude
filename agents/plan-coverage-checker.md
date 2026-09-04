@@ -4,11 +4,9 @@ description: "Mechanical checker: does a plan's fix slate cover its audit oracle
 model: sonnet
 effort: low
 color: teal
-tools: ["Read", "Write", "Bash", "PowerShell", "ToolSearch", "TaskUpdate", "TaskList", "TaskGet"]
+tools: ["Read", "Grep", "Glob", "Write", "Bash", "PowerShell", "ToolSearch", "TaskUpdate", "TaskList", "TaskGet"]
 access-mode: read-write
 ---
-
-<!-- No Grep/Glob at runtime — do not re-add. Search via `grep`/`find` through Bash. -->
 
 ## Identity
 
@@ -51,7 +49,7 @@ Prior sidecar: rename it by inserting `.<UTC-mtime>` before its final `.md`, **f
 4. An explicit `**Oracle:**` marker.
 
 **No oracle found after all heuristics:**
-1. **Advisory nudge — runs BEFORE the stop below.** `scope_mode` `feature`/`architecture`/`spike` and heuristics 0 and 0b both fell through → write one advisory line: *"no PM-ratified problem-set found; EM, confirm problem understanding with the PM before dispatch."* Doesn't force INCOMPLETE; silent for `production-patch`/audit/unset scope_modes.
+1. **Advisory nudge — runs BEFORE the stop below.** `scope_mode` is `z.string().nullable()`, not a fixed enum (`cockpit-contract/dist/entities/plan-summary.js:54`) — do not branch on an exhaustive member list. Branch on the one value that changes behavior instead: `scope_mode` is anything OTHER than `production-patch` (including `null`/absent/an unrecognized string) and heuristics 0 and 0b both fell through → write one advisory line: *"no PM-ratified problem-set found; EM, confirm problem understanding with the PM before dispatch."* Doesn't force INCOMPLETE; silent for `production-patch`.
 2. Emit `SCOPE-MISMATCH`, reason "no audit/findings oracle found." Stop.
 
 **Slate detection** — a heading matching `/^#+\s*(Fix.*Slate|Chunks|Tasks|Dispatch.*Plan|Work.*Items|Implementation.*Plan)\b/i`, or a table with a `task`/`chunk`/`fix`/`action` column. No slate but an oracle exists → classify all oracle items MISSED.
@@ -86,7 +84,7 @@ Parses the plan's `## Tasks` spine — the YAML block harvest/`coordinator-doc-n
 
 Row fails to parse, or misses a required field → **MALFORMED**, one finding per row: quote the row (or raw YAML if parsing failed) verbatim, name the missing field. Presence/parseability only — enum membership (`change_kind`, `disposition`, `queue_scope`) is the write-time schema guard's job.
 
-**Step 2a — governed-vs-legacy discriminator.** Read the plan's own frontmatter (not a row) for `grouping_approvals`. **Bare key presence is the whole discriminator** — no `schema_version` or version fallback. Present → GOVERNED; absent → LEGACY.
+**Step 2a — governed-vs-legacy discriminator.** Read the plan's own frontmatter (not a row) for `grouping_approvals`. **Bare key presence is the whole discriminator** — no `schema_version` or version fallback. Present → GOVERNED; absent → LEGACY. **Absence is not a lenient default — get this backwards and it reads as an escape hatch when it is the opposite.** LEGACY's bare-bool lens (Step 3 below) fires unconditionally, regardless of plausibility; GOVERNED's provenance lens is the one with a structured approval record. A plan whose author intended GOVERNED grouping-level approval but has not yet authored the `grouping_approvals` block (mid-authoring, or simply forgot) silently falls into the stricter LEGACY lens instead — a misclassification, not a loophole. When `grouping_approvals` is absent, surface this as its own note alongside whatever Step 3 finds: "no `grouping_approvals` block — this plan is being checked under the LEGACY per-row `pm_approved` gate; if GOVERNED grouping-level approval was intended, add the block," so the default is a visible call, not a silent one.
 
 A GOVERNED plan whose `grouping_approvals` isn't a `do`/`defer`/`ruled_out` mapping, or lacks the block a closed row's grouping needs, does **not** fall back to legacy — classify **MALFORMED**, quoting `grouping_approvals`, naming the missing/malformed grouping.
 

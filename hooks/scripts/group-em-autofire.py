@@ -171,11 +171,33 @@ def render_additional_context(payload: dict, exit_code: int, stderr: str) -> str
     suppressed = digest.get("suppressed") or []
     candidates = sum(1 for peer in roster if peer.get("candidate"))
 
+    # `roster` IS NOT THE PEER POPULATION -- it is `build_candidate_roster`'s output
+    # (candidate | unclassifiable | contradicted), a numerator whose denominator the engine
+    # reports separately as `roster_considered` (see `coordinator_core/ops/group_em_enter.py`'s
+    # module docstring, which says so in capitals). Rendering `len(roster)` as "peer(s)" told
+    # the holder a busy repo was nearly empty, and `0 of 11` and `0 of 0` -- looked-and-found-
+    # nothing versus never-enumerated -- collapsed into the same line. Both were chased as
+    # separate bugs across three repos on 2026-09-02 before the render was found.
+    considered = payload.get("roster_considered")
+    if isinstance(considered, int) and not isinstance(considered, bool):
+        roster_line = (
+            f"Roster: {len(roster)} of {considered} peer(s) considered, "
+            f"{candidates} candidate(s)"
+        )
+    else:
+        # Never fabricate the denominator, and never print a bare count in its place -- that is
+        # the exact ambiguity this branch exists to avoid. Say the denominator is missing.
+        roster_line = (
+            f"Roster: {len(roster)} shortlisted, {candidates} candidate(s) — "
+            f"ENUMERATED COUNT UNAVAILABLE (`roster_considered` absent from the payload), so "
+            f"this says nothing about how many peers exist"
+        )
+
     lines = [
         "## Group EM entry: ACTIVE",
         "",
         f"Group EM: {standing.get('message') or 'claimed'}",
-        f"Roster: {len(roster)} peer(s), {candidates} candidate(s)",
+        roster_line,
     ]
     if standing.get("displaced_holder"):
         # The one message this mode owes rather than offers. A displaced holder that is still

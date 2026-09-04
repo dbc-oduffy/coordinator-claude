@@ -71,12 +71,12 @@ Read each `judgment_points[]` entry verbatim — question/evidence/dispositions 
 
 ## Step 6: Apply
 
-POSIX hosts: Shape A, resolving `workday-complete-assemble apply --decisions '<json map of
-judgment_point_id -> {"disposition": "<value>"}>' ${FOR_DATE:+--for-date "$FOR_DATE"} $ONLY_FLAG`.
+POSIX hosts: Shape A, resolving `workday-complete-assemble apply --decisions-file <path>` (path to
+a file containing the json map of judgment_point_id -> {"disposition": "<value>"}) `${FOR_DATE:+--for-date "$FOR_DATE"} $ONLY_FLAG`.
 
 PowerShell hosts (rung 0, Shape W):
 
-    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-assemble.exe" apply --decisions '<json map of judgment_point_id -> {"disposition": "<value>"}>' $(if ($FOR_DATE) { "--for-date", $FOR_DATE }) $ONLY_FLAG
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-assemble.exe" apply --decisions-file <path> $(if ($FOR_DATE) { "--for-date", $FOR_DATE }) $ONLY_FLAG
 
 Read `landed`/`blocked`/`failed`; `blocked` returns to Step 5. Exit-code tables: wiki.
 

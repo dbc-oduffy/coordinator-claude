@@ -70,13 +70,25 @@ written by their owning skill on first use — except `state/orientation_cache.m
 has real day-1 content once Phase 2 answers exist.
 
 **`.gitignore`.** Ensure the canonical block (settings.local.json, scratch/, per-session
-sentinels, ceremony/coverage transients, `.project-rag-corpus-artifacts/` and
+sentinels, ceremony/coverage transients, the group-EM watch trio —
+`state/group-em-watch.json`, `state/group-em-watch-parked.json`,
+`state/group-em-watch-spool.jsonl` — `.project-rag-corpus-artifacts/` and
 `.project-rag-corpus-store/`) is present — create if
 absent, append only the missing lines under one header if partially present, skip silently if
-complete. If ceremony/coverage transients are already tracked, `git rm --cached` them after adding
-the ignore rule. Warn if `.claude/` (not just `settings.local.json`) is blanket-ignored, if tracked
+complete. If ceremony/coverage transients or any of the group-EM watch trio are already tracked,
+`git rm --cached` them after adding the ignore rule — never `git rm`: a Stop hook is appending to
+the spool live, and deleting it mid-append costs a peer's watch records. Warn if `.claude/`
+(not just `settings.local.json`) is blanket-ignored, if tracked
 content exists under `scratch/`/`tasks/_*.log` (offer, don't auto-`git rm --cached`), or if the
 project-rag corpus paths are already tracked (break-class finding, not a nit — ~230MB in history).
+
+**Pre-commit corpus-artifact guard**: install `coordinator/bin/pre_commit_corpus_artifact_guard.py`
+as a pre-commit hook in the same pass. It belt-and-braces the `.gitignore` stanza above — the
+stanza stops an artifact being *added*, the guard stops one already tracked or force-added from
+being *committed*, and the two fail independently. Measured 2026-09-02: the guard existed in this
+tree with **no installer referencing it anywhere**, so every repo had the docstring and none had the
+protection. A guard nothing installs is indistinguishable from a guard that never fires, and the
+thing it protects against is ~230MB in history.
 
 **Post-commit auto-push hook**: `coordinator-ensure-hooks-fleet` (Shape W) — idempotent
 install/repair/exec-bit self-heal in one call. Skip if a custom hook exists with PM sign-off

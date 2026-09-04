@@ -225,6 +225,14 @@ _NONPERCOLATING_TREES = (
     ("state/lessons/", "state/lessons/ citation (never percolates)"),
     ("state/review-trail/", "state/review-trail/ citation (never percolates)"),
     (
+        # The whole machinery root, not one bucket under it: it is gitignored
+        # in every tree, so nothing beneath it resolves for a non-local reader,
+        # and a bucket that relocates into it is covered on arrival rather than
+        # after someone notices the citation stopped being flagged.
+        ".coordinator-local/",
+        ".coordinator-local/ citation (machinery root, gitignored, never percolates)",
+    ),
+    (
         # Review: code-reviewer (Finding 3) -- dropped the "reader has
         # already loaded this exact text" clause; not true on OSS/sibling
         # installs where global-doctrine/ doesn't exist at all.

@@ -421,7 +421,6 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - sidecar-frontmatter-contract
     - persona-persisting-findings
-    - no-grep-glob-harness-note
     - context7-lazy-load-bootstrap
   coordinator:eng-director:
     - persona-dispatch-contract
@@ -433,7 +432,6 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - sidecar-frontmatter-contract
     - persona-persisting-findings
-    - no-grep-glob-harness-note
     - context7-lazy-load-bootstrap
   coordinator:staff-data-sci:
     - persona-dispatch-contract
@@ -445,7 +443,6 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - sidecar-frontmatter-contract
     - persona-persisting-findings
-    - no-grep-glob-harness-note
     - context7-lazy-load-bootstrap
   coordinator:senior-front-end:
     - persona-dispatch-contract
@@ -457,7 +454,6 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - sidecar-frontmatter-contract
     - persona-persisting-findings
-    - no-grep-glob-harness-note
     - context7-lazy-load-bootstrap
   # Kira runs the fix-vs-ask rubric on the standard ReviewFinding shape, so
   # reviewer-calibration is INCLUDED (the exclusion carries the burden of argument,
@@ -473,13 +469,12 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - sidecar-frontmatter-contract
     - persona-persisting-findings
-    - no-grep-glob-harness-note
     - context7-lazy-load-bootstrap
   # Angelique (apm) -- adversarial junior-PM PLAN reviewer. staff-eng-review family: she emits
   # the shared ReviewOutput envelope, not the tool-shaped review-findings output. Same block
-  # list as Kira, minus no-grep-glob-harness-note: apm holds neither Grep nor Glob either, but
-  # she reviews plan PROSE at a cited path rather than hunting duplication across a tree, so the
-  # note has no work to do for her.
+  # list as Kira. She holds no Grep/Glob: she reviews plan PROSE at a cited path rather than
+  # hunting across a tree, so a filesystem search surface buys her nothing. That is a scoping
+  # call about her role, not a claim about what the harness ships.
   coordinator:apm:
     - persona-dispatch-contract
     - reviewer-calibration
@@ -501,7 +496,6 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - sidecar-frontmatter-contract
     - persona-persisting-findings
-    - no-grep-glob-harness-note
     - context7-lazy-load-bootstrap
   coordinator:vp-product:
     - persona-dispatch-contract
@@ -521,7 +515,6 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - sidecar-emission-contract
     - quota-self-detect-preamble
-    - no-grep-glob-harness-note
   coordinator:docs-checker:
     - provisioned-scaffold-precedence
     - sidecar-emission-contract
@@ -542,7 +535,6 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - run-report-citizenship
     - quota-self-detect-preamble
-    - no-grep-glob-harness-note
     - named-dispatch-class-3-backstop
   # G3 (review-pipeline agents, 2nd pass) rows: quota-self-detect-preamble is
   # the one universal-safe block these 8 already carry RESIDENT (pasted) in
@@ -579,11 +571,9 @@ contract_blocks:
   coordinator:parallel-review-synthesizer:
     - provisioned-scaffold-precedence
     - quota-self-detect-preamble
-    - no-grep-glob-harness-note
   coordinator:security-audit-worker:
     - provisioned-scaffold-precedence
     - quota-self-detect-preamble
-    - no-grep-glob-harness-note
   # dep-cve-auditor / test-evidence-parser: review-execution tier (see
   # dispatch_tier: above, clause (2)(c) — payload size / EM-context protection),
   # so provisioned-scaffold-precedence applies exactly as it does for the other
@@ -598,11 +588,9 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - run-report-citizenship
     - quota-self-detect-preamble
-    - no-grep-glob-harness-note
   coordinator:coverage-auditor:
     - provisioned-scaffold-precedence
     - quota-self-detect-preamble
-    - no-grep-glob-harness-note
     - named-dispatch-relay
   coordinator:doc-link-checker:
     - provisioned-scaffold-precedence
@@ -624,14 +612,12 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - run-report-citizenship
     - quota-self-detect-preamble
-    - no-grep-glob-harness-note
     - context7-lazy-load-bootstrap
     - named-dispatch-class-3-backstop
   coordinator:review-integrator:
     - provisioned-scaffold-precedence
     - run-report-citizenship
     - quota-self-detect-preamble
-    - no-grep-glob-harness-note
     - named-dispatch-class-3-backstop
   # G5 (deep-research pipeline, 2nd pass) rows: same universal-safe
   # quota-self-detect-preamble win as G3/G4 — all 9 already carry it
@@ -665,13 +651,11 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - disk-first-protocol
     - quota-self-detect-preamble
-    - no-grep-glob-harness-note
     - named-dispatch-relay
   coordinator:research-sweep:
     - provisioned-scaffold-precedence
     - disk-first-protocol
     - quota-self-detect-preamble
-    - no-grep-glob-harness-note
     - named-dispatch-relay
   coordinator:research-synthesizer:
     - provisioned-scaffold-precedence
@@ -682,25 +666,21 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - disk-first-protocol
     - quota-self-detect-preamble
-    - no-grep-glob-harness-note
     - named-dispatch-relay
   coordinator:repo-scout:
     - provisioned-scaffold-precedence
     - disk-first-protocol
     - quota-self-detect-preamble
-    - no-grep-glob-harness-note
     - named-dispatch-relay-named-scout
   coordinator:repo-specialist:
     - provisioned-scaffold-precedence
     - disk-first-protocol
     - quota-self-detect-preamble
-    - no-grep-glob-harness-note
     - named-dispatch-relay
   coordinator:structured-synthesizer:
     - provisioned-scaffold-precedence
     - disk-first-protocol
     - quota-self-detect-preamble
-    - no-grep-glob-harness-note
     - named-dispatch-relay
   coordinator:notebooklm-research-scout:
     - provisioned-scaffold-precedence

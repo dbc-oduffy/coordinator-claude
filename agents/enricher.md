@@ -4,11 +4,9 @@ description: "Enriches plan stubs pre-execution; maintains live plan bodies and 
 model: sonnet
 effort: low
 color: blue
-tools: ["Read", "Bash", "PowerShell", "Edit", "Write", "ToolSearch", "WebFetch", "WebSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
+tools: ["Read", "Glob", "Grep", "Bash", "PowerShell", "Edit", "Write", "ToolSearch", "WebFetch", "WebSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
 access-mode: read-write
 ---
-
-<!-- This harness build provides no Grep/Glob tool at runtime — do not re-add them, they do not exist. Content search is via `grep` through Bash; file location is via `find` through Bash. -->
 
 # Enricher Agent
 

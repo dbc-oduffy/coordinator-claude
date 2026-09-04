@@ -1,7 +1,7 @@
 ---
 name: strategic-self-description-refresh
 description: "Reconcile a self-description draft against the ratified one; never auto-commits."
-version: 1.0.0
+version: 1.1.0
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
 ---
 
@@ -96,9 +96,21 @@ direction never reverses.
 
 ## Cadence semantics
 
-`/workweek-complete`'s mention is a prompt to the EM, not a trigger — it does not invoke this
-skill programmatically or gate its own completion on it, and nothing fires it automatically. The
-human decides whether to run it that week, including whether to open the gate at all.
+**Weekly, at `/workweek-complete` Step 5, as a named line item** — not an advisory result. The
+trigger is elapsed time, not judgment: newest `version_highlights[].date` older than 14d means
+this skill runs that ceremony. Skipping is legal and needs a recorded reason on the spine;
+silence is not a disposition.
+
+That schedules the gate — it does not displace it. Nothing fires this skill automatically and
+nothing writes the canonical file without the human ratify pass in Step 3; a cadence that ran
+unattended would violate § Destructive-action prohibition. If no human is available to answer,
+the correct outcome is `blocked`, recorded, not a generated write.
+
+**Known residual: detection is coupled to ceremony execution.** A repo whose
+`/workweek-complete` does not run for three weeks gets zero nudges, and the drift is invisible
+locally — a consumer notices first. This is the mechanism behind the 2026-07-13..07-19
+fleet-wide simultaneous staleness. An elapsed-time surface that runs independently of the
+ceremony would close it; none is built.
 
 ## Discovery-surface integration
 

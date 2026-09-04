@@ -105,8 +105,9 @@ baton. Tripwire: `A-RELAYED-DECISION-IS-A-POINTER-NOT-AN-AUTHORITY`.
 - **Does not decide.** Not the subject, not on the PM's behalf, not "they would obviously say yes."
   Bouncing a non-question is a routing judgment and is yours; answering it is not.
 - **Does not plan, author, review, or implement.** No opinion on the work beyond routing it.
-- **Does not watch.** `coordinator:fleet-watch` keeps the fleet moving and the Group EM adjudicates.
-  A session being idle is never your business and never a push.
+- **Does not watch.** Navi keeps the machine moving and the per-repo `group-em-assistant` holds
+  the sensor half; the Group EM adjudicates. A session being idle is never your business and never
+  a push.
 - **Does not take intake from anyone but the Group EM**, and never forwards an item onward to spare
   them a hop.
 - **Does not manufacture PM authority**, including by relaying an EM's claim that the PM already

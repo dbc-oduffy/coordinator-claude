@@ -14,6 +14,47 @@
   ],
   "additionalProperties": false,
   "properties": {
+    "shared_interpreter_surface": {
+      "type": "object",
+      "description": "Names this repo claims in an interpreter it does NOT own exclusively. Every entry is a name no sibling repo can also claim, so the block exists to make collisions inventoriable from the manifest rather than discoverable only by reading each repo's packaging. Optional: omit it when the repo installs into its own venv and claims nothing shared. An EMPTY block is not the same as an absent one -- it asserts the surface was considered and is empty.",
+      "additionalProperties": false,
+      "properties": {
+        "top_level_import_names": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Importable top-level module/package names claimed on sys.path."
+        },
+        "console_scripts": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Executable names placed on PATH by this install."
+        },
+        "entry_point_groups": {
+          "type": "object",
+          "additionalProperties": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "description": "Entry points registered per group, e.g. {\"project_rag.addons\": [\"market_intel\"]}."
+        },
+        "sys_path_entries": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Paths added to sys.path outside normal site-packages resolution."
+        },
+        "install_mechanism": {
+          "type": "string",
+          "description": "How the claim is made, e.g. \"pep660-editable-finder\". Free text: the mechanism vocabulary is not fixed fleet-wide, and an enum here would refuse manifests for mechanisms nobody has met yet."
+        },
+        "startup_cost_ms": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Import cost this claim adds to an interpreter that loads it."
+        },
+        "startup_cost_measured": {
+          "type": "boolean",
+          "description": "REQUIRED whenever startup_cost_ms is present, and the reason this pair is two fields rather than one. A declared estimate and a measured number render identically once written down, and budgets get built on whichever landed."
+        }
+      },
+      "dependentRequired": { "startup_cost_ms": ["startup_cost_measured"] }
+    },
     "agent_install_contract_version": {
       "description": "Contract version — enables coordinated schema bumps across repos. Consumers must reject manifests with a version they do not recognise. Readers accept the range {1,2,3} (reader-widen-first sequencing) so manifests at different versions can coexist during a coordinated bump; v2 adds the optional DirectDep.consumer_install_args field; v3 adds the optional system_prerequisites array; v3 also adds the optional programmatic_entry_point field.",
       "enum": [1, 2, 3],

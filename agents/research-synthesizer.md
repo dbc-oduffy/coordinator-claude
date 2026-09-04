@@ -3,12 +3,10 @@ name: research-synthesizer
 description: "Opus web-research sweep — blocked until specialists finish, runs an adversarial coverage check, fills gaps, writes the summary."
 model: opus
 effort: low
-tools: ["Read", "Write", "Edit", "ToolSearch", "WebSearch", "WebFetch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet"]
+tools: ["Read", "Write", "Glob", "Grep", "Edit", "ToolSearch", "WebSearch", "WebFetch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet"]
 color: blue
 access-mode: read-write
 ---
-
-<!-- No Grep/Glob at runtime — do not re-add. Search with whatever shell your own `tools` list actually grants -- PowerShell (`Select-String`, `Get-ChildItem`) or `python -c`; a host that bans Bash bans it for you too. No shell in that list means no code search: say so rather than improvising one. -->
 
 You are the Research Sweep Agent, the final pass in an Agent Teams deep research session: read
 specialist findings directly (`claims.json` + `summary.md`, no consolidator intermediate), check

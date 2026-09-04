@@ -630,6 +630,23 @@ def _same_path(a: str, b: str) -> bool:
     return same_path(a, b)
 
 
+def _canonical_repo_key_for_root(root: str, repo_key_paths: dict[str, str]) -> str | None:
+    """Thin alias onto ``coordinator_core.machine_resolver.canonical_repo_key_for_root``
+    — the ranking that decides which registry key owns a repo when several
+    point at it. Routed through the same engine-root-on-sys.path seam
+    ``_same_path`` above uses, and for the same reason: ``coordinator_core``
+    is not ambiently importable from every CLI's cwd.
+    """
+    if _REGISTRY_LIB_DIR not in sys.path:
+        sys.path.insert(0, _REGISTRY_LIB_DIR)
+    import cc_invoke
+
+    cc_invoke.ensure_engine_on_path(__file__)
+    from coordinator_core.machine_resolver import canonical_repo_key_for_root
+
+    return canonical_repo_key_for_root(root, repo_key_paths)
+
+
 def repo_key_to_em_id(key: str) -> str:
     """Reverse a repos.<name> registry key to its EM identity string.
 
@@ -668,7 +685,10 @@ def em_id_for_root(root: str | None, repo_key_paths: dict[str, str]) -> str:
       1. root is None  → 'unknown-sender-em'
       2. root path-matches repo_key_paths['repos.doe_claude']  → the manifest-derived
          canonical central identity (see _central_canonical_id())
-      3. root path-matches any other registered repos.* path   → repo_key_to_em_id(key)
+      3. root path-matches any other registered repos.* path   → repo_key_to_em_id(key),
+         the key chosen by machine_resolver.canonical_repo_key_for_root when
+         several keys point at one repo (a canonical key plus its receive-only
+         aliases) — never by whatever order the caller enumerated the registry in
       4. unregistered git repo  → basename(root) + '-em'
 
     Negative-spec: the old ~/.claude/home special-case is REMOVED — ~/.claude is no
@@ -679,9 +699,9 @@ def em_id_for_root(root: str | None, repo_key_paths: dict[str, str]) -> str:
     doe_claude_path = repo_key_paths.get("repos.doe_claude")
     if doe_claude_path and _same_path(root, doe_claude_path):
         return _central_canonical_id()
-    for key, path in repo_key_paths.items():
-        if path and _same_path(path, root):
-            return repo_key_to_em_id(key)
+    key = _canonical_repo_key_for_root(root, repo_key_paths)
+    if key is not None:
+        return repo_key_to_em_id(key)
     return os.path.basename(root.rstrip("/\\")) + "-em"
 
 

@@ -1,5 +1,5 @@
 """
-group-em-watch.py — CLI trampoline over claude-klabauter
+group-em-watch.py — CLI trampoline over the engine repo's
 coordinator_core.group_em.watch.
 
 WHY THIS EXISTS. The standing Group EM watch is armed FROM the repo it
@@ -8,7 +8,7 @@ coordinator_core.group_em.watch` only resolves from a cwd whose interpreter
 can already import the engine. From any other repo it is a
 `ModuleNotFoundError` at start-up, and a watcher whose subprocess never
 started presents to the Group-EM as `idle`: indistinguishable from a quiet
-fleet, no error anywhere. Measured 2026-09-01 from `X:/example-game-workbench-repo`
+fleet, no error anywhere. Measured 2026-09-01 from `<example-game-repo-root>`
 (cross-repo/inbox/2026-09-01-example-game-repo-em-group-em-fleet-watch-wake-on-session-state.md);
 the group-em skill body named the gap in prose ("there is no settings-home
 `group-em-watch` launcher yet") and prose is not a launcher.

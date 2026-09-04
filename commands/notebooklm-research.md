@@ -21,8 +21,8 @@ lifecycle, and why the fidelity relay doesn't apply here all live in
 `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/team-protocol.md` — read there, don't re-derive.
 
 **Precondition — teams are on, standing.** `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` defaults to
-`"1"` on every machine (`coordinator/templates/settings-manifest.md`) and stays there; this
-pipeline does not raise or lower it.
+`"1"` in `settings.json`'s `env` on every machine (`coordinator/templates/settings-manifest.md`),
+applied at SESSION START and not toggleable mid-session; this pipeline does not raise or lower it.
 
 **Announce at start:** "I'm running `/coordinator:notebooklm-research` to research {topic} using
 NotebookLM."
@@ -47,11 +47,17 @@ NotebookLM."
 
 Probe `mcp__notebooklm-mcp__*` resolution (`ToolSearch("select:mcp__notebooklm-mcp__notebook_query")`).
 If it resolves, continue silently. If not, surface once and continue anyway — advisory only,
-never a gate:
+never a gate. `notebooklm-mcp` is registered **per project**, so it is absent from a session
+whose repo has not registered it even when the CLI is installed and authenticated — the probe
+reports this session's surface, never whether the capability exists on the machine:
 
 ```
-NotebookLM MCP not detected — install: uv tool install notebooklm-mcp-cli && nlm login && nlm setup add claude-code (see wiki)
+NotebookLM MCP not registered for this project — install: uv tool install notebooklm-mcp-cli && nlm login && nlm setup add claude-code (see wiki)
 ```
+
+`mcp__notebooklm-mcp__*` is the only prefix this pipeline uses. The CLI's source directory is
+named `gemini-notebook-mcp-cli` after its upstream; the registered server key is not, and a probe
+against a prefix derived from the directory name resolves nothing.
 
 ### Step 1 — Setup
 
@@ -87,8 +93,8 @@ completion notification — that is the ordering a `blockedBy` chain would other
 Fill and spawn the scout/worker(s)/sweep prompt templates from
 `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/{scout,worker,sweep}-prompt-template.md`
 — each template's placeholders are self-documenting. Agent types: scout =
-`notebooklm:notebooklm-research-scout`, workers = `notebooklm:research-worker`, sweep =
-`notebooklm:research-sweep`. Assign task owners at spawn.
+`coordinator:notebooklm-research-scout`, workers = `coordinator:research-worker`, sweep =
+`coordinator:research-sweep`. Assign task owners at spawn.
 
 ### Step 5 — EM freed
 

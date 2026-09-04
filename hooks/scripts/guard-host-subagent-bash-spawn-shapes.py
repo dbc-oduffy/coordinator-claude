@@ -96,6 +96,9 @@ _ALTERNATIVES = {
     "while_read_loop": "one `python -c` reading the stream in-process",
     "find_exec_xargs": "one `python -c` using `pathlib.Path.rglob`, which never leaves the "
                        "interpreter",
+    "PIPELINE_FOREACH_OBJECT": "one `python -c` (or a single PowerShell expression without "
+                               "`ForEach-Object` spawning a child process per item) that handles "
+                               "every item in-process",
 }
 
 

@@ -3,8 +3,8 @@
   "repo_id": "coordinator-claude",
   "setup_skill": "/coordinator:setup",
   "standalone_setup_script": {
-    "posix": "scripts/setup.py",
-    "windows": "scripts/setup.cmd",
+    "posix": "../claude-klabauter/scripts/setup.py",
+    "windows": "../claude-klabauter/scripts/setup.cmd",
     "entry_point_contract": {
       "non_interactive_flag": "--i-am-agent",
       "check_only_flag": "--check",
@@ -334,6 +334,22 @@
         "remediation": "install Unreal Engine via Epic Games Launcher if a downstream game-dev workflow requires it (not required for the base coordinator plugin)"
       },
       "reference": "coordinator/scripts/lib/prereq_probe.sh"
+    },
+    {
+      "id": "1password_cli",
+      "tier": "advisory",
+      "probe": {
+        "kind": "command_succeeds",
+        "cmd": "command -v op",
+        "shell": true,
+        "windows": "where.exe op",
+        "ref": "_co_probe_1password_cli"
+      },
+      "install": {
+        "mode": "manual",
+        "remediation": "install the 1Password CLI (op) if you use the 1Password SSH agent for GitHub auth: brew install 1password-cli (macOS) / winget install AgileBits.1Password.CLI (Windows) — see docs/wiki/github-auth-setup.md § Tier 1. Without 1Password, ignore this entirely; nothing breaks without it."
+      },
+      "reference": "coordinator/docs/wiki/github-auth-setup.md"
     }
   ]
 }

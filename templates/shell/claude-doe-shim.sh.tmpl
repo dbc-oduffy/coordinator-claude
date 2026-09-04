@@ -31,8 +31,27 @@
 # to the legacy ~/.claude pointer during the transition window. No
 # lib-sourcing here — cold POSIX-sh read, mirroring the coordinator-settings-home
 # resolution order.
+
+# Export the resolved settings home into the session environment.
+#
+# Purpose: every settings-home CLI invocation quotes
+# "$COORDINATOR_SETTINGS_HOME/bin/<cli>" (Shape W's POSIX siblings, Shapes A and B in
+# coordinator/snippets/resolve-coordinator-bin.md). Nothing else in the fleet exports
+# this variable, so without this line it is unset in a fresh shell and the call fails
+# command-not-found -- reading as "this CLI is not installed" when it is installed and
+# working. Confirmed across two repos on one host, 2026-09-03.
+#
+# Placed ABOVE the pointer guard deliberately: that guard returns early on a fresh
+# install, and a fresh install is exactly the session that most needs the variable.
+#
+# Negative-spec: ":=" assigns only when unset or empty, so an operator's existing
+# value is never overwritten. This is the SAME precedence already inlined at every
+# use site below, not a second resolution mechanism.
+: "${COORDINATOR_SETTINGS_HOME:=${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}"
+export COORDINATOR_SETTINGS_HOME
+
 if [ ! -f "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.doe-root" ] && [ ! -f "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" ]; then
-  printf 'claude-doe shim: .doe-root pointer absent (settings-home or %s/.claude) — claude() not defined; run coordinator:install\n' \
+  printf 'claude-doe shim: .doe-root pointer absent (settings-home or %s/.claude) — claude() not defined; run <engine-clone>/scripts/setup.py\n' \
     "${CLAUDE_HOME:-$HOME}" >&2
   return 0 2>/dev/null || true
 fi
@@ -54,7 +73,7 @@ claude() {
     _r="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)"
   fi
   if [ -z "$_r" ]; then
-    printf 'claude-doe shim: .doe-root pointer missing (settings-home or %s/.claude) — run coordinator:install\n' \
+    printf 'claude-doe shim: .doe-root pointer missing (settings-home or %s/.claude) — run <engine-clone>/scripts/setup.py\n' \
       "${CLAUDE_HOME:-$HOME}" >&2
     return 1
   fi

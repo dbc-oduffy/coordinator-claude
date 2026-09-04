@@ -18,7 +18,37 @@ _Condition: substrate verified. The four PM doctrinal lenses bind here — this 
 
 - _Scope mode declared?_ (prototype | production-patch | feature | architecture | spike | spec-dispatch | audit) → Pick one before drafting. Mode shapes review depth and the evidence bar. `schemas/plan.schema.json` types the field as a free string, so this list is doctrine, not validation.
 
-- _Composing the plan body?_ → Capture the **prime exit criterion**: one sentence, in the PM's own words from plan composition, plus a `derived_from` link to the sizing object whose `intent`/`intent_source` already hold those words. No `derived_from` to cite ⇒ put the sentence in front of the PM once, at ratification. **The ordering is the mechanism:** the baseline falsifier is run and recorded BEFORE the task spine is authored — at that moment nobody yet knows what the code will look like, and a baseline written after the work is worthless. The EM does NOT hand-write the falsifier: dispatch `coordinator:exit-criterion-falsifier` (C13) with the prime exit criterion statement and NOTHING ELSE — not the ACs, not the spine — and accept or reject what it returns. The EM owns the prime exit criterion; the falsifier owns the instrument.
+- _Composing the plan body?_ → Capture the **prime exit criterion**: one sentence, in the PM's own words from plan composition, plus a `derived_from` link to the sizing object whose `intent`/`intent_source` already hold those words. No `derived_from` to cite ⇒ put the sentence in front of the PM once, at ratification. **The ordering is the mechanism:** the baseline falsifier is run and recorded BEFORE the task spine is authored — at that moment nobody yet knows what the code will look like, and a baseline written after the work is worthless. The EM does NOT hand-write the falsifier: dispatch `coordinator:exit-criterion-falsifier` (C13) with the prime exit criterion statement and NOTHING ELSE — not the ACs, not the spine — and accept or reject what it returns. The EM owns the prime exit criterion; the falsifier owns the instrument. **What the instrument may
+OBSERVE is doctrine, not the falsifier's choice: artifact state the work leaves behind — a file's
+content, a field's value, a row's status, a test's result. Never process residue about the work:
+commit subjects or messages, branch names, PR titles, ceremony logs.** Those describe how the work
+was recorded, not whether it happened, and they are trivially satisfiable by a session that does
+the bookkeeping and none of the work.
+
+**Two failure tells, both measured 2026-09-02 on one plan.** A falsifier greping commit subjects
+needed a five-entry denylist of bookkeeping subjects, because without it every item read RESOLVED
+off the triage pass's own status-flip commits — the instrument scoring the act of recording as the
+act of doing. And the constraint was unsatisfiable as authored: one chunk discharging four memos
+cannot fit four sixty-five-character basenames in a commit subject, so the criterion imposed a
+commit convention on nineteen chunks to stay measurable.
+
+**If the criterion is not observable in artifact state, the CRITERION is wrong — never add a chunk
+to make it observable.** The same plan carried a spine row whose own body said its job was to give
+the disposition check something to find. That is the instrument authoring the work rather than
+measuring it, and it reads as diligence on every surface. Rewrite the criterion against what the
+work actually produces, or accept a narrower one you can observe.
+
+**And an artifact-state check must respect a ratified absence.** A plan may deliberately rule an
+artifact out of scope — no migration, no shim, no row. A falsifier that asserts presence will then
+report that criterion unmet forever, correctly by its own logic and wrongly against the plan, and
+the pressure it creates is to build the thing to satisfy the instrument. **Where the plan has
+ratified an absence, the instrument observes THAT — the absence is the expected state, and its
+appearance is the failure.** Check what the plan decided before writing a presence assertion.
+
+**Two Opus reviewers ruled oppositely on that instrument and neither was wrong** — one said sound
+in kind, broken in detail, fix and keep; the other said the instrument is the defect, delete it and
+read the spine dispositions. The doctrine did not say, so both readings were available and the
+plan paid a full review cycle plus a re-authoring pass. This paragraph is what it did not say.
 - _Composing exit criteria?_ -> Name the plan's own targeted tests plus its acceptance oracle; a fast/full suite going green is never the criterion. See writing-plans.md Test Surface.
 - _Full-coverage check: does the task list cover the COMPLETE problem set, or only the slice fitting this session?_
   → **The evidence is already computed — consume it, don't eyeball it.** `plan-coverage-checker`'s Lens 1 (Phase 2, Oracle-vs-Slate Cross-Reference) already cross-references every problem-set/oracle item against the drafted spine and reports the set-difference. Run it (or read its sidecar if this pass already invoked it as a pre-flight) before asserting coverage by inspection; the EM's disposition of any gap it reports is still the judgment call below.

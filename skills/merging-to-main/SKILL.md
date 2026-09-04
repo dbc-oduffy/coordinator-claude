@@ -20,7 +20,7 @@ recovery, PR creation, the merge, local cleanup).
 
 On a PowerShell host, invoke the `.exe` launcher by absolute path through the call operator
 (Shape W) — ladder and shapes: `snippets/resolve-coordinator-bin.md`.
-Compute and apply are one verb — `brief` was removed (K-114): `merge-assemble apply [--session-id <id>] [--force] [--decisions <json>]`, resolved per that ladder. Resolve every `judgment_points[]` entry it returns, via `--decisions`, before its gated directive(s) proceed. `--force` bypasses only the node ceremony hard-gate (`d0`).
+Compute and apply are one verb — `brief` was removed (K-114): `merge-assemble apply [--session-id <id>] [--force] [--decisions-file <path>]`, resolved per that ladder. Resolve every `judgment_points[]` entry it returns, via `--decisions-file`, before its gated directive(s) proceed. `--force` bypasses only the node ceremony hard-gate (`d0`).
 
 **First Officer Doctrine:** EM may refuse to merge and alert the PM on a branch with known issues.
 
@@ -143,6 +143,30 @@ Merge via `gh pr merge` with `--delete-branch`, merge commit (never squash). Rec
 through; offer the PM merge-main-in-and-resolve (recommended) or rebase; stop and wait.
 
 CI is advisory; the PR requirement (0 approvals) is the primary gate.
+
+**IF `d2` CUT A RELEASE TAG, VERIFY IT CONTAINS THE RELEASE — HERE, BEFORE ANYTHING ELSE:**
+
+    git fetch origin --tags && git rev-list --count <tag>..origin/main
+
+**Non-zero means the tag does not contain the release and the publish is wrong.** Retarget it
+against the merge commit `gh pr merge` produced and force-push with a pinned lease; do not proceed
+to Step 8 until it reads 0.
+
+This check exists because `d2` fires in **Step 3** while the merge lands **here**, and the tag-cut
+core (`merge-recovery-and-tag-cut.py`, engine plane) resolves `origin/main` at call time and names
+the result `merge_sha` — the variable name encodes the assumption that it runs *after* the merge.
+Called from Step 3 it tags main *without* the branch, so the release tag contains **none** of the
+release. Measured 2026-09-02 in `project-rag`: `v0.17.2` shipped pointing at zero of its 82
+commits.
+
+**Nothing else catches it.** Every directive returns 0, the ceremony report says
+`release_tag_cut: <tag>`, and `d2`'s own `MERGE_SHA=... / TAG_CUT=...` stdout is the evidence of
+the bug rendered as a success line. `cut_tag`'s only guard is an idempotence check comparing the
+tag against the same wrong ref, so it confirms itself. Step 10's completion-log flip then reads
+that tag and is quietly wrong the same way.
+
+This is the interim guard, not the fix — the ordering is what is wrong, and moving `d2` after the
+merge is tracked separately. Run the check every time until `d2` moves.
 
 ---
 

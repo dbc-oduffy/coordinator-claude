@@ -33,7 +33,6 @@ if not exist "%_impl%" (
 )
 
 set "_py=__PYTHON_BIN__"
-if "%_py%"=="__PYTHON_BIN__" set "_py="
 if not "%_py%"=="" if exist "%_py%" goto :run_baked
 set "_py="
 

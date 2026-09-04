@@ -18,13 +18,9 @@ is NOT one of the five guards `runtime-tripwire-em-check.py` already
 carries live, despite an earlier stale docstring clause here claiming
 otherwise.
 
-`group-em-park-spool.py` is the Group-EM wake's producer: on a peer's park it
-appends one line to the spool the fleet watch drains. Registered LAST and
-deliberately AFTER `receiver-state-sensor.py`, whose write is the very verdict
-it reports -- see its own docstring for the cross-plane contract, and the
-REGISTRY comment beside it for why the order is load-bearing. Like the sensor
-it is a producer, not a guard: it can never fire an advisory or change an exit
-code.
+`group-em-park-spool.py` is the Group-EM wake's producer, registered LAST --
+see its own module docstring for the full contract, and the REGISTRY comment
+beside it for why the order is load-bearing.
 
 MEASURED (state/audits/2026-08-16-doe-hook-consolidation-feasibility.md):
 5 processes/477.9ms -> 1 process/110.7ms on the all-miss path (4.3x), min-of-15
@@ -258,15 +254,22 @@ def _pre_kira_verdict_routed(ctx: Ctx) -> bool:
     # guard-kira-verdict-routed.py is only ever relevant on the EM's OWN
     # Stop (never a subagent's, including Kira's own -- see that guard's
     # module docstring TRIGGER SCOPE section) in a session that has a
-    # share dir at all. A session with no `state/subagent-share/<sid>/`
-    # directory has nothing to route and is provably a no-op.
+    # share dir at all. A session with no share directory under EITHER
+    # machinery root has nothing to route and is provably a no-op. Both roots
+    # are probed because the engine's provisioned root moved from `state/` to
+    # `.coordinator-local/` on 2026-09-02 -- probing the old literal alone
+    # suppresses the guard for every session provisioned today, which is
+    # indistinguishable from the guard passing.
     if ctx.agent_id or ctx.stop_hook_active:
         return False
     root = ctx.repo_root()
     if not root or not ctx.session_id:
         return False
-    return os.path.isdir(
-        os.path.join(root, "state", "subagent-share", ctx.session_id)
+    return any(
+        os.path.isdir(
+            os.path.join(root, machinery_root, "subagent-share", ctx.session_id)
+        )
+        for machinery_root in (".coordinator-local", "state")
     )
 
 
@@ -283,31 +286,15 @@ def _pre_receiver_state(ctx: Ctx) -> bool:
 
 
 def _pre_group_em_park_spool(ctx: Ctx) -> bool:
-    # Two `stat`s and nothing else -- this is the miss path on every turn end
-    # of every session in the repo, so it must never grow a read.
-    #
-    # A subagent's own Stop is not a peer session-state transition (subagents
-    # are not registry peers), so it is excluded here rather than inside the
-    # producer's import.
-    #
-    # `state/` must ALREADY exist: the spool sits beside the watch's own two
-    # records there, and a repo without that directory has no watch line at
-    # all. The producer scaffolds nothing.
-    #
-    # The receiver-state carrier must exist because the producer only ever
-    # reports a verdict someone else wrote; with no carrier there is provably
-    # nothing to spool. Ordering in REGISTRY guarantees `receiver_state_sensor`
-    # has already run by the time this is evaluated, so the file is present
-    # whenever the ladder had anything to say.
+    # See `group-em-park-spool.py`'s module docstring for the full contract
+    # this precondition enforces (miss-path cost, scaffold-nothing, ordering).
     #
     # The two literals below are duplicated from `receiver_state_reader`'s
     # `_SESSIONS_DIRNAME`/`_SIBLING_FILENAME` ON PURPOSE, for the same reason
     # `_pre_next_move` duplicates its own: this runs before any guard module is
     # imported, and pulling the reader in here would pay that import on every
     # Stop in the fleet to answer a one-`stat` question. The duplication is
-    # pinned by `test_stop_precondition_tracks_receiver_state_carrier_path`
-    # against the reader's own constants, so it cannot drift silently the way
-    # `_pre_next_move`'s did.
+    # pinned by `test_precondition_tracks_receiver_state_carrier_path`.
     if ctx.agent_id or not ctx.session_id:
         return False
     root = ctx.repo_root()

@@ -279,7 +279,11 @@ In the fresh session, the human runs:
    registry, builds the helper venv, scaffolds the canonical document structure, records the
    `setup_concluded` receipt, and offers a guided tour + repo bootstrap. This *is* the
    post-restart onboarding — there is no separate baton to `/pickup`. **Phase 3 of this command
-   is what deposits the `machine-local` resolver** that Step 4 depends on.
+   is what deposits the `machine-local` resolver** that Step 4 depends on. Phase 3 also runs the
+   git-perf-config sweep across every registered worktree, setting `gc.auto 0` plus scheduled
+   maintenance (`maintenance.strategy incremental`, `maintenance.auto false`,
+   `maintenance.prefetch.enabled false`) rather than `gc.autoDetach false` — the fleet default,
+   idempotent, safe to re-run.
 2. **`/coordinator:repo-setup`** — per-project scaffolding (project `CLAUDE.md`, tracker, project
    type) for whatever repo the human wants to onboard.
 3. **`/workday-start`** — only if the human queued *other* downstream tools at the pre-restart

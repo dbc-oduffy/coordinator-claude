@@ -40,11 +40,10 @@ self-authored. Tripwire: `A-SESSION-IS-NEVER-STANDALONE`.
 > and archiving without inheriting strands the dependent. Cutting a `session-handoff` successor from a
 > baton silently drops that identity.
 >
-> **The archival half cannot currently run** (see § Supersession — `handoff.archive_transition` is
-> suspended), so a roadmap-baton succession cannot satisfy "both halves" through any sanctioned
-> route. Hand-stamp the predecessor `deployment_state: continued` with `continued_into:` BEFORE the
-> successor carries `stub_id` forward — an inherited id beside a predecessor still advertising it is
-> the duplicate-globally-unique-id failure above, and nothing warns.
+> **The archival half runs via `d6`'s supersession route** (see § Supersession) — `mode='supersede'`
+> needs `--continued-into` naming the successor. Both halves land through that route now; do not
+> hand-stamp `deployment_state: continued` as a substitute for running `d6`, and do not restore
+> `handoff.reconcile_open` (superseded by K-057).
 
 The mechanical spine — deliverable/initiative id inheritance, frontmatter scaffolding,
 `handoff_phase` stamping, tracker refresh, and (on a clean chain) predecessor archival — is
@@ -63,13 +62,13 @@ continuation; wrong and silent at the plan→execute seam.
 recommends a rung: the earliest artifact's id wins, and only you can see that history. Name the
 survivor and how you know; the losing rung is excised before the cascade raises.
 
-Feed resolutions back via `apply --decisions '<json>'`: a JSON object mapping each
+Feed resolutions back via `apply --decisions-file <path>`: a JSON object mapping each
 `judgment_points[].id` to `{"disposition": "<value>"}`, values from that point's own
 `dispositions[].value`. `{"value": "<v>"}` is equivalent; a `decision_note` sibling key carries
 through.
 
 **`apply` is the single route out — never hand-execute the directive list.**
-`baton-assemble apply handoff <artifact-path> --decisions '<json>'`, resolved per
+`baton-assemble apply handoff <artifact-path> --decisions-file <path>`, resolved per
 `snippets/resolve-coordinator-bin.md` (Shape W on PowerShell hosts) — same `<artifact-path>` as
 `brief`.
 
@@ -115,7 +114,7 @@ nothing (`residue/065-does-not-review.md`) — the successor runs the owed revie
 settled diff, at its own close.
 
 **A parked successor's frontmatter is `deployment_state: awaiting_gate` plus a named gate —
-`blocked_by` when a stub or handoff on the graph clears it, `blocking_notes` when nothing on the
+`blocked_by` when a stub or handoff on the graph clears it, `gate_notes` when nothing on the
 graph does (a sibling plane's ruling) — with `pickup_ready` false or omitted.** The scaffold hands
 you `ready_to_fire` + `pickup_ready: true`; leaving that above a body full of blocker prose births
 the baton advertising itself as available work, and nothing warns. Authorization-pending is not a

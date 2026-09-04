@@ -243,7 +243,9 @@ except Exception:
         return candidate if candidate.is_file() else None
 
     def _forwarder_argv(script_path, tail=()):  # type: ignore[misc]
-        return [sys.executable, str(script_path), *tail]
+        # Review: overengineering-reviewer F3 -- see _forwarder_resolve's
+        # "Import-fallback contract" docstring section for the rationale.
+        raise OSError("forwarder resolution unavailable -- import fallback declined to guess a launch decision")
 
 
 def resolve_baton_assemble_bin(settings_home: Path) -> "Path | None":
@@ -328,8 +330,11 @@ def _run_baton_assemble_brief(script_path: Path) -> "subprocess.CompletedProcess
     held handoff"). Returns None on ANY failure to complete the subprocess
     (spawn error, timeout) -- never lets a raw OSError/TimeoutExpired
     escape."""
-    argv = _baton_assemble_argv(script_path, ["brief", "handoff"])
     try:
+        # Review: overengineering-reviewer F3 -- argv computation moved inside
+        # the try so a fallback-leg OSError (see _forwarder_resolve) is
+        # absorbed by the handler below rather than needing its own guard.
+        argv = _baton_assemble_argv(script_path, ["brief", "handoff"])
         return subprocess.run(
             argv,
             capture_output=True,

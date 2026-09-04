@@ -4,10 +4,8 @@ description: "Synthesizes chunk-reviewer outputs plus 3 specialist workers into 
 model: sonnet
 effort: low
 access-mode: read-write
-tools: ["Read", "Write", "Edit", "Bash", "PowerShell"]
+tools: ["Read", "Glob", "Write", "Edit", "Bash", "PowerShell"]
 ---
-
-<!-- This harness build provides no Grep/Glob tool. Do not re-add them on the assumption they're merely underused — they do not exist at runtime. Search with whatever shell your own `tools` list actually grants -- PowerShell (`Select-String`, `Get-ChildItem`) or `python -c`; a host that bans Bash bans it for you too. No shell in that list means no code search: say so rather than improvising one. -->
 
 <!-- lens_domain: synthesizer-not-reviewer -->
 

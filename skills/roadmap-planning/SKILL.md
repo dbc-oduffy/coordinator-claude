@@ -126,13 +126,16 @@ final-approved`.
    Reference materials (read first)` (cite `OVERVIEW.md § <name>` + research-corpus, by name never
    number); `## Specification`; `## Acceptance criteria`; `## Recommended next steps for the
    picking-up EM` (3–7); `## Anti-scope`; `## Soft seams` (may be `- None identified`, must be
-   present); trailing `<!-- roadmap-baton: <run-id> <stub_id> by roadmap-planning -->`.
+   present); `## Session Ledger` (empty until the first close appends a row — omitting it makes
+   `handoff.append_session_ledger` unwritable on this baton, per `handoff/residue/010-write-the-
+   handoff.md`'s canonical skeleton); trailing `<!-- roadmap-baton: <run-id> <stub_id> by
+   roadmap-planning -->`.
 2.3. `STUB-INDEX.md` — a query callout, never a hand table (template + rationale: wiki).
 2.4. Before any fan-out: run `audit-roadmap <run-id>`; then **what it cannot check** —
    confirm every wave-N stub set is file-disjoint per `scope:`. Disjointness is now a *merge*
    predicate spent at 2.1.6, so any disjoint pair surviving here is an un-run fold, not a
    licensed parallelism: fold it and re-number.
-2.5. `pm-gates.md` — one row per stub whose `blocking_notes`/`gate_dependency` carries a
+2.5. `pm-gates.md` — one row per stub whose `gate_notes`/`gate_dependency` carries a
    product-coupled signal (`PM `-prefix, named stakeholder, decision/approval/policy/scope/
    user-facing language). Template + detection rule: wiki.
 
@@ -145,6 +148,14 @@ final-approved`.
    skippable when its Step-1.5.5 findings are already pinned into the stub ACs verbatim AND each
    stub becomes a downstream `coordinator:plan` that re-applies the lens at PLAN altitude — record
    the skip rationale in the roadmap dir.
+
+**The stub:cluster relation is MANY-TO-ONE, and this is the contract any auditor reads against.**
+One stub may name many KEEP clusters in `covers:`; what must hold is that every cluster is named
+exactly once across all stubs — coverage and non-duplication, never a count of stubs. `stub_count ==
+keep_count` is not a weaker form of this bar, it is a different and incompatible one: Step 2.1.6
+mandates the fold, so a roadmap that obeys this skill fails a 1:1 check BY CONSTRUCTION, and fails
+harder the larger it is. A roadmap that passes a 1:1 check is one that never exercised the fold.
+Any gate asserting the two counts match is measuring the wrong thing and must read `covers:`.
 
 **Exit:** every KEEP cluster named in exactly one stub's `covers:`; every stub `loe:` M–XL;
 frontmatter validator-clean, `## Soft seams` present; STUB-INDEX regenerates; resolutions doc
@@ -178,7 +189,7 @@ touching any on behalf of a roadmap stub.
 
 ## Anti-scope
 
-- Auto-derive `blocking_notes:`/`gate_dependency:` from natural language. Author-supplied only.
+- Auto-derive `gate_notes:`/`gate_dependency:` from natural language. Author-supplied only.
 - Cross-repo roadmap rollup. Single-repo only for v1.
 - Auto-trigger gate-meaningfulness on `/pickup` (only on `awaiting_gate → ready_to_fire`).
 - Render dashboards or HTML. The query callout in markdown is the surface.

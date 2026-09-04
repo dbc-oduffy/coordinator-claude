@@ -134,23 +134,38 @@ caller-widened.
   `sweep-terminal-handoffs` never archives it — it classifies an unstamped record `not-terminal`
   and walks past. Nothing downstream catches this: there is no boot-time sweep behind it. Both
   keys, or the baton sits in `state/handoffs/` indefinitely and every roadmap that counts it reads
-  behind its real state.
+  behind its real state. The stamp makes it archivable; the drain below is what files it.
 - **A `dispatch`-routed sizing that routed this session**, work done: write `status: shipped`
   directly — no plan means this is its only write path.
-- **Every terminal sizing-object THAT NO PLAN CITES** (`shipped`/`declined`/`superseded`):
+- **Every terminal sizing-object** (`shipped`/`declined`/`superseded`), cited or not:
   `close_gate.terminal_sizings` <!-- engine-gap: field=close_gate.terminal_sizings producer=claude_klabauter:quick_wrap_assemble.brief memo=2026-08-14-doe-claude-em-quick-wrap-has-no-assembler-at-all.md -->
   `git mv` each to `archive/sizings/<YYYY-MM>/` unmodified — no `closed_at`/`closed_by` (schema
   disallows both). A record still at `sized`, `routed`, or `draft` is untouched no matter how
   finished it looks — only what a prior step already marked terminal moves.
-  **A cited sizing-object stays in `state/sizings/`, terminal or not.** `plan.schema.json`
-  constrains `sizing_object` to `^state/sizings/.+\.yaml$`, so the plan cannot be repointed at an
-  archived path; leaving the citation behind instead makes `assert-plan-sizing-citation` report
-  DANGLING. Archiving it is unlandable either way — in practice only a `route: dispatch` sizing,
-  which has no plan by construction, is ever movable here.
+  **A citation does NOT pin a record in place, and archiving a cited one does not dangle.**
+  `plan.schema.json` does constrain `sizing_object` to `^state/sizings/.+\.yaml$` and the plan is
+  never repointed — but the FK is archive-agnostic by design:
+  `coordinator_core/ops/_sizing_citation.py::resolve_sizing_citation` resolves live-then-archive,
+  probing `archive/sizings/**` by basename, and both consumers call it
+  (`assert_plan_sizing_citation`, `dispatch_emit/emit.py`). A value resolving only under `archive/`
+  is correct, not broken — the sizings sibling of the existing handoff FK fallback. So archive
+  every terminal record; `close_gate.terminal_sizings` filters on status alone, which is correct as
+  built rather than a producer gap.
 - `coordinator-fold-execution-record` sidecars this session produced — read each `divergence`
   block (surface any crashed-executor marker), then delete.
 
-Nothing to close is an ordinary outcome — say so and move on.
+**Then drain — MANDATORY, and the last act of this step.** Run `sweep-terminal-handoffs` once,
+after every stamp above is written. A record stamped archivable and left in `state/handoffs/` is an
+unfinished close, not a tidy-up for the next ceremony: until it moves, every surface that counts open
+batons reads it as *unstarted*, and the `/workday-complete` backstop may be weeks out. **The close
+condition is checkable and you check it: `state/handoffs/` holds no record carrying a terminal
+`deployment_state` when you report.** The drain is idempotent and a sub-second no-op when there is
+nothing to move, so nothing justifies skipping it; it drains other sessions' terminal residue in the
+same pass, which is the point, not overreach.
+`[[terminal-batons-are-swept-at-close-not-left-to-the-next-ceremony]]`
+
+Nothing to close is an ordinary outcome — say so and move on. **The drain is not covered by that
+sentence:** it runs whether or not this session had anything of its own to close.
 
 **3. Refresh.** `regenerate-orientation-cache` — batch into the same shell call as step 1's
 `session.safe_commit_offer` dial when step 2 needed no separate CLI invocation of its own (no

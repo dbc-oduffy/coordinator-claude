@@ -82,7 +82,7 @@ AI-fixable-or-not. Scratch: `{chunk-name}-phase1-sonnet.md`.
 **Track B — Test Suite** (EM runs; Haiku parses): Tier-U-gated, no implicit grant. Ask the PM
 using `backlog-grind-assemble brief bug-sweep`'s exact ask text (`j-bug-sweep-tier-u-grant`) — a
 grant names the suite/Tier-U as its subject, not adjacent sweep approval. Granted → `backlog-grind-
-assemble apply bug-sweep --decisions '{"j-bug-sweep-tier-u-grant":"granted"}'` (shells to
+assemble apply bug-sweep --decisions-file <path>` (path to a file containing `{"j-bug-sweep-tier-u-grant":"granted"}`; shells to
 `tier-u-grant-cli` for you). Declined → apply nothing, skip Track B, report the decline.
 
 Immediately before firing, recheck `tier-u-grant-cli check` live (exit 0 grants, exit 1 halts). Run
@@ -180,18 +180,24 @@ Reads only changed files — not a re-sweep.
    (<!-- VERBATIM -->`git diff --name-only`) as a `--wave-path` to `backlog-grind-assemble apply
    bug-sweep --wave-path <path>... --granularity per-wave --message "bug-sweep: fixed N bugs
    across M files"` — one op, one commit, engine-scoped so a concurrent session's staged files
-   stay untouched.
+   stay untouched. **`--message` must be a single line.** It has no `-file` sibling and does not
+   refuse a newline; the `.cmd` forwarder truncates a multi-line value at the first LF and the
+   commit lands short, exit 0, reported as done. Detail that won't fit goes in the backlog entries
+   the commit renames, not in a second message line.
 
 2. **Prune already-fixed backlog entries** (separate, paper-trail commit). Read
    `pre-dispatch-already-fixed.md`; per item, stamp `status: closed`, `closed_at:`, `closed_by:
    <SHA or unattributed>`, `git mv` to `archive/bug-backlog/<YYYY-MM>/`, then the same apply op
-   (`--wave-path` per renamed file, `--granularity per-wave`, `--message` naming each closed ID
-   with its resolving SHA). Skip if nothing was already-fixed.
+   (`--wave-path` per renamed file, `--granularity per-wave`, a single-line `--message` naming
+   each closed ID with its resolving SHA). Skip if nothing was already-fixed.
 
 3. **Append genuinely blocked items** via `coordinator-queue-append --schema bug-backlog --surface
-   <subsystem> --severity P1 --status open --title "<title>" --body "<description>" [--why-blocked
-   "<reason>"] [--evidence <ref>]` (cross-reference `state/debt-backlog/` where it overlaps). Write/
-   update `state/bug-backlog/.meta.yaml` (`last_sweep_commit:`/`last_sweep_at:`, zero counts too),
+   <subsystem> --severity P1 --status open --title "<title>" --body-file <path> [--why-file <path>]
+   [--evidence <ref>]` (cross-reference `state/debt-backlog/` where it overlaps). The prose flags
+   take the `-file` transport, never inline: a `.cmd`-forwarded inline value is truncated at the
+   first newline, and these CLIs now refuse a newline-bearing inline rather than land a one-line
+   record. Write/update `state/bug-backlog/.meta.yaml` (`last_sweep_commit:`/`last_sweep_at:`,
+   zero counts too),
    then the same apply op scoped to `state/bug-backlog/`.
 
 4. **Report to PM, by exception.** A clean sweep spends its budget on facts the PM can't read off

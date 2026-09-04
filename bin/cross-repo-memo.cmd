@@ -53,7 +53,12 @@ set "_LAUNCHER_RAW_CMDLINE_FILE=%_LAUNCHER_RAW_CMDLINE_DIR%\cmdline.tmp"
 echo %CMDCMDLINE%>"%_LAUNCHER_RAW_CMDLINE_FILE%"
 :_coordinator_raw_cmdline_giveup
 set "_py=__PYTHON_BIN__"
-if "%_py%"=="__PYTHON_BIN__" set "_py="
+REM No placeholder-vs-placeholder test here: install-substrate.py replaces EVERY
+REM __PYTHON_BIN__ occurrence, so such a test compares the baked path against
+REM itself, is unconditionally true, and discards the bake precisely when it
+REM succeeded. The existence test below is the property that actually matters and
+REM already covers the unbaked case -- the literal token is not a path, so it
+REM falls through to the probe tiers on its own.
 if not "%_py%"=="" if exist "%_py%" goto :run_baked
 set "_py="
 

@@ -26,17 +26,17 @@ Named op: **gate-meaningfulness-audit**, invoked by `/handoff` and `/workstream-
 
 The op resolves prior frontmatter from git (`git show HEAD:state/handoffs/<file>`) and fires only on a detected `awaiting_gate → ready_to_fire` edge. Idempotent under concurrent-EM operation by construction: it fires only on that literal edge observed against the file's current git state, so a stub a concurrent EM already transitioned reads `ready_to_fire` as the prior state and the op skips silently — no double-prompt, no race window where neither EM fires it. Whichever commit lands first owns the audit.
 
-**Judgment residue (the op surfaces this; it does not resolve it — human/EM call only):** on a detected edge, the op surfaces the prior `blocking_notes` text (falling back to `gate_dependency` for pre-deprecation records that carry the prose there instead) and asks:
+**Judgment residue (the op surfaces this; it does not resolve it — human/EM call only):** on a detected edge, the op surfaces the prior `gate_notes` text (falling back to its deprecated alias `blocking_notes`, or to `gate_dependency` for pre-deprecation records that carry the prose there instead) and asks:
 
 ```
 The gate that blocked this stub was:
-  <blocking_notes (or gate_dependency, for older records) text from prior frontmatter>
+  <gate_notes (or blocking_notes/gate_dependency, for older records) text from prior frontmatter>
 
 Does that gate still mean what it meant when authored? (y/n/clarify)
 ```
 
 - `y` → transition proceeds.
-- `n` → stub returns to `awaiting_gate`; author updates `blocking_notes` (or `gate_dependency` on an older record still carrying it there) to reflect what's actually now blocking.
+- `n` → stub returns to `awaiting_gate`; author updates `gate_notes` (or `gate_dependency` on an older record still carrying it there) to reflect what's actually now blocking.
 - `clarify` → PM disposition required before transition.
 
 Would have caught ESC-5 (G1 went structurally hollow when synthetic-baseline acceptance changed its meaning).

@@ -349,6 +349,7 @@ def main() -> int:
                 "session_id": session_id,
                 "agent_id": agent_id,
                 "agent_type": agent_type,
+                "agent_transcript_path": agent_transcript_path,
                 "cwd": cwd,
             },
         ),

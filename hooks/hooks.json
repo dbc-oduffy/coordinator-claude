@@ -115,14 +115,22 @@
     ],
     "SessionEnd": [
       {
-        "_comment": "Best-effort archival of this session's coordinator-sessions bookkeeping dir (nudge sentinels, dispatch evidence, started_at, meta.json), moved HERE from the /workstream-complete ceremony because that ceremony fires mid-session -- a session can close several workstreams before it actually ends, and archiving there reset once-per-session guards a still-live session still needed. SessionEnd fires exactly once, when the session is genuinely over. Matcher '' fires on every SessionEnd reason (clear, logout, prompt_input_exit, other) -- archival is wanted regardless of why the session ended. Shells out to the claude-klabauter-resident coordinator/bin/archive-session-scope.py archive-session --sid <sid> CLI (already non-fatal-by-design; see that script's own module docstring) rather than importing coordinator_core.session.scope directly, so this repo has exactly one thin caller of an entrypoint claude-klabauter already built for this call. Fails silently in every direction (unparsable stdin, absent session_id, unresolvable claude-klabauter root, subprocess timeout/failure) -- the 24h reaper is the documented backstop, so this hook must never block session teardown. Never falls back to a pid-derived or guessed session key.",
+        "_comment": "Best-effort archival of this session's coordinator-sessions bookkeeping dir (nudge sentinels, dispatch evidence, started_at, meta.json), moved HERE from the /workstream-complete ceremony because that ceremony fires mid-session -- a session can close several workstreams before it actually ends, and archiving there reset once-per-session guards a still-live session still needed. SessionEnd fires exactly once, when the session is genuinely over. Matcher '' fires on every SessionEnd reason (clear, logout, prompt_input_exit, other) -- archival is wanted regardless of why the session ended. Shells out to the claude-klabauter-resident coordinator/bin/archive-session-scope.py archive-session --sid <sid> CLI (already non-fatal-by-design; see that script's own module docstring) rather than importing coordinator_core.session.scope directly, so this repo has exactly one thin caller of an entrypoint claude-klabauter already built for this call. Fails silently in every direction (unparsable stdin, absent session_id, unresolvable claude-klabauter root, subprocess timeout/failure) -- the 24h reaper is the documented backstop, so this hook must never block session teardown. Never falls back to a pid-derived or guessed session key. FLIPPED to type \"http\" (C6, docs/plans/2026-09-02-flip-four-hook-registrations-onto-http.md), calling hooks.sessionend_archive_session -- deletes TWO cold spawns per session close (this hook's own interpreter start plus the archive-session-scope.py subprocess it used to shell out to), on a hook firing once per session across ~20 concurrent sessions. SHIPPING WITH A KNOWN DEFECT, ON THE PM'S EXPLICIT CALL (\"Ship both\", 2026-09-02) -- against the engine this fleet resolves to today (the published klabauter mirror), every fire surfaces a harness validation error (hookSpecificOutput.hookEventName: \"SessionEnd\" is not in the harness enum) and the op's injected output is dropped; see 2026-09-02 spike record (docs/plans/2026-09-02-flip-four-hook-registrations-onto-http.md spike leg 4) and C4's memo. The archival side-effect still runs -- the op executes; only the reply fails validation -- and the 24h reaper remains the documented backstop, so nothing durable is lost. This defect disappears once claude-klabauter@d93f731fe5 (or later) reaches the published mirror: it omits hookSpecificOutput for EVENTS_REJECTING_HOOK_SPECIFIC_OUTPUT (frozenset({\"SessionEnd\"})) and hoists additionalContext top-level. Even post-fix, no additionalContext/systemMessage surfaces here: SessionEnd is terminal, there is no subsequent model turn to splice context into -- the fix removes operator-facing error noise and nothing more. RE-CHECK TRIGGER: EM re-checks at the next cadence gate after this plan lands, confirming the validation error appears exactly as characterised (no archival loss, no session-teardown block) and confirming C4's memo has an answer; if claude-klabauter has not answered by the second cadence gate, REVERT per the shape below rather than letting the degradation become the status quo. TO REVERT (not symmetric with the flip): set type back to \"command\" AND restore the command key -- command: \"python3\" -- that this flip dropped; args stays either way. A revert that only flips type yields a command registration with no command, which runs nothing -- silent total loss, strictly worse than the degraded state it was meant to undo.",
         "matcher": "",
         "hooks": [
           {
-            "type": "command",
-            "command": "python3",
+            "type": "http",
+            "url": "http://127.0.0.1:47623/hook/hooks.sessionend_archive_session",
             "timeout": 15,
-            "async": false,
+            "headers": {
+              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
+              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
+              "X-Coordinator-Env-Channel": "1",
+              "X-Coordinator-Env-Canary": "${COORDINATOR_PROBE_CANARY}"
+            },
+            "allowedEnvVars": [
+              "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "COORDINATOR_PROBE_CANARY"
+            ],
             "args": [
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
@@ -135,7 +143,7 @@
     ],
     "SubagentStart": [
       {
-        "_comment": "C3 (docs/plans/2026-08-10-adopt-harness-native-hook-capabilities.md) -- moves the dispatched-agent bookkeeping WRITE onto SubagentStart, the first event carrying a real agent_id/agent_type identity pair, replacing the regex-scrape last resort the PostToolUse(Agent) leg used when both tool_response.agentId/.agent_id were absent. This call sends agent_id AND the real agent_type (track-dispatched-agents.py branches on hook_event_name), falling back to the literal \"unknown\" only when the payload carries no usable type. It formerly sent that placeholder unconditionally, so the row would land on the engine's enrich-in-place branch (coordinator_core/hooks/track_dispatched_agents.py::_resolve_row_collision) when PostToolUse(Agent) supplied type and model together. That is now inverted deliberately: PostToolUse(Agent) never fires for a Workflow agent() spawn, so the placeholder persisted permanently on exactly those rows, and the two guards keyed on column 3 failed in opposite directions off it -- the plan-body deny could not key (fail-open) while the sanctioned commit agent was refused as an unrostered type (fail-closed). Verified live: a workflow-spawned row read agent_id/unknown/unknown before this change and agent_id/unknown/coordinator:test-runner after. Cost, accepted knowingly and measured on live rows: on the RAW-AGENT-ID path the enrich call now matches on type, takes the resolver's dedup arm, and its model is dropped -- a built-in-type dispatch reading \"<id> claude-sonnet-5 Explore\" before this change reads \"<id> unknown Explore\" after; rows keyed by a named agent id are unaffected and still carry a real model. No consumer branches on that string (runtime-tripwire watchers fall through to their opus-default threshold; session-LoE undercounts opus dispatches), so it costs estimate quality, never correctness, and it closes when the engine adopts a real model onto a type-matching row. The resolver's AMBIGUOUS arm did not fire in a post-change sweep spanning coordinator:* and built-in types; on a future spelling mismatch, normalize both sides at the comparison rather than restoring the placeholder. The PostToolUse(Agent) registration below is unchanged in shape; it still writes, now purely as the enrichment call. Column 4 (timestamp) is deliberately set here, nearer the true dispatch moment, and preserved by the enrich branch rather than overwritten. Failure mode (Review: coordinator:code-reviewer, Finding 5): if the PostToolUse(Agent) enrich fire never lands for a given agent (state/bug-backlog/2026-08-10-posttooluse-agent-does-not-fire-for-some-8c1d40be9f2a.yaml documents this happens), this create call's placeholder row -- subagent_type=\"unknown\", dispatched_model=\"unknown\" -- now persists PERMANENTLY instead of the dispatch going unrecorded as it did pre-C3. Accepted tradeoff: a permanently-unknown row beats a dispatch recorded nowhere, but it means a future reader diagnosing stale \"unknown\" rows in dispatched-agents.txt cannot distinguish 'genuinely unresolved' from 'enrich never fired' without checking the linked bug. THE SHIM NOW CARRIES TWO OPS via dispatch_ops_from_hook: the bookkeeping op above runs FIRST, then the catering op, because the catering op reads back through dispatched-agents.txt and needs the bookkeeping write already landed. Catering moved here from PreToolUse(Agent) because that event has no agent_id and never fires for a Workflow agent() spawn. This is deliberately NOT a second SubagentStart entry: a second entry would price a second permanent python3 cold start (~642ms fleet-wide) against DR-344's 500ms brightline -- riding the existing shim avoids that.",
+        "_comment": "C3 (docs/plans/2026-08-10-adopt-harness-native-hook-capabilities.md) -- moves the dispatched-agent bookkeeping WRITE onto SubagentStart, the first event carrying a real agent_id/agent_type identity pair, replacing the regex-scrape last resort the PostToolUse(Agent) leg used when both tool_response.agentId/.agent_id were absent. This call sends agent_id AND the real agent_type (track-dispatched-agents.py branches on hook_event_name), falling back to the literal \"unknown\" only when the payload carries no usable type. It formerly sent that placeholder unconditionally, so the row would land on the engine's enrich-in-place branch (coordinator_core/hooks/track_dispatched_agents.py::_resolve_row_collision) when PostToolUse(Agent) supplied type and model together. That is now inverted deliberately: PostToolUse(Agent) never fires for a Workflow agent() spawn, so the placeholder persisted permanently on exactly those rows, and the two guards keyed on column 3 failed in opposite directions off it -- the plan-body deny could not key (fail-open) while the sanctioned commit agent was refused as an unrostered type (fail-closed). Verified live: a workflow-spawned row read agent_id/unknown/unknown before this change and agent_id/unknown/coordinator:test-runner after. Cost, accepted knowingly and measured on live rows: on the RAW-AGENT-ID path the enrich call now matches on type, takes the resolver's dedup arm, and its model is dropped -- a built-in-type dispatch reading \"<id> claude-sonnet-5 Explore\" before this change reads \"<id> unknown Explore\" after; rows keyed by a named agent id are unaffected and still carry a real model. No consumer branches on that string (runtime-tripwire watchers fall through to their opus-default threshold; session-LoE undercounts opus dispatches), so it costs estimate quality, never correctness. Sender (claude-klabauter-em, 2026-08-18) reports this gate closed on their side. The resolver's AMBIGUOUS arm did not fire in a post-change sweep spanning coordinator:* and built-in types; on a future spelling mismatch, normalize both sides at the comparison rather than restoring the placeholder. The PostToolUse(Agent) registration below is unchanged in shape; it still writes, now purely as the enrichment call. Column 4 (timestamp) is deliberately set here, nearer the true dispatch moment, and preserved by the enrich branch rather than overwritten. Failure mode (Review: coordinator:code-reviewer, Finding 5): if the PostToolUse(Agent) enrich fire never lands for a given agent (state/bug-backlog/2026-08-10-posttooluse-agent-does-not-fire-for-some-8c1d40be9f2a.yaml documents this happens), this create call's placeholder row -- subagent_type=\"unknown\", dispatched_model=\"unknown\" -- now persists PERMANENTLY instead of the dispatch going unrecorded as it did pre-C3. Accepted tradeoff: a permanently-unknown row beats a dispatch recorded nowhere, but it means a future reader diagnosing stale \"unknown\" rows in dispatched-agents.txt cannot distinguish 'genuinely unresolved' from 'enrich never fired' without checking the linked bug. THE SHIM NOW CARRIES TWO OPS via dispatch_ops_from_hook: the bookkeeping op above runs FIRST, then the catering op, because the catering op reads back through dispatched-agents.txt and needs the bookkeeping write already landed. Catering moved here from PreToolUse(Agent) because that event has no agent_id and never fires for a Workflow agent() spawn. This is deliberately NOT a second SubagentStart entry: a second entry would price a second permanent python3 cold start (~642ms fleet-wide) against DR-344's 500ms brightline -- riding the existing shim avoids that.",
         "matcher": "",
         "hooks": [
           {
@@ -489,14 +497,24 @@
         ]
       },
       {
-        "_comment": "NUDGE-AUTONOMOUS-ASKUSERQUESTION -- re-registered (docs/plans/2026-08-29-first-officer-posture-without-autonomous-mode.md \u00a7 C2) after retirement b33a06c6a (\"measured near-dead: fired at a rate that did not price its per-invocation spawn\"). That objection was a RATE argument against a content-blind advisory; discriminating further would only lower the fire rate again, the wrong axis to clear the bar on. The re-registration clears it on VALUE PER FIRE instead: the hook now reads tool_input.questions[].question and classifies before composing, so a fire that does happen is either a correctly-matched engineering-approach nudge or a short standing non-verdict line -- never the byte-identical, content-blind advisory that made every fire worthless regardless of rate. Cost stays a single naked-Python spawn (no subprocess, no model call, no transcript read) on an inherently rare tool (AskUserQuestion), so a rare-but-correct fire clears the bar a rare-and-useless one did not. Zero-spawn, fail-open, advisory-only (permissionDecision always \"allow\") -- see the script's own module docstring for the full classifier and ALWAYS-EMIT design.",
+        "_comment": "NUDGE-AUTONOMOUS-ASKUSERQUESTION -- re-registered (docs/plans/2026-08-29-first-officer-posture-without-autonomous-mode.md \u00a7 C2) after retirement b33a06c6a (\"measured near-dead: fired at a rate that did not price its per-invocation spawn\"). That objection was a RATE argument against a content-blind advisory; discriminating further would only lower the fire rate again, the wrong axis to clear the bar on. The re-registration clears it on VALUE PER FIRE instead: the hook now reads tool_input.questions[].question and classifies before composing, so a fire that does happen is either a correctly-matched engineering-approach nudge or a short standing non-verdict line -- never the byte-identical, content-blind advisory that made every fire worthless regardless of rate. Cost stays a single naked-Python spawn (no subprocess, no model call, no transcript read) on an inherently rare tool (AskUserQuestion), so a rare-but-correct fire clears the bar a rare-and-useless one did not. Zero-spawn, fail-open, advisory-only (permissionDecision always \"allow\") -- see the script's own module docstring for the full classifier and ALWAYS-EMIT design. FLIPPED to type \"http\" 2026-09-02 (C8, docs/plans/2026-09-02-flip-four-hook-registrations-onto-http.md), calling hooks.nudge_autonomous_askuserquestion. This is the best-evidenced op of that plan's set: its spike fired this op end-to-end through the front door on a real PreToolUse event and got its actual first-officer-posture advisory back, twice. PreToolUse is deny-capable by construction and this gate (test_pretooluse_is_never_classified_recoverable) refuses a recoverable classification for any PreToolUse entry on that ground -- this registration is instead classified by a cited decision record (docs/decisions/DR-pretooluse-advisory-http-transport.md, C7) rather than entered in _RECOVERABLE_REGISTRATIONS -- see that DR for the argument and for what would revoke the exemption. Threads COORDINATOR_AUTONOMOUS_ASK_OK (one of the five names claude-klabauter@d93f731fe5 added to FORWARDED_ENV_NAMES) so the op can apply its autonomous-mode exemption warm exactly as it did cold. `args` is deliberately KEPT beside `url` per the same precedent as the Agent-matcher postuse-agent-dispatch.py entry above: test_hooks_json_http_fail_open_boundary.py's `_script_of` keys a registration by script basename when `args` names one, so keeping it here holds this registration's DR citation attached rather than re-keying it to `http:<url>`.",
         "matcher": "AskUserQuestion",
         "hooks": [
           {
-            "type": "command",
-            "command": "python3",
+            "type": "http",
+            "url": "http://127.0.0.1:47623/hook/hooks.nudge_autonomous_askuserquestion",
             "timeout": 5,
-            "async": false,
+            "headers": {
+              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
+              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
+              "X-Coordinator-Env-Channel": "1",
+              "X-Coordinator-Env-Canary": "${COORDINATOR_PROBE_CANARY}",
+              "X-Coordinator-Env-COORDINATOR_AUTONOMOUS_ASK_OK": "${COORDINATOR_AUTONOMOUS_ASK_OK}"
+            },
+            "allowedEnvVars": [
+              "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "COORDINATOR_PROBE_CANARY",
+              "COORDINATOR_AUTONOMOUS_ASK_OK"
+            ],
             "args": [
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
@@ -529,9 +547,23 @@
         "matcher": "ExitPlanMode",
         "hooks": [
           {
-            "type": "command",
-            "command": "python3",
+            "type": "http",
+            "url": "http://127.0.0.1:47623/hook/hooks.plan_persistence_check",
             "timeout": 15,
+            "headers": {
+              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
+              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
+              "X-Coordinator-Env-Channel": "1",
+              "X-Coordinator-Env-Canary": "${COORDINATOR_PROBE_CANARY}",
+              "X-Coordinator-Env-CLAUDE_HOME": "${CLAUDE_HOME}",
+              "X-Coordinator-Env-HOME": "${HOME}",
+              "X-Coordinator-Env-USERPROFILE": "${USERPROFILE}",
+              "X-Coordinator-Env-CLAUDE_PROJECT_DIR": "${CLAUDE_PROJECT_DIR}"
+            },
+            "allowedEnvVars": [
+              "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "COORDINATOR_PROBE_CANARY",
+              "CLAUDE_HOME", "HOME", "USERPROFILE", "CLAUDE_PROJECT_DIR"
+            ],
             "args": [
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
@@ -542,7 +574,7 @@
         ]
       },
       {
-        "_comment": "POSTTOOLUSE-AGENT-DISPATCH FAN-IN (W0, docs/plans/2026-08-25-route-the-bash-guard-onto-the-native-htt.md) -- folds the two former standalone PostToolUse|Agent registrations (agent-completion-log.py, track-dispatched-agents.py's PostToolUse enrich leg) into the single engine op `hooks.agent_postuse_dispatch` (published mirror HEAD 6bcbb8b7). 3 registrations -> 2 on this matcher. ADDITIVE, NOT A MIGRATION: both agent-completion-log.py and track-dispatched-agents.py stay registered elsewhere (track-dispatched-agents.py's SubagentStart leg, above) and keep their own direct callers/op literals unchanged -- only the PostToolUse|Agent registration surface moves. runtime-tripwire-em-check.py is NOT folded here -- its two ops return domain results, not hook envelopes, and it composes its own advisory prose; folding it would be a DR-047 crossing (W3), not this chunk's scope. W1b (docs/dispatch-briefs/2026-08-25-route-the-bash-guard-onto-the-native-htt/W1b.md, re-landed behind W1c) -- the postuse-agent-dispatch.py leg below is now type: \"http\", the only fan-in registration that names exactly one engine op (census, same brief). PostToolUse is in _HTTP_DELIVERED_EVENTS (proven-delivered), the op resolves per _KNOWN_ENGINE_OPS, and (PostToolUse, postuse-agent-dispatch.py) is classified recoverable in _RECOVERABLE_REGISTRATIONS (union of its two folded legs) -- both folded legs are reconstructable per DR-warm-hook-miss-policy.md (W2): agent_completion_log is logging-only and track_dispatched_agents reconciles from its own SubagentStart twin below, which STAYS type \"command\" and is unaffected by this flip -- a miss here costs nothing durable, the SubagentStart leg already wrote the dispatch record and the next successful warm call (or that same twin) reconciles it. FIRST ATTEMPT (488cdabff) SHIPPED WITHOUT THE DOOR-KEY HEADER AND WAS REVERTED (a62b1db43): the front door authenticates before it resolves a route (front_door.py:1273-1276, credential_absent on a headerless fire), so the header below is not optional plumbing -- omitting it reproduces that exact silent-refusal bug. W1c (both Windows launcher templates) now exports COORDINATOR_DOOR_KEY, so the interpolation resolves. The old bootstrap `command` key is dropped (a type: \"http\" registration never executes it), but `args` is deliberately KEPT beside the new `url` -- test_hooks_json_http_fail_open_boundary.py's `_script_of` keys a registration by script basename when `args` names one, precisely so a transport flip does not silently detach the classification tables (`_RECOVERABLE_REGISTRATIONS`'s existing `(\"PostToolUse\", \"postuse-agent-dispatch.py\")` entry, added in 8f6756dc8) from the registration they authorize; dropping `args` here would re-key this entry to `http:<url>` and fail test_classification_tables_name_only_live_registrations for no reason. The runtime-tripwire-em-check.py leg stays type: \"command\" -- it fans out to 3 ops, which the http transport cannot express (op_for_path resolves exactly one op per URL).",
+        "_comment": "POSTTOOLUSE-AGENT-DISPATCH FAN-IN (W0, docs/plans/2026-08-25-route-the-bash-guard-onto-the-native-htt.md) -- folds the two former standalone PostToolUse|Agent registrations (agent-completion-log.py, track-dispatched-agents.py's PostToolUse enrich leg) into the single engine op `hooks.agent_postuse_dispatch` (published mirror HEAD 6bcbb8b7). 3 registrations -> 2 on this matcher. ADDITIVE, NOT A MIGRATION: both agent-completion-log.py and track-dispatched-agents.py stay registered elsewhere (track-dispatched-agents.py's SubagentStart leg, above) and keep their own direct callers/op literals unchanged -- only the PostToolUse|Agent registration surface moves. runtime-tripwire-em-check.py is NOT folded here -- its two ops return domain results, not hook envelopes, and it composes its own advisory prose; folding it would be a DR-047 crossing (W3), not this chunk's scope. W1b (docs/dispatch-briefs/2026-08-25-route-the-bash-guard-onto-the-native-htt/W1b.md, re-landed behind W1c) -- the postuse-agent-dispatch.py leg below is type: \"command\" on disk: an attempt to flip it (W1b) shipped and was reverted at a62b1db43 because the engine op rejects the harness payload with -32602 (re-measured 2026-09-02, spike leg 3 of docs/plans/2026-09-02-flip-four-hook-registrations-onto-http.md); it stays command until that rejection is fixed engine-side. PostToolUse is in _HTTP_DELIVERED_EVENTS (proven-delivered), the op resolves per _KNOWN_ENGINE_OPS, and (PostToolUse, postuse-agent-dispatch.py) is classified recoverable in _RECOVERABLE_REGISTRATIONS (union of its two folded legs) -- both folded legs are reconstructable per DR-warm-hook-miss-policy.md (W2): agent_completion_log is logging-only and track_dispatched_agents reconciles from its own SubagentStart twin below, which STAYS type \"command\" and is unaffected by this flip -- a miss here costs nothing durable, the SubagentStart leg already wrote the dispatch record and the next successful warm call (or that same twin) reconciles it. FIRST ATTEMPT (488cdabff) SHIPPED WITHOUT THE DOOR-KEY HEADER AND WAS REVERTED (a62b1db43): the front door authenticates before it resolves a route (front_door.py:1273-1276, credential_absent on a headerless fire), so the header below is not optional plumbing -- omitting it reproduces that exact silent-refusal bug. W1c (both Windows launcher templates) now exports COORDINATOR_DOOR_KEY, so the interpolation resolves. The old bootstrap `command` key is dropped (a type: \"http\" registration never executes it), but `args` is deliberately KEPT beside the new `url` -- test_hooks_json_http_fail_open_boundary.py's `_script_of` keys a registration by script basename when `args` names one, precisely so a transport flip does not silently detach the classification tables (`_RECOVERABLE_REGISTRATIONS`'s existing `(\"PostToolUse\", \"postuse-agent-dispatch.py\")` entry, added in 8f6756dc8) from the registration they authorize; dropping `args` here would re-key this entry to `http:<url>` and fail test_classification_tables_name_only_live_registrations for no reason. The runtime-tripwire-em-check.py leg below is now type: \"http\" (C2, docs/plans/2026-09-02-flip-four-hook-registrations-onto-http.md), calling hooks.runtime_tripwire_em_check -- claude-klabauter's C6 discharged the former \"fans out to 3 ops\" objection by landing that as ONE op implementing this Agent-matcher leg; the two UserPromptSubmit-gated legs it used to fan out to are deliberately not ported and stay on their own registrations.",
         "matcher": "Agent",
         "hooks": [
           {
@@ -557,10 +589,18 @@
             ]
           },
           {
-            "type": "command",
-            "command": "python3",
+            "type": "http",
+            "url": "http://127.0.0.1:47623/hook/hooks.runtime_tripwire_em_check",
             "timeout": 5,
-            "async": false,
+            "headers": {
+              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
+              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
+              "X-Coordinator-Env-Channel": "1",
+              "X-Coordinator-Env-Canary": "${COORDINATOR_PROBE_CANARY}"
+            },
+            "allowedEnvVars": [
+              "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "COORDINATOR_PROBE_CANARY"
+            ],
             "args": [
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
@@ -592,10 +632,18 @@
         "matcher": "Skill|Agent|Workflow",
         "hooks": [
           {
-            "type": "command",
-            "command": "python3",
+            "type": "http",
+            "url": "http://127.0.0.1:47623/hook/hooks.watchdog_undischarged_next_move",
             "timeout": 5,
-            "async": false,
+            "headers": {
+              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
+              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
+              "X-Coordinator-Env-Channel": "1",
+              "X-Coordinator-Env-Canary": "${COORDINATOR_PROBE_CANARY}"
+            },
+            "allowedEnvVars": [
+              "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "COORDINATOR_PROBE_CANARY"
+            ],
             "args": [
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
@@ -1500,14 +1548,6 @@
             ]
           },
           {
-            "id": "probe-spray",
-            "script": "bash_guards/dispatch_checks.py",
-            "tool_names": [
-              "Bash",
-              "PowerShell"
-            ]
-          },
-          {
             "id": "block-illegal-filename",
             "script": "bash_guards/block_illegal_filename.py",
             "tool_names": [
@@ -1524,13 +1564,6 @@
           },
           {
             "id": "grep-via-bash-rewrite",
-            "script": "bash_guards/dispatch_checks.py",
-            "tool_names": [
-              "Bash"
-            ]
-          },
-          {
-            "id": "sed-range-read-advise",
             "script": "bash_guards/dispatch_checks.py",
             "tool_names": [
               "Bash"
@@ -1593,22 +1626,6 @@
             "script": "bash_guards/guard_powershell_via_bash.py",
             "tool_names": [
               "Bash"
-            ]
-          },
-          {
-            "id": "branch-set-precedence",
-            "script": "bash_guards/guard_branch_set_precedence.py",
-            "tool_names": [
-              "Bash",
-              "PowerShell"
-            ]
-          },
-          {
-            "id": "longlived-branch-naming",
-            "script": "bash_guards/guard_longlived_branch_naming.py",
-            "tool_names": [
-              "Bash",
-              "PowerShell"
             ]
           },
           {

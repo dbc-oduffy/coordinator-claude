@@ -84,6 +84,14 @@ Resolve from the spine's directives in one pass; advisory rows never block:
   **Negative-spec:** sole to this ceremony — never `/workday-complete`, `/workstream-start`,
   `/workweek-start`.
 - **Cruft-sweep:** staleness >21d or >2GB reclaimable → nudge `/cruft-sweep`.
+- **Strategic self-description staleness (named line item, not an advisory):** newest
+  `state/strategic/self-description.yaml` `version_highlights[].date` older than 14d → run
+  `coordinator:strategic-self-description-refresh` this ceremony. It carries its own human
+  ratify gate, so this line schedules the gate; it does not decide the content. Missing file in
+  a repo that has adopted the standard reads as stale, not as opt-out. **Negative-spec:** a
+  disposition of "skip" is recorded with a reason on the spine — never silently dropped, and
+  never folded back into the advisory bucket, where a fleet-wide drift went undetected for
+  seven weeks.
 - **Sidecar reap (hand-run):** `reap-stale-subagent-sidecars`; non-zero → surface, don't skip.
 - **wsc inline-budget:** `WARN: ... exceeds baseline` → note mechanism inlined not extracted.
 - **Weekly KR re-assessment:** EM/PM-confirmed only; also reads `state/kr-suggestions/*.yaml`
@@ -91,8 +99,8 @@ Resolve from the spine's directives in one pass; advisory rows never block:
   **Negative-spec:** never auto-sets `status:`.
 - **Advisory results:** skill description length, owner-file invariant lint, enabledPlugins
   drift, CVE recheck (manifest changed in 14d only →
-  `state/review-findings/<week-starting>-cve/deps.md`), strategic self-description nudge,
-  competitor-positioning nudge, atlas drift/arch-audit staleness, human-facing doc health (each
+  `state/review-findings/<week-starting>-cve/deps.md`), competitor-positioning nudge, atlas
+  drift/arch-audit staleness, human-facing doc health (each
   finding gets its own `judgment_points[]` entry, disposition never auto-picked).
 - **Hard-blocking results:** UBT (`sha_range`, escape `COORDINATOR_OVERRIDE_UBT_GATE=1`),
   reverse-drift (`COORDINATOR_OVERRIDE_REVERSE_DRIFT=1`), version/schema-drift. Non-UE repos
@@ -107,10 +115,9 @@ Resolve from the spine's directives in one pass; advisory rows never block:
 `scc --no-complexity --no-cocomo --no-duplicates --sort code` (if available) → summary in
 `state/code-stats-history.md` under `## YYYY-MM-DD`.
 
-`workweek-complete-drift-guards shellcheck-sweep --repo-root .` — fix mechanical issues, flag
-behavior-changing. `... console-flash-guard --target "$HOME/.claude/plugins"` — route through
+`... console-flash-guard --target "$HOME/.claude/plugins"` — route through
 `spawn-hidden.sh` or `# verify-no-console-flash: allow`. `... multi-event-hook-guard` — fix is
-echoing stdin's `hook_event_name`, never hardcoded. All exit 0, advisory, never block merge.
+echoing stdin's `hook_event_name`, never hardcoded. Both exit 0, advisory, never block merge.
 
 ---
 

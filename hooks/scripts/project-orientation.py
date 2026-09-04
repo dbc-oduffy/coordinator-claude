@@ -482,6 +482,31 @@ def _resolve_generator(name: str, repo_root: Optional[str]) -> Optional[str]:
     return None
 
 
+def _operator_actionable_generator(name: str, repo_root: Optional[str]) -> str:
+    """`_resolve_generator()`'s result, filtered to what is safe to echo VERBATIM
+    into an operator-facing remediation message.
+
+    Rung 4 resolves into the sibling engine repo's mirror checkout, which an
+    operator reading THIS repo's banner cannot invoke. A mirror-root hit is
+    not "resolved" for this purpose; it falls back to the settings-home
+    forwarder, same as an unresolvable name.
+
+    The filter cannot live inside `_resolve_generator()` -- the banner factory
+    legitimately wants rung 4's mirror path for its stderr diagnostic."""
+    cli = _resolve_generator(name, repo_root)
+    if cli:
+        claude_klabauter_root = _resolve_claude_klabauter_root_native()
+        if claude_klabauter_root:
+            try:
+                Path(cli).resolve().relative_to(Path(claude_klabauter_root).resolve())
+                cli = None
+            except ValueError:
+                pass
+    if not cli:
+        cli = str(_settings_home() / "bin" / name)
+    return cli
+
+
 def _mtime_epoch(path: Path) -> Optional[int]:
     try:
         return int(path.stat().st_mtime)
@@ -1089,7 +1114,8 @@ def install_currency_banner(repo_root: Optional[str]) -> None:
 
     try:
         cache_path = (
-            _claude_home() / "plugins" / "coordinator-claude" / "data" / "doctor-last-run.json"
+            _claude_home() / ".claude" / "plugins" / "coordinator-claude" / "data"
+            / "doctor-last-run.json"
         )
     except Exception:
         return
@@ -1972,9 +1998,7 @@ def orientation_cache_staleness_banner(repo_root: Optional[str], cache_text: Opt
         # Field absent/empty at generation time -- we cannot prove freshness OR staleness.
         # Emit a distinct banner rather than either "STALE" (a claim we can't back) or silence
         # (which would present the cache as current by omission -- see docstring).
-        cli = _resolve_generator("regenerate-orientation-cache", repo_root)
-        if not cli:
-            cli = str(_settings_home() / "bin" / "regenerate-orientation-cache")
+        cli = _operator_actionable_generator("regenerate-orientation-cache", repo_root)
         _w("\n")
         _w(
             "── Orientation cache freshness UNVERIFIABLE — refresh: "
@@ -2012,12 +2036,10 @@ def orientation_cache_staleness_banner(repo_root: Optional[str], cache_text: Opt
 
     generated_at = _extract_cache_field(cache_text, "generated_at")
     short_head = current_sha[: len(cache_head)]
-    cli = _resolve_generator("regenerate-orientation-cache", repo_root)
-    if not cli:
-        # Even an unresolvable CLI must not silence the banner -- point at the settings-home
-        # forwarder path directly (same convention as the memo CLI reference,
-        # CLAUDE.md § Cross-repo write discipline) so the remedy is still actionable.
-        cli = str(_settings_home() / "bin" / "regenerate-orientation-cache")
+    # Even an unresolvable (or mirror-root-only) CLI must not silence the banner -- point
+    # at the settings-home forwarder path directly (same convention as the memo CLI
+    # reference, CLAUDE.md § Cross-repo write discipline) so the remedy is still actionable.
+    cli = _operator_actionable_generator("regenerate-orientation-cache", repo_root)
 
     _w("\n")
     _w(

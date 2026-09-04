@@ -510,11 +510,25 @@ def _current_branch_cheap(git_root: str) -> str:
     return ""
 
 
-def _unpushed_commit_count(git_root: str) -> int | None:
-    """Count of local commits not present on the current branch's upstream
-    (`git rev-list --count @{upstream}..HEAD`), or None when that question
-    cannot be answered — no upstream configured, detached HEAD, git error,
-    timeout, unparseable output.
+def _unpushed_commit_count(git_root: str, session_id: str | None = None) -> int | None:
+    """Count of local commits not present on the current branch's upstream,
+    RESCOPED (DR-190 § 40, 2026-09-02) to this session's own commits only —
+    or None when that question cannot be answered — no upstream configured,
+    detached HEAD, git error, timeout, unparseable output.
+
+    DR-190 § 40: the prior branch-wide count (`git rev-list --count
+    @{upstream}..HEAD`) is correct as measured but wrong as addressed — on a
+    shared `work/*` branch with ~35 concurrent sessions the count is rarely
+    zero, so the second-person escalation this feeds ("your crash insurance
+    may not be insuring") reached sessions whose own work was fully insured
+    (six escalations observed in one session, zero involving uninsured work
+    by that session). Discriminate via the `Session-Id:` trailer every
+    coordinator-produced commit carries (`agents/git-commit-agent.md` § Check
+    the `Session-Id` trailer) rather than the raw ahead-count: a commit with
+    no trailer, or a foreign session's trailer, does not belong to THIS
+    session's insurance question. `session_id=None` (caller has none to
+    offer) falls back to the prior branch-wide count — a session that cannot
+    name itself cannot be excluded from its own alarm.
 
     FALLBACK PATH, not the primary classifier: `_check_push_failures` now
     renders its alarm from the engine's `git.push_failure_verdict` five-state
@@ -535,6 +549,13 @@ def _unpushed_commit_count(git_root: str) -> int | None:
     None is the fail-toward-FIRING signal — a tripwire that goes quiet when it
     cannot tell is strictly worse than one that occasionally over-reports.
     """
+    if session_id:
+        session_count = _own_session_unpushed_commit_count(git_root, session_id)
+        if session_count is not None:
+            return session_count
+        # Fall through to the branch-wide count on any failure reading
+        # trailers -- fail-toward-firing, same contract as the rest of this
+        # function.
     try:
         import subprocess
 
@@ -554,6 +575,40 @@ def _unpushed_commit_count(git_root: str) -> int | None:
             return None
         text = (result.stdout or "").strip()
         return int(text) if text.isdigit() else None
+    except Exception:
+        return None
+
+
+def _own_session_unpushed_commit_count(git_root: str, session_id: str) -> int | None:
+    """Count of `@{upstream}..HEAD` commits carrying THIS session's own
+    `Session-Id:` trailer (DR-190 § 40) -- the rescope
+    `_unpushed_commit_count` applies when it has a session id to filter by.
+
+    Returns None on any failure (git error, timeout, unparseable output) so
+    the caller falls back to the branch-wide count -- fail-toward-firing,
+    never fail-silent."""
+    try:
+        import subprocess
+
+        # popup-intentional-last-resort -- same 3s ceiling as
+        # `_unpushed_commit_count`'s own subprocess, for the same reason.
+        result = subprocess.run(
+            [
+                "git",
+                "log",
+                "@{upstream}..HEAD",
+                "--format=%(trailers:key=Session-Id,valueonly)",
+            ],
+            cwd=git_root,
+            capture_output=True,
+            text=True,
+            timeout=3,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if result.returncode != 0:
+            return None
+        lines = (result.stdout or "").splitlines()
+        return sum(1 for line in lines if line.strip() == session_id)
     except Exception:
         return None
 
@@ -1125,7 +1180,7 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
         else ""
     )
 
-    if _unpushed_commit_count(git_root) == 0:
+    if _unpushed_commit_count(git_root, session_id) == 0:
         return (
             "AUTO-PUSH mid-session note — {n} push failure(s) landed in "
             ".git/push-failures.log on `{branch}` since this session started, but "

@@ -117,12 +117,7 @@ Welcome aboard.
 Run it as a conversation, not a recital. Concretely:
 
 - **Record the milestones (enduring, idempotent).** At the *start* of the tour — before Movement 1 — record `orientation_started`; when the operator reaches "After the tour" (or signals they're done), record `orientation_completed`. These are per-machine receipts sibling repos read to chain after coordinator setup; the helper is first-occurrence-wins, so re-recording is safe. Use the settings-home forwarder, the same surface `/coordinator:install` Phase 7 records through:
-  ```bash
-  "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-setup-state" record orientation_started
-  # …facilitate the four movements…
-  "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-setup-state" record orientation_completed
-  ```
-  PowerShell host: `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-setup-state.exe" record orientation_started` (likewise for `orientation_completed`).
+  One invocation each, through the settings-home forwarder. PowerShell host: `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-setup-state.exe" record orientation_started` (likewise for `orientation_completed`). POSIX hosts take Shape A/B — resolution ladder and both shapes: `snippets/resolve-coordinator-bin.md`.
   Schema and the cross-repo reader idiom are documented alongside `coordinator-setup-state`'s own implementation.
 - **Calibrate first, then teach.** Open Movement 1 by asking about the operator's background and goals; lead with what's relevant to *them*. A seasoned engineer needs the philosophy; a newcomer needs the happy path.
 - **Offer, don't dump.** In Movement 2, propose the one or two customizations that follow from what they told you — not the whole menu. (This is the design-as-offers ethos applied to onboarding.)

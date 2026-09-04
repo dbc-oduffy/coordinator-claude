@@ -58,9 +58,15 @@ boundaries: ship Phase N green, dispatch Phase N+1 immediately, no checkpoint of
    [--utterance "<PM's verbatim words>"]` — `--utterance` is optional, a bare `/execute-plan`
    mints just as well, and the verb always writes `execution_authorized_by: PM`, convergent across
    re-invocation and date boundaries. Under `/autonomous`, skip both legs.
-3. **Session-freshness** (skip under `/autonomous`): a same-session execution (this session
-   authored/reviewed the plan) is a narrow carve-out, not the default — a fresh (picked-up)
-   session is the intended path at any plan size. Detail: wiki.
+3. **Remaining-context gate** (skip under `/autonomous`): read this session's own remaining-context
+   reading before committing to same-session execution — the same context-window percentage the
+   statusline captures and publishes each turn. A session already carrying the plan authorship +
+   review dialogue with LOW remaining context is the narrow carve-out, not the default — a fresh
+   (picked-up) session with a full context budget dedicated to execution is the intended path at
+   any plan size. Rekeyed from a prior same-session-framing check to this meter reading: the
+   underlying failure this gate exists to catch (degraded tool-call reliability in a
+   context-saturated session) was always a context-budget argument, not a planning-provenance one,
+   so the meter is what the check should read. Detail: wiki.
 
 <!-- engine-gap: field=execute_plan.session_freshness_verdict producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 4. Resolve EM-resolvable concerns at EM altitude — not the moment to surface them to the PM. A
@@ -147,8 +153,9 @@ Firing in-session is what makes the run the operator's: visible and selectable i
 list, inspectable while it runs, resumable via `resumeFromRunId` (same-session-only), running under
 their permissions, costed to their session, completion arriving as a task notification.
 
-**`--fire` is the headless and cron path only.** It hands the script to the engine's
-`workflow.fire`, which spawns a detached `claude -p` child and returns a run handle
+**`--fire` is the headless and cron path only.** It hands the script to `engine_fire.fire_workflow`
+(a module function — not a `workflow.fire` op dispatch, despite the dot-notation this doc used to
+use), which spawns a detached `claude -p` child and returns a run handle
 (`{"script": ..., "handle": {...}}`; the handle's `fire_id` is what `workflow.fire_status`
 re-reads). The resulting workflow is native to that child, not to any operator: it runs under the
 child's own `--allowedTools` (no `PowerShell`; denials surface only as `permission_denials` in the
@@ -163,6 +170,15 @@ headless path a named fire-leg refusal (`ScriptNotFoundError`, `PluginDirResolut
 same chunks with the Agent tool after a refused or unattempted dispatch is the failure this whole
 surface exists to prevent, and it is never the recovery. A concurrency-cap refusal means wait, not
 dispatch by hand.
+
+**A fifth state exists beyond the four named refusals: fired-then-died.** The four refusals above
+are all fire-time — the child never started. A child that started and then died mid-run is
+different: the fire log is written only at process exit, so nothing distinguishes a live run from
+a killed one through the log alone. Check the returned handle's `log_size_bytes`: `0` is a free
+liveness signal — the child has written nothing yet, whether because it is still starting or
+because it died before its first write. Treat a stalled handle with `log_size_bytes: 0` past a
+reasonable startup window as fired-then-died: report it and stop, the same as a fire-time refusal.
+Do not hand-dispatch as a recovery here either.
 
 A workflow-spawned agent IS its declared `agentType` — the type propagates — but the catering
 layered on top of it at dispatch time does not: no `contract_blocks`, no provisioned report

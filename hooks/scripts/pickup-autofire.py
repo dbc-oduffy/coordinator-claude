@@ -157,7 +157,9 @@ except Exception:
         return candidate if candidate.is_file() else None
 
     def _forwarder_argv(script_path, tail=()):  # type: ignore[misc]
-        return [sys.executable, str(script_path), *tail]
+        # Review: overengineering-reviewer F3 -- see _forwarder_resolve's
+        # "Import-fallback contract" docstring section for the rationale.
+        raise OSError("forwarder resolution unavailable -- import fallback declined to guess a launch decision")
 
 # --- Constants -------------------------------------------------------------
 
@@ -392,8 +394,11 @@ def _run_pickup_assemble(
     env = dict(os.environ)
     if session_id:
         env["COORDINATOR_SESSION_ID"] = session_id
-    argv = pickup_assemble_argv(script_path, tail)
     try:
+        # Review: overengineering-reviewer F3 -- argv computation moved inside
+        # the try so a fallback-leg OSError (see _forwarder_resolve) is
+        # absorbed by the handler below rather than needing its own guard.
+        argv = pickup_assemble_argv(script_path, tail)
         return subprocess.run(
             argv,
             env=env,

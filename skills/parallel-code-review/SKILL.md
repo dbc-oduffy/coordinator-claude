@@ -109,7 +109,10 @@ it disagrees with the same way it reverts any other landed change.
 **Hand-dispatch is the fallback for a broken vehicle, not a preference.** If the Workflow refuses
 or the script is unusable, dispatch all active reviewers in one multi-tool-call batch and say why
 the vehicle was bypassed. Either way, each reviewer reads its own frozen input and writes only its
-own findings file:
+own findings file. **The fallback's named `Agent` dispatch requires agent teams**
+(`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `settings.json`'s `env`, session-start-only, not
+mid-session toggleable) — without it each call is an ordinary background subagent, not a team
+member. The primary `Workflow` path above does not depend on this.
 
 - **Chunk reviewers** (`agents/code-reviewer-weekly.md`, skip all if `SKIP_CODE_SEMANTICS=1`): one
   per chunk, its file-scope list plus `$DIFF_PATH`, writing **only** `$FINDINGS_DIR/chunk-<k>.md`

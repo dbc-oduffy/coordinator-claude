@@ -16,6 +16,17 @@ Usage:
       [--escalated-p0 F3] [--deferred F8] [--root <repo-root>] \\
       [--rationale-stdin | --rationale-file <path>]
 
+Two writes, one call. The disposition block goes to the REVIEWER's sidecar
+(--sidecar); the routing stamp `integrated_from: [<reviewer stem>]` goes into the
+caller's OWN run-report, auto-discovered beside it or named with --run-report when
+several integrators in the session are owed one. That stamp is what the
+Kira-verdict stop guard reads to decide a reviewer's findings were routed.
+NEVER hand-write it: on 2026-09-01 an integrator reported writing it "at column
+zero" and had not -- the field was prose in its run-notes body, its work was
+correct, and the guard read routed findings as unrouted. A stamp that cannot be
+placed WARNS on stderr and never fails the disposition write, which has already
+landed by then.
+
 Rationale prose: prefer --rationale-stdin, or the equivalent --rationale-file -, and
 pipe the prose in. A --rationale-file naming a real path is CALLER-CHOSEN, and that
 path is shared state on a box running dozens of concurrent sessions: one reusing it

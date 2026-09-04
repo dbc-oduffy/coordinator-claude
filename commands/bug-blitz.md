@@ -124,7 +124,7 @@ plan, fire Phase 3 immediately — no wait (2.5); `--dry-run` stops here. Full m
 
 **Single committer, no exceptions.** Executors edit-and-report only, never stage or commit. EM
 commits at the wave gate via `backlog-grind-assemble apply bug-blitz --wave-path <path>...
---granularity per-item --message <msg> --decisions
+--granularity per-item --message <single-line msg> --decisions
 '{"j-bug-blitz-commit-readiness": {"disposition": "ready-to-commit"}}'` — one commit per item,
 never collapsed to `per-wave`. **The judgment point is not optional and its value is an OBJECT.**
 Omit `--decisions` and the commit directive stays gated; pass the bare string

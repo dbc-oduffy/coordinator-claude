@@ -772,7 +772,12 @@ REM isolated behind its own `goto` label instead, so `%ERRORLEVEL%` is read
 REM outside any parenthesized block (fresh at that point, not frozen at
 REM block-parse-time) with no delayed expansion needed.
 {raw_cmdline_block}set "_py={python_bin_token}"
-if "%_py%"=="{python_bin_token}" set "_py="
+REM No placeholder-vs-placeholder test here: install-substrate.py replaces EVERY
+REM {python_bin_token} occurrence, so such a test compares the baked path against
+REM itself, is unconditionally true, and discards the bake precisely when it
+REM succeeded. The existence test below is the property that actually matters and
+REM already covers the unbaked case -- the literal token is not a path, so it
+REM falls through to the probe tiers on its own.
 if not "%_py%"=="" if exist "%_py%" goto :run_baked
 set "_py="
 
@@ -920,7 +925,12 @@ $ErrorActionPreference = 'Stop'
 $_here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $_entry = Join-Path $_here '{entry}'
 $_pybin = '{python_bin_token}'
-if ($_pybin -eq '{python_bin_token}') {{ $_pybin = '' }}
+# No placeholder-vs-placeholder test here: install-substrate.py replaces EVERY
+# {python_bin_token} occurrence, so such a test compares the baked path against itself,
+# is unconditionally true, and discards the bake precisely when it succeeded. The
+# Test-Path line below is the property that matters and already covers the unbaked
+# case -- the literal token is not a path.
+
 if ($_pybin -ne '' -and -not (Test-Path -LiteralPath $_pybin)) {{ $_pybin = '' }}
 if ($_pybin -ne '') {{
     & $_pybin $_entry @args

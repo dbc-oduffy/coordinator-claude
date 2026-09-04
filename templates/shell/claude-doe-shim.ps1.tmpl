@@ -44,8 +44,27 @@ $__claudeDoeShimSettingsHome = if ($env:COORDINATOR_SETTINGS_HOME) { $env:COORDI
 $__claudeDoeShimPointer = Join-Path (Join-Path $__claudeDoeShimSettingsHome "machine-local") ".doe-root"
 $__claudeDoeShimLegacyPointer = Join-Path (Join-Path $__claudeDoeShimHome ".claude") ".doe-root"
 
+# Export the resolved settings home into the session environment.
+#
+# Purpose: every settings-home CLI invocation (Shape W in
+# coordinator/snippets/resolve-coordinator-bin.md) quotes
+# "$env:COORDINATOR_SETTINGS_HOME\bin\<cli>.exe". Nothing else in the fleet exports
+# this variable, so without this line it is unset in a fresh shell, the quoted path
+# collapses to a bare "\bin\<cli>.exe", and the call fails command-not-found —
+# reading as "this CLI is not installed" when it is installed and working. Confirmed
+# across two repos on one host, 2026-09-03.
+#
+# Placed ABOVE the pointer guard deliberately: that guard returns early on a fresh
+# install, and a fresh install is exactly the session that most needs the variable.
+#
+# Negative-spec: does NOT overwrite an operator's existing value, and never
+# hand-derives $env:USERPROFILE\.coordinator-claude-settings — it exports the same
+# precedence ($env:COORDINATOR_SETTINGS_HOME, then CLAUDE_HOME, then HOME) already
+# resolved one line above, so this adds no second resolution mechanism.
+if (-not $env:COORDINATOR_SETTINGS_HOME) { $env:COORDINATOR_SETTINGS_HOME = $__claudeDoeShimSettingsHome }
+
 if (-not (Test-Path -LiteralPath $__claudeDoeShimPointer) -and -not (Test-Path -LiteralPath $__claudeDoeShimLegacyPointer)) {
-  Write-Warning "claude-doe shim: .doe-root pointer absent (settings-home or $__claudeDoeShimHome\.claude) — claude() not defined; run coordinator:install"
+  Write-Warning "claude-doe shim: .doe-root pointer absent (settings-home or $__claudeDoeShimHome\.claude) — claude() not defined; run <engine-clone>/scripts/setup.py"
   return
 }
 
@@ -83,7 +102,7 @@ function claude {
     $_r = (Get-Content -LiteralPath $__claudeDoeShimLegacyPointer -ErrorAction SilentlyContinue | Select-Object -First 1)
   }
   if ([string]::IsNullOrEmpty($_r)) {
-    Write-Error "claude-doe shim: .doe-root pointer missing (settings-home or $__claudeDoeShimHome\.claude) — run coordinator:install"
+    Write-Error "claude-doe shim: .doe-root pointer missing (settings-home or $__claudeDoeShimHome\.claude) — run <engine-clone>/scripts/setup.py"
     return
   }
 
@@ -131,7 +150,7 @@ function claude {
   # than degrade silently -- an operator whose console starts misbehaving should
   # not have to re-derive today's whole investigation to find out they are here.
   if ($env:OS -eq 'Windows_NT') {
-    Write-Warning "claude-doe shim: no claude-doe.ps1 found beside any claude-doe on PATH — falling back to the .cmd launcher, which adds an intermediate cmd.exe. Run coordinator:install to render the PowerShell launcher; see coordinator/docs/wiki/windows-process-spawn-and-console.md."
+    Write-Warning "claude-doe shim: no claude-doe.ps1 found beside any claude-doe on PATH — falling back to the .cmd launcher, which adds an intermediate cmd.exe. Run <engine-clone>/scripts/setup.py to render the PowerShell launcher; see coordinator/docs/wiki/windows-process-spawn-and-console.md."
   }
   & claude-doe --doe-root $_r @args
 }

@@ -450,6 +450,36 @@ def _usage(prog: str) -> int:
     return 2
 
 
+def _reject_flag_like_positionals(usage: str, args: list) -> int | None:
+    """`2` (via `_usage`) when any of `args` looks like a flag, else `None`.
+
+    Every claim subcommand below takes POSITIONALS only — `<class>
+    <basename> [baton_repo_root]`. Without this, a caller reaching for the
+    flag spelling every other coordinator CLI uses (`--repo <root>`) has
+    `--repo` silently bound as `baton_repo_root` and `<root>` dropped past
+    the end: the release targets a directory named `--repo`, finds no claim,
+    and `release_artifact` returns its no-op success. EXIT 0, nothing
+    released, and a caller that stood down on that believes its claim is
+    gone while it still holds it. A wrong repo root must be a usage error,
+    never a silent success.
+
+    Negative-spec: this rejects on the `--` shape, NOT against a list of
+    known flags — the point is that these subcommands have no flags at all,
+    so any `--`-leading token is a caller mistake whatever it spells.
+    `claim-plan` owns a real `--for-execution` and filters it itself; it
+    does not route through here."""
+    for arg in args:
+        if isinstance(arg, str) and arg.startswith("--"):
+            print(
+                f"session-claim-cli: {arg!r} is not a flag on this subcommand — "
+                "the repo root is POSITIONAL. Passing it as a flag binds the flag "
+                "name itself as the root and releases nothing, at exit 0.",
+                file=sys.stderr,
+            )
+            return _usage(usage)
+    return None
+
+
 def _bool_to_exit(result: bool) -> int:
     return 0 if result else 1
 
@@ -601,6 +631,9 @@ def _dispatch(argv: list[str]) -> int:
     if subcmd == "claim-artifact":
         if len(rest) < 2:
             return _usage("session-claim-cli claim-artifact <class> <basename> [baton_repo_root]")
+        _flagged = _reject_flag_like_positionals("session-claim-cli claim-artifact <class> <basename> [baton_repo_root]", rest)
+        if _flagged is not None:
+            return _flagged
         class_, basename = rest[0], rest[1]
         baton_repo_root = rest[2] if len(rest) > 2 else ""
         return _call_claim_bool("claim-artifact", mod.claim_artifact, class_, basename, baton_repo_root)
@@ -608,6 +641,9 @@ def _dispatch(argv: list[str]) -> int:
     if subcmd == "release-artifact":
         if len(rest) < 2:
             return _usage("session-claim-cli release-artifact <class> <basename> [baton_repo_root]")
+        _flagged = _reject_flag_like_positionals("session-claim-cli release-artifact <class> <basename> [baton_repo_root]", rest)
+        if _flagged is not None:
+            return _flagged
         class_, basename = rest[0], rest[1]
         baton_repo_root = rest[2] if len(rest) > 2 else ""
         if class_ in _CLASSED_CLAIM_CLASSES:
@@ -619,6 +655,9 @@ def _dispatch(argv: list[str]) -> int:
     if subcmd == "clear-claim-if-dead":
         if len(rest) < 2:
             return _usage("session-claim-cli clear-claim-if-dead <class> <basename> [baton_repo_root]")
+        _flagged = _reject_flag_like_positionals("session-claim-cli clear-claim-if-dead <class> <basename> [baton_repo_root]", rest)
+        if _flagged is not None:
+            return _flagged
         class_, basename = rest[0], rest[1]
         baton_repo_root = rest[2] if len(rest) > 2 else ""
         if class_ in _CLASSED_CLAIM_CLASSES:
@@ -639,6 +678,11 @@ def _dispatch(argv: list[str]) -> int:
     if subcmd == "list-claims-by-session":
         if not rest:
             return _usage("session-claim-cli list-claims-by-session <sid> [cwd]")
+        _flagged = _reject_flag_like_positionals(
+            "session-claim-cli list-claims-by-session <sid> [cwd]", rest
+        )
+        if _flagged is not None:
+            return _flagged
         sid = rest[0]
         cwd = rest[1] if len(rest) > 1 else None
         for class_, basename in mod.list_claims_by_session(sid, cwd):

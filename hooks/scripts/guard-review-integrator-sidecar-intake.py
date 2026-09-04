@@ -106,8 +106,24 @@ _WIKI_ANCHOR = (
 # reap-lifecycle distinction between session-keyed persona-findings sidecars
 # (reaped on an age/liveness floor) and the four UNREAPED-BY-DESIGN
 # plan-derivable lens sidecars that live there by design.
+#
+# The `.coordinator-local/subagent-share/` alternative is NOT that widening and
+# does not reopen it. It is the SAME bucket at a relocated root -- the engine's
+# `machinery_root()` moved 2026-09-02 from `state/` to `.coordinator-local/`, so
+# one corpus answers to two spellings while readers migrate. The forbidden
+# widening admits a DIFFERENT bucket with a different reap lifecycle; this
+# admits the same bucket at the address it moved to. BOTH roots stay accepted:
+# the served tree and the source tree diverge across a republish, and
+# provisioning and matching can be served from different vintages inside that
+# window, so both roots are legal until it closes and the matcher cannot tell
+# which it is serving.
+#
+# RETIRE-AFTER: no live session predates the .coordinator-local republish
+# (2026-09-02) -- see state/debt-backlog/2026-09-02-retire-dual-root-sidecar-
+# path-regex-alternation-c1a9e2b3.yaml for the retirement condition and the
+# exact one-line revert.
 _SIDECAR_PATH_RE = re.compile(
-    r"(?:^|[\s(\[\"'`/\\])(state[/\\]subagent-share[/\\][^\s()\[\]\"'`,;:]+\.md)"
+    r"(?:^|[\s(\[\"'`/\\])((?:state|\.coordinator-local)[/\\]subagent-share[/\\][^\s()\[\]\"'`,;:]+\.md)"
 )
 
 
@@ -167,7 +183,7 @@ def _compose_no_candidates_message():
     relocated to `_WIKI_ANCHOR` -- see this hook's relocation fragment."""
     return compose(
         "no sidecar named -- name the provisioned "
-        "state/subagent-share/<session>/ path, or dispatch "
+        ".coordinator-local/subagent-share/<session>/ path, or dispatch "
         "coordinator:enricher for plan-body work.",
         anchor=_WIKI_ANCHOR,
     )
@@ -181,7 +197,7 @@ def _compose_stale_candidates_message(candidates: "list[str]"):
     alternative = "\n".join(candidates[:ALTERNATIVE_MAX_LINES])
     return compose(
         "named sidecar not on disk -- provision it under "
-        "state/subagent-share/<session>/, or dispatch "
+        ".coordinator-local/subagent-share/<session>/, or dispatch "
         "coordinator:enricher for plan-body work.",
         alternative=alternative,
         anchor=_WIKI_ANCHOR,

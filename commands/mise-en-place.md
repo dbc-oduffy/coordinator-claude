@@ -133,7 +133,9 @@ Per wave:
    Non-PASS → re-dispatch, revert+re-plan, defer, or early-stop.
 3. Wave gate: `backlog-grind-assemble apply mise-en-place --wave-path <path>... --granularity
    per-wave --message "mise: wave N — <items>"` over the union of changed paths — never hand-typed
-   git. Poll `git branch --show-current` between waves; recovery commits don't advance the chain.
+   git. `--message` must be a single line: it has no `-file` sibling and the `.cmd` forwarder
+   truncates a multi-line value at the first LF, exit 0. Poll `git branch --show-current` between
+   waves; recovery commits don't advance the chain.
 4. "Wave N complete ([items]). Firing wave N+1 ([items])." — never a question.
 
 No worktrees.
