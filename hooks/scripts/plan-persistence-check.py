@@ -298,16 +298,30 @@ def _emit(additional_context: str) -> None:
 def _commit_cmd(plans_git_root: str, repo_root: str, rel_paths: list[str], slug: str) -> str:
     """Prefilled scoped-commit command for the persisted plan (and README row).
 
-    Cross-repo (meta-repo routing sent the write into the engine checkout) gets
-    an explicit `git -C "<root>"` prefix; same-repo keeps the bare form.
+    Routes through `coordinator-safe-commit "<subject>" -- <path>...`, whose
+    `--` form dials `ceremony.commit_v2`. NOT `scoped-git-commit`: that CLI was
+    killed under DR-344 (2026-08-23) and naming it here hands the operator a
+    command that does not resolve.
+
+    The cross-repo case emits two lines rather than a `(cd ... && ...)`
+    subshell. Parentheses fork a subshell only in POSIX shells; in PowerShell
+    they group an expression without isolating the `cd`, so the one-liner would
+    silently relocate the operator's shell. Two lines behave identically in
+    both, and this string is pasted by a human, not executed here.
     """
     paths = " ".join(rel_paths)
+    commit = f'coordinator-safe-commit "plan: {slug}" -- {paths}'
     if plans_git_root != repo_root:
-        return (
-            f'git -C "{plans_git_root}" add -- {paths} && '
-            f'git -C "{plans_git_root}" commit -m "plan: {slug}" -- {paths}'
-        )
-    return f'git add -- {paths} && git commit -m "plan: {slug}" -- {paths}'
+        # Literal "\n", not os.linesep: this string is JSON-carried text
+        # rendered into a human-facing terminal message, not a file this
+        # process writes. os.linesep ties the separator to the hook
+        # process's own host OS (\r\n on Windows) rather than the shell the
+        # operator pastes into, and the rest of this file is deliberately
+        # LF-disciplined for exactly this reason (see the newline="" file
+        # writes below). A bare \n displays and pastes correctly in both
+        # bash and PowerShell.
+        return "\n".join([f'cd "{plans_git_root}"', commit])
+    return commit
 
 
 def _compose_idempotent_context(commit_cmd: str):
@@ -590,20 +604,13 @@ def main() -> int:
     # Deliberately NOT staged — see the no-index-lock negative spec above.
 
     # --- Idempotently insert a Plans-section line into docs/README.md ---
-    readme_modified = False
-    if docs_readme.is_file():
-        readme_line = f"- [`{target_name}`]({'docs/plans/' + target_name})"
-        try:
-            existing_readme = docs_readme.read_text(encoding="utf-8")
-        except Exception:
-            existing_readme = ""
-        if target_name not in existing_readme:
-            try:
-                with docs_readme.open("a", encoding="utf-8", newline="") as fh:
-                    fh.write(f"\n{readme_line}\n")
-                readme_modified = True
-            except Exception:
-                pass
+    # The href is relative to docs/README.md's OWN location (docs/), not the
+    # repo root -- `plans/{target_name}`, not `docs/plans/{target_name}`
+    # (which would resolve to the nonexistent docs/docs/plans/...). Reuses
+    # `_append_readme_row`, the same idempotent-append helper the engine-
+    # routed path already uses, so both paths build the row the same way.
+    readme_line = f"- [`{target_name}`](plans/{target_name})"
+    readme_modified = _append_readme_row(docs_readme, readme_line)
 
     # --- Emit additionalContext ---
     rel_paths = [f"docs/plans/{target_name}"]

@@ -107,6 +107,18 @@ _CONTRACT_EPOCH_ISO = "2026-08-30T00:00:00Z"
 # exists, via `_normalize_agent_type` below.
 _KIRA_AGENT_TYPE = "overengineering-reviewer"
 
+# Both machinery roots are read, union-of-filenames, first root wins on a
+# duplicate name. The engine's `machinery_paths.machinery_root()` moved from
+# `state/` to `.coordinator-local/` on 2026-09-02, so an integrator that
+# stamps `integrated_from` in the provisioned directory is invisible to a
+# scan of the old literal alone -- the guard then blocks a session that did
+# exactly what its own remedy prescribes, which is the one state where
+# blocking is wrong. Same reasoning and same retirement condition as
+# `guard-review-integrator-sidecar-intake.py`'s dual-root path regex; see
+# state/debt-backlog/2026-09-02-retire-dual-root-sidecar-path-regex-
+# alternation-c1a9e2b3.yaml for the revert.
+_SHARE_ROOTS = (".coordinator-local", "state")
+
 
 def _repo_root(payload: dict) -> str | None:
     cwd = payload.get("cwd") or os.getcwd()
@@ -392,21 +404,36 @@ def main() -> int:
         _emit_could_not_evaluate("could not resolve repo root from cwd")
         return 0
 
-    share_dir = os.path.join(repo_root, "state", "subagent-share", session_id)
-    try:
-        filenames = [
-            f
-            for f in os.listdir(share_dir)
-            if f.endswith(".md") and not f.endswith(".blocks.md")
-        ]
-    except OSError:
-        _emit_could_not_evaluate(f"could not list share dir {share_dir}")
+    share_dirs = [
+        os.path.join(repo_root, root, "subagent-share", session_id)
+        for root in _SHARE_ROOTS
+    ]
+    listed: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    unreadable: list[str] = []
+    for share_dir in share_dirs:
+        try:
+            names = os.listdir(share_dir)
+        except OSError:
+            unreadable.append(share_dir)
+            continue
+        for f in sorted(names):
+            if not f.endswith(".md") or f.endswith(".blocks.md"):
+                continue
+            if f in seen:
+                continue
+            seen.add(f)
+            listed.append((f, os.path.join(share_dir, f)))
+
+    if len(unreadable) == len(share_dirs):
+        _emit_could_not_evaluate(
+            "could not list any share dir: " + ", ".join(unreadable)
+        )
         return 0
 
     entries: list[tuple[str, dict]] = []
-    for fname in filenames:
-        meta = _read_frontmatter(os.path.join(share_dir, fname))
-        entries.append((fname, meta))
+    for fname, fpath in listed:
+        entries.append((fname, _read_frontmatter(fpath)))
 
     if not entries:
         return 0

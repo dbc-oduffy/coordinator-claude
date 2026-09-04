@@ -8,9 +8,8 @@ access-mode: read-write
 tools: ["Read", "Edit"]
 ---
 
-<!-- This harness build provides no Grep/Glob tool. Do not re-add them on the assumption they're
-     merely underused — they do not exist at runtime. This agent reads exactly one page per
-     dispatch, so no search tool is needed. -->
+<!-- No `Grep`/`Glob` here by scope, not by absence — both exist in this build. This agent reads
+     exactly one page per dispatch, so no search tool is needed. -->
 
 # Atlas Clarity Reviewer
 

@@ -117,6 +117,14 @@ except Exception:
     def _settings_home_registry_dir():  # type: ignore[no-redef]
         return None
 
+try:
+    from _forwarder_resolve import forwarder_argv as _forwarder_argv
+except Exception:
+    # Review: overengineering-reviewer F3 -- see _forwarder_resolve's
+    # "Import-fallback contract" docstring section for the rationale.
+    def _forwarder_argv(script_path, tail=()):  # type: ignore[no-redef]
+        raise OSError("forwarder resolution unavailable -- import fallback declined to guess a launch decision")
+
 
 _REGISTRY_KEY = "engine.working_repos.doe_claude"
 _SENTINEL_NAME = ".coordinator-dev-repo"
@@ -174,6 +182,15 @@ def _write_registry_value(key: str, value: str) -> None:
     suppresses the focus-stealing console flash under this hook's headless
     SessionStart parent. `getattr` degrades to a harmless `0` on
     macOS/Linux, where the flag does not exist.
+
+    Launch guard: `_forwarder_argv` decides whether `impl` needs a
+    `sys.executable` prefix by inspecting the file itself (suffix plus
+    native-image magic-byte probe), never by trusting the `.py` suffix in
+    this call site's own path literal — a cut-over door installed at the
+    same stem is a compiled native image, and handing one to the Python
+    interpreter dies on the first byte with `SyntaxError: Non-UTF-8 code`.
+    See `_forwarder_resolve.forwarder_argv`'s own docstring ("Ask the
+    bytes").
     """
     home = _settings_home()
     if home is None:
@@ -182,8 +199,12 @@ def _write_registry_value(key: str, value: str) -> None:
     if not impl.is_file():
         return
     try:
+        # Review: overengineering-reviewer F3 -- argv computation moved inside
+        # the try so a fallback-leg OSError (see _forwarder_resolve) is
+        # absorbed by the handler below rather than needing its own guard.
+        argv = _forwarder_argv(impl, ["set", key, value])
         subprocess.run(
-            [sys.executable, str(impl), "set", key, value],
+            argv,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             # Below hooks.json's 10s whole-process timeout for this hook, so

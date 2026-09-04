@@ -7,6 +7,11 @@ argument-hint: "--mode plan|review --tier standard|full [--members \"the Staff E
 
 # Staff Session — Agent Teams Planning and Review Driver
 
+**`standard`/`full` tier requires agent teams** — `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in
+`settings.json`'s `env`, applied at SESSION START and not toggleable mid-session. Without it every
+named `Agent` call here is an ordinary background subagent and no team forms. `--tier lightweight`
+does not depend on this — see Step 2.
+
 The EM scopes the work, selects the team, spawns all teammates, and is **freed**; the team then
 debates and synthesizes autonomously. Roles, models and counts: `pipelines/staff-session/
 team-protocol.md` § Team Roles — read there, don't re-derive.

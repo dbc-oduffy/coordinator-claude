@@ -152,6 +152,18 @@ PowerShell host (rung 0):
 
 Never-clobber is the `--guard-sentinel` flag's own contract (exit 3 = hand-authored file preserved, skip). No `--check-only` flag on the primitive — skip the call there instead.
 
+**Navi nudge role.** `render-template` never mkdirs and `~/.claude/agents/` will not exist on a fresh box — create it first, then render the role, same guard-sentinel contract as the CLAUDE.md seed above. Skip both calls under `--check-only`.
+
+```bash
+mkdir -p "${CLAUDE_HOME:-$HOME}/.claude/agents"
+"${COORDINATOR_SETTINGS_HOME:?COORDINATOR_SETTINGS_HOME unset — run the POSIX preamble above first}/bin/render-template" "${CLAUDE_PLUGIN_ROOT}/templates/agents/navi.md" -o "${CLAUDE_HOME:-$HOME}/.claude/agents/navi.md" --guard-sentinel "coordinator:navi-role:v1"
+```
+
+PowerShell host (rung 0):
+
+    `New-Item -ItemType Directory -Force "$claudeHome\.claude\agents" | Out-Null`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\render-template.exe" "$env:CLAUDE_PLUGIN_ROOT\templates\agents\navi.md" -o "$claudeHome\.claude\agents\navi.md" --guard-sentinel "coordinator:navi-role:v1"`
+
 **Engagement posture (mandatory gate, both modes).** Reuse the identity read; `engagement_posture` present: use it. Absent: interactive asks precision/default/substrate-free (question text: wiki — these select engagement DISTANCE only, never technical skill); `--non-interactive` honors `--posture <value>`, else fail-loud.
 
 ```bash

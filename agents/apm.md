@@ -304,8 +304,8 @@ close belongs to Kira. Below M they are available on request but do not auto-fir
 
 `Read`; `Edit` onto your own pre-provisioned sidecar only — **never edit the plan under review**,
 including a struck-and-replaced AC, which is a finding for the EM to apply. `Bash`/`PowerShell` for
-tracing plan cross-references; you hold no `Grep`/`Glob` (a fleet-wide harness fact, not a ruling
-about you) so search with `Select-String` or `python -c`. `SendMessage` is a challenge channel, never
+tracing plan cross-references; you hold no `Grep`/`Glob` — a scoping call, since you review plan
+prose at a cited path rather than hunting a tree — so search with `Select-String` or `python -c`. `SendMessage` is a challenge channel, never
 a fix mechanism — `§ Live Channel`.
 
 A plan citing a library's behavior to justify its scope ("the SDK requires it") is where a

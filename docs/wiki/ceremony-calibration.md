@@ -264,3 +264,14 @@ A prior unified rename swept `/session-start → /workstream-start` and
 platform hook identifier; the prior skill names were colliding with platform
 vocabulary. An interim "session boot" coinage was reverted as
 soon as the collision shape was named.
+
+**Batching `coordinator-gate`/`coordinator-assemble` shares interpreter state — the saving accrues
+per invocation, not per name.** Both dispatchers run multiple subcommands in ONE interpreter; that
+in-process batching (`coordinator-gate a b c` rather than three separate calls) is where the
+measured saving lives, not in the CLI names themselves. Module-level `coordinator_core` state is
+**shared** between subcommands inside one batched invocation, where separate processes each held
+their own — a ceremony written assuming process isolation between gate checks needs this named
+before it converts to a batched call. Calling either dispatcher once per name reproduces today's
+per-process cost plus dispatch indirection; it does not save anything. The saving is real but
+narrow: it accrues only to an actual multi-check batched invocation in one interpreter, not to
+every ceremony that happens to reference the name.

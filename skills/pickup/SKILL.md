@@ -38,6 +38,18 @@ the body before resuming.
 **`pickup a AND b` is N independent dispositions**, each with its own branch/claim/reconcile/
 terminal disposition — one baton standing down never blocks a sibling. Same for `/mise-en-place`.
 
+**Baton unification on succession is N→1, never N→N.** However many batons a session holds, its
+successor handoff is **one** artifact — fan-out on succession was considered and retired by engine
+ruling; `resolve_lineage` can only express a single `output_path`. When multiple predecessors
+converge on one successor, the engine raises `j-fan-in-cardinality` naming every predecessor and
+which one's `deliverable_id` survives as the successor's own — resolve it rather than guessing a
+survivor. The successor carries every dropped predecessor as an `additional_predecessors:`
+down-edge, written unconditionally, matching the `continued_into` up-edges stamped on each
+predecessor — so every dropped leg stays reachable from both ends even though only the primary's
+`deliverable_id` carries forward (the rest survive in the off-artifact deliverable ledger, not on
+the succession edge). `j-fan-in-cardinality`'s `round_trip: terminal` dependency means this
+resolution cannot be revisited after the fact — get the survivor right the first time.
+
 ---
 
 ## Claim and Commit
@@ -71,8 +83,29 @@ leg is advisory, and `jp-consumed-handoff-completeness` blocks a claimed handoff
 Closing out on "the substance is complete" is the failure, not the discipline.
 
 **One carve-out: `## Session Ledger` takes one appended row**, at `/workstream-complete` or
-`/handoff`, in the format its own comment declares, never edited after. Chain LoE sums those rows
+`/handoff`, in the format its own comment declares, never edited after. Append it via the
+`handoff.append_session_ledger` engine op — never a hand-typed row — so the append is atomic
+against the frozen-body guard. Chain LoE sums those rows
 (`session_ledger.aggregate_chain_loe`) — a session that never appends renders the chain as zero.
+
+**A frozen baton with no `## Session Ledger` block at all: NO SANCTIONED VERB CAN CREATE THE
+HEADING TODAY. Claim anyway, and record the absence — do not stall.** `handoff.append_session_ledger`
+refuses without the heading (`no '## Session Ledger' heading found in the body`) and
+`handoff_correct_body` refuses to introduce one (`new_string introduces a new heading line — a
+correction repairs existing prose, it does not restructure the document`). Both refusals verified
+live. So the only verb that could add the heading is barred from adding headings, and the verb that
+writes rows presupposes it.
+
+Until the engine supplies a create path, a claimant meeting that state: **claims normally** — never
+refuse a claim for want of a heading — and **states in its own claim and close that the baton
+pre-dates the ledger convention and carries no row for this session.** That absence is then
+recorded somewhere a reader can find it, which is the property the row was for.
+
+**What this costs, so nobody assumes it is fine:** chain LoE sums these rows
+(`session_ledger.aggregate_chain_loe`), so a chain with such a baton renders that session as zero,
+and a silent zero is indistinguishable from a session that did no work. That is why the absence
+gets stated rather than passed over. Engine-plane fix routed by `example-market-data-repo-em`; when a
+create path lands, this clause reverts to "create it".
 
 **The spinoff exemption governs premise-checking, not lifecycle.** "Treat the body as ground truth"
 exempts the premise sweep, never the stub from being closed. A directly-picked-up spinoff is
@@ -141,8 +174,10 @@ mutates.
   writing into it.
 
 **Memo-to-plan write-through.** When a memo changes a live plan's premise — liveness established
-above, never assumed — annotate that plan and commit (a message alone doesn't count); message a
-live same-machine owner as a courtesy. A terminal plan still takes **correspondence** ("this claim
+above, never assumed — annotate that plan and commit (a message alone doesn't count). The commit
+IS the discharge; a courtesy message to a live same-machine owner is optional and narrowly scoped
+to that one case — confirmed live, same machine, this specific annotation — never a standing
+license to message a peer about other work. A terminal plan still takes **correspondence** ("this claim
 was later refuted, see X") but never an **instruction**: its audience is a reader who is not
 coming, so instructions route to live substrate — a baton, a sizing object, a decision record.
 **Assume you cannot self-adjudicate that line** — the EM certain their edit merely records is the

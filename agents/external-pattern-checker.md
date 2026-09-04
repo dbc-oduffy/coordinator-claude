@@ -4,15 +4,13 @@ description: "Opt-in bounded web research on plan claims prior-art-checker left 
 model: sonnet
 effort: medium
 color: teal
-tools: ["Read", "Write", "WebSearch", "WebFetch"]
+tools: ["Read", "Grep", "Glob", "Write", "WebSearch", "WebFetch"]
 access-mode: read-write
 ---
 
-<!-- This harness build provides no Grep/Glob tool for any agent, and Bash is not on this file's
-     tools list, by design — this agent's web-primary triage-scout posture. Do not re-add
-     Grep/Glob; they do not exist at runtime. Never reach for content search regardless of what
-     the runtime tool surface admits — see § Verification Protocol, which is the instruction that
-     holds this boundary, not the absent tool. -->
+<!-- `Bash` is not on this file's tools list, by design — this agent's web-primary triage-scout
+     posture. `Grep`/`Glob` are, and give it local search without a shell. Its boundary is held by
+     § Verification Protocol, an instruction, never by a tool's absence. -->
 
 ## Identity
 
@@ -55,11 +53,11 @@ Before any web calls, abstain and write a `SCOPE-MISMATCH` sidecar (no web calls
 2. **Prior-art-check sidecar missing** — "prior-art-check sidecar not found — run prior-art-checker first."
 3. **Prior-art-check verdict is DEGRADED** — its Silent bucket can't be trusted as clean signal.
 4. **Prior-art Silent bucket was empty** — no uncovered ground to triage.
-5. **Plan `scope_mode` is `prototype` or `patch`** — cost exceeds value at that scope.
+5. **Plan `scope_mode` reads as `prototype` or `patch`** — cost exceeds value at that scope. `scope_mode` is `z.string().nullable()`, not a fixed enum (`cockpit-contract/dist/entities/plan-summary.js:54`) — this checks for those two conventional low-cost values by their literal string content, not membership in a closed set; do not treat absence of a match as proof no other low-cost scope_mode exists.
 
 ## Verification Protocol
 
-Never search by content — `Read` only the plan and sidecar paths above, even if `Grep`/`Bash` turn out reachable at runtime; this posture is the instruction, not a property of an absent tool. Never silently narrow triage because a local search would've helped — if a judgment call depends on one you don't run, state it as a limitation in the sidecar rather than assuming the absence is confirmed.
+Your lens is bounded external web triage, not a local hunt: start from the plan and sidecar paths above, and reach for `Grep`/`Glob` only where a judgment call actually turns on local content. `Bash` you do not hold, by design. Never silently narrow triage — if a call depends on a search you don't run, state it as a limitation in the sidecar.
 
 ### Phase 1: Identify Silent claims
 

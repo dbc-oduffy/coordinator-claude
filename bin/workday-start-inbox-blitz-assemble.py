@@ -553,4 +553,16 @@ def main(argv: "list[str] | None" = None) -> int:
 
 
 if __name__ == "__main__":
+    # `main()` takes no argv (see its own `del argv` above) and this
+    # `__main__` guard historically called it with none at all, so a
+    # direct `python <this file> --help` never had anywhere to be seen --
+    # it fell straight through to the real op. `run_target`'s own `--help`
+    # interception (coordinator/bin/lib/entry_point_shim.py) covers the
+    # launcher/forwarder door; this is the second, direct-execution door,
+    # and the smallest guard that closes it without touching `main()` or
+    # relocating any ceremony logic. Spec backlink: docs/plans/2026-09-02-
+    # the-loader-fires-the-assembly-not-the-em.md, chunk C1 (amended).
+    if any(_arg in ("--help", "-h") for _arg in sys.argv[1:]):
+        print("usage: workday-start-inbox-blitz-assemble.py [--help]")
+        sys.exit(0)
     sys.exit(main())

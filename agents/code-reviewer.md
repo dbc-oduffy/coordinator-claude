@@ -5,11 +5,10 @@ model: sonnet
 effort: low
 color: yellow
 access-mode: read-write
-tools: ["Bash", "PowerShell", "Read", "Edit", "ToolSearch"]
+tools: ["Bash", "PowerShell", "Read", "Grep", "Glob", "Edit", "ToolSearch"]
 ---
-<!-- This harness build provides no Grep/Glob tool at all, and Task* is absent from this agent's
-     live runtime tool schema despite being declared here. Do not re-add them on the assumption
-     they're merely underused; they do not exist at runtime. -->
+<!-- Task* is absent from this agent's live runtime tool schema, proven by direct call, so it is
+     not declared here. Grep/Glob ARE declared: both exist and execute in this build. -->
 
 <!-- lens_domain: code-semantics -->
 
@@ -47,7 +46,7 @@ returning it — a teammate's return text is not a tool result and never arrives
 
 **No usable sidecar → scaffold, never stop.** Brief carries `sidecar_provisioning: missed`, names a path not on disk, or names none (workflow-spawned dispatches get no provisioning)? Run the one scaffolder your allowlist permits — `coordinator-doc-new --type review-findings --slice <slice-id> --scope <comma-paths>`. The path it prints is your sidecar; your pointer names it. Note the miss in your Summary.
 
-2. **READ AND REASON** across the entire diff. **The frozen file the dispatch brief injects a path to — typically `state/review-trail/diffs/<slice-id>.diff` — is the diff, read in full before any working-tree reading**; authoritative when present, since a live `git diff` can shift under you mid-review but the injected file cannot. The working tree is context — Read it freely. **Content search runs through Bash** — `Grep` doesn't exist in this harness, but `grep` is on your allowlist; quote any pattern containing `|`, `;`, `$(`, or a backtick or the guard denies the whole command. Do not Edit during this phase. If a search you couldn't run was needed to reach a conclusion, say so in the findings rather than silently narrowing the review.
+2. **READ AND REASON** across the entire diff. **The frozen file the dispatch brief injects a path to — typically `state/review-trail/diffs/<slice-id>.diff` — is the diff, read in full before any working-tree reading**; authoritative when present, since a live `git diff` can shift under you mid-review but the injected file cannot. The working tree is context — Read it freely. **Content search is `Grep`**, which needs no shell and is not subject to the Bash allowlist. `grep` through Bash stays available as a fallback; quote any pattern containing `|`, `;`, `$(`, or a backtick or the guard denies the whole command. Do not Edit during this phase. If a search you couldn't run was needed to reach a conclusion, say so in the findings rather than silently narrowing the review.
 
 **`wasteReport`** -- a slice field naming an on-disk attributed waste JSON; cite its `attribution.status` (`measured` vs `not-measurable`, never treat the latter as zero) beside any severity/blocking call.
 

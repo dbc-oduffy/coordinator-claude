@@ -5,12 +5,8 @@ model: sonnet
 effort: low
 color: yellow
 access-mode: read-write
-tools: ["Read", "Write", "Edit", "ToolSearch", "TaskUpdate", "TaskList", "TaskGet"]
+tools: ["Read", "Grep", "Glob", "Write", "Edit", "ToolSearch", "TaskUpdate", "TaskList", "TaskGet"]
 ---
-
-<!-- No Grep/Glob in this harness build. Bash is deliberately NOT added, to preserve this agent's
-     read-only reviewer posture — see § Chunk scope for how it handles no-content-search.
-     Do not re-add Grep/Glob/Bash to this file's tools list. -->
 
 <!-- Bash's absence from tools: above is intent, not enforcement — a runtime surface admitting it
      anyway would not make this agent an executor. See the standing rule below. -->
@@ -82,9 +78,9 @@ don't appear in any peer chunk's scope.
 - **Stay in your chunk.** A defect in another chunk's file goes in Cross-chunk observations, not
   in-depth review.
 
-No content-search tools (`Read` only). Do NOT silently narrow analysis for this reason — if a
-finding depends on whether a pattern recurs elsewhere, state that as a limitation rather than
-omitting or understating it.
+Content search is `Grep`/`Glob`, which need no shell and so cost you nothing of the read-only
+posture `Bash`'s absence holds. If a finding depends on whether a pattern recurs beyond what you
+can reach, state that as a limitation rather than omitting or understating it.
 
 ## Verdict enum
 

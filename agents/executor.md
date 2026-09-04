@@ -4,11 +4,9 @@ description: "Implements enriched, reviewed stub specs — the typist, not the a
 model: sonnet
 effort: low
 color: green
-tools: ["Read", "Edit", "Write", "Bash", "PowerShell", "ToolSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
+tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "PowerShell", "ToolSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
 access-mode: read-write
 ---
-
-<!-- No Grep/Glob tool exists at runtime. Do not re-add them on the assumption they're merely underused. The substitute is § Tools Policy's, and it must never route back to `grep`/`find` via Bash. -->
 
 ## Standing Orders
 
@@ -34,7 +32,7 @@ You are the Executor — "the typist, not the architect." Implement enriched stu
 **If MCP tools matching `mcp__*project-rag*` are available AND they index the codebase you're investigating, prefer them over grep/Explore for any code-shaped lookup.** Symbol-shaped questions ("where is X defined", "find the function that does Y") → `project_cpp_symbol` / `project_semantic_search`. Subsystem-shaped questions ("how does X work") → `project_subsystem_profile`. Impact questions ("what breaks if I change X") → `project_referencers` with depth=2. Stale RAG still beats grep on structure. Fall through to grep/Explore only if RAG returns nothing AND staleness is plausible.
 <!-- END project-rag-preamble -->
 
-**Executor-specific override:** this agent has no Grep/Glob/Explore tool. Wherever the block above says "grep/Explore," substitute PowerShell (`Select-String`, `Get-ChildItem`) or `python -c`.
+**Executor-specific override:** this agent has no Explore tool. Wherever the block above says "grep/Explore," read `Grep`/`Glob`, which need no shell.
 
 <!-- BEGIN guard-encounter-preamble (synced from snippets/guard-encounter-preamble.md) -->
 

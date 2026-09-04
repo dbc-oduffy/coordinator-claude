@@ -26,7 +26,8 @@ Usage:
                    and fails, by design.
   --interactive    Per-file approval gate BEFORE the atomic refresh executes.
 
-SIGKILL leaves a stale lock. Operator recovery:
+SIGKILL leaves a stale lock; it self-clears after MAX_LOCK_AGE_SECONDS (1800s)
+regardless of holder-PID liveness. Immediate operator recovery (before then):
   rm -rf ~/.claude/plugins/.refresh-<plugin>.lock.d
 
 Idempotency: safe to re-run. If already at target SHA and pyproject unchanged,
@@ -190,7 +191,8 @@ Pre-conditions:
   - Plugin must NOT have propagation_mode = "source_is_live" (no refresh needed)
   - Live checkout working tree must be clean (no uncommitted edits) unless --force
 
-SIGKILL leaves a stale lock. Operator recovery:
+SIGKILL leaves a stale lock; it self-clears after MAX_LOCK_AGE_SECONDS (1800s)
+regardless of holder-PID liveness. Immediate operator recovery (before then):
   rm -rf ~/.claude/plugins/.refresh-<plugin>.lock.d
 
 Audit log: ~/.claude/plugins/.refresh-log
@@ -654,19 +656,99 @@ def _replace_restore(snapshot_path: Path, live_path: Path) -> bool:
 # Lock (mkdir-based; atomic on POSIX and Windows — os.mkdir is atomic on both).
 # ---------------------------------------------------------------------------
 
-def _acquire_lock(lock_dir: Path) -> None:
+# A held lock's record used to identify only its holder's PID, which conflates
+# "the process that acquired this lock is alive" with "the operation that
+# acquired this lock is still running" — true only when process lifetime ==
+# operation lifetime, an assumption `coordinator_core/warm/server.py`'s
+# multiprocessing pool breaks: the op runs inside a long-lived pool worker
+# that outlives the op by design, so a PID-liveness check can never go false
+# for a lock left behind by a warm-server invocation, and `atexit`-based
+# release never fires because the worker process does not exit when the op
+# returns. Both defects share one root cause (op lifetime treated as process
+# lifetime) and are fixed together here: an owner token identifies the
+# OPERATION (not just the process), release moves to an explicit `finally`
+# around the operation (`atexit` stays registered too, belt-and-braces, for
+# the direct-CLI path where it still fires correctly), and staleness gains an
+# age term that can go true even while the recorded PID stays alive.
+#
+# MAX_LOCK_AGE_SECONDS: a real copy_install refresh is a network-bound
+# installer run an operator watches live (see `_handle_copy_install`'s
+# inherited-stdio comment) — minutes, not hours. This bound exists purely to
+# recover a lock stuck behind a pool worker's immortal PID, not to police a
+# slow refresh, so it is sized with a wide margin above any real run: 1800s
+# (30 minutes) — the same idle-eviction window this file already documents
+# for the embed sidecar (`GENERATES`/module docstring), chosen here for the
+# same reason: long enough that no legitimate run is ever caught by it, short
+# enough that a leaked lock self-heals well within a single operator session
+# rather than requiring the `rm -rf` escape hatch.
+MAX_LOCK_AGE_SECONDS = 1800
+
+
+def _write_lock_record(lock_dir: Path, owner: str) -> None:
+    record = {
+        "owner": owner,
+        "pid": os.getpid(),
+        "acquired_at": time.time(),
+    }
+    (lock_dir / "pid").write_text(json.dumps(record), encoding="utf-8", newline="\n")
+
+
+def _read_lock_record(lock_dir: Path) -> dict | None:
+    pid_file = lock_dir / "pid"
+    if not pid_file.exists():
+        return None
+    raw = pid_file.read_text(encoding="utf-8").strip()
+    try:
+        record = json.loads(raw)
+        if not isinstance(record, dict):
+            return None
+        return record
+    except (ValueError, TypeError):
+        # Pre-existing record shape: a bare PID integer, written by the old
+        # PID-only lock. Treat it as a record with no owner/acquired_at so
+        # the age term below can still recover it (age unknown -> stale).
+        try:
+            return {"owner": None, "pid": int(raw), "acquired_at": None}
+        except (ValueError, TypeError):
+            return None
+
+
+def _lock_is_stale(record: dict | None) -> tuple[bool, str]:
+    """Returns (is_stale, reason). A lock is stale if its holder PID is dead
+    OR its age exceeds MAX_LOCK_AGE_SECONDS — the age term is what lets a
+    lock held by a live-but-unrelated pool worker still self-heal (see the
+    comment above MAX_LOCK_AGE_SECONDS)."""
+    if record is None:
+        return True, "no lock record"
+    pid = record.get("pid")
+    if isinstance(pid, int) and not _pid_alive(pid):
+        return True, f"dead PID {pid}"
+    acquired_at = record.get("acquired_at")
+    if isinstance(acquired_at, (int, float)):
+        age = time.time() - acquired_at
+        if age > MAX_LOCK_AGE_SECONDS:
+            return True, f"age {age:.0f}s exceeds {MAX_LOCK_AGE_SECONDS}s bound"
+    else:
+        # No acquired_at (old-shape record) and a live PID: cannot bound the
+        # age, so fall back to PID-liveness only — this matches the legacy
+        # behaviour for a lock this build did not itself write.
+        pass
+    return False, ""
+
+
+def _acquire_lock(lock_dir: Path) -> str:
+    """Acquire the lock, returning an owner token the caller MUST pass to
+    `_release_lock` in a `finally` around the operation — see the module
+    comment above `MAX_LOCK_AGE_SECONDS` for why release cannot rely on
+    `atexit` alone under warm-server pooling."""
+    owner = f"{os.getpid()}-{time.time_ns():x}"
     try:
         lock_dir.mkdir(parents=False)
     except FileExistsError:
-        pid_file = lock_dir / "pid"
-        stored_pid: int | None = None
-        if pid_file.exists():
-            try:
-                stored_pid = int(pid_file.read_text(encoding="utf-8").strip())
-            except (ValueError, OSError):
-                stored_pid = None
-        if stored_pid is not None and not _pid_alive(stored_pid):
-            eprint(f"{PROG}: stale lock from dead PID {stored_pid} — clearing and retrying.")
+        record = _read_lock_record(lock_dir)
+        stale, reason = _lock_is_stale(record)
+        if stale:
+            eprint(f"{PROG}: stale lock ({reason}) — clearing and retrying.")
             _safe_rmtree(lock_dir)
             try:
                 lock_dir.mkdir(parents=False)
@@ -675,17 +757,26 @@ def _acquire_lock(lock_dir: Path) -> None:
                 eprint(f"  If stale, run: rm -rf '{lock_dir}'")
                 sys.exit(1)
         else:
+            stored_pid = record.get("pid") if record else None
             eprint(
                 f"{PROG}: refresh already in progress "
                 f"(PID {stored_pid if stored_pid is not None else 'unknown'})."
             )
-            eprint(f"  If this is stale, run: rm -rf '{lock_dir}'")
+            acquired_at = record.get("acquired_at") if record else None
+            if isinstance(acquired_at, (int, float)):
+                remaining = MAX_LOCK_AGE_SECONDS - (time.time() - acquired_at)
+                eprint(
+                    f"  This lock self-clears in ~{max(0, int(remaining))}s if stale. "
+                    f"To force-clear immediately, run: rm -rf '{lock_dir}'"
+                )
+            else:
+                eprint(f"  If this is stale, run: rm -rf '{lock_dir}'")
             sys.exit(1)
 
-    (lock_dir / "pid").write_text(str(os.getpid()), encoding="utf-8", newline="\n")
+    _write_lock_record(lock_dir, owner)
 
     def _cleanup() -> None:
-        _safe_rmtree(lock_dir)
+        _release_lock(lock_dir, owner)
 
     atexit.register(_cleanup)
 
@@ -699,6 +790,19 @@ def _acquire_lock(lock_dir: Path) -> None:
                 signal.signal(sig, _sig_handler)
             except (ValueError, OSError):
                 pass
+
+    return owner
+
+
+def _release_lock(lock_dir: Path, owner: str) -> None:
+    """Release the lock — safe to call more than once (e.g. both the
+    explicit `finally` and the `atexit` belt-and-braces): only removes the
+    lock dir if it still records THIS owner token, so a lock already cleared
+    (by us, or reclaimed as stale by a later invocation) is left alone."""
+    record = _read_lock_record(lock_dir)
+    if record is not None and record.get("owner") != owner:
+        return
+    _safe_rmtree(lock_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -1228,6 +1332,98 @@ def _resolve_contained_live_path(
     return live_path_resolved
 
 
+# `CLAUDE_` is on this list for a specific reason, not for breadth: every name
+# the warm door's declared forwarding set MUTATES per request
+# (`coordinator_core/warm/env_forwarding.py :: FORWARDING_SET` — `CLAUDE_HOME`,
+# `CLAUDE_PLUGIN_ROOT`, `CLAUDE_CONFIG_DIR`, `CLAUDE_PROJECT_DIR`, plus the
+# `COORDINATOR_`-prefixed ones already covered) is a name whose value a
+# warm-served child now inherits from the CALLER rather than from the server —
+# correct by design, and precisely the class of difference that makes an
+# installer behave differently under the door than from a shell. A failure log
+# that omits them cannot show the difference it exists to show.
+_FAILURE_ENV_KEY_PREFIXES = ("PYTHON", "CONDA", "COORDINATOR_", "CLAUDE_KLABAUTER_", "CLAUDE_")
+_FAILURE_ENV_KEYS = ("PATH", "VIRTUAL_ENV", "PATHEXT")
+
+
+def _run_refresh_cmd(refresh_argv: list[str], source_path: Path) -> subprocess.CompletedProcess:
+    """Run a copy_install `refresh_cmd`, streaming its output to this
+    process's own stdout as it arrives AND retaining it for the failure log.
+
+    Returns a `CompletedProcess` whose `stdout` carries the child's merged
+    stdout+stderr and whose `stderr` is empty — the two streams are merged on
+    purpose: this is a transcript an operator reads, and separated pipes would
+    reorder an installer's own interleaving (and need a second reader thread
+    to drain without deadlocking on a full pipe buffer).
+
+    Negative spec:
+        - Does NOT inherit any std handle. `stdin=DEVNULL` is the load-bearing
+          one; see the call site's comment for why an inherited stdin is a
+          live suspect rather than tidiness.
+        - Does NOT buffer to return output only at the end: an installer an
+          operator watches must stay watchable, which is the one property the
+          inherited-stdio shape had and had to keep.
+    """
+    captured: list[str] = []
+    with subprocess.Popen(
+        refresh_argv,
+        cwd=str(source_path),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+        **_no_console_kwargs(),
+    ) as proc:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            captured.append(line)
+            print(line.rstrip("\r\n"))
+        returncode = proc.wait()
+    return subprocess.CompletedProcess(refresh_argv, returncode, "".join(captured), "")
+
+
+def _log_copy_install_failure(
+    refresh_log: Path,
+    plugin: str,
+    refresh_argv: list[str],
+    source_path: Path,
+    result: subprocess.CompletedProcess,
+) -> None:
+    """On a copy_install refresh_cmd failure, write child output plus enough
+    environment context to diagnose the difference next time — this call
+    used to fail with ZERO surviving evidence (reported by example-game-repo-em,
+    2026-09-02: rc=1, no child output, no `.refresh-log` row). Named env
+    keys only, never a full dump: `PATH`/interpreter resolution are the
+    prime suspects for a warm-server-pool-only failure (a pool worker's
+    `os.environ` can differ from a cold dispatch's — see
+    `coordinator_core/warm/server.py` `_worker_process_init`), and secrets
+    must not land in this log."""
+    resolved_interp = shutil.which(refresh_argv[0]) or "(not resolved on PATH)"
+    lines = [
+        f"{_now_iso()}  {plugin}  copy_install  FAILED rc={result.returncode}",
+        f"  argv={refresh_argv!r}",
+        f"  cwd={source_path}",
+        f"  resolved_interpreter={resolved_interp}",
+    ]
+    for key in _FAILURE_ENV_KEYS:
+        if key in os.environ:
+            lines.append(f"  env.{key}={os.environ[key]}")
+    for key in sorted(os.environ):
+        if key in _FAILURE_ENV_KEYS:
+            continue
+        if key.startswith(_FAILURE_ENV_KEY_PREFIXES):
+            lines.append(f"  env.{key}={os.environ[key]}")
+    if result.stdout:
+        lines.append(f"  stdout={result.stdout!r}")
+    if result.stderr:
+        lines.append(f"  stderr={result.stderr!r}")
+    for line in lines:
+        _append_audit(refresh_log, line)
+        eprint(line)
+
+
 def _handle_copy_install(
     plugin: str,
     source_path_raw: str,
@@ -1304,11 +1500,43 @@ def _handle_copy_install(
         eprint(f"{PROG}: {exc}")
         refresh_failed = True
     else:
-        # Run the registry-supplied refresh command from source_path. Inherited
-        # stdio, no creationflags: refresh_cmd is an arbitrary, potentially
-        # long-running installer script the operator watches live —
-        # CREATE_NO_WINDOW + inherited stdio silently kills the child on
-        # Windows (rc=1, no output); a console flash beats that.
+        # No creationflags: refresh_cmd is an arbitrary, potentially
+        # long-running installer script. Output used to be left on inherited
+        # stdio so an operator watching a direct-CLI run saw it live — but
+        # under a `coordinator_core/warm/server.py` pool worker this same
+        # call returned rc=1 with ZERO child output and no `.refresh-log`
+        # entry (reported by example-game-repo-em, 2026-09-02,
+        # cross-repo/inbox/2026-09-02-example-game-repo-em-refresh-live-install-warm-
+        # worker.md) — a failure mode inherited stdio cannot diagnose because
+        # nothing survives past the child. NOTE (2026-09-02, same report): a
+        # console-suppression cause is REFUTED by direct evidence — the
+        # identical call from a `pythonw.exe` (no-console) parent succeeds,
+        # so `CREATE_NO_WINDOW`/console inheritance is not the trigger; the
+        # remaining suspect is the environment inherited from the pool
+        # worker, which this capture is meant to make diagnosable next time.
+        # Piped rather than inherited so a failure leaves evidence in
+        # `.refresh-log` and on stderr instead of nothing, and STREAMED as it
+        # arrives (`_run_refresh_cmd`) so a direct-CLI operator still watches
+        # a ~20s installer live rather than getting one block at the end.
+        #
+        # MECHANISM behind the reporter's "no child output at all", settled
+        # after that report: a warm-served op runs in-process inside a
+        # `ProcessPoolExecutor` worker spawned as `pythonw.exe`
+        # (`warm/server.py :: _suppress_pool_worker_consoles`), whose
+        # `sys.stdout`/`sys.stderr` are `None` and are rebound to
+        # `os.devnull` by `_bind_null_std_streams`. This wrapper's own
+        # `print`s survive because they go through the Python-level stream
+        # the warm entry seam captures; a CHILD process writes to OS-level
+        # handles, which are the worker's — so an inherited-stdio child's
+        # output goes to a sink with no reader, by construction, on every
+        # copy_install refresh through the door. Piping is what makes the
+        # child's stream reachable at all from a warm-served run.
+        #
+        # `stdin=DEVNULL` is not incidental: the child inherited the pool
+        # worker's stdin handle too, and an installer reading a broken or
+        # closed handle is a live candidate for the unexplained rc=1 — the
+        # half of the report piping alone makes VISIBLE without making it
+        # stop.
         print(f"{PROG}: [copy_install] running (cwd={source_path}): {refresh_cmd}")
         # Review: the resolution pre-check above only prevents the common case — a
         # TOCTOU race, a permission-denied file, or a non-executable-format file
@@ -1317,12 +1545,16 @@ def _handle_copy_install(
         # OSError propagating past this would leave the live install neither
         # refreshed nor restored.
         try:
-            result = subprocess.run(refresh_argv, cwd=str(source_path))
+            result = _run_refresh_cmd(refresh_argv, source_path)
         except OSError as exc:
             eprint(f"{PROG}: [copy_install] refresh_cmd failed to launch: {refresh_argv!r} ({exc}).")
             refresh_failed = True
         else:
             refresh_failed = result.returncode != 0
+            if refresh_failed:
+                _log_copy_install_failure(
+                    refresh_log, plugin, refresh_argv, source_path, result,
+                )
 
     if refresh_failed:
         eprint(f"{PROG}: copy-install refresh failed — restoring from snapshot.")
@@ -1899,52 +2131,62 @@ def main(argv: list[str]) -> int:
 
     plugins_dir.mkdir(parents=True, exist_ok=True)
     lock_dir = plugins_dir / f".refresh-{plugin}.lock.d"
-    _acquire_lock(lock_dir)
+    owner = _acquire_lock(lock_dir)
 
     try:
-        registry = _read_registry(registry_dir, plugin, machine_resolver)
-    except RegistryExit as exc:
-        if exc.code == 5:
-            eprint(f"{PROG}: plugin '{plugin}' is not registered under {registry_dir}")
-            eprint(f"  Add a [plugin.mirrors.{plugin}] entry to register it.")
-        else:
-            eprint(f"{PROG}: registry lookup failed (exit {exc.code})")
-        return exc.code
+        try:
+            registry = _read_registry(registry_dir, plugin, machine_resolver)
+        except RegistryExit as exc:
+            if exc.code == 5:
+                eprint(f"{PROG}: plugin '{plugin}' is not registered under {registry_dir}")
+                eprint(f"  Add a [plugin.mirrors.{plugin}] entry to register it.")
+            else:
+                eprint(f"{PROG}: registry lookup failed (exit {exc.code})")
+            return exc.code
 
-    mode = registry["mode"]
+        mode = registry["mode"]
 
-    if mode == "SOURCE_IS_LIVE":
-        print(
-            f"{PROG}: {plugin} has propagation_mode=source_is_live — live install IS "
-            "the canonical source. No refresh needed."
+        if mode == "SOURCE_IS_LIVE":
+            print(
+                f"{PROG}: {plugin} has propagation_mode=source_is_live — live install IS "
+                "the canonical source. No refresh needed."
+            )
+            return 0
+
+        if mode == "SOURCE_IS_LIVE_VENV":
+            return _handle_source_is_live_venv(plugin, registry["source_path"], registry["dist_name"], refresh_log)
+
+        propagation_mode = registry["propagation_mode"]
+        source_path = registry["source_path"]
+        live_path = registry["live_path"]
+        track_ref = registry["track_ref"]
+        dist_name = registry["dist_name"]
+        refresh_cmd = registry["refresh_cmd"]
+
+        if propagation_mode == "copy_install":
+            return _handle_copy_install(
+                plugin, source_path, live_path, refresh_cmd, interactive,
+                plugins_dir, snapshots_dir, refresh_log, registry_local,
+            )
+
+        if propagation_mode == "editable_sibling_venv":
+            return _handle_editable_sibling_venv(
+                plugin, source_path, live_path, track_ref, dist_name, force, refresh_log,
+            )
+
+        return _handle_default(
+            plugin, source_path, live_path, propagation_mode, track_ref, dist_name, force, interactive,
+            plugins_dir, snapshots_dir, refresh_log,
         )
-        return 0
-
-    if mode == "SOURCE_IS_LIVE_VENV":
-        return _handle_source_is_live_venv(plugin, registry["source_path"], registry["dist_name"], refresh_log)
-
-    propagation_mode = registry["propagation_mode"]
-    source_path = registry["source_path"]
-    live_path = registry["live_path"]
-    track_ref = registry["track_ref"]
-    dist_name = registry["dist_name"]
-    refresh_cmd = registry["refresh_cmd"]
-
-    if propagation_mode == "copy_install":
-        return _handle_copy_install(
-            plugin, source_path, live_path, refresh_cmd, interactive,
-            plugins_dir, snapshots_dir, refresh_log, registry_local,
-        )
-
-    if propagation_mode == "editable_sibling_venv":
-        return _handle_editable_sibling_venv(
-            plugin, source_path, live_path, track_ref, dist_name, force, refresh_log,
-        )
-
-    return _handle_default(
-        plugin, source_path, live_path, propagation_mode, track_ref, dist_name, force, interactive,
-        plugins_dir, snapshots_dir, refresh_log,
-    )
+    finally:
+        # Correctness must not depend on atexit under warm-server pooling
+        # (see the comment above MAX_LOCK_AGE_SECONDS): the worker process
+        # that ran this op does not exit when the op returns, so `atexit`
+        # never fires there. This `finally` releases regardless of caller
+        # lifetime; `atexit` stays registered as belt-and-braces for the
+        # direct-CLI path (SIGKILL, or any exit route this `finally` cannot
+        # observe).
+        _release_lock(lock_dir, owner)
 
 
 if __name__ == "__main__":

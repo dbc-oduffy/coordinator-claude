@@ -104,13 +104,9 @@ def _load_receiver_state_reader() -> Optional[Any]:
     depending on cwd or on any package being importable.
     """
     lib_path = Path(__file__).resolve().parents[2] / "lib" / "receiver_state_reader.py"
-    if not lib_path.is_file():
-        return None
     spec = importlib.util.spec_from_file_location(
         "_group_em_park_spool_rsr", str(lib_path)
     )
-    if spec is None or spec.loader is None:
-        return None
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -143,6 +139,10 @@ def build_record(session_id: str, verdict: dict) -> Optional[dict]:
     if not isinstance(stamped_at, str) or not stamped_at:
         return None
     reason = verdict.get("reason")
+    # Review: coordinator:code-reviewer (finding 3) -- narrow to str before
+    # the join, so a malformed carrier degrades to the bare PAUSED tag rather
+    # than embedding a non-string repr; this file still never classifies.
+    reason = reason if isinstance(reason, str) and reason else None
     state = f"{_PARKED_VERDICT}:{reason}" if reason else _PARKED_VERDICT
     return {
         "session_id": session_id,
@@ -164,26 +164,31 @@ def append_record(path: str, record: dict) -> None:
 
 
 def main() -> int:
-    payload = _read_payload()
-
-    # A subagent's own stop is not a peer session-state transition.
-    if payload.get("agent_id") or payload.get("hook_event_name") == "SubagentStop":
-        return 0
-
-    session_id = payload.get("session_id") or ""
-    if not session_id:
-        return 0
-
-    root = _git_root()
-    if not root:
-        return 0
-
-    # `state/` must already exist -- a repo without it has no watch line, and
-    # this producer scaffolds nothing.
-    if not os.path.isdir(os.path.join(root, SPOOL_RELPATH[0])):
-        return 0
-
+    # Review: coordinator:code-reviewer (finding 1) -- the whole body is
+    # wrapped, not just the tail half, so the docstring's "exit 0 on EVERY
+    # path" is actually total: `_git_root()` and the `isdir` check can raise
+    # too (e.g. a broken symlink loop, a permission error), and this file's
+    # contract has no room for "normally they don't".
     try:
+        payload = _read_payload()
+
+        session_id = payload.get("session_id") or ""
+        if not session_id:
+            return 0
+
+        root = _git_root()
+        if not root:
+            return 0
+
+        if not os.path.isdir(os.path.join(root, SPOOL_RELPATH[0])):
+            return 0
+
+        # Review: coordinator:code-reviewer (finding 4) -- the carrier file
+        # is deliberately NOT re-checked here after stop-dispatch.py's own
+        # precondition passed. That's a designed TOCTOU tolerance (there is
+        # no locking anywhere in this pipeline), not an omission: a vanished
+        # carrier between precondition and invocation just falls through
+        # `read_receiver_state` into the `except` below.
         rsr = _load_receiver_state_reader()
         if rsr is None:
             return 0

@@ -4,12 +4,12 @@ description: "Recall pre-flight cross-referencing a plan or research question ag
 model: sonnet
 effort: low
 color: amber
-tools: ["Read", "Bash", "PowerShell", "Write", "WebSearch", "ToolSearch", "TaskUpdate", "TaskList", "TaskGet"]
+tools: ["Read", "Grep", "Glob", "Bash", "PowerShell", "Write", "WebSearch", "ToolSearch", "TaskUpdate", "TaskList", "TaskGet"]
 access-mode: read-write
 ---
 
-<!-- This harness build has no Grep/Glob at runtime. `Bash` stays present so this agent retains
-     `grep`/`find` — core to its function. Do NOT re-add Grep/Glob — they do not exist at runtime. -->
+<!-- Search is core to this agent's function, so it holds both `Grep`/`Glob` and `Bash`; `Bash`
+     stays for the multi-root `grep -rn` sweeps § Bootstrap runs outside the repo. -->
 
 ## Identity
 
@@ -94,6 +94,7 @@ Per claim, search the corpus for prior art bearing on it:
 5. **Lessons + improvement queue.** `grep -rn "<keywords>" state/lessons/` and enumerate the central improvement queue (`coordinator-state-root.py --central`'s `improvement-queue/*.yaml`, or `bin/query-records.js --type improvement`). Line-grain, not document-grain.
 6. **Decision records — ALWAYS, never gated on `peer_repos`.** `grep -rn "<keywords>" docs/decisions/ coordinator/docs/decisions/` — both trees, matching the Bootstrap index; grepping only the root tree is how a plugin-scoped DR goes unreported. Read promising matches in full; apply § Classification discipline's DR-specific rules below.
 7. **WebSearch is a last resort** — only when a wiki cites external doctrine (RFC, framework guide) and the plan's claim contradicts it (see § What You Do NOT Do).
+8. **`project_semantic_search`, additive — never a replacement for the `grep -rn` sweeps above.** Where a project-rag MCP tool is available and indexes the repo under check, run it as a complementary similarity pass per claim, alongside (not instead of) steps 1-6 — a semantic hit surfaces prior art phrased differently than your keyword search, but a keyword miss is not evidence of absence on its own, and a semantic-search miss is not either. No project-rag index for this repo → skip this step, same as any other unreachable corpus; it never blocks or degrades the run.
 
 Classify each claim into one bucket:
 

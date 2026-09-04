@@ -127,26 +127,83 @@ _PERCOLATE_GATE = _BIN_DIR / "percolate-gate.py"
 # `_REPO_ROOT` resolves the absolute-form import `coordinator_core.locked_write`
 # uses (`import coordinator_core...`). Same two-rung shape as
 # `percolate-gate.py::_bootstrap_engine` and `percolate-round.py`'s own
-# `_bootstrap_engine`, but bound at module scope rather than lazily: this
-# file has exactly one subcommand (`_build_parser` registers a single
-# `set_defaults(func=_cmd_push)`), and `_cmd_push` calls into the engine
-# unconditionally, so a lazy-bootstrap PEP 562 hook here deferred nothing —
-# every invocation paid the same imports and `sys.path` mutation it would
-# have paid at module import (staff-eng-review finding 1).
+# `_bootstrap_engine`.
+#
+# REVERSES staff-eng-review finding 1, which is recorded rather than deleted
+# because the finding was CORRECT about what it measured and is simply not
+# the axis that decides this. It observed that this file has one subcommand
+# and `_cmd_push` calls into the engine unconditionally, so deferring saves
+# no work: every invocation pays the same imports and the same `sys.path`
+# mutation either way. Still true. But the C8 warm-serve contract is not
+# about per-invocation cost -- it is about what happens at IMPORT. The warm
+# server imports an allowlisted module into a process ~50 sessions share,
+# and it does so without necessarily running `main`; a module-scope
+# `sys.path.insert` therefore mutates a long-lived shared interpreter for
+# every session on the box, and binds two non-stdlib packages process-wide,
+# in a process that may never push at all. Deferral buys nothing for the
+# caller who does push and everything for the ~50 who do not.
 _LIB_DIR = _BIN_DIR.parent / "lib"
 _REPO_ROOT = _BIN_DIR.parent.parent
-for _rung in (_LIB_DIR, _REPO_ROOT):
-    if str(_rung) not in sys.path:
-        sys.path.insert(0, str(_rung))
 
-from coordinator_core.locked_write import (  # type: ignore[import-not-found]  # noqa: E402
-    LockTimeout as _PushLockTimeout,
-    held_lock as _push_held_lock,
+# C8 warm-serve fix: the `sys.path` two-rung bootstrap and the two non-stdlib
+# imports below used to run at MODULE scope, which mutated the shared
+# `sys.path` of a warm server ~50 sessions share on every import of this
+# file, and bound `coordinator_core.locked_write` / `percolate.wire_contract`
+# process-globally the first time anyone imported this module rather than
+# the first time `_cmd_push` actually ran. Deferred into `_bootstrap_engine`,
+# called from `_cmd_push` (the only consumer) and from `main`, idempotent —
+# same shape as `coordinator-harvest-deferrals.py`'s `_bootstrap_engine`.
+_BOOTSTRAPPED_NAMES = (
+    "_PushLockTimeout",
+    "_push_held_lock",
+    "_lock_busy_message",
+    "_publish_contention_wait_secs",
 )
-from percolate.wire_contract import (  # type: ignore[import-not-found]  # noqa: E402
-    lock_busy_message as _lock_busy_message,
-    publish_contention_wait_secs as _publish_contention_wait_secs,
-)
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Idempotent module-scope bootstrap, deferred out of import time -- see
+    the comment above `_BOOTSTRAPPED_NAMES` for the warm-serve defect this
+    closes."""
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    for _rung in (_LIB_DIR, _REPO_ROOT):
+        if str(_rung) not in sys.path:
+            sys.path.insert(0, str(_rung))
+
+    from coordinator_core.locked_write import (  # type: ignore[import-not-found]
+        LockTimeout as _PushLockTimeout,
+        held_lock as _push_held_lock,
+    )
+    from percolate.wire_contract import (  # type: ignore[import-not-found]
+        lock_busy_message as _lock_busy_message,
+        publish_contention_wait_secs as _publish_contention_wait_secs,
+    )
+
+    globals()["_PushLockTimeout"] = _PushLockTimeout
+    globals()["_push_held_lock"] = _push_held_lock
+    globals()["_lock_busy_message"] = _lock_busy_message
+    globals()["_publish_contention_wait_secs"] = _publish_contention_wait_secs
+    _BOOTSTRAP_DONE = True
+
+
+def __getattr__(name: str):
+    """PEP 562 hook: a consumer (this module's own test suite loads it via
+    `importlib.util.spec_from_file_location` + `exec_module`, then reaches
+    `_mod._push_held_lock` etc. directly, never through `_cmd_push`/`main`)
+    that touches a bootstrapped name before either of those has run. Same
+    shape as `coordinator-harvest-deferrals.py`'s `__getattr__`."""
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_engine()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r} after bootstrap"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 _EXIT_OK = 0
 _EXIT_FAIL = 1
@@ -527,6 +584,7 @@ def _open_and_merge_pr(dest: str, branch: str, target: str) -> Optional[str]:
 
 
 def _cmd_push(args: argparse.Namespace) -> int:
+    _bootstrap_engine()
     target = args.target
 
     percolate_root = _resolve_percolate_root(args.percolate_root)
@@ -671,6 +729,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    _bootstrap_engine()
     parser = _build_parser()
     args = parser.parse_args(argv)
     return args.func(args)

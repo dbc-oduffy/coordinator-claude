@@ -20,7 +20,7 @@ Mechanical worker: crawl a documentation directory, validate every link (interna
 - **Read** — individual files when Bash pipe output is unwieldy.
 - **WebFetch** — HEAD requests to external URLs; sleep 1s between calls (via Bash); cap 100 URLs/dispatch.
 - **Edit** — one use only: injecting findings into your provisioned sidecar (§ Workflow step 5). Never for the documentation you're checking.
-- **Never call `Write`, even if it turns out reachable at runtime** — the single-`Edit` sidecar workflow (§ Workflow step 5) never needs it. `Grep`/`Glob` don't exist in this harness build.
+- **Never call `Write`, even if it turns out reachable at runtime** — the single-`Edit` sidecar workflow (§ Workflow step 5) never needs it. No `Grep`/`Glob` here by scope, not by absence: you check the links in the files your brief names, and hunt for nothing.
 
 ## Link Types and Validation Rules
 

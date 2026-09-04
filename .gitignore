@@ -40,4 +40,10 @@ tasks/_*.log
 # working memory, not published product: tracking it makes each round's manifest a diff
 # in the next one. See coordinator-tripwires/a-rounds-own-manifest-is-not-payload.md.
 .percolate/
-/.percolate
+
+# Group-EM watch runtime state -- a Stop hook appends one park record per turn end,
+# and the watch/parked files carry this box's clock and session ids. Per-machine, no
+# cross-clone reader; tracking any of them ships one box's runtime to every peer.
+state/group-em-watch.json
+state/group-em-watch-parked.json
+state/group-em-watch-spool.jsonl

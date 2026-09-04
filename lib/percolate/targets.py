@@ -168,6 +168,29 @@ def _iter_portable_rows(path: Path) -> List[str]:
     return rows
 
 
+def parse_portable_rows(path: Path) -> "List[dict]":
+    """Parse `publish-targets.portable`-shaped rows into
+    `{"name", "source_subdir", "allowlist"}` dicts -- the 8-field
+    pipe-delimited row shape `setup/publish-targets.portable` documents in
+    its own header, fields 0/3/6.
+
+    Production-side home for a parser two test modules
+    (`test_post_transform_projection_parses.py`,
+    `test_step_zero_scripts_reachable.py`) each carried their own copy of
+    (Review: overengineering-reviewer -- one on-disk row format had two
+    independent field-index-hardcoded readers, drifting the moment the row
+    shape gains a field). Both now call this instead of their own private
+    `_parse_portable_rows`."""
+    rows = []
+    for raw_row in _iter_portable_rows(path):
+        fields = raw_row.split("|")
+        name = fields[0].strip()
+        source_subdir = fields[3].strip() if len(fields) > 3 else ""
+        allowlist_csv = fields[6].strip() if len(fields) > 6 else ""
+        rows.append({"name": name, "source_subdir": source_subdir, "allowlist": allowlist_csv})
+    return rows
+
+
 _TARGETS_ARRAY_ELEMENT_RE = re.compile(r'"((?:[^"\\]|\\.)*)"|\'([^\']*)\'')
 
 

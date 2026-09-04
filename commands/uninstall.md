@@ -44,7 +44,7 @@ This command is the mechanical half. Weighing an unexpected surface, when to sto
 that uncertainty routes to **reported-and-untouched** (never a guessed reversal) lives at:
 
 ```
-<resolved-engine-root>/docs/wiki/uninstall-agentic-judgment.md
+${CLAUDE_PLUGIN_ROOT}/docs/wiki/uninstall-agentic-judgment.md
 ```
 
 Read it whenever a run turns up a surface nothing below covers.
@@ -131,6 +131,9 @@ set: `REVERSE`, `DELIBERATELY-NOT-REVERSED`, `CANNOT-REVERSE-SAFELY`. Rationale 
     Roll back manually from an elevated terminal:
     `python "<plugin-root>\templates\bin\install-git-bash-fast-profile.py" --uninstall` — it strips
     the block and round-trips the file to byte-identical stock (no-op if never installed).
+25. **Engine-side install state** — REVERSE, driven by the control-plane engine's own uninstall
+    door — not a leg this script drives itself. Confirm the engine-side door ran (or run it) as
+    part of a full reversal; this repo's script covers only the doctrine-plane surfaces above.
 26. **`~/.local/bin` PATH block** — REVERSE. `install-substrate.py` Step 3e appends a
     sentinel-guarded block putting `~/.local/bin` on PATH for the standalone `claude` CLI. Strip
     the sentinel-guarded region from the interactive rc; fail loud on a hand-modified block, and
@@ -150,6 +153,18 @@ set: `REVERSE`, `DELIBERATELY-NOT-REVERSED`, `CANNOT-REVERSE-SAFELY`. Rationale 
     by default; only mutates behind explicit `--apply` (appends missing `.gitignore` rules verbatim
     from the template) and never runs `git rm --cached` itself. An appended ignore rule is not
     something uninstall retracts.
+30. **`${CLAUDE_HOME:-$HOME}/.claude/agents/navi.md` role file** — REVERSE, on the DEFAULT
+    full-remove path (not gated behind `--purge-operator-config`): the file carries zero operator
+    content and is inert without the plugin. Byte-compare against the shipped
+    `templates/agents/navi.md` (no substitutions, so a plain compare — same precedent as
+    `_uninstall_purge_operator_config`'s use for `coordinator-identity.yaml` / `CLAUDE.local.md`).
+    Identical: unlink. Differs, or the shipped template cannot be read: `cannot-reverse-safely` —
+    report and leave, with a manual removal command in the message, never a silent skip.
+    Report-and-leave does not fail the leg; an `OSError` on the unlink does. The compare depends
+    on this leg running while the shipped template is still readable — see `uninstall_legs.py`
+    for the actual leg order, not restated here. No `WriteSurfaceEntry`, no receipt entry: that
+    manifest describes what INSTALL writes, and this leg only reverses another plane's install —
+    a consumer of that manifest, never a producer, so it stays out of the denominator.
 
 ## Uninstall boundary
 

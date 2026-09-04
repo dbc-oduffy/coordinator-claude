@@ -10,14 +10,23 @@ argument-hint: "[no arguments — invoke to start monitoring this repo's peer se
 `/group-em` switches this session into monitoring the other sessions in the same repo and moving
 them along. A **mode a session enters, not an operation on a target**.
 
+**THIS BODY IS A SNAPSHOT, FROZEN WHEN YOU ENTERED, CARRYING NO VERSION.** It renders identically
+to the live file however old it is, and nothing signals drift. **Before citing it as authority for
+anything MECHANICAL — a signature, a module path, a flag, a refusal vocabulary — read that passage
+from disk.** One read, and it removes a class of confident wrongness you cannot otherwise detect:
+this skill's own step 4 changed today, and a crown acting on the pre-change snapshot hit an
+`AttributeError` and reported it as an engine defect. The earlier a session entered, the more
+confidently stale it is. Prose and disposition here age gracefully; call shapes do not.
+
 **PM-GATED — only on an explicit PM ask, never EM-initiated.** A description-prefix convention
 (as `staff-session`, `spinoff`, `roadmap-planning`); no hook enforces it. Honoured by disposition.
 
-**Dispatch authorization — invoking this skill IS the request, for three named dispatches only:**
-the approvability judge (§ Delegated approve-for-execution, step 4), `coordinator:fleet-watch` and
+**Dispatch authorization — invoking this skill IS the request, for three specific dispatches only:**
+the approvability judge (§ Delegated approve-for-execution, step 4), Navi and
 `coordinator:group-em-assistant` at entry, and § Inbox-blitz delegation's assistants. Each covers
-spawning that named agent under this session's own authority and nothing else. **None of them
-touches the peer-session send mechanism (§ Send pass, `gem-14`), which stays gated per send.**
+raising that named role under this session's own authority and nothing else — Navi by
+`claude --agent navi --bg`, the rest by unnamed `Agent`-tool dispatch. **None of them touches the
+peer-session send mechanism (§ Send pass, `gem-14`), which stays gated per send.**
 Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 
 ## Entry — already done by the time you read this
@@ -52,6 +61,50 @@ Re-entry by the holder is a refresh.
 holds the role and will act on it: the one send this mode owes rather than offers, exempt from
 § Send pass's gates. Not live means nobody to tell.
 
+**INTRODUCE YOURSELF TO EVERY LIVE PEER, ONCE, AT ENTRY.** The second owed send, same class as the
+displaced holder's and likewise exempt from § Send pass's gates. A peer that does not know who holds
+the crown routes its asks to the PM instead — the standing failure this mode exists to absorb — and
+nothing in the entry payload tells them. The roster is the population; skip only a `PAUSED:away`
+peer, and resolve each addressee immediately before sending (§ Send pass step 4) since a name
+re-points with no event.
+
+Say four things and stop: **who you are** (name and session id), **that you hold the Group EM
+standing for this repo**, **what to route to you** — a blocked dependency, a collision with another
+session on one file, an escalation they were about to send blind — and **that no reply is wanted**.
+Close with the last one explicitly; without it a peer spends a turn acknowledging, and five
+acknowledgements is the interruption the gates exist to prevent.
+
+**Do not ask peers to route their PM reports through you.** § The escalation screen is about a
+session escalating BLIND — one that has no PM channel open and would otherwise hand the PM a next
+step it already owns. A session the PM is actually typing into has a direct channel, and relaying
+its report through you adds a hop and puts its words in your mouth. Offer the screen for
+*"should this go up at all"*; never insert yourself into a conversation that already exists.
+A peer that pushes back on this is right, and it is a correction the introduction's own wording
+invites if it says "anything for the PM" rather than "anything you were about to send blind".
+
+**It is an introduction, not a nudge, and the difference is enforced by content.** It asks nothing.
+No *"what are you working on"*, no *"anything blocking you"*, no status request, no question mark
+anywhere. Those are nudges, they need both gates per peer, and smuggling one into a broadcast that
+skips the gates is the failure this paragraph exists to prevent. If a peer's state genuinely needs a
+nudge, that is a separate send, gated normally, later.
+
+**It arms no cooldown and is not an offer.** Only `build_send_digest` emitting an entry arms a
+peer's throttle, so introducing costs nothing against the first real offer — do not route it through
+the digest to make it look like one.
+
+**Once per PEER, not once per tick and not only at entry.** Entry introduces the peers live then;
+a peer appearing in a later roster read is introduced when it appears. That is the same
+once-per-peer rule, not a re-broadcast — the tick never re-sends to a peer already introduced, and
+the loop stays bounded to peers not yet introduced.
+
+**Track who you introduced by SESSION ID, never by name.** A name re-points with no event, so a new
+session inheriting a departed peer's name reads as already-introduced and silently never learns who
+holds the crown — the failure the introduction exists to prevent, reappearing through the roster's
+own bookkeeping. Measured: `doe-claude-95` went `GONE` and a different session held that exact name
+inside twenty minutes, with `resolve_addressee` refusing the old pairing
+(`name-now-points-at-a-different-session`) and accepting the new. Introducing at entry only, or
+keying the introduced-set on names, both leave that session uncovered.
+
 ## What this skill does and does not do
 
 **Does NOT plan or author on anyone's behalf** — never plan bodies, stub content, or roadmap
@@ -59,57 +112,157 @@ decisions for the sessions it watches. **DOES coordinate execution waves and cro
 sequencing** — a stalled wave, a peer blocked on a dependency that has cleared, two sessions about
 to collide on one file.
 
-## Entry dispatches both standing teammates, then arms what is left — all three mandatory
+## Entry dispatches both standing watchers, then arms what is left — all three mandatory
 
-**ENTRY DISPATCHES BOTH STANDING TEAMMATES, THEN ARMS WHAT IS LEFT. ALL THREE ARE MANDATORY.**
+**ENTRY DISPATCHES BOTH STANDING WATCHERS, THEN ARMS WHAT IS LEFT. ALL THREE ARE MANDATORY.**
+**SPAWN NAVI; DISPATCH `group-em-assistant` WITHOUT A `name`.** The two roles do not share a shape.
+Navi is machine-wide, repo-less and decision-weightless, and is a **separately spawned session**
+(`claude --agent navi --bg`) — never an `Agent`-tool dispatch. **A spawned session can escalate TO
+you and CANNOT be asked anything back: nothing can query it once it is running, so do not go
+looking for an ask path that does not exist.** That costs Navi nothing, since nobody asks it
+anything — measured, `state/audits/2026-09-02-session-shaped-watcher-mechanics.md` leg (4).
+`group-em-assistant` is per-repo and is the one that gets asked things, so it keeps today's shape:
+a named `Agent` call spawns an in-process TEAMMATE, and a teammate is never re-invoked by a
+`Monitor` it armed — so a named watcher cannot hold its own wire and you inherit a relay. Unnamed,
+it is a background agent that wakes on its own events
+(`docs/research/spike-verdicts/2026-09-02-subagent-self-armed-wake.md`). Address it by the
+`agentId` its dispatch returns; keep that id and Navi's session id both, for the session.
 **"Entry" here means you, on entering the mode — not the entry op.** `group-em-enter.py` assembles
 and dispatches nobody. The autofire hook is silent either way, so its silence is not a report that
 these were done. Entry assembles once; nothing re-runs it, and a roster read is stale within a
 minute. In this order, as your first act:
 
-1. **`coordinator:fleet-watch`** — dispatch it. It starts and owns the watch SUBPROCESS and answers
-   adjudication asks off your context. **The engine ships the runnable; do not hand-roll
-   one:** `python -m coordinator_core.group_em.watch --repo-root <root> --group-em-session-id
-   <your sid>`, `persistent: true`. **`--group-em-session-id` is passed explicitly, never
-   defaulted** — it is a separate id from `--caller-session-id` (the caller is whatever process
-   polls; the Group EM is whose offer log suppresses an already-answered peer), and they diverge
-   the moment a teammate holds the watch. It emits one line per peer entering a parked state,
-   derives parked from `read_pass.classify_peer` rather than a registry `status` field, stays
-   silent while that peer's cooldown is armed, and never disarms.
-   **That form needs the engine importable**, so it starts only from a repo whose interpreter can
-   already import it; from anywhere else it is a `ModuleNotFoundError` at start-up, and a watcher
-   whose subprocess never started presents as `idle` — indistinguishable from a quiet fleet, no
-   error anywhere. A `group-em-watch` trampoline over that module exists in engine source (with
-   `--once` and `--status`) but is **not in the published engine mirror**, so it is unreachable
-   from a repo resolving the engine from the mirror. Check the mirror before reaching for it; until
-   it publishes, arm from a repo that can import the engine and confirm the subprocess started
+1. **Navi** — spawn it, not dispatch it:
+
+       claude --agent navi --bg
+
+   The machine-wide nudge role: repo-less, decision-weightless, holds no repo of its own, and never
+   nudges a stalled peer twice. It nudges on your behalf and refers every question back to your own
+   Group EM standing. **It escalates TO you; it cannot be asked anything** — a separately spawned
+   session is measured UNREACHABLE inbound, so there is no ask path to reach for, only its own
+   escalations to read (`state/audits/2026-09-02-session-shaped-watcher-mechanics.md` leg (4)).
+   Keep its session id for the record.
+2. **`coordinator:group-em-assistant`** — dispatch it, unnamed. Your standing reader AND your
+   per-repo sensor: transcript tails, baton claimants, what landed on a path since a SHA, **and the
+   watch SUBPROCESS together with the `Monitor` over it**. Warm across the session, woken by its
+   own `Monitor` over `cross-repo/inbox/`, by the watch subprocess's stdout, and by `SendMessage`
+   between times. It owns the sensor half in full: arming the watch, the `Monitor` that wakes it
+   off that watch, park-spool triage, and holding `state/group-em-watch.json`.
+
+   **Arm the watch as one of its first acts, via the settings-home trampoline**, which resolves the
+   engine for it and therefore works from any repo:
+
+       $COORDINATOR_SETTINGS_HOME/bin/group-em-watch --repo-root <root> --group-em-session-id <your sid>
+
+   `persistent: true`. **`--group-em-session-id` is passed explicitly, never defaulted** — it is a
+   separate id from `--caller-session-id` (the caller is whatever process polls; the Group EM is
+   whose offer log suppresses an already-answered peer), and they diverge the moment the assistant
+   holds the watch. It emits one line per peer entering a parked state, derives parked from
+   `read_pass.classify_peer` rather than a registry `status` field, stays silent while that peer's
+   cooldown is armed, and never disarms. Two other modes: `--status` answers "is a watch alive
+   here?" in plain words and exits (0 alive, 1 not running, 2 unknown — **unknown is never
+   green**); `--once` fires a single tick, the form a cron floor uses.
+
+   **Prefer the trampoline to the bare module.** `python -m coordinator_core.group_em.watch` needs
+   the engine already importable, so it starts only from an engine-rooted cwd; from a doctrine repo
+   it is a `ModuleNotFoundError` at start-up, and a watcher whose subprocess never started presents
+   as `idle` — indistinguishable from a quiet fleet, no error anywhere. Reach for the bare module
+   only if the trampoline is genuinely absent from this box, and confirm the subprocess started
    rather than trusting its silence.
-2. **`coordinator:group-em-assistant`** — dispatch it. Your standing reader: transcript tails, baton claimants,
-   what landed on a path since a SHA. Warm across the session, woken by `SendMessage`.
+
+   **Arming can REFUSE, and a refusal is not a quiet result.** `WatchAlreadyHeldError` — *"a watch
+   is already armed for this repo"* — means the sensor never started. Do not read it as
+   "already covered": verify with `--status` that the holder is a real watch and not a stale
+   record, and never leave the turn on an unverified refusal.
+
+   **`--status` saying ALIVE is not that verification, and the tell is two lines down.** Read for
+   *"Reported on nobody: 0 subscribed peers"* — that is the holder that armed nothing. Its
+   ABSENCE is currently not evidence of a real watch: the guard emitting it is disarmed whenever
+   the record carries declination rows, which entry always writes, so an entry-only stamp renders
+   with the reassurance line instead. Until that is fixed, an ALIVE with no population line is
+   unresolved, not confirmed — read `state/group-em-watch.json` and treat `tick_source: entry`
+   with `subscribed_peers: 0` as a holder that never armed. Standing down on `--status` alone
+   leaves the fleet unwatched by exactly the procedure meant to prevent it.
 3. **A `CronCreate` tick**, ~23 minutes, off the :00/:30 marks — the only clock that stays yours.
    It audits the watch rather than performing it: *is nudging happening, what is the state of the
    batons and live plans, is anything stuck nobody has poked.*
 
-**Dispatch them yourself, from this session.** A teammate belongs to whoever dispatched it, so one
-dispatched by another session relieves that session and leaves you watching while believing you
+   **That prompt is a DOCTRINE SNAPSHOT that re-executes on a timer, and it is the one artifact a
+   doctrine fix cannot reach.** A skill body is re-read at every invoke, so correcting this file
+   reaches the next `/group-em` — which is exactly what makes the gap invisible: the fix genuinely
+   works, while every running holder's tick keeps firing the text it was authored with. Nothing
+   shows it. `CronList` looks healthy, the job fires on schedule, and the instruction inside is
+   stale. Measured today: a Group EM's tick carried a comparison this file had since corrected away,
+   and would have re-derived the same false positive every 23 minutes indefinitely.
+   Two mitigations, both cheap. **Open the tick with "re-enter `/group-em` first, and if anything
+   here contradicts the skill, the skill wins"** — that makes the snapshot self-correcting for
+   anything the skill covers. And **re-author the job when this skill changes under you**: delete
+   and re-create it, naming the SHAs, so the superseded text is not reconstructable by a later holder.
+   The frozen artifact everyone watches for is a stale summary; this one is a stale *instruction*,
+   and unlike a summary it acts.
+
+**Spawn and dispatch them yourself, from this session.** A watcher belongs to whoever raised it, so
+one raised by another session relieves that session and leaves you watching while believing you
 were relieved.
 
-**THE `Monitor` STAYS WITH YOU. It cannot be delegated, and believing otherwise is the failure this
-step exists to prevent.** A subagent goes idle between turns, so `fleet-watch` can START the
-subprocess and cannot hold a live wire from it to a decision-maker. Delegate the `Monitor` and you
-get a healthy sensor writing park events that reach nobody — every event you see arrives because you
-asked on a tick, never because anything pushed, and the arrangement looks correct from every surface:
-teammate alive, subprocess alive, log filling. Measured here: ~50 minutes of exactly that.
-So `fleet-watch` owns the subprocess; **you** arm the `Monitor` over its output from your own
-session, `persistent: true`, filtering `PARKED|ESCALATE|OUT-OF-WORK|GROUP-EM-MOVED|UNKNOWN` plus
-failure signatures. Give it a liveness arm that emits when the watch process leaves the process
-table — a sensor that dies silently is indistinguishable from a quiet fleet. The `notify_when_idle`
-one-shot likewise stays with you; the harness accepts it only from a main conversation.
+**THE `Monitor` GOES TO `group-em-assistant`, AND IT IS THEIRS TO ARM.** They own the subprocess
+and the wire out of it: `persistent: true`, filtering
+`PARKED|ESCALATE|OUT-OF-WORK|GROUP-EM-MOVED|UNKNOWN` plus failure signatures. **This works only
+because they are dispatched unnamed.** Dispatch them with a name and the same arm produces a
+healthy sensor writing park events that reach nobody — every event you see then arrives because
+you asked on a tick, never because anything pushed, and the arrangement looks correct from every
+surface: watcher alive, subprocess alive, log filling. Measured: ~50 minutes of exactly that, and
+0 wakes out of 3 on demand. Tripwire:
+`A-MONITOR-ARMED-BY-A-TEAMMATE-WAKES-NOBODY`.
 
-**Verify each clock's holder, never assume it.** A subagent that spawned a sensor and went idle
-renders identically to one holding a live wire. `CronList` shows your tick; the `Monitor` task must
-appear in your own task list; the subprocess must be in the process table. Three clocks, three
-holders, three separate checks.
+The wire also needs a liveness arm, because a sensor that dies silently is indistinguishable from a
+quiet fleet — but **do not shape that arm as a process-table check.** `pgrep -f` cannot read Windows
+process command lines, and even where it can, the watch runs under two different command lines
+(`python -m coordinator_core.group_em.watch`, or the trampoline's `group-em-watch.py`), so a pattern
+matched against either one reports a false death for the other. A false death is worse than no arm:
+it teaches the holder to discount the one wire that wakes them. Measured twice in one afternoon on
+two boxes — once from `pgrep -f` on Windows, once from a watcher grepping the module path while the
+trampoline was running.
+
+**Carry liveness on `last_tick_at` age in `state/group-em-watch.json` instead** — already the
+sanctioned instrument in § Liveness instruments, and portable. Compare it against the record's own
+`next_expected_by` rather than a threshold you pick: the cadence is measured at arm time and varies
+(~12 s for a `Monitor`, ~23 min for a cron tick), so a fixed number is trigger-happy or blind
+depending on which instrument stamped last. The writer is the only party that knew its own clock.
+
+**The `notify_when_idle` one-shot is the one thing that CANNOT be delegated** — the harness accepts
+it only from a main conversation, in either dispatch shape. **This still binds:** `group-em-assistant`
+is still a subagent, not a spawned session, so nothing about this rewrite changes who it can be
+accepted from — it stays with you if it is used, and the poller is the better clock regardless. (Navi
+is a spawned session and could in principle hold a main-conversation one-shot, but it holds no repo
+to notify against, so this stays moot for it.) Do not confuse it with the `Monitor`: they used to
+share one rule and one reason, and only this half of it was ever true.
+
+**You no longer relay events.** `group-em-assistant` hears its own wire and acts on it; your move
+on a park is nothing. What still reaches you is what they escalate — an `OUT-OF-WORK` peer needing
+work, a `GROUP-EM-MOVED`, anything needing a decision. **The tell that you have taken the relay
+back: you find yourself waking them, or working an event they already hold.** Both mean you are
+paying for a standing assistant and doing its job. Navi's escalations reach you the same way, but
+in one direction only — you cannot wake Navi to ask it anything, only read what it sends.
+
+**The park spool is `group-em-assistant`'s surface to read and triage, not yours to tail** — see
+"The wake has a producer" below for the mechanism. Ask `group-em-assistant` for it rather than
+going to the file first: one record per turn end per session, on a box running ~20 concurrent
+sessions, is exactly the triage work a standing assistant exists to absorb — piping it into your
+own context is the work you delegated, undone. The spool does not add a third thing to arm — the
+`Monitor` over the poller's stdout is theirs and already covers the wake. **They triage and
+report; they never nudge a peer** — nudging is Navi's alone, or the Group EM's own.
+
+What the two clocks buy you, so "how fast would you know?" has an answer: the held poller's cadence
+is measured once at arm time, floored 5 s and ceilinged 300 s, and `ARMED` prints the resolved
+number — read your own rate off it rather than assuming one; the ~23-minute cron tick is the floor,
+and the only clock still running when nobody holds a watch at all.
+
+**Verify each clock's holder, never assume it.** `CronList` shows your tick; the `Monitor` and the
+subprocess are `group-em-assistant`'s, and their report of them is your instrument — ask, do not go
+and look. A watcher that armed nothing renders identically to one holding a live wire, so the check
+is that they NAME the monitor's task id and the poller's resolved cadence, not that they say
+"armed".
 
 **A Group EM holding neither teammate is what this sequence exists to prevent, and it is not
 hypothetical.** Worked case:
@@ -124,7 +277,8 @@ plausibly watches this repo before standing down: a holder from another repo, or
 own, and is never repaired by hand.
 
 **Both clocks, deliberately: PM-ruled belt-and-suspenders.** A poll and an event watch fail
-differently. Entry covers both — poller via `fleet-watch`, cron yours — and never arms one twice.
+differently. Entry covers both — poller via `group-em-assistant`, cron yours — and never arms one
+twice.
 
 **That is a rule about entry, NOT a bar on re-arming a spent clock.** Prefer the clock that cannot
 be spent. A one-shot (`notify_when_idle`) fires once per peer and leaves it unwatched, so a watch
@@ -155,15 +309,26 @@ in your context dies with you.
 **The engine must be importable, which it is not from the repo you are Group EM for.** `stamp`,
 `idle_report` and the watch runnable all live in `coordinator_core`; invoked from a doctrine repo's
 root they raise `ModuleNotFoundError` before doing anything. Run them from an engine-rooted cwd, or
-via `<settings-home>/bin/group-em-watch`. A tick that assumes the import worked reports a stamp it
-never wrote.
+via the settings-home trampoline — **`$COORDINATOR_SETTINGS_HOME/bin/group-em-watch`, which on a
+default install is `~/.coordinator-claude-settings/bin/group-em-watch` (`.exe` on Windows).** Name
+it that way when you brief a watcher: it is NOT under `~/.claude/bin`, `~/.claude/plugins/bin`, or
+the engine's own `bin/`, and a holder who probes those three concludes the trampoline is absent and
+briefs the bare-module fallback on a false premise. Measured on two boxes. **On
+Windows, invoke it through the call operator with forward slashes** — `& "$env:COORDINATOR_SETTINGS_HOME/bin/group-em-watch.exe" --repo-root ... --group-em-session-id ...`; the
+documented bare form is a PowerShell PARSER error, which fires before anything runs and reads
+nothing like a bad argument. Measured: three restart attempts, the first two lost to this. It is
+the same false premise arriving by a second route — a holder who gets a parser error twice, having
+already read that the trampoline may be absent, concludes exactly that and falls back to the bare
+module, which `ModuleNotFoundError`s, which presents as `idle`, which is indistinguishable from a
+quiet fleet. A tick that assumes the
+import worked reports a stamp it never wrote.
 
-**The wake has a producer now; you arm nothing for it.** Every session's own `Stop` appends one
-line to `state/group-em-watch-spool.jsonl` when its park verdict lands
-(`coordinator/hooks/scripts/group-em-park-spool.py`, registered in `stop-dispatch.py`). It is a
-hook, so it needs no entry step and no holder — but it only fires where this plugin's hooks are
-installed, and the wake that drains it still has to be run by one of your three clocks. A spool
-with lines in it and no drain is not coverage.
+**The wake has a producer; you arm nothing for it.** `state/group-em-watch-spool.jsonl` gets one
+record per park, appended by every session's own `Stop`
+(`coordinator/hooks/scripts/group-em-park-spool.py`, registered in `stop-dispatch.py`) when its
+park verdict lands. It is a hook, so it needs no entry step and no holder — but it only fires where
+this plugin's hooks are installed. The engine plane commits to the spool retaining at least the last 30
+minutes of parks, so a Group EM running `group-em-assistant` needs no separate drain step.
 
 **The clock's absence is silent, which is why it is named at entry every time.** A tick is
 session-only: nothing on disk creates it or records that it existed. A fleet with no watcher and
@@ -200,8 +365,9 @@ that has since stopped. `idle` means unknown, never quiet. The named failure is 
 `state/group-em-watch.json`.**
 
 **When a PM reports the watcher is dead, do not confirm it from the session list.** `idle` is
-`fleet-watch`'s normal state between polls, so a live watcher and a dead one render identically on
-the only surface a human has. Answer from `last_tick_at` age and name the instrument, so the PM has
+`group-em-assistant`'s normal state between polls, so a live watcher and a dead one render
+identically on the only surface a human has. Answer from `last_tick_at` age and name the
+instrument, so the PM has
 one they can re-run.
 
 Tripwire: `LISTAGENTS-BUSY-IS-A-BANNED-LIVENESS-INPUT`.
@@ -306,19 +472,45 @@ entry arms that peer's cooldown, and there is no per-peer entry point, so the pe
 firehose is unreachable from the API. Rationale:
 `docs/decisions/DR-group-em-send-narrows-on-the-obligation-ledger.md`.
 
-The roster is the population; a human adjudicates it. The obligation ledger ranks and annotates,
-never admits — `undischarged_obligations: None` means no ledger exists, a producer coverage gap
-rather than evidence the peer owes nothing.
+**`roster` IS NOT THE POPULATION — it is the shortlist, and comparing it to the room raises a false
+alarm on every busy repo.** It is `build_candidate_roster`'s output: `candidate ∪ unclassifiable ∪
+contradicted`, which on a busy repo is a small fraction of what entry enumerated (measured
+engine-side: 11 peers enumerated, 2 in `roster`). A human adjudicates it. The obligation ledger
+ranks and annotates, never admits — `undischarged_obligations: None` means no ledger exists, a
+producer coverage gap rather than evidence the peer owes nothing.
 
-**The roster carries the trap that has actually fired.** A digest of `0 entry(ies)` reads as a quiet
-fleet, and says that identically whether every peer was weighed and held or none was ever
-enumerated. Check the roster count against the room: a roster visibly smaller than the sessions you
-know are running is `unknown`, never quiet, and the missing peers were never in the population, so
-nothing in `suppressed` mentions them. Two settling reads: `claude agents --json` counts the room
-without this ladder, and `python -m coordinator_core.group_em.idle_report --repo-root <root>
---group-em-session-id <your sid>` derives the population independently (both flags required; exits 2
-bare). Three instruments disagreeing on how many peers exist is a defect to report, not a number to
-average.
+**The trap that has actually fired.** A digest of `0 entry(ies)` reads as a quiet fleet, and says
+that identically whether every peer was weighed and held or none was ever enumerated. **Compare
+`roster_considered` — the enumerated count entry reports top-level — against the room, never
+`len(roster)`.** A `roster` smaller than `roster_considered` is NORMAL and means peers classified
+out of the shortlist; a `roster_considered` smaller than the sessions you know are running is
+`unknown`, never quiet, and those peers were never enumerated, so nothing in `suppressed` mentions
+them.
+
+Getting that numerator wrong is not theoretical: a Group EM comparing `len(roster)` to the room
+found a peer "silently dropped", confirmed it live and present in two earlier rosters, and reported
+a break-class defect — for a session whose classification had simply moved out of the union. The
+comparison had looked sound on the two prior ticks because every peer happened to classify in, which
+is the worse failure: **a check that is coincidentally right is harder to catch than one that is
+plainly wrong.**
+
+Two settling reads: `claude agents --json` counts the room without this ladder, and `python -m
+coordinator_core.group_em.idle_report --repo-root <root> --group-em-session-id <your sid>` derives
+the population independently. Only `--repo-root` is CLI-enforced (exits 2 bare on omission);
+`--group-em-session-id` is required BY THIS PROCEDURE, not by the CLI — the parser defaults it to
+`None` and accepts the omission silently, degrading offer-log suppression rather than erroring.
+Pass it anyway; omitting it does not fail loud. Three instruments disagreeing on how many peers
+exist is a defect to report, not a number to average.
+<!-- Review: coordinator:code-reviewer, finding 2 — the CLI does not enforce this flag; fixed the
+     claim to name the requirement as this procedure's own and state the silent-degradation
+     consequence. -->
+
+**And a healthy-looking count does not clear this line, because one symptom has two producers.**
+`Roster: 0 peer(s), 0 candidate(s)` was emitted both by a missing `build_roster` export and by the
+entry hook rendering the shortlist as the population — byte-identical output, independently
+sufficient. Both are fixed (`a670047c4f` engine-side, `c85f9fdf4` here), and the point survives the
+fixes: when a passing check has more than one possible producer, it argues for none of them
+(`A-GATE-THAT-CANNOT-GO-RED-IS-NOT-COVERAGE`).
 
 **Ledger rows can arrive from the engine plane.** This plane is the ledger's sole writer; the engine
 appends to `state/subagent-share/<sid>/obligations-inbound.jsonl` and entry folds every session's
@@ -347,15 +539,36 @@ Tripwire: `A-SECOND-WRITER-TO-A-REWRITTEN-FILE-LOSES-ROWS-SILENTLY`.
      on what you already know about that peer, never anything you read this turn.
    - **Either gate unclear → the memo channel.** Not a degraded mode. The named anti-pattern is
      sending live *because the channel is open*.
-4. **Resolve the addressee immediately before sending, and treat a refusal as a refusal.**
-   `read_pass.resolve_addressee(name, expected_session_id, repo_root=...)` re-enumerates live and
-   returns `ok: False` unless the name still answers for exactly the session the roster saw — a peer
-   name re-points with no event and no visible difference at the call site. **`ok: False` means do
-   not send.** There is no fallback to the session id you already had; that fallback is how a nudge
-   lands on a session nobody examined, about work it never had. Refusals:
-   `name-resolves-to-no-live-session`, `name-resolves-to-more-than-one-live-session`,
-   `name-now-points-at-a-different-session`, `name-resolves-outside-this-repo`, `no-name`.
-   Tripwire: `A-PEER-NAME-IS-NOT-A-STABLE-ADDRESS`.
+4. **Re-resolve the address from the SESSION ID immediately before sending, and treat a refusal as
+   a refusal.** `send_pass.resolve_addressee(repo_root, peer_session_id)` re-enumerates live and
+   returns the name that session answers to right now, or `None`. **`None` means do not send.**
+
+   **Resolve from the id, never validate the name — the id is the stable identity and the name is
+   the volatile address.** A peer name re-points with no event and no visible difference at the call
+   site, so the name you read off the roster may by now mean a different session. Going id → name
+   hands you that session's CURRENT address and the send still lands where you meant; validating
+   the stale name instead only tells you it went bad, and refuses a send that re-addressing would
+   have delivered. You always hold the id: every roster row carries it, and so does
+   `displaced_holder`. Tripwire: `A-PEER-NAME-IS-NOT-A-STABLE-ADDRESS`.
+
+   **`None` covers four cases: the session was absent from the roster, its row carried no name, the
+   roster read failed, or the name is ambiguous** — two live sessions answering to it refuses rather
+   than resolves, since `SendMessage` addresses by name and an ambiguous address lands wrong as
+   easily as a stale one. Verified behaviourally against the published mirror, not inferred from a
+   commit.
+
+   **It does NOT filter by repo, and never has in either plane** — a name resolving outside this
+   repo comes back as a clean address. That is the one gap to carry yourself.
+
+   Note the direction if you are reading older prose or an older skill snapshot: this step once
+   specified a name-first `read_pass.resolve_addressee(name, expected_session_id, repo_root=...)`.
+   **That function is real** — the plugin-local ladder implements it, typed refusals and all, and it
+   resolves correctly against the live registry. It was replaced on the direction argument above,
+   not for being missing. What IS missing is any engine-side equivalent: `coordinator_core`'s
+   `read_pass` has no `resolve_addressee`, and `send_pass.resolve_addressee(repo_root,
+   peer_session_id)` is the id-first one. So the same call means two different things depending on
+   which plane answered — the trap in `TWO-MODULES-ONE-RECORD-ARE-TWO-SIGNATURES`, and the reason
+   this step now names the module as well as the function.
 
 **Never loop over `entries` sending.** Nothing in code enforces the per-send gate — `SendMessage` is
 in `allowed-tools` and the gate is this paragraph.
@@ -479,10 +692,10 @@ The Group EM may execute `/workday-start` Step 1.45a's inbox blitz on this repo'
   explicit per-send act with both gates declared. An unattended sender, a loop that messages each
   digest entry, or any `Stop`-registered trigger is out of scope and re-derives the stood-down
   watcher.
-- **Mandating that the watcher EXISTS is not mandating that it sends unattended.** `fleet-watch`
-  nudging on an observed registry transition is the "concrete observed signal" shape the ban
-  preserves; a tick that messages everyone it can see is the shape it forbids. The discriminator is
-  the signal, never that a teammate holds it — a teammate given a timing predicate re-derives
+- **Mandating that the watcher EXISTS is not mandating that it sends unattended.** Navi nudging on
+  an observed registry transition is the "concrete observed signal" shape the ban preserves; a tick
+  that messages everyone it can see is the shape it forbids. The discriminator is the signal, never
+  that a session holds it — a session given a timing predicate re-derives
   `runtime-tripwire-stop-watcher.py` (681 fires / 26 days / ~99.4% wrong) one level down, where you
   lose sight of it.
 - **That ban is about AUTOMATION, never attentiveness.** A timing predicate cannot tell a stuck
@@ -492,10 +705,12 @@ The Group EM may execute `/workday-start` Step 1.45a's inbox blitz on this repo'
 - This skill does not implement the read-pass ladder or receiver-state consumption logic — supplied
   separately and integrated by reference.
 - **The three dispatch grants at the top of this file are each scoped to their own named dispatch.**
-  Spawning the approvability judge, `fleet-watch`, and `group-em-assistant` under this session's own
-  authority is the same shape as `plan`/`execute-plan`/`review` spawning subagents. What stays
-  gated is that `/group-em` otherwise messages **peer sessions in their own windows** — an
-  `ask-before-external-action` question no dispatch grant dissolves. The entry-sequence grant is the
-  only one that fires unconditionally; that is when it applies, not what it covers.
+  Raising the approvability judge, Navi, and `group-em-assistant` under this session's own authority
+  is the grant — the approvability judge and `group-em-assistant` under the same shape as
+  `plan`/`execute-plan`/`review` spawning subagents, Navi under the separate `claude --agent navi
+  --bg` spawn shape. Shape differs; the authority does not. What stays gated is that `/group-em`
+  otherwise messages **peer sessions in their own windows** — an `ask-before-external-action`
+  question no dispatch grant dissolves. The entry-sequence grant is the only one that fires
+  unconditionally; that is when it applies, not what it covers.
 - `/autonomous` supplies the mode-shaped naming precedent only. Its `/tmp` sentinel is durable state
   and is not borrowed.

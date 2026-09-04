@@ -8,7 +8,7 @@ access-mode: read-write
 tools: ["Read", "Bash", "PowerShell"]
 ---
 
-<!-- This harness build provides no Grep/Glob tool at runtime — do not re-add them, they do not exist. Content search is via `grep`/`Select-String` through Bash/PowerShell; file location is via `find`/`Get-ChildItem`. -->
+<!-- No `Grep`/`Glob` here by scope, not by absence — both exist in this build. This agent authors and runs one falsifier against a named criterion; content search is via `grep`/`Select-String` through Bash/PowerShell, file location via `find`/`Get-ChildItem`. -->
 
 # Exit-Criterion Falsifier
 

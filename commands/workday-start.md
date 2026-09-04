@@ -39,7 +39,10 @@ silently un-pushed and un-trailered — idempotent, note only on actual repair),
 `python3 <plugin-root>/bin/check-gitignore-template-drift.py` (report-only; renders its output under
 the advisory-probe convention — the `/coordinator:install` Phase 4 diff only fires on a full
 install, so this is the daily cadence that catches drift between installs;
-see `coordinator/docs/wiki/coordinator-tripwires/gitignore-template-drift-is-a-cadence-gate-not-an-install-only-step.md`).
+see `coordinator/docs/wiki/coordinator-tripwires/gitignore-template-drift-is-a-cadence-gate-not-an-install-only-step.md`),
+then `python3 <plugin-root>/bin/check-watch-state-gitignore-fleet.py` — the per-repo twin,
+report-only, never untracks
+(`…/tripwire-registry/a-setup-time-gitignore-block-never-reaches-a-repo-onboarded-before-it.md`).
 
 `untested-platform-advisory` moves to the install surface — it changes only on new-platform
 install, never on a normal morning. Not part of this ceremony.
@@ -101,8 +104,9 @@ keyword, flag likely-shipped items.
 **1.47** One shell call, in this order (idempotent, safe every run): `sweep-terminal-handoffs`,
 `promote-shipped-in-flight-stubs` (must precede the reaper, so a shipped deliverable isn't mistaken
 for a crash orphan — ordering preserved inside the batch), `reap-orphaned-in-flight-handoffs` (Step
--0.9; dry-run then live). Surface verbatim under `### Handoffs`. Reaper never touches frontmatter
-directly — releases a dead holder's claim to the pool, never abandons/archives.
+-0.9; dry-run then live), `handoff-housekeeping`. Surface verbatim under `### Handoffs`. Reaper
+never touches frontmatter directly — releases a dead holder's claim to the pool, never
+abandons/archives.
 
 **This is the on-demand drain, not the owner.** The abandoned-session case — a session that dies
 mid-close and never stamps its baton — belongs to the `/workday-complete` spine's
@@ -113,7 +117,7 @@ archival composite was killed (`sweep-boot.py` carries `never dispatches an op` 
 Skipping this step is survivable; skipping `/workday-complete` is what lets residue accumulate.
 Measured 2026-08-30: five terminal batons unswept and the gem-01 roadmap reading seven batons behind
 its real state, on a stretch where `/workday-complete` had not run.
-→ `coordinator/docs/wiki/coordinator-tripwires/archival-lands-at-the-next-ceremony-not-at-session-end.md`
+→ `coordinator/docs/wiki/coordinator-tripwires/terminal-batons-are-swept-at-close-not-left-to-the-next-ceremony.md`
 
 **1.5** _"{N} actionable ({K} continuations, {S} spinoffs incl. {R} roadmap in {G} groups). {G}
 awaiting_gate ({M} >6d). {X} verified-closed."_ Omit zero clauses.
@@ -397,9 +401,11 @@ Tracker Ready items, handoff action items, PM-facing options.
 ```
 
 Per suggestion batch (outside the fence, avoiding nested-fence parse failure): one
-`append-goal-event --period day --period-value <today>` call passing every suggestion in the
-batch, not one process per suggestion — accept a list if the CLI supports it, else the smallest
-number of calls that covers all suggestions grouped by shared metadata.
+`append-goal-event --period day --period-value <today> --text-file <path>` call passing every
+suggestion in the batch, not one process per suggestion — accept a list if the CLI supports it,
+else the smallest number of calls that covers all suggestions grouped by shared metadata. A batch
+of suggestions is multi-line prose: it goes through `--text-file`, never inline `--text`, which
+refuses a newline rather than landing a one-line event.
 
 **Marker:** `d-workday-marker-write` (Step -0.9) — write `state/.workday-start-marker` once
 complete; `/workstream-start` checks this file.

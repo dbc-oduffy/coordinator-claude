@@ -28,7 +28,12 @@ $ErrorActionPreference = 'Stop'
 $_here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $_entry = Join-Path $_here 'workday-start-cross-repo-memo-outbox-surface.py'
 $_pybin = '__PYTHON_BIN__'
-if ($_pybin -eq '__PYTHON_BIN__') { $_pybin = '' }
+# No placeholder-vs-placeholder test here: install-substrate.py replaces EVERY
+# __PYTHON_BIN__ occurrence, so such a test compares the baked path against itself,
+# is unconditionally true, and discards the bake precisely when it succeeded. The
+# Test-Path line below is the property that matters and already covers the unbaked
+# case -- the literal token is not a path.
+
 if ($_pybin -ne '' -and -not (Test-Path -LiteralPath $_pybin)) { $_pybin = '' }
 if ($_pybin -ne '') {
     & $_pybin $_entry @args

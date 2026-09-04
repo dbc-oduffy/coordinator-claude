@@ -2367,6 +2367,32 @@ def dispatch_end_of_run_function_gate(
     return ok
 
 
+def _print_row_refusal(target_name: str, *, err: IO[str] = sys.stderr) -> None:
+    """Announce that a gate refused one row, ON THE STREAM ITS REASON WENT TO.
+
+    Every gate in this driver prints its refusal reason to stderr and used to
+    print the `Skipping <row>.` announcement to stdout. Neither stream then
+    carried a whole refusal: a stdout-only capture showed a row skipped with
+    no cause, and a stderr-only capture showed a cause with nothing saying the
+    row was dropped. Measured cost of the split (2026-09-02): four tool calls
+    spent concluding a field-7 refusal was silent, while its explanation had
+    been on the other stream the entire time. The reason and the announcement
+    are one fact and are emitted on one stream.
+
+    `err` is whatever stream THIS call site printed its reason to — pass the
+    site's own `err` parameter where it has one, `sys.stderr` where it prints
+    there directly. A site whose reason already lands on stdout (the manifest-
+    sync arm, which forwards `sync_out` into `out`) keeps its own paired
+    print and does not route through here.
+
+    NOT a verdict, and never the only record of one: `main`'s end-of-run
+    summary names every refused row independently (§ its `Rows FAILED` block),
+    so a caller reading only the summary still learns which rows did not land.
+    """
+    print(f"  Skipping {target_name}.", file=err)
+    print("", file=err)
+
+
 def dispatch_preswap_function_gate(
     engine_ctx: PercolateEngineContext,
     target: "ResolvedTarget",
@@ -2457,8 +2483,7 @@ def dispatch_preswap_function_gate(
             "seed-presence probe.",
             file=sys.stderr,
         )
-        print(f"  Skipping {target.name}.", file=out)
-        print("", file=out)
+        _print_row_refusal(target.name, err=sys.stderr)
         return False
 
     if not modules:
@@ -2478,8 +2503,7 @@ def dispatch_preswap_function_gate(
             f"  Error: pre-swap function gate raised for {target.name}: {exc}",
             file=sys.stderr,
         )
-        print(f"  Skipping {target.name}.", file=out)
-        print("", file=out)
+        _print_row_refusal(target.name, err=sys.stderr)
         return False
 
     if not result.ok:
@@ -2490,8 +2514,7 @@ def dispatch_preswap_function_gate(
             f"{result.error}\n{result.stderr}",
             file=sys.stderr,
         )
-        print(f"  Skipping {target.name}.", file=out)
-        print("", file=out)
+        _print_row_refusal(target.name, err=sys.stderr)
         return False
 
     return True
@@ -2674,8 +2697,7 @@ def dispatch_preswap_payload_parity_gate(
         )
     except Exception as exc:  # noqa: BLE001 - fail-closed, same as the function gate
         print(f"  Error: payload parity gate raised for {target.name}: {exc}", file=sys.stderr)
-        print(f"  Skipping {target.name}.", file=out)
-        print("", file=out)
+        _print_row_refusal(target.name, err=sys.stderr)
         return False
 
     if payload_parity.abstain_share_exceeds_floor(report):
@@ -2694,8 +2716,7 @@ def dispatch_preswap_payload_parity_gate(
                 f"{finding.call_file}:{finding.lineno} calling {finding.callee!r} — {finding.message}",
                 file=sys.stderr,
             )
-        print(f"  Skipping {target.name}.", file=out)
-        print("", file=out)
+        _print_row_refusal(target.name, err=sys.stderr)
         return False
 
     return True
@@ -5452,8 +5473,7 @@ def check_live_install_clobber(
     print("         Publishing to the live-install root is banned (2026-05-20 clobber doctrine).", file=err)
     print("         Set publish.mirrors.<key>.path to an external publish-repo path,", file=err)
     print("         or set COORDINATOR_OVERRIDE_PUBLISH_DEST_HOME=1 to override.", file=err)
-    print(f"  Skipping {name}.", file=out)
-    print("", file=out)
+    _print_row_refusal(name, err=err)
     return False
 
 
@@ -5906,8 +5926,7 @@ def run_pre_sync_gates(
                     break
     except GitMaterializeError as exc:
         print(f"  Error: cannot materialize a contributing root from its committed ref — {exc}", file=err)
-        print(f"  Skipping {target.name}.", file=out)
-        print("", file=out)
+        _print_row_refusal(target.name, err=err)
         return GateResult(proceed=False, source_dir=target.source_dir, shadow_roots=tuple(shadow_toplevels))
     effective_source_dir = shadow[target.source_dir]
 
@@ -5965,8 +5984,7 @@ def run_pre_sync_gates(
                     "the declaration it names.",
                     file=err,
                 )
-                print(f"  Skipping {target.name}.", file=out)
-                print("", file=out)
+                _print_row_refusal(target.name, err=err)
                 return GateResult(proceed=False, source_dir=target.source_dir, shadow_roots=tuple(shadow_toplevels))
         finally:
             print(
@@ -7095,7 +7113,7 @@ def _is_git_repo(path: Path) -> bool:
     return _resolve_git_dir(cwd=str(path)) is not None
 
 
-def _source_sha_suffix() -> str:
+def _source_sha_suffix(round_pinned_shas: "dict[str, str] | None" = None) -> str:
     """The mirror-currency stamp appended to every percolate commit subject.
 
     WHY THIS EXISTS. A percolate commit subject named the paths it carried
@@ -7110,52 +7128,37 @@ def _source_sha_suffix() -> str:
     answers it, and `git -C <source> merge-base --is-ancestor <fix> <stamp>`
     answers it exactly.
 
-    Degrades to `""` rather than raising or blocking a publish: `head_sha`
-    returns `None` on an unborn/detached-nothing HEAD, and a commit subject
-    without the stamp is strictly what this function's absence produced.
-    Zero-spawn by construction (`head_sha` reads `HEAD`/`packed-refs`
-    directly) — this runs once per destination repo on the publish hot path.
+    Two modes, one function (review-integrator, 2026-09-01 — collapsed from
+    a second `_pinned_source_sha_suffix` copy per overengineering-reviewer
+    finding 1, once the peer claim on this file released): with
+    `round_pinned_shas` absent, reads `HEAD` fresh — the CLI-standalone path
+    with no pin in hand. With `round_pinned_shas` given, uses
+    `_round_pin_source_sha`'s cached value instead, closing the race a fresh
+    `HEAD` read would reopen — `_commit_published_dests` runs at the very
+    END of a multi-target run, after every row, so it is the site furthest
+    from round-start and most exposed to a peer commit landing mid-run
+    (docs/plans/2026-08-04-publish-from-a-committed-ref.md: four distinct
+    SHAs observed across one round).
 
-    NOT what `_commit_published_dests` uses (§ `_pinned_source_sha_suffix`
-    below): this reads `HEAD` fresh at call time, which is exactly the race
-    `_round_pin_source_sha` exists to close (a peer commit landing mid-run
-    between round-start pinning and this end-of-run commit would stamp a
-    SHA the round never actually published from). Kept as the shared
-    formatter shape the test suite pins identity against
-    (`test_round_leg_stamps_the_same_shape`) and as the CLI-standalone
-    fallback for a caller with no `round_pinned_shas` in hand.
+    Degrades to `""` rather than raising or blocking a publish in either
+    mode: `head_sha` returns `None` on an unborn/detached-nothing HEAD, and
+    `_round_pin_source_sha` raises `GitMaterializeError` on the same class of
+    failure — a commit subject without the stamp is strictly what this
+    function's absence produced. Zero-spawn by construction (`head_sha`
+    reads `HEAD`/`packed-refs` directly) — this runs once per destination
+    repo on the publish hot path.
     """
-    _bootstrap_engine()
-    from coordinator_core.git.git_state import head_sha  # noqa: PLC0415
+    if round_pinned_shas is not None:
+        try:
+            sha = _round_pin_source_sha(_REPO_ROOT, round_pinned_shas, late=True)
+        except GitMaterializeError:
+            sha = None
+    else:
+        _bootstrap_engine()
+        from coordinator_core.git.git_state import head_sha  # noqa: PLC0415
 
-    sha = head_sha(_REPO_ROOT)
-    return f" [source {sha[:12]}]" if sha else ""
+        sha = head_sha(_REPO_ROOT)
 
-
-def _pinned_source_sha_suffix(round_pinned_shas: "dict[str, str]") -> str:
-    """The mirror-currency stamp `_commit_published_dests` actually uses:
-    the round's PINNED source sha (`_round_pin_source_sha`), never a fresh
-    `HEAD` read.
-
-    `_source_sha_suffix()` above reads `HEAD` at call time, which is the
-    exact defect `_round_pin_source_sha` was written to close — a row
-    processed later in a multi-target run could see a peer's commit land
-    mid-run (docs/plans/2026-08-04-publish-from-a-committed-ref.md: four
-    distinct SHAs observed across one round). `_commit_published_dests`
-    runs at the very END of the run, after every row, so it is the site
-    furthest from round-start and most exposed to that drift — stamping it
-    with `_round_pin_source_sha`'s cached value keeps the subject naming
-    the SAME sha the run actually published bytes from.
-
-    Degrades to `""` on the identical failure modes `_source_sha_suffix`
-    degrades on (`GitMaterializeError` — not inside a git work tree, or
-    `HEAD` unresolvable) — a commit subject without the stamp, never a
-    blocked publish.
-    """
-    try:
-        sha = _round_pin_source_sha(_REPO_ROOT, round_pinned_shas, late=True)
-    except GitMaterializeError:
-        return ""
     return f" [source {sha[:12]}]" if sha else ""
 
 
@@ -8262,6 +8265,120 @@ def _dest_prefix_for(dest_dir: Path) -> str:
     return dest_dir.relative_to(repo_root).as_posix()
 
 
+#: The dest-relative payload root of the row that publishes the engine itself.
+#: Named here rather than inlined at its two use sites because "which row
+#: carries `coordinator_core`" is the fact the round summary turns on, not an
+#: incidental string (§ `_row_carries_engine`).
+_ENGINE_PAYLOAD_ROOT = "coordinator_core"
+
+
+def _row_payload_desc(target: "ResolvedTarget") -> str:
+    """What a row carries, as the dest-repo-relative path it publishes into —
+    `coordinator_core` for the engine row, `coordinator/bin` for the bin row,
+    `<repo root>` for a flat toplevel row whose dest IS the repo root.
+
+    This is the half of a refusal a row NAME does not carry. "2 row(s)
+    fail-closed (claude-klabauter-coordinator-bin, claude-klabauter)" is true
+    and tells a reader nothing about what is now missing from the mirror; the
+    same fact with payloads attached is the one they can act on."""
+    return _dest_prefix_for(target.dest_dir) or "<repo root>"
+
+
+def _row_carries_engine(target: "ResolvedTarget") -> bool:
+    """True iff this row is the one that publishes `coordinator_core`.
+
+    Keyed on the row's OWN dest prefix and source basename, never on its name:
+    the row is called `claude-klabauter` today, which says nothing about the
+    engine, and a rename must not silently retire the engine-specific summary
+    branch this predicate gates (§ `main`'s ENGINE NOT PUBLISHED line).
+
+    A flat repo-root row (`dest_prefix == ""`) that happens to contain an
+    engine tree in its payload is deliberately NOT engine-carrying: its
+    payload root is the mirror root, and reading it as the engine row would
+    fire the loudest line in the summary on every toplevel-row refusal."""
+    prefix = _dest_prefix_for(target.dest_dir)
+    return (
+        prefix == _ENGINE_PAYLOAD_ROOT
+        or prefix.startswith(_ENGINE_PAYLOAD_ROOT + "/")
+        or target.source_dir.name == _ENGINE_PAYLOAD_ROOT
+    )
+
+
+def _engine_carrying_failures(
+    failed_row_names: Sequence[str],
+    targets_by_name: "dict[str, ResolvedTarget]",
+) -> "List[str]":
+    """The refused rows that carry the engine, in the order they failed.
+
+    Separate from `_print_row_failure_detail` because the ROUND HEADLINE
+    needs this verdict before any detail line is rendered — the first line of
+    the summary is the one that gets read and quoted, and it is where "8/10
+    landed" was one step from becoming "the engine fix is live" (2026-09-02).
+    A row this driver never parsed is not resolvable to a payload and is
+    therefore never claimed to be the engine row: unknown is not absent, and
+    `_print_row_failure_detail` reports it as unresolved instead."""
+    return [
+        name
+        for name in failed_row_names
+        if name in targets_by_name and _row_carries_engine(targets_by_name[name])
+    ]
+
+
+def _print_row_failure_detail(
+    failed_row_names: Sequence[str],
+    targets_by_name: "dict[str, ResolvedTarget]",
+    engine_failed_names: Sequence[str],
+    *,
+    err: IO[str] = sys.stderr,
+) -> None:
+    """The round summary's refused-row block: the count line, one payload
+    line per refused row, and — distinctly — the engine verdict.
+
+    Extracted from `main` rather than left inline SO IT CAN BE PINNED: the
+    defect this block exists to prevent is a summary whose every word is true
+    and whose plain reading is the opposite of what happened, which is
+    assertable only against the real rendering. A test that re-implemented
+    these lines would pass against a `main` that no longer printed them.
+
+    `engine_failed_names` is passed in, not recomputed, so the headline and
+    this block can never disagree about whether the engine shipped (§
+    `_engine_carrying_failures`, whose caller renders the headline first)."""
+    print(f"  Rows FAILED:    {len(failed_row_names)} ({', '.join(failed_row_names)})", file=err)
+    # PAYLOADS, INLINE, not a row name a reader has to resolve themselves. A
+    # row name says which invocation refused; it does not say what is now
+    # missing from the mirror, and the two are the same fact with only one of
+    # them actionable. Printed beneath the count line rather than folded into
+    # it so the existing "Rows FAILED: N (names)" shape — which
+    # `coordinator_core/benchmarks/percolate_round_ab.py` and this module's
+    # own exit-code contract docstring both name verbatim — is unchanged.
+    for name in failed_row_names:
+        target = targets_by_name.get(name)
+        if target is None:
+            # A failed row whose parsed target is not resolvable here has no
+            # payload to name. Say so, rather than omitting the row: a reader
+            # counting these lines against the count above must never come up
+            # short and conclude the difference landed.
+            print(
+                f"    - {name} — did NOT publish (payload unresolved: this row's "
+                "parsed target was not available at summary time)",
+                file=err,
+            )
+            continue
+        print(f"    - {name} — did NOT publish {_row_payload_desc(target)}", file=err)
+    if engine_failed_names:
+        # THE DISTINCT CASE, never one of N. Every other refused row leaves a
+        # caller's "published" mental model incomplete; this one leaves it
+        # WRONG — the engine its peer repos import is byte-identical to what
+        # it was before the round, however many other rows landed. Not gated
+        # on PARTIAL: an all-rows-failed round is the same fact, more so.
+        print(
+            f"  STATUS: {_ENGINE_PAYLOAD_ROOT} DID NOT SHIP — the engine-carrying "
+            f"row(s) ({', '.join(engine_failed_names)}) fail-closed. The published "
+            "engine is unchanged by this round; do not report its changes as live.",
+            file=err,
+        )
+
+
 def _dest_is_owned_subdir(dest_dir: Path) -> bool:
     """True iff `dest_dir` is a subdirectory BENEATH a destination repo root
     rather than the root itself — i.e. iff every file directly under it was put
@@ -8560,7 +8677,7 @@ def _commit_published_dests(
         rows = ", ".join(succeeded_row_names) if succeeded_row_names else "no named rows"
         subject = (
             f"percolate: sync {len(paths)} path(s) to {repo_root.name} ({rows})"
-            f"{_pinned_source_sha_suffix(round_pinned_shas)}"
+            f"{_source_sha_suffix(round_pinned_shas)}"
         )
         # `deleted_paths` split out explicitly: `commit_paths` reads a
         # present path's bytes off the worktree, so a path the sync deleted
@@ -8675,8 +8792,7 @@ def _ensure_dest_ready(target: ResolvedTarget, totals: RunTotals, *, out: IO[str
                 f"elsewhere; see _swap_publish_staging_into_dest): {target.dest_dir}",
                 file=sys.stderr,
             )
-            print(f"  Skipping {target.name}.", file=out)
-            print("", file=out)
+            _print_row_refusal(target.name, err=sys.stderr)
             return False
         return True
     if _dest_has_git_ancestor(target.dest_dir):
@@ -8692,8 +8808,7 @@ def _ensure_dest_ready(target: ResolvedTarget, totals: RunTotals, *, out: IO[str
         f"(destination unresolved, refusing to create): {target.dest_dir}",
         file=sys.stderr,
     )
-    print(f"  Skipping {target.name}.", file=out)
-    print("", file=out)
+    _print_row_refusal(target.name, err=sys.stderr)
     return False
 
 
@@ -9021,8 +9136,7 @@ def assert_dest_engine_root_viable(
             "published-engine rung would reject it.",
             file=sys.stderr,
         )
-        print(f"  Skipping {target.name}.", file=out)
-        print("", file=out)
+        _print_row_refusal(target.name, err=sys.stderr)
         return False
 
     engine_root_dir = repo_root / "coordinator_core"
@@ -9037,8 +9151,7 @@ def assert_dest_engine_root_viable(
             "the published-engine rung would reject it.",
             file=sys.stderr,
         )
-        print(f"  Skipping {target.name}.", file=out)
-        print("", file=out)
+        _print_row_refusal(target.name, err=sys.stderr)
         return False
     return True
 
@@ -9069,8 +9182,7 @@ def assert_dest_on_declared_ref(
     actual_ref = _dest_checked_out_ref(repo_root)
     if actual_ref is None:
         print(f"  Error: could not read the checked-out ref at {repo_root}.", file=sys.stderr)
-        print(f"  Skipping {target.name}.", file=out)
-        print("", file=out)
+        _print_row_refusal(target.name, err=sys.stderr)
         return False
     if actual_ref != expected_branch:
         print(
@@ -9078,8 +9190,7 @@ def assert_dest_on_declared_ref(
             f"(expected '{expected_branch}', dest is on '{actual_ref}').",
             file=sys.stderr,
         )
-        print(f"  Skipping {target.name}.", file=out)
-        print("", file=out)
+        _print_row_refusal(target.name, err=sys.stderr)
         return False
     return True
 
@@ -9670,7 +9781,7 @@ def _swap_publish_staging_entry(dest_entry: Path, staging_entry: Path) -> None:
         prior = dest_entry.with_name(dest_entry.name + ".prior")
         if dest_entry.exists():
             try:
-                os.rename(dest_entry, prior)
+                _rename_with_retry(dest_entry, prior)
             except OSError as exc:
                 try:
                     _record_publish_swap_refusal(
@@ -9684,10 +9795,31 @@ def _swap_publish_staging_entry(dest_entry: Path, staging_entry: Path) -> None:
                     pass
                 raise
         try:
-            os.rename(staging_entry, dest_entry)
+            _rename_with_retry(staging_entry, dest_entry)
         except OSError as exc:
+            # THE RESTORE CAN NOW FAIL ON ITS OWN, AND IT MUST NOT EAT THE ORIGINAL CAUSE.
+            # Unguarded, a raise here skips the refusal record below AND the bare `raise`,
+            # so what propagates is the RESTORE's exception rather than the content-swap
+            # failure that started it -- the diagnostic surface silently changing identity
+            # depending on whether the restore also hit contention. Chain instead: record
+            # the restore under its own `failing_operation` (a reader needs to know the
+            # destination may be ABSENT, not merely stale), then re-raise it FROM the
+            # original so both are visible.
             if prior.exists():
-                os.rename(prior, dest_entry)
+                try:
+                    _rename_with_retry(prior, dest_entry)
+                except OSError as restore_exc:
+                    try:
+                        _record_publish_swap_refusal(
+                            restore_exc,
+                            refused_path=prior,
+                            aside_path=dest_entry,
+                            swap_branch="root-dest",
+                            failing_operation="content_rename_restore",
+                        )
+                    except BaseException:
+                        pass
+                    raise restore_exc from exc
             try:
                 _record_publish_swap_refusal(
                     exc,
@@ -9795,6 +9927,73 @@ def _refuse_stranded_root_swap_prior(dest_dir: Path) -> None:
         prior_backup=stranded[0],
         content_swapped=False,
     )
+
+
+#: Win32 errors a directory rename raises when something else momentarily holds a handle
+#: in the tree: 32 `ERROR_SHARING_VIOLATION`, 5 `ERROR_ACCESS_DENIED` (what a delete-pending
+#: child surfaces as). Both are contention, not a verdict about the tree.
+_TRANSIENT_RENAME_WINERRORS = frozenset({5, 32})
+
+#: How long to keep trying a swap rename before giving up and refusing as before. ~24x the
+#: measured 21ms contention window (see `_rename_with_retry`), which also keeps this at the
+#: repo's brightline (§ Load norm) rather than over it.
+_SWAP_RENAME_DEADLINE_SECS = 0.5
+
+
+def _rename_with_retry(src: Path, dst: Path) -> None:
+    """`os.rename`, retried while Windows says another process is holding the tree.
+
+    A 21ms `ERROR_SHARING_VIOLATION` window, measured under ~50 concurrent sessions -- not a
+    held destination. See `state/lessons/2026-09-02-the-obvious-mechanism-was-the-wrong-one-measure-before-you-file.md`
+    for how that was determined and why the more obvious explanation was wrong.
+
+    THIS REOPENS A RULING THAT CUT A RETRY HERE, ON THAT RULING'S OWN STATED CONDITION.
+    `_swap_publish_staging_into_dest`'s docstring records a bounded retry removed on PM
+    ruling 2026-08-10 (staff-eng finding 5), and names what would reopen it: "a single
+    observed `PermissionError` with `winerror` 5 or 32 from these renames in a real run."
+    That is what happened -- `PermissionError(13)`, winerror 5, `prior_backup_rename`,
+    recorded in `state/audits/publish-swap-refusals/20260902T183923.956093Z-60636.json`.
+    The shape below is the one that ruling prescribed, not a fresh design.
+
+    OWNERSHIP WAS ESTABLISHED FIRST, WHICH IS THE WHOLE POINT OF THAT RULING.
+    `state/lessons/2026-08-07-a-retry-over-a-resource-error-hides-whet-e31057280e2b.yaml`
+    (2026-08-07) is the case it came from: a retry was added for an "antivirus race" that
+    was really a lock sidecar THIS process held open inside the destination `.git` for the
+    whole run -- unclearable by any amount of waiting, and the retry cost a diagnosis cycle
+    by making a deterministic failure look intermittent. Two facts separate this occurrence
+    from that one. The sidecar lives under `<dest>/.git/coordinator-locks/`, and a handle
+    there cannot block renaming its SIBLING `coordinator_core`, so the known self-held cause
+    is excluded by path rather than by assumption. And the holder was caught directly: a
+    20ms-interval probe of the exact access a rename needs recorded the directory HELD with
+    `ERROR_SHARING_VIOLATION` for 21ms and free on all 589 other samples, at a moment when
+    no round of this process was running. External, demonstrated, not inferred.
+
+    NEGATIVE SPEC -- THIS RETRIES CONTENTION AND NOTHING ELSE. `PermissionError` only, never
+    a blanket `except OSError`: `FileExistsError`/`NotADirectoryError`/`IsADirectoryError`
+    are permanent and would just be retried pointlessly. Discrimination is on `.winerror`,
+    never `.errno` -- CPython maps both Windows codes to `EACCES`, so `.errno` cannot tell
+    them apart. On timeout the LAST exception is re-raised unchanged, so the caller's own
+    refusal record and its `failing_operation` label are exactly what they were before this
+    function existed -- a genuinely wedged destination still refuses, no less loudly.
+
+    A FUTURE FAILURE HERE IS STILL RE-DIAGNOSED, NOT RE-MITIGATED. This function absorbs a
+    brief external holder; it is not evidence that any future `PermissionError` on these
+    renames is one. Find whose handle it is before touching the budget.
+    """
+    deadline = time.monotonic() + _SWAP_RENAME_DEADLINE_SECS
+    while True:
+        try:
+            os.rename(src, dst)
+            return
+        except PermissionError as exc:
+            if getattr(exc, "winerror", None) not in _TRANSIENT_RENAME_WINERRORS:
+                raise
+            if time.monotonic() >= deadline:
+                raise
+            # Flat, not exponential. Backoff earned its place against the 10s budget this
+            # started with; against 0.5s it only coarsens the last few attempts, and the
+            # measured window (21ms) is one sleep wide. 25 polls of 20ms is the whole loop.
+            time.sleep(0.02)
 
 
 def _swap_publish_staging_into_dest_root(dest_dir: Path, staging_dir: Path) -> None:
@@ -10010,7 +10209,18 @@ def _swap_publish_staging_into_dest(dest_dir: Path, staging_dir: Path) -> None:
     `state/lessons/2026-08-07-a-retry-over-a-resource-error-hides-whet-e31057280e2b.yaml`
     by file and date, not paraphrase, if reopening this. This sits ALONGSIDE
     the "re-diagnose from first principles" warning above, not instead of it.
-    No retry is added here, or anywhere in this change."""
+
+    REOPENED 2026-09-02 ON THAT EXACT CONDITION — the paragraph above is kept
+    verbatim because its reasoning still governs, but its closing sentence ("No
+    retry is added here") no longer describes this function. The renames below
+    now go through `_rename_with_retry`, in the shape this paragraph prescribes:
+    `PermissionError` only, discriminated on `.winerror`, bounded well under a
+    second. The triggering observation is
+    `state/audits/publish-swap-refusals/20260902T183923.956093Z-60636.json`
+    (winerror 5, `prior_backup_rename`); the ownership work that had to come
+    first, and why the self-held lock sidecar is excluded by path here, is in
+    `_rename_with_retry`'s own docstring. The re-diagnose-first-principles
+    warning above is NOT retired by this and applies to the next failure."""
     if (dest_dir / ".git").exists():
         _refuse_stranded_root_swap_prior(dest_dir)
         _swap_publish_staging_into_dest_root(dest_dir, staging_dir)
@@ -10033,7 +10243,7 @@ def _swap_publish_staging_into_dest(dest_dir: Path, staging_dir: Path) -> None:
 
     if dest_dir.exists():
         try:
-            os.rename(dest_dir, prior_backup)
+            _rename_with_retry(dest_dir, prior_backup)
         except OSError as exc:
             try:
                 _record_publish_swap_refusal(
@@ -10048,18 +10258,54 @@ def _swap_publish_staging_into_dest(dest_dir: Path, staging_dir: Path) -> None:
             raise
 
     try:
-        os.rename(staging_dir, dest_dir)
-    except OSError:
+        _rename_with_retry(staging_dir, dest_dir)
+    except OSError as exc:
         # Content swap itself failed. `.git` (if any) rode into
         # `prior_backup` untouched in step 1, so restoring it here returns a
         # COMPLETE repo under the real name, not a content-only tree.
+        #
+        # THE RESTORE RETRIES TOO, AND IT IS THE LEG THAT MOST NEEDS TO. Failing here
+        # leaves the destination ABSENT rather than merely stale -- the old tree is
+        # sitting under `.prior` and nothing answers to the real name. Losing that race
+        # to a 21ms holder would turn a refused publish into a broken mirror.
         if prior_backup.exists():
-            os.rename(prior_backup, dest_dir)
+            try:
+                _rename_with_retry(prior_backup, dest_dir)
+            except OSError as restore_exc:
+                # Same hazard as the root-dest branch, and worse here: failing this restore
+                # leaves the destination ABSENT rather than stale -- the old tree sits under
+                # `.prior` and nothing answers to the real name. Record it under its own
+                # label and chain, never let it silently stand in for the content failure.
+                try:
+                    _record_publish_swap_refusal(
+                        restore_exc,
+                        refused_path=prior_backup,
+                        aside_path=dest_dir,
+                        swap_branch="whole-tree",
+                        failing_operation="content_rename_restore",
+                    )
+                except BaseException:
+                    pass
+                raise restore_exc from exc
+        # This leg carried NO refusal record at all before -- pre-existing, and the weakest
+        # diagnostic trail of any swap failure mode. Added here rather than left, because
+        # the restore record above would otherwise be the only trace of a failure whose
+        # actual cause is this one.
+        try:
+            _record_publish_swap_refusal(
+                exc,
+                refused_path=staging_dir,
+                aside_path=prior_backup,
+                swap_branch="whole-tree",
+                failing_operation="content_rename",
+            )
+        except BaseException:
+            pass
         raise
 
     if prior_backup.exists() and (prior_backup / ".git").exists():
         try:
-            os.rename(prior_backup / ".git", dest_dir / ".git")
+            _rename_with_retry(prior_backup / ".git", dest_dir / ".git")
         except OSError as exc:
             try:
                 _record_publish_swap_refusal(
@@ -10370,8 +10616,7 @@ def process_target(
     for root in _contributing_roots(target):
         if not root.is_dir():
             print(f"  Error: source path does not exist: {root}", file=sys.stderr)
-            print(f"  Skipping {target.name}.", file=out)
-            print("", file=out)
+            _print_row_refusal(target.name, err=sys.stderr)
             if timing_sink is not None:
                 timing_sink.append((target.name, "REFUSED: source path absent", 0.0, 0.0))
             return
@@ -10497,8 +10742,7 @@ def process_target(
                 "(AC15 fail-closed, see startup error above).",
                 file=sys.stderr,
             )
-            print(f"  Skipping {target.name}.", file=out)
-            print("", file=out)
+            _print_row_refusal(target.name, err=sys.stderr)
             if timing_sink is not None:
                 timing_sink.append((target.name, "REFUSED: percolate engine unavailable", 0.0, 0.0))
             return
@@ -10513,8 +10757,7 @@ def process_target(
                     dispatch_standalone_guards(engine_ctx, target, effective_source_dir)
             except EngineUnavailableError as exc:
                 print(f"  Error: {exc}", file=sys.stderr)
-                print(f"  Skipping {target.name}.", file=out)
-                print("", file=out)
+                _print_row_refusal(target.name, err=sys.stderr)
                 if timing_sink is not None:
                     timing_sink.append((target.name, "REFUSED: engine unavailable mid-row", 0.0, 0.0))
                 return
@@ -10950,8 +11193,7 @@ def process_target(
                 # _MATERIALIZED_REF_CACHE for the rest of this process.
                 inject_shadow_toplevels = getattr(exc, "materialized_shadow_roots", ())
                 print(f"  Error: {exc}", file=sys.stderr)
-                print(f"  Skipping {target.name}.", file=out)
-                print("", file=out)
+                _print_row_refusal(target.name, err=sys.stderr)
                 if timing_sink is not None:
                     timing_sink.append((target.name, "REFUSED: engine unavailable in post_rsync/inject/pre_ci", 0.0, 0.0))
                 # `staging_dir` is discarded by the `finally` block below
@@ -12075,6 +12317,37 @@ def main(argv: Optional[List[str]] = None) -> int:
             )
             return 75
 
+    # --- Destination refresh (PM ruling 2026-09-02) --------------------------
+    # Every destination this invocation will write to is brought level with its
+    # origin BEFORE the first row materializes anything. A clone that is behind
+    # does not merely miss a peer's work: a round writes the whole published
+    # surface over the top and pushes it, so publishing from a stale clone
+    # reverts whatever another box already landed. See
+    # `percolate.dest_refresh` for the ruling text and the fail-closed rules.
+    #
+    # HERE, and not in `percolate-round.py`, because this is the one choke
+    # point both entry points share -- a `coordinator-publish` reaches this
+    # function directly, and a `percolate-round` reaches it as its Step 1 child
+    # (its inherited dest lock is still spanned across this process, and the
+    # inherited root is still in `lock_repo_roots`, so the refresh runs inside
+    # the same held lock either way). A second implementation on the round's
+    # side would be a second thing to keep true.
+    #
+    # `lock_repo_roots` is empty under `--dry-run` by construction (§ its own
+    # guard above), which is exactly right: a dry run mutates no destination
+    # and must not mutate one here either.
+    if lock_repo_roots:
+        from percolate.dest_refresh import (  # type: ignore[import-not-found]
+            refresh_dest_from_origin as _refresh_dest_from_origin,
+        )
+
+        for _refresh_root in lock_repo_roots:
+            _refresh = _refresh_dest_from_origin(_refresh_root, out=sys.stdout, err=sys.stderr)
+            if not _refresh.ok:
+                publish_lock_stack.close()
+                print(f"[publish.py] FATAL: {_refresh.reason}", file=sys.stderr)
+                return 1
+
     try:
         try:
             for row in rows:
@@ -12269,9 +12542,24 @@ def main(argv: Optional[List[str]] = None) -> int:
         # stranded unpublished for as long as it took someone to read past
         # the headline. Three separate rows fail-closed this way in one
         # evening. The exit code was always correct; the first line was not.
+        #
+        # AND THE HEADLINE NAMES THE ENGINE, not just a count. "FAILED. 8
+        # target(s) processed, 2 row(s) fail-closed." is every word true and
+        # supports the opposite of what happened: read on 2026-09-02 as
+        # "8/10 landed", it was one step from three peer repos being told an
+        # engine fix was live when the row that carries `coordinator_core`
+        # was one of the two that refused. A count is not the actionable
+        # half; WHICH payload did not ship is (§ `_row_carries_engine`).
+        _targets_by_name = {_t.name: _t for _t in parsed_rows.values()}
+        _engine_failed_names = _engine_carrying_failures(failed_row_names, _targets_by_name)
         headline = (
             f"FAILED. {totals.processed} target(s) processed, "
-            f"{len(failed_row_names)} row(s) fail-closed."
+            f"{len(failed_row_names)} row(s) fail-closed"
+            + (
+                f" — {_ENGINE_PAYLOAD_ROOT} did NOT publish."
+                if _engine_failed_names
+                else "."
+            )
             if failed_row_names
             else f"Done. {totals.processed} target(s) processed."
         )
@@ -12302,7 +12590,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         succeeded_paren = f" ({'; '.join(succeeded_paren_parts)})" if succeeded_paren_parts else ""
         print(f"  Rows succeeded: {len(succeeded_row_names)}/{len(expected_rows)}{succeeded_paren}")
         if failed_row_names:
-            print(f"  Rows FAILED:    {len(failed_row_names)} ({', '.join(failed_row_names)})", file=sys.stderr)
+            _print_row_failure_detail(
+                failed_row_names,
+                _targets_by_name,
+                _engine_failed_names,
+                err=sys.stderr,
+            )
         if failed_row_names and succeeded_row_names:
             # Neither "succeeded" nor "everything failed" — some of the
             # requested set landed and some did not. Say so in exactly these
@@ -12542,6 +12835,33 @@ def main(argv: Optional[List[str]] = None) -> int:
         # failure) so a single run surfaces every defect it can find, not just
         # the first.
         deduped_roots = list(dict.fromkeys(end_of_run_check_roots))
+
+        # STRIP `state/` FROM EVERY DESTINATION, before the four legs below read
+        # the tree. `state` is in `STRUCTURAL_NEVER_PUBLISHED_PREFIXES`, but that
+        # tuple is a WALK exclusion and removes nothing, and the removal side only
+        # ever names TRACKED dest-HEAD paths -- a mirror's `state/` is untracked and
+        # gitignored, so neither surface could clear it and the mirror accumulated
+        # it round after round (19 files across ~13 writers by 2026-09-02). See
+        # `surface.sweep_never_published_state` for why the two jobs are separate.
+        #
+        # Placed BEFORE the end-of-run legs, not after: the unscanned-published
+        # check is the leg that fail-closes on this residue, and clearing it first
+        # is the difference between a round that passes and one that FATALs and
+        # abandons its remaining per-row commits.
+        from coordinator_core.percolate import surface as _sweep_surface
+
+        for _sweep_root in deduped_roots:
+            _swept = _sweep_surface.sweep_never_published_state(
+                Path(_sweep_root),
+                published_dest_dirs=end_of_run_published_dest_dirs_by_repo_root.get(
+                    Path(_sweep_root)
+                ),
+            )
+            if _swept:
+                print(
+                    f"  swept {len(_swept)} never-published state/ file(s) from "
+                    f"{_sweep_root}"
+                )
         with _time_phase(round_timings, "<round>", "dispatch_end_of_run_identity_check"):
             identity_ok = dispatch_end_of_run_identity_check(
                 engine_ctx,

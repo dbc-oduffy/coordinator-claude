@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://coordinator.local/schemas/goal.schema.json",
   "x-schema-name": "goal",
-  "x-schema-version": "1.2.0",
-  "x-bump-class": "nested-field-additive",
-  "x-bump-note": "1.1.0 -> 1.2.0 added deliverable_id (nullable, optional; DR-097 push-side notification duty discharged — memo delivered to claude-klabauter-em 2026-08-10 at their 8796e9bd4; vendoring order used: DoE lands first, claude-klabauter vendors on our ping, since this bump originates here). 1.0.0 -> 1.1.0 added key_results.items.properties.reassessment_proposal (strict, greenfield object nested in the key_results array).",
+  "x-schema-version": "1.3.0",
+  "x-bump-class": "enum-value-additive",
+  "x-bump-note": "1.2.0 -> 1.3.0 (inbox-blitz-residue 2026-08-30, item 441) added `superseded` to `status`'s enum — the plan-side `status` enum elsewhere in the artifact-shape-contract's generated mirror already carries `superseded` as its own value, while goal's `abandoned` description folded 'or superseded' into itself as a synonym with no dedicated enum member. Classified enum-value-additive: one value added to an existing closed enum, no field added/removed, no other value's semantics changed — every record valid under 1.2.0 stays valid. goal.schema.json is registered in this repo's own corpus gate (`coordinator/tests/test_artifact_corpus_validates_against_schema.py :: _CORPUS_SCHEMA_MAP`, `state/goals/*.yaml`), not one of claude-klabauter's vendored schemas, so no DR-097 sibling-notification duty applies to this bump. The artifact-shape-contract.schema.json generated mirror still carries the pre-bump enum. That mirror is emitted by bin/emit-artifact-shape-contract.js, which does not exist in this tree — the regen is claude-klabauter-run and the bundle already lags (schema_count 68 vs 65). Hand-editing a generated artifact is the anti-pattern named at docs/wiki/migration-script-conventions.md:59, so the mirror is left to lag and the regen is owed claude-klabauter-side.\n\n1.1.0 -> 1.2.0 added deliverable_id (nullable, optional; DR-097 push-side notification duty discharged — memo delivered to claude-klabauter-em 2026-08-10 at their 8796e9bd4; vendoring order used: DoE lands first, claude-klabauter vendors on our ping, since this bump originates here). 1.0.0 -> 1.1.0 added key_results.items.properties.reassessment_proposal (strict, greenfield object nested in the key_results array).",
   "applies_to": "state/goals/*.yaml",
   "description": "Goal artifact — a time-boxed outcome target with measurable key results. Stored per-goal in state/goals/<id>.yaml (whole-document YAML frontmatter is the whole file — no prose markdown body). Spec backlink: pln-deliverable-spine-rollup-c5-re-d2d16a § C1. Spec backlink: pln-close-the-weekly-goal-loop-yam-d31316 § C1 (.md→.yaml migration, reverses the above's format decision)",
   "type": "object",
@@ -26,8 +26,8 @@
     },
     "status": {
       "type": "string",
-      "enum": ["active", "achieved", "abandoned"],
-      "description": "Goal lifecycle status. active=in flight; achieved=key results met; abandoned=cancelled or superseded."
+      "enum": ["active", "achieved", "abandoned", "superseded"],
+      "description": "Goal lifecycle status. active=in flight; achieved=key results met; abandoned=cancelled outright; superseded=replaced by a newer goal record."
     },
     "objective": {
       "type": "string",

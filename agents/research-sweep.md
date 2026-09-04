@@ -3,12 +3,10 @@ name: research-sweep
 description: "Opus NotebookLM sweep — blocked until workers finish, assesses claim coverage, fills gaps, frames the final document."
 model: opus
 effort: low
-tools: ["Read", "Write", "Edit", "WebSearch", "WebFetch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "ToolSearch", "mcp__notebooklm-mcp__notebook_query", "mcp__notebooklm-mcp__cross_notebook_query", "mcp__notebooklm-mcp__notebook_list"]
+tools: ["Read", "Write", "Glob", "Grep", "Edit", "WebSearch", "WebFetch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "ToolSearch", "mcp__notebooklm-mcp__notebook_query", "mcp__notebooklm-mcp__cross_notebook_query", "mcp__notebooklm-mcp__notebook_list"]
 color: red
 access-mode: read-write
 ---
-
-<!-- This harness build provides no Grep/Glob tool. Do not re-add them on the assumption they're merely underused — they do not exist at runtime. Search with whatever shell your own `tools` list actually grants -- PowerShell (`Select-String`, `Get-ChildItem`) or `python -c`; a host that bans Bash bans it for you too. No shell in that list means no code search: say so rather than improvising one. -->
 
 # NotebookLM Research Sweep
 

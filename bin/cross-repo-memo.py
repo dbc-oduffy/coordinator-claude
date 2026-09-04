@@ -39,12 +39,20 @@ Spec backlink: docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-sca
 Prior spec: docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Chunk 2
 
 Purpose: Write ONE dirty delivery memo into the RECEIVER's repo at
-  <receiver-repo>/cross-repo/inbox/YYYY-MM-DD-<topic>.md
+  <receiver-repo>/state/cross-repo/inbox/YYYY-MM-DD-<topic>.md
 left uncommitted (dirty) so it surfaces in the receiver's `git status`.
 
+Receiver inbox root (fleet-wide convention move, PM ruling 2026-09-02): the
+canonical inbox root is `<receiver-repo>/state/cross-repo/`, moving there
+repo-by-repo during a migration window announced in C10a. A fixed
+`<receiver-repo>/cross-repo/` literal is wrong for every sender the moment
+ANY receiver has moved — see `_receiver_inbox_root()` below, which resolves
+the root PER RECEIVER (probes that specific repo) rather than assuming a
+fleet-wide constant.
+
 Single-delivery-copy model (PM ruling 2026-05-23):
-- Sender writes ONE memo into receiver's cross-repo/ directory — NO sender copy,
-  NO archive/cross-repo/ write at send time.
+- Sender writes ONE memo into receiver's (per-receiver-resolved) cross-repo
+  directory — NO sender copy, NO archive write at send time.
 - The CLI prints the receiver path and a "hand the PM this path for relay" line.
 - The receiver reads the dirty file, acts on it, flips status: open → actioned
   in place via a normal Edit + commit. Terminal state — no move, no closure
@@ -115,7 +123,7 @@ import textwrap
 import time as _time
 from pathlib import Path
 
-GENERATES = []  # writes ONE dirty memo into the RECEIVER's (sibling) repo tree at <receiver-repo>/cross-repo/inbox/ — never into claude-klabauter's own tree
+GENERATES = []  # writes ONE dirty memo into the RECEIVER's (sibling) repo tree at <receiver-repo>/state/cross-repo/inbox/ (per-receiver-resolved, see _receiver_inbox_root) — never into claude-klabauter's own tree
 
 # ---------------------------------------------------------------------------
 # Shared memo composer — extracted to bin/lib/memo_compose.py (example-initiative tc-0 C4)
@@ -1450,6 +1458,49 @@ def _normalize_repo_name(name: str) -> str:
     return re.sub(r"[-_]+", "", name.strip().lower())
 
 
+#: Memoized binding for `coordinator_core.memo_corpus.receiver_inbox_root`,
+#: set on first call. `None` until then -- NOT a module-scope non-stdlib
+#: import (see the module note above `_receiver_inbox_root`'s neighbours: no
+#: non-stdlib import binds at import time in this file). Bootstrap
+#: (sys.path setup + the engine import) is per-process work that only needs
+#: doing once; a `--list-receivers` over N receivers used to repeat it N
+#: times to reach an already-imported module.
+_receiver_inbox_root_impl = None
+
+
+def _receiver_inbox_root(repo_path: str) -> "tuple[str, bool]":
+    """Resolve the cross-repo inbox root for ONE specific receiver repo.
+
+    Thin forwarder onto the engine's own `coordinator_core.memo_corpus.
+    receiver_inbox_root` (C7, once C1/C5 land that module) — this CLI no
+    longer carries a second implementation of the C10a migration-window
+    probe. See that function's docstring for the resolution rule and the
+    CACHE ASYMMETRY constraint (never process-lifetime-memoized) — that
+    constraint governs the RESOLVER's own per-receiver probe, not this
+    forwarder's one-time bootstrap, which is pure sys.path/import setup.
+
+    Bootstrap runs once per process (Review: overengineering-reviewer,
+    2026-09-03 — the bootstrap was re-run on every call). A resolution
+    failure on the first call (bootstrap or import error) still propagates
+    exactly as before — this hoist does not turn it into an import-time
+    crash of the CLI; the bootstrap only ever runs lazily, on first use.
+
+    Spec backlink: docs/plans/2026-09-02-state-keeps-the-work-not-the-machinery.md § C8
+    Spec backlink: docs/plans/2026-09-03-the-engine-follows-the-memo-channel-home.md § C7
+    """
+    global _receiver_inbox_root_impl
+    if _receiver_inbox_root_impl is None:
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        import cc_invoke
+
+        cc_invoke.ensure_engine_on_path(__file__)
+        from coordinator_core.memo_corpus import receiver_inbox_root as _impl
+
+        _receiver_inbox_root_impl = _impl
+
+    return _receiver_inbox_root_impl(repo_path)
+
+
 def _looks_like_coordinator_receiver(path: str) -> bool:
     """Verify-before-deliver gate (rule 5) for the parent-folder-scan fallback.
 
@@ -1457,16 +1508,23 @@ def _looks_like_coordinator_receiver(path: str) -> bool:
     before it can receive a memo — a coincidentally-named non-receiver
     directory is rejected outright (treated as no-match by the caller).
     Requires BOTH: a real git repo (`.git/` present) AND at least one of
-    `cross-repo/inbox/`, `cross-repo/`, or a `coordinator.local.md` marker.
+    `<inbox-root>/inbox/`, `<inbox-root>/`, or a `coordinator.local.md`
+    marker — `<inbox-root>` is `_receiver_inbox_root(path)`, per-receiver
+    resolved rather than a fixed `cross-repo/` literal (see that function).
     """
     # Review: code-review F5 — use os.path.exists rather than os.path.isdir:
     # in a git-worktree sibling, .git is a FILE (gitdir: pointer), not a
     # directory. isdir would wrongly reject a legitimate worktree receiver.
     if not os.path.exists(os.path.join(path, ".git")):
         return False
+    # Review: overengineering-reviewer — `root_isdir` reuses the isdir
+    # result `_receiver_inbox_root` already computed rather than re-probing
+    # it here (the re-probe was tautologically True whenever the probe had
+    # selected the new root).
+    inbox_root, root_isdir = _receiver_inbox_root(path)
     return (
-        os.path.isdir(os.path.join(path, "cross-repo", "inbox"))
-        or os.path.isdir(os.path.join(path, "cross-repo"))
+        os.path.isdir(os.path.join(inbox_root, "inbox"))
+        or root_isdir
         or os.path.isfile(os.path.join(path, "coordinator.local.md"))
     )
 
@@ -1745,27 +1803,10 @@ def _warn_if_unregistered_sender() -> None:
 # call sites share one implementation each.
 
 
-def _check_summary_over_cap(summary: str | None) -> str | None:
-    """Shared --summary over-cap check for every live send path.
-
-    Fails loud on an over-cap EXPLICITLY authored --summary rather than
-    silently truncating it mid-sentence (2026-07-22 body-drop verdict memo,
-    cross-repo/inbox/2026-07-22-claude-central-em-snippet-sync-adoption-and-
-    body-drop-verdict.md).
-
-    Returns the stderr diagnostic string when `summary` exceeds
-    `_SUMMARY_MAX_CHARS`, else None (pass).
-    """
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from memo_compose import _SUMMARY_MAX_CHARS
-
-    if summary is not None and len(summary) > _SUMMARY_MAX_CHARS:
-        return (
-            f"cross-repo-memo: --summary is {len(summary)} chars, cap is "
-            f"{_SUMMARY_MAX_CHARS} — shorten it or omit --summary to derive "
-            f"one from the body instead."
-        )
-    return None
+# The --summary over-cap check that used to sit here went with the one-shot
+# flag form. The cap is enforced for every send path by the frontmatter
+# validator's cross-field rule, `schema_validate._memo_cf_summary_length_cap`
+# — that rule is the only enforcer, so do not read its absence here as a gap.
 
 
 def _sender_identity_guard_and_warn() -> str | None:
@@ -3640,9 +3681,9 @@ def _build_combined_parser(for_help: bool = False) -> argparse.ArgumentParser:
     epilog = textwrap.dedent("""\
         INBOUND memos (closing one someone sent YOU):
           This tool only manages OUTBOUND memo drafts. To close/action a memo
-          already sitting in your own cross-repo/inbox/, use archive-stamp-cli
-          instead:
-            archive-stamp-cli resolve-memo cross-repo/inbox/<memo-file>.md
+          already sitting in your own state/cross-repo/inbox/, use
+          archive-stamp-cli instead:
+            archive-stamp-cli resolve-memo state/cross-repo/inbox/<memo-file>.md
     """)
 
     parser = argparse.ArgumentParser(
@@ -3683,8 +3724,8 @@ def _build_combined_parser(for_help: bool = False) -> argparse.ArgumentParser:
         help="OPTIONAL. Basename (or path — normalized to basename) of the "
              "inbound memo this draft will reply to when sent. Written as "
              "`in_reply_to:` in the draft's frontmatter and threaded through "
-             "`send`; existence against this repo's own cross-repo/inbox/ or "
-             "cross-repo/archive/ is checked at send time, not draft time.",
+             "`send`; existence against this repo's own state/cross-repo/inbox/ or "
+             "state/cross-repo/archive/ is checked at send time, not draft time.",
     )
     # scoped_to sub-fields — OPTIONAL for every kind (presence-triggered
     # completeness, not kind-gated): omit all four and the draft is valid
@@ -3920,9 +3961,9 @@ def main(argv: list[str] | None = None) -> int:
                 f"cross-repo-memo: '{first}' is not a cross-repo-memo verb — "
                 f"this tool manages OUTBOUND memos (draft, compose, list, "
                 f"discard, send). To close/action an INBOUND memo already "
-                f"sitting in your cross-repo/inbox/, use "
+                f"sitting in your state/cross-repo/inbox/, use "
                 f"archive-stamp-cli resolve-memo <memo_path> instead:\n"
-                f"  archive-stamp-cli resolve-memo cross-repo/inbox/<memo-file>.md",
+                f"  archive-stamp-cli resolve-memo state/cross-repo/inbox/<memo-file>.md",
                 file=sys.stderr,
             )
             return 2

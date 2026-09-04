@@ -172,7 +172,12 @@ except Exception:
         return None
 
     def forwarder_argv(script_path, tail=()):  # type: ignore[misc]
-        return [sys.executable, str(script_path), *tail]
+        # Review: overengineering-reviewer F3 -- see _forwarder_resolve's
+        # "Import-fallback contract" docstring section for the rationale.
+        # Unreachable on this leg: `resolve_forwarder`'s own fallback above
+        # already returns None unconditionally, so `regenerator` is never
+        # truthy and this function is never called here.
+        raise OSError("forwarder resolution unavailable -- import fallback declined to guess a launch decision")
 try:
     from _git_root_walk import git_root_walk as _git_root_walk
 except Exception:
@@ -614,9 +619,11 @@ def _selfheal_orientation_cache(claude_klabauter_root: Optional[str]) -> None:
     # assumed: an extensionless naked-Python script requires it (Windows'
     # CreateProcess does not consult shebang lines), a native .exe must not have it.
     # `forwarder_argv` owns that branch — do not inline either form back here.
-    cmd = forwarder_argv(regenerator, ["--invoker", "sweep-boot"])
-
     try:
+        # Review: overengineering-reviewer F3 -- argv computation moved inside
+        # the try so a fallback-leg OSError (see _forwarder_resolve) is
+        # absorbed by the handler below rather than needing its own guard.
+        cmd = forwarder_argv(regenerator, ["--invoker", "sweep-boot"])
         result = _invoke_regenerator(cmd, repo_root, timeout=60.0)
     except subprocess.TimeoutExpired:
         # 60s is generous headroom over the ~10-spawn full regen this CLI pays

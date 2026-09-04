@@ -47,7 +47,7 @@ Behaviour:
      git unavailable, timeout, empty stage) and a multi-artifact commit
      whose artifacts name different deliverables both degrade to "tier 0 has
      nothing to say", silently, rather than blocking or erroring the commit.
-     DR-328 retired ``DivergentDeliverableIdError`` as a commit gate — two
+     DR-406 retired ``DivergentDeliverableIdError`` as a commit gate — two
      deliverables in one commit is ordinary, not ambiguous — so the second
      case is an omit here and in the engine twin alike, with no stderr note
      in either. Gated (2026-08-07, DR-207)
@@ -59,7 +59,7 @@ Behaviour:
      memo-write-through defect this closes. This mirrors
      ``coordinator_core.git.commit_trailers.compute_missing_trailer_args``'s
      own tier 0 for a caller (``git commit-tree`` et al.) that hooks never
-     fire for; post-DR-328 that sibling omits on divergence exactly as this
+     fire for; post-DR-406 that sibling omits on divergence exactly as this
      copy does, and neither raises. This hook could not have kept a raising
      posture in any case: a failed hook still lets the underlying ``git
      commit`` land with a wrong/no trailer rather than blocking, and
@@ -509,7 +509,7 @@ def _resolve_deliverable_id_from_paths(
     Omit-rather-than-guess: ``paths`` empty, or none of ``paths`` resolve to
     a file carrying a ``deliverable_id``, returns ``""``. Two or more staged
     paths carrying DIFFERENT non-empty ``deliverable_id`` values ALSO return
-    ``""`` (DR-328, 2026-08-19) — a divergent pathspec is the same
+    ``""`` (DR-406, 2026-08-19) — a divergent pathspec is the same
     "cannot resolve" case as an empty one, not a separate fail-loud posture,
     and producer-contract § 3 governs all three producers uniformly.
 
@@ -593,7 +593,7 @@ def _resolve_deliverable_id_from_paths(
     if len(distinct_values) == 1:
         return found[min(found)]
 
-    # Producer-contract § 3 / DR-328: omit, don't guess -- and don't raise
+    # Producer-contract § 3 / DR-406: omit, don't guess -- and don't raise
     # either. The engine twin returns "" here, and this copy relying on
     # `_resolve_deliverable_id`'s broad `except Exception` to convert a raise
     # into the same outcome made the two LOOK equivalent while their control
@@ -769,7 +769,7 @@ def _resolve_deliverable_id(git_dir: str, session_id: str, paths: "list | None" 
     below, never blocks or errors the commit.
 
     A DIVERGENT pathspec no longer reaches that arm and is not noted on
-    stderr: DR-328 retired ``DivergentDeliverableIdError`` as a commit gate
+    stderr: DR-406 retired ``DivergentDeliverableIdError`` as a commit gate
     on the ruling that two deliverables in one commit "is not a divergence
     at all — it is ordinary", so tier 0 returns "" for it exactly as it does
     for an empty stage. Guarded by

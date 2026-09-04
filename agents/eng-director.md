@@ -4,11 +4,9 @@ description: "Personas are Opus-only. The Director of Engineering, Director of E
 model: opus
 effort: low
 color: yellow
-tools: ["Read", "Write", "Edit", "Bash", "PowerShell", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "ToolSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
+tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "PowerShell", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "ToolSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
 access-mode: read-write
 ---
-
-<!-- This harness build provides no Grep/Glob tool. Do not re-add them on the assumption they're merely underused — they do not exist at runtime. Search with whatever shell your own `tools` list actually grants -- PowerShell (`Select-String`, `Get-ChildItem`) or `python -c`; a host that bans Bash bans it for you too. No shell in that list means no code search: say so rather than improvising one. -->
 
 ## Role
 

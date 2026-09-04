@@ -85,6 +85,20 @@ _ABSENT = 3
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 
 
+def _repo_root_from_file() -> str:
+    """Repo root derived from this file's own location -- `coordinator/bin/
+    fleet-env.py` is two directories under it -- the same `__file__`-based,
+    invocation-path-independent pattern `_LIB_DIR` already uses above.
+    Review: overengineering-reviewer -- the degrade route in
+    `resolve_fleet_env_root`'s except clause used to re-run
+    `_import_cc_invoke()` and `_resolve_claude_klabauter_root()` to reach this path,
+    which re-derives exactly the import the try block just failed on; a
+    packaging defect that makes `cc_invoke` unimportable made that route
+    fail silently for the one case DR-402 rung 3 names. This helper reaches
+    the same root without importing `cc_invoke` at all."""
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
 def _import_cc_invoke():
     """Import `cc_invoke` with an invocation-path-independent bootstrap.
 
@@ -130,8 +144,7 @@ def resolve_fleet_env_root() -> "str | None":
         return cc_invoke._machine_local_get(_FLEET_ENV_ROOT_KEY)
     except Exception as exc:
         try:
-            cc_invoke = _import_cc_invoke()
-            claude_klabauter_root = cc_invoke._resolve_claude_klabauter_root()
+            claude_klabauter_root = _repo_root_from_file()
             if claude_klabauter_root not in sys.path:
                 sys.path.insert(0, claude_klabauter_root)
             from coordinator_core.warm import telemetry

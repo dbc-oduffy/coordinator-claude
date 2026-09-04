@@ -39,24 +39,25 @@ A fence needing a coordinator CLI picks the FIRST rung that applies, not "settin
 
 ### Shape W — PowerShell host (rung 0)
 
-Invoke the `.exe` by absolute path through the call operator, on one line (pwsh 7 is the supported
-floor; there is no 5.1 rung).
-
-**The variable is not always exported — check it before you use this shape.** When
-`$env:COORDINATOR_SETTINGS_HOME` is empty the quoted path collapses to a bare
-`\bin\<cli>.exe`, which resolves against the current drive and fails command-not-found —
-reading as "this CLI does not exist" when it is installed and working. Never hand-derive
-`$env:USERPROFILE\.coordinator-claude-settings`, the second resolution mechanism this clause
-exists to prevent:
-
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.exe" --type plan --title "<title>"`
-
-**Empty? Spell the same default formula this file already prescribes.** Shapes A and B inline
-`${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}` because POSIX
-shells default in-line; PowerShell has no such form, so it spells the identical precedence
-long-hand. This is THE resolution, not a second one — prepend it and carry on:
+**Shape W is TWO lines, and the guard is line one. Copy both or neither.** Nothing exports
+`$env:COORDINATOR_SETTINGS_HOME` — not the installer, not the shim, not a hook — so an unset
+variable is the DEFAULT state of a fresh shell, not an edge case. Every PowerShell call starts a
+fresh shell, so the guard is per-invocation; it does not carry over from your last call:
 
     `if (-not $env:COORDINATOR_SETTINGS_HOME) { $env:COORDINATOR_SETTINGS_HOME = Join-Path ($env:CLAUDE_HOME ?? $HOME) ".coordinator-claude-settings" }`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.exe" --type plan --title "<title>"`
+
+pwsh 7 is the supported floor; there is no 5.1 rung. The guard spells long-hand the same
+precedence Shapes A and B inline as
+`${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}` — POSIX shells
+default in-line and PowerShell has no such form. It is THE resolution, not a second one.
+
+**Dropping line one fails in the shape most likely to make you violate this file.** The quoted path
+collapses to a bare `\bin\<cli>.exe`, resolves against the current drive, and fails
+command-not-found — reading as "this CLI does not exist" when it is installed and working. The
+natural recovery from that misreading is to hunt down the real path and hard-code it, which is
+exactly the hand-derived `$env:USERPROFILE\.coordinator-claude-settings` this file forbids. Never
+hand-derive it: the error means the guard is missing, never that the CLI is.
 
 The bootstrap resolver cannot serve this rung: the installer places `coordinator-settings-home.cmd`
 inside `<settings-home>\bin\`, so reaching it needs the value it produces, and the copy under a

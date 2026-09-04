@@ -63,9 +63,11 @@
 # Spec backlink: docs/plans/2026-08-16-a-process-per-predicate.md, chunk C8
 from __future__ import annotations
 
+import contextlib
 import importlib
 import importlib.util
 import inspect
+import io
 import sys
 from pathlib import Path
 from typing import Callable, List, Optional
@@ -1015,10 +1017,131 @@ def run_gate_target(name: str, argv: List[str]) -> int:
         sys.argv = original_argv
 
 
+_HELP_FLAGS = ("--help", "-h")
+
+
+def _help_requested(argv: List[str]) -> bool:
+    """True if `--help`/`-h` appears ANYWHERE in argv, including after a
+    subcommand token (`baton-assemble brief --help`). Position is
+    deliberately not special-cased: a partially-typed command is exactly
+    when the gesture is reached for.
+
+    Spec backlink: docs/plans/2026-09-02-the-loader-fires-the-assembly-not-
+    the-em.md, chunk C1, NEGATIVE SPEC.
+    """
+    return any(a in _HELP_FLAGS for a in argv)
+
+
+def _synthesize_usage(name: str) -> str:
+    """Minimal usage line for a target with no help surface of its own
+    (or whose own surface could not be safely reached — see
+    `_render_help` below). Never used for a target whose own
+    `--help` output was successfully captured."""
+    return f"usage: {name} [--help]\n"
+
+
+def _usage_lines(text: str) -> str:
+    """Returns only the usage-bearing lines of `text` (case-insensitive
+    substring "usage"), joined with a trailing newline, or "" if none.
+
+    Exists because two engine-mapped targets (`plan-assemble`, `workday-
+    complete-assemble`) print their real usage line to stderr ALONGSIDE a
+    genuine parse-error line (`"plan-assemble: unrecognized argument
+    '--help'"`) — that error line is a true statement about how the
+    target's own hand-rolled parser sees an unrecognized `--help` token,
+    but it is not something a successful help gesture should surface. This
+    filters line-by-line rather than discarding stderr wholesale, so the
+    one line that IS real usage is kept and the error line beside it is
+    not.
+    """
+    lines = [ln for ln in text.splitlines() if "usage" in ln.lower()]
+    return ("\n".join(lines) + "\n") if lines else ""
+
+
+def _render_help(name: str) -> str:
+    """Returns the usage text to print for `name`'s `--help` gesture,
+    without ever running the target's op.
+
+    `name in BY_PATH_TARGETS`: the sole member's `main()` takes no argv
+    (`del argv` at workday-start-inbox-blitz-assemble.py:519) and always
+    runs its full body regardless of what it is called with, so it is
+    NEVER invoked here — a synthesized line is the only safe answer.
+
+    Every other name: `_ENGINE_ENTRIES[name]` is called with `["--help"]`
+    only, both stdout and stderr redirected to buffers. The per-target
+    safety basis for that call splits into two shapes, each verified by
+    reading that target's own `main` (or delegating entry function) rather
+    than assumed by pattern-matching the rest:
+
+    - Most targets handle `--help`/`-h` as an EXPLICIT, first-checked
+      branch in their own dispatch (`main`, or in the two engine-mapped
+      cases `_backlog_grind_assemble_entry`/`_merge_assemble_entry` in this
+      module), returning before any op-reaching code runs — not argparse's
+      `-h` action; every one of these is a hand-rolled positional/flag
+      dispatch.
+    - A small remainder (`plan-assemble`, `workday-complete-assemble`) has
+      NO explicit `--help` branch and falls through to its existing
+      usage/error path instead: `plan-assemble`'s `_dispatch_brief` raises
+      a route-usage error inside its own route-parsing before `brief()`'s
+      compute step is ever reached; `workday-complete-assemble`'s
+      `_workday_complete_assemble_entry` (this module) checks the
+      subcommand is one of `("brief", "apply")` before either sub-`main`
+      import, so an unrecognized `--help` token returns at that guard. For
+      both, the captured text is filtered through `_usage_lines` to keep
+      only the real usage line and drop the parse-error line beside it
+      (see that function's docstring) — this is what turns a target with
+      no `--help` surface of its own into a delegated (not synthesized)
+      render, since the usage text it already has is real and worth
+      keeping.
+
+    The full per-target partition (which targets fall in each shape, and
+    the exact real-usage substring each renders) is asserted by the
+    parametrized suite in `coordinator/bin/lib/tests/test_assemble_help_
+    contract.py` — `test_delegated_targets_render_their_own_real_usage`,
+    `test_only_the_by_path_target_has_a_run_target_bypassing_main_entry`,
+    and `test_synthesis_is_used_only_for_the_by_path_target` (the by-path
+    target is the only one where a line is synthesized rather than
+    delegated) — read that suite for the live, per-target register rather
+    than this docstring.
+    """
+    if name in BY_PATH_TARGETS:
+        return _synthesize_usage(name)
+
+    entry = _ENGINE_ENTRIES[name]
+    out_buf, err_buf = io.StringIO(), io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+            entry(["--help"])
+    except SystemExit:
+        pass
+    except Exception:  # noqa: BLE001 -- a target's own --help handling
+        # must never crash the help gesture; fall through to synthesis.
+        pass
+
+    stdout_text = out_buf.getvalue()
+    if stdout_text.strip() and "usage" in stdout_text.lower():
+        return stdout_text
+
+    stderr_usage = _usage_lines(err_buf.getvalue())
+    if stderr_usage:
+        return stderr_usage
+
+    return _synthesize_usage(name)
+
+
 def run_target(name: str, argv: List[str]) -> int:
     """Run the named `-assemble` entry point in-process and return its exit
     code. `argv` excludes the subcommand name itself (mirrors `sys.argv[1:]`
     for direct invocation of the target `.py`).
+
+    `--help`/`-h` is intercepted here, at the top, before any of the
+    dispatch machinery below runs: before `_record_invocation`, before
+    `_recover_json_payload_argv`, and before either resolution branch.
+    Usage is printed to stdout and 0 is returned; the target's op is never
+    reached, and a help gesture is never counted as an op invocation for
+    C9's deprecation-window census. See `_render_help` for how the usage
+    text is sourced. Spec backlink: docs/plans/2026-09-02-the-loader-fires-
+    the-assembly-not-the-em.md, chunk C1.
 
     Two resolution shapes, by name:
       - `name in BY_PATH_TARGETS` (currently just
@@ -1032,6 +1155,10 @@ def run_target(name: str, argv: List[str]) -> int:
     """
     if name not in ASSEMBLE_TARGETS:
         raise UnknownTargetError(name)
+
+    if _help_requested(argv):
+        sys.stdout.write(_render_help(name))
+        return 0
 
     _record_invocation(name)
 

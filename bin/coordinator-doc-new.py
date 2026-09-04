@@ -645,7 +645,7 @@ def _missing_out_message(type_label: str) -> str:
             "Take the sidecar path from the dispatch brief."
         )
     return (
-        f"{head} Absent one, write under state/subagent-share/{session_id}/ "
+        f"{head} Absent one, write under .coordinator-local/subagent-share/{session_id}/ "
         "and pass that path as --out."
     )
 

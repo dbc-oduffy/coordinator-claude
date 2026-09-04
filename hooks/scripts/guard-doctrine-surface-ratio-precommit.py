@@ -6,9 +6,10 @@ weight ratchet -- the ONLY enforcing leg (leg 1a,
 
 Spec: docs/plans/2026-08-13-doctrinal-surface-weight-ratchet.md, chunk C9b
 (§ D2, D3, D7). Installer registration is chunk C9c, a sibling repo's
-own installer -- this script ships complete and tested but is NOT
-installed into `.git/hooks/` by anything in this repo; the sibling
-installer names this exact path (`coordinator/hooks/scripts/guard-
+own installer -- this script ships complete and tested, but the
+`.git/hooks/pre-commit` installed in this clone invokes a different
+guard (`guard-phantom-staged-deletion-precommit.py`), not this one; the
+sibling installer names this exact path (`coordinator/hooks/scripts/guard-
 doctrine-surface-ratio.py` per its own gate registry -- see this repo's
 plan body for the cross-repo contract note; do not rename either this
 file or the leg-1a guard without a coordinated update on that side).

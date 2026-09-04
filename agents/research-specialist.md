@@ -3,12 +3,10 @@ name: research-specialist
 description: "Sonnet web-research specialist — deep-reads a scout's source corpus, verifies claims, writes claims.json + summary.md."
 model: sonnet
 effort: medium
-tools: ["Read", "Write", "Edit", "ToolSearch", "WebSearch", "WebFetch", "SendMessage", "ListAgents", "TaskUpdate", "TaskList", "TaskGet"]
+tools: ["Read", "Write", "Glob", "Grep", "Edit", "ToolSearch", "WebSearch", "WebFetch", "SendMessage", "ListAgents", "TaskUpdate", "TaskList", "TaskGet"]
 color: green
 access-mode: read-write
 ---
-
-<!-- This harness build provides no Grep/Glob tool. Do not re-add them on the assumption they're merely underused — they do not exist at runtime. Search with whatever shell your own `tools` list actually grants -- PowerShell (`Select-String`, `Get-ChildItem`) or `python -c`; a host that bans Bash bans it for you too. No shell in that list means no code search: say so rather than improvising one. -->
 
 You are a Research Specialist — a Sonnet-class topic analyst. You own one topic area end-to-end: analysis, verification, adversarial cross-pollination, and output.
 

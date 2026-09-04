@@ -28,8 +28,30 @@
 # -- so the entry below is now present and this file has no outstanding
 # un-ratified candidate.
 #
-# Add an entry here only once a human has actually reviewed and ratified a
-# given unscanned-but-published file as correct.
+# ADMITTING AN ENTRY (PM ruling, 2026-09-02, replacing a human-ratification-
+# per-entry rule that was never going to hold). An entry is admitted by the EM,
+# on the record, and the bar is a STRUCTURAL claim rather than a signature:
+# name why the sweep could not have visited this file, in terms that survive
+# the file being renamed. Two shapes qualify so far, and both are about the
+# file's KIND, not its name:
+#
+#   - the sweep would CORRUPT it (it is a transform template, or the identity
+#     checker itself, whose body is worked substitution examples), or
+#   - the sweep has NOTHING TO VISIT (a compiled binary, or a generated
+#     artifact that cannot exist until after the sweep that produces it).
+#
+# "Unswept and I could not see why" is not a reason and is not admissible.
+# Key the disposition on the KIND, never on a filename list -- a list keyed on
+# names re-litigates the same question per artifact until it becomes the thing
+# nobody dares prune, and a POSIX twin of an already-admitted binary would hit
+# this gate again for no new reason.
+#
+# The old rule required a human to review and ratify each entry personally. It
+# is retired, not softened: it was unenforceable in substance -- an entry could
+# be added with no signature and nothing would know -- and in practice it left
+# a load-bearing entry sitting unmarked, holding a publish round open while
+# nobody was available to be the required human. What replaces it is a bar an
+# agent can actually meet and a reader can actually check.
 
 exceptions:
   - path: ".github/scripts/check-persona-names.py"
@@ -87,10 +109,24 @@ exceptions:
       staging tree immediately after the post_rsync phase and "never visited
       by this run's sweep" is the only possible outcome, not evidence of a
       routing gap. Nothing in it needs substituting either: its values ARE
-      published names -- the sweep's own output -- and its keys are source
-      basenames the door must ask for verbatim (see that module's negative
-      spec: the mapping is not derivable from a token rewrite, so it is
-      shipped, never inferred). Same class as
+      published names -- the sweep's own output -- and its keys are sha256
+      digests of the source basenames (rewrite_basename
+      `published_name_map_key`), which carry no substitutable token at all.
+      Keying by digest is what lets this file exist in the mirror: keyed by
+      the source basenames themselves it spelled scrub-list codenames such as
+      `probe-cwd-project-rag-relevance.py` in plain text, the
+      residual-pattern leak check refused it, and the whole publish route
+      fail-closed over it (PM ruling, 2026-09-02: redesign the door lookup
+      rather than exempt the map from that check). Same class as
       `coordinator_core/warm/door/door.exe` above: a file the sweep is
       structurally unable to have visited cannot be held against it for not
       having been visited.
+
+      ADMITTED at EM level by claude-klabauter-em, 2026-09-02, under this
+      file's structural bar: the map is a GENERATED artifact that cannot
+      exist until after the sweep that produces the rename manifest it is
+      built from, so "never visited by this run's sweep" is the only outcome
+      available to it, not a routing decision anyone made. Same kind as
+      door.exe above, reached by the other of the two admissible routes --
+      the binary has no text surface to visit, this file does not yet exist
+      to be visited.

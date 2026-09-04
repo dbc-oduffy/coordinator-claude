@@ -243,7 +243,7 @@ def _write_pathspec_file(paths: list) -> str:
     return pathspec_path
 
 
-def _tracked_paths(repo_root: str, rel_paths: list, under: str = "state/subagent-share") -> set:
+def _tracked_paths(repo_root: str, rel_paths: list, *, under: str) -> set:
     """Batched tracked-check: one `git ls-files` spawn scoped to `under`
     (the whole reap subtree) instead of one `--error-unmatch` probe per
     file. `git ls-files` has no `--pathspec-from-file` support (verified
@@ -252,7 +252,12 @@ def _tracked_paths(repo_root: str, rel_paths: list, under: str = "state/subagent
     ceiling at reap-population scale (§ `_write_pathspec_file`). Naming the
     single directory instead keeps this to one fixed-size spawn regardless
     of candidate count — every path this script ever reaps lives under
-    `under` by construction (it is `share_dir`, relative to `repo_root`).
+    `under` by construction (it is one `share_dir`, relative to `repo_root`).
+
+    `under` is keyword-only and has NO default. It previously defaulted to
+    `"state/subagent-share"`, which became wrong the moment a second root
+    existed and would have silently classified every candidate as untracked.
+    A caller must say which root it is asking about.
 
     `git ls-files` always echoes matches in POSIX (forward-slash) form even
     when fed a backslash-separated pathspec on Windows — a raw string
@@ -280,7 +285,7 @@ def main(argv: Optional[list] = None) -> int:
 
     parser = argparse.ArgumentParser(
         prog="reap-stale-subagent-sidecars.py",
-        description="Delete-by-convention sweep of state/subagent-share/ (DR-091 sidecar home).",
+        description="Delete-by-convention sweep of the subagent-share sidecar homes (DR-091).",
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--age-floor-days", type=int, default=_DEFAULT_AGE_FLOOR_DAYS)
@@ -311,9 +316,25 @@ def main(argv: Optional[list] = None) -> int:
         print(f"reap-stale-subagent-sidecars.py: session liveness engine not importable: {exc}", file=sys.stderr)
         return 2
 
-    share_dir = os.path.join(repo_root, "state", "subagent-share")
-    if not os.path.isdir(share_dir):
-        print(f"reap-stale-subagent-sidecars.py: {share_dir} does not exist; nothing to do")
+    from coordinator_core.session.machinery_paths import machinery_root
+
+    # BOTH roots, and the split is the point. `.coordinator-local/` is
+    # gitignored (`.gitignore` names the whole root), so nothing under it can
+    # ever appear in `git ls-files` -- reaping there is correctly a plain
+    # `os.remove`. `state/subagent-share/` holds the pre-relocation corpus,
+    # which IS tracked and must go through `git rm` to preserve history.
+    # Walking only the machinery root (as this script did between the
+    # relocation repoint and this fix) silently retired the `git rm` leg:
+    # every candidate resolved untracked, so a tracked sidecar would have
+    # been deleted with no history entry, and the old root had no reaper at
+    # all. Caught by code-reviewer on `196fbbc71e`.
+    share_dirs = [
+        os.path.join(machinery_root(repo_root), "subagent-share"),
+        os.path.join(repo_root, "state", "subagent-share"),
+    ]
+    share_dirs = [d for d in share_dirs if os.path.isdir(d)]
+    if not share_dirs:
+        print("reap-stale-subagent-sidecars.py: no subagent-share root exists; nothing to do")
         return 0
 
     now = time.time()
@@ -323,35 +344,36 @@ def main(argv: Optional[list] = None) -> int:
     preserved_too_young = 0
     preserved_status = 0
 
-    for session_id in sorted(os.listdir(share_dir)):
-        if session_id in _NON_SESSION_DIR_NAMES:
-            continue
-        session_dir = os.path.join(share_dir, session_id)
-        if not os.path.isdir(session_dir):
-            continue
-
-        if session_live(session_id, cwd=repo_root):
-            # Entire directory preserved — an in-flight session's own
-            # sidecar(s) are never reaped out from under it, regardless of
-            # any individual file's status or age.
-            preserved_live_session += len(glob.glob(os.path.join(session_dir, "*.md")))
-            continue
-
-        for f in sorted(glob.glob(os.path.join(session_dir, "*.md"))):
-            if not os.path.isfile(f):
+    for share_dir in share_dirs:
+        for session_id in sorted(os.listdir(share_dir)):
+            if session_id in _NON_SESSION_DIR_NAMES:
+                continue
+            session_dir = os.path.join(share_dir, session_id)
+            if not os.path.isdir(session_dir):
                 continue
 
-            status = _fm_field(f, "status").lower()
-            if status in _STATUS_NEVER_REAP:
-                preserved_status += 1
+            if session_live(session_id, cwd=repo_root):
+                # Entire directory preserved — an in-flight session's own
+                # sidecar(s) are never reaped out from under it, regardless of
+                # any individual file's status or age.
+                preserved_live_session += len(glob.glob(os.path.join(session_dir, "*.md")))
                 continue
 
-            age = _age_days(f, now)
-            if age < age_floor_days:
-                preserved_too_young += 1
-                continue
+            for f in sorted(glob.glob(os.path.join(session_dir, "*.md"))):
+                if not os.path.isfile(f):
+                    continue
 
-            to_reap.append(f)
+                status = _fm_field(f, "status").lower()
+                if status in _STATUS_NEVER_REAP:
+                    preserved_status += 1
+                    continue
+
+                age = _age_days(f, now)
+                if age < age_floor_days:
+                    preserved_too_young += 1
+                    continue
+
+                to_reap.append(f)
 
     if not to_reap:
         print("nothing to reap")
@@ -364,9 +386,14 @@ def main(argv: Optional[list] = None) -> int:
         return 0
 
     rel_by_file = {f: os.path.relpath(f, repo_root) for f in to_reap}
-    tracked_rels = _tracked_paths(
-        repo_root, list(rel_by_file.values()), under=os.path.relpath(share_dir, repo_root)
-    )
+    # One scoped spawn per root rather than one unscoped walk: `_tracked_paths`
+    # narrows `git ls-files` to a single directory precisely to stay at fixed
+    # spawn cost, and a check scoped to one root classifies nothing in the other.
+    tracked_rels: set = set()
+    for share_dir in share_dirs:
+        tracked_rels |= _tracked_paths(
+            repo_root, list(rel_by_file.values()), under=os.path.relpath(share_dir, repo_root)
+        )
     tracked_to_reap = []
     untracked_to_reap = []
     for f in to_reap:

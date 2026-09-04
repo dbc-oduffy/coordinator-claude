@@ -185,6 +185,41 @@ $claudeExe = (Get-Command claude -CommandType Application -ErrorAction Stop | Se
 $__cdlHarborKitePresent = Test-Path -LiteralPath Env:\CLAUDE_CODE_HARBOR_KITE
 $__cdlHarborKitePrior = if ($__cdlHarborKitePresent) { $env:CLAUDE_CODE_HARBOR_KITE } else { $null }
 if (-not $__cdlHarborKitePresent) { $env:CLAUDE_CODE_HARBOR_KITE = '1' }
+# Export the settings home into the environment claude.exe inherits.
+#
+# Purpose: this is the ONLY seam that reaches an agent's tool shells. The
+# claude-doe-shim exports the same value from the operator's shell profile, but
+# Claude Code tool shells never run a profile -- the PowerShell tool runs
+# -NoProfile, and the Bash tool replays a ~/.claude/shell-snapshots snapshot that
+# captures functions and aliases and never sources the shim. Measured 2026-09-03:
+# with the shim export live on disk and wired into both profile files, an agent
+# tool shell still reported the variable empty and a bare
+# `& "$env:COORDINATOR_SETTINGS_HOME\bin\<cli>.exe"` call failed command-not-found.
+# claude.exe's own environment IS inherited by those shells -- proven by
+# COORDINATOR_CLONE_ROOT and CLAUDE_CODE_HARBOR_KITE, both set below and both
+# readable from a tool shell -- so setting it here is what makes Shape W work
+# without a per-invocation guard. Every settings-home CLI invocation across
+# coordinator/{commands,skills,agents} depends on it.
+#
+# Same precedence the rest of the fleet spells (CLAUDE_HOME -> HOME ->
+# USERPROFILE), never a hand-derived $env:USERPROFILE\.coordinator-claude-settings:
+# that is the second resolution mechanism snippets/resolve-coordinator-bin.md
+# exists to prevent.
+#
+# setdefault, never overwrite: an operator who has already exported this key is
+# pinning a settings home deliberately.
+#
+# Save/restore is NOT optional, for the same reason as the kite and clone root
+# below: this runs in the operator's own pwsh process, so an unrestored
+# assignment would leak into their interactive shell.
+$__cdlSettingsHomePresent = Test-Path -LiteralPath Env:\COORDINATOR_SETTINGS_HOME
+$__cdlSettingsHomePrior = if ($__cdlSettingsHomePresent) { $env:COORDINATOR_SETTINGS_HOME } else { $null }
+if (-not $__cdlSettingsHomePresent) {
+    $__cdlHomeForSettings = if ($env:CLAUDE_HOME) { $env:CLAUDE_HOME } elseif ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
+    if ($__cdlHomeForSettings) {
+        $env:COORDINATOR_SETTINGS_HOME = Join-Path $__cdlHomeForSettings ".coordinator-claude-settings"
+    }
+}
 
 # Export the resolved coordinator CLONE ROOT as the http-hook routing key
 # (DR-http-hook-forwarder-fixed-port, Decision 1). The forwarder cannot route a
@@ -407,6 +442,11 @@ try {
         $env:COORDINATOR_CLONE_ROOT = $__cdlCloneRootPrior
     } else {
         Remove-Item -LiteralPath Env:\COORDINATOR_CLONE_ROOT -ErrorAction SilentlyContinue
+    }
+    if ($__cdlSettingsHomePresent) {
+        $env:COORDINATOR_SETTINGS_HOME = $__cdlSettingsHomePrior
+    } else {
+        Remove-Item -LiteralPath Env:\COORDINATOR_SETTINGS_HOME -ErrorAction SilentlyContinue
     }
     if ($__cdlProbeCanaryPresent) {
         $env:COORDINATOR_PROBE_CANARY = $__cdlProbeCanaryPrior

@@ -73,7 +73,7 @@ def vacant_verdict() -> str:
     return _verdict_constant("VERDICT_VACANT", "vacant")
 
 
-def _age_phrase(last_tick_at: Any) -> Optional[str]:
+def age_phrase(last_tick_at: Any) -> Optional[str]:
     """"3 seconds", "41 minutes", "2 hours" from an ISO stamp, or `None`.
 
     Unparseable is `None`, never "0 seconds": a fabricated age on this line is
@@ -118,7 +118,7 @@ def render_verdict_line(result: Optional[dict]) -> Optional[str]:
     if not verdict:
         return None
 
-    age = _age_phrase(result.get("last_tick_at"))
+    age = age_phrase(result.get("last_tick_at"))
     holder = result.get("holder_name") or result.get("holder_session_id")
 
     if verdict == _verdict_constant("VERDICT_ARMED", "armed"):

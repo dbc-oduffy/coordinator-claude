@@ -14,7 +14,7 @@ The mechanical spine — deliverable/initiative id inheritance, `origin_*` prove
 Compute it via `baton-assemble brief spinoff <slug> [title]`, resolved per
 `snippets/resolve-coordinator-bin.md` (Shape W on PowerShell hosts). Every `judgment_points[]` entry in the returned object carries its own guidance inline — describing what each disposition means and how to carry it out, never a recommendation to pick from; resolve each one before its gated directive(s) proceed.
 
-Feed those resolutions back by passing `--decisions` to `apply`: a JSON object mapping each `judgment_points[].id` to `{"disposition": "<value>"}`. The legal values for a given point are that point's own `dispositions[].value` entries from the same run's `brief` output — read them there rather than guessing. `{"value": "<v>"}` is accepted as an exact equivalent of `{"disposition": "<v>"}`, and sibling keys (a `decision_note`, for instance) are carried through; supplying both keys with disagreeing values fails loud.
+Feed those resolutions back by passing `--decisions-file <path>` to `apply`: a JSON object mapping each `judgment_points[].id` to `{"disposition": "<value>"}`. The legal values for a given point are that point's own `dispositions[].value` entries from the same run's `brief` output — read them there rather than guessing. `{"value": "<v>"}` is accepted as an exact equivalent of `{"disposition": "<v>"}`, and sibling keys (a `decision_note`, for instance) are carried through; supplying both keys with disagreeing values fails loud.
 
 ---
 
@@ -38,7 +38,7 @@ Frontmatter and the canonical body-section skeleton are scaffolded for you; fill
 <!-- spinoff: <YYYY-MM-DD> by current EM during <authoring_session> -->
 ```
 
-**Never hand-write or hand-edit `summary:`.** The scaffolder's normalize pass caps it at 140 characters (`schemas/handoff.schema.json` § `summary`) and runs at creation, *before* your Edits — an over-cap value typed in afterwards re-enters no normalizer, and the schema gate then refuses the claim at `pickup-assemble apply`. The baton is born unclaimable and the cost lands on whoever picks it up. Need a different summary? Pass the title through `baton-assemble`, or keep the hand-written value ≤140.
+Keep a hand-written `summary:` at or under 140 characters, or pass the title through `baton-assemble` instead. `handoff_author_fork.py` truncates `summary` ahead of the claim gate, so an over-cap value does not make the baton unclaimable — but a hand-edit after scaffolding lands untruncated.
 
 **`## Acceptance criteria` is a checkbox list — `- [ ]` / `- [x]`, never prose bullets.** The completeness gate at `/workstream-complete` counts boxes under that heading; zero boxes returns `indeterminate`, which reports as a quiet unverified rather than a wrong. A trailing colon or parenthetical on the heading is fine, and a nested `###` under it still counts — only the boxes are load-bearing.
 
@@ -57,6 +57,10 @@ Then mark the fork in the source session's own task tracker (or session memory) 
 **Run `apply`, not `brief`, when you mean to author.** `baton-assemble brief` is read-only — it *emits* `directives[]` as data and executes nothing. `baton-assemble apply` is what walks that list and actually mutates. Hand-executing a brief's directives one at a time is the mistake this paragraph exists to prevent: it silently skips every in-process op in the dispatch table, so the spinoff lands with its `origin_*` provenance missing.
 
 ---
+
+## What travels with a spinoff
+
+A spinoff carries only what `handoff.author_fork` derives for it: `origin_*` provenance, deliverable/initiative id inheritance, and the frontmatter scaffold described above. It does NOT carry the forking session's open task list, in-flight review state, or any other session-local working state — those stay with the session that forked it. Everything else the picking-up EM needs must be written into the spinoff body by hand; nothing travels implicitly.
 
 ## Anti-scope
 

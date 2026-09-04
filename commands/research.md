@@ -36,6 +36,10 @@ At `"1"`, *every* named `Agent` call becomes a teammate, and a teammate returns 
 caller — only an idle notice. Interactive sessions only: headless, `-p`, and SDK dispatches never
 form teams, which is what makes the default safe to leave up.
 
+**Requires agent teams** — set in `settings.json`'s `env`, applied at SESSION START and not
+toggleable mid-session. Without it every named dispatch here is an ordinary background subagent
+and no team forms; this default is ratified to stay on.
+
 ## Step 1: Parse Arguments
 
 Parse `--mode`; if absent, apply auto-detect. Extract remaining arguments for the driver. For

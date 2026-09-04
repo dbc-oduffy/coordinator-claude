@@ -35,9 +35,31 @@ stays registered on `Workflow` because `Workflow`'s `tool_input` has no
 re-implements the restricted-type / unknown-key / deny logic -- both import
 `compute_named_dispatch_result` from here.
 
-Only `Explore` and `Plan` are in scope, and only when `name` is present on
-that dispatch's `tool_input` -- every other case returns `None` (nothing to
-do), same shape as `_worktree_isolation_strip.compute_strip`.
+Only a dispatch whose `subagent_type` falls in the full 32-type reporting
+roster (`_REPORTING_SUBAGENT_TYPES` below) is in scope, and only when `name`
+is present on that dispatch's `tool_input` -- every other case returns `None`
+(nothing to do), same shape as `_worktree_isolation_strip.compute_strip`.
+
+DR-190 § 2 (2026-09-02): the former Class-1 carve-out (16 types that declare
+`SendMessage` in their own `tools:` line, or are named-by-driver per the
+namer census, on the theory that naming them does not silently void the
+report) is RETIRED. The three-way choice between extending the strip to all
+32, adding the delivery clause as text to the handful of definitions lacking
+it, or accepting the gap was decided in favour of the strip: it is one
+module, uniform, and needs no tool-surface change, where the clause branch
+would have needed one (granting `SendMessage` to the 3 Class-3 types that
+lack it) and left the clause as text drifting independently across ~32
+files. Naming any of these types now strips `name` and proceeds unnamed --
+including most of the former Class 1 -- so a driver that named one of them
+on purpose for teammate messaging loses that route; DR-190 § 2 weighed
+maintenance cost over that use case and accepted the tradeoff. ONE EXCEPTION
+survives the retirement: `/staff-session`'s six debate personas
+(`_STAFF_SESSION_NAMING_CARVE_OUT`) name each other on purpose so the
+synthesizer can address them -- a concrete, tested, currently-exercised
+dependency the ruling's cost analysis did not have in view, discovered
+executing this change. Stripping them would silently break the ceremony
+(an unaddressable teammate), not merely cost a maintenance surface, so they
+stay carved out; see that constant's own docstring.
 
 Fail-closed for THIS module's own detection failure (not the caller's):
 once `tool_input` is established as a named Explore/Plan dispatch, an
@@ -84,64 +106,83 @@ _RESTRICTED_SUBAGENT_TYPES = ("Explore", "Plan")
 #: state/improvement-queue/2026-08-25-named-dispatch-voids-a-reporting-agents-report.yaml).
 #: Stripping `name` restores ordinary tool-result delivery.
 #:
-#: THREE-CLASS TAXONOMY (2026-08-25, named-dispatch-three-class-partition
-#: C1). This tuple declares classes 2+3 ONLY -- class 1 is deliberately
-#: absent from this module, never declared as an in-module roster; the
-#: full three-way taxonomy lives in C2's oracle and C5's wiki, the only
-#: places anything at runtime (or in tests) consumes the 2-vs-3 distinction.
-#: Nothing here reads that distinction -- both classes strip identically.
+#: FORMER THREE-CLASS TAXONOMY, COLLAPSED (DR-190 § 2, 2026-09-02). Until
+#: 2026-09-02 this tuple declared only "class 2 + class 3" of a three-class
+#: partition (named-dispatch-three-class-partition, 2026-08-25 C1/C2), with
+#: a "class 1" of 16 types (declares `SendMessage`, or named-by-driver per
+#: the namer census: research-scout, repo-scout, notebooklm-research-scout)
+#: deliberately excluded on the theory that naming them does not silently
+#: void the report. DR-190 § 2 ruled to extend the strip to the full
+#: 32-type reporting population instead -- one module, uniform, no
+#: tool-surface change -- over adding the clause as text to the ~32 files
+#: (which would additionally need granting `SendMessage` to the 3 types
+#: that lack it) or accepting the gap. The former class 1 is folded into
+#: this tuple below; nothing in this module distinguishes it from the
+#: former class 2/3 any longer.
 #:
-#:   Class 1 (never strips, not in this tuple, 16 types: eng-director,
-#:   staff-eng, staff-ux, staff-data-sci, senior-front-end, vp-product,
-#:   research-specialist, repo-specialist, research-worker, docs-checker,
-#:   research-sweep, research-synthesizer, structured-synthesizer,
-#:   research-scout, repo-scout, notebooklm-research-scout). Derived from
-#:   two properties: declares `SendMessage` in its frontmatter `tools:`
-#:   line (13/13, verified with zero difference in either direction), OR
-#:   is named-by-driver per the namer census (research-scout, repo-scout,
-#:   notebooklm-research-scout -- named on purpose by four in-tree drivers
-#:   even without declaring `SendMessage`). Either property means naming it
-#:   does NOT silently void the report, so there is nothing here to strip.
-#:
-#:   Class 2 (strips, carries the clause, 13 types below through
-#:   `test_runner`). The resident named-dispatch clause in its
-#:   `coordinator/agents/*.md` definition is what marks it reporting-typed
-#:   without a delivery guarantee -- naming it voids the report exactly as
-#:   this module's top-level rationale describes.
-#:
-#:   Class 3 (strips, no clause, 3 types: enricher, executor,
-#:   review-integrator). Same DELIVERY exposure as class 2 -- naming voids
-#:   the report -- but these definitions do not carry the resident clause,
-#:   so they are added by name rather than picked up by the clause-set
-#:   derivation below.
-#:
-#: NEGATIVE SPEC: this tuple is not a hand-curated taste list for classes 2
-#: and 3 combined. Class 2 is exactly the set of `coordinator/agents/*.md`
-#: definitions carrying the resident named-dispatch clause, and
-#: `test_reporting_type_set_matches_the_agent_definitions` pins that subset
-#: -- add the clause to a definition and this tuple must gain the type in
-#: the same pass. Class 3 (enricher, executor, review-integrator) has no
-#: clause and is not derivable that way; it is added by name because those
-#: three definitions share class 2's DELIVERY exposure without the marker.
+#: NEGATIVE SPEC: this tuple is not a hand-curated taste list. It is the
+#: full reporting-typed population under `coordinator/agents/*.md` minus (a)
+#: the non-reporting utility definitions (git-commit-agent, atlassian-worker,
+#: drive-worker, group-em-assistant, exit-criterion-falsifier)
+#: that are never dispatched for a report, and (b) `/staff-session`'s six
+#: named-on-purpose debate personas (`_STAFF_SESSION_NAMING_CARVE_OUT`
+#: below). DR-190 § 2 named the reporting population 32 as of the ruling;
+#: two agent definitions (apm, overengineering-reviewer) were added
+#: afterward and are included here for consistency with the same principle.
 #: The whole tuple is hardcoded rather than derived because this module is
 #: on the PreToolUse path and must not read 25+ files per dispatch.
 _REPORTING_SUBAGENT_TYPES = (
+    "coordinator:apm",
     "coordinator:atlas-clarity-reviewer",
     "coordinator:code-reviewer",
     "coordinator:code-reviewer-weekly",
     "coordinator:coverage-auditor",
     "coordinator:dep-cve-auditor",
     "coordinator:doc-link-checker",
+    "coordinator:docs-checker",
     "coordinator:enricher",
     "coordinator:executor",
     "coordinator:external-pattern-checker",
+    "coordinator:notebooklm-research-scout",
+    "coordinator:overengineering-reviewer",
     "coordinator:parallel-review-synthesizer",
     "coordinator:plan-coverage-checker",
     "coordinator:prior-art-checker",
+    "coordinator:repo-scout",
+    "coordinator:repo-specialist",
+    "coordinator:research-scout",
+    "coordinator:research-specialist",
+    "coordinator:research-sweep",
+    "coordinator:research-synthesizer",
+    "coordinator:research-worker",
     "coordinator:review-integrator",
     "coordinator:security-audit-worker",
+    "coordinator:structured-synthesizer",
     "coordinator:test-evidence-parser",
     "coordinator:test-runner",
+)
+
+#: CARVE-OUT, not an oversight. `/staff-session`'s debate ceremony
+#: (`skills/staff-session/`) names these six on purpose so its synthesizer
+#: can address each persona -- naming is how the ceremony works, not a
+#: delivery hazard. `test_staff_session_named_types_survive_dispatch_with_name_intact`
+#: pins that a named dispatch of any of these six must pass through
+#: untouched. DR-190 § 2 ruled to extend the strip from the former Class 2/3
+#: to the full reporting population, but did not have this ceremony's
+#: concrete dependency in view -- discovered executing § 2, filed as a
+#: deviation rather than pushed through, since stripping these six would
+#: silently break `/staff-session` (an unaddressable, undebatable teammate)
+#: rather than merely cost a maintenance surface. Every other former
+#: Class-1 type (declared `SendMessage` or named-by-driver, no concrete
+#: naming dependency found) is folded into `_REPORTING_SUBAGENT_TYPES` above
+#: per the ruling.
+_STAFF_SESSION_NAMING_CARVE_OUT = (
+    "coordinator:staff-eng",
+    "coordinator:eng-director",
+    "coordinator:staff-ux",
+    "coordinator:staff-data-sci",
+    "coordinator:senior-front-end",
+    "coordinator:vp-product",
 )
 
 # The complete set of keys this module knows how to carry forward into a

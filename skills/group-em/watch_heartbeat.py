@@ -11,17 +11,27 @@ zero `Monitor` subscriptions, must be distinguishable on disk from a repo
 nobody ever watched -- that is the whole of P1/P2/P2a/P2b/P3 in the owning
 plan's `## Problem set`.
 
-ONE WRITER, NO FOLD. Unlike the sibling ledger
-(`coordinator/hooks/scripts/_next_move_ledger.py`), which is written by TWO
-planes (this repo's own hook and the engine's cross-repo intake) and needs an
-append-then-fold path to avoid a read-modify-whole-file-rewrite collision,
-this file has exactly one writer per repo: the current Group EM, which is
-itself a filesystem invariant enforced by `group-em-nomination.py`. Every
-tick's `stamp()` call is a full rewrite of the whole record, not an append --
-there is nothing to fold and no second producer to collide with. Its absence
-here is not an oversight; it is what "exactly one writer" is for.
-<!-- Review: overengineering-reviewer -- armed_at/tick_count read-back removed;
-stamp() is now a plain write, no read-before-write, making this claim literal. -->
+ONE HOLDER, THREE PRODUCERS, TWO PLANES, NO FOLD HERE. `group-em-nomination.py`
+enforces exactly one HOLDER session per repo, never exactly one WRITER, and
+the three producers named by `_TICK_SOURCES` are split across two planes with
+two different `stamp()` signatures over the SAME on-disk record: the
+~23-minute `CronCreate` tick and the ~3-minute Monitor tick are written by
+the ENGINE'S OWN COPY of this module, `coordinator_core/group_em/watch_heartbeat.py`
+(the published engine root this repo resolves per
+`_engine_root.resolve_claude_klabauter_root_with_provenance()`; invoked from
+`coordinator_core/group_em/watch.py`, lines ~1155/~1315) -- never by `stamp()`
+below. This module's `stamp()` writes only the `entry` tick, from
+`group-em-enter.py`'s `_stamp_watch` -- which makes `entry` the tick that
+has to carry `writer_session_id`, since the engine's arm-time refusal reads
+foreignness off `(holder_session_id, writer_session_id)` and an entry record
+omitting it presents as foreign to the very holder that wrote it, refusing
+the first arm for the whole freshness window. Every reader (the SessionStart presence
+hook, `group-em-watch-cli.py`, `read_watch` below) is this copy, not the
+engine's.
+
+Review: coordinatorreview-integrator -- overengineering-reviewer finding #3: the
+paragraph that lived here re-derived the module header's own claim above; it
+now lives once, at TWO_MODULES_ONE_RECORD_ARE_TWO_SIGNATURES, not here.
 
 NO TIMING PREDICATE. `next_expected_by` is a recorded EXPECTATION -- what
 this tick believes the next one will land by -- never a threshold this module
@@ -101,9 +111,11 @@ def _read_existing(path: str) -> Optional[dict]:
 def _write_atomic(path: str, payload: dict) -> bool:
     """Rewrite the whole heartbeat via temp file + `os.replace` -- atomic on
     both POSIX and Windows (see `_next_move_ledger._write_records`, the same
-    pattern). No cross-process lock: at most one writer, the Group EM,
-    ever calls `stamp()` for a given repo, so there is no race to arbitrate.
+    pattern).
     """
+    # Review: coordinatorreview-integrator -- overengineering-reviewer finding #3:
+    # dropped the four added lines re-deriving the module header's claim at a
+    # helper that neither writes nor reads a prior_* key.
     directory = os.path.dirname(path)
     tmp_path = None
     try:
@@ -143,15 +155,46 @@ def stamp(
     declinations: list,
     subscribed_peers: int = 0,
 ) -> bool:
-    """Rewrite `state/group-em-watch.json` for this tick. One writer per
-    repo (the Group EM); the whole file is replaced, never folded, and
-    never read first -- a plain write.
+    """Rewrite `state/group-em-watch.json` for the `entry` tick -- the only
+    source this module ever writes (see the module header: `cron`/`monitor`
+    are the engine's own writer). Whole-file replace, never a fold: the
+    engine's `cron`/`monitor` writer replaces this same file the same way,
+    so `entry` must produce the identical record shape or the next engine
+    tick, ~3 minutes away at worst, silently drops whatever this module
+    added that the engine's writer does not know about.
 
     `source` must be one of `cron` | `monitor` | `entry` (P2b/P3's `tick_source`
-    vocabulary). `declinations` is THIS tick's rows only -- each
-    `{session_id, name, gate, reason}` -- never an accumulating history; a
+    vocabulary) -- `entry` in practice for this module's own callers; the other
+    two are accepted to mirror the engine's declared vocabulary, not because a
+    reader downstream inspects the argument (Review: coordinatorreview-integrator
+    -- overengineering-reviewer finding #5: the prior wording attributed the
+    width to `read_watch`, which never sees this argument). `declinations` is
+    THIS tick's rows only -- each
+    `{session_id, gate, reason}` -- never an accumulating history; a
     tick that messaged nobody and declined nobody passes `[]`, which is what
     lets the reader tell "did not look" apart from "looked, nothing to do".
+
+    `writer_session_id` on the written record is the INSTRUMENT that wrote it,
+    which is not `session_id` when a delegate stamps on the crown's behalf. It
+    is not decoration: the engine's arm-time refusal reads foreignness off the
+    pair `(holder_session_id, writer_session_id)`, so a record omitting the
+    field presents as `(<holder>, None)` and is FOREIGN to the very crown that
+    wrote it. Entry then locks out the watch entry exists to arm, for the
+    whole freshness window, silently -- the arm refuses and a refusal read as
+    a quiet result is a fleet nobody is watching. This module has no delegate
+    caller (see the module header: `entry` writes on the crown's own behalf
+    only), so the value is always `session_id` -- no parameter, since there is
+    no second value on this axis to take.
+
+    `holder_name`: this module never writes the key. The engine's `cron`/
+    `monitor` writer is the sole owner of `holder_name` on this record; `name`
+    is written only when a caller actually supplies one (no caller does today
+    -- `enter()` never puts one on `standing`), so in practice entry's own
+    ticks omit the key entirely rather than read the file back to preserve the
+    engine's prior value. Readers already tolerate the key's absence via
+    `record.get("holder_name")` and the live-registry fallback in `read_watch`
+    below, so an entry tick that says nothing about the name is exactly as
+    readable as one that says nothing about the name and looks unwritten.
 
     Returns True on a successful atomic replace, False on any I/O failure --
     never raises; a failed stamp is a missed tick, not a crash of the tick
@@ -160,23 +203,22 @@ def stamp(
     if source not in _TICK_SOURCES:
         raise ValueError(f"source must be one of {_TICK_SOURCES}, got {source!r}")
 
-    path = watch_path(repo_root)
-    now = _now_iso()
-
     next_expected_by = time.strftime(
         "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + DEFAULT_TICK_INTERVAL_SECONDS)
     )
 
     payload = {
         "holder_session_id": session_id,
-        "holder_name": name,
-        "last_tick_at": now,
+        "writer_session_id": session_id,
+        "last_tick_at": _now_iso(),
         "tick_source": source,
         "next_expected_by": next_expected_by,
         "subscribed_peers": subscribed_peers,
         "declinations": list(declinations or []),
     }
-    return _write_atomic(path, payload)
+    if name:
+        payload["holder_name"] = name
+    return _write_atomic(watch_path(repo_root), payload)
 
 
 def _fetch_live_agents(
@@ -232,6 +274,18 @@ def read_watch(
     the tick that wrote it.
     `absent` and `vacant` never collapse: no file at all is "nobody has ever
     entered"; a file naming a holder no longer live is "the watcher exited".
+
+    Every non-`absent` verdict also carries the six `prior_*` keys the
+    engine's own `stamp()` writes whenever the record it replaced was
+    stamped by a different instrument (holder, writer, or tick_source
+    differing) -- `prior_holder_session_id`, `prior_holder_name`,
+    `prior_tick_source`, `prior_last_tick_at`, `prior_subscribed_peers`,
+    `prior_declination_count`. This is the identity and rough shape of a
+    tick that a later whole-file replace destroyed, never its content --
+    read defensively (`.get`, no assumed presence or type) since a first
+    stamp, or a record from before the engine added this trace, carries
+    none of them: absent, not null, and this reader reports `None` for
+    each rather than inventing a value.
     """
     path = watch_path(repo_root)
     record = _read_existing(path)
@@ -242,6 +296,12 @@ def read_watch(
             "holder_name": None,
             "last_tick_at": None,
             "declination_count": 0,
+            "prior_holder_session_id": None,
+            "prior_holder_name": None,
+            "prior_tick_source": None,
+            "prior_last_tick_at": None,
+            "prior_subscribed_peers": None,
+            "prior_declination_count": None,
         }
 
     holder_session_id = record.get("holder_session_id")
@@ -260,6 +320,16 @@ def read_watch(
         "holder_name": holder_name,
         "last_tick_at": last_tick_at,
         "declination_count": declination_count,
+        # Review: coordinatorreview-integrator -- overengineering-reviewer finding #2:
+        # the CLI's destroyed-tick render needs the record's CURRENT tick_source to
+        # tell "prior differs from current" from "prior repeats current".
+        "tick_source": record.get("tick_source"),
+        "prior_holder_session_id": record.get("prior_holder_session_id"),
+        "prior_holder_name": record.get("prior_holder_name"),
+        "prior_tick_source": record.get("prior_tick_source"),
+        "prior_last_tick_at": record.get("prior_last_tick_at"),
+        "prior_subscribed_peers": record.get("prior_subscribed_peers"),
+        "prior_declination_count": record.get("prior_declination_count"),
     }
 
     registry = agents if agents is not None else _fetch_live_agents(run=run)

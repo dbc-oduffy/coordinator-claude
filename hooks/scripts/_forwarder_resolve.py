@@ -27,6 +27,20 @@ between them they cover every platform the forwarder installer targets.
 Negative-spec: does NOT consult `PATH` via `shutil.which`. Callers resolve against
 an explicitly-passed `bin` directory so that a same-named binary earlier on `PATH`
 cannot silently substitute itself for the installed forwarder.
+
+Import-fallback contract (canonical home for the reasoning stamped as a one-line
+pointer at each of the five `except Exception` import-fallback blocks in the
+consumer hooks): a deploy missing this sibling module must degrade to "declined to
+guess a launch decision," never to a fabricated one. The fallback leg has no
+`_is_native_image` to consult, so it cannot tell a naked-Python forwarder from a
+native image by content -- reimplementing a suffix-only guess here would silently
+resurrect the exact defect this module exists to end (Ask the bytes, above). The
+fallback `_forwarder_argv`/`forwarder_argv` therefore raises `OSError` rather than
+returning `None`: every consumer already wraps its `subprocess.run` call in an
+`except (OSError, ...)` fail-open handler (or a broad `except Exception`), so
+raising into that existing channel needs no second null-return protocol at the
+call site -- move the argv computation inside the existing try and the handler
+absorbs it for free.
 """
 
 from __future__ import annotations

@@ -8,7 +8,7 @@ access-mode: read-write
 tools: ["Read", "Bash", "PowerShell", "Edit"]
 ---
 
-<!-- This harness build provides no Grep/Glob tool at runtime — do not re-add them, they do not exist. Content search is via `grep` through Bash; file location is via `find` through Bash. -->
+<!-- No `Grep`/`Glob` here by scope, not by absence — both exist in this build. This agent runs a named test set and reports raw evidence; content search is via `grep` through Bash, file location via `find` through Bash. -->
 
 # Test Runner
 
