@@ -89,7 +89,7 @@ patches, all of which were proposed for the incident above, all wrong:
 Each patches the layer instead of deleting it. **A guard that needs a bypass is the antipattern;
 the bypass becomes the real interface.** And deleted machinery must not survive behind a flag, a
 config default, or a disabled branch — a dormant gate is a gate someone re-enables. Compare
-[`Override Flags as Latent-Rot Signal`](coordinator-tripwires/override-flags-as-latent-rot-signal.md) in the tripwire registry: an
+`coordinator-tripwires/override-flags-as-latent-rot-signal.md` in the tripwire registry: an
 accumulating override surface is the same smell read from the other side.
 
 ## Decision procedure

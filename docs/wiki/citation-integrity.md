@@ -35,7 +35,7 @@ one shared code path (`coordinator/lib/citation_graph.py`):
   pathed citations relative to the *plugin* root ("Both trees are named 'coordinator-claude';
   they are NOT the same tree" — `CLAUDE.md` § Architecture), so a naive repo-root-only join
   misresolves the overwhelming majority of pathed citations as rot that are in fact live.
-- **Markdown link** (`` [text](target.md) ``) — resolved relative to the **citing file's own
+- **Markdown link** (`[text]` followed by `(target.md)`) — resolved relative to the **citing file's own
   directory**. This is the one form for which that join is correct — it is the only shape this
   category of tool (a link checker) can already see.
 

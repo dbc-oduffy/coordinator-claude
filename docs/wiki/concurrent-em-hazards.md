@@ -465,7 +465,7 @@ A gate failure during a long ceremony (workweek-complete, parallel fan-out) may 
 - [`daily-branch-discipline.md`](./daily-branch-discipline.md) — the commit-location enforcement surface (branch-shape hook, shared-bus framing, plumbing-reword).
 - [`cross-repo-communication.md`](./cross-repo-communication.md) — same-repo and cross-repo session coordination via memos.
 - ~/.claude/CLAUDE.md § Concurrent-EM Git Operations — the boot-loaded doctrine summary.
-- [`pretooluse-deny-contract.md`](../pretooluse-deny-contract.md) — JSON deny mechanics for the enforcement hooks.
+- `pretooluse-deny-contract.md` — JSON deny mechanics for the enforcement hooks.
 
 ### H27 — Pre-commit hook child processes inherit `GIT_INDEX_FILE` — `cwd` does NOT override it
 
