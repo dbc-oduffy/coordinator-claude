@@ -1908,11 +1908,29 @@ def _count_drift_hits(drift_stdout: str) -> int:
 # panels only — never fed back into any gate logic.
 # ---------------------------------------------------------------------------
 
-def _summarize_change_lines(change_lines: List[Tuple[str, str]]) -> Tuple[int, int, int]:
-    added = sum(1 for tag, _ in change_lines if tag == "NEW")
-    modified = sum(1 for tag, _ in change_lines if tag == "UPDATE")
+def _summarize_change_lines(change_lines: List[Tuple[str, str]]) -> Tuple[int, int]:
+    """`(added_or_updated, removed)` for a run's own change lines.
+
+    NO `modified` TERM, DELIBERATELY. There used to be one, counting
+    `tag == "UPDATE"` -- a spelling the producer never emits. `real_changes`
+    is built as `[("NEW", p) ...] + [("REMOVE", p) ...]`, because the
+    manifest does not distinguish new-from-updated inside
+    `added_or_updated`, so `modified` was structurally always zero and every
+    published subject carried a literal `0 modified` that measured nothing.
+    Sixty consecutive publishes read `N added, 0 modified`; the constant
+    looked like a suspicious invariance worth investigating and was merely
+    dead vocabulary (example-cockpit-repo-30 / doe-claude-em, 2026-09-04).
+
+    It survived because this module's own tests hand-built `("UPDATE", ...)`
+    tuples and asserted on the resulting counts -- validating a vocabulary
+    the production path cannot produce. Do NOT reintroduce the term, and do
+    NOT feed this function a synthetic `"UPDATE"` tag to make a test read
+    nicer: the first name is `added_or_updated` precisely because the
+    precision loss is real and the subject must not imply otherwise.
+    """
+    added_or_updated = sum(1 for tag, _ in change_lines if tag == "NEW")
     removed = sum(1 for tag, _ in change_lines if tag in ("DELETE", "REMOVE"))
-    return added, modified, removed
+    return added_or_updated, removed
 
 
 def _partition_carried_changes(
@@ -2004,7 +2022,7 @@ def _build_commit_subject(
     describing a comparison the commit did not act on.
     """
     carried, dropped = _partition_carried_changes(real_changes, pathspec)
-    added, modified, removed = _summarize_change_lines(carried)
+    added_or_updated, removed = _summarize_change_lines(carried)
     # A REMOVAL REACHES THE PATHSPEC WITHOUT A CHANGE LINE, so counting only
     # `carried` under-reports it to zero. `real_changes` is this run's own
     # worktree comparison; the removal side derives from dest HEAD instead
@@ -2022,7 +2040,7 @@ def _build_commit_subject(
     return (
         f"percolate publish: {target} "
         f"({len(pathspec)} file(s) to commit; carries "
-        f"{added} added, {modified} modified, {removed} removed{residual})"
+        f"{added_or_updated} added-or-updated, {removed} removed{residual})"
         f"{_source_sha_suffix()}"
     )
 

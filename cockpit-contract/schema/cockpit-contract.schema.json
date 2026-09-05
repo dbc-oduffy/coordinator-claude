@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://coordinator.local/cockpit-contract.schema.json",
   "title": "Cockpit work-state contract",
-  "description": "Canonical work-state contract (tc-2), version 4.4.0.",
-  "version": "4.4.0",
+  "description": "Canonical work-state contract (tc-2), version 4.5.0.",
+  "version": "4.5.0",
   "$defs": {
     "provenance-envelope": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -216,7 +216,7 @@
           }
         }
       ],
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "coordinator-root": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -520,7 +520,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "branch": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -856,7 +856,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "goal": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1194,7 +1194,7 @@
         "parent_goal_id"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "routine-signal": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1507,7 +1507,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "day-rollup": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1886,6 +1886,30 @@
             "source_path"
           ],
           "additionalProperties": false
+        },
+        "fact_window": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "iso-week",
+                "day"
+              ]
+            },
+            "start": {
+              "type": "string"
+            },
+            "end": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "start",
+            "end"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -1900,7 +1924,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "week-rollup": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2294,6 +2318,30 @@
             "source_path"
           ],
           "additionalProperties": false
+        },
+        "fact_window": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "iso-week",
+                "day"
+              ]
+            },
+            "start": {
+              "type": "string"
+            },
+            "end": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "start",
+            "end"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -2308,7 +2356,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "handoff-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3130,7 +3178,7 @@
         "producer"
       ],
       "additionalProperties": false,
-      "version": "4.4.0",
+      "version": "4.5.0",
       "x-baton-class": {
         "description": "kind -> baton_class derivation map. Generated from frontmatter/schemas/handoff.schema.json's own x-baton-class.mapping key, resolved through coordinator_core.frontmatter.baton_class.baton_class() (which also folds in that function's pre-rename kind-alias resolution). One entry per member of this schema's own properties.kind.enum; a null value means baton_class() returns null for that kind (it is not a baton, e.g. 'spike-result'). Do not hand-author a copy of this map — it is generated at emit time from the one canonical source above.",
         "mapping": {
@@ -3468,7 +3516,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "review-trail": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3763,7 +3811,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "lesson-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4112,7 +4160,7 @@
         "created"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "plan-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4595,7 +4643,7 @@
         "review_verified"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "cross-repo-memo-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4911,7 +4959,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "roadmap-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -5461,7 +5509,7 @@
         "scan_errors"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "tracker-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -5772,7 +5820,7 @@
         "items"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "health-status-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -6080,7 +6128,7 @@
         "summary"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "decision-guide-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -6400,7 +6448,7 @@
         "decision_count"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "session-hierarchy": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -6760,7 +6808,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "initiative-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -7400,7 +7448,7 @@
         "description"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "exec-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -7805,7 +7853,7 @@
         "docs_staleness"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "roadmap-dag-node": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -8135,7 +8183,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "roadmap-dag-edge": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -8409,7 +8457,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "backlog-history": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -8698,7 +8746,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "competitor-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -9028,7 +9076,7 @@
         "display_order"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "intelligence-signal": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -9466,7 +9514,7 @@
         "measurement_basis"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "financial-metric-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -9827,7 +9875,7 @@
         "measurement_basis"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "priority-ledger-entry": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -10136,7 +10184,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "snapshot-envelope": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -12000,6 +12048,30 @@
                       "source_path"
                     ],
                     "additionalProperties": false
+                  },
+                  "fact_window": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "iso-week",
+                          "day"
+                        ]
+                      },
+                      "start": {
+                        "type": "string"
+                      },
+                      "end": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "start",
+                      "end"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -12407,6 +12479,30 @@
                       "algo",
                       "hex",
                       "source_path"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "fact_window": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "iso-week",
+                          "day"
+                        ]
+                      },
+                      "start": {
+                        "type": "string"
+                      },
+                      "end": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "start",
+                      "end"
                     ],
                     "additionalProperties": false
                   }
@@ -20325,7 +20421,7 @@
         "malformed_records"
       ],
       "additionalProperties": false,
-      "version": "4.4.0"
+      "version": "4.5.0"
     },
     "emission-scope": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -20630,7 +20726,7 @@
           "additionalProperties": false
         }
       ],
-      "version": "4.4.0"
+      "version": "4.5.0"
     }
   }
 }

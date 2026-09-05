@@ -7124,9 +7124,17 @@ def _source_sha_suffix(round_pinned_shas: "dict[str, str] | None" = None) -> str
     own text (project-rag-ue-addon-em, 2026-08-31: a fix committed here at
     `40abe011d` stayed live as a crash for a mirror consumer, and the only
     available currency check was a hand-rolled grep for `if parsed.tzinfo is
-    None`). With the source sha in the subject, `git -C <mirror> log -1`
-    answers it, and `git -C <source> merge-base --is-ancestor <fix> <stamp>`
-    answers it exactly.
+    None`). With the source-head sha in the subject, `git -C <mirror> log -1`
+    names the source commit the round ran from.
+
+    IT DOES NOT ESTABLISH THAT A GIVEN FIX IS IN THE PUBLISHED BYTES. This
+    paragraph used to end "`git -C <source> merge-base --is-ancestor <fix>
+    <stamp>` answers it exactly", and that sentence is why this defect cost
+    what it did: a consumer ran exactly that query, got `yes`, and the fix
+    was not in the mirror (2026-09-04, example-cockpit-repo-30). The query answers
+    only whether the fix was in the SOURCE's history at publish time, which
+    is a different question from whether the published bytes contain it --
+    see the block above. Do not restore an "exactly" here.
 
     Two modes, one function (review-integrator, 2026-09-01 — collapsed from
     a second `_pinned_source_sha_suffix` copy per overengineering-reviewer
@@ -7159,7 +7167,12 @@ def _source_sha_suffix(round_pinned_shas: "dict[str, str] | None" = None) -> str
 
         sha = head_sha(_REPO_ROOT)
 
-    return f" [source {sha[:12]}]" if sha else ""
+    _bootstrap_engine()
+    from coordinator_core.git.git_state import (  # noqa: PLC0415
+        format_source_sha_suffix,
+    )
+
+    return format_source_sha_suffix(sha)
 
 
 def _git_head(path: Path) -> str:

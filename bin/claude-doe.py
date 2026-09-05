@@ -460,7 +460,7 @@ def _resolve_doe_clone(cli_doe_root: str = "") -> str | None:
     # machine-local resolves the registry (repos.doe_claude) which in turn gives us
     # DOE_CLONE — so machine-local itself cannot be resolved FROM DOE_CLONE here
     # (that would be circular: it's the very lookup that produces DOE_CLONE).
-    # Mirrors install.md's own canonical resolution snippet (§ 3.5a): override,
+    # Mirrors install.md's own canonical resolution snippet: override,
     # then PATH — no co-located-sibling guess, since machine-local is installed as
     # its own persistent PATH artifact by install/substrate.py, independent of
     # wherever this wrapper happens to live.
