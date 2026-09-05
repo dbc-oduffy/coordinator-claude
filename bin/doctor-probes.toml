@@ -407,7 +407,7 @@ fix = "none"
 symptom_keywords = ["bash<4", "bash 3.2", "old bash on PATH", "system bash ahead of brew bash", "BASH_VERSINFO", "macos default bash"]
 triage = true
 severity_if_fail = "error"
-remediation = "The bash resolved first on PATH is < 4 (macOS ships 3.2 at /bin/bash). Install a modern bash (brew install bash) and ensure its install prefix (e.g. /opt/homebrew/bin or /usr/local/bin) precedes /bin on PATH; re-run /coordinator:install to re-verify."
+remediation = "The bash resolved first on PATH is < 4 (macOS ships 3.2 at /bin/bash). Install a modern bash (brew install bash / apt-get install bash / dnf install bash) and ensure its install prefix (e.g. /opt/homebrew/bin, /usr/local/bin, or /usr/bin) precedes /bin on PATH; re-run /coordinator:install to re-verify."
 
 [[probe]]
 id = "P-21"

@@ -160,7 +160,9 @@ Specifically:
 
 **This is not a network-call-free system, and this document will not claim it is.** The `claude
 plugin` CLI itself fetches from GitHub to register the marketplace and install/update the plugin;
-`/coordinator:install` can, with your consent at each step, invoke `git`, `brew`, `winget`, or `gh
+`/coordinator:install` can, with your consent at each step, invoke `git`, your platform's package
+manager (`brew` on macOS, `winget` on Windows, or the distribution's own — `apt-get`, `dnf`,
+`zypper`, `pacman`, `apk` — on Linux), or `gh
 auth login`/`glab auth login` to check or install prerequisites; and the optional NotebookLM
 add-on talks to Google. Most of these are individually consent-gated (see
 `coordinator/commands/install.md`, its "D4 Non-Interactive Contract" and per-step consent
