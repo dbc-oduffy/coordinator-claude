@@ -47,3 +47,9 @@ tasks/_*.log
 state/group-em-watch.json
 state/group-em-watch-parked.json
 state/group-em-watch-spool.jsonl
+
+# Engine-provenance counters -- require_dispatch_engine_on_path appends one record
+# per resolution, each carrying this box's absolute engine root and its clock. Same
+# per-machine runtime class as the group-EM watch files above: regenerable, no
+# cross-clone reader, and tracking it ships one box's paths to every peer.
+state/engine-provenance-counts.jsonl
