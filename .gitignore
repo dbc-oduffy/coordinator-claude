@@ -47,3 +47,14 @@ tasks/_*.log
 state/group-em-watch.json
 state/group-em-watch-parked.json
 state/group-em-watch-spool.jsonl
+# Same rationale, same plane: written by claude-klabauter's
+# coordinator_core.engine_provenance_counter on every engine-backed call, and
+# every row carries this box's absolute engine path and wall clock.
+state/engine-provenance-counts.jsonl
+
+# Per-machine session machinery (subagent-share fire counts and friends),
+# written by coordinator_core.session.machinery_paths. Generated, never
+# authored. claude-klabauter's fleet_machinery_sweep lands this same ignore in
+# the repos it sweeps; this tree never received it, so a documented install
+# plus any engine-backed ceremony leaves the working tree dirty here.
+.coordinator-local/
