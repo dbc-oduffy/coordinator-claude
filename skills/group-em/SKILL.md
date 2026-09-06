@@ -235,8 +235,8 @@ it only from a main conversation, in either dispatch shape. **This still binds:*
 is still a subagent, not a spawned session, so nothing about this rewrite changes who it can be
 accepted from — it stays with you if it is used, and the poller is the better clock regardless. (Navi
 is a spawned session and could in principle hold a main-conversation one-shot, but it holds no repo
-to notify against, so this stays moot for it.) Do not confuse it with the `Monitor`: they used to
-share one rule and one reason, and only this half of it was ever true.
+to notify against, so this stays moot for it.) Do not confuse it with the `Monitor`: the two share
+neither a rule nor a reason, and only this half of the rule that names both is true.
 
 **You no longer relay events.** `group-em-assistant` hears its own wire and acts on it; your move
 on a park is nothing. What still reaches you is what they escalate — an `OUT-OF-WORK` peer needing

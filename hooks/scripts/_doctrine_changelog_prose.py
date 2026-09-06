@@ -483,6 +483,35 @@ _USED_TO_STANDALONE = re.compile(
     r"\b(this|it|that|they|which)\s+used\s+to\b|\bused\s+to\s+be\b", re.IGNORECASE
 )
 _NO_LONGER_STANDALONE = re.compile(r"\bno\s+longer\b(?!\s+than\b)", re.IGNORECASE)
+
+#: The same narrowing `_USED_TO_STANDALONE` above already earned, applied to
+#: the phrase that kept the blanket form. "no longer" has two populations, and
+#: only one of them is changelog:
+#:
+#:   CHANGELOG — a definite subject in main-clause position narrates that THIS
+#:   system changed: "The helper no longer unions mtime-dirty paths", "You no
+#:   longer relay events", "it just no longer fires inside your commit".
+#:
+#:   FUNCTIONAL — a RELATIVE CLAUSE describes a runtime state the reader may
+#:   encounter, which is present-tense prose about the world, not history about
+#:   the doctrine: "an assigned memo that is no longer where the manifest says",
+#:   "processes that no longer exist", "a wiring that no longer exists".
+#:
+#: The discriminator is structural, not semantic: the functional form puts a
+#: relative pronoun immediately before the phrase, and the changelog form never
+#: does — its subject sits in main-clause position. Same argument, same shape as
+#: the `used to` narrowing, which is why this is a correction rather than a new
+#: exemption class.
+#:
+#: DELIBERATELY CONSERVATIVE, in the direction of the guard FIRING. The window
+#: is three words so a clause boundary cannot be spanned, and reduced relatives
+#: ("a surface this repo no longer owns") and generic-subject modals ("a reader
+#: can no longer tell") are NOT carved — they read as functional to a human but
+#: have no structural marker, and inventing one would start carving the
+#: changelog population too. Rewrite those in prose; do not widen this.
+_NO_LONGER_RELATIVE_CLAUSE = re.compile(
+    r"\b(?:that|which|who|whose|where)\b(?:\s+\w+){0,3}?\s+no\s+longer\b", re.IGNORECASE
+)
 _NEW_VERSION_STANDALONE = re.compile(
     r"\bnew\s+version\s+has\b|\bthe\s+new\s+version\b", re.IGNORECASE
 )
@@ -795,7 +824,10 @@ def _scan_text_line(line: str, line_no: int) -> "list[Violation]":
             Violation(line_no, "history phrase (used to)", _excerpt(line), fingerprint, "high")
         )
 
-    if _NO_LONGER_STANDALONE.search(mention_free):
+    # Blank the relative-clause occurrences before testing, rather than
+    # short-circuiting the line: a line carrying BOTH a functional relative
+    # clause and a genuine changelog clause must still fire on the second.
+    if _NO_LONGER_STANDALONE.search(_NO_LONGER_RELATIVE_CLAUSE.sub(" ", mention_free)):
         violations.append(
             Violation(line_no, "history phrase (no longer)", _excerpt(line), fingerprint, "high")
         )

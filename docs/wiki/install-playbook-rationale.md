@@ -55,9 +55,18 @@ export COORDINATOR_ENGINE_ROOT="$(dirname <coordinator-clone>)/claude-klabauter"
 
 `COORDINATOR_ENGINE_ROOT` is the top rung of the engine-root ladder and the one bootstrap remedy
 that works before anything is installed. The durable equivalent, which survives a new shell, is a
-pointer file at `~/.coordinator-claude-settings/machine-local/.claude-klabauter-live-root`
+pointer file at `~/.coordinator-claude-settings/machine-local/.claude-klabauter-root`
 containing the path. `CLAUDE_KLABAUTER_ROOT` is retired and unhonoured — setting it produces an
 error naming `COORDINATOR_ENGINE_ROOT` as the replacement.
+
+**`-root`, never `-live-root`, for a clone of the published mirror.** `engine_bootstrap.py` reads
+both, at different rungs asserting different things: `.claude-klabauter-root` admits a root only
+with a tracked `coordinator_core/_engine_stamp` (the published build), `.claude-klabauter-live-root`
+admits one on `isdir` alone (a live working tree). The wrong name is not a failure you will see —
+the published arm falls through, the live arm accepts, and the box resolves by asserting a
+published mirror is a live tree, which is DR-326's manual test-and-execute carve-out taken by
+accident. The engine root is the published mirror on every box; the live tree is reachable only
+via an explicit `COORDINATOR_ENGINE_ROOT`.
 
 ## DoE-only: `claude-doe` — when the shim earns its keep
 

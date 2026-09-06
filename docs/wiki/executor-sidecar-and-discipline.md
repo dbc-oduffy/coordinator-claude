@@ -62,9 +62,16 @@ that resolves to a Sonnet/Haiku subagent context; there is no authorized executo
 
 Executors set no context variable and take no gate-arming first action. Enforcement is
 non-cooperative: the PreToolUse chain resolves the caller from harness-supplied identity the agent
-cannot unset, and a confined executor's Bash is allowlist-confined — `git commit`,
-`coordinator-safe-commit`, `scoped-git-commit`, and the invoke CLI on any committing op are denied
-however the command is spelled. Nothing an executor does or omits arms or disarms this. A signal
+cannot unset, and the commit guard denies `git commit`, `coordinator-safe-commit`,
+`scoped-git-commit`, and the invoke CLI on any committing op however the command is spelled.
+
+**That denial is the commit guard, not Bash confinement, and the distinction is load-bearing.**
+`coordinator:executor` is NOT in `_CONFINED_FINDINGS_AGENTS` — it runs on the unconfined Bash
+ruleset and always should, being an implementation agent
+(`[[bash-confinement-two-classes-only]]`). Its build and test invocations are not allowlisted
+against; only committing is denied, by a guard that applies whatever the caller's confinement
+class. Describing the executor as confined-with-a-commit-relaxation inverts which mechanism is
+doing the work, and predicts allowlist denials on a surface that has none. Nothing an executor does or omits arms or disarms this. A signal
 the subagent could `unset` (a cooperative, fail-open env-var gate) would not meet this bar, which
 is why enforcement is non-cooperative and harness-resolved rather than agent-armed.
 

@@ -3004,6 +3004,7 @@ def _scaffold_roadmap_baton(
     gate_dependency: str | None = None,
     sizing_object: str | None = None,
     blocks: list[str] | None = None,
+    predecessor: str | None = None,
 ) -> str:
     """Generate validator-clean roadmap-baton frontmatter + canonical section skeleton.
 
@@ -3027,6 +3028,20 @@ def _scaffold_roadmap_baton(
     list and this scaffolder emits exactly what it is handed, on the same
     carry-through terms as `--deliverable-ids`/`--additional-predecessor`. Omitted
     → `blocks: []`, byte-identical to every caller that does not pass it.
+
+    `predecessor` (--predecessor) is carried on exactly the same grounds, and was
+    added for the same failure: `baton_assemble`'s succession directive passes
+    `--predecessor=<the baton being superseded>` on every roadmap-baton handoff,
+    argparse accepted it, this scaffolder never took the parameter, and the
+    successor was written `predecessor: none` with nothing warning. The lineage
+    edge the supersession had just stamped in the other direction
+    (`continued_into` on the predecessor) was therefore missing on the successor
+    half, so the chain read as broken from one end only. Schema permits it: the
+    `predecessor=none/null` cross-field rule binds `spinoff`/`goal-seed`/
+    `roadmap-seed`, and `roadmap-baton` is not in that class. Carried VERBATIM on
+    the same terms as `blocks` — never resolved, validated, or minted here.
+    Omitted → `predecessor: none`, byte-identical to every caller that does not
+    pass it.
 
     Still NOT carried, named rather than silently dropped: `blocked_by`, `sprint`,
     `wave`. `blocked_by` is deliberately excluded — it is DERIVED readiness state
@@ -3081,13 +3096,14 @@ def _scaffold_roadmap_baton(
     _ini = _yaml_quote(initiative) if initiative else "null"
     _category = category if category else "roadmap"
     _validate_category(_category)
+    _predecessor = predecessor.strip() if predecessor and predecessor.strip() else "none"
     lines = [
         "---",
         f"title: {_yaml_quote(title)}",
         f"created: {today}",
         f"branch: {_yaml_quote(branch)}",
         "status: open",
-        "predecessor: none",
+        f"predecessor: {_predecessor}",
         "kind: roadmap-baton",
         f"roadmap_id: {_yaml_quote(roadmap_id)}",
         f"stub_id: {_yaml_quote(stub_id)}",
@@ -3898,8 +3914,50 @@ this sizing chose.
 # for `declined`).
 _SIZING_TERMINAL_STATUSES = frozenset({"shipped", "declined"})
 
+# Spellings `read_fm_field_unquoted` returns verbatim for a field that is
+# present but carries no usable value — a bare YAML null (`null`/`~`) is
+# returned as that literal string, not coerced to Python `None`, so a caller
+# comparing for "no id" must normalise these itself. Mirrors the sibling
+# guard's own `!= "null"` idiom in `_mutate_sizing_reverse_edge`.
+_FM_NULL_SPELLINGS = frozenset({"null", "~"})
 
-def _mutate_sizing_reverse_edge(old_text: str, plan_repo_rel_path: str) -> str:
+
+def _resolve_plan_deliverable_id(plan_repo_rel_path: str, repo_root: str) -> str | None:
+    """Read `deliverable_id` off an on-disk plan's own frontmatter.
+
+    Used only to discriminate a shape->roadmap FAN-OUT (a second plan citing
+    one sizing object, but minting its own `deliverable_id` — spinoffs and
+    roadmap-batons both mint fresh ids, see `_mutate_sizing_reverse_edge`'s
+    docstring) from a genuine RE-ROUTE (same deliverable, replacement plan).
+
+    Never raises: an unresolvable id (missing file, unreadable frontmatter,
+    absent field, or a field present but carrying an explicit YAML null such
+    as `deliverable_id: null`/`~`) must fail toward the conservative branch
+    in the caller (refuse), not toward permitting a fan-out it cannot prove
+    — degrades to ``None`` on any read failure, mirroring
+    `_resolve_cited_sizing_deliverable_id`'s own never-raises posture.
+    """
+    try:
+        _existing_plan_abs = os.path.join(repo_root, plan_repo_rel_path)
+        with open(_existing_plan_abs, "r", encoding="utf-8") as _fh:
+            _existing_plan_text = _fh.read()
+    except OSError:
+        return None
+    from coordinator_core.frontmatter.primitives import (  # noqa: PLC0415
+        read_fm_field_unquoted as _read_fm_field_unquoted,
+    )
+    _raw_id = _read_fm_field_unquoted(_existing_plan_text, "deliverable_id")
+    if not _raw_id or not _raw_id.strip() or _raw_id.strip() in _FM_NULL_SPELLINGS:
+        return None
+    return _raw_id
+
+
+def _mutate_sizing_reverse_edge(
+    old_text: str,
+    plan_repo_rel_path: str,
+    incoming_deliverable_id: str | None = None,
+    repo_root: str | None = None,
+) -> str:
     """Return sizing-object YAML text with `plan:` and `status:` set.
 
     Whole-document-YAML (no frontmatter fence) — same shape `_scaffold_sizing`
@@ -3920,11 +3978,22 @@ def _mutate_sizing_reverse_edge(old_text: str, plan_repo_rel_path: str) -> str:
     now existing for the route this sizing chose. `plan:` is set/overwritten
     to `plan_repo_rel_path` (repo-root-relative, POSIX-normalized, matching
     the schema's `^docs/plans/.+\\.md$` pattern) — UNLESS the sizing already
-    carries a different, non-null `plan:` value, in which case this is a
-    re-route rather than a first routing and raises ``MutateAbort`` (caller
-    translates to a clean CLI error) rather than silently overwriting the
-    existing FK. A `plan:` value byte-identical to `plan_repo_rel_path` is
-    treated as idempotent, not a clobber (re-running the same scaffold).
+    carries a different, non-null `plan:` value. When that happens this is
+    either a genuine RE-ROUTE (refuse, as before) or a shape->roadmap
+    FAN-OUT (permit, leaving `plan:` untouched): `_resolve_plan_deliverable_
+    id` reads the EXISTING cited plan's own `deliverable_id` off disk and
+    compares it against `incoming_deliverable_id` --
+
+    1. Both resolve and DIFFER -> FAN-OUT. Permit; do not raise, and do NOT
+       overwrite `plan:` -- the cascade holds the terminal fact and replaces
+       it at either plan's `status: implemented`.
+    2. Both resolve and are EQUAL -> RE-ROUTE. Refuse, exactly as before.
+    3. The existing plan's id is absent, unreadable, or its file is missing
+       -> REFUSE. Conservative: an unresolvable id cannot prove a fan-out.
+
+    A `plan:` value byte-identical to `plan_repo_rel_path` is treated as
+    idempotent, not a clobber (re-running the same scaffold) and never
+    reaches this branch at all.
 
     Review: staff-eng — Findings 2/3: this used to hand-roll its own
     `re.search`/`re.sub` line surgery instead of composing
@@ -3964,13 +4033,23 @@ def _mutate_sizing_reverse_edge(old_text: str, plan_repo_rel_path: str) -> str:
     from coordinator_core.locked_write import MutateAbort as _MutateAbort  # noqa: PLC0415
 
     _existing_plan_value = read_fm_field_unquoted(old_text, "plan")
+    _fan_out_permitted = False
     if _existing_plan_value and _existing_plan_value != "null" and _existing_plan_value != plan_repo_rel_path:
-        raise _MutateAbort(
-            f"sizing object already cites plan '{_existing_plan_value}' — "
-            f"refusing to overwrite with '{plan_repo_rel_path}'. This is a "
-            "re-route, not a first routing; resolve the conflict by hand "
-            "before re-running with --sizing-object."
-        )
+        _existing_dlv_id = None
+        if repo_root is not None:
+            _existing_dlv_id = _resolve_plan_deliverable_id(_existing_plan_value, repo_root)
+        if _existing_dlv_id is not None and incoming_deliverable_id is not None and _existing_dlv_id != incoming_deliverable_id:
+            # Shape->roadmap FAN-OUT: a different deliverable citing the same
+            # sizing object. Permit — but do NOT overwrite `plan:` below;
+            # only the `status` flip proceeds.
+            _fan_out_permitted = True
+        else:
+            raise _MutateAbort(
+                f"sizing object already cites plan '{_existing_plan_value}' — "
+                f"refusing to overwrite with '{plan_repo_rel_path}'. This is a "
+                "re-route, not a first routing; resolve the conflict by hand "
+                "before re-running with --sizing-object."
+            )
 
     # Review: staff-eng — Finding 6: refuse (rather than silently un-ship)
     # when the sizing's own status is already terminal.
@@ -3987,11 +4066,12 @@ def _mutate_sizing_reverse_edge(old_text: str, plan_repo_rel_path: str) -> str:
     if read_fm_field_unquoted(new_text, "status") is None:
         new_text = insert_fm_field_raw(new_text, "status", _SIZING_REVERSE_STATUS)
 
-    _plan_raw = _yaml_quote(plan_repo_rel_path)
-    if read_fm_field_unquoted(new_text, "plan") is not None:
-        new_text = replace_fm_field_raw(new_text, "plan", _plan_raw)
-    else:
-        new_text = insert_fm_field_raw(new_text, "plan", _plan_raw, "status")
+    if not _fan_out_permitted:
+        _plan_raw = _yaml_quote(plan_repo_rel_path)
+        if read_fm_field_unquoted(new_text, "plan") is not None:
+            new_text = replace_fm_field_raw(new_text, "plan", _plan_raw)
+        else:
+            new_text = insert_fm_field_raw(new_text, "plan", _plan_raw, "status")
 
     # Review: staff-eng — Finding 10: validate the mutated document against
     # the vendored sizing schema before returning, rather than trusting the
@@ -4015,15 +4095,94 @@ def _mutate_sizing_reverse_edge(old_text: str, plan_repo_rel_path: str) -> str:
     )
     _errors = _validate_frontmatter(_parsed, _schema_path)
     if _errors:
-        raise _MutateAbort(
-            "sizing reverse edge: post-mutation schema validation failed: "
-            f"{_format_validation_errors(_errors)}"
-        )
+        raise _MutateAbort(_sizing_validation_abort(old_text, _schema_path, _errors))
     return new_text
+
+
+def _sizing_validation_abort(old_text: str, schema_path, errors: list) -> str:
+    """Build the reverse edge's validation-failure message, saying WHICH of
+    the two very different things went wrong.
+
+    WHY THIS SPLIT EXISTS. The check above validates the document AFTER the
+    edge's text surgery, and was added to catch surgery that produces an
+    invalid document (a `plan:` value the schema's path pattern rejects).
+    But it fires just as readily on a sizing object that was ALREADY invalid
+    when it arrived -- the surgery only writes `status` and `plan`, so it
+    cannot be the cause of an error on any other field. Reported 2026-09-06:
+    a planner was told "post-mutation schema validation failed:
+    em_review: additional property not allowed", read it as the reverse edge
+    misbehaving, and refused to route around it -- correctly, and against the
+    wrong suspect. The message named a real defect and pointed at the one
+    component that had not caused it.
+
+    So the pre-mutation document is validated too, and the errors are
+    partitioned: an error already present before the edge is the DOCUMENT's,
+    an error only present after is the EDGE's. Both are still refusals --
+    this changes what the operator is told, never what is written.
+
+    UNKNOWN TOP-LEVEL KEY GETS A NAMED ALTERNATIVE. `additionalProperties`
+    is `false` on this schema, and the way that fires in practice is an EM
+    writing prose under a key they invented on the spot (`em_review`,
+    2026-09-06). The schema already has a home for exactly that --
+    `em_analysis`, a free-form topic-keyed object of strings, whose own
+    description names `em_resolution` as an example key -- so the refusal
+    names it rather than leaving the writer to re-derive it or, worse, to
+    argue for a synonym field. One fact, one alternative
+    (`docs/wiki/guard-messaging.md` § Register).
+    """
+    import yaml as _yaml  # noqa: PLC0415
+
+    from coordinator_core.frontmatter.schema_validate import (  # noqa: PLC0415
+        format_validation_errors as _format_validation_errors,
+        validate_frontmatter as _validate_frontmatter,
+    )
+
+    try:
+        _before = _validate_frontmatter(_yaml.safe_load(old_text) or {}, schema_path)
+    except Exception:  # noqa: BLE001
+        # The pre-mutation document does not even parse or validate cleanly
+        # enough to partition against. That is itself the answer -- fall back
+        # to the undifferentiated message rather than inventing a verdict.
+        _before = None
+
+    if _before is None:
+        _head = "sizing reverse edge: post-mutation schema validation failed: "
+        return _head + _format_validation_errors(errors)
+
+    _prior = {_format_validation_errors([e]) for e in _before}
+    _preexisting = [e for e in errors if _format_validation_errors([e]) in _prior]
+    _introduced = [e for e in errors if _format_validation_errors([e]) not in _prior]
+
+    _parts = []
+    if _introduced:
+        _parts.append(
+            "sizing reverse edge: the edge's own write is invalid: "
+            + _format_validation_errors(_introduced)
+        )
+    if _preexisting:
+        _parts.append(
+            "sizing object was already invalid before the reverse edge touched "
+            "it (the edge writes only `status` and `plan`): "
+            + _format_validation_errors(_preexisting)
+        )
+        _unknown = sorted(
+            {
+                str(e.get("field"))
+                for e in _preexisting
+                if "additional propert" in str(e.get("error", "")).lower()
+            }
+        )
+        if _unknown:
+            _parts.append(
+                "Free-form EM prose belongs under `em_analysis` as a keyed "
+                f"entry, not a new top-level key: {', '.join(_unknown)}."
+            )
+    return " | ".join(_parts)
 
 
 def _write_sizing_reverse_edge(
     sizing_abs_path: str, plan_repo_rel_path: str, repo_root: str,
+    incoming_deliverable_id: str | None = None,
 ) -> str:
     """Write the plan->sizing reverse edge under a cross-process file lock.
 
@@ -4047,7 +4206,9 @@ def _write_sizing_reverse_edge(
 
     def _mutate(old_text: str) -> str:
         _captured["old_text"] = old_text
-        return _mutate_sizing_reverse_edge(old_text, plan_repo_rel_path)
+        return _mutate_sizing_reverse_edge(
+            old_text, plan_repo_rel_path, incoming_deliverable_id, repo_root,
+        )
 
     _locked_rmw(_Path(sizing_abs_path), _mutate, repo_root=_Path(repo_root))
     return _captured.get("old_text", "")
@@ -5829,15 +5990,18 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
         default=None,
         metavar="PATH",
         help=(
-            "(handoff ONLY) Repo-relative path to the baton this handoff continues "
-            "— the path field --predecessor-id companions. Carried as-is verbatim: "
-            "never resolved, validated, or minted here; the calling engine "
+            "(handoff and roadmap-baton) Repo-relative path to the baton this one "
+            "continues — the path field --predecessor-id companions. Carried as-is "
+            "verbatim: never resolved, validated, or minted here; the calling engine "
             "(baton_assemble) decides which path this names. Omitted -> the field "
             "stays the literal 'predecessor: none' scaffold default, byte-identical "
-            "to every existing caller that does not pass it. NOT accepted for the "
-            "spinoff kinds (predecessor:none-by-design, schema rule A3a-3) nor for "
-            "--type recovery, whose own 'predecessor:' means a crashed commit SHA "
-            "(or null) and never a baton path — see _scaffold_recovery's docstring. "
+            "to every existing caller that does not pass it. REFUSED (not silently "
+            "dropped) for the spinoff kinds (predecessor:none-by-design, schema rule "
+            "A3a-3) and for --type recovery, whose own 'predecessor:' means a crashed "
+            "commit SHA (or null) and never a baton path — see _scaffold_recovery's "
+            "docstring. roadmap-baton was admitted after a succession wrote "
+            "'predecessor: none' over a supplied edge with nothing warning; it is not "
+            "in the schema's predecessor=none class. "
             "Supplying --predecessor-id without this flag is refused."
         ),
     )
@@ -6767,8 +6931,32 @@ def main(argv: "list[str] | None" = None) -> int:
             f"--type {doc_type}. The fan-in down-edge is a handoff-only field, refused "
             "for every other --type (not only spinoff/recovery): the spinoff kinds are "
             "predecessor:none-by-design (schema rule A3a-3) and --type recovery "
-            "scaffolds its own additional_predecessors: [] literal — no other kind "
-            "carries a predecessor edge at all.",
+            "scaffolds its own additional_predecessors: [] literal. --type "
+            "roadmap-baton carries a single `predecessor` edge but no fan-in list.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Same posture as --additional-predecessor above, and added for a real
+    # silent loss rather than symmetry: baton_assemble's succession directive
+    # passes --predecessor on every roadmap-baton handoff, argparse accepted
+    # it, and _scaffold_roadmap_baton took no such parameter — so the successor
+    # was written `predecessor: none` while the predecessor half of the same
+    # supersession carried `continued_into`, leaving the chain broken from one
+    # end and nothing warning. The scaffolder now carries it; this refusal
+    # closes the other half, so a kind that CANNOT carry the edge says so
+    # instead of dropping it. `handoff` and `roadmap-baton` are the two that
+    # can: the spinoff kinds are predecessor:none-by-design (schema rule
+    # A3a-3 _cf_spinoff_predecessor_none) and --type recovery's own
+    # `predecessor:` means a crashed commit SHA, never a baton path.
+    if args.predecessor and doc_type not in ("handoff", "roadmap-baton"):
+        print(
+            f"coordinator-doc-new: --predecessor is not accepted for --type {doc_type}. "
+            "Only --type handoff and --type roadmap-baton carry a predecessor baton "
+            "path. The spinoff kinds (spinoff/goal-seed/roadmap-seed) are "
+            "predecessor:none-by-design (schema rule A3a-3), and --type recovery's "
+            "own 'predecessor:' names a crashed commit SHA or null, never a baton "
+            "path — pass --recovers-session instead.",
             file=sys.stderr,
         )
         return 1
@@ -6910,6 +7098,7 @@ def main(argv: "list[str] | None" = None) -> int:
             gate_dependency=args.gate_dependency,
             sizing_object=("null" if args.no_sizing_object else args.sizing_object),
             blocks=args.blocks,
+            predecessor=args.predecessor,
         )
     elif doc_type == "goal-seed":
         _goals_list = [g.strip() for g in args.goals.split(",") if g.strip()] if args.goals else None
@@ -7182,6 +7371,7 @@ def main(argv: "list[str] | None" = None) -> int:
         try:
             _sizing_reverse_old_text = _write_sizing_reverse_edge(
                 _sizing_abs_path, _plan_repo_rel_path, _write_repo_root,
+                _resolved_deliverable_id,
             )
         except _MutateAbort as _abort_exc:
             print(f"error: {_abort_exc}", file=sys.stderr)
