@@ -609,6 +609,7 @@ def sync_mirror(
     changed_paths: "set[str] | None" = None,
     sweep_top_level_orphans: bool = False,
     renamed_file_names: "frozenset[str] | None" = None,
+    foreign_dir_names: "frozenset[str] | None" = None,
 ) -> tuple[int, int]:
     """`sweep_top_level_orphans` (default `False` -- 100% behavior-preserving
     for every existing caller): when True, destination top-level FILES absent
@@ -674,6 +675,45 @@ def sync_mirror(
     percolate-engine-specific module to stay that way). A name in this set is treated as
     present-by-construction for the orphan sweep, exactly as if `src_dir` had a
     same-named entry, so it is neither deleted as an orphan nor re-synced as new.
+
+    `foreign_dir_names` (default `None`, treated as empty -- 100% behavior-preserving
+    for every existing caller) is the same present-by-construction contract for a
+    DIFFERENT provenance: a destination top-level directory owned by a SIBLING publish
+    row landing into the same destination. A publish destination may be served by
+    several rows -- one mirror-mode row over the destination root plus, say, a
+    flat-mirror row into `setup/`. That subdirectory is absent from the mirror row's
+    source by construction (nothing produces it there, and nothing should), so to this
+    module it is indistinguishable from a stray directory: the sweep below would delete
+    a sibling row's published output, and the top-level presence preflight fail-closes
+    the whole publish before it even gets there. The invariant stated in that
+    preflight's own comment already carries the qualifier -- "every top-level directory
+    the destination contains THAT THIS TARGET OWNS" -- and this parameter is how the
+    caller supplies the ownership half the module cannot see.
+
+    Kept separate from `renamed_dir_names` rather than folded into it because
+    `renamed_dir_names` is a member of `_MIRROR_DESCRIPTOR.bind_kwargs` -- REQUIRED of
+    every resolved `publish_sync` copy -- while `foreign_dir_names` must stay
+    permanently OPTIONAL across the two-copy version skew (§
+    `_module_accepts_foreign_dir_names`). Folding the sibling claim into
+    `renamed_dir_names` would route it through the required-parameter contract this
+    whole change exists to avoid. (Review: overengineering-reviewer (Kira) -- this is
+    the binding reason; the paragraph below is real but secondary.)
+
+    Secondarily, the provenance and the failure modes differ: a wrong `renamed_dir_names`
+    entry oscillates (create, rename, delete, recreate), while a wrong `foreign_dir_names`
+    entry silently hands a destination subdirectory to nobody -- no row sweeps it and no
+    row refreshes it. Two sets also let the preflight's abort message name WHICH
+    exemption class was consulted, which one merged set cannot.
+
+    The caller sources it from the publish row table (engine-plane, not this module's to
+    read -- same portability reason `renamed_dir_names` is caller-supplied): for a
+    mirror-mode row R, it is the set of FIRST PATH SEGMENTS of `dest_subdir` over every
+    other row in the resolved row set whose resolved destination sigil equals R's. First
+    segment only, because this sweep is top-level. There is no enabled/disabled field to
+    filter on here: a disabled row is commented out of `setup/publish-targets.portable`,
+    so the row parser never emits it in the first place -- it owns nothing on disk
+    because it never reaches the resolved row set, not because something filtered it out
+    of that set.
     """
     synced = 0
     removed = 0
@@ -686,6 +726,10 @@ def sync_mirror(
     # row's whole top level), the per-plugin loop has always deleted unconditionally, so
     # "unknown" must keep meaning "behave exactly as before", never "stop reaping".
     renamed_file_names = renamed_file_names or frozenset()
+    # Exempts the top-level dir sweep ONLY (the `orphans` list below, which the
+    # presence preflight and the rmtree loop both read) -- never the per-plugin phase-2
+    # loop, whose scope is inside a directory this row does own.
+    foreign_dir_names = foreign_dir_names or frozenset()
 
     synced += _sync_mirror_top_level_files(
         src_dir, dst_dir, ignore, dry_run, copier, changed_paths=changed_paths
@@ -799,7 +843,9 @@ def sync_mirror(
         ]
         orphans = [
             p for p in non_dot_dst
-            if not (src_dir / p.name).is_dir() and p.name not in renamed_dir_names
+            if not (src_dir / p.name).is_dir()
+            and p.name not in renamed_dir_names
+            and p.name not in foreign_dir_names
         ]
 
         # Top-level presence preflight (2026-07-26): the mass-deletion guard below
@@ -858,7 +904,13 @@ def sync_mirror(
                     f"{'these top-level directories' if plural else 'this top-level directory'}, "
                     "re-run with COORDINATOR_OVERRIDE_ORPHAN_SWEEP=1 (whole run) or "
                     f"COORDINATOR_OVERRIDE_ORPHAN_SWEEP={names.replace(', ', ',')} "
-                    "(only these name(s))."
+                    "(only these name(s)) -- but note the override permits the "
+                    "DELETION, it exempts nothing: if the directory belongs to a "
+                    "SIBLING publish row landing in this same destination, the fix is "
+                    "the caller passing it in `foreign_dir_names`, not this override.\n"
+                    f"    Exemptions consulted: renamed_dir_names="
+                    f"{sorted(renamed_dir_names) or '(empty)'}, foreign_dir_names="
+                    f"{sorted(foreign_dir_names) or '(empty)'}."
                 )
                 if dry_run:
                     print(

@@ -6760,6 +6760,124 @@ def _import_publish_sync(setup_dir: Path):
     return module
 
 
+def foreign_dir_names_for_row(
+    target: ResolvedTarget, all_rows: "List[ResolvedTarget]"
+) -> "frozenset[str]":
+    """Which destination top-level directory names under `target`'s own
+    `dest_dir` D belong to some OTHER row in the resolved row set, not to
+    `target` itself — the claim index `dispatch_mirror_like`'s orphan sweep
+    must exempt (§ docs/plans/2026-09-06-the-orphan-sweep-learns-what-a-sibling-r.md).
+    A disabled row is commented out of `setup/publish-targets.portable`, so
+    `load_targets` never emits it in the first place — there is no
+    enabled/disabled field on `ResolvedTarget` to filter on, and none is
+    needed: `all_rows` already contains only rows that exist.
+
+    Both sides of the containment check below are `.resolve()`d before
+    comparison. `dest_dir` is a bare `Path(dest)` (`parse_target_row`), never
+    pre-resolved, so an unresolved lexical comparison would miss two rows
+    whose `dest_dir`s denote the same on-disk location but are spelled
+    differently — a surviving `.`/`..` segment, a symlinked component, or a
+    Windows short-name vs long-name spelling — and raise `ValueError` for that
+    pair instead of finding the containment. That failure is fail-CLOSED (the
+    sibling's directory is treated as a stray orphan, which either gets
+    deleted or FATAL-aborts the publish), which is exactly the hazard this
+    whole change exists to close — "fails safe" is therefore not a reason to
+    skip resolving. `Path.resolve()` is non-strict on 3.11+: it does not
+    require the path to exist, so a destination not yet created on disk still
+    resolves to a normalized absolute path and this check works before the
+    first publish ever creates it.
+
+    For every row in `all_rows` other than `target`, if that row's
+    `dest_dir` is STRICTLY under D, the first path segment of its relative
+    path is a name D's own orphan sweep must not touch. Path-SEGMENT
+    arithmetic (`Path.relative_to`), never a string prefix test — `/a/bc`
+    must never read as under `/a/b`.
+
+    A row whose `dest_dir` EQUALS D contributes nothing: it shares D's root
+    rather than claiming a subdirectory of it, so there is no top-level name
+    to exempt on its behalf. A row outside D (an unrelated dest root, or a
+    parent of D) contributes nothing either.
+
+    The `is` check above is a cheap guard for callers that pass `target` as
+    a member of `all_rows` by the same object (as the tests do) — but it is
+    NOT what excludes `target`'s own entry in production. `main()` builds
+    `all_rows` from its own unfiltered `parse_target_row` pass, separate
+    from the `parsed_rows` dict `target` comes from, so `other is target` is
+    never True there for `target`'s own row. What actually excludes it in
+    production is the `rel == Path(".")` branch below: `target`'s own entry
+    has `dest_dir == dest`, so `rel` resolves to `Path(".")` and is skipped.
+    That branch is therefore LOAD-BEARING and must not be deleted as
+    apparently-redundant with the `is` check.
+
+    Keep both mechanisms. Excluding `target` by path equality ALONE (instead
+    of also keeping the `is` check) would risk conflating `target` with a
+    real sibling that happens to share the same `dest_dir`: two distinct
+    rows can legitimately land at one `dest_dir`, and such a sibling must
+    still be considered on its own terms (it contributes nothing here only
+    because its own `dest_dir` is not STRICTLY under D, not because it was
+    discarded via a path match against `target`).
+
+    `all_rows` must be the UNFILTERED row set (`load_targets(setup_dir,
+    target_filter="", err=io.StringIO())`, parsed) — a `--target`-narrowed
+    set would make a sibling's claim invisible and turn this into an
+    orphan-deleting false negative (see this function's own caller in
+    `main()`, resolved once per run, never per row)."""
+    # Review: coordinator:code-reviewer — resolve once per call (not per
+    # iteration) so two differently-spelled but on-disk-identical dest paths
+    # still compare equal; every other dest-containment check in this file
+    # resolves both sides.
+    dest = target.dest_dir.resolve()
+    names: "set[str]" = set()
+    for other in all_rows:
+        if other is target:
+            continue
+        try:
+            rel = other.dest_dir.resolve().relative_to(dest)
+        except ValueError:
+            continue
+        if rel == Path("."):
+            continue
+        names.add(rel.parts[0])
+    return frozenset(names)
+
+
+def _module_accepts_foreign_dir_names(publish_sync_module) -> bool:
+    """Does the resolved `publish_sync_module`'s `sync_mirror` DECLARE a
+    `foreign_dir_names` parameter BY NAME? Two copies of `publish_sync.py`
+    can win `_resolve_publish_sync_module_path` (this repo's engine copy, or
+    a per-root override such as DoE's `setup/publish_sync.py`) and the two
+    cannot land the parameter atomically — a copy that lags would raise
+    `TypeError` mid-publish if the kwarg were passed unconditionally.
+
+    Review: coordinator:code-reviewer — this is a by-name check
+    (`"foreign_dir_names" in sig.parameters`), not "would the call succeed."
+    A `sync_mirror(..., **kwargs)` signature would happily swallow the kwarg
+    without raising, but this probe reports `False` for it and the call site
+    omits the kwarg entirely. That is deliberate and safe (no crash, no
+    behavior claimed that isn't backed by a parameter the target module
+    actually reads), but it does mean a hypothetical override that forwards
+    `**kwargs` internally would never receive the value from this path.
+
+    Checked ONCE per run, beside the AC15 `check_publish_sync_contract`
+    call in `main()` — never per row. When the resolved copy lacks the
+    parameter, callers must omit the kwarg entirely rather than pass
+    `foreign_dir_names=None`: today's behaviour (empty exemption set) is
+    exactly what omitting it preserves.
+
+    Deliberately NOT folded into `_mirror_dispatch_kwargs`/AC15's bind
+    check: that dict is what `check_publish_sync_contract` REQUIRES of
+    every resolved copy, and `foreign_dir_names` must stay permanently
+    OPTIONAL there — see this repo's plan Anti-scope on the point."""
+    sync_mirror_fn = getattr(publish_sync_module, "sync_mirror", None)
+    if sync_mirror_fn is None:
+        return False
+    try:
+        sig = inspect.signature(sync_mirror_fn)
+    except (TypeError, ValueError):
+        return False
+    return "foreign_dir_names" in sig.parameters
+
+
 # AC15 (C11) — the mirror-dispatch keyword-argument set `dispatch_mirror_like`
 # splats into `sync_mirror`/`sync_flat_mirror`. Single source of truth: used
 # BOTH to build the actual call-site kwargs below AND, with a placeholder
@@ -6767,6 +6885,16 @@ def _import_publish_sync(setup_dir: Path):
 # `main()` (see `check_publish_sync_contract`) — never a separately
 # hand-maintained parameter-name list, so the validated set and the passed
 # set cannot drift apart independently.
+#
+# `foreign_dir_names` is deliberately NOT a member of this dict (Anti-scope,
+# docs/plans/2026-09-06-the-orphan-sweep-learns-what-a-sibling-r.md, C2):
+# this dict is what AC15's `check_publish_sync_contract` bind-checks against
+# every resolved `publish_sync` copy, so adding it here would make the
+# parameter REQUIRED of every copy and fail-close a live publish the moment
+# one copy lags behind the other. `foreign_dir_names` is threaded straight
+# onto `mirror_kwargs` at the call site below instead, gated on both the
+# mode descriptor and `_module_accepts_foreign_dir_names` — optional,
+# permanently. Do not "tidy" it into this dict.
 def _mirror_dispatch_kwargs(copy_file) -> dict:
     return {"copy_file": copy_file}
 
@@ -7020,6 +7148,8 @@ def dispatch_mirror_like(
     changed_sink: "Optional[set[str]]" = None,
     sweep_top_level_orphans: bool = False,
     renamed_file_names: "frozenset[str] | None" = None,
+    foreign_dir_names: "frozenset[str] | None" = None,
+    module_accepts_foreign_dir_names: bool = False,
 ) -> None:
     """Calls `publish_sync.sync_mirror`/`sync_flat_mirror` directly
     (in-process — never subprocessed), and folds the returned (synced,
@@ -7058,6 +7188,23 @@ def dispatch_mirror_like(
     undeterminable case belongs to the caller, which passes `None` and gets a
     full sweep. `None` here (the default, every pre-existing call site) is a
     no-op. `sync_fn`'s stdout is untouched either way.
+
+    `foreign_dir_names` (default `None`, forwarded to `sync_mirror` ONLY,
+    gated on `mode_descriptor.accepts_foreign_dir_names` in the same `if`
+    ladder as `renamed_dir_names` — § docs/plans/2026-09-06-the-orphan-
+    sweep-learns-what-a-sibling-r.md): the destination top-level directory
+    names another row in the resolved row set claims under `target`'s own
+    `dest_dir`, so this row's own orphan sweep does not delete a sibling
+    row's published output. `process_target` resolves this from the row's REAL `dest_dir`
+    (`foreign_dir_names_for_row`), never from `sync_target` — same reasoning
+    as `sweep_top_level_orphans` above, verbatim: `sync_target.dest_dir` is
+    the staging tree, and a staging path says nothing about which top-level
+    names a sibling row owns at the real destination. Only forwarded when
+    `module_accepts_foreign_dir_names` is also true (default False) — the
+    resolved `publish_sync` copy may lag behind this parameter (§
+    `_module_accepts_foreign_dir_names`), and passing an unsupported kwarg
+    would raise `TypeError` mid-publish; the caller probes this ONCE per
+    run, never per row.
 
     `sweep_top_level_orphans` (default False, forwarded to `sync_mirror` ONLY --
     § `PublishModeDescriptor.accepts_sweep_top_level_orphans`; `sync_flat_mirror`
@@ -7099,6 +7246,11 @@ def dispatch_mirror_like(
     sync_fn = getattr(publish_sync_module, mode_descriptor.entry_point)
     if mode_descriptor.accepts_renamed_dir_names:
         mirror_kwargs = {**mirror_kwargs, "renamed_dir_names": renamed_dir_names}
+    if (
+        getattr(mode_descriptor, "accepts_foreign_dir_names", False)
+        and module_accepts_foreign_dir_names
+    ):
+        mirror_kwargs = {**mirror_kwargs, "foreign_dir_names": foreign_dir_names}
     if getattr(mode_descriptor, "accepts_sweep_top_level_orphans", False):
         mirror_kwargs = {
             **mirror_kwargs,
@@ -10628,6 +10780,8 @@ def process_target(
     engine_ctx: PercolateEngineContext,
     percolate_store_path: Optional[Path] = None,
     publish_sync_module: object = None,
+    all_rows: "Optional[List[ResolvedTarget]]" = None,
+    module_accepts_foreign_dir_names: bool = False,
     shadow_roots_sink: "Optional[List[Path]]" = None,
     visited_files_sink: "Optional[set[Path]]" = None,
     published_dest_dirs_sink: "Optional[set[Path]]" = None,
@@ -11086,6 +11240,26 @@ def process_target(
                     "exemption, not a failing rename map; a real run resolves it.",
                     file=out,
                 )
+            # Sibling-row claim index (§ docs/plans/2026-09-06-the-orphan-
+            # sweep-learns-what-a-sibling-r.md, C2): computed from `target`'s
+            # REAL `dest_dir`, never `sync_target`'s staging path, for the
+            # same reason the `sweep_top_level_orphans` argument below reads
+            # `target.dest_dir` — see that argument's own comment. `all_rows`
+            # is `None` only when a caller (a test double, or a future
+            # non-`main()` entry point) never wired the unfiltered row set;
+            # that degrades to "no sibling claims known" rather than raising,
+            # matching every other exemption set's fail-safe default in this
+            # function.
+            # Review: overengineering-reviewer (Kira) — gate only on `all_rows
+            # is not None` here; `dispatch_mirror_like`'s own descriptor
+            # branch is the single decision point for the
+            # `accepts_foreign_dir_names` flag. A flat-mirror row now always
+            # gets its (possibly empty) claim set computed and passed down,
+            # which `dispatch_mirror_like` then declines to forward — a
+            # wasted comprehension buying one decision point instead of two.
+            foreign_dir_names = None
+            if all_rows is not None:
+                foreign_dir_names = foreign_dir_names_for_row(target, all_rows)
             row_sync_changed = set()
             with _time_phase(timing_sink, target.name, "dispatch_mirror_like"):
                 dispatch_mirror_like(
@@ -11132,6 +11306,8 @@ def process_target(
                         and renamed_file_names is not None
                     ),
                     renamed_file_names=renamed_file_names,
+                    foreign_dir_names=foreign_dir_names,
+                    module_accepts_foreign_dir_names=module_accepts_foreign_dir_names,
                 )
         elif target.mode == "manifest":
             with _time_phase(timing_sink, target.name, "sync_manifest"):
@@ -12093,6 +12269,31 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(exc.message, file=sys.stderr)
         return 1
 
+    # Version-skew probe (§ `_module_accepts_foreign_dir_names`, docs/plans/
+    # 2026-09-06-the-orphan-sweep-learns-what-a-sibling-r.md, C2): one
+    # `inspect.signature` check on the resolved `sync_mirror`, beside the
+    # AC15 contract check above — never per row.
+    module_accepts_foreign_dir_names = _module_accepts_foreign_dir_names(publish_sync_module)
+
+    # Sibling-row claim index's row set (§ `foreign_dir_names_for_row`,
+    # same plan): the UNFILTERED row set, resolved ONCE here — never per
+    # row, and never the `--target`-narrowed `rows` above. A `--target`-
+    # scoped run must still see a sibling row's claim on disk; narrowing
+    # this to `rows` would make that claim invisible and turn the orphan
+    # sweep's exemption into a false negative (this plan's own Anti-scope).
+    # Same unfiltered idiom this file already uses twice (`err=io.StringIO()`
+    # to avoid re-printing shadow-collision diagnostics `main()`'s own
+    # `load_targets` call above already printed once this run).
+    all_rows: "List[ResolvedTarget]" = []
+    try:
+        for _row in load_targets(setup_dir, target_filter="", err=io.StringIO()):
+            try:
+                all_rows.append(parse_target_row(_row))
+            except TargetsError:
+                continue
+    except TargetsError:
+        all_rows = []
+
     totals = RunTotals()
 
     # --delta (task brief "Deliverable 2"): computed ONCE, before the target
@@ -12509,6 +12710,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                         engine_ctx=engine_ctx,
                         percolate_store_path=percolate_store_path,
                         publish_sync_module=publish_sync_module,
+                        all_rows=all_rows,
+                        module_accepts_foreign_dir_names=module_accepts_foreign_dir_names,
                         shadow_roots_sink=all_shadow_roots,
                         visited_files_sink=row_visited,
                         published_dest_dirs_sink=row_published_dest_dirs,

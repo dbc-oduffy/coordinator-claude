@@ -106,6 +106,15 @@ disposition. You are reading a durable trail precisely so that a rejection costs
 judged too consequential to apply silently, which makes them the highest-signal item in the trail —
 and the one a fast read skips. An empty ASK list on a plan with P0/P1 findings is itself a finding.
 
+**A resolved escalation is still the highest-signal line, not a closed one.** Some ASKs arrive
+pre-resolved: a post-integration Resolve-escalations pass re-invoked the planner (its revising
+branch), which picked among the reviewer's own enumerated options and recorded the pick as
+`chosen`/`rejected` (`choicesMade`) — see
+`coordinator/docs/wiki/coordinator-tripwires/the-revising-planner-also-edits-the-plan-body.md`.
+Read that resolution with the same priority you give an unresolved ASK; it tells you WHAT was
+picked and what was not, not that the question is settled. A `chosen` outside the ASK's own stated
+option list, or one that does not actually match the plan body, is a finding of its own.
+
 **A clean `OK` from every reviewer is not evidence anyone checked.** A reviewer handed an author's
 prose can restate it, agree it is coherent, and return `OK` without opening the code that would
 falsify it. Spot-check one substantive claim per plan against the tree. Tripwire:

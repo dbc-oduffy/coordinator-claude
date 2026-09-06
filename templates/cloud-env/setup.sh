@@ -7,6 +7,20 @@
 # (claude-ai-hosted-plugin-constraints.md) never applies on this route — nothing is uploaded, no
 # admin approval surface is involved, and no `claude` binary is needed at setup time.
 #
+# REPO-AGNOSTIC BY DESIGN, AND THAT IS THE POINT. This is pasted into a cloud ENVIRONMENT, which is
+# the OPERATOR's surface at claude.ai/code — not a file in any repo and not a step any repo's own
+# installer has to adopt. Everything it needs it clones itself, so the same paste works for a
+# session on any repo. A sibling team wanting the coordinator layer in their cloud sessions needs
+# no change on their side; the operator configures their environment with this.
+#
+# ONE EXCEPTION, LIVE TODAY: doctrine (phase 3b) is NOT yet repo-agnostic. Its third candidate
+# reads the published copy out of the plugin clone, and that copy is not in the mirror yet —
+# `git ls-tree HEAD:templates` on dbc-oduffy/coordinator-claude has no `global-doctrine` entry
+# (checked 2026-09-06, independently on both planes). It is committed on DoE `main` and awaiting a
+# percolate publish. Until that lands, a session on a repo that does not itself carry
+# `global-doctrine/` takes phase 3b's FAIL branch and runs doctrine-blind. Full operator procedure,
+# including this gap: README.md beside this file.
+#
 # PASTE THIS ALONGSIDE — the "Environment variables" box, which reaches the SESSION but NOT this
 # script (which is why every value below is also hardcoded here):
 #
@@ -159,6 +173,37 @@ else
   echo "settings: SKIPPED (no plugin clone, or no python3 to merge JSON)"
 fi
 
+echo "=== phase 3b: global doctrine into the VM's own HOME ==="
+# Cloud reads the VM's $HOME/.claude normally -- what does not carry over is the machine you
+# launched FROM. That is provenance, not path (tripwire
+# A-VM-WRITTEN-HOME-CLAUDE-IS-NOT-YOUR-MACHINES-HOME-CLAUDE), and it is why phase 3 can register a
+# plugin here at all. The same write lands global doctrine, which otherwise reaches no cloud
+# session: `global-doctrine/` is deliberately absent from the OSS mirror this script clones, so the
+# only copy on this VM is the one in the working repo's own clone -- present when the session runs
+# on a repo that authors doctrine, absent otherwise. Copy, never mirror-and-prune: $HOME/.claude is
+# the operator's, and on a self-hosted runner it may already carry seeded content this must not eat.
+# Search order is authoring-copy first, published copy second. They are byte-identical when the
+# deriver has run, so the order only decides which one a doctrine-authoring repo uses; the
+# published copy under the plugin clone is what makes every OTHER repo work, since it rides the
+# percolated tree into the OSS mirror this script already clones.
+DOCTRINE_SRC=""
+for cand in "$PWD/global-doctrine" /workspace/*/global-doctrine \
+            "$ROOT/coordinator-claude/templates/global-doctrine"; do
+  [ -f "$cand/CLAUDE.md" ] && { DOCTRINE_SRC="$cand"; break; }
+done
+if [ -n "$DOCTRINE_SRC" ]; then
+  mkdir -p "$HOME/.claude/rules"
+  cp "$DOCTRINE_SRC/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
+  [ -d "$DOCTRINE_SRC/rules" ] && cp "$DOCTRINE_SRC/rules"/*.md "$HOME/.claude/rules/" 2>/dev/null
+  echo "doctrine: OK -> \$HOME/.claude/CLAUDE.md (from $DOCTRINE_SRC)"
+else
+  # REACHED ON EVERY NON-AUTHORING REPO TODAY, not just on a failed clone: the published copy is
+  # committed on DoE `main` but not yet in the mirror this script clones. Loud rather than silent
+  # because a skip here looks identical to a working copy, and the session that boots next is the
+  # one that pays.
+  echo "doctrine: FAIL (no copy found — session runs doctrine-blind; see README.md § Known gap)"
+fi
+
 echo "=== phase 4: engine root pointer ==="
 # The ordering hole: the machine-local registry's reader is written by coordinator-claude's
 # INSTALL, which has not run and cannot run here. The durable pointer file is the documented
@@ -225,6 +270,13 @@ if [ "$HAVE_ENGINE" -eq 0 ]; then
   "$PYBIN" -c "import pydantic, psutil, jsonschema, yaml; print('deps import: OK')" 2>&1 | tail -1
 fi
 echo "REMINDER: the env-var block must carry COORDINATOR_ENGINE_ROOT=$ROOT/claude-klabauter"
+# Everything above proves files are on disk. It cannot prove Claude Code READS them: this script
+# finishes before Claude Code launches, so hook firing is unobservable from here by construction.
+# The session that boots next is the only thing that can settle it, and cloud sessions are the
+# unattended ones -- a guard that silently fails to load has no operator to notice.
+echo "UNVERIFIED: whether plugin-declared hooks fire in this session. Two probes and a results"
+echo "  table: coordinator-claude/coordinator/templates/cloud-env/verify-in-session.md"
+echo "  Until a row there is filled, treat cloud hook coverage as unknown, not present."
 echo "=== setup complete ==="
 
 }

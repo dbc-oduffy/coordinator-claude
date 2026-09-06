@@ -62,6 +62,16 @@ class PublishModeDescriptor:
     #: diverge on it, and `check_publish_sync_contract` binds each descriptor's
     #: own `bind_kwargs` against its own entry point rather than one shared set.
     accepts_sweep_top_level_orphans: bool = False
+    #: Whether this mode's entry point takes `foreign_dir_names` — the
+    #: per-row exemption set (a SIBLING publish row's owned destination
+    #: top-level subdirectories) that keeps `sync_mirror`'s orphan sweep and
+    #: its top-level presence preflight from treating another row's output
+    #: as a stray directory. `sync_mirror` only: `sync_flat_mirror` has no
+    #: per-plugin subdir concept for a sibling row to own a piece of.
+    #: Declared here for the same reason `accepts_renamed_dir_names` is —
+    #: `check_publish_sync_contract` binds each descriptor's own
+    #: `bind_kwargs` against its own entry point rather than one shared set.
+    accepts_foreign_dir_names: bool = False
     is_bootstrap_bearing: bool = False
 
 
@@ -85,6 +95,7 @@ _MIRROR_DESCRIPTOR = PublishModeDescriptor(
     },
     accepts_renamed_dir_names=True,
     accepts_sweep_top_level_orphans=True,
+    accepts_foreign_dir_names=True,
     is_bootstrap_bearing=False,
 )
 
