@@ -150,25 +150,66 @@ def _stamp_archive_sweeps_liveness(repo_root: str) -> None:
         pass
 
 
+#: The ONE scan family whose members stay a bare count. It is the whole live
+#: non-terminal corpus (77 records on example-cockpit-repo the day this was written)
+#: and enumerating it drowns every other line. Every OTHER family is named
+#: record-by-record: those are few, and each one is a record that LOOKED
+#: archivable and was held back, which is the only part an operator can act on.
+_BULK_SCAN_FAMILY = "not-terminal"
+
+
+def _bootstrap_repo_identity() -> None:
+    """Bind `resolve_checked_repo_root` as a module global, never clobbering a patch.
+
+    `globals().setdefault`, not a bare `from X import Y` rebind, and NOT a
+    renamed private seam: this is the convention two siblings already carry
+    (`reap-stale-subagent-sidecars.py :: _bootstrap_reaper`,
+    `prune-closed-bugs.py :: _bootstrap_pcb`), both of which document the same
+    hazard. Keeping their spelling is the point -- a test copied from either
+    sibling patches `mod.resolve_checked_repo_root`, and under a differently
+    named seam that patch would be inert again, which is the exact bug this
+    replaced.
+
+    `main()` used to reach the resolver through an import inside its own body.
+    A function-local import binds a LOCAL name, so the three tests in
+    `coordinator/bin/tests/test_sweep_terminal_handoffs_cli.py` setting
+    `mod.resolve_checked_repo_root` patched an attribute nothing ever read:
+    the CLI resolved the REAL repo and each fixture repo went unused. One of
+    those drives the ACT path, so a test run held archive-and-commit authority
+    over the live corpus and nothing said so. `test_the_repo_root_seam_is_the_
+    one_the_cli_actually_calls` fails if a future edit re-inlines the import.
+    """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from repo_identity import resolve_checked_repo_root as _resolve_checked_repo_root  # pyright: ignore[reportMissingImports] — same runtime lib-bootstrap sys.path injection as elsewhere in this file
+
+    globals().setdefault("resolve_checked_repo_root", _resolve_checked_repo_root)
+
+
 def _print_refusal_census(scan_skipped, planned_skipped) -> None:
-    """Print one line per refusal FAMILY, plus every id refused after the scan.
+    """Print one line per refusal FAMILY, enumerating every family but the bulk one.
 
     A sweep that archives nothing and says only "no terminal handoffs
     archived" is indistinguishable from a sweep whose every rail silently
     dropped everything -- that ambiguity is what let a false-green AC-2
-    stand. The scan's own refusals are grouped by reason prefix (the
-    non-terminal population is the whole live corpus and would drown the
-    output enumerated); post-scan refusals are few and named individually,
-    since those are the records that WERE terminal and still did not move.
+    stand. Grouping alone reintroduced the same blindness one level in: a
+    record retained fail-closed for an unresolvable `shipped_in` IS terminal,
+    and under a bare `77 not-terminal` count nothing said so. Two
+    example-cockpit-repo sessions read that line as "nothing here is archivable",
+    re-ran the sweep to find out, and restored an archive twice off the
+    re-run. Only `_BULK_SCAN_FAMILY` stays a count now.
     """
     if isinstance(scan_skipped, list) and scan_skipped:
-        families: "dict[str, int]" = {}
+        families: "dict[str, list]" = {}
         for item in scan_skipped:
             reason = str(item.get("reason", "unknown"))
-            families[reason.split(":", 1)[0]] = families.get(reason.split(":", 1)[0], 0) + 1
+            families.setdefault(reason.split(":", 1)[0], []).append(item)
         print(f"scan refused {len(scan_skipped)} record(s):")
-        for family, count in sorted(families.items(), key=lambda kv: -kv[1]):
-            print(f"  {count:>4}  {family}")
+        for family, items in sorted(families.items(), key=lambda kv: -len(kv[1])):
+            print(f"  {len(items):>4}  {family}")
+            if family == _BULK_SCAN_FAMILY:
+                continue
+            for item in items:
+                print(f"        {item.get('id')} -- {item.get('reason')}")
 
     if isinstance(planned_skipped, list) and planned_skipped:
         print(f"terminal but not moved -- {len(planned_skipped)} record(s):")
@@ -206,7 +247,6 @@ def main(argv: "list[str] | None" = None) -> int:
     [])` uniformly, so the default must stay `None`-meaning-`sys.argv[1:]`.
     """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from repo_identity import resolve_checked_repo_root  # pyright: ignore[reportMissingImports] — same runtime lib-bootstrap sys.path injection as above
     from sweep_argv import parse_repo_root_argv  # pyright: ignore[reportMissingImports] — same runtime lib-bootstrap sys.path injection as above
 
     argv = sys.argv[1:] if argv is None else argv
@@ -221,6 +261,7 @@ def main(argv: "list[str] | None" = None) -> int:
         return early_exit
     dry_run = _DRY_RUN_FLAG in flags
 
+    _bootstrap_repo_identity()
     git_repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
     if git_repo_root is None:
         print("sweep-terminal-handoffs.py: not inside a git repo", file=sys.stderr)
@@ -321,7 +362,12 @@ def main(argv: "list[str] | None" = None) -> int:
     if archived == 0:
         print("no terminal handoffs archived")
     else:
-        print(f"{archived} terminal handoffs archived")
+        # Name what moved. A bare count is the one thing an operator cannot
+        # check without re-running the sweep, and the re-run is what caused
+        # the damage the census above exists to prevent.
+        print(f"{archived} terminal handoffs archived:")
+        for item in result.get("acted", []):
+            print(f"  {item.get('id')}")
 
     if isinstance(result, dict):
         _print_refusal_census(result.get("scan_skipped"), result.get("skipped"))

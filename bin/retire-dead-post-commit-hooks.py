@@ -170,7 +170,10 @@ def _retire_one(root: Path, apply: bool) -> str:
     if apply:
         backup = hook.with_name(hook.name + _BACKUP_SUFFIX)
         try:
-            backup.write_text(text, encoding="utf-8")
+            # `newline="\n"`: a post-commit hook is a POSIX shell script, and
+            # Windows' default text-mode translation would rewrite every
+            # line ending on the way out -- including the shebang.
+            backup.write_text(text, encoding="utf-8", newline="\n")
         except OSError as exc:
             # The undo leg is the reason this removal is allowed to happen
             # at all; without it the action is one-way. Refuse rather than
@@ -185,7 +188,9 @@ def _retire_one(root: Path, apply: bool) -> str:
     assert extent is not None
     remainder = _excise(text, extent[0], extent[1])
     if apply:
-        hook.write_text(remainder, encoding="utf-8")
+        # Same reason as the backup write above: the hook this rewrites is
+        # a shell script, not prose.
+        hook.write_text(remainder, encoding="utf-8", newline="\n")
     return "block-excised" if apply else "would-excise-block"
 
 

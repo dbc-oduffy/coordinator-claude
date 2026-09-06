@@ -195,7 +195,7 @@ def _cmd_rag_freshness_gate(argv: list[str]) -> int:
     if not generate_repomap.is_file():
         print(
             f"[coordinator] generate-repomap.py unresolvable at {generate_repomap} "
-            "(claude-klabauter sibling resolved but file missing on disk) — "
+            "(engine checkout resolved but file missing on disk) — "
             "task-scoped repomap skipped",
             file=sys.stderr,
         )

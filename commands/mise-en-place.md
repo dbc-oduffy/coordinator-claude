@@ -113,9 +113,19 @@ Proceeding.
 
 ## Phase 5: Execute
 
-Default: one background Workflow per wave (the Phase 2 DAG), EM commits between waves,
-`model: 'sonnet'` on every `agent()`, ≤5 write-capable executors/barrier. Single-wave runs may
-hand-dispatch — same wave gate. Verifiers/reviewers dispatch via `Agent`, never inside a Workflow.
+Default: ONE background Workflow for the whole run, carrying the Phase 2 DAG across every wave —
+executors, verifiers, and the per-wave commit phase alike. `model: 'sonnet'` on every `agent()`,
+≤5 write-capable executors/barrier. **No hand-dispatch, and no single-wave carve-out:** manual
+`Agent` calls spend EM context, which is the binding constraint in a mise run, and "only one wave"
+is not a shape a Workflow cannot express. Verifiers ride inside the Workflow — call
+`provision-sidecar --agent-type <type>` for any phase whose `report_type_map` row is not
+`run-report`.
+
+Don't hand-author the script — mint and emit:
+`python coordinator/bin/emit-dispatch-workflow.py --inventory state/mise-inventory/<run-id>.md`
+writes the spine (item-id → chunk-id, footprint → `writes`) plus the `.mjs`; fire it with
+`Workflow({scriptPath: ...})`. It refuses on an unrecognized disposition or a footprint naming no
+backticked path — fix the record, don't work around it. Both artifacts archive with the record.
 
 Enable the sentinel first: `misc-session-and-guards autonomous-sentinel enable --mode
 mise-en-place` (disable at Phase 6). Executors always background; only the EM commits, once per
@@ -131,11 +141,14 @@ Per wave:
    double-dispatch onto a live footprint): dispatch a Haiku verifier per item using the
    brief's `d-mise-haiku-verifier-dispatch` fields. Batch per wave; gate on all-`PASS`.
    Non-PASS → re-dispatch, revert+re-plan, defer, or early-stop.
-3. Wave gate: `backlog-grind-assemble apply mise-en-place --wave-path <path>... --granularity
-   per-wave --message "mise: wave N — <items>"` over the union of changed paths — never hand-typed
-   git. `--message` must be a single line: it has no `-file` sibling and the `.cmd` forwarder
-   truncates a multi-line value at the first LF, exit 0. Poll `git branch --show-current` between
-   waves; recovery commits don't advance the chain.
+3. Wave gate: a commit phase INSIDE the Workflow — `coordinator:git-commit-agent` over the union
+   of changed paths, via `ceremony.commit_v2` (that plus a plain scoped `git commit -- <paths>`
+   is the whole allow surface; `ceremony.scoped_git_commit` is a deleted op, not a route). Neither
+   live route re-asserts the branch, so the phase's prompt names the expected branch and requires
+   a read-only check before committing. No ledger call in the phase — `commit_v2` writes the row
+   itself, so adding one duplicates it. Never hand-typed git.
+   Bookkeeping stays EM-side, outside the Workflow: `backlog-grind-assemble apply mise-en-place
+   --run-id <id>` with **no** `--wave-path` (that form builds no commit directive).
 4. "Wave N complete ([items]). Firing wave N+1 ([items])." — never a question.
 
 No worktrees.

@@ -173,11 +173,23 @@ REFUSED_REASON = "http-hook-forwarder: engine backend refused the request"
 #: was unreachable will probe the listener, read the discovery record, and test skew, and every
 #: one of those steps is wasted. A deny whose stated cause is false costs more than a silent one,
 #: because it is acted upon.
+#: NAMES ITS OWN RECOVERY, because this is the one deny in this module an actor cannot act on
+#: with the tool it just lost. It fires on the Bash matcher, so every documented recovery --
+#: `claude plugin disable`, the unlock sentinel, killing the resident forwarder -- is itself a
+#: Bash call, and the deny stands for the life of the session (hook registrations are read at
+#: session start). `guard-proportionality.md`'s outlet test is exactly this: the denied actor
+#: must be able to state what it does next WITHOUT a human. So the text names the file edit,
+#: which file tools alone can make. It also stops asserting the veto as fact: an empty canary
+#: has two causes and this module cannot see which, so claiming one is the false-cause deny the
+#: `DENY_REASON` note warns costs more than a silent one.
 VETOED_ENV_REASON = (
-    "http-hook-forwarder: the env override channel was declared but vetoed by an "
-    "httpHookAllowedEnvVars setting -- the Bash guard did not run, denying rather than "
-    "forwarding an emptied env that every guard would read as 'no override requested'. "
-    "The backend is not implicated; do not go looking at it"
+    "http-hook-forwarder: the override channel is declared but its canary header arrived "
+    "empty, so no caller override reached the guard and the Bash guard did not run. Two "
+    "causes are indistinguishable from here: an httpHookAllowedEnvVars setting vetoing the "
+    "registration's allowedEnvVars, or COORDINATOR_PROBE_CANARY unset in this session. "
+    'Instead: add "COORDINATOR_PROBE_CANARY": "1" to the "env" block of '
+    "~/.claude/settings.json -- file tools suffice, and env is read at process start, so it "
+    "takes effect in the next session. The backend is not implicated"
 )
 
 #: Discovery resolved a backend and it could not be reached -- distinct from `DENY_REASON`'s

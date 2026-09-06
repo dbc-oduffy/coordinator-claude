@@ -32,7 +32,7 @@ Every fence below resolves the same ladder, not restated per step: `COORDINATOR_
 - git, Python 3, jq.
 - uv (Pipeline D), scc (optional), PowerShell 7+ / Windows Terminal (default-on, not hard blockers).
 - Engine repo cloned (hard, not auto-discovered).
-- **Sequence, exactly:** (1) clone the engine repo; (2) run this coordinator install; (3) restart Claude Code; (4) only then run the engine repo's own installer. Steps 1 and 2 read as circular only if "clone" and "install" are conflated — they are not the same step, and the engine's installer legitimately depends on coordinator already being installed.
+- **Sequence, exactly:** (1) install the coordinator plugin; (2) clone the engine repo — a clone, **not** an install; (3) restart Claude Code — the one load-bearing restart, and what makes this command exist; (4) run this coordinator install; (5) only then run the engine repo's own installer, from a shell started after (4) so the `machine-local` resolver this command deposits is on PATH. Steps 2 and 5 read as circular only if "clone" and "install" are conflated — they are not the same step, and the engine's installer legitimately depends on coordinator already being installed. Matches `INSTALL.md` § Step 1e / Step 2 / Step 3 / Step 4 exactly; if the two ever disagree, `INSTALL.md` is the source of truth.
 
 ## Structural fork
 

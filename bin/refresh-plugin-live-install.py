@@ -399,14 +399,41 @@ def _git_rev_parse(cwd: Path, ref: str) -> str | None:
 
 
 def _git_worktree_root(cwd: Path) -> Path | None:
-    """`git -C cwd rev-parse --show-toplevel`, resolved — or None on any
-    failure (not a repo, git missing, timeout via the shared subprocess
-    default)."""
-    r = _git(["rev-parse", "--show-toplevel"], cwd)
-    if r.returncode != 0:
+    """The worktree root enclosing `cwd`, resolved — or None on any failure
+    (not a repo, engine unreachable, a root that no longer exists).
+
+    Reads through `coordinator_core.git.repo_root.show_toplevel`, which WALKS
+    for a `.git` entry and never spawns, rather than shelling out to `git
+    rev-parse --show-toplevel`. The raw spawn is what
+    `test_checked_repo_resolver.py`'s
+    `test_no_disallowed_rev_parse_show_toplevel_occurrence` forbids — this
+    script was the new offender against its frozen baseline — and the seam is
+    also the cheaper answer: one process fewer per invocation, on a script the
+    session-start path runs.
+
+    Deferred import, matching this module's bootstrap posture (see
+    `_import_registry_deps`): `--help`/usage paths never pay an engine-root
+    resolution. An unreachable engine degrades to None — the same answer this
+    function already gives for "no repo here" — which its one caller already
+    branches on.
+    """
+    try:
+        _bootstrap_lib()
+        from cc_invoke import require_dispatch_engine_on_path
+
+        require_dispatch_engine_on_path()
+        from coordinator_core.git.repo_root import show_toplevel
+    except Exception:  # noqa: BLE001 -- fail-open, matches this module's bootstrap posture
+        return None
+
+    try:
+        root = show_toplevel(str(cwd))
+    except Exception:  # noqa: BLE001
+        return None
+    if not root:
         return None
     try:
-        return Path(r.stdout.strip()).resolve(strict=True)
+        return Path(root).resolve(strict=True)
     except (OSError, RuntimeError):
         return None
 

@@ -1,5 +1,5 @@
 """coordinator/bin/publish-allowlist-generate.py — derives field 7 (the
-allowlist CSV) of the two `claude-klabauter*` rows in
+allowlist CSV) of the two publish-mirror rows in
 `setup/publish-targets.portable` from `setup/publish-allowlist-declarations.
 yaml`, mechanically, rather than by hand-edit.
 
@@ -8,7 +8,8 @@ before (2026-08-19: 708 inclusions against 948 tracked, withholding 240 CLIs
 including the warm engine's own operator stop hatch) because nothing forced
 every git-tracked top-level name under a row's source dir to be CLASSIFIED —
 admitted or denied — before the file was hand-edited. This script closes that
-gap for the two `claude-klabauter` / `claude-klabauter-coordinator-bin` rows:
+gap for both mirror rows (the toplevel row and
+`claude-klabauter-coordinator-bin`):
 it reads `setup/publish-allowlist-declarations.yaml`'s `deny` list for a row
 and regenerates the row's field-7 CSV as `sorted(tracked - deny)` followed by
 the row's EXISTING `!`-prefixed narrow exclusions carried over verbatim (this

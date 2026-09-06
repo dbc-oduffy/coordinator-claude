@@ -177,6 +177,11 @@ report_type_map:
   # Its resident subagent-sandbox-preamble paste is already the assessment VARIANT,
   # which the sync verifier selects off this row.
   coordinator:atlas-clarity-reviewer: assessment
+  # run-report, not assessment: its return is execution evidence — the fired run
+  # handle, the wave map it fired, and what it excluded — not findings with
+  # dispositions. Mapped for this key's coverage invariant only; absent from
+  # report_sidecar:, so no provisioning is implied.
+  coordinator:workflow-maker: run-report
 
 # dispatch_tier:  dict[str, str] — subagent_type -> "exploration" | "review-execution".
 # Additive on top of report_sidecar: / report_type_map: / contract_blocks: — does not
@@ -317,6 +322,10 @@ dispatch_tier:
   # test-evidence-parser: exploration tier would make its own contract
   # unfulfillable at every dispatch. Not (a)/(b): one page per dispatch, EM-read.
   coordinator:atlas-clarity-reviewer: review-execution
+  # Holds Write/Edit, so clause (1) passes, but clause (2) does not: one fired run
+  # per dispatch, consumed by the dispatching EM, and a re-emit after a lost run is
+  # deterministic and cheap — nothing accumulates that a crash would make you redo.
+  coordinator:workflow-maker: exploration
 
 # contract_blocks:  dict[str, list[str]] — subagent_type -> ORDERED list of
 # canonical snippet block names to assemble and inject into that subagent's

@@ -295,12 +295,27 @@ def main(argv: list[str]) -> int:
         )
         return 0
     except OSError as exc:
+        # "on PATH" is the POSIX predicate and is WRONG on Windows, where
+        # CreateProcess appends only `.exe` to a bare name and never consults
+        # PATHEXT. `pnpm` resolves under both `shutil.which` and `where` (to a
+        # `.cmd` shim) and still raises WinError 2 here, so an operator who
+        # checks PATH on the strength of the sentence below concludes the
+        # message does not apply to them. Name the real predicate instead.
+        shim_note = ""
+        if sys.platform == "win32" and getattr(exc, "winerror", None) == 2:
+            shim_note = (
+                " On Windows the test is launchability, not PATH resolution: a "
+                "`.cmd`/`.bat`/extensionless shim (pnpm, npm, yarn) is found by "
+                "`where` and by shutil.which, and CreateProcess still cannot launch "
+                "it. Name the executable the shim would have called — e.g. "
+                "`node scripts/publish.mjs`, not `pnpm publish:fleet`."
+            )
         print(
             f"[coordinator-ceremony-hook] WARN: {ceremony} post-command failed to "
             f"launch (non-fatal): {redacted} ({exc}) — {key} is argv-only: its first "
             "token must be an executable on PATH (or an absolute/relative path to "
             "one); pipes, &&/||, redirects, globs, and VAR=value prefixes are not "
-            "supported. Use a wrapper script for shell semantics.",
+            f"supported. Use a wrapper script for shell semantics.{shim_note}",
             file=sys.stderr,
         )
         rc = 1

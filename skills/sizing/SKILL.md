@@ -61,14 +61,34 @@ property-attests verbatim from the returned fields. Undecided direction-class it
 whiteboard length; never a slice of `intent`.
 
 **`status`.** An XS routes to dispatch and has no plan: stamp it `shipped` yourself the moment the
-work lands, citing the commit. S and above route into a plan, where `deliverable.cascade_terminal`
-owns the terminal stamp: never pre-empt it, and never hand-stamp instead of triggering it. **Then
-read `status` back** — that is the field the cascade writes, and the only one that answers whether
-it fired. It usually has: a sizing still `routed` under a landed plan is a finding, not the
-expected outcome. Hand-write ONLY on a status that did not advance, citing the landing commits and
+work lands, citing the commit. S and above route into a plan, where the terminal cascade owns the
+sizing-object stamp: never pre-empt it, and never hand-stamp instead of triggering it. The cascade
+fires from `plan-status-transition stamp-implemented` — **from the stamping op, not from the
+landing**. A plan whose `status: implemented` was hand-edited and committed directly never fires
+it. **Then read `status` back** — that is the field the cascade writes, and the only one that
+answers whether it fired. A sizing still `routed` under a plan stamped through the op is a finding.
+Under a hand-landed plan it is expected, and the repair is to stamp the plan through
+`plan-status-transition stamp-implemented`, not to hand-write the sizing row. Hand-write ONLY on a
+status that did not advance under a plan stamped through the op, citing the landing commits and
 this rule inline. Never hand-write on one that did — that races a live writer and loses unsafely.
 Do not read `acted`: it belongs to a different op and is empty either way. Tripwire:
 `ACTED-IS-BLIND-TO-THE-DELIVERABLE-CASCADE`.
+
+**4b. Open the flight recorder on the resolved route — every route, before anything downstream.**
+`TaskCreate`: one session-goal task naming the ask and the sizing-object path, then **one task per
+remaining stage of the chain the route implies, through its terminal**. The chain is the route's,
+not your judgment: `dispatch` → the work → `quick-wrap`. `spec-dispatch` → light plan → executor
+dispatch → scoped `code-reviewer` + `review-integrator` → `quick-wrap`. `plan` → plan → plan review
+→ `execute-plan` → `/workstream-complete`. `shape`/`roadmap`/`pm-decision` → the named room owns
+its own chain; record the entry task and stop. **Terminal by size, not by feel: XS/S close at
+`quick-wrap`, M and above at `/workstream-complete`.** Where the harness tool is absent, the
+`coordinator-tasks-mirror` fallback carries it.
+
+The point is that the whole chain is visible from the lobby — a PM or an EM can see at a glance
+what a route commits the session to, and a stage nobody reached is a pending row rather than a
+thing everyone forgot. **Downstream steps ADD to this list, they do not restart it**: `execute-plan`
+Phase 2 and the `spec-dispatch` light terminal open per-chunk tasks beneath these stage rows, and a
+second session-goal task means one of them re-created a recorder that was already open.
 
 **5. `post_size_prompt_pending` (M+) — ask once, in the PM's register, and stop:** *"Looks like an
 X — go with that, split it, cut it, what's up?"* Never a closed fork. Record the answer in

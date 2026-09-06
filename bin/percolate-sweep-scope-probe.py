@@ -51,7 +51,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument(
         "--target",
         default=None,
-        help="Comma-separated target name filter (default: all claude-klabauter* rows).",
+        help="Comma-separated target name filter (default: every registered mirror row).",
     )
     args = parser.parse_args(argv)
 

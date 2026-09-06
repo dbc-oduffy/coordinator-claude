@@ -51,9 +51,16 @@ one empty triage table. Why:
 
 Findings *may* carry a fix classification (`AUTO-FIX`/`ASK`) and confidence (1–10), orthogonal to severity. **Most do not** — un-calibrated is the normal case (why: wiki § AUTO-FIX vs ASK Routing).
 
+**FIRST, AND IT OUTRANKS THE TABLE: math/algebra/precedence and any symbolic-reasoning
+finding is ALWAYS ASK.** Any confidence, any severity, any fix class — including a calibrated
+`AUTO-FIX` at confidence 10, and including a P0/P1 that passes the Verification Gate. Read this
+rule before the table and apply it before any row: such a finding matches a severity row too, and
+a table read as a severity lookup silently applies it. Symbolic reasoning is the one thing you
+must not do on the author's behalf, and "the evidence block matches the source" confirms the
+quote, never the algebra.
+
 | Finding shape | Routing |
 |---|---|
-| Math/algebra/precedence, or any symbolic-reasoning finding | Always ASK, any confidence. |
 | P0/P1 | Calibrated AUTO-FIX → P0/P1 Verification Gate: read the cited code, confirm against current source; fails → escalate. Un-calibrated → escalate ASK. |
 | AUTO-FIX confidence ≥ 8, or un-calibrated nit/P2 with a concrete mechanical fix (rename, delete, wording, docstring, a named missing assertion) | Apply silently; one line in the AUTO-FIX summary. |
 | ASK, confidence 5–7, or un-calibrated nit/P2 with no concrete fix or a judgment call | Escalate ASK, confidence shown. |

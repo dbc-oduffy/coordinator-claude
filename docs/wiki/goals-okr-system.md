@@ -307,6 +307,11 @@ call, so **every terminal KR transition is authored by the EM/PM directly into
 life and has nothing to say about its exit. A repo that infers otherwise from step 3's "proposes a
 per-KR status update" wording will build a confirmation flow for a proposal that never arrives.
 
+**The ceiling implies a reader, and it is `/workweek-complete` Step 1, not this step.** A
+human-only writer with no reader of the gap makes an unstamped goal indistinguishable from a
+failed one; Step 1 owns the rule and its wording. Tripwire:
+`A-MANUAL-ONLY-WRITER-NEEDS-A-READER-OF-ABSENT-WRITES`.
+
 ---
 
 ## Emit → Cockpit → Cockpit Pipe

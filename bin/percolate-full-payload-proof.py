@@ -862,7 +862,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             processed_n = declared_n - len(not_processed)
             print(
                 f"  pass {pass_result.pass_number} rows: {processed_n} of {declared_n} "
-                f"declared claude-klabauter* rows processed"
+                f"declared mirror rows processed"
             )
             if not_processed:
                 print(f"    NOT PROCESSED: {', '.join(not_processed)}")

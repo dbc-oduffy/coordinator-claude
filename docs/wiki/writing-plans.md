@@ -463,7 +463,7 @@ per surface delivered, the simpler or cheaper shape considered and rejected and 
 one is right — not merely working. Portability stays `multi-os-first-class`'s row, never this
 one's.
 
-Each row is `{brightline, statement, met}`:
+Each row is `{brightline, statement, met}`, plus an optional `evidence`:
 
 - **`brightline`** is one of the fixed slugs scaffolded in the template — do not rename or add
   slugs ad hoc; a sixth brightline (or a reviewer-facing variant) gets its own plan chunk, not a
@@ -473,11 +473,29 @@ Each row is `{brightline, statement, met}`:
   `prime_exit_criterion.statement`, scoped to one brightline instead of the whole plan.
 - **`met`** starts `false` and is flipped only by the session writing `exit_criterion_met`. An
   unmet brightline blocks `implemented` the same way an unresolved AC would.
+- **`evidence`** is optional, written at close-out beside the `met` flip: what was actually
+  observed that shows the `statement` held. `statement` is the plan-time question, `evidence` is
+  the answer — never put proof text in `statement`, and never strip a recorded observation to get
+  past the validator. Bounded at 1024 chars; over the bound means the observation is too wide,
+  so narrow it to a count or a filtered line set. A `met: true` row with no `evidence` is valid —
+  the flip is the gate, `evidence` is the receipt.
 
-**Deliberately NOT one repeated `prime_exit_criterion`-shaped object per brightline.** A full
+**`exit_criterion_met` takes no `evidence`-class key, and that is a ruling, not a gap.** Its
+`falsifier_output` (raw observation), `falsifier_verdict` (its reading), `prose` (the EM's
+sentence tying them to the criterion) and `reason` (a `false` assertion's remainder) already are
+the close-out record. An invented `met_evidence` / `closeout_evidence` / `close_out_evidence` /
+`close_out` key on it retags into those four — raw output to `falsifier_output`, narrative to
+`prose`. Nor does any close-out key belong on `prime_exit_criterion`: that object is authored
+before the work exists, so evidence written there has landed on the wrong half of a plan-time /
+close-out pair. `gated_exit_criteria[].evidence` is not a precedent for either — that row had no
+evidence field at all, those two objects have four between them.
+
+**Deliberately NOT one repeated `prime_exit_criterion`-shaped object per brightline.** That forbids an
+apparatus per row, never one optional string — which is why `evidence` is admitted and a
+per-brightline falsifier object is not. A full
 falsifier (`how`/`baseline_output`/`baseline_ref`/`expected_when_true`) per brightline is
 per-item git-spawn amplification for a check that is almost always a direct read (grep for a
-hardcoded path, check CI ran on three OSes) — `gated_exit_criteria` stays a light three-field row,
+hardcoded path, check CI ran on three OSes) — `gated_exit_criteria` stays a light row,
 `prime_exit_criterion.falsifier` stays the one-per-plan heavy instrument. **Deliberately NOT an
 `## Acceptance Criteria` table row either** — that table is optional, reviewer-facing prose, never
 mechanically gated (see the comment above the AC table in the template); a brightline that landed
@@ -516,6 +534,8 @@ Each list item is a task object with the following fields:
 | `surface` | string | required | The harvest/coverage **PRIMARY-TARGET** field — a single path or subsystem. Maps to the queue entry's `surface` field ONLY. This is deliberately **not** the wave-map's write-files set (which may enumerate many files) — `surface` names the one primary target a triager would look at first. |
 | `queue_scope` | enum `project`\|`central` | optional (default `project`) | Which improvement-queue the harvest writes into. `central` is a per-deferral opt-in, mapping to `coordinator-queue-append --queue-scope central`. |
 | `execution_mode` | enum `agent`\|`operator` | optional (default `agent`) | WHO can run the row. `operator` means the work needs a human at an interactive terminal, so the row is excluded from dispatch and surfaced to a human instead — on the same non-dispatchable path an uncleared `external_gate` takes (`plan-tasks.schema.json` >= 1.11.0). It is an execution-capability claim, not a resolution state: the row stays `disposition: open`, keeps its `writes`, and close-out still counts it. Do not reach for `external_gate` (its `owner_repo` names another repo, and a fabricated one fails the whole emission), `deferred: true` (asserts a scope cut the row has not taken), or a closed `disposition` (a stealth-skip — the work has not happened). |
+| `agent_type` | string | optional | WHICH agent runs the row, **overriding the write-target derivation entirely** (`plan-tasks.schema.json` >= 1.13.0). Absent, the emitter derives the type from `writes` as it always has — plan/problem-body paths to `coordinator:enricher`, everything else to `coordinator:executor` — so a spine omitting it emits unchanged. Optionally plugin-qualified (`coordinator:workflow-maker`). Malformed fails loud at emit; a well-formed unknown passes through, because the engine does not own this repo's agent roster. **NOT the fan-out escape hatch:** a chunk whose work is dispatching N sub-agents is N chunks — one worker per row, disjoint `writes`, all depending on the row producing their shared input. Reach for `agent_type` only where decomposition does not dissolve the need. The mixed-row refusal still fires first: naming an agent does not reconcile a row writing both an immutable body and ordinary code. |
+| `agent_model` | string | optional, but **required alongside any `agent_type` the engine carries no model row for** — the emit refuses and names this field | WHICH model that agent runs on. The emitter resolves models by table lookup with a silent default, so an agent type it does not know emits `sonnet` with nothing raised and nothing logged — naming an Opus persona and quietly getting Sonnet is the failure this field exists to prevent. |
 | `deferred` | bool | **LEGACY — read-tolerance only, no live authoring path** | Formerly `true` meant this row is NOT shipped by this plan. Superseded by `disposition: backlogged` (see below). Retained on the schema only because a live consumer's corpus still contains it; do not write it on new rows. |
 | `disposition` | enum | optional (default `open`) | **THE authoring surface for row resolution.** `open \| coded \| spun_off \| backlogged \| wont_do`. `open` is live, undecided work. `coded` means the row shipped (evidence: a commit SHA). `spun_off` / `backlogged` / `wont_do` are closed dispositions — the row is not being built by this plan, and each names why. This is a deliberately separate vocabulary from `handoff.carried_items[].disposition` (`carried \| closed \| spun_off \| blocked`, `coordinator/schemas/handoff.schema.json:706-712` <!-- Review: coordinator:code-reviewer — citation off by one, corrected to the disposition field's actual span -->) — the two enums share exactly one member, `spun_off`, and are otherwise disjoint by design: a handoff row answers what TRAVELS to the next session, while a plan-tasks row answers whether the work GOT BUILT. |
 | `disposition_ref` | string | **required for `coded`/`spun_off`/`backlogged`; forbidden for `open`/`wont_do`** | The forward-pointer evidence, singular by contract (never a range, comma-list, or branch name). `coded`: a single 7-40 char hex commit SHA, pattern-validated. `spun_off`/`backlogged`: a single repo-relative path (a spinoff doc, a queue-entry filename). |

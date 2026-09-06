@@ -405,9 +405,9 @@ def main(argv: list[str] | None = None) -> int:
         # session cannot hit this ambiently, but a foreign-repo operator CAN reach it
         # by typing the command — matching the audit's row 9/16 precedent for
         # deliberately-invoked maintenance ops.
-        print("ERROR: could not resolve the claude-klabauter repo path.", file=sys.stderr)
+        print("ERROR: could not resolve the engine checkout path.", file=sys.stderr)
         print("  This script regenerates the cockpit-contract schema via claude-klabauter's Python emitter.", file=sys.stderr)
-        print("  Prerequisite: a local checkout of claude-klabauter, registered as machine-local key", file=sys.stderr)
+        print("  Prerequisite: a local checkout of the engine, registered as machine-local key", file=sys.stderr)
         print("  'repos.claude_klabauter' (run: machine-local set repos.claude_klabauter <path>),", file=sys.stderr)
         print("  or exported as CLAUDE_KLABAUTER_ROOT=<path>.", file=sys.stderr)
         return 2

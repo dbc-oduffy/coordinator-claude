@@ -330,7 +330,7 @@ def cmd_resolve_exec_summary_generator(args: argparse.Namespace) -> int:
     if resolved is None:
         print(
             "[repo-setup-args-and-register] generate-exec-summary.py unresolvable "
-            "(checked coordinator/bin/ and the claude-klabauter sibling via "
+            "(checked coordinator/bin/ and the engine sibling via "
             "REPO_CLAUDE_KLABAUTER/CLAUDE_KLABAUTER_ROOT/.claude-klabauter-root) — exec-summary "
             "generation skipped",
             file=sys.stderr,

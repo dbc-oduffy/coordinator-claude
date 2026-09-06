@@ -43,12 +43,18 @@ import sys
 
 def main(argv: "list[str] | None" = None) -> int:
     del argv  # this CLI takes no arguments; argv accepted for the warm-call contract
+    # Late import, matching every other bin CLI that suppresses a console:
+    # this module has no engine bootstrap, so a module-scope
+    # `coordinator_core` import would break running it as a plain script.
+    from coordinator_core.win_portability import no_console_creationflags
+
     try:
         raw = subprocess.run(
             ["git", "branch", "--show-current"],
             capture_output=True,
             text=True,
             check=False,
+            **no_console_creationflags(),
         )
     except OSError:
         return 0
@@ -66,6 +72,7 @@ def main(argv: "list[str] | None" = None) -> int:
             capture_output=True,
             text=True,
             check=False,
+            **no_console_creationflags(),
         )
     except OSError:
         refs = None

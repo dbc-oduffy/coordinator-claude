@@ -316,7 +316,7 @@ def main(argv: Optional[list] = None) -> int:
         print(f"reap-stale-subagent-sidecars.py: session liveness engine not importable: {exc}", file=sys.stderr)
         return 2
 
-    from coordinator_core.session.machinery_paths import machinery_root
+    from coordinator_core.session.machinery_paths import share_roots
 
     # BOTH roots, and the split is the point. `.coordinator-local/` is
     # gitignored (`.gitignore` names the whole root), so nothing under it can
@@ -328,11 +328,7 @@ def main(argv: Optional[list] = None) -> int:
     # every candidate resolved untracked, so a tracked sidecar would have
     # been deleted with no history entry, and the old root had no reaper at
     # all. Caught by code-reviewer on `196fbbc71e`.
-    share_dirs = [
-        os.path.join(machinery_root(repo_root), "subagent-share"),
-        os.path.join(repo_root, "state", "subagent-share"),
-    ]
-    share_dirs = [d for d in share_dirs if os.path.isdir(d)]
+    share_dirs = [d for d in share_roots(repo_root) if os.path.isdir(d)]
     if not share_dirs:
         print("reap-stale-subagent-sidecars.py: no subagent-share root exists; nothing to do")
         return 0

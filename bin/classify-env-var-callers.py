@@ -61,8 +61,17 @@ _EXCLUDE_DIR_NAMES = {
 # rationale by using a prefix list; the rationale is "records of what was true
 # when written", and decision records plus delivered plans are exactly that.
 # Enumerating them here would put immutable history into a routing wave.
+#
+# `.coordinator-local/` is the same class one step further: machine-local
+# session scratch (`subagent-share/<uuid>/`, ceremony and cache trees), mostly
+# untracked and transient. A `.py` copy parked there is a snapshot of a call
+# site, never a call site the routing wave can act on — and it cannot be
+# dispositioned either, because the disposition map is keyed by path and
+# `test_disposition_map_has_no_stale_entries` requires the path to still
+# exist, which a per-session share directory does not.
 _EXCLUDE_PREFIXES = (
     "state/", "archive/", "cross-repo/", "tasks/", "docs/decisions/",
+    ".coordinator-local/",
 )
 
 _VAR_NAMES = ("CLAUDE_KLABAUTER_ROOT", "COORDINATOR_ENGINE_ROOT", "COORDINATOR_ENGINE_SOURCE_ROOT")
@@ -157,7 +166,8 @@ _REVIEWED_DISPOSITIONS: dict[str, tuple[str, str]] = {
                    "against itself and the drift check would pass vacuously."),
     "coordinator/bin/percolate-preflight-scratch-publish.py": (
         "locator", "returns <root>/coordinator as the plugin root; its own error text asks for "
-                   "'the claude-klabauter repo root'. Wants the checkout, not the engine."),
+                   "'the engine checkout root' and names repos.claude_klabauter as the lever. "
+                   "Wants the checkout, not the engine package."),
     "coordinator/tests/test_workday_evening_tz_coherence.py": (
         "locator", "joins the root to coordinator_core/ops/workday_complete_backfill_scan.py and "
                    "reads it as a read-only structural tripwire against claude-klabauter SOURCE (own comment: "
@@ -178,6 +188,17 @@ _REVIEWED_DISPOSITIONS: dict[str, tuple[str, str]] = {
                    "monkeypatched resolver and a synthetic root"),
     "coordinator/bin/tests/test_handoff_loe_summary.py": (
         "fixture", "passes a tmp_path root to a formatter under test"),
+    "coordinator/bin/tests/test_cc_invoke_foreign_identity.py": (
+        "fixture", "monkeypatches `_resolve_claude_klabauter_root` to a synthetic literal root that is "
+                   "never touched on disk, to assert that `require_dispatch_engine_on_path` "
+                   "skips the announce call when ungated; the root is a sentinel, not a path "
+                   "anything is reached through"),
+    "coordinator_core/install/tests/test_substrate_engine_root_flag.py": (
+        "fixture", "asserts ON the resolver: deletes both env vars, drives the installer's "
+                   "--engine-root flag, then sets COORDINATOR_ENGINE_ROOT per the refusal "
+                   "message's own remedy text and re-calls `shim._resolve_claude_klabauter_root` against "
+                   "a tmp_path engine dir to confirm the remedy works. The var is the subject "
+                   "under test, never a route to an engine"),
     "coordinator_core/tests/test_engine_root_two_tier.py": (
         "fixture", "builds synthetic live/published roots to exercise the ladder"),
     "coordinator/bin/tests/test_cc_invoke_provenance_hardening.py": (

@@ -143,7 +143,14 @@ final-approved`.
 2.6–2.7. Phase 2 close (Shape W, `snippets/resolve-coordinator-bin.md`):
    `& "$env:COORDINATOR_SETTINGS_HOME\bin\audit-roadmap.exe" <run-id>` — one gate, five audits (stub-coverage, `ready_to_fire`
    uniqueness, pm-gates cross-reference, dependency-order). Exit 1 blocks close and names the
-   offender. `kind: roadmap-baton` frontmatter is also `bin/lint-frontmatter`-clean.
+   offender. `kind: roadmap-baton` frontmatter is also validator-clean per the engine's
+   frontmatter cross-field rules — the live enforcement point; this repo's
+   `coordinator/hooks/scripts/validate-frontmatter-schema.py` is a non-executing parity copy,
+   never the thing to edit. Those rules require `roadmap_id`, when present, to name a cluster
+   that actually exists on disk — not merely be non-empty. **A cluster is required before a stub
+   scaffolds one — if no cluster applies, the stub is not a `roadmap-baton` at all; scaffold it
+   `kind: spinoff` instead** (the ruled redirect for cluster-less baton-shaped work, which refuses
+   both a null `roadmap_id` and a minted placeholder cluster as ways around this).
 2.8. Sequential reviews — same altitude rule and sidecar contract as Step 1.5.5. Domain reviewer
    skippable when its Step-1.5.5 findings are already pinned into the stub ACs verbatim AND each
    stub becomes a downstream `coordinator:plan` that re-applies the lens at PLAN altitude — record

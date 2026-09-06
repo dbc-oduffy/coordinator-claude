@@ -110,14 +110,22 @@ This is the same config surface `fast_test_cmd:` already uses (see § Week-chang
   `/workday-start`, before the chain into `/workday-start` on `/workweek-start`, and after Reset
   Week-Changelog / before Final Summary on `/workweek-complete`. There is no PRE-ceremony hook in
   this design.
-  <!-- Review: code-reviewer (F2) — clarified execution-vs-rendering timing below for workweek-start,
-       where the two "after"s were previously conflated. -->
   **`/workweek-start` execution-vs-rendering split:** the hook *executes* in Step 6.5, before the
-  Step 7 chain into `/workday-start` — but its captured `$_HOOK_OUT` line does not *render* until
-  the final combined summary, which prints only after the chained `/workday-start` briefing has
-  already completed and shown. Do not expect the hook's one-line summary to appear immediately
-  after Step 6.5; it appears last, as a trailing line on the combined output.
-- **Runs in the repo root**, resolved via `git rev-parse --show-toplevel` (falls back to `cwd`).
+  Step 7 chain into `/workday-start`, but its line does not *render* until the final combined
+  summary — so it appears last, not right after Step 6.5.
+- **Argv-only — no shell in the loop.** Pipes, `&&`/`||`, redirects, globs, and `VAR=value`
+  prefixes are unsupported: the value either fails to parse (WARN, nothing runs) or execs its
+  first token as a literal program name. Put shell logic in a script and point the key at it.
+- **That first token must be a real executable on every OS the repo is worked on.** The list
+  above is syntax and reads as exhaustive; this is the separate trap. `CreateProcess` appends
+  only `.exe` to a bare name — never `PATHEXT` — and cannot launch a `.cmd`/`.bat` at all, so
+  `pnpm`/`npm`/`npx`/`yarn` resolve on macOS/Linux and are a guaranteed `WinError 2` on Windows.
+  Name what the shim would have called (`node scripts/publish.mjs`, not `pnpm publish`); a bare
+  `./x.sh` is unlaunchable there for the same reason. Advisory means this is one stderr WARN and
+  otherwise **indistinguishable from the key being unset** — months of lost emissions, no red
+  signal. Multi-OS is P0; author-box-only is a correctness defect. See
+  `AN-EXTENSIONLESS-FORWARDER-PROBE-FINDS-NOTHING-ON-WINDOWS`.
+- **Runs in the repo root**, resolved via `resolve_checked_repo_root` (falls back to `cwd`).
   One command per ceremony; a repo needing multiple actions wraps them in its own script.
 - **Skipped under `/workday-complete --only`** — a targeted past-date backfill is not a live
   end-of-day settle, so the hook does not run in that mode.
@@ -142,22 +150,22 @@ from an untrusted sender (e.g. a memo or handoff). Unlike `fast_test_cmd`, there
 override would be a subprocess-injectable surface. The helper reuses the same discipline
 `fast_test_cmd` resolution already applies:
 
-- `_cs_metachar_warn` flags shell-metacharacter risk on the resolved command before it runs.
-- `_cs_redact_for_diag` redacts the command in the summary line and any WARN — a command
-  containing a secret (token in a URL, `--password=…`) is never echoed raw.
+- `_metachar_warn` flags shell-metacharacter risk on the resolved command before it runs.
+- `_redact_for_diag` redacts the command in the summary line and any WARN — a command containing
+  a secret (token in a URL, `--password=…`) is never echoed raw.
 
 ### Worked example
 
 ```yaml
 # coordinator.local.md (consumer repo frontmatter)
-workday_complete_post_command: "./scripts/publish-state.sh"
+workday_complete_post_command: "node scripts/publish-state.mjs"
 ```
 
-With this key set, `/workday-complete`'s terminal step runs `./scripts/publish-state.sh` in the repo
-root after the ceremony has settled, and the Final Summary includes a line like:
+The interpreter is named explicitly — that is the portable shape, not incidental style. Terminal
+step runs it in the repo root once the ceremony has settled; Final Summary then carries:
 
 ```
-Post-workday-complete hook: ran ./scripts/publish-state.sh (exit 0)
+Post-workday-complete hook: ran node scripts/publish-state.mjs (exit 0)
 ```
 
 If the key is absent (the default for most repos), nothing runs and nothing prints.

@@ -90,6 +90,16 @@ STOP and take the next action here.
 context pressure and don't answer with a trigger analysis. A blocked next action is real too: name
 the blocker and the event that clears it in the successor's remit.
 
+**On a box whose successor cannot be reached, context pressure is not a handoff trigger at
+all.** A cloud session has no `/clear`, and reaching its successor takes a PR merge, a new session
+and a re-point — so a handoff authored under compaction pressure buys nothing this session can
+hand anyone. Append what the post-compaction self needs to the baton this session already has
+(`baton.carry_forward`; the context-pressure advisory names the path), and continue the run. The
+engine selects this posture with no configuration —
+`${CLAUDE_PLUGIN_ROOT}/docs/wiki/coordinator-tripwires/tripwire-registry/a-mode-default-can-be-answered-by-the-environment.md`.
+A PM ask still self-authorizes a handoff anywhere, and a blocked next action is still a blocked
+next action.
+
 **Trigger 4 (review-owed close) is an instance of this same blocked-next-action skip, not a
 second discharge.** The ratified closed class of un-runnable-here reasons is stated once, at
 `${CLAUDE_PLUGIN_ROOT}/docs/wiki/coordinator-tripwires/two-ceremonies-two-predicates-one-handover.md`

@@ -631,7 +631,7 @@ def cmd_working_repo_registration(argv: list[str]) -> int:
         if fix:
             print(
                 "working-repo-registration --fix: SKIP — this repo's identity resolved as "
-                f"{identity!r}, not 'claude-klabauter'; engine.working_repos.claude_klabauter is "
+                f"{identity!r}, not the engine's own; engine.working_repos.claude_klabauter is "
                 "not this checkout's key to write (writing it here would register a non-"
                 "working-repo clone as a working repo)."
             )
