@@ -164,8 +164,15 @@ echo "=== phase 4: engine root pointer ==="
 # INSTALL, which has not run and cannot run here. The durable pointer file is the documented
 # cold-box substitute and needs no reader at all.
 if [ "$HAVE_ENGINE" -eq 0 ]; then
+  # `-root`, NOT `-live-root`. Two pointers are read at different rungs and they assert different
+  # things: `.claude-klabauter-root` is the PUBLISHED build (admitted only with a tracked
+  # coordinator_core/_engine_stamp, which a fresh clone of the mirror carries), `-live-root` is a
+  # live working tree (isdir alone). We clone the published mirror, so this is the published arm.
+  # The wrong name does not fail loudly — the published arm falls through, the live arm accepts on
+  # isdir, and the box resolves by asserting a published mirror is a live tree. That is DR-326's
+  # manual test-and-execute carve-out, taken silently where nobody can attach a debugger.
   mkdir -p "$HOME/.coordinator-claude-settings/machine-local"
-  echo "$ROOT/claude-klabauter" > "$HOME/.coordinator-claude-settings/machine-local/.claude-klabauter-live-root"
+  echo "$ROOT/claude-klabauter" > "$HOME/.coordinator-claude-settings/machine-local/.claude-klabauter-root"
   echo "engine pointer: OK -> $ROOT/claude-klabauter"
 else
   echo "engine pointer: SKIPPED (no engine clone)"
