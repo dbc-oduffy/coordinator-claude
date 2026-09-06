@@ -1,0 +1,165 @@
+---
+title: Windows Kernel-Mode Crash Forensics
+status: active
+kind: doctrine-wiki
+created: 2026-05-18
+---
+
+# Windows Kernel-Mode Crash Forensics
+
+## Overview
+
+Windows kernel-mode crash triage on developer machines (CI environments differ; this wiki is the dev-box workflow). Event Viewer's "disorderly shutdown" attributions routinely surface the WRONG driver as cause; trust WinDbg/cdb output before event-log attribution. GUI debuggers (windbgx, WinDbg Preview) hang on minidump-only crashes; CLI tools (cdb.exe) succeed.
+
+## 1. Use cdb.exe + Elevated PowerShell, Not windbgx GUI
+
+Source: project-rag-ue-addon, lessons.md L54.
+
+The GUI debuggers' "Open minidump" flow stalls on `C:\Windows\Minidump\*.dmp` files. <!-- foreign-path-ok: fixed Windows system path, identical on every Windows machine --> `cdb.exe -z <path-to-dmp>` followed by `!analyze -v` produces the actual fault chain.
+
+Run from an **elevated PowerShell** — non-elevated cdb opens the file but `!analyze -v` returns partial results.
+
+Set the symbol path before the first run:
+
+```powershell
+$env:_NT_SYMBOL_PATH = "srv*C:\symbols*https://msdl.microsoft.com/download/symbols"  <!-- foreign-path-ok: fixed Windows symbol-cache path, part of a runnable PowerShell example -->
+```
+
+## 2. Run `!analyze -v` Before Trusting Event-Log Driver Attribution
+
+Source: project-rag-ue-addon, lessons.md L56.
+
+Event Viewer "disorderly shutdown" entries name a driver from the kernel call stack at shutdown time — not necessarily the FAULTING driver. The crashed driver and the driver that was running at unclean-stop time are often different (especially when fault is in graphics/storage and the unclean-stop driver is a higher-level subsystem).
+
+`!analyze -v` reports `MODULE_NAME` and `FAILURE_BUCKET_ID` keyed on the actual fault frame. Those two fields are the authoritative attribution — event-log driver names are circumstantial.
+
+## 3. Minimum Forensic Toolchain (Install Once Per Dev Box)
+
+- **WinDbg from Microsoft Store** — provides `cdb.exe` under the Windows Kits directory
+- **Symbol path env var:** `_NT_SYMBOL_PATH=srv*C:\symbols*https://msdl.microsoft.com/download/symbols` <!-- foreign-path-ok: fixed Windows symbol-cache path, identical on every Windows machine -->
+- **Elevated PowerShell shortcut** pinned to taskbar for crash-triage sessions
+
+Default `cdb.exe` location after WinDbg install:
+
+```
+C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe  <!-- foreign-path-ok: fixed WinDbg install path, identical on every Windows machine -->
+```
+
+Verify with:
+
+```powershell
+Get-Item "C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe"  <!-- foreign-path-ok: fixed WinDbg install path, identical on every Windows machine -->
+```
+
+## 4. Where to Find Minidumps
+
+| Dump type | Path |
+|---|---|
+| Kernel-mode crash | `C:\Windows\Minidump\*.dmp` <!-- foreign-path-ok: fixed Windows kernel-dump directory, identical on every Windows machine --> |
+| Recoverable subsystem crash | `C:\Windows\LiveKernelReports\*.dmp` <!-- foreign-path-ok: fixed Windows kernel-dump directory, identical on every Windows machine --> |
+| User-mode (WER) | `%LOCALAPPDATA%\CrashDumps\<exe>.<pid>.dmp` |
+
+Kernel minidumps require elevation to read. If `cdb.exe` opens without error but `!analyze -v` returns truncated output, the PowerShell session is not elevated.
+
+## Quick Triage Script
+
+```powershell
+# Run from elevated PowerShell
+$env:_NT_SYMBOL_PATH = "srv*C:\symbols*https://msdl.microsoft.com/download/symbols"  <!-- foreign-path-ok: fixed Windows symbol-cache path, part of a runnable PowerShell example -->
+
+$dmp = Get-ChildItem C:\Windows\Minidump\*.dmp | <!-- foreign-path-ok: fixed Windows kernel-dump directory, part of a runnable PowerShell example -->
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+
+if (-not $dmp) {
+    Write-Error "No minidumps found in C:\Windows\Minidump\"  <!-- foreign-path-ok: fixed Windows kernel-dump directory, part of a runnable PowerShell example -->
+    exit 1
+}
+
+Write-Host "Analyzing: $($dmp.FullName)"
+& "C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe" ` <!-- foreign-path-ok: fixed WinDbg install path, part of a runnable PowerShell example -->
+    -z $dmp.FullName `
+    -c "!analyze -v; q"
+```
+
+Key output fields to read:
+
+- `MODULE_NAME` — the faulting module (trust this over Event Viewer)
+- `FAILURE_BUCKET_ID` — stable identifier for the fault class; useful for searching Microsoft's symbol server and KB articles
+- `STACK_TEXT` — full fault chain; read top-to-bottom for the causal sequence
+
+## 5. Crash-Recovery Sweeps All Sibling Repos, Not Just Newest Handoff
+
+Source: project-rag.
+
+When a session crashes mid-flight on a workstation with multiple sibling repos (meta + addon + plugin + tools), crash-recovery must enumerate dirty/untracked files **and** the reflog across **every** sibling repo, not stop at the newest handoff in the primary repo. Concurrent EMs routinely touch sibling repos in the same session; a crash leaves partial work in repos the primary handoff never references.
+
+**Crash-recovery sweep checklist:**
+
+1. **Newest handoff in the primary repo** — read for in-flight context.
+2. **`git --no-optional-locks status` in every sibling repo** under the workstation's repo root. Untracked files in a sibling repo may be partial work from the crashed session that the primary handoff did not name.
+3. **`git reflog` in every sibling repo** (last ~50 entries). Detached HEADs, partial commits, and stash drops surface here even when working trees look clean.
+4. **`git stash list`** in every sibling repo. Mid-crash stashes are recoverable but invisible to `git status`.
+
+Skipping sibling repos because "the handoff didn't mention them" is the failure mode. Concurrent-EM sessions don't always update the primary handoff when they touch siblings — the sweep is the safety net.
+
+**A dense burst of `workstream-complete quick-save` / `pickup` commits in a few minutes is a crash signature, not clean closure — verify each thread's process gates (review-trail + completion-record presence) before trusting "shipped".** 43 commits in 99 minutes (10+ pickups in 10 min) preceded the terminal death in an observed case. A terminal commit proves a file was written — not that ACs were met, code was reviewed, or `/workstream-complete` ran. Independent verification found 2 of 7 "shipped-clean" threads had no code-review and no completion record, and the crash-time emergency commits shipped a regression test that was never reviewed. Rule: after a crash, reconstruct from a single scout as HYPOTHESIS, then verify per-thread from primary sources (code on disk, `git show`, `state/review-trail/*.json`, completion records, handoff frontmatter) — and dispatch real code review at any "complete" thread whose review-trail record is absent. Source: project-rag-ue-addon.
+
+## 6. Windows OOM Invisible in Task Manager — Commit-Charge Exhaustion
+
+**Task Manager's headline memory figure shows working set (physical pages touched), not commit charge (virtual memory reserved). A process can commit 230 GB while showing ~1.5 GB in Task Manager — and silently freeze the machine.**
+
+When a box freezes unexpectedly with no obvious memory pressure visible in Task Manager, suspect commit-charge exhaustion before working-set pressure.
+
+**Diagnose with:**
+
+```powershell
+# Find the Resource Exhaustion Detector event (survives process death)
+Get-WinEvent -ProviderName Microsoft-Windows-Resource-Exhaustion-Detector |
+    Where-Object { $_.Id -eq 2004 } |
+    Select-Object -First 5 |
+    Format-List TimeCreated, Message
+```
+
+Event 2004 names the offending process and the byte count committed — it fires before Windows starts terminating background apps to reclaim commit, and the record persists after the offending process is killed.
+
+Also check the `\Memory\% Committed Bytes In Use` performance counter — near 100% means commit exhaustion regardless of working set.
+
+**CUDA/torch eager-init is a classic offender.** WDDM reserves virtual address space scaled to RAM + VRAM at driver load time. A process that imports torch and initializes CUDA at import (not at first use) will balloon commit within ~18 seconds of launch — a probe that reaches the commit ceiling before doing any useful work. Symptom: commit jumps by 2–3× RAM immediately after launch; working set reads as tiny.
+
+*Source: project-rag daemon disabled after it committed 2.4× RAM (230 GB commit / 1.5 GB WS) causing box freeze on first launch.*
+
+## 7. Windows Terminal AtlasEngine Crash — Fan-Out Streaming Trigger
+
+Source: `state/recovery/2026-07-01-windows-terminal-av-crash-research.md`, `state/recovery/2026-07-01-crash/crash-cause-findings.md`.
+
+Two `WindowsTerminal.exe` crashes on 2026-07-01 (12:02:45 and 12:38:37 BST), Application Error Event 1000:
+**access violation `0xc0000005` in `Microsoft.Terminal.Control.dll` at byte-identical fault offset `0x2c924`** both
+times. Identical offset across both crashes = deterministic code path, not transient corruption. Root cause:
+AtlasEngine GPU-renderer partial-repaint logic triggered by heavy fan-out streaming output. WT build 1.24.11321.0.
+Closest upstream: microsoft/terminal #19231 (no fix in this build).
+
+**Fleet-wide consequence.** Since the WT 1.23 windowing rewrite, **all Windows Terminal windows share one process**.
+No WT setting provides cross-window isolation — a single AV kills every tab and pane in every WT window. In the
+2026-07-01 case this took 18 concurrent Claude Code sessions.
+
+**Mitigation options (in preference order):**
+
+- **WT WARP CPU renderer — no throughput penalty.** Add to `settings.json` globals:
+  ```json
+  "experimental.rendering.software": true,
+  "experimental.rendering.forceFullRepaint": true
+  ```
+  Switches AtlasEngine to the WARP software path, bypassing the GPU partial-repaint code that faults.
+- **Alternative terminal for fan-out-heavy sessions:** WezTerm, Alacritty, or VS Code integrated terminal — none
+  link against `Terminal.Control.dll` and are immune to this fault class.
+
+**Forensic tell:** two Application Error Events 1000 with `faulting module = Microsoft.Terminal.Control.dll` and
+matching fault offsets → AtlasEngine GPU path, not a random crash. Correlate timestamps against transcript-death
+mtime cluster (→ `multi-session-crash-recovery.md` § Step 1).
+
+## Related
+
+- `docs/wiki/claude-code-platform-gotchas.md` — Windows subprocess pop-ups; MCP idiosyncrasies
+- `docs/wiki/implementation-standards-by-domain.md` § Windows
+- `docs/wiki/multi-session-crash-recovery.md` — full playbook for recovering many sessions killed at once

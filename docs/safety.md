@@ -133,8 +133,8 @@ Specifically:
   it is PII-derived and this document previously omitted it.
 - **Start a background daemon** — no persistent process, service, or cron job is created. Install
   does, however, write sentinel-guarded blocks into your interactive shell rc file
-  (`~/.bashrc`/`~/.zshrc`): the `claude()` shim (§ "3.5a.2 — Install `claude()` shim
-  (idempotent)"), the interactive resource-cap guard seam (§ "3.5b.1 — Install interactive-shell
+  (`~/.bashrc`/`~/.zshrc`): the `claude()` shim (the shim-install leg, dev-clone install mode
+  only — see row 4 above), the interactive resource-cap guard seam (§ "3.5b.1 — Install interactive-shell
   resource-cap guard (idempotent, graceful-absent)"), and the `~/.local/bin` PATH block (§ "Step
   3e — `claude` CLI on PATH (cross-platform, idempotent)"). None of these are a daemon — nothing runs
   unless you open a new interactive shell — but coordinator-authored code does execute at every
@@ -160,14 +160,16 @@ Specifically:
 
 **This is not a network-call-free system, and this document will not claim it is.** The `claude
 plugin` CLI itself fetches from GitHub to register the marketplace and install/update the plugin;
-`/coordinator:install` can, with your consent at each step, invoke `git`, `brew`, `winget`, or `gh
-auth login`/`glab auth login` to check or install prerequisites; and the optional NotebookLM
+`/coordinator:install` can, with your consent at each step, invoke `git`, your platform's package
+manager (`brew` on macOS, `winget` on Windows, or the distribution's own — `apt-get`, `dnf`,
+`zypper`, `pacman`, `apk` — on Linux), or `gh auth login`/`glab auth login` to check or install
+prerequisites; and the optional NotebookLM
 add-on talks to Google. Most of these are individually consent-gated (see
 `coordinator/commands/install.md`, its "D4 Non-Interactive Contract" and per-step consent
 language) — but not all: `git lfs install` (§ "1a.3. Git-LFS enablement (idempotent, harmless —
 proactive coverage)") is documented as **"act-not-gate"** — a global git config mutation applied
-without a prompt whenever the `git lfs` binary is present. And `ensure-doe-clone` (§ "3.5a — Clone
-the DoE repo (idempotent)") performs an un-prompted `git clone` against a remote whenever the
+without a prompt whenever the `git lfs` binary is present. And `ensure-doe-clone` (the DoE-clone leg, dev-clone
+install mode only — see row 5 above) performs an un-prompted `git clone` against a remote whenever the
 registry path resolves but the target directory is absent — the `AskUserQuestion` prompt fires
 only when the path is *unresolved*, and under `--non-interactive` the registry must be pre-seeded,
 so this leg runs with no interactive gate at all in that mode. Separately, venv provisioning (§
