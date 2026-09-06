@@ -26,10 +26,10 @@
 # EXTERNALLY-MANAGED marker. The engine installer's exit-96 PEP-668 refusal does not fire on this
 # platform, so nothing here is blocked on that ruling.
 #
-# SPIKE SCOPE, stated plainly: this gets the plugin LOADED with a resolvable engine. It does NOT
-# run /coordinator:install (Phase 3 substrate, machine-local registry, the restart gate). Those
-# need a live session and are the next increment. Expect a degraded-but-working coordinator: hooks
-# resolve, the bin/ CLI surface does not.
+# SCOPE: a newborn cloud EM should inherit a working machine, not a chore, so this now runs the
+# engine installer too (phase 4b) rather than leaving /coordinator:install for the session. If that
+# leg fails the session degrades to plugin-only — skills load, the bin/ CLI surface does not — which
+# is a worse machine, never a broken one.
 #
 # It always exits 0. A non-zero exit fails the whole session, so every finding is a FAIL line to
 # read in the setup checklist, never a boot abort. Phase 0 is the probe — it reports the facts a
@@ -145,6 +145,12 @@ s.setdefault("extraKnownMarketplaces", {})["coordinator-claude"] = {
     "source": {"source": "directory", "path": os.environ["MP"]}
 }
 s.setdefault("enabledPlugins", {})["coordinator@coordinator-claude"] = True
+# Without this, EVERY Bash call in the session is denied for the session's life. The warm-hook
+# override channel interpolates ${COORDINATOR_PROBE_CANARY} into a header and reads an empty
+# canary as a veto it must refuse on; the var is exported by the claude-doe LAUNCHER, and a cloud
+# session has no launcher. This is the recovery the forwarder's own deny text prescribes
+# (http_hook_forwarder.py VETOED_ENV_REASON), applied at provision time so no session has to.
+s.setdefault("env", {})["COORDINATOR_PROBE_CANARY"] = "1"
 with open(path, "w") as f:
     json.dump(s, f, indent=2)
 print("settings: OK ->", path)
@@ -163,6 +169,33 @@ if [ "$HAVE_ENGINE" -eq 0 ]; then
   echo "engine pointer: OK -> $ROOT/claude-klabauter"
 else
   echo "engine pointer: SKIPPED (no engine clone)"
+fi
+
+echo "=== phase 4b: run the engine installer ==="
+# The point of doing this HERE rather than asking the session to run /coordinator:install: a
+# newborn cloud EM should inherit a working machine, not a chore. Both clones exist by now and the
+# image's python3 carries no EXTERNALLY-MANAGED marker, so the installer's exit-96 refusal cannot
+# fire — the two things that made this un-runnable at provision time are both gone.
+# Best-effort by construction: a failure here degrades the session to plugin-only (skills load,
+# the bin/ CLI surface does not), which is exactly where this script stood before. It must never
+# take the session down with it, so the exit code is reported and swallowed.
+if [ "$HAVE_ENGINE" -eq 0 ]; then
+  ( cd "$ROOT/claude-klabauter" && COORDINATOR_ENGINE_ROOT="$ROOT/claude-klabauter" \
+      COORDINATOR_SETTINGS_HOME="$HOME/.coordinator-claude-settings" \
+      "$PYBIN" scripts/setup.py --i-am-agent ) 2>&1 | tail -25
+  rc=${PIPESTATUS[0]}
+  # Named rather than numeric because these are the codes worth recognising on sight: 90 is a
+  # missing hard dependency, 95 an unresolvable repo identity, 96 the interpreter refusal that
+  # should now be impossible here. A 96 means the image changed under us.
+  case "$rc" in
+    0)  echo "engine install: OK" ;;
+    90) echo "engine install: FAIL rc=90 (hard dep missing)" ;;
+    95) echo "engine install: FAIL rc=95 (repo identity unresolved)" ;;
+    96) echo "engine install: FAIL rc=96 (interpreter refused — the image now ships a PEP-668 marker)" ;;
+    *)  echo "engine install: FAIL rc=$rc" ;;
+  esac
+else
+  echo "engine install: SKIPPED (no engine clone)"
 fi
 
 echo "=== phase 5: verify what the session will actually see ==="

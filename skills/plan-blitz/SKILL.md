@@ -1,6 +1,6 @@
 ---
 name: plan-blitz
-description: "PM-GATED. Sweep every baton in the repo that lacks an approved plan, in waves — sonnet scouts size, an Opus EM finalises, plans are written, reviewed and integrated without the EM in the loop, and the EM gates readiness at the end. Or target named batons. Wave N+1 fires on wave N's approvals, not its landings."
+description: "PM-GATED. Sweep every baton in the repo that lacks an approved plan, in waves — sonnet scouts size, an Opus EM finalises, Opus planners write, plans are reviewed and integrated without the EM in the loop, and the EM gates readiness at the end. Or target named batons. Wave N+1 fires on wave N's approvals, not its landings."
 description-budget: 320
 version: 1.0.0
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill", "Workflow", "AskUserQuestion", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]
@@ -97,9 +97,15 @@ lands nowhere and the readiness gate reads an empty trail.
 
 **3. Fire the wave.** Batons come from `waves[0]`, **at most 8 per fire** (§ batching above).
 
-    Workflow({ scriptPath: "coordinator/workflows/plan-blitz.mjs",
+    Workflow({ scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/plan-blitz.mjs",
                args: { waveIndex: N, trailDir: "<abs>", gateReportPath: "<abs>",
                        pluginAgentsAvailable: <true|false>, batons: [...] } })
+
+Resolve `${CLAUDE_PLUGIN_ROOT}` — do not pass a repo-relative path. The plugin root differs by
+tree: under the DoE source repo it is the `coordinator/` subdirectory, and in an installed or
+mirrored plugin it IS the root. A path written `coordinator/workflows/...` resolves only when the
+cwd happens to be DoE, and elsewhere fails as a MISSING FILE, which reads as "the vehicle does not
+exist" rather than "the path was not resolved" — the more expensive of the two wrong conclusions.
 
 Then wait. **Do not read the trail to decide anything** — reading it to follow along is fine and
 costs nothing, but the wave needs no input between fire and return. A driver that intervenes
