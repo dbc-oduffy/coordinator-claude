@@ -25,6 +25,15 @@ Unconditional directives execute as you reach them; what is left is a decision y
 
 **Read classification off `artifact.classification`** — never guess one to keep moving.
 
+**An `awaiting_gate` baton may still be plannable.** One `blocked_by` edge carries two gates:
+planning opens when every blocker is coded **or** carries a review-approved plan; execution opens
+only when every blocker is coded. So a gated baton whose blockers all have approved plans is a
+legitimate pickup — *for planning*. Read both gates rather than inferring either from
+`deployment_state`: `coordinator-invoke roadmap.plan_gate '{"subject":"<baton-id>"}'` returns
+`verdict.planning_gate` and `verdict.execution_gate` with the blockers holding each shut. Picking up
+on an open planning gate does **not** authorise execution — that check belongs to `/execute-plan`
+and fires again there. Tripwire: `A-PLANNING-GATE-IS-NOT-AN-EXECUTION-GATE`.
+
 **Reconcile before executing anything.** Per-item evidence is a candidate, never a verdict — weigh
 candidate-commit closures and stale `awaiting_gate` signals yourself; a changed target/scope/AC on
 a stamped-authorization mismatch surfaces to the PM. **Stealth-skip**: an item marked shipped on

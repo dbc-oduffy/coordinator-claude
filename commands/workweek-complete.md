@@ -22,10 +22,36 @@ Returns `directives[]` (render each `detail` verbatim), `judgment_points[]` (res
 one before its gated directive proceeds; never auto-pick a Tier-3 no-recommendation), `narration`
 (surface verbatim).
 
-**Hard-blocking:** UBT pending-record merge, reverse-drift merge, vendored-schema/
-version-consistency drift, pcli-04 drift (hand-invoked, Step 5, no directive). Everything else
-advisory. Read disposition from each directive's `hard_block` field — halt before Step 7 on a
-hard-blocking FAIL; surface the rest without halting.
+**Hard-blocking:** reverse-drift merge, version-consistency drift, pcli-04 drift
+(hand-invoked, Step 5, no directive). Everything else advisory. Read disposition from each
+directive's `hard_block` field — halt before Step 7 on a hard-blocking FAIL; surface the rest
+without halting.
+
+**Vendored-schema drift is advisory, and its absence from the set above is a ruling.** The
+`schema-drift-gate` verdict covers `coordinator_core/frontmatter/schemas/` — the ENGINE's
+vendored set, which only claude-klabauter can re-vendor. A consuming repo cannot discharge it at
+any effort, so blocking its release on that verdict halts it on another team's queue with no
+sanctioned way past. Surface DRIFT with the owning repo named and proceed. A gate the running
+repo cannot discharge is not a gate.
+
+**UBT pending-record merge is NOT in that set, and its absence is a ruling.** This ceremony never
+<!-- guard-allow: directive-ids-are-engine-current d_step4c_ubt_pending_merge_gate is named here as history: claude-klabauter drained it at f88ae3bddf and this text exists to say the gate is dead. -->
+gated UBT compile-freshness in fact: `d_step4c_ubt_pending_merge_gate` read `state/review-trail/`,
+which is empty in the one repo class the check was built for (example-game-repo) — that repo's writer,
+`bin/check_ubt_build_fresh.py`, puts its markers under `.coordinator-local/review-trail/` instead.
+The gate was reading an empty directory and reporting clean, from before its scanner was ever
+deleted. Nor was this ceremony ever its discharge: that writer's own docstring names
+Example-game-repo's `/session-end` Step 2.9 and `/workday-complete` as its consumers. UBT freshness is
+Example-game-repo's requirement, discharged by example-game-repo's own ceremonies. Do not re-add it here, and do not
+re-add compensating EM prose for it — a manual compensation for a requirement this ceremony does
+not own is worse than the gap it patches.
+
+**Interim, until the engine drain publishes.** claude-klabauter removed the directive, its CLI
+subcommand and its two contract tests (`f88ae3bddf`), but that drain reaches sessions only when it
+lands on the `claude-klabauter` mirror. Until then the mirror still emits `4c` and it exits 1 with
+`ModuleNotFoundError: No module named 'coordinator_core.ops.scan_unresolved_ubt_records'`. That
+crash is expected and is not a release blocker — it is a dead gate failing closed, carrying no
+signal about the tree. Proceed past it; do not hand-derive a UBT verdict in its place.
 
 ---
 
@@ -37,6 +63,13 @@ Render enumeration + gap-backfill `detail`s. Past-date synthesized blocks frozen
 Surface: week span, commit count/range, workstreams, blockers, priorities met. Priorities-met:
 `state/goals/*.yaml` (`period: week`, ISO-week match) canonical, read `status` directly.
 `HEADER.priorities.*.md` fills only gaps, deduped. Neither present → "no priorities were set."
+
+**Three states — achieved / missed / never-assessed,** produced by
+`python "$CLAUDE_PLUGIN_ROOT/bin/goal-assessment-staleness.py"`: an unread instrument, not a missed goal.
+Own line, never inside the achieved/missed counts. Tripwire:
+`AN-UNSTAMPED-GOAL-IS-NEVER-ASSESSED-NOT-MISSED`. Exit 2 ("could not read the goals
+directory/artifacts") is unknown, not clean — surface it as such, never as "no never-assessed
+goals."
 
 **PM gate:** _"Does this summary match your recollection? Proceed?"_
 
@@ -58,6 +91,8 @@ coordinator/tests/_spawn_budget.py` rather than assuming it's cheap because it's
 ## Step 3: Strict Referential-Integrity Gate (blocking)
 
 `lint-frontmatter --strict-refs --json`. `ok: false` → stop and fix. Non-ref `refWarnings` pass.
+
+**Partitioned waiver — the only route past a red. THERE IS NO FLAG:** the gate keeps reading `ok: false` and you report it red. Record a waiver only when every remaining failure is one conceded upstream class proven from `--json` (never a summary), honest-fix errors are fixed first with both counts stated, and the reason is recorded where a reader meets it. Tripwire: `CARRY-IT-RED-WHEN-THE-GATES-OWNER-HAS-CONCEDED-THE-DEFECT`.
 
 ---
 
@@ -92,19 +127,23 @@ Resolve from the spine's directives in one pass; advisory rows never block:
   disposition of "skip" is recorded with a reason on the spine — never silently dropped, and
   never folded back into the advisory bucket, where a fleet-wide drift went undetected for
   seven weeks.
-- **Sidecar reap (hand-run):** `reap-stale-subagent-sidecars`; non-zero → surface, don't skip.
-- **wsc inline-budget:** `WARN: ... exceeds baseline` → note mechanism inlined not extracted.
-- **Weekly KR re-assessment:** EM/PM-confirmed only; also reads `state/kr-suggestions/*.yaml`
-  (schema `kr-suggestion.schema.json`), unresolved `kr_id`/`goal_id` surfaced not dropped.
-  **Negative-spec:** never auto-sets `status:`.
+- **Sidecar reap (hand-run):** `reap-stale-subagent-sidecars`; non-zero → surface.
+- **wsc inline-budget:** `WARN: ... exceeds baseline` → mechanism inlined not extracted.
+- **Weekly KR re-assessment:** `& "$env:COORDINATOR_SETTINGS_HOME\bin\reassess-goal-krs.exe"`
+  (Shape W); also reads `state/kr-suggestions/*.yaml`, unresolved `kr_id`/`goal_id` surfaced not
+  dropped. EM/PM-confirmed only; apply via
+  `& "$env:COORDINATOR_SETTINGS_HOME\bin\set-goal-kr-status.exe"`, never a hand-edit.
+  **Negative-spec:** neither auto-sets `status:` — why Step 1's never-assessed line exists; only
+  writer is human.
 - **Advisory results:** skill description length, owner-file invariant lint, enabledPlugins
   drift, CVE recheck (manifest changed in 14d only →
   `state/review-findings/<week-starting>-cve/deps.md`), competitor-positioning nudge, atlas
   drift/arch-audit staleness, human-facing doc health (each
   finding gets its own `judgment_points[]` entry, disposition never auto-picked).
-- **Hard-blocking results:** UBT (`sha_range`, escape `COORDINATOR_OVERRIDE_UBT_GATE=1`),
-  reverse-drift (`COORDINATOR_OVERRIDE_REVERSE_DRIFT=1`), version/schema-drift. Non-UE repos
-  no-op on UBT.
+- **Hard-blocking results:** reverse-drift (`COORDINATOR_OVERRIDE_REVERSE_DRIFT=1`),
+  version-consistency. Neither vendored-schema drift nor UBT is a member — see § Step 0.95. A `4c` directive still arriving
+  from an unpublished mirror exits 1 on `ModuleNotFoundError`; that is the dead gate, not a
+  finding.
 - **pcli-04 drift gate (hand-run):** `workweek-complete-drift-guards pcli-drift-gate` — `0`
   continue, `1` halt before Step 7, `2` cannot-run (never treat as clean).
 

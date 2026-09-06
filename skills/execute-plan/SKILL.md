@@ -93,6 +93,14 @@ Full signal catalog and non-signals: wiki.
 
 ## Phase 1.5/1.6: Dispatch-Gate Graph and Wave-Map
 
+**Roadmap-baton execution gate — check before claiming.** A plan executing a `blocked_by` roadmap
+baton needs every blocker **coded**, not merely planned. An approved blocker plan opens that
+baton's *planning* gate and nothing else: planning consumes the blocker's decisions, execution
+calls its code. Read it, never derive it —
+`coordinator-invoke roadmap.plan_gate '{"subject":"<baton-id>","gate":"execution"}'` returns
+`verdict.open` plus the blockers holding it shut. Shut → stop; the plan is written and waiting, and
+that is the correct state. Tripwire: `A-PLANNING-GATE-IS-NOT-AN-EXECUTION-GATE`.
+
 Claim the plan (`session-claim-cli claim-plan <slug> --for-execution`) before any gate-graph work
 — a live peer holding it means reconcile with them first, never race. **`--for-execution` is not
 optional here.** It is what flips the plan to `status: executing`, and this step is its only
@@ -244,8 +252,11 @@ unattended by design — so `Monitor` is the fit there and cron is not the shape
 
 ## Phase 2: Create Flight Recorder
 
-TaskCreate: one session-goal task (objective + plan path), one task per plan phase/major task,
-session-goal marked `in_progress` immediately.
+TaskCreate: one task per plan phase/major task, added BENEATH the stage rows the sizing lobby
+already opened (`skills/sizing/SKILL.md` § 4b) — the lobby is the single opener, and its
+session-goal task is already `in_progress`. Entered without the lobby (no stage rows on the
+list): open the recorder here instead, session goal plus phases, marked `in_progress`
+immediately.
 <!-- BEGIN task-tool-availability (synced from snippets/task-tool-availability.md) -->
 `TaskCreate` absent from this session's surface (`ToolSearch("select:TaskCreate")` returns nothing)
 → fall back to `coordinator-tasks-mirror` for the same flight-recorder role; do not assume either
@@ -326,7 +337,10 @@ commit:**
    verdict to the prime exit criterion, not a substitute for it. Verdict `fail` →
    `asserted: false`, Phase-5-halted, no stamp.
 3.5. **Promote the falsifier, when it promotes.** An executable, deterministic falsifier graduates
-   into the repo's test suite: record `promoted_to: <test path>`. The shape is red-green at plan
+   into the repo's test suite: record `promotion: promoted` and `promoted_to: <test path>`, or
+   `promotion: partial` with the path the promoted portion landed at. A falsifier that was already
+   a standing test before the plan records `promotion: already-in-suite` and no `promoted_to` —
+   nothing graduated, and the standing test it already was goes in `promotion_reason`. The shape is red-green at plan
    altitude — the baseline already proved it fails before the work, so the promoted test arrives
    with its red state demonstrated, which is more than most tests can say. PROMOTION IS AN
    OUTCOME, NOT A GATE: a one-shot corpus query, a manual observation, or a measurement against a

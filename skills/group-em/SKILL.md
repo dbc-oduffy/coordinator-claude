@@ -21,12 +21,13 @@ confidently stale it is. Prose and disposition here age gracefully; call shapes 
 **PM-GATED — only on an explicit PM ask, never EM-initiated.** A description-prefix convention
 (as `staff-session`, `spinoff`, `roadmap-planning`); no hook enforces it. Honoured by disposition.
 
-**Dispatch authorization — invoking this skill IS the request, for three specific dispatches only:**
-the approvability judge (§ Delegated approve-for-execution, step 4), Navi and
+**Dispatch authorization — invoking this skill IS the request, for two specific dispatches only:**
+the approvability judge (§ Delegated approve-for-execution, step 4) and
 `coordinator:group-em-assistant` at entry, and § Inbox-blitz delegation's assistants. Each covers
-raising that named role under this session's own authority and nothing else — Navi by
-`claude --agent navi --bg`, the rest by unnamed `Agent`-tool dispatch. **None of them touches the
-peer-session send mechanism (§ Send pass, `gem-14`), which stays gated per send.**
+raising that named role under this session's own authority and nothing else, by unnamed
+`Agent`-tool dispatch. **None of them touches the peer-session send mechanism (§ Send pass,
+`gem-14`), which stays gated per send. Navi is not covered by this grant — it is PM-gated per the
+line above, raised only on an explicit PM ask, never under this session's own authority.**
 Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 
 ## Entry — already done by the time you read this
@@ -112,37 +113,23 @@ decisions for the sessions it watches. **DOES coordinate execution waves and cro
 sequencing** — a stalled wave, a peer blocked on a dependency that has cleared, two sessions about
 to collide on one file.
 
-## Entry dispatches both standing watchers, then arms what is left — all three mandatory
+## Entry dispatches both standing watchers; Navi is PM-gated
 
-**ENTRY DISPATCHES BOTH STANDING WATCHERS, THEN ARMS WHAT IS LEFT. ALL THREE ARE MANDATORY.**
-**SPAWN NAVI; DISPATCH `group-em-assistant` WITHOUT A `name`.** The two roles do not share a shape.
-Navi is machine-wide, repo-less and decision-weightless, and is a **separately spawned session**
-(`claude --agent navi --bg`) — never an `Agent`-tool dispatch. **A spawned session can escalate TO
-you and CANNOT be asked anything back: nothing can query it once it is running, so do not go
-looking for an ask path that does not exist.** That costs Navi nothing, since nobody asks it
-anything — measured, `state/audits/2026-09-02-session-shaped-watcher-mechanics.md` leg (4).
-`group-em-assistant` is per-repo and is the one that gets asked things, so it keeps today's shape:
-a named `Agent` call spawns an in-process TEAMMATE, and a teammate is never re-invoked by a
-`Monitor` it armed — so a named watcher cannot hold its own wire and you inherit a relay. Unnamed,
-it is a background agent that wakes on its own events
-(`docs/research/spike-verdicts/2026-09-02-subagent-self-armed-wake.md`). Address it by the
-`agentId` its dispatch returns; keep that id and Navi's session id both, for the session.
+**ENTRY DISPATCHES BOTH STANDING WATCHERS — `group-em-assistant` AND THE WATCH IT ARMS ARE
+MANDATORY.** Navi is PM-GATED — only on an explicit PM ask, never EM-initiated (same convention as
+the top of this file) — entry never raises it under this session's own authority.
+**DISPATCH `group-em-assistant` WITHOUT A `name`.** `group-em-assistant` is per-repo and is the
+one that gets asked things, so it keeps today's shape: a named `Agent` call spawns an in-process
+TEAMMATE, and a teammate is never re-invoked by a `Monitor` it armed — so a named watcher cannot
+hold its own wire and you inherit a relay. Unnamed, it is a background agent that wakes on its own
+events (`docs/research/spike-verdicts/2026-09-02-subagent-self-armed-wake.md`). Address it by the
+`agentId` its dispatch returns.
 **"Entry" here means you, on entering the mode — not the entry op.** `group-em-enter.py` assembles
 and dispatches nobody. The autofire hook is silent either way, so its silence is not a report that
 these were done. Entry assembles once; nothing re-runs it, and a roster read is stale within a
 minute. In this order, as your first act:
 
-1. **Navi** — spawn it, not dispatch it:
-
-       claude --agent navi --bg
-
-   The machine-wide nudge role: repo-less, decision-weightless, holds no repo of its own, and never
-   nudges a stalled peer twice. It nudges on your behalf and refers every question back to your own
-   Group EM standing. **It escalates TO you; it cannot be asked anything** — a separately spawned
-   session is measured UNREACHABLE inbound, so there is no ask path to reach for, only its own
-   escalations to read (`state/audits/2026-09-02-session-shaped-watcher-mechanics.md` leg (4)).
-   Keep its session id for the record.
-2. **`coordinator:group-em-assistant`** — dispatch it, unnamed. Your standing reader AND your
+1. **`coordinator:group-em-assistant`** — dispatch it, unnamed. Your standing reader AND your
    per-repo sensor: transcript tails, baton claimants, what landed on a path since a SHA, **and the
    watch SUBPROCESS together with the `Monitor` over it**. Warm across the session, woken by its
    own `Monitor` over `cross-repo/inbox/`, by the watch subprocess's stdout, and by `SendMessage`
@@ -183,7 +170,7 @@ minute. In this order, as your first act:
    unresolved, not confirmed — read `state/group-em-watch.json` and treat `tick_source: entry`
    with `subscribed_peers: 0` as a holder that never armed. Standing down on `--status` alone
    leaves the fleet unwatched by exactly the procedure meant to prevent it.
-3. **A `CronCreate` tick**, ~23 minutes, off the :00/:30 marks — the only clock that stays yours.
+2. **A `CronCreate` tick**, ~23 minutes, off the :00/:30 marks — the only clock that stays yours.
    It audits the watch rather than performing it: *is nudging happening, what is the state of the
    batons and live plans, is anything stuck nobody has poked.*
 
@@ -201,8 +188,21 @@ minute. In this order, as your first act:
    The frozen artifact everyone watches for is a stale summary; this one is a stale *instruction*,
    and unlike a summary it acts.
 
-**Spawn and dispatch them yourself, from this session.** A watcher belongs to whoever raised it, so
-one raised by another session relieves that session and leaves you watching while believing you
+**Not numbered, PM-gated: Navi.** When the PM asks, **spawn it, never an `Agent`-tool dispatch.**
+Its mood is SPAWN; a Navi raised as a subagent is the wrong role in the wrong shape, and its own
+role file refuses it.
+
+    claude --agent navi --bg
+
+The machine-wide nudge role: repo-less, decision-weightless, holds no repo of its own, and never
+nudges a stalled peer twice. It nudges on your behalf and refers every question back to your own
+Group EM standing. **It escalates TO you; it cannot be asked anything** — a separately spawned
+session is measured UNREACHABLE inbound, so there is no ask path to reach for, only its own
+escalations to read (`state/audits/2026-09-02-session-shaped-watcher-mechanics.md` leg (4)). If the
+PM asks for it, keep its session id for the record.
+
+**Raise the mandatory pair yourself, from this session.** A watcher belongs to whoever raised it,
+so one raised by another session relieves that session and leaves you watching while believing you
 were relieved.
 
 **THE `Monitor` GOES TO `group-em-assistant`, AND IT IS THEIRS TO ARM.** They own the subprocess
@@ -704,13 +704,11 @@ The Group EM may execute `/workday-start` Step 1.45a's inbox blitz on this repo'
   abdication failure above, which costs more than over-pushing because nothing else can see it.
 - This skill does not implement the read-pass ladder or receiver-state consumption logic — supplied
   separately and integrated by reference.
-- **The three dispatch grants at the top of this file are each scoped to their own named dispatch.**
-  Raising the approvability judge, Navi, and `group-em-assistant` under this session's own authority
-  is the grant — the approvability judge and `group-em-assistant` under the same shape as
-  `plan`/`execute-plan`/`review` spawning subagents, Navi under the separate `claude --agent navi
-  --bg` spawn shape. Shape differs; the authority does not. What stays gated is that `/group-em`
-  otherwise messages **peer sessions in their own windows** — an `ask-before-external-action`
-  question no dispatch grant dissolves. The entry-sequence grant is the only one that fires
-  unconditionally; that is when it applies, not what it covers.
+- **The two dispatch grants at the top of this file are each scoped to their own named dispatch.**
+  Raising the approvability judge and `group-em-assistant` under this session's own authority is the
+  grant — both under the same shape as `plan`/`execute-plan`/`review` spawning subagents. What stays
+  gated is that `/group-em` otherwise messages **peer sessions in their own windows** — an
+  `ask-before-external-action` question no dispatch grant dissolves. The entry-sequence grant is the
+  only one that fires unconditionally; that is when it applies, not what it covers.
 - `/autonomous` supplies the mode-shaped naming precedent only. Its `/tmp` sentinel is durable state
   and is not borrowed.

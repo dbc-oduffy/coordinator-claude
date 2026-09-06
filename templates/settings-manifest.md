@@ -72,6 +72,7 @@ every `coordinator:install`).
 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | `"1"` | Agent Teams + deep-research | No — all machines |
 | `CLAUDE_CODE_ENABLE_TODO_TOOLS` | `"1"` | Makes Task* tools available to a main session on models that don't get them by default (v2.1.233+) | No — all machines |
 | `CLAUDE_CODE_USE_POWERSHELL_TOOL` | `"1"` on a Windows host under a no-Bash directive; unset elsewhere | Pin the PowerShell tool's availability instead of inheriting a progressive rollout | **Yes** — see the warning below. Never blanket-set `"0"` |
+| `COORDINATOR_PROBE_CANARY` | `"1"` | Gives the http override-channel canary a presence guarantee on **every** entry point, so an empty canary header means a veto and nothing else | No — all machines |
 | `CLAUDE_HOME` | *(not in settings.json)* | Override the **home directory** the `.claude` root hangs off — resolvers join it with `.claude` themselves, so it is a `$HOME` override, not a path to `.claude` | Yes — every resolver in this tree honors it. Default: `$HOME`, giving `$HOME/.claude` |
 
 **These values are checked, not trusted.** `bin/check-settings-env.py` asserts this table's values
@@ -110,6 +111,22 @@ both directions.
 > correct mechanism (no MSYS fork-tax under pwsh) but never weighed pwsh's own interpreter
 > cold-start. `00-EMPIRICAL-*` is the later measurement and supersedes it. A mechanism argument
 > that never met a stopwatch is not evidence.
+
+> **`COORDINATOR_PROBE_CANARY` belongs to the hook registration, not to a launcher.** The http
+> override channel carries two discriminators: a static `X-Coordinator-Env-Channel` literal that
+> survives an `httpHookAllowedEnvVars` veto, and an interpolated `X-Coordinator-Env-Canary` that a
+> veto empties. The pair only separates *vetoed* from *undeclared* while the canary variable is
+> actually set — an allowlisted canary nothing exports interpolates empty on every fire and reads,
+> from inside the forwarder, as a permanent veto. That is not a degradation: it denies the Bash
+> tool for the whole life of the session, citing a setting the box does not have, and every
+> documented recovery runs through the tool it just took away.
+>
+> The launchers (`claude-doe.py`, `claude-doe-launcher.{cmd,ps1}.tmpl`) each `setdefault` it, which
+> covers a launcher-started session on any OS and covers nothing else. A bare `claude` — a
+> container, a CI runner, an OSS install, Claude Code on the web — has no launcher at all. Setting
+> it here gives the canary the same lifecycle as the `hooks.json` registration that depends on it,
+> on every entry point and every platform. Veto semantics are unchanged: a veto still empties the
+> header, because it empties the interpolation and not the variable.
 
 ## Adding a New Machine
 

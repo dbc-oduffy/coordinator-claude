@@ -160,6 +160,7 @@ _REPORTING_SUBAGENT_TYPES = (
     "coordinator:structured-synthesizer",
     "coordinator:test-evidence-parser",
     "coordinator:test-runner",
+    "coordinator:workflow-maker",
 )
 
 #: CARVE-OUT, not an oversight. `/staff-session`'s debate ceremony

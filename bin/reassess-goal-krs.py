@@ -21,6 +21,10 @@ instrumentation. Writes a "proposed re-assessment" comment block to each active
 goal artifact's end-of-file (non-dry-run only) for EM/PM confirmation; never
 overwrites the live `status:` field.
 
+NOT read-only without --dry-run: every active goal with movement KRs is
+rewritten in place with a fresh proposal block, so a bare run dirties one file
+per such goal. Use --dry-run to probe.
+
 Usage:
   reassess-goal-krs [--goals-dir <path>] [--since <date>] [--dry-run]
 
@@ -28,7 +32,8 @@ Options:
   --goals-dir <path>  Directory containing goal *.yaml files
                       (default: <repo-root>/state/goals)
   --since <date>      Week-start date for signal queries (default: 7d)
-  --dry-run           Print proposed changes without writing to artifacts
+  --dry-run           Print proposed changes without writing to artifacts —
+                      the only invocation that leaves the tree clean
 
 Exit codes:
   0 — assessment complete (even if some goals have no movement, or the op

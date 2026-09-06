@@ -126,7 +126,7 @@ Negative-spec (hard-won):
     - Does NOT dump the full 27KB diff on drift -- caps the difflib excerpt
       (see _DIFF_EXCERPT_LINES) so a hit does not flood the session.
     - Does NOT derive the coordinator doctrine repo root from this script's own
-      __file__ location -- this script migrated to claude-klabauter while
+      __file__ location -- this script migrated to the engine repo while
       `global-doctrine/` stayed in the coordinator doctrine repo; self-location resolution
       would silently and permanently no-op the mirror-absent skip path
       instead of ever comparing anything. See _repo_root()'s docstring.

@@ -186,28 +186,6 @@ def _cmd_cruft_sweep_last_run(args: argparse.Namespace) -> int:
     return 0
 
 
-# ---------------------------------------------------------------------------
-# ubt-unresolved — Step 4c
-# ---------------------------------------------------------------------------
-
-
-def _cmd_ubt_unresolved(args: argparse.Namespace) -> int:
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from cc_invoke import require_colocated_engine_on_path
-
-    try:
-        require_colocated_engine_on_path(__file__)
-    except RuntimeError as exc:
-        print(f"workweek-complete-advisories.py: engine-root resolution failed: {exc}", file=sys.stderr)
-        return 1
-
-    from coordinator_core.ops.scan_unresolved_ubt_records import scan_unresolved_ubt_records
-
-    unresolved = scan_unresolved_ubt_records(Path(args.repo_root))
-    for path in unresolved:
-        print(path)
-    return 0
-
 
 # ---------------------------------------------------------------------------
 # CLI plumbing
@@ -233,9 +211,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cruft.add_argument("log_path", help="Path to cruft-sweep-log.md")
     p_cruft.set_defaults(func=_cmd_cruft_sweep_last_run)
 
-    p_ubt = sub.add_parser("ubt-unresolved", help="List unresolved *.ubt-compile.pending.json markers")
-    p_ubt.add_argument("repo_root", help="Repo root whose state/review-trail/ to scan")
-    p_ubt.set_defaults(func=_cmd_ubt_unresolved)
 
     return parser
 

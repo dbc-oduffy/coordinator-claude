@@ -37,27 +37,12 @@ the clone not stale.
 
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, TextIO
 
-#: The landing branch's fetch is a remote round trip on a repo whose history
-#: the box already holds; the observed cost is seconds, not tens of seconds.
-#: Bounded well above that so a slow link degrades into a late round rather
-#: than a spurious refusal, and far enough below a wedge that a dead remote
-#: does not hold the destination lock indefinitely.
-FETCH_TIMEOUT_SECS = 120.0
+from coordinator_core.git.run import GitResult, run_git
 
-#: Every other leg here is local ref plumbing (`rev-parse`, `rev-list`, a
-#: ff-only `merge`, a same-repo `fetch`) -- process creation is the whole cost.
-LOCAL_GIT_TIMEOUT_SECS = 60.0
-
-#: Same shape and same reason as `publish_sync._NO_CONSOLE`: a bare
-#: `subprocess.run` of `git` pops a console window when this runs under a
-#: windowless parent on Windows, and a percolate round spawns these per
-#: destination.
-_NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 
 @dataclass(frozen=True)
@@ -80,13 +65,25 @@ class RefreshResult:
     warnings: tuple = ()
 
 
-def _git(repo_root: Path, args: List[str], *, timeout: float) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["git", "-C", str(repo_root), "--no-optional-locks", *args],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        **_NO_CONSOLE,
+def _git(repo_root: Path, args: List[str], *, remote: bool = False) -> GitResult:
+    """Every git leg in this module, through the one seam that carries a bound.
+
+    Was a private runner with its own two timeout constants (a 120s fetch, a
+    60s everything-else) and its own `CREATE_NO_WINDOW` mapping. Both dials
+    are gone rather than repointed: `coordinator_core.git.run` holds the only
+    two a git spawn may carry -- `LOCAL_PLUMBING_BUDGET_SECS` for the ref
+    plumbing (`rev-parse`, `rev-list`, a ff-only `merge`) and
+    `REMOTE_BUDGET_SECS` under `remote=True` for the two `fetch` legs -- and
+    console suppression is that seam's job too.
+
+    `remote` is the fetch legs ONLY, and narrows rather than widens what the
+    old constant allowed: the fetch is a round trip against a repo whose
+    history this box already holds, whose observed cost the deleted constant's
+    own note put at "seconds, not tens of seconds".
+    """
+    return run_git(
+        ["-C", str(repo_root), "--no-optional-locks", *args],
+        remote=remote,
     )
 
 
@@ -106,10 +103,9 @@ def _branch_and_upstream(repo_root: Path) -> "tuple[Optional[str], Optional[str]
     proc = _git(
         repo_root,
         ["rev-parse", "--abbrev-ref", "HEAD", "@{u}"],
-        timeout=LOCAL_GIT_TIMEOUT_SECS,
     )
     if proc.returncode != 0:
-        head = _git(repo_root, ["rev-parse", "--abbrev-ref", "HEAD"], timeout=LOCAL_GIT_TIMEOUT_SECS)
+        head = _git(repo_root, ["rev-parse", "--abbrev-ref", "HEAD"])
         name = head.stdout.strip() if head.returncode == 0 else "<unresolvable>"
         return name, None, _last_line(proc.stderr, "no upstream tracking ref")
     lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
@@ -124,7 +120,6 @@ def _ahead_behind(
     proc = _git(
         repo_root,
         ["rev-list", "--left-right", "--count", "HEAD..." + upstream],
-        timeout=LOCAL_GIT_TIMEOUT_SECS,
     )
     if proc.returncode != 0:
         return None, None, _last_line(proc.stderr, "could not compare HEAD with " + upstream)
@@ -152,21 +147,18 @@ def _refresh_local_main(repo_root: Path, checked_out: Optional[str]) -> Optional
     have_remote = _git(
         repo_root,
         ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/main"],
-        timeout=LOCAL_GIT_TIMEOUT_SECS,
     )
     if have_remote.returncode != 0:
         return None  # this remote has no `main` -- nothing to be level with
     have_local = _git(
         repo_root,
         ["rev-parse", "--verify", "--quiet", "refs/heads/main"],
-        timeout=LOCAL_GIT_TIMEOUT_SECS,
     )
     if have_local.returncode != 0:
         return None  # no local `main` to keep current
     proc = _git(
         repo_root,
         ["fetch", "--no-tags", ".", "refs/remotes/origin/main:refs/heads/main"],
-        timeout=LOCAL_GIT_TIMEOUT_SECS,
     )
     if proc.returncode != 0:
         return (
@@ -204,7 +196,7 @@ def refresh_dest_from_origin(repo_root: Path, *, out: TextIO, err: TextIO) -> Re
         "[dest-refresh] {0}: fetching origin (landing branch {1})".format(repo_root, branch),
         file=out,
     )
-    fetch = _git(repo_root, ["fetch", "--no-tags", "--prune", "origin"], timeout=FETCH_TIMEOUT_SECS)
+    fetch = _git(repo_root, ["fetch", "--no-tags", "--prune", "origin"], remote=True)
     if fetch.returncode != 0:
         return RefreshResult(
             repo_root,
@@ -247,7 +239,7 @@ def refresh_dest_from_origin(repo_root: Path, *, out: TextIO, err: TextIO) -> Re
 
     fast_forwarded = False
     if behind:
-        merge = _git(repo_root, ["merge", "--ff-only", upstream], timeout=LOCAL_GIT_TIMEOUT_SECS)
+        merge = _git(repo_root, ["merge", "--ff-only", upstream])
         if merge.returncode != 0:
             detail = _last_line(merge.stderr or merge.stdout, "ff-only merge failed")
             return RefreshResult(
@@ -330,7 +322,7 @@ def reconcile_dest_before_push(repo_root: Path, *, out: TextIO, err: TextIO) -> 
             branch=branch,
         )
 
-    fetch = _git(repo_root, ["fetch", "--no-tags", "--prune", "origin"], timeout=FETCH_TIMEOUT_SECS)
+    fetch = _git(repo_root, ["fetch", "--no-tags", "--prune", "origin"], remote=True)
     if fetch.returncode != 0:
         return RefreshResult(
             repo_root,
@@ -367,11 +359,10 @@ def reconcile_dest_before_push(repo_root: Path, *, out: TextIO, err: TextIO) -> 
     merge = _git(
         repo_root,
         ["merge", "--no-edit", upstream],
-        timeout=LOCAL_GIT_TIMEOUT_SECS,
     )
     if merge.returncode != 0:
         detail = _last_line(merge.stdout or merge.stderr, "merge failed")
-        _git(repo_root, ["merge", "--abort"], timeout=LOCAL_GIT_TIMEOUT_SECS)
+        _git(repo_root, ["merge", "--abort"])
         return RefreshResult(
             repo_root,
             ok=False,

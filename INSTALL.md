@@ -304,11 +304,14 @@ handoffs, memo resolution, coverage computation, and terminal stamping do not.
 
 ### The sequence, exactly — follow it literally (known braid defect, not a design choice)
 
-1. **Clone** the engine repo and register `repos.claude_klabauter` — *a clone, not an install*
-   (§ Step 1e, before the restart).
-2. **Install coordinator-claude** — Steps 1d and 3.
-3. **Restart Claude Code** — Step 2.
-4. **Only then run the engine repo's own installer** — this step.
+1. **Install coordinator-claude** via the `claude plugin` CLI — § Step 1d.
+2. **Clone** the engine repo and register `repos.claude_klabauter` — *a clone, not an install*
+   (§ Step 1e, still before the restart).
+3. **Restart Claude Code** — § Step 2. The one restart; it is what makes `/coordinator:install`
+   exist.
+4. **Run `/coordinator:install`** — § Step 3. This deposits the `machine-local` resolver.
+5. **Only then run the engine repo's own installer** — this step, from a shell started after (4)
+   so that resolver is on PATH.
 
 The clone has to come first because `/coordinator:install`'s Phase 3 bootstraps coordinator's
 substrate from a script that lives *in the engine repo*. Rationale, braid-defect detail:

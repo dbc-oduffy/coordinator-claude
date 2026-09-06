@@ -396,6 +396,23 @@
         ]
       },
       {
+        "_comment": "C1 (docs/plans/2026-09-05-workflow-trampoline.md) -- PreToolUse(Skill) trampoline advisory on the native `workflow-authoring` skill (docs/wiki/coordinator-tripwires/a-hand-authored-workflow-costs-4x-the-plan-execution.md). Fires once per session, the moment an EM opens `workflow-authoring`, and points it at `emit-dispatch-workflow.py --plan <plan>` + `coordinator:execute-plan` for plan dispatch, before it starts hand-authoring a `Workflow({script: ...})` call the emitter would have written for roughly a quarter of the token cost. Never blocks -- always exits 0, additionalContext only, same offer-shape as nudge-multiwave-workflow.py. Verified against state/reference/anthropic-docs/claude-code/hooks.md \u00a7 PreToolUse (\"On every tool call: PreToolUse and PostToolUse\") and this file's own PostToolUse `Skill|Agent|Workflow` registration (watchdog-undischarged-next-move.py, below) before registering: PreToolUse's matcher is a tool name exactly like PostToolUse's, and `Skill` is already a live tool name on that axis -- this is a new matcher VALUE, not new harness behaviour.",
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-workflow-authoring-trampoline.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
         "_comment": "Refuses a Workflow({scriptPath}) launch whose script this session did not emit -- the emit->fire overwrite window. Registered BEFORE block-workflow-unmodeled-agent.py: first-deny-wins in registration order (hook-best-practices.md \u00a7 Multi-hook deny aggregation), and a script a peer overwrote is the wrong artifact to be arguing about model: tiers on. Fails open on an inline script:, an absent/unreadable <script>.emitted.json receipt, and an undetectable session id. See the script's own docstring and coordinator-tripwires/tripwire-registry/block-workflow-foreign-emission.md.",
         "matcher": "Workflow",
         "hooks": [
@@ -457,6 +474,23 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/strip-worktree-isolation.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
+        "_comment": "C2 (docs/plans/2026-09-05-workflow-trampoline.md) -- PreToolUse(Workflow) advisory on the INLINE `script:` form, second matcher on the same trampoline script as the Skill matcher above (one hook, two matchers -- see the script's own docstring). Fires only when tool_input carries `script` and no `scriptPath`: every inline script is hand-authored by construction, because emit-dispatch-workflow.py always writes to disk and is fired by scriptPath. Registered AFTER the deny-hooks above so a real deny still surfaces its own remediation (hook-best-practices.md § Multi-hook deny aggregation) -- this hook never denies, so its position costs nothing and its additionalContext would otherwise crowd a deny. Deliberately NOT folded into block-workflow-foreign-emission.py, whose inline fail-open is correct for its own byte-provenance remit; cost is a different oracle. Shares the Skill matcher's sentinel: once per session across BOTH fire points, always exits 0.",
+        "matcher": "Workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-workflow-authoring-trampoline.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }

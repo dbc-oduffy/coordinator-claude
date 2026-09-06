@@ -177,7 +177,7 @@ Expect 30–60% of inherited items to be already closed (pickup SKILL Step 1, Cl
 
 ### Lifecycle table
 
-> Column states refer to `deployment_state:` frontmatter, NOT `status:`. The `status:` enum is `active | consumed` — write path; the schema has since widened to also accept `open | claimed`, corpus mixed on disk, read both; `shipped` is not a valid `status:` value — use `consumed`/`claimed` + `shipped_in:` instead. (A `superseded` handoff is expressed via `deployment_state: abandoned` + lineage fields, not a separate `status:` value.)
+> Column states refer to `deployment_state:` frontmatter, NOT `status:`. The `status:` enum is `active | consumed` — write path; the schema has since widened to also accept `open | claimed`, corpus mixed on disk, read both; `shipped` is not a valid `status:` value — use `consumed`/`claimed` + `shipped_in:` instead. (A superseded handoff is expressed via `status: claimed` + `deployment_state: continued` + `continued_into:`, not a separate `status:` value; `superseded` and `abandoned` are both retired.)
 
 | Event | From → To | Skill responsible |
 |---|---|---|

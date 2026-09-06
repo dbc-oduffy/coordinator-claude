@@ -4,9 +4,9 @@ ensure-doe-clone.py — CLI trampoline over claude-klabauter coordinator_core.op
 
 Resolves the local DoE-claude clone path (REPO_DOE_CLAUDE env override, then
 `machine-local get repos.doe_claude`) and clones it if the resolved directory
-is not yet a git checkout. Collapses the two literal bash fences at
-coordinator/commands/install.md lines 731 and 747 (DoE-claude repo) into one
-call — see coordinator_core.ops.ensure_doe_clone's own docstring for the
+is not yet a git checkout. Collapses into one call the two literal bash fences
+that the DoE-claude install playbook (coordinator/commands/install.md) once
+carried inline — see coordinator_core.ops.ensure_doe_clone's own docstring for the
 full design rationale and negative-spec (this trampoline owns no logic of
 its own beyond the standard engine-root resolve-and-import dance).
 

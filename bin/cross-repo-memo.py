@@ -1501,6 +1501,56 @@ def _receiver_inbox_root(repo_path: str) -> "tuple[str, bool]":
     return _receiver_inbox_root_impl(repo_path)
 
 
+#: Memoized binding for `coordinator_core.ops.fleet.memo_draft`, set on first
+#: call by `_bind_memo_draft`. `None` until then -- no non-stdlib import binds
+#: at import time in this file (see `_receiver_inbox_root_impl`).
+_memo_draft_impl = None
+
+
+def _bind_memo_draft():
+    """Bootstrap sys.path once and return the engine's `memo_draft` module.
+
+    The outbox root is the engine's fact, not the CLI's: `memo_draft` owns the
+    canonical write root and the retired read-fallback root of the 2026-09-03
+    relocation, plus the removal trigger that ends the dual-root window
+    (`machinery_paths.MEMO_OUTBOX_RELDIR`'s neighbouring comment). A CLI-side
+    copy of either literal is what left `discard` and `compose` resolving a
+    root no write has targeted since that relocation, reporting not-found for
+    drafts `list` had just printed.
+    """
+    global _memo_draft_impl
+    if _memo_draft_impl is None:
+        import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+        import cc_invoke
+
+        cc_invoke.ensure_engine_on_path(__file__)
+        from coordinator_core.ops.fleet import memo_draft as _impl
+
+        _memo_draft_impl = _impl
+    return _memo_draft_impl
+
+
+def _resolve_outbox_draft_path(sender_root: str, topic: str) -> str:
+    """READ path for `<topic>`: canonical root first, retired root second,
+    canonical root's not-yet-existing path when neither has it.
+
+    Thin forwarder onto `memo_draft.resolve_outbox_draft_path` -- the same
+    resolution `memo.list_outbox`, `memo.send` and `memo.reconcile_outbox`
+    already use, so what `list` prints is what `discard` removes and `compose`
+    opens.
+    """
+    return str(_bind_memo_draft().resolve_outbox_draft_path(Path(sender_root), topic))
+
+
+def _outbox_write_path(sender_root: str, topic: str) -> str:
+    """WRITE path for `<topic>` -- the canonical root only, never the retired
+    one. `memo.draft` O_EXCL-creates exactly here (its `MUTATES` declares the
+    same directory), so a reconcile that stats any other path answers a
+    question about a file the op never writes.
+    """
+    return str(_bind_memo_draft().outbox_dir(Path(sender_root)) / f"{topic}.md")
+
+
 def _looks_like_coordinator_receiver(path: str) -> bool:
     """Verify-before-deliver gate (rule 5) for the parent-folder-scan fallback.
 
@@ -1886,7 +1936,7 @@ def _print_premise_check_advisory(
     cross-repo/inbox/2026-08-03-doe-claude-em-premise-check-advisory-fires-
     after-delivery.md): the advisory belongs to the stage that OWNS the
     editable buffer, not to send. `_cmd_draft` and `_cmd_compose` both hold
-    `state/memo-outbox/<topic>.md` open for edits at the moment they call
+    the resolved `<topic>.md` draft open for edits at the moment they call
     this — `stage="draft"`/`"compose"` — so a missing `scoped_to` there is
     still a live, takeable offer: add the keys (or re-run with
     --scoped-to-*) and the buffer is fixed before it ever ships. By the time
@@ -2467,7 +2517,7 @@ def reconcile_indeterminate_draft(
     delivered mechanics this reconcile works around).
 
     `memo.draft` is reconcilable anyway, because its entire effect is one path
-    that is a pure function of argv: `<sender_root>/state/memo-outbox/
+    that is a pure function of argv: `memo_draft.outbox_dir(<sender_root>) /
     <topic>.md`. Stat it and the ambiguity is gone.
 
     `existed_before` is what makes the answer sound, and is why the caller must
@@ -2674,14 +2724,14 @@ def _cmd_draft(args: argparse.Namespace) -> int:
         )
 
     # RECONCILE KEY, computed BEFORE dispatch because after a -32004 there is
-    # nothing left to compute it from. `memo.draft` writes exactly one path,
-    # `<sender_root>/state/memo-outbox/<topic>.md` (memo_draft.py's own
-    # `outbox_dir / f"{topic}.md"`), and it is a pure function of argv — so the
+    # nothing left to compute it from. `memo.draft` writes exactly one path —
+    # `memo_draft.outbox_dir / f"{topic}.md"`, resolved through the engine
+    # rather than respelled here — and it is a pure function of argv, so the
     # one fact a delivered-but-unanswered mutation destroys is recoverable by
     # stat, without the engine answering anything. `_draft_existed_before`
     # separates "my write landed" from "a draft was already sitting there",
     # which a post-hoc stat alone cannot tell apart.
-    _draft_target = os.path.join(sender_root, "state", "memo-outbox", f"{topic}.md")
+    _draft_target = _outbox_write_path(sender_root, topic)
     _draft_existed_before = os.path.exists(_draft_target)
 
     try:
@@ -2946,7 +2996,7 @@ def _parse_outbox_file(path: str) -> tuple[dict[str, str], str]:
 # and coordinator_core/ops/workday_start_cross_repo_memo_outbox_surface.py's
 # stale-draft nudge scans every *.md directly under the outbox dir with no
 # status filter — a stamped file left in place would be mis-flagged as a
-# stale draft forever. `state/memo-outbox/sent/` mirrors the sibling
+# stale draft forever. `<outbox_dir>/sent/` mirrors the sibling
 # lessons-outbox convention (`<outbox>/drained/`, see cross-repo/archive/
 # 2026-07-23-claude-central-em-lessons-outbox-relocation-and-subject-
 # confirmation.md § 2/§ "no drained/ has ever existed") of parking
@@ -2954,8 +3004,10 @@ def _parse_outbox_file(path: str) -> tuple[dict[str, str], str]:
 # `os.listdir()` scan never descends into, rather than inventing a new
 # top-level location.
 def _sent_outbox_archive_path(outbox_path: str) -> str:
-    """The `state/memo-outbox/sent/<topic>.md` path a stamped, sent copy of
-    `outbox_path` (a `state/memo-outbox/<topic>.md` draft) is archived to.
+    """The `<outbox_dir>/sent/<topic>.md` path a stamped, sent copy of
+    `outbox_path` is archived to -- derived from `outbox_path`'s own dirname,
+    so it follows whichever outbox root the draft was resolved at rather than
+    naming one.
 
     Purely a path computation — callers still have to check existence.
     """
@@ -3111,9 +3163,10 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
     Those leave a stale local copy that looks exactly like a live draft in
     `list`, and the depth is read as a work queue. This reconciles it.
 
-    Prints the moved paths and their pathspec: the op deliberately does not
-    commit (state/memo-outbox/ is a corpus other sessions read live), so the
-    caller commits the batch it chose to move.
+    Prints the moved paths: the op deliberately does not commit, so the caller
+    commits the batch it chose to move — but only the retired
+    `state/memo-outbox/` root is tracked, so a move within the canonical
+    `.coordinator-local/` root is reported with nothing to commit.
     """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     import cc_invoke
@@ -3174,10 +3227,23 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
     for s in skipped:
         print(f"skipped {s.get('filename')}: {s.get('note')}", file=sys.stderr)
     if acted:
-        print(
-            "Commit the batch: git commit -- state/memo-outbox/ "
-            "(the op moves; it deliberately does not commit)."
+        # The two outbox roots differ in TRACKEDNESS, so one commit hint cannot
+        # be right for both: `.coordinator-local/` is gitignored, so a move
+        # within it leaves nothing to commit, while the retired
+        # `state/memo-outbox/` is still tracked here and does. Emitting the
+        # commit line unconditionally sends the caller to a pathspec that
+        # matches nothing.
+        legacy_root = os.path.join(sender_root, "state", "memo-outbox")
+        moved_tracked = any(
+            str(a.get("path") or "").startswith(legacy_root) for a in acted
         )
+        if moved_tracked:
+            print(
+                "Commit the batch: git commit -- state/memo-outbox/ "
+                "(the op moves; it deliberately does not commit)."
+            )
+        else:
+            print("Moved under .coordinator-local/ (untracked) — nothing to commit.")
     else:
         print("nothing to reconcile")
     return 0
@@ -3186,7 +3252,8 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
 def _cmd_discard(args: argparse.Namespace) -> int:
     """Handle: cross-repo-memo discard <topic>
 
-    Removes state/memo-outbox/<topic>.md from the sender repo.
+    Removes the sender repo's `<topic>.md` draft, resolved through
+    `_resolve_outbox_draft_path` across both outbox roots.
     Missing file → exit non-zero with hint to use 'cross-repo-memo list'.
     Uses FileNotFoundError catch (TOCTOU-safe; not os.path.exists).
 
@@ -3213,7 +3280,7 @@ def _cmd_discard(args: argparse.Namespace) -> int:
         )
         return 2
 
-    outbox_path = os.path.join(sender_root, "state", "memo-outbox", f"{topic}.md")
+    outbox_path = _resolve_outbox_draft_path(sender_root, topic)
 
     try:
         os.remove(outbox_path)
@@ -3234,7 +3301,7 @@ def _cmd_send(args: argparse.Namespace) -> int:
     Bare forwarder onto claude-klabauter's `memo.send` op (rebuilt 2026-08-25) —
     everything the delivery needs (`to`, `title`, `body`, `kind`, etc.) is
     read by the op itself off the already-staged
-    `state/memo-outbox/<topic>.md` draft; this handler validates the topic
+    resolved `<topic>.md` outbox draft; this handler validates the topic
     slug, resolves the sender repo root, and renders the op's result. There
     is NO legacy one-shot flag form here (--to/--title/--body-file/etc.) —
     draft-then-send is the only workflow (DR-210).
@@ -3387,8 +3454,8 @@ def _emit_compose_stage_advisory(abs_path: str, *, fm: dict | None = None) -> No
 def _cmd_compose(args: argparse.Namespace) -> int:
     """Handle: cross-repo-memo compose <topic> [--open]
 
-    Default (no flags): print the absolute path of state/memo-outbox/<topic>.md
-    and exit 0. This is the safe default — works in any context (agent or human).
+    Default (no flags): print the absolute path of the resolved `<topic>.md`
+    draft (`_resolve_outbox_draft_path`, both outbox roots) and exit 0. This is the safe default — works in any context (agent or human).
 
     With --open AND $EDITOR set: launch the editor on the outbox file (human
     opt-in only; never fires unconditionally), BLOCK until it exits, then hand
@@ -3438,7 +3505,7 @@ def _cmd_compose(args: argparse.Namespace) -> int:
         )
         return 2
 
-    outbox_path = os.path.join(sender_root, "state", "memo-outbox", f"{topic}.md")
+    outbox_path = _resolve_outbox_draft_path(sender_root, topic)
     abs_path = os.path.abspath(outbox_path)
 
     if not os.path.isfile(outbox_path):
@@ -3641,7 +3708,7 @@ def _build_combined_parser(for_help: bool = False) -> argparse.ArgumentParser:
     `send` is a subparser again (rebuilt 2026-08-25 alongside the rebuilt
     `memo.send` op) — a bare forwarder taking only `topic`, since every
     other field comes from the already-staged
-    `state/memo-outbox/<topic>.md` draft. `for_help=True` still does NOT
+    resolved `<topic>.md` outbox draft. `for_help=True` still does NOT
     register a legacy one-shot flag set (that set — --to, --topic, --title,
     --body-file, --summary, --dry-run, --scoped-to-*, etc. — fed the killed
     legacy send path and does not come back; DR-210: draft-then-send is the
@@ -3655,7 +3722,7 @@ def _build_combined_parser(for_help: bool = False) -> argparse.ArgumentParser:
         DRAFT LIFECYCLE (canonical multi-line workflow):
           1. draft   <topic> --to <em> --title "<line>" --kind <k> [--summary <s>]
                      [--in-reply-to <inbound-memo>]
-                     Stage a draft in state/memo-outbox/<topic>.md; prints the path.
+                     Stage a draft in the repo's outbox; prints the path.
           2. compose <topic>
                      Print the outbox path again (--open execs $EDITOR, human opt-in).
              list    Enumerate outbox drafts with age (>24h marked stale).
@@ -3697,7 +3764,7 @@ def _build_combined_parser(for_help: bool = False) -> argparse.ArgumentParser:
     # draft subparser — argument schema (handler is _cmd_draft)
     draft_p = subparsers.add_parser(
         "draft",
-        help="Stage a new draft in state/memo-outbox/<topic>.md",
+        help="Stage a new draft in the repo's outbox as <topic>.md",
     )
     draft_p.add_argument("topic", metavar="TOPIC", help="Topic slug (lowercase-alphanum + dashes)")
     draft_p.add_argument("--to", required=True, metavar="RECEIVER_EM_ID", help="Receiver-EM identifier")
@@ -3785,7 +3852,7 @@ def _build_combined_parser(for_help: bool = False) -> argparse.ArgumentParser:
     # `topic` is the only argument. No legacy one-shot flag form (DR-210).
     send_p = subparsers.add_parser(
         "send",
-        help="Deliver a staged draft (state/memo-outbox/<topic>.md) to its receiver",
+        help="Deliver a staged outbox draft (<topic>.md) to its receiver",
     )
     send_p.add_argument("topic", metavar="TOPIC", help="Topic slug of the staged draft")
 

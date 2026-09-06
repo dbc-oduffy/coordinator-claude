@@ -72,12 +72,15 @@ has real day-1 content once Phase 2 answers exist.
 **`.gitignore`.** Ensure the canonical block (settings.local.json, scratch/, per-session
 sentinels, ceremony/coverage transients, the group-EM watch trio —
 `state/group-em-watch.json`, `state/group-em-watch-parked.json`,
-`state/group-em-watch-spool.jsonl` — `.project-rag-corpus-artifacts/` and
+`state/group-em-watch-spool.jsonl` — the engine-provenance ledger
+`state/engine-provenance-counts.jsonl`, `.project-rag-corpus-artifacts/` and
 `.project-rag-corpus-store/`) is present — create if
 absent, append only the missing lines under one header if partially present, skip silently if
-complete. If ceremony/coverage transients or any of the group-EM watch trio are already tracked,
-`git rm --cached` them after adding the ignore rule — never `git rm`: a Stop hook is appending to
-the spool live, and deleting it mid-append costs a peer's watch records. Warn if `.claude/`
+complete. If ceremony/coverage transients, any of the group-EM watch trio, or the
+engine-provenance ledger are already tracked, `git rm --cached` them after adding the ignore rule
+— never `git rm`: a Stop hook is appending to the spool live and a hook appends to the ledger on
+every fire, so deleting either mid-append costs a peer's records for nothing — both are
+regenerated on the next write. Warn if `.claude/`
 (not just `settings.local.json`) is blanket-ignored, if tracked
 content exists under `scratch/`/`tasks/_*.log` (offer, don't auto-`git rm --cached`), or if the
 project-rag corpus paths are already tracked (break-class finding, not a nit — ~230MB in history).

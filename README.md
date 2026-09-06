@@ -67,7 +67,10 @@ Most of the mutating flows are in the right-hand column. Of the 36 bundled skill
 
 ## Quick Start
 
-You don't install this — your agent does. Open Claude Code in any project and paste:
+Your agent does most of this — but **not all of it.** Two steps below are restarts, and a
+running agent cannot restart its own session; every slash command in the list only exists after
+a restart. So this is agent-driven with two human touchpoints, not an unattended task. Open
+Claude Code in any project and paste:
 
 ```
 Install coordinator-claude. The playbook is at
@@ -75,20 +78,23 @@ https://github.com/dbc-oduffy/coordinator-claude/blob/main/INSTALL.md
 — read it, follow it, then install the engine from
 https://github.com/dbc-oduffy/claude-klabauter (its INSTALL.md), and queue
 /coordinator:repo-setup as the immediate next step after I restart Claude Code.
+Stop and tell me when you need me to restart.
 ```
 
-**The order is load-bearing.** This is the single thing most likely to break a new install:
+**The order is load-bearing.** This is the single thing most likely to break a new install.
+**One restart, at step 3** — and the engine is *cloned* before it but *installed* after it:
 
 1. **Install this plugin.** `claude plugin marketplace add dbc-oduffy/coordinator-claude`, then `claude plugin install coordinator@coordinator-claude`. The marketplace is the public GitHub repo, not your clone, so the install lives entirely under `~/.claude` — delete or move the clone afterward and the plugin keeps working.
-2. **Restart Claude Code.**
-3. **Run `/coordinator:install`.** This finishes the environment wiring, including depositing the `machine-local` registry resolver. Until it has run, the resolver is only a forwarder that exits 127 with `resolver not installed`.
-4. **Install the engine.** Clone [`claude-klabauter`](https://github.com/dbc-oduffy/claude-klabauter) and follow its [`INSTALL.md`](https://github.com/dbc-oduffy/claude-klabauter/blob/main/INSTALL.md) — `python3 <klabauter-clone>/scripts/setup.py --i-am-agent` for an agent, `python3 <klabauter-clone>/scripts/setup.py` for a human, `--check` for a no-side-effects check. On Windows: `python <klabauter-clone>\scripts\setup.py`, same flags.
-5. **Run `/coordinator:setup`.** The install-chain walker; it verifies the engine actually resolves and emits a chain-complete banner, or fails loud with remediation.
-6. **Run `/coordinator:repo-setup`.** Bootstraps tracking infrastructure in your project.
+2. **Clone the engine — a clone, not an install.** `git clone https://github.com/dbc-oduffy/claude-klabauter`. It has to exist *before* the restart because step 4's Phase 3 bootstraps coordinator's substrate from a script inside the engine repo. Do not run its installer yet; that is step 5.
+3. **Restart Claude Code** (human). The plugin loads at boot; until it has, none of the `/coordinator:*` commands below exist.
+4. **Run `/coordinator:install`.** This finishes the environment wiring, including depositing the `machine-local` registry resolver. Until it has run, the resolver is only a forwarder that exits 127 with `resolver not installed`.
+5. **Install the engine.** Follow [`claude-klabauter`](https://github.com/dbc-oduffy/claude-klabauter)'s [`INSTALL.md`](https://github.com/dbc-oduffy/claude-klabauter/blob/main/INSTALL.md) against the clone from step 2, **from a shell started after step 4** so the `machine-local` resolver it deposited is on PATH — `python3 <klabauter-clone>/scripts/setup.py --i-am-agent` for an agent, `python3 <klabauter-clone>/scripts/setup.py` for a human, `--preflight` for a no-side-effects probe. On Windows: `python <klabauter-clone>\scripts\setup.py`, same flags.
+6. **Run `/coordinator:setup`.** The install-chain walker; it verifies the engine actually resolves and emits a chain-complete banner, or fails loud with remediation.
+7. **Run `/coordinator:repo-setup`.** Bootstraps tracking infrastructure in your project.
 
-**Do not substitute `pip install .` for step 4.** It works as an ordinary library-dependency install, but it skips the dependency check and registration the real installer performs, and leaves you with an engine that imports but is not set up.
+**Do not substitute `pip install .` for step 5.** It works as an ordinary library-dependency install, but it skips the dependency check and registration the real installer performs, and leaves you with an engine that imports but is not set up.
 
-**Do not start at step 4.** Installing the engine before this plugin's install has completed produces exit 127 and a remediation instruction that cannot succeed until step 3 is done.
+**Do not start at step 5.** Installing the engine before this plugin's install has completed produces exit 127 and a remediation instruction that cannot succeed until step 4 is done.
 
 **Auditing & uninstall** → [`docs/safety.md`](docs/safety.md) — what the install changes, what it does not do, audit commands, and exact uninstall steps.
 
@@ -280,7 +286,7 @@ The plugin ships **46** commands. Listed below are the 45 that are useful in a c
 | `/install` | Installs the coordinator plugin — checks prereqs, configures project |
 | `/uninstall` | Reverses the coordinator install — full removal or revert to marketplace |
 
-Two more verbs ship as skills rather than commands, so they aren't in `commands/` and don't appear in the count: `/coordinator:setup` (the install-chain walker — see Quick Start step 5) and `/coordinator-update` (see [Updating](#quick-start) above).
+Two more verbs ship as skills rather than commands, so they aren't in `commands/` and don't appear in the count: `/coordinator:setup` (the install-chain walker — see Quick Start step 6) and `/coordinator-update` (see [Updating](#quick-start) above).
 
 </details>
 

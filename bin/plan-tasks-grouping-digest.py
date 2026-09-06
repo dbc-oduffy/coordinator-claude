@@ -2,7 +2,8 @@
 coordinator_core.ops.plan_tasks_grouping_digest.
 
 Prints the `sha256:<hex>` membership digest for a plan `## Tasks` task-spine
-grouping (`do`/`defer`/`ruled_out`), computed over the membership a
+grouping (every member of `schema_validate._PLAN_TASKS_GROUPING_ORDER` —
+`do`/`spun_off`/`defer`/`ruled_out`), computed over the membership a
 prospective close (`--cut`) would produce — the value a PM approving a cut
 records as `digest` in that grouping's `grouping_approvals` block. Read-only:
 never writes the plan, never takes the file lock. Same "plain local read,
@@ -15,7 +16,7 @@ asserts `status`/`pm_utterance` — that gate belongs to
 digest is not evidence a cut was approved.
 
 Usage:
-  plan-tasks-grouping-digest.py --plan <path> --grouping do|defer|ruled_out \\
+  plan-tasks-grouping-digest.py --plan <path> --grouping do|spun_off|defer|ruled_out \\
       [--cut <id>:<disposition>[,<id>:<disposition>...]] [--root <repo-root>]
 
   Omitting --cut (or passing an empty string) computes the digest over the

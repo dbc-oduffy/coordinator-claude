@@ -390,6 +390,30 @@
         "source_path"
       ],
       "additionalProperties": false
+    },
+    "fact_window": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "iso-week",
+            "day"
+          ]
+        },
+        "start": {
+          "type": "string"
+        },
+        "end": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "start",
+        "end"
+      ],
+      "additionalProperties": false
     }
   },
   "required": [
@@ -404,5 +428,5 @@
     "provenance"
   ],
   "additionalProperties": false,
-  "version": "4.4.0"
+  "version": "4.5.0"
 }

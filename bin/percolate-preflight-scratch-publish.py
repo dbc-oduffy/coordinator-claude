@@ -124,8 +124,8 @@ def _resolve_coordinator_root() -> str:
         root = _resolve_claude_klabauter_root()
     except RuntimeError as exc:
         print(
-            "percolate-preflight-scratch-publish.py: cannot resolve the claude-klabauter "
-            f"repo root ({exc}). Set repos.claude_klabauter in the machine-local registry, "
+            "percolate-preflight-scratch-publish.py: cannot resolve the engine "
+            f"checkout root ({exc}). Set repos.claude_klabauter in the machine-local registry, "
             "or set the CLAUDE_KLABAUTER_ROOT env var, or set CLAUDE_PLUGIN_ROOT directly.",
             file=sys.stderr,
         )

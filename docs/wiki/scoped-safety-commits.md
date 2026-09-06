@@ -560,6 +560,20 @@ Beyond the blanket-sweep case above, a path-scoped `git add` left uncommitted in
 
 Splitting `git add -- <paths>` and `git commit -m "..." -- <paths>` across two Bash tool calls opens a window in which a concurrent EM's `git add -A` / `coordinator-safe-commit --blanket` can sweep your staged index into their commit. Inside a single Bash call, treat stage+commit as one atomic gesture: `git add -- <paths> && git commit -m "<subject>" -- <paths>`. The trailing `-- <paths>` on `git commit` is non-negotiable **for hand-commits from the shared index where the index and worktree agree on your paths** — it scopes the commit by pathspec regardless of what else landed in the index between the `add` and `commit`, closing the cross-tool-call race window. (`lessons.md:43` — `--scope-from` fallback race documented; SC-DR-008 inversion driver.) **This is the agree-case discriminator of SC-DR-015, not a special exception to it** — the race this paragraph closes is real and the trailing pathspec still closes it, but only while index and worktree agree. If you deliberately staged something the worktree doesn't match (partial-hunk staging, `git apply --cached`, an automated op's private `GIT_INDEX_FILE`), dropping the trailing pathspec is instead the correct form — see SC-DR-015 and § The trailing pathspec reads the WORKTREE below.
 
+### Name FILES in the pathspec, not a directory
+
+`git add -- state/ && git commit -m "x" -- state/` is DENIED by the commit-scope guard, with
+the message "this 'git commit' names no scope" — which is false about that command. The same
+command spelled with file operands passes silently. A directory operand is read as a sweep, so
+the scoped form falls past the guard's scoped-form early return and inherits the bare-commit
+deny's text.
+
+Spell the pathspec as files. When a refusal reads "names no scope" against a command that
+plainly names one, that is this defect — do NOT retreat to a bare `git commit`, which is the
+shape the guard currently permits (its index probe reads the guard process's cwd, not the
+command's, so it fails open). Engine-side, `claude-klabauter`
+`coordinator_core/bash_guards/dispatch_checks.py`.
+
 ### `git commit` without trailing `-- <pathspec>` is unsafe on shared branches
 
 Path-scoped `git add` does not protect the commit. A concurrent EM's `git add -A` between your `add` and `commit` lands their staged files under your subject. **Always pass `-- <paths>` to `git commit` on shared branches when the index and worktree agree on those paths**, even after a clean `git add -- <paths>`. The trailing pathspec is the only deterministic scope guarantee under concurrent index mutation, for that case. Recurrence is the signal: this rule re-fires faster than the documentation reaches the EM at commit time — keep the trailing pathspec the default in skill bodies and dispatch prompts. **It stops being safe the moment you've deliberately staged content the worktree doesn't match** (SC-DR-015) — this framing is for the ordinary hand-commit case against an index that agrees with the worktree; index/worktree divergence for the named paths, whoever caused it, is the named carve-out — see SC-DR-015 and § The trailing pathspec reads the WORKTREE below.

@@ -1,0 +1,93 @@
+---
+title: Parallel Enrichment — Unified Seam Review
+description: When N enrichers work on chunked content in parallel, per-chunk review misses cross-chunk seam violations. This guide explains the seam-review requirement and when it applies.
+---
+
+# Parallel Enrichment — Unified Seam Review
+
+> When N enrichers work on chunked content in parallel, each chunk gets reviewed independently — but
+> structural errors only appear across chunk boundaries. This guide explains the seam-review requirement
+> and when it applies.
+
+## The Rule
+
+After any parallel fan-out enrichment wave completes, dispatch **one reviewer over all chunks together**
+before integrating. Per-chunk review misses cross-chunk seam violations.
+
+## Why Per-Chunk Review Fails
+
+Each enricher sees its slice of the artifact. The reviewer dispatched for Chunk 3 cannot see whether
+Chunk 3's opening sentence correctly continues the thought from Chunk 2's closing sentence, or whether
+Chunk 4 introduces a conflicting definition. Seam errors are invisible to per-chunk review by construction.
+
+**Concrete example:** Three enrichers each expand a different section of a CLAUDE.md file. Enricher A
+adds a rule about scout dispatches in § Subagent Dispatch. Enricher B adds a related rule in § Plan-First
+Workflow. Enricher C adds a tripwire in § Adding a Convention. Per-chunk review approves each section
+independently. The seam reviewer reads the assembled file and catches: Enricher A's wording contradicts
+Enricher B's (both say "always do X" but define X differently), and Enricher C's tripwire references a
+section name that Enricher A renamed. Neither conflict was visible within any single chunk.
+
+## What Seam Review Covers
+
+A seam reviewer reads the full assembled artifact and checks:
+
+1. **Narrative continuity** — does each chunk's opening connect to the prior chunk's close?
+2. **Terminology consistency** — does the same concept use the same word across all chunks?
+3. **Structural coherence** — are section levels, list styles, and heading hierarchies consistent?
+4. **No duplicate content** — did two enrichers independently add the same information?
+5. **No orphaned references** — does every cross-reference ("see above", "as noted in Section 2") resolve?
+
+## When This Applies
+
+Any fan-out pattern where N subagents write to different sections of the same artifact:
+
+- Parallel enrichers processing chunks of a long document
+- Parallel reviewers writing findings into different sections of a review report
+- Parallel executors writing to different sections of a CLAUDE.md or wiki file
+
+It does NOT apply when subagents write to entirely separate files with no inter-file narrative dependency.
+
+## Pin the Schema as a Hard Contract in Every Brief, Not an Example
+
+*Source: self.* Parallel fan-out scouts (especially Haiku) drift YAML/structured-output schemas silently when the brief shows the schema as an *example* rather than stating it as a *contract*. Each scout reads the example, infers "something roughly like this," and emits a near-but-not-identical shape — different key casing, an extra wrapper level, a list where a peer emitted a scalar. The seam reviewer then catches N divergent schemas instead of one, and the assembly step has to normalize them post-hoc.
+
+**Rule:** when fanning out N scouts that all emit a structured artifact (YAML frontmatter, JSON record, a fixed-field table), the brief must state the schema as a **hard contract** — exact key names, types, nesting, and required-vs-optional — not "here's an example of the output." An example invites interpolation; a contract forbids it. Pair with the precision floor from `dispatching-parallel-agents.md` § Brief Shape Determines Finding Shape: the precision of the schema spec is the floor on the uniformity of the emitted shapes. This is the schema-uniformity analog of the seam-review rule below — pinning the contract up front reduces the seam violations the reviewer has to catch after.
+
+## Implementation
+
+1. Fan out N enrichers over N chunks (parallel).
+2. Wait for all N to complete.
+3. Assemble the full artifact (or confirm it is already assembled in one file).
+4. **Dispatch a single seam reviewer** — the brief carries the reviewer's provisioned
+   `state/subagent-share/<session>/<provision_key>.md` sidecar path (DR-091 one-home model); the
+   reviewer writes findings there and returns a pointer+verdict line. No EM pre-scaffold, no
+   sentinel-append self-persist. This applies uniformly to `coordinator:code-reviewer` (UNNAMED)
+   and to a persona reviewer alike — both write to the provisioned path; inline only when no path
+   is in the brief.
+   Brief: "Check cross-chunk seam coherence — narrative continuity, terminology consistency,
+   structural coherence, no duplicates, no orphaned references."
+   Spec backlink: `cross-repo/inbox/2026-07-01-reviewer-selfpersist-confinement-redirect.md`.
+5. Read the returned pointer line: `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`.
+   `coordinator:code-reviewer` extends that line with a trailing `| executed: <yes|no>`; a persona
+   reviewer's does not. The shared-grammar claim in step 4 covers the sidecar home, not the
+   pointer line's field count.
+6. Dispatch the review-integrator pointing at the returned sidecar path — not an inline finding
+   list (`agents/review-integrator.md` § Intake precondition) — before shipping.
+
+## Multiple parallel integrators on different file-chunks — file-scope hard-fences required
+
+Multiple parallel review-integrators on different file-chunks work cleanly IF integrator briefs name explicit file ownership AND forward overlapping findings rather than touching out-of-scope files. File-scope hard-fences in each integrator brief eliminate cross-integrator stomp; overlapping findings (a finding in chunk A that also affects chunk B) must escalate to EM-side fold rather than the integrator writing out-of-scope files. Apply: for any parallel integrator dispatch, include a "Files this integrator owns: ..." block and a "Forward out-of-scope overlapping findings to EM" instruction.
+
+## The Merge-Time Coherence Sweep Greps the CLAIM, Not a Token — and Reaches Outside Plan Scope
+
+The seam reviewer above is one half; the EM's own **merge-verify grep sweep** is the other, and it fails the same way per-chunk review does if it greps too narrowly. When N parallel executors edit disjoint doctrine surfaces that must tell one story, they structurally cannot see each other's output — cross-surface incoherence (a stale count, a renamed section anchor breaking an inbound `§` reference, one surface still describing another's *pre-edit* state) only surfaces at merge-verify. A symbol-level or single-token grep misses it: the incoherent surface often shares no token with the edited one.
+
+**Rule:** at merge-verify, grep the **full doctrine phrase/claim tree-wide** — not just a symbol — and include files **outside the plan's edit scope** that cite the changed surface. A section rename is not done until every inbound `§ <title>` citation is repointed, wherever it lives. This session's sweep caught 3 such defects the executors could not have seen from inside their own chunks. Pair this with the seam reviewer (a fresh agent reading the assembled artifact) — the two are complementary: the reviewer reads *within* the assembled scope; the EM's claim-grep reaches *beyond* it to every inbound citation.
+
+*Source: parallel-doc-edit-merge-coherence.*
+
+## Related
+
+- `coordinator/skills/review/SKILL.md` § A.3 — Sequencing (formerly
+  § Review Sequencing; `coordinator/CLAUDE.md` retired) — pointer to this wiki
+- `docs/wiki/round-trip-contract-tests.md` — broader integration-test doctrine

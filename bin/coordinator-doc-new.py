@@ -47,7 +47,7 @@ Supported types:
   docs-check         — docs-check sidecar                    requires --plan <stem>
   run-report         — universal subagent run-report sidecar requires --plan <path> --chunk <id> --out <path>
                        --out is REQUIRED (no default path); the live output location is
-                       state/subagent-share/<session-id>/<key>.md, path owned and computed
+                       .coordinator-local/subagent-share/<session-id>/<key>.md, path owned and computed
                        by claude-klabauter's provision_report engine at spawn time
                        (superset schema — subsumes flight-recorder; DEC-3, plan
                        2026-07-13-subagent-run-report-subsume.md § C4)
@@ -56,7 +56,7 @@ Supported types:
   research-synthesis — deep-research synthesis record (docs/research/YYYY-MM-DD-<slug>.md)
                        frontmatter index over a PROTECTED expressive prose body (HEADERS ONLY in scaffold)
   review-findings    — code-reviewer self-persist findings sidecar  requires --slice <id> --scope <comma-paths>
-                       outputs to state/subagent-share/<session-id>/YYYY-MM-DD-codereview-slice<ID>-<SLUG>.md
+                       outputs to .coordinator-local/subagent-share/<session-id>/YYYY-MM-DD-codereview-slice<ID>-<SLUG>.md
                        (the DR-091 home -- same session-scoped root provision_report uses; SLUG is
                        sanitized from --scope; the <!-- FINDINGS --> sentinel is the Edit anchor)
   subagent-sidecar   — agent-side decision-object container (schemas/decision-object.schema.json
@@ -64,7 +64,7 @@ Supported types:
                        --out is REQUIRED (no default); the LIVE sidecar path is computed by
                        coordinator_core.subagent_sandbox.provision_report at spawn time, reached
                        from coordinator_core.hooks.cater_subagent_start on SubagentStart, under
-                       state/subagent-share/<session-id>/<key>.md. This CLI branch is the
+                       .coordinator-local/subagent-share/<session-id>/<key>.md. This CLI branch is the
                        manual/test scaffold path only. Carries completion_status (backlinks the
                        existing query-completions surface, not a fourth store),
                        divergence_from_plan, and tell_the_EM (freeform exit interview) --
@@ -644,8 +644,10 @@ def _missing_out_message(type_label: str) -> str:
             + "), so no session-scoped path is derivable from this process. "
             "Take the sidecar path from the dispatch brief."
         )
+    from coordinator_core.session.machinery_paths import SHARE_RELDIR
+
     return (
-        f"{head} Absent one, write under .coordinator-local/subagent-share/{session_id}/ "
+        f"{head} Absent one, write under {SHARE_RELDIR}/{session_id}/ "
         "and pass that path as --out."
     )
 
@@ -4729,8 +4731,9 @@ def _scaffold_run_report(
         "---",
         "",
         "<!-- Run-report lifecycle: dispatched → in_flight → complete | blocked | thrashing.",
-        "     Lives at state/subagent-share/<session-id>/<key>.md (applies_to:",
-        "     state/subagent-share/*/*.md), path owned and computed by claude-klabauter's",
+        "     Lives at .coordinator-local/subagent-share/<session-id>/<key>.md",
+        "     (applies_to: .coordinator-local/subagent-share/*/*.md), path owned and",
+        "     computed by claude-klabauter's",
         "     provision_report engine at spawn time (see CONTRACT.md). This scaffold's",
         "     --out path is caller-supplied; there is no default path.",
         "     Swept at /workstream-complete: complete entries are folded-and-deleted.",
@@ -4760,7 +4763,7 @@ def _scaffold_review_findings(slice_id: str, scope: str, spawned_at: str, lead_s
     same order: status/agent_type/spawned_at/lead_session_id/divergence/commits/
     dispatch_feed) so a self-scaffolded file is shape-identical to a provision_report-
     provisioned one -- both now validate against the SAME superset ``run-report.schema.json``
-    (``applies_to: state/subagent-share/*/*.md``, ``required: ["status"]``), and the now-
+    (``applies_to: .coordinator-local/subagent-share/*/*.md``, ``required: ["status"]``), and the now-
     retired ``review-findings.schema.json`` no-frontmatter special-case is gone. ``agent_type``
     is stamped as the literal 'review-findings' (this scaffolder's doc TYPE, not a spawned
     agent's role -- provision_report's own agent_type field records the SPAWNED agent's type
@@ -4788,9 +4791,9 @@ def _scaffold_review_findings(slice_id: str, scope: str, spawned_at: str, lead_s
     coordinator_core.hooks.cater_subagent_start on SubagentStart, which this scaffolder
     never duplicates). Code-reviewer returns the path in its DONE line either way.
 
-    Output path: state/subagent-share/<session-id>/YYYY-MM-DD-codereview-slice<ID>-<SLUG>.md
+    Output path: .coordinator-local/subagent-share/<session-id>/YYYY-MM-DD-codereview-slice<ID>-<SLUG>.md
     -- the DR-091 one-home (docs/decisions/DR-091-agent-citizenship-identity-typed-sidecar-
-    contract.md), the SAME state/subagent-share/<session>/ root provision_report.py's
+    contract.md), the SAME .coordinator-local/subagent-share/<session>/ root provision_report.py's
     _provision() already writes to for the pre-provisioned (common) path. <session-id> is
     resolved by _resolve_session_id() below using the identical env var + precedence chain
     coordinator-doc-new already uses for --type run-report/subagent-sidecar's
@@ -4916,7 +4919,7 @@ def _scaffold_subagent_sidecar(
         "",
         "<!-- Subagent-sidecar decision-object container (schemas/decision-",
         "     object.schema.json $defs/subagent_sidecar). Lives at",
-        "     state/subagent-share/<session-id>/<key>.md, path owned and",
+        "     .coordinator-local/subagent-share/<session-id>/<key>.md, path owned and",
         "     computed by coordinator_core.subagent_sandbox.provision_report",
         "     at spawn time. This scaffold's --out path is caller-supplied; there is no",
         "     default path. See docs/plans/2026-07-24-canonical-resolution-",
@@ -5255,13 +5258,13 @@ def _default_output_path(
                           --type flight-recorder alias). The retired tasks/<plan-slug>/flight/
                           guess was removed (DEC-3 subsume, docs/plans/2026-07-13-subagent-
                           run-report-subsume.md § C4 defect3) — the universal sidecar now
-                          lives under state/subagent-share/, and the engine's provision_report
+                          lives under .coordinator-local/subagent-share/, and the engine's provision_report
                           owns real path computation at spawn time; a manual scaffold invocation
                           must not silently guess a session-scoped path. main() enforces the
                           --out requirement before this function is ever reached for run-report.
       subagent-sidecar -> NO DEFAULT, same rationale as run-report — --out is REQUIRED
                           (main() enforces this before this function is reached).
-      review-findings  -> state/subagent-share/<session-id>/YYYY-MM-DD-codereview-slice<ID>-<SLUG>.md
+      review-findings  -> .coordinator-local/subagent-share/<session-id>/YYYY-MM-DD-codereview-slice<ID>-<SLUG>.md
                          (the DR-091 home; session-id from _resolve_session_id(), sanitized
                          via _sanitize_session_segment(); slice_id from --slice; SLUG from
                          _slug_from_scope(scope))
@@ -5332,8 +5335,16 @@ def _default_output_path(
         scp = scope or "SCOPE"
         scope_slug = _slug_from_scope(scp)
         session_id = _sanitize_session_segment(_resolve_session_id())
+        # The machinery root, not `state/` -- every reader of a
+        # review-findings sidecar (provisioning, the fill check, the
+        # unfilled detector, the hand-edit guards) resolves
+        # `machinery_paths.share_dir` first, and this producer wrote to a
+        # root three of them could not see. Repo-relative because the
+        # caller joins it onto the repo root itself.
+        from coordinator_core.session.machinery_paths import SHARE_RELDIR
+
         return os.path.join(
-            "state", "subagent-share", session_id,
+            *SHARE_RELDIR.split("/"), session_id,
             f"{today}-codereview-slice{sid}-{scope_slug}.md",
         )
     # Unknown type guarded upstream; unreachable.
@@ -5420,7 +5431,7 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
             "docs/architecture/audit-records/YYYY-MM-DD-<system>.md (audit-record), "  # Review: code-reviewer F8 — added missing audit-record default path
             "docs/plans/<stem>.<suffix>.md (sidecar types), "
             "docs/research/YYYY-MM-DD-<slug>.md (research-synthesis), "  # Review: code-reviewer Slice-B F5 — research-synthesis default path
-            "state/subagent-share/<session-id>/YYYY-MM-DD-codereview-sliceID-SLUG.md (review-findings), "
+            ".coordinator-local/subagent-share/<session-id>/YYYY-MM-DD-codereview-sliceID-SLUG.md (review-findings), "
             "state/strategic/self-description.yaml (strategic-self-description — single canonical per-repo path, not date/slug-derived). "
             "run-report (and its flight-recorder alias) has NO default — --out is REQUIRED."
         ),
@@ -5503,7 +5514,7 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
             "(run-report, alias flight-recorder) Chunk identifier matching the dispatch "
             "ledger row (e.g. C1-executor-prompt). Sets the chunk: frontmatter field. "
             "Output path has no default — pass --out explicitly (the live run-report "
-            "sidecar lives under state/subagent-share/, computed by claude-klabauter's "
+            "sidecar lives under .coordinator-local/subagent-share/, computed by claude-klabauter's "
             "provision_report engine at spawn time). "
             "Required for --type run-report (or its --type flight-recorder alias). "
             "(subagent-sidecar) Same usage as run-report above. Required for --type "
@@ -5582,7 +5593,7 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
         help=(
             "(review-findings) Slice identifier for this review (e.g. A, B, Z, 2a). "
             "Alphanumeric + dashes (uppercase allowed). Used in the output filename: "
-            "state/subagent-share/<session-id>/YYYY-MM-DD-codereview-sliceID-SLUG.md. "
+            ".coordinator-local/subagent-share/<session-id>/YYYY-MM-DD-codereview-sliceID-SLUG.md. "
             "Required for --type review-findings."
         ),
     )
@@ -6260,7 +6271,7 @@ def main(argv: "list[str] | None" = None) -> int:
         # --out is REQUIRED for run-report — the retired tasks/<plan-slug>/flight/<chunk-id>.md
         # default-path guess was removed (DEC-3 subsume, docs/plans/2026-07-13-subagent-run-
         # report-subsume.md § C4 defect3). The universal sidecar now lives under
-        # state/subagent-share/, whose real path is computed by the engine's provision_report
+        # .coordinator-local/subagent-share/, whose real path is computed by the engine's provision_report
         # at spawn time — a manual scaffold invocation must not silently guess a session-scoped
         # path. Fail loud instead of writing to a wrong/stale default.
         if not args.out:
