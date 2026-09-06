@@ -161,16 +161,7 @@ def _live_path() -> Path:
 
 def _published_path() -> Path:
     """The in-plugin copy, which is what reaches a machine that never clones
-    this repo.
-
-    `global-doctrine/` sits at the REPO ROOT and percolation is
-    `coordinator/`-only, so the authoring copy ships nowhere. The doctrine
-    *substance* is already public through the plugin (`snippets/
-    em-operating-doctrine.md`, `docs/wiki/posture-anchors.md`); only the
-    assembled always-loaded file was missing, which is why a cloud VM cloning
-    the OSS mirror had the engine, the plugin, and no fleet doctrine. This
-    target puts the assembly inside the percolated tree so the mirror carries
-    it and `templates/cloud-env/setup.sh` can find it in any repo.
+    this repo. See the module docstring for why this target exists.
     """
     return _repo_root() / "coordinator" / "templates" / "global-doctrine" / "CLAUDE.md"
 

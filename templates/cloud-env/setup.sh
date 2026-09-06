@@ -13,13 +13,10 @@
 # session on any repo. A sibling team wanting the coordinator layer in their cloud sessions needs
 # no change on their side; the operator configures their environment with this.
 #
-# ONE EXCEPTION, LIVE TODAY: doctrine (phase 3b) is NOT yet repo-agnostic. Its third candidate
-# reads the published copy out of the plugin clone, and that copy is not in the mirror yet —
-# `git ls-tree HEAD:templates` on dbc-oduffy/coordinator-claude has no `global-doctrine` entry
-# (checked 2026-09-06, independently on both planes). It is committed on DoE `main` and awaiting a
-# percolate publish. Until that lands, a session on a repo that does not itself carry
-# `global-doctrine/` takes phase 3b's FAIL branch and runs doctrine-blind. Full operator procedure,
-# including this gap: README.md beside this file.
+# ONE EXCEPTION, LIVE TODAY: doctrine (phase 3b)'s third candidate is a published copy that, as of
+# this writing, may not yet be in the plugin mirror. Status, verification commands, and what a
+# session sees if it isn't there: README.md § Known gap, beside this file. Don't restate that state
+# here — it is truth-expiring and README.md is its one home.
 #
 # PASTE THIS ALONGSIDE — the "Environment variables" box, which reaches the SESSION but NOT this
 # script (which is why every value below is also hardcoded here):
@@ -30,28 +27,12 @@
 # If the report below says HOME is not /root, or /opt was not writable, change both to match the
 # ROOT= line this script printed — they must name the paths it actually used.
 #
-# VERIFIED 2026-09-06 in a real Anthropic-hosted environment. A session booted against it reported,
-# from its own context rather than from this script's config: coordinator skills and agent types
-# present and loaded; both env-var-block values reached the session; both clones present; the
-# marketplace registered as a directory source; coordinator_core importing; the pointer file
-# written. Session runs as root with HOME=/root, the same user and home this script ran as.
-#
-# Also settled there, and it matters beyond this script: the image's python3 carries NO
-# EXTERNALLY-MANAGED marker. The engine installer's exit-96 PEP-668 refusal does not fire on this
-# platform, so nothing here is blocked on that ruling.
-#
-# SCOPE: a newborn cloud EM should inherit a working machine, not a chore, so this now runs the
-# engine installer too (phase 4b) rather than leaving /coordinator:install for the session. If that
-# leg fails the session degrades to plugin-only — skills load, the bin/ CLI surface does not — which
-# is a worse machine, never a broken one.
-#
 # It always exits 0. A non-zero exit fails the whole session, so every finding is a FAIL line to
 # read in the setup checklist, never a boot abort. Phase 0 is the probe — it reports the facts a
 # developer host cannot establish, and it runs first so its answers are on record even when a later
 # phase fails.
 #
-# RUNS ONCE, then the filesystem is snapshotted; later sessions skip it. Re-runs only when this
-# script or the allowed-host list changes, or at ~7-day expiry. Budget is ~5 minutes.
+# SCOPE, budget, snapshot/re-run semantics, and the verification record: README.md beside this file.
 
 set -u
 
@@ -197,10 +178,10 @@ if [ -n "$DOCTRINE_SRC" ]; then
   [ -d "$DOCTRINE_SRC/rules" ] && cp "$DOCTRINE_SRC/rules"/*.md "$HOME/.claude/rules/" 2>/dev/null
   echo "doctrine: OK -> \$HOME/.claude/CLAUDE.md (from $DOCTRINE_SRC)"
 else
-  # REACHED ON EVERY NON-AUTHORING REPO TODAY, not just on a failed clone: the published copy is
-  # committed on DoE `main` but not yet in the mirror this script clones. Loud rather than silent
-  # because a skip here looks identical to a working copy, and the session that boots next is the
-  # one that pays.
+  # None of the three candidates was found on this repo -- could be a failed clone, or the
+  # published-copy candidate's known gap (README.md § Known gap, current status there). Loud
+  # rather than silent because a skip here looks identical to a working copy, and the session
+  # that boots next is the one that pays.
   echo "doctrine: FAIL (no copy found — session runs doctrine-blind; see README.md § Known gap)"
 fi
 

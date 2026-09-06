@@ -18,7 +18,13 @@ nobody after you can rely on.
   those two is the trap; see the tripwire
   `coordinator/docs/wiki/coordinator-tripwires/a-vm-written-home-claude-is-not-your-machines-home-claude.md`.
 - **Skills, agent types, engine import, and the env-var block reach the session.** Verified
-  2026-09-06 in a real Anthropic-hosted environment; recorded in `setup.sh`'s header.
+  2026-09-06 in a real Anthropic-hosted environment: a session booted against `setup.sh` reported,
+  from its own context rather than from the script's config, coordinator skills and agent types
+  present and loaded, both env-var-block values reached, both clones present, the marketplace
+  registered as a directory source, `coordinator_core` importing, and the pointer file written.
+  Session ran as root with `HOME=/root`, the same user and home the script ran as.
+- **The image's `python3` carries no `EXTERNALLY-MANAGED` marker** (same 2026-09-06 session). The
+  engine installer's exit-96 PEP-668 refusal does not fire on this platform.
 
 ## What is NOT settled — the gap this file closes
 
