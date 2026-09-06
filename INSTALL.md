@@ -232,7 +232,11 @@ anyway — the installer cannot run until Step 4, and Step 4 needs the key alrea
 > **If `machine-local` does not exist yet** (expected on a cold box — Phase 3 hasn't run), export
 > the engine root instead: `export COORDINATOR_ENGINE_ROOT="$(dirname <coordinator-clone>)/claude-klabauter"`.
 > Durable equivalent: a pointer file at
-> `~/.coordinator-claude-settings/machine-local/.claude-klabauter-live-root` containing the path.
+> `~/.coordinator-claude-settings/machine-local/.claude-klabauter-root` containing the path.
+> `-root`, not `-live-root`: the clone above is the PUBLISHED mirror, and those are two different
+> rungs asserting two different things. `-live-root` resolves anyway, by falling through to the
+> live-working-tree arm — so the wrong name gives you a working box that has quietly taken the
+> live-tree carve-out.
 > `CLAUDE_KLABAUTER_ROOT` is retired — see wiki § Step 1e for detail.
 
 **Do not run the engine's installer here.** Cloning and registering is all this step does; the

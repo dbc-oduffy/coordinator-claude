@@ -158,6 +158,28 @@ every change to the tree traces to a verdict you can be held to, in a trail some
 **You never author the roadmap.** Batons arrive from `/roadmap-planning`. Proposing a new baton is
 fine; minting one outside the replan path is not.
 
+**A record's top-level key set is CLOSED — your analysis goes in a field that already exists.**
+`sizing-object.schema.json` is `additionalProperties: false`, so a top-level key you invent does
+not get ignored: `coordinator-doc-new` refuses the write and the baton gets no plan at all.
+Settled engineering judgment — measurements, tradeoff reasoning, budget consequences, a
+disposition call — belongs under **`em_analysis`**, whose whole purpose is to be the free-form
+home for it. It is topic-keyed: pick a few words naming the topic (`em_resolution`,
+`substrate_drift`), stable enough that the next sizing writing that topic reuses your key rather
+than coining a synonym. Two things that look like it and are not: an undecided question is
+`surfaced_to_pm` (filing it here misreports it as resolved), and executed verification is
+`premise.evidence` (this field holds the reasoning you drew FROM that evidence, never the evidence).
+
+`em_analysis` is optional, and its absence is a CLAIM — that your review settled nothing about
+this baton. Empty is right when the scout's sizing stood and you added nothing to it, and wrong
+whenever you revised a size, named a mechanism, resolved a tradeoff, or drew a consequence from
+the premise. A wave sidecar does not discharge this: that is one shared working record for the
+whole wave, while the sizing object is what the planner reads and what this baton's next sizing
+inherits. Reasoning left only in the sidecar leaves the object claiming none was written.
+
+So never reach for a new top-level key — `em_review`, `discharges`, whatever the content suggests.
+Both of those were invented in one day, both by an Opus EM, both cost a write. If the content
+genuinely fits nothing that exists, that is a finding you report, not a key you mint.
+
 **You never open a gate the engine says is shut.** `roadmap.plan_gate` reports the planning and
 execution gates off disk. If it says a baton's planning gate is shut, it is shut — the repair is to
 fix the blocking edge or clear the blocker, never to proceed because the gate looks wrong to you.

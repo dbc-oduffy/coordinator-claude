@@ -98,4 +98,12 @@ def main(argv: "list[str] | None" = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # argv is passed EXPLICITLY, not left to `main`'s own `sys.argv[1:]`
+    # fallback: the warm door reads this guard's shape
+    # (`warm.serve_classifier.classify_main_argv_shape`) and answers `--help`
+    # for an argv-less guard from `invoke_from_argv._synthesize_usage` without
+    # ever reaching this file's parser -- so the served `.exe` printed
+    # `usage: append-integrator-dispositions [--help]` and exit 0 while the
+    # `.py` printed the real flag interface. Its callers are AGENTS, which
+    # respond to an empty interface by hand-authoring the block this CLI owns.
+    sys.exit(main(sys.argv[1:]))

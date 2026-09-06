@@ -4585,6 +4585,7 @@ def dispatch_end_of_run_unscanned_published_check(
     target_filtered: bool,
     visited_files_by_repo_root: "Optional[dict[Path, set[Path]]]" = None,
     published_dest_dirs_by_repo_root: "Optional[dict[Path, set[Path]]]" = None,
+    published_files_by_repo_root: "Optional[dict[Path, set[Path]]]" = None,
     out: IO[str] = sys.stdout,
 ) -> bool:
     """Assert **the set of files published equals the set of files the
@@ -4740,7 +4741,27 @@ def dispatch_end_of_run_unscanned_published_check(
             # computed above (that would silently reopen the same hole).
             scanned = set(visited_files_by_repo_root.get(repo_root, set()))
 
-        if published_dest_dirs_by_repo_root is not None:
+        if published_files_by_repo_root is not None:
+            # The dest-authored-file fix: `published` is the exact set of files
+            # THIS RUN's rows wrote, captured per row from its staging tree
+            # before the swap (§ `process_target`'s `published_files_sink`) --
+            # never re-derived by walking the destination. The dest_dirs scoping
+            # below is a strictly weaker approximation and CANNOT express this
+            # one case: a mirror-mode row whose `dest_dir` is the destination
+            # repo root makes `dest_dir.rglob("*")` the whole repo, so a file the
+            # DESTINATION authored itself (klabauter's own docs/plans/*.md, in
+            # the round that surfaced this) was read as published-by-us and, being
+            # under a segment the content-transform sweep is contractually
+            # guaranteed never to visit (`exclude_prefixes`), could never clear.
+            # Fail-closed is preserved exactly: a file a row really did publish
+            # is in this set whether or not the sweep visited it, which is the
+            # identity leak this check exists to catch.
+            published = {
+                p
+                for p in published_files_by_repo_root.get(repo_root, set())
+                if p.is_file() and not _is_structurally_never_published(p, repo_root)
+            }
+        elif published_dest_dirs_by_repo_root is not None:
             # The false-positive fix: scope `published` to what THIS RUN
             # actually swapped, never the whole repo root (§ docstring) — a
             # dest_dir this run never swapped contributes nothing, so a file
@@ -10610,6 +10631,7 @@ def process_target(
     shadow_roots_sink: "Optional[List[Path]]" = None,
     visited_files_sink: "Optional[set[Path]]" = None,
     published_dest_dirs_sink: "Optional[set[Path]]" = None,
+    published_files_sink: "Optional[set[Path]]" = None,
     changed_files_sink: "Optional[set[Path]]" = None,
     changed_undetermined_sink: "Optional[set[Path]]" = None,
     removed_files_sink: "Optional[set[Path]]" = None,
@@ -10617,6 +10639,7 @@ def process_target(
     out: IO[str] = sys.stdout,
 ) -> None:
     _bootstrap_engine()
+    _staging_seed_relpaths: "set[Path]" = set()
     print(f"=== {target.name} ({target.mode}) ===", file=out)
     print(f"  Source: {target.source_dir}", file=out)
     print(f"  Target: {target.dest_dir}", file=out)
@@ -10791,6 +10814,19 @@ def process_target(
             # dispatch, so the sync itself also lands on the staging copy
             # rather than the real destination.
             staging_dir = _create_publish_staging_dir(target.dest_dir)
+            # SEED SNAPSHOT, for `published_files_sink` below.  # noqa: E501 The staging tree
+            # is COPIED FROM `dest_dir` (§ `_create_publish_staging_dir`), so
+            # what sits in it right now is the destination's existing content --
+            # including whatever the DESTINATION repo authored itself. Walking
+            # the post-sync staging tree therefore does NOT answer "what did this
+            # row publish"; it answers "what is in the destination", the same
+            # question the whole-repo walk asked. The payload is the difference.
+            if published_files_sink is not None:
+                _staging_seed_relpaths = {
+                    _seeded.relative_to(staging_dir)
+                    for _seeded in staging_dir.rglob("*")
+                    if _seeded.is_file()
+                }
 
         # `sync_target` is `target` itself with `dest_dir` swapped to the
         # staging copy when one was created above — every dispatcher below
@@ -11314,6 +11350,37 @@ def process_target(
                 if timing_sink is not None:
                     timing_sink.append((target.name, "REFUSED: pre-swap payload parity gate failed", 0.0, 0.0))
                 return
+            # § `dispatch_end_of_run_unscanned_published_check`'s
+            # `published_files_by_repo_root` -- the row's payload is enumerated HERE,
+            # from `staging_dir` before the swap consumes it, because after the swap
+            # nothing distinguishes what THIS row wrote from what already sat in
+            # `dest_dir`. `published_dest_dirs_sink` below cannot answer that for a
+            # row whose `dest_dir` IS the destination repo root (mirror-mode toplevel
+            # rows): the check's `dest_dir.rglob("*")` then re-walks the entire repo
+            # and reads the destination's OWN authored files as though this run had
+            # published them. Mapped onto dest paths so the check compares like with
+            # like against `visited_files_sink`.
+            # `payload = (post-sync staging - seed) + this row's changed set`.
+            # The first term is every file the sync newly created; the second is
+            # every seeded file it rewrote (`row_changed_files`, already computed
+            # for the manifest -- not re-derived here). A seeded file in neither
+            # was not written by this row and is not this run's to answer for.
+            # `row_changed_files is None` means the changed set is UNDETERMINABLE
+            # for this row, and then the whole staging tree is used: that is the
+            # fail-wide direction, matching `changed_undetermined_sink`'s own
+            # convention, and it degrades to the pre-fix behaviour rather than to
+            # silence.
+            _row_published_files: "set[Path]" = set()
+            if published_files_sink is not None:
+                for _staged_path in staging_dir.rglob("*"):
+                    if not _staged_path.is_file():
+                        continue
+                    _rel = _staged_path.relative_to(staging_dir)
+                    if row_changed_files is None or _rel not in _staging_seed_relpaths:
+                        _row_published_files.add(target.dest_dir / _rel)
+                if row_changed_files is not None:
+                    for _relative_id in row_changed_files:
+                        _row_published_files.add(target.dest_dir / _relative_id)
             try:
                 with _time_phase(timing_sink, target.name, "_swap_publish_staging_into_dest"):
                     _swap_publish_staging_into_dest(target.dest_dir, staging_dir)
@@ -11352,6 +11419,8 @@ def process_target(
                             removed_files_sink.add(target.dest_dir / relative_id)
                     if published_dest_dirs_sink is not None:
                         published_dest_dirs_sink.add(target.dest_dir)
+                    if published_files_sink is not None:
+                        published_files_sink.update(_row_published_files)
                 else:
                     # Refused before touching this run's `dest_dir`/
                     # `staging_dir` at all — nothing to record, the throwaway
@@ -11398,6 +11467,8 @@ def process_target(
             # this run" even though it may still exist on disk from a prior run.
             if published_dest_dirs_sink is not None:
                 published_dest_dirs_sink.add(target.dest_dir)
+            if published_files_sink is not None:
+                published_files_sink.update(_row_published_files)
 
         write_lastsync_marker(setup_dir, target.name, target.dest_dir, dry_run=dry_run)
 
@@ -12134,6 +12205,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # `end_of_run_visited_by_repo_root` above (which scopes what was SCANNED,
     # not what was PUBLISHED).
     end_of_run_published_dest_dirs_by_repo_root: "dict[Path, set[Path]]" = {}
+    end_of_run_published_files_by_repo_root: "dict[Path, set[Path]]" = {}
     # Per-row outcome ledger (mid-first-row publish-run death fix) —
     # `process_target` can raise `SystemExit` from deep inside a dispatched
     # sync (e.g. `publish_sync.py`'s orphan-sweep top-level-presence FATAL,
@@ -12385,6 +12457,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         pass  # unresolvable target already surfaces via process_target's own dispatch below
                 row_visited: "set[Path]" = set()
                 row_published_dest_dirs: "set[Path]" = set()
+                row_published_files: "set[Path]" = set()
                 row_changed: "set[Path]" = set()
                 row_changed_undetermined: "set[Path]" = set()
                 row_removed: "set[Path]" = set()
@@ -12439,6 +12512,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         shadow_roots_sink=all_shadow_roots,
                         visited_files_sink=row_visited,
                         published_dest_dirs_sink=row_published_dest_dirs,
+                        published_files_sink=row_published_files,
                         changed_files_sink=row_changed,
                         changed_undetermined_sink=row_changed_undetermined,
                         removed_files_sink=row_removed,
@@ -12500,6 +12574,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                 end_of_run_visited_by_repo_root.setdefault(repo_root, set()).update(row_visited)
                 end_of_run_published_dest_dirs_by_repo_root.setdefault(repo_root, set()).update(
                     row_published_dest_dirs
+                )
+                end_of_run_published_files_by_repo_root.setdefault(repo_root, set()).update(
+                    row_published_files
                 )
                 end_of_run_changed_by_repo_root.setdefault(repo_root, set()).update(row_changed)
                 if row_changed_undetermined:
@@ -12902,6 +12979,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 target_filtered=bool(args.target),
                 visited_files_by_repo_root=end_of_run_visited_by_repo_root,
                 published_dest_dirs_by_repo_root=end_of_run_published_dest_dirs_by_repo_root,
+                published_files_by_repo_root=end_of_run_published_files_by_repo_root,
             )
         # § chunk C4B (AC3) — wires C4's `run_function_gate` into the driver.
         # FAIL-HARD unconditionally (see that function's own docstring for the

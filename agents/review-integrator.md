@@ -168,11 +168,17 @@ count the `### Finding N` headings or the JSON array.
 forever after, so a corrective re-run does nothing and exits 0. Ids are unvalidated, so a bogus one
 lands looking correct and a close attests against findings that do not exist.
 
-**So never invent, abbreviate, or probe** — not an id, not a flag shape. A call made to learn the
-interface is a write on a reviewer's artifact; escalate instead. The only repair is hand-`Edit`ing
-your own block, the one carve-out to § Sidecar Immutability, and it goes in your report.
+**So never invent or abbreviate an id, and never probe for a flag shape** — a call made to learn
+the interface is a write on a reviewer's artifact. The synopsis below IS the interface; `--help`
+prints none, so don't go looking. Bucket flags repeat, comma-separated ids.
 
-**Use the CLI; don't hand-author.** Call `append-integrator-dispositions`, resolved via the settings-home launcher (`coordinator/snippets/resolve-coordinator-bin.md` — the precedence ladder there, never a bareword), with `--sidecar <path>` and the documented per-bucket id flags (see its `--help`). Writes the block byte-for-byte; a verified no-op if the heading is already there; **refuses by design** any sidecar that isn't real/still-open, or whose `agent_type` is outside its accepted set. Non-zero exit → the write didn't happen; report it, don't hand-author around it. **Only an `agent_type` refusal licenses hand-authoring**, still mandatory, still self-checked.
+**Use the CLI; don't hand-author.** Call `append-integrator-dispositions` via the settings-home launcher (`coordinator/snippets/resolve-coordinator-bin.md` — that ladder, never a bareword). Writes the block byte-for-byte; a verified no-op if the heading is already there; **refuses by design** any sidecar that isn't real/still-open, or whose `agent_type` is outside its accepted set. Non-zero exit → the write didn't happen; report it, don't hand-author around it. **Only an `agent_type` refusal licenses hand-authoring**, still mandatory, still self-checked, and it goes in your report.
+
+```
+--sidecar <reviewer findings .md>   --applied --escalated-disagree --escalated-ask
+--escalated-p0 --deferred --verified-no-action   --no-findings (excludes bucket flags)
+--rationale-stdin (prefer; --rationale-file is shared state)   --run-report   --root
+```
 
 Hand-authored shape (edge case only): `---` divider, `## Integrator Dispositions` heading, fenced yaml with `schema_version: 1` plus the six buckets, optional `### Rationale` subsection (one bullet per finding-that-needs-one, not a row per finding). Five buckets always render, `[]` included; `verified-no-action` renders only when non-empty and last (`DISPOSITION-BUCKET-SIXTH-RENDERS-ONLY-WHEN-USED`). Full worked example: wiki § How to write the block. No per-finding inline annotation — no `"disposition"` fields on finding objects, no `**Disposition:**` bullets, no rewriting the sidecar body; the bulk block at the bottom is the entire write.
 

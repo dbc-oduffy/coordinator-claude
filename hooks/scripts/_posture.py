@@ -39,7 +39,10 @@ import os
 import sys
 
 _VALID_POSTURES = frozenset({"precision", "default", "substrate-free"})
-_FAIL_OPEN_POSTURE = "precision"
+# Named for what it SELECTS, not for the failure mode that reaches it: resolution
+# fails open (never blocks), and the value it falls back to is the most cautious
+# posture in the enum. A `_FAIL_OPEN_` prefix would read as the opposite.
+_MOST_CAUTIOUS_POSTURE = "precision"
 
 _cached_posture: str | None = None
 # Cache lifetime is the hook process; do not import this module into a
@@ -158,7 +161,7 @@ def _resolve_posture_from(repo_root: str | None) -> str:
     except Exception:
         pass
 
-    return _FAIL_OPEN_POSTURE
+    return _MOST_CAUTIOUS_POSTURE
 
 
 def resolve_posture(repo_root: str | None = None) -> str:

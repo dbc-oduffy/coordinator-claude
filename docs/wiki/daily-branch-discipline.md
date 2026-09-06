@@ -12,8 +12,9 @@
 
 ## Concurrent sessions share the branch, not only the tree
 
-The worktree ban ("parallel agents share one tree, separated by disjoint file scope, never by
-checkout") silently assumes one tree **and** one branch. It is not enough on its own, because the
+The worktree ban ("parallel agents share one tree, which the commit path and index key on —
+separate by disjoint file scope, never by checkout") names one tree as its premise and silently
+assumes one **branch** as well. It is not enough on its own, because the
 branch is a property of the tree rather than of the session: **any checkout moves the ref under
 every concurrent session in that tree.**
 
