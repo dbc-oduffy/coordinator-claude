@@ -71,6 +71,7 @@ export const meta = {
     { title: 'Size', detail: 'One sonnet sizing-scout per unsized baton — substrate read, touchpoint inventory, prior art, and a proposed t-shirt with its evidence. Skipped for a baton that already cites a sizing-object.' },
     { title: 'Size review', detail: 'One Opus blitz-em over the whole wave. Interrogates every proposed size (revising down by default), finalises the route via sizing-assemble, and emits the per-baton dispatch spec the Plan phase reads.' },
     { title: 'Plan', detail: 'One Opus planner per baton, on every route and at every size — authoring is not a lane the wave economises on. Writes the plan doc through coordinator:plan / scaffold-plan; never hand-authors frontmatter.' },
+    { title: 'Premise check', detail: 'One check per baton, dispatched after the plan\'s path is trusted and before any reviewer fires: does the plan\'s premise hold against the tree right now (cited paths, symbols, refs, and instrument-can-report-red), riding the same REVIEW_SCHEMA and BLOCKED/PIVOT routing a reviewer uses. A premise miss is BLOCKED, not PIVOT, unless it is a class-5 semantic finding with no writable fix.' },
     { title: 'Review', detail: 'Reviewers resolved per baton from the EM dispatch spec, never prescribed in the plan file. Fires unconditionally — the EM is not consulted about whether a plan deserves review.' },
     { title: 'Integrate', detail: 'review-integrator per plan, also unconditional, including on a clean OK. Applies findings and escalates ASKs. A PIVOT from any reviewer suspends integration for the whole plan, with every sidecar still triaged so no co-reviewer findings are lost.' },
     { title: 'Resolve escalations', detail: 'Conditional: fires only when a plan\'s integration escalated at least one ASK. Re-invokes the Plan phase\'s own planner/prompt in its revising branch, picking ONLY among alternatives a reviewer already enumerated (review-integrator.md:199) — never authoring a third option. Records every pick via `choicesMade` so the trail carries the resolution, not just the question.' },
@@ -360,6 +361,106 @@ function resolveReviewers(named) {
 
   return { reviewers: [...new Set(resolved)], substitutions }
 }
+
+// Hand-synced from coordinator/snippets/premise-check-contract.md (C1) and
+// coordinator/snippets/instrument-can-report-red.md (C2) — NOT verify-snippet-sync-governed.
+// Probed 2026-09-06: verify-snippet-sync pastes a snippet's raw HTML-comment sentinels and
+// markdown body verbatim at the target path with no language awareness. Against a synthetic
+// `.mjs` consumer entry, `--fix` appended the sentinel-delimited markdown block as bare top-level
+// text — a syntax error in JavaScript outside a string/template literal (confirmed by direct
+// `verify-snippet-sync instrument-can-report-red --fix` probe against a scratch registry entry
+// pointing at this file; reverted after the probe). The tool therefore does not meaningfully
+// support a non-markdown paste target — it does not crash, but it does not produce valid output
+// either. Falling back per this chunk's stated contingency: a hand-synced module-level constant,
+// kept honest by one containment assertion in test_plan_blitz_contract.py, not a sentinel-synced
+// paste. Re-copy verbatim from the two `.md` sources on edit; do not paraphrase.
+//
+// Escaping rule: both source texts contain no `${}` sequence (verified at authoring time), so
+// every backtick in the pasted text below is escaped as \` and no other transformation is
+// needed. If either source ever grows a `${}` sequence, re-escape it the same way before pasting.
+const PREMISE_CHECK_CONTRACT = `## Premise Check Contract
+
+A premise check asks one question, in five classes, over a plan's cited paths, symbols, refs and
+in-repo behaviour claims: **does this plan's premise actually hold against the tree right now?**
+It is written to be INLINED into a dispatch brief, never dispatched as its own agent — the
+\`PLUGIN_AGENTS\` default-off constraint means an \`agentType\` the harness cannot resolve silently
+degrades to a generic agent wearing the role's label, which reuses the persona and loses the
+check. Whatever consumes this text must inline it directly.
+
+**Classes 1 and 2 — paths and symbols (mechanical).** For every cited in-repo path: does it
+exist? For every cited \`file:line\` / \`file:symbol\` claim: does the symbol exist in that file? This
+is the same check plan-coverage-checker's Lens 3 already runs (\`ls\`-check cited paths,
+\`Read\`-verify cited claims, grep backtick-quoted in-repo constants) — it is not re-derived here.
+
+**Tolerance rule, carried over verbatim, do not recalibrate:** same-file line-number drift alone
+(same file, same symbol, shifted line number) is tolerated and is NOT a finding; a missing file or
+an absent symbol is a real finding.
+
+**Class 3 — refs (mechanical, new).** A cited branch, commit or tag is checked with
+\`git branch -r\` / \`git rev-parse --verify\`. A peer-repo ref MUST be cited \`<repo>@<ref>\` — a bare
+"verified against HEAD" cannot distinguish \`main\` from someone's unmerged branch, and the failure
+is silent in both directions. See tripwire \`VERIFIED-AGAINST-HEAD-DOES-NOT-NAME-A-BRANCH\`.
+
+**Class 5 — semantics (judgment, new).** A claim that code EXISTS is not a claim it BEHAVES as
+described. This class fires on either of two conditions:
+
+1. The repo carries a surface that FORBIDS the plan's assumption — a wiki page that says so, or a
+   sanctioned resolver that raises instead of defaulting.
+2. Defect vocabulary (wrong, broken, fails, silently, unsafely) appears in the plan's description
+   of in-repo behaviour — the cheaper, second firing condition.
+
+On either trigger, open the cited symbol and compare its actual behaviour against the plan's claim
+before trusting it — a substrate pre-flight verifies existence, not described behaviour, so a
+claim that code EXISTS is never treated as a claim it BEHAVES as described. Where NEITHER surface
+fires, class 5 degrades to reviewer judgment and the verdict must say so plainly rather than
+guessing — this asymmetry is why the pass reports and does not refuse.
+
+**Class 5 is PROVISIONAL.** Classes 1-3 generalize from a measured corpus; class 5's second firing
+condition (defect vocabulary) generalizes from ONE incident (2026-07-27: a plan claimed a model
+resolver's default was defective when it was in fact a PM-ratified asymmetry, caught only because
+a defect-vocabulary trigger like this one would have flagged it for a symbol read). That is
+enough to ship it as an acceptance criterion and not enough to call the trigger calibrated. The
+owner of the standing blitz-conversion re-measurement effort re-checks the trigger against a
+class-5 firing log (every class-5 finding, with whether the subsequent symbol read confirmed or
+refuted the plan's claim) before the PROVISIONAL mark comes off. Until then, a class-5 finding
+carries the same weight as any other finding — only the TRIGGER is under review, not the finding's
+validity.
+
+**Mechanical vs. judgment split, carried over verbatim.** Classes 1, 2 and 3 are mechanical:
+existence either holds or does not. Class 5 is judgment: it requires reading a symbol's actual
+behaviour and comparing it to a claim. A verdict that mixes the two without labeling which is
+which loses the distinction that lets a reader gauge rework altitude at a glance.
+
+**Reporting, never refusing.** State plainly, in every verdict, which class(es) were checked and
+what was found — name the check in words (path, symbol, ref, semantic, instrument), never a bare
+class number: a number alone reads as more precise than the taxonomy underneath it actually is.
+**A premise check never claims plan correctness.** It catches a class of false premise; a plan
+whose every citation resolves against the tree can still be wrong. This pass reports what it
+checked and what it found; it does not ratify the plan, and it does not refuse to report a partial
+or degraded result — a class-5 miss with no forbidding surface and no defect vocabulary is
+reported as "class 5 not applicable, degrades to reviewer judgment," not withheld.`
+
+const INSTRUMENT_CAN_REPORT_RED_CONTRACT = `## Can This Instrument Report Red?
+
+One check, over any falsifier, gate, or verification instrument: **is the instrument's verdict
+wired to its exit path, or only computed?**
+
+The tell, stated without reference to what a given falsifier is *for*: a verdict variable is
+computed somewhere in the instrument, but the code path that decides pass/fail — the exit code,
+the return value, the raised exception — does not read it. An instrument that cannot fail this way
+cannot report red under any input, which makes every green result from it unfalsifiable rather
+than earned.
+
+Trace it concretely: find where the verdict is computed, then find every path out of the
+instrument (return statements, \`sys.exit\` calls, thrown exceptions, a CI step's exit code) and
+confirm at least one of them branches on that verdict. A verdict computed and then logged, stored,
+or discarded without ever gating an exit path fails this check regardless of how sound the
+computation itself is.
+
+Two sightings motivate this as a standing check, not a one-off: \`inst-07\` injects a token into its
+own fixture and reports green regardless of the injection outcome; example-game-repo's release-gates
+falsifier computes a shim verdict it never feeds into its exit code. Both are the same tell — a
+computed-but-unwired verdict — not two different defects.`
 
 const ROLE_CONTRACTS = {
   'blitz-em': `You are the blitz-em: the engineering-manager judgment inside one plan-blitz wave.
@@ -722,6 +823,59 @@ ${REVIEW_SIDECAR_RULE(sidecarFor(trailDir, baton.id, `review-${reviewer}-pointer
 }
 
 // ---------------------------------------------------------------------------
+// Phase 3.5 — Premise check
+// ---------------------------------------------------------------------------
+//
+// Dispatched once per baton, after the plan's `planPath` is trusted and stable (past the
+// looksLikeTrail correction) and before any reviewer fires — the one place in the pipeline
+// where a false premise can be caught before it costs a reviewer's read. Rides REVIEW_SCHEMA
+// and the same sidecar/pointer machinery as a reviewer so the rest of the pipeline (resolveVerdict,
+// integrator, the trail, the readiness gate) needs no premise-check-specific branch: a premise
+// miss is just another entry in `kept`.
+//
+// Role name is contract: `premise-check` must not collide with plan / planning-report /
+// review-*/ review-integration (sidecarFor's role-name uniqueness rule, see its own comment).
+function premiseCheckAgent(baton, decision, planResult, trailDir) {
+  return agent(
+    `You are the premise check for baton ${baton.id} ("${baton.title}")'s plan at
+${planResult.planPath}.
+
+Stated prime exit criterion: ${planResult.exitCriterion || '(none stated — that is itself a finding)'}
+
+${PREMISE_CHECK_CONTRACT}
+
+${INSTRUMENT_CAN_REPORT_RED_CONTRACT}
+
+Apply the premise-check contract above to this plan's cited paths, symbols, refs and in-repo
+behaviour claims, and apply the instrument check above to any falsifier, gate, or verification
+instrument the plan itself introduces or names. Report both under the same verdict — this pass
+never claims plan correctness; it reports what it checked and what it found.
+
+Verdict routing rides the SAME schema and the SAME two routes a plan reviewer uses — do not invent
+a third:
+
+  - BLOCKED — the DIRECTION holds; a repairable premise miss (an unresolved cited path, symbol or
+    ref; an instrument whose verdict is computed but not wired to its exit path) is BLOCKED,
+    however many findings there are. Populate \`premiseFailure\` with what you found.
+  - PIVOT — reserved for a class-5 semantic failure where NO fix is writable from the finding
+    alone. PIVOT requires BOTH a class-5 finding AND that no fix is writable — class 5 is
+    necessary but not sufficient. Where a fix IS writable, return BLOCKED even for a class-5
+    finding. When you are between them, return BLOCKED: this is the existing tripwire
+    \`coordinator/docs/wiki/coordinator-tripwires/a-blocked-review-is-not-a-pivot.md\` — "the
+    separating test is: write the fix… When you are between them, return BLOCKED" — cite it in
+    your sidecar rather than re-deriving the rule.
+${NO_EXECUTION_RULE}
+${REVIEW_SIDECAR_RULE(sidecarFor(trailDir, baton.id, 'premise-check'))}`,
+    withRole('coordinator:plan-coverage-checker', {
+      label: `premise-check:${baton.id}`,
+      phase: 'Premise check',
+      model: 'sonnet',
+      schema: REVIEW_SCHEMA,
+    }),
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Phase 5 — Integrate
 // ---------------------------------------------------------------------------
 
@@ -1074,14 +1228,21 @@ const chains = await pipeline(
       }
     }
 
+    // Phase 3.5 — Premise check. Dispatched here, before any reviewer resolves or fires: this
+    // is the one place `plan` is trusted and stable (past the looksLikeTrail correction above)
+    // and no reviewer has fired yet.
+    const premiseCheckResult = await premiseCheckAgent(baton, decision, plan, trailDir)
+
     const { reviewers, substitutions } = resolveReviewers(decision.reviewers)
     const reviews = await parallel(
       reviewers.map((reviewer) => () => reviewerAgent(baton, decision, plan, reviewer, trailDir)),
     )
     // Resolved ONCE, here, at the seam where the reviewers' words arrive. Everything
     // downstream — integration, the trail, the gate, the landing — reads the resolved
-    // route and never re-interprets the word.
-    const kept = reviews.filter(Boolean).map(resolveVerdict)
+    // route and never re-interprets the word. The premise check rides the same resolution: it
+    // is just another REVIEW_SCHEMA entry, so a premise miss reaches the integrator's ASK bar
+    // and the readiness gate exactly the way a reviewer's BLOCKED does.
+    const kept = [premiseCheckResult, ...reviews].filter(Boolean).map(resolveVerdict)
     // Integration is unconditional — including on an all-OK review set, and including on a
     // PIVOTed one (where the integrator applies nothing and triages every sidecar's
     // findings as suspended, so the co-reviewers' work reaches the replan).

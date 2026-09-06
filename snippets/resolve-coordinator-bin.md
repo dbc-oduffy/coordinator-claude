@@ -171,12 +171,24 @@ double-counts the segment and resolves nowhere under either layout.
 
 **The publisher chain — by construction, not a gap.** `percolate-round`, `percolate-gate`,
 `percolate-push`, `publish` and `coordinator-publish` produce the published engine and are
-deliberately not carried into it, so no launcher is written for them and none will be. Invoke them
-repo-relative out of the engine's own source checkout —
-`python "<engine-root>/coordinator/bin/<cli>.py" …` — never through the settings home, and never
-file the absence as an install defect. A POSIX forwarder for each DOES sit in the settings-home
-`bin/`; with no launcher beside it, PowerShell ShellExecutes it as a document and returns at once
-with no output and an empty `$LASTEXITCODE`. Present-but-silent, not absent.
+deliberately not carried into it, so no launcher is written for them and none will be. Never file
+the absence as an install defect.
+
+**Invoke them out of the engine's AUTHORING checkout — `machine-local get repos.claude_klabauter` —
+never `<engine-root>`.** That placeholder means the *published* mirror everywhere else in this
+corpus, and the publisher chain is the one set of CLIs guaranteed absent from it, so a path built
+that way gets `can't open file` and reads as "the publisher is missing" when it is exactly where it
+belongs:
+
+    _mk=$(python "$_sh/bin/machine-local" get repos.claude_klabauter)
+    python "$_mk/coordinator/bin/<cli>.py" …
+
+A POSIX forwarder for each DOES sit in the settings-home `bin/`, and **from a POSIX shell
+`python "$_sh/bin/<cli>"` is equivalent** — it resolves that same authoring checkout and execs the
+CLI there. What fails is the *bare* settings-home path on PowerShell: with no launcher beside it,
+PowerShell ShellExecutes the forwarder as a document and returns at once with no output and an
+empty `$LASTEXITCODE`. Present-but-silent, not absent — so on a PowerShell host take the
+`machine-local` form above through Shape W, not the forwarder.
 
 > Portability: no GNU-isms (`sed -i`, `grep -P`, `realpath`, `mapfile`, `declare -A`).
 > No wrapper CLI is invoked in this bootstrap — the launcher is execed directly by absolute path —

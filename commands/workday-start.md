@@ -281,13 +281,15 @@ daily. The health scan itself is a Step -0.9 `d-addon-health-*` directive — re
 `check-forwarder-drift` (derived-vs-installed CLIs, both directions), `check-deferral-orphan-memo`
 (unowned aged ask/proposal), `check-deferral-partial-strangle` (partial-strangler),
 `check-global-doctrine-mirror 2>&1` (byte-compare `~/.claude/CLAUDE.md` vs. `global-doctrine/`,
-remediate `--sync` mirror→`~/.claude` only, after re-authoring in the tracked mirror), and
+remediate `--sync` mirror→`~/.claude` only, after re-authoring in the tracked mirror),
 `workday-start-health-probes observer-sidecar-scan --dir archive/daily-summaries` (mirrors the
-same WARN shape, naming dates) — eight named CLIs, one shell invocation, each rendering into
-`### Addon Health` only when non-empty. All silent-skip when the engine root/op is unresolvable —
-a fleet-topology fact, never a health regression. No multiplexer CLI for these eight exists today;
-this is the interim shell-level batch, not a new engine CLI — do not invent one here, that surface
-is engine-owned, not this skill's to add.
+same WARN shape, naming dates), and `corpus-currency-probe.py` (per landed
+`.project-rag-corpus-store/<band>/`, is the local manifest triple behind the declared publish
+ref?) — nine named CLIs, one shell invocation, each rendering into `### Addon Health` only when
+non-empty. All silent-skip when the engine root/op is unresolvable, or (for the corpus probe)
+when the repo has no landed store — a fleet-topology fact, never a health regression. No
+multiplexer CLI for these nine exists today; this is the interim shell-level batch, not a new
+engine CLI — do not invent one here, that surface is engine-owned, not this skill's to add.
 
 **Memo-outbox tracking.** `python <plugin-root>/bin/memo-outbox-tracking-guard.py` — delivered memos
 losing their sender-side record. Exit 1 renders under `### Addon Health`. Daily, because leg 2
@@ -297,8 +299,11 @@ order.
 
 **Boot currency dependency:** `coordinator-doctor-sentinel --full` above writes P-19's verdict to
 `~/.claude/plugins/coordinator-claude/data/doctor-last-run.json`, the only cache
-`install_currency_banner()` reads at boot (zero-spawn). Drop or reorder this sentinel run and the
-boot line doesn't go quiet — it degrades to `stale-unknown` past the 24h refresh window.
+`install_currency_banner()` reads at boot (zero-spawn). `corpus-currency-probe.py` in the same
+batch carries the identical dependency shape: it writes `corpus-currency-last-run.json`, and
+`corpus_currency_banner()` is the only thing that reads it at boot. Drop or reorder either
+sentinel run and its boot line doesn't go quiet — it degrades to `stale-unknown` past the 24h
+refresh window.
 `<ENGINE-CURRENCY-PROBE-PLACEHOLDER>`: engine leg, added here once C6's contract with
 Claude-klabauter-em lands; not yet in this batch.
 
