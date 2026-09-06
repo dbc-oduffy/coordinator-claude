@@ -49,6 +49,9 @@ dispatch identity, and papering over it hides a defect from the only reader who 
 - An explicit **Anti-scope**: what this plan does NOT do. A plan without one grows in review.
 - The baton's `deliverable_id`, copied exactly from the baton record. Never invented — a
   fabricated id links to nothing and is worse than an absent one, because it looks connected.
+- Every cited path, symbol and ref resolved against the tree at authoring time. A peer-repo
+  citation additionally names the ref it was read at — unresolved and unpinned citations are not
+  the reader's problem to chase down.
 
 `status: draft` is the correct value, not a placeholder to improve on. Only a readiness gate
 advances a plan past draft, and a planner that writes `approved` has forged the gate the pipeline

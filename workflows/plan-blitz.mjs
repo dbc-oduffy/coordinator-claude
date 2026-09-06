@@ -73,6 +73,7 @@ export const meta = {
     { title: 'Plan', detail: 'One Opus planner per baton, on every route and at every size — authoring is not a lane the wave economises on. Writes the plan doc through coordinator:plan / scaffold-plan; never hand-authors frontmatter.' },
     { title: 'Review', detail: 'Reviewers resolved per baton from the EM dispatch spec, never prescribed in the plan file. Fires unconditionally — the EM is not consulted about whether a plan deserves review.' },
     { title: 'Integrate', detail: 'review-integrator per plan, also unconditional, including on a clean OK. Applies findings and escalates ASKs. A PIVOT from any reviewer suspends integration for the whole plan, with every sidecar still triaged so no co-reviewer findings are lost.' },
+    { title: 'Resolve escalations', detail: 'Conditional: fires only when a plan\'s integration escalated at least one ASK. Re-invokes the Plan phase\'s own planner/prompt in its revising branch, picking ONLY among alternatives a reviewer already enumerated (review-integrator.md:199) — never authoring a third option. Records every pick via `choicesMade` so the trail carries the resolution, not just the question.' },
     { title: 'Dispatch', detail: 'One executor per XS/dispatch baton whose EXECUTION gate is open. Runs AFTER planning so the wave plans against a stable tree and the only mutating phase is last. Bounded to the remit the baton itself states — an XS that grows is a sizing defect, not a bigger job.' },
     { title: 'Readiness gate', detail: 'One Opus blitz-em over the durable trail. Per plan: ready, pulled, or replan. A PIVOT routes to a replan baton for a later wave rather than halting this one, and is reconciled mechanically rather than left to the gate.' },
   ],
@@ -143,7 +144,35 @@ const PLAN_SCHEMA = {
     // wave carries that to the readiness gate instead of dropping the baton silently.
     blockedReason: { type: 'string' },
     exitCriterion: { type: 'string' },
+    // Populated only by the Resolve-escalations pass (see `planner`'s `escalation` argument and
+    // `RESOLVE_SCHEMA` below) — never by an ordinary authoring or revising call. Control-flow-inert,
+    // the same shape as `blockedReason` above: its only consumer is the trail renderer, which is
+    // why it is a discriminant field rather than prose. One entry per escalated ASK the resolve
+    // pass acted on; `chosen` and each `rejected` entry are option identifiers drawn from that
+    // ASK's own stated option list (review-integrator.md:199), never invented text.
+    choicesMade: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['escalationId', 'chosen', 'rejected'],
+        properties: {
+          escalationId: { type: 'string' },
+          chosen: { type: 'string' },
+          rejected: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    },
   },
+}
+
+// The Resolve-escalations pass's own return contract. Same shape as PLAN_SCHEMA, but
+// `choicesMade` is REQUIRED here — a resolve pass that has nothing to record has not actually
+// resolved anything, so leaving the field optional on this call buys the gate nothing (the
+// reasoning `overengineering-reviewer` accepted for cutting it, applied instead to un-optionalling
+// it). Never used for the ordinary authoring/revising `planner()` call.
+const RESOLVE_SCHEMA = {
+  ...PLAN_SCHEMA,
+  required: [...PLAN_SCHEMA.required, 'choicesMade'],
 }
 
 // The verdict vocabulary is a ROUTE, not a severity ladder. BLOCKED and PIVOT are not
@@ -492,7 +521,7 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'sizing'))}`,
 // Phase 3 — Plan
 // ---------------------------------------------------------------------------
 
-function planner(baton, decision, waveIndex, trailDir) {
+function planner(baton, decision, waveIndex, trailDir, escalation) {
   // Rendered rather than described: the hand-author branch lists frontmatter keys as literal
   // text, and a planner told to "put the sizing path here if there is one" fills it with a
   // plausible invention when there is not. `null` is the sanctioned absence and passes the gate.
@@ -508,6 +537,35 @@ leave them alone. Change the BODY to answer what the reviews raised, and leave \
 you found it.`
     : `No plan exists yet. Author one.`
 
+  // The Resolve-escalations pass: SAME actor, SAME prompt, SAME revising branch above — the
+  // only addition is this brief, appended below the ordinary revising instruction. It fires
+  // only when integration on this baton escalated at least one ASK, and `baton.planPath` is
+  // guaranteed set by then (the plan was written or revised earlier in this same wave).
+  const resolveBrief = escalation
+    ? `
+RESOLVE PASS — not authoring, and not an ordinary revision. Integration on this plan escalated
+${escalation.escalated.length} ASK(s) too consequential to apply silently. Full findings:
+${escalation.reportPath}.
+
+Escalated ASKs, numbered for reference:
+${escalation.escalated.map((e, i) => `  escalation-${i + 1}: ${e}`).join('\n')}
+
+For each one, pick ONLY among the concrete options its reviewer already enumerated —
+\`review-integrator.md:199\` fixes the requirement that every escalated ASK carries "two-or-more
+concrete options"; that enumerated set is what you choose among. Never invent a third option, and
+never author a fix that is not one of the alternatives already stated for that ASK. If an ASK's
+option list is genuinely unusable (fewer than two options, or none apply), say so in your returned
+summary and leave that ASK unresolved rather than guessing.
+
+Edit the plan body to reflect the picks you make, then return \`choicesMade\`: one entry per
+escalation you resolved, \`{ escalationId, chosen, rejected }\`, where \`escalationId\` is the
+\`escalation-N\` label above and \`chosen\`/each \`rejected\` entry is an option identifier drawn
+from that escalation's own stated option list — never invented text. This is REQUIRED on your
+return: it is the only record of what was picked and what was not, and the trail renders it next
+to the escalation it resolves.
+`
+    : ''
+
   return agent(
     `Write the implementation plan for ONE roadmap baton, in plan-blitz wave ${waveIndex}.
 
@@ -517,7 +575,7 @@ Finalised size: ${decision.tshirt}, route: ${decision.route}
 EM's sizing rationale: ${decision.rationale}
 
 ${revising}
-
+${resolveBrief}
 ${baton.planPath ? `You are revising, so the file already exists and the generator has no part in this: the
 scaffold step below is for a plan being authored from nothing, and running it here is what
 produces the duplicate you were just told not to create. Read the existing plan first, then edit
@@ -576,8 +634,8 @@ the plan, and the baton spends a wave slot producing nothing.
 ${NO_EXECUTION_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'planning-report'))}`,
     withRole('coordinator:plan-author', {
-      label: `plan:${baton.id}`,
-      phase: 'Plan',
+      label: escalation ? `resolve:${baton.id}` : `plan:${baton.id}`,
+      phase: escalation ? 'Resolve escalations' : 'Plan',
       // Planning is opus on EVERY route, and the wave does not offer a knob to
       // lower it. Sonnet's place in this pipeline is research (the sizing scouts)
       // and execution (the XS dispatch lane) — both bounded work with the judgment
@@ -586,7 +644,8 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'planning-report'))}`,
       // `execution_authorized_*` and read by nobody in between. The unconditional
       // reviewer is not a backstop for a cheap planner — an opus review that
       // BLOCKS a sonnet plan has already outspent authoring it at opus, and costs
-      // the wave a replan on top.
+      // the wave a replan on top. The Resolve pass inherits the same reasoning: it
+      // is choosing among a reviewer's own alternatives, not a cheaper act than authoring.
       model: 'opus',
       // Medium, not high: the planner is authoring against a size and a route the
       // blitz-em already interrogated, over substrate a scout already inventoried.
@@ -594,7 +653,7 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'planning-report'))}`,
       // decisions — and an unpinned planner inherits whatever the invoking session
       // was set to, which makes the wave's authoring depth an accident of who fired it.
       effort: 'medium',
-      schema: PLAN_SCHEMA,
+      schema: escalation ? RESOLVE_SCHEMA : PLAN_SCHEMA,
     }),
   )
 }
@@ -1027,7 +1086,22 @@ const chains = await pipeline(
     // PIVOTed one (where the integrator applies nothing and triages every sidecar's
     // findings as suspended, so the co-reviewers' work reaches the replan).
     const integration = await integrator(baton, plan, kept, trailDir)
-    return { decision, baton, plan, reviews: kept, integration, substitutions }
+
+    // Phase 5a — Resolve escalations. Conditional, and the only new call site this pipeline
+    // gains: fires exactly when integration escalated at least one ASK on a plan that is not
+    // already blocked. A PIVOT never reaches here — the integrator applies and escalates
+    // nothing on a suspended plan, so `escalated` is empty and this step is a no-op for it.
+    let resolvedPlan = plan
+    if (integration && integration.escalated && integration.escalated.length && plan.status !== 'blocked') {
+      const resolution = await planner(baton, decision, waveIndex, trailDir, {
+        escalated: integration.escalated,
+        reportPath: integration.reportPath,
+      })
+      if (resolution) {
+        resolvedPlan = { ...plan, choicesMade: resolution.choicesMade || [] }
+      }
+    }
+    return { decision, baton, plan: resolvedPlan, reviews: kept, integration, substitutions }
   },
 )
 
@@ -1064,7 +1138,8 @@ const trailLines = chains
       reviews: ${verdicts}${pivots.length ? `  <-- PIVOT (${pivots.map((r) => r.reviewer).join(', ')})` : ''}${blockers.length && !pivots.length ? '  <-- BLOCKED, fixable' : ''}${mixed}${aliases.length ? `\n      alias resolved: ${aliases.map((r) => `${r.reviewer}: ${r.aliased}`).join('; ')}` : ''}
       ${reviews.map((r) => `sidecar: ${r.sidecarPath}${r.premiseFailure ? ` premise-failure: ${r.premiseFailure}` : ''}${r.alternativesConsidered ? ` alternatives: ${r.alternativesConsidered}` : ''}`).join('\n      ')}
       integration: ${integration ? `${integration.applied} applied, ${(integration.escalated || []).length} escalated -> ${integration.reportPath}` : '(did not run)'}
-      escalated ASKs: ${integration && integration.escalated && integration.escalated.length ? integration.escalated.join('; ') : 'none'}`
+      escalated ASKs: ${integration && integration.escalated && integration.escalated.length ? integration.escalated.map((e, i) => `escalation-${i + 1}: ${e}`).join('; ') : 'none'}${plan && plan.choicesMade && plan.choicesMade.length ? `
+      resolutions (Resolve escalations, planner revising): ${plan.choicesMade.map((c) => `${c.escalationId} -> chosen: ${c.chosen}${c.rejected && c.rejected.length ? `; rejected: ${c.rejected.join(', ')}` : ''}`).join(' | ')}` : ''}`
   })
   .join('\n')
 
@@ -1093,7 +1168,12 @@ One question per plan: is it ready to execute? Answer ready, pulled, or replan �
 that names the evidence. "Looks off" is not a disposition.
 
 Read the escalated ASKs first. They are the findings judged too consequential to apply silently,
-which makes them the highest-signal line in the trail and the one a fast read skips.
+which makes them the highest-signal line in the trail and the one a fast read skips. Some of them
+carry a resolution line beneath them — \`resolutions (Resolve escalations, planner revising)\` —
+from a post-integration pass that picked among the reviewer's own enumerated options. Read that
+resolution with the SAME priority you give an unresolved ASK: it tells you what was picked and
+what was not, not that the question is settled. A \`chosen\` outside the ASK's own stated option
+list, or one that does not actually match the plan body, is a finding of its own.
 
 Open the sidecars. A summary line saying OK is not evidence anyone checked — a reviewer can
 confirm an author's prose without opening the code that would falsify it. Spot-check one

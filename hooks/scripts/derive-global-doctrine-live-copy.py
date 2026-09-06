@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
 """PostToolUse(Write|Edit|MultiEdit) AND SessionStart hook: re-derive the
-live global CLAUDE.md copy AND the live `~/.claude/rules/*.md` mirror
+live global CLAUDE.md copy, the live `~/.claude/rules/*.md` mirror, AND the
+in-plugin published copy under `coordinator/templates/global-doctrine/`,
 whenever their TRACKED sources may have changed.
+
+The third target is what reaches a machine that never clones this repo.
+`global-doctrine/` sits at the repo root and percolation is `coordinator/`-only,
+so the authoring copy ships nowhere — which is why a cloud VM cloning the OSS
+mirror had the engine, the plugin, and no fleet doctrine. Nothing becomes
+public that was not already: the substance ships today through
+`snippets/em-operating-doctrine.md` and `docs/wiki/posture-anchors.md`; only
+the assembled always-loaded file was missing.
 
 Why this exists — the mirror direction is TRACKED -> LIVE, not the reverse:
 `global-doctrine/CLAUDE.md` (tracked, in this repo) is the authoring target;
@@ -148,6 +157,26 @@ def _tracked_path() -> Path:
 
 def _live_path() -> Path:
     return Path.home() / ".claude" / "CLAUDE.md"
+
+
+def _published_path() -> Path:
+    """The in-plugin copy, which is what reaches a machine that never clones
+    this repo.
+
+    `global-doctrine/` sits at the REPO ROOT and percolation is
+    `coordinator/`-only, so the authoring copy ships nowhere. The doctrine
+    *substance* is already public through the plugin (`snippets/
+    em-operating-doctrine.md`, `docs/wiki/posture-anchors.md`); only the
+    assembled always-loaded file was missing, which is why a cloud VM cloning
+    the OSS mirror had the engine, the plugin, and no fleet doctrine. This
+    target puts the assembly inside the percolated tree so the mirror carries
+    it and `templates/cloud-env/setup.sh` can find it in any repo.
+    """
+    return _repo_root() / "coordinator" / "templates" / "global-doctrine" / "CLAUDE.md"
+
+
+def _published_rules_dir() -> Path:
+    return _repo_root() / "coordinator" / "templates" / "global-doctrine" / "rules"
 
 
 def _tracked_rules_dir() -> Path:
@@ -301,9 +330,14 @@ def main() -> int:
         tracked = _tracked_path()
         if tracked.is_file():
             exit_code = max(exit_code, _derive_live_copy(tracked, _live_path()))
+            exit_code = max(exit_code, _derive_live_copy(tracked, _published_path()))
         for rules_tracked in _tracked_rules_files():
             rules_live = _live_rules_dir() / rules_tracked.name
             exit_code = max(exit_code, _derive_live_copy(rules_tracked, rules_live))
+            exit_code = max(
+                exit_code,
+                _derive_live_copy(rules_tracked, _published_rules_dir() / rules_tracked.name),
+            )
         return exit_code
 
     # --- Existing Write|Edit payload-driven behaviour ---
@@ -329,7 +363,10 @@ def main() -> int:
     # gracefully; not a false positive), left unguarded as an accepted edge
     # case. Same caveat applies to the rules-dir match added below.
     if resolved == tracked_resolved:
-        return _derive_live_copy(tracked, _live_path())
+        return max(
+            _derive_live_copy(tracked, _live_path()),
+            _derive_live_copy(tracked, _published_path()),
+        )
 
     rules_dir = _tracked_rules_dir()
     try:
@@ -344,7 +381,10 @@ def main() -> int:
         under_rules_dir = False
 
     if under_rules_dir and resolved.suffix == ".md" and resolved.is_file():
-        return _derive_live_copy(resolved, _live_rules_dir() / resolved.name)
+        return max(
+            _derive_live_copy(resolved, _live_rules_dir() / resolved.name),
+            _derive_live_copy(resolved, _published_rules_dir() / resolved.name),
+        )
 
     return 0
 

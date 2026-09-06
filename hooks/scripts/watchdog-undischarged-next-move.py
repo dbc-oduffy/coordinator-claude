@@ -131,6 +131,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _posture import resolve_posture  # noqa: E402
 import _next_move_ledger as _ledger  # noqa: E402
 from _touch_record import _touch_lines, _touch_record_jsonl_paths, _touched_txt_paths  # noqa: E402
+import _block_discharge  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Static seam table (emission side). See module docstring for the full
@@ -514,7 +515,31 @@ def _handle_stop(payload: dict) -> int:
         posture = "precision"
 
     if posture in ("default", "substrate-free"):
-        sys.stderr.write(text)
+        repo_root = _repo_root(payload)
+        if repo_root is not None:
+            nonce = _block_discharge.record_fire(
+                repo_root, session_id, "watchdog-undischarged-next-move", text
+            )
+        else:
+            nonce = None
+        if nonce is not None:
+            discharge_note = (
+                f"Recorded as {nonce}. When you have acted on this, run:\n"
+                f"  python coordinator/bin/block-discharge.py record --nonce {nonce} "
+                f'--action "<what you did>"\n'
+            )
+        else:
+            discharge_note = (
+                f"Could not record this fire (write failed) at "
+                f"state/block-discharge/{session_id}.jsonl.\n"
+                "No nonce to discharge -- this failure is visible in stderr, not "
+                "laundered into a clean check.\n"
+            )
+            sys.stderr.write(
+                "[watchdog] watchdog-undischarged-next-move: record_fire write "
+                "failed, no nonce minted\n"
+            )
+        sys.stderr.write(text + discharge_note)
         return 2
 
     sys.stdout.write(text)

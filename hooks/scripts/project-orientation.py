@@ -1186,6 +1186,124 @@ def install_currency_banner(repo_root: Optional[str]) -> None:
     # one indistinguishable silence at this artifact (P19-SILENT-TRIBRANCH). Render nothing.
 
 
+def corpus_currency_banner(repo_root: Optional[str]) -> None:
+    """Print one line per `behind` band from the C1 corpus-currency-probe sentinel.
+
+    Reads `<claude_home>/.claude/plugins/coordinator-claude/data/corpus-currency-last-run.json`
+    (`_claude_home()`-relative, beside `doctor-last-run.json`) at most ONCE per invocation and
+    reuses the parsed object for every branch below — a single `Path.read_text()` plus
+    `json.loads()`, matching this hook's file-read-count-must-not-grow contract and its
+    zero-subprocess, zero-network boot-path mandate (module docstring): the network fetch is
+    C1's job (`coordinator/bin/corpus-currency-probe.py`), never this hook's. Same
+    `COORDINATOR_CURRENCY_STATUS_OFF` kill-switch as `install_currency_banner`/
+    `tier_currency_banner` above.
+
+    **Absent vs. stale is a deliberate divergence, not one to "harmonize."** This mirrors the
+    exact argument `install_currency_banner` makes above for its own sentinel, and for the same
+    reason: absent and stale look alike (both mean "nothing useful to show") but mean opposite
+    things. No sentinel at all means this repo has never had a landed `.project-rag-corpus-store/`
+    for the probe to walk — most repos never consume a corpus, and warning about an absence that
+    is the normal case everywhere would train the operator to ignore the line (the exact defect
+    `local_install_surface_banner`'s docstring names). A STALE sentinel means the daily
+    `/workday-start` refresh that keeps this cache honest has stopped running — that absence of a
+    fresh read IS the failure this banner exists to report, not a side effect of "no corpus here."
+    Collapsing the two into one silent (or one loud) branch would either hide a broken daily
+    refresh behind the same silence every corpus-free repo already gets, or spam every corpus-free
+    repo with a warning about a refresh cadence that was never applicable. They stay visibly
+    distinct here on purpose.
+
+    Four-way render:
+      - no sentinel file at all -> silent, nothing rendered.
+      - sentinel unparseable, top-level JSON not a mapping, `ran_at` missing/unparseable, or the
+        sentinel is older than `_CURRENCY_BANNER_STALE_HOURS` -> `stale-unknown`, naming how old
+        the cache is (or that it is unparseable) and that `/workday-start` refreshes it. NEVER
+        rendered as current, NEVER rendered as behind.
+      - `bands` present but not a list -> also `stale-unknown`, naming the malformation. This is
+        corruption, not "no bands" -- it must not share a branch with a legitimately-absent or
+        empty `bands` list (same distinction `install_currency_banner` draws for a malformed
+        `advisory_notes`).
+      - fresh sentinel, every band's `verdict` is anything other than `behind`
+        (`current`/`undeclared`/`unreachable`) -> silent, nothing rendered; every one of those is
+        a clean state from this banner's perspective.
+      - fresh sentinel, one or more bands read `verdict: behind` -> one line per behind band,
+        naming the band and echoing its `remount_command` VERBATIM -- never reformatted or
+        re-derived. C1 built that string against `download_corpus.py`'s real CLI flags precisely
+        so it can be pasted as-is; re-deriving it here is how it silently rots out of sync with
+        the producer.
+    """
+    if os.environ.get("COORDINATOR_CURRENCY_STATUS_OFF"):
+        print(
+            "[coordinator] corpus-currency banner: disabled via "
+            "COORDINATOR_CURRENCY_STATUS_OFF",
+            file=sys.stderr,
+        )
+        return
+
+    try:
+        sentinel_path = (
+            _claude_home() / ".claude" / "plugins" / "coordinator-claude" / "data"
+            / "corpus-currency-last-run.json"
+        )
+    except Exception:
+        return
+
+    try:
+        sentinel_text = sentinel_path.read_text(encoding="utf-8")
+    except Exception:
+        return
+
+    parsed = None
+    try:
+        parsed = json.loads(sentinel_text)
+    except Exception:
+        parsed = None
+
+    ran_at_raw = parsed.get("ran_at") if isinstance(parsed, dict) else None
+    age_hours: Optional[float] = None
+    if isinstance(ran_at_raw, str) and ran_at_raw:
+        try:
+            ran_at_dt = datetime.strptime(ran_at_raw, _GENERATED_AT_FORMAT).replace(
+                tzinfo=timezone.utc
+            )
+            age_hours = (datetime.now(timezone.utc) - ran_at_dt).total_seconds() / 3600.0
+        except Exception:
+            age_hours = None
+
+    if not isinstance(parsed, dict) or age_hours is None:
+        _w(
+            "── Corpus currency: stale-unknown (verdict cache unparseable) — "
+            "/workday-start refreshes it ──\n"
+        )
+        return
+
+    if age_hours >= _CURRENCY_BANNER_STALE_HOURS:
+        _w(
+            f"── Corpus currency: stale-unknown ({age_hours:.0f}h old, refresh window is "
+            f"{_CURRENCY_BANNER_STALE_HOURS}h) — /workday-start refreshes it ──\n"
+        )
+        return
+
+    bands = parsed.get("bands")
+    if bands is not None and not isinstance(bands, list):
+        _w(
+            "── Corpus currency: stale-unknown (verdict cache malformed — bands is not a "
+            "list) — /workday-start refreshes it ──\n"
+        )
+        return
+
+    if not isinstance(bands, list):
+        return
+
+    for band in bands:
+        if not isinstance(band, dict):
+            continue
+        if band.get("verdict") != "behind":
+            continue
+        name = band.get("band")
+        remount_command = band.get("remount_command")
+        _w(f"── Corpus currency: {name} is behind — refresh: {remount_command} ──\n")
+
+
 def _load_tier_last_run_module():
     """Import `coordinator/bin/tier-last-run.py` by file path and return the loaded module.
 
@@ -2508,6 +2626,10 @@ def main(argv: list) -> int:
         except Exception:
             pass
         try:
+            corpus_currency_banner(repo_root)
+        except Exception:
+            pass
+        try:
             tier_currency_banner(repo_root)
         except Exception:
             pass
@@ -2560,6 +2682,10 @@ def main(argv: list) -> int:
         pass
     try:
         install_currency_banner(repo_root)
+    except Exception:
+        pass
+    try:
+        corpus_currency_banner(repo_root)
     except Exception:
         pass
     try:

@@ -4,7 +4,7 @@
 <!-- BEGIN plan-coverage-check-consumption (synced from snippets/plan-coverage-check-consumption.md) -->
 ## Plan Coverage Check Integration
 
-If your dispatch prompt cites a **plan-coverage-check pre-flight** with a sidecar path (the engine-provisioned `state/plan-sidecars/<plan-stem>.plan-coverage-check.md` home, computed once by `provision_report` and passed through unchanged), the plan has been mechanically checked for internal completeness across three lenses: does the fix slate cover the audit oracle, are deferrals architecturally justified, and do in-repo citations match disk? The EM has consumed the sidecar and folded any INCOMPLETE findings into the plan before dispatching you. You are reading the post-fold version.
+If your dispatch prompt cites a **plan-coverage-check pre-flight** with a sidecar path (the engine-provisioned `.coordinator-local/plan-sidecars/<plan-stem>.plan-coverage-check.md` home, computed once by `provision_report` and passed through unchanged), the plan has been mechanically checked for internal completeness across three lenses: does the fix slate cover the audit oracle, are deferrals architecturally justified, and do in-repo citations match disk? The EM has consumed the sidecar and folded any INCOMPLETE findings into the plan before dispatching you. You are reading the post-fold version.
 
 **Three lenses, three sidecar sections:**
 

@@ -92,6 +92,9 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _block_discharge  # noqa: E402
+
 # The commit/date C1's terminal-stamp contract lands at -- see the module
 # docstring's CONTRACT_EPOCH section. Delete this constant and
 # `_postdates_epoch` once no session predating 2026-08-30 can still close.
@@ -356,8 +359,28 @@ _BLOCK_HEADER = (
 )
 
 
-def _emit_block(reasons: list[str]) -> int:
-    sys.stderr.write(_BLOCK_HEADER + "\n".join(reasons) + "\n")
+def _emit_block(reasons: list[str], repo_root: str, session_id: str) -> int:
+    nonce = _block_discharge.record_fire(
+        repo_root, session_id, "guard-kira-verdict-routed", "\n".join(reasons)
+    )
+    if nonce is not None:
+        discharge_note = (
+            f"Recorded as {nonce}. When you have acted on this, run:\n"
+            f"  python coordinator/bin/block-discharge.py record --nonce {nonce} "
+            f'--action "<what you did>"\n'
+        )
+    else:
+        discharge_note = (
+            f"Could not record this fire (write failed) at "
+            f"state/block-discharge/{session_id}.jsonl.\n"
+            "No nonce to discharge -- this failure is visible in stderr, not "
+            "laundered into a clean check.\n"
+        )
+        sys.stderr.write(
+            "[guard] guard-kira-verdict-routed: record_fire write failed, "
+            "no nonce minted\n"
+        )
+    sys.stderr.write(_BLOCK_HEADER + "\n".join(reasons) + "\n" + discharge_note)
     return 2
 
 
@@ -492,7 +515,7 @@ def main() -> int:
     if not reasons:
         return 0
 
-    return _emit_block(reasons)
+    return _emit_block(reasons, repo_root, session_id)
 
 
 if __name__ == "__main__":

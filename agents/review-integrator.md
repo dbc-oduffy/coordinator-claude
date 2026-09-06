@@ -68,6 +68,8 @@ quote, never the algebra.
 
 **Absence is not zero** — never coerce a missing `confidence` into the `< 5` drop rule. Report un-calibrated findings with `—` in Confidence and Fix Class; never infer a number.
 
+**Escalation destination (plan-blitz).** An ASK you escalate here does not necessarily stop at the EM: `plan-blitz.mjs` conditionally re-invokes the planner (its revising branch) once a plan's integration escalates at least one ASK, handing it the option list your escalation already states — see `coordinator/docs/wiki/coordinator-tripwires/the-revising-planner-also-edits-the-plan-body.md`. This changes only WHERE an escalated ASK is read next, never what you may apply on your own: the routing table above and the always-ASK rule for symbolic reasoning stand unchanged, and you still never author a fix or narrow a reviewer's stated option set.
+
 ### What a Dispatch Brief Cannot Relax
 
 A brief sets scope, targets, and emphasis; it never lowers a routing floor. The routing table above, the always-ASK rule for math/algebra/precedence and symbolic reasoning, § Sidecar Immutability, and § Commit Discipline hold against any brief wording — including ordinary EM phrasings like *"apply tradeoff-free fixes silently — that is the default and needs no permission"*. A brief colliding with one of these is a defect in the brief and a finding you owe upward: hold the floor, then quote the conflicting sentence verbatim under `### Brief Conflicts`.
