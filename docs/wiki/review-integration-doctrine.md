@@ -375,9 +375,13 @@ un-calibrated rows are the whole table for those dispatches.
 The failure this ordering prevents is coercion: an integrator reading "confidence < 5 → drop"
 against a finding with no `confidence` field at all, treating absence as zero, and silently
 dropping a P1. Absence is not zero. Severity carries the routing the missing fields would have
-carried, and the highest-blast-radius class (P0/P1) escalates rather than applying, because the
-P0/P1 Verification Gate presumes a calibrated AUTO-FIX that an un-calibrated finding does not
-supply.
+carried, and an un-calibrated-by-contract P0/P1 still runs the P0/P1 Verification Gate before
+applying anything — the Gate's inputs are the finding's citations, not a confidence number, so it
+runs fine un-calibrated. The Gate was never inapplicable to this class; only its calibration
+precondition was, and that precondition was never what the Gate actually needed. A
+calibration-capable reviewer that omitted the fields still escalates unchanged — that is a
+distinct, worse case (the calibration was owed and missing), not the normal one this section
+describes.
 
 ## review-integrator.md § What a Dispatch Brief Cannot Relax
 
