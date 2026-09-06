@@ -180,9 +180,15 @@ echo "=== phase 4b: run the engine installer ==="
 # the bin/ CLI surface does not), which is exactly where this script stood before. It must never
 # take the session down with it, so the exit code is reported and swallowed.
 if [ "$HAVE_ENGINE" -eq 0 ]; then
+  # `--i-am-agent` plus a closed stdin: an ephemeral VM has nothing to negotiate. Every question
+  # an install normally asks — which substrate, what is already here, where things live — is
+  # answered by construction in a machine that is provisioned once and snapshotted. So this lands
+  # the DEFAULT installation and takes every default silently. `< /dev/null` is not belt-and-braces
+  # on the flag: the installer's own notes say one offer still fires under --i-am-agent and relies
+  # on stdin being closed to decline it, so make it closed rather than assume it.
   ( cd "$ROOT/claude-klabauter" && COORDINATOR_ENGINE_ROOT="$ROOT/claude-klabauter" \
       COORDINATOR_SETTINGS_HOME="$HOME/.coordinator-claude-settings" \
-      "$PYBIN" scripts/setup.py --i-am-agent ) 2>&1 | tail -25
+      "$PYBIN" scripts/setup.py --i-am-agent < /dev/null ) 2>&1 | tail -25
   rc=${PIPESTATUS[0]}
   # Named rather than numeric because these are the codes worth recognising on sight: 90 is a
   # missing hard dependency, 95 an unresolvable repo identity, 96 the interpreter refusal that
