@@ -4,6 +4,28 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.2.0] — 2026-09-06
+
+A doctrine-and-operating-system release, cut as a three-week catch-up close.
+
+- **The Group EM became a watched role with a comms mode beside it.** A dead session's nomination
+  can no longer lock out a live one; peer-addressing gained refusal branches so a stale roster
+  never routes a message to the wrong window; and Uhura ships as a mode, not an agent.
+- **A review-owed close now has exactly one legal exit.** `/handoff`, `/workstream-complete` and
+  `/quick-wrap` had each named a different predicate for the same "you owe a review" case, so a
+  session could bounce between them and stall. One surface states it; the others cite it.
+- **Every non-`coded` plan exit needs explicit approval (DR-183).** `spun_off` exits join the
+  `grouping_approvals` schema field.
+- **The static waste signal became a candidate generator.** It separates not-measurable causes,
+  re-verifies candidates live, and reports four states instead of one.
+- **Skill weight came back under the ratchet without the ratchet being widened** — 4,631 B of
+  duplication and dead cross-references cut from `plan`, `review` and `roadmap-planning`, with
+  rule survival verified token-by-token.
+
+Also in this release: eleven new agents (including `git-commit-agent`, `workflow-maker`,
+`overengineering-reviewer`, `exit-criterion-falsifier` and `group-em-assistant`) and the
+frontmatter-schema corpus brought back into conformance — 103 violations repaired to 1.
+
 ## [4.1.0] — 2026-09-01
 
 A cold install of 4.0.0 from the published mirror, on a clean machine, did not work. This release

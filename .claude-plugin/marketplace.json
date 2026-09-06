@@ -5,12 +5,12 @@
   },
   "metadata": {
     "description": "Structured agent orchestration for Claude Code — multi-agent workflows, named reviewer personas, session continuity, and workflow skills.",
-    "version": "4.1.0"
+    "version": "4.2.0"
   },
   "plugins": [
     {
       "name": "coordinator",
-      "source": ".",
+      "source": "./",
       "description": "Coordinator plugin: plan-enrich-chunk-review pipeline, named reviewer personas (the Staff Engineer, the Director of Engineering, the Game Dev Reviewer, the Data Science Reviewer, the UX Reviewer, the Front-End Reviewer), fan-out dispatch, session continuity via handoffs and flight recorders, and workflow skills (/plan, /review, /execute-plan, /workday-start, /workstream-complete).",
       "tags": [
         "orchestration",

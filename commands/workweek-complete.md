@@ -154,8 +154,9 @@ Resolve from the spine's directives in one pass; advisory rows never block:
 `scc --no-complexity --no-cocomo --no-duplicates --sort code` (if available) → summary in
 `state/code-stats-history.md` under `## YYYY-MM-DD`.
 
-`... console-flash-guard --target "$HOME/.claude/plugins"` — route through
-`spawn-hidden.sh` or `# verify-no-console-flash: allow`. `... multi-event-hook-guard` — fix is
+`... verify-no-console-flash --target "$HOME/.claude/plugins"` — route through
+`spawn-hidden.sh` or `# verify-no-console-flash: allow`.
+`... check-multi-event-hook-hardcoded-event` — fix is
 echoing stdin's `hook_event_name`, never hardcoded. Both exit 0, advisory, never block merge.
 
 ---
@@ -236,11 +237,9 @@ catch-up target, not a double-count risk — what matters is coverage in a *prio
 (check `archive/release-notes/`, never `git log --contains`).
 
 **Reconcile backstop is KILLED — no step here.** `workweek-complete-close reconcile-sweep` and
-`reconcile-completion-commits.py` are both retired in the engine repo's relocation ledger; the
-launchers survive and exit 127. The requirement (folding `Session-Id:`-trailer commits into a
-pending-release entry's `commits:`) is a live rebuild candidate in the kill-ledger — restore this
-backstop only when a successor CLI ships. Until then a missing SHA is caught, if at all, by the
-editorial pass below reading the entry corpus.
+`reconcile-completion-commits.py` are retired; their launchers survive and exit 127. Folding
+`Session-Id:`-trailer commits into an entry's `commits:` is now unbacked — a missing SHA is caught,
+if at all, by the editorial pass below. Restore only when a successor CLI ships.
 
 **Editorial bucketing:** dispatch a Sonnet worker with the entry corpus; writes
 `state/week-changelog/YYYY-MM-DD-pending-release.md`. Bucket by `nature`+`loe.tshirt`: roadmap
@@ -267,17 +266,21 @@ in any `Decisions:` field; Minor = new feature/command; Patch = fixes/docs/refac
 **This step is the weekly bump for the coordinator-plugin-triple anchor** — `plugin.json`
 `.version`, `marketplace.json` `.metadata.version`, and the CHANGELOG's latest `## [X.Y.Z]`
 section, the only anchors that exist today. EM proposes the level; PM confirms — the gate below
-IS that confirmation, because a release surface is a product call. **Engine anchor row:
-named-but-empty here** — a different, per-publish-shaped cadence, not this bump/miss-flag cycle;
-fills once claude-klabauter-em's contract converges.
+IS that confirmation, because a release surface is a product call. The engine is deliberately not
+an anchor here: it bumps per-publish, on claude-klabauter-em's cadence.
 
 **PM gate:** propose vX.Y.Z with one-line rationale; update release-notes filename and
 HEADER.md `Prior week released:`.
 
 **Stamp atomically** in the same commit as the CHANGELOG `[Unreleased] → [X.Y.Z]` stamp:
 `coordinator/.claude-plugin/plugin.json` `.version` and `.claude-plugin/marketplace.json`
-`.metadata.version` both move to `X.Y.Z`. Run `check-version-consistency` before Step 15 —
-non-zero means a surface was missed.
+`.metadata.version` both move to `X.Y.Z`. No CHANGELOG in the repo: the anchor pair is the whole
+stamp, not a missed surface.
+
+**`check-version-consistency --root <dir holding .claude-plugin/>` before Step 15** — `coordinator/`
+in the source repo, repo root in the mirror. **Omitting `--root` exits 0 having checked nothing**
+(it prints `could not locate ...`, then skips). Confirm the OK line names a version; the exit code
+alone does not.
 
 ---
 
