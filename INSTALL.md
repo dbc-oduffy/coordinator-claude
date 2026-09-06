@@ -315,7 +315,7 @@ handoffs, memo resolution, coverage computation, and terminal stamping do not.
 
 The clone has to come first because `/coordinator:install`'s Phase 3 bootstraps coordinator's
 substrate from a script that lives *in the engine repo*. Rationale, braid-defect detail:
-`coordinator/docs/wiki/install-playbook-rationale.md` § Step 4.
+`docs/wiki/install-playbook-rationale.md` § Step 4.
 
 **`/coordinator:install` and `/coordinator:setup` are not aliases:**
 
