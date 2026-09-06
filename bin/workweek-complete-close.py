@@ -221,6 +221,26 @@ def _parse_leading_date(name: str) -> date | None:
         return None
 
 
+def _bare_week_date(value: str) -> str | None:
+    """Leading `YYYY-MM-DD` of a `**Week starting:**` value, or None.
+
+    Negative-spec: HEADER lines carry a conventional trailing annotation
+    (`2026-08-31 (ISO 2026-W36)`, and fleet repos add `Prior week released:`
+    style suffixes), while `--week-starting` is always a bare date. Comparing
+    the two raw strings is never equal wherever the annotation is present, so
+    the `--week-only` HEADER-rewrite predicate silently evaluated False for
+    every annotated HEADER: the run exited 0, moved files correctly, reported
+    success, and left the closing week's HEADER naming the archived week.
+    Reported by example-game-repo-em 2026-09-06. `derive_week_start` deliberately keeps
+    returning the FULL annotated value — `_cmd_week_start` prints it and
+    callers may depend on the annotation — so normalisation happens only at the
+    comparison site. Returns None for the "(not yet set ...)" sentinel, which
+    must never compare equal to a real week.
+    """
+    m = _LEADING_DATE_RE.match(value.strip())
+    return m.group(1) if m else None
+
+
 def _in_week_window(d: date, week_starting: date) -> bool:
     """Half-open `[week_starting, week_starting + 7 days)` membership."""
     return week_starting <= d < (week_starting + timedelta(days=7))
@@ -329,6 +349,7 @@ def perform_archive_files(
     session_id: str = "",
     relocate_fn=None,
     relocate_cwd: str | None = None,
+    touched_out: list[Path] | None = None,
 ) -> list[str]:
     """Step 13's file-move + HEADER.md reset, filesystem-only (no git).
 
@@ -358,9 +379,18 @@ def perform_archive_files(
     supplies the resolved `--repo-root` so a `--repo-root` override still
     resolves claims against the correct repo rather than process cwd.
 
+    `touched_out` (optional, appended to in place): every path this run
+    actually created, moved from, or rewrote. Under `week_only` the caller
+    stages THIS list rather than the whole `state/week-changelog` and
+    `state/review-trail` directories — a week-scoped run touches a subset,
+    and directory-wide pathspecs sweep peers' uncommitted files on a shared
+    tree. Reported by example-game-repo-em 2026-09-06, who worked around it with
+    `--no-git`.
+
     Returns a list of human-readable action lines for the caller to print/log.
     """
     actions: list[str] = []
+    touched = touched_out if touched_out is not None else []
     week_starting_date = date.fromisoformat(week_starting) if week_only else None
 
     archive_dest = archive_week_root / week_starting
@@ -378,6 +408,7 @@ def perform_archive_files(
             dest = archive_dest / f.name
             _relocate_or_move(relocate_fn, session_id, f, dest, cwd=relocate_cwd)
             actions.append(f"moved {f} -> {dest}")
+            touched.extend((f, dest))
 
     # Priorities fragments — merged into the closing week's historical
     # record alongside the daily files that satisfied (or didn't) them.
@@ -388,6 +419,7 @@ def perform_archive_files(
             dest = archive_dest / f.name
             _relocate_or_move(relocate_fn, session_id, f, dest, cwd=relocate_cwd)
             actions.append(f"moved {f} -> {dest}")
+            touched.extend((f, dest))
 
     # Review-trail: archive real records, delete transient shards, leave
     # .gitkeep in place so the directory stays tracked after the sweep.
@@ -405,6 +437,7 @@ def perform_archive_files(
                     continue
                 f.unlink()
                 actions.append(f"deleted transient shard {f}")
+                touched.append(f)
                 continue
             # Any other file (any extension, not just .json) is a real
             # review-trail record — the extension is not what makes it one.
@@ -420,6 +453,7 @@ def perform_archive_files(
             dest = review_trail_dest / f.name
             _relocate_or_move(relocate_fn, session_id, f, dest, cwd=relocate_cwd)
             actions.append(f"moved {f} -> {dest}")
+            touched.extend((f, dest))
 
     header_path = week_changelog_dir / "HEADER.md"
     # Defect 2: an unconditional rewrite here is correct at a real week
@@ -436,8 +470,10 @@ def perform_archive_files(
     # YYYY-MM-DD week_starting value.
     should_rewrite_header = True
     if week_only:
-        currently_declared = derive_week_start(header_path)
-        should_rewrite_header = currently_declared == week_starting
+        currently_declared = _bare_week_date(derive_week_start(header_path))
+        should_rewrite_header = (
+            currently_declared is not None and currently_declared == week_starting
+        )
 
     if should_rewrite_header:
         header_path.write_text(
@@ -445,6 +481,7 @@ def perform_archive_files(
             encoding="utf-8", newline="\n",
         )
         actions.append(f"rewrote {header_path}")
+        touched.append(header_path)
 
     return actions
 
@@ -518,6 +555,7 @@ def _cmd_archive(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
+    touched: list[Path] = []
     actions = perform_archive_files(
         week_changelog_dir,
         archive_week_root,
@@ -532,6 +570,7 @@ def _cmd_archive(args: argparse.Namespace) -> int:
         session_id=_resolve_session_id_for_relocate(),
         relocate_fn=_import_relocate_touched_path(),
         relocate_cwd=str(repo_root),
+        touched_out=touched,
     )
     for line in actions:
         print(line)
@@ -545,21 +584,39 @@ def _cmd_archive(args: argparse.Namespace) -> int:
         f"reset changelog + review-trail {args.version}"
     )
     rel_id = _import_rel_id()
-    return git_commit_and_push(
-        repo_root,
-        [
-            # A3 fix: posix-form (`rel_id`, not `str()`) — these strings
-            # feed `git add -- *paths` below, and on Windows `str(...)`
-            # renders `state\week-changelog`. `\` is git's pathspec ESCAPE
-            # character, so the pathspec silently collapses to
-            # `stateweek-changelog`, matches nothing, and the `check=True`
-            # `git add` call raises `CalledProcessError`, killing the weekly
-            # archive on every Windows session.
+    # A3 fix: posix-form (`rel_id`, not `str()`) — these strings feed
+    # `git add -- *paths` below, and on Windows `str(...)` renders
+    # `state\week-changelog`. `\` is git's pathspec ESCAPE character, so the
+    # pathspec silently collapses to `stateweek-changelog`, matches nothing,
+    # and the `check=True` `git add` call raises `CalledProcessError`, killing
+    # the weekly archive on every Windows session.
+    if args.week_only:
+        # Negative-spec: a week-scoped run must NEVER stage the four
+        # directories wholesale. It touches a subset of them, and this repo's
+        # trees are shared by dozens of concurrent sessions — a directory
+        # pathspec commits a peer's in-flight daily block or review record
+        # under this run's message. Stage exactly what was touched; dedupe
+        # while preserving order so the commit reads in action order.
+        seen: set[str] = set()
+        paths = []
+        for t in touched:
+            rel = rel_id(t, repo_root)
+            if rel not in seen:
+                seen.add(rel)
+                paths.append(rel)
+    else:
+        paths = [
             rel_id(week_changelog_dir, repo_root),
             rel_id(archive_week_root / week_starting, repo_root),
             rel_id(review_trail_dir, repo_root),
             rel_id(review_trail_archive_root / week_starting, repo_root),
-        ],
+        ]
+    if not paths:
+        print("archive: nothing touched — no commit made", file=sys.stderr)
+        return 0
+    return git_commit_and_push(
+        repo_root,
+        paths,
         commit_message,
         branch_script,
         push=not args.no_push,
