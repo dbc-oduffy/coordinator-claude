@@ -16,6 +16,16 @@
 # If the report below says HOME is not /root, or /opt was not writable, change both to match the
 # ROOT= line this script printed — they must name the paths it actually used.
 #
+# VERIFIED 2026-09-06 in a real Anthropic-hosted environment. A session booted against it reported,
+# from its own context rather than from this script's config: coordinator skills and agent types
+# present and loaded; both env-var-block values reached the session; both clones present; the
+# marketplace registered as a directory source; coordinator_core importing; the pointer file
+# written. Session runs as root with HOME=/root, the same user and home this script ran as.
+#
+# Also settled there, and it matters beyond this script: the image's python3 carries NO
+# EXTERNALLY-MANAGED marker. The engine installer's exit-96 PEP-668 refusal does not fire on this
+# platform, so nothing here is blocked on that ruling.
+#
 # SPIKE SCOPE, stated plainly: this gets the plugin LOADED with a resolvable engine. It does NOT
 # run /coordinator:install (Phase 3 substrate, machine-local registry, the restart gate). Those
 # need a live session and are the next increment. Expect a degraded-but-working coordinator: hooks
@@ -33,6 +43,14 @@ set -u
 
 REPO_MARKETPLACE=https://github.com/dbc-oduffy/coordinator-claude
 REPO_ENGINE=https://github.com/dbc-oduffy/claude-klabauter
+LOG="$HOME/.coordinator-cloud-setup.log"
+
+# Everything runs inside main() so the whole run can be tee'd to a file. The platform does not
+# persist this script's stdout anywhere the session can reach: a verifying session found the
+# script's source but no captured output, which makes every "which route did phase 2 take?"
+# question unanswerable after the fact. The snapshot keeps what is written to disk, so a log file
+# is the only durable channel. Tee's exit status also ends the pipeline, reinforcing exit-zero.
+main() {
 
 echo "=== phase 0: probe (facts unestablishable from a developer host) ==="
 echo "whoami=$(whoami)  HOME=$HOME  PWD=$PWD"
@@ -156,7 +174,15 @@ if [ "$HAVE_ENGINE" -eq 0 ]; then
   COORDINATOR_ENGINE_ROOT="$ROOT/claude-klabauter" "$PYBIN" -c \
     "import sys; sys.path.insert(0, '$ROOT/claude-klabauter'); import coordinator_core; print('engine import: OK')" \
     2>&1 | tail -1
+  # Asserted separately because importing coordinator_core does NOT pull these in at package
+  # level: a verifying session read a green engine import as proof the deps landed, and it is not.
+  "$PYBIN" -c "import pydantic, psutil, jsonschema, yaml; print('deps import: OK')" 2>&1 | tail -1
 fi
 echo "REMINDER: the env-var block must carry COORDINATOR_ENGINE_ROOT=$ROOT/claude-klabauter"
 echo "=== setup complete ==="
+
+}
+
+main 2>&1 | tee -a "$LOG"
+echo "full log: $LOG"
 exit 0
