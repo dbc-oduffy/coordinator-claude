@@ -181,39 +181,75 @@ _NOT_LIVE = 1
 _MALFORMED_SID = 4
 
 
+_CC_INVOKE_MODULE = None
+
+
+def _cc_invoke():
+    """Lazy singleton import of the ``cc_invoke`` module OBJECT itself (not
+    just one name out of it) — the dispatch-import chokepoint below
+    (``_dispatch_import``) needs ``require_dispatch_module``, and call sites
+    that must discriminate a diagnosed stale-mirror failure from a plain
+    root-resolution failure need ``StaleEngineImportError`` too. One cached
+    import serves both, and every ``_bootstrap_engine``/``_dispatch_import``
+    caller in this file, rather than re-doing the ``import lib`` dance each
+    time."""
+    global _CC_INVOKE_MODULE
+    if _CC_INVOKE_MODULE is None:
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        import cc_invoke as _mod
+
+        _CC_INVOKE_MODULE = _mod
+    return _CC_INVOKE_MODULE
+
+
 def _bootstrap_engine():
     """Shared lazy import + engine-root resolution used by every
-    ``_import_*`` seam below — keeps the ``lib``/``cc_invoke`` imports out of
+    ``_import_*`` seam below that does NOT route through
+    ``_dispatch_import`` — keeps the ``lib``/``cc_invoke`` imports out of
     module scope without duplicating them six times."""
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from cc_invoke import require_dispatch_engine_on_path
+    return _cc_invoke().require_dispatch_engine_on_path()
 
-    return require_dispatch_engine_on_path()
+
+def _dispatch_import(dotted_name: str):
+    """Chokepoint for every ``coordinator_core.session.<x>`` import this
+    CLI's claim-QUERY handlers make against the DISPATCH engine
+    (state/bug-backlog/2026-09-01-a-new-engine-module-breaks-fleet-wide-
+    claim-queries-until-publish.yaml): resolves the dispatch root exactly as
+    ``_bootstrap_engine`` does (``require_dispatch_engine_on_path``,
+    unchanged) and then imports ``dotted_name`` through
+    ``cc_invoke.require_dispatch_module``, so an ``ImportError`` caused by a
+    published mirror lagging source arrives as a diagnosed
+    ``StaleEngineImportError`` (cause + "publish the mirror" / "fix the
+    import path" remedy) instead of a raw one.
+
+    Not every bare import in this file routes through here.
+    ``_import_core_module``, ``_import_harness_registry_module``, and
+    ``_import_holder_evidence_module`` stay on the plain
+    ``_bootstrap_engine`` + bare-import shape deliberately: each of their
+    call sites already wraps the call in a broad ``except Exception`` that
+    degrades to ``None``/``"unknown"``/a marker (best-effort diagnostics,
+    never a verdict), so an ``ImportError`` there was never a raw traceback
+    to begin with — there is nothing for the diagnosis to improve, and
+    routing them through here would only widen this seam's surface for no
+    behaviour change.
+    """
+    return _cc_invoke().require_dispatch_module(dotted_name)
 
 
 def _import_module():
-    claude_klabauter_root = _bootstrap_engine()
-    import coordinator_core.session.claims as _mod
-
-    return _mod
+    return _dispatch_import("coordinator_core.session.claims")
 
 
 def _import_liveness_module():
     """Separate seam from ``_import_module`` (claims) so ``is-session-live``
     tests can stub liveness in isolation without touching the claims stub."""
-    claude_klabauter_root = _bootstrap_engine()
-    import coordinator_core.session.liveness as _mod
-
-    return _mod
+    return _dispatch_import("coordinator_core.session.liveness")
 
 
 def _import_stale_claims_module():
     """Separate seam from ``_import_module`` (claims) so
     ``list-stale-claim-handoffs`` tests can stub the enumerator in isolation."""
-    claude_klabauter_root = _bootstrap_engine()
-    import coordinator_core.session.stale_claims as _mod
-
-    return _mod
+    return _dispatch_import("coordinator_core.session.stale_claims")
 
 
 def _import_core_module():
@@ -235,10 +271,7 @@ def _import_claim_index_module():
     PATH-TOUCH plane independently of the artifact-claim store and the
     liveness verdict, mirroring the existing per-functional-area seam
     split above."""
-    claude_klabauter_root = _bootstrap_engine()
-    import coordinator_core.session.claim_index as _mod
-
-    return _mod
+    return _dispatch_import("coordinator_core.session.claim_index")
 
 
 def _import_harness_registry_module():
@@ -348,7 +381,14 @@ def _render_claimant_name(sid: str, path: str, lookup_result) -> str:
     additive display output on an already-decided claimant row and must
     never take down the row's ``sid``/``live|dead`` columns.
     """
-    from coordinator_core.session import name_ladder  # noqa: PLC0415
+    # This is the exact import that fired the filed incident (state/bug-
+    # backlog/2026-09-01-a-new-engine-module-breaks-fleet-wide-claim-
+    # queries-until-publish.yaml): `name_ladder` landed in source and was
+    # absent from the published mirror, and this bare `from coordinator_
+    # core.session import name_ladder` surfaced a raw ImportError with no
+    # indication publishing was the fix. Routed through `_dispatch_import`
+    # so that failure now arrives as a diagnosed StaleEngineImportError.
+    name_ladder = _dispatch_import("coordinator_core.session.name_ladder")
 
     recorded = getattr(lookup_result, "recorded_name", None) or {}
     recorded_name = (recorded.get(path) or {}).get(sid)
@@ -621,6 +661,9 @@ def _dispatch(argv: list[str]) -> int:
     if subcmd in _CLAIM_SUBCOMMANDS:
         try:
             mod = _import_module()
+        except _cc_invoke().StaleEngineImportError as exc:
+            print(f"session-claim-cli: {exc}", file=sys.stderr)
+            return _TRANSPORT_FAIL
         except RuntimeError as exc:
             print(f"session-claim-cli: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
             return _TRANSPORT_FAIL
@@ -705,6 +748,9 @@ def _dispatch(argv: list[str]) -> int:
             return _MALFORMED_SID
         try:
             liveness_mod = _import_liveness_module()
+        except _cc_invoke().StaleEngineImportError as exc:
+            print(f"session-claim-cli: {exc}", file=sys.stderr)
+            return _TRANSPORT_FAIL
         except RuntimeError as exc:
             print(f"session-claim-cli: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
             return _TRANSPORT_FAIL
@@ -747,6 +793,9 @@ def _dispatch(argv: list[str]) -> int:
         cwd = rest[1] if len(rest) > 1 else None
         try:
             claim_index_mod = _import_claim_index_module()
+        except _cc_invoke().StaleEngineImportError as exc:
+            print(f"session-claim-cli: {exc}", file=sys.stderr)
+            return _TRANSPORT_FAIL
         except RuntimeError as exc:
             print(f"session-claim-cli: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
             return _TRANSPORT_FAIL
@@ -758,6 +807,9 @@ def _dispatch(argv: list[str]) -> int:
             return _TRANSPORT_FAIL
         try:
             liveness_mod = _import_liveness_module()
+        except _cc_invoke().StaleEngineImportError as exc:
+            print(f"session-claim-cli: {exc}", file=sys.stderr)
+            return _TRANSPORT_FAIL
         except RuntimeError as exc:
             print(f"session-claim-cli: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
             return _TRANSPORT_FAIL
@@ -831,6 +883,9 @@ def _dispatch(argv: list[str]) -> int:
         repo_root = rest[0] if rest else None
         try:
             stale_mod = _import_stale_claims_module()
+        except _cc_invoke().StaleEngineImportError as exc:
+            print(f"session-claim-cli: {exc}", file=sys.stderr)
+            return _TRANSPORT_FAIL
         except RuntimeError as exc:
             print(f"session-claim-cli: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
             return _TRANSPORT_FAIL

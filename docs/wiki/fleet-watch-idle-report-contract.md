@@ -45,7 +45,7 @@ that will be interpreted differently next wake.
 | `ESCALATE` | past the threshold | acts per `nudge-shape` |
 | `OUT-OF-WORK` | the session recorded `workstream-complete` or `quick-wrap` | reports to the Group EM for assignment, tells the session that is happening; **never nudged** |
 | `EXITED` | the session is gone, not parked | one dated row, no send; **outranks `ESCALATE`** |
-| `GROUP-EM-MOVED` | the Group EM is no longer the dispatching session | stops the tick and tells the Group EM |
+| `GROUP-EM-MOVED` | the Group EM is not the dispatching session | stops the tick and tells the Group EM |
 | `UNKNOWN` | the peer could not be classified, with the reason inline | reports it as unknown |
 
 **`OUT-OF-WORK` is not `ESCALATE` with a different nudge.** A session that has genuinely run out

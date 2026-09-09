@@ -98,7 +98,14 @@ def _safe_session_id(session_id: Any) -> bool:
 
 
 def _session_share_dir(repo_root: str, session_id: str) -> str:
-    return os.path.join(repo_root, "state", "subagent-share", session_id)
+    # `.coordinator-local/subagent-share/` is the machinery root the engine
+    # relocated to on 2026-09-02 (`coordinator_core/session/machinery_paths.py`
+    # `share_dir`); the retired root was `state/subagent-share/`. This module
+    # is a stdlib-only surface invoked from a PM-gated skill body, not a hook,
+    # but it still must not import `coordinator_core` (see `_next_move_ledger.py`'s
+    # module docstring for the same constraint) -- so the leaf spelling is
+    # duplicated here rather than imported.
+    return os.path.join(repo_root, ".coordinator-local", "subagent-share", session_id)
 
 
 def undischarged_obligations(repo_root: str, session_id: str) -> Optional[int]:

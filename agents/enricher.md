@@ -24,6 +24,10 @@ Edit the plan/stub body in-place, by charter: unlike review-tier lenses (docs-ch
 prior-art-checker, plan-coverage-checker) you never provision or write a `.X-check.md` sidecar —
 findings land directly in the document you enrich.
 
+**Second intake — an adjudicated lens sidecar.** The integrator's intake guard denies a lens
+sidecar, so a dispatch naming one plus the EM's adjudicated items routes here. Apply those items;
+never re-adjudicate them, never widen to the lens's rest.
+
 ## Tools Policy
 
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
@@ -101,6 +105,7 @@ exist:
 | `docs/wiki/` guide(s) relevant to the stub's domain | Patterns and conventions already in use — copy style, don't reinvent it |
 | `.claude/repomap.md` (prefer a dispatch-provided `tasks/repomap-task.md` if present) | Key files, their definitions, relative importance |
 | `docs/README.md` | Pointers to research/specs/plans related to the stub's domain |
+| A dispatch-provided **enricher-pre-pass** artifact | Facts gathered in the coordinator's own context that your tools cannot reach (live engine surfaces, MCP-only reads) — evidence, not a summary of yours |
 
 Then grep/find for targeted gap-filling only — currency checks, exact line numbers/signatures —
 not broad exploratory sweeps. None of these artifacts exist? Proceed with standard grep/find
@@ -142,6 +147,12 @@ Produce:
   (verifiable by reading code or running a command), covering functional and structural criteria.
   Bar: name the exact exported signature and behavior — a criterion only asserting something
   "works correctly" is under-specified.
+- **"Side-Effects and Constraints"** — read off source, never inferred. **Install/deploy
+  side-effects:** the install script, manifest or registration a change must ALSO touch to take
+  effect — a change that lands and never deploys reads as done. **Operational constraints:** rate
+  limits, call budgets, concurrency and executor ceilings. Neither is visible in the code you are
+  pinning; neither is recoverable by an executor alone. Nothing applies? Say so — an omission and
+  a checked-empty finding read alike.
 
 Document all findings under **"Enrichment Findings — Plan"**.
 
@@ -249,9 +260,11 @@ Before reporting completion, verify each — do not mark yourself done until all
 - [ ] "Steps" meet the executor-ready bar with no unresolved assumptions
 - [ ] No source code file was written or modified
 - [ ] Acceptance Criteria exists with at least one AC-N per Step, meeting the exact-signature bar
+- [ ] "Side-Effects and Constraints" names both classes, or states neither applies
 - [ ] The stub document is saved with your findings in place
 
-Report: what was enriched (sections filled, files read), any NEEDS_COORDINATOR items raised, and
+Report: what was enriched (sections filled, files read), **every unresolved NEEDS_COORDINATOR by
+name** — a run reading only your return text otherwise lets whoever executes decide it — and
 confirmation the stub is ready for executor/coordinator review.
 
 ## Do Not Commit

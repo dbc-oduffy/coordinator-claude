@@ -1631,6 +1631,14 @@ def _resolve_cited_sizing_deliverable_id(
     remediation follow-up) — it only means this plan cannot carry an id and
     falls back to minting its own, exactly as it did before this fix.
 
+    Whether citing this sizing is a fan-out or a re-route is NOT decidable
+    from what this function reads — it is a fact about the CALLER's intent,
+    asserted explicitly via `--fan-out` (see `_mutate_sizing_reverse_edge`),
+    never inferred here by inspecting whether the sizing is already routed.
+    This function always carries the sizing's `deliverable_id` verbatim when
+    present; the `--fan-out` call site is responsible for deciding whether
+    THIS plan should carry it or mint its own.
+
     Spec backlink: sizing-object.schema.json's `deliverable_id` description
     ("minted once at the earliest artifact ... carried verbatim by every
     downstream artifact").
@@ -3676,17 +3684,63 @@ def _scaffold_plan(
         "# scope:",
         "#   - path/or/item/one",
         "#   - path/or/item/two",
-        "# prime_exit_criterion:              # falsifier block — read-side owed only at",
-        "#                                     # estimate.tshirt M/L/XL; scaffold time can't",
-        "#                                     # know that, so this stays commented, not a",
-        "#                                     # live stub (schema 2.8.0, plan.schema.json)",
-        "#   statement:                       # one falsifiable sentence",
-        "#   derived_from:                    # state/sizings/<id>.yaml OR <goal_id>#kr-<kr-id>",
+        # `prime_exit_criterion` — the CRITERION emitted LIVE with placeholder
+        # markers; the FALSIFIER stays commented. The two were previously one
+        # commented block on the reasoning that the falsifier is read-side owed
+        # only at estimate.tshirt M/L/XL and scaffold time cannot know the size.
+        # That is true of the falsifier and false of the criterion: the mise-prep
+        # bar wants `statement` + `derived_from` at EVERY size, so commenting the
+        # whole block left every plan born failing PRIME_EXIT — the same defect
+        # `census` was fixed for directly below, measured at 0 of 273 plans
+        # carrying the key.
+        #
+        # A live placeholder was previously refused here because it would "clear
+        # the gate without meaning anything". It no longer can:
+        # `coordinator_core.roadmap.prep_gate.is_placeholder` refuses
+        # `<REPLACE: ...>` in either field and reports `prime-exit-placeholder`,
+        # distinct from `prime-exit-absent`, because the repairs differ. So the
+        # key is present and visibly unanswered rather than absent and
+        # invisible — the author fills a field they can see instead of
+        # remembering one they cannot. Row text is byte-parity with the other
+        # producer of this block, DoE's `coordinator/templates/plans/plan.md.tmpl`.
+        "prime_exit_criterion:",
+        "  statement: >-",
+        "    <REPLACE: one falsifiable sentence naming what is true of the TREE when this plan",
+        "    has delivered — outcome-shaped, never a paraphrase of the task list.>",
+        # QUOTED, unlike the block-scalar `statement` above. `<REPLACE: ...>` is a
+        # plain scalar containing ": ", which YAML refuses outright — an unquoted
+        # marker here does not merely read oddly, it makes the whole frontmatter
+        # unparseable, and every downstream reader (this gate included) sees a
+        # plan with NO frontmatter rather than one with an unanswered field.
+        '  derived_from: "<REPLACE: state/sizings/<file>.yaml | <goal_id>#kr-<kr-id> — a LINK>"',
+        "# falsifier: {how, baseline_output, baseline_ref, expected_when_true} — REQUIRED only",
+        "#   when this plan's sizing_object resolves to estimate.tshirt M/L/XL. The criterion",
+        "#   above is owed at EVERY size; that size rule governs the falsifier, never it.",
         "#   falsifier:",
         "#     how:",
         "#     baseline_output:",
         "#     baseline_ref:",
         "#     expected_when_true:             # NEW in 2.8.0 — do not omit",
+        # `census` — emitted LIVE and DECLARED-EMPTY, the same distinction a
+        # spine row's `writes: []` draws against an absent `writes:`. `[]` is a
+        # plan asserting it rests on no counted premise, which a reviewer can
+        # falsify by reading the plan; a MISSING census is one nobody can see,
+        # and it is the state `coordinator/bin/mise-prep-gate.py`'s CENSUS class
+        # refuses. A fresh scaffold rests on no count, so `[]` is the true value
+        # at scaffold time — which makes ADDING a census the deliberate act
+        # rather than remembering the key. Commented out (the treatment the
+        # `prime_exit_criterion` block above gets) would leave every plan born
+        # failing the bar, which is what the measured baseline found: `census:`
+        # present in 0 of 273 plans.
+        #
+        # `prime_exit_criterion` deliberately does NOT get this treatment. There
+        # is no declared-empty form of a criterion: the bar wants a non-empty
+        # sentence, so the only live stub a scaffolder could write is a
+        # placeholder that CLEARS the gate without meaning anything — the
+        # form-filling failure the bar exists to avoid. `census: []` is a
+        # complete and true declaration; a placeholder criterion is neither.
+        "census: []  # counted premises as question/command/result rows; [] declares none —",
+        "            # a claim a reviewer can falsify. Bar: coordinator/bin/mise-prep-gate.py.",
         # Fleet brightlines — emitted LIVE, deliberately not commented out like
         # the `prime_exit_criterion` block directly above. That block is
         # conditionally owed (read-side keyed on `estimate.tshirt` M/L/XL, which
@@ -3914,49 +3968,11 @@ this sizing chose.
 # for `declined`).
 _SIZING_TERMINAL_STATUSES = frozenset({"shipped", "declined"})
 
-# Spellings `read_fm_field_unquoted` returns verbatim for a field that is
-# present but carries no usable value — a bare YAML null (`null`/`~`) is
-# returned as that literal string, not coerced to Python `None`, so a caller
-# comparing for "no id" must normalise these itself. Mirrors the sibling
-# guard's own `!= "null"` idiom in `_mutate_sizing_reverse_edge`.
-_FM_NULL_SPELLINGS = frozenset({"null", "~"})
-
-
-def _resolve_plan_deliverable_id(plan_repo_rel_path: str, repo_root: str) -> str | None:
-    """Read `deliverable_id` off an on-disk plan's own frontmatter.
-
-    Used only to discriminate a shape->roadmap FAN-OUT (a second plan citing
-    one sizing object, but minting its own `deliverable_id` — spinoffs and
-    roadmap-batons both mint fresh ids, see `_mutate_sizing_reverse_edge`'s
-    docstring) from a genuine RE-ROUTE (same deliverable, replacement plan).
-
-    Never raises: an unresolvable id (missing file, unreadable frontmatter,
-    absent field, or a field present but carrying an explicit YAML null such
-    as `deliverable_id: null`/`~`) must fail toward the conservative branch
-    in the caller (refuse), not toward permitting a fan-out it cannot prove
-    — degrades to ``None`` on any read failure, mirroring
-    `_resolve_cited_sizing_deliverable_id`'s own never-raises posture.
-    """
-    try:
-        _existing_plan_abs = os.path.join(repo_root, plan_repo_rel_path)
-        with open(_existing_plan_abs, "r", encoding="utf-8") as _fh:
-            _existing_plan_text = _fh.read()
-    except OSError:
-        return None
-    from coordinator_core.frontmatter.primitives import (  # noqa: PLC0415
-        read_fm_field_unquoted as _read_fm_field_unquoted,
-    )
-    _raw_id = _read_fm_field_unquoted(_existing_plan_text, "deliverable_id")
-    if not _raw_id or not _raw_id.strip() or _raw_id.strip() in _FM_NULL_SPELLINGS:
-        return None
-    return _raw_id
-
-
 def _mutate_sizing_reverse_edge(
     old_text: str,
     plan_repo_rel_path: str,
-    incoming_deliverable_id: str | None = None,
     repo_root: str | None = None,
+    fan_out: bool = False,
 ) -> str:
     """Return sizing-object YAML text with `plan:` and `status:` set.
 
@@ -3979,17 +3995,31 @@ def _mutate_sizing_reverse_edge(
     to `plan_repo_rel_path` (repo-root-relative, POSIX-normalized, matching
     the schema's `^docs/plans/.+\\.md$` pattern) — UNLESS the sizing already
     carries a different, non-null `plan:` value. When that happens this is
-    either a genuine RE-ROUTE (refuse, as before) or a shape->roadmap
-    FAN-OUT (permit, leaving `plan:` untouched): `_resolve_plan_deliverable_
-    id` reads the EXISTING cited plan's own `deliverable_id` off disk and
-    compares it against `incoming_deliverable_id` --
+    either a genuine RE-ROUTE or a shape->roadmap FAN-OUT, and that
+    distinction is NOT decidable from what is on disk here — both look
+    identical: a sizing already citing one plan, and a second plan asking to
+    cite it too. It is a fact about the CALLER's intent, so the caller
+    asserts it via `fan_out` (CLI: `--fan-out`), the same way DR-411 rules a
+    mode is asserted by the launching environment and never sniffed from
+    state:
 
-    1. Both resolve and DIFFER -> FAN-OUT. Permit; do not raise, and do NOT
+    1. `fan_out` is True -> FAN-OUT. Permit; do not raise, and do NOT
        overwrite `plan:` -- the cascade holds the terminal fact and replaces
-       it at either plan's `status: implemented`.
-    2. Both resolve and are EQUAL -> RE-ROUTE. Refuse, exactly as before.
-    3. The existing plan's id is absent, unreadable, or its file is missing
-       -> REFUSE. Conservative: an unresolvable id cannot prove a fan-out.
+       it at either plan's `status: implemented`. (The caller is also
+       responsible for minting THIS plan its own `deliverable_id` rather
+       than carrying the cited sizing's, so the two plans do not fork one
+       deliverable in two — see the `plan` arm's cited-sizing-carry tier in
+       `main()`.)
+    2. `fan_out` is False (default) -> REFUSE, exactly as before. A previous
+       revision tried to infer this instead by comparing the existing
+       plan's on-disk `deliverable_id` against an `incoming_deliverable_id`
+       — defeated on the ordinary path (a sizing's `deliverable_id` is
+       carried verbatim into every citing plan by default, so two plans
+       compared EQUAL and a genuine fan-out was refused), and unsound in the
+       other direction too (once a caller-side fix stopped that carry after
+       first routing, a genuine RE-ROUTE minted a fresh id just like a
+       fan-out would and was silently permitted). Removed rather than kept
+       as a second, weaker gate that could disagree with the flag.
 
     A `plan:` value byte-identical to `plan_repo_rel_path` is treated as
     idempotent, not a clobber (re-running the same scaffold) and never
@@ -4035,20 +4065,19 @@ def _mutate_sizing_reverse_edge(
     _existing_plan_value = read_fm_field_unquoted(old_text, "plan")
     _fan_out_permitted = False
     if _existing_plan_value and _existing_plan_value != "null" and _existing_plan_value != plan_repo_rel_path:
-        _existing_dlv_id = None
-        if repo_root is not None:
-            _existing_dlv_id = _resolve_plan_deliverable_id(_existing_plan_value, repo_root)
-        if _existing_dlv_id is not None and incoming_deliverable_id is not None and _existing_dlv_id != incoming_deliverable_id:
-            # Shape->roadmap FAN-OUT: a different deliverable citing the same
-            # sizing object. Permit — but do NOT overwrite `plan:` below;
-            # only the `status` flip proceeds.
+        if fan_out:
+            # Shape->roadmap FAN-OUT, asserted by the caller. Permit — but
+            # do NOT overwrite `plan:` below; only the `status` flip
+            # proceeds.
             _fan_out_permitted = True
         else:
             raise _MutateAbort(
                 f"sizing object already cites plan '{_existing_plan_value}' — "
                 f"refusing to overwrite with '{plan_repo_rel_path}'. This is a "
                 "re-route, not a first routing; resolve the conflict by hand "
-                "before re-running with --sizing-object."
+                "before re-running with --sizing-object. If this is instead a "
+                "legitimate shape->roadmap fan-out (a second plan citing the "
+                "same sizing on purpose), re-run with --fan-out."
             )
 
     # Review: staff-eng — Finding 6: refuse (rather than silently un-ship)
@@ -4182,7 +4211,7 @@ def _sizing_validation_abort(old_text: str, schema_path, errors: list) -> str:
 
 def _write_sizing_reverse_edge(
     sizing_abs_path: str, plan_repo_rel_path: str, repo_root: str,
-    incoming_deliverable_id: str | None = None,
+    fan_out: bool = False,
 ) -> str:
     """Write the plan->sizing reverse edge under a cross-process file lock.
 
@@ -4207,7 +4236,7 @@ def _write_sizing_reverse_edge(
     def _mutate(old_text: str) -> str:
         _captured["old_text"] = old_text
         return _mutate_sizing_reverse_edge(
-            old_text, plan_repo_rel_path, incoming_deliverable_id, repo_root,
+            old_text, plan_repo_rel_path, repo_root, fan_out,
         )
 
     _locked_rmw(_Path(sizing_abs_path), _mutate, repo_root=_Path(repo_root))
@@ -5827,6 +5856,23 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
         ),
     )
     parser.add_argument(
+        "--fan-out",
+        dest="fan_out",
+        action="store_true",
+        help=(
+            "(plan, with --sizing-object) Assert that this plan citing a sizing "
+            "already routed to a DIFFERENT plan is a legitimate shape->roadmap "
+            "fan-out, not a re-route. Without this flag, that situation refuses "
+            "loudly and writes nothing -- resolve a genuine re-route by hand. "
+            "With it, the reverse edge's status flip proceeds but plan: is left "
+            "naming the FIRST plan untouched, and this plan mints its OWN "
+            "deliverable_id (never carries the cited sizing's) so the two plans "
+            "do not fork one deliverable in two. Whether a citation is a "
+            "fan-out or a re-route is not decidable from disk state -- the "
+            "caller asserts it."
+        ),
+    )
+    parser.add_argument(
         "--problem-set",
         dest="problem_set",
         default=None,
@@ -6717,8 +6763,17 @@ def main(argv: "list[str] | None" = None) -> int:
                 # match. Reached only when nothing more explicit (flag/env/
                 # session-parent) already resolved an id, so a deliberate
                 # caller-supplied id is never overridden by the cited sizing.
+                #
+                # `--fan-out` skips this tier entirely: an asserted fan-out
+                # means a SECOND plan is citing a sizing already routed to a
+                # first one, and carrying that sizing's id verbatim into the
+                # second plan would fork one deliverable across two plan
+                # files with `deliverable.cascade_terminal`'s exact-string
+                # join unable to tell them apart. The flag is the caller's
+                # own assertion of this shape (see `_mutate_sizing_reverse_
+                # edge`'s docstring) — never inferred from disk state here.
                 _sizing_carry_dlv = None
-                if getattr(args, "sizing_object", None):
+                if getattr(args, "sizing_object", None) and not getattr(args, "fan_out", False):
                     _sizing_repo_root_for_carry = _current_repo_root() or "."
                     _sizing_carry_dlv = _resolve_cited_sizing_deliverable_id(
                         args.sizing_object, _sizing_repo_root_for_carry
@@ -7371,7 +7426,7 @@ def main(argv: "list[str] | None" = None) -> int:
         try:
             _sizing_reverse_old_text = _write_sizing_reverse_edge(
                 _sizing_abs_path, _plan_repo_rel_path, _write_repo_root,
-                _resolved_deliverable_id,
+                bool(getattr(args, "fan_out", False)),
             )
         except _MutateAbort as _abort_exc:
             print(f"error: {_abort_exc}", file=sys.stderr)

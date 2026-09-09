@@ -31,7 +31,8 @@ Detail for B/C/D, read before starting Phase 1 on that path: `residue/entry-poin
   → coordinator:plan → plan-doc → execute-plan → executor chunks
 ```
 
-This skill authors the stubs a downstream `coordinator:plan` consumes; never invokes it (§ Anti-scope).
+Batched, the tail is `plan-blitz → mise-prep → the run`: **each exit is the next entry, read off
+disk, never retyped.** Tripwire: `A-HANDOFF-AN-EM-RETYPES-IS-NOT-A-SEAM`.
 
 ---
 

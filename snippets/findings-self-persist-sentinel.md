@@ -5,7 +5,7 @@
      self-persist and is handed a pre-scaffolded sentinel to Edit. -->
 
 <!-- WHEN TO USE: self-scaffolding findings-agents whose deliverable is a
-     structured findings sidecar confined to state/review-trail/findings/ -- i.e., agents that
+     structured findings sidecar confined to <machinery_root>/subagent-share/<session-id>/ -- i.e., agents that
      scaffold their own sidecar path (via coordinator-doc-new) and inject their entire findings
      body via a single Edit on the sentinel line. NOT reviewer/persona agents proper -- those are
      auto-provisioned a state/subagent-share/<session-id>/<provision_key>.md sidecar at spawn and
@@ -19,8 +19,13 @@
   subagent report-file Writes; this mechanism sidesteps the block by Editing a pre-scaffolded
   confined file rather than Writing a fresh one.
   Negative-spec (Mode A only): there is no EM-injected sidecar path; the agent ALWAYS scaffolds
-  its own sidecar in state/review-trail/findings/ via coordinator-doc-new. Mode B (claim-marker
-  ceremony + agent-id .allow files) is retired. Confinement is state/review-trail/findings/ only.
+  its own sidecar in <machinery_root>/subagent-share/<session-id>/ via coordinator-doc-new. Mode B
+  (claim-marker ceremony + agent-id .allow files) is retired. Confinement is
+  <machinery_root>/subagent-share/<session-id>/ only -- DR-091's one home, shared with every other
+  typed subagent sidecar. state/review-trail/findings/ is the RETIRED markdown home and nothing
+  writes it; `coordinator-doc-new --type review-findings` has not emitted there since the
+  2026-07-24 provisioning reconciliation, and `append-integrator-dispositions` refuses a target
+  outside a subagent-share segment, so a sidecar written to the old home cannot be dispositioned.
 -->
 
 ## HARD RULE: Scaffold first (if needed), read everything, Edit last
@@ -33,7 +38,8 @@ pre-existing scaffolded file is the blessed sidestep.
 
 1. **SCAFFOLD** your own sidecar:
    Run `coordinator-doc-new --type review-findings --slice <id> --scope <comma-paths>` and
-   capture the path it prints. The file lands at `state/review-trail/findings/<slice>.md`
+   capture the path it prints -- always capture it, never assume the shape. The file lands at
+   `<machinery_root>/subagent-share/<session-id>/YYYY-MM-DD-codereview-slice<ID>-<SLUG>.md`
    with a `<!-- FINDINGS -->` sentinel already in place. This is your only permitted Bash call
    (confined by an engine-side guard that allowlists this exact command and hard-denies
    everything else). The EM never pre-scaffolds this
@@ -68,7 +74,7 @@ this guidance — `snippets/persona-persisting-findings.md` carries a parallel c
 reviewer/persona-agent audience that this file's header says does not use this mechanism.)
 
 **Discipline (not a guard):** the Edit write-sandbox confinement was
-removed — nothing structurally blocks an Edit outside `state/review-trail/findings/` anymore. You
+removed — nothing structurally blocks an Edit outside your provisioned home anymore. You
 MUST still write ONLY your sidecar there; editing any other path is a contract violation. Your Bash
 remains allowlist-confined by that same engine-side guard, so a stray edit cannot be
 committed — it stays in the working tree for the EM's `git diff`.

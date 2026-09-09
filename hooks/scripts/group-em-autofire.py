@@ -238,7 +238,7 @@ def render_additional_context(payload: dict, exit_code: int, stderr: str) -> str
         # entry is what turns the quarantine file into something someone reads.
         lines.append(
             f"  ! obligations-inbound: {intake['rejected']} malformed row(s) quarantined to "
-            "state/subagent-share/<sid>/obligations-inbound.rejected.jsonl -- producer bug"
+            ".coordinator-local/subagent-share/<sid>/obligations-inbound.rejected.jsonl -- producer bug"
         )
     if intake.get("deferred"):
         lines.append(

@@ -112,13 +112,28 @@ The shared `ReviewOutput` envelope (wrapper fields, exact verdict strings, base 
       "severity": "critical | major | minor | nitpick",
       "category": "security | correctness | performance | maintainability | testing | documentation | architecture | style",
       "finding": "Clear description of the issue",
-      "suggested_fix": "Optional — specific fix or alternative"
+      "suggested_fix": "Optional — specific fix or alternative",
+      "confidence": "Optional — integer 1-10",
+      "fix_class": "Optional — AUTO-FIX | ASK"
     }
   ]
 }
 ```
 
 **After** the JSON: a human-readable narrative walking through your four-pass review, referencing findings by index if helpful ("Finding 0 relates to…"), ending with your verdict.
+
+## Reviewing an Enriched Artifact
+
+An enriched plan or stub carries facts an enricher pinned — paths, signatures, line and insertion
+points, counts. Review both axes: the plan, and those facts.
+
+- **Re-verify each asserted fact at source.** Measured: an enricher pinned an insertion point at
+  L22; it was L24. A file you did not open is an unreviewed fact.
+- **A wrong enrichment fact is `major` minimum, `correctness`** — the executor types against it.
+- **§ Delta-Scoping does not apply**: no diff, and scope is every enriched stub named.
+
+Verified facts are not verified behaviour — a stub whose facts all check out can still ship a
+functional bug. Say which you checked in Coverage.
 
 ## Delta-Scoping
 

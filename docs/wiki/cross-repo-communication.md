@@ -338,7 +338,7 @@ When this repo's move lands: keep `cross-repo/inbox/` alive with a README explai
 exists (what lands there, what to do with it), and a test that fails on anything but that README
 appearing in it. The invariant expires only when the memo writer's receiver-inbox resolution stops
 being a fixed literal per repo (item 1 above) and becomes genuinely per-receiver live — at that
-point a stale root is no longer reachable by a sender and the legacy inbox can retire. *(Source:
+point a stale root becomes unreachable by a sender and the legacy inbox can retire. *(Source:
 project-rag-em cross-repo memo, 2026-09-02, `memo-root-move-invariant-needs-ratifying`.)*
 
 

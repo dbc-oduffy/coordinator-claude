@@ -123,17 +123,19 @@ If every non-deferred row is missing `writes:` entirely, add one Spine-emittabil
 
 ### Phase 4: Lens 3 — In-Repo Substrate Drift
 
-Lens 3 enacts classes 1-3 of the shared contract below (paths, symbols, refs — all mechanical
+Lens 3 enacts the path, symbol, and ref checks of the shared contract below (all mechanical
 existence checks) via `ls`/`Read`/`grep` (all via Bash), reported as a substrate-drift finding
-per the existing vocabulary. Class 5 (semantics, judgment, PROVISIONAL) is scoped to blitz-lane
+per the existing vocabulary. The semantic check (judgment, PROVISIONAL) is scoped to blitz-lane
 consumers per `coordinator/snippets/registry.toml`'s `premise-check-contract` row — Lens 3 does
-not enact class 5, run its checks, or fold its findings into this lens's verdict.
+not enact the semantic check, run its checks, or fold its findings into this lens's verdict.
 
 <!-- BEGIN premise-check-contract (synced from snippets/premise-check-contract.md) -->
 ## Premise Check Contract
 
-A premise check asks one question, in five classes, over a plan's cited paths, symbols, refs and
-in-repo behaviour claims: **does this plan's premise actually hold against the tree right now?**
+A premise check asks one question, over a plan's cited paths, symbols, refs, and in-repo
+behaviour claims: **does this plan's premise actually hold against the tree right now?** (Its
+sibling snippet, `instrument-can-report-red.md`, asks the companion question for a falsifier
+itself: is its verdict wired to its exit path?)
 It is written to be INLINED into a dispatch brief, never dispatched as its own agent — the
 `PLUGIN_AGENTS` default-off constraint means an `agentType` the harness cannot resolve silently
 degrades to a generic agent wearing the role's label, which reuses the persona and loses the
@@ -143,6 +145,16 @@ check. Whatever consumes this text must inline it directly.
 exist? For every cited `file:line` / `file:symbol` claim: does the symbol exist in that file? This
 is the same check plan-coverage-checker's Lens 3 already runs (`ls`-check cited paths,
 `Read`-verify cited claims, grep backtick-quoted in-repo constants) — it is not re-derived here.
+
+**Why `ls`/`Read`/`grep` and not the symbol-graph tools.** `project_referencers` and
+`project_symbol_callers` would answer classes 1 and 2 more precisely, and they are deliberately not
+used: this text is INLINED into a dispatch brief inside a workflow, and an MCP tool surface is not
+guaranteed to be present for the agent that receives it — a check that silently degrades when a tool
+is missing is worse than one built from primitives that are always there. The project-rag index is
+also a projection that can lag the tree (1494 commits behind at the time this shipped), and a premise
+check that reads a stale projection would report the tree as it was, which is the exact failure it
+exists to catch. Existing checker agents ARE reused: this contract carries plan-coverage-checker's
+Lens 3 calibration over verbatim rather than re-deriving it, and Lens 3 consumes this same text.
 
 **Tolerance rule, carried over verbatim, do not recalibrate:** same-file line-number drift alone
 (same file, same symbol, shifted line number) is tolerated and is NOT a finding; a missing file or
@@ -172,11 +184,14 @@ condition (defect vocabulary) generalizes from ONE incident (2026-07-27: a plan 
 resolver's default was defective when it was in fact a PM-ratified asymmetry, caught only because
 a defect-vocabulary trigger like this one would have flagged it for a symbol read). That is
 enough to ship it as an acceptance criterion and not enough to call the trigger calibrated. The
-owner of the standing blitz-conversion re-measurement effort re-checks the trigger against a
-class-5 firing log (every class-5 finding, with whether the subsequent symbol read confirmed or
-refuted the plan's claim) before the PROVISIONAL mark comes off. Until then, a class-5 finding
-carries the same weight as any other finding — only the TRIGGER is under review, not the finding's
-validity.
+mark comes off once a later session has counted enough real firings, in
+`state/audits/2026-09-06-blitz-conversion-re-measurement.md`'s Arm C table, to say the trigger's
+precision — each row sourced from a wave's per-baton `*.premise-check.md` sidecar under that
+wave's trail directory (`sidecarFor(trailDir, batonId, 'premise-check')` in `plan-blitz.mjs`).
+Until a wave has actually run this check, that table is empty and the PROVISIONAL mark stands —
+an empty table is not evidence the trigger is miscalibrated, only that it has not fired yet. Until
+the mark comes off, a class-5 finding carries the same weight as any other finding — only the
+TRIGGER is under review, not the finding's validity.
 
 **Mechanical vs. judgment split, carried over verbatim.** Classes 1, 2 and 3 are mechanical:
 existence either holds or does not. Class 5 is judgment: it requires reading a symbol's actual
@@ -189,19 +204,19 @@ class number: a number alone reads as more precise than the taxonomy underneath 
 **A premise check never claims plan correctness.** It catches a class of false premise; a plan
 whose every citation resolves against the tree can still be wrong. This pass reports what it
 checked and what it found; it does not ratify the plan, and it does not refuse to report a partial
-or degraded result — a class-5 miss with no forbidding surface and no defect vocabulary is
-reported as "class 5 not applicable, degrades to reviewer judgment," not withheld.
+or degraded result — a semantic-check miss with no forbidding surface and no defect vocabulary is
+reported as "semantic check not applicable, degrades to reviewer judgment," not withheld.
 <!-- END premise-check-contract -->
 
-**Match confirmed** (class 1/2) if any of: (a) the symbol appears within **±50 lines** of the
+**Match confirmed** (paths/symbols) if any of: (a) the symbol appears within **±50 lines** of the
 cited line; (b) the cited line semantic-matches the plan's quoted excerpt; (c) the plan cited an
 anchor heading (`§ Heading`) rather than a line number, and the heading exists on disk. **Strict
 same-file/same-symbol line-number drift alone is FALSE-POSITIVE — do not emit.** Emit only if the
 symbol/identifier is absent, or the file itself is missing.
 
 **Out of scope:** external API signatures (docs-checker's job), cited frontmatter keys in foreign
-files, cited behavior beyond identifiers/paths/refs — and, for this consumer, class 5 of the
-contract above (see the scope note preceding the pasted block).
+files, cited behavior beyond identifiers/paths/refs — and, for this consumer, the semantic check
+of the contract above (see the scope note preceding the pasted block).
 
 ### Phase 4.5: Lens 4 — Anti-scope Vehicle-Naming
 

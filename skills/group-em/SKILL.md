@@ -238,7 +238,7 @@ is a spawned session and could in principle hold a main-conversation one-shot, b
 to notify against, so this stays moot for it.) Do not confuse it with the `Monitor`: the two share
 neither a rule nor a reason, and only this half of the rule that names both is true.
 
-**You no longer relay events.** `group-em-assistant` hears its own wire and acts on it; your move
+**You do not relay events.** `group-em-assistant` hears its own wire and acts on it; your move
 on a park is nothing. What still reaches you is what they escalate — an `OUT-OF-WORK` peer needing
 work, a `GROUP-EM-MOVED`, anything needing a decision. **The tell that you have taken the relay
 back: you find yourself waking them, or working an event they already hold.** Both mean you are

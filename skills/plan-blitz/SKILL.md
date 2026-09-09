@@ -4,7 +4,7 @@ description: "PM-GATED. Sweep every baton in the repo that lacks an approved pla
 description-budget: 320
 version: 1.0.0
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill", "Workflow", "AskUserQuestion", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]
-argument-hint: "[<baton-id> ...] [--roadmap-id <id>] [--waves <n>] [--dry-run]"
+argument-hint: "[<baton-id> ...] [--roadmap-id <id>] [--waves <n>] [--dry-run] [--repair <baton-id> ...]"
 ---
 
 # Plan-blitz — a roadmap's worth of plans, in waves
@@ -16,7 +16,7 @@ The two tripwires below are the greppable entry points.
 
 ---
 
-## Two modes
+## Three modes
 
 **Sweep (default, no arguments).** Every baton in the repo that lacks an approved plan. That set is
 `needs_plan` in the engine's reply — no linked plan, or one that has not cleared review — and it is
@@ -33,6 +33,12 @@ what the answer is computed from.
 baton that is not a candidate (claimed, `in_flight`, already approved). The engine names it rather
 than silently planning N-1 batons; a targeted run that quietly drops one is worse than a refusal,
 because the drop looks like completion.
+
+**Repair (`--repair <baton-id> ...`).** Re-dispositions a plan that already went through a full
+wave — its reviews are already on disk — without dispatching a fresh judgment, by reading the
+plan's own review sidecars back through their structured pointer records and calling the same
+`integrator()` a live wave calls. See § Repair below for what makes a baton unrepairable and the
+caller-side `repairBatons` construction procedure.
 
 **When NOT to use:** no roadmap yet → `coordinator:roadmap-planning` (this consumes stubs, it never
 authors them). One baton → `coordinator:sizing`, then `coordinator:plan`. Plans exist and need
@@ -87,19 +93,44 @@ Three fields before anything else, each with a mechanical response:
 
 | Field | If non-empty | Response |
 |---|---|---|
-| `unresolved_blockers` | an edge names no record on disk | **Stop and report.** An authoring defect; fixing it is not the driver's call. |
+| `unresolved_blockers` | an edge names no record on disk | **Read the `baton` column first** — see below. Stop only for a member of the wave you are about to fire. |
 | `cycles` | batons block each other | **Stop and report** the named members. |
 | `counts.unschedulable` | blockers this pass cannot clear | Proceed; they are excluded by design. |
+
+**An unresolved blocker is scoped to its own baton, not to the run.** The gate fails it CLOSED —
+both gates shut, the baton out of every wave — so a sweep over the other batons is planning
+against no unread gate. Stop only when a named `baton` is a member of the wave you are about to
+fire; otherwise report the entries and proceed. Halting a 40-baton sweep over a defect on a baton
+the engine already excluded is the more expensive error, and it recurs on every later invocation.
+
+**A blocker naming a peer EM (`doe-claude-em`, `claude-klabauter-em`) is the standing case, and it
+is not a typo to repair.** `blocked_by` takes stub ids and `handoff_id`s, so a role name resolves
+to no record and lands here permanently — the shape a baton waiting on a cross-repo answer wears.
+**Never clear one by deleting the edge**: the edge is the only thing holding both gates shut, and
+removing it makes the baton a live planning candidate the moment the sweep re-reads. It clears
+when the peer answers.
 
 **2. Scaffold the trail and freeze the gate.** `state/plan-blitz/<run-id>/gate-report.json`.
 The workflow has no filesystem primitive — an unscaffolded directory means every sidecar write
 lands nowhere and the readiness gate reads an empty trail.
 
 **3. Fire the wave.** Batons come from `waves[0]`, **at most 8 per fire** (§ batching above).
+A wave larger than 8 is drained by several fires at the same `waveIndex`, sharing one trail
+directory. That is supported: the wave-scoped sidecar is keyed by the fire's own baton set, so
+fires do not overwrite each other's size review. Do not renumber the wave to separate them —
+`waveIndex` is what the gate computed, not a fire counter.
 
     Workflow({ scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/plan-blitz.mjs",
                args: { waveIndex: N, trailDir: "<abs>", gateReportPath: "<abs>",
                        pluginAgentsAvailable: <true|false>, batons: [...] } })
+
+**Every baton carries `executionOpen`, read off that baton's own `execution_gate.open` in the
+gate report.** It is not optional and it has no default: an XS is dispatchable only when its
+EXECUTION gate is open, so a baton missing the field fails that test, dispatches nothing, and is
+never closed at the landing — it comes back as a candidate in every later wave. The wave reports
+it under `routedElsewhere` either way, which is why the omission is silent. The full per-baton
+shape is the args contract at the top of `workflows/plan-blitz.mjs`; build the array from the
+frozen gate report, never by hand.
 
 Resolve `${CLAUDE_PLUGIN_ROOT}` — do not pass a repo-relative path. The plugin root differs by
 tree: under the DoE source repo it is the `coordinator/` subdirectory, and in an installed or
@@ -111,9 +142,14 @@ Then wait. **Do not read the trail to decide anything** — reading it to follow
 costs nothing, but the wave needs no input between fire and return. A driver that intervenes
 mid-wave is overriding a judgment the `blitz-em` was dispatched to make.
 
-**4. Land it — one op, not a checklist.**
+**4. Commit the wave's XS work, then land it — one op, not a checklist.**
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" roadmap.blitz_land '{"wave_result": <the workflow's return value verbatim>}'`
+**Commit before landing whenever the wave dispatched any XS.** `close_dispatched` stamps the
+baton `shipped` with a `shipped_in` SHA, and this op does not commit — a stamp written first
+would cite a commit that does not exist. Pass that SHA as `shipped_in`; without it the XS lane
+refuses and those batons stay open, which is the recycling defect, not a cosmetic gap.
+
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" roadmap.blitz_land '{"wave_result": <the workflow's return value verbatim>, "shipped_in": "<sha of the commit carrying the XS work>"}'`
 
 `roadmap.blitz_land` executes the verdicts the readiness gate already made: it links each `ready`
 plan to its baton and *then* stamps it `approved`, mints a baton per `replan` carrying the brief
@@ -126,7 +162,7 @@ gate read taken after the writes.
 |---|---|---|
 | `plan` | M / L | link the plan to its baton, then stamp it `approved` — this is what opens the next wave's planning gates |
 | `spec-dispatch` | S | park the spec onto the baton and stamp it execution-ready (four-field `execution_authorized_*` + `handoff_phase: execution`), so `/execute-plan` resolves it as a straight dispatch — mise-en-place tier |
-| `dispatch` | XS | already done, inside the wave's Dispatch phase |
+| `dispatch` | XS | work already done inside the wave's Dispatch phase; landing stamps the baton `shipped` with `shipped_in`, which is what makes it terminal and stops it returning as a candidate |
 
 **Why S parks rather than approves.** An S is a straight dispatch, not decision-weight work.
 Sending one round a full review cycle and then handing back an un-actioned baton is what made the
@@ -200,12 +236,63 @@ it is shut. The repair is to fix the blocking edge or clear the blocker.
 **Never let the blitz-em resolve a PM decision.** `route: pm-decision` and XL exits leave the wave
 in `surfacedToPm`. The blitz-em is an EM proxy, never a PM proxy.
 
+**`approved` is not `mise-prepped`, and a wave never stamps one.** Landing opens the *planning*
+gate; the `mise_prepped_by/_at/_sha/_findings` attest says a hands-off run may fire the plan
+without an overseer, and it is stamped by `plan.stamp_prepped` outside this skill. This skill
+stops at *ready to execute* in both vocabularies.
+
+**A wave's body edits invalidate a stamp; its frontmatter writes do not.** `mise_prepped_sha` is
+`canonical_body_sha` of the plan BODY, frontmatter excluded — so `blitz_land`'s `status: approved`
+flip, its baton link and its `execution_authorized_*` park all leave an existing stamp intact by
+construction. The review-integrator applying findings rewrites the body, and that does invalidate
+it: the plan is then STALE, and STALE re-gates rather than re-stamps. Never read
+`mise_prepped_by` for presence. Tripwire: `A-PRESENT-MISE-PREPPED-STAMP-IS-NOT-A-CERTIFICATION`;
+consumer contract: `coordinator/docs/wiki/mise-prepped-attest.md`.
+
+---
+
+## Repair
+
+The caller builds `repairBatons` — the workflow reads it, never discovers it. One entry per plan
+to re-disposition:
+
+```
+{ batonId, planPath, reviews: [ <pointer record>, ... ], unresolvedPointers: [ ... ] }
+```
+
+**Where the records come from.** A wave writes each reviewer's findings to
+`<machinery_root>/subagent-share/<session id>/`, and leaves in the trail only a pointer record
+naming it: `{ sidecarPath, verdict, premiseFailure }`. Resolve each pointer in the target plan's
+trail directory, then partition: a record whose `sidecarPath` still exists on disk goes in
+`reviews`; one whose target is gone goes in `unresolvedPointers` as `{ pointerPath, error }`.
+
+**Refusals, all loud, none silent.** Repair refuses the whole baton — it never disposition a
+subset — when: no `planPath`; any `unresolvedPointers`; an empty `reviews`; any record missing
+`verdict` (the pre-pointer-contract bare-path shape, which would otherwise integrate under a
+verdict nobody wrote); or no `trailDir` on the run. Every refusal names the baton and the reason,
+because a repair run that quietly clears a plan it found nothing to disposition is indistinguishable
+from one that re-dispositioned it.
+
+**What it does not do.** It dispatches no `sizingScout`, no `planner`, no `reviewerAgent`. The one role it
+reaches is `integrator()`, unforked, which holds no `Agent`/`Task` tool and so cannot spawn one
+transitively. Verdicts resolve through the same `resolveVerdict()` a live wave uses, so a
+record carrying a premise failure becomes PIVOT here exactly as it would in a wave, rather than
+falling back to BLOCKED.
+
+**Its first repairable input is a wave run after this shipped.** Trails written before the
+structured pointer record carry a bare path, not a record, and are refused by the verdict guard
+above. Repair does not rescue the backlog that motivated it.
+
 ---
 
 ## Anti-scope
 
 - Does not author roadmap batons (`coordinator:roadmap-planning`).
 - Does not execute plans, and never opens an execution gate. It stops at *ready to execute*.
+  **That boundary is not conditional on who reads the exit.** The landing is durable on disk
+  (`status: approved`, `governing_plan`), so mise-prep's entry reads it back through
+  `roadmap.plan_gate` — a read reports what a gate would say and never opens one. Consumer:
+  `skills/plan-blitz/mise-prep-entry.py`. Tripwire: `A-HANDOFF-AN-EM-RETYPES-IS-NOT-A-SEAM`.
 - Does not ratify sizings on the PM's behalf.
 - Does not review code. The reviewers in a wave review **plans**.
 
@@ -225,3 +312,4 @@ Workflow correctness contract and that the doctrine below stays greppable.
 | 2 | `roadmap.plan_gate` | this file + both consuming skills | ≥3 | a gate nobody reads is a gate nobody honours |
 | 3 | `A-BLITZ-WAVE-THAT-GATES-ON-THE-EM-IS-NOT-A-BLITZ` | this file + `agents/blitz-em.md` | ≥2 | 1 means only the self-reference survives |
 | 4 | `plan-blitz.mjs` | this file | ≥1 | the vehicle is named, not left to be rediscovered |
+| 5 | `A-PRESENT-MISE-PREPPED-STAMP-IS-NOT-A-CERTIFICATION` | this file + `skills/review/SKILL.md` | ≥2 | 1 means only the surface that introduced it knows the predicate is a recomputed sha |

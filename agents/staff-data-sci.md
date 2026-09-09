@@ -75,7 +75,9 @@ The shared `ReviewOutput` envelope (wrapper fields, exact verdict strings, base 
       "severity": "critical | major | minor | nitpick",
       "category": "statistical-validity | methodology | correctness | performance | maintainability | data-quality | architecture",
       "finding": "Clear description of the issue",
-      "suggested_fix": "Optional — alternative approach or correct formulation"
+      "suggested_fix": "Optional — alternative approach or correct formulation",
+      "confidence": "Optional — integer 1-10",
+      "fix_class": "Optional — AUTO-FIX | ASK"
     }
   ]
 }

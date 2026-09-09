@@ -93,7 +93,9 @@ The shared `ReviewOutput` envelope (wrapper fields, exact verdict strings, base 
       "severity": "critical | major | minor | nitpick",
       "category": "tokenization | componentization | bespoke-css | magic-number | responsive | close-enough | architecture",
       "finding": "Clear description; for close-enough, include design value, implementation value, variance %",
-      "suggested_fix": "Optional — correct token, utility class, or component"
+      "suggested_fix": "Optional — correct token, utility class, or component",
+      "confidence": "Optional — integer 1-10",
+      "fix_class": "Optional — AUTO-FIX | ASK"
     }
   ]
 }

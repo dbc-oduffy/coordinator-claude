@@ -31,7 +31,7 @@ boundaries: ship Phase N green, dispatch Phase N+1 immediately, no checkpoint of
 
 **Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 
-**Workflow-approval — invoking this skill IS the request, same shape.** Firing the background Workflow Phase 1.5/1.6 assembles is a constitutive step of executing the plan, not a separate thing to clear: invoking `/execute-plan` requests running the workflow it hands back, the same way it requests the dispatches above. A harness line asking approval to run a workflow is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made, and no second precedence argument is being made beyond the one already stated above. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
+**Workflow-approval — invoking this skill IS the request, same shape.** Firing the background Workflow Phase 1.5/1.6 assembles is a constitutive step of executing the plan, not a separate thing to clear: invoking `/execute-plan` requests running the workflow it hands back, the same way it requests the dispatches above. A harness line asking approval to run a workflow is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 
 ---
 
@@ -58,6 +58,10 @@ boundaries: ship Phase N green, dispatch Phase N+1 immediately, no checkpoint of
    [--utterance "<PM's verbatim words>"]` — `--utterance` is optional, a bare `/execute-plan`
    mints just as well, and the verb always writes `execution_authorized_by: PM`, convergent across
    re-invocation and date boundaries. Under `/autonomous`, skip both legs.
+   **`mise_prepped_*` is a different axis; neither it nor the quartet substitutes for the other.**
+   A plan arriving by `plan-blitz → mise-prep` carries both, and this step writes only the
+   quartet — the attest survives that, because `mise_prepped_sha` hashes the plan BODY. Tripwire:
+   `A-HANDOFF-AN-EM-RETYPES-IS-NOT-A-SEAM`.
 3. **Remaining-context gate** (skip under `/autonomous`): read this session's own remaining-context
    reading before committing to same-session execution — the same context-window percentage the
    statusline captures and publishes each turn. A session already carrying the plan authorship +
@@ -186,7 +190,6 @@ a killed one through the log alone. Check the returned handle's `log_size_bytes`
 liveness signal — the child has written nothing yet, whether because it is still starting or
 because it died before its first write. Treat a stalled handle with `log_size_bytes: 0` past a
 reasonable startup window as fired-then-died: report it and stop, the same as a fire-time refusal.
-Do not hand-dispatch as a recovery here either.
 
 A workflow-spawned agent IS its declared `agentType` — the type propagates — but the catering
 layered on top of it at dispatch time does not: no `contract_blocks`, no provisioned report
@@ -399,8 +402,7 @@ wanting to check in. Record `Tried:/Failed:` in the plan doc and the task's
 ## Relationship to Other Commands
 
 Default upstream entry is `/handoff` + `/pickup`: review can stamp `execution_authorized_at` as
-supporting evidence and writes an execution handoff; execution's own authorization comes from
-invoking `/execute-plan` (Phase 1 step 2), not from this stamp. `/enrich-and-review` runs before
+supporting evidence and writes an execution handoff. `/enrich-and-review` runs before
 dispatch when the plan isn't chunk-ready; `/review-code` is an optional post-execution pass. `coordinator:workstream-complete`
 is offered, never auto-invoked, in Phase 4; `coordinator:finishing-a-development-branch` is not
 chained here — reached separately via `/merging-to-main`. Full failure-mode table: wiki.

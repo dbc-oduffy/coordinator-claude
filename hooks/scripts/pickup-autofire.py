@@ -170,14 +170,20 @@ except Exception:
 _PICKUP_COMMAND_NAMES = frozenset({"pickup"})
 
 # Commands that take batons among OTHER arguments. `/pickup`'s entire argument
-# string is a path string; `/mise-en-place`'s is not (it also carries tail-mode
+# string is a path string; the wide run's is not (it also carries tail-mode
 # flags and PM-named item identifiers), so its baton paths are extracted by
-# family before anything reaches `pickup-assemble` — see
+# family before anything reaches `pickup-assemble` -- see
 # `extract_baton_paths`. Everything downstream of that extraction is shared:
 # handing batons to a run IS a grab, so it briefs, claims, and renders through
 # exactly the same path `/pickup` uses. There is deliberately no second claim
 # mechanism for the mise surface.
-_BATON_GRAB_COMMAND_NAMES = frozenset({"mise-en-place"})
+#
+# Both members name ONE ceremony (`commands/warp-speed-execute.md` forwards to
+# `commands/mise-en-place.md`), so both must claim. This set is invocation
+# vocabulary only -- it is matched against `command_name` and against nothing
+# else. Kept literally identical to `mise-autofire.py :: _MISE_COMMAND_NAMES`;
+# a verb in one and not the other starts the run half-wired, silently.
+_BATON_GRAB_COMMAND_NAMES = frozenset({"mise-en-place", "warp-speed-execute"})
 
 # Path families that carry a claim lifecycle — the only tokens worth briefing
 # out of a mixed argument string. Handoffs and cross-repo memos (plus their

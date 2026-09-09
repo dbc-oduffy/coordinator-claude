@@ -156,7 +156,7 @@ This check exists because `d2` fires in **Step 3** while the merge lands **here*
 core (`merge-recovery-and-tag-cut.py`, engine plane) resolves `origin/main` at call time and names
 the result `merge_sha` — the variable name encodes the assumption that it runs *after* the merge.
 Called from Step 3 it tags main *without* the branch, so the release tag contains **none** of the
-release. Measured 2026-09-02 in `project-rag`: `v0.17.2` shipped pointing at zero of its 82
+release. Confirmed in `project-rag`: `v0.17.2` shipped pointing at zero of its 82
 commits.
 
 **Nothing else catches it.** Every directive returns 0, the ceremony report says

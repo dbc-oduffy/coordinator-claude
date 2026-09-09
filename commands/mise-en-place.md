@@ -31,7 +31,25 @@ readiness-routed but still coherent → keep the claim, name routed items in the
 the successor handoff. No brief → `pickup-assemble brief <path> [AND <path>]...`. Announce:
 "Claimed N batons: [paths]. [M put back down: reason.]" Detail: wiki.
 
+**Aggregate execution baton** (a baton carrying an `aggregate_execution` block): read the roll-up,
+never infer it — `python3 coordinator/skills/pickup/aggregate-rollup.py <baton>`. `FIRE` (exit 0)
+fires every constituent; `PARTIAL-FIRE` (exit 1) fires the named subset, and its `excluded` and
+`withheld` rows enter the Phase 1 inventory as items with a named non-terminal disposition;
+`NO-FIRE` (exit 2) fires nothing — put the baton back down. **Exit 1 is a membership fact, not an
+error**, and a PARTIAL-FIRE forces CONTINUANCE at Phase 6: a partial fire that reads as completion
+is the drop this shape exists to stop. Contract: wiki.
+
 ## Phase 0: Readiness Gate
+
+**Certification leg — runs first, and the bypass below does not reach it.** Plan-sourced items
+only; an item with no plan has nothing to certify and is not refused for it. One revalidation
+step, two ordered legs: recompute the plan body sha against `mise_prepped_sha` (pure, spawn-free);
+only if that passes, re-run each `census[].command` and diff against `result`. Fire on CERTIFIED
+alone. STALE → re-gate (`python coordinator/bin/mise-prep-gate.py <plan>`), then re-stamp;
+UNSTAMPED → gate and stamp; MALFORMED → a hand-written stamp, repair the frontmatter; census
+drift → the premise moved, re-plan. **Name the state** — "not certified" sends an author to the
+wrong repair. A handoff can assert executability; it cannot assert a sha. States, recipe and the
+four repairs: `docs/wiki/mise-prepped-attest.md`.
 
 Bypass only if the invoking handoff asserts **executability** (not merely pickup-readiness) for
 the named items in its body — a stated stop condition or `deployment_state: awaiting_gate` always
@@ -69,6 +87,16 @@ already read → inline instead. Template/sources: wiki.
 Backlog/plan-sourced items: Haiku agent per item, `still-open` vs `already-fixed` at HEAD. Drop
 `already-fixed` before queuing.
 
+**Falsifier integrity**, same phase, plan-sourced items whose frontmatter carries
+`prime_exit_criterion.falsifier`: one `falsifier-integrity-reviewer` dispatch each. Run
+`python coordinator/bin/instrument-can-report-red.py --json` over the instrument first and pass
+the on-disk JSON path as the brief's `can_report_red_report` — a brief field, never an instruction
+to go compute it. Verdict `SOUND` | `BROKEN` | `UNREVIEWABLE`, naming the tell; it reports and
+never refuses. `BROKEN` routes the item out of the wave with the tell named — the existing
+dropped-item behaviour. An item with no `falsifier` sub-object is not reviewed and is not a
+finding here. Inputs the phase marshals, and the blinding invariant that bounds them:
+`docs/wiki/falsifier-integrity.md`.
+
 ## Phase 2: Sequence and Parallelize
 
 Max concurrency, zero overlap within a wave. Sort by dependency then size. Footprint =
@@ -104,6 +132,7 @@ Output, then start Phase 5 immediately:
 **Items queued:** [N items] across [M waves]
 **Wave 1** (parallel): [items] — file-disjoint ✓
 **Wave 2** (parallel): [items] — depends on Wave 1
+**Aggregate:** [FIRE | PARTIAL-FIRE, N of M plans — excluded: [plan (state)]; withheld: [plan rows]]
 **Risks:** [...]
 **Tail:** [standard | hibernate line]
 **Estimated scope:** [...]
@@ -140,7 +169,17 @@ Per wave:
 2. On DONE (verify via disk — DONE path + scoped `git status`; never trust idle-alone; never
    double-dispatch onto a live footprint): dispatch a Haiku verifier per item using the
    brief's `d-mise-haiku-verifier-dispatch` fields. Batch per wave; gate on all-`PASS`.
-   Non-PASS → re-dispatch, revert+re-plan, defer, or early-stop.
+   Non-PASS → re-dispatch, revert+re-plan, defer, or early-stop. **Peers write concurrently to
+   this same checkout — footprint verification is scoped to the item's own declared paths.** A
+   bare unscoped `git status`/`git diff` shows every live peer's work; a path outside the item's
+   declared footprint is another item's and is not evidence about this one.
+
+   **Partial wave landing** — some items landed, some did not. Commit the PASSed items' footprint
+   paths only, never the wave's union; an unlanded item returns to `pending` with
+   `tried_and_abandoned` updated, and the wave is not announced complete. Reverting an unlanded
+   item's residue is scoped to that item's own declared footprint paths — never a bare
+   `git checkout`/`git clean`, which reaches a peer's work. Unlanded items are non-terminal, so
+   the run's verdict is CONTINUANCE.
 3. Wave gate: a commit phase INSIDE the Workflow — `coordinator:git-commit-agent` over the union
    of changed paths, via `ceremony.commit_v2` (that plus a plain scoped `git commit -- <paths>`
    is the whole allow surface; `ceremony.scoped_git_commit` is a deleted op, not a route). Neither
@@ -149,24 +188,58 @@ Per wave:
    itself, so adding one duplicates it. Never hand-typed git.
    Bookkeeping stays EM-side, outside the Workflow: `backlog-grind-assemble apply mise-en-place
    --run-id <id>` with **no** `--wave-path` (that form builds no commit directive).
+
+   **Peer-session commit collision**, checked before the commit and not after:
+   `git log <wave-dispatch-sha>..HEAD --name-only -- <this wave's footprint paths>`. Non-empty
+   means a peer landed **inside** this wave's footprint — a collision, distinct from the
+   concurrent-session churn in § When to Stop, which lands outside it. Next call: re-dispatch the
+   wave's verifier over the merged state for the colliding items only; still-`PASS` commits
+   normally, non-`PASS` routes the item out with the collision named and its residue rides the
+   successor. **Never revert, rebase, amend or force-push over the peer's commit** — a hard block,
+   not a judgment call.
 4. "Wave N complete ([items]). Firing wave N+1 ([items])." — never a question.
 
 No worktrees.
 
 ## Phase 6: Tail
 
-Mark tasks `completed`, disable the sentinel, then in order: exhaustion check, anti-vacuity gate,
-diff freeze, inventory archival (COMPLETE only), tracker sweep.
+Mark tasks `completed`, disable the sentinel, then in order: subtractive adjudication, exhaustion
+check, anti-vacuity gate, diff freeze, inventory archival (COMPLETE only), tracker sweep.
 
+- **Subtractive adjudication** — the terminal pass over what the review layer added, run before
+  the exhaustion check because its coverage feeds it. Build the revocation candidate ledger from
+  **review-layer artifacts in this run's own sha range only** — integrator disposition blocks
+  bucketed `applied`/`deferred` and their reviewer sidecars, keyed `<sidecar-stem>#finding-N`,
+  each stamped `costRank` by the size of the integrated change. **The ledger is the address
+  space**: sourcing it from the run diff or an executor report widens the adjudicator's authority
+  silently, which is the thing to check in review, not its wording. Empty ledger →
+  `NO-CANDIDATES`, no dispatch, recorded — a `/mise` run runs no review of its own, so empty is
+  the ordinary reading. Non-empty → one `subtractive-adjudicator` dispatch, then land its return
+  under the seven landing rules in the wiki. Every candidate — revoked, accepted, refused,
+  unadjudicated — lands in `state/mise-inventory/<run-id>-adjudication.md`. Any `unadjudicated`
+  candidate makes the phase INCOMPLETE, and the verdict line may not read COMPLETE while it is.
+  Enforcement detail: `docs/wiki/subtractive-adjudication.md`.
 - **Exhaustion check** (live disposition ledger): COMPLETE if every item terminal
   (PASSed/routed-out/already-fixed/dropped), else CONTINUANCE — wording only, tail always runs
-  full. CONTINUANCE → `/handoff` naming the resume invocation, a Phase-0-bypass assertion, the
-  wave map — authored+pushed before hibernating.
+  full. Three inputs force CONTINUANCE regardless of the item ledger: an aggregate PARTIAL-FIRE
+  (its excluded plans ride a successor, so they are not terminal), an unlanded item from a partial
+  wave, and an INCOMPLETE adjudication. CONTINUANCE → `/handoff` naming the resume invocation, a
+  Phase-0-bypass assertion, the wave map — authored+pushed before hibernating.
 - **Anti-vacuity:** scoped `git status --porcelain -- <this run's footprint paths>`, never bare
   unscoped. Non-empty → repair via the wave-commit op before freezing.
 - **Review routing:** no review gate of its own (PM ruling). Freeze:
   `freeze-review-diff --range "<start-sha>..HEAD" --slice-id "mise-<run-id>"`; name
-  `/workstream-complete` or a review-and-cap `/handoff` in the tail summary.
+  `/workstream-complete` or a review-and-cap `/handoff` in the tail summary. An aggregate baton's
+  membership inherits this discharge unchanged — the obligation is keyed on the diff range, which
+  every constituent lands inside; `/workstream-complete`'s chain diff covers a different object
+  and is untouched.
+- **Orphan check**, on that same range and inside this phase, never a mechanism of its own: take
+  the paths `git diff --name-status "<start-sha>..HEAD"` marks `A`, intersect with the run's
+  declared `writes:`, and ask of each whether any other file in the tree references it. Zero
+  referencers → **ORPHAN-CANDIDATE**, named in the tail summary with its path. It is
+  **necessary, not sufficient, and is never reported as a correctness verdict** — a surface can
+  acquire a referencer and still be wrong, and a clean check licenses no claim that the run's work
+  is right. It gates nothing, routes nothing, and never moves the verdict line.
 - **End-of-run verification:** run any deferred fast-test command once, EM-only, over the
   cumulative diff. Never run a deferred full-suite/unscoped command unilaterally — surface it.
 - **Tracker sweep:** final pass, same procedure as the per-wave sweep (wiki); commit
@@ -179,6 +252,14 @@ diff freeze, inventory archival (COMPLETE only), tracker sweep.
   may not appear as the run's disposition unless the exhaustion check passed. Item-level,
   wave-level and task-level uses of 'completed' (TaskUpdate, tracker sweep, baton
   disposition) are unaffected.
+- **Composite disclaimer, once, beside the verdict.** Three instruments feed this line and each
+  is honest alone: `mise_prepped_*` certifies a defect-class floor and attests nothing about
+  completion; the orphan check is necessary-not-sufficient; an all-`accept` adjudication is a
+  null result. Nothing composes them, so a reader seeing `COMPLETE` from a run that was
+  prepped, orphan-checked and adjudicated reads a strong claim no constituent makes. Print the
+  composition, not three caveats in three contracts nobody reads together:
+  `COMPLETE — entry floor certified, no orphan found, nothing revoked. None of the three is a
+  correctness verdict.`
 
 **Close:** scoped footprint clean, commit residue, report the verdict, discharge review routing.
 Standard stops there. Hibernate additionally verifies+pushes (never on push failure), authors+
@@ -212,10 +293,21 @@ run the full Phase 6 tail, take CONTINUANCE.
 | Fixable verification error | Fix and continue |
 | Executor BLOCKED | Spec-fixable → update+re-dispatch; architectural → stop early |
 | Executor wrote outside its footprint | Revert, re-analyze overlap, adjust waves, re-execute |
+| Peer commit landed INSIDE this wave's footprint (a collision, not churn) | Re-verify the merged state for the colliding items; PASS commits, non-PASS routes out. Never revert the peer's commit |
+| Wave landed partially | Commit the PASSed items' paths only; unlanded items return to `pending`; verdict is CONTINUANCE |
 | Push fails before hibernate | Do NOT hibernate — stop and report |
 | Compacted mid-run | Re-orient via TaskList/TaskGet; check `tried_and_abandoned`; resume `in_progress` |
 
 ## Relationship to Other Commands
+
+**This run is `warp-speed-execute`; this file is it.** `/warp-speed-execute` is a forwarding alias
+onto this body, not a second ceremony — there is one wide-run ceremony. **Either verb is a
+first-class invocation:** both autofire hooks admit both spellings
+(`hooks/scripts/mise-autofire.py :: _MISE_COMMAND_NAMES`,
+`hooks/scripts/pickup-autofire.py :: _BATON_GRAB_COMMAND_NAMES`), so either mints the run-id and
+claims the batons. The engine vocabulary does not follow the verb — the sentinel mode, the cadence
+passed to `mint-run-id`/`brief`, and `handoff.schema.json`'s cadence key all stay `mise-en-place`,
+which is why this file keeps that name.
 
 `/update-docs`, `/workday-complete`, `/merging-to-main` are PM-run afterward, never auto-invoked.
 `/autonomous` composes with this run: it governs the unattended posture (sentinel, nudge

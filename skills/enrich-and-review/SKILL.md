@@ -100,13 +100,18 @@ dispatch brief carries its `state/subagent-share/<session>/<provision_key>.md` p
 (`provision_report`-injected); reviewer writes ReviewOutput there and returns `DONE: <sidecar-path>
 | verdict: <OK|WARN|BLOCKED> | findings: <N>` (detail: wiki).
 
-Sequential dispatch with fix-application gate: dispatch Reviewer 1 (scope = all enriched stubs;
-must validate both the implementation plan AND the enrichment assumptions) → STOP, dispatch
+Sequential dispatch with fix-application gate: dispatch Reviewer 1 (scope = all enriched stubs)
+→ STOP, dispatch
 review-integrator against the returned sidecar path, apply every finding, spot-check the diff →
 only then dispatch Reviewer 2 on the corrected stubs (fresh sidecar path, no injection needed) →
 STOP, integrate again the same way. Single-reviewer case skips the second pass but keeps the
 fix-application step. Conflicting feedback: apply unless it conflicts with stated requirements or
 PM direction, document overrides with rationale in the stub, escalate genuine uncertainty.
+
+**The enriched-artifact duty is contract, not brief text** — `agents/staff-eng.md § Reviewing an
+Enriched Artifact`. A resolved reviewer whose own prompt does not carry that section gets its
+**path** in the dispatch, never a paraphrase: a duty retyped per dispatch is the duty this
+ceremony already lost once. Tripwire: `A-DUTY-ONLY-A-BRIEF-CARRIES-DISAPPEARS-WITH-THE-EM`.
 
 ## Phase 6: Update Tracker
 
@@ -116,4 +121,7 @@ after. Note manual-flagged stubs and any needing PM decision.
 ## Completion
 
 Report: stubs enriched, stubs reviewed (and by whom), outstanding flags/PM decisions, which stubs
-are ready for executor dispatch.
+are ready for executor dispatch, and — when this ran unattended — the accepted losses at
+`state/audits/2026-09-07-em-carried-obligations-census/accepted-losses.md`, named, not summarised.
+Four duties on this path have no carrier once no EM is in the loop; the run did not perform them,
+and the report is where an operator finds that out rather than inferring it.

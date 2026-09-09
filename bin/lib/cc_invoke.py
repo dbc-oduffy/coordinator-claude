@@ -128,6 +128,25 @@ class ProvenanceDivergenceError(RuntimeError):
     """
 
 
+class StaleEngineImportError(RuntimeError):
+    """Raised by `require_dispatch_module` when its `importlib.import_module`
+    call fails and the missing name traces to the source-vs-published-mirror
+    split (state/bug-backlog/2026-09-01-a-new-engine-module-breaks-fleet-
+    wide-claim-queries-until-publish.yaml): a module a routine source commit
+    added exists in this checkout but not yet in the resolved dispatch root,
+    so every session dispatching against that root gets a raw `ImportError`
+    naming a path with no indication that publishing is the fix. Also
+    covers the sibling case, a name absent from source too (not a stale-
+    mirror gap -- an actual typo). Subclasses RuntimeError, same pattern as
+    `StructuralPinError`/`ProvenanceDivergenceError`, so an existing
+    `except RuntimeError` caller still catches it unchanged.
+    """
+
+    def __init__(self, message: str, dotted_name: str = "") -> None:
+        super().__init__(message)
+        self.dotted_name = dotted_name
+
+
 class WarmDispatchIndeterminate(RuntimeError):
     """Marks a MUTATING op whose request was delivered to the warm engine and
     never answered (JSON-RPC -32004), distinct from an op that failed.
@@ -1074,6 +1093,94 @@ def require_dispatch_engine_on_path() -> str:
     if _reader_owns_one_of_the_split_trees(root):
         _announce_engine_cli_split(root)
     return root
+
+
+def _dotted_module_names_under(root: str) -> set[str]:
+    """`coordinator_core/**/*.py` under `root`, as dotted module names.
+
+    Filesystem work (one `Path.rglob` walk) -- `require_dispatch_module` is
+    this function's only caller and gates it, plus its sibling call for the
+    other tree, to the `except ImportError` arm alone. A two-tree walk on
+    every one of ~200 CLIs' startup is the exact `_getfinalpathname`-shaped
+    cost DR-362 (docs/decisions/DR-362-the-orphan-reaper-was-deleted-at-
+    515-6ms.md) measured killing the orphan-reaper; this earns the same
+    scrutiny and the same answer -- never on the success path.
+    """
+    core = Path(root) / "coordinator_core"
+    if not core.is_dir():
+        return set()
+    return {
+        p.relative_to(Path(root)).with_suffix("").as_posix().replace("/", ".")
+        for p in core.rglob("*.py")
+    }
+
+
+def _diagnose_stale_dispatch_import(
+    exc: ImportError, dotted_name: str, dispatch_root: str
+) -> StaleEngineImportError:
+    """Turn a `require_dispatch_module` `ImportError` into a computed verdict:
+    the published engine is missing a module source has (publish is the fix),
+    or the name is absent from source too (not a mirror gap). Never runs on
+    the success path -- see `require_dispatch_module` and
+    `_dotted_module_names_under`.
+    """
+    missing = getattr(exc, "name_from", None) or getattr(exc, "name", None) or dotted_name
+    try:
+        source_root = resolve_engine_root(__file__)
+        source_only = sorted(
+            _dotted_module_names_under(source_root) - _dotted_module_names_under(dispatch_root)
+        )
+    except Exception:  # noqa: BLE001 -- diagnosis must not itself crash the failure path
+        source_only = []
+    if source_only:
+        shown = ", ".join(source_only[:3])
+        if len(source_only) > 3:
+            shown += f" (+{len(source_only) - 3} more)"
+        message = (
+            f"require_dispatch_module('{dotted_name}'): published engine is missing "
+            f"{shown}. Publish the mirror."
+        )
+    else:
+        message = (
+            f"require_dispatch_module('{dotted_name}'): '{missing}' is not in source "
+            "either. Fix the import path."
+        )
+    return StaleEngineImportError(message, dotted_name)
+
+
+def require_dispatch_module(dotted_name: str) -> Any:
+    """Resolve the dispatch engine (`require_dispatch_engine_on_path`,
+    unchanged) then `importlib.import_module(dotted_name)` against it,
+    diagnosing a stale-mirror cause on `ImportError` instead of surfacing a
+    raw one.
+
+    Calls `require_dispatch_engine_on_path()` first, exactly as before --
+    same root resolution, same C9 divergence hardening, same split
+    announcement, same cost. This function adds nothing before that call and
+    nothing around it on the success path: the import below is the SAME
+    import a caller doing
+    ``require_dispatch_engine_on_path(); import <dotted_name>`` already pays,
+    just wrapped.
+
+    On `ImportError`: diffs this checkout's own `coordinator_core/**/*.py`
+    module set against the resolved dispatch root's and raises
+    `StaleEngineImportError` naming the actual cause (`docs/decisions/
+    DR-362-the-orphan-reaper-was-deleted-at-515-6ms.md` is why that diff runs
+    ONLY here, never unconditionally) and the remedy -- publish the mirror,
+    when the missing module is source-only; "not in source either" when it
+    is not, so a typo does not get told to publish.
+
+    state/bug-backlog/2026-09-01-a-new-engine-module-breaks-fleet-wide-claim-
+    queries-until-publish.yaml is the incident this exists to diagnose: a
+    session-only module landed in source and broke every session's claim
+    query fleet-wide with a raw `ImportError` naming a published-mirror path
+    and no indication that publishing was the fix.
+    """
+    root = require_dispatch_engine_on_path()
+    try:
+        return importlib.import_module(dotted_name)
+    except ImportError as exc:
+        raise _diagnose_stale_dispatch_import(exc, dotted_name, root) from exc
 
 
 def _reader_owns_one_of_the_split_trees(dispatch_root: str) -> bool:

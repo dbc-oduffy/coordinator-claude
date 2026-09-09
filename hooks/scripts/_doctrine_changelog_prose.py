@@ -10,9 +10,12 @@ this module is the write-time and ratchet-test detector for it.
 
 Governed surfaces: `coordinator/{skills,agents,commands,snippets,docs/wiki}/**/*.md`
 (excluding any `tests/`/`fixtures/` subdirectory anywhere in the relative
-path) and the `description`/`$comment` string VALUES inside
-`coordinator/schemas/*.schema.json` (direct children only, matching the
-governing glob literally — not `coordinator/schemas/fixtures/*.schema.json`).
+path, and any basename in `_EXEMPT_BASENAMES` -- a file whose own stated
+purpose is to BE a changelog, e.g. `changelog-history.md`, not a doctrine
+surface this module's rule applies to) and the `description`/`$comment`
+string VALUES inside `coordinator/schemas/*.schema.json` (direct children
+only, matching the governing glob literally — not
+`coordinator/schemas/fixtures/*.schema.json`).
 
 `x-bump-note`/`x-bump-class` JSON keys are OUT of scope by construction, not
 by omission: this module only walks `description`/`$comment` values, so a
@@ -203,6 +206,23 @@ DOCTRINE_SCHEMAS_DIR = REPO_ROOT / "coordinator" / "schemas"
 #: prose a model reads mid-task.
 _EXEMPT_PATH_SEGMENTS = frozenset({"tests", "fixtures"})
 
+#: Basenames that are, by their own stated purpose, a changelog rather than
+#: a doctrine surface -- exempt from `DOCTRINE_MD_DIRS` scanning regardless
+#: of which governed directory they sit under. `changelog-history.md` is the
+#: seed case: its own header states its entire job is to preserve the
+#: pre-consolidation release history VERBATIM ("Entry content, dates,
+#: version numbers... are unchanged from the original -- that record is not
+#: a defect to be edited away"), and `test_publish_seed_wiki_allowlist.py`
+#: independently confirms it ships in the OSS seed for exactly that reason.
+#: Rewriting it into present tense would not fix a doctrine defect -- it
+#: would destroy the artifact the page exists to be. A doctrine surface
+#: states the rule as it stands now; a changelog states what happened when --
+#: this file is the second thing, on purpose, and this module's whole job is
+#: to keep the two apart. Widen this set only for another file whose own
+#: stated purpose is the same (a changelog, not a rule), never to silence a
+#: genuine prose finding.
+_EXEMPT_BASENAMES = frozenset({"changelog-history.md"})
+
 #: JSON object keys whose string VALUES are in scope inside a `*.schema.json`
 #: file. `x-bump-note`/`x-bump-class` are deliberately absent — see module
 #: docstring.
@@ -290,6 +310,8 @@ def surface_of(path: Path) -> "str | None":
         return None
     if resolved.suffix != ".md":
         return None
+    if resolved.name in _EXEMPT_BASENAMES:
+        return None
     for root in DOCTRINE_MD_DIRS:
         try:
             rel = resolved.relative_to(root)
@@ -320,6 +342,8 @@ def scope_class(path: Path) -> "str | None":
         return None
 
     if resolved.suffix == ".md":
+        if resolved.name in _EXEMPT_BASENAMES:
+            return None
         for root in DOCTRINE_MD_DIRS:
             try:
                 rel = resolved.relative_to(root)
@@ -990,13 +1014,50 @@ def _iter_markdown_violations(text: str) -> "list[Violation]":
     return violations
 
 
+def _schema_prose_value_line_no(text: str, value: str, cursor: int) -> "tuple[int, int]":
+    """Real 1-indexed physical LINE in `text` where the JSON string literal
+    encoding `value` starts, searched forward from `cursor` (a char offset)
+    so repeated/identical values still anchor to successive occurrences in
+    document order rather than all collapsing onto the first match. Returns
+    `(line_no, next_cursor)`; `line_no` is `0` if the literal cannot be
+    located (never raises -- a miss degrades to an unanchored-but-still-
+    reported violation, not a crash).
+
+    A JSON string cannot contain a literal newline (an embedded `\\n` is
+    always the two-character escape), so the encoded literal for any
+    `description`/`$comment` value -- however many logical lines
+    `value.split("\\n")` produces -- sits on exactly ONE physical source
+    line. Anchoring the whole value to that one line is therefore correct,
+    not an approximation.
+
+    `json.dumps` is used only to reproduce standard JSON string escaping for
+    the SEARCH, never to reconstruct the file's own byte-for-byte spelling
+    -- tried both `ensure_ascii` settings because this corpus's schemas
+    routinely author non-ASCII characters (em dashes) as `\\uXXXX` escapes
+    (the `ensure_ascii=True` default) rather than literal UTF-8 bytes, and a
+    hard-coded single setting would silently fail to anchor whichever style
+    a given file does not use."""
+    for ensure_ascii in (True, False):
+        encoded = json.dumps(value, ensure_ascii=ensure_ascii)[1:-1]
+        pos = text.find(encoded, cursor)
+        if pos != -1:
+            return text.count("\n", 0, pos) + 1, pos + len(encoded)
+    return 0, cursor
+
+
 def _iter_schema_json_violations(text: str) -> "list[Violation]":
     """Walk a `*.schema.json` document, scanning only `description`/`$comment`
     string values (see module docstring for why `x-bump-note`/`x-bump-class`
-    are excluded by construction). `line_no` here is a sequence index over
-    the traversal order (stable for a given document), NOT a real file line
-    number -- JSON has no natural per-value line, and the traversal order is
-    deterministic for identity-key purposes.
+    are excluded by construction). `line_no` is the REAL physical file line
+    each value's JSON string literal starts on (see
+    `_schema_prose_value_line_no`) -- not a synthetic per-value sequence
+    index. A prior version used a bare traversal counter here, which reads
+    as a line number but is not one; consumers that mapped it back onto the
+    file's own lines (`text.split("\\n")[line_no - 1]`) to show context
+    displayed unrelated JSON structure -- e.g. a bare `},` -- instead of the
+    prose actually flagged. The `Violation.excerpt` field was always correct
+    (it carries the flagged text directly); only this anchor was wrong. See
+    `state/bug-backlog/2026-09-07-the-changelog-prose-ratchet-is-red-on-ma-7c4e1a09d3b2.yaml`.
 
     Fails open (returns `[]`) on any parse failure -- an unparseable schema
     is not this module's problem to diagnose."""
@@ -1006,16 +1067,16 @@ def _iter_schema_json_violations(text: str) -> "list[Violation]":
         return []
 
     violations: list = []
-    seq = 0
+    cursor = 0
 
     def _walk(node):
-        nonlocal seq
+        nonlocal cursor
         if isinstance(node, dict):
             for key, value in node.items():
                 if key in _SCHEMA_PROSE_KEYS and isinstance(value, str):
-                    seq += 1
+                    line_no, cursor = _schema_prose_value_line_no(text, value, cursor)
                     for candidate_line in value.split("\n"):
-                        violations.extend(_scan_text_line(candidate_line, seq))
+                        violations.extend(_scan_text_line(candidate_line, line_no))
                 else:
                     _walk(value)
         elif isinstance(node, list):

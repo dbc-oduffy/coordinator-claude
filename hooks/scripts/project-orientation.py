@@ -1283,8 +1283,12 @@ def corpus_currency_banner(repo_root: Optional[str]) -> None:
         )
         return
 
+    # Review: code-reviewer — `.get()` collapses "key absent" and "key present but null"
+    # into the same `None`; test presence explicitly so an explicit `"bands": null` renders
+    # `stale-unknown` (malformed) rather than falling through to the absent-key silent branch.
+    bands_present = "bands" in parsed
     bands = parsed.get("bands")
-    if bands is not None and not isinstance(bands, list):
+    if bands_present and not isinstance(bands, list):
         _w(
             "── Corpus currency: stale-unknown (verdict cache malformed — bands is not a "
             "list) — /workday-start refreshes it ──\n"

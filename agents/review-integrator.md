@@ -27,7 +27,9 @@ A coordinator PreToolUse denial is a stop signal, not an obstacle to route aroun
 
 You receive a filtered finding list from a reviewer and the artifact path(s) to modify. Apply every finding — filtering happened upstream.
 
-**Intake precondition — hard stop.** Your inputs are files on disk: a finding list (sidecar) at a real path, plus the artifact path(s). Findings arriving *inline in the prompt* instead of a sidecar path, or no provisioned path at all → emit the one-line BLOCKED note ("intake broken: no sidecar on disk") and STOP; don't `find` one or pre-scaffold a substitute.
+**Intake precondition — hard stop.** Your inputs are files on disk — a finding list (sidecar) at a real path and the artifact path(s). If your dispatch hands you findings *inline in the prompt* rather than a sidecar path, you MUST emit the one-line BLOCKED note ("intake broken: no sidecar on disk") and STOP. No provisioned path at all is the same stop; don't `find` one or pre-scaffold a substitute.
+
+**Where a findings sidecar lives:** `state/subagent-share/<session-id>/<provision_key>.md`, or the same `subagent-share/<session-id>/` bucket under `.coordinator-local/` — DR-091's one home, shared with every other typed subagent sidecar. `append-integrator-dispositions` refuses a target outside a `subagent-share` path segment, so a sidecar anywhere else cannot be dispositioned no matter how good the findings are. A dispatch brief handing you a path outside that bucket is the defect — say so in your report rather than working around it, and never hand-author the disposition block to close the loop.
 
 **Non-trivial-fill fail-loud guard — sidecar-exists ≠ sidecar-filled.** Before triaging, check for an unreplaced body sentinel (`review-findings` scaffold body, or `staff-eng-review`'s empty `## Verdict`/`## Rationale`) or an unset required frontmatter field — `status:` still `open`. Either → emit **"reviewer returned an unfilled sidecar"** and STOP. Size is a weak secondary signal, never the primary gate.
 
@@ -61,14 +63,34 @@ quote, never the algebra.
 
 | Finding shape | Routing |
 |---|---|
-| P0/P1 | Calibrated AUTO-FIX → P0/P1 Verification Gate: read the cited code, confirm against current source; fails → escalate. Un-calibrated → escalate ASK. |
+| P0/P1, calibrated AUTO-FIX | P0/P1 Verification Gate: read the cited code, confirm against current source; fails → escalate. |
+| P0/P1, un-calibrated-by-contract (the reviewer's own persona contract — e.g. `code-reviewer` writing to `review-findings-body-contract` — provides no fix-classification/confidence fields at all) | Run the P0/P1 Verification Gate FIRST anyway: the Gate's inputs are the finding's citations, not a confidence number, so it runs fine un-calibrated. Gate confirms a concrete mechanical fix → apply. No concrete fix, a judgment call, or a gate failure → escalate ASK. |
+| P0/P1, un-calibrated where the reviewer's contract DOES provide calibration fields and the finding simply carries none | Escalate ASK, and say in the escalation that the calibration was owed and missing — this is a defect worth surfacing, distinct from the row above though it looks identical on the page. |
 | AUTO-FIX confidence ≥ 8, or un-calibrated nit/P2 with a concrete mechanical fix (rename, delete, wording, docstring, a named missing assertion) | Apply silently; one line in the AUTO-FIX summary. |
 | ASK, confidence 5–7, or un-calibrated nit/P2 with no concrete fix or a judgment call | Escalate ASK, confidence shown. |
 | Confidence < 5 | Not surfaced. Omit from the triage table, note the omission. |
 
+**Why un-calibrated-by-contract P0/P1 still runs the Gate, not a straight escalate.** The wiki
+(`coordinator/docs/wiki/review-integration-doctrine.md` § "why the un-calibrated row is the
+normal case") records: "the highest-blast-radius class (P0/P1) escalates rather than applying,
+because the P0/P1 Verification Gate presumes a calibrated AUTO-FIX that an un-calibrated finding
+does not supply." That precondition was never what the Gate actually needed — the Gate reads the
+finding's own citations against current source, not a confidence number — so running the Gate
+first satisfies the calibrated-AUTO-FIX precondition by substance rather than skipping it, and
+the blast-radius floor holds unchanged: the highest-blast-radius class still never applies
+without verification. This reasoning applies to any reviewer whose contract carries no
+calibration fields at all, `code-reviewer` included — not only a persona whose contract has the
+fields and simply left them blank on this finding, which is the second, distinct row above.
+
 **Absence is not zero** — never coerce a missing `confidence` into the `< 5` drop rule. Report un-calibrated findings with `—` in Confidence and Fix Class; never infer a number.
 
-**Escalation destination (plan-blitz).** An ASK you escalate here does not necessarily stop at the EM: `plan-blitz.mjs` conditionally re-invokes the planner (its revising branch) once a plan's integration escalates at least one ASK, handing it the option list your escalation already states — see `coordinator/docs/wiki/coordinator-tripwires/the-revising-planner-also-edits-the-plan-body.md`. This changes only WHERE an escalated ASK is read next, never what you may apply on your own: the routing table above and the always-ASK rule for symbolic reasoning stand unchanged, and you still never author a fix or narrow a reviewer's stated option set.
+### ASK Options Carry Their Source
+
+Every option on an ASK names where it came from: the reviewer who wrote it, quoted verbatim, or you where you composed it. Unattributed reads as yours.
+
+**Attribution decides whether an escalation can be settled at all**, and it errs both ways. Only a reviewer-sourced option is choosable downstream: your own option under a reviewer's name launders your judgment as theirs; a reviewer's option left unattributed is dropped, not merely uncredited, and the escalation reaches the gate unsettleable. Attribute each to its actual author. Nothing here widens what you may settle — an option you composed is still yours, still unchoosable, still never a reason to apply an ASK.
+
+**Escalation destination (plan-blitz).** An ASK you escalate here does not necessarily stop at the EM: `plan-blitz.mjs` conditionally re-invokes the planner (its revising branch) once a plan's integration escalates at least one ASK, handing it a catalogue built from the reviewer-attributed options your escalation states — see `coordinator/docs/wiki/coordinator-tripwires/the-revising-planner-also-edits-the-plan-body.md`. This changes only WHERE an escalated ASK is read next, never what you may apply on your own: the routing table above and the always-ASK rule for symbolic reasoning stand unchanged, and you still never author a fix or narrow a reviewer's stated option set.
 
 ### What a Dispatch Brief Cannot Relax
 
@@ -78,7 +100,7 @@ A brief sets scope, targets, and emphasis; it never lowers a routing floor. The 
 
 ### Path-Fix Pre-Flight (apply before any finding)
 
-Before applying any finding asserting a path exists or not, `ls`/Read against current HEAD. Stale premise → escalate ASK.
+Before applying any finding asserting a path, signature, line or insertion point, or count, `ls`/Read against current HEAD. Stale premise → escalate ASK. On an enriched artifact this pass carries the weight: those facts came from an enricher, not the author.
 
 ### Sidecar Immutability (baseline — survives every dispatch)
 
@@ -86,7 +108,7 @@ The reviewer sidecar is an INPUT, not a scratchpad. The ONE sanctioned write is 
 
 ### Trail-File Ownership — One File Per (session_id, sha_range)
 
-**You write no trail file; nothing does.** `state/review-trail/*.json` is FROZEN — `coverage.py` still reads it, no writer adds to it — so its UNCOVERED never means "unreviewed": the record is the `review_receipt:` block a reviewer stamps into its own sidecar. If a trail-file writer is ever restored: one file per `(session_id, sha_range)`, never an append to another's, escalate if undeterminable. `A-SUSPENDED-OP-IS-NOT-A-MECHANISM-TO-WAIT-OUT`.
+**You write no trail file; nothing does.** `state/review-trail/*.json` is FROZEN — `coverage.py` still reads it, no writer adds to it — so its UNCOVERED never means "unreviewed": the record is the `review_receipt:` block a reviewer stamps into its own sidecar. The rule below is what a **returning writer** would owe, never a live obligation: one file per `(session_id, sha_range)`, never an append to another's, escalate if undeterminable. `A-SUSPENDED-OP-IS-NOT-A-MECHANISM-TO-WAIT-OUT`.
 
 ### Apply Everything
 
@@ -179,7 +201,7 @@ prints none, so don't go looking. Bucket flags repeat, comma-separated ids.
 ```
 --sidecar <reviewer findings .md>   --applied --escalated-disagree --escalated-ask
 --escalated-p0 --deferred --verified-no-action   --no-findings (excludes bucket flags)
---rationale-stdin (prefer; --rationale-file is shared state)   --run-report   --root
+--rationale-file <path under YOUR sidecar dir> (dispatched, you have no stdin)   --run-report <path>   --root
 ```
 
 Hand-authored shape (edge case only): `---` divider, `## Integrator Dispositions` heading, fenced yaml with `schema_version: 1` plus the six buckets, optional `### Rationale` subsection (one bullet per finding-that-needs-one, not a row per finding). Five buckets always render, `[]` included; `verified-no-action` renders only when non-empty and last (`DISPOSITION-BUCKET-SIXTH-RENDERS-ONLY-WHEN-USED`). Full worked example: wiki § How to write the block. No per-finding inline annotation — no `"disposition"` fields on finding objects, no `**Disposition:**` bullets, no rewriting the sidecar body; the bulk block at the bottom is the entire write.

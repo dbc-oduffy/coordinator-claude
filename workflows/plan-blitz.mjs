@@ -44,10 +44,39 @@
  *       sized: boolean,       // true when the baton already cites a sizing-object. A sized
  *                             //  baton SKIPS the scout (its size was decided upstream) but
  *                             //  still passes through the blitz-em, which may revise it.
- *       planPath: string|null // an existing plan, when the baton already has one. Non-null
+ *       planPath: string|null,// an existing plan, when the baton already has one. Non-null
  *                             //  means this wave REVISES rather than authors.
+ *       executionOpen: boolean// REQUIRED, from `roadmap.plan_gate`'s `execution_gate.open`
+ *                             //  for this baton. An XS may be DONE in this wave only when
+ *                             //  its EXECUTION gate is open — blockers coded, not merely
+ *                             //  planned. Omit it and every XS fails the `=== true` test,
+ *                             //  so none dispatches, none is closed at the landing, and
+ *                             //  each returns as a candidate in the next wave's gate read.
+ *                             //  That is the recycling defect, and it is silent: the wave
+ *                             //  still reports the batons under `routedElsewhere`.
  *     } ]
  *   }
+ *
+ * REPAIR MODE — a distinct invocation shape, never mixed with the args above:
+ *   {
+ *     mode: 'repair',
+ *     trailDir: string,
+ *     repairBatons: [ {
+ *       batonId: string,
+ *       planPath: string,        // the plan already on disk. No plan on record -> refused.
+ *       reviews: [ {             // the structured pointer records already read off disk by
+ *                                 //  the CALLER (this script has no fs primitive of its own —
+ *                                 //  see WORKFLOW-AGENT-AS-FILE-HANDLE). Each is fed verbatim
+ *                                 //  through the existing resolveVerdict(), never reconstructed.
+ *         reviewer: string,
+ *         sidecarPath: string,
+ *         verdict: string,       // the reviewer's own word, exactly as REVIEW_SCHEMA carries it
+ *         premiseFailure: string | null,
+ *       } ],
+ *       unresolvedPointers: [ { pointerPath: string, error: string } ], // present -> refused
+ *     } ]
+ *   }
+ * Returns: { mode: 'repair', repaired: [...], refused: [...] } — see Repair mode below.
  *
  * Invocation:
  *   Workflow({
@@ -64,17 +93,28 @@
  * Returns: { waveIndex, ready, pulled, replan, surfacedToPm, trailDir } — see WAVE RESULT below.
  */
 
+// `phases` is a DECLARATION LIST, not the schedule. Its order is what a reader sees in the run's
+// progress; what actually orders a phase is the data it consumes — the premise check needs a
+// written plan, the reviewers read its report, the mutating phase runs after everything read the
+// tree. A phase inserted or moved here changes the display and nothing else, so a later author
+// reordering this pipeline reorders the CALLS and keeps this list's membership in step (the
+// contract test asserts set-equality both directions, never position).
+//
+// No apostrophe in a `detail` string. The engine's `_workflow_contract.meta_phase_titles` pairs
+// quotes naively, so one `\'` shifts the pairing and every phase declared after it goes missing
+// from what the checker believes was declared — reported as a WARN about a phase that is right
+// there. An even number happens to cancel, which is why this passes until it does not.
 export const meta = {
   name: 'plan-blitz',
-  description: 'One planning wave: sonnet scouts size the batons, an Opus EM finalises, Opus planners write, plans are reviewed and integrated unconditionally, and the EM gates readiness at the end.',
+  description: 'One planning wave: sonnet scouts size the batons, an Opus EM finalises, Opus planners write, a sonnet pass resolves each plan\'s citations against the tree, plans are reviewed and integrated unconditionally, and the EM gates readiness at the end.',
   phases: [
     { title: 'Size', detail: 'One sonnet sizing-scout per unsized baton — substrate read, touchpoint inventory, prior art, and a proposed t-shirt with its evidence. Skipped for a baton that already cites a sizing-object.' },
     { title: 'Size review', detail: 'One Opus blitz-em over the whole wave. Interrogates every proposed size (revising down by default), finalises the route via sizing-assemble, and emits the per-baton dispatch spec the Plan phase reads.' },
     { title: 'Plan', detail: 'One Opus planner per baton, on every route and at every size — authoring is not a lane the wave economises on. Writes the plan doc through coordinator:plan / scaffold-plan; never hand-authors frontmatter.' },
-    { title: 'Premise check', detail: 'One check per baton, dispatched after the plan\'s path is trusted and before any reviewer fires: does the plan\'s premise hold against the tree right now (cited paths, symbols, refs, and instrument-can-report-red), riding the same REVIEW_SCHEMA and BLOCKED/PIVOT routing a reviewer uses. A premise miss is BLOCKED, not PIVOT, unless it is a class-5 semantic finding with no writable fix.' },
+    { title: 'Premise check', detail: 'One sonnet pass per drafted plan, dispatched once its plan path is trusted and before any reviewer fires. Resolves the load-bearing citations in that plan against the tree — paths, symbols, refs, whether its falsifier can report red, and whether a named thing means what the plan says. It reports per-class ROWS and never a plan-level verdict; the seam after it translates those rows onto REVIEW_SCHEMA so they reach the integrator that already applies every finding. A premise miss routes BLOCKED; the class-5 rows with no writable fix are NAMED for the reviewers, who own the separating test.' },
     { title: 'Review', detail: 'Reviewers resolved per baton from the EM dispatch spec, never prescribed in the plan file. Fires unconditionally — the EM is not consulted about whether a plan deserves review.' },
     { title: 'Integrate', detail: 'review-integrator per plan, also unconditional, including on a clean OK. Applies findings and escalates ASKs. A PIVOT from any reviewer suspends integration for the whole plan, with every sidecar still triaged so no co-reviewer findings are lost.' },
-    { title: 'Resolve escalations', detail: 'Conditional: fires only when a plan\'s integration escalated at least one ASK. Re-invokes the Plan phase\'s own planner/prompt in its revising branch, picking ONLY among alternatives a reviewer already enumerated (review-integrator.md:199) — never authoring a third option. Records every pick via `choicesMade` so the trail carries the resolution, not just the question.' },
+    { title: 'Resolve escalations', detail: 'Conditional: fires only where integration escalated an ASK carrying two or more REVIEWER-ATTRIBUTED alternatives. Re-invokes the Plan phase planner itself, in its revising branch — no new actor — picking ONLY among catalogued option ids, never authoring a third. `choicesMade` is required, and what was NOT chosen is computed from the catalogue rather than taken from the pick. Skipped whole on a PIVOT and where nothing is choice-shaped.' },
     { title: 'Dispatch', detail: 'One executor per XS/dispatch baton whose EXECUTION gate is open. Runs AFTER planning so the wave plans against a stable tree and the only mutating phase is last. Bounded to the remit the baton itself states — an XS that grows is a sizing defect, not a bigger job.' },
     { title: 'Readiness gate', detail: 'One Opus blitz-em over the durable trail. Per plan: ready, pulled, or replan. A PIVOT routes to a replan baton for a later wave rather than halting this one, and is reconciled mechanically rather than left to the gate.' },
   ],
@@ -146,16 +186,34 @@ const PLAN_SCHEMA = {
     blockedReason: { type: 'string' },
     exitCriterion: { type: 'string' },
     // Populated only by the Resolve-escalations pass (see `planner`'s `escalation` argument and
-    // `RESOLVE_SCHEMA` below) — never by an ordinary authoring or revising call. Control-flow-inert,
-    // the same shape as `blockedReason` above: its only consumer is the trail renderer, which is
-    // why it is a discriminant field rather than prose. One entry per escalated ASK the resolve
-    // pass acted on; `chosen` and each `rejected` entry are option identifiers drawn from that
-    // ASK's own stated option list (review-integrator.md:199), never invented text.
+    // `RESOLVE_SCHEMA` below) — never by an ordinary authoring or revising call.
+    //
+    // Review note (overengineering-reviewer, 2026-09-06): the `blockedReason` precedent
+    // originally cited to justify this field was checked and REFUTED — `blockedReason` is the
+    // explanatory partner of `status: 'blocked'`, which IS read as control flow at the plan
+    // status branch above and by the readiness gate, so that pair is live and only one half is
+    // inert. `choicesMade` has no such live half in the plan body's own control flow, and the
+    // resolve pass at :707 already edits the plan body with its picks — that argument does not
+    // survive and is not the reason this field stays.
+    //
+    // The field stays for a different, verifiable reason: the readiness gate is a separate Opus
+    // agent that reads the RENDERED TRAIL, not the plan body (see the `trailLines` / gate prompt
+    // below), and that gate prompt is written to read a resolution with the SAME priority it
+    // gives an unresolved escalation. `choicesMade` is what feeds that render — without it,
+    // resolving an ASK in-wave would silently empty the gate's highest-signal input. One entry
+    // per escalated ASK the resolve pass acted on; `escalationId` and `chosen` are ids the wave
+    // itself minted into the catalogue the pass was handed (`convergenceCatalogue`), never
+    // invented text — the requirement that every escalated ASK carries two-or-more attributed
+    // options is `review-integrator.md` § ASK Options Carry Their Source.
     choicesMade: {
       type: 'array',
       items: {
         type: 'object',
-        required: ['escalationId', 'chosen', 'rejected'],
+        // `rejected` is deliberately NOT required, and any value reported here is not read.
+        // What was not chosen is COMPUTED from the catalogue by `reconcilePicks` — it is the one
+        // field the actor that chose has an incentive to shorten, and the catalogue already
+        // knows it. Requiring it would teach the pass that its own copy is authoritative.
+        required: ['escalationId', 'chosen'],
         properties: {
           escalationId: { type: 'string' },
           chosen: { type: 'string' },
@@ -163,6 +221,46 @@ const PLAN_SCHEMA = {
         },
       },
     },
+  },
+}
+
+// A premise check answers CLASSES, and its output is deliberately not a verdict on the plan.
+// There is no `ok`/`sound`/`ready` field and no place to put one: the moment a schema offers a
+// plan-level judgment, a downstream reader treats a clean citation table as an approval, and a
+// pass built to catch one class starts standing in for correctness. Counts and rows only.
+//
+// `UNCHECKABLE` is a first-class row value rather than an omission, because the semantic class
+// (5) is only sometimes mechanically decidable — the repo has to carry a surface that forbids the
+// assumption. A row silently dropped when nothing settled it is indistinguishable from a row that
+// resolved, which would convert this pass's honest gap into a false clean.
+const PREMISE_SCHEMA = {
+  type: 'object',
+  required: ['batonId', 'planPath', 'rows', 'sidecarPath'],
+  properties: {
+    batonId: { type: 'string' },
+    planPath: { type: 'string' },
+    rows: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['questionClass', 'citation', 'verdict'],
+        properties: {
+          // 1 paths · 2 symbols · 3 refs · 4 falsifier arming · 5 asserted semantics.
+          questionClass: { type: 'integer' },
+          citation: { type: 'string' },
+          verdict: {
+            type: 'string',
+            enum: ['RESOLVES', 'UNRESOLVED', 'CONTRADICTED', 'UNCHECKABLE'],
+          },
+          evidence: { type: 'string' },
+        },
+      },
+    },
+    // Carried verbatim from `instrument-can-report-red.py` rather than restated. A paraphrase of
+    // that surface's verdict is a second implementation of its predicate wearing a shorter name.
+    falsifierVerdict: { type: 'string' },
+    citationsSkipped: { type: 'integer' },
+    sidecarPath: { type: 'string' },
   },
 }
 
@@ -222,6 +320,48 @@ const INTEGRATION_SCHEMA = {
     planPath: { type: 'string' },
     applied: { type: 'integer' },
     escalated: { type: 'array', items: { type: 'string' } },
+    // The same escalations as `escalated`, carrying the one thing a picker needs: WHO
+    // enumerated each alternative. Nothing here widens what the integrator may apply on its
+    // own — the integrator's contract ALREADY requires an ASK to carry two-or-more concrete
+    // options and the recommendation it would make if forced. This is that material, structured,
+    // with each option attributed. `escalated` stays the prose list the gate has always read.
+    //
+    // `options[].source` is a REVIEWER NAME and the catalogue drops any option whose source is
+    // not a reviewer that actually reviewed this baton. That is where "only a reviewer-enumerated
+    // alternative may be picked" is enforced in code rather than in prompt text: an option the
+    // integrator composed itself is attributed to the integrator, does not survive the filter,
+    // and is therefore not choosable.
+    escalations: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['summary', 'options'],
+        properties: {
+          summary: { type: 'string' },
+          options: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['source', 'text'],
+              properties: {
+                // The reviewer who wrote this alternative, or the integrator's own name when
+                // the integrator composed it. Unattributed is treated as the integrator's.
+                source: { type: 'string' },
+                // The reviewer's words, verbatim. A paraphrase is a second thing to keep true,
+                // and the chooser picks by reading these.
+                text: { type: 'string' },
+              },
+            },
+          },
+          recommendation: { type: 'string' },
+          // Anti-dodge field (4) from the integrator's own contract, carried rather than
+          // restated: it is the APPLICABILITY axis stated per escalation — why this finding
+          // names a change nobody can make without choosing. Verdict severity is not a proxy
+          // for it and is deliberately absent here.
+          whyItExceedsDiscretion: { type: 'string' },
+        },
+      },
+    },
     rejected: { type: 'boolean' },
     reportPath: { type: 'string' },
   },
@@ -364,24 +504,21 @@ function resolveReviewers(named) {
 
 // Hand-synced from coordinator/snippets/premise-check-contract.md (C1) and
 // coordinator/snippets/instrument-can-report-red.md (C2) — NOT verify-snippet-sync-governed.
-// Probed 2026-09-06: verify-snippet-sync pastes a snippet's raw HTML-comment sentinels and
-// markdown body verbatim at the target path with no language awareness. Against a synthetic
-// `.mjs` consumer entry, `--fix` appended the sentinel-delimited markdown block as bare top-level
-// text — a syntax error in JavaScript outside a string/template literal (confirmed by direct
-// `verify-snippet-sync instrument-can-report-red --fix` probe against a scratch registry entry
-// pointing at this file; reverted after the probe). The tool therefore does not meaningfully
-// support a non-markdown paste target — it does not crash, but it does not produce valid output
-// either. Falling back per this chunk's stated contingency: a hand-synced module-level constant,
-// kept honest by one containment assertion in test_plan_blitz_contract.py, not a sentinel-synced
-// paste. Re-copy verbatim from the two `.md` sources on edit; do not paraphrase.
+// See tripwire `verify-snippet-sync-has-no-language-awareness.md` for why: this file is a `.mjs`
+// paste target the sync tool cannot produce valid output against. Falling back per this chunk's
+// stated contingency: a hand-synced module-level constant, kept honest by one containment
+// assertion in test_plan_blitz_contract.py, not a sentinel-synced paste. Re-copy verbatim from
+// the two `.md` sources on edit; do not paraphrase.
 //
 // Escaping rule: both source texts contain no `${}` sequence (verified at authoring time), so
 // every backtick in the pasted text below is escaped as \` and no other transformation is
 // needed. If either source ever grows a `${}` sequence, re-escape it the same way before pasting.
 const PREMISE_CHECK_CONTRACT = `## Premise Check Contract
 
-A premise check asks one question, in five classes, over a plan's cited paths, symbols, refs and
-in-repo behaviour claims: **does this plan's premise actually hold against the tree right now?**
+A premise check asks one question, over a plan's cited paths, symbols, refs, and in-repo
+behaviour claims: **does this plan's premise actually hold against the tree right now?** (Its
+sibling snippet, \`instrument-can-report-red.md\`, asks the companion question for a falsifier
+itself: is its verdict wired to its exit path?)
 It is written to be INLINED into a dispatch brief, never dispatched as its own agent — the
 \`PLUGIN_AGENTS\` default-off constraint means an \`agentType\` the harness cannot resolve silently
 degrades to a generic agent wearing the role's label, which reuses the persona and loses the
@@ -391,6 +528,16 @@ check. Whatever consumes this text must inline it directly.
 exist? For every cited \`file:line\` / \`file:symbol\` claim: does the symbol exist in that file? This
 is the same check plan-coverage-checker's Lens 3 already runs (\`ls\`-check cited paths,
 \`Read\`-verify cited claims, grep backtick-quoted in-repo constants) — it is not re-derived here.
+
+**Why \`ls\`/\`Read\`/\`grep\` and not the symbol-graph tools.** \`project_referencers\` and
+\`project_symbol_callers\` would answer classes 1 and 2 more precisely, and they are deliberately not
+used: this text is INLINED into a dispatch brief inside a workflow, and an MCP tool surface is not
+guaranteed to be present for the agent that receives it — a check that silently degrades when a tool
+is missing is worse than one built from primitives that are always there. The project-rag index is
+also a projection that can lag the tree (1494 commits behind at the time this shipped), and a premise
+check that reads a stale projection would report the tree as it was, which is the exact failure it
+exists to catch. Existing checker agents ARE reused: this contract carries plan-coverage-checker's
+Lens 3 calibration over verbatim rather than re-deriving it, and Lens 3 consumes this same text.
 
 **Tolerance rule, carried over verbatim, do not recalibrate:** same-file line-number drift alone
 (same file, same symbol, shifted line number) is tolerated and is NOT a finding; a missing file or
@@ -420,11 +567,14 @@ condition (defect vocabulary) generalizes from ONE incident (2026-07-27: a plan 
 resolver's default was defective when it was in fact a PM-ratified asymmetry, caught only because
 a defect-vocabulary trigger like this one would have flagged it for a symbol read). That is
 enough to ship it as an acceptance criterion and not enough to call the trigger calibrated. The
-owner of the standing blitz-conversion re-measurement effort re-checks the trigger against a
-class-5 firing log (every class-5 finding, with whether the subsequent symbol read confirmed or
-refuted the plan's claim) before the PROVISIONAL mark comes off. Until then, a class-5 finding
-carries the same weight as any other finding — only the TRIGGER is under review, not the finding's
-validity.
+mark comes off once a later session has counted enough real firings, in
+\`state/audits/2026-09-06-blitz-conversion-re-measurement.md\`'s Arm C table, to say the trigger's
+precision — each row sourced from a wave's per-baton \`*.premise-check.md\` sidecar under that
+wave's trail directory (\`sidecarFor(trailDir, batonId, 'premise-check')\` in \`plan-blitz.mjs\`).
+Until a wave has actually run this check, that table is empty and the PROVISIONAL mark stands —
+an empty table is not evidence the trigger is miscalibrated, only that it has not fired yet. Until
+the mark comes off, a class-5 finding carries the same weight as any other finding — only the
+TRIGGER is under review, not the finding's validity.
 
 **Mechanical vs. judgment split, carried over verbatim.** Classes 1, 2 and 3 are mechanical:
 existence either holds or does not. Class 5 is judgment: it requires reading a symbol's actual
@@ -437,8 +587,8 @@ class number: a number alone reads as more precise than the taxonomy underneath 
 **A premise check never claims plan correctness.** It catches a class of false premise; a plan
 whose every citation resolves against the tree can still be wrong. This pass reports what it
 checked and what it found; it does not ratify the plan, and it does not refuse to report a partial
-or degraded result — a class-5 miss with no forbidding surface and no defect vocabulary is
-reported as "class 5 not applicable, degrades to reviewer judgment," not withheld.`
+or degraded result — a semantic-check miss with no forbidding surface and no defect vocabulary is
+reported as "semantic check not applicable, degrades to reviewer judgment," not withheld.`
 
 const INSTRUMENT_CAN_REPORT_RED_CONTRACT = `## Can This Instrument Report Red?
 
@@ -555,6 +705,12 @@ returned summary is a finding the EM's readiness gate will never see.`
 // The trail still gets an entry — a POINTER at the assigned path, naming where the real
 // sidecar went. The readiness gate reads the trail; it must not go blind to a review just
 // because the review now lives somewhere else.
+// PRECONDITION for repair mode (see below): the pointer is a STRUCTURED RECORD, not a bare
+// path. A bare path loses `verdict`/`premiseFailure` — the only durable trace of a PIVOT — so a
+// repair pass reading an old-shape pointer would resolve REJECTED-without-premise to BLOCKED and
+// integrate findings a live wave correctly suspended. `verdict` and `premiseFailure` in the
+// pointer are the SAME claim the agent also returns in its own JSON schema output below, stated
+// twice, never two sources of truth.
 const REVIEW_SIDECAR_RULE = (pointerPath) => `
 Write your findings sidecar to YOUR OWN PROVISIONED SIDECAR under
 \`<machinery_root>/subagent-share/<your session id>/\`, and return its absolute path verbatim as
@@ -562,13 +718,20 @@ Write your findings sidecar to YOUR OWN PROVISIONED SIDECAR under
 refuses any path without \`subagent-share\` as a path segment, and a findings sidecar it cannot
 open is a review whose dispositions are never recorded.
 
-Then write a POINTER file at EXACTLY this path, containing the one absolute path above and
-nothing else:
+Then write a POINTER file at EXACTLY this path, containing a SHORT STRUCTURED RECORD as one JSON
+object and nothing else — not a bare path:
 
     ${pointerPath}
 
-The pointer is how the readiness gate finds you. A findings sidecar with no pointer is a review
-the gate cannot see, and a pointer with no sidecar is worse — it reads as a review that ran.
+\`\`\`json
+{"sidecarPath": "<the absolute sidecar path above>", "verdict": "<your verdict, exactly as you return it below>", "premiseFailure": "<your premiseFailure verbatim, or null if you did not state one>"}
+\`\`\`
+
+The pointer is how the readiness gate finds you, and it is also how a REPAIR run finds you later
+with no reviewer re-dispatched: a repair pass reads this record and feeds it through the same
+\`resolveVerdict()\` a live wave uses, so a sidecar saying REJECTED resolves by the same evidence
+rule whether the wave is live or repaired. A findings sidecar with no pointer is a review the gate
+cannot see, and a pointer with no sidecar is worse — it reads as a review that ran.
 
 The sidecar is the durable record this wave is read from: a finding that exists only in your
 returned summary is a finding the EM's readiness gate will never see.`
@@ -576,6 +739,52 @@ returned summary is a finding the EM's readiness gate will never see.`
 const NO_EXECUTION_RULE = `
 You do not execute. No code changes, no "quick fix while I'm here", no chunk work. A defect you
 spot in the tree is something you report, not something you do.`
+
+// THIS SKILL'S EXIT IS THE NEXT CEREMONY'S ENTRY. A wave lands a plan at `approved`, and the
+// hands-off run that fires it is gated on `plan.prep_gate` — the mise-prep authoring bar, whose
+// four declarations are exactly the judgment calls a driver would otherwise have to ask a human
+// about. A plan authored without them is NOT-PREPPED by construction, so every plan a wave
+// produces buys a manual repair pass before anything can execute it. Measured on project-rag:
+// 323 of 329 plans on disk, 6 PREPPED.
+//
+// Declaring them is authoring work, not certification work — the bar asks the author what only
+// the author knows, and asks it while the plan is being written rather than weeks later from a
+// gate verdict. The wave still stamps nothing: `mise_prepped_*` is written by
+// `plan.stamp_prepped`, outside this skill, and SKILL.md's "`approved` is not `mise-prepped`"
+// rule is unchanged.
+const MISE_PREP_RULE = `
+FOUR DECLARATIONS, because the next ceremony is gated on them. The plan you write is fired by a
+hands-off run with no human in the loop, and its entry gate refuses a plan that leaves any of
+these undeclared. "Nothing to declare" is itself a declaration — an EMPTY value is a claim a
+reader can check; an ABSENT key is one nobody can see. Declare all four:
+
+  1. \`writes:\` ON EVERY SPINE ROW. The wave-builder decides what can run in parallel from the
+     rows' write sets, and cannot decide it for a row that declares none. A row that writes
+     nothing declares \`writes: []\`.
+
+  2. \`census:\` IN FRONTMATTER — every COUNTED premise the plan rests on, as
+     \`question\` + \`command\` + \`result\`. The command is the point: a count in prose can only
+     be believed or not, while a count with the query that produced it can be re-asked of HEAD at
+     fire time, which is what an undercount needs in a world where planning runs waves ahead of
+     execution. Do not restate the spine's own file count here. A plan resting on no counted
+     premise declares \`census: []\`.
+
+  3. \`external_gate[].requires:\` ON EVERY UNCLEARED GATE. A blocker owned by another repo is a
+     declared gate, never a sentence in the body. \`requires: landed-work\` means wait for them —
+     the row is withheld and the plan still certifies. \`requires: commit-in-owner-repo\` means
+     write into their tree — which needs per-session PM assent a hands-off run cannot obtain, so
+     it refuses the whole plan. The two read identically in prose and route oppositely, which is
+     why the field exists. A row whose declared paths leave this repo and carries no gate at all
+     is refused.
+
+  4. \`prime_exit_criterion:\` AT EVERY SIZE, S and XS included — \`statement\` plus
+     \`derived_from\`. It answers the one question a driver cannot answer against a task list:
+     how do I know this is finished. A \`falsifier\` sub-object stays proportional to size and is
+     not required here.
+
+Declare what is true. A \`census: []\` on a plan that counted something, or a gate omitted because
+naming it looked like extra work, is a false claim in a machine-checked field — worse than the
+absence, because it certifies.`
 
 // ---------------------------------------------------------------------------
 // Phase 1 — Size
@@ -640,30 +849,50 @@ you found it.`
 
   // The Resolve-escalations pass: SAME actor, SAME prompt, SAME revising branch above — the
   // only addition is this brief, appended below the ordinary revising instruction. It fires
-  // only when integration on this baton escalated at least one ASK, and `baton.planPath` is
-  // guaranteed set by then (the plan was written or revised earlier in this same wave).
+  // only when integration on this baton escalated at least one ASK. The caller passes a baton
+  // whose `planPath` is this wave's authored plan -- the field on the real baton is set only from
+  // a prior wave's trail, so it is null exactly when this pass matters most.
   const resolveBrief = escalation
     ? `
 RESOLVE PASS — not authoring, and not an ordinary revision. Integration on this plan escalated
-${escalation.escalated.length} ASK(s) too consequential to apply silently. Full findings:
+${escalation.escalationCount} ASK(s) too consequential to apply silently. Full findings:
 ${escalation.reportPath}.
 
-Escalated ASKs, numbered for reference:
-${escalation.escalated.map((e, i) => `  escalation-${i + 1}: ${e}`).join('\n')}
+The CATALOGUE below is the closed set you may settle. It is not the integrator's escalation list
+verbatim: every option on it was written by a reviewer who actually reviewed this baton, and an
+option the integrator composed itself has already been dropped — an integrator that composes an
+option and then has it chosen has laundered its own judgment through you. Each option carries the
+id you pick by and the reviewer who wrote it.
 
-For each one, pick ONLY among the concrete options its reviewer already enumerated —
-\`review-integrator.md:199\` fixes the requirement that every escalated ASK carries "two-or-more
-concrete options"; that enumerated set is what you choose among. Never invent a third option, and
-never author a fix that is not one of the alternatives already stated for that ASK. If an ASK's
-option list is genuinely unusable (fewer than two options, or none apply), say so in your returned
-summary and leave that ASK unresolved rather than guessing.
+${escalation.menu}
+${escalation.notConvergeable.length ? `
+NOT settleable here, and you leave them alone — they reach the readiness gate escalated exactly as
+they would have without this pass:
+${escalation.notConvergeable.map((n) => `  ${n.id}: ${n.summary} — ${n.reason}`).join('\n')}
+` : ''}
+Pick at most one option id per catalogue entry, against the BATON'S OWN REMIT: which option leaves
+the plan doing the job the baton asks for, at the size it was routed at. Not which is safest, not
+which is largest, not which the integrator leaned toward — its recommendation is one input and
+carries no weight of its own. Read the reviewer sidecars the options came from first: the texts
+above are quotations, and a quotation read without its finding is how the wrong one gets picked
+confidently.
+
+**You may pick nothing else.** An id that is not in the catalogue above is refused before anything
+reads it, and the refusal is printed in the trail beside this plan. If the right answer is a third
+thing nobody wrote down, DO NOT EDIT THE PLAN FOR IT — leave that escalation unresolved and name
+the third thing in your summary. The gate reads it, and a plan that pulls carrying a named third
+option is a better pull than a plan whose body was edited toward an option no reviewer wrote and
+whose record says REFUSED.
+
+Leave an escalation unresolved whenever picking would take a fact you do not have. That costs the
+wave nothing it was not already paying: the escalation reaches the readiness gate as it would have.
 
 Edit the plan body to reflect the picks you make, then return \`choicesMade\`: one entry per
-escalation you resolved, \`{ escalationId, chosen, rejected }\`, where \`escalationId\` is the
-\`escalation-N\` label above and \`chosen\`/each \`rejected\` entry is an option identifier drawn
-from that escalation's own stated option list — never invented text. This is REQUIRED on your
-return: it is the only record of what was picked and what was not, and the trail renders it next
-to the escalation it resolves.
+escalation you settled, \`{ escalationId, chosen }\`, both ids drawn from the catalogue above.
+\`choicesMade\` is REQUIRED — a resolve pass with nothing to record has not resolved anything. What
+you did NOT choose is computed from the catalogue rather than read from your return, so a short
+reason is the only thing you can shorten: say in your summary why each option you took beats the
+ones you left.
 `
     : ''
 
@@ -680,7 +909,13 @@ ${resolveBrief}
 ${baton.planPath ? `You are revising, so the file already exists and the generator has no part in this: the
 scaffold step below is for a plan being authored from nothing, and running it here is what
 produces the duplicate you were just told not to create. Read the existing plan first, then edit
-its body.` : PLUGIN_AGENTS ? `Invoke the coordinator:plan skill and follow it. Two rules from it that a fan-out is most likely
+its body.
+
+A plan authored before the mise-prep bar will be missing the FOUR DECLARATIONS below, and
+frequently the task spine with them — most of the corpus predates all of it. Revising means
+bringing the plan up to the bar, not only editing the prose you were sent here for: add the
+frontmatter keys and the spine if they are absent. Leaving a revised plan below the bar hands the
+next ceremony a plan it must refuse, and the revision reads as complete.` : PLUGIN_AGENTS ? `Invoke the coordinator:plan skill and follow it. Two rules from it that a fan-out is most likely
 to skip, restated because skipping them here is invisible until much later:
 
   1. The plan file is produced through scaffold-plan / coordinator-doc-new, never hand-authored.
@@ -701,7 +936,44 @@ docs/plans/<YYYY-MM-DD>-<slug>.md. Frontmatter, exactly these keys and nothing i
     author: plan-blitz
     deliverable_id: "<the baton's own deliverable_id, copied verbatim from its record>"
     sizing_object: ${sizingFm}
+    census: []            # or a list of {question, command, result} — see FOUR DECLARATIONS
+    prime_exit_criterion:
+      statement: "<what makes this plan finished, checkable against the tree>"
+      derived_from: "<the baton, ruling or AC the statement is read off>"
+    external_gate: []     # or a list of gates, each carrying requires:
     ---
+
+and a task spine in the body, which is the thing the run schedules — a fenced
+\`\`\`yaml plan-tasks block under \`## Tasks\`, one row per unit of work:
+
+    \`\`\`yaml plan-tasks
+    - id: C1
+      title: "<one line>"
+      change_kind: code-edit        # or verification, doc-edit, test-edit, ...
+      surface: <subsystem or path>
+      writes:
+        - <repo-relative path this row writes>
+      disposition: open
+    - id: C2
+      title: "<one line>"
+      change_kind: test-edit
+      surface: <subsystem or path>
+      writes: []
+      depends_on:                   # OPTIONAL, and an OBJECT per predecessor, never a bare id
+        - chunk: C1
+          gate_kind: output-consumption-runtime   # or epistemic-premise; those two only
+      disposition: open
+    \`\`\`
+
+A plan with no spine declares no work the run can schedule, so it is not
+dispatchable however good its prose is.
+
+\`depends_on\` is only for the two gates a wave-builder CANNOT derive:
+\`output-consumption-runtime\` (the predecessor's artifact must exist at runtime when this row
+runs) and \`epistemic-premise\` (the predecessor decides whether this row should exist at all).
+Ordering that follows from two rows touching the same file is computed from \`writes:\` and must
+NOT be restated here. Omit the key when neither gate applies — a bare string in this array is a
+spine that fails to read, which refuses the whole plan rather than the row.
 
 **\`deliverable_id\` is load-bearing, not bookkeeping.** It is the only edge that links this plan
 back to its baton, and \`roadmap.plan_gate\` resolves the link through it. A plan without it is
@@ -732,6 +1004,7 @@ write a plan, return \`status: blocked\` with the reason rather than a path to s
 Getting this wrong does not fail loudly on your side: the reviewer and the integrator are both
 aimed at whatever you return here, so a sidecar path sends two more agents at a file that is not
 the plan, and the baton spends a wave slot producing nothing.
+${MISE_PREP_RULE}
 ${NO_EXECUTION_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'planning-report'))}`,
     withRole('coordinator:plan-author', {
@@ -760,10 +1033,255 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'planning-report'))}`,
 }
 
 // ---------------------------------------------------------------------------
+// Premise check — between a written plan and the reviewers who read it
+// ---------------------------------------------------------------------------
+//
+// WHAT THIS BUYS. Nothing between authoring and review resolves a plan's claims against the
+// tree, so the first reader to notice a path that does not exist, a symbol that means something
+// else, a branch nobody pushed, or a falsifier that cannot go red is an OPUS reviewer — and the
+// discovery costs that reviewer, an integrator, and a wave slot. Peer-reported, and NOT a DoE
+// measurement: across an eight-wave sweep in one sibling repo and five waves in another, the
+// plans that reached execution-ready were a minority, and nearly every pull was this one shape.
+// The same series shows the ready rate having no relationship to plumbing state in either
+// direction across the whole eight waves, which is why this is a missing stage rather than an
+// unreliable one.
+//
+// IT REPORTS. It does not refuse, does not gate, and does not edit. The semantic class is only
+// mechanically decidable where the repo carries a surface that forbids the assumption, so on the
+// occasions it is guessing a hard refusal would convert a recoverable authoring slip into a
+// pulled plan — the exact cost this exists to remove. Its output goes to the reviewers (who then
+// spend their pass on judgment rather than on resolving citations) and to the integrator (which
+// is what already edits the plan body, so a premise finding is repaired in-wave through a phase
+// that exists rather than a second pass that does not).
+//
+// IT IS NOT A CORRECTNESS CLAIM, and the schema above has nowhere to make one.
+//
+// ORDERING. This runs where it does because of DATA, not position: it needs a written plan, and
+// the reviewers read what it returns. Nothing here reads a phase index or assumes what runs on
+// either side of it.
+
+function premiseChecker(baton, planResult, trailDir) {
+  return agent(
+    `phase: premise-check
+
+Resolve the load-bearing citations in the plan at ${planResult.planPath} (baton ${baton.id}) against
+this tree. A citation is load-bearing when the work changes if it does not resolve.
+
+Report the CLASS you checked. You are not reviewing the plan, and you never report that it is
+correct, sound or ready — a plan whose every citation resolves can still be wrong, and a clean
+table read as an approval is worse than no table.
+
+You never refuse and never edit. A defect you find is something you report.
+
+Five question classes. Answer each for every load-bearing citation:
+
+  1. PATHS — does each cited file, directory or artifact exist? The plan's own frontmatter counts:
+     a literal scaffold placeholder left in \`plan_id\` or \`deliverable_id\` is an unresolved
+     citation, not a formatting slip.
+  2. SYMBOLS — does each cited function, constant, op or CLI exist, and is it reachable the way
+     the plan assumes? Where \`project_referencers\` / \`project_symbol_callers\` / \`project_file\`
+     resolve on this machine, use them; otherwise grep for the definition site. Say which route
+     answered — an absent tool is a thinner check, not a resolved citation.
+  3. REFS — does each cited branch, tag or commit exist? ONE batched \`git branch -r\` plus
+     \`git rev-parse --verify\` per plan, never one process per citation.
+  4. FALSIFIER ARMING — can this plan's own falsifier report red? Run
+     \`coordinator/bin/instrument-can-report-red.py <instrument> --json\` and carry its verdict
+     into \`falsifierVerdict\` VERBATIM. Do not restate its predicate in your own words and do not
+     write your own version: it is one surface with several readers. Its \`UNCHECKABLE\` means the
+     file could not be read, which is not a pass. If the plan names no falsifier, say so.
+  5. ASSERTED SEMANTICS — does the named thing MEAN what the plan says it means? This is the class
+     an existence check misses: the path resolves, the symbol resolves, and the plan still assigns
+     the wrong ROLE to something that is really there. It is decidable exactly where this repo
+     carries a surface that forbids the assumption. So for every substrate the plan gives a role
+     to — a drive, a root, a volume, a directory, a store — grep the wiki and \`state/lessons/\`
+     for that noun plus prohibition vocabulary, and read any resolver the plan routes through to
+     see whether it raises rather than defaulting. Where no such surface exists, the row is
+     \`UNCHECKABLE\`: name the assumption you could not settle. Never upgrade a silence to
+     \`RESOLVES\`.
+
+Row verdicts: RESOLVES · UNRESOLVED (absent) · CONTRADICTED (present, and the tree says otherwise
+— a docstring describing a different job, a wiki page forbidding it, a resolver that raises) ·
+UNCHECKABLE (nothing in this tree settles it).
+
+\`UNCHECKABLE\` costs you nothing and is the honest answer often. \`RESOLVES\` on a citation you did
+not open is the failure this pass exists to stop, moved one stage earlier.
+
+Cap at 40 citations, in plan order; put the number you left in \`citationsSkipped\`.
+
+Do not read the plan's acceptance criteria to decide what to check. Check what it CITES — a
+checker steered by the plan's own account of done inherits the plan's blind spot.
+
+The two contracts below are the calibration for those classes — the tolerance rule, the
+\`<repo>@<ref>\` requirement, class 5's two firing conditions, and the tell an unarmed instrument
+shows. They are inlined rather than left to the role file because a role the harness cannot
+resolve degrades to a generic agent silently, and the contract would go with it. Read them as the
+detail behind the classes above, not as a second taxonomy.
+
+${PREMISE_CHECK_CONTRACT}
+
+${INSTRUMENT_CAN_REPORT_RED_CONTRACT}
+
+Where those contracts say "report, do not refuse", the ROW VERDICTS above are how you report:
+"semantic check not applicable, degrades to reviewer judgment" is a class-5 \`UNCHECKABLE\` row
+naming the assumption, never a withheld row and never a \`RESOLVES\`. Where they say to name the
+check in words rather than a bare class number, the number goes in \`questionClass\` and the words
+go in \`evidence\`. You have no field for a verdict on the plan, and that is deliberate.
+${NO_EXECUTION_RULE}
+${REVIEW_SIDECAR_RULE(sidecarFor(trailDir, baton.id, 'premise-check'))}`,
+    withRole('coordinator:premise-checker', {
+      label: `premise:${baton.id}`,
+      phase: 'Premise check',
+      // Sonnet, pinned rather than inherited, and the pass's whole economic premise: these are
+      // questions with mechanical answers, priced against a discovery cost today of an opus
+      // reviewer plus an integrator plus a wave slot. An opus premise checker would cost more
+      // than the reader it is meant to spare.
+      model: 'sonnet',
+      // Low. The judgment is "did I open the thing", not "is this a good plan" — and raising it
+      // invites exactly the plan-level opinion the schema refuses to carry.
+      effort: 'low',
+      schema: PREMISE_SCHEMA,
+    }),
+  )
+}
+
+// The classes a premise check answers, enumerated so a class with NO row renders as a hole rather
+// than as an absence. 1 paths · 2 symbols · 3 refs · 4 falsifier arming · 5 asserted semantics.
+const CITATION_CLASSES = [1, 2, 3, 4, 5]
+
+// Per-class coverage, rendered in the headline rather than left derivable from the rows below.
+// The consumption contract states the distinction one level up — where no report ran, the class
+// is unchecked, not clean — and the same distinction exists per class: a plan that gave no
+// substrate a class-5 role never attempted class 5, and a plan whose class-5 rows all resolved
+// attempted it and came back clean. Counting unsettled rows cannot tell those apart, so the count
+// is carried per class instead of asked of the reader.
+function classCoverage(rows) {
+  return CITATION_CLASSES.map((klass) => {
+    const inClass = rows.filter((r) => Number(r.questionClass) === klass)
+    if (!inClass.length) return `c${klass}:none`
+    const unsettled = inClass.filter((r) => r.verdict === 'UNCHECKABLE').length
+    return `c${klass}:${inClass.length}${unsettled ? `/${unsettled} unsettled` : ''}`
+  }).join(' ')
+}
+
+// Rendered for the reviewer and the integrator from the structured rows, so both read the same
+// summary and neither has to re-derive it. Unresolved and contradicted rows lead: a table whose
+// interesting rows are buried among resolved ones is read as clean.
+function premiseLines(premise) {
+  if (!premise) return '(no premise check ran for this plan — the citation classes are UNCHECKED, not clean)'
+  const rows = premise.rows || []
+  const flagged = rows.filter((r) => r.verdict === 'UNRESOLVED' || r.verdict === 'CONTRADICTED')
+  const unsettled = rows.filter((r) => r.verdict === 'UNCHECKABLE')
+  const parts = [
+    `${rows.length} citation(s) checked, ${flagged.length} unresolved/contradicted, `
+      + `${unsettled.length} unsettled${premise.citationsSkipped ? `, ${premise.citationsSkipped} beyond the cap` : ''}.`,
+    `class coverage: ${classCoverage(rows)} — "none" is UNATTEMPTED, never clean`,
+    `falsifier arming: ${premise.falsifierVerdict || '(no falsifier named)'}`,
+    `sidecar: ${premise.sidecarPath}`,
+  ]
+  for (const row of flagged.concat(unsettled)) {
+    parts.push(`  [class ${row.questionClass}] ${row.verdict}: ${row.citation}${row.evidence ? ` — ${row.evidence}` : ''}`)
+  }
+  return parts.join('\n')
+}
+
+// THE SEAM. The checker emits rows and no verdict — that is a ruling, and the schema above has
+// nowhere to record one. Delivery is a separate problem and it is solved HERE, in code, by
+// translating those rows onto REVIEW_SCHEMA: the premise report then reaches the review-integrator
+// through the channel a reviewer already uses, and the integrator — the only actor that edits the
+// plan body, already contracted to apply every finding unconditionally — repairs a false citation
+// in-wave. Nothing about that needs a parallel applier, and a checker that reported to a channel
+// nobody applies from was reporting to nobody.
+//
+// The translation is what routes; the checker never does. That is the whole point of putting it
+// here. A verdict this function computes is a lookup over row verdicts that a reader can audit in
+// one screen, priced at nothing; a verdict the checker computes is a Sonnet-low authority, which
+// is what the ruling priced out.
+//
+// BLOCKED OR OK, NEVER PIVOT. A premise miss names its own repair — the path that is absent, the
+// symbol that moved, the ref nobody pushed, the falsifier that cannot go red — so it is BLOCKED,
+// however many rows there are. The one shape that does not name a repair is a class-5 row the tree
+// contradicts or leaves unsettled: no fix is writable from the finding alone, which is the
+// separating test for PIVOT. This function NAMES those rows in `premiseFailure` and takes no
+// route on them, because the separating test is "write the fix" and nothing here has written one
+// — `a-blocked-review-is-not-a-pivot.md`: when you are between them, return BLOCKED. The
+// reviewers read the same rows and hold the pivot; a wave that let a Sonnet-low pass discard a
+// plan through a table lookup would have rebuilt the refusing checker the ruling refused.
+const PREMISE_REVIEWER = 'premise-check'
+const PREMISE_FINDING_VERDICTS = ['UNRESOLVED', 'CONTRADICTED']
+
+// XS work the Dispatch phase FINISHED, shaped into the verdict rows the LANDING can close.
+//
+// `roadmap.blitz_land` iterates `ready` alone, and its third lane branches on
+// `route === 'dispatch'` to call `close_dispatched` — the terminal stamp an XS is owed, having
+// no plan to approve. Reporting a finished XS only under the wave result's top-level
+// `dispatched` key put it somewhere the landing never reads, so that lane was unreachable and
+// no XS baton was ever closed. An unclosed baton is not terminal, so it stays a candidate and
+// comes back in the NEXT wave's gate read to be re-sized and re-planned from scratch. That is
+// the recycling defect: a wave whose XS work all succeeded still lands zero approved, trips the
+// wave-lands-zero-approved stop condition, and hands the next wave its own batons back.
+//
+// `completed` is the whole predicate. An INCOMPLETE executor return is NOT closed: the gate
+// brief already asks the em to report it as a sizing defect, and stamping a baton whose work
+// did not finish is the same silent-success shape `close_dispatched` exists to prevent,
+// reached from the other side.
+//
+// A baton the em ALREADY returned a verdict for is skipped. Its judgment is the one that
+// stands, and a synthetic row beside it would hand the landing the same baton twice.
+function closableDispatched(dispatched, verdicts, waveIndex) {
+  const gated = new Set((verdicts || []).map((v) => v.batonId))
+  return (dispatched || [])
+    .filter((d) => d && d.completed && !gated.has(d.batonId))
+    .map((d) => ({
+      batonId: d.batonId,
+      verdict: 'ready',
+      route: 'dispatch',
+      // An XS carries no plan. The landing resolves `planPath` only off the lanes that have
+      // one, so this is null by contract rather than by omission.
+      planPath: null,
+      // No reviewer runs on an XS. Declared-empty, never absent: `pivoting_reviewers` reads
+      // this at the landing, and "nobody reviewed" must not arrive as the same value as
+      // "the review set was not carried".
+      reviewVerdicts: [],
+      reason: `XS dispatched in wave ${waveIndex} and reported completed: ${d.summary}`,
+    }))
+}
+
+function premiseAsReview(baton, premise) {
+  if (!premise) return null
+  const rows = premise.rows || []
+  const findings = rows.filter((r) => PREMISE_FINDING_VERDICTS.includes(r.verdict))
+  // Class 5, not resolved: the rows where no fix is writable from the finding alone, which is
+  // the second half of the PIVOT conjunction. Named, never routed.
+  const unwritable = rows.filter(
+    (r) => Number(r.questionClass) === 5 && r.verdict !== 'RESOLVES',
+  )
+  return {
+    batonId: baton.id,
+    reviewer: PREMISE_REVIEWER,
+    verdict: findings.length ? 'BLOCKED' : 'OK',
+    sidecarPath: premise.sidecarPath,
+    findingCount: findings.length,
+    // Review: code-reviewer (premise-check.md Finding 3, MAJOR, routed here — same artifact) —
+    // `rows: []` (zero citations examined) and a fully-checked, all-RESOLVES `rows` both produce
+    // bare `verdict: 'OK'` with no way to tell them apart downstream. `premiseLines`/`classCoverage`
+    // already render an empty class correctly ("c{n}:none — UNATTEMPTED, never clean"), but that
+    // distinction was lost the moment it collapsed to this machine-legible verdict. Carried as an
+    // explicit count rather than folded into `premiseFailure` — that field is a class-5 PIVOT
+    // candidate signal, and reusing it for "nothing was checked" would misread as one.
+    citationsChecked: rows.length,
+    premiseFailure: unwritable.length
+      ? `class-5 rows with no fix writable from the finding alone — PIVOT candidates for a `
+        + `reviewer to run the separating test against, not a route this pass took: `
+        + unwritable.map((r) => `${r.verdict} ${r.citation}`).join('; ')
+      : undefined,
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Phase 4 — Review
 // ---------------------------------------------------------------------------
 
-function reviewerAgent(baton, decision, planResult, reviewer, trailDir) {
+function reviewerAgent(baton, decision, planResult, reviewer, trailDir, premise) {
   return agent(
     `${ROLE_CONTRACTS.reviewer}
 
@@ -771,6 +1289,26 @@ Review the plan at ${planResult.planPath} for baton ${baton.id} ("${baton.title}
 
 Finalised size: ${decision.tshirt}, route: ${decision.route}.
 Stated prime exit criterion: ${planResult.exitCriterion || '(none stated — that is itself a finding)'}
+
+Premise check, run against the tree before you:
+${premiseLines(premise)}
+
+Read it as work already done on ONE class, never as an approval. A citation reported RESOLVES has
+been opened — do not spend your pass re-opening it. A row reported UNRESOLVED or CONTRADICTED is a
+premise failure someone else found for you, and it is yours to weigh, not to re-derive. A row
+reported UNCHECKABLE is UNCHECKED: nothing in this tree settled it, so the assumption is live and
+it is exactly where your judgment is worth its price. A class rendered "none" was never attempted
+at all — that is a hole, not a clean class, and no row will tell you about it. Consumption contract:
+\`coordinator/snippets/premise-check-consumption.md\`.
+
+A clean premise report narrows nothing else. A plan whose every citation resolves can still be
+solving the wrong problem, and that judgment was never this pass's to make.
+
+**The premise check routes BLOCKED, never PIVOT, and its class-5 rows are why you are here.** A
+missing path names its own repair; a class-5 row the tree contradicts or leaves unsettled names
+none, and the separating test — write the fix; if you cannot, the direction is what is wrong — is
+a test only a reviewer runs. Run it on those rows before you pick a verdict. You are the actor
+that may PIVOT on them.
 
 Review the PLAN, not the code it proposes. The questions that matter: does the stated problem
 match the baton's actual job; do the acceptance criteria falsify anything; is the scope the size
@@ -823,68 +1361,19 @@ ${REVIEW_SIDECAR_RULE(sidecarFor(trailDir, baton.id, `review-${reviewer}-pointer
 }
 
 // ---------------------------------------------------------------------------
-// Phase 3.5 — Premise check
-// ---------------------------------------------------------------------------
-//
-// Dispatched once per baton, after the plan's `planPath` is trusted and stable (past the
-// looksLikeTrail correction) and before any reviewer fires — the one place in the pipeline
-// where a false premise can be caught before it costs a reviewer's read. Rides REVIEW_SCHEMA
-// and the same sidecar/pointer machinery as a reviewer so the rest of the pipeline (resolveVerdict,
-// integrator, the trail, the readiness gate) needs no premise-check-specific branch: a premise
-// miss is just another entry in `kept`.
-//
-// Role name is contract: `premise-check` must not collide with plan / planning-report /
-// review-*/ review-integration (sidecarFor's role-name uniqueness rule, see its own comment).
-function premiseCheckAgent(baton, decision, planResult, trailDir) {
-  return agent(
-    `You are the premise check for baton ${baton.id} ("${baton.title}")'s plan at
-${planResult.planPath}.
-
-Stated prime exit criterion: ${planResult.exitCriterion || '(none stated — that is itself a finding)'}
-
-${PREMISE_CHECK_CONTRACT}
-
-${INSTRUMENT_CAN_REPORT_RED_CONTRACT}
-
-Apply the premise-check contract above to this plan's cited paths, symbols, refs and in-repo
-behaviour claims, and apply the instrument check above to any falsifier, gate, or verification
-instrument the plan itself introduces or names. Report both under the same verdict — this pass
-never claims plan correctness; it reports what it checked and what it found.
-
-Verdict routing rides the SAME schema and the SAME two routes a plan reviewer uses — do not invent
-a third:
-
-  - BLOCKED — the DIRECTION holds; a repairable premise miss (an unresolved cited path, symbol or
-    ref; an instrument whose verdict is computed but not wired to its exit path) is BLOCKED,
-    however many findings there are. Populate \`premiseFailure\` with what you found.
-  - PIVOT — reserved for a class-5 semantic failure where NO fix is writable from the finding
-    alone. PIVOT requires BOTH a class-5 finding AND that no fix is writable — class 5 is
-    necessary but not sufficient. Where a fix IS writable, return BLOCKED even for a class-5
-    finding. When you are between them, return BLOCKED: this is the existing tripwire
-    \`coordinator/docs/wiki/coordinator-tripwires/a-blocked-review-is-not-a-pivot.md\` — "the
-    separating test is: write the fix… When you are between them, return BLOCKED" — cite it in
-    your sidecar rather than re-deriving the rule.
-${NO_EXECUTION_RULE}
-${REVIEW_SIDECAR_RULE(sidecarFor(trailDir, baton.id, 'premise-check'))}`,
-    withRole('coordinator:plan-coverage-checker', {
-      label: `premise-check:${baton.id}`,
-      phase: 'Premise check',
-      model: 'sonnet',
-      schema: REVIEW_SCHEMA,
-    }),
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Phase 5 — Integrate
 // ---------------------------------------------------------------------------
 
-function integrator(baton, planResult, reviews, trailDir) {
+function integrator(baton, planResult, reviews, trailDir, premise) {
   // The verdict shown is the RESOLVED one. A sidecar whose own text says REJECTED is
   // labelled with what that resolved to, so the file and this list cannot look like
   // two different reviews.
+  // Review: code-reviewer (premise-check.md Finding 3, routed via resolve-escalations.md) — same
+  // axis as the trail's `premiseCheckLine`: an `OK` this list shows for `premise-check` must not
+  // read like a clean, fully-checked pass when `citationsChecked` is 0. Undefined on every real
+  // reviewer entry, so this only ever fires for the premise-check row.
   const sidecars = reviews
-    .map((r) => `  - ${r.reviewer}: ${r.verdict}${r.aliased ? ` (sidecar says ${r.raw}; ${r.aliased})` : ''} -> ${r.sidecarPath}`)
+    .map((r) => `  - ${r.reviewer}: ${r.verdict}${r.citationsChecked === 0 ? ' (0 citations examined — UNATTEMPTED, not a clean pass)' : ''}${r.aliased ? ` (sidecar says ${r.raw}; ${r.aliased})` : ''} -> ${r.sidecarPath}`)
     .join('\n')
 
   return agent(
@@ -894,6 +1383,20 @@ Integrate the review findings for baton ${baton.id} into ${planResult.planPath}.
 
 Reviewer sidecars on disk:
 ${sidecars}
+
+Premise check on this plan's own citations, run before the reviewers:
+${premiseLines(premise)}
+
+Treat an UNRESOLVED or CONTRADICTED row as a finding like any other — it is a false statement the
+plan makes about this tree, and repairing it is ordinary integration, not a judgment call. An
+UNCHECKABLE row is NOT a finding and must not be "fixed" — nothing established it either way, so
+carry it into your report and let the gate read it.
+
+The \`premise-check\` entry in the sidecar list above is those same rows, routed: the checker
+itself returns no verdict on the plan, and the wave translates its rows onto the review channel so
+they reach you rather than a reader with no edit to make. It routes BLOCKED or OK and never PIVOT.
+Where it states a \`premiseFailure\`, that is a class-5 row nothing in the tree settles — a PIVOT
+candidate a REVIEWER may act on, never a route the checker took and never one you take.
 
 Those paths are the reviewers' OWN PROVISIONED sidecars under \`subagent-share/\`, which is what
 \`append-integrator-dispositions\` requires — so the disposition write your contract mandates will
@@ -926,6 +1429,20 @@ recorded verbatim beforehand, which cannot happen here.
 
 Escalate ASKs rather than guessing. Your escalated list is the highest-signal item the EM reads at
 the readiness gate — an empty ASK list on a plan carrying P0/P1 findings is itself a finding.
+
+Return each escalation twice: in \`escalated\` as prose, as you always have, and in
+\`escalations\` with its alternatives ATTRIBUTED. Per option: \`source\` is the reviewer who
+wrote it and \`text\` is their words verbatim; an option you composed yourself carries YOUR name.
+Your own contract already requires two-or-more concrete options and the pick you would make if
+forced — this is where they go, and \`whyItExceedsDiscretion\` is that contract's fourth
+anti-dodge field, stated per escalation.
+
+Attribution is load-bearing, not bookkeeping. The phase after you may pick ONLY a
+reviewer-sourced option; an option attributed to you, or to nobody, is dropped from what it may
+consider, and an escalation left with fewer than two reviewer-sourced options is not settled in
+this wave at all. So do not launder your own option into a reviewer's name to give the choice
+more to work with — that converts your judgment into theirs, silently, which is the thing your
+ASK routing exists to prevent.
 ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'review-integration'))}`,
     withRole('coordinator:review-integrator', {
       label: `integrate:${baton.id}`,
@@ -941,6 +1458,319 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'review-integration'))}`,
       schema: INTEGRATION_SCHEMA,
     }),
   )
+}
+
+// ---------------------------------------------------------------------------
+// Resolve escalations — the one place a choice can be made while an edit is still possible
+// ---------------------------------------------------------------------------
+//
+// The PHASE is `Resolve escalations`; the mechanism inside it is the convergence catalogue, and
+// the functions keep that name because the catalogue is what they are.
+//
+// WHAT THIS BUYS. Before this phase, the wave's only actor with judgment over an escalation was
+// the readiness gate, and the gate runs after the only actor that edits the plan body. Both
+// points existed, in that order, with no path back — so a plan whose defect needed a CHOICE was
+// structurally unable to converge in-wave however good it was, and the pull was not evidence of
+// anything about the plan. Peer-reported and NOT a DoE measurement: one sibling repo relayed 2 of
+// 16 plans reaching ready across five waves, with most pulls citing unapplied or escalated
+// findings — a ratio they have since downgraded to directional. The ORDERING is the checkable
+// claim and it was checked here, against this file.
+//
+// NO NEW ACTOR. The pass is the Plan phase's own planner, in its revising branch, with the
+// catalogue appended to the brief it already carries — one dispatch, at a price the wave already
+// pays, by the one agent contracted to edit a plan body. A separate chooser would have bought a
+// clean split between deciding and editing and cost a second Opus seat plus an applier to relay
+// its picks; the split is not worth two dispatches per escalated plan.
+//
+// WHAT IT DELIBERATELY IS NOT. It is not a second review, not a re-plan, and not a widening of
+// what the integrator may apply on its own. The integrator's refusal to settle an ASK is correct
+// and is untouched: silent application of a judgment call is worse than a pull.
+//
+// TWO BOUNDS, EACH ENFORCED IN CODE RATHER THAN IN A BRIEF:
+//   1. Only a reviewer-enumerated alternative is choosable. `convergenceCatalogue` drops every
+//      option whose source is not a reviewer that reviewed this baton, and `reconcilePicks`
+//      refuses an id the catalogue does not hold.
+//   2. The rejected set is COMPUTED from the catalogue rather than reported by the pass, so "what
+//      was not chosen" cannot be under-reported by the actor that chose.
+//
+// WHAT REUSING THE PLANNER COSTS, stated rather than glossed: the actor that picks is the actor
+// that edits, so a refused pick is refused AFTER the body was edited. That is why a refusal is
+// rendered in the trail as a plan-body warning and not as a silent drop — the brief tells the
+// pass not to edit for an option it cannot name a catalogue id for, and the trail says plainly
+// when it did anyway.
+//
+// ORDERING. Like the premise check, this runs where it does because of DATA: it needs the
+// integration report, and its picks are made by the pass that edits. Nothing here reads a phase
+// index.
+
+// A single option is a recommendation, not a choice. Two is the floor at which picking is
+// selection rather than assent, and it is the same floor the integrator's own contract already
+// holds an ASK to.
+const MIN_ENUMERATED_OPTIONS = 2
+
+// Returns { escalations, notConvergeable }. `escalations` is the CLOSED set of things that may be
+// decided in this wave; everything else keeps the behaviour it had before this phase existed.
+function convergenceCatalogue(integration, reviews) {
+  // Review: code-reviewer (resolve-escalations.md Finding 1, BLOCKER) — the wave folds
+  // `premiseAsReview`'s pseudo-reviewer into `kept` unconditionally (`[premiseCheckResult,
+  // ...reviews]`), so `reviewerNames` built straight off `reviews` always contained
+  // `'premise-check'`, and the attribution filter below treated it as a real reviewer that had
+  // enumerated an alternative. `PREMISE_SCHEMA` has no options/alternatives field at all — the
+  // checker's own contract is "report, do not refuse, do not ratify" — so an option attributed to
+  // `premise-check` is, by construction, never something a reviewer wrote. Excluding it here is
+  // where "only a reviewer-enumerated alternative may be picked" is actually enforced; leaving it
+  // in let an integrator launder its own composed option through a name guaranteed present on
+  // every baton. Confirmed with a `node` repro before this fix: the two invented options in
+  // Finding 1's concrete failing input both survived to a convergeable escalation.
+  const reviewerNames = new Set(
+    (reviews || []).map((r) => String(r.reviewer)).filter((name) => name !== PREMISE_REVIEWER),
+  )
+  const escalations = []
+  const notConvergeable = []
+
+  const raw = (integration && integration.escalations) || []
+  raw.forEach((esc, index) => {
+    const id = `E${index + 1}`
+    const summary = String((esc && esc.summary) || '(no summary)')
+    const enumerated = ((esc && esc.options) || [])
+      .filter((o) => o && reviewerNames.has(String(o.source)))
+      .map((o, j) => ({ id: `${id}.o${j + 1}`, source: String(o.source), text: String(o.text) }))
+
+    if (enumerated.length < MIN_ENUMERATED_OPTIONS) {
+      notConvergeable.push({
+        id,
+        summary,
+        reason: enumerated.length
+          ? 'one reviewer-enumerated option only — a single option is a recommendation, not a choice'
+          : 'no reviewer enumerated an alternative; any options on it are the integrator\'s own',
+      })
+      return
+    }
+    escalations.push({
+      id,
+      summary,
+      options: enumerated,
+      recommendation: String((esc && esc.recommendation) || ''),
+      whyItExceedsDiscretion: String((esc && esc.whyItExceedsDiscretion) || ''),
+    })
+  })
+
+  return { escalations, notConvergeable }
+}
+
+// Renders the catalogue for the resolve brief. One function so the ids the pass picks by and the
+// ids `reconcilePicks` refuses against are read off the same object.
+function convergenceMenu(catalogue) {
+  return catalogue.escalations
+    .map((e) => {
+      const options = e.options
+        .map((o) => `      ${o.id} — enumerated by ${o.source}: ${o.text}`)
+        .join('\n')
+      return `  ${e.id}: ${e.summary}
+${options}
+      integrator's recommendation if forced: ${e.recommendation || '(none stated)'}
+      why it exceeded the integrator's discretion: ${e.whyItExceedsDiscretion || '(not stated)'}`
+    })
+    .join('\n')
+}
+
+// Returns { picks, refused, deferred } over the resolve pass's `choicesMade`. Every refusal is
+// NAMED — a pick dropped quietly is indistinguishable from a pick nobody made, and the difference
+// is exactly what this phase is being measured on. The pass edits the plan body itself, so a
+// refusal here is also the only signal that the body may carry an edit no catalogued option
+// authorised; `convergenceLines` prints it as that.
+function reconcilePicks(catalogue, choice) {
+  const byId = new Map(catalogue.escalations.map((e) => [e.id, e]))
+  const picks = []
+  const refused = []
+  const settled = new Set()
+
+  for (const pick of (choice && choice.choicesMade) || []) {
+    const wantedId = String((pick && pick.escalationId) || '')
+    const escalation = byId.get(wantedId)
+    if (!escalation) {
+      refused.push(`${wantedId || '(unnamed)'}: no such escalation in this plan's catalogue`)
+      continue
+    }
+    if (settled.has(escalation.id)) {
+      refused.push(`${escalation.id}: a second pick on an escalation already settled`)
+      continue
+    }
+    const chosen = escalation.options.find((o) => o.id === String(pick.chosen))
+    if (!chosen) {
+      // The bound that matters. An id off the catalogue is the shape an invented option arrives
+      // in, and it is refused here rather than caught by a reader downstream. RESOLVE_SCHEMA
+      // cannot refuse it — `chosen` is a string and a plan body is free text — so this is where
+      // "only a reviewer-enumerated alternative may be picked" is actually held.
+      refused.push(
+        `${escalation.id}/${String(pick.chosen)}: not an option any reviewer enumerated`,
+      )
+      continue
+    }
+    settled.add(escalation.id)
+    picks.push({
+      escalationId: escalation.id,
+      summary: escalation.summary,
+      chosen,
+      // COMPUTED, never taken from the pass. "What was not chosen" reported by the actor that
+      // chose is the one field it has an incentive to shorten, and the catalogue already knows.
+      rejected: escalation.options.filter((o) => o.id !== chosen.id),
+    })
+  }
+
+  const deferred = catalogue.escalations
+    .filter((e) => !settled.has(e.id))
+    .map((e) => ({
+      escalationId: e.id,
+      summary: e.summary,
+      reason: 'not settled by the resolve pass; carried to the gate escalated',
+    }))
+
+  return { picks, refused, deferred }
+}
+
+// Runs the whole phase for one plan, or explains in one string why it did not. Always returns a
+// record: a phase that skipped silently is indistinguishable from one that found nothing, and the
+// difference between those two is this baton's entire measurement. `plan` on the returned record
+// is what the rest of the wave reads — unchanged when the phase did not run.
+async function resolveEscalations(baton, decision, waveIndex, plan, reviews, integration, trailDir) {
+  const empty = {
+    escalationCount: 0,
+    convergeable: 0,
+    picks: [],
+    refused: [],
+    deferred: [],
+    notConvergeable: [],
+    plan,
+  }
+
+  if (reviews.some((r) => r.pivot)) {
+    return { ...empty, skipped: 'PIVOT — the plan routes to a replan; resolving it would produce a document that looks maintained and is not' }
+  }
+  // Review: code-reviewer (resolve-escalations.md Finding 4, minor) — unreachable from this
+  // function's single current call site: the pipeline's earlier stage already returns before
+  // `resolveEscalations` is invoked whenever `!plan || plan.status === 'blocked'`. Kept, not
+  // deleted — it is the precondition a second call site (repair mode, per this file's own
+  // "Resolve pass inherits the same reasoning" note) would need, and removing it would silently
+  // drop that guard for whoever adds one. Documented here so it does not read as currently live.
+  if (plan && plan.status === 'blocked') {
+    return { ...empty, skipped: 'the plan is blocked; there is no body to resolve an escalation into' }
+  }
+  // Review: code-reviewer (resolve-escalations.md Finding 5, minor) — "no integration report" was
+  // also the message when a report existed but `integration.rejected` was true, which sends a
+  // trail reader looking for a missing artifact when `reportPath` names one on disk. Split so each
+  // branch states the fact it actually observed.
+  if (!integration) {
+    return { ...empty, skipped: 'no integration report to resolve over' }
+  }
+  if (integration.rejected) {
+    return { ...empty, skipped: `integration report at ${integration.reportPath || '(no reportPath)'} was rejected; nothing to resolve over` }
+  }
+
+  const catalogue = convergenceCatalogue(integration, reviews)
+  const escalationCount = (integration.escalations || []).length
+  const base = { ...empty, escalationCount, convergeable: catalogue.escalations.length, notConvergeable: catalogue.notConvergeable }
+
+  if (!catalogue.escalations.length) {
+    // Three different nothings, and the gate has to be able to tell them apart. An integrator
+    // that escalated in prose but returned no structured `escalations` is not a quiet wave — it
+    // is an escalation this phase could not see, which is a defect in the integration, not in
+    // the plan.
+    const prose = ((integration.escalated || []).length)
+    return { ...base, skipped: escalationCount
+      ? 'nothing on this plan is choice-shaped — every escalation reaches the gate as it did before'
+      : prose
+        ? `${prose} escalation(s) in prose and none structured — the integration returned no `
+          + '`escalations` array, so nothing here was choosable; read the integration report'
+        : 'the integration escalated nothing' }
+  }
+
+  // `baton.planPath` is set only from a PRIOR wave's trail and is never written back during this
+  // wave, so for the modal baton — one planned for the first time here — it is null and
+  // `planner`'s revising branch would render "No plan exists yet. Author one." underneath a brief
+  // telling it to edit the plan body. Aim it at the plan this wave actually authored instead;
+  // that is what makes the revise-in-place branch and its do-not-scaffold guard fire.
+  const resolution = await planner(
+    { ...baton, planPath: plan.planPath },
+    decision,
+    waveIndex,
+    trailDir,
+    {
+      escalationCount,
+      reportPath: integration.reportPath,
+      menu: convergenceMenu(catalogue),
+      notConvergeable: catalogue.notConvergeable,
+    },
+  )
+  const reconciled = reconcilePicks(catalogue, resolution)
+  const withPicks = { ...base, ...reconciled }
+
+  if (!resolution) {
+    // Review: code-reviewer (resolve-escalations.md Finding 2, MAJOR) — `reconcilePicks(catalogue,
+    // null)` iterates zero `choicesMade` entries by construction, so `refused` is always `[]` on
+    // this path and `convergenceLines`'s per-REFUSED trail warning never fires — even though
+    // `planner` is a live, Edit-capable agent that may already have edited the plan body (per its
+    // own brief) before its final structured-output call exhausted retries to `null`. The second
+    // mitigation this phase relies on ("a refused pick warns the trail an unauthorised edit may
+    // have landed") depends on `refused` being non-empty; a null return is exactly the case it
+    // must not go quiet on, so a synthetic entry carries the same warning here.
+    return {
+      ...withPicks,
+      refused: [
+        ...withPicks.refused,
+        'resolve pass returned nothing (exhausted retries) after a planner Edit call may already '
+          + 'have landed — check the plan body for a change no catalogued option authorised',
+      ],
+      skipped: 'the resolve pass returned nothing; every escalation stays escalated',
+    }
+  }
+
+  // Carry the resolve pass's own verdict rather than only its picks: RESOLVE_SCHEMA spreads
+  // PLAN_SCHEMA, so a resolve can come back `blocked`, and dropping that reported the plan as
+  // drafted while the gate never learned the resolution failed. A revised `exitCriterion` rides
+  // back the same way — the pass was told to edit the plan body, so the criterion it returns can
+  // legally have moved, and the trail would otherwise show the gate a stale one.
+  //
+  // `choicesMade` is the RECONCILED set, never the returned one: a pick the catalogue refused is
+  // not a resolution, and the gate must not read one as though it were.
+  const resolvedPlan = {
+    ...plan,
+    choicesMade: reconciled.picks.map((p) => ({
+      escalationId: p.escalationId,
+      chosen: p.chosen.id,
+      rejected: p.rejected.map((o) => o.id),
+    })),
+    ...(resolution.exitCriterion ? { exitCriterion: resolution.exitCriterion } : {}),
+    ...(resolution.status === 'blocked'
+      ? { status: 'blocked', blockedReason: resolution.blockedReason || 'resolve pass returned blocked' }
+      : {}),
+  }
+
+  return { ...withPicks, plan: resolvedPlan }
+}
+
+// Rendered once, for the trail and the readiness gate, so both read the same account of what was
+// decided — and, in the same lines, what was NOT.
+function convergenceLines(convergence) {
+  if (!convergence) return '(the Resolve-escalations phase did not run for this plan)'
+  const parts = [
+    `${convergence.escalationCount} escalation(s), ${convergence.convergeable} choice-shaped, `
+      + `${convergence.picks.length} settled, ${convergence.deferred.length} left escalated`
+      + `${convergence.refused.length ? `, ${convergence.refused.length} REFUSED` : ''}`
+      + `${convergence.skipped ? ` — skipped: ${convergence.skipped}` : ''}`,
+  ]
+  for (const p of convergence.picks) {
+    parts.push(`  ${p.escalationId} CHOSE ${p.chosen.id} (${p.chosen.source}): ${p.chosen.text}`)
+    parts.push(`  ${p.escalationId} did NOT choose: ${p.rejected.map((o) => `${o.id} (${o.source}): ${o.text}`).join(' | ') || '(none)'}`)
+  }
+  for (const d of convergence.deferred) parts.push(`  ${d.escalationId} STILL ESCALATED: ${d.reason}`)
+  for (const n of convergence.notConvergeable) parts.push(`  ${n.id} not choice-shaped: ${n.reason}`)
+  // The resolve pass edits the plan body before anything reconciles its picks, so a refusal is
+  // also a warning about the FILE: read the plan before calling it ready.
+  for (const r of convergence.refused) {
+    parts.push(`  REFUSED ${r}  <-- the resolve pass edited the plan body; check it for a change no catalogued option authorised`)
+  }
+  return parts.join('\n')
 }
 
 // ---------------------------------------------------------------------------
@@ -981,12 +1811,149 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'execution'))}`,
 }
 
 // ---------------------------------------------------------------------------
+// Repair mode — SKILL.md § Three modes -> Repair. Re-dispositions an already-
+// reviewed plan from what is already on disk: no sizingScout, no planner, no
+// reviewerAgent. The caller has already read the plan's structured pointer
+// records (this script has no fs primitive — WORKFLOW-AGENT-AS-FILE-HANDLE)
+// and hands them in on `args.repairBatons`; this function does the one thing a
+// live wave does after review fires — resolveVerdict + integrator — and
+// nothing a fresh judgment would require.
+//
+// REFUSE LOUDLY, never integrate nothing. A repair run that finds no findings
+// and reports success is worse than the pull it replaces: it looks like the
+// plan was re-dispositioned and cleared. A missing plan, an empty review set,
+// or any unresolved pointer refuses THIS baton by name rather than silently
+// producing an empty integration for it.
+// ---------------------------------------------------------------------------
+
+async function repairBaton(entry, trailDir) {
+  const { batonId, planPath, reviews, unresolvedPointers } = entry || {}
+  const refuse = (reason) => ({ batonId, planPath: planPath || null, repaired: false, reason })
+
+  if (!planPath) {
+    return refuse(`no plan on record for ${batonId} — nothing to repair`)
+  }
+  if (Array.isArray(unresolvedPointers) && unresolvedPointers.length) {
+    return refuse(
+      `${unresolvedPointers.length} unresolved pointer(s) for ${batonId}: `
+        + unresolvedPointers.map((p) => `${p.pointerPath} (${p.error})`).join('; '),
+    )
+  }
+  if (!Array.isArray(reviews) || reviews.length === 0) {
+    return refuse(`no review sidecars on record for ${batonId} — nothing to disposition`)
+  }
+  // A pointer record carrying no `verdict` is the OLD bare-path shape wearing the new
+  // record's clothes (:590-594 names the same hazard one layer in). resolveVerdict()
+  // passes an empty verdict straight through, so without this the findings integrate
+  // under a verdict nobody wrote — the silent-success the loud refusal exists to prevent.
+  const verdictless = reviews.filter((r) => !r || !r.verdict)
+  if (verdictless.length) {
+    return refuse(
+      `${verdictless.length} pointer record(s) for ${batonId} carry no verdict: `
+        + verdictless.map((r) => (r && r.sidecarPath) || '(no sidecarPath)').join('; ')
+        + ' — pre-pointer-contract sidecars are not repairable input',
+    )
+  }
+
+  // Resolved through the SAME resolveVerdict() a live review uses — a repair pass
+  // does not reconstruct `verdict`/`premiseFailure` by any other means. This is
+  // what makes a REJECTED-with-premiseFailure pointer resolve to PIVOT here exactly
+  // as it would in a live wave, instead of silently falling back to BLOCKED.
+  const kept = reviews.map(resolveVerdict)
+
+  // The EXISTING integrator(), unforked. A minimal baton stand-in: integrator()
+  // consumes only `baton.id` from it.
+  // Review: overengineering-reviewer (F2) — integrator() returns agent(...) unconditionally
+  // and the live wave's identical call site carries no such guard; this was defending a
+  // return shape the shared callee cannot produce.
+  const integration = await integrator({ id: batonId }, { planPath }, kept, trailDir)
+  return { batonId, planPath, repaired: true, integration }
+}
+
+if (args.mode === 'repair') {
+  const repairBatons = args.repairBatons || []
+  if (repairBatons.length === 0) {
+    return { mode: 'repair', repaired: [], refused: [], empty: true }
+  }
+  if (!args.trailDir) {
+    // Unvalidated, this renders `undefined/<baton>.review-integration.md` into the
+    // integrator's TRAIL_RULE and loses the trail sidecar with no error anywhere.
+    return {
+      mode: 'repair',
+      repaired: [],
+      refused: repairBatons.map((e) => ({
+        batonId: (e && e.batonId) || null,
+        planPath: (e && e.planPath) || null,
+        repaired: false,
+        reason: 'no trailDir supplied to repair mode — refusing rather than writing the trail sidecar to an undefined path',
+      })),
+    }
+  }
+  // Review: coordinator:code-reviewer close (nitpick) -- pipeline() processes each entry
+  // independently with no dedup, so two entries citing the same batonId with different
+  // planPaths both run against the plan and the result array does not surface the collision.
+  // Refuse both rather than pick a winner: nothing here can tell which entry is authoritative.
+  const idCounts = new Map()
+  for (const e of repairBatons) {
+    const id = e && e.batonId
+    if (id == null) continue
+    idCounts.set(id, (idCounts.get(id) || 0) + 1)
+  }
+  const duplicateIds = new Set([...idCounts.entries()].filter(([, n]) => n > 1).map(([id]) => id))
+  const runnable = duplicateIds.size
+    ? repairBatons.filter((e) => !e || !duplicateIds.has(e.batonId))
+    : repairBatons
+  const duplicateRefusals = duplicateIds.size
+    ? repairBatons
+      .filter((e) => e && duplicateIds.has(e.batonId))
+      .map((e) => ({
+        batonId: e.batonId,
+        planPath: e.planPath || null,
+        repaired: false,
+        reason: `duplicate batonId "${e.batonId}" across repairBatons entries -- refusing `
+          + 'both/all rather than integrating two conflicting runs against the same plan',
+      }))
+    : []
+  const results = await pipeline(runnable, (entry) => repairBaton(entry, args.trailDir))
+  return {
+    mode: 'repair',
+    repaired: results.filter((r) => r && r.repaired),
+    refused: [...duplicateRefusals, ...results.filter((r) => r && !r.repaired)],
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Wave body
 // ---------------------------------------------------------------------------
 
 const waveIndex = args.waveIndex
 const trailDir = args.trailDir
 const batons = args.batons || []
+
+// A WAVE INDEX IS NOT A FIRE IDENTITY. The skill caps a fire at 8 batons, so any wave with more
+// than that is drained by SEVERAL fires that all carry the same `waveIndex` — and the one
+// wave-scoped sidecar this script writes, `wave-<n>.em-size-review.md`, is the same path in every
+// one of them. Each later fire silently overwrote the earlier fire's size review, which is the
+// per-baton overwrite `slug`'s own comment documents, one level up and correspondingly quieter:
+// the wave's decisions live in memory and are unaffected, so nothing fails — only the durable
+// trail loses the record of how N-8 batons were sized.
+//
+// `fireId` discriminates on the fire's own baton set, so it is stable across a resume (which must
+// land on the same sidecar) and distinct between two fires of one wave (which must not). Derived,
+// never an arg: a caller that had to pass it would forget, and the failure is invisible.
+const fireId = (() => {
+  const key = batons.map((b) => String(b && b.id)).sort().join('\u0000')
+  let h = 0x811c9dc5
+  for (let i = 0; i < key.length; i += 1) {
+    h ^= key.charCodeAt(i)
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+  return h.toString(16).padStart(8, '0')
+})()
+
+//: The wave-scoped sidecar's baton-slot, `wave-<index>-<fireId>`. One name, computed once, so the
+//: write site cannot drift from anything that later resolves the same record.
+const waveSlot = `wave-${waveIndex}-${fireId}`
 
 if (batons.length === 0) {
   // An empty wave is a real state, not a failure: the caller resolved a wave whose batons were
@@ -1096,9 +2063,9 @@ Anything that is the PM's call — route: pm-decision, or an XL exit — set sur
 the question stated in the PM's register, and give it no reviewers. You are an EM proxy, never a
 PM proxy.
 ${NO_EXECUTION_RULE}
-${TRAIL_RULE(sidecarFor(trailDir, `wave-${waveIndex}`, 'em-size-review'))}`,
+${TRAIL_RULE(sidecarFor(trailDir, waveSlot, 'em-size-review'))}`,
   withRole('coordinator:blitz-em', {
-    label: `size-review:wave-${waveIndex}`,
+    label: `size-review:${waveSlot}`,
     phase: 'Size review',
     model: 'opus',
     schema: WAVE_DISPATCH_SCHEMA,
@@ -1165,8 +2132,19 @@ const routedElsewhere = decisions
     batonId: d.batonId,
     tshirt: d.tshirt,
     route: d.route,
+    // An absent `executionOpen` and a false one are different values and must not
+    // report as the same sentence. `false` is the two-gate split doing its job.
+    // `undefined` is the CALLER not carrying the field at all — every XS then fails
+    // `=== true`, none dispatches, and each recycles into the next wave while this
+    // line tells the reader their blockers are uncoded. A wrong cause is worse than
+    // no cause: it sends the reader to the roadmap when the defect is in the fire.
     reason: DISPATCHABLE_ROUTES.has(d.route)
-      ? 'XS/dispatch, but its EXECUTION gate is shut — blockers planned, not coded'
+      ? (batonFor(d) && batonFor(d).executionOpen === undefined
+        ? 'XS/dispatch, but the caller carried no `executionOpen` on this baton — '
+          + 'the args contract requires it (from `roadmap.plan_gate`\'s '
+          + '`execution_gate.open`). NOT a shut gate: nothing was asked. Fix the fire '
+          + 'and re-run; leaving it makes every XS recycle forever.'
+        : 'XS/dispatch, but its EXECUTION gate is shut — blockers planned, not coded')
       : ROUTE_EXITS[d.route] || `route: ${d.route} — not a planning route`,
     rationale: d.rationale,
   }))
@@ -1228,41 +2206,66 @@ const chains = await pipeline(
       }
     }
 
-    // Phase 3.5 — Premise check. Dispatched here, before any reviewer resolves or fires: this
-    // is the one place `plan` is trusted and stable (past the looksLikeTrail correction above)
-    // and no reviewer has fired yet.
-    const premiseCheckResult = await premiseCheckAgent(baton, decision, plan, trailDir)
+    // Phase 3.5 — Premise check. Dispatched here, before any reviewer resolves or fires: this is
+    // the one place `plan` is trusted and stable (past the looksLikeTrail correction above) and
+    // no reviewer has fired yet. Sequenced rather than run alongside the reviewers on purpose —
+    // the whole saving is that they do not spend their pass resolving citations, and a check
+    // racing them arrives too late to buy that.
+    const premise = await premiseChecker(baton, plan, trailDir)
+    // The seam. Rows in, one REVIEW_SCHEMA entry out, so the report reaches the integrator
+    // through the channel a reviewer already uses. The checker took no route; this did.
+    const premiseCheckResult = premiseAsReview(baton, premise)
 
     const { reviewers, substitutions } = resolveReviewers(decision.reviewers)
+    // Review: code-reviewer (resolve-escalations.md Finding 6, minor) — `REVIEW_SCHEMA.reviewer`
+    // is filled in by the dispatched agent's own structured-output call, and nothing forced it to
+    // agree with the identity it was actually dispatched under. `convergenceCatalogue`'s
+    // attribution bound is "is this string a member of the reviewer-name set", so an unverified
+    // set membership is a softer version of Finding 1's class. `reviewer` here is the
+    // harness-resolved dispatch identity (`resolveReviewers`'s own output, the same value
+    // `withRole(reviewer, ...)` dispatches under) — overwrite the self-report with it rather than
+    // trust it.
     const reviews = await parallel(
-      reviewers.map((reviewer) => () => reviewerAgent(baton, decision, plan, reviewer, trailDir)),
+      reviewers.map((reviewer) => async () => {
+        const result = await reviewerAgent(baton, decision, plan, reviewer, trailDir, premise)
+        return result ? { ...result, reviewer } : result
+      }),
     )
     // Resolved ONCE, here, at the seam where the reviewers' words arrive. Everything
     // downstream — integration, the trail, the gate, the landing — reads the resolved
     // route and never re-interprets the word. The premise check rides the same resolution: it
     // is just another REVIEW_SCHEMA entry, so a premise miss reaches the integrator's ASK bar
     // and the readiness gate exactly the way a reviewer's BLOCKED does.
+    //
+    // Review: coordinator:code-reviewer — kept separately so a null/malformed premise-check
+    // return is visible in the trail as an explicit "did not run" row rather than vanishing
+    // into `.filter(Boolean)` indistinguishably from a clean pass. The premise check is the
+    // ONLY instance of its kind per baton, so its silent drop left zero premise verification
+    // on the baton with no trace anywhere the readiness gate could notice.
+    const premiseCheckVerdict = premiseCheckResult ? resolveVerdict(premiseCheckResult) : null
     const kept = [premiseCheckResult, ...reviews].filter(Boolean).map(resolveVerdict)
     // Integration is unconditional — including on an all-OK review set, and including on a
     // PIVOTed one (where the integrator applies nothing and triages every sidecar's
     // findings as suspended, so the co-reviewers' work reaches the replan).
-    const integration = await integrator(baton, plan, kept, trailDir)
+    const integration = await integrator(baton, plan, kept, trailDir, premise)
 
-    // Phase 5a — Resolve escalations. Conditional, and the only new call site this pipeline
-    // gains: fires exactly when integration escalated at least one ASK on a plan that is not
-    // already blocked. A PIVOT never reaches here — the integrator applies and escalates
-    // nothing on a suspended plan, so `escalated` is empty and this step is a no-op for it.
-    let resolvedPlan = plan
-    if (integration && integration.escalated && integration.escalated.length && plan.status !== 'blocked') {
-      const resolution = await planner(baton, decision, waveIndex, trailDir, {
-        escalated: integration.escalated,
-        reportPath: integration.reportPath,
-      })
-      if (resolution) {
-        resolvedPlan = { ...plan, choicesMade: resolution.choicesMade || [] }
-      }
+    // Phase 5a — Resolve escalations. Conditional: `resolveEscalations` fires the planner only
+    // where the integration escalated something choice-shaped, and returns a record either way,
+    // so a plan that skipped it and a plan that found nothing are different rows in the trail.
+    const convergence = await resolveEscalations(
+      baton, decision, waveIndex, plan, kept, integration, trailDir,
+    )
+    return {
+      decision,
+      baton,
+      plan: convergence.plan,
+      reviews: kept,
+      premiseCheckVerdict,
+      integration,
+      substitutions,
+      premise,
+      convergence,
     }
-    return { decision, baton, plan: resolvedPlan, reviews: kept, integration, substitutions }
   },
 )
 
@@ -1278,10 +2281,20 @@ const dispatched = (
 // Phase 6 — the EM's terminal gate, over the trail rather than over the agents' summaries.
 const trailLines = chains
   .filter(Boolean)
-  .map(({ decision, baton, plan, reviews, integration, substitutions }) => {
+  .map(({ decision, baton, plan, reviews, premiseCheckVerdict, integration, substitutions, premise, convergence }) => {
     // Every reviewer is named with their OWN resolved verdict. A collapsed
     // "the review said X" is how a wave loses the review that disagreed.
     const verdicts = reviews.map((r) => `${r.reviewer}=${r.verdict}`).join(', ') || 'none ran'
+    // Review: coordinator:code-reviewer — explicit row so "premise check ran and found
+    // nothing" and "premise check did not run" (null/malformed return, dropped upstream)
+    // render as visibly different states, never as the same silence.
+    // Review: code-reviewer (premise-check.md Finding 3, routed via resolve-escalations.md) — an
+    // `OK` reached with zero citations examined must not render like an `OK` that checked
+    // everything and found nothing; `citationsChecked` is the count `premiseAsReview` now carries
+    // for exactly this.
+    const premiseCheckLine = premiseCheckVerdict
+      ? `${premiseCheckVerdict.verdict}${premiseCheckVerdict.citationsChecked === 0 ? ' (0 citations examined — UNATTEMPTED, not a clean pass)' : ''}${premiseCheckVerdict.premiseFailure ? ` premise-failure: ${premiseCheckVerdict.premiseFailure}` : ''}`
+      : 'DID NOT RUN — no premise-check verdict reached the trail for this baton'
     const pivots = reviews.filter((r) => r.pivot)
     const blockers = reviews.filter((r) => r.verdict === 'BLOCKED')
     // A mixed set is called out by name rather than left for the gate to notice. It is
@@ -1296,11 +2309,13 @@ const trailLines = chains
     const aliases = reviews.filter((r) => r.aliased)
     return `  - ${baton.id} "${baton.title}" [${decision.tshirt}, ${decision.route}]
       plan: ${plan ? plan.planPath : '(not written)'}${plan && plan.status === 'blocked' ? ` — BLOCKED: ${plan.blockedReason}` : ''}${plan && plan.planPathCorrected ? `\n      planPath CORRECTED: planner returned ${plan.planPathCorrected} (a trail sidecar); the baton's own plan path was used instead` : ''}${substitutions && substitutions.length ? `\n      reviewer substitution: ${substitutions.join('; ')}  <-- the plan was NOT reviewed by whom the em named` : ''}
+      premise-check: ${premiseCheckLine}
       reviews: ${verdicts}${pivots.length ? `  <-- PIVOT (${pivots.map((r) => r.reviewer).join(', ')})` : ''}${blockers.length && !pivots.length ? '  <-- BLOCKED, fixable' : ''}${mixed}${aliases.length ? `\n      alias resolved: ${aliases.map((r) => `${r.reviewer}: ${r.aliased}`).join('; ')}` : ''}
       ${reviews.map((r) => `sidecar: ${r.sidecarPath}${r.premiseFailure ? ` premise-failure: ${r.premiseFailure}` : ''}${r.alternativesConsidered ? ` alternatives: ${r.alternativesConsidered}` : ''}`).join('\n      ')}
+      premise rows: ${premiseLines(premise).split('\n').join('\n      ')}
       integration: ${integration ? `${integration.applied} applied, ${(integration.escalated || []).length} escalated -> ${integration.reportPath}` : '(did not run)'}
-      escalated ASKs: ${integration && integration.escalated && integration.escalated.length ? integration.escalated.map((e, i) => `escalation-${i + 1}: ${e}`).join('; ') : 'none'}${plan && plan.choicesMade && plan.choicesMade.length ? `
-      resolutions (Resolve escalations, planner revising): ${plan.choicesMade.map((c) => `${c.escalationId} -> chosen: ${c.chosen}${c.rejected && c.rejected.length ? `; rejected: ${c.rejected.join(', ')}` : ''}`).join(' | ')}` : ''}`
+      escalated ASKs: ${integration && integration.escalated && integration.escalated.length ? integration.escalated.map((e, i) => `E${i + 1}: ${e}`).join('; ') : 'none'}
+      resolve escalations: ${convergenceLines(convergence).split('\n').join('\n      ')}`
   })
   .join('\n')
 
@@ -1330,15 +2345,31 @@ that names the evidence. "Looks off" is not a disposition.
 
 Read the escalated ASKs first. They are the findings judged too consequential to apply silently,
 which makes them the highest-signal line in the trail and the one a fast read skips. Some of them
-carry a resolution line beneath them — \`resolutions (Resolve escalations, planner revising)\` —
-from a post-integration pass that picked among the reviewer's own enumerated options. Read that
-resolution with the SAME priority you give an unresolved ASK: it tells you what was picked and
-what was not, not that the question is settled. A \`chosen\` outside the ASK's own stated option
-list, or one that does not actually match the plan body, is a finding of its own.
+were settled beneath, under \`resolve escalations\`, by a post-integration pass that picked among
+the reviewers' own enumerated options. Read a resolution with the SAME priority you give an
+unresolved ASK: it tells you what was picked and what was not, never that the question is settled.
 
 Open the sidecars. A summary line saying OK is not evidence anyone checked — a reviewer can
 confirm an author's prose without opening the code that would falsify it. Spot-check one
 substantive claim per plan against the tree.
+
+The premise check makes no claim about the plan. The \`premise-check\` verdict on the reviews line
+is the wave's routing of its rows, not the checker's opinion: BLOCKED means citations did not
+resolve, and a clean table says one class of false premise is absent — never that the plan is
+right, and never a reason to shorten your read. The \`premise rows\` block is where the signal is.
+Its UNCHECKABLE rows are assumptions nothing in this tree settled, carried forward openly rather
+than passed; a class its coverage line renders "none" was never attempted — a hole, not a pass;
+and its falsifier-arming line is the highest-value entry, because a plan whose instrument cannot
+report red has no evidence behind whatever it claims that instrument will show.
+
+The \`resolve escalations\` lines are a RECORD, not an approval. A settled escalation was decided
+by the planner picking among alternatives a reviewer wrote down, and both halves are printed —
+what was chosen and what was not, computed from the catalogue rather than reported by the pass.
+Judge the pick like any other change to the plan: it is yours to disagree with, and disagreeing is
+a pull with a reason, not an override. A REFUSED line is the stronger signal — the pass named
+something no reviewer enumerated, the wave declined it, and the plan body was already edited by
+then, so open the file. STILL ESCALATED means nobody settled it: it reaches you exactly as an
+escalation always has.
 
 BLOCKED and PIVOT are different questions, and the trail above keeps them apart per reviewer.
 
@@ -1377,6 +2408,16 @@ ${NO_EXECUTION_RULE}`,
 // than asked of the EM: the landing branches on it (spec-dispatch parks a spec and
 // stamps execution-ready; everything else takes the ordinary approval), and asking
 // an agent to restate data the wave already holds is how the two copies drift.
+const converged = chains.filter(Boolean).map(({ baton, convergence }) => ({
+  batonId: baton.id,
+  escalations: convergence ? convergence.escalationCount : 0,
+  convergeable: convergence ? convergence.convergeable : 0,
+  settled: convergence ? convergence.picks.length : 0,
+  deferred: convergence ? convergence.deferred.length : 0,
+  refused: convergence ? convergence.refused.length : 0,
+  skipped: (convergence && convergence.skipped) || null,
+}))
+
 const routeById = new Map(decisions.map((d) => [d.batonId, d.route]))
 const reviewsById = new Map(chains.filter(Boolean).map(({ baton, reviews }) => [baton.id, reviews]))
 
@@ -1418,10 +2459,12 @@ const verdicts = ((readiness && readiness.verdicts) || []).map((v) => {
           .join('\n'),
   }
 })
+const closable = closableDispatched(dispatched, verdicts, waveIndex)
+
 return {
   waveIndex,
   trailDir,
-  ready: verdicts.filter((v) => v.verdict === 'ready'),
+  ready: [...verdicts.filter((v) => v.verdict === 'ready'), ...closable],
   pulled: verdicts.filter((v) => v.verdict === 'pulled'),
   replan: verdicts.filter((v) => v.verdict === 'replan'),
   surfacedToPm,
@@ -1430,4 +2473,10 @@ return {
   // Sized and routed, but neither planned nor dispatchable here — including an
   // XS whose EXECUTION gate is shut. Each names the room it belongs in.
   routedElsewhere,
+  // The conversion instrument. `convergeable` is the count of escalations that, before this
+  // phase existed, could not have been repaired in-wave at all — so the rate this baton claims
+  // to move is countable from wave one, over these rows joined to `ready`/`pulled`, with no
+  // before-and-after and no peer figure standing in for a DoE measurement.
+  // Method: coordinator/docs/wiki/blitz-convergence.md § Re-measurement.
+  converged,
 }

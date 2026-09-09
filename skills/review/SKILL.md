@@ -107,6 +107,15 @@ Finding classification/disposition below is a lookup a program can compute from 
 - **Worker Dispatch Recommendations block present** → dispatch each named worker (reviewers name, EM dispatches), feed output back into EM context. Surface-specific eligibility and the test-evidence-parser capture-before-dispatch rule are assembled by the op.
 - **Default/unmatched** → apply via integrator; default is integrate, not ratify, same exceptions as above.
 
+**Integrating a finding into a plan body invalidates its mise-prep stamp.** `mise_prepped_sha` is
+`canonical_body_sha` of the plan BODY, so an integrator's edit makes any existing
+`mise_prepped_*` attest STALE — not absent. Say STALE and route to a re-gate
+(`python coordinator/bin/mise-prep-gate.py <plan>`), never to a re-stamp: re-stamping records a
+pass the bar was never re-run for. Never read `mise_prepped_by` for presence; the predicate is a
+recomputed sha, at every caller. Tripwire:
+`A-PRESENT-MISE-PREPPED-STAMP-IS-NOT-A-CERTIFICATION`; four states, four repairs:
+`coordinator/docs/wiki/mise-prepped-attest.md`.
+
 **`/review` fires on exiting `/plan`, not after an announcement.** Naming review as the next step
 and stopping is the failure this sequencing exists to remove — the EM invokes it, in the same turn,
 without waiting to be asked. Same rule as the review gate's own vehicle
@@ -119,5 +128,10 @@ without waiting to be asked. Same rule as the review gate's own vehicle
 After Branch B for a multi-reviewer review and Reviewer 1 is integrated, return to A.2 for Reviewer 2 — this skill is re-entrant.
 
 Execution-authorization gate, stamp-op invocation, and prior-art mutability/reviewer-elevation (plan-only) are assembled by `review-assemble brief`.
+
+`status: reviewed` and the mise-prep attest are orthogonal by construction — three producers, three
+artifacts: `/review` writes `reviewer:` + `status: reviewed`, a blitz landing writes
+`status: approved`, and unattended clearance writes `mise_prepped_*`. This skill produces the
+first and never the third; nothing here stamps a plan mise-prepped.
 
 After authorization, the EM owns the dispatch-gate graph before the first executor dispatch: enumerate touched files per task, mark file-overlap/output-consumption/contract-change gates only, size per-executor scope ~5-10 min (15 min ceiling), author parallel-wave prompts with explicit peer-scope prohibition. Procedure: `coordinator:execute-plan` Phase 1.5.

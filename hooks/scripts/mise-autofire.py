@@ -1,8 +1,9 @@
-"""UserPromptExpansion auto-fire hook for `/mise-en-place` run-id minting
+"""UserPromptExpansion auto-fire hook for the wide run's run-id minting
 (naked Python, no bash) -- the mise-side twin of `pickup-autofire.py`.
 
-Purpose: when the EM types `/mise-en-place` (or any command whose bare verb
-is `mise-en-place`), this hook fires ahead of `UserPromptSubmit`, mints a
+Purpose: when the EM types `/mise-en-place` or `/warp-speed-execute` (the two
+verbs naming one ceremony -- see `_MISE_COMMAND_NAMES`), this hook fires
+ahead of `UserPromptSubmit`, mints a
 fresh Phase-0 run id via the engine plane's `backlog-grind-assemble
 mint-run-id mise-en-place` CLI, immediately briefs that same id back through
 `backlog-grind-assemble brief mise-en-place --run-id <minted>`, and injects
@@ -19,8 +20,8 @@ existed -- see the cross-repo memo cited below for the boundary this was
 built against.
 
 Co-fires with `pickup-autofire.py`, by design and without conflict: that
-hook's `_BATON_GRAB_COMMAND_NAMES` also matches `mise-en-place`, because
-batons handed to `/mise` are a grab too (`skills/pickup/SKILL.md` §
+hook's `_BATON_GRAB_COMMAND_NAMES` matches the same verbs, because batons
+handed to the wide run are a grab too (`skills/pickup/SKILL.md` §
 Multi-Artifact Grab). It briefs the baton paths carried in `command_args`;
 this one mints the run id the cadence itself needs. Two `additionalContext`
 blocks on one prompt is the expected shape, not a double-fire bug -- neither
@@ -52,10 +53,10 @@ relies on is pinned in
     as a side effect, not "helpfully" -- there is no filesystem-touching
     code anywhere in this module.
   - A cadence no reader claims is a usage error (exit 2) -- only
-    `mise-en-place` claims it today, which is also the only verb this hook
-    matches, so that failure mode is never actually reachable from here; it
-    still degrades to silent pass per this module's fail-open discipline
-    rather than assuming the exit code.
+    `mise-en-place` claims it today, and `_CADENCE` is that literal on every
+    invocation verb this hook matches, so that failure mode is never actually
+    reachable from here; it still degrades to silent pass per this module's
+    fail-open discipline rather than assuming the exit code.
   - A minted id is by construction accepted by the very next
     `brief mise-en-place --run-id <minted>` -- confirmed live at authoring
     time; the brief call is not expected to reject its own freshly-minted
@@ -67,7 +68,7 @@ Safety envelope, each clause load-bearing:
       in this module; `mint-run-id` and `brief` are both read-only per the
       memo above, and that is the whole surface this hook touches.
   (b) Hook errors / timeouts / transport failures degrade to silent pass and
-      NEVER block `/mise-en-place` -- every subprocess call and every JSON
+      NEVER block the run's prompt -- every subprocess call and every JSON
       decode in this module is wrapped to fail open, and `main()` never
       raises. A failed mint means the EM mints by hand, exactly today's
       behaviour.
@@ -92,16 +93,17 @@ from pathlib import Path
 
 # --- Constants ---------------------------------------------------------------
 
-# The bare verb this hook reacts to. Deliberately the SAME literal value
-# `pickup-autofire.py` uses for its own `_BATON_GRAB_COMMAND_NAMES` member --
-# not a second, independently-chosen convention for what counts as the
-# mise-en-place command name.
-_MISE_COMMAND_NAMES = frozenset({"mise-en-place"})
+# The bare verbs this hook reacts to. Deliberately the SAME literal set
+# `pickup-autofire.py` uses for its own `_BATON_GRAB_COMMAND_NAMES` -- not a
+# second, independently-chosen convention for what counts as an invocation of
+# the wide run. Both spellings name one ceremony, so both must mint.
+_MISE_COMMAND_NAMES = frozenset({"mise-en-place", "warp-speed-execute"})
 
-# The only cadence `mint-run-id`/`brief` are called with from this hook --
-# matches the one verb `_MISE_COMMAND_NAMES` gates on. The dispatch seam
-# itself is cadence-agnostic per the memo; this hook is not -- it exists for
-# exactly one cadence today.
+# The one cadence `mint-run-id`/`brief` are called with from this hook. It is
+# ENGINE vocabulary, not an invocation verb: the sentinel mode, the run-id
+# family and `handoff.schema.json`'s cadence key all spell it `mise-en-place`,
+# and none of them move when a new verb is admitted above. Widening
+# `_MISE_COMMAND_NAMES` never widens this.
 _CADENCE = "mise-en-place"
 
 _CONTEXT_BUDGET_CHARS = 10_000
@@ -325,7 +327,7 @@ def main(stdin_text: str | None = None) -> int:
 
     command_name = _normalize_command_name(payload.get("command_name"))
     if command_name not in _MISE_COMMAND_NAMES:
-        return 0  # not a mise-en-place invocation -- silent pass
+        return 0  # not a wide-run invocation -- silent pass
 
     settings_home = resolve_settings_home()
     script_path = resolve_backlog_grind_assemble_bin(settings_home)

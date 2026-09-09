@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Cloud-environment setup script — SPIKE. Paste into "Setup script" at claude.ai/code.
 #
 # PURPOSE: land coordinator-claude and its engine on an Anthropic-managed cloud VM BEFORE Claude
@@ -163,7 +163,9 @@ echo "=== phase 3b: global doctrine into the VM's own HOME ==="
 # only copy on this VM is the one in the working repo's own clone -- present when the session runs
 # on a repo that authors doctrine, absent otherwise. Copy, never mirror-and-prune: $HOME/.claude is
 # the operator's, and on a self-hosted runner it may already carry seeded content this must not eat.
-# Search order is authoring-copy first, published copy second. They are byte-identical when the
+# Review: code-reviewer — comment named two of three candidates; the sibling-checkout glob is
+# the second search rung, ahead of the published copy.
+# Search order is authoring-copy first, sibling-checkout glob second, published copy third. They are byte-identical when the
 # deriver has run, so the order only decides which one a doctrine-authoring repo uses; the
 # published copy under the plugin clone is what makes every OTHER repo work, since it rides the
 # percolated tree into the OSS mirror this script already clones.
@@ -174,9 +176,28 @@ for cand in "$PWD/global-doctrine" /workspace/*/global-doctrine \
 done
 if [ -n "$DOCTRINE_SRC" ]; then
   mkdir -p "$HOME/.claude/rules"
-  cp "$DOCTRINE_SRC/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
-  [ -d "$DOCTRINE_SRC/rules" ] && cp "$DOCTRINE_SRC/rules"/*.md "$HOME/.claude/rules/" 2>/dev/null
-  echo "doctrine: OK -> \$HOME/.claude/CLAUDE.md (from $DOCTRINE_SRC)"
+  # Review: code-reviewer — the log line is the only durable verification channel this design
+  # has, so a failed copy must not report OK; check the copy's own exit status before logging.
+  if cp "$DOCTRINE_SRC/CLAUDE.md" "$HOME/.claude/CLAUDE.md"; then
+    # Review: coordinator (same-defect follow-up) — the rules copy sat inside this success
+    # branch unchecked, and its stderr was discarded. Report what actually landed: CLAUDE.md
+    # and rules are two independent outcomes, and doctrine-present-with-rules-missing is a
+    # real, distinct state a reader needs to see (one of the discarded rules is the
+    # context7 rule). No `2>/dev/null` — the log is the only durable channel, so a copy
+    # failure's stderr belongs on disk, not discarded.
+    if [ -d "$DOCTRINE_SRC/rules" ]; then
+      if cp "$DOCTRINE_SRC/rules"/*.md "$HOME/.claude/rules/"; then
+        RULES_STATUS="rules: OK"
+      else
+        RULES_STATUS="rules: FAIL (copy error, see above)"
+      fi
+    else
+      RULES_STATUS="rules: none present at $DOCTRINE_SRC/rules"
+    fi
+    echo "doctrine: OK -> \$HOME/.claude/CLAUDE.md (from $DOCTRINE_SRC); $RULES_STATUS"
+  else
+    echo "doctrine: FAIL (copy error, see above) -> \$HOME/.claude/CLAUDE.md (from $DOCTRINE_SRC)"
+  fi
 else
   # None of the three candidates was found on this repo -- could be a failed clone, or the
   # published-copy candidate's known gap (README.md § Known gap, current status there). Loud

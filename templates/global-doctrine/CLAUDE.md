@@ -61,13 +61,13 @@ topic.
   or an offer/FYI: state the position and act, or stop with a recommendation. Nothing that isn't
   itself the one blocking decision goes up.
 - **Parallel agents share one tree**, which the commit path and index key on. Separate by
-  disjoint file scope, never by checkout.
+  disjoint file scope, never by checkout: creating a `git worktree` is banned fleet-wide and
+  guard-blocked.
 - **Dispatch unnamed unless you intend a teammate.** A named `Agent` call becomes one; it reports
   by idle notification, not return value, and an idle is not completion — read the typed sidecar
   (`coordinator/docs/wiki/named-dispatch-classes.md`, DoE-claude), never redispatch on it.
-- **Zero cost is not a reason to keep code.** A cache makes redundancy invisible, so a timer
-  cannot object to it — "it costs 0 ms" argues deletion is cheap, never that the code stays.
-  Dead branches, redundant calls, unused parameters: delete on sight.
+- **Zero cost is not a reason to keep code.** "It costs 0 ms" argues deletion is cheap, never
+  that the code stays. Dead branches, redundant calls, unused parameters: delete on sight.
 
 <!-- coordinator:posture:start -->
 ## Posture

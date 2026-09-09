@@ -198,21 +198,30 @@ def _pre_em_check(ctx: Ctx) -> bool:
 
 def _pre_next_move(ctx: Ctx) -> bool:
     # The watchdog reads the per-session next-move ledger AND NOTHING ELSE.
-    # No ledger file for this session -> the guard is provably a no-op.
+    # No ledger file for this session under EITHER machinery root -> the
+    # guard is provably a no-op.
     #
     # The path and extension MUST track `_next_move_ledger.py`'s own
     # `_LEDGER_FILENAME` and storage root, which are its docstring's contract:
-    # `state/subagent-share/<session-id>/next-move-ledger.jsonl`. This
-    # precondition previously named `.git/coordinator-sessions/<sid>/
-    # next-move-ledger.json` -- the pre-2026-08-15 location, and a `.json`
-    # extension the writer has never used. Wrong on both axes, it returned
-    # False for every session, and the Stop leg it gates never ran once
-    # between the C2 anchoring (471e8eba8) and this fix. A precondition that
-    # is always False is indistinguishable on disk from a predicate that
-    # never has anything to say; the tell was 123 ledgers at the real path
-    # and 0 at this one.
+    # `.coordinator-local/subagent-share/<session-id>/next-move-ledger.jsonl`
+    # (the retired root, still probed below, was `state/subagent-share/
+    # <session-id>/next-move-ledger.jsonl`). This precondition previously
+    # named `.git/coordinator-sessions/<sid>/next-move-ledger.json` -- the
+    # pre-2026-08-15 location, and a `.json` extension the writer has never
+    # used. Wrong on both axes, it returned False for every session, and the
+    # Stop leg it gates never ran once between the C2 anchoring (471e8eba8)
+    # and this fix. A precondition that is always False is indistinguishable
+    # on disk from a predicate that never has anything to say; the tell was
+    # 123 ledgers at the real path and 0 at this one.
     #
-    # The two literals below are duplicated rather than imported ON PURPOSE:
+    # Both machinery roots are probed, same reasoning and same retirement
+    # condition as `_pre_kira_verdict_routed` below: the engine's provisioned
+    # root moved from `state/` to `.coordinator-local/` on 2026-09-02, and a
+    # session provisioned before that republish still has its ledger under
+    # the old root. Probing the new literal alone suppresses this leg for
+    # every such session, indistinguishable from the guard passing.
+    #
+    # The literals below are duplicated rather than imported ON PURPOSE:
     # this precondition runs before any guard module is imported, and pulling
     # in `_next_move_ledger` (and transitively `_engine_root`) here would pay
     # that import on every Stop in the fleet to answer a one-`stat` question.
@@ -223,9 +232,12 @@ def _pre_next_move(ctx: Ctx) -> bool:
     root = ctx.repo_root()
     if not root or not ctx.session_id:
         return False
-    return os.path.isfile(
-        os.path.join(root, "state", "subagent-share", ctx.session_id,
-                     "next-move-ledger.jsonl")
+    return any(
+        os.path.isfile(
+            os.path.join(root, machinery_root, "subagent-share", ctx.session_id,
+                         "next-move-ledger.jsonl")
+        )
+        for machinery_root in (".coordinator-local", "state")
     )
 
 

@@ -102,7 +102,7 @@ Exit code non-zero but no recognizable result lines (`PASS`, `FAIL`, `ok`, `ERRO
 
 Reply `DONE: <path>` only after the single Edit lands — an inline summary without the write is task failure. The EM pre-scaffolds the findings file with the `<!-- FINDINGS -->` sentinel and passes its path plus the raw-output path; never create this file yourself. Exactly one Edit replacing the sentinel with the complete contract body (a missing sentinel fails the Edit loudly — correct). Then reply exactly `DONE: <path>` — no prose after it.
 
-<!-- Distinct from findings-self-persist-sentinel.md's Mode A (reviewer/persona agents that self-scaffold via coordinator-doc-new, confined to state/review-trail/findings/): this agent is worker/scout/auditor class — output path is caller-specified by the EM, never confined to that dir, and the EM pre-scaffolds the sentinel file. Do not apply Mode A here. -->
+<!-- Distinct from findings-self-persist-sentinel.md's Mode A (reviewer/persona agents that self-scaffold via coordinator-doc-new, confined to <machinery_root>/subagent-share/<session-id>/): this agent is worker/scout/auditor class — output path is caller-specified by the EM, never confined to that dir, and the EM pre-scaffolds the sentinel file. Do not apply Mode A here. -->
 
 <!-- BEGIN guard-encounter-preamble (synced from snippets/guard-encounter-preamble.md) -->
 

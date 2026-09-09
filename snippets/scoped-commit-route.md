@@ -24,15 +24,27 @@ contract prescribes. A caller written against that contract handles the wrong fa
 route a ceremony commit through those launchers.
 
 **The route is the op `ceremony.commit_v2`, INVOKED — `coordinator-invoke ceremony.commit_v2
-'{...}'`, or the `python3 -m coordinator_core.invoke` spelling of it.** It runs
-`coordinator_core.git.commit.commit_paths` underneath, but naming that function is not naming the
-route: `block_subagent_commit` reads literal argv and does not unwrap `python -c` payloads, so an
-in-process `commit_paths` import is DENIED for a subagent however faithfully it reproduces the
-call. Name the invocation, not the function that ends up running.
+'{...}'`, or the `python3 -m coordinator_core.invoke` spelling of it.** Both spellings name the
+op through its invoker; neither names, nor licenses reaching for, the function underneath. It
+runs `coordinator_core.git.commit.commit_paths`, but naming that function is not naming the
+route, and a dispatched subagent never imports or calls it directly, invoke spelling or not.
+
+**This passage names the route for callers who are not currently blocked — it is never a second
+attempt after one.** `block_subagent_commit` reads literal argv and does not unwrap `python -c`
+payloads, which means the guard **cannot see** an in-process `commit_paths` call — a gap in the
+guard's coverage, not a grant. A subagent that hits the guard and then reaches for an
+interpreter spelling because the guard "can't see it" has read a coverage gap as permission;
+that reading is wrong regardless of what this file says elsewhere. **A fired guard is terminal
+for that dispatch: stop, emit no success token, report the block to the dispatcher — never
+retry the same commit through another spelling, another interpreter, or any route the guard
+did not evaluate.** The EM lands the commit from there. See
+[[subagent-commit-block-is-terminal]].
 `run_commit_pipeline` is gone — killed at the process-time bar, not deprecated, so an import of
 `coordinator_core.ops.ceremony.commit_pipeline` raises `ModuleNotFoundError`. Its replacement
-builds a tree from the explicit paths handed to it rather than reading the index, which is what
-makes it incapable of sweeping a peer's staged work.
+builds a tree from the explicit paths handed to it rather than reading the index, so it cannot
+sweep a peer's STAGED work. It reads those paths from the WORKTREE, so it still sweeps a peer's
+UNSTAGED hunks in a file you both hold — a narrow pathspec does not save you when the peer is
+inside the same file. Stage your own hunks and name that path in `prefer_staged`.
 
 Parameters: `paths` (repo-relative, list), `message`, `deleted_paths` (list), `prefer_staged`
 (list), `repo` (the repo root — **not** `repo_root`; that keyword raises `TypeError`). At least
@@ -68,7 +80,7 @@ standalone route you can run by hand:
 - `deletion_block_gate` — live via `commit_gates.main()`, reached by
   `check-workstream-complete-deletion-blocks` (resolved per `snippets/resolve-coordinator-bin.md`:
   Shape A/B on POSIX hosts, Shape W on PowerShell). The Step-2.67 Kept/Deleted claim check still
-  exists; it just no longer fires automatically inside your commit.
+  exists; it just does not fire automatically inside your commit.
 - `carry_gate` — live via `baton_assemble/apply.py`'s `_dispatch_handoff_carry_gate` (over the
   PREDECESSOR's array only) and the standalone `handoff-carry-gate` CLI (resolved per
   `snippets/resolve-coordinator-bin.md`: Shape A/B on POSIX hosts, Shape W on PowerShell).

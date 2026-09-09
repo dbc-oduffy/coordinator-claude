@@ -107,7 +107,7 @@ _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
-from _message_envelope import CHANNEL_STOP, compose, emit  # noqa: E402
+from _message_envelope import CHANNEL_STOP, compose, emit, measurement_enabled  # noqa: E402
 
 #: Wiki section carrying the relocated mirror-direction, OSS-clobber-hazard,
 #: and fail-loud-contract explanation -- see this hook's own relocation
@@ -167,6 +167,7 @@ def _published_path() -> Path:
 
 
 def _published_rules_dir() -> Path:
+    """Mirror of `_published_path()` for the rules dir."""
     return _repo_root() / "coordinator" / "templates" / "global-doctrine" / "rules"
 
 
@@ -238,7 +239,33 @@ def _compose_success_message(live: Path, tracked: Path, source_bytes: bytes):
     return compose(prose, anchor=_WIKI_ANCHOR)
 
 
-def _derive_live_copy(tracked: Path, live: Path) -> int:
+def _emit_stop(message: str, emit_state: dict) -> int:
+    """CHANNEL_STOP wrapper that writes a blank-line separator to stderr
+    before every real write after the first one sharing `emit_state`.
+
+    Review: code-reviewer -- P1: `main()`'s session_start_mode branch can
+    call `_derive_live_copy` up to 4x per invocation (live + published,
+    CLAUDE.md + each rules file); each drifting target independently wrote
+    straight to stderr via `emit()` with no separator, so `render()`'s
+    trailing "See <anchor>." ran directly into the next message's prose with
+    zero whitespace whenever 2+ targets drifted in one invocation --
+    guaranteed on first rollout, since the published mirror directory does
+    not exist on any existing clone. Kept local to this file rather than
+    changed in `_message_envelope.emit()`: that function is shared by every
+    hook in this directory, nearly all of which emit at most once per
+    process, so a shared-envelope change would be non-minimal for a
+    multi-target concern only this hook has.
+    """
+    will_write = not measurement_enabled()
+    if will_write and emit_state.get("emitted_stderr"):
+        sys.stderr.buffer.write(b"\n")
+    rc = emit(message, CHANNEL_STOP)
+    if will_write:
+        emit_state["emitted_stderr"] = True
+    return rc if rc is not None else 2
+
+
+def _derive_live_copy(tracked: Path, live: Path, *, emit_state: dict | None = None) -> int:
     """Shared read/compare/write path for both invocation modes and both
     mirrored targets (the single `CLAUDE.md` and each `global-doctrine/
     rules/*.md` file) -- `tracked`/`live` are passed explicitly by the
@@ -258,11 +285,13 @@ def _derive_live_copy(tracked: Path, live: Path) -> int:
     # bypasses Python's Windows text-mode LF->CRLF translation (a real
     # byte-fidelity loss the hand-rolled path used to carry silently). See
     # `state/bug-backlog/2026-08-06-derive-hooks-hand-roll-stop-shape-and-lo-4c1e9a7b03d5.yaml`.
+    if emit_state is None:
+        emit_state = {}
+
     try:
         source_bytes = tracked.read_bytes()
     except Exception as exc:
-        rc = emit(_compose_read_failure_message(tracked, exc), CHANNEL_STOP)
-        return rc if rc is not None else 2
+        return _emit_stop(_compose_read_failure_message(tracked, exc), emit_state)
 
     try:
         live_bytes = live.read_bytes()
@@ -277,11 +306,9 @@ def _derive_live_copy(tracked: Path, live: Path) -> int:
         live.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(tracked, live)
     except Exception as exc:
-        rc = emit(_compose_write_failure_message(live, tracked, exc, source_bytes), CHANNEL_STOP)
-        return rc if rc is not None else 2
+        return _emit_stop(_compose_write_failure_message(live, tracked, exc, source_bytes), emit_state)
 
-    rc = emit(_compose_success_message(live, tracked, source_bytes), CHANNEL_STOP)
-    return rc if rc is not None else 2
+    return _emit_stop(_compose_success_message(live, tracked, source_bytes), emit_state)
 
 
 def main() -> int:
@@ -316,18 +343,29 @@ def main() -> int:
     # event the contract promises must be a silent no-op.
     session_start_mode = hook_event_name == "SessionStart"
 
+    # Shared across every _derive_live_copy call in this invocation so
+    # _emit_stop can separate concatenated stderr messages when 2+ targets
+    # drift in the same run (code-reviewer P1).
+    emit_state: dict = {}
+
     if session_start_mode:
         exit_code = 0
         tracked = _tracked_path()
         if tracked.is_file():
-            exit_code = max(exit_code, _derive_live_copy(tracked, _live_path()))
-            exit_code = max(exit_code, _derive_live_copy(tracked, _published_path()))
+            exit_code = max(exit_code, _derive_live_copy(tracked, _live_path(), emit_state=emit_state))
+            exit_code = max(
+                exit_code, _derive_live_copy(tracked, _published_path(), emit_state=emit_state)
+            )
         for rules_tracked in _tracked_rules_files():
             rules_live = _live_rules_dir() / rules_tracked.name
-            exit_code = max(exit_code, _derive_live_copy(rules_tracked, rules_live))
+            exit_code = max(
+                exit_code, _derive_live_copy(rules_tracked, rules_live, emit_state=emit_state)
+            )
             exit_code = max(
                 exit_code,
-                _derive_live_copy(rules_tracked, _published_rules_dir() / rules_tracked.name),
+                _derive_live_copy(
+                    rules_tracked, _published_rules_dir() / rules_tracked.name, emit_state=emit_state
+                ),
             )
         return exit_code
 
@@ -355,8 +393,8 @@ def main() -> int:
     # case. Same caveat applies to the rules-dir match added below.
     if resolved == tracked_resolved:
         return max(
-            _derive_live_copy(tracked, _live_path()),
-            _derive_live_copy(tracked, _published_path()),
+            _derive_live_copy(tracked, _live_path(), emit_state=emit_state),
+            _derive_live_copy(tracked, _published_path(), emit_state=emit_state),
         )
 
     rules_dir = _tracked_rules_dir()
@@ -373,8 +411,10 @@ def main() -> int:
 
     if under_rules_dir and resolved.suffix == ".md" and resolved.is_file():
         return max(
-            _derive_live_copy(resolved, _live_rules_dir() / resolved.name),
-            _derive_live_copy(resolved, _published_rules_dir() / resolved.name),
+            _derive_live_copy(resolved, _live_rules_dir() / resolved.name, emit_state=emit_state),
+            _derive_live_copy(
+                resolved, _published_rules_dir() / resolved.name, emit_state=emit_state
+            ),
         )
 
     return 0

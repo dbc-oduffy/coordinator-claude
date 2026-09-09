@@ -57,6 +57,7 @@ final persist-and-verify step.
 **When to use this vs sentinel-Edit:** Use this form when the agent already has Bash and
 produces an unconstrained report to a caller-specified path. Use the sentinel-Edit form
 (findings-self-persist-sentinel.md) when the agent is a reviewer/persona that injects into a
-pre-scaffolded sidecar confined to `state/review-trail/findings/`.
+pre-scaffolded sidecar confined to `<machinery_root>/subagent-share/<session-id>/` (DR-091's one
+home; `state/review-trail/findings/` is the retired markdown home and nothing writes it).
 
 <!-- See also: findings-self-persist-sentinel.md (sentinel-Edit persistence for reviewer/persona agents) -->

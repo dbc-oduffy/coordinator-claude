@@ -104,7 +104,7 @@ import time
 from datetime import datetime, timezone
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
-from typing import IO, Any, Callable, List, NamedTuple, Optional, Sequence
+from typing import IO, Any, Callable, List, Mapping, NamedTuple, Optional, Sequence
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _COORDINATOR_LIB = _REPO_ROOT / "coordinator" / "lib"
@@ -5375,6 +5375,63 @@ def resolve_percolate_identity_path(setup_dir: Path) -> Optional[Path]:
     return None
 
 
+def identity_gate_degrades_here(
+    env: Optional[Mapping[str, str]] = None,
+) -> "tuple[bool, str]":
+    """Is there operator identity ON THIS HOST for the identity gate to protect?
+
+    Returns `(degrade, evidence)`. `degrade` True means the two
+    `.percolate-identity` FATALs below become WARNINGS: the file's whole job is
+    to carry THIS OPERATOR'S machine-local patterns — a real name, a private
+    hostname fragment, a local path segment — and on a managed-remote container
+    there is no such identity on disk to leak. The tree is a fresh clone and the
+    settings home is seeded by the session, so demanding the operator populate
+    a file about a machine that will be reclaimed blocks the publish on data
+    that cannot exist.
+
+    WHAT DOES NOT CHANGE, because the file is not the audit. Phase 4's built-in
+    net — persona-name patterns, the cross-platform home-path patterns, the
+    fail-closed `check_scrub_canary` — runs over the full payload either way.
+    `.percolate-identity` only ADDS operator-specific patterns on top. Degrading
+    narrows the audit; it does not switch it off, and the WARNING says which half
+    is missing rather than implying a clean bill.
+
+    THE GUARD STAYS IN THE CHAIN. `identity_file_exists` still reports the truth
+    downstream, so `warn_machine_slug_net` still fires its own per-target warning
+    — the stand-down is a downgrade in severity, never a removal
+    (`coordinator/docs/wiki/coordinator-tripwires/tripwire-registry/
+    a-guard-that-stands-down-must-still-be-in-the-chain.md`).
+
+    FAIL CLOSED, INVERTING `coordinator_core.environment`'s OWN DEFAULT. That
+    module is built for guard consumers, so `capability()` never raises and
+    defaults PERMISSIVE — for them permissive means "stand down", which is the
+    safe direction. Here permissive would mean "skip a personal-data gate before
+    a PUBLIC publish", which is the unsafe direction. So this asks TWO things of
+    the same ratified module and requires both: the `ephemeral_host` capability
+    AND `detect_venue() == "remote"`. They read the same evidence, so requiring
+    both costs nothing on a real container — but `detect_venue` does not fail
+    open, so a probe that raised and defaulted permissive cannot on its own
+    unlock the degrade. An unimportable module keeps the FATAL.
+
+    A DURABLE SELF-HOSTED RUNNER sets the same markers, and the probe's own
+    evidence string says so. That box DOES carry operator identity, and its
+    operator overrides with `COORDINATOR_CAP_EPHEMERAL_HOST=0` — the module's
+    documented seam, not a second signal invented here.
+    """
+    try:
+        from coordinator_core.environment import capability, detect_venue
+    except Exception as exc:  # noqa: BLE001 — unimportable module keeps the FATAL
+        return False, f"environment module unavailable ({type(exc).__name__}: {exc})"
+    try:
+        cap = capability("ephemeral_host", env)
+        venue = detect_venue(env)
+    except Exception as exc:  # noqa: BLE001 — defensive; same fail-closed direction
+        return False, f"environment probe raised ({type(exc).__name__}: {exc})"
+    if cap.value and venue == "remote":
+        return True, cap.evidence
+    return False, f"venue={venue}; ephemeral_host={cap.value} ({cap.evidence})"
+
+
 def check_identity_file_present(identity_path: Optional[Path], setup_dir: Path) -> Path:
     """AC18: fail loud when `.percolate-identity` is absent on EITHER rung,
     rather than falling through with `identity_file_exists=False` for
@@ -6743,6 +6800,14 @@ def _import_publish_sync(setup_dir: Path):
     on `sys.path` — see the module-level `sys.path` bootstrap above)
     instead of the ad hoc `spec_from_file_location` machinery an arbitrary
     `setup_dir` override still needs."""
+    # `_COORDINATOR_LIB` reaches `sys.path` in `_bootstrap_engine()`, which used
+    # to run at MODULE scope and now runs lazily — so the sentence above stopped
+    # being true for any caller that arrives here before the bootstrap, and
+    # `percolate.publish_sync` raised ModuleNotFoundError. `main()` happens to
+    # bootstrap first, which is why production never saw it; a direct caller
+    # (this function is public enough to have test and tooling callers) did.
+    # Idempotent, and the same first-line pattern `warn_machine_slug_net` uses.
+    _bootstrap_engine()
     module_path = _resolve_publish_sync_module_path(setup_dir)
     if module_path == _ENGINE_PUBLISH_SYNC_PATH:
         return importlib.import_module("percolate.publish_sync")
@@ -9077,7 +9142,6 @@ def _publish_mirror_key_for_repo_root(repo_root: Path) -> Optional[str]:
     return None
 
 
-@functools.lru_cache(maxsize=None)
 def _dest_checked_out_ref(repo_root: Path) -> Optional[str]:
     """The dest's current local branch name (`git symbolic-ref --short HEAD`),
     or `None` on any failure -- git absent, not a work tree, or a detached
@@ -9086,6 +9150,19 @@ def _dest_checked_out_ref(repo_root: Path) -> Optional[str]:
     branch name. `symbolic-ref`, not `rev-parse --abbrev-ref`, deliberately
     -- the latter fails on an unborn branch (a freshly-created dest with no
     commits yet still has a real checked-out branch name to assert).
+
+    DELIBERATELY NOT `lru_cache`d, unlike its sibling
+    `_resolve_remote_default_branch` directly below. That sibling's
+    ROUND-SCOPED MEMO rationale -- "this answer cannot change while a round
+    is running" -- is true of a REMOTE's default branch and false of the
+    dest's CHECKED-OUT one: which branch a working tree sits on is exactly
+    the thing that can move out of band, and noticing that move is the only
+    job `assert_dest_on_declared_ref` has. Both functions were decorated in
+    the same commit (38a9c6f5) and only one of them earned it; memoized, this
+    gate reported the first branch it ever saw for the rest of the process and
+    could not refuse a dest someone had since checked out elsewhere. The cost
+    of reading it live is one `git symbolic-ref` per row -- roughly 25ms of
+    process creation against a publish round measured in hundreds of seconds.
 
     Invoked from OUTSIDE the clone via `git -C` -- never `cd`, the
     publish-mirror guard refuses that including for read-only git."""
@@ -12198,45 +12275,80 @@ def main(argv: Optional[List[str]] = None) -> int:
     # file (AC18, C14) or an unsafe present file both abort the WHOLE run
     # (bash `exit 1`), not a single target.
     identity_path = resolve_percolate_identity_path(setup_dir)
+    # On a managed-remote container there is no operator identity on disk for
+    # this gate to protect, so both FATALs below degrade to WARNINGs there and
+    # nowhere else. See `identity_gate_degrades_here` for why it fails CLOSED,
+    # inverting the environment module's own permissive default.
+    degrade_identity_gate, degrade_evidence = identity_gate_degrades_here()
     try:
         identity_path = check_identity_file_present(identity_path, setup_dir)
     except IdentityFileMissingError as exc:
-        print(exc.message, file=sys.stderr)
-        return 1
-
-    identity: Optional[PercolateIdentity] = None
-    try:
-        check_identity_file_safe(identity_path)
-    except IdentityFileUnsafeError as exc:
-        print(exc.message, file=sys.stderr)
-        return 1
-    identity = parse_percolate_identity(identity_path)
-    if not identity.review or not any(pattern.strip() for pattern in identity.review):
-        example_path = setup_dir / ".percolate-identity.example"
+        if not degrade_identity_gate:
+            print(exc.message, file=sys.stderr)
+            return 1
         print(
-            f"[publish.py] FATAL: {identity_path} is present but "
-            "PERSONAL_REVIEW_PATTERNS is empty — refusing to run. "
-            "The machine-slug detection net (warn_machine_slug_net) depends on this "
-            "field; publishing with it empty leaves the Phase 4 personal-codename audit "
-            "inert. Fix: copy "
-            f"{example_path} to {identity_path} and edit it to populate "
-            "PERSONAL_REVIEW_PATTERNS.",
+            "[publish.py] WARNING: no .percolate-identity on this host, and this is "
+            f"an ephemeral managed-remote container ({degrade_evidence}) — proceeding "
+            "without it. Phase 4's built-in net (persona names, home-path patterns, "
+            "the fail-closed scrub canary) still runs over the whole payload; what is "
+            "NOT checked is operator-specific patterns — a real name, a private "
+            "hostname fragment, a local path segment — which a fresh clone on a "
+            "reclaimed host does not carry. On a durable self-hosted runner, which "
+            "sets the same markers, set COORDINATOR_CAP_EPHEMERAL_HOST=0 to restore "
+            "the FATAL.",
             file=sys.stderr,
         )
-        return 1
-    # Review: code-reviewer Finding 6 — post-AC18, main() only reaches this
-    # line after check_identity_file_present + check_identity_file_safe both
-    # succeed, so identity_file_exists is unconditionally True here. The
-    # `False` branch downstream (run_pre_sync_gates, warn_machine_slug_net)
-    # is dead in the production path — it survives only for tests exercising
-    # it directly in isolation. Don't go hunting for a main()-reachable
-    # False case; there isn't one. The populated-PERSONAL_REVIEW_PATTERNS
-    # gate above closes the remaining gap Finding 6 didn't cover: a
-    # present-but-empty-patterns file previously reached warn_machine_slug_net
-    # as a per-target WARN (and, for any `name` outside the
-    # `coordinator-claude*`/`deep-research-claude*` prefix, not even that) —
-    # it now aborts the whole run here instead, before any target is touched.
-    identity_file_exists = True
+        identity_path = None
+
+    identity: Optional[PercolateIdentity] = None
+    if identity_path is not None:
+        try:
+            check_identity_file_safe(identity_path)
+        except IdentityFileUnsafeError as exc:
+            print(exc.message, file=sys.stderr)
+            return 1
+        identity = parse_percolate_identity(identity_path)
+        if not identity.review or not any(pattern.strip() for pattern in identity.review):
+            example_path = setup_dir / ".percolate-identity.example"
+            if not degrade_identity_gate:
+                print(
+                    f"[publish.py] FATAL: {identity_path} is present but "
+                    "PERSONAL_REVIEW_PATTERNS is empty — refusing to run. "
+                    "The machine-slug detection net (warn_machine_slug_net) depends on this "
+                    "field; publishing with it empty leaves the Phase 4 personal-codename audit "
+                    "inert. Fix: copy "
+                    f"{example_path} to {identity_path} and edit it to populate "
+                    "PERSONAL_REVIEW_PATTERNS.",
+                    file=sys.stderr,
+                )
+                return 1
+            print(
+                f"[publish.py] WARNING: {identity_path} has an empty "
+                "PERSONAL_REVIEW_PATTERNS, and this is an ephemeral managed-remote "
+                f"container ({degrade_evidence}) — proceeding. Same coverage note as "
+                "an absent file: the built-in net runs, operator-specific patterns "
+                "are not checked. Set COORDINATOR_CAP_EPHEMERAL_HOST=0 to restore "
+                "the FATAL.",
+                file=sys.stderr,
+            )
+    # Review: code-reviewer Finding 6 — on a DURABLE host main() still only
+    # reaches this line after check_identity_file_present +
+    # check_identity_file_safe both succeed, so this is True there, exactly as
+    # Finding 6 described. The populated-PERSONAL_REVIEW_PATTERNS gate above
+    # closes the gap Finding 6 didn't cover: a present-but-empty-patterns file
+    # previously reached warn_machine_slug_net as a per-target WARN (and, for
+    # any `name` outside the `coordinator-claude*`/`deep-research-claude*`
+    # prefix, not even that) — it aborts the whole run above instead, before
+    # any target is touched.
+    #
+    # The `False` case is REACHABLE AGAIN as of the ephemeral-host degrade: on
+    # a managed-remote container an absent identity file warns instead of
+    # aborting and leaves `identity_path` None. It is reported truthfully here
+    # rather than forced True, so `run_pre_sync_gates`/`warn_machine_slug_net`
+    # still see the real state and still fire their own warnings — a guard that
+    # stands down stays in the chain. Finding 6's "there isn't one" no longer
+    # holds; that branch is production-reachable on exactly that host class.
+    identity_file_exists = identity_path is not None
 
     # AC15 (chunk C11) — import `publish_sync.py` ONCE here (not per-target
     # inside the mirror-dispatch loop) and assert its API contract before ANY

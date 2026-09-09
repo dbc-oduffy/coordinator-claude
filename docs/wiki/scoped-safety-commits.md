@@ -95,7 +95,7 @@ The two readers want opposite answers under ambiguity, which is why "was that wr
 
 ### 2. Unclaimed-Dirt Enumeration at Commit Time (the mtime fallback is RETIRED)
 
-**The helper no longer unions mtime-dirty paths into scope, and no read-time mechanism adopts a Bash write on its own.** Always-on adoption of unclaimed dirt was retired on the engine plane; scope is computed from the claim index alone, and a dirty path no session claims is *named*, never staged. Do not rebuild an mtime-style adoption fallback: adopting on recency is the attribution question SC-DR-001's negative-spec and DR-258 both refuse.
+**The helper does not union mtime-dirty paths into scope, and no read-time mechanism adopts a Bash write on its own.** Always-on adoption of unclaimed dirt was retired on the engine plane; scope is computed from the claim index alone, and a dirty path no session claims is *named*, never staged. Do not rebuild an mtime-style adoption fallback: adopting on recency is the attribution question SC-DR-001's negative-spec and DR-258 both refuse.
 
 What this component still owes, and it is load-bearing: **enumeration**. SC-DR-022 half 1 — the operator's `--include-orphans` remedy for the SC-DR-021 (d2) residual — is safe *only* because the refusal names the candidate paths. A report that folds a session's own shell-written file into an aggregate count leaves the operator with nothing to adopt. An `unclaimed` bucket (dirty, claimed by nobody, listed by path) is therefore doctrine; automatic adoption of that bucket is not.
 
@@ -760,7 +760,7 @@ The upstream plugin source lives in the doctrine-authoring repo, resolved via th
 
 *Still rejected, unconditionally:* any detector that infers authorship from timing — a PostToolUse mtime scan, a pre/post `git status` delta. Those answer an attribution question that has no sound answer on a shared tree, and a false claim on a peer's path is strictly worse than no claim on your own.
 
-*Alternatives considered:* Total exclusion (the prior rule — its premise, that a partial catalog would carry false confidence with nothing to check it against, no longer holds once the `unclaimed` bucket is reported before the commit decision). Requiring explicit `git add` for all Bash-driven edits (retained as the fallback wherever extraction is silent, documented in Troubleshooting).
+*Alternatives considered:* Total exclusion (the prior rule — its premise, that a partial catalog would carry false confidence with nothing to check it against, does not hold now that the `unclaimed` bucket is reported before the commit decision). Requiring explicit `git add` for all Bash-driven edits (retained as the fallback wherever extraction is silent, documented in Troubleshooting).
 
 **SC-DR-002 — `/handoff` and `/pickup` are not carve-outs**
 

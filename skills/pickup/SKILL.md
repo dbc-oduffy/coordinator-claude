@@ -144,6 +144,17 @@ hand-dispatched executor, not chunk-at-a-time, not an offer — the vehicle is a
 inside that skill and the EM has no vote in it. Tripwire:
 `A-RESUMED-PLAN-IS-NOT-AN-EXECUTOR-DISPATCH`.
 
+**The one special case: a baton carrying `aggregate_execution:` names N plans, and the rule above
+does not fire N times.** It is one artifact over several workstreams whose declared next step is
+the run — never N `/execute-plan` invocations, and never a pick of the readiest constituent. Read
+the roll-up before routing (`aggregate-rollup.py` beside this file, given the baton path) and
+report its verdict verbatim: it fires at **≥1** certified constituent plan, and any remainder is a
+**PARTIAL-FIRE naming what was excluded**, never a completion. Certification is read per plan and
+lives on the plan; the baton stores none, so never read one off it. Excluded plans ride the
+successor. Everything else about pickup is unchanged — claim, reconcile, frozen body, ledger row.
+Contract: `coordinator/docs/wiki/aggregate-execution-baton.md`. Tripwire:
+`AN-AGGREGATE-BATON-THAT-STORES-ITS-VERDICT-CERTIFIES-A-STALE-SET`.
+
 **Route the rest of the execution queue**: in-progress work first, then recommended-next-steps;
 spike-worthy gates ahead of plan-worthy; below that — no plan in play — dispatch to an executor.
 

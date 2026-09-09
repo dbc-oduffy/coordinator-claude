@@ -13,13 +13,20 @@ concrete tool-call observation the caller already has in hand.
 Record shape (one per obligation, JSON-serialised):
   {obligation_id, seam, next_action, opened_at, progressed_at|null, discharged_at|null, fired}
 
-Storage: `state/subagent-share/<session-id>/next-move-ledger.jsonl`, the
+Storage: `.coordinator-local/subagent-share/<session-id>/next-move-ledger.jsonl`
+-- the machinery root the engine relocated to on 2026-09-02
+(`coordinator_core/session/machinery_paths.py::machinery_root`). The retired
+root was `state/subagent-share/<session-id>/next-move-ledger.jsonl`, the
 existing per-session bookkeeping convention (see
 `state/subagent-share/<session-id>/advisory-fire-counts.jsonl` for the same
-shape used elsewhere) -- not a new path convention. The whole ledger is
-rewritten on each mutation (open/discharge/mark-fired): per-session record
-counts are tiny (at most three concurrent obligations, per the static seam
-table), so this is not a hot-path cost concern.
+shape used elsewhere) -- not a new path convention. This module is a stdlib-
+only hook-path module (no `coordinator_core` import), so it duplicates the
+new leaf spelling rather than importing the engine's accessor -- see
+`_find_repo_root`'s own docstring for the same constraint applied to root
+resolution. The whole ledger is rewritten on each mutation
+(open/discharge/mark-fired): per-session record counts are tiny (at most
+three concurrent obligations, per the static seam table), so this is not a
+hot-path cost concern.
 
 Windows-safe throughout: paths built via `os.path.join`/`pathlib`, no `/tmp`
 literal, home resolution via `os.path.expanduser("~")` where needed.
@@ -75,8 +82,8 @@ def _find_repo_root() -> Optional[str]:
     this plugin's own checkout -- correct by accident in a dev repo where
     `--plugin-dir` points the plugin at the working tree itself, and a
     silent miss on a marketplace install where the plugin lives under
-    `~/.claude/plugins/` and the consumer's `state/subagent-share/` tree
-    lives somewhere `__file__` can never reach."""
+    `~/.claude/plugins/` and the consumer's `.coordinator-local/subagent-
+    share/` tree lives somewhere `__file__` can never reach."""
     if _resolve_consuming_repo_root is None:
         return None
     try:
@@ -95,7 +102,9 @@ def ledger_path(session_id: str) -> Optional[str]:
     repo_root = _find_repo_root()
     if repo_root is None:
         return None
-    return os.path.join(repo_root, "state", "subagent-share", session_id, _LEDGER_FILENAME)
+    return os.path.join(
+        repo_root, ".coordinator-local", "subagent-share", session_id, _LEDGER_FILENAME
+    )
 
 
 def read_records(session_id: str) -> list:
@@ -656,7 +665,7 @@ def drain_intake(session_id: str) -> dict:
 
 
 def drain_all_intakes(repo_root: Optional[str] = None) -> dict:
-    """Drain every session's intake under `state/subagent-share/`.
+    """Drain every session's intake under `.coordinator-local/subagent-share/`.
 
     The Group EM's read is the one that matters for a peer whose turn has
     ended: that peer's own Stop hook is not going to fire again to fold its
@@ -669,7 +678,7 @@ def drain_all_intakes(repo_root: Optional[str] = None) -> dict:
     root = repo_root if repo_root else _find_repo_root()
     if not root:
         return totals
-    share = os.path.join(root, "state", "subagent-share")
+    share = os.path.join(root, ".coordinator-local", "subagent-share")
     try:
         session_ids = sorted(os.listdir(share))
     except OSError:

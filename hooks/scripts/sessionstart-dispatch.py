@@ -198,6 +198,13 @@ REGISTRY: Tuple[StartGuard, ...] = (
     # `test_sessionstart_day_branch_assert_registered.py` red.
     StartGuard("day_branch_assert", "day-branch-assert.py",
                frozenset({"startup"})),
+    # `startup` ONLY: `job_mode` is a property of the environment a human
+    # launched the session in -- it cannot change mid-session, so announcing
+    # again on `resume`/`clear`/`compact`/`fork` would repeat a fact that has
+    # not changed since boot. See session-start-announce-job-mode.py's own
+    # module docstring for the two-output-channel rationale.
+    StartGuard("job_mode_announce", "session-start-announce-job-mode.py",
+               frozenset({"startup"})),
     # LAST, deliberately -- see module docstring "INCREMENTAL FLUSH".
     StartGuard("guard_hook_generation_self_probe", "guard-hook-generation-self-probe.py",
                frozenset({"startup", "clear", "compact"})),

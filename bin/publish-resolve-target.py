@@ -24,9 +24,21 @@ import os
 import sys
 
 def main(argv: list[str]) -> int:
-    _repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    if _repo_root not in sys.path:
-        sys.path.insert(0, _repo_root)
+    # `bin/../lib` is what the module docstring promises and what the bare
+    # `percolate.resolve_target` import below actually needs — `percolate/` is a
+    # package under `coordinator/lib/`, never at the repo root. Walking up three
+    # levels landed on the repo root instead, so this CLI raised
+    # ModuleNotFoundError on every invocation from any cwd; its two CLI tests
+    # have been red on it. The repo root is ALSO kept, and second: sibling
+    # percolate modules resolve each other through absolute
+    # `coordinator.lib.percolate.*` imports, exactly as `publish.py`'s own
+    # bootstrap keeps both for the same reason.
+    _bin_dir = os.path.dirname(os.path.abspath(__file__))
+    _coordinator_lib = os.path.join(os.path.dirname(_bin_dir), "lib")
+    _repo_root = os.path.dirname(os.path.dirname(_bin_dir))
+    for _path in (_repo_root, _coordinator_lib):
+        if _path not in sys.path:
+            sys.path.insert(0, _path)
 
     from percolate.resolve_target import ResolveError, resolve_publish_row
 

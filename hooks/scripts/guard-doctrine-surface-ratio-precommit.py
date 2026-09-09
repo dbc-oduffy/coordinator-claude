@@ -67,7 +67,69 @@ Fail-open, not fail-closed, on any internal error (subprocess failure,
 unreadable baseline, unparseable diff row) -- a defect in this
 enforcing leg must not become a universal commit block; it degrades to
 "leg 1b did not run this commit," same posture as leg 1a's own
-fail-open guards.
+fail-open guards. **This posture is scoped to the RATIO predicate only
+-- see the admission leg below, which deliberately does NOT inherit it.**
+
+ADMISSION LEG (C7 hole #1, `state/bug-backlog/2026-08-29-tool-call-
+guards-are-blind-to-the-op-pa-3f8d21c07b45.yaml`, settled via
+`coordinator/docs/wiki/guard-trigger-class-table.md` row #1)
+--------------------------------------------------------------------
+`guard-doctrine-surface-bash-write.py` (`PreToolUse Bash|PowerShell`) and
+`check-claude-md-size.py` (`PreToolUse Write|Edit|MultiEdit`) are both
+TOOL-CALL guards: neither fires when an engine op rewrites a
+`_claude_md_ledger.GOVERNED_AUTHORING_SURFACES` file via a direct in-process
+`write_text`/`open(...,'w')` call, because that write is never a tool call
+at all. `_admission_denials_for_governed_surfaces` below is the second leg
+that closes this: it runs the SAME `_claude_md_ledger.admission_check_for_
+surface` predicate the Write/Edit hook uses, against the staged diff, so an
+op-driven write is admission-checked the moment it is committed -- which an
+op-driven write always eventually is (that is the entire mechanism by which
+it becomes durable and travels).
+
+WHY THIS RIDES *THIS* SCRIPT rather than a new, separate pre-commit gate:
+the actual `.git/hooks/pre-commit` dispatch is wired by claude-klabauter's
+`coordinator_core.ops.install_doe_claude_precommit_hook._GATE_REGISTRY` (see
+`coordinator/tests/test_doe_precommit_installer_registration.py`), a
+cross-repo file this repo cannot add an entry to unilaterally. A brand-new
+sibling script here would ship complete and tested and NEVER ACTUALLY RUN
+-- exactly the shape this script's own opening paragraph already warns
+about for a *rename* of this file ("do not rename... without a coordinated
+update on that side"), and exactly the silently-degraded-instrument shape
+this hole was found by. Riding the one gate the installer already invokes
+is the only home on this side of that boundary that is genuinely reachable
+without a coordinated claude-klabauter-side change.
+
+WHY THIS LEG DOES NOT SHARE THE RATIO PREDICATE'S FAIL-OPEN POSTURE: the
+ratio predicate above prices bloat -- its worst internal-failure case is a
+missed ratchet, recoverable the next commit, so "the leg didn't run" is an
+acceptable degraded mode. The admission leg instead makes a binary
+admission decision (classify-or-refuse) on the single highest-blast-radius
+surface in the fleet (the always-on boot payload every agent reads). For
+THIS decision, "the leg didn't run" and "the leg ran and approved" must
+never look the same to whoever relies on it -- so a missing/unreadable
+per-surface ledger, or any other failure while evaluating a touched
+governed surface, DENIES with an explicit "could not complete" message
+rather than falling through to allow. `_admission_denials_for_governed_
+surfaces` therefore does its own fail-closed error handling internally and
+is deliberately kept OUTSIDE every `except Exception: return 0` branch in
+`main` below.
+
+RESIDUAL GAP, named rather than hidden: a native `pre-commit` hook is
+skipped by `git commit --no-verify`, by `-c core.hooksPath=<empty>` (see the
+bug row's own premise correction -- one op,
+`coordinator_core.ops.tracker.push_suggestion._commit_envelope`, uses this
+deliberately, though not against a governed surface today), and, more
+fundamentally, by ANY commit landed via `git commit-tree` + `update-ref`
+plumbing rather than porcelain `git commit` -- plumbing that never invokes
+`pre-commit` at all, hooksPath or not (observed in
+`coordinator_core.ops.propagate_body._commit_delivery`'s own docstring:
+"plumbing that runs NO git hooks"). None of that op's writes are validated
+to land inside `GOVERNED_AUTHORING_SURFACES` (its target is strictly
+`state/handoffs/*.md`), so this gap does not currently touch this leg's
+subject -- but the same op-authored-then-self-committed-via-plumbing shape
+would evade this leg exactly as it evades pre-commit generally, and any
+future op that both (a) writes a governed surface and (b) lands its own
+commit via plumbing would need a different enforcement point than this one.
 """
 
 from __future__ import annotations
@@ -85,6 +147,10 @@ _LIB_DIR = str(Path(__file__).resolve().parents[2] / "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
+from _claude_md_ledger import (  # noqa: E402
+    GOVERNED_AUTHORING_SURFACES,
+    admission_check_for_surface,
+)
 from _doctrine_changelog_prose import surface_of  # noqa: E402
 from _doctrine_surface_netting import (  # noqa: E402
     CREDIT_SCOPE_FILE,
@@ -320,6 +386,53 @@ def _cat_file_contents_batch(oids: "set[str]") -> "dict[str, bytes]":
         contents[oid] = data[start:start + size]
         pos = start + size + 1
     return contents
+
+
+def _admission_denials_for_governed_surfaces(raw_output: str) -> "list[str]":
+    """The admission leg (see module docstring "ADMISSION LEG"). For every
+    staged path in `raw_output` that IS a `GOVERNED_AUTHORING_SURFACES`
+    entry, runs `_claude_md_ledger.admission_check_for_surface` -- the same
+    predicate `check-claude-md-size.py` applies on `Write|Edit|MultiEdit` --
+    against the staged old/new blob content. Untouched governed surfaces
+    (the overwhelming majority of commits) cost nothing beyond a membership
+    test against the parsed records.
+
+    FAILS CLOSED: a `LedgerError` (missing/malformed per-surface ledger) or
+    any other exception while evaluating a touched surface is turned into a
+    denial naming the surface and the failure, never swallowed -- see the
+    module docstring for why this leg does not share the ratio predicate's
+    fail-open posture. Returns an empty list only when every touched
+    governed surface was actually evaluated and admitted.
+    """
+    denials: "list[str]" = []
+    governed = set(GOVERNED_AUTHORING_SURFACES)
+    records = _parse_raw_diff_records(raw_output)
+    touched = [
+        (old_oid, new_oid, path) for old_oid, new_oid, _status, path in records if path in governed
+    ]
+    if not touched:
+        return denials
+
+    needed_oids = {oid for old_oid, new_oid, _path in touched for oid in (old_oid, new_oid)}
+    contents_by_oid = _cat_file_contents_batch(needed_oids)
+
+    for old_oid, new_oid, path in touched:
+        try:
+            old_content = contents_by_oid.get(old_oid, b"").decode("utf-8", errors="replace")
+            new_content = contents_by_oid.get(new_oid, b"").decode("utf-8", errors="replace")
+            allowed, message = admission_check_for_surface(path, old_content, new_content, REPO_ROOT)
+        except Exception as exc:  # noqa: BLE001 -- deliberate fail-CLOSED, see docstring above.
+            denials.append(
+                f"{path}: the doctrine-surface admission check could not complete "
+                f"({exc.__class__.__name__}: {exc}) -- blocking this commit rather "
+                "than silently approving an unclassified change to a governed "
+                "authoring surface."
+            )
+            continue
+        if not allowed:
+            denials.append(f"{path}: {message}")
+
+    return denials
 
 
 def _sanctioned_split_paths(raw_output: str) -> "set[str]":
@@ -587,17 +700,35 @@ def _read_reasoned_growth_marker() -> "str | None":
     return None
 
 
+def _emit_governed_admission_denials(governed_admission_denials: "list[str]") -> None:
+    for reason in governed_admission_denials:
+        print(f"[guard-doctrine-surface-admission] {reason}", file=sys.stderr)
+
+
 def main() -> int:
     try:
         raw = _run_git(["diff", "--cached", "--raw", "-z", "-M"])
     except Exception:
         return 0
 
+    # ADMISSION LEG -- computed unconditionally off the raw diff, before any
+    # of the RATIO predicate's early-exit / fail-open branches below, so a
+    # ratio-side parse failure can never silently drop an admission denial.
+    # This call fails CLOSED internally (see its own docstring) -- it never
+    # raises, it returns denial strings instead.
+    governed_admission_denials = _admission_denials_for_governed_surfaces(raw)
+
     try:
         rows = _parse_raw_diff(raw)
     except Exception:
+        if governed_admission_denials:
+            _emit_governed_admission_denials(governed_admission_denials)
+            return 1
         return 0
     if not rows:
+        if governed_admission_denials:
+            _emit_governed_admission_denials(governed_admission_denials)
+            return 1
         return 0
 
     try:
@@ -608,10 +739,14 @@ def main() -> int:
         if sanctioned_paths:
             rows = [row for row in rows if row[2] not in sanctioned_paths]
         if not rows:
+            if governed_admission_denials:
+                _emit_governed_admission_denials(governed_admission_denials)
+                return 1
             return 0
     except Exception:
         # Fail-open on the split recognizer itself -- an internal defect
-        # here must not become a universal commit block either.
+        # here must not become a universal commit block either. Scoped to
+        # the RATIO predicate only; the admission leg above is unaffected.
         pass
 
     try:
@@ -630,11 +765,16 @@ def main() -> int:
         baseline = _load_baseline()
         floor_denials = _apply_sub_floor_and_bill(baseline, surface_net, file_net, tier_of)
     except Exception:
-        # Fail-open: an internal defect in this enforcing leg must not
-        # become a universal commit block.
+        # Fail-open: an internal defect in THIS (ratio) enforcing leg must
+        # not become a universal commit block -- but an already-computed
+        # admission-leg denial (a different predicate, computed above,
+        # never inside this try block) must still land.
+        if governed_admission_denials:
+            _emit_governed_admission_denials(governed_admission_denials)
+            return 1
         return 0
 
-    denials = admission_denials + floor_denials
+    denials = admission_denials + floor_denials + governed_admission_denials
     if not denials:
         # Nothing owed -- this commit's growth is allowed to land, so its
         # accumulator mutation is real and gets persisted.
@@ -644,9 +784,14 @@ def main() -> int:
     # Carve-out 3: a marker naming a SANCTIONED reason (closed enum, not
     # free text -- silence is not an exception, an out-of-enum value
     # fails the same way `missing_reason` already does on the shipped
-    # ratchets) exempts this commit's growth entirely.
+    # ratchets) exempts this commit's growth entirely -- but ONLY the
+    # ratio predicate's bloat pricing. It is not a general escape hatch:
+    # an admission-leg denial is a different predicate (a per-heading
+    # ledger classification, not a byte budget) with no marker-based
+    # exemption of its own, so a marker present alongside a real
+    # admission denial must NOT wave the commit through.
     marker = _read_reasoned_growth_marker()
-    if is_sanctioned_reason(marker):
+    if is_sanctioned_reason(marker) and not governed_admission_denials:
         # The commit is still allowed to land -- its growth happened, so
         # the accumulator mutation is real here too.
         _persist_baseline_fail_open(baseline)
@@ -657,16 +802,18 @@ def main() -> int:
     # path, by design (Finding 1). A bare retry of the identical commit
     # must see the same accumulator state it saw the first time, not a
     # zeroed/incremented one from the rejected attempt.
-    for reason in denials:
+    for reason in (admission_denials + floor_denials):
         print(f"[guard-doctrine-surface-ratio-precommit] {reason}", file=sys.stderr)
-    print(
-        "Reasoned-growth escape: add a commit trailer "
-        f"`{_REASON_TRAILER_KEY} <reason>` naming a sanctioned reason "
-        "(see _doctrine_surface_netting.REASONED_GROWTH_MARKERS) to "
-        "exempt this growth -- silence is not an exception, and an "
-        "out-of-enum value fails the same way.",
-        file=sys.stderr,
-    )
+    _emit_governed_admission_denials(governed_admission_denials)
+    if admission_denials or floor_denials:
+        print(
+            "Reasoned-growth escape: add a commit trailer "
+            f"`{_REASON_TRAILER_KEY} <reason>` naming a sanctioned reason "
+            "(see _doctrine_surface_netting.REASONED_GROWTH_MARKERS) to "
+            "exempt this growth -- silence is not an exception, and an "
+            "out-of-enum value fails the same way.",
+            file=sys.stderr,
+        )
     return 1
 
 

@@ -65,7 +65,9 @@ The shared `ReviewOutput` envelope (wrapper fields, exact verdict strings, base 
       "category": "correctness | architecture | cross-team-boundary | consumer-leak | unmade-ask | ambition | security | testing | documentation",
       "finding": "Clear description",
       "suggested_fix": "Specific fix or alternative",
-      "cross_team_directive": "Peer-repo code/install-surface finding: name the peer repo + affected EM, require EM-coordination (memo via cross-repo-memo CLI into <receiver>/cross-repo/ + PM-relay), and state the ask concretely (capability, seam, consumer need, shape to consume, first-wave-or-deferrable) so the sibling EM can act/decline/counter-propose in one round-trip. Doctrine-altitude peer-repo findings may name the change directly. Otherwise null."
+      "cross_team_directive": "Peer-repo code/install-surface finding: name the peer repo + affected EM, require EM-coordination (memo via cross-repo-memo CLI into <receiver>/cross-repo/ + PM-relay), and state the ask concretely (capability, seam, consumer need, shape to consume, first-wave-or-deferrable) so the sibling EM can act/decline/counter-propose in one round-trip. Doctrine-altitude peer-repo findings may name the change directly. Otherwise null.",
+      "confidence": "Optional — integer 1-10",
+      "fix_class": "Optional — AUTO-FIX | ASK"
     }
   ]
 }

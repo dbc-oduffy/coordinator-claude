@@ -228,7 +228,7 @@ the other three wouldn't recognize it as this pattern. -->
 the state is in between. Then ask whether the code can observe which side of those events it is on
 — usually it cannot, because the event belongs to a previous process.
 
-Worked instances, all from one deliverable (percolate removal side, 2026-08-26):
+Worked instances, all from one deliverable (percolate removal side):
 
 | claim as stated | actually holds | what ends it |
 |---|---|---|

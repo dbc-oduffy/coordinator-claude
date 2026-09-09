@@ -318,6 +318,29 @@ _RATIFICATION_VOCAB_RE = re.compile(
 )
 
 
+def _block_discharge_cli_path() -> str:
+    """Absolute path to `block-discharge.py`, derived from THIS guard's own
+    location rather than from the invoking repo.
+
+    A consumer repo that installs coordinator as a plugin has no
+    `coordinator/` tree of its own, so the relative
+    `coordinator/bin/block-discharge.py` this used to print does not exist
+    there -- and the guard's whole instruction is therefore unrunnable in
+    exactly the repos the ledger-root fix just taught the CLI to serve.
+    Reported independently by `example-cockpit-repo-em` and `example-game-repo-em`.
+
+    This guard file sits at `<plugin-root>/hooks/scripts/`, so the CLI is at
+    `<plugin-root>/bin/block-discharge.py`. Falls back to the old relative
+    form only if that path is absent, which keeps a partially-deployed tree
+    printing something rather than nothing.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidate = os.path.join(os.path.dirname(os.path.dirname(here)), "bin", "block-discharge.py")
+    if os.path.isfile(candidate):
+        return candidate
+    return os.path.join("coordinator", "bin", "block-discharge.py")
+
+
 def _wrong_signatory_pending(scope: str, full_text: str) -> bool:
     """`scope` is the A13 trigger window (narrow, incidental-co-occurrence
     guarded); `full_text` is the whole final message, used only for the
@@ -888,8 +911,8 @@ def main() -> int:
         if nonce is not None:
             discharge_note = (
                 f"Recorded as {nonce}. When you have acted on this, run:\n"
-                f"  python coordinator/bin/block-discharge.py record --nonce {nonce} "
-                f'--action "<what you did>"\n'
+                f"  python {_block_discharge_cli_path()} record --nonce {nonce} "
+                f'--action "<what you did>" --repo-root {repo_root}\n'
             )
         else:
             discharge_note = (
