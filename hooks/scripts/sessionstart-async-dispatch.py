@@ -99,6 +99,21 @@ REGISTRY: Tuple[StartGuard, ...] = (
     StartGuard("session_start_repair_prepare_commit_msg_hook",
                "session-start-repair-prepare-commit-msg-hook.py",
                frozenset({"startup"})),
+    # Published-engine registry self-heal -- the `repos.claude_klabauter` half
+    # of the same missing-install gap the doe_claude self-heal above covers for
+    # `engine.working_repos.doe_claude`. Folded here rather than given its own
+    # registration for the reason that fold exists: it is side-effect-only, it
+    # emits nothing on any path, and it must not sit on boot latency.
+    #
+    # ALL FIVE SOURCES, matching the doe_claude self-heal beside it and for the
+    # same reason: the registry is a property of the BOX, so the session that
+    # finds it unwritten is whichever one starts next, and narrowing this set
+    # would leave a container whose sessions all resume/fork resolving an
+    # unstamped engine forever. Idempotent by construction -- a healthy box
+    # costs one zero-spawn ladder resolution and returns.
+    StartGuard("session_start_register_published_engine",
+               "session-start-register-published-engine.py",
+               frozenset({"startup", "resume", "clear", "compact", "fork"})),
     # LIFECYCLE OWNER FOR THE http FORWARDER, folded here rather than given its
     # own registration. Its module docstring said "NOT REGISTERED HERE ... the
     # DR's own Consequences section defers that wiring to a later chunk" -- this

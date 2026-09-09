@@ -16,7 +16,13 @@ Finding 4 — the prior 7-baton/0.28s figures had drifted): `assemble_plan_gate`
 whose linked plan is at `status: approved`, in 0.07s process time; the four-state attest read over
 those 9 costs a further 0.02s; and `aggregate_execution` — the payload the run's Phase 0a consumes,
 schema-valid and required-keys since it shipped — exists **zero** times on disk. A shape no surface
-produces is never populated, which is what an unwelded seam looks like from the outside.
+produces is never populated, which is what an unwelded seam looks like from the outside. The
+unwelded seam is one of two reasons and was never the whole of it: until handoff.schema.json
+10.2.0 the block's kind-gate admitted `roadmap-baton` alone, and this module's entry set is
+cluster-less by construction — `--roadmap-id` is an OPTIONAL narrowing, so constituents are drawn
+across clusters and mostly from batons carrying no `roadmap_id` at all. An aggregate over that set
+now mints as `kind: spinoff` (DR-198(a));
+`coordinator/docs/wiki/aggregate-execution-baton.md` § Minting one is the table.
 
 WHOSE MODULE THIS IS. mise-prep's, not plan-blitz's. It is sited beside the exit it reads because
 that is where the exit's shape is owned — the same siting `roadmap.plan_gate`'s own spec backlink
@@ -182,10 +188,24 @@ def approved_plans(repo_root: Path, roadmap_id: Optional[str] = None,
                    all_batons: bool = False) -> list:
     """SEAM 1 — plan-blitz's exit, read off disk.
 
-    Returns `[{"workstream", "baton", "plan"}]`, one entry per baton whose linked plan the last
-    landing stamped `approved`. `workstream` is the baton's `stub_id` where it has one and its
-    resolved id otherwise, because the aggregate payload's own `workstream` field is a name a
-    reader recognises, not an internal id.
+    Returns `[{"workstream", "baton", "plan"}]`, one entry per baton the last landing left
+    fireable. `workstream` is the baton's `stub_id` where it has one and its resolved id
+    otherwise, because the aggregate payload's own `workstream` field is a name a reader
+    recognises, not an internal id.
+
+    PLAN-BLITZ HAS TWO EXITS, AND THIS READS BOTH. `status: approved` is the M/L lane's. The S
+    lane exits differently and deliberately: `blitz_land` parks the spec on the baton and stamps
+    it execution-ready (`handoff_phase: execution` plus the four `execution_authorized_*`
+    fields), leaving the plan at `draft` BY DESIGN — the skill's own reasoning being that "if
+    calling something S condemned it to the queue, the honest S got inflated to M", so sizing
+    that bends toward its downstream route is corrupted sizing.
+
+    Reading `approved` alone therefore dropped every S-lane plan from the certification set —
+    silently, and disproportionately, because the S lane is the work most likely to be
+    straight-dispatchable. Measured on project-rag after a 40-baton sweep: 8 plans reported
+    against 25 actually fireable. The engine already computes the second arm as
+    `execution_authorized`; not reading it was this seam's own version of the defect it exists
+    to close.
 
     Deduplicated on `plan`: several batons may cite one governing plan, and firing that plan twice
     is not a composition, it is a double dispatch."""
@@ -206,7 +226,10 @@ def approved_plans(repo_root: Path, roadmap_id: Optional[str] = None,
         if not all_batons and not baton.get("candidate", True):
             continue
         plan = baton.get("plan")
-        if not plan or str(plan.get("status") or "").strip().lower() != APPROVED:
+        if not plan:
+            continue
+        approved = str(plan.get("status") or "").strip().lower() == APPROVED
+        if not (approved or baton.get("execution_authorized")):
             continue
         if plan["path"] in seen:
             continue

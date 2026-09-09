@@ -47,15 +47,25 @@ Write path: the sanctioned CLI writer, `machine-local set
 engine.working_repos.doe_claude <path>` — never a hand-edit of the registry
 TOML (a concurrent session may be writing it; see
 `docs/wiki/machine-local-registry.md` § "Use this instead of editing
-registry files by hand"). Invoked here by shelling out to
-`<settings-home>/bin/_machine_local.py` directly under `sys.executable`
-(the same implementation file the `machine-local`/`machine-local.cmd`
-forwarders both resolve to — see `templates/bin/machine-local`'s own
-docstring), so this hook depends on neither shim existing or being
+registry files by hand"). Delegated to `_registry_write.machine_local_set`,
+the shared write seam, which runs the `_machine_local.py` implementation
+under `sys.executable` — never the `machine-local`/`machine-local.cmd`
+forwarders, so this hook depends on neither shim existing or being
 executable on the current platform. The actual write is isolated in
 `_write_registry_value()`, which is a bare, patchable module-level function
-so unit tests can substitute a in-memory recorder for the real subprocess
+so unit tests can substitute an in-memory recorder for the real subprocess
 spawn — no shelling out required to unit test the decision logic above it.
+
+NEGATIVE SPEC — this hook resolved its writer as
+`<settings-home>/bin/_machine_local.py` ALONE and silently no-opped when
+that file was absent. The engine plane's installer writes that file, so the
+self-heal was unavailable on exactly the boxes it exists for: a container
+that clones the fleet and installs nothing has no `<settings-home>/bin/`
+at all, and this hook did nothing there while reporting nothing. The shared
+seam falls back to the in-tree `templates/bin/_machine_local.py` — the
+source the installed copy is derived from — which ships with the plugin and
+is therefore present whenever this hook is running. See that module's
+docstring.
 
 Wrong-repo guard (Non-negotiable #7 in this hook's dispatch brief): this
 hook must NEVER register a tree that is not genuinely this repo's own working
@@ -91,7 +101,6 @@ an installer] ... its key is operator-set and does not yet self-heal").
 
 from __future__ import annotations
 
-import subprocess
 import sys
 from pathlib import Path
 
@@ -101,7 +110,6 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import (  # noqa: E402
         _registry_value as _engine_registry_value,
-        _settings_home,
         _settings_home_registry_dir,
     )
 except Exception:
@@ -111,19 +119,16 @@ except Exception:
     def _engine_registry_value(reg_dir, key):  # type: ignore[no-redef]
         return None
 
-    def _settings_home():  # type: ignore[no-redef]
-        return None
-
     def _settings_home_registry_dir():  # type: ignore[no-redef]
         return None
 
 try:
-    from _forwarder_resolve import forwarder_argv as _forwarder_argv
+    from _registry_write import machine_local_set as _machine_local_set
 except Exception:
-    # Review: overengineering-reviewer F3 -- see _forwarder_resolve's
-    # "Import-fallback contract" docstring section for the rationale.
-    def _forwarder_argv(script_path, tail=()):  # type: ignore[no-redef]
-        raise OSError("forwarder resolution unavailable -- import fallback declined to guess a launch decision")
+    # Partial-deploy defence, same shape as the _engine_root import above: a
+    # hook script without its sibling write seam must no-op, never crash.
+    def _machine_local_set(key, value):  # type: ignore[no-redef]
+        return None
 
 
 _REGISTRY_KEY = "engine.working_repos.doe_claude"
@@ -173,56 +178,18 @@ def _is_genuine_doe_claude_repo(root: Path) -> bool:
 
 def _write_registry_value(key: str, value: str) -> None:
     """Injectable write step — the ONE function this hook's tests patch out
-    rather than actually shelling out. Never raises (caller wraps it too,
-    defense in depth): any resolution failure, missing impl file, spawn
-    failure, or timeout is a silent no-op.
+    rather than actually shelling out. Never raises (the shared seam fails
+    open internally, and the caller wraps it too — defense in depth): any
+    resolution failure, missing implementation, spawn failure, or timeout is
+    a silent no-op.
 
-    Windows console-subprocess discipline: `sys.executable` on Windows is
-    typically `python.exe`, a console-subsystem binary — CREATE_NO_WINDOW
-    suppresses the focus-stealing console flash under this hook's headless
-    SessionStart parent. `getattr` degrades to a harmless `0` on
-    macOS/Linux, where the flag does not exist.
-
-    Launch guard: `_forwarder_argv` decides whether `impl` needs a
-    `sys.executable` prefix by inspecting the file itself (suffix plus
-    native-image magic-byte probe), never by trusting the `.py` suffix in
-    this call site's own path literal — a cut-over door installed at the
-    same stem is a compiled native image, and handing one to the Python
-    interpreter dies on the first byte with `SyntaxError: Non-UTF-8 code`.
-    See `_forwarder_resolve.forwarder_argv`'s own docstring ("Ask the
-    bytes").
+    Delegates to `_registry_write.machine_local_set`, which owns which
+    `_machine_local.py` this box can actually run, the Windows
+    console-subprocess discipline, and the spawn timeout. See that module's
+    docstring for the resolution rungs and why the in-tree template is one of
+    them.
     """
-    home = _settings_home()
-    if home is None:
-        return
-    impl = Path(home) / "bin" / "_machine_local.py"
-    if not impl.is_file():
-        return
-    try:
-        # Review: overengineering-reviewer F3 -- argv computation moved inside
-        # the try so a fallback-leg OSError (see _forwarder_resolve) is
-        # absorbed by the handler below rather than needing its own guard.
-        argv = _forwarder_argv(impl, ["set", key, value])
-        subprocess.run(
-            argv,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            # Below hooks.json's 10s whole-process timeout for this hook, so
-            # this in-process catch has room to fire and return before the
-            # harness's hard-kill would otherwise beat it to the graceful
-            # path.
-            # Review: coordinator-code-reviewer (s3-selfreg-hook) — inner
-            # timeout previously equaled the outer envelope (10s == 10s).
-            timeout=6,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except Exception:
-        # Review: coordinator-code-reviewer (s3-selfreg-hook) — the
-        # docstring claimed "never raises" without this wrap; TimeoutExpired
-        # or an OSError from the spawn previously propagated out, relying
-        # solely on the caller's wrap for fail-open. Caller-side wrap is
-        # kept too, making the defense-in-depth claim real.
-        return
+    _machine_local_set(key, value)
 
 
 def main() -> int:
