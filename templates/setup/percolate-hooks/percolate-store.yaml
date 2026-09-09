@@ -639,6 +639,52 @@ base:
       dst: "check-claude-klabauter-doctor-sentinel.sh"
     - src: "claude-klabauter-4th-class-ref-manifest.md"
       dst: "claude-klabauter-4th-class-ref-manifest.md"
+    # Identity-gate-asymmetry fix (state/research/2026-09-09-identity-gate-
+    # asymmetry.md): the four entries above never covered the `coordinator/
+    # bin,lib` executable surface routed into the coordinator-claude target
+    # via source_map (d4a566c99 widened that row to publish bin/lib/hooks as
+    # a real executable surface; this table was not extended to match), so
+    # six paths kept shipping the private fleet codename `claude-klabauter` in their
+    # FILENAMES to the public mirror even though their CONTENT was already
+    # scrubbed by the bare `claude-klabauter` depersonalize entry above -- a half-
+    # completed rename, not merely a leak: the published files' own
+    # docstrings/usage text already name the NEW basenames below (e.g.
+    # `gen-claude-klabauter-root-pointer.py` line 1 reads
+    # "gen-claude-klabauter-root-pointer.py"), so without this the shipped
+    # launcher invoked a sibling file that does not exist. Directory rename
+    # (trailing slash on both sides, per `_partition_rename_pairs`'s
+    # src/dst-both-or-neither convention) mirrors `coordinator_core/install/
+    # substrate.py`'s own documented expectation (~line 1040: "percolate's
+    # rename map rewrites it on publish (resolve-claude-klabauter/_resolve_claude_klabauter.py
+    # -> resolve-claude-klabauter/_resolve_claude_klabauter.py)") -- matched
+    # to that literal target basename, not invented here. `.cmd` siblings
+    # keep their `.cmd` extension (the Windows-launcher counterpart of a
+    # `.sh`/`.py` script, never renamed to `.sh` the way the pre-existing
+    # `check-claude-klabauter-doctor-sentinel.sh` -> `...-sentinel.sh` entry above
+    # does for its own `.py`).
+    - src: "resolve-claude-klabauter/"
+      dst: "resolve-claude-klabauter/"
+    - src: "_resolve_claude_klabauter.py"
+      dst: "_resolve_claude_klabauter.py"
+    - src: "check-claude-klabauter-doctor-sentinel.cmd"
+      dst: "check-claude-klabauter-doctor-sentinel.cmd"
+    - src: "gen-claude-klabauter-root-pointer.py"
+      dst: "gen-claude-klabauter-root-pointer.py"
+    - src: "gen-claude-klabauter-root-pointer.cmd"
+      dst: "gen-claude-klabauter-root-pointer.cmd"
+    - src: "remove-claude-klabauter-precommit-hook.py"
+      dst: "remove-claude-klabauter-precommit-hook.py"
+    - src: "remove-claude-klabauter-precommit-hook.cmd"
+      dst: "remove-claude-klabauter-precommit-hook.cmd"
+    # The depersonalize table rewrites the token `example-game-repo` -> `example-game-repo`
+    # in file CONTENT, and a markdown link target is content: a link to
+    # `example-game-repo-for-your-ue-project.md` publishes as a link to
+    # `example-game-repo-for-your-ue-project.md`. Without this rename the file
+    # itself still published under the old basename, so the transform broke its
+    # own link -- caught by validate-references the first round that published
+    # a page citing it (DIRECTORY_GUIDE.md, via the wiki-seed expansion).
+    - src: "example-game-repo-for-your-ue-project.md"
+      dst: "example-game-repo-for-your-ue-project.md"
 
 targets:
   # Mirrors coordinator-claude/post-rsync/10-transform.sh (full-tree sweep, no
@@ -811,6 +857,41 @@ targets:
           pattern_source:
             registry_codenames: true
             form: "alternation"
+          include_extensions:
+            - "*.md"
+            - "*.sh"
+            - "*.py"
+            - "*.json"
+            - "*.ts"
+            - "*.toml"
+            - "*.js"
+            - "*.mjs"
+            - "*.ps1"
+            - "*.cmd"
+      # Bare-codename backstop (identity-gate-asymmetry, state/research/
+      # 2026-09-09-identity-gate-asymmetry.md § 2). `_registry_alternation_
+      # pattern` (claude-klabauter coordinator_core/ops/percolate_run.py)
+      # builds the guard above from `repos.*` machine-local registry-key
+      # SPELLINGS only (`claude_klabauter`/`claude-klabauter`), so it compiles
+      # `claude_klabauter|project\-claude-klabauter|...` and structurally cannot match
+      # the bare token `claude-klabauter` -- there is no `repos.*` key spelled that
+      # way to derive it from. That blind spot is why the six-path leak this
+      # entry answers survived every prior publish undetected. `params.
+      # pattern` (a static literal, same schema-supported alternative the
+      # gendered-pronoun entry below already uses) closes it directly for
+      # this one already-known private codename, per depersonalize-
+      # doctrine.md's "seed the bare token explicitly" prescription for any
+      # `repos.*`-registry-unspellable codename (`example-initiative`, `example-workstream`
+      # already carry the same shape in `depersonalize:` above). Word-
+      # boundary anchored, case-insensitive, so it also catches `Claude-Klabauter`/
+      # `CLAUDE-KLABAUTER` residue the same way the depersonalize entry's own
+      # `case_variants` does. Not a substitute for porting klabauter's
+      # literal `BANNED`-list path scan as a second independent leg (R2's
+      # "better still") -- that is a larger, separate change, left for a
+      # follow-up plan rather than folded into this fix.
+      - kind: "no-residual-pattern"
+        params:
+          pattern: '(?i)\bclaude-klabauter\b'
           include_extensions:
             - "*.md"
             - "*.sh"

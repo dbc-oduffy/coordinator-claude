@@ -2077,12 +2077,108 @@ def _print_pathspec_surplus(
     )
 
 
+def _classify_dropped_paths(
+    repo_root: str,
+    dropped: List[Tuple[str, str]],
+    *,
+    head_tracked: "Optional[set]" = None,
+) -> "Dict[str, List[str]]":
+    """Buckets each of `dropped`'s paths (repo-root-relative POSIX, as
+    `_partition_carried_changes` emits them) by the DEST-REPO FACT that
+    actually explains why the commit pathspec does not carry it, in place
+    of the fixed guess `_report_commit_residual` used to attach
+    ("filtering/containment/dedup").
+
+    Measured shape this classifier exists to reproduce (EM, live
+    klabauter round, 2026-09-06): of 48 uncarried paths, 47 were tracked
+    and byte-identical to HEAD -- the round rewrote them with the same
+    content, so there was nothing to commit -- and 1 was a gitignored
+    `__pycache__/*.pyc`. Zero were unexplained. A round that instead
+    prints a three-way guess turns that entirely benign outcome into an
+    alarming warning.
+
+    Three checks, each batched ONCE over the whole `dropped` list rather
+    than spawned per path (this repo counts spawns; see
+    `_gitignored_dest_paths`/`_dest_head_tree`/`_dest_head_diff_names`,
+    all of which already take a batch and answer for every path in one
+    process):
+
+    - gitignored at dest (`_gitignored_dest_paths`, `git check-ignore
+      -z --stdin`) -- pattern-only, works for a path absent on disk too.
+    - absent on disk (`os.path.lexists`, no spawn -- a filesystem stat).
+    - identical to HEAD: tracked at dest HEAD (`head_tracked`, reused
+      from the caller's own `_dest_head_tree` read when given, else
+      read fresh here) AND not among the paths whose worktree bytes
+      diverge from HEAD (`_dest_head_diff_names`).
+
+    Whatever satisfies none of those lands in `"unaccounted"` -- the one
+    bucket that might be a real drop, so it is never folded into a
+    benign count, and its paths are always returned (never only a
+    count) so the caller can name them rather than report a subtotal.
+
+    Checked gitignored, then absent, then identical-to-HEAD, in that
+    order: a gitignored path is usually untracked (so "identical to
+    HEAD" would never fire for it anyway), and an absent path never
+    diverges from HEAD by definition of `git diff`, but the order is
+    fixed here so two callers never disagree on which bucket a path
+    that happened to satisfy more than one predicate lands in.
+    """
+    buckets: "Dict[str, List[str]]" = {
+        "identical_to_head": [],
+        "gitignored": [],
+        "absent": [],
+        "unaccounted": [],
+    }
+    if not dropped:
+        return buckets
+
+    import os
+
+    repo_root_path = Path(repo_root)
+    paths = [path for _tag, path in dropped]
+    head_tree = head_tracked if head_tracked is not None else _dest_head_tree(repo_root)
+    diff_names = _dest_head_diff_names(repo_root)
+    ignored = _gitignored_dest_paths(repo_root, paths)
+
+    for _tag, path in dropped:
+        if path in ignored:
+            buckets["gitignored"].append(path)
+        elif not os.path.lexists(repo_root_path / path):
+            buckets["absent"].append(path)
+        elif path in head_tree and path not in diff_names:
+            buckets["identical_to_head"].append(path)
+        else:
+            buckets["unaccounted"].append(path)
+    return buckets
+
+
+def _describe_dropped_causes(buckets: "Dict[str, List[str]]") -> str:
+    """Renders `_classify_dropped_paths`' buckets as the `detail` clause of
+    the residual-divergence line -- a computed breakdown, never the fixed
+    guess it replaces. The `unaccounted` bucket, when non-empty, names its
+    paths rather than only counting them (§ its docstring: the one bucket
+    that might be a real drop)."""
+    parts = []
+    if buckets["identical_to_head"]:
+        parts.append(f"{len(buckets['identical_to_head'])} identical to HEAD")
+    if buckets["gitignored"]:
+        parts.append(f"{len(buckets['gitignored'])} gitignored at dest")
+    if buckets["absent"]:
+        parts.append(f"{len(buckets['absent'])} absent on disk")
+    if buckets["unaccounted"]:
+        named = ", ".join(sorted(buckets["unaccounted"]))
+        parts.append(f"{len(buckets['unaccounted'])} unaccounted for: {named}")
+    return "; ".join(parts) if parts else "no dest-repo cause found"
+
+
 def _report_commit_residual(
     target: str,
     real_changes: List[Tuple[str, str]],
     pathspec: List[str],
     *,
     deletion_paths: "Optional[Sequence[str]]" = None,
+    repo_root: "Optional[str]" = None,
+    head_tracked: "Optional[set]" = None,
 ) -> Optional[str]:
     """Surfaces, on stderr, the gap this module used to discard silently:
     `real_changes` is publish.py's own dest-working-tree comparison (see
@@ -2134,8 +2230,13 @@ def _report_commit_residual(
         # line still prints below either way; only the counted warning goes.
         _print_pathspec_surplus(target, real_changes, pathspec, deletion_paths)
         return None
-    delta = len(real_changes) - len(pathspec)
-    detail = f"{delta} not carried into the pathspec by filtering/containment/dedup"
+    if repo_root is not None:
+        buckets = _classify_dropped_paths(repo_root, dropped, head_tracked=head_tracked)
+        detail = _describe_dropped_causes(buckets)
+    else:
+        # No dest repo root to classify against (e.g. a caller that never
+        # resolved one) -- name that honestly rather than guess a cause.
+        detail = f"{len(dropped)} not carried; no dest repo root given to classify"
     print(
         f"percolate-round: {target} — intent vs commit pathspec diverge: "
         f"{len(real_changes)} change line(s) reported by the real publish run vs "
@@ -2919,7 +3020,12 @@ def _cmd_round_default(
                 _partition_pathspec_for_commit(pathspec, repo_root, head_tracked)
             )
             residual_warning = _report_commit_residual(
-                target, real_changes, pathspec, deletion_paths=deletion_paths
+                target,
+                real_changes,
+                pathspec,
+                deletion_paths=deletion_paths,
+                repo_root=repo_root,
+                head_tracked=head_tracked,
             )
             subject = _build_commit_subject(
                 target, real_changes, pathspec, deletion_paths=deletion_paths
