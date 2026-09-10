@@ -66,7 +66,7 @@ Negative-spec:
     RUNNER's, ordered strictly after the sha leg — which is the whole reason the command is
     recorded rather than the answer alone.
   - Does NOT run the authoring bar. The bar is the step BEFORE stamping and its verdict is not an
-    entry need; the repair line names `coordinator/bin/mise-prep-gate.py` and stops there.
+    entry need; the repair line names the bar's own resolved path and stops there.
   - Does NOT re-derive the claimed / `in_flight` exclusion. `assemble_plan_gate` applies it; a
     second exclusion vocabulary here would be a second answer to a settled question. Note that the
     exclusion is inherited and NOT tuned for certification — see § A LIMIT WORTH NAMING.
@@ -123,11 +123,44 @@ APPROVED = "approved"
 #: a report that said "not certified" for all four would send three of the four authors to the
 #: wrong one.
 _REPAIR = {
-    "UNSTAMPED": "gate and stamp: python coordinator/bin/mise-prep-gate.py {plan}",
-    "STALE": "body moved after the stamp — re-gate, then re-stamp: "
-             "python coordinator/bin/mise-prep-gate.py {plan}",
-    "MALFORMED": "hand-written stamp — repair the four mise_prepped_* fields in {plan}",
+    "UNSTAMPED": "gate and stamp: {gate}",
+    "STALE": "body moved after the stamp — re-gate, then re-stamp: {gate}",
+    "MALFORMED": "hand-written stamp — repair the four mise_prepped_* fields in {target}",
 }
+
+#: The authoring bar every repair above routes to. A PLUGIN-LOCAL sibling, so it self-resolves off
+#: the plugin root — rung 3 of `snippets/resolve-coordinator-bin.md` — rather than through the
+#: engine seam the bar itself uses for ITS forward reference. Absolute by construction, because
+#: this read's whole purpose is running over a CONSUMER repo (`--repo-root`), and the DoE-relative
+#: literal `coordinator/bin/mise-prep-gate.py` these repairs used to print resolves nowhere there.
+#: Measured on project-rag-ue-addon: 4 of 4 excluded plans routed to a path absent both in that
+#: repo and in the `~/.claude` plugin mirror. Same defect, same repair, one surface over from
+#: `mise-prep-gate.py :: _mise_prep_upgrade_fix_line` — which is why the pin below is the
+#: generalising one, not another dead-literal assertion.
+_GATE_PATH = _PLUGIN_ROOT / "bin" / "mise-prep-gate.py"
+
+
+def _gate_cmd(plan: str, repo_root: Optional[Path]) -> str:
+    """The bar's invocation for ONE plan, runnable from any cwd.
+
+    Carries `--repo-root` because `plan` is repo-relative: without it the printed line runs only
+    from inside the very repo the reader may not be standing in, which is the same unresolvable
+    remediation one argument along. Fail-open, and never a silent guess — an absent bar is
+    reported as unnamed rather than papered over with a path that is not there."""
+    if not _GATE_PATH.is_file():
+        return ("[cannot name the authoring bar — mise-prep-gate.py is not present beside this "
+                "read; reinstall coordinator-claude, then rerun]")
+    root = f"--repo-root {repo_root} " if repo_root else ""
+    return f"python {_GATE_PATH} {root}{plan}"
+
+
+def _repair_line(state: str, plan: str, repo_root: Optional[Path]) -> Optional[str]:
+    """The repair for one non-certified state, or None where the state carries none."""
+    template = _REPAIR.get(state)
+    if template is None:
+        return None
+    target = str(repo_root / plan) if repo_root else plan
+    return template.format(gate=_gate_cmd(plan, repo_root), target=target)
 
 
 class SeamError(RuntimeError):
@@ -287,7 +320,7 @@ def certify(repo_root: Path, rows: list) -> dict:
     }
 
 
-def report_message(report: dict) -> str:
+def report_message(report: dict, repo_root: Optional[Path] = None) -> str:
     """The register: one fact per line, the terse alternative, no override key.
 
     Every non-certified plan carries its OWN repair, because the four states route four different
@@ -303,9 +336,9 @@ def report_message(report: dict) -> str:
         lines.append("  fires    nothing")
     for entry in report["uncertified"]:
         lines.append(f"  excluded {entry['plan']}  {entry['state']}")
-        repair = _REPAIR.get(entry["state"])
+        repair = _repair_line(entry["state"], entry["plan"], repo_root)
         if repair:
-            lines.append(f"           {repair.format(plan=entry['plan'])}")
+            lines.append(f"           {repair}")
     for entry in report["withheld_rows"]:
         lines.append(f"  withheld {entry['plan']}  rows {', '.join(entry['rows'])}")
     if report["verdict"] == NO_FIRE:
@@ -396,7 +429,7 @@ def main(argv: list) -> int:
     elif args.emit_block:
         print(emit_block(report))
     else:
-        print(report_message(report))
+        print(report_message(report, repo_root))
 
     if report["verdict"] == FIRE:
         return EXIT_FIRE

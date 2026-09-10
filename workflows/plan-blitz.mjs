@@ -28,6 +28,14 @@
  *
  * args contract:
  *   {
+ *     repoRoot: string,       // ABSOLUTE path to the repo this wave plans for. REQUIRED, and
+ *                             //  refused when absent. Every brief anchors its repo-relative
+ *                             //  paths here. Without it an agent resolves them against whatever
+ *                             //  directory the DRIVER'S SHELL happened to hold when it spawned,
+ *                             //  which is not necessarily this repo and on a fresh cloud
+ *                             //  container is not a repo at all. The failure is silent in the
+ *                             //  worst place: a hand-authored plan lands under another tree, the
+ *                             //  wave reports it written, and the gate never sees a file to read.
  *     waveIndex: number,      // which planning wave this run covers; 0 is the ungated wave.
  *                             //  Carried into every brief so a sidecar names its own wave.
  *     trailDir: string,       // e.g. "state/plan-blitz/20260905T120000Z" — the durable trail.
@@ -82,6 +90,7 @@
  *   Workflow({
  *     scriptPath: "coordinator/workflows/plan-blitz.mjs",
  *     args: {
+ *       repoRoot: "/abs/path/to/the/repo",
  *       waveIndex: 0,
  *       trailDir: "state/plan-blitz/20260905T120000Z",
  *       gateReportPath: "state/plan-blitz/20260905T120000Z/gate-report.json",
@@ -118,6 +127,36 @@ export const meta = {
     { title: 'Dispatch', detail: 'One executor per XS/dispatch baton whose EXECUTION gate is open. Runs AFTER planning so the wave plans against a stable tree and the only mutating phase is last. Bounded to the remit the baton itself states — an XS that grows is a sizing defect, not a bigger job.' },
     { title: 'Readiness gate', detail: 'One Opus blitz-em over the durable trail. Per plan: ready, pulled, or replan. A PIVOT routes to a replan baton for a later wave rather than halting this one, and is reconciled mechanically rather than left to the gate.' },
   ],
+}
+
+// ---------------------------------------------------------------------------
+// Args intake — the harness may hand `args` over as a STRING
+// ---------------------------------------------------------------------------
+//
+// The Workflow tool's `args` input declares no type, so a caller passing a JSON
+// object can have it arrive here as the SERIALIZED TEXT of that object. Every
+// `parsedArgs.<key>` read below then resolves `undefined` against a string,
+// `batons` comes back empty, and the run takes the legitimate empty-wave exit:
+// it returns `{ empty: true }` having dispatched nothing. Measured on a fire
+// carrying seven batons — 154ms, zero agents, no error raised anywhere. That is
+// the worst shape this failure can take, because an empty wave is a REAL state
+// the caller is told to RECORD rather than investigate, so the fire reads as
+// "nothing left to plan" while every baton in it returns as a candidate in the
+// next gate read. Identical coercion, and identical reason, to
+// `wsc-review-partition.mjs :: parsedArgs`, which met this first.
+//
+// Bound under its own name rather than shadowing `args`: the runtime owns how
+// that name is bound, and a module-scope redeclaration of it is a SyntaxError
+// on any host that binds it lexically.
+const parsedArgs = (typeof args === 'string') ? JSON.parse(args) : args
+if (!parsedArgs || typeof parsedArgs !== 'object') {
+  // Separates "the caller built no payload" from "the wave found nothing to do".
+  // Both reach the same exit shape otherwise, and only one of them is a defect.
+  throw new Error(
+    'plan-blitz received no args object (got ' + String(parsedArgs) + '). The caller resolves ' +
+    'the wave with roadmap.plan_gate, freezes that report to disk, and passes waveIndex, ' +
+    'trailDir, gateReportPath and batons — see the args contract at the top of this file.'
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -428,7 +467,7 @@ const READINESS_SCHEMA = {
 // tell whether the plugin is installed should omit it — a thinner reviewer is
 // recoverable, a mislabelled one is not.
 
-const PLUGIN_AGENTS = args.pluginAgentsAvailable === true
+const PLUGIN_AGENTS = parsedArgs.pluginAgentsAvailable === true
 
 function withRole(agentType, opts) {
   return PLUGIN_AGENTS && agentType ? { ...opts, agentType } : opts
@@ -711,6 +750,39 @@ returned summary is a finding the EM's readiness gate will never see.`
 // integrate findings a live wave correctly suspended. `verdict` and `premiseFailure` in the
 // pointer are the SAME claim the agent also returns in its own JSON schema output below, stated
 // twice, never two sources of truth.
+// A COORDINATOR CLI IS NAMED WITH ITS RESOLUTION, NEVER AS A BAREWORD. This file names
+// `append-integrator-dispositions`, `sizing-assemble` and `coordinator-doc-new` in briefs, and
+// until now named them bare, gesturing at "the bin ladder" once without ever giving its shape.
+// `snippets/resolve-coordinator-bin.md` is explicit that no coordinator CLI is reliably on PATH,
+// so a bareword exits 127 unrecoverably — and an agent that gets 127 concludes the TOOL IS ABSENT
+// rather than that the path was unresolved, which is the more expensive of the two wrong readings.
+//
+// Measured: two consecutive waves came back reporting `append-integrator-dispositions` "absent
+// from the wave's tool surface", so no reviewer disposition was written to any provisioned sidecar
+// and the review trail was incomplete by TOOLING on both. The integrator brief had told it not to
+// hand-author around a refusal — correctly — while never telling it how to invoke the op at all.
+//
+// Both host shapes are given because this fleet is multi-OS P0 and a POSIX-only literal would
+// simply move the breakage to Windows. The agent picks the rung its host takes, which is what the
+// canonical snippet already instructs; what it could not do before was pick from nothing.
+const CLI_RESOLUTION_RULE = `
+Every coordinator CLI named in this brief is invoked BY ABSOLUTE PATH through the settings home,
+never as a bareword — no coordinator CLI is reliably on PATH, and a bareword exits 127. On a POSIX
+host:
+
+    "\${COORDINATOR_SETTINGS_HOME:-\${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/<cli>"
+
+On a PowerShell host, guard first (nothing exports the variable, so unset is the DEFAULT state of
+a fresh shell) and then call the \`.exe\`:
+
+    if (-not $env:COORDINATOR_SETTINGS_HOME) { $env:COORDINATOR_SETTINGS_HOME = Join-Path ($env:CLAUDE_HOME ?? $HOME) ".coordinator-claude-settings" }
+    & "$env:COORDINATOR_SETTINGS_HOME\\bin\\<cli>.exe" <args>
+
+Canonical rule: \`snippets/resolve-coordinator-bin.md\`. If a CLI still does not run after
+resolving it this way, report the failure verbatim — command-not-found after this means the CLI is
+genuinely absent, which is a finding. It never means invent a substitute or hand-author the record
+the CLI would have written.`
+
 const REVIEW_SIDECAR_RULE = (pointerPath) => `
 Write your findings sidecar to YOUR OWN PROVISIONED SIDECAR under
 \`<machinery_root>/subagent-share/<your session id>/\`, and return its absolute path verbatim as
@@ -735,6 +807,33 @@ cannot see, and a pointer with no sidecar is worse — it reads as a review that
 
 The sidecar is the durable record this wave is read from: a finding that exists only in your
 returned summary is a finding the EM's readiness gate will never see.`
+
+// EVERY BRIEF IS ANCHORED, because nothing else anchors it. A dispatched agent inherits the
+// driver's shell cwd, not the repo the wave is about — the two coincide only by the driver's
+// habit, and this file has no filesystem primitive with which to notice they have diverged.
+// `trailDir` and `gateReportPath` are absolute by the skill's own instruction, so a sidecar
+// survives the divergence; a baton record and a hand-authored plan path do not. The measured
+// shape: on a cloud container the session's directory was the PARENT of five sibling clones, so
+// `docs/plans/<date>-<slug>.md` resolved to a directory in no repo at all, and the wave would
+// have reported every plan written. Loud beats clever here — the rule is stated in the brief
+// rather than inferred, because an agent that guesses right eight times and wrong once has
+// produced the failure this whole file is written to prevent.
+const REPO_ROOT =
+  typeof parsedArgs.repoRoot === 'string' && parsedArgs.repoRoot.trim()
+    ? parsedArgs.repoRoot.trim()
+    : null
+
+const REPO_ROOT_RULE = REPO_ROOT ? `
+Every repo-relative path in this brief — the baton record, the plan, a spine row's \`writes:\`,
+anything you read or create — is relative to THIS repo root, and nothing else:
+
+    ${REPO_ROOT}
+
+Resolve them there, and change into it before you run anything. Do NOT resolve against your own
+working directory: you inherited it from the process that dispatched you, it is not necessarily
+this repo, and a path that silently resolves somewhere else produces work that looks done and is
+not. If a path you were given does not exist under that root, say so — never search for a
+plausible substitute elsewhere on the box.` : ''
 
 const NO_EXECUTION_RULE = `
 You do not execute. No code changes, no "quick fix while I'm here", no chunk work. A defect you
@@ -817,6 +916,7 @@ Your read will be interrogated by an EM who revises down by default. Do not pre-
 that, and do not hedge: give the number you actually believe and the evidence that produced it.
 An honest S that survives is worth more than a defensive L that gets cut.
 ${NO_EXECUTION_RULE}
+${REPO_ROOT_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'sizing'))}`,
     {
       label: `size:${baton.id}`,
@@ -927,7 +1027,7 @@ to skip, restated because skipping them here is invisible until much later:
      write \`sizing_object: null\` and say so in your summary. An explicit null is sanctioned and
      passes the gate; a path you invent to fill the field does not, and fails as a DANGLING
      citation that looks connected.` : `The coordinator plan tooling is NOT installed on this machine, so hand-author the plan file at
-docs/plans/<YYYY-MM-DD>-<slug>.md. Frontmatter, exactly these keys and nothing invented:
+${REPO_ROOT || '<repoRoot>'}/docs/plans/<YYYY-MM-DD>-<slug>.md. Frontmatter, exactly these keys and nothing invented:
 
     ---
     title: "<title>"
@@ -1006,6 +1106,7 @@ aimed at whatever you return here, so a sidecar path sends two more agents at a 
 the plan, and the baton spends a wave slot producing nothing.
 ${MISE_PREP_RULE}
 ${NO_EXECUTION_RULE}
+${REPO_ROOT_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'planning-report'))}`,
     withRole('coordinator:plan-author', {
       label: escalation ? `resolve:${baton.id}` : `plan:${baton.id}`,
@@ -1127,6 +1228,7 @@ naming the assumption, never a withheld row and never a \`RESOLVES\`. Where they
 check in words rather than a bare class number, the number goes in \`questionClass\` and the words
 go in \`evidence\`. You have no field for a verdict on the plan, and that is deliberate.
 ${NO_EXECUTION_RULE}
+${REPO_ROOT_RULE}
 ${REVIEW_SIDECAR_RULE(sidecarFor(trailDir, baton.id, 'premise-check'))}`,
     withRole('coordinator:premise-checker', {
       label: `premise:${baton.id}`,
@@ -1350,6 +1452,7 @@ You are one of possibly several reviewers on this plan, each writing to their ow
 assume your verdict is the wave's verdict, and do not defer to an imagined co-reviewer: a BLOCKED
 alongside someone else's PIVOT is not redundant — your findings become inputs to the replan.
 ${NO_EXECUTION_RULE}
+${REPO_ROOT_RULE}
 ${REVIEW_SIDECAR_RULE(sidecarFor(trailDir, baton.id, `review-${reviewer}-pointer`))}`,
     withRole(reviewer, {
       label: `review:${baton.id}:${reviewer}`,
@@ -1443,6 +1546,8 @@ consider, and an escalation left with fewer than two reviewer-sourced options is
 this wave at all. So do not launder your own option into a reviewer's name to give the choice
 more to work with — that converts your judgment into theirs, silently, which is the thing your
 ASK routing exists to prevent.
+${REPO_ROOT_RULE}
+${CLI_RESOLUTION_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'review-integration'))}`,
     withRole('coordinator:review-integrator', {
       label: `integrate:${baton.id}`,
@@ -1800,6 +1905,7 @@ surface that no longer exists.
 
 Report honestly. \`completed: false\` with a reason is a first-class outcome and costs nothing;
 a partial reported as done costs whoever reads the trail next.
+${REPO_ROOT_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'execution'))}`,
     withRole('coordinator:executor', {
       label: `dispatch:${baton.id}`,
@@ -1870,12 +1976,27 @@ async function repairBaton(entry, trailDir) {
   return { batonId, planPath, repaired: true, integration }
 }
 
-if (args.mode === 'repair') {
-  const repairBatons = args.repairBatons || []
+if (parsedArgs.mode === 'repair') {
+  const repairBatons = parsedArgs.repairBatons || []
   if (repairBatons.length === 0) {
     return { mode: 'repair', repaired: [], refused: [], empty: true }
   }
-  if (!args.trailDir) {
+  if (!REPO_ROOT) {
+    // `integrator()` edits the plan at `planPath`, which is repo-relative. With no root to
+    // resolve it against, the edit either misses or lands in another tree — and a repair run
+    // that quietly dispositioned nothing is indistinguishable from one that worked.
+    return {
+      mode: 'repair',
+      repaired: [],
+      refused: repairBatons.map((e) => ({
+        batonId: (e && e.batonId) || null,
+        planPath: (e && e.planPath) || null,
+        repaired: false,
+        reason: 'no repoRoot supplied — refusing rather than resolving the plan path against the dispatching shell\'s working directory',
+      })),
+    }
+  }
+  if (!parsedArgs.trailDir) {
     // Unvalidated, this renders `undefined/<baton>.review-integration.md` into the
     // integrator's TRAIL_RULE and loses the trail sidecar with no error anywhere.
     return {
@@ -1914,7 +2035,7 @@ if (args.mode === 'repair') {
           + 'both/all rather than integrating two conflicting runs against the same plan',
       }))
     : []
-  const results = await pipeline(runnable, (entry) => repairBaton(entry, args.trailDir))
+  const results = await pipeline(runnable, (entry) => repairBaton(entry, parsedArgs.trailDir))
   return {
     mode: 'repair',
     repaired: results.filter((r) => r && r.repaired),
@@ -1926,9 +2047,9 @@ if (args.mode === 'repair') {
 // Wave body
 // ---------------------------------------------------------------------------
 
-const waveIndex = args.waveIndex
-const trailDir = args.trailDir
-const batons = args.batons || []
+const waveIndex = parsedArgs.waveIndex
+const trailDir = parsedArgs.trailDir
+const batons = parsedArgs.batons || []
 
 // A WAVE INDEX IS NOT A FIRE IDENTITY. The skill caps a fire at 8 batons, so any wave with more
 // than that is drained by SEVERAL fires that all carry the same `waveIndex` — and the one
@@ -1954,6 +2075,24 @@ const fireId = (() => {
 //: The wave-scoped sidecar's baton-slot, `wave-<index>-<fireId>`. One name, computed once, so the
 //: write site cannot drift from anything that later resolves the same record.
 const waveSlot = `wave-${waveIndex}-${fireId}`
+
+// Refused BEFORE the empty-wave check, deliberately: a caller that omitted `repoRoot` has
+// violated the contract whether or not this particular wave had batons in it, and learning that
+// on an empty wave costs nothing while learning it on a full one costs the wave.
+if (!REPO_ROOT) {
+  return {
+    waveIndex,
+    ready: [],
+    pulled: [],
+    replan: [],
+    surfacedToPm: [],
+    trailDir,
+    refused: batons.map((b) => ({
+      batonId: (b && b.id) || null,
+      reason: 'no repoRoot supplied — every brief in this wave would resolve its repo-relative paths against the dispatching shell\'s working directory, which is not necessarily this repo',
+    })),
+  }
+}
 
 if (batons.length === 0) {
   // An empty wave is a real state, not a failure: the caller resolved a wave whose batons were
@@ -1998,7 +2137,7 @@ ${ROLE_CONTRACTS['blitz-em']}
 You are the blitz-em for plan-blitz wave ${waveIndex}. Interrogate and finalise the sizing for
 every baton below, then emit the dispatch spec the planning phase will read.
 
-The gate report this wave was resolved from: ${args.gateReportPath}. Read it. A baton here may
+The gate report this wave was resolved from: ${parsedArgs.gateReportPath}. Read it. A baton here may
 have a blocker whose plan is already approved — that blocker's decisions are published, and a
 scout that re-derived them as unknowns has over-read the size.
 
@@ -2063,6 +2202,8 @@ Anything that is the PM's call — route: pm-decision, or an XL exit — set sur
 the question stated in the PM's register, and give it no reviewers. You are an EM proxy, never a
 PM proxy.
 ${NO_EXECUTION_RULE}
+${REPO_ROOT_RULE}
+${CLI_RESOLUTION_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, waveSlot, 'em-size-review'))}`,
   withRole('coordinator:blitz-em', {
     label: `size-review:${waveSlot}`,
@@ -2102,7 +2243,41 @@ const ROUTE_EXITS = {
   'goal-setting': 'XXL/goal-setting — too large to be one baton; coordinator:goal-setting is the room',
 }
 
-const decisions = (dispatch && dispatch.decisions) || []
+// A CITATION IS COMMITTED STATE, so it never carries a host path. `coordinator-doc-new` prints
+// the sizing object's ABSOLUTE path, the em returns what it was printed, and both consumers take
+// it verbatim — `sizingFm` writes it into the plan's frontmatter and the planner brief says "Use
+// that path EXACTLY". Measured on project-rag-ue-addon: 4 of 88 plans citing a sizing object
+// carry `/home/<user>/<repo>/state/sizings/...`, every one of them authored by plan-blitz.
+//
+// Such a plan is green on the box that wrote it and dangling everywhere else. `plan.schema.json`
+// pins `sizing_object` to a RESOLVING `state/sizings/*.yaml`, so the read-side gate passes
+// locally and fails on a clean checkout — the one failure ordering that gets a defect committed
+// rather than caught. Portability is first-class: nothing we emit may encode a host path.
+//
+// Normalised HERE, at the one seam both consumers read, rather than asked of the em in its brief:
+// an instruction to an LLM is not a mechanism, and two sites free to disagree eventually do.
+// Separators are folded to forward slashes because repo-relative identity is forward-slash by
+// rule, not by whichever host wrote the citation.
+function repoRelativeCitation(value) {
+  if (typeof value !== 'string' || !value.trim()) return value
+  const text = value.trim()
+  if (!REPO_ROOT) return text
+  const root = REPO_ROOT.replace(/[/\\]+$/, '')
+  for (const sep of ['/', '\\']) {
+    const prefix = root + sep
+    if (text.startsWith(prefix)) return text.slice(prefix.length).replace(/\\/g, '/')
+  }
+  // Absolute but NOT under this repo: left exactly as it is. The read-side gate refusing a
+  // citation that resolves nowhere is the correct outcome; quietly rewriting it into something
+  // that looks local would hide a real defect behind a plausible path.
+  return text
+}
+
+const decisions = ((dispatch && dispatch.decisions) || []).map((d) =>
+  d && typeof d === 'object' && d.sizingObject
+    ? { ...d, sizingObject: repoRelativeCitation(d.sizingObject) }
+    : d,
+)
 const surfacedToPm = decisions.filter((d) => d.surfacedToPm)
 const plannable = decisions.filter(
   (d) => !d.surfacedToPm && PLANNABLE_ROUTES.has(d.route),
@@ -2329,7 +2504,16 @@ written, reviewed and integrated without consulting you — that is by design. Y
 items OUT, over the trail.
 
 Trail directory: ${trailDir}
-Gate report this wave was resolved from: ${args.gateReportPath}
+Gate report this wave was resolved from: ${parsedArgs.gateReportPath}
+
+THE TRAIL DIRECTORY IS SHARED, AND YOUR MANDATE IS THE LIST BELOW — NOT THE DIRECTORY. A wave
+larger than one fire is drained by SEVERAL fires at this same waveIndex, all writing into that one
+trail, and they may be running CONCURRENTLY. So the trail holds sidecars for batons that are not
+yours: some belong to a fire that already landed, some to a fire that is still authoring its plans
+right now. Judge EXACTLY the batons enumerated below and no others. Read another baton's sidecar
+if it informs one of yours — that costs nothing — but never return a verdict for it. A verdict on
+a baton outside this fire either overrides a landing that already happened or stamps a plan whose
+author has not finished writing it, and both read as ordinary output.
 
 ${trailLines}
 
@@ -2391,6 +2575,7 @@ On a MIXED SET — one reviewer pivoted, another returned OK/WARN/BLOCKED — th
 BOTH. The co-reviewer's findings were suspended, not answered, and they are the most concrete
 thing the replan inherits: a brief holding only the pivot rationale throws away a whole review
 that nobody will run again. Name each surviving finding and its reviewer.
+${REPO_ROOT_RULE}
 ${NO_EXECUTION_RULE}`,
   withRole('coordinator:blitz-em', {
     label: `readiness:wave-${waveIndex}`,
@@ -2428,7 +2613,19 @@ const reviewsById = new Map(chains.filter(Boolean).map(({ baton, reviews }) => [
 // structured review output the wave already holds, and the override is RECORDED rather
 // than quiet: `pivotOverride` carries the EM's own verdict into the trail so a
 // disagreement stays visible instead of being erased by the thing that corrects it.
-const verdicts = ((readiness && readiness.verdicts) || []).map((v) => {
+// THE RULE ABOVE IS ENFORCED HERE, not left to the brief. A shared trail plus concurrent fires
+// means the gate can see, and has returned, verdicts for batons belonging to other fires.
+// Measured on this repo: one fire's gate returned `ready` for a baton a PREVIOUS fire had pulled,
+// and `replan` for two batons a CONCURRENT fire was still authoring plans for — landing that
+// verbatim would have minted replan batons against live work and reversed a completed landing.
+// Dropped rather than trusted, and reported rather than dropped silently: `foreignVerdicts` puts
+// them in the wave result so the caller sees what this fire declined to judge.
+const fireBatonIds = new Set(batons.map((b) => b.id))
+const foreignVerdicts = ((readiness && readiness.verdicts) || [])
+  .filter((v) => !fireBatonIds.has(v.batonId))
+  .map((v) => ({ batonId: v.batonId, verdict: v.verdict, droppedBecause: 'not a member of this fire' }))
+
+const verdicts = ((readiness && readiness.verdicts) || []).filter((v) => fireBatonIds.has(v.batonId)).map((v) => {
   const reviews = reviewsById.get(v.batonId) || []
   const entry = {
     ...v,
@@ -2468,6 +2665,11 @@ return {
   pulled: verdicts.filter((v) => v.verdict === 'pulled'),
   replan: verdicts.filter((v) => v.verdict === 'replan'),
   surfacedToPm,
+  // Verdicts this fire's gate returned for batons that are not its own, dropped before they
+  // could reach the landing. Non-empty means the gate over-reached its fire — usually because a
+  // concurrent fire is writing into the same shared trail. Carried so the caller can see what
+  // was declined rather than discovering it as a silent absence.
+  foreignVerdicts,
   // XS work this wave actually finished, rather than handing back.
   dispatched,
   // Sized and routed, but neither planned nor dispatchable here — including an

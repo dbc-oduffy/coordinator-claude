@@ -121,8 +121,18 @@ fires do not overwrite each other's size review. Do not renumber the wave to sep
 `waveIndex` is what the gate computed, not a fire counter.
 
     Workflow({ scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/plan-blitz.mjs",
-               args: { waveIndex: N, trailDir: "<abs>", gateReportPath: "<abs>",
-                       pluginAgentsAvailable: <true|false>, batons: [...] } })
+               args: { repoRoot: "<abs>", waveIndex: N, trailDir: "<abs>",
+                       gateReportPath: "<abs>", pluginAgentsAvailable: <true|false>,
+                       batons: [...] } })
+
+**`repoRoot` is required and the wave refuses without it.** A dispatched agent inherits the
+DRIVER'S shell working directory, not the repo the wave is about; the two coincide only by the
+driver's habit, and the workflow has no filesystem primitive with which to notice they have
+diverged. `trailDir` and `gateReportPath` are absolute above for the same reason, so a sidecar
+survives the divergence — a baton record and a hand-authored plan path do not. Measured on a
+cloud container whose session directory was the PARENT of five sibling clones:
+`docs/plans/<date>-<slug>.md` resolves to a directory in no repo at all, and the wave reports
+every plan written.
 
 **Every baton carries `executionOpen`, read off that baton's own `execution_gate.open` in the
 gate report.** It is not optional and it has no default: an XS is dispatchable only when its
