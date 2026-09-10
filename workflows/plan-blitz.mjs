@@ -38,13 +38,48 @@
  *                             //  wave reports it written, and the gate never sees a file to read.
  *     waveIndex: number,      // which planning wave this run covers; 0 is the ungated wave.
  *                             //  Carried into every brief so a sidecar names its own wave.
- *     trailDir: string,       // e.g. "state/plan-blitz/20260905T120000Z" — the durable trail.
+ *     trailDir: string,       // ABSOLUTE, e.g. "/abs/repo/state/plan-blitz/20260905T120000Z"
+ *                             //  — the durable trail. Absolute for the reason repoRoot is:
+ *                             //  an agent resolving a repo-relative trail path against its own
+ *                             //  spawn directory writes the sidecar somewhere else and reports
+ *                             //  it written.
  *                             //  Every agent writes its sidecar HERE, and the EM's readiness
  *                             //  gate reads them from disk. Caller scaffolds it before firing;
  *                             //  this script has no fs primitive of its own.
+ *     dispositionsCli: string, // OPTIONAL but effectively required off a coordinator install:
+ *                             //  the fully-resolved absolute invocation of
+ *                             //  `append-integrator-dispositions`, injected into the integrator
+ *                             //  brief. The op ships NO launcher, so a bareword exits 127 and the
+ *                             //  integrator reports the tool as absent — a misdiagnosis that gets
+ *                             //  escalated rather than fixed, while the op runs fine from its own
+ *                             //  bin/. Rung 3 of snippets/resolve-coordinator-bin.md puts the
+ *                             //  resolution on the DISPATCHING side, which is this caller: it has
+ *                             //  a filesystem and this script does not. Omit it and the brief says
+ *                             //  so explicitly rather than letting the integrator guess.
+ *     provisionSidecarCli: string, // OPTIONAL, same rung and same reason as dispositionsCli.
+ *                             //  The resolved absolute invocation of `provision-sidecar`, which
+ *                             //  exists precisely for "a vehicle that does not traverse the
+ *                             //  spawn-time provisioning hook (e.g. a Workflow script's agent()
+ *                             //  call)" — this one. Without it a reviewer brief can only name
+ *                             //  `<machinery_root>/subagent-share/<session>/` as a PLACEHOLDER,
+ *                             //  and a reviewer has no way to resolve `<machinery_root>` from
+ *                             //  inside its own dispatch. It invents one. The invented path is
+ *                             //  plausible and wrong — measured 2026-09-10: three sidecars in one
+ *                             //  wave landed under a `.subagent-share/` directory created at the
+ *                             //  REPO ROOT, where the disposition op refuses them (no
+ *                             //  `subagent-share` path segment of the shape it checks) and where
+ *                             //  nothing else looks. The review still ran; only its disposition
+ *                             //  record was lost, silently, which is this op's whole failure mode.
  *     gateReportPath: string, // the frozen `roadmap.plan_gate` JSON this wave was resolved from.
  *                             //  Passed to the blitz-em so its judgment reads the same gate
  *                             //  state the wave was planned against, not a re-derived one.
+ *     pluginAgentsAvailable: boolean, // whether `coordinator:*` agent types resolve on this
+ *                             //  machine. Defaults FALSE, which is the safe direction: an
+ *                             //  unresolvable agentType does not fail the dispatch, it yields
+ *                             //  a generic agent wearing that role's LABEL, and nothing
+ *                             //  reports the substitution. Omitting it on a machine that HAS
+ *                             //  the plugin costs every persona in the wave and says so
+ *                             //  nowhere. Full argument at § Role resolution below.
  *     batons: [ {
  *       id: string,           // stub_id or handoff_id — the id `blocked_by` edges name it by
  *       path: string,         // repo-relative path to the baton record
@@ -86,16 +121,23 @@
  *   }
  * Returns: { mode: 'repair', repaired: [...], refused: [...] } — see Repair mode below.
  *
- * Invocation:
+ * Invocation — every field below is present because a caller COPIES this block. An example
+ * that omits a required field teaches the omission, which is how `executionOpen` reached a
+ * live wave missing (see the args contract's own note on the recycling defect). The
+ * scriptPath is `${CLAUDE_PLUGIN_ROOT}`-resolved rather than repo-relative for the same
+ * reason: a `coordinator/workflows/...` prefix resolves only under the DoE source tree and
+ * elsewhere fails as a MISSING FILE, which reads as "the vehicle does not exist" — tripwire
+ * A-MISSING-WORKFLOW-SCRIPT-IS-AN-UNRESOLVED-PLUGIN-ROOT, whose discharge is this line.
  *   Workflow({
- *     scriptPath: "coordinator/workflows/plan-blitz.mjs",
+ *     scriptPath: `${CLAUDE_PLUGIN_ROOT}/workflows/plan-blitz.mjs`,
  *     args: {
  *       repoRoot: "/abs/path/to/the/repo",
  *       waveIndex: 0,
- *       trailDir: "state/plan-blitz/20260905T120000Z",
- *       gateReportPath: "state/plan-blitz/20260905T120000Z/gate-report.json",
+ *       trailDir: "/abs/path/to/the/repo/state/plan-blitz/20260905T120000Z",
+ *       gateReportPath: "/abs/path/to/the/repo/state/plan-blitz/20260905T120000Z/gate-report.json",
+ *       pluginAgentsAvailable: false,
  *       batons: [ { id: "pcore-03", path: "state/handoffs/...md", title: "...",
- *                   sized: false, planPath: null } ]
+ *                   sized: false, planPath: null, executionOpen: true } ]
  *     }
  *   })
  *
@@ -123,9 +165,9 @@ export const meta = {
     { title: 'Premise check', detail: 'One sonnet pass per drafted plan, dispatched once its plan path is trusted and before any reviewer fires. Resolves the load-bearing citations in that plan against the tree — paths, symbols, refs, whether its falsifier can report red, and whether a named thing means what the plan says. It reports per-class ROWS and never a plan-level verdict; the seam after it translates those rows onto REVIEW_SCHEMA so they reach the integrator that already applies every finding. A premise miss routes BLOCKED; the class-5 rows with no writable fix are NAMED for the reviewers, who own the separating test.' },
     { title: 'Review', detail: 'Reviewers resolved per baton from the EM dispatch spec, never prescribed in the plan file. Fires unconditionally — the EM is not consulted about whether a plan deserves review.' },
     { title: 'Integrate', detail: 'review-integrator per plan, also unconditional, including on a clean OK. Applies findings and escalates ASKs. A PIVOT from any reviewer suspends integration for the whole plan, with every sidecar still triaged so no co-reviewer findings are lost.' },
-    { title: 'Resolve escalations', detail: 'Conditional: fires only where integration escalated an ASK carrying two or more REVIEWER-ATTRIBUTED alternatives. Re-invokes the Plan phase planner itself, in its revising branch — no new actor — picking ONLY among catalogued option ids, never authoring a third. `choicesMade` is required, and what was NOT chosen is computed from the catalogue rather than taken from the pick. Skipped whole on a PIVOT and where nothing is choice-shaped.' },
+    { title: 'Resolve escalations', detail: 'Conditional: fires where integration escalated an ASK carrying REVIEWER-ATTRIBUTED options. Two or more is CONTESTED and is arbitrated by picking a catalogued option id; exactly one is a RECOMMENDATION and is applied or declined with a reason, which is integration work rather than arbitration. Re-invokes the Plan phase planner itself, in its revising branch — no new actor — and never authors an option of its own in either lane. Both returns are required, and what was NOT chosen is computed from the catalogue rather than taken from the pick. Skipped whole on a PIVOT and where no reviewer wrote an option at all.' },
     { title: 'Dispatch', detail: 'One executor per XS/dispatch baton whose EXECUTION gate is open. Runs AFTER planning so the wave plans against a stable tree and the only mutating phase is last. Bounded to the remit the baton itself states — an XS that grows is a sizing defect, not a bigger job.' },
-    { title: 'Readiness gate', detail: 'One Opus blitz-em over the durable trail. Per plan: ready, pulled, or replan. A PIVOT routes to a replan baton for a later wave rather than halting this one, and is reconciled mechanically rather than left to the gate.' },
+    { title: 'Readiness gate', detail: 'One Opus blitz-em over the durable trail. Per plan: ready, pulled, or replan. A PIVOT routes to a replan baton for a later wave rather than halting this one, and is reconciled mechanically rather than left to the gate — as is a reviewer recommendation the resolve pass neither applied nor declined. Host availability on the executing box is never a pull reason and is stated in the brief, never reconciled: every mechanical reconciliation here makes a verdict stricter, and promoting one would run with the incentive the gate already has rather than against it.' },
   ],
 }
 
@@ -260,6 +302,25 @@ const PLAN_SCHEMA = {
         },
       },
     },
+    // The recommendation lane's return, and the reason a single reviewer-attributed option is no
+    // longer a dead end. It is NOT a second `choicesMade`: there is one option and nothing to
+    // arbitrate, so the answer is a disposition — `applied` or `declined` — plus the reason,
+    // which is the only thing that makes a decline readable at the gate. `recommendationId` is an
+    // `R` id the wave minted (`convergenceCatalogue`), never invented text, and an `E` id here is
+    // refused: the two lanes are separate id spaces so a pass cannot arbitrate a recommendation
+    // or apply a contested option unilaterally.
+    recommendationsAddressed: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['recommendationId', 'disposition', 'reason'],
+        properties: {
+          recommendationId: { type: 'string' },
+          disposition: { type: 'string', enum: ['applied', 'declined'] },
+          reason: { type: 'string' },
+        },
+      },
+    },
   },
 }
 
@@ -274,10 +335,16 @@ const PLAN_SCHEMA = {
 // resolved, which would convert this pass's honest gap into a false clean.
 const PREMISE_SCHEMA = {
   type: 'object',
-  required: ['batonId', 'planPath', 'rows', 'sidecarPath'],
+  required: ['batonId', 'planPath', 'rows', 'sidecarPath', 'spinePresent'],
   properties: {
     batonId: { type: 'string' },
     planPath: { type: 'string' },
+    //: Does the plan carry a ```yaml plan-tasks spine at all? Asked of the one phase that
+    //: already has the plan open, because this script has no fs primitive and the alternative
+    //: is trusting a gate that has every incentive not to look
+    //: (WORKFLOW-AGENT-AS-FILE-HANDLE). A plan with no spine declares no schedulable work, so
+    //: approving it stamps a document nothing can dispatch — and the approval reads as success.
+    spinePresent: { type: 'boolean' },
     rows: {
       type: 'array',
       items: {
@@ -308,9 +375,14 @@ const PREMISE_SCHEMA = {
 // resolved anything, so leaving the field optional on this call buys the gate nothing (the
 // reasoning `overengineering-reviewer` accepted for cutting it, applied instead to un-optionalling
 // it). Never used for the ordinary authoring/revising `planner()` call.
+// `recommendationsAddressed` is required on the same reasoning and for the lane that needed it
+// more: an unaddressed recommendation reconciles a `ready` verdict to `pulled`, so a pass that
+// may silently omit the field decides that pull by omission. An EMPTY array is the correct answer
+// when the wave handed it no recommendations, and the brief says so — required means answered,
+// never means non-empty.
 const RESOLVE_SCHEMA = {
   ...PLAN_SCHEMA,
-  required: [...PLAN_SCHEMA.required, 'choicesMade'],
+  required: [...PLAN_SCHEMA.required, 'choicesMade', 'recommendationsAddressed'],
 }
 
 // The verdict vocabulary is a ROUTE, not a severity ladder. BLOCKED and PIVOT are not
@@ -783,12 +855,90 @@ resolving it this way, report the failure verbatim — command-not-found after t
 genuinely absent, which is a finding. It never means invent a substitute or hand-author the record
 the CLI would have written.`
 
-const REVIEW_SIDECAR_RULE = (pointerPath) => `
+// THE OP HAS NO LAUNCHER, so a bareword exits 127 and the integrator reports it as "the op is
+// absent from this session's toolset" — which reads as a harness gap and gets escalated instead
+// of fixed. It is rung 3 of `snippets/resolve-coordinator-bin.md`: a no-launcher CLI cannot
+// self-resolve, and the DISPATCHING side is the one that must inject a literal, fully-resolved
+// invocation. The caller resolves it (it has a filesystem; this script does not) and passes
+// `dispositionsCli`. Measured 2026-09-10: on a container with no coordinator install, two
+// integrators in one wave reported the op missing and wrote no dispositions at all, while the op
+// itself ran fine from its own bin/ directory the whole time.
+//
+// NOT a second mechanism beside `CLI_RESOLUTION_RULE` above, and not a competing one — the two are
+// different RUNGS of the one ladder. That rule is rung 2, the settings-home launcher, and rung 3
+// exists precisely because a no-launcher CLI has NOTHING at that path: aiming one there 404s and
+// reads, again, as an absent tool. The general rule still governs every other CLI a brief names
+// (`sizing-assemble`, `coordinator-doc-new`); for THIS op the injected literal IS the resolution,
+// and both arms below say so in as many words, since the integrator reads them in one brief.
+const DISPOSITIONS_CLI_RULE = parsedArgs.dispositionsCli
+  ? `Invoke it by this EXACT resolved path, and NOT through the settings-home resolution this brief
+states for coordinator CLIs generally — that is the LAUNCHER rung, and it carries only on a box
+that ran the installer, so
+nothing sits at that path for it, and a bareword exits 127:
+
+    ${parsedArgs.dispositionsCli}
+
+`
+  : `You may find the op is not on PATH: no coordinator CLI is, so a bareword exits 127, and the
+settings-home resolution this brief states for coordinator CLIs generally is the LAUNCHER rung —
+nothing sits at that path for an op with no launcher, so it does not answer here either. That is a
+CALLER defect (the wave was fired without \`dispositionsCli\`), not an absent tool — say exactly
+that when you report it, so it is fixed at the fire rather than re-diagnosed every wave.
+
+`
+
+// A PLACEHOLDER A DISPATCHED AGENT CANNOT RESOLVE IS A PATH IT WILL INVENT. `<machinery_root>` is
+// resolvable from a filesystem — which the CALLER has and this script does not — and from nowhere
+// inside a reviewer's own dispatch. `provision-sidecar` is the sanctioned resolver, and its own
+// help names this exact vehicle; injecting it is the same rung-3 move `dispositionsCli` is, for
+// the same reason. Both arms below say what to do, because a reviewer reads one brief.
+const PROVISION_CLI_RULE = (agentType) => parsedArgs.provisionSidecarCli
+  ? `Get that path by running this EXACT resolved invocation, and do not construct one by hand:
+
+    ${parsedArgs.provisionSidecarCli} --agent-type ${agentType}
+
+It prints the repo-relative sidecar path on stdout and exits 0; on any failure it names the
+precondition that failed and exits non-zero. Use what it prints.
+
+`
+  : `This brief was fired without \`provisionSidecarCli\`, so no resolved invocation is available
+and \`<machinery_root>\` is a placeholder you cannot resolve from in here. Do NOT invent a path
+for it — a plausible invention (\`.subagent-share/\` at the repo root, say) is refused by the
+disposition op and read by nothing else, and it fails SILENTLY. Locate the machinery root by
+finding the existing \`subagent-share/\` directory in this repo and writing beside it; if there is
+none, say exactly that in your report and name it a CALLER defect (the wave was fired without
+\`provisionSidecarCli\`), so it is fixed at the fire rather than re-diagnosed every wave.
+
+`
+
+const REVIEW_SIDECAR_RULE = (pointerPath, agentType) => `
 Write your findings sidecar to YOUR OWN PROVISIONED SIDECAR under
 \`<machinery_root>/subagent-share/<your session id>/\`, and return its absolute path verbatim as
-\`sidecarPath\`. Do NOT write your findings into the wave trail: \`append-integrator-dispositions\`
+\`sidecarPath\`.
+
+${PROVISION_CLI_RULE(agentType)}Do NOT write your findings into the wave trail: \`append-integrator-dispositions\`
 refuses any path without \`subagent-share\` as a path segment, and a findings sidecar it cannot
 open is a review whose dispositions are never recorded.
+
+That sidecar MUST open with YAML frontmatter carrying this key at column zero:
+
+    agent_type: ${agentType}
+
+The same op checks the agent type as well as the path, and refuses a sidecar carrying neither an
+allowlisted reviewer type nor the \`review-findings\` doc token. The refusal is the quiet one: your
+review still runs, the integrator still reads your findings, and only the DISPOSITION RECORD is
+lost — so nothing in the wave reports that the block is missing. Measured 2026-09-10 on a live
+five-fire wave: 24 of 25 findings sidecars carried no \`agent_type\` at all, and the whole wave's
+dispositions went unrecorded.
+
+**The BODY needs one heading, spelled exactly \`## Findings\`, with your findings beneath it.**
+The same op parses two shapes and no others: a \`## Findings\` heading, or a fenced \`\`\`json block
+carrying a \`findings\` list. Numbered headings alone — \`## F1 — BLOCKING. …\`, however clear to a
+human — match neither, and the op refuses the whole sidecar with \`target matches neither supported
+shape\`. That refusal is the SAME quiet one: the review ran, the integrator read it, and only the
+disposition record is lost. Frontmatter and path are not enough; all three clauses are the contract.
+Measured 2026-09-10 on a live wave: every sidecar in the fire carried a correct \`agent_type\` and a
+correct provisioned path, and every one was refused on the body shape alone.
 
 Then write a POINTER file at EXACTLY this path, containing a SHORT STRUCTURED RECORD as one JSON
 object and nothing else — not a bare path:
@@ -958,18 +1108,20 @@ RESOLVE PASS — not authoring, and not an ordinary revision. Integration on thi
 ${escalation.escalationCount} ASK(s) too consequential to apply silently. Full findings:
 ${escalation.reportPath}.
 
-The CATALOGUE below is the closed set you may settle. It is not the integrator's escalation list
+Two lanes below, and they ask DIFFERENT questions. A CONTESTED escalation carries two or more
+options a reviewer wrote, so it is arbitrated: you pick one. A RECOMMENDATION carries exactly one
+option a reviewer wrote, so there is nothing to arbitrate: you APPLY it or you DECLINE it with a
+reason. Answering one lane in the other's vocabulary is refused by id and printed in the trail —
+the id prefix tells you which lane an entry is in, \`E\` contested and \`R\` recommendation.
+${escalation.menu ? `
+CONTESTED — the closed set you may settle by picking. It is not the integrator's escalation list
 verbatim: every option on it was written by a reviewer who actually reviewed this baton, and an
 option the integrator composed itself has already been dropped — an integrator that composes an
 option and then has it chosen has laundered its own judgment through you. Each option carries the
 id you pick by and the reviewer who wrote it.
 
 ${escalation.menu}
-${escalation.notConvergeable.length ? `
-NOT settleable here, and you leave them alone — they reach the readiness gate escalated exactly as
-they would have without this pass:
-${escalation.notConvergeable.map((n) => `  ${n.id}: ${n.summary} — ${n.reason}`).join('\n')}
-` : ''}
+
 Pick at most one option id per catalogue entry, against the BATON'S OWN REMIT: which option leaves
 the plan doing the job the baton asks for, at the size it was routed at. Not which is safest, not
 which is largest, not which the integrator leaned toward — its recommendation is one input and
@@ -986,13 +1138,42 @@ whose record says REFUSED.
 
 Leave an escalation unresolved whenever picking would take a fact you do not have. That costs the
 wave nothing it was not already paying: the escalation reaches the readiness gate as it would have.
+` : ''}${escalation.recommendationCount ? `
+RECOMMENDATIONS — ${escalation.recommendationCount}, each one reviewer-attributed option with no
+second one beside it. The integrator escalated these rather than applying them silently, which was
+correct, and the same attribution filter ran: what is below is a REVIEWER'S fix, never one the
+integrator composed.
 
-Edit the plan body to reflect the picks you make, then return \`choicesMade\`: one entry per
-escalation you settled, \`{ escalationId, chosen }\`, both ids drawn from the catalogue above.
-\`choicesMade\` is REQUIRED — a resolve pass with nothing to record has not resolved anything. What
-you did NOT choose is computed from the catalogue rather than read from your return, so a short
-reason is the only thing you can shorten: say in your summary why each option you took beats the
-ones you left.
+${escalation.recommendationMenu}
+
+**Apply it, or decline it with a reason. Both are first-class and neither is free.** Applying is
+ordinary integration work — make the edit the reviewer wrote, at the size the baton was routed at.
+Declining is a decision the gate reads and can disagree with, so the reason has to name what makes
+the fix wrong HERE: out of the baton's remit, contradicted by a census row, superseded by another
+finding you applied. "Not now" is not a reason.
+
+**You may not counter-propose in this lane.** There is one option and it is the reviewer's. If the
+right answer is a third thing nobody wrote down, DECLINE the recommendation, say the third thing
+in your summary, and DO NOT EDIT THE PLAN FOR IT — an edit toward your own option, made under a
+decline, is exactly the laundering the two-option floor exists to stop, and it arrives with the
+reviewer's name on the record.
+
+**Leaving one alone is not an option here.** An unaddressed recommendation reconciles a \`ready\`
+verdict to \`pulled\` after you return, mechanically, because a reviewer's single bounded fix that
+nobody applied and nobody declined is the state this lane was built to remove.
+` : ''}${escalation.notConvergeable.length ? `
+NOT settleable in either lane, and you leave them alone — no reviewer wrote an option on these, so
+any option on them is the integrator's own. They reach the readiness gate escalated exactly as they
+would have without this pass:
+${escalation.notConvergeable.map((n) => `  ${n.id}: ${n.summary} — ${n.reason}`).join('\n')}
+` : ''}
+Edit the plan body to reflect what you settled, then return BOTH \`choicesMade\` (one entry per
+CONTESTED escalation you picked, \`{ escalationId, chosen }\`) and \`recommendationsAddressed\` (one
+entry per RECOMMENDATION, \`{ recommendationId, disposition, reason }\`, disposition \`applied\` or
+\`declined\`). Both are REQUIRED, and an EMPTY array is the correct answer for a lane the catalogue
+above left empty — required means answered, not non-empty. What you did NOT choose is computed
+from the catalogue rather than read from your return, so a short reason is the only thing you can
+shorten: say in your summary why each option you took beats the ones you left.
 `
     : ''
 
@@ -1066,7 +1247,34 @@ and a task spine in the body, which is the thing the run schedules — a fenced
     \`\`\`
 
 A plan with no spine declares no work the run can schedule, so it is not
-dispatchable however good its prose is.
+dispatchable however good its prose is. \`## Tasks\` is an h2 and the heading level is
+load-bearing: the locator keys on \`## Tasks\`, so the same fence under \`### Tasks\` locates as
+NOTHING and every consumer reads the plan as spine-less. Measured 2026-09-10 on this repo's
+most-linked plan.
+
+VALIDATE THE SPINE BEFORE YOU RETURN, and fix what it reports — this is a runnable check, not
+advice:
+
+    python3 ${REPO_ROOT || '<repoRoot>'}/coordinator/bin/plan-spine-check.py <your plan path>
+
+Exit 0 is required. \`LEGACY\` is exit 0 and needs nothing from you. \`INVALID\` means the schema
+does not admit the spine you just wrote, so the dispatch emitter, the wave-builder and
+\`/execute-plan\` all refuse it and the plan produces nothing.
+
+The two fields planners actually get wrong, both measured on this run across four independent
+fires — prose saying so was already in this brief and did not stop it, which is why there is now
+a command:
+
+  - **\`gate_kind\` is a CLOSED two-value enum.** \`output-consumption-runtime\` and
+    \`epistemic-premise\`. Not \`file-contention\`, not \`shared-vocabulary\`, not
+    \`output-consumption-authoring\`, not \`file-existence\` — every one of those was invented by a
+    planner on this run and every one makes the row unreadable. If the gate you mean is not one of
+    the two, the honest home is the row's own body prose, and absence of \`depends_on\` is how a row
+    declares no gate. A wave-builder derives write-overlap ordering itself; you do not declare it.
+  - **\`external_gate\` is an ARRAY of objects, never a label.** \`external_gate: EG1\` and
+    \`external_gate: gate-claude-klabauter-engine-half\` are both type errors. Each entry needs \`owner_repo\`
+    and \`condition\`, plus \`requires\` when the gate is uncleared. Naming a gate you defined in
+    prose elsewhere in the plan does not connect it to the row.
 
 \`depends_on\` is only for the two gates a wave-builder CANNOT derive:
 \`output-consumption-runtime\` (the predecessor's artifact must exist at runtime when this row
@@ -1074,6 +1282,18 @@ runs) and \`epistemic-premise\` (the predecessor decides whether this row should
 Ordering that follows from two rows touching the same file is computed from \`writes:\` and must
 NOT be restated here. Omit the key when neither gate applies — a bare string in this array is a
 spine that fails to read, which refuses the whole plan rather than the row.
+
+**A \`depends_on\` edge is a CLOSED key set: \`chunk\`, \`gate_kind\`, \`note\`, nothing else.** The row
+around it is open, which is the trap — a key you add to the ROW is tolerated, the same key on the
+EDGE refuses the plan. Conditional dependencies are the recurring case: a reviewer asks for
+arm-conditionality or a guard the driver can read, there is no field for it, and an invented
+\`condition:\` looks like the honest answer. It is not — put the condition in \`note\`, which exists
+for exactly this ("what specifically must exist, or be decided, before this row runs"), and carry
+the machine-readable half on a ROW field. Measured 2026-09-10: a planner answering a reviewer's
+arm-conditionality finding wrote \`condition: "arm == B"\` on an edge; the plan authored, reviewed,
+integrated and landed fine, and was then refused at the mise-prep gate with SPINE
+MalformedDependencyEdgeError — the whole plan uncertifiable for one key. Tripwire:
+\`A-CLOSED-SCHEMA-TURNS-AN-INVENTED-KEY-INTO-A-LOST-ARTIFACT\`.
 
 **\`deliverable_id\` is load-bearing, not bookkeeping.** It is the only edge that links this plan
 back to its baton, and \`roadmap.plan_gate\` resolves the link through it. A plan without it is
@@ -1227,9 +1447,18 @@ Where those contracts say "report, do not refuse", the ROW VERDICTS above are ho
 naming the assumption, never a withheld row and never a \`RESOLVES\`. Where they say to name the
 check in words rather than a bare class number, the number goes in \`questionClass\` and the words
 go in \`evidence\`. You have no field for a verdict on the plan, and that is deliberate.
+
+**Also return \`spinePresent\`: does this plan carry a \`\`\`yaml plan-tasks fenced block at all?**
+A plain structural fact about the document you already have open, not a judgment and not a row:
+true if the block is there, false if it is not. Nothing between authoring and the mise-prep gate
+asks this, and a plan without one declares no work a run can schedule — so an approval stamps a
+document nothing can dispatch, and reads as success. Measured 2026-09-10: an 869-line plan with
+zero fenced blocks cleared this phase, two reviewers, integration and the readiness gate, landed
+approved, and was refused a ceremony later with SPINE/spine-absent. Report what you see; the wave
+reconciles it, and a \`false\` is not a finding against the plan's content.
 ${NO_EXECUTION_RULE}
 ${REPO_ROOT_RULE}
-${REVIEW_SIDECAR_RULE(sidecarFor(trailDir, baton.id, 'premise-check'))}`,
+${REVIEW_SIDECAR_RULE(sidecarFor(trailDir, baton.id, 'premise-check'), 'review-findings')}`,
     withRole('coordinator:premise-checker', {
       label: `premise:${baton.id}`,
       phase: 'Premise check',
@@ -1453,7 +1682,7 @@ assume your verdict is the wave's verdict, and do not defer to an imagined co-re
 alongside someone else's PIVOT is not redundant — your findings become inputs to the replan.
 ${NO_EXECUTION_RULE}
 ${REPO_ROOT_RULE}
-${REVIEW_SIDECAR_RULE(sidecarFor(trailDir, baton.id, `review-${reviewer}-pointer`))}`,
+${REVIEW_SIDECAR_RULE(sidecarFor(trailDir, baton.id, `review-${reviewer}-pointer`), reviewer)}`,
     withRole(reviewer, {
       label: `review:${baton.id}:${reviewer}`,
       phase: 'Review',
@@ -1503,7 +1732,7 @@ candidate a REVIEWER may act on, never a route the checker took and never one yo
 
 Those paths are the reviewers' OWN PROVISIONED sidecars under \`subagent-share/\`, which is what
 \`append-integrator-dispositions\` requires — so the disposition write your contract mandates will
-go through on every one of them. If the op still refuses a path, report the refusal verbatim and
+go through on every one of them. ${DISPOSITIONS_CLI_RULE}If the op still refuses a path, report the refusal verbatim and
 escalate it; do NOT hand-author a disposition block to route around it. A hand-written block
 satisfies the reader and leaves the tool's refusal undiagnosed, which is how this stayed broken
 for two waves. Your own run-report sidecar is NOT a disposition target — never pass it.
@@ -1529,6 +1758,31 @@ handling, with one addition that matters more than the rest:
 Do not route around a PIVOT, and do not treat the EM's absence from this wave as license to
 override it: no EM is watching this phase by design, and an override needs explicit PM agreement
 recorded verbatim beforehand, which cannot happen here.
+
+VALIDATE THE TASK SPINE AFTER YOUR LAST EDIT, and treat a failure as your own defect to fix
+before you report. If this plan carries a \`## Tasks\` spine, run:
+
+    python3 ${REPO_ROOT || '<repoRoot>'}/coordinator/bin/plan-spine-check.py ${planResult.planPath}
+
+Exit 0 is required. \`NO-SPINE\` and \`LEGACY\` are exit 0 and need nothing from you — \`LEGACY\`
+names findings the schema itself declares tolerated on the existing corpus. \`INVALID\` is exit 1
+and means the spine you are handing on is one the schema does not admit: every downstream reader
+— the dispatch emitter, the wave-builder, \`/execute-plan\` — refuses it, so the plan produces
+nothing however good its prose is.
+
+This is here because an integrator wrote exactly that. Measured 2026-09-10, this wave, on
+\`docs/plans/2026-09-02-sanctioned-executor-amendment-channel.md\`: applying a BLOCKING finding
+removed a chunk and re-pointed four \`depends_on\` edges at \`artifact: <path>\` +
+\`gate_kind: file-existence\`, a shape that fails three ways per edge — \`chunk\` is required,
+\`file-existence\` is not in the closed two-value \`gate_kind\` enum, and \`artifact\` is not an
+admissible property. Four of the plan's five rows carried it. Nothing downstream looked; the
+readiness gate caught it only because that reviewer chose to run the schema by hand.
+
+\`depends_on\` takes \`{chunk, gate_kind, note?}\` and \`gate_kind\` is closed to
+\`output-consumption-runtime\` and \`epistemic-premise\`. There is no edge shape for "this row waits
+on a file": absence of the field is how a row declares no gate, and a precondition on an artifact
+belongs in the row's own body prose. If a finding seems to require an edge the schema has no shape
+for, that is an ESCALATION, not a field to invent.
 
 Escalate ASKs rather than guessing. Your escalated list is the highest-signal item the EM reads at
 the readiness gate — an empty ASK list on a plan carrying P0/P1 findings is itself a finding.
@@ -1613,8 +1867,25 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'review-integration'))}`,
 // holds an ASK to.
 const MIN_ENUMERATED_OPTIONS = 2
 
-// Returns { escalations, notConvergeable }. `escalations` is the CLOSED set of things that may be
-// decided in this wave; everything else keeps the behaviour it had before this phase existed.
+// THE FLOOR STANDS; BELOW IT IS A LANE, NOT A DEAD END. Filing a single reviewer-attributed
+// option in `notConvergeable` beside the zero-option case means a reviewer who names exactly one
+// fix guarantees the plan reaches the gate carrying an escalation nothing in the wave can
+// address — and the gate pulls it, however small and correct that fix is. Measured 2026-09-10
+// across four fires on project-rag: fleet-gift's E3, which the readiness gate itself described as
+// "one bounded edit the reviewer already wrote", and symbol-id's F-C, both pulled on that shape.
+//
+// The floor is not the defect and is not relaxed: below two options there is nothing to
+// arbitrate, and inventing a third or laundering the integrator's own is exactly what the floor
+// prevents. The ROUTE below it is what has to differ. One reviewer-attributed option is not a
+// choice to arbitrate but a recommendation to APPLY or DECLINE with a reason — ordinary
+// integration work, not resolution — so it reaches the pass as a disposition rather than as a
+// pick, and only a genuinely contested set (2+) is arbitrated. The attribution filter runs
+// before either lane, so an option the integrator composed itself reaches neither.
+//
+// Returns { escalations, recommendations, notConvergeable }. `escalations` is the CLOSED set of
+// things that may be DECIDED in this wave; `recommendations` the closed set that may be APPLIED
+// or DECLINED; `notConvergeable` keeps the behaviour it had before this phase existed, and now
+// holds only the case it was always right for — nothing a reviewer wrote.
 function convergenceCatalogue(integration, reviews) {
   // Review: code-reviewer (resolve-escalations.md Finding 1, BLOCKER) — the wave folds
   // `premiseAsReview`'s pseudo-reviewer into `kept` unconditionally (`[premiseCheckResult,
@@ -1631,23 +1902,40 @@ function convergenceCatalogue(integration, reviews) {
     (reviews || []).map((r) => String(r.reviewer)).filter((name) => name !== PREMISE_REVIEWER),
   )
   const escalations = []
+  const recommendations = []
   const notConvergeable = []
 
   const raw = (integration && integration.escalations) || []
   raw.forEach((esc, index) => {
-    const id = `E${index + 1}`
-    const summary = String((esc && esc.summary) || '(no summary)')
-    const enumerated = ((esc && esc.options) || [])
+    // The LANE picks the prefix and the ordinal is the escalation's own position in the
+    // integrator's list, so a trail id still resolves against the integration report. `E` and `R`
+    // are separate id spaces deliberately: `reconcilePicks` refuses an `R` and
+    // `reconcileRecommendations` refuses an `E`, so a pass that misreads its brief cannot cross a
+    // lane — it is refused by name in the trail instead.
+    const attributed = ((esc && esc.options) || [])
       .filter((o) => o && reviewerNames.has(String(o.source)))
+    const id = `${attributed.length === 1 ? 'R' : 'E'}${index + 1}`
+    const summary = String((esc && esc.summary) || '(no summary)')
+    const enumerated = attributed
       .map((o, j) => ({ id: `${id}.o${j + 1}`, source: String(o.source), text: String(o.text) }))
 
     if (enumerated.length < MIN_ENUMERATED_OPTIONS) {
+      if (enumerated.length === 1) {
+        // Not a choice, and not a dead end either. One reviewer-attributed option is a
+        // recommendation: the pass applies it or declines it with a reason, which is the
+        // integration work the integrator escalated rather than a judgment call to arbitrate.
+        recommendations.push({
+          id,
+          summary,
+          option: enumerated[0],
+          whyItExceedsDiscretion: String((esc && esc.whyItExceedsDiscretion) || ''),
+        })
+        return
+      }
       notConvergeable.push({
-        id,
+        id: `E${index + 1}`,
         summary,
-        reason: enumerated.length
-          ? 'one reviewer-enumerated option only — a single option is a recommendation, not a choice'
-          : 'no reviewer enumerated an alternative; any options on it are the integrator\'s own',
+        reason: 'no reviewer enumerated an alternative; any options on it are the integrator\'s own',
       })
       return
     }
@@ -1660,7 +1948,7 @@ function convergenceCatalogue(integration, reviews) {
     })
   })
 
-  return { escalations, notConvergeable }
+  return { escalations, recommendations, notConvergeable }
 }
 
 // Renders the catalogue for the resolve brief. One function so the ids the pass picks by and the
@@ -1677,6 +1965,84 @@ ${options}
       why it exceeded the integrator's discretion: ${e.whyItExceedsDiscretion || '(not stated)'}`
     })
     .join('\n')
+}
+
+// Renders the recommendation lane for the resolve brief, and for the same reason
+// `convergenceMenu` exists: the ids the pass dispositions by and the ids
+// `reconcileRecommendations` refuses against are read off one object. Each entry names its
+// reviewer, because the attribution is the whole warrant for applying it.
+function recommendationMenu(catalogue) {
+  return (catalogue.recommendations || [])
+    .map((r) => `  ${r.id}: ${r.summary}
+      ${r.option.id} — written by ${r.option.source}: ${r.option.text}
+      why the integrator would not apply it on its own: ${r.whyItExceedsDiscretion || '(not stated)'}`)
+    .join('\n')
+}
+
+// Returns { addressed, refused, unaddressed } over the resolve pass's `recommendationsAddressed`.
+// Same loudness as `reconcilePicks`, for the same reason: this lane also lets an Edit-capable
+// pass touch the plan body, so a disposition the wave did not authorise is named rather than
+// dropped. `unaddressed` is the field the wave result reconciles on — a recommendation nobody
+// applied and nobody declined is the one state that must not reach `ready`.
+function reconcileRecommendations(catalogue, choice) {
+  const byId = new Map((catalogue.recommendations || []).map((r) => [r.id, r]))
+  const addressed = []
+  const refused = []
+  const settled = new Set()
+
+  for (const entry of (choice && choice.recommendationsAddressed) || []) {
+    const wantedId = String((entry && entry.recommendationId) || '')
+    const recommendation = byId.get(wantedId)
+    if (!recommendation) {
+      refused.push(`${wantedId || '(unnamed)'}: no such recommendation in this plan's catalogue`)
+      continue
+    }
+    if (settled.has(recommendation.id)) {
+      refused.push(`${recommendation.id}: a second disposition on a recommendation already addressed`)
+      continue
+    }
+    const disposition = String((entry && entry.disposition) || '')
+    if (disposition !== 'applied' && disposition !== 'declined') {
+      // Two dispositions, no third. "Partly", "deferred" or "noted" are how an unaddressed
+      // recommendation gets recorded as addressed, which is exactly the state the wave result
+      // reconciles against — so an off-vocabulary word is refused here rather than counted.
+      refused.push(
+        `${recommendation.id}/${disposition || '(none)'}: not a disposition — a reviewer's single option is applied or declined, nothing else`,
+      )
+      continue
+    }
+    const reason = String((entry && entry.reason) || '').trim()
+    if (!reason) {
+      // The reason is the whole difference between this lane and the silent application the
+      // integrator's ASK floor forbids. A disposition without one is not cheaper to read than no
+      // disposition at all, so it does not count as one.
+      refused.push(
+        `${recommendation.id}/${disposition}: no reason given — a disposition with no reason is the silent settlement this lane replaced`,
+      )
+      continue
+    }
+    settled.add(recommendation.id)
+    addressed.push({
+      recommendationId: recommendation.id,
+      summary: recommendation.summary,
+      // COMPUTED from the catalogue, never taken from the pass — same bound as `rejected` on a
+      // pick. What the reviewer actually wrote is not the disposing actor's to paraphrase.
+      option: recommendation.option,
+      disposition,
+      reason,
+    })
+  }
+
+  const unaddressed = (catalogue.recommendations || [])
+    .filter((r) => !settled.has(r.id))
+    .map((r) => ({
+      recommendationId: r.id,
+      summary: r.summary,
+      option: r.option,
+      reason: 'neither applied nor declined by the resolve pass',
+    }))
+
+  return { addressed, refused, unaddressed }
 }
 
 // Returns { picks, refused, deferred } over the resolve pass's `choicesMade`. Every refusal is
@@ -1746,6 +2112,12 @@ async function resolveEscalations(baton, decision, waveIndex, plan, reviews, int
     refused: [],
     deferred: [],
     notConvergeable: [],
+    // The recommendation lane. `unaddressed` empty on every skip path is deliberate: a phase that
+    // never computed a catalogue knows of no recommendation, and the wave result must not pull a
+    // plan for a recommendation nobody ever raised.
+    recommendations: [],
+    addressed: [],
+    unaddressed: [],
     plan,
   }
 
@@ -1774,16 +2146,25 @@ async function resolveEscalations(baton, decision, waveIndex, plan, reviews, int
 
   const catalogue = convergenceCatalogue(integration, reviews)
   const escalationCount = (integration.escalations || []).length
-  const base = { ...empty, escalationCount, convergeable: catalogue.escalations.length, notConvergeable: catalogue.notConvergeable }
+  const base = {
+    ...empty,
+    escalationCount,
+    convergeable: catalogue.escalations.length,
+    notConvergeable: catalogue.notConvergeable,
+    recommendations: catalogue.recommendations,
+  }
 
-  if (!catalogue.escalations.length) {
+  // The pass fires on EITHER lane. Gating it on `escalations` alone is what made a single
+  // reviewer-attributed option a dead end: the one plan that most needed a bounded edit applied
+  // was the one the phase declined to run for.
+  if (!catalogue.escalations.length && !catalogue.recommendations.length) {
     // Three different nothings, and the gate has to be able to tell them apart. An integrator
     // that escalated in prose but returned no structured `escalations` is not a quiet wave — it
     // is an escalation this phase could not see, which is a defect in the integration, not in
     // the plan.
     const prose = ((integration.escalated || []).length)
     return { ...base, skipped: escalationCount
-      ? 'nothing on this plan is choice-shaped — every escalation reaches the gate as it did before'
+      ? 'nothing on this plan is choice-shaped or recommendation-shaped — no reviewer wrote an option on any of it, so every escalation reaches the gate as it did before'
       : prose
         ? `${prose} escalation(s) in prose and none structured — the integration returned no `
           + '`escalations` array, so nothing here was choosable; read the integration report'
@@ -1804,11 +2185,22 @@ async function resolveEscalations(baton, decision, waveIndex, plan, reviews, int
       escalationCount,
       reportPath: integration.reportPath,
       menu: convergenceMenu(catalogue),
+      recommendationMenu: recommendationMenu(catalogue),
+      recommendationCount: catalogue.recommendations.length,
       notConvergeable: catalogue.notConvergeable,
     },
   )
   const reconciled = reconcilePicks(catalogue, resolution)
-  const withPicks = { ...base, ...reconciled }
+  const dispositions = reconcileRecommendations(catalogue, resolution)
+  // `refused` is joined from both lanes rather than either one winning the spread — a refusal in
+  // either is the same warning about the same file, and `convergenceLines` renders them together.
+  const withPicks = {
+    ...base,
+    ...reconciled,
+    addressed: dispositions.addressed,
+    unaddressed: dispositions.unaddressed,
+    refused: [...reconciled.refused, ...dispositions.refused],
+  }
 
   if (!resolution) {
     // Review: code-reviewer (resolve-escalations.md Finding 2, MAJOR) — `reconcilePicks(catalogue,
@@ -1826,7 +2218,7 @@ async function resolveEscalations(baton, decision, waveIndex, plan, reviews, int
         'resolve pass returned nothing (exhausted retries) after a planner Edit call may already '
           + 'have landed — check the plan body for a change no catalogued option authorised',
       ],
-      skipped: 'the resolve pass returned nothing; every escalation stays escalated',
+      skipped: 'the resolve pass returned nothing; every escalation stays escalated and every recommendation stays unaddressed',
     }
   }
 
@@ -1845,6 +2237,14 @@ async function resolveEscalations(baton, decision, waveIndex, plan, reviews, int
       chosen: p.chosen.id,
       rejected: p.rejected.map((o) => o.id),
     })),
+    // The RECONCILED dispositions, for the same reason `choicesMade` is the reconciled picks: a
+    // disposition the catalogue refused is not a disposition, and the gate must not read one as
+    // though a reviewer's recommendation had been answered.
+    recommendationsAddressed: dispositions.addressed.map((a) => ({
+      recommendationId: a.recommendationId,
+      disposition: a.disposition,
+      reason: a.reason,
+    })),
     ...(resolution.exitCriterion ? { exitCriterion: resolution.exitCriterion } : {}),
     ...(resolution.status === 'blocked'
       ? { status: 'blocked', blockedReason: resolution.blockedReason || 'resolve pass returned blocked' }
@@ -1858,15 +2258,29 @@ async function resolveEscalations(baton, decision, waveIndex, plan, reviews, int
 // decided — and, in the same lines, what was NOT.
 function convergenceLines(convergence) {
   if (!convergence) return '(the Resolve-escalations phase did not run for this plan)'
+  const recommendations = convergence.recommendations || []
+  const addressed = convergence.addressed || []
+  const unaddressed = convergence.unaddressed || []
   const parts = [
     `${convergence.escalationCount} escalation(s), ${convergence.convergeable} choice-shaped, `
       + `${convergence.picks.length} settled, ${convergence.deferred.length} left escalated`
+      + `${recommendations.length ? `; ${recommendations.length} recommendation-shaped, ${addressed.length} addressed, ${unaddressed.length} UNADDRESSED` : ''}`
       + `${convergence.refused.length ? `, ${convergence.refused.length} REFUSED` : ''}`
       + `${convergence.skipped ? ` — skipped: ${convergence.skipped}` : ''}`,
   ]
   for (const p of convergence.picks) {
     parts.push(`  ${p.escalationId} CHOSE ${p.chosen.id} (${p.chosen.source}): ${p.chosen.text}`)
     parts.push(`  ${p.escalationId} did NOT choose: ${p.rejected.map((o) => `${o.id} (${o.source}): ${o.text}`).join(' | ') || '(none)'}`)
+  }
+  // Both dispositions render, and both render the reviewer's own text: a DECLINED recommendation
+  // is a decision with a reason, not an omission, and the gate cannot judge it without seeing
+  // what was declined.
+  for (const a of addressed) {
+    parts.push(`  ${a.recommendationId} ${a.disposition.toUpperCase()} ${a.option.id} (${a.option.source}): ${a.option.text}`)
+    parts.push(`  ${a.recommendationId} reason: ${a.reason}`)
+  }
+  for (const u of unaddressed) {
+    parts.push(`  ${u.recommendationId} UNADDRESSED (${u.option.source}): ${u.option.text}  <-- neither applied nor declined; a ready verdict on this plan is reconciled to pulled`)
   }
   for (const d of convergence.deferred) parts.push(`  ${d.escalationId} STILL ESCALATED: ${d.reason}`)
   for (const n of convergence.notConvergeable) parts.push(`  ${n.id} not choice-shaped: ${n.reason}`)
@@ -2494,6 +2908,25 @@ const trailLines = chains
   })
   .join('\n')
 
+// HOST AVAILABILITY is deliberately NOT reconciled below, and the absence is a decision rather
+// than an oversight. Two reasons, both structural:
+//
+//   1. NO FILESYSTEM. Whether a plan's withheld rows sit behind a DECLARED `external_gate` naming
+//      a host is a fact in the plan file, and this script has no fs primitive
+//      (WORKFLOW-AGENT-AS-FILE-HANDLE). The premise pass could be asked to report it, the way it
+//      reports `spinePresent` — but that only supplies the predicate, not the verdict.
+//   2. THE DIRECTION IS WRONG. Every reconciliation in this file makes a verdict STRICTER: ready
+//      to pulled, ready to replan. That is what makes them safe to run over the one reader with a
+//      standing incentive to call a plan ready. Reconciling a host-grounded pull back UP to
+//      `ready` would run WITH that incentive, and it would have to decide it from the EM's own
+//      free-text `reason` — keyword-matching prose to promote a verdict. A plan wrongly pulled
+//      comes back next wave; a plan wrongly promoted is stamped `approved` and dispatched.
+//
+// So the brief below carries it in as many words instead. Measured 2026-09-10 on project-rag wave
+// 1: `dlv-windows-hosted-corpus-reindex-and-cross-h-4a1c73` was pulled because the executing box
+// was Linux while its own declared `external_gate` withheld 8 of 13 rows for the Windows corpus
+// host, and `cq-17` was pulled for serialising behind it. Both plans were ready to execute on the
+// host they name. Tripwire: THE-BOX-THE-WAVE-RAN-ON-IS-NOT-THE-BOX-THE-PLAN-RUNS-ON.
 const readiness = await agent(
   `phase: readiness-gate
 
@@ -2522,10 +2955,36 @@ ${dispatched.map((d) => `  - ${d.batonId}: ${d.completed ? 'completed' : 'INCOMP
       files: ${(d.filesChanged || []).join(', ') || '(none — a closure, not a change)'}`).join('\n')}
 
 For each of these the question is different: did it do what the baton asked, and is the baton now
-closable? An INCOMPLETE one, or one that grew past XS, is a sizing defect to report — say so.` : ''}
+closable? An INCOMPLETE one, or one that grew past XS, is a sizing defect to report — say so.
+
+**The word for a closable dispatch is \`ready\`, and only that word closes it.** There is no fourth
+verdict meaning "done" — the three below are the whole vocabulary, and \`ready\` on a \`dispatch\`
+route does not mean "ready to execute later", it means LAND IT: \`blitz_land\` stamps the baton
+\`shipped\` with the wave's \`shipped_in\` SHA, which is what makes it terminal (§ Three lanes).
+\`pulled\` on a completed dispatch is the recycling defect wearing a verdict: landing leaves the
+baton where it is, the gate returns it as a candidate, and the next wave re-scouts work that is
+already on disk. Measured 2026-09-10, wave 0 of run 20260910T000000Z: five dispatched batons came
+back \`pulled\` with reasons that each read "Complete and closable", and the landing closed none of
+them. If your reason says the baton is closable, the verdict is \`ready\`. Reserve \`pulled\` for a
+dispatch that did NOT finish its remit, and \`replan\` for one whose remit was wrong.` : ''}
 
 One question per plan: is it ready to execute? Answer ready, pulled, or replan — and give a reason
-that names the evidence. "Looks off" is not a disposition.
+that names the evidence. "Looks off" is not a disposition. (A dispatched XS baton is not a plan and
+that is not its question — see the block above for the one it does answer.)
+
+**Ready to execute means ready for whoever runs it, NOT runnable here, now, by you.** This is a
+PLANNING gate; the execution gate is a different question asked later, by a different surface —
+tripwire A-PLANNING-GATE-IS-NOT-AN-EXECUTION-GATE. **Host and platform availability on this box is
+therefore never a pull reason.** A plan whose rows are withheld behind a declared \`external_gate\`
+for a host this box is not IS READY, and you say so: those withheld rows are a schedule fact, the
+same way a non-empty \`mise_prepped_findings\` is a schedule fact and never a failure. You do not
+need a Windows box to plan for Windows any more than you need POSIX to plan for POSIX. A plan
+pulled for the box it was planned on is a plan re-planned identically next wave, on a box that is
+just as likely to be the wrong one.
+
+Pull for properties of the PLAN: a finding the integrator did not apply, an unsettled escalation
+whose answer changes the deliverable, acceptance criteria that contradict each other or the baton.
+"The rows cannot execute on this box" is a property of the box, and the plan already declared it.
 
 Read the escalated ASKs first. They are the findings judged too consequential to apply silently,
 which makes them the highest-signal line in the trail and the one a fast read skips. Some of them
@@ -2554,6 +3013,16 @@ a pull with a reason, not an override. A REFUSED line is the stronger signal —
 something no reviewer enumerated, the wave declined it, and the plan body was already edited by
 then, so open the file. STILL ESCALATED means nobody settled it: it reaches you exactly as an
 escalation always has.
+
+**APPLIED and DECLINED lines are the recommendation lane**, and they are a different question from
+a pick. Those escalations carried exactly ONE reviewer-attributed option, so nothing was
+arbitrated: the pass either made the reviewer's edit or declined it with a reason, which is
+ordinary integration work rather than a judgment call. Judge a DECLINED line on its reason —
+"out of the baton's remit", "contradicted by a census row" are answers, "not now" is not — and
+judge an APPLIED line by opening the plan and checking the edit is the one the reviewer wrote and
+nothing larger. **A single reviewer option is not by itself a reason to pull.** UNADDRESSED is,
+and you will not have to act on it: a \`ready\` verdict on a plan carrying one is reconciled to
+\`pulled\` after you answer.
 
 BLOCKED and PIVOT are different questions, and the trail above keeps them apart per reviewer.
 
@@ -2600,11 +3069,24 @@ const converged = chains.filter(Boolean).map(({ baton, convergence }) => ({
   settled: convergence ? convergence.picks.length : 0,
   deferred: convergence ? convergence.deferred.length : 0,
   refused: convergence ? convergence.refused.length : 0,
+  // The recommendation lane's own three numbers, counted separately from the contested lane's
+  // because they answer a different question: `recommended` is how often a reviewer named exactly
+  // one fix, and `unaddressed` is the residue that still costs a pull. Folding them into
+  // `convergeable`/`settled` would hide the rate this lane exists to move.
+  recommended: convergence ? (convergence.recommendations || []).length : 0,
+  addressed: convergence ? (convergence.addressed || []).length : 0,
+  unaddressed: convergence ? (convergence.unaddressed || []).length : 0,
   skipped: (convergence && convergence.skipped) || null,
 }))
 
 const routeById = new Map(decisions.map((d) => [d.batonId, d.route]))
 const reviewsById = new Map(chains.filter(Boolean).map(({ baton, reviews }) => [baton.id, reviews]))
+const premiseById = new Map(
+  chains.filter(Boolean).map(({ baton, premise }) => [baton.id, premise || null]),
+)
+const convergenceById = new Map(
+  chains.filter(Boolean).map(({ baton, convergence }) => [baton.id, convergence || null]),
+)
 
 // A PIVOT routes MECHANICALLY. The gate brief already says an EM may not override one,
 // and a rule only a prompt enforces is discharged by nobody — least of all by the one
@@ -2636,6 +3118,43 @@ const verdicts = ((readiness && readiness.verdicts) || []).filter((v) => fireBat
     // that goes missing.
     reviewVerdicts: reviews.map((r) => ({ reviewer: r.reviewer, verdict: r.verdict })),
   }
+  // SPINE, reconciled mechanically for the same reason the pivot is: a plan with no
+  // `plan-tasks` block declares no work a run can schedule, the planner brief says so, and
+  // nothing between authoring and the mise-prep gate checks it. Measured 2026-09-10: a
+  // 869-line plan with zero fenced blocks passed premise-check, two reviewers, integration,
+  // escalation resolution and the readiness gate, landed `approved`, and was refused a
+  // ceremony later with SPINE/spine-absent. The gate is the wrong reader for this — it is the
+  // one with a standing incentive to call a plan ready — so the premise pass reports it and
+  // the reconciliation happens here.
+  const premiseRow = premiseById.get(v.batonId)
+  if (premiseRow && premiseRow.spinePresent === false && entry.verdict === 'ready') {
+    return {
+      ...entry,
+      verdict: 'pulled',
+      spineOverride: 'EM returned ready; the plan carries no plan-tasks spine. Reconciled to pulled.',
+      reason: `${entry.reason} [reconciled: no plan-tasks spine — nothing to schedule]`,
+    }
+  }
+
+  // RECOMMENDATION, reconciled mechanically for the third time and the same reason: a reviewer's
+  // single bounded fix that the resolve pass neither applied nor declined is an open finding
+  // wearing a settled shape, and the gate is the reader with a standing incentive not to notice.
+  // This is the half of the single-option fix that keeps it honest — the lane exists so that one
+  // reviewer-attributed option can be DISPOSED of rather than dead-ending the plan, and the
+  // disposal has to be real. Something decides every recommendation: the pass applies it, the
+  // pass declines it with a reason, or this reconciliation pulls the plan.
+  const convergenceRow = convergenceById.get(v.batonId)
+  const unaddressed = (convergenceRow && convergenceRow.unaddressed) || []
+  if (unaddressed.length && entry.verdict === 'ready') {
+    const ids = unaddressed.map((u) => u.recommendationId).join(', ')
+    return {
+      ...entry,
+      verdict: 'pulled',
+      recommendationOverride: `EM returned ready; ${ids} carries a reviewer-attributed option the resolve pass neither applied nor declined. Reconciled to pulled.`,
+      reason: `${entry.reason} [reconciled: unaddressed reviewer recommendation ${ids}]`,
+    }
+  }
+
   const pivots = reviews.filter((r) => r.pivot)
   if (!pivots.length || entry.verdict !== 'ready') return entry
   const who = pivots.map((r) => r.reviewer).join(', ')

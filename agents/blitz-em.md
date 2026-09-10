@@ -115,6 +115,27 @@ Read that resolution with the same priority you give an unresolved ASK; it tells
 picked and what was not, not that the question is settled. A `chosen` outside the ASK's own stated
 option list, or one that does not actually match the plan body, is a finding of its own.
 
+**Host and platform availability on the box you are running on is never a pull reason.** This gate
+asks whether the plan can be RUN — by whoever runs it, on the host it names — not whether it can be
+run here, now, by you. That is the planning/execution seam:
+`A-PLANNING-GATE-IS-NOT-AN-EXECUTION-GATE`. A plan whose rows are withheld behind a declared
+`external_gate` for a host this box is not is `ready`, and you say so; the withheld rows are a
+schedule fact, exactly as a non-empty `mise_prepped_findings` is one. You do not need a Windows box
+to plan for Windows any more than you need POSIX to plan for POSIX. Pull for properties of the
+PLAN — an unapplied finding, an unsettled escalation that changes the deliverable, acceptance
+criteria that contradict each other. Tripwire:
+`THE-BOX-THE-WAVE-RAN-ON-IS-NOT-THE-BOX-THE-PLAN-RUNS-ON`.
+
+**`APPLIED` and `DECLINED` lines under `resolve escalations` are the recommendation lane, and a
+single reviewer option is not by itself a pull.** Those escalations carried exactly one
+reviewer-attributed option, so nothing was arbitrated: the pass made the reviewer's edit or
+declined it with a reason. Judge a `DECLINED` line on its reason — remit, a contradicting census
+row, a finding that superseded it are answers; "not now" is not — and judge an `APPLIED` line by
+opening the plan and checking the edit is the one the reviewer wrote and nothing larger.
+`UNADDRESSED` is the one that costs the plan, and you do not have to act on it: a `ready` on a plan
+carrying one is reconciled to `pulled` after you answer. Tripwire:
+`A-SINGLE-REVIEWER-OPTION-IS-A-RECOMMENDATION-NOT-A-DEAD-END`.
+
 **A clean `OK` from every reviewer is not evidence anyone checked.** A reviewer handed an author's
 prose can restate it, agree it is coherent, and return `OK` without opening the code that would
 falsify it. Spot-check one substantive claim per plan against the tree. Tripwire:

@@ -114,25 +114,82 @@ when the peer answers.
 The workflow has no filesystem primitive — an unscaffolded directory means every sidecar write
 lands nowhere and the readiness gate reads an empty trail.
 
+**Redirect `coordinator-invoke`'s stdout and what you froze is a JSON-RPC envelope** — the gate's
+own `waves`, `batons` and `counts` sit one level down, under `result`. That is the shape the
+readers below accept, and the shape to build the baton array from. A machine reader that asks the
+envelope for `waves` finds none and reports an EMPTY WAVE, which is the same sentence a genuinely
+empty wave produces — so the wave fires with step 2a skipped and nothing says so. Tripwire:
+`AN-ENVELOPE-FROZEN-AS-A-GATE-REPORT-READS-AS-AN-EMPTY-WAVE`. Redirect stderr separately: the
+engine writes a `[warm-settings]` line there, and `2>&1` folds it into the JSON.
+
+**2a. Check the wave for finished work.** One pure read, before any agent is dispatched:
+
+    python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-blitz/recycle-check.py" --repo-root <repo> \
+        --gate-report <the frozen report> --exclude-run <this run-id>
+
+`RECYCLED` (exit 1) names a baton whose execution record from an earlier wave says the work
+FINISHED, and which the gate still returns as a candidate — its landing never stamped it, because
+`blitz_land` refuses the XS lane without `shipped_in`. The repair is that landing, re-run with the
+SHA; **never drop the baton from this wave by hand**, which leaves it to recycle into the next one.
+`back` entries are `completed: false` or `blocked-on-preflight` and are correctly here. Tripwire:
+`A-FINISHED-BATON-THE-LANDING-NEVER-STAMPED-COMES-BACK-AS-A-CANDIDATE`.
+
 **3. Fire the wave.** Batons come from `waves[0]`, **at most 8 per fire** (§ batching above).
 A wave larger than 8 is drained by several fires at the same `waveIndex`, sharing one trail
 directory. That is supported: the wave-scoped sidecar is keyed by the fire's own baton set, so
 fires do not overwrite each other's size review. Do not renumber the wave to separate them —
 `waveIndex` is what the gate computed, not a fire counter.
 
+**Fires may run CONCURRENTLY, and the driver owns disjointness — the gate cannot.** Concurrency is
+what makes a 200-baton wave finish, since a fire costs ~50 minutes of wall clock whatever its size.
+But `roadmap.plan_gate` reports the batons that need planning, and a baton being planned *right
+now* still needs planning: nothing on disk changes until that fire lands. So a driver that re-reads
+the gate to build its next fire gets its own in-flight batons back at the head of the list, and
+firing them plans the same baton twice — two waves writing one plan file, two size reviews, and
+whichever lands second overwrites the first. **Subtract your own in-flight set from every fresh
+gate read.** Keep it in the run's own notes; the engine has no session-scoped view to keep it for
+you, and adding one would make a derived read authoritative over disk.
+
+**Disjointness is on `planPath`, not just on baton id — this is the one that bites.** Several
+batons routinely share one plan: a roadmap plan links every baton it emitted, and on this repo
+NINE batons link `docs/plans/2026-07-23-computed-skills-frontage-roadmap.md`. Two fires holding
+different batons that name the same plan are two waves authoring one file, and the sidecar keying
+above does not help — it makes each fire's SIZE REVIEW safe, and says nothing about the plan.
+Whichever integrator writes last wins, silently. Group batons by `planPath` when you build a fire:
+same plan, same fire, or different fires that do not overlap in time.
+
+**Subtract adjudicated batons too, for the same fire.** A `pulled` baton stays a candidate by
+design — the EM left it where it was — so it also returns at the head of the next read. Re-firing
+one immediately re-runs the wave that just judged it, against an escalation nobody has answered in
+between. Fire it again when its pull reason is addressed, not because the gate still lists it.
+Tripwire: `A-GATE-READ-DOES-NOT-KNOW-A-FIRE-IS-RUNNING`.
+
     Workflow({ scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/plan-blitz.mjs",
                args: { repoRoot: "<abs>", waveIndex: N, trailDir: "<abs>",
                        gateReportPath: "<abs>", pluginAgentsAvailable: <true|false>,
-                       batons: [...] } })
+                       dispositionsCli: "<abs invocation>",
+                       provisionSidecarCli: "<abs invocation>", batons: [...] } })
 
-**`repoRoot` is required and the wave refuses without it.** A dispatched agent inherits the
-DRIVER'S shell working directory, not the repo the wave is about; the two coincide only by the
-driver's habit, and the workflow has no filesystem primitive with which to notice they have
-diverged. `trailDir` and `gateReportPath` are absolute above for the same reason, so a sidecar
-survives the divergence — a baton record and a hand-authored plan path do not. Measured on a
-cloud container whose session directory was the PARENT of five sibling clones:
-`docs/plans/<date>-<slug>.md` resolves to a directory in no repo at all, and the wave reports
-every plan written.
+**`dispositionsCli` is yours to resolve.** `append-integrator-dispositions` is an ENGINE CLI and
+does get a settings-home launcher — but only on a box that ran the installer, and a wave fires
+on boxes that did not. There a bareword exits 127, the integrator reports the op ABSENT, and the
+wave records no dispositions. The dispatching side has a filesystem and the workflow does not, so
+it resolves the invocation once and injects it literally (rung 3 of
+`snippets/resolve-coordinator-bin.md`) rather than betting the wave on an install it cannot see.
+Tripwire: `A-SIDECAR-THE-DISPOSITION-OP-REFUSES-LOSES-ONLY-THE-RECORD`.
+
+**`provisionSidecarCli` is yours to resolve for the same reason.** Reviewer briefs name
+`<machinery_root>/subagent-share/<session>/` as the sidecar directory, and a reviewer cannot
+resolve `<machinery_root>` from inside its own dispatch — so it invents one, plausibly and wrong.
+`provision-sidecar` is the sanctioned resolver and its own help names this vehicle ("a Workflow
+script's `agent()` call"); inject it the same way. Omit it and sidecars land where the disposition
+op refuses them and nothing else looks — a review that ran, whose record is lost silently.
+
+**All three clauses of the sidecar contract are checked, and each fails quietly.** The provisioned
+PATH, the `agent_type` FRONTMATTER, and a `## Findings` HEADING in the body. Numbered headings
+alone (`## F1 — …`) satisfy a human reader and none of the parser's two shapes; the op refuses the
+whole sidecar with `target matches neither supported shape`, the review still ran, and only the
+disposition record is gone.
 
 **Every baton carries `executionOpen`, read off that baton's own `execution_gate.open` in the
 gate report.** It is not optional and it has no default: an XS is dispatchable only when its
@@ -195,8 +252,21 @@ declining to write something misleading; it is never a thing to route around.
 
 - `next_wave.batons` is empty — nothing left to plan.
 - `--waves` exhausted.
-- A wave lands zero `approved` — it opened nothing, so the next wave is this wave again. Report
-  and stop rather than spinning.
+- A wave lands zero `approved` **and** zero `execution_ready` **and** zero `closed` — it opened
+  nothing, so the next wave is this wave again. Report and stop rather than spinning.
+  **Zero `approved` alone is not the test.** A wave whose ready set is all S routes approves
+  nothing by construction and still advances: `blitz_land` parks each S execution-ready, and
+  `needs_plan` keys off that stamp (§ Three lanes above says so in as many words). Reading this
+  condition as `approved == 0` halts a healthy blitz and reports it as a stall. Measured
+  2026-09-10 on project-rag, one fire of a five-fire wave: `approved: 0`, `execution_ready: 2`,
+  and a candidate set that still falls — `needs_plan` 27 to 24, `remaining` 18 to 15. Tripwire:
+  `AN-ALL-S-WAVE-APPROVES-NOTHING-AND-STILL-ADVANCES`.
+  **And it is a WAVE-level test, not a fire-level one.** A wave over 8 is drained by several
+  fires sharing one `waveIndex` (§ batching), but `blitz_land` takes ONE fire's result, so the
+  landing you are holding is a fraction of the wave. Sum the three lanes across every fire at
+  this `waveIndex` before concluding anything. Same wave, same day: one fire of five landed
+  `approved: 0`, `closed: 0`, `execution_ready: 0` — genuinely nothing — while the wave around it
+  had opened 9. Stopping on that fire would have ended the run at its most productive point.
 - `refused[]` is non-empty — report and stop; a landing that could not complete must not be
   built on.
 - `surfacedToPm` is non-empty — those need a PM answer. Carry them out; **never re-queue one.**
@@ -214,6 +284,23 @@ no per-plan "does this need the Staff Engineer?" Gating review on the EM makes a
 and ignoring it cost nothing; firing it by default inverts that, so declining a finding becomes the
 deliberate act. The EM's authority is not reduced — it moves to reading a durable trail. Tripwire:
 `A-BLITZ-WAVE-THAT-GATES-ON-THE-EM-IS-NOT-A-BLITZ`.
+
+**Host availability on the box the wave runs on is never a pull reason.** The readiness gate asks
+whether the plan can be RUN — by whoever runs it, on the host it names — not whether it can be run
+here, now, by the gate. A plan whose rows are withheld behind a declared `external_gate` for a host
+this box is not is READY, and the withheld rows are a schedule fact, the same way a non-empty
+`mise_prepped_findings` is one. Pull for properties of the PLAN: an unapplied finding, an unsettled
+escalation whose answer changes the deliverable, self-contradictory acceptance criteria. Tripwires:
+`A-PLANNING-GATE-IS-NOT-AN-EXECUTION-GATE`,
+`THE-BOX-THE-WAVE-RAN-ON-IS-NOT-THE-BOX-THE-PLAN-RUNS-ON`.
+
+**One reviewer-attributed option is a recommendation, not a choice and not a dead end.** Two or
+more contested options are arbitrated by the resolve pass, which picks one; exactly one is applied
+or declined with a reason, which is ordinary integration work and not arbitration. Neither lane may
+carry an option the integrator composed — the attribution filter drops those before either lane
+sees them, and that bound is what the two-option floor protects. A recommendation the pass neither
+applied nor declined reconciles a `ready` verdict to `pulled` mechanically, so something decides
+every one of them. Tripwire: `A-SINGLE-REVIEWER-OPTION-IS-A-RECOMMENDATION-NOT-A-DEAD-END`.
 
 **No reviewer is prescribed in a plan file.** Reviewers are resolved per baton by the blitz-em from
 what that plan actually needs. A reviewer named on every plan is a reviewer nobody chose.
@@ -323,3 +410,6 @@ Workflow correctness contract and that the doctrine below stays greppable.
 | 3 | `A-BLITZ-WAVE-THAT-GATES-ON-THE-EM-IS-NOT-A-BLITZ` | this file + `agents/blitz-em.md` | ≥2 | 1 means only the self-reference survives |
 | 4 | `plan-blitz.mjs` | this file | ≥1 | the vehicle is named, not left to be rediscovered |
 | 5 | `A-PRESENT-MISE-PREPPED-STAMP-IS-NOT-A-CERTIFICATION` | this file + `skills/review/SKILL.md` | ≥2 | 1 means only the surface that introduced it knows the predicate is a recomputed sha |
+| 6 | `THE-BOX-THE-WAVE-RAN-ON-IS-NOT-THE-BOX-THE-PLAN-RUNS-ON` | this file + `agents/blitz-em.md` | ≥2 | the surface that PULLS has to hold the rule; 1 means only the skill describing the gate knows it |
+| 7 | `A-SINGLE-REVIEWER-OPTION-IS-A-RECOMMENDATION-NOT-A-DEAD-END` | this file + `agents/blitz-em.md` | ≥2 | the gate reads APPLIED/DECLINED lines it has no vocabulary for otherwise |
+| 8 | `AN-ENVELOPE-FROZEN-AS-A-GATE-REPORT-READS-AS-AN-EMPTY-WAVE` | this file + `skills/plan-blitz/recycle-check.py` | ≥2 | the reader that unwraps and the step that tells you to freeze must both carry it; 1 means the code is tolerant and the instruction still teaches the trap |

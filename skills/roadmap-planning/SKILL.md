@@ -34,6 +34,13 @@ Detail for B/C/D, read before starting Phase 1 on that path: `residue/entry-poin
 Batched, the tail is `plan-blitz → mise-prep → the run`: **each exit is the next entry, read off
 disk, never retyped.** Tripwire: `A-HANDOFF-AN-EM-RETYPES-IS-NOT-A-SEAM`.
 
+**mise-prep is a stage, not a slash command — nothing answers `/mise-prep`.** Its three surfaces:
+`skills/plan-blitz/mise-prep-entry.py` reads plan-blitz's exit and reports each approved plan's
+certification state; `bin/mise-prep-gate.py` runs the authoring bar, and names
+`bin/mise-prep-upgrade.py` for the declarations derivable from the plan's own text; the engine's
+`plan.stamp_prepped` is the only writer of the attest, and re-runs the bar itself, so it cannot
+stamp a plan that does not pass. `/mise-en-place` § Phase 0 is where the run consumes them.
+
 ---
 
 ## Phase 1 — Synthesize: input corpus → verdict-grid
