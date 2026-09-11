@@ -27,7 +27,7 @@ roots; never treat git-untracked as sufficient for cruft; never auto-prune a ses
 ### Step 0 — Surface last sweep staleness
 
 Report the last sweep date and staleness to the PM as one line: _"Last sweep: YYYY-MM-DD (N days
-ago)."_ <!-- engine-gap: field=cruft_sweep.last_sweep_staleness producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
+ago)."_ <!-- engine-gap: field=cruft_sweep.last_sweep_staleness producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 
 ### Step 1 — Run Layer 1 dry-run and parse JSONL
 

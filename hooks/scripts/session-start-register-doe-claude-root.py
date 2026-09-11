@@ -1,5 +1,5 @@
-"""SessionStart hook — self-heals `engine.working_repos.doe_claude` in the
-machine-local registry.
+"""SessionStart hook — self-heals `engine.working_repos.doe_claude` AND
+`repos.doe_claude` in the machine-local registry.
 
 Purpose: DR-132
 (docs/decisions/DR-132-engine-working-repos-is-its-own-namespace-not-a-repos-star-inference.md,
@@ -42,6 +42,20 @@ Idempotence: reads the current registry value first
 resolution ladder itself uses) and does NOTHING — no write, no subprocess
 spawn — when it already matches this repo's own root. Only a genuinely
 absent or different value triggers a write.
+
+Second key, `repos.doe_claude` — write-when-absent-only, not
+write-when-different: this is the engine's own canonical `doe_root`
+resolution anchor (`coordinator_core.trusted_root_guard._doe_root`,
+`OperatorConfigError` on `''`), a SEPARATE namespace from
+`engine.working_repos.doe_claude` by design (DR-132 — do not merge them).
+Unlike the `engine.working_repos.*` key above, `repos.doe_claude` is
+operator-set and a box may legitimately hold more than one DoE clone with
+the operator pointing the sibling map at whichever one they're using —
+this hook only fills the key in when it is absent or empty (the
+`baton-assemble brief` failure mode this hook exists to close); it never
+overwrites an operator's existing choice, however stale it looks. Gated by
+the same wrong-repo guard and written through the same
+`_write_registry_value` seam as the first key.
 
 Write path: the sanctioned CLI writer, `machine-local set
 engine.working_repos.doe_claude <path>` — never a hand-edit of the registry
@@ -132,6 +146,7 @@ except Exception:
 
 
 _REGISTRY_KEY = "engine.working_repos.doe_claude"
+_REPOS_REGISTRY_KEY = "repos.doe_claude"
 _SENTINEL_NAME = ".coordinator-dev-repo"
 _EXPECTED_SLUG = "doe-claude"
 
@@ -229,7 +244,28 @@ def main() -> int:
         # worse than one that silently no-ops.
         pass
 
+    try:
+        _maybe_seed_repos_doe_claude(reg_dir, root_str)
+    except Exception:
+        pass
+
     return 0
+
+
+def _maybe_seed_repos_doe_claude(reg_dir, root_str: str) -> None:
+    """Write-when-absent-only seed for `repos.doe_claude` — see module
+    docstring's "Second key" section. Never overwrites an operator-set
+    value, whatever it is; only an absent or empty value triggers a write.
+    """
+    try:
+        current_repos_value = _engine_registry_value(reg_dir, _REPOS_REGISTRY_KEY)
+    except Exception:
+        current_repos_value = None
+
+    if current_repos_value:  # already set, non-empty — operator's choice, leave it
+        return
+
+    _write_registry_value(_REPOS_REGISTRY_KEY, root_str)
 
 
 if __name__ == "__main__":

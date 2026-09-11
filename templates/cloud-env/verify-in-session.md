@@ -64,7 +64,7 @@ block, and the `assert-em-role` line reporting a peer-session count?
 - **Present** → SessionStart plugin hooks fire *and* their stdout reaches context.
 - **Absent while probe 1 denied** → hooks fire but the payload is not landing in context. That is a
   different defect from "hooks don't load", and it has local precedent worth reading first: the
-  fan-in stdout truncation recorded in `coordinator/hooks/hooks.json`'s `SessionStart[1]._comment`,
+  fan-in stdout truncation recorded in `coordinator/hooks/REGISTRATIONS.md`'s `assert-em-role.py` section,
   where a payload reached context in 4 of 279 measured sessions while sharing a stdout stream.
 
 ## Recorded results

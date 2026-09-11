@@ -65,7 +65,7 @@ Surface: week span, commit count/range, workstreams, blockers, priorities met. P
 `HEADER.priorities.*.md` fills only gaps, deduped. Neither present → "no priorities were set."
 
 **Three states — achieved / missed / never-assessed,** produced by
-`python "$CLAUDE_PLUGIN_ROOT/bin/goal-assessment-staleness.py"`: an unread instrument, not a missed goal.
+`python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/goal-assessment-staleness.py"`: an unread instrument, not a missed goal.
 Own line, never inside the achieved/missed counts. Tripwire:
 `AN-UNSTAMPED-GOAL-IS-NEVER-ASSESSED-NOT-MISSED`. Exit 2 ("could not read the goals
 directory/artifacts") is unknown, not clean — surface it as such, never as "no never-assessed

@@ -76,7 +76,7 @@ The health ledger is the single source of truth for grades — `/architecture-au
 here after weekly audits. Read the existing grade before changing it; don't downgrade a
 just-upgraded system absent new P0/P1s.
 
-<!-- engine-gap: field=health_ledger.grade_from_findings producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=health_ledger.grade_from_findings producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 Grading anchors, status-trigger definitions, and the reviewer-emphasis-by-change-type mapping
 this step and Step 3 apply by eye have no engine producer yet — apply the calibration in the
 wiki page for this skill until one lands.

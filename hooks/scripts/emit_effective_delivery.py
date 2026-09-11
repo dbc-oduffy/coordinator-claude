@@ -98,6 +98,14 @@ if _PLUGIN_ROOT is None:
 REPO_ROOT = _PLUGIN_ROOT if (_PLUGIN_ROOT / ".git").exists() else _PLUGIN_ROOT.parent
 HOOKS_JSON_PATH = _PLUGIN_ROOT / "hooks" / "hooks.json"
 
+#: The manifest's home, a sidecar beside `hooks.json` -- never a key inside it.
+#: The harness validates `hooks.json` against its own hook schema and warns at
+#: every boot on any key it doesn't know, so a manifest written there costs every
+#: session a warning. The file's one top-level key keeps the block's name, so a
+#: reader parses this file exactly as it once parsed `hooks.json`.
+MANIFEST_PATH = _PLUGIN_ROOT / "hooks" / "effective-delivery.json"
+MANIFEST_KEY = "x-effective-delivery"
+
 MAX_STRING_LEN = 200
 
 #: The three emission-provenance keys `build_block()` adds beside `version`
@@ -886,7 +894,7 @@ def _engine_source_provenance() -> Dict[str, Any]:
     answered (`_engine_root.resolve_claude_klabauter_root_with_provenance`), because a
     SHA off a live working tree and a SHA off a published mirror are not the
     same claim even when the two strings match. The resolved root PATH is
-    deliberately absent: it is machine-specific, and `hooks.json` is
+    deliberately absent: it is machine-specific, and the manifest is
     committed (`guard-foreign-platform-paths.py`).
 
     Fails closed like every other cross-plane read here -- an engine whose
@@ -953,24 +961,8 @@ def _emission_provenance() -> Dict[str, Any]:
 
 
 def build_block() -> Dict[str, Any]:
-    """The manifest block for the current `hooks.json`.
-
-    Returns the block alone. Callers needing the snapshot it was validated
-    against -- the write path -- use `build_block_with_doc()`; keeping that
-    on a separate name holds this function's single-value contract stable
-    for its read-only consumers (the drift test among them)."""
-    return build_block_with_doc()[1]
-
-
-def build_block_with_doc() -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """Returns `(doc, block)` -- the single `hooks.json` snapshot this build
-    validated against, alongside the computed manifest block. `write_block`
-    takes this same `doc` rather than re-reading the file, so validation and
-    write operate on one snapshot: a second independent read here would let
-    a concurrent `hooks.json` edit land between the two reads, producing a
-    manifest validated against one snapshot and spliced into another --
-    exactly the "stale is worse than absent" state this module's docstring
-    says the generator exists to prevent."""
+    """The manifest block for the current `hooks.json`, built and validated
+    against one read of it."""
     doc = _load_hooks_json()
     raw_token_by_tail, matchers_by_tail = _walk_registrations(doc)
 
@@ -1104,7 +1096,7 @@ def build_block_with_doc() -> Tuple[Dict[str, Any], Dict[str, Any]]:
         "direct": direct,
         "retired": retired,
     }
-    return doc, block
+    return block
 
 
 def render_block(block: Dict[str, Any]) -> str:
@@ -1118,31 +1110,25 @@ def render_block(block: Dict[str, Any]) -> str:
     itself stable across runs -- registry tuples, `guard_roster()`'s own
     list order, and a fixed retired-tuple literal).
 
-    `ensure_ascii=False` is load-bearing, not cosmetic: the default re-escapes
-    every non-ASCII character to `\\uXXXX`. `write_block` re-serializes the whole
-    document, so the default turns a purely additive write into one that also
-    rewrites unrelated `_comment` prose elsewhere in the file -- collateral hunks
-    over a file a concurrent session is editing."""
+    This is also the exact on-disk form of `MANIFEST_PATH` (plus a trailing
+    newline), so print mode and `--write` never disagree byte-for-byte."""
     return json.dumps(
-        {"x-effective-delivery": block},
+        {MANIFEST_KEY: block},
         indent=2,
         sort_keys=False,
         ensure_ascii=False,
     )
 
 
-def write_block(doc: Dict[str, Any], block: Dict[str, Any]) -> None:
-    """Writes into the SAME `doc` `build_block()` validated against -- never
-    a fresh read -- so the write can't land against a `hooks.json` snapshot
-    that has moved since exhaustiveness validation ran (see `build_block`'s
-    own docstring)."""
-    doc["x-effective-delivery"] = block
-
-    tmp_path = HOOKS_JSON_PATH.with_suffix(".json.tmp")
-    with tmp_path.open("w", encoding="utf-8") as fh:
-        json.dump(doc, fh, indent=2, sort_keys=False, ensure_ascii=False)
+def write_block(block: Dict[str, Any]) -> None:
+    """Replaces `MANIFEST_PATH` atomically. `hooks.json` is only ever read by
+    this module, never written -- see `MANIFEST_PATH` for why the block may
+    not live there."""
+    tmp_path = MANIFEST_PATH.with_suffix(".json.tmp")
+    with tmp_path.open("w", encoding="utf-8", newline="\n") as fh:
+        fh.write(render_block(block))
         fh.write("\n")
-    tmp_path.replace(HOOKS_JSON_PATH)
+    tmp_path.replace(MANIFEST_PATH)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -1150,24 +1136,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument(
         "--write",
         action="store_true",
-        help="Write the block into coordinator/hooks/hooks.json in place "
+        help="Write the block to coordinator/hooks/effective-delivery.json "
         "(default: print mode, mutates nothing).",
     )
     args = parser.parse_args(argv)
 
     try:
-        doc, block = build_block_with_doc()
+        block = build_block()
     except EmitterError as exc:
         print(f"emit_effective_delivery: FAILED CLOSED: {exc}", file=sys.stderr)
         return 1
 
     if args.write:
-        try:
-            write_block(doc, block)
-        except EmitterError as exc:
-            print(f"emit_effective_delivery: FAILED CLOSED on write: {exc}", file=sys.stderr)
-            return 1
-        print(f"emit_effective_delivery: wrote block into {HOOKS_JSON_PATH}", file=sys.stderr)
+        write_block(block)
+        print(f"emit_effective_delivery: wrote block to {MANIFEST_PATH}", file=sys.stderr)
         return 0
 
     print(render_block(block))

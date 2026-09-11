@@ -56,7 +56,11 @@
  *                             //  resolution on the DISPATCHING side, which is this caller: it has
  *                             //  a filesystem and this script does not. Omit it and the brief says
  *                             //  so explicitly rather than letting the integrator guess.
- *     provisionSidecarCli: string, // OPTIONAL, same rung and same reason as dispositionsCli.
+ *     provisionSidecarCli: string, // REQUIRED, and the wave refuses when it is absent. Same
+ *                             //  rung and same reason as dispositionsCli, but it does NOT degrade
+ *                             //  the way that one does: an integrator with no op reports a
+ *                             //  refusal the EM reads, while a reviewer with no resolver writes
+ *                             //  a real review to an invented path and the wave reports success.
  *                             //  The resolved absolute invocation of `provision-sidecar`, which
  *                             //  exists precisely for "a vehicle that does not traverse the
  *                             //  spawn-time provisioning hook (e.g. a Workflow script's agent()
@@ -70,6 +74,19 @@
  *                             //  `subagent-share` path segment of the shape it checks) and where
  *                             //  nothing else looks. The review still ran; only its disposition
  *                             //  record was lost, silently, which is this op's whole failure mode.
+ *     spineCheckCli: string,  // OPTIONAL. Resolved absolute invocation of `plan-spine-check`,
+ *                             //  which is PLUGIN-LOCAL — it ships in the coordinator plugin's own
+ *                             //  bin/, never in the repo being planned. The brief that calls it
+ *                             //  "a runnable check, not advice" interpolated `<repoRoot>/`, so it
+ *                             //  resolved to nothing in every repo except the plugin's own source
+ *                             //  tree and the check had never run anywhere else. Absent, both
+ *                             //  briefs say so and name it a caller defect instead of
+ *                             //  substituting a repo-relative guess.
+ *     armingCheckCli: string, // OPTIONAL, same rung. `instrument-can-report-red`, cited worse — a
+ *                             //  BARE RELATIVE path, resolving against the planner's cwd. The
+ *                             //  falsifier-arming line then read `N/A`, indistinguishable from a
+ *                             //  plan that declared no falsifier, so readiness gates reasoned about
+ *                             //  a property of the PLAN that was really a property of the path.
  *     gateReportPath: string, // the frozen `roadmap.plan_gate` JSON this wave was resolved from.
  *                             //  Passed to the blitz-em so its judgment reads the same gate
  *                             //  state the wave was planned against, not a re-derived one.
@@ -135,6 +152,7 @@
  *       waveIndex: 0,
  *       trailDir: "/abs/path/to/the/repo/state/plan-blitz/20260905T120000Z",
  *       gateReportPath: "/abs/path/to/the/repo/state/plan-blitz/20260905T120000Z/gate-report.json",
+ *       provisionSidecarCli: "/abs/settings-home/bin/provision-sidecar",
  *       pluginAgentsAvailable: false,
  *       batons: [ { id: "pcore-03", path: "state/handoffs/...md", title: "...",
  *                   sized: false, planPath: null, executionOpen: true } ]
@@ -654,6 +672,16 @@ Lens 3 calibration over verbatim rather than re-deriving it, and Lens 3 consumes
 (same file, same symbol, shifted line number) is tolerated and is NOT a finding; a missing file or
 an absent symbol is a real finding.
 
+**AN ABSENCE IS EVIDENCE ONLY IF THE INSTRUMENT COULD HAVE SEEN PRESENCE.** \`find\`, \`ls\`,
+\`test -f\` and a failed Read answer the worktree of this box. Before recording an absence the plan
+rests on, name what would have made the thing visible and check THAT: a sparse cone hides tracked
+paths (\`git ls-files\`), a blobless clone hides contents (\`git show HEAD:<path>\`), \`.gitignore\`
+hides build output whose build target is tracked (\`git check-ignore -v\`, then find the build), and
+a registry on another machine hides a whole repo (say UNDECIDABLE-HERE and name the host). Record
+the command you actually ran. Re-running the author's \`find\` endorses the author's blind spot:
+two parties running one wrong instrument agree with each other. Tripwire:
+\`AN-ABSENCE-IS-EVIDENCE-ONLY-IF-THE-INSTRUMENT-COULD-HAVE-SEEN-PRESENCE\`.
+
 **Class 3 — refs (mechanical, new).** A cited branch, commit or tag is checked with
 \`git branch -r\` / \`git rev-parse --verify\`. A peer-repo ref MUST be cited \`<repo>@<ref>\` — a bare
 "verified against HEAD" cannot distinguish \`main\` from someone's unmerged branch, and the failure
@@ -760,7 +788,41 @@ const slug = (text) => String(text).toLowerCase().replace(/[^a-z0-9]+/g, '-').re
 // returned the one whose name said "plan", and the reviewer and integrator were both
 // aimed at it. `planning-report` is deliberate: no role here may render a filename
 // that reads like the artifact the agent also produces.
-const sidecarFor = (trailDir, batonId, role) => `${trailDir}/${slug(batonId)}.${slug(role)}.md`
+//
+// A TRAIL RECORD IS KEYED BY THE FIRE THAT WROTE IT, not by the baton alone. A baton planned in
+// wave 0, PULLED, repaired and re-planned in wave 2 fires against the SAME trail directory, and a
+// name carrying only the baton resolved to the same four files both times — the later wave
+// replaced wave 0's planning report, premise check, review pointer and integration report with no
+// warning anywhere. Measured on run 20260910T113045Z over project-rag-ue-addon: `cpr-23` and
+// `rqsi-03` re-planned in wave 2, eight wave-0 records overwritten, all eight visible only as `M`
+// in that run's own `git status`. The verdict a repair pass and the readiness gate read back is
+// the record itself, so an overwritten verdict is not recoverable from anywhere.
+//
+// `waveSlot` is the leaf, so the record's own name stays `<baton>.<role>.md` and only its
+// DIRECTORY discriminates. That is deliberate: `skills/plan-blitz/recycle-check.py` is the one
+// id-keyed consumer of the trail, and keying the fire into the filename would have moved its
+// borrowed `_slug` mapping too. A trail written before this shipped keeps its records flat at
+// the run root, where that reader still finds them.
+const sidecarFor = (trailDir, batonId, role) => `${trailDir}/${waveSlot}/${slug(batonId)}.${slug(role)}.md`
+
+// A FINDINGS SIDECAR IS THE AGENT'S OWN PROVISIONED ONE — `provision-sidecar` resolves it, not
+// this script and not the agent — but the ONE fact about it the wave can check is checkable here:
+// `append-integrator-dispositions` refuses any target without `subagent-share` as a whole path
+// segment, so a returned path lacking that segment is a review whose dispositions can never be
+// recorded. That is the quiet failure: the review runs, the integrator reads it, and only the
+// record is lost. Measured 2026-09-10 — a reviewer that resolved its own root wrote to a
+// plausible `.subagent-share/` at the repo root, and the refusal surfaced after the review had
+// already run. Reported as a wave finding rather than repaired: this script has no filesystem
+// primitive, so it can check the SHAPE of what came back and nothing else.
+// `A-SIDECAR-THE-DISPOSITION-OP-REFUSES-LOSES-ONLY-THE-RECORD`.
+const unreachableSidecars = []
+function checkSidecarPath(batonId, role, returned) {
+  const claimed = typeof returned === 'string' ? returned.trim() : ''
+  if (claimed && !claimed.split(/[\\/]+/).includes('subagent-share')) {
+    unreachableSidecars.push({ batonId, role, returned: claimed })
+  }
+  return returned
+}
 
 // ---------------------------------------------------------------------------
 // Verdict resolution — one place, and it reports rather than applies silently
@@ -902,16 +964,34 @@ precondition that failed and exits non-zero. Use what it prints.
 
 `
   : `This brief was fired without \`provisionSidecarCli\`, so no resolved invocation is available
-and \`<machinery_root>\` is a placeholder you cannot resolve from in here. Do NOT invent a path
-for it — a plausible invention (\`.subagent-share/\` at the repo root, say) is refused by the
-disposition op and read by nothing else, and it fails SILENTLY. Locate the machinery root by
-finding the existing \`subagent-share/\` directory in this repo and writing beside it; if there is
-none, say exactly that in your report and name it a CALLER defect (the wave was fired without
-\`provisionSidecarCli\`), so it is fixed at the fire rather than re-diagnosed every wave.
+and \`<machinery_root>\` is a placeholder you cannot resolve from in here. The wave REFUSES on
+that arg before it dispatches anyone, so reading this at all is a defect: report it as a CALLER
+defect (the wave was fired without \`provisionSidecarCli\`) and stop. Do NOT invent a path — a
+plausible invention (\`.subagent-share/\` at the repo root, say) is refused by the disposition op,
+read by nothing else, and it fails SILENTLY, which is the whole reason the refusal is upstream of
+you rather than a warning in here.
 
 `
 
-const REVIEW_SIDECAR_RULE = (pointerPath, agentType) => `
+// TWO VOCABULARIES, NOT ONE, and collapsing them into a single parameter was a live defect.
+// `provision-sidecar --agent-type` takes an agent IDENTITY and refuses anything not
+// `report_sidecar`-eligible; the sidecar's own `agent_type:` frontmatter is checked against a
+// SECOND vocabulary that accepts an identity OR the doc-TYPE token `review-findings`. The engine
+// says so in as many words (`append_integrator_dispositions ::
+// _REVIEWER_DOC_TYPE_TOKENS`: "the two vocabularies answer different questions on purpose (agent
+// IDENTITY vs. document TYPE) ... never meant to converge on one spelling").
+//
+// A persona reviewer passes its identity and satisfies both, which is why one parameter looked
+// sufficient for as long as only personas used this. The premise checker passed `review-findings`
+// — correct for the frontmatter, and an identity the provisioner has never heard of — so
+// provisioning refused, the agent hand-constructed a path, and only the disposition RECORD was
+// lost. Measured 2026-09-10 in a live wave's own pointer record: "sidecarPath was hand-constructed
+// after the mandated provision-sidecar.py invocation failed (agent-type 'review-findings' is not
+// report_sidecar-eligible in this repo's policy)".
+//
+// So the two are now separate arguments. `docType` defaults to `agentType`, which keeps every
+// persona call site correct and unchanged.
+const REVIEW_SIDECAR_RULE = (pointerPath, agentType, docType = agentType) => `
 Write your findings sidecar to YOUR OWN PROVISIONED SIDECAR under
 \`<machinery_root>/subagent-share/<your session id>/\`, and return its absolute path verbatim as
 \`sidecarPath\`.
@@ -922,7 +1002,7 @@ open is a review whose dispositions are never recorded.
 
 That sidecar MUST open with YAML frontmatter carrying this key at column zero:
 
-    agent_type: ${agentType}
+    agent_type: ${docType}
 
 The same op checks the agent type as well as the path, and refuses a sidecar carrying neither an
 allowlisted reviewer type nor the \`review-findings\` doc token. The refusal is the quiet one: your
@@ -972,6 +1052,54 @@ const REPO_ROOT =
   typeof parsedArgs.repoRoot === 'string' && parsedArgs.repoRoot.trim()
     ? parsedArgs.repoRoot.trim()
     : null
+
+// THE FINDINGS SIDECAR'S RESOLVER IS THE CALLER'S TO SUPPLY, on the same rung as
+// `dispositionsCli`: the machinery root is a filesystem fact, this script has no filesystem
+// primitive and takes no argument it could derive one from, so a path named here would be a
+// literal guess that reads as an assignment. Absent, every phase that writes findings resolves
+// its own root, so the wave refuses instead of briefing them to invent one.
+// `A-SIDECAR-THE-DISPOSITION-OP-REFUSES-LOSES-ONLY-THE-RECORD`.
+const PROVISION_SIDECAR_CLI =
+  typeof parsedArgs.provisionSidecarCli === 'string' && parsedArgs.provisionSidecarCli.trim()
+    ? parsedArgs.provisionSidecarCli.trim()
+    : null
+
+//: `instrument-can-report-red` is PLUGIN-LOCAL like the spine checker below — it ships in the
+//: coordinator plugin's own `bin/`, never in the repo being planned — and its citation was worse
+//: — a BARE RELATIVE path, so it resolved against the planner's cwd, i.e. the repo being planned.
+//: Every wave outside the plugin's own tree got "No such file or directory" and reported the
+//: falsifier-arming line as `N/A` or "no falsifier named", which reads as a plan that declared no
+//: instrument rather than a check that could not run. Measured across every wave of the
+//: 2026-09-10 example-cockpit-repo run. Resolved caller-side by `emit-wave-fire.py` and injected.
+const ARMING_CHECK_CLI =
+  (typeof parsedArgs.armingCheckCli === 'string' ? parsedArgs.armingCheckCli : '').trim() ||
+  `python3 ${REPO_ROOT || '<repoRoot>'}/coordinator/bin/instrument-can-report-red.py`
+
+// THE SPINE CHECKER LIVES IN THE PLUGIN ROOT, NOT THE REPO BEING PLANNED, and that is why it
+// is the caller's to resolve on the same rung as the two CLIs above. Both briefs below used to
+// interpolate `${REPO_ROOT}/coordinator/bin/plan-spine-check.py`, which resolves ONLY when the
+// repo under plan happens to be DoE-claude — the tree where the plugin root and the repo root
+// coincide. Firing the same wave against claude-klabauter made every spine validation a MISSING
+// FILE, and a missing file reads as "there is no such check" rather than "the path was not
+// resolved", so the plan-author and the integrator both returned having validated nothing and
+// said so about a tool, not about a path. Measured 2026-09-10, claude-klabauter wave 0: a wave
+// reported that its plan's task spine "has never been mechanically validated in any pass".
+// Tripwire: `A-PLACEHOLDER-A-DISPATCHED-AGENT-CANNOT-RESOLVE-IS-A-CALLER-DEFECT`.
+const SPINE_CHECK_CLI =
+  typeof parsedArgs.spineCheckCli === 'string' && parsedArgs.spineCheckCli.trim()
+    ? parsedArgs.spineCheckCli.trim()
+    : null
+
+// The runnable invocation, or an explicit statement that the caller supplied none. Never a
+// repo-relative guess: a brief that names a path the agent cannot resolve gets a path the agent
+// invents, and an invented spine check that exits non-zero for the wrong reason is worse than a
+// declared absence.
+const SPINE_CHECK_RULE = (planPath) => SPINE_CHECK_CLI
+  ? `    ${SPINE_CHECK_CLI} ${planPath}`
+  : `    (this wave was fired without \`spineCheckCli\`, so no resolved invocation is available.
+    Report that the spine could not be validated and name it a CALLER defect — the wave was
+    fired without \`spineCheckCli\`. Do NOT substitute a repo-relative path: the checker lives
+    in the plugin root, which this script cannot resolve.)`
 
 const REPO_ROOT_RULE = REPO_ROOT ? `
 Every repo-relative path in this brief — the baton record, the plan, a spine row's \`writes:\`,
@@ -1150,7 +1278,10 @@ ${escalation.recommendationMenu}
 ordinary integration work — make the edit the reviewer wrote, at the size the baton was routed at.
 Declining is a decision the gate reads and can disagree with, so the reason has to name what makes
 the fix wrong HERE: out of the baton's remit, contradicted by a census row, superseded by another
-finding you applied. "Not now" is not a reason.
+finding you applied. A fix that lands OUTSIDE this plan file — a sister plan, a wiki, a sibling
+repo's tree — is a first-class reason of the same kind: DECLINE it, name that route as the reason,
+and edit nothing there. The decline is the decision, and it costs no actor a write it must not
+make. "Not now" is not a reason, and what it lacks is the named route, not modesty.
 
 **You may not counter-propose in this lane.** There is one option and it is the reviewer's. If the
 right answer is a third thing nobody wrote down, DECLINE the recommendation, say the third thing
@@ -1247,15 +1378,24 @@ and a task spine in the body, which is the thing the run schedules — a fenced
     \`\`\`
 
 A plan with no spine declares no work the run can schedule, so it is not
-dispatchable however good its prose is. \`## Tasks\` is an h2 and the heading level is
-load-bearing: the locator keys on \`## Tasks\`, so the same fence under \`### Tasks\` locates as
-NOTHING and every consumer reads the plan as spine-less. Measured 2026-09-10 on this repo's
-most-linked plan.
+dispatchable however good its prose is. The heading is matched LITERALLY — both its level
+and its text — so write exactly \`## Tasks\` and nothing else:
+
+  - \`### Tasks\` locates as NOTHING and every consumer reads the plan as spine-less.
+    Measured 2026-09-10 on this repo's most-linked plan.
+  - \`## Task spine\` is the near-miss that actually keeps happening, because it reads
+    better and the fence under it is perfectly good. It locates MALFORMED, and the
+    certification gate reports \`SPINE/SpineReadError\` — which sends the reader to debug
+    the rows rather than the one word above them. Measured three times: twice in a single
+    wave on 2026-09-10, and once in the run before it.
+
+Neither is a formatting nit. A right-looking heading is exactly why the failure survives
+review: the spine is correct and unreachable.
 
 VALIDATE THE SPINE BEFORE YOU RETURN, and fix what it reports — this is a runnable check, not
 advice:
 
-    python3 ${REPO_ROOT || '<repoRoot>'}/coordinator/bin/plan-spine-check.py <your plan path>
+${SPINE_CHECK_RULE('<your plan path>')}
 
 Exit 0 is required. \`LEGACY\` is exit 0 and needs nothing from you. \`INVALID\` means the schema
 does not admit the spine you just wrote, so the dispatch emitter, the wave-builder and
@@ -1406,7 +1546,7 @@ Five question classes. Answer each for every load-bearing citation:
   3. REFS — does each cited branch, tag or commit exist? ONE batched \`git branch -r\` plus
      \`git rev-parse --verify\` per plan, never one process per citation.
   4. FALSIFIER ARMING — can this plan's own falsifier report red? Run
-     \`coordinator/bin/instrument-can-report-red.py <instrument> --json\` and carry its verdict
+     \`${ARMING_CHECK_CLI} <instrument> --json\` and carry its verdict
      into \`falsifierVerdict\` VERBATIM. Do not restate its predicate in your own words and do not
      write your own version: it is one surface with several readers. Its \`UNCHECKABLE\` means the
      file could not be read, which is not a pass. If the plan names no falsifier, say so.
@@ -1458,7 +1598,19 @@ approved, and was refused a ceremony later with SPINE/spine-absent. Report what 
 reconciles it, and a \`false\` is not a finding against the plan's content.
 ${NO_EXECUTION_RULE}
 ${REPO_ROOT_RULE}
-${REVIEW_SIDECAR_RULE(sidecarFor(trailDir, baton.id, 'premise-check'), 'review-findings')}`,
+${REVIEW_SIDECAR_RULE(
+      sidecarFor(trailDir, baton.id, 'premise-check'),
+      // The provisioner takes an agent IDENTITY. This used to pass the doc-TYPE token
+      // `review-findings`, which `provision-sidecar` refuses as ineligible — so the premise
+      // checker hand-built a path and its disposition record was lost silently.
+      'coordinator:premise-checker',
+      // The frontmatter keeps the doc-TYPE token, which is the vocabulary the disposition
+      // gate accepts for a non-persona sidecar (`_REVIEWER_DOC_TYPE_TOKENS`). Passing the
+      // identity here instead would trade a provisioning refusal for a disposition refusal:
+      // `coordinator:premise-checker` is not in `_REVIEWER_AGENT_TYPES`, and widening that
+      // pinned engine-side set is claude-klabauter's edit to make, not a caller's to assume.
+      'review-findings',
+    )}`,
     withRole('coordinator:premise-checker', {
       label: `premise:${baton.id}`,
       phase: 'Premise check',
@@ -1759,10 +1911,16 @@ Do not route around a PIVOT, and do not treat the EM's absence from this wave as
 override it: no EM is watching this phase by design, and an override needs explicit PM agreement
 recorded verbatim beforehand, which cannot happen here.
 
+That is the ONLY thing the EM's absence settles. It is never a reason to leave a finding
+undecided or to hold a fix back for someone else to author: the phase after you is the PLANNER in
+its revising branch, not the EM — same actor as authored this plan, with an open Edit on it — and
+it reads what you return in \`escalations\` and nothing else. "No EM is present" is not a
+disposition; a finding carrying it ends the wave unaddressed.
+
 VALIDATE THE TASK SPINE AFTER YOUR LAST EDIT, and treat a failure as your own defect to fix
 before you report. If this plan carries a \`## Tasks\` spine, run:
 
-    python3 ${REPO_ROOT || '<repoRoot>'}/coordinator/bin/plan-spine-check.py ${planResult.planPath}
+${SPINE_CHECK_RULE(planResult.planPath)}
 
 Exit 0 is required. \`NO-SPINE\` and \`LEGACY\` are exit 0 and need nothing from you — \`LEGACY\`
 names findings the schema itself declares tolerated on the existing corpus. \`INVALID\` is exit 1
@@ -1790,16 +1948,29 @@ the readiness gate — an empty ASK list on a plan carrying P0/P1 findings is it
 Return each escalation twice: in \`escalated\` as prose, as you always have, and in
 \`escalations\` with its alternatives ATTRIBUTED. Per option: \`source\` is the reviewer who
 wrote it and \`text\` is their words verbatim; an option you composed yourself carries YOUR name.
-Your own contract already requires two-or-more concrete options and the pick you would make if
-forced — this is where they go, and \`whyItExceedsDiscretion\` is that contract's fourth
+Your own contract already requires the reviewer's concrete option or options and the pick you
+would make if forced — this is where they go, and \`whyItExceedsDiscretion\` is that contract's fourth
 anti-dodge field, stated per escalation.
 
 Attribution is load-bearing, not bookkeeping. The phase after you may pick ONLY a
 reviewer-sourced option; an option attributed to you, or to nobody, is dropped from what it may
-consider, and an escalation left with fewer than two reviewer-sourced options is not settled in
-this wave at all. So do not launder your own option into a reviewer's name to give the choice
+consider. So do not launder your own option into a reviewer's name to give the choice
 more to work with — that converts your judgment into theirs, silently, which is the thing your
 ASK routing exists to prevent.
+
+Option COUNT picks the lane; it never decides whether a finding is returned. Two or more
+reviewer-attributed options is CONTESTED and the phase after you arbitrates it. EXACTLY ONE
+reviewer-attributed option is a RECOMMENDATION — return it in \`escalations\` carrying that one
+option, and the phase after you APPLIES it or DECLINES it with a reason, which is ordinary
+integration work rather than arbitration. Only ZERO reviewer-attributed options is a count
+nothing in this wave can settle.
+
+EVERY FINDING YOU DID NOT APPLY BELONGS IN \`escalations\`. An inline \`<!-- Review: ... -->\`
+annotation quoting a reviewer's fix is not an application and is not a disposition: the plan's
+operative text is unchanged, so the finding is still open, and one that leaves this phase through
+your prose report alone is invisible to the phase that could have settled it, and the plan is
+pulled at the readiness gate carrying it.
+\`A-SINGLE-REVIEWER-OPTION-IS-A-RECOMMENDATION-NOT-A-DEAD-END\`.
 ${REPO_ROOT_RULE}
 ${CLI_RESOLUTION_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'review-integration'))}`,
@@ -2331,6 +2502,49 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'execution'))}`,
 }
 
 // ---------------------------------------------------------------------------
+// Trail slot — the leaf directory every trail record of THIS invocation is written into
+// ---------------------------------------------------------------------------
+//
+// A WAVE INDEX IS NOT A FIRE IDENTITY. The skill caps a fire at 8 batons, so any wave with more
+// than that is drained by SEVERAL fires that all carry the same `waveIndex` — and the one
+// wave-scoped sidecar this script writes, `wave-<n>.em-size-review.md`, was the same path in
+// every one of them. Each later fire silently overwrote the earlier fire's size review, which is
+// the per-baton overwrite `sidecarFor`'s own comment documents, one level up and correspondingly
+// quieter: the wave's decisions live in memory and are unaffected, so nothing fails — only the
+// durable trail loses the record of how N-8 batons were sized.
+//
+// `fireId` discriminates on the fire's own baton set, so it is stable across a resume (which must
+// land on the same sidecar) and distinct between two fires of one wave (which must not). Derived,
+// never an arg: a caller that had to pass it would forget, and the failure is invisible.
+const fireIdFor = (ids) => {
+  const key = ids.map((id) => String(id)).sort().join('\u0000')
+  let h = 0x811c9dc5
+  for (let i = 0; i < key.length; i += 1) {
+    h ^= key.charCodeAt(i)
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+  return h.toString(16).padStart(8, '0')
+}
+
+//: The trail's baton-slot for this invocation, `wave-<index>-<fireId>` — and `repair-<fireId>`
+//: for a repair pass, which writes its own integration report into a trail whose waves already
+//: wrote theirs. One name, computed once and BEFORE the repair branch below returns, so the
+//: write site cannot drift from anything that later resolves the same record and so `sidecarFor`
+//: resolves in both modes rather than only the one that reaches the wave body.
+//:
+//: A REPAIR SLOT IS KEYED BY ITS BATON SET ALONE, so two repair passes over the same set resolve
+//: to one slot and the second replaces the first's integration report. That is deliberate and it
+//: is the difference between the two lanes: a wave carries `waveIndex`, which distinguishes
+//: re-planning the same baton later from re-firing the same wave, and a repair has no such
+//: axis — re-running repair over one baton set IS a resume of that pass, and landing it on the
+//: same record is what makes the resume idempotent rather than accumulating near-duplicate
+//: reports nobody can order. What it costs is the superseded pass's report; what it buys is that
+//: `<baton>.review-integration.md` under a repair slot always names the current disposition.
+const waveSlot = parsedArgs.mode === 'repair'
+  ? `repair-${fireIdFor((parsedArgs.repairBatons || []).map((e) => e && e.batonId))}`
+  : `wave-${parsedArgs.waveIndex}-${fireIdFor((parsedArgs.batons || []).map((b) => b && b.id))}`
+
+// ---------------------------------------------------------------------------
 // Repair mode — SKILL.md § Three modes -> Repair. Re-dispositions an already-
 // reviewed plan from what is already on disk: no sizingScout, no planner, no
 // reviewerAgent. The caller has already read the plan's structured pointer
@@ -2383,10 +2597,20 @@ async function repairBaton(entry, trailDir) {
 
   // The EXISTING integrator(), unforked. A minimal baton stand-in: integrator()
   // consumes only `baton.id` from it.
-  // Review: overengineering-reviewer (F2) — integrator() returns agent(...) unconditionally
-  // and the live wave's identical call site carries no such guard; this was defending a
-  // return shape the shared callee cannot produce.
   const integration = await integrator({ id: batonId }, { planPath }, kept, trailDir)
+  // A NULL INTEGRATION IS A REFUSAL, never a repair. `integrator()` returns `agent(...)`
+  // unconditionally, but an agent's structured-output call can return null when it exhausts its
+  // retries — which is why the live wave branches on it one stage later (`resolveEscalations`
+  // returns `skipped: 'no integration report to resolve over'`) and why this file guards a null
+  // agent return in four other places. Reporting `repaired: true` here writes no integration
+  // report, applies no finding, appends no disposition, and tells the driver the baton was
+  // re-dispositioned — which is precisely the silent clearance this mode's own header refuses:
+  // "a repair run that quietly clears a plan it found nothing to disposition is
+  // indistinguishable from one that re-dispositioned it".
+  if (!integration) {
+    return refuse('the integrator returned nothing — no integration report was written, so there '
+      + 'is no record of what was dispositioned; re-run rather than treating this as repaired')
+  }
   return { batonId, planPath, repaired: true, integration }
 }
 
@@ -2452,6 +2676,9 @@ if (parsedArgs.mode === 'repair') {
   const results = await pipeline(runnable, (entry) => repairBaton(entry, parsedArgs.trailDir))
   return {
     mode: 'repair',
+    // Where this pass's integration reports went. A repair writes into a trail whose waves have
+    // already written theirs, so its slot is its own and the wave's records are still there.
+    trailSlotDir: `${parsedArgs.trailDir}/${waveSlot}`,
     repaired: results.filter((r) => r && r.repaired),
     refused: [...duplicateRefusals, ...results.filter((r) => r && !r.repaired)],
   }
@@ -2464,31 +2691,6 @@ if (parsedArgs.mode === 'repair') {
 const waveIndex = parsedArgs.waveIndex
 const trailDir = parsedArgs.trailDir
 const batons = parsedArgs.batons || []
-
-// A WAVE INDEX IS NOT A FIRE IDENTITY. The skill caps a fire at 8 batons, so any wave with more
-// than that is drained by SEVERAL fires that all carry the same `waveIndex` — and the one
-// wave-scoped sidecar this script writes, `wave-<n>.em-size-review.md`, is the same path in every
-// one of them. Each later fire silently overwrote the earlier fire's size review, which is the
-// per-baton overwrite `slug`'s own comment documents, one level up and correspondingly quieter:
-// the wave's decisions live in memory and are unaffected, so nothing fails — only the durable
-// trail loses the record of how N-8 batons were sized.
-//
-// `fireId` discriminates on the fire's own baton set, so it is stable across a resume (which must
-// land on the same sidecar) and distinct between two fires of one wave (which must not). Derived,
-// never an arg: a caller that had to pass it would forget, and the failure is invisible.
-const fireId = (() => {
-  const key = batons.map((b) => String(b && b.id)).sort().join('\u0000')
-  let h = 0x811c9dc5
-  for (let i = 0; i < key.length; i += 1) {
-    h ^= key.charCodeAt(i)
-    h = Math.imul(h, 0x01000193) >>> 0
-  }
-  return h.toString(16).padStart(8, '0')
-})()
-
-//: The wave-scoped sidecar's baton-slot, `wave-<index>-<fireId>`. One name, computed once, so the
-//: write site cannot drift from anything that later resolves the same record.
-const waveSlot = `wave-${waveIndex}-${fireId}`
 
 // Refused BEFORE the empty-wave check, deliberately: a caller that omitted `repoRoot` has
 // violated the contract whether or not this particular wave had batons in it, and learning that
@@ -2504,6 +2706,30 @@ if (!REPO_ROOT) {
     refused: batons.map((b) => ({
       batonId: (b && b.id) || null,
       reason: 'no repoRoot supplied — every brief in this wave would resolve its repo-relative paths against the dispatching shell\'s working directory, which is not necessarily this repo',
+    })),
+  }
+}
+
+// Refused on the same ground and in the same place, and REFUSED rather than warned about. A
+// brief-level warning is read by the only actor that cannot act on it: the reviewer is already
+// dispatched, the caller that could pass the arg is not in the room, and the instruction it can
+// follow ("find a `subagent-share` directory and write beside it") is a guess wearing a
+// procedure. What follows is not a lost path but a lost RECORD —
+// `append-integrator-dispositions` refuses any target without a `subagent-share` path segment,
+// so a wave fired without this runs every review, reads every finding, and appends not one
+// disposition, with nothing anywhere reporting it. Measured 2026-09-10: 0 of 22 findings
+// dispositionable across the fire. `A-SIDECAR-THE-DISPOSITION-OP-REFUSES-LOSES-ONLY-THE-RECORD`.
+if (!PROVISION_SIDECAR_CLI) {
+  return {
+    waveIndex,
+    ready: [],
+    pulled: [],
+    replan: [],
+    surfacedToPm: [],
+    trailDir,
+    refused: batons.map((b) => ({
+      batonId: (b && b.id) || null,
+      reason: 'no provisionSidecarCli supplied — refusing rather than briefing the premise check and every reviewer to invent the machinery root their findings sidecar is provisioned under, where the disposition op refuses every one of them for the missing `subagent-share` path segment',
     })),
   }
 }
@@ -2803,6 +3029,12 @@ const chains = await pipeline(
     const premise = await premiseChecker(baton, plan, trailDir)
     // The seam. Rows in, one REVIEW_SCHEMA entry out, so the report reaches the integrator
     // through the channel a reviewer already uses. The checker took no route; this did.
+    // Checked, not rewritten. The checker's provisioned path is the real one — nothing here
+    // can resolve a better one — but `premiseLines` renders `premise.sidecarPath` into the
+    // reviewer AND the integrator brief, so a path the disposition op will refuse is a path both
+    // briefs name. Checked ONCE, on the object both briefs read, so one bad path is reported as
+    // one finding rather than two.
+    if (premise) checkSidecarPath(baton.id, PREMISE_REVIEWER, premise.sidecarPath)
     const premiseCheckResult = premiseAsReview(baton, premise)
 
     const { reviewers, substitutions } = resolveReviewers(decision.reviewers)
@@ -2817,6 +3049,11 @@ const chains = await pipeline(
     const reviews = await parallel(
       reviewers.map((reviewer) => async () => {
         const result = await reviewerAgent(baton, decision, plan, reviewer, trailDir, premise)
+        // The returned path propagates — the sidecar is the agent's own provisioned one and
+        // nothing here can resolve it — but it is CHECKED on the way through: a path with no
+        // `subagent-share` segment is one the disposition op will refuse after the review has
+        // already run, and the wave reports it rather than discovering it at the integrator.
+        if (result) checkSidecarPath(baton.id, `review-${reviewer}`, result.sidecarPath)
         return result ? { ...result, reviewer } : result
       }),
     )
@@ -2937,13 +3174,17 @@ written, reviewed and integrated without consulting you — that is by design. Y
 items OUT, over the trail.
 
 Trail directory: ${trailDir}
+This fire's own records: ${trailDir}/${waveSlot}
 Gate report this wave was resolved from: ${parsedArgs.gateReportPath}
 
 THE TRAIL DIRECTORY IS SHARED, AND YOUR MANDATE IS THE LIST BELOW — NOT THE DIRECTORY. A wave
 larger than one fire is drained by SEVERAL fires at this same waveIndex, all writing into that one
 trail, and they may be running CONCURRENTLY. So the trail holds sidecars for batons that are not
 yours: some belong to a fire that already landed, some to a fire that is still authoring its plans
-right now. Judge EXACTLY the batons enumerated below and no others. Read another baton's sidecar
+right now. Each fire's records sit in ITS OWN subdirectory of the trail, named above for yours, so
+a baton this fire re-plans does not overwrite what an earlier wave recorded about it — search the
+trail RECURSIVELY, and a second directory holding the same baton is an earlier wave's verdict, not
+a duplicate to reconcile. Judge EXACTLY the batons enumerated below and no others. Read another baton's sidecar
 if it informs one of yours — that costs nothing — but never return a verdict for it. A verdict on
 a baton outside this fire either overrides a landing that already happened or stamps a plan whose
 author has not finished writing it, and both read as ordinary output.
@@ -3180,6 +3421,10 @@ const closable = closableDispatched(dispatched, verdicts, waveIndex)
 return {
   waveIndex,
   trailDir,
+  // The leaf of `trailDir` this fire's own trail records were written into. Reported because the
+  // trail is shared: a caller handed only `trailDir` cannot tell this fire's planning report for
+  // a baton from the one an earlier wave wrote for the same baton.
+  trailSlotDir: `${trailDir}/${waveSlot}`,
   ready: [...verdicts.filter((v) => v.verdict === 'ready'), ...closable],
   pulled: verdicts.filter((v) => v.verdict === 'pulled'),
   replan: verdicts.filter((v) => v.verdict === 'replan'),
@@ -3200,4 +3445,8 @@ return {
   // before-and-after and no peer figure standing in for a DoE measurement.
   // Method: coordinator/docs/wiki/blitz-convergence.md § Re-measurement.
   converged,
+  // Every phase whose returned `sidecarPath` carries no `subagent-share` segment. Not a lost
+  // review — the findings are there and the integrator read them — but a review the disposition
+  // op will refuse, so its dispositions are never recorded and nothing else reports that.
+  unreachableSidecars,
 }

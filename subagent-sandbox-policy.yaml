@@ -71,6 +71,13 @@ report_sidecar:
   - coordinator:test-evidence-parser
   - coordinator:test-runner
   - coordinator:atlas-clarity-reviewer
+  # Holds Write, and plan-blitz's wave dispatches it through `provisionSidecarCli` and
+  # then reads back a pointer record naming what it provisioned. Without eligibility
+  # that call is REFUSED and the checker falls back to a path it invents — measured
+  # 2026-09-10 on example-cockpit-repo, a `subagent-share/premise-check-fallback/` directory
+  # inside the wave's own trail slot. The review still ran; only its dispositions were
+  # lost, which is the silent half.
+  - coordinator:premise-checker
 # 2026-07-30 (dispatch-tiering, Leg B): coordinator:atlassian-worker and
 # coordinator:drive-worker were removed from this list — dispatch_tier: (below)
 # classifies both as exploration tier (write-toolless, clause (1)), so neither is
@@ -135,6 +142,22 @@ report_type_map:
   # rows above, not the tool-shaped per-finding output of the review-findings family.
   coordinator:overengineering-reviewer: staff-eng-review
   coordinator:apm: staff-eng-review
+  # review-findings: the checker reports per-class citation findings, the same
+  # per-finding shape the review-findings family carries. report_sidecar-eligible
+  # (above) because plan-blitz provisions it a sidecar and reads its pointer back.
+  coordinator:premise-checker: review-findings
+  # Typed for the coverage invariant, NOT provisioned — each is absent from
+  # report_sidecar: on its own dispatch_tier: rationale below. A type here selects a
+  # template for an agent that gets a sidecar; for one that does not, it is inert.
+  # Coverage is over every DECLARED agent (coordinator/tests/test_report_type_map.py
+  # § invariant 3, decoupled from report_sidecar 2026-07-30), so leaving an agent out
+  # asserts nothing about eligibility and only breaks the enumeration.
+  coordinator:falsifier-integrity-reviewer: review-findings
+  coordinator:subtractive-adjudicator: review-findings
+  coordinator:blitz-em: staff-eng-review
+  coordinator:plan-author: run-report
+  coordinator:exit-criterion-falsifier: run-report
+  coordinator:group-em-assistant: run-report
   coordinator:repo-scout: assessment
   coordinator:repo-specialist: assessment
   coordinator:research-scout: assessment
@@ -326,6 +349,22 @@ dispatch_tier:
   # per dispatch, consumed by the dispatching EM, and a re-emit after a lost run is
   # deterministic and cheap — nothing accumulates that a crash would make you redo.
   coordinator:workflow-maker: exploration
+  # Holds Write, so clause (1) passes; clause (2)(c) decides it: plan-blitz hands it a
+  # provisioned sidecar and reads back only a pointer record, so the whole per-class
+  # citation payload exists in that sidecar and nowhere else. Same shape as
+  # atlas-clarity-reviewer. report_sidecar-eligible accordingly.
+  coordinator:premise-checker: review-execution
+  # Read/Grep/Glob only — clause (1) forces exploration, same as the other Write-less
+  # reviewers. Its verdict (SOUND/BROKEN/UNREVIEWABLE plus the tell) returns as final
+  # message text. Absent from report_sidecar: accordingly.
+  coordinator:falsifier-integrity-reviewer: exploration
+  coordinator:subtractive-adjudicator: exploration
+  # Both hold Write and so pass clause (1), but clause (2) does not: each writes its
+  # deliverable to a path the dispatching Workflow addressed for it — the trail slot's
+  # size review, the plan body and its planning report — and returns a structured value,
+  # not a sidecar. A provisioned scaffold would be scaffolded and never filled.
+  coordinator:blitz-em: exploration
+  coordinator:plan-author: exploration
 
 # contract_blocks:  dict[str, list[str]] — subagent_type -> ORDERED list of
 # canonical snippet block names to assemble and inject into that subagent's
@@ -521,6 +560,13 @@ contract_blocks:
     - quota-self-detect-preamble
     - named-dispatch-relay
   coordinator:plan-coverage-checker:
+    - provisioned-scaffold-precedence
+    - sidecar-emission-contract
+    - quota-self-detect-preamble
+  # Same three as the peer citation/coverage checker above: it is handed a provisioned
+  # scaffold by plan-blitz's wave, so it must be told the scaffold wins over the
+  # frontmatter its review-findings family contract describes.
+  coordinator:premise-checker:
     - provisioned-scaffold-precedence
     - sidecar-emission-contract
     - quota-self-detect-preamble

@@ -47,3 +47,12 @@ tasks/_*.log
 state/group-em-watch.json
 state/group-em-watch-parked.json
 state/group-em-watch-spool.jsonl
+
+# Engine-provenance ledger -- the engine appends one record per engine-root resolution,
+# each carrying this box's absolute engine path and clock. Same per-machine class as the
+# watch trio above: regenerable, no cross-clone reader.
+state/engine-provenance-counts.jsonl
+
+# Per-machine session machinery, written by the engine's session machinery-paths writer on
+# any engine-backed ceremony. Generated, never authored; untracked, it leaves the tree dirty.
+.coordinator-local/

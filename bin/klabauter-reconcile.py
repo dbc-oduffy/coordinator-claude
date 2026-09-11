@@ -228,8 +228,23 @@ def _published_paths(dest: str) -> Optional[Set[str]]:
     channel would silently delete content nothing rebuilds, so it is refused.
     Returns None when the manifest cannot be read, which refuses every
     auto-resolution rather than guessing.
+
+    `dest` is the target's dest dir, which may sit below the mirror root
+    (klabauter's resolves to `<mirror>/coordinator_core`); the manifest and
+    its repo-relative paths live at the root, so the nearest ancestor holding
+    one is the mirror.
     """
-    manifest = Path(dest) / ".percolate" / "round-manifest.json"
+    start = Path(dest)
+    manifest = next(
+        (
+            candidate
+            for base in (start, *start.parents)
+            if (candidate := base / ".percolate" / "round-manifest.json").is_file()
+        ),
+        None,
+    )
+    if manifest is None:
+        return None
     try:
         data = json.loads(manifest.read_text(encoding="utf-8"))
     except (OSError, ValueError):

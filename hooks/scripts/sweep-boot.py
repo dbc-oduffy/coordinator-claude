@@ -132,8 +132,8 @@ and orientation-selfheal legs, so a failure in this leg can never pre-empt
 either of the higher-priority legs ahead of it.
 
 Spec backlink: coordinator/hooks/scripts/derive-global-doctrine-live-copy.py
-Spec backlink: coordinator/hooks/hooks.json (SessionStart block, 2026-07-15
-  full-kill-keep-fast-orientation `_comment`)
+Spec backlink: coordinator/hooks/REGISTRATIONS.md (SessionStart `sweep-boot.py`
+  section)
 Spec backlink: coordinator/tests/test_guard_hook_generation_self_probe.py::
   test_sessionstart_sibling_entries_unchanged_by_registration
 """

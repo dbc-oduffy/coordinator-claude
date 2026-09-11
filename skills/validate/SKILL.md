@@ -83,7 +83,7 @@ A `ceremony_test_cmds` entry's execution is not durable on its own — record it
 it was written:
 
 ```
-python coordinator/bin/tier-last-run.py record --entry <name> --cmd <the command run, verbatim> --exit <its exit code>
+python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/tier-last-run.py" record --entry <name> --cmd <the command run, verbatim> --exit <its exit code>
 ```
 
 Run this immediately after invoking a ceremony tier by hand, not only from inside an automated

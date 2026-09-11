@@ -23,6 +23,9 @@ forwarder sits beside it, resolving the engine-provisioned `coordinator/bin/` an
 
 A fence needing a coordinator CLI picks the FIRST rung that applies, not "settings-home always":
 
+-1. **There is no settings home at all** — every rung below resolves a path under it, so all of
+   them fail command-not-found. See § Rung N. This is a state, not a rung to prefer: check it
+   first because a rung that cannot apply reads as a missing CLI.
 0. **The host shell is PowerShell** (Windows) — use Shape W below, whatever the CLI. This rung
    outranks every rung under it: rungs 1-3 are all POSIX-shell fences, none runnable on a
    PowerShell-only host without spawning a bash first.
@@ -36,6 +39,39 @@ A fence needing a coordinator CLI picks the FIRST rung that applies, not "settin
    root; take that residue's own ladder. Any other no-launcher CLI cannot self-resolve: escalate
    to the dispatching EM, which resolves the engine's `coordinator/bin/` path and injects the
    literal, fully-resolved absolute invocation into the brief, as Shape C does.
+
+### Rung N — there is no settings home at all (ephemeral container, CI runner)
+
+**Ask this before the ladder, not after a rung fails.** Every rung above resolves a path under the
+settings home; where `<settings-home>/bin/` does not exist, all of them — Shape W included — fail
+command-not-found, which reads as "this CLI does not exist". Same misreading as a missing launcher,
+one state further out.
+
+Its remedy is NOT the installer § The door names. A container cloned fresh per session and reclaimed
+at session end has no install to repair and nothing to carry one, and the installer may not even be
+runnable there. The engine source is on disk regardless, and the engine is a Python package:
+
+    PYTHONPATH=<engine-root> python3 -m coordinator_core.invoke <op> '<json params>' [--repo <repo-root>]
+
+**`<engine-root>` and `--repo` are two different trees, and the flag is per-OP, not per-call.** A
+worktree-scoped op REQUIRES it here: without it `coordinator_core.invoke` resolves the repo from
+cwd, and the engine checkout named on that same line is itself a git repo — so the op answers about
+the ENGINE's records, well-formed and wrong, in the environment where the operator is least likely
+to be sitting in the repo they mean. A `scope: none` op REFUSES it (DR-279, "`--repo` is meaningless
+for op '<op>'"), so pasting the flag everywhere fails loud on roughly a third of the registry. One
+direction is a wrong answer, the other an error naming its own remedy: read the error, do not
+hand-derive a rule from it. A no-launcher op module with its own CLI runs the same way,
+`python3 -m coordinator_core.ops.<module>`, which is the resolution rung 3 tells a dispatching EM to
+inject as a literal.
+
+**Scope it by the box's LIFETIME, not by the call.** On a durable box a missing settings home is an
+install defect: take this for the one call that unblocks you, then report it. On a box reclaimed at
+session end it is the whole session's only path, for every call, and is not a defect to report — a
+single ceremony can need it a dozen times.
+
+**No Windows-ephemeral shape is written here yet.** The form above is POSIX-only, and a Windows host
+in this state should say so and escalate rather than hand-derive one — inventing a formula is the
+ban this file opens with.
 
 ### Shape W — PowerShell host (rung 0)
 
@@ -137,7 +173,8 @@ POSIX silently reverts to the cold path, tell is latency, not an error. Check bo
 its uninstall. No sidecar, no door. **Treat a missing launcher as the install defect it is**
 (remedy: `python3 -m coordinator_core.install.substrate`, or `/coordinator:install`) — take the
 cold path for the one call that unblocks you, then report it; never quietly adopt the cold spelling
-as standing doctrine. Tripwire:
+as standing doctrine. A settings home that is not there AT ALL is a different state and takes a
+different answer: § Rung N, not this remedy. Tripwire:
 `A-DOCTRINE-SURFACE-THAT-NAMES-CMD-CONSCRIPTS-EVERY-READER-ONTO-THE-COLD-PATH`.
 
 ## CLIs with no launcher

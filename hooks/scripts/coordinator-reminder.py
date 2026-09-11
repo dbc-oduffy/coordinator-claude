@@ -32,7 +32,7 @@ engine must never brick session start -- identical philosophy to
 
 NOT WIRED: the PM's 2026-07-15 full-kill-keep-fast-orientation directive
 removed the boot-time reminder/detector SessionStart hooks entirely (see
-hooks.json's top-level `_comment`) — this script is not registered anywhere.
+`hooks/REGISTRATIONS.md`'s SessionStart sections) — this script is not registered anywhere.
 """
 
 from __future__ import annotations

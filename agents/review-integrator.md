@@ -90,7 +90,7 @@ Every option on an ASK names where it came from: the reviewer who wrote it, quot
 
 **Attribution decides whether an escalation can be settled at all**, and it errs both ways. Only a reviewer-sourced option is choosable downstream: your own option under a reviewer's name launders your judgment as theirs; a reviewer's option left unattributed is dropped, not merely uncredited, and the escalation reaches the gate unsettleable. Attribute each to its actual author. Nothing here widens what you may settle — an option you composed is still yours, still unchoosable, still never a reason to apply an ASK.
 
-**Escalation destination (plan-blitz).** An ASK you escalate here does not necessarily stop at the EM: `plan-blitz.mjs` conditionally re-invokes the planner (its revising branch) once a plan's integration escalates at least one ASK, handing it a catalogue built from the reviewer-attributed options your escalation states — see `coordinator/docs/wiki/coordinator-tripwires/the-revising-planner-also-edits-the-plan-body.md`. This changes only WHERE an escalated ASK is read next, never what you may apply on your own: the routing table above and the always-ASK rule for symbolic reasoning stand unchanged, and you still never author a fix or narrow a reviewer's stated option set.
+**Escalation destination (plan-blitz).** An ASK you escalate here does not necessarily stop at the EM: `plan-blitz.mjs` conditionally re-invokes the planner (its revising branch) once a plan's integration escalates at least one ASK, handing it a catalogue built from the reviewer-attributed options your escalation states — see `coordinator/docs/wiki/coordinator-tripwires/the-revising-planner-also-edits-the-plan-body.md`. That planner reads the structured escalations and nothing else, and it disposes of a one-option escalation by applying the reviewer's fix or declining it with a reason — so a finding you neither applied nor escalated reaches no one. This changes only WHERE an escalated ASK is read next, never what you may apply on your own: the routing table above and the always-ASK rule for symbolic reasoning stand unchanged, and you still never author a fix or narrow a reviewer's stated option set.
 
 ### What a Dispatch Brief Cannot Relax
 
@@ -113,6 +113,8 @@ The reviewer sidecar is an INPUT, not a scratchpad. The ONE sanctioned write is 
 ### Apply Everything
 
 Per finding: Read the file, locate the issue, apply the `suggested_fix` (or your own implementation matching intent), annotate the reasoning inline near the change — `// Review: [reviewer] — [brief reasoning]`, or an HTML comment in markdown. **Inside a fenced ` ```yaml ` block — a plan's `plan-tasks` spine above all — use a YAML `#` comment, never an HTML one**: `<!--` opens a plain scalar there and the following lines parse as malformed keys, so the block still renders and reads correctly while every spine CLI reports "task spine is absent". `A-FENCED-YAML-BLOCK-IS-NOT-MARKDOWN`. **Never annotate in a percolating prompt surface** (`agents/`, `skills/`, `commands/`, `snippets/`, `pipelines/`) — a gate rejects it; the commit message carries the reasoning instead.
+
+**An annotation without the edit beside it is an UNAPPLIED finding.** The inline note records why a change was made; standing alone beside unchanged operative text it quotes the reviewer's fix and changes nothing, so the finding is still open. Disposition it `escalated-ask` and return it in the structured escalation with the reviewer's fix attributed as its one option — never `applied`, never `deferred`, and never closed by the annotation. A plan reaching the readiness gate with one of these is pulled. `A-SINGLE-REVIEWER-OPTION-IS-A-RECOMMENDATION-NOT-A-DEAD-END`.
 
 ### Plan Spine Rows — `Edit` Them Like Anything Else
 
@@ -220,7 +222,7 @@ A LIST of the reviewer-sidecar stems (filename minus `.md`, no directory) handed
 
 - **Edit any plan/artifact file your dispatch didn't explicitly name — even topically adjacent ones.** A finding belonging in a sister plan → name it for the EM to route, don't reach into it.
 - Make architectural decisions, extend a finding's scope, add improvements the reviewer didn't ask for, or override the reviewer without escalating.
-- **Escalate as ASK without filling the four anti-dodge fields** — "needs PM input" alone is a dodge. Requires: (1) the specific tradeoff, (2) two-or-more concrete options, (3) which you'd pick if forced, (4) why the choice exceeds your discretion. Can't fill all four → Applied (if you can decide) or escalate-disagree (if you disagree), not ASK.
+- **Escalate as ASK without filling the four anti-dodge fields** — "needs PM input" alone is a dodge. Requires: (1) the specific tradeoff, (2) two-or-more concrete options, **or the reviewer's single named fix where that is all the reviewer wrote** — the floor is there to stop you inventing or laundering an option, never to suppress the one a reviewer actually wrote, and a one-option escalation is settled downstream as a recommendation (`A-SINGLE-REVIEWER-OPTION-IS-A-RECOMMENDATION-NOT-A-DEAD-END`), (3) which you'd pick if forced, (4) why the choice exceeds your discretion. Can't fill all four → Applied (if you can decide) or escalate-disagree (if you disagree), not ASK.
 
 ## Completion Report Format
 

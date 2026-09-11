@@ -24,11 +24,17 @@ dimension module's own docstring for the coverage contract itself.
 
 Subcommands (argv[1] selects):
 
-  pr-body --ship-verdict <text> --release-notes <text>
-           [--demo-path <text>] [--commit-range <range>]
-      Composes the PR body markdown from SKILL.md Step 1.5 Parts 1-3 + Step 2:
-      ship verdict, release notes, optional demo path, and a collapsed commit
-      log. Prints the composed body to stdout.
+  pr-body --ship-verdict <text> --release-notes <text> [--summary <text>]
+           [--verification <text>] [--risk <text>] [--demo-path <text>]
+           [--links <text>] [--commit-range <range>]
+      Composes the PR body in the fleet PR template's section order (DoE-claude
+      coordinator/templates/github-pull-request-template.md): the
+      `**Ship verdict:**` line, ## Summary, ## Release notes, ## Verification,
+      ## Risk and rollback, ## Demo path (only when given), ## Links, then a
+      collapsed commit log. An absent optional section renders the template's
+      guidance comment. `--summary`/`--verification`/`--risk`/`--links` are
+      optional because `merge_assemble`'s d4 directive composes this call
+      without them. Prints the composed body to stdout.
 
   active-branch-guard --pr <PR> [--force]
       SKILL.md Step 4 "Pre-merge quiet check (5-minute activity gate)": reads
@@ -104,11 +110,45 @@ def _commit_log(commit_range: str) -> str:
     return proc.stdout.rstrip("\n")
 
 
+#: The fleet PR template's heading contract (DoE-claude
+#: coordinator/templates/github-pull-request-template.md), in order, as
+#: (heading, argparse dest, guidance comment). `gh pr create --body` bypasses
+#: GitHub's own template fill, so this composer is what carries the template
+#: to agent PRs. A section whose flag is absent renders its heading plus the
+#: template's guidance comment verbatim — the body keeps the template's shape
+#: and the gap reads as unfilled, not as omitted. Demo path is the one
+#: section the template deletes when nothing is user-visible, so it renders
+#: only when given. Parity with the template file:
+#: tests/test_merge_gate_and_pr.py :: test_pr_body_sections_match_fleet_template.
+_SHIP_VERDICT_PREFIX = "**Ship verdict:**"
+_PR_BODY_SECTIONS: tuple[tuple[str, str, str | None], ...] = (
+    ("Summary", "summary",
+     "<!-- 1–3 bullets: what changed, and why it was needed. -->"),
+    ("Release notes", "release_notes",
+     "<!-- Group by impact: Added / Changed / Fixed / Deps / Internal. Omit empty groups. -->"),
+    ("Verification", "verification",
+     "<!-- What you actually ran and what it returned. Name the tests covering this change's surface,\n"
+     "and say plainly what you did not run. -->"),
+    ("Risk and rollback", "risk",
+     "<!-- What could break and where, and how to back it out. \"Low — docs only\" is a real answer. -->"),
+    ("Demo path", "demo_path", None),
+    ("Links", "links",
+     "<!-- Plan, sizing, handoff, memo, issue. `Closes #N` closes the issue on merge. -->"),
+)
+
+
 def cmd_pr_body(args: argparse.Namespace) -> int:
-    parts = [args.ship_verdict.rstrip("\n"), "", args.release_notes.rstrip("\n")]
-    if args.demo_path:
-        parts.append("")
-        parts.append(args.demo_path.rstrip("\n"))
+    verdict = args.ship_verdict.strip()
+    if not verdict.startswith(_SHIP_VERDICT_PREFIX):
+        verdict = f"{_SHIP_VERDICT_PREFIX} {verdict}"
+    parts = [verdict]
+    for heading, dest, guidance in _PR_BODY_SECTIONS:
+        text = (getattr(args, dest) or "").strip("\n")
+        if not text.strip():
+            if guidance is None:
+                continue
+            text = guidance
+        parts += ["", f"## {heading}", "", text]
     parts.append("")
     parts.append("---")
     parts.append("")
@@ -268,8 +308,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_body = sub.add_parser("pr-body")
     p_body.add_argument("--ship-verdict", required=True)
+    p_body.add_argument("--summary", default=None)
     p_body.add_argument("--release-notes", required=True)
+    p_body.add_argument("--verification", default=None)
+    p_body.add_argument("--risk", default=None)
     p_body.add_argument("--demo-path", default=None)
+    p_body.add_argument("--links", default=None)
     p_body.add_argument("--commit-range", default="main..HEAD")
     p_body.set_defaults(func=cmd_pr_body)
 

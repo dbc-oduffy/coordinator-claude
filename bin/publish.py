@@ -104,7 +104,7 @@ import time
 from datetime import datetime, timezone
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
-from typing import IO, Any, Callable, List, Mapping, NamedTuple, Optional, Sequence
+from typing import IO, Any, Callable, List, Mapping, NamedTuple, Optional, Sequence, Tuple
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _COORDINATOR_LIB = _REPO_ROOT / "coordinator" / "lib"
@@ -9103,6 +9103,15 @@ _PUBLISH_MIRROR_SIGIL_PREFIX = "publish-mirror:"
 # rather than an assumed one (state/subagent-share/93578a3d.../
 # coordinatorcode-reviewer-e094bd79.md P1).
 _DEFAULT_PUBLISH_TRACK_REF = "origin/main"
+# The one branch an ENGINE-carrying mirror (`_engine_declaring_mirror_keys`)
+# may publish to (DR-314: candidate is what we run, main is what we ship, and
+# only promotion moves main). Absent a declared `track_ref`, such a mirror
+# resolves HERE, never to the remote default -- the remote default of a fresh
+# clone is `main`, and every box without this machine's registry (a cloud
+# container, a new workstation) otherwise published straight onto it
+# (klabauter main, 2026-09-08..10). Same literal as
+# `percolate-push.py::_RELEASE_CHANNELS`.
+_ENGINE_MIRROR_RELEASE_CHANNEL = "candidate"
 
 
 def _publish_mirror_key_for_repo_root(repo_root: Path) -> Optional[str]:
@@ -9426,14 +9435,36 @@ def assert_dest_engine_root_viable(
     return True
 
 
+def _publish_expected_branch(
+    key: str, repo_root: Path, setup_dir: Optional[Path]
+) -> Tuple[str, bool]:
+    """The local branch a publish into mirror `key` must land on, and whether
+    `key` carries the engine payload. An engine mirror resolves an absent
+    `track_ref` to `_ENGINE_MIRROR_RELEASE_CHANNEL`; any other mirror to its
+    remote default, then `_DEFAULT_PUBLISH_TRACK_REF`."""
+    from coordinator_core.machine_resolver import registry_get
+
+    declared = registry_get(f"{_PUBLISH_MIRRORS_PREFIX}{key}{_PUBLISH_MIRROR_TRACK_REF_SUFFIX}")
+    if key in _engine_declaring_mirror_keys(setup_dir):
+        return (_expected_local_branch(declared) if declared else _ENGINE_MIRROR_RELEASE_CHANNEL), True
+    track_ref = declared or _resolve_remote_default_branch(repo_root) or _DEFAULT_PUBLISH_TRACK_REF
+    return _expected_local_branch(track_ref), False
+
+
 def assert_dest_on_declared_ref(
-    target: "ResolvedTarget", totals: RunTotals, *, out: IO[str] = sys.stdout
+    target: "ResolvedTarget",
+    totals: RunTotals,
+    *,
+    setup_dir: Optional[Path] = None,
+    out: IO[str] = sys.stdout,
 ) -> bool:
     """Refuse this row when the dest's checked-out branch does not match its
-    declared `publish.mirrors.<key>.track_ref` (C9). Returns True (proceed)
-    for a dest with no `.git` ancestor at all (`_ensure_dest_ready` owns that
-    refusal) and for a dest outside the `publish.mirrors.*` namespace (no
-    declared ref exists to assert against)."""
+    declared `publish.mirrors.<key>.track_ref` (C9), or when an engine
+    mirror would land anywhere but `_ENGINE_MIRROR_RELEASE_CHANNEL` --
+    declared or not. Returns True (proceed) for a dest with no `.git`
+    ancestor at all (`_ensure_dest_ready` owns that refusal) and for a dest
+    outside the `publish.mirrors.*` namespace (no declared ref exists to
+    assert against)."""
     repo_root = _dest_repo_root(target.dest_dir)
     if repo_root is None:
         return True
@@ -9441,14 +9472,16 @@ def assert_dest_on_declared_ref(
     if key is None:
         return True
 
-    from coordinator_core.machine_resolver import registry_get
-
-    track_ref = (
-        registry_get(f"{_PUBLISH_MIRRORS_PREFIX}{key}{_PUBLISH_MIRROR_TRACK_REF_SUFFIX}")
-        or _resolve_remote_default_branch(repo_root)
-        or _DEFAULT_PUBLISH_TRACK_REF
-    )
-    expected_branch = _expected_local_branch(track_ref)
+    expected_branch, engine_mirror = _publish_expected_branch(key, repo_root, setup_dir)
+    if engine_mirror and expected_branch != _ENGINE_MIRROR_RELEASE_CHANNEL:
+        print(
+            f"  Error: '{key}' carries the engine and publishes to "
+            f"'{_ENGINE_MIRROR_RELEASE_CHANNEL}' only, but its track_ref names "
+            f"'{expected_branch}' -- set it to origin/{_ENGINE_MIRROR_RELEASE_CHANNEL}.",
+            file=sys.stderr,
+        )
+        _print_row_refusal(target.name, err=sys.stderr)
+        return False
     actual_ref = _dest_checked_out_ref(repo_root)
     if actual_ref is None:
         print(f"  Error: could not read the checked-out ref at {repo_root}.", file=sys.stderr)
@@ -9591,20 +9624,9 @@ def report_candidate_divergence(repo_root: Path, *, out: IO[str] = sys.stdout) -
         if key is None:
             return
 
-        from coordinator_core.machine_resolver import registry_get
-
-        # Review: E-divergence-report — reuse _resolve_remote_default_branch
-        # (slice D) rather than falling straight to the _DEFAULT_PUBLISH_
-        # TRACK_REF constant, matching the sibling resolution at
-        # assert_dest_on_declared_ref above.
-        track_ref = (
-            registry_get(f"{_PUBLISH_MIRRORS_PREFIX}{key}{_PUBLISH_MIRROR_TRACK_REF_SUFFIX}")
-            or _resolve_remote_default_branch(repo_root)
-            or _DEFAULT_PUBLISH_TRACK_REF
-        )
-        if track_ref == _DEFAULT_PUBLISH_TRACK_REF:
+        candidate_branch, _engine_mirror = _publish_expected_branch(key, repo_root, None)
+        if candidate_branch == _expected_local_branch(_DEFAULT_PUBLISH_TRACK_REF):
             return  # this mirror tracks main itself -- no candidate channel to diverge
-        candidate_branch = _expected_local_branch(track_ref)
 
         commits_ahead = _git_rev_list_count(repo_root, f"origin/main..{candidate_branch}")
         if commits_ahead is None:
@@ -10944,7 +10966,9 @@ def process_target(
     # and before every other write this function performs, per that helper's
     # own module comment.
     with _time_phase(timing_sink, target.name, "assert_dest_on_declared_ref"):
-        declared_ref_ok = assert_dest_on_declared_ref(target, totals, out=out)
+        declared_ref_ok = assert_dest_on_declared_ref(
+            target, totals, setup_dir=setup_dir, out=out
+        )
     if not declared_ref_ok:
         if timing_sink is not None:
             timing_sink.append((target.name, "REFUSED: dest not on declared ref", 0.0, 0.0))

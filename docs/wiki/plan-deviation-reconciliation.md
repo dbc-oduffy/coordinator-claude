@@ -71,6 +71,32 @@ the narrative record; the AC table carries only the status signal.
 
 ---
 
+## Partially-Met Acceptance Criteria — Split+Route Decomposition Norm
+
+*Source: PM ruling, replacing the struck `ac_reconciliation` payload shape (a recorded
+per-criterion "partially met" state) as too squishy — a norm, not a mechanism.*
+
+A partially-met acceptance criterion is decomposed into a met unit and an unmet unit, AND the
+unmet remainder MUST BE ROUTED — to improvement-queue, bug backlog, spinoff plan, or an explicit
+won't-do. A split with no routed remainder is the SAME EVASION as "partially met," just
+reformatted: splitting without routing is gameable in exactly the direction that looks good —
+decompose until everything achieved reads as a met criterion and everything else sits in an
+unrouted box, and the met-count always looks favorable. The obligation is routing, not merely
+splitting; state it that way or the doctrine ships only the gameable half.
+
+**Illustration (not the whole norm):** a 10k goal where 9k was run and the rest walked is not
+"partially met." It is a met 9k goal plus an unmet 1k goal (9+1), with the unmet 1k then routed
+somewhere.
+
+**Graceful degradation — the norm does not force manufactured sub-criteria.** A genuinely atomic
+criterion (e.g. "the migration is atomic") has no partial-credit shape to split into. It does not
+decompose; it stays one box, unmet, and is routed as-is. This is not an escape clause carved out
+of the norm — the norm simply does not apply where there is nothing to split. Both halves — the
+routing obligation and the atomic case — are mandatory in any application of this norm; applying
+only one ships only the gameable half.
+
+---
+
 ## `## Deviations` Section Format
 
 **(Legacy / historical only — not auto-written at `/workstream-complete`'s `plan-vs-reality-reconcile` judgment point.)** Historical archived plans may carry a `## Deviations` table from before retirement; `/distill` drops them as `[EPHEMERAL]` for backwards-compat. Do not hand-author new ones — forecast-vs-shipped reconciliation happens entirely via the `(was: <plan-forecast>)` ALLOWLIST annotations above.
