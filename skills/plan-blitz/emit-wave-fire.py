@@ -72,6 +72,25 @@ def _gate_payload(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _pack_by_plan(entries: list[dict], per: int) -> list[list[dict]]:
+    """Split a wave into fires of at most `per` batons, never across a shared `planPath`.
+
+    Batons linking one plan are one unit: in different fires they are two concurrent waves
+    authoring one file, and whichever integrator writes last wins silently. A unit is placed
+    whole — over the cap when it alone exceeds it — and wave order is otherwise kept."""
+    units: dict[object, list[dict]] = {}
+    for n, entry in enumerate(entries):
+        key = entry.get("planPath") or ("__unplanned__", n)
+        units.setdefault(key, []).append(entry)
+    fires: list[list[dict]] = []
+    for unit in units.values():
+        if fires and len(fires[-1]) + len(unit) <= per:
+            fires[-1].extend(unit)
+        else:
+            fires.append(list(unit))
+    return fires
+
+
 def _baton_arg(record: dict) -> dict:
     """One `batons[]` entry, every field derived — never defaulted, never typed.
 
@@ -142,7 +161,12 @@ def _bind(
     settings_home = os.environ.get("COORDINATOR_SETTINGS_HOME") or str(
         Path(os.environ.get("CLAUDE_HOME") or Path.home()) / ".coordinator-claude-settings"
     )
-    launcher = Path(settings_home) / "bin" / "coordinator-invoke"
+    bin_dir = Path(settings_home) / "bin"
+    # The Windows launcher is `coordinator-invoke.exe`; the bare name beside it is a POSIX script.
+    launcher = next(
+        (bin_dir / n for n in ("coordinator-invoke.exe", "coordinator-invoke") if (bin_dir / n).is_file()),
+        bin_dir / "coordinator-invoke",
+    )
     if launcher.is_file():
         cmd = [str(launcher)]
     elif engine_root is not None:
@@ -636,7 +660,15 @@ def main(argv=None) -> int:
     arming_check_cli = _default_arming_check_cli(plugin_root)
 
     per = max(1, args.batons_per_fire)
-    fires = [entries[i : i + per] for i in range(0, len(entries), per)]
+    fires = _pack_by_plan(entries, per)
+    for batch in fires:
+        if len(batch) > per:
+            print(
+                f"  WARNING: {len(batch)} batons share {batch[0]['planPath']} and are "
+                f"emitted as one fire over the {per}-baton cap — split across concurrent "
+                "fires they would be two waves authoring one plan file.",
+                file=sys.stderr,
+            )
 
     manifest = []
     for n, batch in enumerate(fires, start=1):
@@ -691,7 +723,9 @@ def main(argv=None) -> int:
                     "wave also arrives as wave 0: pass --wave-number matching this run's "
                     "own wave count, or --trail-dir a fresh directory for this wave."
                 )
-        out.write_text(text, encoding="utf-8")
+        # LF on every host: Windows newline translation writes a CR per line, and the harness
+        # refuses a Workflow script carrying control characters its approval dialog would hide.
+        out.write_text(text, encoding="utf-8", newline="\n")
         manifest.append(
             {"fire": n, "scriptPath": str(out), "batons": [b["id"] for b in batch]}
         )

@@ -113,16 +113,29 @@ def _first_disposition(chunk: str):
 
 
 def _disposition(text: str) -> tuple[str, str]:
-    """Return (state, evidence). state is FINISHED | UNFINISHED | UNREADABLE."""
-    found = _first_disposition(_frontmatter(text)) or _first_disposition(text)
+    """Return (state, evidence). state is FINISHED | UNFINISHED | UNREADABLE.
+
+    Two shapes must never read FINISHED, because RECYCLED sends the driver to stamp the baton
+    shipped: an outcome whose VALUE is itself a `completed:` declaration
+    (`**Outcome: completed: false — blocked**` — its first word is "completed"), and frontmatter
+    declaring a terminal `outcome:` beside `completed: false`. A declaration that contradicts
+    itself resolves toward UNFINISHED, the direction that re-plans rather than closes."""
+    frontmatter = _frontmatter(text)
+    found = _first_disposition(frontmatter) or _first_disposition(text)
     if found is None:
         return "UNREADABLE", "no completed: or outcome: line"
     _, kind, m = found
+    if kind == "o":
+        nested = _first_disposition(m.group(1))
+        if nested is not None and nested[1] != "o":
+            kind = nested[1]
     if kind == "t":
         return "FINISHED", "completed: true"
     if kind == "f":
         return "UNFINISHED", "completed: false"
     raw = m.group(1)
+    if _COMPLETED_FALSE.search(frontmatter):
+        return "UNFINISHED", f"completed: false beside outcome: {raw[:60]}"
     word = raw.strip().strip("`*").split()[0].rstrip(":,;(").lower()
     # Unambiguous negatives. These are not guesses: each states plainly that the work did not
     # finish, and leaving them UNREADABLE buries a clear answer under the bucket reserved for
