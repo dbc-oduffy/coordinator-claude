@@ -124,7 +124,12 @@ def _invoke(repo_root: Path, engine_root: Path | None, op: str, params: dict,
     settings_home = os.environ.get("COORDINATOR_SETTINGS_HOME") or str(
         Path(os.environ.get("CLAUDE_HOME") or Path.home()) / ".coordinator-claude-settings"
     )
-    launcher = Path(settings_home) / "bin" / "coordinator-invoke"
+    bin_dir = Path(settings_home) / "bin"
+    # The Windows launcher is `coordinator-invoke.exe`; the bare name beside it is a POSIX script.
+    launcher = next(
+        (bin_dir / n for n in ("coordinator-invoke.exe", "coordinator-invoke") if (bin_dir / n).is_file()),
+        bin_dir / "coordinator-invoke",
+    )
     if launcher.is_file():
         cmd = [str(launcher)]
     elif engine_root is not None:

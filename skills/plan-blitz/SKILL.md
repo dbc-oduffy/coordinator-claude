@@ -144,7 +144,10 @@ SHA; **never drop the baton from this wave by hand**, which leaves it to recycle
 It reads the frozen gate report, derives every per-baton field from it, splits the wave into
 fires at the cap, binds each fire's args into a standalone `.mjs` through claude-klabauter's
 `workflow.bind_args`, and prints one `Workflow({ scriptPath })` line per fire — **with no `args`
-at all**, because they are bound into the file. Fire each printed line.
+at all**, because they are bound into the file. Fire each printed line. The bound args are this
+host's absolute paths, so a fire emitted on another box is re-emitted here, never fired as found.
+Pass `--plugin-agents-available true` where `coordinator:*` agent types resolve; the default
+fires every role as a generic agent carrying only its inline contract.
 
 **A hand-typed args object is the defect this replaces, not a shortcut past it.** Everything the
 args contract can lose, it loses silently: `executionOpen` reached a live wave missing because a
@@ -320,7 +323,9 @@ declining to write something misleading; it is never a thing to route around.
   `ready: []` is an absence of judgment, not a judgment of nothing, and stamping it writes that
   absence to disk as a verdict the wave never made. Resume it instead: a Workflow run resumes from
   its own run id and replays every agent that already completed, so recovery costs only the agents
-  that died. Measured 2026-09-10 on this repo: four concurrent fires hit one account session limit
+  that died. **A run id resumes only in the session that fired it.** Once that session is gone the
+  fire is re-emitted and re-fired, and an XS its trail records as finished is closed with
+  `archive-stamp-cli ship-handoff <path> --sha <sha>` — an unfinished fire has no result to land. Measured 2026-09-10 on this repo: four concurrent fires hit one account session limit
   within minutes of each other, and all four returned `ready: []`. A driver reading the lane test
   first would have ended a 200-baton blitz on a transient limit that cleared by itself.
   Tripwire: `AN-UNFINISHED-WAVE-IS-NOT-A-WAVE-THAT-OPENED-NOTHING`.
