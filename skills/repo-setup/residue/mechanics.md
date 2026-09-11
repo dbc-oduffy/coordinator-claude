@@ -85,7 +85,7 @@ regenerated on the next write. Warn if `.claude/`
 content exists under `scratch/`/`tasks/_*.log` (offer, don't auto-`git rm --cached`), or if the
 project-rag corpus paths are already tracked (break-class finding, not a nit — ~230MB in history).
 
-**Pre-commit corpus-artifact guard**: install `coordinator/bin/pre_commit_corpus_artifact_guard.py`
+**Pre-commit corpus-artifact guard**: install `${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/pre_commit_corpus_artifact_guard.py`
 as a pre-commit hook in the same pass. It belt-and-braces the `.gitignore` stanza above — the
 stanza stops an artifact being *added*, the guard stops one already tracked or force-added from
 being *committed*, and the two fail independently. Measured 2026-09-02: the guard existed in this

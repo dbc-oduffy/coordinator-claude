@@ -35,7 +35,7 @@ The script writes `<project>/.claude/settings.json` with the UE override block. 
 
 ### 2. SessionStart hook auto-bootstrap (for `.uproject`-bearing repos) — DISABLED
 
-**Status: disabled.** Per PM directive (full-kill-keep-fast-orientation, see `hooks.json`'s `SessionStart` `_comment`), all boot-time guardrail/reminder/detector SessionStart hooks — including this one — were removed from `hooks.json`; only the orientation RAM-cache injector remains. The dead `coordinator/hooks/scripts/ue-knowledge-distrust.sh` file itself was removed. A naked-Python port, `coordinator/hooks/scripts/ue-knowledge-distrust.py`, exists (delegates to claude-klabauter `coordinator_core.hooks.ue_knowledge_distrust.run`) but is not wired into `hooks.json`. The auto-bootstrap behavior described below does not currently fire — use the manual bootstrap in step 1 instead.
+**Status: disabled.** Per PM directive (full-kill-keep-fast-orientation, see `hooks/REGISTRATIONS.md`'s SessionStart sections), all boot-time guardrail/reminder/detector SessionStart hooks — including this one — were removed from `hooks.json`; only the orientation RAM-cache injector remains. The dead `coordinator/hooks/scripts/ue-knowledge-distrust.sh` file itself was removed. A naked-Python port, `coordinator/hooks/scripts/ue-knowledge-distrust.py`, exists (delegates to claude-klabauter `coordinator_core.hooks.ue_knowledge_distrust.run`) but is not wired into `hooks.json`. The auto-bootstrap behavior described below does not currently fire — use the manual bootstrap in step 1 instead.
 
 Formerly: `ue-knowledge-distrust.sh` detected `.uproject` files and ran the bootstrap script automatically if the per-project `settings.json` was absent or lacked the UE override. The hook fired on every session start.
 

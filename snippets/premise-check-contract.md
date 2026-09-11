@@ -32,6 +32,16 @@ Lens 3 calibration over verbatim rather than re-deriving it, and Lens 3 consumes
 (same file, same symbol, shifted line number) is tolerated and is NOT a finding; a missing file or
 an absent symbol is a real finding.
 
+**AN ABSENCE IS EVIDENCE ONLY IF THE INSTRUMENT COULD HAVE SEEN PRESENCE.** `find`, `ls`,
+`test -f` and a failed Read answer the worktree of this box. Before recording an absence the plan
+rests on, name what would have made the thing visible and check THAT: a sparse cone hides tracked
+paths (`git ls-files`), a blobless clone hides contents (`git show HEAD:<path>`), `.gitignore`
+hides build output whose build target is tracked (`git check-ignore -v`, then find the build), and
+a registry on another machine hides a whole repo (say UNDECIDABLE-HERE and name the host). Record
+the command you actually ran. Re-running the author's `find` endorses the author's blind spot:
+two parties running one wrong instrument agree with each other. Tripwire:
+`AN-ABSENCE-IS-EVIDENCE-ONLY-IF-THE-INSTRUMENT-COULD-HAVE-SEEN-PRESENCE`.
+
 **Class 3 — refs (mechanical, new).** A cited branch, commit or tag is checked with
 `git branch -r` / `git rev-parse --verify`. A peer-repo ref MUST be cited `<repo>@<ref>` — a bare
 "verified against HEAD" cannot distinguish `main` from someone's unmerged branch, and the failure

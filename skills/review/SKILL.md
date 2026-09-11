@@ -110,7 +110,7 @@ Finding classification/disposition below is a lookup a program can compute from 
 **Integrating a finding into a plan body invalidates its mise-prep stamp.** `mise_prepped_sha` is
 `canonical_body_sha` of the plan BODY, so an integrator's edit makes any existing
 `mise_prepped_*` attest STALE — not absent. Say STALE and route to a re-gate
-(`python coordinator/bin/mise-prep-gate.py <plan>`), never to a re-stamp: re-stamping records a
+(`python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/mise-prep-gate.py" <plan>`), never to a re-stamp: re-stamping records a
 pass the bar was never re-run for. Never read `mise_prepped_by` for presence; the predicate is a
 recomputed sha, at every caller. Tripwire:
 `A-PRESENT-MISE-PREPPED-STAMP-IS-NOT-A-CERTIFICATION`; four states, four repairs:

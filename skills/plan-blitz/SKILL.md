@@ -122,6 +122,8 @@ empty wave produces — so the wave fires with step 2a skipped and nothing says 
 `AN-ENVELOPE-FROZEN-AS-A-GATE-REPORT-READS-AS-AN-EMPTY-WAVE`. Redirect stderr separately: the
 engine writes a `[warm-settings]` line there, and `2>&1` folds it into the JSON.
 
+**The readers tolerate either shape anyway** — `recycle-check.py` and `emit-wave-fire.py` both unwrap an envelope — but freeze the documented shape rather than relying on that: a consumer written later will not.
+
 **2a. Check the wave for finished work.** One pure read, before any agent is dispatched:
 
     python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-blitz/recycle-check.py" --repo-root <repo> \
@@ -134,11 +136,48 @@ SHA; **never drop the baton from this wave by hand**, which leaves it to recycle
 `back` entries are `completed: false` or `blocked-on-preflight` and are correctly here. Tripwire:
 `A-FINISHED-BATON-THE-LANDING-NEVER-STAMPED-COMES-BACK-AS-A-CANDIDATE`.
 
-**3. Fire the wave.** Batons come from `waves[0]`, **at most 8 per fire** (§ batching above).
-A wave larger than 8 is drained by several fires at the same `waveIndex`, sharing one trail
-directory. That is supported: the wave-scoped sidecar is keyed by the fire's own baton set, so
-fires do not overwrite each other's size review. Do not renumber the wave to separate them —
-`waveIndex` is what the gate computed, not a fire counter.
+**3. Fire the wave. Emit it; never hand-write the args.**
+
+    python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-blitz/emit-wave-fire.py" \
+        --repo-root <abs> --trail-dir <abs> --wave-index N
+
+It reads the frozen gate report, derives every per-baton field from it, splits the wave into
+fires at the cap, binds each fire's args into a standalone `.mjs` through claude-klabauter's
+`workflow.bind_args`, and prints one `Workflow({ scriptPath })` line per fire — **with no `args`
+at all**, because they are bound into the file. Fire each printed line.
+
+**A hand-typed args object is the defect this replaces, not a shortcut past it.** Everything the
+args contract can lose, it loses silently: `executionOpen` reached a live wave missing because a
+caller copied an example that omitted it, and the wave then dispatched no XS, closed none at the
+landing, and reported them under `routedElsewhere`. A derived field cannot be omitted. An emitted
+script is also on disk, so it archives with the trail and the fire can be re-read, re-fired and
+diffed — an args object inside a tool call is none of those. Tripwire:
+`A-HAND-TYPED-WAVE-ARG-IS-AN-UNARCHIVED-FIRE`.
+
+**Pass `--wave-number` with the run's own wave count.** `roadmap.plan_gate` numbers `waves` from
+the READ, so every wave arrives as `waves[0]`: `--wave-index` selects which wave of the frozen
+report to fire and stays 0, while `--wave-number` names the bound `waveIndex`, the fire filename
+and the trail slot. Omit it on a one-wave run. Never hand-edit the frozen report to renumber.
+
+Batons come from `waves[N]`, **at most 8 per fire** (§ batching above). A wave larger than 8 is
+drained by several fires at the same `waveIndex`, sharing one trail directory. That is supported:
+the wave-scoped sidecar is keyed by the fire's own baton set, so fires do not overwrite each
+other's size review. The emitter does that split; do not renumber the wave to separate them —
+`waveIndex` is what the gate computed, not a fire counter. **`--exclude <baton-id>` narrows what
+is FIRED and never what the gate computed** — its case is a wave already part-fired, where
+re-emitting a live baton would run two waves against one plan.
+
+**Every fire writes its records into its OWN leaf of that trail**,
+`<trailDir>/wave-<index>-<fireId>/`, returned as `trailSlotDir`. So neither a second fire of one
+wave nor a LATER wave re-planning a baton this one already planned overwrites what is on disk —
+search the trail RECURSIVELY, and read a second slot holding the same baton as that baton's record
+from a DIFFERENT fire rather than a duplicate to reconcile. **Order slots by INTEGER wave index,
+never lexically** — `wave-10-…` sorts before `wave-2-…` as text, so a ten-wave run's oldest record
+reads as its newest; `recycle-check.py :: _slot_order` is that ordering, do not re-derive it.
+
+The args contract itself lives at the top of `workflows/plan-blitz.mjs` and stays the source of
+truth for what the emitter produces. Read it to understand a field; do not assemble it by hand
+to fire one.
 
 **Fires may run CONCURRENTLY, and the driver owns disjointness — the gate cannot.** Concurrency is
 what makes a 200-baton wave finish, since a fire costs ~50 minutes of wall clock whatever its size.
@@ -164,32 +203,22 @@ one immediately re-runs the wave that just judged it, against an escalation nobo
 between. Fire it again when its pull reason is addressed, not because the gate still lists it.
 Tripwire: `A-GATE-READ-DOES-NOT-KNOW-A-FIRE-IS-RUNNING`.
 
-    Workflow({ scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/plan-blitz.mjs",
-               args: { repoRoot: "<abs>", waveIndex: N, trailDir: "<abs>",
-                       gateReportPath: "<abs>", pluginAgentsAvailable: <true|false>,
-                       dispositionsCli: "<abs invocation>",
-                       provisionSidecarCli: "<abs invocation>", batons: [...] } })
+**`dispositionsCli` and `provisionSidecarCli` are resolved caller-side, and `emit-wave-fire.py`
+does it** — launcher first, then the `--engine-root` checkout's own `coordinator/bin/`, with the
+interpreter and any env the registry manifest needs made part of the injected literal. Pass
+`--dispositions-cli` / `--provision-sidecar-cli` only to OVERRIDE that, never as the ordinary path.
+Omit them on a box with no install and a reviewer invents its own sidecar path: the review runs,
+the disposition record is lost, and nothing reports it. **A resolved `provision-sidecar` whose
+findings path carries no `subagent-share` segment is a REFUSAL too** — the disposition op rejects
+every target without it, so the wave reviews and records nothing. Tripwire:
+`A-SIDECAR-THE-DISPOSITION-OP-REFUSES-LOSES-ONLY-THE-RECORD`.
 
-**`dispositionsCli` is yours to resolve.** `append-integrator-dispositions` is an ENGINE CLI and
-does get a settings-home launcher — but only on a box that ran the installer, and a wave fires
-on boxes that did not. There a bareword exits 127, the integrator reports the op ABSENT, and the
-wave records no dispositions. The dispatching side has a filesystem and the workflow does not, so
-it resolves the invocation once and injects it literally (rung 3 of
-`snippets/resolve-coordinator-bin.md`) rather than betting the wave on an install it cannot see.
-Tripwire: `A-SIDECAR-THE-DISPOSITION-OP-REFUSES-LOSES-ONLY-THE-RECORD`.
-
-**`provisionSidecarCli` is yours to resolve for the same reason.** Reviewer briefs name
-`<machinery_root>/subagent-share/<session>/` as the sidecar directory, and a reviewer cannot
-resolve `<machinery_root>` from inside its own dispatch — so it invents one, plausibly and wrong.
-`provision-sidecar` is the sanctioned resolver and its own help names this vehicle ("a Workflow
-script's `agent()` call"); inject it the same way. Omit it and sidecars land where the disposition
-op refuses them and nothing else looks — a review that ran, whose record is lost silently.
-
-**All three clauses of the sidecar contract are checked, and each fails quietly.** The provisioned
-PATH, the `agent_type` FRONTMATTER, and a `## Findings` HEADING in the body. Numbered headings
-alone (`## F1 — …`) satisfy a human reader and none of the parser's two shapes; the op refuses the
-whole sidecar with `target matches neither supported shape`, the review still ran, and only the
-disposition record is gone.
+**A box with no install is Rung N, not a broken resolution.** Every launcher rung fails
+command-not-found and reads as "this CLI does not exist"; the engine source is on disk regardless,
+so pass `--engine-root`. Where the only checkout carrying `workflow.bind_args` is claude-klabauter's
+unstamped authoring tree, add `--live-engine-tree` — it takes the engine's live-tree path for the
+BIND CALL alone, and refuses a root that carries a build stamp. Tripwire:
+`A-PUBLISHED-MIRROR-OLDER-THAN-AN-OP-REFUSES-AS-A-MISSING-ENGINE`.
 
 **Every baton carries `executionOpen`, read off that baton's own `execution_gate.open` in the
 gate report.** It is not optional and it has no default: an XS is dispatchable only when its
@@ -197,7 +226,9 @@ EXECUTION gate is open, so a baton missing the field fails that test, dispatches
 never closed at the landing — it comes back as a candidate in every later wave. The wave reports
 it under `routedElsewhere` either way, which is why the omission is silent. The full per-baton
 shape is the args contract at the top of `workflows/plan-blitz.mjs`; build the array from the
-frozen gate report, never by hand.
+frozen gate report, never by hand — `emit-wave-fire.py` derives it, and refuses rather than
+defaults a baton row carrying no `execution_gate.open`, because a field whose wrong value costs a
+whole wave silently cannot have a default.
 
 Resolve `${CLAUDE_PLUGIN_ROOT}` — do not pass a repo-relative path. The plugin root differs by
 tree: under the DoE source repo it is the `coordinator/` subdirectory, and in an installed or
@@ -209,7 +240,19 @@ Then wait. **Do not read the trail to decide anything** — reading it to follow
 costs nothing, but the wave needs no input between fire and return. A driver that intervenes
 mid-wave is overriding a judgment the `blitz-em` was dispatched to make.
 
-**4. Commit the wave's XS work, then land it — one op, not a checklist.**
+**4. Commit the wave's XS work, then land it — one call over every fire of the wave.**
+
+    python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-blitz/land-wave.py" \
+        --repo-root <abs> [--shipped-in <sha>] <fire-result.json> ...
+
+One file per fire — the harness's task-output file the workflow's completion named, or
+the bare result pulled out of it; both are read. It lands each fire through
+`roadmap.blitz_land`, **sums the three lanes across every fire**, and states the stop
+condition from that sum. It refuses before landing anything if the fires disagree about
+`waveIndex`, or if any fire dispatched XS and no `--shipped-in` was given.
+
+Read § the op below for what the landing DOES — the helper orders the calls and does the
+arithmetic; it decides nothing, fires nothing, and re-queues nothing.
 
 **Commit before landing whenever the wave dispatched any XS.** `close_dispatched` stamps the
 baton `shipped` with a `shipped_in` SHA, and this op does not commit — a stamp written first
@@ -267,6 +310,20 @@ declining to write something misleading; it is never a thing to route around.
   this `waveIndex` before concluding anything. Same wave, same day: one fire of five landed
   `approved: 0`, `closed: 0`, `execution_ready: 0` — genuinely nothing — while the wave around it
   had opened 9. Stopping on that fire would have ended the run at its most productive point.
+  **And the test only applies to a wave that FINISHED.** A fire killed part-way — a rate limit, a
+  crashed host, a cancelled run — returns the identical zero-lane signature, because a wave that
+  never reached its readiness gate has nothing to report in any lane. That is not "it opened
+  nothing"; it is "it never ran", and the two want opposite responses: stop versus resume. Check
+  completion BEFORE reading the lanes. The tells are in the result and its diagnostics, not in the
+  counts: agents that errored, and every `converged` row reading
+  `skipped: "no integration report to resolve over"`. **Never land an unfinished fire** — its
+  `ready: []` is an absence of judgment, not a judgment of nothing, and stamping it writes that
+  absence to disk as a verdict the wave never made. Resume it instead: a Workflow run resumes from
+  its own run id and replays every agent that already completed, so recovery costs only the agents
+  that died. Measured 2026-09-10 on this repo: four concurrent fires hit one account session limit
+  within minutes of each other, and all four returned `ready: []`. A driver reading the lane test
+  first would have ended a 200-baton blitz on a transient limit that cleared by itself.
+  Tripwire: `AN-UNFINISHED-WAVE-IS-NOT-A-WAVE-THAT-OPENED-NOTHING`.
 - `refused[]` is non-empty — report and stop; a landing that could not complete must not be
   built on.
 - `surfacedToPm` is non-empty — those need a PM answer. Carry them out; **never re-queue one.**
@@ -357,10 +414,18 @@ to re-disposition:
 { batonId, planPath, reviews: [ <pointer record>, ... ], unresolvedPointers: [ ... ] }
 ```
 
-**Where the records come from.** A wave writes each reviewer's findings to
-`<machinery_root>/subagent-share/<session id>/`, and leaves in the trail only a pointer record
-naming it: `{ sidecarPath, verdict, premiseFailure }`. Resolve each pointer in the target plan's
-trail directory, then partition: a record whose `sidecarPath` still exists on disk goes in
+**Where the records come from.** A wave has each reviewer provision its findings sidecar through
+the `provisionSidecarCli` its caller resolved, and leaves in the trail only a pointer record naming
+it:
+`{ sidecarPath, verdict, premiseFailure }`. Resolve each pointer under the target plan's
+trail directory — RECURSIVELY, and from the latest WAVE slot only. Pointers sit in the per-fire
+slot of the wave that wrote them; a `repair-<fireId>/` slot holds an integration report and NO
+pointers, because a repair re-emits none — read one as your pointer source and you hand `reviews:
+[]` to a baton whose reviews are on disk one directory over, and it refuses. A baton planned in
+more than one wave has one set per wave slot, so take the latest wave slot's rather than merging
+them. **Latest is by INTEGER wave index, never lexical** — `wave-10-…` sorts before `wave-2-…` as
+text; a flat record at the run root predates every slot; `recycle-check.py :: _slot_order` is the
+ordering, do not re-derive it. Then partition: a record whose `sidecarPath` still exists on disk goes in
 `reviews`; one whose target is gone goes in `unresolvedPointers` as `{ pointerPath, error }`.
 
 **Refusals, all loud, none silent.** Repair refuses the whole baton — it never disposition a

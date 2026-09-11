@@ -33,9 +33,12 @@ what `plan-blitz`'s anti-scope permits. *"It reports; it never refuses. Refusal 
 THE TWO LEGS, and why neither is transcribed here:
 
   SEAM 1  `coordinator_core.roadmap.plan_gate :: assemble_plan_gate` -> `batons[]`, filtered to
-          `plan.status == "approved"`. The engine already computes this gate; re-deriving approval
-          from plan frontmatter would be a second answer to a settled question, which is the
-          defect `plan-blitz`'s own "never hand-derive either" rule names.
+          the FIREABLE set: `plan.status == "approved"` (the M/L exit) OR the baton's
+          `execution_authorized` (the S exit, whose plan stays at `draft` by design). Both arms,
+          because plan-blitz has two exits — `constituents` reads "approved" nowhere in its own
+          count. The engine already computes this gate; re-deriving either arm from plan
+          frontmatter would be a second answer to a settled question, which is the defect
+          `plan-blitz`'s own "never hand-derive either" rule names.
   SEAM 2  `coordinator/skills/pickup/aggregate-rollup.py :: certification_state` -> the four-state
           attest read over each plan's own bytes. Imported, never re-transcribed: the recomputed
           body sha already exists twice (there, and in the engine), and a third copy is how one of
@@ -65,8 +68,11 @@ Negative-spec:
   - Does NOT re-run a plan's `census[]` commands. That is the fire-time census leg and it is the
     RUNNER's, ordered strictly after the sha leg — which is the whole reason the command is
     recorded rather than the answer alone.
-  - Does NOT run the authoring bar. The bar is the step BEFORE stamping and its verdict is not an
-    entry need; the repair line names the bar's own resolved path and stops there.
+  - Does NOT run the authoring bar, and does not stamp. Neither verdict is an entry need. The
+    repair line NAMES both — the writer (`plan.stamp_prepped`, which re-runs the bar itself) and
+    the bar's own resolved path as the diagnostic for its refusal — and stops at naming them.
+    Naming a command is not running it; a repair naming only the read half promised a write no
+    printed command performed.
   - Does NOT re-derive the claimed / `in_flight` exclusion. `assemble_plan_gate` applies it; a
     second exclusion vocabulary here would be a second answer to a settled question. Note that the
     exclusion is inherited and NOT tuned for certification — see § A LIMIT WORTH NAMING.
@@ -84,7 +90,7 @@ report to every baton the engine resolved, at the cost of the race the filter ex
 Zero subprocess, stdlib plus PyYAML plus two pure readers already in the tree.
 
 Exit status is a verdict, not a diagnostic, because the caller of this read is a gate, and because
-the partial case must be impossible to mistake for the complete one: 0 when every approved plan
+the partial case must be impossible to mistake for the complete one: 0 when every fireable plan
 certifies with nothing withheld (FIRE), 1 when at least one certifies and something is excluded or
 withheld (PARTIAL-FIRE), 2 when nothing certifies (NO-FIRE), 3 on a usage or precondition failure.
 1 is not an error — it is the honest code for a partial hand-over, and a caller treating 0 as
@@ -122,9 +128,27 @@ APPROVED = "approved"
 #: One repair per non-certified state, keyed by the state's own name. The four repairs differ, and
 #: a report that said "not certified" for all four would send three of the four authors to the
 #: wrong one.
+#:
+#: TWO OF THE THREE NAME A WRITER, BECAUSE TWO OF THE THREE NEED ONE. The authoring bar
+#: (`{gate}`) WRITES NOTHING — its own docstring says so in as many words — so a repair whose
+#: only command is the bar promises a stamp no printed command can perform, and the reader's next
+#: call is a search. That is the cost this table exists to remove.
+#:
+#: `plan.stamp_prepped` is the ONE writer of the four-field attest and it re-runs the bar inside
+#: its own lock, refusing what the bar fails — so it IS "gate and stamp", in one op, and the bar
+#: below it is the DIAGNOSTIC for a refusal rather than a step before it. Naming the op by its
+#: wire name and not a path is deliberate: its invocation shape is the host's
+#: (`snippets/resolve-coordinator-bin.md`), which this read cannot resolve for a reader whose
+#: shell it never sees, and a plausible dead path is the failure mode the tests below pin.
 _REPAIR = {
-    "UNSTAMPED": "gate and stamp: {gate}",
-    "STALE": "body moved after the stamp — re-gate, then re-stamp: {gate}",
+    "UNSTAMPED": (
+        "stamp it — the `plan.stamp_prepped` op gates and stamps in one call and refuses a plan "
+        "the bar fails; on a refusal, the per-class detail is {gate}"
+    ),
+    "STALE": (
+        "body moved after the stamp — re-stamp with `plan.stamp_prepped`, which re-gates the NEW "
+        "bytes; on a refusal, the per-class detail is {gate}"
+    ),
     "MALFORMED": "hand-written stamp — repair the four mise_prepped_* fields in {target}",
 }
 
@@ -325,10 +349,33 @@ def report_message(report: dict, repo_root: Optional[Path] = None) -> str:
 
     Every non-certified plan carries its OWN repair, because the four states route four different
     ways and a single "not certified" line is the wrong noun for three of them."""
-    lines = [
+    # The headline names what makes the verdict PARTIAL, not just the certification count.
+    # `30 of 30 fireable plan(s) certify` beside `PARTIAL-FIRE` reads as a contradiction and
+    # gets reported as a bug in the roll-up: a plan that certifies can still be holding rows
+    # behind an external gate, and withheld rows alone are enough to make the fire partial.
+    # Naming the two causes separately is what tells the reader which one is in play.
+    #
+    # FIREABLE, not "approved". The set is both of plan-blitz's exits — `status: approved` for
+    # M/L, and the baton's `execution_authorized` for S, whose plan stays at `draft` by design.
+    # Calling the count "approved" invites the reader to check it against
+    # `grep -c '^status: approved' docs/plans/` and conclude the report is inflated, when the
+    # two are measuring different sets: measured 2026-09-10 on project-rag-ue-addon, 45 fireable
+    # against 20 at `status: approved` on disk.
+    headline = (
         f"mise-prep entry: {report['verdict']} — "
-        f"{len(report['fires'])} of {len(report['constituents'])} approved plan(s) certify"
-    ]
+        f"{len(report['fires'])} of {len(report['constituents'])} fireable plan(s) certify"
+    )
+    if report["verdict"] == PARTIAL_FIRE:
+        causes = []
+        if report["uncertified"]:
+            causes.append(f"{len(report['uncertified'])} excluded")
+        if report["withheld_rows"]:
+            causes.append(
+                f"{len(report['withheld_rows'])} certifying plan(s) hold rows behind a gate"
+            )
+        if causes:
+            headline += f"; partial because {', '.join(causes)}"
+    lines = [headline]
     if report["fires"]:
         for row in report["fires"]:
             lines.append(f"  fires    {row['plan']}  ({row['workstream']})")
@@ -356,7 +403,7 @@ def emit_block(report: dict) -> str:
     three required keys, since it shipped, and exists zero times on disk.
 
     `[]` is written explicitly for an empty `uncertified`/`withheld_rows` — and, per the same rule,
-    for an empty `constituents` (zero approved plans is a reachable state, e.g. no baton anywhere
+    for an empty `constituents` (zero fireable plans is a reachable state, e.g. no baton anywhere
     is at `plan.status == approved`). A declared-empty asserts that nothing was excluded; an absent
     key asserts nothing at all, and an optional exclusion list is how a quiet drop happens."""
     out = ["aggregate_execution:"]

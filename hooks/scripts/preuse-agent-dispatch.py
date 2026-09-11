@@ -19,7 +19,7 @@ guards concatenate every firing advisory) and from `preuse-write-dispatch.py`
 (the Write/Edit/MultiEdit guards may each independently advise). The four
 Agent-matcher guards were ALREADY ordered in `hooks.json` on the documented
 precedent of "first-deny-wins in registration order" (see each guard's own
-`hooks.json` `_comment`: block-dispatch-suite-invocation.py "Registered first
+`hooks/REGISTRATIONS.md` section: block-dispatch-suite-invocation.py "Registered first
 in this matcher's hook list so its deny is not shadowed"; block-unenumerated-
 agent-type.py "Registered at index 4 -- after the DR-088 suite guard ... and
 ahead of every advisory Agent entry that follows, so this hard deny is never

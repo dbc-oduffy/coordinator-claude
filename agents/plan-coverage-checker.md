@@ -160,6 +160,16 @@ Lens 3 calibration over verbatim rather than re-deriving it, and Lens 3 consumes
 (same file, same symbol, shifted line number) is tolerated and is NOT a finding; a missing file or
 an absent symbol is a real finding.
 
+**AN ABSENCE IS EVIDENCE ONLY IF THE INSTRUMENT COULD HAVE SEEN PRESENCE.** `find`, `ls`,
+`test -f` and a failed Read answer the worktree of this box. Before recording an absence the plan
+rests on, name what would have made the thing visible and check THAT: a sparse cone hides tracked
+paths (`git ls-files`), a blobless clone hides contents (`git show HEAD:<path>`), `.gitignore`
+hides build output whose build target is tracked (`git check-ignore -v`, then find the build), and
+a registry on another machine hides a whole repo (say UNDECIDABLE-HERE and name the host). Record
+the command you actually ran. Re-running the author's `find` endorses the author's blind spot:
+two parties running one wrong instrument agree with each other. Tripwire:
+`AN-ABSENCE-IS-EVIDENCE-ONLY-IF-THE-INSTRUMENT-COULD-HAVE-SEEN-PRESENCE`.
+
 **Class 3 — refs (mechanical, new).** A cited branch, commit or tag is checked with
 `git branch -r` / `git rev-parse --verify`. A peer-repo ref MUST be cited `<repo>@<ref>` — a bare
 "verified against HEAD" cannot distinguish `main` from someone's unmerged branch, and the failure
@@ -236,7 +246,7 @@ A plan citing a hook must be checked for whether it is **registered**, not merel
 
 **Step 1.** Extract every `hooks/scripts/*.py` path cited (body prose, task-spine rows, frontmatter). None → silent.
 
-**Step 2.** Read `coordinator/hooks/hooks.json` — no literal `registered` key; registration lives in `x-effective-delivery.carriers.*.guards[].script` (cross-check `hooks.*[].hooks[].args` too, carrying the full `${CLAUDE_PLUGIN_ROOT}/hooks/...` paths for directly-registered scripts). **Both storage shapes drop the `hooks/` prefix a plan citation carries** — normalize a plan's `hooks/scripts/*.py` (or `hooks/write_guards/*.py`) citation by stripping the leading `hooks/` segment before comparing.
+**Step 2.** Read `coordinator/hooks/hooks.json` — no literal `registered` key; registration lives in `coordinator/hooks/effective-delivery.json`'s `x-effective-delivery.carriers.*.guards[].script` (cross-check `hooks.*[].hooks[].args` too, carrying the full `${CLAUDE_PLUGIN_ROOT}/hooks/...` paths for directly-registered scripts). **Both storage shapes drop the `hooks/` prefix a plan citation carries** — normalize a plan's `hooks/scripts/*.py` (or `hooks/write_guards/*.py`) citation by stripping the leading `hooks/` segment before comparing.
 
 Present after normalization → no finding. Absent → **Unregistered-hook finding**: quote the citation verbatim, note the script's on-disk existence, and cite `coordinator/tests/baselines/hook-registration-roster.json` — if the script appears there under `deregistered`, quote that entry's reason; otherwise note "not found in the roster's `deregistered` list either."
 

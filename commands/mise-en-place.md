@@ -45,7 +45,7 @@ is the drop this shape exists to stop. Contract: wiki.
 only; an item with no plan has nothing to certify and is not refused for it. One revalidation
 step, two ordered legs: recompute the plan body sha against `mise_prepped_sha` (pure, spawn-free);
 only if that passes, re-run each `census[].command` and diff against `result`. Fire on CERTIFIED
-alone. STALE → re-gate (`python coordinator/bin/mise-prep-gate.py <plan>`), then re-stamp;
+alone. STALE → re-gate (`python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/mise-prep-gate.py" <plan>`), then re-stamp;
 UNSTAMPED → gate and stamp; MALFORMED → a hand-written stamp, repair the frontmatter; census
 drift → the premise moved, re-plan. **Name the state** — "not certified" sends an author to the
 wrong repair. A handoff can assert executability; it cannot assert a sha. States, recipe and the
@@ -89,7 +89,7 @@ Backlog/plan-sourced items: Haiku agent per item, `still-open` vs `already-fixed
 
 **Falsifier integrity**, same phase, plan-sourced items whose frontmatter carries
 `prime_exit_criterion.falsifier`: one `falsifier-integrity-reviewer` dispatch each. Run
-`python coordinator/bin/instrument-can-report-red.py --json` over the instrument first and pass
+`python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/instrument-can-report-red.py" --json` over the instrument first and pass
 the on-disk JSON path as the brief's `can_report_red_report` — a brief field, never an instruction
 to go compute it. Verdict `SOUND` | `BROKEN` | `UNREVIEWABLE`, naming the tell; it reports and
 never refuses. `BROKEN` routes the item out of the wave with the tell named — the existing
@@ -151,7 +151,7 @@ is not a shape a Workflow cannot express. Verifiers ride inside the Workflow —
 `run-report`.
 
 Don't hand-author the script — mint and emit:
-`python coordinator/bin/emit-dispatch-workflow.py --inventory state/mise-inventory/<run-id>.md`
+`python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/emit-dispatch-workflow.py" --inventory state/mise-inventory/<run-id>.md`
 writes the spine (item-id → chunk-id, footprint → `writes`) plus the `.mjs`; fire it with
 `Workflow({scriptPath: ...})`. It refuses on an unrecognized disposition or a footprint naming no
 backticked path — fix the record, don't work around it. Both artifacts archive with the record.

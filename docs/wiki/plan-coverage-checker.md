@@ -129,7 +129,7 @@ named carve-out per `workflow-orchestration.md` § What qualifies as a carve-out
 ### Lens 5 — Hook registration liveness
 
 Checks each cited `hooks/scripts/*.py` path against `hooks.json`'s registered set (there is no
-literal `registered` key — it's `x-effective-delivery.carriers.*.guards[].script`, plus the
+literal `registered` key — it's `effective-delivery.json`'s `x-effective-delivery.carriers.*.guards[].script`, plus the
 top-level `hooks.*[].hooks[].args` for directly-registered scripts), not disk presence alone.
 Both storage shapes drop the plan-citation's leading `hooks/` segment, so the checker normalizes
 before comparing. Absent → finding, citing `hook-registration-roster.json`'s `deregistered`

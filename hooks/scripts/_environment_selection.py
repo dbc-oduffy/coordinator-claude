@@ -107,9 +107,10 @@ MARKER_END = "<!-- coordinator:environment-story:end -->"
 
 #: Filenames under the resolved settings-home (see `_resolve_settings_home`
 #: below) an operator populates to select a story for this box. Not
-#: committed into the repo -- `coordinator/templates/environment-registry.
-#: example` is the template an operator copies and edits; see that file's
-#: own header comment for the format and the real path.
+#: committed into the repo --
+#: `coordinator/templates/environment-registry.example` is the template an
+#: operator copies and edits; see that file's own header comment for the
+#: format and the real path.
 _REGISTRY_FILENAME = "environment-registry"
 _SENTINEL_FILENAME = "environment-sentinel"
 

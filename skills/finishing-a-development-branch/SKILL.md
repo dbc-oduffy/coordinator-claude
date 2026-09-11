@@ -80,7 +80,7 @@ Push the feature branch and create a PR, but do NOT merge. Use this when:
 - CI needs to pass but you're not ready to merge yet
 - You want to come back to this later
 
-Push the feature branch (`git push -u origin <feature-branch>`), then create the PR with `gh pr create`, giving it a title and a body with `## Summary` (2-3 bullets of what changed) and `## Test Plan` (verification steps as a checklist) sections.
+Push the feature branch (`git push -u origin <feature-branch>`), then create the PR with `gh pr create`. `gh pr create --body` bypasses GitHub's own template fill, so compose the body yourself from the repo's `.github/pull_request_template.md`: read it, fill every section, drop `## Demo path` when nothing is user-visible, and don't leave its guidance comments in. Where the repo has no copy, use the plugin's `templates/github-pull-request-template.md`.
 
 #### Option 3: Keep the branch as-is
 

@@ -289,7 +289,7 @@ HOLDER_NAME = "doe-http-hook-forwarder"
 #: HTTP header the `type: "http"` registration carries `${COORDINATOR_CLONE_ROOT}` on, per
 #: `DR-http-hook-forwarder-fixed-port.md` Decision 1's routing key. The DR names the env var but
 #: leaves the on-the-wire header name unstated (the registration flip is itself deferred --
-#: `coordinator/hooks/hooks.json`'s own `_comment` on the folded Bash entry -- so no header has
+#: `coordinator/hooks/REGISTRATIONS.md`'s note on the folded Bash entry -- so no header has
 #: been exercised end-to-end yet). Chosen here as a single module constant so the registration
 #: chunk cites this name rather than inventing its own: `X-Coordinator-Clone-Root`.
 ROUTING_HEADER_NAME = "X-Coordinator-Clone-Root"

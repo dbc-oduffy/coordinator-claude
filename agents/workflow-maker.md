@@ -35,8 +35,8 @@ judgment about the work itself.
 The whole authoring surface is:
 
 ```
-python coordinator/bin/emit-dispatch-workflow.py --plan <plan-path> [--out <script>] [--fire]
-python coordinator/bin/emit-dispatch-workflow.py --restamp <script>
+python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/emit-dispatch-workflow.py" --plan <plan-path> [--out <script>] [--fire]
+python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/emit-dispatch-workflow.py" --restamp <script>
 ```
 
 - Without `--fire` the script is written and **nothing runs it**. Emit first, read the wave map,

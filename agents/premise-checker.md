@@ -42,7 +42,7 @@ changes if it does not resolve.
 3. **Refs.** Does each cited branch, tag or commit exist? One `git branch -r` / `git rev-parse
    --verify <ref>` per plan, batched — not one per citation.
 4. **Falsifier arming.** Can the plan's own falsifier report red? Run
-   `coordinator/bin/instrument-can-report-red.py <instrument> --json` and carry its verdict
+   `python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/instrument-can-report-red.py" <instrument> --json` and carry its verdict
    verbatim. Do not restate its predicate in your own words and do not write a second check: it is
    one surface with several readers, and a paraphrase is a second thing to keep true. Its
    `UNCHECKABLE` is not a pass.

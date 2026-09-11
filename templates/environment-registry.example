@@ -1,0 +1,49 @@
+# <coordinator-settings-home>/environment-registry  (NOT committed -- per-machine)
+#
+# Spec backlink: docs/plans/2026-09-07-compose-the-environment-story-and-select.md
+# (chunk C3). Read by `_environment_story.resolve_environment_story` via
+# `coordinator/hooks/scripts/_environment_selection.py::default_registry_path`.
+#
+# THIS FILE IS AN EXAMPLE, NOT A LIVE REGISTRY. It ships in the repo so an
+# operator has a format to copy; it is never read by the resolver from this
+# path and carries no real environment ids. Do not add a real box's
+# environment id here and commit it -- this template's job ends the moment
+# you copy it.
+#
+# WHAT AN OPERATOR SETS: one line per environment id this box (or a fleet
+# of boxes sharing one image) might report, naming which composed story
+# that id resolves to. An id with no line here resolves to `strictest` --
+# see `_environment_story.py`'s six failure modes, of which "unknown
+# environment id" is one; that is not an error state, it is the safe
+# default for anything not explicitly named.
+#
+# WHERE THE REAL ONE LIVES: copy this file to
+#   ${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/environment-registry
+# (the exact path `_environment_selection.default_registry_path()` resolves
+# to). It is gitignored there, like every other machine-local settings-home
+# artifact -- this is per-machine or per-image configuration, never a
+# tracked value shared across the fleet.
+#
+# FORMAT: flat `<environment_id>: <story_name>` lines, one per environment
+# id. `#` starts a comment (whole-line only); blank lines are ignored. The
+# first matching line for a given id wins if an id is duplicated -- see
+# `_environment_story._read_registry_entry`'s own docstring for why that is
+# deliberate rather than an accident to fix. `<story_name>` must be a name
+# admitted via `_environment_story.register_story` (currently `strictest`,
+# admitted unconditionally, and `ephemeral-cloud-vm`, composed in
+# `_environment_stories.py`) -- naming anything else resolves to
+# `STRICTEST_STORY` exactly like an absent line would, per failure mode 5
+# ("unknown environment id") in `_environment_story.py`'s module docstring.
+#
+# Example entries -- an ephemeral cloud VM image bakes its own id in at
+# provisioning time (matching whatever `default_sentinel_path()` reads on
+# that image) and this registry maps that id to the composed story:
+
+# my-cloud-vm-image-2026-09: ephemeral-cloud-vm
+
+# A workstation box needs no line at all: an id with no entry here (or no
+# sentinel file to produce an id in the first place) resolves to
+# `strictest`, and that is a positive claim this plan makes deliberately --
+# see docs/plans/2026-09-07-compose-the-environment-story-and-select.md
+# § "The composed set, and the argument for each member" for why there is
+# no `workstation` story to name here.

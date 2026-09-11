@@ -21,9 +21,14 @@ wave is fired, naming the batons whose prior execution record says the work fini
 it never refuses, and it never writes — the repair is a landing, and a landing is the caller's act.
 
 THE ID-TO-FILENAME MAPPING IS BORROWED, NOT INVENTED. `workflows/plan-blitz.mjs :: sidecarFor`
-renders a sidecar as `<trailDir>/<slug(batonId)>.<slug(role)>.md`, and that slug collapses every
-run of non-alphanumerics to a single `-`. Baton ids routinely contain `--` (a replan of a replan)
-and `_` (a dated stub id), so `hnd-retire-the-11-self-satisfying--7d1f72` is on disk as
+renders a sidecar as `<trailDir>/<waveSlot>/<slug(batonId)>.<slug(role)>.md` — one leaf directory
+per FIRE, because a baton re-planned in a later wave fires against the same trail and a name
+carrying only the baton overwrote what the earlier wave recorded. The FILENAME is unchanged by
+that, which is why this reader still matches on `<slug(batonId)>.execution.md`; only the depth
+moved, so the scan below recurses and a trail written flat before the slot existed still reads.
+That slug collapses every run of non-alphanumerics to a
+single `-`. Baton ids routinely contain `--` (a replan of a replan) and `_` (a dated stub id), so
+`hnd-retire-the-11-self-satisfying--7d1f72` is on disk as
 `hnd-retire-the-11-self-satisfying-7d1f72`: an id-keyed reader that does not apply the same slug
 finds nothing and reports CLEAN. Measured on the same corpus: 7 of 64 candidate ids are
 slug-lossy, and 0 collide — the 6-hex suffix is what keeps the mapping injective in practice, not
@@ -129,6 +134,21 @@ def _disposition(text: str) -> tuple[str, str]:
     return "UNREADABLE", f"outcome: {raw[:60]}"
 
 
+def _slot_order(run_dir: Path, rec: Path):
+    """Chronological order of two records of one baton WITHIN one run. `sidecarFor` writes each
+    fire's records into `<run>/wave-<index>-<fireId>/`, so a baton planned in wave 0 and re-planned
+    in wave 2 has two records in one run, and LATEST RECORD WINS has to order them. Lexical order
+    does not: `wave-10-…` sorts before `wave-2-…`, which would report a ten-wave run's oldest
+    verdict as current. A record flat at the run root predates the slot and is earliest; a
+    `repair-…` slot carries no wave index and is written after the waves it re-dispositions."""
+    parts = rec.relative_to(run_dir).parts
+    slot = parts[0] if len(parts) > 1 else ""
+    if not slot:
+        return (0, 0, "")
+    m = re.match(r"wave-(\d+)-", slot)
+    return (1, int(m.group(1)), slot) if m else (2, 0, slot)
+
+
 def scan(repo_root: Path, baton_ids, trail_root: str, exclude_run: str | None, live=None):
     root = repo_root / trail_root
     if not root.is_dir():
@@ -142,12 +162,14 @@ def scan(repo_root: Path, baton_ids, trail_root: str, exclude_run: str | None, l
     # current -- measured 2026-09-10, where a `completed: true` from one wave had been overtaken
     # by a next-wave verification finding the work INCOMPLETE (its test had never been run), and
     # a tool reading the older record called a live baton recycling. Run directories are
-    # timestamp-named, so lexical order is chronological order.
+    # timestamp-named, so lexical order is chronological order between runs; WITHIN one run the
+    # records sit in per-fire slot directories and `_slot_order` puts those in wave order, because
+    # a re-plan of one baton in a later wave of the SAME run is now a second record too.
     latest: dict = {}
     for run_dir in sorted(p for p in root.iterdir() if p.is_dir()):
         if exclude_run and run_dir.name == exclude_run:
             continue
-        for rec in sorted(run_dir.glob("*.execution.md")):
+        for rec in sorted(run_dir.rglob("*.execution.md"), key=lambda r: _slot_order(run_dir, r)):
             stem = rec.name[: -len(".execution.md")]
             for bid in by_slug.get(stem, ()):
                 prior = latest.get(bid)

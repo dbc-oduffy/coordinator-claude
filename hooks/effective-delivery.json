@@ -1,0 +1,1412 @@
+{
+  "x-effective-delivery": {
+    "version": 1,
+    "generated_from_sha": "6be6a7ead164925562810432acddbe90c4270352",
+    "generated_at": "2026-09-11T09:39:13Z",
+    "generated_from_dirty_tree": true,
+    "engine_source_sha": "d4cd91272b0e5db36c122f58f120a48ebe19d32e",
+    "engine_source_dirty_tree": false,
+    "engine_source_resolution": "resolved-engine/published-target",
+    "carriers": {
+      "scripts/preuse-write-dispatch.py": {
+        "script": "scripts/preuse-write-dispatch.py",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "guards": [
+          {
+            "id": "guard_python_syntax_on_write",
+            "script": "scripts/guard-python-syntax-on-write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "guard_oss_payload_locality",
+            "script": "scripts/guard-oss-payload-locality.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "nudge_plan_test_surface_tier",
+            "script": "scripts/nudge-plan-test-surface-tier.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "guard_prompt_surface_citations",
+            "script": "scripts/guard-prompt-surface-citations.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "guard_doctrine_changelog_prose",
+            "script": "scripts/guard-doctrine-changelog-prose.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "claude_md_admission_gate",
+            "script": "scripts/check-claude-md-size.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "guard_test_tree_git_fixture_spawn",
+            "script": "scripts/guard-test-tree-git-fixture-spawn.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "guard_doctrine_surface_ratio",
+            "script": "scripts/guard-doctrine-surface-ratio.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "guard_posix_invocation_doctrine_write",
+            "script": "scripts/guard-posix-invocation-doctrine-write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "guard_handoff_summary_cap_on_write",
+            "script": "scripts/guard-handoff-summary-cap-on-write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_completion_monolith_write",
+            "script": "write_guards/block_completion_monolith_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_confined_agent_write",
+            "script": "write_guards/block_confined_agent_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_consumed_handoff_edit",
+            "script": "write_guards/block_consumed_handoff_edit.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_cutover_phase_hand_edit",
+            "script": "write_guards/block_cutover_phase_hand_edit.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "block_derived_global_doctrine_write",
+            "script": "write_guards/block_derived_global_doctrine_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_dev_repo_sentinel_write",
+            "script": "write_guards/block_dev_repo_sentinel_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_dev_side_mirror_wiki",
+            "script": "write_guards/block_dev_side_mirror_wiki.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_disarm_marker_sentinel_write",
+            "script": "write_guards/block_disarm_marker_sentinel_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_duplicate_decision_record_id",
+            "script": "write_guards/block_duplicate_decision_record_id.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "block_em_hand_edit_pending_review_integration",
+            "script": "write_guards/block_em_hand_edit_pending_review_integration.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_fleet_delegation_write",
+            "script": "write_guards/block_fleet_delegation_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_foreign_family_sidecar_write",
+            "script": "write_guards/block_foreign_family_sidecar_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_goals_log_hand_write",
+            "script": "write_guards/block_goals_log_hand_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_hand_authored_sidecar_creation",
+            "script": "write_guards/block_hand_authored_sidecar_creation.py",
+            "tool_names": [
+              "Write"
+            ]
+          },
+          {
+            "id": "block_home_dir_memo_delivery",
+            "script": "write_guards/block_home_dir_memo_delivery.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_illegal_filename",
+            "script": "write_guards/block_illegal_filename.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_memo_status_hand_edit",
+            "script": "write_guards/block_memo_status_hand_edit.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "block_oss_mirror_memo_delivery",
+            "script": "write_guards/block_oss_mirror_memo_delivery.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_priority_ledger_edit",
+            "script": "write_guards/block_priority_ledger_edit.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_subagent_archive_write",
+            "script": "write_guards/block_subagent_archive_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_subagent_grant_record_write",
+            "script": "write_guards/block_subagent_grant_record_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_subagent_guard_grant_write",
+            "script": "write_guards/block_subagent_guard_grant_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_subagent_plan_body_write",
+            "script": "write_guards/block_subagent_plan_body_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_unauthorized_claude_md_write",
+            "script": "write_guards/block_unauthorized_claude_md_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_worktree_sentinel_write",
+            "script": "write_guards/block_worktree_sentinel_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "bump_out_of_repo_tool_write",
+            "script": "write_guards/bump_out_of_repo_tool_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "check_claude_md_size",
+            "script": "write_guards/check_claude_md_size.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "guard_concrete_path_citations",
+            "script": "write_guards/guard_concrete_path_citations.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "guard_doctrine_surface_edits",
+            "script": "write_guards/guard_doctrine_surface_edits.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "guard_memory_store_cap",
+            "script": "write_guards/guard_memory_store_cap.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "guard_settings_json_write",
+            "script": "write_guards/guard_settings_json_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "nudge_baton_body_bar",
+            "script": "write_guards/nudge_baton_body_bar.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge_em_code_dispatch",
+            "script": "write_guards/nudge_em_code_dispatch.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge_handoff_ac_shape",
+            "script": "write_guards/nudge_handoff_ac_shape.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge_improvement_queue_write",
+            "script": "write_guards/nudge_improvement_queue_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge_new_sh_file_naked_python",
+            "script": "write_guards/nudge_new_sh_file_naked_python.py",
+            "tool_names": [
+              "Write"
+            ]
+          },
+          {
+            "id": "nudge_outbox_draft_frontmatter_shape",
+            "script": "write_guards/nudge_outbox_draft_frontmatter_shape.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge_peer_notice_unread",
+            "script": "write_guards/nudge_peer_notice_unread.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "nudge_plan_sidecar_family_split",
+            "script": "write_guards/nudge_plan_sidecar_family_split.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "nudge_private_git_fact_resolver",
+            "script": "write_guards/nudge_private_git_fact_resolver.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge_prose_queue_append",
+            "script": "write_guards/nudge_prose_queue_append.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge_prose_queue_creation",
+            "script": "write_guards/nudge_prose_queue_creation.py",
+            "tool_names": [
+              "Write"
+            ]
+          },
+          {
+            "id": "nudge_sentinel_retained_review_sidecar",
+            "script": "write_guards/nudge_sentinel_retained_review_sidecar.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "nudge_session_display_name_as_identifier",
+            "script": "write_guards/nudge_session_display_name_as_identifier.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge_shell_shaped_spawn",
+            "script": "write_guards/nudge_shell_shaped_spawn.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge_tasks_state_folder_split",
+            "script": "write_guards/nudge_tasks_state_folder_split.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "nudge_terminal_artifact_edit",
+            "script": "write_guards/nudge_terminal_artifact_edit.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "nudge_unmarked_spawning_test",
+            "script": "write_guards/nudge_unmarked_spawning_test.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge_windows_subprocess_popup",
+            "script": "write_guards/nudge_windows_subprocess_popup.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "validate_frontmatter_schema_advisory",
+            "script": "write_guards/validate_frontmatter_schema_advisory.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "validate_frontmatter_schema_deny",
+            "script": "write_guards/validate_frontmatter_schema_deny.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          }
+        ]
+      },
+      "scripts/postuse-stop-family-dispatch.py": {
+        "script": "scripts/postuse-stop-family-dispatch.py",
+        "matcher": "Write|Edit|MultiEdit",
+        "guards": [
+          {
+            "id": "derive-global-doctrine-live-copy.py",
+            "script": "scripts/derive-global-doctrine-live-copy.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "derive-setup-copies.py",
+            "script": "scripts/derive-setup-copies.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge-initiative-goals-ladder.py",
+            "script": "scripts/nudge-initiative-goals-ladder.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge-new-file-zero-budget-ratchets.py",
+            "script": "scripts/nudge-new-file-zero-budget-ratchets.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          }
+        ]
+      },
+      "http:http://127.0.0.1:47623/hook": {
+        "script": "http:http://127.0.0.1:47623/hook",
+        "matcher": "Bash|PowerShell",
+        "guards": [
+          {
+            "id": "no-verify",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "destructive-git-orphan",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "destructive-rm",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "destructive-git-clean",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "destructive-git-revert",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "blanket-git-add",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "runaway-find",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "block-worktree-creation",
+            "script": "bash_guards/block_worktree_creation.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-approval-sentinel-creation",
+            "script": "bash_guards/block_approval_sentinel_creation.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-worktree-sentinel-creation",
+            "script": "bash_guards/block_worktree_sentinel_creation.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-fleet-delegation-creation",
+            "script": "bash_guards/block_fleet_delegation_creation.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-disarm-marker-sentinel-creation",
+            "script": "bash_guards/block_disarm_marker_sentinel_creation.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-stash-destruction",
+            "script": "bash_guards/block_stash_destruction.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-subagent-stash-creation",
+            "script": "bash_guards/block_subagent_stash_creation.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-reviewer-bash-outside-allowlist",
+            "script": "bash_guards/block_reviewer_bash_outside_allowlist.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-subagent-destructive-action",
+            "script": "bash_guards/block_subagent_destructive_action.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-subagent-commit",
+            "script": "bash_guards/block_subagent_commit.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "guard-host-subagent-bash-ban",
+            "script": "bash_guards/guard_host_subagent_bash_ban.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "guard-host-subagent-bash-spawn-shapes",
+            "script": "bash_guards/guard_host_subagent_bash_spawn_shapes.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "check-test-suite-invocation",
+            "script": "bash_guards/check_test_suite_invocation.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-subagent-grant-acquisition",
+            "script": "bash_guards/block_subagent_grant_acquisition.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-subagent-guard-grant",
+            "script": "bash_guards/block_subagent_guard_grant.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "guard-repo-setup-claude-home-refusal",
+            "script": "bash_guards/guard_repo_setup_claude_home_refusal.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "guard-doctrine-surface-bash-write",
+            "script": "bash_guards/guard_doctrine_surface_bash_write.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "destructive-git-revert-advisory",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-dev-repo-sentinel-removal-advisory",
+            "script": "bash_guards/block_dev_repo_sentinel_removal.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "stash-apply-verification-advisory",
+            "script": "bash_guards/block_stash_destruction.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "bump-foreign-repo-write",
+            "script": "bash_guards/bump_foreign_repo_write.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "bump-outside-repo-write",
+            "script": "bash_guards/bump_outside_repo_write.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "offer-git-c",
+            "script": "bash_guards/guard_offer_git_c.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "reap-stale-git-lock",
+            "script": "bash_guards/guard_reap_stale_git_lock.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "git-no-optional-locks",
+            "script": "bash_guards/guard_no_optional_locks.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "validate-commit",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "inprocess-search",
+            "script": "bash_guards/guard_inprocess_search.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "probe-spray",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-illegal-filename",
+            "script": "bash_guards/block_illegal_filename.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "find-exec-rewrite",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "grep-via-bash-rewrite",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "sed-range-read-advise",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "cat-heredoc-write-advise",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "heredoc-repo-write-advise",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "git-commit-safe-commit-advise",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "multiprobe-banner-rewrite",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "head-tail-plumbing-rewrite",
+            "script": "bash_guards/_dialect.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "offer-invoke-params-stdin",
+            "script": "bash_guards/guard_offer_invoke_params_stdin.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "grep-via-bash-guard",
+            "script": "bash_guards/guard_grep_via_bash.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "powershell-via-bash-guard",
+            "script": "bash_guards/guard_powershell_via_bash.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "branch-set-precedence",
+            "script": "bash_guards/guard_branch_set_precedence.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "longlived-branch-naming",
+            "script": "bash_guards/guard_longlived_branch_naming.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-noncanonical-branch-creation",
+            "script": "bash_guards/block_noncanonical_branch_creation.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-subagent-plan-body-bash-write",
+            "script": "bash_guards/block_subagent_plan_body_bash_write.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "check-raw-pid-liveness",
+            "script": "bash_guards/check_raw_pid_liveness.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "multiprobe-banner",
+            "script": "bash_guards/guard_multiprobe_banner.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "plumbing-and-loops",
+            "script": "bash_guards/guard_plumbing_and_loops.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          }
+        ]
+      },
+      "scripts/postuse-advisory-dispatch.py": {
+        "script": "scripts/postuse-advisory-dispatch.py",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Agent|Workflow",
+        "guards": [],
+        "ops": [
+          "hooks.postuse_advisory_dispatch",
+          "hooks.track_touched_files"
+        ]
+      },
+      "scripts/sessionstart-dispatch.py": {
+        "script": "scripts/sessionstart-dispatch.py",
+        "matcher": "startup|resume|clear|compact|fork",
+        "guards": [
+          {
+            "id": "project_orientation",
+            "script": "scripts/project-orientation.py",
+            "tool_names": []
+          },
+          {
+            "id": "guard_settings_integrity",
+            "script": "scripts/guard-settings-integrity.py",
+            "tool_names": []
+          },
+          {
+            "id": "guard_foreign_platform_paths",
+            "script": "scripts/guard-foreign-platform-paths.py",
+            "tool_names": []
+          },
+          {
+            "id": "session_start_write_bump_anchor",
+            "script": "scripts/session-start-write-bump-anchor.py",
+            "tool_names": []
+          },
+          {
+            "id": "bin_drift_refresh",
+            "script": "scripts/sessionstart-bin-drift-refresh.py",
+            "tool_names": []
+          },
+          {
+            "id": "day_branch_assert",
+            "script": "scripts/day-branch-assert.py",
+            "tool_names": []
+          },
+          {
+            "id": "job_mode_announce",
+            "script": "scripts/session-start-announce-job-mode.py",
+            "tool_names": []
+          },
+          {
+            "id": "guard_hook_generation_self_probe",
+            "script": "scripts/guard-hook-generation-self-probe.py",
+            "tool_names": []
+          }
+        ]
+      },
+      "scripts/sessionstart-async-dispatch.py": {
+        "script": "scripts/sessionstart-async-dispatch.py",
+        "matcher": "startup|resume|clear|compact|fork",
+        "guards": [
+          {
+            "id": "session_start_register_doe_claude_root",
+            "script": "scripts/session-start-register-doe-claude-root.py",
+            "tool_names": []
+          },
+          {
+            "id": "session_start_repair_prepare_commit_msg_hook",
+            "script": "scripts/session-start-repair-prepare-commit-msg-hook.py",
+            "tool_names": []
+          },
+          {
+            "id": "session_start_register_published_engine",
+            "script": "scripts/session-start-register-published-engine.py",
+            "tool_names": []
+          },
+          {
+            "id": "sessionstart_ensure_http_forwarder",
+            "script": "scripts/sessionstart-ensure-http-forwarder.py",
+            "tool_names": []
+          }
+        ]
+      },
+      "scripts/stop-dispatch.py": {
+        "script": "scripts/stop-dispatch.py",
+        "matcher": "",
+        "guards": [
+          {
+            "id": "runtime_tripwire_em_check",
+            "script": "scripts/runtime-tripwire-em-check.py",
+            "tool_names": []
+          },
+          {
+            "id": "nudge_harness_directive_dispatch",
+            "script": "scripts/nudge-harness-directive-dispatch.py",
+            "tool_names": []
+          },
+          {
+            "id": "nudge_unrouted_sizing",
+            "script": "scripts/nudge-unrouted-sizing.py",
+            "tool_names": []
+          },
+          {
+            "id": "watchdog_undischarged_next_move",
+            "script": "scripts/watchdog-undischarged-next-move.py",
+            "tool_names": []
+          },
+          {
+            "id": "guard_manufactured_blocker",
+            "script": "scripts/guard-manufactured-blocker.py",
+            "tool_names": []
+          },
+          {
+            "id": "stop_em_report_altitude",
+            "script": "scripts/stop-em-report-altitude.py",
+            "tool_names": []
+          },
+          {
+            "id": "guard_kira_verdict_routed",
+            "script": "scripts/guard-kira-verdict-routed.py",
+            "tool_names": []
+          },
+          {
+            "id": "receiver_state_sensor",
+            "script": "scripts/receiver-state-sensor.py",
+            "tool_names": []
+          },
+          {
+            "id": "group_em_park_spool",
+            "script": "scripts/group-em-park-spool.py",
+            "tool_names": []
+          }
+        ]
+      },
+      "scripts/preuse-agent-dispatch.py": {
+        "script": "scripts/preuse-agent-dispatch.py",
+        "matcher": "Agent",
+        "guards": [
+          {
+            "id": "block_dispatch_suite_invocation",
+            "script": "scripts/block-dispatch-suite-invocation.py",
+            "tool_names": []
+          },
+          {
+            "id": "block_unenumerated_agent_type",
+            "script": "scripts/block-unenumerated-agent-type.py",
+            "tool_names": []
+          },
+          {
+            "id": "guard_review_integrator_sidecar_intake",
+            "script": "scripts/guard-review-integrator-sidecar-intake.py",
+            "tool_names": []
+          },
+          {
+            "id": "enforce_agent_dispatch_mode",
+            "script": "scripts/enforce-agent-dispatch-mode.py",
+            "tool_names": []
+          }
+        ]
+      }
+    },
+    "direct": [
+      {
+        "id": "assert-em-role.py",
+        "script": "scripts/assert-em-role.py",
+        "tool_names": [
+          "clear",
+          "compact",
+          "fork",
+          "resume",
+          "startup"
+        ]
+      },
+      {
+        "id": "block-dispatch-suite-invocation.py",
+        "script": "scripts/block-dispatch-suite-invocation.py",
+        "tool_names": [
+          "Workflow"
+        ]
+      },
+      {
+        "id": "block-workflow-foreign-emission.py",
+        "script": "scripts/block-workflow-foreign-emission.py",
+        "tool_names": [
+          "Workflow"
+        ]
+      },
+      {
+        "id": "block-workflow-unmodeled-agent.py",
+        "script": "scripts/block-workflow-unmodeled-agent.py",
+        "tool_names": [
+          "Workflow"
+        ]
+      },
+      {
+        "id": "block-worktree-tool.py",
+        "script": "scripts/block-worktree-tool.py",
+        "tool_names": [
+          "EnterWorktree",
+          "ExitWorktree"
+        ]
+      },
+      {
+        "id": "context-pressure-precompact.py",
+        "script": "scripts/context-pressure-precompact.py",
+        "tool_names": []
+      },
+      {
+        "id": "group-em-autofire.py",
+        "script": "scripts/group-em-autofire.py",
+        "tool_names": []
+      },
+      {
+        "id": "handoff-segment-inject.py",
+        "script": "scripts/handoff-segment-inject.py",
+        "tool_names": []
+      },
+      {
+        "id": "mise-autofire.py",
+        "script": "scripts/mise-autofire.py",
+        "tool_names": []
+      },
+      {
+        "id": "nudge-autonomous-askuserquestion.py",
+        "script": "scripts/nudge-autonomous-askuserquestion.py",
+        "tool_names": [
+          "AskUserQuestion"
+        ]
+      },
+      {
+        "id": "nudge-workflow-authoring-trampoline.py",
+        "script": "scripts/nudge-workflow-authoring-trampoline.py",
+        "tool_names": [
+          "Skill",
+          "Workflow"
+        ]
+      },
+      {
+        "id": "pickup-autofire.py",
+        "script": "scripts/pickup-autofire.py",
+        "tool_names": []
+      },
+      {
+        "id": "plan-persistence-check.py",
+        "script": "scripts/plan-persistence-check.py",
+        "tool_names": [
+          "ExitPlanMode"
+        ]
+      },
+      {
+        "id": "postuse-agent-dispatch.py",
+        "script": "scripts/postuse-agent-dispatch.py",
+        "tool_names": [
+          "Agent"
+        ]
+      },
+      {
+        "id": "runtime-tripwire-em-check.py",
+        "script": "scripts/runtime-tripwire-em-check.py",
+        "tool_names": [
+          "Agent"
+        ]
+      },
+      {
+        "id": "session-start-watch-presence.py",
+        "script": "scripts/session-start-watch-presence.py",
+        "tool_names": [
+          "clear",
+          "compact",
+          "fork",
+          "resume",
+          "startup"
+        ]
+      },
+      {
+        "id": "sessionend-archive-session.py",
+        "script": "scripts/sessionend-archive-session.py",
+        "tool_names": []
+      },
+      {
+        "id": "strip-worktree-isolation.py",
+        "script": "scripts/strip-worktree-isolation.py",
+        "tool_names": [
+          "Workflow"
+        ]
+      },
+      {
+        "id": "subagent-zero-tool-use-detect.py",
+        "script": "scripts/subagent-zero-tool-use-detect.py",
+        "tool_names": []
+      },
+      {
+        "id": "sweep-boot.py",
+        "script": "scripts/sweep-boot.py",
+        "tool_names": [
+          "compact",
+          "startup"
+        ]
+      },
+      {
+        "id": "track-dispatched-agents.py",
+        "script": "scripts/track-dispatched-agents.py",
+        "tool_names": []
+      },
+      {
+        "id": "watchdog-undischarged-next-move.py",
+        "script": "scripts/watchdog-undischarged-next-move.py",
+        "tool_names": [
+          "Agent",
+          "Skill",
+          "Workflow"
+        ]
+      }
+    ],
+    "retired": [
+      {
+        "id": "nudge-foreground-agent-dispatch.py",
+        "script": "scripts/nudge-foreground-agent-dispatch.py",
+        "reason": "Deregistered from hooks.json; folded into a pure-Python port inside enforce-agent-dispatch-mode.py that makes no engine-plane call at all."
+      },
+      {
+        "id": "runtime-tripwire-stop-watcher.py",
+        "script": "scripts/runtime-tripwire-stop-watcher.py",
+        "reason": "Stood down 2026-07-31 per PM ruling; reversible, comment-only mention remains in hooks.json."
+      },
+      {
+        "id": "guard-named-dispatch-tool-restriction.py",
+        "script": "scripts/guard-named-dispatch-tool-restriction.py",
+        "reason": "Deregistered from hooks.json; folded into a pure-Python port inside enforce-agent-dispatch-mode.py."
+      },
+      {
+        "id": "track-touched-files.py",
+        "script": "scripts/track-touched-files.py",
+        "reason": "Standalone Write|Edit|MultiEdit|NotebookEdit registration folded into postuse-advisory-dispatch.py's hooks.track_touched_files call; fully absent from hooks.json."
+      },
+      {
+        "id": "nudge-unauthorized-handoff.py",
+        "script": "scripts/nudge-unauthorized-handoff.py",
+        "reason": "Its standalone PostToolUse(Write) registration was folded into postuse-advisory-dispatch.py's direct nudge_unauthorized_handoff.advisory_text() call; fully absent from current hooks.json."
+      },
+      {
+        "id": "sessionend-auto-commit.py",
+        "script": "scripts/sessionend-auto-commit.py",
+        "reason": "SessionEnd registration retired 2026-08-27 per PM ruling: commits are EM-initiated. See cross-repo/inbox/2026-08-27-claude-klabauter-em-retire-sessionend-auto-commit.md. Script kept, unregistered."
+      }
+    ]
+  }
+}

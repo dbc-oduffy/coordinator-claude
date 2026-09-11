@@ -16,16 +16,19 @@
 # is-session-live, and DoE calls this CLI only for claim-plan and
 # release-artifact. Do NOT read the exit-code contract below as a foreign
 # contract needing cross-repo coordination to change. It still needs to be
-# right: who-claims-path shares these arms and is named as an operator
-# inspection instrument in coordinator_core/ops/ceremony/scoped_git_commit.py's
-# refusal remedy (_CLAIM_CONFLICT_REMEDY, a human-facing string) — grep does
-# not support any automated in-repo stdout consumer of this CLI as of
-# 2026-08-10 (Review: staff-eng slice-A). scoped_git_commit.py's own commit
-# gate decides via direct `coordinator_core.session.claim_index` /
-# `coordinator_core.session.liveness` module imports, never by invoking this
-# CLI or parsing its stdout. Claude-klabauter owns liveness FACTS only; it does NOT
-# decide chain-terminal disposition (see coordinator_core/session/
-# stale_claims.py's module docstring BOUNDARY note).
+# right: who-claims-path shares these arms and was named as an operator
+# inspection instrument in `ops/ceremony/scoped_git_commit.py`'s refusal
+# remedy (`_CLAIM_CONFLICT_REMEDY`, a human-facing string). That module, its
+# `_check_claim_conflicts` gate, and `_CLAIM_CONFLICT_REMEDY` were all deleted
+# `40ff424f5` (2026-08-13, PM ruling: path-touch claims are advisory, not
+# hard-denying); its advisory successor `_warn_recent_edits` was itself
+# deleted `e96b7601` (2026-08-19, latency). Nothing on the commit path gates
+# on path-touch claims today, and no live successor symbol names this CLI as
+# its inspection instrument. grep does not support any automated in-repo
+# stdout consumer of this CLI as of 2026-08-10 (Review: staff-eng slice-A).
+# claude-klabauter owns liveness FACTS only; it does NOT decide chain-terminal
+# disposition (see coordinator_core/session/stale_claims.py's module
+# docstring BOUNDARY note).
 #
 # Subcommands (argv[1] selects; remaining argv forwarded to the mapped
 # coordinator_core.session function):
@@ -110,21 +113,22 @@
 #     subcommands legitimately disagree and neither is wrong. This is the
 #     ONLY instrument exposing claim_index.lookup() -- previously it had
 #     exactly one consumer in the whole repo (scoped_git_commit.py's commit
-#     gate) and no CLI, so an EM hit by that gate's refusal had no way to
-#     ask "who touched this path, and are they live?" without reading
-#     touched.txt files by hand.
+#     gate, since deleted `40ff424f5`, 2026-08-13) and no CLI, so an EM hit
+#     by that gate's refusal had no way to ask "who touched this path, and
+#     are they live?" without reading touched.txt files by hand.
 #     stdout: one line per claimant, TAB-delimited "<sid>\t<live|dead>\t<name>".
 #     The third column (C2, docs/plans/2026-09-01-the-claim-record-carries-
 #     the-name.md) is PROVENANCE, not an address ready for SendMessage --
 #     see _render_claimant_name's docstring for the three-rung resolution
 #     ladder (recorded name on the claim -> live harness_registry.lookup(sid)
 #     -> an explicit unnamed marker) and why rendering it as reachable would
-#     repeat the exact fail-open shape a stale sid already produces. Exists
-#     because this CLI is the human-facing inspection instrument
-#     scoped_git_commit.py's own commit-conflict refusal names
+#     repeat the exact fail-open shape a stale sid already produces. Existed
+#     because this CLI was the human-facing inspection instrument
+#     scoped_git_commit.py's own commit-conflict refusal named
 #     (_CLAIM_CONFLICT_REMEDY) -- a blocked EM sent here by that refusal was,
 #     before this column, handed the identical unresolvable sid the refusal
-#     already gave them.
+#     already gave them. That gate and remedy string are deleted (`40ff424f5`,
+#     2026-08-13); nothing on the commit path names this CLI today.
 #     exit 0   -> enumeration completed (0 or more claimant lines printed);
 #                 no claimant is empty output + exit 0, same "empty ==
 #                 success" convention as list-claims-by-session.

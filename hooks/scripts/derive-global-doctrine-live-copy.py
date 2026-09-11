@@ -74,7 +74,7 @@ guard (path did not match, repo root undiscoverable, not the dev repo, live
 already in sync) fails open/silent by design, per this hook's own no-op
 contract above.
 
-Portability: macOS + Windows. No subprocess/`cp` -- `shutil.copyfile` only.
+Portability: macOS + Windows + Linux. No subprocess/`cp` -- `shutil.copyfile` only.
 Repo root is resolved from `Path(__file__)` upward (parents[3]: scripts ->
 hooks -> coordinator -> repo root), never from cwd or a hardcoded path.
 
