@@ -70,7 +70,7 @@ the engine op lands, the caller's own answer to `p1.repo-classification-ask`) na
 Install steps are mechanical and lane-independent — see `residue/mechanics.md` § Optional tripwire
 installs — mechanical half. Whether an offer fires at all is a value the firing lane's
 `terminal_offer_defaults[]` already carries (`tw.windows-console-offer`, `tw.ci-offer`); this skill
-does not decide it inline.
+does not decide it inline. A Perforce workspace registers per `contract/p4-provider-fragment.md` § Registration.
 
 ## Notes
 

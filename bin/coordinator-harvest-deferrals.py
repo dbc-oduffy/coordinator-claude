@@ -97,7 +97,14 @@ continues) — never a hard failure. This mirrors the plan-tasks contract's
 defensive parse-or-skip posture; the coverage-checker (not this script) is the
 enforcement surface that flags malformed rows.
 
-Idempotency: keyed on (plan_id, row id). The plan's frontmatter `plan_id` field
+Idempotency: keyed on (plan_id, row id), and a plan carrying no `plan_id` keys
+on its filename stem instead (`_path_harvest_id`) rather than skipping — the
+skip made a lost harvest read like a plan with nothing to defer. Note that
+`plan_tasks_mutate._dispatch_backlogged`, which reuses this module's key and
+dedup scan for a single row, still ABORTS on a missing `plan_id`: it is handed
+the plan's text but not its path, so it has no stem to key on. That refusal is
+loud and writes nothing, which is the acceptable half of the same choice.
+The plan's frontmatter `plan_id` field
 (read from the YAML frontmatter block at the top of the plan markdown file) is
 combined with the row's `id` to form a stable dedup key, e.g.
 "harvest-key: pln-full-coverage-planning-posture-bca96f:D1". This key is
@@ -826,6 +833,30 @@ def _select_harvest_candidates(
 # ---------------------------------------------------------------------------
 
 
+def _path_harvest_id(plan_path: Path) -> str | None:
+    """The idempotency id for a plan whose frontmatter carries no `plan_id`.
+
+    A blitz-minted S-lane spec never carries one, so before this fallback the
+    harvest of every such plan returned 0 after a warning — indistinguishable,
+    in the "Queued N deferred items" line a close-out reader carries, from a
+    plan that had nothing to defer. A deferral that is never queued and leaves
+    no trace is lost work (project-rag-ue-addon F20).
+
+    The plan's filename stem is the key that is actually available: unique
+    within a plans directory, stable for the life of the file, and colon-free
+    by the same naming convention `_harvest_key` relies on. It is prefixed
+    `plan-path-` so a reader can never mistake one for a minted `plan_id`.
+
+    Negative spec: NOT a substitute for `plan_id`. A plan harvested on this
+    fallback and later given a real `plan_id` keys differently on a re-run, so
+    its already-harvested rows would not dedup — `_already_harvested` is told
+    about both keys for exactly that case (see `_harvest`'s `legacy_key`).
+    Renaming a plan file has the same effect and has no such mitigation.
+    """
+    stem = plan_path.stem.strip()
+    return f"plan-path-{stem}" if stem else None
+
+
 def _harvest_key(plan_id: str, row_id: str) -> str:
     """Stable dedup key embedded in the written entry's `evidence` field.
 
@@ -1094,6 +1125,38 @@ def _derive_proposed_action(body: str, title: str, surface: str) -> str:
     return str(surface)
 
 
+def _body_argv(body: object) -> tuple[list[str], "str | None"]:
+    """Return the body's argv pair for a write CLI, plus any temp file to unlink.
+
+    `--body` is single-line ONLY: coordinator-queue-append and
+    coordinator-lesson-promote both refuse a newline outright ("--body contains
+    a newline; pass --body-file instead"). A harvested row's body is prose and
+    routinely multi-line, so the single-arg form failed every such row.
+    `rstrip("\n")` was never enough: it clears the trailing newline and leaves
+    every interior one. A multi-line body is spilled to a temp file and passed
+    as `--body-file`; the caller unlinks the returned path once the child exits.
+    """
+    body_text = str(body).rstrip("\n")
+    if "\n" not in body_text:
+        return ["--body", body_text], None
+    handle = tempfile.NamedTemporaryFile(
+        "w", suffix=".txt", delete=False, encoding="utf-8", newline="\n"
+    )
+    with handle:
+        handle.write(body_text)
+    return ["--body-file", handle.name], handle.name
+
+
+def _unlink_body_file(body_file: "str | None") -> None:
+    # The child has read it by the time run() returns on either path,
+    # including the timeout one -- run() has already killed the child.
+    if body_file:
+        try:
+            os.unlink(body_file)
+        except OSError:
+            pass
+
+
 def _run_queue_append(row: dict, key: str, dry_run: bool) -> bool:
     """Route one row to coordinator-queue-append --schema improvement-queue.
 
@@ -1127,14 +1190,14 @@ def _run_queue_append(row: dict, key: str, dry_run: bool) -> bool:
         )
         return False
 
+    body_args, body_file = _body_argv(body)
     cmd = [
         *prefix,
         "--schema",
         "improvement-queue",
         "--title",
         str(row["title"]),
-        "--body",
-        str(body).rstrip("\n"),
+        *body_args,
         "--surface",
         str(row["surface"]),
         "--proposed-action",
@@ -1172,6 +1235,8 @@ def _run_queue_append(row: dict, key: str, dry_run: bool) -> bool:
             file=sys.stderr,
         )
         return False
+    finally:
+        _unlink_body_file(body_file)
     if result.returncode != 0:
         print(
             f"error: coordinator-harvest-deferrals: coordinator-queue-append failed for "
@@ -1205,27 +1270,12 @@ def _run_lesson_promote(row: dict, key: str, dry_run: bool) -> bool:
         )
         return False
 
-    # `--body` is single-line ONLY: coordinator-lesson-promote refuses a newline
-    # outright ("--body contains a newline; pass --body-file instead"). A harvested
-    # row's body is prose and routinely multi-line, so the single-arg form failed
-    # every such row -- the doctrine-edit harvest path could not write at all.
-    # `rstrip("\n")` was never enough: it clears the trailing newline and leaves
-    # every interior one.
-    body_text = str(body).rstrip("\n")
-    body_file: "str | None" = None
-    if "\n" in body_text:
-        handle = tempfile.NamedTemporaryFile(
-            "w", suffix=".txt", delete=False, encoding="utf-8", newline="\n"
-        )
-        with handle:
-            handle.write(body_text)
-        body_file = handle.name
-
+    body_args, body_file = _body_argv(body)
     cmd = [
         *prefix,
         "--title",
         str(row["title"]),
-        *(["--body-file", body_file] if body_file else ["--body", body_text]),
+        *body_args,
         "--change-kind",
         str(row["change_kind"]),
         "--target-wiki",
@@ -1251,13 +1301,7 @@ def _run_lesson_promote(row: dict, key: str, dry_run: bool) -> bool:
         )
         return False
     finally:
-        if body_file:
-            # The child has read it by the time run() returns on either path,
-            # including the timeout one -- run() has already killed the child.
-            try:
-                os.unlink(body_file)
-            except OSError:
-                pass
+        _unlink_body_file(body_file)
     if result.returncode != 0:
         print(
             f"error: coordinator-harvest-deferrals: coordinator-lesson-promote failed for "
@@ -1269,7 +1313,10 @@ def _run_lesson_promote(row: dict, key: str, dry_run: bool) -> bool:
 
 
 def _harvest(
-    plan_id: str, candidates: list[dict], dry_run: bool
+    plan_id: str,
+    candidates: list[dict],
+    dry_run: bool,
+    legacy_plan_id: str | None = None,
 ) -> tuple[list[str], int, int, list[dict]]:
     """Route + dispatch every candidate row.
 
@@ -1307,8 +1354,24 @@ def _harvest(
     for row in candidates:
         row_id = str(row["id"])
         key = _harvest_key(plan_id, row_id)
+        # A row harvested under this plan's OTHER key (see `_path_harvest_id`)
+        # is already queued; writing it again under the new key would duplicate
+        # it, which is the failure the key exists to prevent.
+        #
+        # The window is PROSPECTIVE, not historical. Kira (2026-09-11, F6) read
+        # `legacy_plan_id` as dead on the grounds that no row can have been
+        # harvested under the path key before the commit that introduced it —
+        # true, and not the case it covers. The refusal this commit added tells
+        # authors to add a `plan_id` to a plan that has none; the moment one
+        # does, that plan's rows flip from the path key to the minted key, and
+        # any row harvested under the path key in between is the duplicate.
+        # `legacy_plan_id` is set exactly when a minted id exists AND a path id
+        # would also have resolved, which is that transition and nothing else.
+        prior_keys = [key]
+        if legacy_plan_id:
+            prior_keys.append(_harvest_key(legacy_plan_id, row_id))
 
-        if _already_harvested(key, evidence_lines):
+        if any(_already_harvested(k, evidence_lines) for k in prior_keys):
             deduped += 1
             if dry_run:
                 print(f"[dry-run] already harvested, skipping: {row_id} [{key}]")
@@ -1458,14 +1521,30 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return 0
 
-    plan_id = _parse_plan_id(plan_text)
-    if not plan_id:
+    minted_plan_id = _parse_plan_id(plan_text)
+    path_plan_id = _path_harvest_id(Path(args.plan))
+    plan_id = minted_plan_id or path_plan_id
+    # When the plan carries a minted id, its rows may still have been harvested
+    # under the path key by an earlier run (or the reverse) -- both are checked
+    # before anything is written. See `_path_harvest_id`'s negative spec.
+    legacy_plan_id = path_plan_id if minted_plan_id else None
+    if not minted_plan_id and plan_id:
         print(
-            "warn: coordinator-harvest-deferrals: plan frontmatter has no 'plan_id' field — "
-            "cannot form a stable idempotency key. Skipping harvest.",
+            "warn: coordinator-harvest-deferrals: plan frontmatter has no 'plan_id'; "
+            f"harvesting under the plan-path key '{plan_id}' instead. The rows ARE "
+            "queued. Renaming this plan file changes the key, so give it a 'plan_id' "
+            "if it will be harvested again.",
             file=sys.stderr,
         )
-        return 0
+    if not plan_id:
+        print(
+            "error: coordinator-harvest-deferrals: plan frontmatter has no 'plan_id' and "
+            f"'{args.plan}' has no usable filename stem to key on, so no stable "
+            "idempotency key can be formed. Refusing rather than harvesting rows that "
+            "would be re-queued on every run. Give the plan a 'plan_id'.",
+            file=sys.stderr,
+        )
+        return 1
 
     rows, parse_error_count = _parse_rows(tasks_block)
     if parse_error_count:
@@ -1480,10 +1559,19 @@ def main(argv: list[str] | None = None) -> int:
     for w in malformed_warnings:
         print(f"warn: coordinator-harvest-deferrals: {w}", file=sys.stderr)
 
-    queued_ids, deduped, failed, skipped_unroutable = _harvest(plan_id, candidates, args.dry_run)
+    queued_ids, deduped, failed, skipped_unroutable = _harvest(plan_id, candidates, args.dry_run, legacy_plan_id)
 
     id_list = ", ".join(queued_ids) if queued_ids else "(none)"
-    print(f"Queued {len(queued_ids)} deferred items: {id_list}")
+    # A partial failure must not print the same headline as a plan with
+    # nothing to defer -- the headline is the line a close-out reader carries.
+    if failed:
+        attempted = len(queued_ids) + failed
+        print(
+            f"Queued {len(queued_ids)} of {attempted} deferred items "
+            f"({failed} FAILED): {id_list}"
+        )
+    else:
+        print(f"Queued {len(queued_ids)} deferred items: {id_list}")
     if deduped:
         print(f"  ({deduped} already-harvested row(s) deduped-skipped)")
     if malformed_count:

@@ -110,6 +110,17 @@ reason: verify-coverage hard-gate landed here; downstream consumes the gate outp
 
 Pinning by branch (`main`, `work/...`) is a re-bisect hazard — a future drift can't be located to a specific commit. SHA pins also make `sync-plugin-wiki.py` and similar mirror tools idempotent.
 
+## Cite a memo by its delivery SHA, never by its inbox path
+
+A justification citing `cross-repo/inbox/<date>-<peer>-<topic>.md` has a shelf life: the memo plane
+delivers into the inbox, the distill plane sweeps it, both correctly. The citation dangles while
+the decision it justifies stays in force, and the next reader cannot tell *justified by something
+reaped* from *justified by nothing*.
+
+Cite two SHAs: **delivery** proves the ask was made and still holds its text (`git show <sha>`),
+**implementation** proves what was done. Neither can be swept — the SHA-pin rule above, same
+reason. Tripwire: `A-REAPED-ARTIFACT-AND-A-NEVER-WRITTEN-ONE-LOOK-IDENTICAL`.
+
 ## Coordination memo BEFORE shipping cross-repo changes
 
 If a change in repo A will land before/with consumers in peers B and C, write a one-line coordination memo in the central structured queue (claude-klabauter — `$(python3 <claude-klabauter>/coordinator/lib/coordinator-state-root.py --central)/improvement-queue/`, via `coordinator-queue-append --schema improvement-queue --queue-scope central` — see `state-placement-law.md`) or the active handoff *before* the producing commit — not after. The memo names the producer SHA (once landed), the consumer repos, and the migration order.

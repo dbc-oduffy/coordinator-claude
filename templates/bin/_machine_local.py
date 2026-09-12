@@ -1040,7 +1040,7 @@ def _did_you_mean(key: str, candidates: list[str]) -> list[str]:
     return sorted(difflib.get_close_matches(key, others, n=3, cutoff=0.6))
 
 
-def _print_key_miss(key: str, candidates: list[str]) -> None:
+def _print_key_miss(key: str, layers: list[dict]) -> None:
     """Print the standard key-miss message plus a stderr-only 'did you mean' hint.
 
     Hard constraint: the hint is STDERR ONLY -- stdout must stay empty on a
@@ -1048,10 +1048,23 @@ def _print_key_miss(key: str, candidates: list[str]) -> None:
     exit-1-empty-stdout contract. This helper never touches stdout or the
     return code; callers still return EXIT_NOT_FOUND themselves.
 
+    A key DECLARED empty in the tracked baseline (`repos.foo = ""`) is not a miss
+    in the "no such key" sense -- it is registered but not provisioned on this
+    machine, and saying "not found in registry" would send the caller hunting for
+    a spelling error. It gets its own message naming the provisioning command.
+
     If `key` is a namespace prefix of other candidates (e.g. `repos`, which
     contains `repos.<slug>` entries), print a namespace-not-a-key hint instead
     of a near-miss suggestion -- at minimum, a pointer to `machine-local keys`.
     """
+    if _resolve_key(key, layers) == "":
+        print(
+            f"machine-local: key '{key}' is declared but not set on this machine -- "
+            f"provision it with `machine-local set {key} <value>`",
+            file=sys.stderr,
+        )
+        return
+    candidates = _all_keys(layers)
     print(f"machine-local: key '{key}' not found in registry", file=sys.stderr)
     prefix = f"{key}."
     if any(c.startswith(prefix) for c in candidates):
@@ -1193,7 +1206,7 @@ def cmd_get(args: argparse.Namespace) -> int:
 
     if layers is None:
         layers = _build_resolution_layers(reg_dir)
-    _print_key_miss(key, _all_keys(layers))
+    _print_key_miss(key, layers)
     return EXIT_NOT_FOUND
 
 
@@ -1413,12 +1426,15 @@ def cmd_has(args: argparse.Namespace) -> int:
 def cmd_keys(args: argparse.Namespace) -> int:
     """Implement: machine-local keys [--prefix <p>] — list all known keys, one per line.
 
-    stdout is the machine-parseable contract (one key per line, unchanged). When
-    the listing includes tracked-baseline empty declarations (`repos.foo = ""`) —
-    keys that enumerate here but for which `get` correctly reports not-found
-    (empty ⇒ not provisioned on this machine) — a one-line hint is emitted to
-    STDERR so first-contact users aren't confused by the keys/get asymmetry.
-    Stderr keeps stdout pipe-clean. Spec: tasks/2026-07-14-install-dogfood-friction.md § F7.
+    stdout is the machine-parseable contract (one key per line), and stderr stays
+    silent on success. The listing is every DECLARED key, including tracked-baseline
+    empty declarations (`repos.foo = ""`) that `get` reports not-found — callers
+    (cross-repo-memo's publish-mirror guard among them) depend on that full set.
+
+    Negative-spec: `keys` does not annotate declared-but-unset keys. That asymmetry
+    is explained where it bites — `get` on such a key names it as declared but not
+    set (see _print_key_miss) — not on every enumeration, where it was per-call noise
+    in every agent loop that lists `repos.*`.
 
     `--prefix` (optional) filters the listing to keys equal to, or nested under
     (dot-separated), the given prefix -- the one-step "what lives under `repos.`?"
@@ -1435,17 +1451,8 @@ def cmd_keys(args: argparse.Namespace) -> int:
     prefix = args.prefix
     if prefix:
         all_keys = [k for k in all_keys if k == prefix or k.startswith(f"{prefix}.")]
-    empty_declared = [k for k in all_keys if _resolve_key(k, layers) == ""]
     for k in all_keys:
         print(k)
-    if empty_declared:
-        print(
-            "note: {} key(s) are DECLARED (tracked baseline, empty) but not SET on "
-            "this machine — `get` reports not-found for these until provisioned: {}".format(
-                len(empty_declared), ", ".join(empty_declared)
-            ),
-            file=sys.stderr,
-        )
     return 0
 
 

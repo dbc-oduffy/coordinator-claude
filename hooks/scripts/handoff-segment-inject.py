@@ -35,13 +35,23 @@ assumption the engine's filtering alone is sufficient.
 
 Contract (mirrors the sibling hooks in this directory -- pickup-autofire.py,
 mise-autofire.py):
-  stdin   -- UserPromptExpansion JSON (command_name, command_args,
-             command_source, cwd, expansion_type, session_id, prompt_id, ...)
-  stdout  -- one `hookSpecificOutput` JSON envelope with `additionalContext`
-             when a `handoff`-verb command was matched and at least one
-             segment was selected; NOTHING otherwise (silent pass -- a
-             non-handoff command, an empty case set with no `shared`
-             segment, or a total transport failure, all produce no output)
+  stdin   -- EITHER a `UserPromptExpansion` JSON payload (command_name,
+             command_args, command_source, cwd, expansion_type, session_id,
+             prompt_id, ...) from a typed `/handoff` invocation, OR a
+             `PreToolUse` payload for the `Skill` tool (tool_name, tool_input
+             with `skill`/`args`, ...) from a model-invoked Skill-tool call --
+             `_skill_invocation.read_invocation` adapts either shape to one
+             `Invocation`, and `compute_context` reads only that. `main()` is
+             a thin printer around `compute_context` on the
+             `UserPromptExpansion` path; a Skill-tool fan-in (chunk C5) calls
+             `compute_context` directly instead of capturing `main()`'s
+             stdout.
+  stdout  -- one `hookSpecificOutput` JSON envelope (`hookEventName` echoing
+             whichever event actually fired) with `additionalContext` when a
+             `handoff`-verb command was matched and at least one segment was
+             selected; NOTHING otherwise (silent pass -- a non-handoff
+             command, an empty case set with no `shared` segment, or a total
+             transport failure, all produce no output)
   exit 0  -- always. This hook is advisory only, read-only end to end, and
              must NEVER block `/handoff` -- see the safety envelope below.
 
@@ -190,25 +200,6 @@ _BRIEF_TIMEOUT_SECONDS = 12
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
-def _normalize_command_name(name: str | None) -> str:
-    """Normalize a raw `command_name` payload value to its bare verb.
-
-    Byte-for-byte the same shape as pickup-autofire.py's
-    `_normalize_command_name` / mise-autofire.py's own copy -- strips any
-    `<namespace>:` prefix by taking the segment after the LAST `:`, so both
-    the namespaced plugin-slash-command shape (`"coordinator:handoff"`) and
-    a bare typed/projectSettings verb (`"handoff"`) normalize identically.
-    Kept as an independent copy rather than a shared import, matching this
-    directory's own stated convention (each hook script is a self-contained
-    single-file module loaded by path -- see mise-autofire.py's own
-    `resolve_settings_home` docstring for the same reasoning applied to a
-    different helper). Returns `""` for `None`/non-`str` input.
-    """
-    if not isinstance(name, str):
-        return ""
-    return name.rsplit(":", 1)[-1]
-
-
 # --- COORDINATOR_SETTINGS_HOME resolution (mirrors pickup-autofire.py) ------
 
 
@@ -231,6 +222,16 @@ def resolve_settings_home() -> Path:
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
+
+# `_skill_invocation` is the shared entry-path adapter (chunk C1) that lets
+# this hook read either a typed `UserPromptExpansion` slash-command payload
+# or a model-invoked `PreToolUse(Skill)` call through one `Invocation` shape.
+# Deliberately NO defensive `except ImportError` here -- per that module's own
+# docstring, every consumer lives in this same directory, so a deploy missing
+# it is a deploy error to surface, not a shape to degrade past.
+from _skill_invocation import context_envelope as _context_envelope
+from _skill_invocation import read_invocation as _read_invocation
+
 try:
     from _forwarder_resolve import forwarder_argv as _forwarder_argv
     from _forwarder_resolve import resolve_forwarder as _resolve_forwarder
@@ -732,22 +733,37 @@ def render_additional_context(segments: "list[dict]", active_cases: "set[str]") 
 # --- Entry point --------------------------------------------------------------
 
 
-def main(stdin_text: "str | None" = None) -> int:
+def _parse_invocation(stdin_text: "str | None") -> "object | None":
+    """Decode `stdin_text` as the hook-payload JSON and adapt it to one
+    `Invocation` via `_skill_invocation.read_invocation` -- the SAME shape
+    regardless of whether this fired on the typed `UserPromptExpansion`
+    entry path or a model-invoked `PreToolUse(Skill)` call. Returns `None`
+    on ANY decode/shape failure (unparseable JSON, non-dict top level,
+    neither payload shape recognized) -- fail-open, never raises. Used by
+    `compute_context` to read `command_name`; `main` wraps `compute_context`'s
+    bare return value with its own literal `UserPromptExpansion` event name
+    and needs no invocation of its own."""
     try:
-        raw = stdin_text if stdin_text is not None else sys.stdin.read()
-    except Exception:
-        return 0  # fail-open -- stdin unreadable
-
-    try:
-        payload = json.loads(raw) if raw else {}
+        payload = json.loads(stdin_text) if stdin_text else {}
         if not isinstance(payload, dict):
             payload = {}
     except Exception:
         payload = {}
+    return _read_invocation(payload)
 
-    command_name = _normalize_command_name(payload.get("command_name"))
-    if command_name not in _HANDOFF_COMMAND_NAMES:
-        return 0  # not a /handoff invocation -- silent pass
+
+def compute_context(stdin_text: str) -> "str | None":
+    """The full compute-and-render path for a `/handoff` invocation on
+    EITHER entry path, returning the rendered `additionalContext` string --
+    or `None` when there is nothing to inject (not a `handoff` invocation,
+    no segment selected, or any internal failure). Exists so a Skill-tool
+    fan-in (chunk C5) can call this leg directly and read its result,
+    rather than capturing `main()`'s stdout -- `main()` itself becomes a
+    thin printer around this function on the `UserPromptExpansion` path.
+    Never raises."""
+    invocation = _parse_invocation(stdin_text)
+    if invocation is None or invocation.command_name not in _HANDOFF_COMMAND_NAMES:
+        return None  # not a /handoff invocation -- silent pass
 
     try:
         repo_root = _resolve_repo_root()
@@ -761,22 +777,23 @@ def main(stdin_text: "str | None" = None) -> int:
         # compute-and-render path must never surface as a raised exception
         # on this hot, context-pressure-gated path -- see this module's own
         # docstring, safety-envelope clause (b).
-        return 0
+        return None
 
+    return additional_context or None
+
+
+def main(stdin_text: "str | None" = None) -> int:
+    try:
+        raw = stdin_text if stdin_text is not None else sys.stdin.read()
+    except Exception:
+        return 0  # fail-open -- stdin unreadable
+
+    additional_context = compute_context(raw)
     if not additional_context:
         return 0
 
     try:
-        print(
-            json.dumps(
-                {
-                    "hookSpecificOutput": {
-                        "hookEventName": "UserPromptExpansion",
-                        "additionalContext": additional_context,
-                    }
-                }
-            )
-        )
+        print(_context_envelope("UserPromptExpansion", additional_context))
     except OSError:
         pass
     return 0

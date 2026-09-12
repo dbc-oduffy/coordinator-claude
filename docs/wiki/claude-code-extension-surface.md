@@ -231,9 +231,13 @@ unless nothing else claims the bare name).
   survives across `/clear`/new-session boundaries (the doc says it applies only after those).
 - **`subagentStatusLine`** (`statusline.md § Subagent status lines`, v2.1.205+/v2.1.214+-gated
   fields, both below our installed 2.1.220): a custom row per visible subagent fed `id`, `name`,
-  `status`, `model`, `effort`, `contextWindowSize`, `tokenCount`. Not in use — today, fan-out wave
-  progress is invisible until a `PostToolUse`/`Agent`-matcher hook fires (`agent-completion-log.py`,
-  `track-dispatched-agents.py`), i.e. only after each subagent finishes, not live.
+  `status`, `model`, `effort`, `contextWindowSize`, `tokenCount`. Shipped as a plugin default in
+  `coordinator/settings.json`, rendering `who · what · model · effort · elapsed · tokens(pct) ·
+  status` per row from `coordinator/bin/subagent-statusline.py`, so fan-out wave progress is live
+  rather than post-hoc through `agent-completion-log.py` / `track-dispatched-agents.py`. The
+  command cannot resolve `${CLAUDE_PLUGIN_ROOT}` (anthropics/claude-code#81320), so it reads the
+  plugin root from the `$HOME/.claude/.coordinator-plugin-root` breadcrumb a SessionStart hook
+  writes; with hooks disabled there is no breadcrumb and rows fall back to the harness default.
 - **Model config** (`model-config.md`): `fallbackModel` / `--fallback-model` (up to 3, tried in
   order on overload) — zero adoption, reliability lever not a doctrine one; a PM infra-preference
   call (accept a cheaper/faster silent substitute on overload), not proposed here.

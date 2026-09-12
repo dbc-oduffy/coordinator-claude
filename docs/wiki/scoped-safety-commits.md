@@ -14,7 +14,7 @@ literally.
 
 ## The Default: Scoped Commit Form
 
-**The trailing pathspec is not the scope guarantee — it is a cheap proxy for one, and the proxy is only valid while the index and the worktree agree on those paths (per SC-DR-015).** When they agree — the common case, you edited, you staged, nothing else changed those paths — `git add -- <paths> && git commit -m "<subject>" -- <paths>` is the default for scoped commits (per SC-DR-008). When you deliberately staged something the worktree does not match (partial-hunk staging, `git apply --cached`, a private `GIT_INDEX_FILE`), the trailing pathspec destroys your staging silently — **and a bare pathspec-less commit against the shared index is not the fix either** (that horn absorbs whatever a peer staged in the meantime; see SC-DR-015 below). Use `ceremony.commit_v2` (`coordinator_core/git/commit.py` :: `commit_paths`) — it builds the commit's tree from the paths you name rather than reading the shared index, so there is no horn to classify — or the private-index recipe at § SC-DR-015 if the op isn't reachable. `ceremony.scoped_git_commit` is deleted; a plain `git commit` is NOT its fallback, and for a dispatched agent it is hard-denied by caller identity. See § SC-DR-015 for the full ruling. `coordinator-safe-commit` is reserved for the authorized sites below.
+**The trailing pathspec is not the scope guarantee — it is a cheap proxy for one, and the proxy is only valid while the index and the worktree agree on those paths (per SC-DR-015).** When they agree — the common case, you edited, you staged, nothing else changed those paths — `git add -- <paths> && git commit -m "<subject>" -- <paths>` is the default for scoped commits (per SC-DR-008). When you deliberately staged something the worktree does not match (partial-hunk staging, `git apply --cached`, a private `GIT_INDEX_FILE`), the trailing pathspec destroys your staging silently — **and a bare pathspec-less commit against the shared index is not the fix either** (that horn absorbs whatever a peer staged in the meantime; see SC-DR-015 below). Use `ceremony.commit_v2` (`coordinator_core/git/commit.py` :: `commit_paths`) — it builds the commit's tree from the paths you name rather than reading the shared index, so there is no horn to classify — or the private-index recipe at § SC-DR-015 if the op isn't reachable. For a deliberately-staged path (partial-hunk staging, `git apply --cached`), name it in `commit_v2`'s `prefer_staged` parameter so the commit reads the staged blob rather than worktree bytes — see § The hunk limit below for the case this exists to close. `ceremony.scoped_git_commit` is deleted; a plain `git commit` is NOT its fallback, and for a dispatched agent it is hard-denied by caller identity. See § SC-DR-015 for the full ruling. `coordinator-safe-commit` is reserved for the authorized sites below.
 
 **Structural floor (per SC-DR-014):** `block-blanket-git-add.sh` (folded into the coordinator engine's `coordinator_core.bash_guards` via `preuse-bash-dispatch.py`; the old shell-script version removed) (BLOCK-BLANKET-GIT-ADD tripwire) hard-denies `git add -A` / `git add .` / `git add -u` and bundled blanket-flag forms when cwd is the Claude Code meta-repo. The hook bypasses the Phase-5 warn-first soak gate (SC-DR-003) under the unambiguous-command-class carve-out — literal pattern-match, no per-session state, zero legitimate in-repo uses outside the override paths. Helper's `--blanket`/`--override` paths use `_COORDINATOR_SAFE_COMMIT_INTERNAL_BLANKET=1` to bypass; emergency callers use `COORDINATOR_OVERRIDE_BLANKET_ADD=1` (env-only, NOT inline prefix). Also: `coordinator-safe-commit` defaults to `--expected-owner em-only` when no ownership flag and no `--expected-branch` is passed — a defence-in-depth gate against executor self-commit on executors that forget the no-commit rule. See SC-DR-014 below.
 
@@ -692,13 +692,13 @@ The whole concurrency catalog above is EM-vs-EM (two interactive sessions sharin
 
 ### Edit-out/commit/edit-back to scope a sibling's uncommitted change is unsafe
 
-Manually editing a shared file to remove a sibling EM's uncommitted change, committing, then editing it back is a hazardous scope-isolation technique. If a concurrent session commits the sibling's change between your edit-out and your commit, your edit-out commit becomes a silent revert of their work when it lands. Prefer committing shared files wholesale when the sibling's change is a legitimate in-progress edit on the shared surface, or use `git stash push -- <file>` / `git stash pop` with explicit verification (see the stash-pop warning above). The edit-out/commit/edit-back pattern has no concurrency-safe execution window on a shared branch.
+Manually editing a shared file to remove a sibling EM's uncommitted change, committing, then editing it back is a hazardous scope-isolation technique. If a concurrent session commits the sibling's change between your edit-out and your commit, your edit-out commit becomes a silent revert of their work when it lands. Prefer committing shared files wholesale when the sibling's change is a legitimate in-progress edit on the shared surface, or use the § Committing the Union dual-credit procedure (commit the union, credit the sibling in the commit body, relay to their EM) when the hunks cannot be cleanly separated — never a `git stash` round-trip, which is a whole-tree operation against every live peer (§ SC-DR-023). The edit-out/commit/edit-back pattern has no concurrency-safe execution window on a shared branch.
 
 *Source: self `state/lessons/`.*
 
-### Stash-pop primitive for cross-EM file isolation at dispatch time
+### Isolating a file for dispatch when a sibling EM holds uncommitted edits on it
 
-The "active peer session" rule above is the read-side detect; this is the write-side hygiene when an EM dispatches an executor against a file a sibling EM has uncommitted edits in. **Sequence:** `git stash push -- <paths>` *before* the dispatch — captures the sibling's working-tree state out of the way; dispatch the executor against a clean version of the file; on executor return, `git add -- <paths> && git commit -m "..." -- <paths>` for your scope; then `git stash pop`. Without the stash, an `Edit`-then-`git add -- <path>` from the executor stages everything in the file — there is no partial-path-add escape, and your commit silently absorbs the sibling's hunks under your subject. Sibling's per-chunk commit attribution is preserved by the round-trip even if their changes shipped during your window (pop becomes a no-op; their already-committed work is unaffected). Surfaced by multi-src C3 vs sibling C6 on `mcp/project_rag_server.py` + `paths.py`.
+The "active peer session" rule above is the read-side detect; this is the write-side hygiene when an EM dispatches an executor against a file a sibling EM has uncommitted edits in. A pathspec-scoped `git stash push -- <paths>` / `git stash pop` "isolate, then restore" primitive is retired: a stash round-trip on a path is still the SC-DR-023 path-scoped class, and popping it back races the sibling's own commit exactly as the general stash-pop hazard does (§ SC-DR-018 Recovery). Use the § Committing the Union dual-credit procedure instead: dispatch the executor against the file as it stands (do not stash it out of the way), and on return commit the union explicit-path with a `NOTE:` crediting the sibling's hunks and a one-line PM relay so their EM does not re-commit them. Where the two sets of edits land in cleanly separable hunks, build your own hunk as a private staged blob (§ The hunk limit) instead of taking the sibling's bytes at all. Surfaced by multi-src C3 vs sibling C6 on `mcp/project_rag_server.py` + `paths.py`.
 
 ### Pause-snapshot attribution trailer
 
@@ -855,9 +855,9 @@ Raw `coordinator-safe-commit "<subject>"` (no flags) is deprecated.
 
 ## Committing the Union When Hunk-Isolation Is Unavailable — Dual-Credit and PM-Relay
 
-**When two sessions leave uncommitted edits on the SAME file and hunk-isolation is unavailable (`git add -p` is interactive/blocked), an explicit-path commit absorbs the sibling's work — commit the union with honest dual-credit + PM-relay; do not silently absorb or stall.**
+**When two sessions leave uncommitted edits on the SAME file and the hunks cannot be cleanly separated into a private staged blob (§ The hunk limit), an explicit-path commit absorbs the sibling's work — commit the union with honest dual-credit + PM-relay; do not silently absorb or stall.**
 
-`git add -- <file>` stages the WHOLE file regardless of which hunks are yours. When `git add -p` (interactive hunk selection) is blocked, there is no mechanical isolation path. Stalling (waiting for the sibling to commit) risks losing your own work if your context compacts or the session ends. Silent absorption is dishonest and misattributes the sibling's code to your subject.
+`git add -- <file>` stages the WHOLE file regardless of which hunks are yours. `git add -p` (interactive hunk selection) is retired (§ The hunk limit); when the diff will not split cleanly along hunk boundaries for the non-interactive staged-blob route either, there is no mechanical isolation path left. Stalling (waiting for the sibling to commit) risks losing your own work if your context compacts or the session ends. Silent absorption is dishonest and misattributes the sibling's code to your subject.
 
 **Procedure when you detect the union situation:**
 1. Before committing a shared hot file, `git --no-optional-locks diff -- <file> | grep` for foreign workstream markers (commit-message keywords, variable names, function names specific to the sibling's workstream) to confirm the union.
@@ -871,7 +871,7 @@ Raw `coordinator-safe-commit "<subject>"` (no flags) is deprecated.
 
 ## SC-DR-010 — Path-Scoped `git add` Does Not Scope Hunks Within a File
 
-*A real incident on a sibling repo's addon:* `git add -- path/to/file.py` stages the ENTIRE file, not just the hunks your executor edited. If another concurrent session also edited that file, its hunks ride your commit. The scoped-commit discipline protects against cross-file contamination but does NOT protect against cross-hunk contamination within a shared file. When a file you edited is also in another session's declared scope, use `git add -p -- path/to/file.py` (interactive hunk selection) to stage only the hunks from your changes. Treat `Edit` + path-scoped `git add` on a contested file as blanket-staging by another name — it includes every modification on disk at commit time, not just yours. (source: a real incident on a sibling repo's addon)
+*A real incident on a sibling repo's addon:* `git add -- path/to/file.py` stages the ENTIRE file, not just the hunks your executor edited. If another concurrent session also edited that file, its hunks ride your commit. The scoped-commit discipline protects against cross-file contamination but does NOT protect against cross-hunk contamination within a shared file — see § The hunk limit above for the current ruling and route. When a file you edited is also in another session's declared scope, use the non-interactive staged-blob route (`git apply --cached` your hunk into a private `GIT_INDEX_FILE`, committed via `commit_v2`'s `prefer_staged`) to stage only the hunks from your changes; `git add -p` is retired, being interactive and blocked for a dispatched agent. Treat `Edit` + path-scoped `git add` on a contested file as blanket-staging by another name — it includes every modification on disk at commit time, not just yours. (source: a real incident on a sibling repo's addon)
 
 ## SC-DR-011 — Shared Registration/Index File: Absorbed Edits Can Ship an Untracked-Import HEAD
 
@@ -989,9 +989,19 @@ Two things about this sequence that are easy to get wrong:
 
 Verified clean on both axes: it neither reads the worktree nor touches the shared index, and it leaves a peer's staged entries and worktree edits exactly as it found them. The agree-case bullet above is unaffected — the ordinary `git add -- <paths> && git commit -- <paths>` remains correct and is still the overwhelmingly common path.
 
-**This wanted a tool, not a third prose rule — and now has one.** Requiring an operator to hand-assemble a private index mid-commit was the same failure shape SC-DR-015 exists to name: a rule discharged by remembering. The discharge is now `ceremony.commit_v2` (`coordinator_core/git/commit.py` :: `commit_paths`), and it dissolves the horn rather than picking between its sides: it builds the commit's tree from the explicit `paths` it is given (deletions in `deleted_paths`) instead of reading the index at all, so there is no agree-vs-diverge case to compute and no private-index sequence to assemble. `ceremony.scoped_git_commit` and its `diverging_paths()` horn-picking are deleted. **Prefer the op over hand-rolling the recipe.** Where the op isn't reachable, the recipe above is still correct — it's what the op implements — but "not partial-staging on a shared tree" is not the fallback advice; call the op.
+**This wanted a tool, not a third prose rule — and now has one.** Requiring an operator to hand-assemble a private index mid-commit was the same failure shape SC-DR-015 exists to name: a rule discharged by remembering. The discharge is now `ceremony.commit_v2` (`coordinator_core/git/commit.py` :: `commit_paths`), and it dissolves the horn rather than picking between its sides: it builds the commit's tree from the explicit `paths` it is given (deletions in `deleted_paths`) instead of reading the index at all, so there is no agree-vs-diverge case to compute and no private-index sequence to assemble. Naming a path in `prefer_staged` (or the blanket `prefer_deliberate_stage`) commits that path's STAGED blob instead of its worktree bytes — the parameter this page's earlier revisions omitted. `ceremony.scoped_git_commit` and its `diverging_paths()` horn-picking are deleted. **Prefer the op over hand-rolling the recipe.** Where the op isn't reachable, the recipe above is still correct — it's what the op implements — but "not partial-staging on a shared tree" is not the fallback advice; call the op.
 
-**Never resolve this by widening.** `git add -A` / `git add .` remain hard-denied (SC-DR-014's structural floor stands, unchanged). `git commit -a` / `-am` is prohibited too, but by the scoped-commit *form* (SC-DR-008), not by SC-DR-014 — and its enforcement is asymmetric: hard-denied for a dispatched agent (`block_subagent_commit`), advisory-only on the EM path, where `_bt_commit_has_sweep_all_flag` excludes the `-a` family from C7's index probe under the advisory-firing-shape ruling and the check falls back to warning on the full staged set. Prohibited-by-doctrine, advisory-in-enforcement is the actual state; do not read the prohibition as a claim that the EM-path guard denies it. This ruling makes scoped committing *safer*, never optional.
+### The hunk limit — no commit form protects a peer's live hunk inside a file you name
+
+**Both the trailing pathspec and `ceremony.commit_v2` protect FILES, not hunks.** Each commits the named paths' bytes in full — worktree bytes for the trailing pathspec, staged bytes for `commit_v2` when the path is named in `prefer_staged` — and a peer's uncommitted hunk sitting in one of those same paths ships under your subject either way. The protection that exists is reading the named paths' diff before you commit (§ Committing the Union When Hunk-Isolation Is Unavailable above) plus the claim-holder check — and the claim-holder check cannot see it: a Bash write records no claim (§ Component 2, and "I'm getting a scope warning for a file I touched via Bash" above), so "no other holder" never shows that a file carries only your hunks.
+
+`git add -p` is retired as a recipe on this page: it is interactive, blocked for a dispatched agent, and any hunk it stages is thrown away by both routes this page sanctions (a trailing pathspec re-reads the worktree; a bare commit reads the whole shared index). Build the hunk as a staged blob non-interactively instead: filter the diff to your hunk and `git apply --cached` it, preferably into a private `GIT_INDEX_FILE` (the shared index is contestable — § Staged-but-uncommitted index is contestable above), then commit it through `ceremony.commit_v2` with that path named in `prefer_staged`, or through the private-index recipe above if the op isn't reachable. Where the hunks cannot be cleanly separated, use § Committing the Union's dual-credit procedure instead.
+
+**The second question this leaves open — hard-refusing a commit outright when index and worktree disagree — is not answered here.** SC-DR-015 already rules the form (`ceremony.commit_v2` dissolves the horn) and the live `OFFER-PATHSPEC-DIVERGENCE` guard is advisory. Whether that advisory becomes a deny is ruling 5 of `state/handoffs/2026-09-11-inbox-blitz-rulings-owed.md`, open at authoring — this page names it as owed and does not answer it.
+
+**Hooking the write syscall instead of the tool path is refused, not merely unbuilt.** The harness exposes no write-syscall hook; the claim plane is tool-path by design (§ Component 2, and "I'm getting a scope warning for a file I touched via Bash" above — the mtime fallback that gap would need is retired, because adopting a file on recency is the attribution question SC-DR-001 refuses). The consequence at commit time: **a Bash edit records no claim, so its author names it in the pathspec.**
+
+**Never resolve this by widening.** `git add -A` / `git add .` remain hard-denied (SC-DR-014's structural floor stands, unchanged). `git commit -a` / `-am` is prohibited too, but by the scoped-commit *form* (SC-DR-008), not by SC-DR-014 — and its enforcement is asymmetric: hard-denied for a dispatched agent (`block_subagent_commit`), advisory-only on the EM path, where `_bt_commit_has_sweep_all_flag` excludes the `-a` family from Check 7's index probe and the check falls back to warning on the full staged set. Prohibited-by-doctrine, advisory-only is today's engine state for the `-a` family specifically. Do not read that as settled design: § SC-DR-017 below rules Check 7's advisory-only posture a retired premise and states the fix — the engine change is pending, not shipped. This ruling makes scoped committing *safer*, never optional.
 
 **What this supersedes and what it leaves standing.**
 
@@ -1761,3 +1771,69 @@ structural producers, and a denial outside those is a signal worth reading befor
 
 Greppable token: `ADOPTION-IS-AN-OPERATORS-ANSWER-NOT-AN-AGENTS-DEFAULT`. Registered in
 `coordinator/docs/wiki/coordinator-tripwires/`.
+
+
+## SC-DR-023 — The unscoped-tree-operation guard: scope predicate, false-positive boundary, and the deny/advisory split; and the deploy-window contradiction resolved through it
+
+**Ruling (doctrine, doctrine plane).** This record extends § SC-DR-018 (whole-tree `git stash` is
+destructive against every live peer) to the full verb class that discards or rewrites worktree
+state: `git stash` (pathspec-less), `git checkout --`, `git restore`, `git reset`. `git commit` is
+NOT in this class — § SC-DR-015, § SC-DR-019 and § SC-DR-020 already rule commit scope, and
+`OFFER-PATHSPEC-DIVERGENCE` plus Checks 6/7 already guard it live; this record cites those and
+rules none of them again.
+
+### Half 1 — the guard
+
+**Scope predicate.** The guard's oracle is the acting session's own claimed paths, never a
+tree-wide read. A tree-wide predicate measures who is mid-keystroke, not who is correct: three
+`tsc --noEmit` runs five minutes apart on one shared tree produced three disjoint error sets.
+
+**The false-positive boundary.** A gate that fires on a healthy state trains the operator to reach
+for the override and then blocks the emergency that needed it — measured twice in one evening in
+the reporting repo, once on this class and once on an unrelated deploy-preflight guard. The guard
+must let through: any path-scoped form whose named paths are entirely the acting session's own
+claimed paths. It fires (deny or advisory, per the split below) only on: a whole-tree form with no
+pathspec, or a path-scoped form naming a path another live session holds.
+
+**Staged-but-uncommitted is a peer mid-commit and is left entirely alone.** No form in this class
+touches a path with staged-but-uncommitted content; that state is the one the peer is actively
+resolving.
+
+**What the guard cannot catch, stated so its docs never imply coverage it lacks.** Guards catch
+acts; they do not catch work that was never verified. A file left uncommitted and unowned while
+the tree moves under it has no act for this guard to intercept — that is an omission, not a
+tree-operation, and no member of this verb class is the fix for it.
+
+**The deny/advisory split.** Per § SC-DR-016, the discriminator is whether the oracle is
+self-contained (evaluated purely over the command's own content, no live state) or reads live
+state (the claim plane, session registries):
+
+- **Whole-tree form — DENY-FROM-DAY-ONE.** `git stash` / `git stash push` with no pathspec,
+  `git checkout -- .`, `git restore .`, `git reset --hard` are decided by the command string
+  alone — a self-contained oracle — so they ship denied without the § SC-DR-003 Phase-5 soak.
+- **Path-scoped form on a path another session holds — ADVISORY.** Deciding "another session
+  holds this path" requires the claim plane, which is live state and not self-contained, so this
+  leg is soak-gated per § SC-DR-003 and ships advisory, not deny.
+- **Path-scoped form on the acting session's own claimed paths — let through.** This is the false-
+  positive boundary above, with the § The hunk limit caveat carried forward: no other holder does
+  not mean no other writer — a Bash-written file records no claim (§ Component 2) and is invisible
+  to the claim-plane check either way.
+
+### Half 2 — the deploy-window contradiction
+
+This repo tells sessions to commit each chunk immediately so a sweep cannot take their work
+(§ Concurrent-executor commit absorption and neighboring sections). A separate rule has told a
+sibling repo not to deploy during that same window, and a legitimate, gate-passing, PM-cleared
+deploy still shipped three other sessions' deliberately-held work, because the deploy published
+the live worktree rather than a committed ref. Neither rule loses:
+
+- **Commit-to-protect stands, unnarrowed by a deploy clause.** Its existing sites are correct and
+  gain nothing here beyond reaching § The hunk limit (commit your hunks, not a file that carries a
+  peer's) — no site in this class ever grows a deploy carve-out.
+- **A deploy that publishes the shared worktree is in this record's verb class**: it acts on every
+  peer's uncommitted work exactly as a pathspec-less `git stash` does. Doctrine requires it publish
+  a named committed ref, or a snapshot scoped to the acting session's own claimed paths — never the
+  live tree. The fault the incident exposed is what the deploy reads, not when it runs.
+- **"Do not deploy during the window" is not a rule this page states and is not written here.** How a sibling
+  repo configures its own deploy trigger is theirs to own; this record states only what a
+  worktree-publishing deploy must read.

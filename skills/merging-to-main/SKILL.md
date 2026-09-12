@@ -116,9 +116,14 @@ A schema bump needs `schema-migration-auditor` dispatched, the Staff Engineer re
 
 ## Step 5: Create PR
 
-Compose the PR body via `merge-gate-and-pr pr-body --ship-verdict "$SHIP_VERDICT" --release-notes
-"$RELEASE_NOTES" --commit-range main..HEAD` (`d4`), then `gh pr create --base main --head "$BRANCH"
---title "$TITLE" --body "$BODY"`.
+Compose the PR body via `merge-gate-and-pr pr-body --ship-verdict "$SHIP_VERDICT" --summary
+"$SUMMARY" --release-notes "$RELEASE_NOTES" --verification "$VERIFICATION" --risk "$RISK" --links
+"$LINKS" --commit-range main..HEAD` (`d4`), then `gh pr create --base main --head "$BRANCH" --title
+"$TITLE" --body "$BODY"`. The flags are the fleet PR template's sections
+(`templates/github-pull-request-template.md`), which `gh pr create --body` bypasses. Pass
+`--release-notes` and `--demo-path` without headings of their own, and keep release-note version
+headings at `###` or lower. An engine that predates the section flags exits 2 with
+`unrecognized arguments`: rerun without `--summary`, `--verification`, `--risk`, `--links`.
 
 If a version bump was suggested but not yet PM-confirmed, surface it in the PR body: _"Suggested
 bump: patch ({old} → {new}) — confirm before tagging."_

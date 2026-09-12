@@ -6,7 +6,7 @@
 #
 # Ownership map (one writer per key):
 #   unreal.install_root          — project-rag-ue-addon (seeder: _seed_unreal_keys.py)
-#   unreal.lyra_root             — project-rag-ue-addon (when Lyra is discovered)
+#   unreal.example_sample_project_root             — project-rag-ue-addon (when example_sample_project is discovered)
 #   unreal.engine_root           — example-game-workbench-repo (its install/setup)
 #   unreal.engine_corpus_dir     — example-game-workbench-repo
 #   unreal.uproject_path         — example-game-workbench-repo
@@ -26,4 +26,4 @@ schema = 1
 #
 #   [unreal]
 #   install_root = 'E:/dev/UnrealEngine'    # TOML literal string — no escape processing <!-- foreign-path-ok: illustrative sample value for this per-machine example file, not a real machine path -->
-#   lyra_root    = 'E:/dev/LyraStarterGame'    <!-- foreign-path-ok: illustrative sample value for this per-machine example file, not a real machine path -->
+#   example_sample_project_root    = 'E:/dev/ExampleSampleProjectStarterGame'    <!-- foreign-path-ok: illustrative sample value for this per-machine example file, not a real machine path -->

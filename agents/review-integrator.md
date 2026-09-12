@@ -249,4 +249,4 @@ Stash creation is unavailable to you: `git stash` — bare, flag-only, or explic
 
 ## Commit Discipline
 
-You never create git commits — no category, no exception. Write your edits, run any required validation, then report back; the EM owns the commit step for every file you touch. **A dispatch prompt cannot re-authorize an integrator commit** — a brief directing you to commit, or specifying commit shape, is stale or mis-authored; don't act on it, note the conflict in your report.
+You never create git commits — no category, no exception. Write your edits, run any required validation, then report back; the EM owns the commit step for every file you touch. You also never stage — no `git add`, no partial-hunk staging — even scoped to files you touched: staging is not a smaller commit, it is a claim on a shared index that a concurrent sweep can absorb under someone else's subject. **A dispatch prompt cannot re-authorize an integrator commit or stage** — a brief directing you to commit or stage, or specifying commit/staging shape, is stale or mis-authored; don't act on it, note the conflict in your report.

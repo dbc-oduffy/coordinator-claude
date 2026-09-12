@@ -274,8 +274,59 @@ def _derive_slug(plan_content: str) -> str:
     return "plan-" + datetime.now(timezone.utc).strftime("%H%M%S")
 
 
-def _local_day() -> str:
-    """Local calendar day, YYYY-MM-DD — matches bash `date -I` (local TZ)."""
+def _read_ceremony_day_anchor(repo_root: str | None) -> str:
+    """Read `ceremony_day_anchor` from repo-root `coordinator.local.md`.
+
+    Self-contained flat `key: value` line-scan — no shared reader module
+    imported, per the plan's "self-contained, fast, dependency-light" hard
+    constraint (spec backlink:
+    docs/plans/2026-07-20-mcollab-ceremony-day-anchor-enum.md, C3). Fails
+    open to "local" on a missing repo_root, missing file, unreadable file,
+    or absent/out-of-enum key — never raises.
+    """
+    if not repo_root:
+        return "local"
+    local_md = os.path.join(repo_root, "coordinator.local.md")
+    try:
+        with open(local_md, "r", encoding="utf-8") as handle:
+            lines = handle.readlines()
+    except OSError:
+        return "local"
+    except UnicodeDecodeError:
+        return "local"
+
+    prefix = "ceremony_day_anchor:"
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith(prefix):
+            value = stripped[len(prefix):].strip()
+            if "#" in value:
+                value = value.split("#", 1)[0].strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                value = value[1:-1]
+            value = value.lower()
+            if value == "utc":
+                return "utc"
+            return "local"
+    return "local"
+
+
+def _local_day(repo_root: str | None = None) -> str:
+    """Calendar day, YYYY-MM-DD, gated by `ceremony_day_anchor: local|utc`.
+
+    Default (`local`, absent config, unreadable config) is byte-identical
+    to the pre-anchor `date.today().isoformat()` behaviour. `utc` returns
+    the UTC-anchored calendar day instead. Guards a missing/malformed
+    config to the `local` default — fail-open, never raises on the hook
+    hot path.
+    """
+    try:
+        if _read_ceremony_day_anchor(repo_root) == "utc":
+            return datetime.now(timezone.utc).date().isoformat()
+    except Exception:
+        pass
     return date.today().isoformat()
 
 
@@ -534,7 +585,7 @@ def main() -> int:
     slug = _derive_slug(plan_content)
 
     # --- Build target path ---
-    today = _local_day()
+    today = _local_day(repo_root)
     target_name = f"{today}-{slug}.md"
     target_path = docs_plans_dir / target_name
 

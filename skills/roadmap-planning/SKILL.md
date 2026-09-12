@@ -34,9 +34,9 @@ Detail for B/C/D, read before starting Phase 1 on that path: `residue/entry-poin
 Batched, the tail is `plan-blitz → mise-prep → the run`: **each exit is the next entry, read off
 disk, never retyped.** Tripwire: `A-HANDOFF-AN-EM-RETYPES-IS-NOT-A-SEAM`.
 
-**mise-prep is a stage, not a slash command — nothing answers `/mise-prep`.** Its three surfaces:
-`skills/plan-blitz/mise-prep-entry.py` reads plan-blitz's exit and reports each approved plan's
-certification state; `bin/mise-prep-gate.py` runs the authoring bar, and names
+**`/mise-prep` drives the mise-prep stage** (`commands/mise-prep.md`), through
+`bin/mise-prep-run.py`. `skills/plan-blitz/mise-prep-entry.py` reads plan-blitz's exit and reports
+each approved plan's certification state; `bin/mise-prep-gate.py` runs the authoring bar, and names
 `bin/mise-prep-upgrade.py` for the declarations derivable from the plan's own text; the engine's
 `plan.stamp_prepped` is the only writer of the attest, and re-runs the bar itself, so it cannot
 stamp a plan that does not pass. `/mise-en-place` § Phase 0 is where the run consumes them.
@@ -143,6 +143,10 @@ final-approved`.
    confirm every wave-N stub set is file-disjoint per `scope:`. Disjointness is now a *merge*
    predicate spent at 2.1.6, so any disjoint pair surviving here is an un-run fold, not a
    licensed parallelism: fold it and re-number.
+
+   **`scope:` names a SUBJECT, not a blast radius** — grep each item's symbols for its real touched
+   set before splitting. Mark EM-fenced items (`archive/`, permission settings); never send a
+   dispatched agent at the fast/full tier. `A-SCOPE-FIELD-NAMES-A-SUBJECT-NOT-A-BLAST-RADIUS`.
 2.5. `pm-gates.md` — one row per stub whose `gate_notes`/`gate_dependency` carries a
    product-coupled signal (`PM `-prefix, named stakeholder, decision/approval/policy/scope/
    user-facing language). Template + detection rule: wiki.
@@ -153,8 +157,9 @@ final-approved`.
    uniqueness, pm-gates cross-reference, dependency-order). Exit 1 blocks close and names the
    offender. `kind: roadmap-baton` frontmatter is also validator-clean per the engine's
    frontmatter cross-field rules — the live enforcement point; this repo's
-   `coordinator/hooks/scripts/validate-frontmatter-schema.py` is a non-executing parity copy,
-   never the thing to edit. Those rules require `roadmap_id`, when present, to name a cluster
+   `coordinator/hooks/scripts/validate-frontmatter-schema.py` non-executing parity copy is
+   deleted (`348260b83`) — never the thing to edit. Those rules require `roadmap_id`, when
+   present, to name a cluster
    that actually exists on disk — not merely be non-empty. **A cluster is required before a stub
    scaffolds one — if no cluster applies, the stub is not a `roadmap-baton` at all; scaffold it
    `kind: spinoff` instead** (the ruled redirect for cluster-less baton-shaped work, which refuses

@@ -203,7 +203,7 @@ resolution chain must remain robust to malformed addons).
 #### Multi-band-same-path behavior
 
 Today's UE addon resolves all four engine bands (`unreal_5.7_runtime`,
-`unreal_5.7_editor`, `unreal_5.7_plugin`, `unreal_5.7_lyra`) to the **same**
+`unreal_5.7_editor`, `unreal_5.7_plugin`, `unreal_5.7_example_sample_project`) to the **same**
 merged sqlite3 path. Per-band row discrimination happens inside the sqlite via
 `WHERE source = '<discriminator>'` on `symbols` / `calls` / `inherits`. The
 host's sqlite-opener layer caches+shares connections keyed by **resolved Path**,

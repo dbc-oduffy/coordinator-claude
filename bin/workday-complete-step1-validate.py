@@ -94,8 +94,8 @@ except RuntimeError as _exc:
 from coordinator_core.diff_scoped_tests import (  # noqa: E402
     PYTEST_NO_TESTS_COLLECTED,
     append_test_paths,
+    compute_diff_scoped_paths,
     diag,
-    find_changed_test_files,
 )
 from coordinator_core.ops.test_red_record import (  # noqa: E402
     parse_failing_nodeids,
@@ -602,16 +602,26 @@ def main() -> int:
         _emit(rc_ubt, "shell-metachar")
         return 2
 
-    # Diff-scoping: when the working tree has changed test files, append
-    # them onto the resolved command so this gate runs only those files
-    # instead of the whole configured fast tier. Empty changed-test-file
-    # set -> behaviour unchanged (scoped_cmd == cmd). See
+    # Diff-scoping: when the working tree has changed test files, and/or
+    # changed SOURCE files that map to covering tests via
+    # coordinator_core.source_test_map, append the union onto the resolved
+    # command so this gate runs only those files instead of the whole
+    # configured fast tier. A changed source file that does NOT fully map
+    # (fully_mapped=False) forces this run back to the unscoped command --
+    # the conjunctive fail-safe (AC9) -- never a partial narrowing. Empty
+    # scoped-path set -> behaviour unchanged (scoped_cmd == cmd). See
     # coordinator_core/diff_scoped_tests.py for the "changed test file"
     # definition and the append-only (never rebuild) contract that keeps
     # the `-m '...'` marker selector intact. Scoping only ever appends plain
     # path tokens onto an already-metachar-checked `cmd`, so scoped_cmd does
     # not need a second _fail_on_ambiguous_shell_syntax pass.
-    diff_paths = find_changed_test_files(os.getcwd())
+    diff_paths, fully_mapped = compute_diff_scoped_paths(os.getcwd())
+    if not fully_mapped:
+        diag(
+            "changed source file(s) did not fully map to covering tests -- "
+            "falling back to the full configured fast tier (conjunctive fail-safe)."
+        )
+        diff_paths = []
     if diff_paths:
         scoped_cmd = append_test_paths(cmd, diff_paths)
         diag(f"changed test file(s) detected -- scoping run to: {', '.join(diff_paths)}")

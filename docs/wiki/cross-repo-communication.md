@@ -180,7 +180,7 @@ about what it "had to" do is weaker evidence, not stronger.
 **Invocation mechanics (read this before you grep the source for flags):**
 - It is a **self-executing CLI already on `PATH`.** Type `cross-repo-memo …` directly. Do **not** prefix `bash` (it's Python, not a shell script) and do **not** spell out a full `$HOME/.claude/.../bin/` path (it's on PATH).
 - **For a multi-line body, use the draft lifecycle subcommands** (canonical path — leaves no cruft):
-  1. `cross-repo-memo draft <topic> --to <em> --title "<line>"` — creates a staged draft in `state/memo-outbox/<topic>.md` and prints the outbox path.
+  1. `cross-repo-memo draft <topic> --to <em> --title "<line>"` — creates a staged draft in `.coordinator-local/memo-outbox/<topic>.md` and prints the outbox path. Drafts staged before the outbox moved still sit in `state/memo-outbox/`, which every reader falls back to and no writer writes; use the printed path, never a remembered one.
   2. Open the printed path with your editor (or `cross-repo-memo compose <topic>` to print it again) and write the body.
   3. `cross-repo-memo send <topic>` — dispatches to the receiver and removes the staged draft.
   4. `cross-repo-memo list` / `cross-repo-memo discard <topic>` are the other lifecycle verbs.
@@ -194,20 +194,19 @@ about what it "had to" do is weaker evidence, not stronger.
   `tasks/<feature>/` paths — the CLI owns the buffer.
 
   **The buffer is the only moment `scoped_to` is takeable** (`--scoped-to-artifact` / `-sha` /
-  `-seam`, addable only while `state/memo-outbox/<topic>.md` exists). An unpinned
+  `-seam`, addable only while `.coordinator-local/memo-outbox/<topic>.md` exists). An unpinned
   `ask`/`proposal`/`consult` memo is now a choice made in the buffer, not a form that skipped it.
   "I'll pin the next one" is not a disposition.
 
-  **Local evidence.** Every send appends to `state/memo-outbox/sent-ledger.jsonl` in the sender's
-  tree (engine-side, `f0ef2d67c` in claude-klabauter) and archives a copy to
-  `state/memo-outbox/sent/`, so a memo-deliverable plan chunk always has a local artifact to
-  commit. See `coordinator-tripwires.md § MEMO_CHUNK_NEEDS_A_LOCAL_ARTIFACT`.
+  **Local evidence.** Every send appends to `.coordinator-local/memo-outbox/sent-ledger.jsonl` in
+  the sender's tree (engine-side) and archives a copy to `.coordinator-local/memo-outbox/sent/`,
+  so a memo-deliverable plan chunk always has a local artifact to commit. See `coordinator-tripwires.md § MEMO_CHUNK_NEEDS_A_LOCAL_ARTIFACT`.
 - **`--help`** lists every flag — reach for it instead of grepping the script.
 - Do **not** route it through `pythonw`/`py` to dodge the Windows console flash. `pythonw` discards stdout, and this CLI prints the **receiver path on stdout that you must hand the PM** — you'd lose it. The transient flash from this manually-invoked CLI is acceptable (not a hot-path spawn); the recurring blue `powershell.exe` flash was the PowerShell *tool* backing process, fixed separately by setting `CLAUDE_CODE_USE_POWERSHELL_TOOL=0` — not by per-call interpreter gymnastics.
 
 The CLI writes ONE memo file into the receiver's repo at `<receiver-repo>/cross-repo/inbox/YYYY-MM-DD-<from>-<topic>.md`, and commits it there itself (see § Delivery commit — a sanctioned small exception, below), rather than leaving it dirty for a receiver-EM to notice organically. The file carries `status: open`. The CLI prints the receiver file path — hand the PM that path for relay to the receiving session.
 
-The act of sending is noted naturally in your workstream-complete notes — no separate sender-side ceremony. The sender's own record is the appended `state/memo-outbox/sent-ledger.jsonl` line (plus, on the lifecycle path, the archived copy under `state/memo-outbox/sent/`).
+The act of sending is noted naturally in your workstream-complete notes — no separate sender-side ceremony. The sender's own record is the appended `.coordinator-local/memo-outbox/sent-ledger.jsonl` line (plus, on the lifecycle path, the archived copy under `.coordinator-local/memo-outbox/sent/`).
 
 **Directionality — the memo goes to the RECIPIENT's inbox, never your own.** `cross-repo/inbox/` in *your* repo is *your* **inbox**: it holds memos addressed TO you. When you send, the CLI writes the memo into the **recipient's** `cross-repo/inbox/` (their inbox), in their repo — not yours. A memo you put in your own `cross-repo/inbox/` sits where the recipient will never look. You never choose the destination by hand; `--to <receiver-em-id>` resolves it. The failure mode this prevents: an EM writing an *outbound* reply into its *own* `cross-repo/inbox/` and the recipient never finding it.
 
@@ -961,7 +960,7 @@ A sibling EM's "wait for my ship signal" sequencing recommendation is a hypothes
 
 ## Sender-side `decision_note` prose about relay status is hypothesis — verify receiver inbox and outbox before believing "relayed/sent"
 
-A memo's `decision_note` field, handoff body, or lessons-entry prose that claims a reply "has been relayed" or "was sent" is written from the sender's perspective at the moment the session authored it. The `cross-repo-memo` CLI removes a draft only on `send`, not on `draft` — so a `decision_note` written after `draft` but before `send` will assert "relayed" while the reply still sits un-sent in `state/memo-outbox/`. A pickup trusting the note would believe the chain was informed when it was not.
+A memo's `decision_note` field, handoff body, or lessons-entry prose that claims a reply "has been relayed" or "was sent" is written from the sender's perspective at the moment the session authored it. The `cross-repo-memo` CLI removes a draft only on `send`, not on `draft` — so a `decision_note` written after `draft` but before `send` will assert "relayed" while the reply still sits un-sent in `.coordinator-local/memo-outbox/`. A pickup trusting the note would believe the chain was informed when it was not.
 
 **The empirical instances:**
 
@@ -971,7 +970,7 @@ A memo's `decision_note` field, handoff body, or lessons-entry prose that claims
 
 **Rule:** sender-side `decision_note` / handoff body / lessons-entry prose about relay status is hypothesis. The authoritative "was it sent?" signal is:
 1. The receiver's inbox — does the file exist at `<receiver-repo>/cross-repo/inbox/<topic>.md`?
-2. An empty `cross-repo-memo list` outbox — does `state/memo-outbox/<topic>.md` exist (draft) or not (sent/discarded)?
+2. An empty `cross-repo-memo list` outbox — does `.coordinator-local/memo-outbox/<topic>.md` exist (draft) or not (sent/discarded)? `list` also reads the retired `state/memo-outbox/`, so a topic it names may be a pre-move draft no send will ever pick up.
 
 ## A cross-repo inheritance or propagation ask needs a worked N-node example, not prose alone
 

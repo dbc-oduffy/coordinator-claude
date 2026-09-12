@@ -166,6 +166,22 @@ A `.sh`/`.ps1` mirror fix applied to ONE leg silently leaves the defect live on 
 
 When adding a paired helper function to both legs of a sh/ps1 mirror, grep BOTH directions: (1) function-exists on each leg AND (2) orchestrator-actually-invokes on each leg. It is routine to define the helper on both legs but forget to wire the call on one leg. Apply: after adding a helper to both legs, grep for the call site on each leg explicitly.
 
+## A guard that sniffs bash short flags misreads every PowerShell flag containing that letter
+
+A command guard matching POSIX short flags by regex — `-[a-zA-Z]*[rR][a-zA-Z]*` for "is this
+recursive" — fires on any flag token containing an `r`. On a PowerShell host that is `-Force`,
+`-Verbose`, `-ErrorAction` and `-WhatIf`, none of which are recursive and one of which is the
+opposite. Measured on the destructive-rm guard, 2026-09-11: `Remove-Item -Force <untracked>` was
+BLOCKED while `rm <untracked>` and `rm <tracked>` were both ALLOWED, because only the shell dialect
+mattered and the tracked-state arm was never reached.
+
+Two things to carry, not one. **A flag matcher is dialect-scoped** — parse PowerShell flags as
+whole words against a named set, never as a bag of letters. And **a guard that blocks for the wrong
+reason teaches the wrong rule**: the blocked user reported "the guard refuses to delete an
+untracked file", which is not what it does, and that explanation travelled to three other sessions
+before anyone measured it. When a guard fires, the reason you infer is a hypothesis. Vary ONE
+variable before repeating it — the reporter here had changed tracked state and shell at once.
+
 ## The regression net — code-reviewer always-on lens
 
 This doctrine is enforced as a **process safety net**, not a hope. The `code-reviewer` (and `code-reviewer-weekly`) agents carry a **Cross-platform portability lens (always-on)** that fires on any diff touching `*.sh` / `bin/*` / `hooks/**` and flags every construct in the table above. macOS being P0, a non-portable construct in a boot-path hook is **P1**; elsewhere **P2**. This is the diff-time backstop; the support matrix is the standard it enforces. Routed through the existing review pass (the portability-guard enforcement layer) rather than a new hook surface.

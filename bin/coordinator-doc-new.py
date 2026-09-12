@@ -519,13 +519,14 @@ def _slug_from_scope(scope: str) -> str:
 
 
 # Session-id segment whitelist — mirrors coordinator_core.subagent_sandbox.provision_report
-# ._sanitize_segment's character set exactly ([A-Za-z0-9._-], reject '', '.', '..' after
-# whitelisting) so a self-scaffolded review-findings sidecar's session directory leaf gets
+# ._sanitize_segment's character set exactly ([A-Za-z0-9._-], each run of anything else
+# collapsed to a single '-' and the result trimmed of leading/trailing '-'; reject '', '.',
+# '..' after whitelisting) so a self-scaffolded review-findings sidecar's session directory leaf gets
 # the identical sanitization discipline as the engine's spawn-time provisioning. Duplicated
 # rather than imported: this CLI is invoked from an arbitrary consumer repo's cwd (the
 # reviewer's own confined Bash call), and must keep working even when claude-klabauter's own
 # package tree is not importable from there — see _resolve_session_id's docstring.
-_SESSION_SEGMENT_WHITELIST_RE = re.compile(r"[^A-Za-z0-9._-]")
+_SESSION_SEGMENT_WHITELIST_RE = re.compile(r"[^A-Za-z0-9._@-]+")  # Review: code-reviewer -- was missing '@', diverging from provision_report._sanitize_segment despite the "exactly" claim above
 _REJECTED_SESSION_SEGMENTS = {"", ".", ".."}
 
 
@@ -582,7 +583,7 @@ def _sanitize_session_segment(seg: str) -> str:
     """Reduce ``seg`` to a single safe path segment for the subagent-share
     session directory leaf, or 'em-unknown' if sanitizing empties it out.
 
-    Whitelists [A-Za-z0-9._-] (dropping '/', '\\', and everything else that
+    Whitelists [A-Za-z0-9._@-] (dropping '/', '\\', and everything else that
     could smuggle a directory separator), then rejects the degenerate
     '.'/'..'/empty results the whitelist alone would let through -- mirrors
     provision_report._sanitize_segment's contract (see module comment above),
@@ -590,7 +591,7 @@ def _sanitize_session_segment(seg: str) -> str:
     scaffolder has no eligibility gate to fail open through: --type
     review-findings always needs a directory to write into.
     """
-    sanitized = _SESSION_SEGMENT_WHITELIST_RE.sub("", seg)
+    sanitized = _SESSION_SEGMENT_WHITELIST_RE.sub("-", seg).strip("-")
     if sanitized in _REJECTED_SESSION_SEGMENTS:
         return "em-unknown"
     return sanitized
@@ -4696,7 +4697,7 @@ def _scaffold_sizing(title: str, deliverable_id: str | None = None) -> str:
         "premise:",
         "  provenance: unrecorded  # executed | read | not-applicable | unrecorded — how the premise was verified; ADVISORY, never blocks a route",
         "  evidence: PLACEHOLDER — cite the file:line, test, or command output you actually looked at; answered in place, never spun into its own record",
-        f"deliverable_id: {_yaml_quote(deliverable_id) if deliverable_id else 'null'}  # durable spine join key, minted at scaffold time — do not hand-edit",
+        f"deliverable_id: {_yaml_quote(deliverable_id) if deliverable_id else 'null'}  # durable spine join key — re-scaffold with --deliverable-id <id> to join an existing baton's, never hand-edit",
     ]
     return "\n".join(lines) + "\n"
 
@@ -5806,7 +5807,8 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
         default=None,
         metavar="ID",
         help=(
-            "(handoff, spinoff, roadmap-baton, plan) Existing deliverable_id to carry "
+            "(handoff, spinoff, roadmap-baton, roadmap-seed, recovery, plan, sizing-object) "
+            "Existing deliverable_id to carry "
             "(never re-mint). When omitted, auto-inherited from the DELIVERABLE_ID env var "
             "(session context); if neither is set, a new id is minted. "
             "Spec: docs/plans/2026-07-03-fleet-deliverable-spine-identity-and-facets.md § D1"
@@ -6340,6 +6342,25 @@ def main(argv: "list[str] | None" = None) -> int:
         )
         return 1
 
+    # A sizing-object is the one scaffold with no useful untitled form: its title
+    # IS the PM's ask, verbatim, and a placeholder one mints a durable record into
+    # `state/sizings/` that says nothing. Measured 2026-09-11 on example-cockpit-repo: a
+    # no-arg invocation, run to discover the interface, wrote one — and the EM could
+    # not clean it up either, because the destructive-rm guard correctly refuses an
+    # untracked file, so the stray outlived the tool that made it. Refused rather
+    # than defaulted; every other type keeps its placeholder, where scaffolding
+    # untitled and filling the title in afterwards is a real workflow.
+    if doc_type == "sizing-object" and not args.title:
+        print(
+            "error: --title is required for --type sizing-object — it carries the "
+            "PM's ask verbatim, and a placeholder one is a durable record that "
+            "says nothing.\n"
+            '  coordinator-doc-new --type sizing-object --title "<the PM ask>" [--out PATH]\n'
+            "  Nothing was written.",
+            file=sys.stderr,
+        )
+        return 1
+
     # Resolve title default.
     title = args.title
     if not title:
@@ -6663,6 +6684,29 @@ def main(argv: "list[str] | None" = None) -> int:
     global _NEW_CHAIN_REQUESTED
     _NEW_CHAIN_REQUESTED = bool(getattr(args, "new_chain", False))
 
+    # Two statements about the same field, in opposite directions: one names the
+    # chain to join, the other says there is none to join. Letting either win
+    # silently is how a spine key nobody chose becomes durable, and the spine key
+    # is the one field a later reader cannot audit -- a false merge diverges from
+    # nothing, so nothing detects it. Refuse and make the author say which.
+    if _NEW_CHAIN_REQUESTED:
+        _contradicting = [
+            flag for flag, value in (
+                ("--deliverable-id", getattr(args, "deliverable_id", None)),
+                ("--predecessor", getattr(args, "predecessor", None)),
+            )
+            if value
+        ]
+        if _contradicting:
+            print(
+                "coordinator-doc-new: --new-chain declares this artifact a chain "
+                "ROOT, and %s names a chain to join. Pass one: drop --new-chain to "
+                "carry that id, or drop %s to root a new chain."
+                % (" and ".join(_contradicting), " and ".join(_contradicting)),
+                file=sys.stderr,
+            )
+            return 1
+
     # Resolve deliverable-spine fields (handoff, spinoff, roadmap-baton, plan) — C3b.
     # Session context inheritance: DELIVERABLE_ID env var is the mechanism by which the
     # skill layer (e.g. /handoff, /plan) propagates the parent deliverable_id so downstream
@@ -6689,7 +6733,17 @@ def main(argv: "list[str] | None" = None) -> int:
         _explicit_dlv_raw = getattr(args, "deliverable_id", None)
         _flag_explicitly_empty = _explicit_dlv_raw is not None and not _explicit_dlv_raw
         _explicit_dlv = _explicit_dlv_raw or None
-        _env_dlv = os.environ.get("DELIVERABLE_ID", "").strip() or None
+        # `--new-chain` suppresses the AMBIENT rungs, of which this is one. The
+        # env var is whatever the session last exported -- a directive from an
+        # earlier baton_assemble, or a peer's -- and an author who has just
+        # asserted that this artifact ROOTS a chain has said the ambient answer
+        # is wrong. Explicit `--deliverable-id` is not ambient and is refused
+        # outright alongside `--new-chain` (see main()'s argument checks), so
+        # this cannot silently drop a deliberate id.
+        _env_dlv = (
+            None if _NEW_CHAIN_REQUESTED
+            else (os.environ.get("DELIVERABLE_ID", "").strip() or None)
+        )
         _carry_dlv = (
             _explicit_dlv if _explicit_dlv
             else (None if _flag_explicitly_empty else _env_dlv)
@@ -6823,7 +6877,30 @@ def main(argv: "list[str] | None" = None) -> int:
             )
 
             _hnd_repo_root = _current_repo_root()
-            _claimed_plan_rel = _resolve_claimed_plan_path(_hnd_repo_root)
+            # DISCOVERED rung, and the one `--new-chain` was missing. The
+            # handoff arm read the plan this session holds a claim on and
+            # carried its deliverable_id, which is right for a baton that
+            # descends from that plan and wrong for every other baton the
+            # session scaffolds beside it. `--new-chain` is the author saying
+            # this is a chain ROOT; the `plan` and sizing arms already honour
+            # it via `_resolve_session_chain_deliverable_id`, and this arm
+            # consulted no such switch at all.
+            #
+            # Measured 2026-09-11 on example-store-repo: a baton about mise-prep
+            # authoring-bar backfill, scaffolded with `--new-chain` and no
+            # predecessor, came out carrying `dlv-ingest-delphi-jira-f26-into-
+            # the-registry-101c06` from the session's claimed plan. Two
+            # unrelated works then read as one chain and the LoE rollup sums
+            # across both, with nothing in the output to suggest a link had
+            # been invented -- "carry path" reads like carrying, not inventing.
+            #
+            # `--predecessor` is deliberately NOT suppressed here: it is named
+            # by the caller, not discovered, and an author who passes both is
+            # refused in main() rather than having one of the two quietly win.
+            _claimed_plan_rel = (
+                None if _NEW_CHAIN_REQUESTED
+                else _resolve_claimed_plan_path(_hnd_repo_root)
+            )
             _claimed_plan_path = (
                 os.path.join(_hnd_repo_root, _claimed_plan_rel)
                 if _claimed_plan_rel and _hnd_repo_root

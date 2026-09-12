@@ -868,6 +868,10 @@ retroactively migrated (consistent with the existing handoff schema no-migration
 chain and carried verbatim by every downstream artifact on that same chain. An artifact carries
 one exactly when it sits on exactly one deliverable chain.
 
+**The plural forms are read too.** `roadmap.plan_gate` scans `deliverable_ids` and `sizing_objects`
+off a baton alongside their singulars, so a record carrying only the plural is resolved, not
+ignored. Write the singular; know the plural resolves when you meet one.
+
 **Umbrella artifacts carry none.** Some artifact classes span many deliverables rather than
 sitting on one chain, and for these an absent `deliverable_id` is the correct value, not a gap —
 at no point in an umbrella record's life does it acquire one. Current members: `goal`

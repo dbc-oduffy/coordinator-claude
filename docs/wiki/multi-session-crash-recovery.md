@@ -2,7 +2,8 @@
 
 > **Purpose:** playbook for reconstructing and recovering many Claude Code sessions killed at once by a
 > host-level event (Windows Terminal crash, unexpected shutdown, bugcheck, OOM). Turns "a dozen sessions
-> just died" into a per-session recovery slate: own-repo recovery handoffs + cross-repo memos to sibling EMs.
+> just died" into a per-session recovery slate: a `kind: recovery` baton committed into each affected
+> repo's own `state/handoffs/` — theirs as well as yours.
 > Dogfooded at scale: 18 sessions across 5 repos, killed by a Windows Terminal AV crash.
 >
 > **When to run:** the PM reports that multiple sessions died simultaneously, or you return to a machine
@@ -114,17 +115,23 @@ see `concurrent-em-hazards.md`.
   Body: crash context, what was in flight, current disk state, NUMBERED successor next-actions, gates. A successor
   must be able to `/pickup` it and resume without re-reading transcripts. Skip a handoff for trivial sessions
   (zero work written — just re-pickup the memo/task).
-- **Sibling repos:** route via claude-klabauter `coordinator/bin/cross-repo-memo` **+ PM relay** (a recovery action on
-  another repo's surface is not a direct write — see `cross-repo-communication.md`). One memo per sibling EM,
-  self-contained: crash context, per-session state, exact next-actions, and pointers to the governing
-  handoffs/plans/SHAs already on *their* disk. Lead with a **dirty-tree preservation / commit-scoping warning** for
-  any repo that has uncommitted work at risk. Hand the PM each receiver inbox path for relay.
-  Invoked per the precedence ladder in `coordinator/snippets/resolve-coordinator-bin.md` — rung 0 /
-  Shape W on a PowerShell host:
-  ```
-  & "$env:COORDINATOR_SETTINGS_HOME\bin\cross-repo-memo.exe" --to <em> --topic crash-recovery --title "…" --kind fyi --body-file <buffer>
-  # (do NOT put the body in %TEMP%/tasks/ — the CLI owns its outbox buffer; --body-file or stdin only)
-  ```
+- **Sibling repos: author the baton into THEIR `state/handoffs/`, and commit it there.** Same
+  `kind: recovery` shape as your own repo's, scaffolded the same way — run `coordinator-doc-new`
+  with the sibling repo as cwd so its own conventions apply. Commit scoped to that one new file:
+  `state/handoffs/<file>`, never `git add -A`, never a peer's dirty hunks, never a sweep of the
+  crash-dirty tree. Nothing else in their tree is touched — not a fix the forensics noticed, not a
+  test, not a config.
+  This is the one named carve-out to `NO_STANDING_XREPO_GRANT`
+  (`docs/decisions/DR-recovery-batons-land-in-the-affected-repo.md`): bounded to a crash occasion, a
+  recovery handoff, and that pathspec. Every other cross-repo commit still needs per-session PM
+  assent.
+  **A memo is not the delivery.** It cannot be `/pickup`'d, carries no `deployment_state`, surfaces
+  in no start ceremony, and waits on a relay while the crash-dirty tree loses its attribution to the
+  next blanket safety commit. Send one only as a courtesy notification, after the baton is committed,
+  and only if the receiving EM is live.
+  Lead every baton for a repo with uncommitted work at risk with a **dirty-tree preservation /
+  commit-scoping warning**, and point at the governing handoffs, plans, and SHAs already on *their*
+  disk.
 
 ### Dirty-tree disposition (own repo)
 

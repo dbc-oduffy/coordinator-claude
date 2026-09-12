@@ -154,22 +154,10 @@ Two classes of coordinator configuration have superficially similar shapes but f
 
 | Class | Examples | Where it belongs | Why |
 |---|---|---|---|
-| **Device-singular operator identity** — values unique to one operator/device | The meta-repo slug (`cockpit.meta_repo_slug`) | `registry.local.toml` (operator-set, gitignored) | These values differ per operator/device; hardcoding them in committed source would personalize what must be a portable, impersonal artifact. Unset → fail loud with remediation. |
+| **Device-singular operator identity** — values unique to one operator/device | A sibling repo's on-disk path (`repos.<slug>`), the publish-mirror root (`publish.mirrors.<key>.path`) | `registry.local.toml` (operator-set, gitignored) | These values differ per operator/device; hardcoding them in committed source would personalize what must be a portable, impersonal artifact. Unset → fail loud with remediation. |
 | **OSS-canonical project constants** — values identical for every operator | The canonical OSS publish destination `dbc-oduffy/coordinator-claude`, `COORDINATOR_PUBLISH_OWNER` | Committed source | These are project constants, not device-singular. Every operator running the coordinator gets the same value. Moving them to `registry.local.toml` would break publish for fresh-install operators who haven't set the key. |
 
 **Cross-reference:** `coordinator/docs/wiki/depersonalize-doctrine.md §Discriminator` for the load-bearing-vocabulary-vs-operator-identity distinction. The OSS-canonical vs. device-singular split is the same discriminator; the terminology maps 1:1.
-
-### Cockpit Registry Keys
-
-A `registry.local.toml` key governs cockpit emission. It is operator-set; unset ⇒ cockpit emit fails loud with a remediation pointing at this section.
-
-| Key | Purpose | Consumer | Provision |
-|---|---|---|---|
-| `cockpit.meta_repo_slug` | The operator meta-repo `owner/repo` slug (e.g. `"myowner/my-meta-repo"`). Feeds `COCKPIT_META_REPO_SLUG`. | the engine repo's `coordinator/bin/emit-cockpit-snapshot.py`, cockpit emit-path | `machine-local set cockpit.meta_repo_slug "owner/slug"` |
-
-**Why these are device-singular.** The operator's GitHub org membership and their choice of meta-repo slug are properties of the operator's identity on their device — they cannot be committed to the coordinator's OSS source without personalizing that source. Every operator running the coordinator will have different values; the registry is the correct store (§ Device-Singular vs. OSS-Canonical Discriminator, §4e of `machine-local-registry.md`).
-
-**Cold-safe resolver contract.** Both keys are resolved through the emit-path cold-safe resolver: if the key is unset (missing from `registry.local.toml`), the resolver exits non-zero with a remediation message that names the `machine-local set` command to run. There is no silent fallback — cockpit emission requires the operator's identity.
 
 ## Adding a New Gated Plugin
 

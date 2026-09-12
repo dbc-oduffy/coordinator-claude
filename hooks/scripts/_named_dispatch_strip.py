@@ -52,14 +52,20 @@ lack it) and left the clause as text drifting independently across ~32
 files. Naming any of these types now strips `name` and proceeds unnamed --
 including most of the former Class 1 -- so a driver that named one of them
 on purpose for teammate messaging loses that route; DR-190 § 2 weighed
-maintenance cost over that use case and accepted the tradeoff. ONE EXCEPTION
-survives the retirement: `/staff-session`'s six debate personas
-(`_STAFF_SESSION_NAMING_CARVE_OUT`) name each other on purpose so the
-synthesizer can address them -- a concrete, tested, currently-exercised
-dependency the ruling's cost analysis did not have in view, discovered
-executing this change. Stripping them would silently break the ceremony
-(an unaddressable teammate), not merely cost a maintenance surface, so they
-stay carved out; see that constant's own docstring.
+maintenance cost over what it recorded as a use case a driver *might* want.
+TWO EXCEPTIONS survive the retirement, both concrete, tested,
+currently-exercised dependencies the ruling's cost analysis did not have in
+view, discovered executing this change and its follow-up:
+`/staff-session`'s six debate personas (`_STAFF_SESSION_NAMING_CARVE_OUT`)
+name each other on purpose so the synthesizer can address them, and the
+nine deep-research teammate types (`_DEEP_RESEARCH_NAMING_CARVE_OUT`) that
+four shipped ceremonies (the repo, web and structured deep-research drivers
+under `pipelines/deep-research/`, plus `/notebooklm-research`) dispatch by
+name so specialists can wake each other
+via `SendMessage`/`ListAgents` -- see docs/plans/2026-09-12-restore-deep-
+research-teammate-naming.md. Stripping either would silently break its
+ceremony (an unaddressable teammate), not merely cost a maintenance
+surface, so both stay carved out; see each constant's own docstring.
 
 Fail-closed for THIS module's own detection failure (not the caller's):
 once `tool_input` is established as a named Explore/Plan dispatch, an
@@ -131,9 +137,15 @@ _RESTRICTED_SUBAGENT_TYPES = ("Explore", "Plan")
 #: afterward and are included here for consistency with the same principle.
 #: The whole tuple is hardcoded rather than derived because this module is
 #: on the PreToolUse path and must not read 25+ files per dispatch.
+#:
+#: COUNTS GO STALE; THE ORACLE DOES NOT. Do not reason from any count
+#: written in prose above. `test_reporting_type_set_matches_the_agent_
+#: definitions` is the live oracle, and a red run of it means this tuple
+#: drifted from `coordinator/agents/*.md`, never that the test is stale.
 _REPORTING_SUBAGENT_TYPES = (
     "coordinator:apm",
     "coordinator:atlas-clarity-reviewer",
+    "coordinator:blitz-em",
     "coordinator:code-reviewer",
     "coordinator:code-reviewer-weekly",
     "coordinator:coverage-auditor",
@@ -143,21 +155,16 @@ _REPORTING_SUBAGENT_TYPES = (
     "coordinator:enricher",
     "coordinator:executor",
     "coordinator:external-pattern-checker",
-    "coordinator:notebooklm-research-scout",
+    "coordinator:falsifier-integrity-reviewer",
     "coordinator:overengineering-reviewer",
+    "coordinator:plan-author",
     "coordinator:parallel-review-synthesizer",
     "coordinator:plan-coverage-checker",
+    "coordinator:premise-checker",
     "coordinator:prior-art-checker",
-    "coordinator:repo-scout",
-    "coordinator:repo-specialist",
-    "coordinator:research-scout",
-    "coordinator:research-specialist",
-    "coordinator:research-sweep",
-    "coordinator:research-synthesizer",
-    "coordinator:research-worker",
     "coordinator:review-integrator",
     "coordinator:security-audit-worker",
-    "coordinator:structured-synthesizer",
+    "coordinator:subtractive-adjudicator",
     "coordinator:test-evidence-parser",
     "coordinator:test-runner",
     "coordinator:workflow-maker",
@@ -184,6 +191,47 @@ _STAFF_SESSION_NAMING_CARVE_OUT = (
     "coordinator:staff-data-sci",
     "coordinator:senior-front-end",
     "coordinator:vp-product",
+)
+
+#: CARVE-OUT, not an oversight. Four shipped deep-research ceremonies
+#: dispatch these nine types BY NAME so their teammates can address each
+#: other and the synthesizer via `SendMessage`/`ListAgents` -- naming is
+#: how the ceremony wakes a blocked peer, not a delivery hazard:
+#:   - `coordinator/pipelines/deep-research/repo-driver.md:277,284,318,351`
+#:     (`coordinator:repo-scout`, `coordinator:research-synthesizer`,
+#:     `coordinator:repo-specialist`)
+#:   - `coordinator/pipelines/deep-research/web-driver.md:121,140,153`
+#:     (`coordinator:research-scout`, `coordinator:research-specialist`,
+#:     `coordinator:research-synthesizer`)
+#:   - `coordinator/pipelines/deep-research/structured-driver.md:188,206,223`
+#:     (`coordinator:research-scout`, `coordinator:research-specialist`,
+#:     `coordinator:structured-synthesizer`)
+#:   - `coordinator/commands/notebooklm-research.md:96-97`
+#:     (`coordinator:notebooklm-research-scout`, `coordinator:research-worker`,
+#:     `coordinator:research-sweep`)
+#: DR-190 § 2 recorded this naming route as a use case a driver *might*
+#: want and did not have these four ceremonies' concrete dependency in
+#: view; restored by docs/plans/2026-09-12-restore-deep-research-teammate-
+#: naming.md. Each agent definition's protocol paragraphs (e.g.
+#: `agents/repo-specialist.md:111`) call addressing a blocked teammate "a
+#: protocol obligation, not a courtesy" -- stripping `name` here would make
+#: that text false, not merely stale.
+#:
+#: NEGATIVE SPEC: membership is earned by a driver dispatching that type BY
+#: NAME, per the census above -- never by taste, and never merged into
+#: `_STAFF_SESSION_NAMING_CARVE_OUT` (a different ceremony's exemption). A
+#: type whose driver stops naming it comes back out of this tuple and into
+#: `_REPORTING_SUBAGENT_TYPES`.
+_DEEP_RESEARCH_NAMING_CARVE_OUT = (
+    "coordinator:repo-scout",
+    "coordinator:repo-specialist",
+    "coordinator:research-scout",
+    "coordinator:research-specialist",
+    "coordinator:research-synthesizer",
+    "coordinator:research-sweep",
+    "coordinator:research-worker",
+    "coordinator:structured-synthesizer",
+    "coordinator:notebooklm-research-scout",
 )
 
 # The complete set of keys this module knows how to carry forward into a

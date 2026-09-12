@@ -162,7 +162,7 @@ Two naming patterns, no others:
 - Examples: `unreal_5.7_runtime`, `unreal_5.7_editor`, `unity_2023_runtime`, `unity_2023_hdrp`
 - `[engine-name]`: lowercase, hyphen-free, matches `applicable_kinds` string (e.g. `unreal`, `unity`, `godot`)
 - `[engine-version]`: dotted semver — use `5.7` not `5_7` or `57`
-- `[band]`: purpose slice — `runtime`, `editor`, `plugin`, `lyra`, `hdrp`, `urp`, etc.
+- `[band]`: purpose slice — `runtime`, `editor`, `plugin`, `example_sample_project`, `hdrp`, `urp`, etc.
 
 **2. Non-engine bindings (universal or content-specific):**
 
@@ -311,7 +311,7 @@ plan `2026-05-17-engine-rag-addon-integration.md §3.1` for implementation).
 | `unreal_5.7_runtime` | `{"provenance_module": "runtime"}` | `["unreal"]` | `"5.7"` | 0.5 |
 | `unreal_5.7_editor` | `{"provenance_module": "editor"}` | `["unreal"]` | `"5.7"` | 0.3 |
 | `unreal_5.7_plugin` | `{"provenance_module": "plugin"}` | `["unreal"]` | `"5.7"` | 0.3 |
-| `unreal_5.7_lyra` | `{"provenance_module": "lyra"}` | `["unreal"]` | `"5.7"` | 0.2 |
+| `unreal_5.7_example_sample_project` | `{"provenance_module": "example_sample_project"}` | `["unreal"]` | `"5.7"` | 0.2 |
 
 **Doctor probe rows:** A-F-3 (entry-point reachable), A-F-4 (corpus present), A-F-6 (schema
 valid), A-F-8 (dead structural-index path retired). Each row conforms to the canonical schema

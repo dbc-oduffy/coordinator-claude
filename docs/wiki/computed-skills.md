@@ -1258,12 +1258,14 @@ wiring was correct — the stale reading came from testing against a session tha
 picked up the current hook definition, not from a real regression. Re-test AC1-style
 auto-fire claims in a fresh session before trusting a negative result.
 
-**Invoking a skill via the Skill tool does NOT fire `UserPromptExpansion`.** The
-`UserPromptExpansion` hook is keyed to the literal user-typed prompt path, not to any
-downstream tool invocation that happens to route through the same skill body. A dispatched
-or programmatic Skill-tool call bypasses the hook entirely — this is not a bug to work
-around but the reason `pickup`'s fallback invocation must go through `pickup/SKILL.md`
-directly (its prose entrypoint) rather than assuming Skill-tool dispatch will trigger the
-same auto-fire machinery as a typed `/coordinator:pickup` prompt.
+**A Skill-tool call bypasses `UserPromptExpansion`, but not the input any more.** That
+hook is keyed to the literal user-typed prompt path, so a dispatched or programmatic
+Skill-tool call still never fires it. `pickup`, `mise-en-place`/`warp-speed-execute`, and
+`handoff` reach their computed inputs on that path anyway: `preuse-skill-dispatch.py`, the
+one `PreToolUse`/`Skill` fan-in, hosts each hook's `compute_context` leg and emits their
+concatenated `additionalContext` before the skill body runs — `group-em-autofire.py`
+excepted, since typing `/group-em` is its gate. `pickup/SKILL.md`'s own fallback
+entrypoint remains the answer when neither path's hook fires at all
+(`AN-AUTOFIRE-HOOK-THAT-DID-NOT-FIRE-IS-SILENT`).
 
 Spec backlink: `2026-07-23-computed-skills-bz-pickup-rebuild-e9a989.md`.

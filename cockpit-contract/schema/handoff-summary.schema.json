@@ -199,7 +199,9 @@
             "coordinator_artifact",
             "transcript_summary",
             "sec_edgar",
-            "code_comparison"
+            "code_comparison",
+            "p4_server",
+            "p4_workspace"
           ]
         },
         "repo": {
@@ -209,20 +211,42 @@
         "ref": {
           "anyOf": [
             {
-              "type": "object",
-              "properties": {
-                "branch": {
-                  "type": "string"
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "branch": {
+                      "type": "string"
+                    },
+                    "sha": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "branch",
+                    "sha"
+                  ],
+                  "additionalProperties": false
                 },
-                "sha": {
-                  "type": "string"
+                {
+                  "type": "object",
+                  "properties": {
+                    "stream": {
+                      "type": "string"
+                    },
+                    "change": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "stream",
+                    "change"
+                  ],
+                  "additionalProperties": false
                 }
-              },
-              "required": [
-                "branch",
-                "sha"
-              ],
-              "additionalProperties": false
+              ]
             },
             {
               "type": "null"
@@ -289,7 +313,9 @@
                 "enum": [
                   "github_graphql",
                   "github_rest",
-                  "git_commit"
+                  "git_commit",
+                  "p4_server",
+                  "p4_workspace"
                 ]
               }
             },
@@ -818,7 +844,7 @@
     "producer"
   ],
   "additionalProperties": false,
-  "version": "4.5.0",
+  "version": "4.7.0",
   "x-baton-class": {
     "description": "kind -> baton_class derivation map. Generated from frontmatter/schemas/handoff.schema.json's own x-baton-class.mapping key, resolved through coordinator_core.frontmatter.baton_class.baton_class() (which also folds in that function's pre-rename kind-alias resolution). One entry per member of this schema's own properties.kind.enum; a null value means baton_class() returns null for that kind (it is not a baton, e.g. 'spike-result'). Do not hand-author a copy of this map — it is generated at emit time from the one canonical source above.",
     "mapping": {

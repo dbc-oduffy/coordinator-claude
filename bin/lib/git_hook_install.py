@@ -1352,14 +1352,16 @@ def _is_coordinator_worktree(root: str) -> bool:
     destinations, not EM working trees — installing a session-attribution hook
     into one would stamp trailers onto release commits that have no session
     behind them. The discriminator is the presence of a coordinator working
-    surface (`CLAUDE.md` or `cross-repo/`), which every EM tree carries and no
+    surface (`CLAUDE.md` or a memo corpus), which every EM tree carries and no
     mirror does; verified against this machine's 15 registered repos, where it
     correctly admits 14 and rejects claude-klabauter alone.
     """
     if not os.path.isdir(os.path.join(root, ".git")):
         return False
-    return os.path.exists(os.path.join(root, "CLAUDE.md")) or os.path.isdir(
-        os.path.join(root, "cross-repo")
+    return (
+        os.path.exists(os.path.join(root, "CLAUDE.md"))
+        or os.path.isdir(os.path.join(root, "state", "cross-repo"))
+        or os.path.isdir(os.path.join(root, "cross-repo"))
     )
 
 

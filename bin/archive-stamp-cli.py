@@ -117,6 +117,13 @@ _SUBCOMMANDS = (
     "supersede-archive-handoff | repair-archived-shipped-in | "
     "repair-archived-deployment-state | correct-handoff-body\n"
     "\n"
+    "NOTE — close-handoff <path> --reason <cancelled|displaced|stale> is the live "
+    "door for retiring a dead baton (handoff.transition verb 'close'). It stamps "
+    "deployment_state: closed, closed_reason, and pickup_ready: false. cancelled = "
+    "deliberate stop; displaced = replaced with NO lineage edge; stale = overtaken "
+    "by events. A successor WITH a lineage edge is supersede-archive-handoff "
+    "--continued-into, which is 'continued', not 'closed'.\n"
+    "\n"
     "NOTE — consume-handoff / unconsume-handoff are accepted as deprecated "
     "aliases of claim-handoff / unclaim-handoff (not advertised above).\n"
     "\n"
@@ -167,7 +174,7 @@ _DEPRECATED_ALIASES = {
 _SUBCOMMAND_USAGE = {
     "stamp-shipped-in": (
         "archive-stamp-cli stamp-shipped-in <handoff_path> "
-        "[--allow-branch-tip-fallback] [--sha <SHA>] [--kind <kind>]"
+        "[--allow-branch-tip-fallback] [--sha <SHA>] [--kind <kind>] [--force]"
     ),
     "ship-handoff": (
         "archive-stamp-cli ship-handoff <handoff_path> [<SHA>] "
@@ -693,8 +700,16 @@ def main(argv: list[str]) -> int:
         # the envelope itself here meant sys.exit(main(...)) received a
         # non-int and exited 1 unconditionally. `.exit_code` mirrors the
         # migration already done at every other call site.
+        # --force, same scan idiom, exposed here because the repair this verb's
+        # name promises needs it: the engine replaces an existing shipped_in only
+        # under force, so without this flag a wrong or half-written stamp had no
+        # reachable repair through the verb that writes it.
         return mod.stamp_shipped_in(
-            rest[0], kind=kind, allow_branch_tip_fallback=allow_fallback, sha=sha
+            rest[0],
+            kind=kind,
+            allow_branch_tip_fallback=allow_fallback,
+            sha=sha,
+            force="--force" in rest[1:],
         ).exit_code
 
     if subcmd == "ship-handoff":
@@ -781,6 +796,28 @@ def main(argv: list[str]) -> int:
     if subcmd in ("action-memo", "resolve-memo"):
         if not rest:
             return _usage(_SUBCOMMAND_USAGE[subcmd])
+        # A second memo path, refused rather than dropped. These verbs take ONE
+        # memo, and the tail forwarded a second one silently: `resolve-memo <a>
+        # <b>` resolved `a`, exited 0, and left `b` open with nothing said
+        # (project-rag-ue-addon, 2026-09-11, following workday-start's own "pass
+        # every routed memo's ID to a single call" instruction — the skill and
+        # this CLI were in direct conflict, and the failure was invisible). Only
+        # the tokens BEFORE the first flag are positional: a free-standing token
+        # later in the tail is some engine flag's value and is forwarded
+        # verbatim, which the prose-sibling walk below depends on.
+        extras: list[str] = []
+        for token in rest[1:]:
+            if token.startswith("-"):
+                break
+            extras.append(token)
+        if extras:
+            print(
+                f"archive-stamp-cli {subcmd}: takes ONE memo, and "
+                f"{', '.join(repr(t) for t in extras)} would be silently ignored "
+                "— re-run once per memo",
+                file=sys.stderr,
+            )
+            return 2
         disposition, err = _resolve_disposition_prose(rest[1:])
         if err is not None:
             print(err, file=sys.stderr)

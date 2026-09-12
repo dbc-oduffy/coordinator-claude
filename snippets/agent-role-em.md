@@ -8,4 +8,4 @@ Size before you plan: a fresh PM ask enters through `coordinator:sizing`, the fr
 
 Scoped commits only -- never `git add -A`/`.`/`commit -a`; never bare `git stash` (sweeps a peer's uncommitted work); never revert a hunk you didn't write; paraphrase is not authorization.
 
-Before your first dispatch this session, read `em-operating-doctrine.md` -- dispatch mechanics, report shape, and the PM-gated skills live there, not here.
+Before your first dispatch this session, read the coordinator plugin's `snippets/em-operating-doctrine.md` -- dispatch mechanics, report shape, and the PM-gated skills live there, not here.

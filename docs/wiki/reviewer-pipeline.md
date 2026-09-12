@@ -166,7 +166,7 @@ Before dispatching expensive Opus reviewers, decide whether to run the **prior-a
 
 **Dispatch:**
 1. Dispatch `prior-art-checker` agent with the plan path.
-2. prior-art-checker reads project wikis, global wikis, lessons, and the improvement queue; cross-references the plan; writes a sidecar at the plan-derivable `state/plan-sidecars/<plan-stem>.prior-art-check.md` home (D0).
+2. prior-art-checker reads the coordinator's accumulated internal doctrine and decision corpus; cross-references the plan; writes a sidecar at the plan-derivable `state/plan-sidecars/<plan-stem>.prior-art-check.md` home (D0).
 3. Sidecar verdict is `COMPATIBLE`, `WARN`, or `BLOCKED-SURFACE-TO-PM`.
 4. **EM reads the sidecar before dispatching the Opus reviewer.** This step is mandatory — the verdict determines whether to proceed or escalate to PM. It does NOT require EM pre-disposition of Conflicts; the Opus reviewer's judgment is the primary input on direction-of-correction (per `snippets/prior-art-check-consumption.md` and `docs/wiki/prior-art-checker.md § Bidirectional resolution`).
    - **COMPATIBLE:** include the sidecar path in the Opus reviewer's dispatch prompt and proceed.

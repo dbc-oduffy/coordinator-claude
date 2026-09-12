@@ -182,9 +182,9 @@ def _compose_no_candidates_message():
     contract, or use the right agent); the three-branch "why" explanation
     relocated to `_WIKI_ANCHOR` -- see this hook's relocation fragment."""
     return compose(
-        "no sidecar named -- name the provisioned "
-        ".coordinator-local/subagent-share/<session>/ path, or dispatch "
-        "coordinator:enricher for plan-body work.",
+        "no path under .coordinator-local/subagent-share/<session>/ named -- name the "
+        "reviewer's provisioned findings sidecar, not a trail report or the plan. Or "
+        "dispatch coordinator:enricher for plan-body work.",
         anchor=_WIKI_ANCHOR,
     )
 

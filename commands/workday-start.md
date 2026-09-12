@@ -128,11 +128,15 @@ Inbound-memo judgment points (`j-memo-*`) — resolve Accept/Decline/Surface-to-
 
 **Route-to-baton default:** any memo/finding/triage item inside an active handoff's scope gets a
 routing note appended (`## Routed from inbox triage (<date>)`) and committed with pathspec, as a
-matter of course, then closed. Batch closures: pass every routed memo's ID to a single
-`archive-stamp-cli resolve-memo <memo1> <memo2> ... --decision accepted --decision-note "routed
-into <baton>" --realized-by "<baton>" --in-repo-capture "<baton>"` call rather than one process per
-memo, when `archive-stamp-cli` accepts a list; fall back to one call per distinct baton (not per
-memo) otherwise. Stays open: capture didn't land, or an unanswered PM question.
+matter of course, then closed. **One call per memo** — `resolve-memo` and `action-memo` each take
+exactly one memo and refuse a second:
+
+    archive-stamp-cli resolve-memo <memo> --decision accepted \
+      --decision-note "routed into <baton>" --realized-by "<baton>" --in-repo-capture "<baton>"
+
+A list is refused with exit 2 naming the extras — and on an engine older than that refusal, it
+silently resolves the first and exits 0, reporting success over memos it never touched. One call
+per memo is correct against both. Stays open: capture didn't land, or an unanswered PM question.
 
 `workday-start-cross-repo-memo-outbox-surface` runs only when `cross-repo/outbox/**` is non-empty
 (glob-count precondition, no process cost to check) — outbox drafts awaiting send.
@@ -411,6 +415,12 @@ suggestion in the batch, not one process per suggestion — accept a list if the
 else the smallest number of calls that covers all suggestions grouped by shared metadata. A batch
 of suggestions is multi-line prose: it goes through `--text-file`, never inline `--text`, which
 refuses a newline rather than landing a one-line event.
+
+**Deliberately wire-only, no `state/goals/*.yaml` scaffold.** This event is daily telemetry — a
+same-day snapshot of what the EM surfaced, not a ratified goal with KRs a close-out ceremony needs
+to target. Goal artifacts on disk are for the goal-setting ceremony's weekly/quarterly OKRs
+(`coordinator/skills/goal-setting/SKILL.md`); scaffolding one per day would be per-day churn with
+no ceremony that ever reads it back.
 
 **Marker:** `d-workday-marker-write` (Step -0.9) — write `state/.workday-start-marker` once
 complete; `/workstream-start` checks this file.

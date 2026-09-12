@@ -243,21 +243,30 @@ def _write_pathspec_file(paths: list) -> str:
     return pathspec_path
 
 
-def _tracked_paths(repo_root: str, rel_paths: list, *, under: str) -> set:
+def _tracked_paths(repo_root: str, rel_paths: list, *, under) -> set:
     """Batched tracked-check: one `git ls-files` spawn scoped to `under`
-    (the whole reap subtree) instead of one `--error-unmatch` probe per
+    (the reap subtrees) instead of one `--error-unmatch` probe per
     file. `git ls-files` has no `--pathspec-from-file` support (verified
     live — `error: unknown option`, unlike `git rm`/`git commit`), so an
     argv-list `-- <paths>` would still hit the ~32KB Windows `CreateProcess`
     ceiling at reap-population scale (§ `_write_pathspec_file`). Naming the
-    single directory instead keeps this to one fixed-size spawn regardless
-    of candidate count — every path this script ever reaps lives under
-    `under` by construction (it is one `share_dir`, relative to `repo_root`).
+    directories instead keeps this to one fixed-size spawn regardless
+    of candidate count — every path this script ever reaps lives under one
+    of them by construction (each is a `share_dir`, relative to `repo_root`).
 
-    `under` is keyword-only and has NO default. It previously defaulted to
-    `"state/subagent-share"`, which became wrong the moment a second root
-    existed and would have silently classified every candidate as untracked.
-    A caller must say which root it is asking about.
+    `under` is keyword-only, has NO default, and takes the WHOLE root set:
+    `git ls-files` accepts many pathspecs in one invocation, so N roots cost
+    one spawn, not N. It previously defaulted to `"state/subagent-share"`,
+    which became wrong the moment a second root existed and would have
+    silently classified every candidate as untracked. A caller must say
+    which roots it is asking about, and asking about them separately buys
+    nothing: the result is a union either way.
+
+    NEGATIVE-SPEC: a spawn failure returns the empty set for ALL roots, not
+    just the one that failed. `ls-files` exits zero on a pathspec matching
+    nothing, so the only way to reach that branch is a failure that would
+    have failed every root anyway; the degradation direction is unchanged
+    (an unclassifiable path is reaped by plain `rm`, never `git rm`).
 
     `git ls-files` always echoes matches in POSIX (forward-slash) form even
     when fed a backslash-separated pathspec on Windows — a raw string
@@ -268,8 +277,11 @@ def _tracked_paths(repo_root: str, rel_paths: list, *, under: str) -> set:
     if not rel_paths:
         return set()
     _bootstrap_imports()
+    roots = [under] if isinstance(under, str) else list(under)
+    if not roots:
+        return set()
     result = subprocess.run(
-        ["git", "ls-files", "--", _Path(under).as_posix()],
+        ["git", "ls-files", "--", *(_Path(root).as_posix() for root in roots)],
         cwd=repo_root, capture_output=True, text=True, check=False, **no_console_creationflags(),
     )
     if result.returncode != 0:
@@ -382,14 +394,15 @@ def main(argv: Optional[list] = None) -> int:
         return 0
 
     rel_by_file = {f: os.path.relpath(f, repo_root) for f in to_reap}
-    # One scoped spawn per root rather than one unscoped walk: `_tracked_paths`
-    # narrows `git ls-files` to a single directory precisely to stay at fixed
-    # spawn cost, and a check scoped to one root classifies nothing in the other.
-    tracked_rels: set = set()
-    for share_dir in share_dirs:
-        tracked_rels |= _tracked_paths(
-            repo_root, list(rel_by_file.values()), under=os.path.relpath(share_dir, repo_root)
-        )
+    # ONE scoped spawn for every root rather than one unscoped walk or one
+    # spawn per root: `_tracked_paths` narrows `git ls-files` to the named
+    # directories precisely to stay at fixed spawn cost, and `ls-files` takes
+    # as many pathspecs as it is given.
+    tracked_rels: set = _tracked_paths(
+        repo_root,
+        list(rel_by_file.values()),
+        under=[os.path.relpath(share_dir, repo_root) for share_dir in share_dirs],
+    )
     tracked_to_reap = []
     untracked_to_reap = []
     for f in to_reap:

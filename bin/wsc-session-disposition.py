@@ -1316,8 +1316,11 @@ def find_memo_predecessor(repo_root: Path, sid: str, diagnostics: list[str]) -> 
     Returns the matched memo's repo-relative path, or `None` if the leg did
     not fire or nothing matched."""
     candidates: list[tuple[Path, str, "datetime"]] = []
+    corpus_root = repo_root / "state" / "cross-repo"
+    if not corpus_root.is_dir():
+        corpus_root = repo_root / "cross-repo"
     for dirname in ("inbox", "archive"):
-        memo_dir = repo_root / "cross-repo" / dirname
+        memo_dir = corpus_root / dirname
         if not memo_dir.is_dir():
             continue
         for f in memo_dir.glob("*.md"):

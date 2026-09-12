@@ -104,7 +104,10 @@ Known limitations (v2) -- string-literal-aware as of the 2026-07-21 fix:
     and only counts a `model:` found INSIDE that call's own arguments, at
     brace depth == 1 relative to the call's own top-level paren depth
     (i.e. a direct key of the options object passed to agent(), not
-    nested one level deeper inside a schema/meta/opts sub-object).
+    nested one level deeper inside a schema/meta/opts sub-object). An
+    options object passed through a helper call after the prompt argument
+    (`agent(p, withRole(r, { model: 'opus' }))`) counts the same way: a
+    direct key of an object literal at brace depth 1 in its own paren frame.
   - Residual limitation: this is a string-aware depth-counting pass, not
     a full JS parser. It does not model JS regex literals (`/.../`) as a
     distinct token class -- a `/` that is genuinely a regex delimiter
@@ -386,6 +389,12 @@ def _walk_agent_calls(buf: str, mask: "bytearray") -> "list[tuple[bool, str | No
 
         depth = 0
         brace_depth = 0
+        # Brace depth per paren frame, and whether the prompt argument is behind us. An options
+        # object handed through a helper -- `agent(prompt, withRole(r, { model: 'opus' }))` --
+        # carries its `model:` as a direct key one paren frame deeper; crediting only frame 1
+        # denied every plan-blitz fire that pins a model on each call.
+        frame_braces = {1: 0}
+        past_prompt = False
         j = paren_open
         close_idx = -1
         has_direct_model = False
@@ -397,17 +406,37 @@ def _walk_agent_calls(buf: str, mask: "bytearray") -> "list[tuple[bool, str | No
             ch = buf[j]
             if ch == "(":
                 depth += 1
+                frame_braces[depth] = 0
             elif ch == ")":
                 depth -= 1
                 if depth == 0:
                     close_idx = j
                     break
             elif ch == "{":
+                frame_braces[depth] = frame_braces.get(depth, 0) + 1
                 if depth == 1:
                     brace_depth += 1
             elif ch == "}":
+                frame_braces[depth] = frame_braces.get(depth, 0) - 1
                 if depth == 1:
                     brace_depth -= 1
+            elif ch == "," and depth == 1 and brace_depth == 0:
+                past_prompt = True
+            elif (
+                ch == "m"
+                and depth >= 2
+                and past_prompt
+                and frame_braces.get(depth) == 1
+                and buf[j:j + 6] == "model:"
+                and not any(mask[j:j + 6])
+                and not (j > 0 and not mask[j - 1] and buf[j - 1] in _IDENTIFIER_CHARS)
+            ):
+                value = _extract_model_value(buf, mask, j + 6, n)
+                masked_value = "".join(
+                    ch2 if not mask[j + 6 + idx] else " " for idx, ch2 in enumerate(value)
+                )
+                if not _UNDEFINED_NULL_RE.search(masked_value):
+                    has_direct_model = True
             elif ch == "m" and depth == 1 and brace_depth == 1:
                 # Review: code-reviewer -- Finding 2: identifier-boundary guard,
                 # symmetric with the `agent(` match above (line 277), so a key

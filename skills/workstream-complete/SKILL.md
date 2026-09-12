@@ -130,6 +130,11 @@ object whose keys are *either* a `judgment_point_id` (value `{"disposition": "<v
 build a doctrine gate beside these; report the incomplete and resolve the leg. Tripwire:
 `AN-HONEST-INCOMPLETE-DOES-NOT-EARN-THE-WRAP-OFFER`.
 
+**A stamp line can carry a failed archival move.** The sweep reports `status draft -> implemented`
+and `N of M moves failed` together, so a reader who stops at the stamp leaves the plan's
+`.workflow.mjs` / `.emitted.json` sidecars orphaned in `docs/plans/` while the plan sits in
+`archive/specs/`. Read the whole line and move any remainder.
+
 `apply` prints diagnostics on every non-zero exit — read them, don't memorize codes. Exit `2` (`DIRECTIVE_FAILED`) means nothing landed; exit `4` (`PARTIAL_MUTATION`) means some landed and some failed. A client-side timeout is not a failure signal. In every case reconcile against actual commit state before re-running.
 
 Push runs on a cadence, not on this commit. `push_status: "cadence-pending"` is success — nothing is in flight and nothing needs re-checking; the branch publishes at the next named checkpoint (`/pickup`, `/quick-wrap`, `/workday-start`, the workday/workweek close ceremonies). `push_status: "pushed"` is equally success; `"deferred"` still reads as success where an older engine emits it, and there alone the confirm-via-`git branch -r --contains <sha>` guidance applies. Never `git push` to "fix" an apparent delay. Confirm the canonical string against `commit_pipeline.py`'s `PUSH_STATUS_*` block if it looks unfamiliar.

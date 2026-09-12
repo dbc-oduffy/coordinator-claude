@@ -142,7 +142,10 @@ __all__ = [
 #: DO NOT REATTACH THIS TO A `permissionDecision`. A successor reading a deny storm and reaching
 #: for the "safe default" is exactly the misunderstanding DR-402 names -- see the module
 #: docstring's ladder.
-DENY_REASON = "http-hook-forwarder: no live engine backend reachable"
+DENY_REASON = (
+    "http-hook-forwarder: no live engine backend reachable. Retrying does not start a "
+    "backend sooner. Wait for a call to succeed; do not probe."
+)
 
 #: Reason text for the OTHER case this module must author a decision for: a backend that was
 #: reached and answered, but answered with a transport-level refusal rather than a verdict.

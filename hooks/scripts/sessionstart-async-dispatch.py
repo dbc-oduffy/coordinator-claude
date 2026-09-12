@@ -136,6 +136,16 @@ REGISTRY: Tuple[StartGuard, ...] = (
     StartGuard("sessionstart_ensure_http_forwarder",
                "sessionstart-ensure-http-forwarder.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
+    # PLUGIN-ROOT BREADCRUMB -- see `session-start-write-plugin-root-breadcrumb.py`'s own
+    # module docstring for what this is and why it exists.
+    #
+    # All five sources. The breadcrumb is a property of the BOX, not of a particular boot,
+    # so the session that finds it absent or pointing at another checkout is whichever one
+    # starts next -- narrowing the set would leave a box whose resume/fork sessions render
+    # default rows forever. A healthy box pays one small read and returns.
+    StartGuard("session_start_write_plugin_root_breadcrumb",
+               "session-start-write-plugin-root-breadcrumb.py",
+               frozenset({"startup", "resume", "clear", "compact", "fork"})),
 )
 
 
