@@ -1,5 +1,9 @@
-"""UserPromptExpansion auto-fire hook for the wide run's run-id minting
-(naked Python, no bash) -- the mise-side twin of `pickup-autofire.py`.
+"""Auto-fire hook for the wide run's run-id minting (naked Python, no bash)
+-- the mise-side twin of `pickup-autofire.py`. Fires on either entry path a
+mise-en-place-shaped invocation reaches this hook by: a typed
+`UserPromptExpansion` (today's `/mise-en-place` slash command) or a
+model-invoked `PreToolUse` call on the `Skill` tool naming the same verb --
+see `_skill_invocation.py`, this module's shared payload adapter.
 
 Purpose: when the EM types `/mise-en-place` or `/warp-speed-execute` (the two
 verbs naming one ceremony -- see `_MISE_COMMAND_NAMES`), this hook fires
@@ -28,13 +32,17 @@ blocks on one prompt is the expected shape, not a double-fire bug -- neither
 hook reads or writes what the other computes.
 
 Contract (mirrors `pickup-autofire.py`):
-  stdin   -- UserPromptExpansion JSON (command_name, command_args,
-             command_source, cwd, expansion_type, session_id, prompt_id, ...)
-  stdout  -- one `hookSpecificOutput` JSON envelope with `additionalContext`
-             when a mise-en-place verb was matched and a mint+brief pair
-             could be computed; NOTHING otherwise (silent pass -- an
-             unrelated command, or a total transport failure, produces no
-             output)
+  stdin   -- either a `UserPromptExpansion` payload (command_name,
+             command_args, command_source, cwd, expansion_type, session_id,
+             prompt_id, ...) or a `PreToolUse` payload with
+             `tool_name == "Skill"`; `_skill_invocation.read_invocation`
+             adapts both to one shape.
+  stdout  -- one `hookSpecificOutput` JSON envelope with `additionalContext`,
+             `hookEventName` set to whichever event fired, when a
+             mise-en-place verb was matched and a mint+brief pair could be
+             computed; NOTHING otherwise (silent pass -- an unrelated
+             command, an unrecognized payload, or a total transport
+             failure, produces no output)
   exit 0  -- always. This hook is advisory only and never blocks the EM's
              own prompt.
 
@@ -116,21 +124,6 @@ _BRIEF_TIMEOUT_SECONDS = 12
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
-def _normalize_command_name(name: str | None) -> str:
-    """Normalize a raw `command_name` payload value to its bare verb.
-
-    Identical shape to `pickup-autofire.py::_normalize_command_name` --
-    strips any `<namespace>:` prefix by taking the segment after the LAST
-    `:`, so both the namespaced plugin-slash-command shape
-    (`"coordinator:mise-en-place"`) and a bare typed/projectSettings verb
-    normalize to the same string before the membership test. Returns `""`
-    for `None`/non-`str` input.
-    """
-    if not isinstance(name, str):
-        return ""
-    return name.rsplit(":", 1)[-1]
-
-
 # --- COORDINATOR_SETTINGS_HOME resolution (mirrors pickup-autofire.py) ------
 
 
@@ -171,6 +164,13 @@ except Exception:
         # Review: overengineering-reviewer F3 -- see _forwarder_resolve's
         # "Import-fallback contract" docstring section for the rationale.
         raise OSError("forwarder resolution unavailable -- import fallback declined to guess a launch decision")
+
+# No defensive `except ImportError` fallback here -- per _skill_invocation's
+# own docstring, every consumer of that module lives in this same directory,
+# so a deploy missing it is a deploy error to surface, not a shape to
+# degrade past.
+from _skill_invocation import context_envelope as _context_envelope
+from _skill_invocation import read_invocation as _read_invocation
 
 
 def resolve_backlog_grind_assemble_bin(settings_home: Path) -> Path | None:
@@ -312,41 +312,50 @@ def render_additional_context(run_id: str, inventory_path: str, brief: dict) -> 
 # --- Entry point --------------------------------------------------------------
 
 
-def main(stdin_text: str | None = None) -> int:
-    try:
-        raw = stdin_text if stdin_text is not None else sys.stdin.read()
-    except Exception:
-        return 0  # fail-open -- stdin unreadable
+def compute_context(stdin_text: str) -> str | None:
+    """Compute the bare `additionalContext` prose for a single invocation,
+    or `None` when nothing should be emitted (a non-matching verb, or any
+    fail-open step along the mint/brief chain).
 
+    Reads either entry path via `_skill_invocation.read_invocation` --
+    today's typed `UserPromptExpansion` payload, or a model-invoked
+    `PreToolUse(Skill)` call naming one of `_MISE_COMMAND_NAMES`. `main()`
+    wraps the return value with the `hookSpecificOutput` envelope on its own
+    typed path. No subagent guard: `mint-run-id` and `brief` are both
+    read-only engine-side, so a Skill-tool call from inside a dispatched
+    subagent mints and briefs exactly like the EM's own turn.
+    """
     try:
-        payload = json.loads(raw) if raw else {}
+        payload = json.loads(stdin_text) if stdin_text else {}
         if not isinstance(payload, dict):
             payload = {}
     except Exception:
         payload = {}
 
-    command_name = _normalize_command_name(payload.get("command_name"))
-    if command_name not in _MISE_COMMAND_NAMES:
-        return 0  # not a wide-run invocation -- silent pass
+    inv = _read_invocation(payload)
+    if inv is None:
+        return None  # neither entry shape -- silent pass
+    if inv.command_name not in _MISE_COMMAND_NAMES:
+        return None  # not a wide-run invocation -- silent pass
 
     settings_home = resolve_settings_home()
     script_path = resolve_backlog_grind_assemble_bin(settings_home)
     if script_path is None:
-        return 0  # transport failure -- CLI unresolvable, fail open
+        return None  # transport failure -- CLI unresolvable, fail open
 
     try:
         mint_result = _run_backlog_grind_assemble(
             script_path, ["mint-run-id", _CADENCE], _MINT_TIMEOUT_SECONDS
         )
     except _TransportFailure:
-        return 0
+        return None
 
     if mint_result.returncode != 0:
-        return 0  # e.g. unclaimed cadence -- fail open, EM mints by hand
+        return None  # e.g. unclaimed cadence -- fail open, EM mints by hand
 
     minted = decode_mint_payload(mint_result.stdout)
     if minted is None:
-        return 0  # malformed mint output -- fail open
+        return None  # malformed mint output -- fail open
 
     run_id = minted["run_id"]
     inventory_path = minted["inventory_path"]
@@ -358,30 +367,37 @@ def main(stdin_text: str | None = None) -> int:
             _BRIEF_TIMEOUT_SECONDS,
         )
     except _TransportFailure:
-        return 0
+        return None
 
     if brief_result.returncode != 0:
-        return 0  # fail open -- brief could not be computed for this id
+        return None  # fail open -- brief could not be computed for this id
 
     brief = decode_brief_payload(brief_result.stdout)
     if brief is None:
-        return 0  # malformed brief output -- fail open
+        return None  # malformed brief output -- fail open
 
     additional_context = render_additional_context(run_id, inventory_path, brief)
     if not additional_context:
+        return None
+
+    return additional_context
+
+
+def main(stdin_text: str | None = None) -> int:
+    """Thin printer around `compute_context` on the UserPromptExpansion
+    path: read stdin, compute, wrap with `context_envelope`, print if not
+    `None`."""
+    try:
+        raw = stdin_text if stdin_text is not None else sys.stdin.read()
+    except Exception:
+        return 0  # fail-open -- stdin unreadable
+
+    additional_context = compute_context(raw)
+    if additional_context is None:
         return 0
 
     try:
-        print(
-            json.dumps(
-                {
-                    "hookSpecificOutput": {
-                        "hookEventName": "UserPromptExpansion",
-                        "additionalContext": additional_context,
-                    }
-                }
-            )
-        )
+        print(_context_envelope("UserPromptExpansion", additional_context))
     except OSError:
         pass
     return 0

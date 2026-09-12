@@ -71,6 +71,10 @@ Own line, never inside the achieved/missed counts. Tripwire:
 directory/artifacts") is unknown, not clean — surface it as such, never as "no never-assessed
 goals."
 
+For each never-assessed goal, render per-KR status plus evidence candidates via
+`python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/goal-kr-evidence.py" --json`.
+Own line, never folded into the achieved/missed counts — same tripwire above still governs.
+
 **PM gate:** _"Does this summary match your recollection? Proceed?"_
 
 ---
@@ -351,26 +355,38 @@ pushes. Run `workweek-complete-close archive --version vX.Y.Z --merge-sha <merge
 skipped. Compare block dates in `state/week-changelog/` against HEADER's `**Week starting:**`;
 mismatch means multi-week — use `archive --week-only`, one run per week (pair with
 `--move-priorities` on the fragment-owning week only; out-of-window blocks stay in place;
-`.weekly-reviewer-scopes-*.json` shards are skipped not deleted and accrue).
+`.weekly-reviewer-scopes-*.json` shards are skipped not deleted and accrue). Under
+`--week-only`, the `HEADER.md` rewrite is conditional on `derive_week_start(HEADER.md) ==
+week_starting` — inert at a genuine live boundary but silently skipped if HEADER still carries
+the "(not yet set …)" sentinel; treat that as known behavior, not something this step branches
+on. Open item carried forward, not settled here: whether a detected skipped week should warn,
+block, or proceed with `--week-only` and leave the orphan for a later run — a PM-facing
+direction-class question, not resolved by this step's prose.
 
 **Negative spec:** the daily matcher `^\d{4}-\d{2}-\d{2}.*\.md$` also matches
 `YYYY-MM-DD-pending-release.md` (Step 12's live editorial corpus) — an unbounded sweep archives
-it and the next release draft finds nothing. Check the dated-file list for non-daily entries
+it and the next release draft finds nothing; concretely, `state/week-changelog/2026-07-20-pending-release.md`
+is the live accumulator this matches today. Check the dated-file list for non-daily entries
 first.
 
 Tail: opt-in `workweek_complete_post_command:` hook (advisory, non-blocking); cadence emission
 at completion (best-effort).
 
 **Push checkpoint — `push.outstanding`.** Push runs on a cadence, not on every commit, and this
-is one of its named checkpoints. Once the commit has landed, call the primitive once and block on
-it (synchronous — no detach or background wrapper; a no-op returns in ms, but a real push blocks for seconds, p50 ~2s and p90 ~13s under fleet load, so do not read a long block as a hang):
+is one of its named checkpoints — a backstop, not the durability mechanism: the per-commit
+auto-push hook already lands every commit on the shared branch as it happens, so this checkpoint
+exists only to catch anything the hook missed. Fire the primitive and move on — do not block on
+it, detach it, or wrap it: it is not a synchronous EM-watched step and a failed or slow call here
+is not an EM concern; the branch-gate refusal, the protected-branch policy, the retry ladder, and
+the LFS-range predicate all belong to the op, never to a hand-rolled `git push` waiting beside it.
+If the reconcile read to confirm the call landed comes back empty, don't treat that as proof it
+didn't — a fast read can itself lose the race against the write; wait, then read again before
+concluding.
 
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" push.outstanding '{}' --repo "<repo-root>"`
 
 Shape W above (PowerShell host); Shape A/B on a POSIX host — `snippets/resolve-coordinator-bin.md`.
-`skipped: push:nothing-outstanding` is the ordinary no-op result, not a failure. The op owns the
-branch-gate refusal, the protected-branch policy, the retry ladder, and the LFS-range predicate —
-never hand-roll a `git push` beside it.
+`skipped: push:nothing-outstanding` is the ordinary no-op result, not a failure.
 
 **Maintenance checkpoint — `git.maintenance` weekly tier.** Advisory, non-zero reported, ceremony
 continues:

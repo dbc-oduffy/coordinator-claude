@@ -289,8 +289,11 @@ Executors own their tracker updates (status, commit hashes). The coordinator's r
 **5.2: Canonical tracker sweep verification**
 For each completed stub, grep its codename across canonical trackers to confirm the executor ran its sweep:
 ```bash
+ls tasks/*/todo.md docs/roadmap.md ROADMAP.md 2>/dev/null   # the trackers this sweep reads
 grep -in "<codename>" tasks/*/todo.md docs/roadmap.md ROADMAP.md 2>/dev/null
 ```
+- Report the tracker list beside the result. Zero trackers is NOT-APPLICABLE, stated as such: an
+  empty grep over no files prints the same nothing as a clean sweep.
 - If a canonical tracker still shows the item as pending/unchecked despite the executor reporting DONE, fix it now
 - This is the coordinator's backstop for the executor's sweep. If executors did their job, this is a no-op. If they didn't, it catches the drift.
 

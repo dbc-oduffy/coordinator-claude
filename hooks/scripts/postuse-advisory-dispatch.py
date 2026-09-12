@@ -72,6 +72,16 @@ merely carried for input-declaration parity):
                                                nudge_unauthorized_handoff advisory
                                                only; same tool_name == "Write" gate
                                                as file_path above)
+    tool_response    <- stdin["tool_response"]            (workflow-monitor
+                                               arming advisory only; gates on
+                                               tool_name == "Workflow". Carries the
+                                               launch handle -- run id and task id --
+                                               so the advisory can key on the
+                                               invocation it is firing on instead of
+                                               the last `async_launched` record in the
+                                               transcript tail, which names a SIBLING
+                                               fire whenever launches are concurrent.
+                                               Omitted, not "", on every other tool)
 Missing/absent stdin keys map to "" -- mcp_tool's own "undeclared -> empty
 string" convention; _payload.field() already treats "" as ABSENT, so an
 absent key here is indistinguishable from one mcp_tool would have dropped.
@@ -245,6 +255,22 @@ def main() -> int:
     if tool_name == "Write":
         params["file_path"] = tool_input.get("file_path", "")
         params["content"] = tool_input.get("content", "")
+
+    # Same transport-seam gate, one tool over: the workflow-monitor arming
+    # advisory needs the identifiers of the launch it is firing on, and
+    # nothing else in this dispatcher's fan-in reads them. Without this the
+    # engine-side check can only scan the transcript tail and keep the last
+    # `async_launched` record it finds, which is correct for a lone launch and
+    # wrong for every concurrent one -- it renders a paste-ready watch command
+    # carrying a SIBLING fire's task id, and the reader holding the real tool
+    # result is the only party who could have noticed. Concurrent fires are the
+    # shape plan-blitz mandates, so that is the ordinary case, not the edge.
+    # The response is a small handle object, not a file body, so the seam
+    # argument that gates file_path/content above does not bite here.
+    if tool_name == "Workflow":
+        tool_response = payload.get("tool_response")
+        if isinstance(tool_response, dict):
+            params["tool_response"] = tool_response
 
     # scope "none" (coordinator_core/ipc.py _OP_KEY_SCOPE) -- no
     # _origin_worktree required for this op; it accesses no repo-specific

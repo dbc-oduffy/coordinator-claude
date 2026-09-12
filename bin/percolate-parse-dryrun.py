@@ -18,6 +18,11 @@ reported >=1 real inverse-drift commit).
 Subcommand:
   parse-dryrun --stdout-file <path> --source-dir <path>
                [--medium-leak-count N] [--inverse-drift-count N]
+               [--changes-file <path>]
+      With `--changes-file` (see `_read_changes_file`), the Step 2/2b fields
+      and the Step-3 predicate's deletion / file-count / sensitive-path
+      inputs come from that file, not from stdout; the Step 2c scan list is
+      still built from stdout.
       Reads the captured `publish --dry-run <target>` stdout from
       <stdout-file>, computes every field above, and prints the 8-key
       decision-object envelope (build_envelope/emit) as JSON. The Step-3
@@ -83,7 +88,8 @@ _SENSITIVE_MARKERS = ("CLAUDE.md", "settings.json", "hooks/", "agents/")
 _GATE_FILE_COUNT_THRESHOLD = 10
 
 _UPDATE_OR_NEW = re.compile(r"^(?:UPDATE|NEW): (?P<path>.+)$")
-_DELETING = re.compile(r"\b(deleting|del\.)\b")
+#: The deletion token `publish_sync.py :: sync_mirror` prints (`REMOVE: <path> (not in source)`).
+_DELETING = re.compile(r"^\s*REMOVE: ")
 
 
 def _touched_paths(stdout_text: str) -> List[str]:
@@ -99,6 +105,31 @@ def _touched_paths(stdout_text: str) -> List[str]:
 
 def _has_deletions(stdout_text: str) -> bool:
     return any(_DELETING.search(line) for line in stdout_text.splitlines())
+
+
+def _read_changes_file(path: Path) -> "tuple[List[str], List[str]]":
+    """`(changed, removed)` from a `--changes-file`: one `<TAG>\\t<path>` line
+    per change, `TAG` being `REMOVE` for a removal and anything else for an
+    add/update -- the round writes it from the `RoundManifest` its real run
+    persisted, i.e. repo-relative paths, each counted once.
+
+    WHY THE GATE READS THIS AND NOT STDOUT. A real run's stdout carries far
+    more `UPDATE:`/`NEW:` lines than files it changed: every staged row's sync
+    dispatch prints its pre-transform comparison, which mismatches by
+    construction on any transformed file (§ `publish.py ::
+    _report_published_diff`), and each row prints its own report again, so a
+    file two rows touch counts twice. Measured at claude-klabauter 2026-09-11:
+    2464 lines for a round whose manifest named 105 paths, so "files touched"
+    fired on noise and the sensitive-path and deletion checks read phantom
+    lines too."""
+    changed: List[str] = []
+    removed: List[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        tag, sep, rel = line.partition("\t")
+        if not sep or not rel:
+            continue
+        (removed if tag == "REMOVE" else changed).append(rel)
+    return changed, removed
 
 
 def _sensitive_hits(paths: List[str]) -> List[str]:
@@ -231,18 +262,31 @@ def _cmd_parse_dryrun(args: argparse.Namespace) -> int:
         return int(PercolateParseExitCode.TRANSPORT_FAIL)
 
     paths = _touched_paths(stdout_text)
-    has_deletions = _has_deletions(stdout_text)
-    sensitive = _sensitive_hits(paths)
+    if args.changes_file:
+        try:
+            changed, removed = _read_changes_file(Path(args.changes_file))
+        except OSError as exc:
+            print(
+                f"percolate-parse-dryrun: cannot read {args.changes_file}: {exc}",
+                file=sys.stderr,
+            )
+            return int(PercolateParseExitCode.TRANSPORT_FAIL)
+        gate_paths = changed + removed
+        has_deletions = bool(removed)
+    else:
+        gate_paths = paths
+        has_deletions = _has_deletions(stdout_text)
+    sensitive = _sensitive_hits(gate_paths)
     ignore_missing = _ignore_missing(stdout_text)
 
     preflight: dict[str, Any] = {
         "step2_has_deletions": has_deletions,
-        "step2_file_count": len(paths),
+        "step2_file_count": len(gate_paths),
         "step2_sensitive_paths": sensitive,
         "step2_percolate_ignore_missing": ignore_missing,
         "step2b_impact_radius": {
-            "top_directories": _top_dirs(paths),
-            "file_types": _file_types(paths),
+            "top_directories": _top_dirs(gate_paths),
+            "file_types": _file_types(gate_paths),
             "sensitive_paths": sensitive,
         },
         "step2c_scan_file_list": _scan_file_list(source_dir, paths),
@@ -250,7 +294,7 @@ def _cmd_parse_dryrun(args: argparse.Namespace) -> int:
 
     gate_fires = compute_gate_fire(
         has_deletions=has_deletions,
-        file_count=len(paths),
+        file_count=len(gate_paths),
         sensitive_hits=sensitive,
         medium_leak_count=args.medium_leak_count,
         inverse_drift_count=args.inverse_drift_count,
@@ -261,7 +305,7 @@ def _cmd_parse_dryrun(args: argparse.Namespace) -> int:
         judgment_points.append(
             _gate_judgment_point(
                 has_deletions=has_deletions,
-                file_count=len(paths),
+                file_count=len(gate_paths),
                 sensitive_hits=sensitive,
                 medium_leak_count=args.medium_leak_count,
                 inverse_drift_count=args.inverse_drift_count,
@@ -299,6 +343,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_parse.add_argument("--source-dir", required=True)
     p_parse.add_argument("--medium-leak-count", type=int, default=0)
     p_parse.add_argument("--inverse-drift-count", type=int, default=0)
+    p_parse.add_argument("--changes-file", default=None)
     p_parse.set_defaults(func=_cmd_parse_dryrun)
 
     return parser

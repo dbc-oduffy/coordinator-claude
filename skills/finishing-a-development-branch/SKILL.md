@@ -90,6 +90,31 @@ Don't merge, don't create PR. Branch stays. Use this when:
 
 Report: "Keeping branch <name>."
 
+#### Perforce submit slot (repos with `vcs_mirror: p4` only)
+
+A git-only repo (no `vcs_mirror: p4` in `coordinator.local.md` frontmatter) sees no change here —
+skip this subsection entirely. In a p4-mirrored repo, push already shelved the session's pending
+changelist (engine behavior; this skill neither reconciles nor shelves). Offer a fourth option:
+"submit the session changelist."
+
+1. Call the engine op `p4.session_state` for this session, passing `repo_key` read from
+   `p4_repo_key` in `coordinator.local.md` frontmatter — the op takes it and never derives it, and
+   neither do you: no `p4_repo_key` beside the marker means the workspace predates the key, so say
+   so and stop rather than guessing one. Never read the session `meta.json` yourself — the op is
+   the read surface. No `p4_change` in the result → nothing to submit; say so.
+2. Read the submit slot, `p4_submit_tool`, from `coordinator.local.md` frontmatter. Shape and
+   failure modes: `coordinator/contract/p4-provider-fragment.md` § Validation and failure.
+3. Slot filled → call that fully qualified MCP tool (`mcp__<server>__<tool>`) as a **direct MCP
+   tool call**, passing `changelist` as the integer parsed from `p4_change` (a decimal string) and
+   `repo_key` as the same string from step 1 — the provider's identity keys are all named
+   `p4.<repo_key>.*`, so it cannot reach them without it — never through `execute_domain_tool` or
+   any other by-name dispatcher. The provider's own
+   human-confirmation prompt is the gate; this skill adds none and never pre-approves. Submit
+   renumbers the changelist — afterwards report the number the provider returned, never `p4_change`.
+4. Slot empty → state "no Perforce submit provider installed"; the shelf is the hand-off and a
+   human submits it in P4V or Swarm. Never run `p4 submit` via Bash/PowerShell — the p4 verb fence
+   denies it.
+
 ### Step 5: Remove Any Stray Worktree
 
 Check if in a worktree by grepping `git worktree list` for the current branch name (`git branch --show-current`).

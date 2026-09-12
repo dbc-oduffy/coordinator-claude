@@ -19,8 +19,17 @@ file overrides a phase there.
 Both autofire hooks match this verb as well as `mise-en-place` —
 `hooks/scripts/mise-autofire.py :: _MISE_COMMAND_NAMES` mints the Phase 1 run-id and briefs it,
 `hooks/scripts/pickup-autofire.py :: _BATON_GRAB_COMMAND_NAMES` claims the batons Phase 0a expects
-to be already claimed. Invoked by either name the run starts with the same inputs. There is no
-manual step.
+to be already claimed. Invoked by either name the run starts with the same inputs — **on either
+entry path.** A typed `/warp-speed-execute` fires both hooks under `UserPromptExpansion`; a
+model-invoked `Skill(coordinator:warp-speed-execute)` — a PM writing the verb inline, another
+skill forwarding to it, a skill fired under context pressure — fires the same two hooks' legs
+through `preuse-skill-dispatch.py`, the `PreToolUse`/`Skill` fan-in that hosts them.
+
+**Verify both arrived; there is no manual step only when they fire.** The registration's bootstrap
+fails OPEN on both entry paths, so a hook that did not run is silent rather than loud, and the run
+proceeds half-wired reporting success. No minted run-id in `additionalContext` → `mint-run-id
+mise-en-place` (Phase 1). No claimed-baton list → claim by hand (Phase 0a). Do both and name them
+in the announcement rather than inferring the inputs were there.
 
 Engine vocabulary does not follow the verb: the sentinel mode, the cadence passed to
 `mint-run-id`/`brief` (`mise-autofire.py :: _CADENCE`), the run-id family and

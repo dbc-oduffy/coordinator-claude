@@ -3214,6 +3214,13 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
         movable = [c for c in candidates if c.get("disposition") == "move"]
         for c in candidates:
             print(f"{c.get('disposition'):7} {c.get('status') or '-':22} {c.get('filename')}")
+            # A `report` row is the op declining to act and handing the
+            # judgement back — the note IS the finding, and a row printed
+            # without it says only that something is wrong with a file. The
+            # move/keep rows carry no note and lose nothing here.
+            note = c.get("note")
+            if note:
+                print(f"{'':7} {'':22} └─ {note}")
         print(
             f"{len(movable)} of {len(candidates)} entries already delivered — "
             f"re-run with --apply to move them to sent/."
@@ -3233,9 +3240,19 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
         # `state/memo-outbox/` is still tracked here and does. Emitting the
         # commit line unconditionally sends the caller to a pathspec that
         # matches nothing.
+        #
+        # WHICH END OF THE MOVE. A move is always legacy-or-new -> the NEW
+        # `sent/`, and the op overwrites `path` with that target (its own
+        # envelope contract), so reading `path` here asks whether the file
+        # landed under the retired root — which it never does. The predicate
+        # was therefore always false and this branch always printed
+        # "nothing to commit", including for the tracked deletion that is the
+        # one thing there IS to commit. `source_path`, carried alongside
+        # exactly so a caller can claim the vacated source, is the end that
+        # answers the question.
         legacy_root = os.path.join(sender_root, "state", "memo-outbox")
         moved_tracked = any(
-            str(a.get("path") or "").startswith(legacy_root) for a in acted
+            str(a.get("source_path") or "").startswith(legacy_root) for a in acted
         )
         if moved_tracked:
             print(

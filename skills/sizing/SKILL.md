@@ -27,6 +27,18 @@ plan-body cost. No appetite question ahead of the size.
 table and the tentativeness guard: wiki. A confident XS/S with a clear PM express-lane signal
 skips to Step 3.
 
+**1a. Size what the performer must HOLD, not only how much work it is once held.** A credential, an
+authenticated session, a mounted store, a guard-fenced path, an operator at a keyboard: an unnamed
+held capability looks exactly like small work until the dispatch returns INCOMPLETE having touched
+nothing, and re-scouting reproduces the same empty. Measured: one read-only query sized XS, and no
+dispatched executor holds a hosted-tier session. Name the capability in the sizing so a blitz can
+SKIP rather than discover. **Name the capability, never the route you happened to try** — the same
+baton was then gated on "an authenticated hosted-tier session" and answered locally in ten minutes,
+because the question was over served BYTES and only the runtime confirm needed the session. Both
+errors are one missing discipline in opposite directions. Ask once, at gate-writing time: what is
+the question, and what else would answer it? Tripwire:
+`A-SCOPE-FIELD-NAMES-A-SUBJECT-NOT-A-BLAST-RADIUS`.
+
 **1b. Premise-provenance, every non-express-lane sizing.** Does the ask rest on a mechanism
 EXECUTED, one only READ, or no mechanism claim at all (`not-applicable`, narrow)? Pass
 `--premise-provenance executed|read|not-applicable`; there is no `--evidence` flag — the written

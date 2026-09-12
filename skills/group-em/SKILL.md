@@ -132,7 +132,7 @@ minute. In this order, as your first act:
 1. **`coordinator:group-em-assistant`** — dispatch it, unnamed. Your standing reader AND your
    per-repo sensor: transcript tails, baton claimants, what landed on a path since a SHA, **and the
    watch SUBPROCESS together with the `Monitor` over it**. Warm across the session, woken by its
-   own `Monitor` over `cross-repo/inbox/`, by the watch subprocess's stdout, and by `SendMessage`
+   own `Monitor` over `state/cross-repo/inbox/`, by the watch subprocess's stdout, and by `SendMessage`
    between times. It owns the sensor half in full: arming the watch, the `Monitor` that wakes it
    off that watch, park-spool triage, and holding `state/group-em-watch.json`.
 
@@ -195,7 +195,9 @@ role file refuses it.
     claude --agent navi --bg
 
 The machine-wide nudge role: repo-less, decision-weightless, holds no repo of its own, and never
-nudges a stalled peer twice. It nudges on your behalf and refers every question back to your own
+nudges a stalled peer twice. **One-per-box is held by `navi-singleton.py`, not by luck** — a
+second Navi finding one already running and standing down is that guard's claim being refused,
+not an emergent nicety (`TWO-NAVIS-ON-ONE-BOX-IS-A-SILENT-DOUBLE-NUDGE`). It nudges on your behalf and refers every question back to your own
 Group EM standing. **It escalates TO you; it cannot be asked anything** — a separately spawned
 session is measured UNREACHABLE inbound, so there is no ask path to reach for, only its own
 escalations to read (`state/audits/2026-09-02-session-shaped-watcher-mechanics.md` leg (4)). If the

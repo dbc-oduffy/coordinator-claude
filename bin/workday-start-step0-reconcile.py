@@ -29,7 +29,12 @@ own "1 — unexpected error" convention, never a silent exit 0.
 
 Exit codes (parity-critical, unchanged from the bash oracle / ported module):
     0 — already-includes / fast-forward / merge succeeded.
-    3 — merge conflict; PM resolves first.
+    3 — a failed `--no-ff` merge, discriminated into `RECONCILE-CONFLICT`
+        (genuine content conflict; PM resolves first), `RECONCILE-MERGE-
+        COMMIT-REFUSED` (merge applied, refused at the commit step), or
+        `RECONCILE-MERGE-NOT-STARTED` (merge never began). The CODE is
+        unchanged from the bash oracle; what moved is which stdout string
+        exit 3 can carry — see the ported module's own docstring.
     1 — unexpected error (including this trampoline's own link failure).
 
 Spec backlink: DoE-claude:pln-bash-to-naked-python-engine-mi-c09292

@@ -77,16 +77,22 @@ hot-reloaded without a restart).
 Skill-tool-firing measurement (the Staff Engineer second-pass finding #9, same
 instrumentation pass, near-zero marginal cost): `_log_probe_event` appends one
 JSON line per hook firing (regardless of command match) to a tempfile-backed
-log, recording `command_source`/`expansion_type` alongside `command_name` and
-`session_id`. Whether a `Skill`-tool (programmatic, EM-initiated) invocation
-of `/pickup` fires `UserPromptExpansion` at all is NOT something this
-sandboxed authoring pass could determine — that requires an actual live
-Skill-tool call inside a running Claude Code session, which is outside this
-authoring context's reach. Once this hook is registered and `/reload-plugins`
-run, a live dogfood pass (typed `/pickup <path>` vs. `Skill(pickup, ...)`)
-can `grep` the probe log's `command_source`/`expansion_type` fields for both
-invocation shapes and settle it empirically. See this chunk's final report
-for the current disposition.
+log, recording `command_source`/`expansion_type`/`hook_event_name` alongside
+`command_name` and `session_id`. The question this log was built to answer is
+SETTLED: a `Skill`-tool (programmatic, EM-initiated) invocation does NOT fire
+`UserPromptExpansion` at all (census row 2, docs/plans/2026-09-11-computed-
+skill-inputs-reach-skill-tool-entry.md) — a typed `/pickup <path>` wrote one
+line (`coordinator:pickup`, `slash_command`); the Skill-tool call wrote none.
+That is exactly why this hook now also reads a second entry path
+(`PreToolUse` on the `Skill` tool, via `compute_context`/`_skill_invocation`)
+rather than relying on `UserPromptExpansion` alone. The log is retained, not
+deleted, as the standing diagnostic surface the
+`AN-AUTOFIRE-HOOK-THAT-DID-NOT-FIRE-IS-SILENT` tripwire
+(coordinator/docs/wiki/coordinator-tripwires/an-autofire-hook-that-did-not-
+fire-is-silent.md) tells operators to read — for verbs one of this hook's
+own legs matches; a Skill call naming a verb no leg matches never reaches
+this hook at all (C5's pre-gate filters it upstream), so the log's coverage
+is scoped to matched verbs only.
 
 Cross-repo consumer contract (negative-spec, closes the discharge-test gap
 flagged in review): this hook is a HARD consumer of the engine repo's
@@ -145,6 +151,11 @@ except Exception:
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
+from _skill_invocation import (  # noqa: E402
+    context_envelope,
+    read_invocation,
+)
+
 try:
     from _forwarder_resolve import forwarder_argv as _forwarder_argv  # noqa: E402
     from _forwarder_resolve import resolve_forwarder as _resolve_forwarder  # noqa: E402
@@ -195,32 +206,12 @@ _BATON_GRAB_COMMAND_NAMES = frozenset({"mise-en-place", "warp-speed-execute"})
 _BATON_PATH_FAMILIES = (
     "state/handoffs/",
     "archive/handoffs/",
+    "state/cross-repo/inbox/",
+    "state/cross-repo/archive/",
     "cross-repo/inbox/",
     "cross-repo/archive/",
 )
 
-
-def _normalize_command_name(name: str | None) -> str:
-    """Normalize a raw `command_name` payload value to its bare verb.
-
-    Provenance: the live `UserPromptExpansion` payload for the plugin slash
-    command delivers `command_name` NAMESPACED as `<plugin>:<command>` (e.g.
-    `"coordinator:pickup"`) on the `command_source: "plugin"` path, while
-    `projectSettings`/`typed` sources deliver the bare verb (`"pickup"`)
-    directly — confirmed from this hook's own probe log during the
-    2026-07-24 live dogfood. `_PICKUP_COMMAND_NAMES` is a bare-verb set, so
-    matching against the raw payload value silently misses every namespaced
-    invocation; this function strips any `<namespace>:` prefix by taking the
-    segment after the LAST `:`, so both shapes (and any future plugin
-    namespace) normalize to the same bare verb before the membership test.
-
-    Returns `""` for `None`/non-`str` input — that value can never be a
-    member of `_PICKUP_COMMAND_NAMES`, so the caller's match fails cleanly
-    without a crash.
-    """
-    if not isinstance(name, str):
-        return ""
-    return name.rsplit(":", 1)[-1]
 
 # AC9(d) — additionalContext hard cap.
 _CONTEXT_BUDGET_CHARS = 10_000
@@ -484,6 +475,67 @@ def should_apply(decision: dict) -> bool:
 
 
 # --- additionalContext rendering (AC9d) --------------------------------------
+
+
+def _unclaimed_summary(
+    decisions: list, multi: bool, subagent_guard: bool = False
+) -> str | None:
+    """One line per briefed baton this run did NOT claim, naming why.
+
+    An empty claimed-baton list is indistinguishable from a hook that never ran, and the reader's
+    only safe move on that ambiguity is to assume the expensive one. Measured 2026-09-11: a
+    project-rag run read a silent skip as a dead hook, reported it as break-class, and spent a
+    ListAgents plus two round trips with the holding peer establishing by hand a fact this payload
+    already carried. The skip was CORRECT -- a live peer's claim had landed 106 seconds earlier --
+    and being correct is exactly what made the silence expensive.
+
+    Protected rather than droppable: it is small, and under budget pressure the sentence explaining
+    why nothing was claimed is worth more than the evidence tail it would be dropped alongside.
+
+    `subagent_guard`: True when this render is for an invocation carrying an
+    `agent_id` (a dispatched subagent's own tool call, per `_skill_invocation.
+    Invocation.agent_id`) -- a claim from there is not the main session's
+    deliberate grab, whatever `session_id` it carries, so every baton that
+    `should_apply` would otherwise have claimed is named as unclaimed for
+    that reason instead of being silently skipped.
+    """
+    lines = []
+    for index, decision in enumerate(decisions):
+        would_apply = should_apply(decision)
+        if would_apply and not subagent_guard:
+            continue
+        if would_apply and subagent_guard:
+            artifact = decision.get("artifact") if isinstance(decision, dict) else None
+            name = (artifact or {}).get("path") if isinstance(artifact, dict) else None
+            label = f"baton {index + 1}" if multi else "baton"
+            lines.append(
+                f"  - {name or label}: not claimed: a claim from a subagent's tool "
+                "call is not the main session's deliberate grab, whatever "
+                "session_id it carries"
+            )
+            continue
+        gates = decision.get("gates") if isinstance(decision, dict) else None
+        grant = (gates or {}).get("claim_grant") if isinstance(gates, dict) else None
+        grant = grant if isinstance(grant, dict) else {}
+        artifact = decision.get("artifact") if isinstance(decision, dict) else None
+        name = (artifact or {}).get("path") if isinstance(artifact, dict) else None
+        holder = grant.get("holder")
+        reason = str(grant.get("reason") or "").strip()
+        if holder and not grant.get("held_by_self"):
+            live = "live" if grant.get("holder_live") else "not live in this box's registry"
+            why = f"claimed by session {holder} ({live})"
+        elif reason:
+            why = reason
+        else:
+            # Never "unknown" without saying what was read: a reader who cannot tell an absent
+            # reason from an unexamined one re-derives the whole thing by hand, which is the cost
+            # this line exists to remove.
+            why = "not claimable, and the brief carried no claim_grant reason to quote"
+        label = f"baton {index + 1}" if multi else "baton"
+        lines.append(f"  - {name or label}: {why}")
+    if not lines:
+        return None
+    return "Briefed but NOT claimed by this run:\n" + "\n".join(lines)
 
 
 def _resolve_repo_root() -> Path | None:
@@ -758,6 +810,7 @@ def render_additional_context(
     decisions: list[dict],
     pointer_paths: list[Path],
     prose: str | None = None,
+    subagent_guard: bool = False,
 ) -> str:
     """Render the `additionalContext` string per the AC9(d)/AC14/AC15/DEC-4
     priority list, generalized to N decoded batons: an optional EM-facing
@@ -801,6 +854,11 @@ def render_additional_context(
     single-object behavior (AC3): the same 3 non-empty protected segments in
     the same order, the same 2 tail-droppable segments, the same
     truncate-narration-only last resort.
+
+    `subagent_guard`: forwarded to `_unclaimed_summary` -- when True, every
+    baton that would otherwise have been claimed is named as unclaimed
+    instead (a dispatched subagent's own tool call is never a claim), rather
+    than being silently skipped as "already handled".
     """
     if not decisions:
         return ""
@@ -813,6 +871,9 @@ def render_additional_context(
     protected: list[tuple[str, str | None]] = []
     if prose_text:
         protected.append(("prose", prose_text))
+    unclaimed_text = _unclaimed_summary(decisions, multi, subagent_guard=subagent_guard)
+    if unclaimed_text:
+        protected.append(("unclaimed", unclaimed_text))
     baton_offset = len(protected)
     narration_slots: list[int] = []
     for narration_text, verdict_text, next_move_text, your_call_text, _ in per_baton:
@@ -923,28 +984,40 @@ def _probe_log_path() -> Path:
 def _log_probe_event(payload: dict) -> None:
     """Best-effort, near-zero-marginal-cost instrumentation (the Staff Engineer
     second-pass finding #9): append one JSON line per hook firing recording
-    `command_name`/`command_source`/`expansion_type`/`session_id` to a
-    tempfile-backed log, regardless of whether `command_name` matched a
-    pickup verb. This is the durable residue a later live dogfood pass reads
-    to settle whether a `Skill`-tool (programmatic) invocation of `/pickup`
-    fires `UserPromptExpansion` at all — see the module docstring's own
-    "Skill-tool-firing measurement" section for why this authoring pass could
-    not settle that question directly. Never raises; a logging failure is
-    invisible to the rest of the hook.
-
-    TODO(dogfood-decision): this log has no rotation or size bound. It
-    exists solely to answer the Skill-tool-firing question above; once that
-    question is settled empirically (see the module docstring's disposition
-    note), remove this instrumentation entirely rather than adding
-    rotation — it was never meant to be permanent.
+    `command_name`/`command_source`/`expansion_type`/`session_id`/
+    `hook_event_name` to a tempfile-backed log, regardless of whether
+    `command_name` matched a pickup verb. The Skill-tool-firing question this
+    log was built to answer is now settled (see the module docstring's own
+    "Skill-tool-firing measurement" section) -- it is retained as the
+    standing `AN-AUTOFIRE-HOOK-THAT-DID-NOT-FIRE-IS-SILENT` diagnostic
+    surface, answering "did the Skill path fire" alongside the typed one for
+    every verb one of this hook's legs matches. Never raises; a logging
+    failure is invisible to the rest of the hook.
     """
     try:
+        command_name = payload.get("command_name")
+        if command_name is None:
+            # A PreToolUse(Skill) payload carries no `command_name` -- the verb
+            # lives in `tool_input.skill`. Logging the raw key alone writes a
+            # row that proves the Skill path fired but cannot say WHICH verb
+            # fired it, which is half the question the
+            # AN-AUTOFIRE-HOOK-THAT-DID-NOT-FIRE-IS-SILENT diagnostic is read
+            # to answer. Observed live on 2026-09-11 (session 962ed128): a
+            # Skill(coordinator:pickup) call logged `command_name: null`.
+            tool_input = payload.get("tool_input")
+            if isinstance(tool_input, dict):
+                for key in ("skill", "command"):
+                    value = tool_input.get(key)
+                    if isinstance(value, str) and value:
+                        command_name = value
+                        break
         record = {
             "ts": time.time(),
-            "command_name": payload.get("command_name"),
+            "command_name": command_name,
             "command_source": payload.get("command_source"),
             "expansion_type": payload.get("expansion_type"),
             "session_id": payload.get("session_id"),
+            "hook_event_name": payload.get("hook_event_name"),
         }
         log_path = _probe_log_path()
         with log_path.open("a", encoding="utf-8") as fh:
@@ -1120,14 +1193,35 @@ def _fire_apply(script_path: Path, artifact_path: str, session_id: str) -> None:
 # --- Entry point --------------------------------------------------------------
 
 
-def main(stdin_text: str | None = None) -> int:
-    try:
-        raw = stdin_text if stdin_text is not None else sys.stdin.read()
-    except Exception:
-        return 0  # fail-open -- stdin unreadable
+def compute_context(stdin_text: str) -> str | None:
+    """Compute the bare `additionalContext` prose for ONE hook firing,
+    without printing it or wrapping it in the `hookSpecificOutput` envelope
+    -- so a fan-in caller (C5) that runs several autofire legs concurrently
+    can call this directly and read the return value, rather than spawning a
+    subprocess and capturing `main()`'s stdout. `main()` (the
+    `UserPromptExpansion`-registered entry point) wraps this return value
+    with `context_envelope` on its own typed path.
 
+    Reads either entry-path shape via `_skill_invocation.read_invocation`:
+    a typed slash command (`UserPromptExpansion`) or a model-invoked `Skill`
+    tool call (`PreToolUse`). Returns `None` whenever there is nothing to
+    inject -- an unrecognized payload shape, a non-baton-taking verb, a
+    transport failure, or any other silent-pass case `main()` previously
+    signalled by returning 0 with no stdout. Never raises (AC9c): every
+    subprocess call and JSON decode below is already wrapped to fail open.
+
+    Subagent guard: when `inv.agent_id` is set (this call arrived inside a
+    dispatched subagent's own tool call, never the main session's own turn),
+    `_fire_apply` is not invoked and `_write_decision_files` is not called at
+    all -- brief-time rendering still runs (so the subagent, and whatever
+    reads its report back, sees the same brief a claim would have produced),
+    but `render_additional_context`'s `subagent_guard` names every
+    would-have-claimed baton as unclaimed instead of silently treating it as
+    handled, and the main session's hold-path decision file is never
+    overwritten by a call that was not its own deliberate grab.
+    """
     try:
-        payload = json.loads(raw) if raw else {}
+        payload = json.loads(stdin_text) if stdin_text else {}
         if not isinstance(payload, dict):
             payload = {}
     except Exception:
@@ -1135,20 +1229,19 @@ def main(stdin_text: str | None = None) -> int:
 
     _log_probe_event(payload)
 
-    command_name = _normalize_command_name(payload.get("command_name"))
-
-    session_id = payload.get("session_id")
-    session_id = session_id if isinstance(session_id, str) else ""
-
-    cwd_value = payload.get("cwd")
-    cwd_value = cwd_value if isinstance(cwd_value, str) else None
+    inv = read_invocation(payload)
+    if inv is None:
+        return None  # unrecognized payload shape -- silent pass
 
     # C3: capture the typed command for EVERY confirmed slash-command turn,
-    # not just the pickup/baton-grab verbs the rest of this hook reacts to --
-    # never let this crash the hot-path hook (AC-7's "loud" is the log line
-    # inside `_capture_producer` itself, not an unhandled exception here).
+    # not just the pickup/baton-grab verbs the rest of this function reacts
+    # to -- never let this crash the hot-path hook (AC-7's "loud" is the log
+    # line inside `_capture_producer` itself, not an unhandled exception
+    # here). Untouched by the Skill-tool entry path: `_capture_producer`
+    # keeps its own `expansion_type == "slash_command"` gate, which a
+    # `PreToolUse` payload never satisfies.
     try:
-        _capture_producer(payload, command_name, session_id, cwd_value)
+        _capture_producer(payload, inv.command_name, inv.session_id, inv.cwd or None)
     except Exception as exc:
         # `_capture_producer` documents itself as never-raising, so this guard is
         # unreachable by design and exists only so a defect inside it cannot take
@@ -1161,20 +1254,19 @@ def main(stdin_text: str | None = None) -> int:
         # outer-guard record's `typed_command` field is directly comparable
         # to the inner ones when grepping the probe log.
         _log_producer_capture_failure(
-            session_id,
-            command_name if command_name else "unresolved",
+            inv.session_id,
+            inv.command_name if inv.command_name else "unresolved",
             f"capture_raised:{type(exc).__name__}",
         )
 
-    is_pickup = command_name in _PICKUP_COMMAND_NAMES
-    is_baton_grab = command_name in _BATON_GRAB_COMMAND_NAMES
+    is_pickup = inv.command_name in _PICKUP_COMMAND_NAMES
+    is_baton_grab = inv.command_name in _BATON_GRAB_COMMAND_NAMES
     if not (is_pickup or is_baton_grab):
-        return 0  # not a baton-taking verb -- silent pass
+        return None  # not a baton-taking verb -- silent pass
 
-    command_args = payload.get("command_args")
-    command_args = command_args.strip() if isinstance(command_args, str) else ""
+    command_args = inv.command_args
     if not command_args:
-        return 0  # nothing to compute a brief against
+        return None  # nothing to compute a brief against
 
     # DEC-1: strip an optional ` -- <prose>` tail BEFORE the path string
     # reaches `pickup-assemble brief` -- the prose never touches path
@@ -1186,41 +1278,64 @@ def main(stdin_text: str | None = None) -> int:
         # an ordinary backlog run, not a grab -- pass silently.
         path_string = extract_baton_paths(path_string)
     if not path_string:
-        return 0  # prose-only invocation -- nothing to compute a brief against
+        return None  # prose-only invocation -- nothing to compute a brief against
 
     settings_home = resolve_settings_home()
     script_path = resolve_pickup_assemble_bin(settings_home)
     if script_path is None:
-        return 0  # transport failure (AC9c) -- CLI unresolvable, fail open
+        return None  # transport failure (AC9c) -- CLI unresolvable, fail open
 
     try:
         result = _run_pickup_assemble(
-            script_path, ["brief", path_string], session_id, _BRIEF_TIMEOUT_SECONDS
+            script_path, ["brief", path_string], inv.session_id, _BRIEF_TIMEOUT_SECONDS
         )
     except _TransportFailure:
-        return 0  # AC9c
+        return None  # AC9c
 
     decisions = decode_decision_payload(result.stdout)
     if not decisions:
-        return 0  # AC9c -- unparseable/empty output is a transport failure too
+        return None  # AC9c -- unparseable/empty output is a transport failure too
+
+    subagent = inv.agent_id is not None
 
     # DEC-3: apply keys UNIFORMLY off each decision's own resolved
     # `artifact.path`, never the raw `command_args`/`path_string` -- for
     # N==1 and N>1 alike. A missing/empty path (an error-object baton in a
     # mixed N>1 array) skips apply for THAT baton without raising; the
     # render below degrades that baton's segment naturally rather than
-    # crashing on a raw subscript.
-    for decision in decisions:
-        if not should_apply(decision):
-            continue
-        artifact = decision.get("artifact")
-        apply_path = (artifact or {}).get("path") if isinstance(artifact, dict) else None
-        if isinstance(apply_path, str) and apply_path:
-            _fire_apply(script_path, apply_path, session_id)
+    # crashing on a raw subscript. Never fired at all from a subagent's own
+    # tool call -- see this function's subagent-guard docstring paragraph.
+    if not subagent:
+        for decision in decisions:
+            if not should_apply(decision):
+                continue
+            artifact = decision.get("artifact")
+            apply_path = (artifact or {}).get("path") if isinstance(artifact, dict) else None
+            if isinstance(apply_path, str) and apply_path:
+                _fire_apply(script_path, apply_path, inv.session_id)
 
-    pointer_paths = _write_decision_files(decisions, session_id)
-    additional_context = render_additional_context(decisions, pointer_paths, prose)
+    # Brief-time rendering is not read-only end to end: `_write_decision_files`
+    # writes the main session's hold-path discharge file, keyed off
+    # `session_id` -- a subagent's brief must never overwrite it, so it is
+    # not called at all (not called-then-discarded) on that path.
+    pointer_paths = [] if subagent else _write_decision_files(decisions, inv.session_id)
+    additional_context = render_additional_context(
+        decisions, pointer_paths, prose, subagent_guard=subagent
+    )
     if not additional_context:
+        return None
+
+    return additional_context
+
+
+def main(stdin_text: str | None = None) -> int:
+    try:
+        raw = stdin_text if stdin_text is not None else sys.stdin.read()
+    except Exception:
+        return 0  # fail-open -- stdin unreadable
+
+    additional_context = compute_context(raw)
+    if additional_context is None:
         return 0
 
     # Review: code-reviewer -- wrap the final stdout write so a
@@ -1228,16 +1343,7 @@ def main(stdin_text: str | None = None) -> int:
     # honors the module docstring's absolute "main() never raises" claim
     # (AC9c).
     try:
-        print(
-            json.dumps(
-                {
-                    "hookSpecificOutput": {
-                        "hookEventName": "UserPromptExpansion",
-                        "additionalContext": additional_context,
-                    }
-                }
-            )
-        )
+        print(context_envelope("UserPromptExpansion", additional_context))
     except OSError:
         pass
     return 0

@@ -72,6 +72,8 @@ Prior JS implementation: see git log (coordinator/bin/emit-artifact-shape-contra
 from __future__ import annotations
 
 import os
+import pathlib
+import re
 import sys
 
 def _resolve_coordinator_root() -> str:
@@ -133,6 +135,80 @@ def _import_runner():
     return run_op_main
 
 
+def _source_contract_version() -> "str | None":
+    """Read CONTRACT_VERSION out of this repo's own engine source, as text.
+
+    Deliberately a text read, not an import: importing
+    coordinator_core.ops.emit_artifact_shape_contract would just hand back
+    whichever module sys.path already resolved to (possibly the stale,
+    published klabauter mirror) — that is exactly the thing being checked
+    against, so it cannot also be the check.
+
+    Returns None if the source file cannot be found or does not declare a
+    matching CONTRACT_VERSION assignment (caller treats None as "cannot
+    check, do not block").
+    """
+    source_path = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "coordinator_core"
+        / "ops"
+        / "emit_artifact_shape_contract.py"
+    )
+    if not source_path.exists():
+        return None
+    text = source_path.read_text(encoding="utf-8")
+    match = re.search(r'^CONTRACT_VERSION\s*=\s*"([^"]+)"', text, re.MULTILINE)
+    if match is None:
+        return None
+    return match.group(1)
+
+
+def _assert_resolved_engine_is_this_source() -> "str | None":
+    """Refuse to emit from a resolved engine that is not this repo's source tree.
+
+    Incident, 2026-09-12: this repo's engine module bumped CONTRACT_VERSION to
+    9.1.0 (new p4_server/p4_workspace schema content). A run of this
+    trampoline resolved the engine via require_dispatch_engine_on_path(),
+    which returns the published klabauter mirror, not this source tree. The
+    mirror was still on the stale 9.0.0 bundle, carrying no Perforce kinds,
+    and — because the mirror is also the OSS-sanitized variant — rewrote
+    internal spec references into placeholders in the emitted output. The run
+    exited 0, printed a plausible "emitted 68 schemas" line, and modified the
+    output file, with nothing to indicate that none of the edit had actually
+    been applied.
+
+    regen-cockpit-schema.py avoids this class of failure entirely by
+    trampolining into claude-klabauter's source tree via CLAUDE_KLABAUTER_ROOT/PYTHONPATH rather
+    than the published mirror; this trampoline instead resolves via
+    require_dispatch_engine_on_path() (see _import_runner()) and so needs
+    this explicit post-resolution check.
+
+    Returns None if the check passes or cannot be performed (no local source
+    to compare against). Otherwise returns a multi-line error string
+    describing the mismatch; never raises, never prints.
+    """
+    import coordinator_core.ops.emit_artifact_shape_contract as resolved
+
+    source_version = _source_contract_version()
+    if source_version is None:
+        return None
+    resolved_version = getattr(resolved, "CONTRACT_VERSION", None)
+    if source_version == resolved_version:
+        return None
+
+    source_root = pathlib.Path(__file__).resolve().parents[2]
+    return (
+        "refusing to emit: the resolved engine is not this repo's source tree.\n"
+        f"source root: {source_root} (CONTRACT_VERSION={source_version!r})\n"
+        f"resolved module: {getattr(resolved, '__file__', '<unknown>')} "
+        f"(CONTRACT_VERSION={resolved_version!r})\n"
+        "emitting from the resolved tree would publish its stale content and "
+        "OSS-sanitized spec references with a zero exit.\n"
+        "re-run with CLAUDE_KLABAUTER_ROOT / COORDINATOR_ENGINE_ROOT / REPO_CLAUDE_KLABAUTER "
+        "pointed at this repo, or publish the engine first."
+    )
+
+
 def main(argv: "list[str] | None" = None) -> int:
     try:
         run_op_main = _import_runner()
@@ -150,6 +226,11 @@ def main(argv: "list[str] | None" = None) -> int:
     # the claude-klabauter module has no way to locate on its own; hand it over via env var
     # (see module docstring, and _resolve_coordinator_root()'s own docstring, for
     # why this is NOT derived from this script's own __file__ location).
+    mismatch = _assert_resolved_engine_is_this_source()
+    if mismatch is not None:
+        print(f"emit-artifact-shape-contract: {mismatch}", file=sys.stderr)
+        return 2
+
     coordinator_root = _resolve_coordinator_root()
     os.environ["EMIT_ARTIFACT_SHAPE_CONTRACT_COORDINATOR_ROOT"] = coordinator_root
 

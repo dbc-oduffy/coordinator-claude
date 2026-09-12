@@ -145,9 +145,10 @@ Exit codes:
         first, nothing is published. Use `--invocation-authorized` or
         `--yes` for the scripted/non-interactive path.
 
-Negative-spec: does NOT create or touch `setup/percolate-state/<target>
-.lastsync` or any `allow-xrepo-write` marker (it DOES read/write/clear its
-own, differently-named round-failure marker — see module docstring above),
+Negative-spec: does NOT create or touch any `allow-xrepo-write` marker. It
+DOES read/write/clear its own, differently-named round-failure marker (see
+module docstring above), and it DOES advance `setup/percolate-state/<target>
+.lastsync` to the commit it lands (§ `_advance_lastsync_marker`). It
 does NOT edit `coordinator_core/git/commit.py` or `percolate-gate.py` (both
 owned elsewhere — the commit leg below is a CALLER of
 `coordinator_core.git.commit.commit_paths`, not an editor of it), does NOT drive
@@ -1140,9 +1141,12 @@ def _pathspec_from_manifest(
     diff_names = _dest_head_diff_names(repo_root)
 
     seen: dict = {}
+    reported = manifest.added_or_updated
     for rel in sorted(manifest.declared_payload):
-        if rel not in head_tree or rel in diff_names:
+        if rel in diff_names or (rel not in head_tree and rel in reported):
             seen.setdefault(str(repo_root_path / rel), ("NEW", rel))
+        elif rel not in head_tree:
+            seen.setdefault(str(repo_root_path / rel), (_DECLARED_ONLY_TAG, rel))
     if _REMOVAL_SIDE_ENABLED:
         # § AC3, docs/dispatch-briefs/2026-08-26-open-the-percolate-removal-
         # side/C1.md -- the removal rule is `(head_tree ∩
@@ -1369,6 +1373,37 @@ def _already_committed_non_executable_scripts(
     return stuck
 
 
+def _refresh_rewritten_stat(repo_root: "str | Path", rewritten: "Sequence[str]") -> int:
+    """Re-record dest index stat data for every path this round's sync wrote
+    whose bytes still check in to the blob the index already names. Returns
+    how many were refreshed.
+
+    WHY. The sync compares bytes, and a dest checkout under `core.autocrlf=
+    true` holds CRLF where the payload is LF, so the round rewrites the file
+    with content git considers identical. The size changes; git's stat check
+    then reports ` M` without hashing and `update-index --refresh` cannot
+    clear it (§ `commit.refresh_stat_in_process`). Those paths are identical
+    to HEAD, so the commit pathspec never names them and nothing else ever
+    re-records their stat: `percolate-push` then refuses the push on "N
+    uncommitted path(s)" that carry no content (claude-klabauter, 2026-09-11:
+    151 paths after round `7d60377b`).
+
+    Zero spawns; a pure refresh, so a failure leaves dest exactly as the sync
+    did and never ends a publish.
+    """
+    from coordinator_core.git.commit import refresh_stat_in_process  # noqa: PLC0415
+
+    try:
+        return len(refresh_stat_in_process(repo_root, list(rewritten)))
+    except Exception as exc:  # noqa: BLE001 - a best-effort index refresh never ends a publish
+        print(
+            f"percolate-round: dest index stat refresh failed ({exc!r}); content-"
+            "identical rewrites may read ` M` in `git status` until refreshed.",
+            file=sys.stderr,
+        )
+        return 0
+
+
 def _stage_shebang_exec_bits(repo_root: "str | Path", pathspec: "list[str]") -> int:
     """Set mode `100755` IN THE DEST INDEX for every path in `pathspec` whose
     destination file opens with `#!`. Returns how many paths were named.
@@ -1461,7 +1496,23 @@ _FILTER_DROP_LABELS = {
     "gitignored": "gitignored at dest",
     "absent_deletion": "deletion-intent(s) already absent at dest",
     "staging": "beneath a publish-staging directory",
+    "declared_residue": "gitignored dest-local file(s) no row reported publishing",
 }
+
+#: `_pathspec_from_manifest`'s tag for a declared path that is untracked at
+#: dest HEAD and that this run did NOT report writing. Either a refused
+#: round's stranded payload (commit it) or dest-local residue the on-disk
+#: declaration walk swept up (`publish.py :: _walk_published_payload` over the
+#: root flat-mirror row's whole-mirror scope: `.claude/`, `.pytest_cache/`,
+#: `*.bak`). Only the gitignored ones are the second kind -- they are what
+#: `declared_residue` counts.
+_DECLARED_ONLY_TAG = "DECLARED"
+
+#: Drop classes that are named but never counted as a round warning. A
+#: gitignored file no row wrote is not a change this round meant to land, so
+#: dropping it loses nothing (measured at claude-klabauter 2026-09-11: 15 such
+#: paths warned every round, none of them publish payload).
+_FILTER_DROP_UNCOUNTED = frozenset({"declared_residue"})
 
 
 def _no_filter_drops() -> Dict[str, int]:
@@ -1661,7 +1712,12 @@ def _filter_commit_pathspec(
         for (_abs_path, (tag, _resolved_rel)), rel_path in zip(entries, rel_paths)
         if rel_path not in ignored and _staging_drop(rel_path, tag)
     )
-    gitignored_dropped = len(entries) - len(survivors) - staging_dropped
+    residue_dropped = sum(
+        1
+        for (_abs_path, (tag, _resolved_rel)), rel_path in zip(entries, rel_paths)
+        if rel_path in ignored and tag == _DECLARED_ONLY_TAG
+    )
+    gitignored_dropped = len(entries) - len(survivors) - staging_dropped - residue_dropped
 
     # One batched `git ls-files --error-unmatch` probe for every deletion-
     # intent still in play, instead of one spawn per row (§
@@ -1697,6 +1753,7 @@ def _filter_commit_pathspec(
         "gitignored": gitignored_dropped,
         "absent_deletion": absent_deletion_dropped,
         "staging": staging_dropped,
+        "declared_residue": residue_dropped,
     }
     if any(drops.values()):
         print(
@@ -1705,7 +1762,8 @@ def _filter_commit_pathspec(
             "commit pathspec before commit -- "
             f"{gitignored_dropped} gitignored at dest, "
             f"{absent_deletion_dropped} deletion-intent(s) already absent "
-            f"at dest, {staging_dropped} beneath a publish-staging directory.",
+            f"at dest, {staging_dropped} beneath a publish-staging directory, "
+            f"{residue_dropped} {_FILTER_DROP_LABELS['declared_residue']}.",
             file=sys.stderr,
         )
     return kept, drops
@@ -2045,6 +2103,38 @@ def _build_commit_subject(
     )
 
 
+#: How many not-carried paths the commit body names before it stops naming and
+#: counts instead. A round can drop hundreds; a commit message that lists them all
+#: is unreadable, and one that lists none is what this exists to fix.
+_NOT_CARRIED_NAME_CAP = 40
+
+
+def _not_carried_prose(dropped: "List[Tuple[str, str]]") -> str:
+    """Name the paths a round reported and did not commit, for the commit BODY.
+
+    The subject already carries "N reported change(s) not carried", and that count
+    alone is what two sessions could not act on (2026-09-11): the counts run to 47
+    and 53 on quiet rounds, they name no members, and a benign 47 — paths the round
+    rewrote with identical bytes — is indistinguishable from an alarming one. The
+    only way to tell was to content-probe the mirror afterwards, once per fix.
+
+    The stderr line already classifies the CAUSES and this does not repeat them; a
+    round's stderr scrolls past and the commit message is the report that outlives
+    it, so what belongs here is the membership. Pure set arithmetic over what the
+    caller already partitioned — no spawn, no stat, nothing to budget.
+    """
+    if not dropped:
+        return ""
+    paths = sorted({path for _tag, path in dropped})
+    named = paths[:_NOT_CARRIED_NAME_CAP]
+    lines = ["Reported but not carried by this commit:"]
+    lines += [f"  {path}" for path in named]
+    remaining = len(paths) - len(named)
+    if remaining:
+        lines.append(f"  ... and {remaining} more")
+    return "\n".join(lines)
+
+
 def _print_pathspec_surplus(
     target: str,
     real_changes: List[Tuple[str, str]],
@@ -2248,6 +2338,7 @@ def _report_commit_residual(
         # line still prints below either way; only the counted warning goes.
         _print_pathspec_surplus(target, real_changes, pathspec, deletion_paths)
         return None
+    buckets: "Optional[Dict[str, List[str]]]" = None
     if repo_root is not None:
         buckets = _classify_dropped_paths(repo_root, dropped, head_tracked=head_tracked)
         detail = _describe_dropped_causes(buckets)
@@ -2261,16 +2352,25 @@ def _report_commit_residual(
         f"{len(pathspec)} path(s) named to the derived commit pathspec ({detail}).",
         file=sys.stderr,
     )
-    # No `if not dropped` branch here: nothing dropped means every reported
-    # change is in the pathspec, so the pathspec cannot be the smaller of the
-    # two, and the surplus case returned above. Reaching this point always
-    # means at least one intended change did not make it.
     dropped_removals = sum(1 for tag, _ in dropped if tag in ("DELETE", "REMOVE"))
+    removal_gate_off = bool(dropped_removals) and not _REMOVAL_SIDE_ENABLED
+    # AN EXPLAINED GAP IS NOT A WARNING. Every classified bucket but
+    # `unaccounted` names a dest fact under which there was nothing to commit
+    # (identical to HEAD, gitignored, absent), so a round whose whole gap
+    # classifies that way lost nothing. Counting it anyway turned a benign
+    # outcome into PASS-WITH-WARNINGS on every klabauter round, and a warning
+    # that fires every round is one nobody reads. The stderr line above still
+    # names the causes; only the count goes. Unclassifiable (no repo root) is
+    # not explained, so it still counts.
+    if buckets is not None and not buckets["unaccounted"] and not removal_gate_off:
+        return None
     warning = (
         f"{len(dropped)} change(s) the real run reported were NOT committed "
         f"({len(carried)} of {len(real_changes)} carried)"
     )
-    if dropped_removals and not _REMOVAL_SIDE_ENABLED:
+    if buckets is not None:
+        warning = f"{warning}; {len(buckets['unaccounted'])} unaccounted for"
+    if removal_gate_off:
         gate_note = (
             f"{dropped_removals} of them removal(s): the removal side is gated "
             "OFF (_REMOVAL_SIDE_ENABLED is False -- AC1b of docs/plans/"
@@ -2436,15 +2536,20 @@ def _filter_drop_warning(drops: Dict[str, int]) -> Optional[str]:
     for zero, one indistinguishable verdict.
 
     This line is therefore keyed on the FILTER's own count, never on a
-    comparison against another leg's zero.
+    comparison against another leg's zero. Classes in
+    `_FILTER_DROP_UNCOUNTED` are excluded: the filter's own stderr line names
+    them, and none is a change the round meant to land.
     """
-    if not any(drops.values()):
+    counted = {name: n for name, n in drops.items() if name not in _FILTER_DROP_UNCOUNTED}
+    if not any(counted.values()):
         return None
     named = ", ".join(
-        f"{drops[name]} {label}" for name, label in _FILTER_DROP_LABELS.items() if drops[name]
+        f"{counted[name]} {label}"
+        for name, label in _FILTER_DROP_LABELS.items()
+        if counted.get(name)
     )
     return (
-        f"{sum(drops.values())} declared path(s) were dropped from the commit "
+        f"{sum(counted.values())} declared path(s) were dropped from the commit "
         f"pathspec before the commit leg saw them ({named})"
     )
 
@@ -2509,6 +2614,26 @@ def _round_failure_marker_path(target: str, percolate_root: str) -> Path:
     `percolate-push.py`'s own `_round_failure_marker_path` (C4's reader) —
     a mismatch is a hard refusal there, not a soft warning."""
     return Path(percolate_root) / "setup" / "percolate-state" / f"{target}.round-failed.json"
+
+
+def _advance_lastsync_marker(target: str, percolate_root: str, sha: str) -> None:
+    """Moves `<target>.lastsync`, the Step 2b inverse-drift anchor, to the
+    commit this round just landed in dest.
+
+    Only publish.py wrote this marker, and it wrote the dest HEAD from BEFORE
+    the publish. The round runs publish.py with `--no-commit` and lands its
+    own commit afterwards, so that commit always fell inside the next round's
+    window. Worse, the marker stopped moving at all for mirror rows: on
+    claude-klabauter it sat 257 commits behind HEAD for three weeks. Anchoring
+    on the round's own commit ends the window where the last Step 3 review
+    ended.
+
+    Written as soon as the commit lands, before CI smoke. A red CI leaves the
+    commit in dest history anyway, and its bytes are still the publisher's.
+    """
+    path = Path(percolate_root) / "setup" / "percolate-state" / f"{target}.lastsync"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(sha + "\n", encoding="utf-8", newline="\n")
 
 
 def _write_round_failure_marker(target: str, percolate_root: str, reason: str, sha: str) -> None:
@@ -2867,38 +2992,9 @@ def _cmd_round_default(
                 return _EXIT_FAIL
             drift_count = _count_drift_hits(drift.stdout)
 
-            # --- Step 3: gate-fire predicate + confirmation, sourced from the
-            # real run's own output -- no second materialization -----------
-            parse2 = _run_step(
-                _PARSE_DRYRUN,
-                [
-                    "parse-dryrun",
-                    "--stdout-file",
-                    str(real_stdout_path),
-                    "--source-dir",
-                    source_dir,
-                    "--medium-leak-count",
-                    str(medium_count),
-                    "--inverse-drift-count",
-                    str(drift_count),
-                ],
-            )
-            if parse2.returncode != 0:
-                _print_step_failure("percolate-parse-dryrun (pass 2)", [], parse2.stderr)
-                return _EXIT_FAIL
-            try:
-                envelope2 = json.loads(parse2.stdout)
-                gate_fires = bool(envelope2["gates"]["step3_gate_fires"])
-            except (json.JSONDecodeError, KeyError, TypeError) as exc:
-                _print_step_failure(
-                    "percolate-parse-dryrun (pass 2) — malformed envelope",
-                    [],
-                    f"{type(exc).__name__}: {exc}\nstdout:\n{parse2.stdout}",
-                )
-                return _EXIT_FAIL
-
             # --- resolve repo root + read the manifest publish.py's real run
-            # just persisted (§ AC4/AC5) -- never a re-parse of its stdout ---
+            # just persisted (§ AC4/AC5) -- never a re-parse of its stdout.
+            # Read BEFORE the Step 3 predicate, which counts from it. -------
             repo_root = _resolve_repo_root(dest)
             if repo_root is None:
                 print(
@@ -2921,6 +3017,54 @@ def _cmd_round_default(
             real_changes = [("NEW", p) for p in manifest_added] + [
                 ("REMOVE", p) for p in manifest_removed
             ]
+
+            # --- Step 3: gate-fire predicate + confirmation. Deletion, file
+            # count and sensitive paths come from the manifest's change set
+            # (`--changes-file`), never the stdout's change lines, which
+            # repeat each file per row and per phase -- no second
+            # materialization -----------------------------------------------
+            changes_path = tmp / "round-changes.txt"
+            changes_path.write_text(
+                "".join(f"{tag}\t{path}\n" for tag, path in real_changes),
+                encoding="utf-8",
+                newline="\n",
+            )
+            parse2 = _run_step(
+                _PARSE_DRYRUN,
+                [
+                    "parse-dryrun",
+                    "--stdout-file",
+                    str(real_stdout_path),
+                    "--source-dir",
+                    source_dir,
+                    "--medium-leak-count",
+                    str(medium_count),
+                    "--inverse-drift-count",
+                    str(drift_count),
+                    "--changes-file",
+                    str(changes_path),
+                ],
+            )
+            if parse2.returncode != 0:
+                _print_step_failure("percolate-parse-dryrun (pass 2)", [], parse2.stderr)
+                return _EXIT_FAIL
+            try:
+                envelope2 = json.loads(parse2.stdout)
+                gate_fires = bool(envelope2["gates"]["step3_gate_fires"])
+            except (json.JSONDecodeError, KeyError, TypeError) as exc:
+                _print_step_failure(
+                    "percolate-parse-dryrun (pass 2) — malformed envelope",
+                    [],
+                    f"{type(exc).__name__}: {exc}\nstdout:\n{parse2.stdout}",
+                )
+                return _EXIT_FAIL
+
+            refreshed_count = _refresh_rewritten_stat(repo_root, manifest_added)
+            if refreshed_count:
+                print(
+                    f"percolate-round: re-recorded dest index stat for "
+                    f"{refreshed_count} content-identical rewrite(s)."
+                )
 
             if gate_fires:
                 evidence = ""
@@ -3048,6 +3192,12 @@ def _cmd_round_default(
             subject = _build_commit_subject(
                 target, real_changes, pathspec, deletion_paths=deletion_paths
             )
+            # The subject counts the remainder; the body names it. Recomputed
+            # here rather than threaded out of `_report_commit_residual` because
+            # the partition is pure set arithmetic over values already in hand.
+            _not_carried_body = _not_carried_prose(
+                _partition_carried_changes(real_changes, pathspec)[1]
+            )
             print(f"=== percolate-round {target} — commit ({len(pathspec)} file(s)) ===")
             pathspec_file_path = tmp / "commit-pathspec.txt"
             pathspec_file_path.write_text(
@@ -3131,7 +3281,7 @@ def _cmd_round_default(
                     outcome = commit_paths(
                         repo_root,
                         present_paths,
-                        compose_message(subject=subject),
+                        compose_message(subject=subject, prose=_not_carried_body),
                         deleted_paths=deletion_paths,
                         blob_fallback=partial(hash_worktree_blobs_via_spawn, cwd=repo_root),
                     )
@@ -3143,6 +3293,8 @@ def _cmd_round_default(
                 commit_failed = True
                 commit_diagnostics = [str(exc)]
                 committed = False
+            if committed:
+                _advance_lastsync_marker(target, percolate_root, sha)
             # REPORTED ON BOTH ARMS, DELIBERATELY. This report used to hang
             # off `committed` alone, so a round that committed NOTHING -- the
             # arm where the operator most needs to know WHY -- printed a bare

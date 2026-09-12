@@ -97,6 +97,19 @@
  *                             //  reports the substitution. Omitting it on a machine that HAS
  *                             //  the plugin costs every persona in the wave and says so
  *                             //  nowhere. Full argument at § Role resolution below.
+ *     engineRef: {            // OPTIONAL, emitter-stamped. What code this fire is a frozen copy
+ *       repoRoot,             //  of: the CHECKOUT it came from, this file's resolved path, repo
+ *       workflowPath,         //  HEAD, a sha1 over its own bytes, and whether those bytes were
+ *       head, workflowSha,    //  uncommitted. The tree is carried because a sha from another
+ *       dirty, reason,        //  checkout is INCOMPARABLE, not merely different — the doctrine
+ *     },                      //  and published-engine planes each hold files the other lacks.
+ *                             //  Echoed into the wave result and read by nothing here. A fire
+ *                             //  binds its args into a STANDALONE
+ *                             //  script, so a wave fired an hour ago runs the workflow as it
+ *                             //  stood an hour ago; without this, two waves of one run can
+ *                             //  differ with nothing about the batons changing and no result
+ *                             //  saying which code ran. Absent on a fire emitted before the
+ *                             //  field existed — which is itself the version signal.
  *     batons: [ {
  *       id: string,           // stub_id or handoff_id — the id `blocked_by` edges name it by
  *       path: string,         // repo-relative path to the baton record
@@ -183,7 +196,7 @@ export const meta = {
     { title: 'Premise check', detail: 'One sonnet pass per drafted plan, dispatched once its plan path is trusted and before any reviewer fires. Resolves the load-bearing citations in that plan against the tree — paths, symbols, refs, whether its falsifier can report red, and whether a named thing means what the plan says. It reports per-class ROWS and never a plan-level verdict; the seam after it translates those rows onto REVIEW_SCHEMA so they reach the integrator that already applies every finding. A premise miss routes BLOCKED; the class-5 rows with no writable fix are NAMED for the reviewers, who own the separating test.' },
     { title: 'Review', detail: 'Reviewers resolved per baton from the EM dispatch spec, never prescribed in the plan file. Fires unconditionally — the EM is not consulted about whether a plan deserves review.' },
     { title: 'Integrate', detail: 'review-integrator per plan, also unconditional, including on a clean OK. Applies findings and escalates ASKs. A PIVOT from any reviewer suspends integration for the whole plan, with every sidecar still triaged so no co-reviewer findings are lost.' },
-    { title: 'Resolve escalations', detail: 'Conditional: fires where integration escalated an ASK carrying REVIEWER-ATTRIBUTED options. Two or more is CONTESTED and is arbitrated by picking a catalogued option id; exactly one is a RECOMMENDATION and is applied or declined with a reason, which is integration work rather than arbitration. Re-invokes the Plan phase planner itself, in its revising branch — no new actor — and never authors an option of its own in either lane. Both returns are required, and what was NOT chosen is computed from the catalogue rather than taken from the pick. Skipped whole on a PIVOT and where no reviewer wrote an option at all.' },
+    { title: 'Resolve escalations', detail: 'Conditional: fires where integration escalated an ASK carrying REVIEWER-ATTRIBUTED options. Two or more is CONTESTED and is arbitrated by picking a catalogued option id; fewer than two is a RECOMMENDATION and is applied or declined with a reason, which is integration work rather than arbitration — one reviewer-attributed option and none at all both land there, because attribution gates arbitration rather than application. Re-invokes the Plan phase planner itself, in its revising branch — no new actor — and never authors an option of its own in either lane. Both returns are required, and what was NOT chosen is computed from the catalogue rather than taken from the pick. Skipped whole on a PIVOT.' },
     { title: 'Dispatch', detail: 'One executor per XS/dispatch baton whose EXECUTION gate is open. Runs AFTER planning so the wave plans against a stable tree and the only mutating phase is last. Bounded to the remit the baton itself states — an XS that grows is a sizing defect, not a bigger job.' },
     { title: 'Readiness gate', detail: 'One Opus blitz-em over the durable trail. Per plan: ready, pulled, or replan. A PIVOT routes to a replan baton for a later wave rather than halting this one, and is reconciled mechanically rather than left to the gate — as is a reviewer recommendation the resolve pass neither applied nor declined. Host availability on the executing box is never a pull reason and is stated in the brief, never reconciled: every mechanical reconciliation here makes a verdict stricter, and promoting one would run with the incentive the gate already has rather than against it.' },
   ],
@@ -262,6 +275,19 @@ const WAVE_DISPATCH_SCHEMA = {
           // when the route produces no plan. A plannable baton with null here cannot cite
           // anything, and the plan it produces fails the sizing-citation gate.
           sizingObject: { type: ['string', 'null'] },
+          // WHY the null, when there is one on a plannable baton. `sizingObject: null` currently
+          // says two opposite things with the same bytes: "this route owes no sizing object" and
+          // "the tool that writes one refused me". Traced by example-store-repo-fb: a scaffold was DENIED
+          // by a guard, the em recorded null and continued, the planner reached for the only
+          // provenance pointer left — the predecessor handoff — and plan.schema.json refused THAT,
+          // two phases downstream, naming a field nobody mis-authored and pointing at nothing that
+          // had gone wrong. The sizing itself happened and is on disk in the trail; only its
+          // artifact is missing, and nothing in the refusal said so.
+          //
+          // A phase that records an absence owes the reason, or the next phase reads the absence
+          // as a fact about the world. Same family as an unfinished wave reading as a wave that
+          // opened nothing.
+          sizingObjectAbsence: { type: 'string' },
           reviewers: { type: 'array', items: { type: 'string' } },
           // True when this baton leaves the wave instead of being planned in it: a
           // pm-decision route, an XL exit, or a size that revealed a scope defect.
@@ -353,7 +379,14 @@ const PLAN_SCHEMA = {
 // resolved, which would convert this pass's honest gap into a false clean.
 const PREMISE_SCHEMA = {
   type: 'object',
-  required: ['batonId', 'planPath', 'rows', 'sidecarPath', 'spinePresent'],
+  // `spinePresent` is deliberately NOT required. It is the one field here that can overturn the
+  // blitz-em's `ready`, so it must be derivable ONLY from `plan-spine-check`'s own verdict token
+  // — and when that checker was not wired into the fire, or a guard denied it, the honest return
+  // is no field at all. Requiring it forced a value, and a forced value on an unrun check is a
+  // guess wearing a measurement's clothes: measured 2026-09-11 on example-cockpit-repo, a plan with
+  // ten spine rows came back `false` and was parked against an EM reason reading "Executable as
+  // it stands". Absent reads as not-established and reverses nothing.
+  required: ['batonId', 'planPath', 'rows', 'sidecarPath'],
   properties: {
     batonId: { type: 'string' },
     planPath: { type: 'string' },
@@ -443,7 +476,12 @@ const REVIEW_SCHEMA = {
 
 const INTEGRATION_SCHEMA = {
   type: 'object',
-  required: ['batonId', 'planPath', 'applied', 'escalated'],
+  // `reportPath` is REQUIRED, not merely described. Optional, an integrator could return its
+  // counts with no path at all and the chain counted it as having run: measured on
+  // example-market-data-repo wave 1, whose trail line read `0 applied, 6 escalated -> undefined` over a
+  // slot holding no record. Required, the omission is a schema failure the harness retries, and an
+  // exhausted retry is a null return — which `integrationById` already reads as not-run.
+  required: ['batonId', 'planPath', 'applied', 'escalated', 'reportPath'],
   properties: {
     batonId: { type: 'string' },
     planPath: { type: 'string' },
@@ -483,6 +521,9 @@ const INTEGRATION_SCHEMA = {
             },
           },
           recommendation: { type: 'string' },
+          // The 1-based positions in `escalated` this row carries. A row folding several prose
+          // items lists every one — the only way `escalationShortfall` tells a merge from a loss.
+          covers: { type: 'array', items: { type: 'integer' } },
           // Anti-dodge field (4) from the integrator's own contract, carried rather than
           // restated: it is the APPLICABILITY axis stated per escalation — why this finding
           // names a change nobody can make without choosing. Verdict severity is not a proxy
@@ -492,6 +533,10 @@ const INTEGRATION_SCHEMA = {
       },
     },
     rejected: { type: 'boolean' },
+    // The TRAIL_RULE path, verbatim — `reportPath` and `sidecarPath` are two names for one
+    // file. Left undescribed, they read as two artifacts: measured on run 20260911T145644Z's
+    // repair, where two of three integrators returned the trail path and the third returned its
+    // provisioned sidecar, which archives with the session rather than with the run.
     reportPath: { type: 'string' },
   },
 }
@@ -508,6 +553,11 @@ const DISPATCH_SCHEMA = {
     // why rather than reporting a partial as done — a half-done XS left looking
     // finished is worse than one left plainly open.
     blockedReason: { type: 'string' },
+    // A confirm-and-close whose work already shipped names that commit: a full 40-hex SHA,
+    // absent on every other outcome. `roadmap.blitz_land` stamps it in place of the landing's
+    // own `shipped_in` and validates it there, so no pattern is enforced here — a result that
+    // failed this schema on a malformed SHA would lose the whole disposition, not just the SHA.
+    priorShippedIn: { type: 'string' },
   },
 }
 
@@ -541,8 +591,21 @@ const READINESS_SCHEMA = {
 // `args.pluginAgentsAvailable` says whether `coordinator:*` agent types resolve
 // on this machine. It exists because this pipeline must fire in two environments
 // that differ in exactly one way: whether the coordinator plugin is installed.
-// It defaults to FALSE — the safe direction, because the failure it guards is
-// silent and the cost of being wrong the other way is only a thinner agent.
+// NEITHER DIRECTION IS SAFE, and the emitter therefore DETECTS it rather than
+// defaulting (`emit-wave-fire.py :: _plugin_agents_available`, which reads the
+// plugin root's own `agents/*.md` — the same definitions the write guards' roster
+// is walked from).
+//
+// The cost of a wrong FALSE was measured at 2026-09-11 and it is not "a thinner
+// agent": an `agent()` carrying no `agentType` is stamped `workflow-subagent` by
+// the Workflow runtime — a non-empty type on NO roster — and the write guards
+// confine it on that roster absence. The planner is then refused its own plan
+// body by `block_subagent_plan_body_write` and denied `plan-spine-check.py` by
+// `block-reviewer-bash-outside-allowlist`. Six fires dispatched 98 agents, spent
+// ~8.3M tokens, wrote full planning research to their sidecars, and landed ZERO
+// plans. On a box carrying the guards, omitting the identity does not thin a
+// wave; it empties it. Tripwire:
+// A-WORKFLOW-DISPATCH-WITHOUT-WITHROLE-IS-CONFINED.
 //
 // An `agentType` naming an agent the harness cannot resolve does NOT fail the
 // dispatch — it yields a generic agent wearing that role's label. That is the
@@ -561,6 +624,63 @@ const PLUGIN_AGENTS = parsedArgs.pluginAgentsAvailable === true
 
 function withRole(agentType, opts) {
   return PLUGIN_AGENTS && agentType ? { ...opts, agentType } : opts
+}
+
+// ---------------------------------------------------------------------------
+// Agent-failure accounting — the producer half of an incomplete wave
+// ---------------------------------------------------------------------------
+//
+// AN OUTAGE DOES NOT MERELY LOSE A WAVE; IT MANUFACTURES VERDICTS. When agents die mid-wave — a
+// session limit, an auth expiry, a retry exhaustion — the lanes come back EMPTY, which is
+// byte-identical to a wave that ran cleanly and opened nothing. The tripwire
+// AN-UNFINISHED-WAVE-IS-NOT-A-WAVE-THAT-OPENED-NOTHING teaches the driver to read failure text at
+// exactly the moment the cheap read says "done", and it has held every time it was tested. But it
+// holds by asking for diligence, and a lapse costs more than a wave: example-market-data-repo-fa ran the
+// same three fires to completion three times and watched the VERDICTS MOVE. One baton was `pulled`
+// with the reason "the integration pass DID NOT RUN" on run 1 and came back `ready` on run 3 once
+// the integrator actually ran; another went from a `converged` row reading "no integration report
+// to resolve over" to `settled: 2, unaddressed: 0`. Those are plausible, well-argued PULL verdicts
+// that a driver reading lanes alone would have landed as judgments.
+//
+// So the wave declares its own incompleteness as a FACT on the returned object and the landing
+// refuses it (`land_wave`, claude-klabauter 3867ce8288, which reads `completed: false`, a non-empty
+// `incompleteReason`, or a nonzero `agentErrors`). Absence declares nothing and still lands, so no
+// wave result written before this field existed is refused; an empty `ready` still lands too. The
+// discriminator is the incompleteness fact, never a lane count.
+const agentIncidents = []
+
+// Every agent dispatch in this file goes through here. Two failure shapes, both counted: a REJECTED
+// promise, where the harness could not run the agent at all — the session-limit and auth-expiry
+// cases, which is why an auth failure counts as an errored agent rather than surfacing as a planner
+// that produced nothing — and a NULL RESOLUTION, where the agent ran but its structured-output call
+// exhausted its retries. The second is the quieter one: several call sites already branch on a null
+// return and carry that baton on as blocked, which is right for the baton and says nothing to the
+// landing.
+//
+// Rejections are RE-THROWN, never swallowed. Every existing catch and null-guard downstream keeps
+// its exact behaviour; this only makes the failure visible at the end, to the one reader who can
+// act on it.
+function trackAgent(label, call) {
+  return Promise.resolve(call).then(
+    (result) => {
+      if (result === null || result === undefined) {
+        agentIncidents.push({
+          role: label,
+          kind: 'null-return',
+          detail: 'the agent returned nothing — its structured-output call exhausted its retries',
+        })
+      }
+      return result
+    },
+    (err) => {
+      agentIncidents.push({
+        role: label,
+        kind: 'errored',
+        detail: String((err && (err.message || err.error)) || err).slice(0, 500),
+      })
+      throw err
+    },
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -816,12 +936,46 @@ const sidecarFor = (trailDir, batonId, role) => `${trailDir}/${waveSlot}/${slug(
 // primitive, so it can check the SHAPE of what came back and nothing else.
 // `A-SIDECAR-THE-DISPOSITION-OP-REFUSES-LOSES-ONLY-THE-RECORD`.
 const unreachableSidecars = []
+// A RETURNED PATH IS A CLAIM, NOT A LOCATION, and the next agent is told to open it verbatim.
+// Measured by claude-klabauter-80 on their run: a premise-checker returned its own sidecar under
+// session `...-8ded-430d-8ecd-df045a9efa22` where the live session is `...-8ebd-...` — one
+// transposed character, in the agent's own structured result. The integrator opened a directory
+// that does not exist, found three other plans' premise-checks beside it, and correctly refused
+// to invent a disposition. Nothing anywhere said the path was wrong: the review ran, the file
+// existed, and only the disposition was lost — the same quiet failure the segment check above
+// catches a different cause of.
+//
+// This script has no filesystem primitive, so it cannot ask whether a path exists. It does not
+// need one: every provisioned sidecar in one fire sits under the SAME session directory, so the
+// holder segment is checkable against its own peers. Eleven agreeing spellings and one outlier is
+// a typo, and that is decidable from the returned strings alone.
+const sidecarHolders = []
 function checkSidecarPath(batonId, role, returned) {
   const claimed = typeof returned === 'string' ? returned.trim() : ''
-  if (claimed && !claimed.split(/[\\/]+/).includes('subagent-share')) {
+  if (!claimed) return returned
+  const segments = claimed.split(/[\\/]+/)
+  const at = segments.indexOf('subagent-share')
+  if (at === -1) {
     unreachableSidecars.push({ batonId, role, returned: claimed })
+    return returned
   }
+  if (segments[at + 1]) sidecarHolders.push({ batonId, role, holder: segments[at + 1], returned: claimed })
   return returned
+}
+
+// The minority spellings of the holder segment, or `[]`. Deliberately silent on a fire whose
+// sidecars all agree and on one with no majority to be an outlier of: a two-sidecar disagreement
+// names no culprit, and guessing one costs more than the miss.
+function divergentSidecarHolders() {
+  const counts = new Map()
+  for (const { holder } of sidecarHolders) counts.set(holder, (counts.get(holder) || 0) + 1)
+  if (counts.size < 2) return []
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1])
+  const [modal, modalCount] = ranked[0]
+  if (modalCount <= ranked[1][1]) return []
+  return sidecarHolders
+    .filter((entry) => entry.holder !== modal)
+    .map((entry) => ({ ...entry, agreedHolder: modal, agreedBy: modalCount }))
 }
 
 // ---------------------------------------------------------------------------
@@ -1149,15 +1303,22 @@ reader can check; an ABSENT key is one nobody can see. Declare all four:
   3. \`external_gate[].requires:\` ON EVERY UNCLEARED GATE. A blocker owned by another repo is a
      declared gate, never a sentence in the body. \`requires: landed-work\` means wait for them —
      the row is withheld and the plan still certifies. \`requires: commit-in-owner-repo\` means
-     write into their tree — which needs per-session PM assent a hands-off run cannot obtain, so
-     it refuses the whole plan. The two read identically in prose and route oppositely, which is
-     why the field exists. A row whose declared paths leave this repo and carries no gate at all
-     is refused.
+     write into their tree — a commit dispatched under per-session PM assent, as its own act; that
+     row is withheld too and the plan still certifies. The two read identically in prose and are
+     released by different acts, which is why the field exists. A row whose declared paths leave
+     this repo and carries no gate at all is refused.
 
   4. \`prime_exit_criterion:\` AT EVERY SIZE, S and XS included — \`statement\` plus
      \`derived_from\`. It answers the one question a driver cannot answer against a task list:
      how do I know this is finished. A \`falsifier\` sub-object stays proportional to size and is
      not required here.
+
+     WHICH FILE \`derived_from\` NAMES, when this wave sized you: the wave's
+     \`em-size-review.md\`, NOT the baton's \`.sizing.md\`, whenever a review exists. The
+     \`.sizing.md\` is the scout's PROPOSAL. Where the EM overrode it, that file states the size
+     and the reasoning that were overturned, in its opening lines, with nothing in it saying so —
+     so a reader who follows it gets a confident answer that is the opposite of your plan's
+     premise. Both are openable and the schema admits both; only this rule tells them apart.
 
 Declare what is true. A \`census: []\` on a plan that counted something, or a gate omitted because
 naming it looked like extra work, is a false claim in a machine-checked field — worse than the
@@ -1168,7 +1329,7 @@ absence, because it certifies.`
 // ---------------------------------------------------------------------------
 
 function sizingScout(baton, waveIndex, trailDir) {
-  return agent(
+  return trackAgent('sizing-scout', agent(
     `You are a sizing scout for plan-blitz wave ${waveIndex}. Size ONE roadmap baton.
 
 Baton: ${baton.id} — "${baton.title}"
@@ -1190,6 +1351,20 @@ Report these separately, and do not blend them:
     itself still being negotiated (that is in the notch) or merely needs a memo (that is a gate,
     not a size).
 
+**Never call an artifact ABSENT from a live-tree grep alone.** These repos reap and archive on a
+schedule, so a memo that landed and was later distilled away looks exactly like one nobody ever
+wrote. Before asserting that anything — a memo, an ack, a decision record, a counterparty's
+surface — does not exist, check the history:
+
+    git log --all --diff-filter=A -- '<path glob>'
+
+Empty there too, and it was never written; a hit means it existed and went somewhere, so say
+that instead. Measured: a scout reported three memos ABSENT and a counterparty door "never
+built", from the live tree only. All three had landed and been reaped by an approved distill
+run, and the door shipped that same day. That wrong premise escalated a settled baton to the PM
+as a cross-team blocker, and undoing it cost an Opus adjudication. A \`crossTeamDependency\` you
+are about to call unnegotiated is exactly the claim this check exists for.
+
 Your read will be interrogated by an EM who revises down by default. Do not pre-inflate against
 that, and do not hedge: give the number you actually believe and the evidence that produced it.
 An honest S that survives is worth more than a defensive L that gets cut.
@@ -1202,7 +1377,7 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'sizing'))}`,
       model: 'sonnet',
       schema: SIZING_SCHEMA,
     },
-  )
+  ))
 }
 
 // ---------------------------------------------------------------------------
@@ -1267,10 +1442,18 @@ whose record says REFUSED.
 Leave an escalation unresolved whenever picking would take a fact you do not have. That costs the
 wave nothing it was not already paying: the escalation reaches the readiness gate as it would have.
 ` : ''}${escalation.recommendationCount ? `
-RECOMMENDATIONS — ${escalation.recommendationCount}, each one reviewer-attributed option with no
-second one beside it. The integrator escalated these rather than applying them silently, which was
-correct, and the same attribution filter ran: what is below is a REVIEWER'S fix, never one the
-integrator composed.
+RECOMMENDATIONS — ${escalation.recommendationCount}, each a finding to DISPOSE OF rather than a
+choice to arbitrate. Two shapes reach this lane and the menu marks which is which: one
+reviewer-attributed option with no second one beside it, and an UNATTRIBUTED FINDING that no
+reviewer wrote any option on. The integrator escalated both rather than applying them silently,
+which was correct.
+
+**Attribution gates ARBITRATION, not APPLICATION.** Picking BETWEEN alternatives needs a reviewer to
+have written them, or your judgment goes on the record under their name. APPLYING a stated defect
+needs only that you hold the plan, judge it right, and record a reason — so a finding with no option
+on it is yours to apply or decline exactly like an attributed one. On an attributed row what is
+below is a REVIEWER'S fix, never one the integrator composed; on an unattributed row there is no
+fix written down at all, and anything the integrator recorded beside it carries no warrant.
 
 ${escalation.recommendationMenu}
 
@@ -1283,7 +1466,9 @@ repo's tree — is a first-class reason of the same kind: DECLINE it, name that 
 and edit nothing there. The decline is the decision, and it costs no actor a write it must not
 make. "Not now" is not a reason, and what it lacks is the named route, not modesty.
 
-**You may not counter-propose in this lane.** There is one option and it is the reviewer's. If the
+**You may not counter-propose in this lane.** On an attributed row there is one option and it is the
+reviewer's; on an unattributed one there is a defect and no option, and applying it means the fix
+the finding itself states, not a redesign you prefer. If the
 right answer is a third thing nobody wrote down, DECLINE the recommendation, say the third thing
 in your summary, and DO NOT EDIT THE PLAN FOR IT — an edit toward your own option, made under a
 decline, is exactly the laundering the two-option floor exists to stop, and it arrives with the
@@ -1308,7 +1493,7 @@ shorten: say in your summary why each option you took beats the ones you left.
 `
     : ''
 
-  return agent(
+  return trackAgent('planner', agent(
     `Write the implementation plan for ONE roadmap baton, in plan-blitz wave ${waveIndex}.
 
 Baton: ${baton.id} — "${baton.title}"
@@ -1338,7 +1523,14 @@ to skip, restated because skipping them here is invisible until much later:
      was routed. Use that path EXACTLY. If it reads "(none emitted)", the EM did not scaffold one:
      write \`sizing_object: null\` and say so in your summary. An explicit null is sanctioned and
      passes the gate; a path you invent to fill the field does not, and fails as a DANGLING
-     citation that looks connected.` : `The coordinator plan tooling is NOT installed on this machine, so hand-author the plan file at
+     citation that looks connected.${decision.sizingObjectAbsence ? `
+
+     WHY THERE IS NONE, from the EM that sized you: ${decision.sizingObjectAbsence}
+     Carry that sentence into your summary verbatim. Without it the missing artifact surfaces later
+     as a schema refusal on \`prime_exit_criterion.derived_from\` — a field nobody mis-authored — and
+     the reader has no way back to what actually failed. Do NOT reach for the baton's handoff to
+     fill \`derived_from\` instead: \`plan.schema.json\` does not admit it, deliberately, because the
+     bar means "someone sized this" rather than "this plan came from somewhere".` : ''}` : `The coordinator plan tooling is NOT installed on this machine, so hand-author the plan file at
 ${REPO_ROOT || '<repoRoot>'}/docs/plans/<YYYY-MM-DD>-<slug>.md. Frontmatter, exactly these keys and nothing invented:
 
     ---
@@ -1351,7 +1543,10 @@ ${REPO_ROOT || '<repoRoot>'}/docs/plans/<YYYY-MM-DD>-<slug>.md. Frontmatter, exa
     census: []            # or a list of {question, command, result} — see FOUR DECLARATIONS
     prime_exit_criterion:
       statement: "<what makes this plan finished, checkable against the tree>"
-      derived_from: "<the baton, ruling or AC the statement is read off>"
+      derived_from: "<this wave's em-size-review.md if one exists, else the baton's .sizing.md — never the handoff, which the schema does not admit>"
+      # derived_from takes the BARE PATH and nothing after it. The schema pattern is anchored,
+      # so "<path> (the EM's override of the scout's S)" fails the write. Say that on a
+      # comment line instead — the rationale is worth keeping, just not inside the value.
     external_gate: []     # or a list of gates, each carrying requires:
     ---
 
@@ -1490,7 +1685,7 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'planning-report'))}`,
       effort: 'medium',
       schema: escalation ? RESOLVE_SCHEMA : PLAN_SCHEMA,
     }),
-  )
+  ))
 }
 
 // ---------------------------------------------------------------------------
@@ -1522,7 +1717,7 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'planning-report'))}`,
 // either side of it.
 
 function premiseChecker(baton, planResult, trailDir) {
-  return agent(
+  return trackAgent('planner', agent(
     `phase: premise-check
 
 Resolve the load-bearing citations in the plan at ${planResult.planPath} (baton ${baton.id}) against
@@ -1588,14 +1783,29 @@ naming the assumption, never a withheld row and never a \`RESOLVES\`. Where they
 check in words rather than a bare class number, the number goes in \`questionClass\` and the words
 go in \`evidence\`. You have no field for a verdict on the plan, and that is deliberate.
 
-**Also return \`spinePresent\`: does this plan carry a \`\`\`yaml plan-tasks fenced block at all?**
-A plain structural fact about the document you already have open, not a judgment and not a row:
-true if the block is there, false if it is not. Nothing between authoring and the mise-prep gate
-asks this, and a plan without one declares no work a run can schedule — so an approval stamps a
-document nothing can dispatch, and reads as success. Measured 2026-09-10: an 869-line plan with
-zero fenced blocks cleared this phase, two reviewers, integration and the readiness gate, landed
-approved, and was refused a ceremony later with SPINE/spine-absent. Report what you see; the wave
-reconciles it, and a \`false\` is not a finding against the plan's content.
+**Also return \`spinePresent\`, and RUN THE CHECKER for it — never answer it by eye:**
+
+${SPINE_CHECK_RULE(planResult.planPath)}
+
+Read the verdict token off its stdout. \`NO-SPINE\` → \`spinePresent: false\`. Any other token
+(\`VALID\`, or a shape complaint) → \`spinePresent: true\`: those say the block IS there and
+something about it is wrong, which is a different fact and not yours to report here. **If no
+resolved invocation was supplied above, or the checker did not run for any reason, OMIT
+\`spinePresent\` entirely.** Omission reads as "not established" and changes nothing downstream;
+a guessed \`false\` reverses the EM's verdict and parks a plan that was ready.
+
+Why it is not an eyeball question: this field is the ONE input that can overturn the blitz-em's
+\`ready\`, and three other readers in this system answer it with a regex. Measured 2026-09-11 on
+Example-cockpit-repo — a plan carrying ten spine rows at \`## Tasks\` was reported spine-absent here,
+landed \`pulled\` against an EM reason reading "Executable as it stands", and cost the wave. The
+opposite error is cheap by comparison: a false \`true\` schedules an empty plan and is caught at
+dispatch, while a false \`false\` parks a cleared plan and re-fires the same baton into the same
+coin-flip every wave after. Quote the token you saw in your summary so the boolean is auditable.
+
+The check this exists for is real: measured 2026-09-10, an 869-line plan with zero fenced blocks
+cleared this phase, two reviewers, integration and the readiness gate, landed approved, and was
+refused a ceremony later with SPINE/spine-absent. A \`false\` is not a finding against the plan's
+content — it says there is nothing to schedule.
 ${NO_EXECUTION_RULE}
 ${REPO_ROOT_RULE}
 ${REVIEW_SIDECAR_RULE(
@@ -1624,7 +1834,7 @@ ${REVIEW_SIDECAR_RULE(
       effort: 'low',
       schema: PREMISE_SCHEMA,
     }),
-  )
+  ))
 }
 
 // The classes a premise check answers, enumerated so a class with NO row renders as a hole rather
@@ -1726,6 +1936,8 @@ function closableDispatched(dispatched, verdicts, waveIndex) {
       // "the review set was not carried".
       reviewVerdicts: [],
       reason: `XS dispatched in wave ${waveIndex} and reported completed: ${d.summary}`,
+      // Verbatim, unvalidated: the landing owns the check and falls back to its own SHA.
+      priorShippedIn: d.priorShippedIn,
     }))
 }
 
@@ -1765,7 +1977,7 @@ function premiseAsReview(baton, premise) {
 // ---------------------------------------------------------------------------
 
 function reviewerAgent(baton, decision, planResult, reviewer, trailDir, premise) {
-  return agent(
+  return trackAgent('reviewer', agent(
     `${ROLE_CONTRACTS.reviewer}
 
 Review the plan at ${planResult.planPath} for baton ${baton.id} ("${baton.title}").
@@ -1841,14 +2053,26 @@ ${REVIEW_SIDECAR_RULE(sidecarFor(trailDir, baton.id, `review-${reviewer}-pointer
       model: 'opus',
       schema: REVIEW_SCHEMA,
     }),
-  )
+  ))
 }
 
 // ---------------------------------------------------------------------------
 // Phase 5 — Integrate
 // ---------------------------------------------------------------------------
 
-function integrator(baton, planResult, reviews, trailDir, premise) {
+// `terminal` says there is NO phase after this one — the repair mode's shape, where the integrator
+// is the only role that runs. The option-count lanes below hand a lone reviewer-attributed option
+// to a later phase to apply or decline; with no later phase that hand-off is a dead end, and the
+// recommendation comes back to the EM wearing an escalation's clothes. Measured on
+// example-store-repo-fb's first live repair: 16 findings, every one carrying exactly one reviewer option
+// plus the integrator's own lean, all 16 returned as escalations that only the EM could close —
+// which is the shape the single-option lane exists to prevent.
+// AUTHORING TRAP, and it fails by reporting a DIFFERENT defect. Never nest a template literal
+// inside a `${}` in any brief below: `test_every_agent_call_pins_a_model` scrubs template literals
+// with a non-recursive regex, so an inner backtick terminates the outer literal early and the
+// call's own `model:` is scrubbed away with it — the test then reports an unpinned agent at a line
+// you did not touch. Build the string by concatenation or `JSON.stringify` instead.
+function integrator(baton, planResult, reviews, trailDir, premise, { terminal = false } = {}) {
   // The verdict shown is the RESOLVED one. A sidecar whose own text says REJECTED is
   // labelled with what that resolved to, so the file and this list cannot look like
   // two different reviews.
@@ -1860,7 +2084,7 @@ function integrator(baton, planResult, reviews, trailDir, premise) {
     .map((r) => `  - ${r.reviewer}: ${r.verdict}${r.citationsChecked === 0 ? ' (0 citations examined — UNATTEMPTED, not a clean pass)' : ''}${r.aliased ? ` (sidecar says ${r.raw}; ${r.aliased})` : ''} -> ${r.sidecarPath}`)
     .join('\n')
 
-  return agent(
+  return trackAgent('integrator', agent(
     `${ROLE_CONTRACTS['review-integrator']}
 
 Integrate the review findings for baton ${baton.id} into ${planResult.planPath}.
@@ -1948,6 +2172,17 @@ the readiness gate — an empty ASK list on a plan carrying P0/P1 findings is it
 Return each escalation twice: in \`escalated\` as prose, as you always have, and in
 \`escalations\` with its alternatives ATTRIBUTED. Per option: \`source\` is the reviewer who
 wrote it and \`text\` is their words verbatim; an option you composed yourself carries YOUR name.
+**Write \`source\` as one of these exact strings — ${reviews.filter((r) => r && String(r.reviewer) !== PREMISE_REVIEWER).map((r) => '\`' + r.reviewer + '\`').join(', ') || '(no reviewers ran)'}** — not the
+reviewer's persona name and not a shortened form. The phase after you resolves attribution by
+name; a source it cannot resolve drops the option out of what may be picked, and the option is
+then lost however good it was.
+Give every \`escalations\` row \`covers\`: the 1-based positions in \`escalated\` it carries — its
+place in THAT list, never a reviewer's finding number. A row
+folding several prose items — two reviewers flagging one defect — lists all of them. A prose item
+no row covers is reported as LOST and pulls the plan, so a merge left undeclared costs the plan.
+\`escalated\` holds ONLY what you escalate. A finding you applied, with "no escalation needed",
+goes in your applied list — listed in \`escalated\`, it reads as an escalation nothing resolved and
+pulls the plan.
 Your own contract already requires the reviewer's concrete option or options and the pick you
 would make if forced — this is where they go, and \`whyItExceedsDiscretion\` is that contract's fourth
 anti-dodge field, stated per escalation.
@@ -1964,6 +2199,14 @@ reviewer-attributed option is a RECOMMENDATION — return it in \`escalations\` 
 option, and the phase after you APPLIES it or DECLINES it with a reason, which is ordinary
 integration work rather than arbitration. Only ZERO reviewer-attributed options is a count
 nothing in this wave can settle.
+${terminal ? `
+**THERE IS NO PHASE AFTER YOU IN THIS RUN.** No resolve pass follows, so a RECOMMENDATION you
+escalate is not handed on — it lands on the EM as arbitration it never needed. A finding carrying
+exactly ONE reviewer-attributed option is therefore YOURS: apply it, or decline it with a reason
+naming what you read. Escalate only a genuine CONTEST (two or more attributed options) or a
+finding no reviewer wrote any option for. A \`whyItExceedsDiscretion\` on a single-option finding
+is not a contract being honoured here; it is the dead end this paragraph exists to close.
+` : ''}
 
 EVERY FINDING YOU DID NOT APPLY BELONGS IN \`escalations\`. An inline \`<!-- Review: ... -->\`
 annotation quoting a reviewer's fix is not an application and is not a disposition: the plan's
@@ -1973,7 +2216,11 @@ pulled at the readiness gate carrying it.
 \`A-SINGLE-REVIEWER-OPTION-IS-A-RECOMMENDATION-NOT-A-DEAD-END\`.
 ${REPO_ROOT_RULE}
 ${CLI_RESOLUTION_RULE}
-${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'review-integration'))}`,
+${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'review-integration'))}
+
+Return that same path as \`reportPath\`. The two field names are one file: a \`reportPath\` naming
+a sidecar you provisioned yourself archives with this session and not with the run, and the trail
+then holds no integration for this plan.`,
     withRole('coordinator:review-integrator', {
       label: `integrate:${baton.id}`,
       phase: 'Integrate',
@@ -1987,7 +2234,7 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'review-integration'))}`,
       effort: 'low',
       schema: INTEGRATION_SCHEMA,
     }),
-  )
+  ))
 }
 
 // ---------------------------------------------------------------------------
@@ -2057,6 +2304,27 @@ const MIN_ENUMERATED_OPTIONS = 2
 // things that may be DECIDED in this wave; `recommendations` the closed set that may be APPLIED
 // or DECLINED; `notConvergeable` keeps the behaviour it had before this phase existed, and now
 // holds only the case it was always right for — nothing a reviewer wrote.
+// ATTRIBUTION IS MATCHED, NOT COMPARED. The integrator's brief says `source` is "the reviewer who
+// wrote it" and never pins the literal string, so an integrator writing `staff-eng` where the
+// review row says `coordinator:staff-eng` is FOLLOWING its brief — and exact equality then drops a
+// real reviewer option and reports it as one nobody wrote. Reported by example-store-repo-fb, whose wave
+// lost all ten escalations this way while its own triage table named two options on six of them.
+//
+// Deliberately narrow: a plugin prefix and punctuation/case, nothing semantic. A persona name
+// ("the Staff Engineer") still does not resolve to its agent type, and it should not — guessing a mapping is
+// how an integrator's own option gets laundered into a reviewer's name, which the attribution
+// filter exists to prevent. That residual is why the drop is now REPORTED with both name sets
+// rather than silently rolled into "nobody wrote an option".
+function normaliseReviewerName(name) {
+  return String(name).toLowerCase().replace(/^[a-z0-9_-]+:/, '').replace(/[^a-z0-9]/g, '')
+}
+
+function matchReviewer(source, reviewerNames) {
+  const want = normaliseReviewerName(source)
+  if (!want) return false
+  return reviewerNames.some((name) => normaliseReviewerName(name) === want)
+}
+
 function convergenceCatalogue(integration, reviews) {
   // Review: code-reviewer (resolve-escalations.md Finding 1, BLOCKER) — the wave folds
   // `premiseAsReview`'s pseudo-reviewer into `kept` unconditionally (`[premiseCheckResult,
@@ -2069,9 +2337,9 @@ function convergenceCatalogue(integration, reviews) {
   // in let an integrator launder its own composed option through a name guaranteed present on
   // every baton. Confirmed with a `node` repro before this fix: the two invented options in
   // Finding 1's concrete failing input both survived to a convergeable escalation.
-  const reviewerNames = new Set(
-    (reviews || []).map((r) => String(r.reviewer)).filter((name) => name !== PREMISE_REVIEWER),
-  )
+  const reviewerNames = (reviews || [])
+    .map((r) => String(r.reviewer))
+    .filter((name) => name !== PREMISE_REVIEWER)
   const escalations = []
   const recommendations = []
   const notConvergeable = []
@@ -2083,9 +2351,15 @@ function convergenceCatalogue(integration, reviews) {
     // are separate id spaces deliberately: `reconcilePicks` refuses an `R` and
     // `reconcileRecommendations` refuses an `E`, so a pass that misreads its brief cannot cross a
     // lane — it is refused by name in the trail instead.
-    const attributed = ((esc && esc.options) || [])
-      .filter((o) => o && reviewerNames.has(String(o.source)))
-    const id = `${attributed.length === 1 ? 'R' : 'E'}${index + 1}`
+    const offered = ((esc && esc.options) || []).filter(Boolean)
+    const attributed = offered.filter((o) => matchReviewer(String(o.source), reviewerNames))
+    const unmatched = offered.filter((o) => !matchReviewer(String(o.source), reviewerNames))
+    // `R` is the apply-or-decline lane and `E` the arbitration lane, so the prefix follows the
+    // LANE and not the option count: anything under the two-option floor is dispositioned, whether
+    // a reviewer attributed one option or none. `reconcilePicks` refuses an `R` and
+    // `reconcileRecommendations` refuses an `E`, so a pass that misreads its brief is refused by
+    // name rather than crossing lanes silently.
+    const id = `${attributed.length < MIN_ENUMERATED_OPTIONS ? 'R' : 'E'}${index + 1}`
     const summary = String((esc && esc.summary) || '(no summary)')
     const enumerated = attributed
       .map((o, j) => ({ id: `${id}.o${j + 1}`, source: String(o.source), text: String(o.text) }))
@@ -2103,10 +2377,61 @@ function convergenceCatalogue(integration, reviews) {
         })
         return
       }
-      notConvergeable.push({
-        id: `E${index + 1}`,
+      // TWO DIFFERENT NOTHINGS, AND THE OLD TEXT ASSERTED THE WRONG ONE. "No reviewer enumerated
+      // an alternative" is true only when the integrator wrote no options at all. When it wrote
+      // options whose `source` matched no reviewer, the alternatives EXIST — they are sitting in
+      // the integration report the gate just read — and the pass dropped them over a name. Saying
+      // nobody wrote one then contradicts the triage table on the same disk, which is how
+      // example-store-repo-fb's wave lost all ten of its escalations: the table transcribed two named
+      // options on six rows and the catalogue reported no reviewer had written any.
+      // ATTRIBUTION GATES ARBITRATION, NOT APPLICATION. Picking BETWEEN alternatives needs a
+      // reviewer to have written them, or the integrator's judgment is laundered into a reviewer's
+      // name. APPLYING a stated defect needs only that someone holding the plan judge it right and
+      // record a reason — so a finding with no reviewer-attributed option is a recommendation too,
+      // and routes to the same apply-or-decline lane rather than dead-ending. Before this, a
+      // finding written as "this is wrong, here's why" had NO lane at all: it reached the
+      // readiness gate exactly as the reviewer left it, and a plan carrying enough of them was
+      // pulled by construction. Measured by example-cockpit-repo-f6 on one baton across two waves —
+      // 9 of 10 escalations unanswered then 8 new ones, ~2.5M subagent tokens, zero approvals, and
+      // both times the real settling happened outside the wave in EM-dispatched author passes,
+      // which is the loop this skill exists to remove. Their reviewers were not wrong; one caught
+      // a genuine defect. It was the SHAPE of the finding that decided the wave could not converge.
+      //
+      // Fix A — requiring reviewers to always render an option — was rejected deliberately: it
+      // forces invented alternatives for findings with exactly one correct resolution, which is
+      // option-inflation, and a reviewer padding options to reach a lane is the same corruption as
+      // sizing that bends toward its downstream route.
+      recommendations.push({
+        id,
         summary,
-        reason: 'no reviewer enumerated an alternative; any options on it are the integrator\'s own',
+        // Null, never a synthesised option. What renders must show the pass APPLIED A FINDING
+        // rather than CHOSE AN OPTION — different acts, and a gate reading the trail has to tell
+        // them apart. `unattributed` is also what keeps this lane from becoming a back door into
+        // arbitration: there is nothing here to pick between.
+        option: null,
+        unattributed: true,
+        // What the integrator recorded, verbatim, so the pass reads the same words the gate will.
+        // An option whose source matched no reviewer is not choosable, but it is still material a
+        // reader needs — it goes here rather than being dropped over a name.
+        recorded: offered.map((o) => `${String(o.source)}: ${String(o.text)}`),
+        whyItExceedsDiscretion: String((esc && esc.whyItExceedsDiscretion) || ''),
+        whyUnattributed: unmatched.length
+          ? `${unmatched.length} option(s) were enumerated but none resolves to a reviewer of this `
+            + `baton — attributed to ${unmatched.map((o) => JSON.stringify(String(o.source))).join(', ')}; `
+            + `this baton's reviewers are ${reviewerNames.map((n) => JSON.stringify(n)).join(', ') || '(none)'}`
+          // THE THIRD NOTHING, and the one this branch used to state as fact. An empty `options`
+          // array says what the integrator RETURNED, never what the reviewers WROTE — and the
+          // integrator's own contract is to return each escalation twice, so a row whose prose
+          // names alternatives and whose `options` is empty is a contract violation, not a
+          // convergence verdict. Reported by doe-claude-b9 off project-rag-ue-addon-d9's wave,
+          // where 12 such rows pulled two plans, one of them hiding an exit floor that could
+          // never be satisfied on a single-band corpus. Nothing checks the double-return, so this
+          // says what the record contains and sends the reader to the prose.
+          : 'this row returned no `options` at all — that is what the integrator RECORDED, not a '
+            + 'finding about what the reviewers wrote; if the integration report names '
+            + 'alternatives in prose, they were never returned structurally and the double-return '
+            + 'its contract requires did not happen. Read the integration report before treating '
+            + 'this as nothing to decide.',
       })
       return
     }
@@ -2119,7 +2444,50 @@ function convergenceCatalogue(integration, reviews) {
     })
   })
 
-  return { escalations, recommendations, notConvergeable }
+  // NOTHING CHECKED THE DOUBLE-RETURN THE INTEGRATOR'S BRIEF REQUIRES. `escalated` (prose) and
+  // `escalations` (structured) are meant to hold the same items, and only the structured half
+  // reaches this catalogue — so an integrator that writes ten prose ASKs and three structured rows
+  // loses seven silently, and the gate reads the shortfall as a quiet plan. `INTEGRATION_SCHEMA`
+  // cannot catch it: `escalations` is not in its top-level `required`, and making it required
+  // would fail the whole integration return rather than degrade, losing the prose too. So this is
+  // reported, not enforced.
+  const shortfall = escalationShortfall(integration)
+  const contractViolation = shortfall
+    ? `${shortfall} Nothing below accounts for the shortfall; read the integration report before `
+      + 'reading any count here as complete.'
+    : null
+
+  return { escalations, recommendations, notConvergeable, contractViolation }
+}
+
+// Which PROSE escalations no structured row carries — a comparison of ITEMS, not of counts. Two
+// counts cannot say which items disagree: a MERGE (two reviewers flagging one defect, folded into
+// one CONTESTED row, as the lane rule above requires) and a LOSS produce the same inequality.
+// Measured on example-cockpit-repo: 6 prose, 5 structured, one row folding two — a plan the EM had read
+// correctly as ready was pulled as "missing 1". `covers` names the prose positions each row
+// carries, so a merge covers both and reports nothing. A return declaring no `covers` falls back
+// to the count and says it did: an integrator that returned nothing structured at all (the
+// example-market-data-repo case, 8 of 11 lost) must still be caught when it also declared nothing.
+// Returns null, or one sentence naming the shortfall.
+// A `covers` naming a position outside `escalated` is no declaration at all: fire-0-4 of run
+// 20260911T145644Z wrote the reviewer's finding number (`[8]`) against a one-item list, and read
+// as declared it pulled a plan whose one row carried its one escalation.
+function escalationShortfall(integration) {
+  const prose = ((integration && integration.escalated) || []).map(String)
+  const rows = ((integration && integration.escalations) || []).filter(Boolean)
+  const inRange = (n) => Number.isInteger(Number(n)) && Number(n) >= 1 && Number(n) <= prose.length
+  if (rows.length && rows.every((r) => Array.isArray(r.covers) && r.covers.length && r.covers.every(inRange))) {
+    const covered = new Set(rows.flatMap((r) => r.covers.map(Number)))
+    const lost = prose.map((text, i) => ({ n: i + 1, text })).filter(({ n }) => !covered.has(n))
+    if (!lost.length) return null
+    return `the integration's structured escalations carry ${prose.length - lost.length} of its `
+      + `${prose.length} prose escalation(s); no structured row covers `
+      + lost.map(({ n, text }) => `#${n} ("${text.slice(0, 160)}")`).join(', ') + '.'
+  }
+  if (prose.length <= rows.length) return null
+  return `the integration returned ${prose.length} escalation(s) in prose and only ${rows.length} `
+    + `structurally, and declared no \`covers\` — so ${prose.length - rows.length} are missing OR `
+    + 'were merged into a shared row, and a count cannot say which.'
 }
 
 // Renders the catalogue for the resolve brief. One function so the ids the pass picks by and the
@@ -2145,7 +2513,20 @@ ${options}
 function recommendationMenu(catalogue) {
   return (catalogue.recommendations || [])
     .map((r) => `  ${r.id}: ${r.summary}
-      ${r.option.id} — written by ${r.option.source}: ${r.option.text}
+${r.option
+      ? `      ${r.option.id} — written by ${r.option.source}: ${r.option.text}`
+      // Rendered as a FINDING, never as an option, because that is what it is. A pass that reads
+      // an option here would be picking something nobody wrote; a pass that reads a finding
+      // applies it or declines it, which is what this lane asks for. `recorded` carries whatever
+      // the integrator did write, unattributed, so the pass sees the same words the gate will
+      // without any of them acquiring a reviewer's warrant.
+      : `      UNATTRIBUTED FINDING — no reviewer wrote an option on it, so there is nothing to `
+        + `choose between. Apply it or decline it on the plan as written.\n`
+        + `      why no attributed option: ${r.whyUnattributed || '(not stated)'}`
+        + (r.recorded && r.recorded.length
+          ? `\n      what the integrator recorded (NOT choosable, and not a reviewer's warrant):\n`
+            + r.recorded.map((line) => `        ${line}`).join('\n')
+          : '')}
       why the integrator would not apply it on its own: ${r.whyItExceedsDiscretion || '(not stated)'}`)
     .join('\n')
 }
@@ -2323,6 +2704,7 @@ async function resolveEscalations(baton, decision, waveIndex, plan, reviews, int
     convergeable: catalogue.escalations.length,
     notConvergeable: catalogue.notConvergeable,
     recommendations: catalogue.recommendations,
+    contractViolation: catalogue.contractViolation,
   }
 
   // The pass fires on EITHER lane. Gating it on `escalations` alone is what made a single
@@ -2335,7 +2717,7 @@ async function resolveEscalations(baton, decision, waveIndex, plan, reviews, int
     // the plan.
     const prose = ((integration.escalated || []).length)
     return { ...base, skipped: escalationCount
-      ? 'nothing on this plan is choice-shaped or recommendation-shaped — no reviewer wrote an option on any of it, so every escalation reaches the gate as it did before'
+      ? 'this plan produced no escalations the catalogue could form a row from at all — not a finding about what the reviewers wrote. An escalation with no reviewer-attributed option is now a recommendation and reaches the apply-or-decline lane, so an empty catalogue here means the integrator returned nothing structural to work over. Read the integration report before treating it as a quiet plan.'
       : prose
         ? `${prose} escalation(s) in prose and none structured — the integration returned no `
           + '`escalations` array, so nothing here was choosable; read the integration report'
@@ -2446,15 +2828,25 @@ function convergenceLines(convergence) {
   // Both dispositions render, and both render the reviewer's own text: a DECLINED recommendation
   // is a decision with a reason, not an omission, and the gate cannot judge it without seeing
   // what was declined.
+  // An unattributed finding carries `option: null` by construction (`convergenceCatalogue`), and
+  // renders as the finding it is.
+  const what = (r) => (r.option
+    ? `${r.option.id} (${r.option.source}): ${r.option.text}`
+    : `unattributed finding: ${r.summary}`)
   for (const a of addressed) {
-    parts.push(`  ${a.recommendationId} ${a.disposition.toUpperCase()} ${a.option.id} (${a.option.source}): ${a.option.text}`)
+    parts.push(`  ${a.recommendationId} ${a.disposition.toUpperCase()} ${what(a)}`)
     parts.push(`  ${a.recommendationId} reason: ${a.reason}`)
   }
   for (const u of unaddressed) {
-    parts.push(`  ${u.recommendationId} UNADDRESSED (${u.option.source}): ${u.option.text}  <-- neither applied nor declined; a ready verdict on this plan is reconciled to pulled`)
+    parts.push(`  ${u.recommendationId} UNADDRESSED ${what(u)}  <-- neither applied nor declined; a ready verdict on this plan is reconciled to pulled`)
   }
   for (const d of convergence.deferred) parts.push(`  ${d.escalationId} STILL ESCALATED: ${d.reason}`)
   for (const n of convergence.notConvergeable) parts.push(`  ${n.id} not choice-shaped: ${n.reason}`)
+  // Rendered FIRST-CLASS, not as a footnote: every count above it is incomplete when this is set,
+  // so a gate that reads the counts without reading this reads a shortfall as a quiet plan.
+  if (convergence.contractViolation) {
+    parts.push(`  INTEGRATOR CONTRACT VIOLATION: ${convergence.contractViolation}`)
+  }
   // The resolve pass edits the plan body before anything reconciles its picks, so a refusal is
   // also a warning about the FILE: read the plan before calling it ready.
   for (const r of convergence.refused) {
@@ -2468,7 +2860,7 @@ function convergenceLines(convergence) {
 // ---------------------------------------------------------------------------
 
 function executor(baton, decision, waveIndex, trailDir) {
-  return agent(
+  return trackAgent('executor', agent(
     `Do the work this baton asks for. It is an XS: the EM sized it, and the size is final.
 
 Baton: ${baton.id} — "${baton.title}"
@@ -2488,6 +2880,30 @@ verify the thing the baton asserts, record what you verified, and say so. Do not
 change to make the work look substantial, and do not add a guard or a regression test for a
 surface that no longer exists.
 
+**A confirm-and-close touches the record's frontmatter only — never its body, and never its
+lifecycle fields (next paragraph).** The record is dead once the landing closes it, so filling its
+empty sections (spec, acceptance criteria, anti-scope, ledger) is prose nobody reads. What you
+verified goes in your execution record and your report.
+
+**Never stamp the baton's lifecycle frontmatter** — \`status\`, \`deployment_state\`,
+\`closed_reason\`, \`shipped_in\`, \`pickup_ready\`. The landing owns them: it closes an XS after the
+wave's work is committed, stamping \`shipped\` and the \`shipped_in\` SHA together. A baton you
+already marked \`shipped\` reads as terminal there, so the SHA is never written and the record can
+never archive; a \`shipped_in\` you wrote yourself is overwritten by the SHA the landing is given.
+Work you did records its disposition in the baton's body and your report; a closure records it in
+your report alone. **Schema-legal is not the test here** — a live run wrote
+\`deployment_state: closed\` + \`closed_reason: stale\`, the wave's readiness note called it
+schema-legal and matching intent, and it was neither: the landing writes a DIFFERENT terminal,
+\`shipped\` plus the wave's SHA. The close refused, and the baton now reads closed rather than
+shipped, so nothing links it to the commit carrying its work.
+
+**Work that already shipped names its commit in your report, never on the record.** When a
+confirm-and-close finds the baton's work landed in an earlier commit, name that commit in your
+execution record and return it as \`priorShippedIn\`: the full 40-hex SHA — run
+\`git rev-parse <sha>\` if you only have an abbreviation. The landing stamps it in place of its own.
+Omit the field on every other outcome, and never guess one: a SHA you cannot resolve is left out
+and named in your summary.
+
 Report honestly. \`completed: false\` with a reason is a first-class outcome and costs nothing;
 a partial reported as done costs whoever reads the trail next.
 ${REPO_ROOT_RULE}
@@ -2498,7 +2914,7 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'execution'))}`,
       model: 'sonnet',
       schema: DISPATCH_SCHEMA,
     }),
-  )
+  ))
 }
 
 // ---------------------------------------------------------------------------
@@ -2597,7 +3013,23 @@ async function repairBaton(entry, trailDir) {
 
   // The EXISTING integrator(), unforked. A minimal baton stand-in: integrator()
   // consumes only `baton.id` from it.
-  const integration = await integrator({ id: batonId }, { planPath }, kept, trailDir)
+  // An integrator that THREW did not run; one that returned null ran and produced nothing. The
+  // two want opposite actions — resume this run from its run id, versus re-emit — and the refusal
+  // is what a driver reads and acts on, so it must not spend the same sentence on both. Measured
+  // on example-store-repo-fb's first live repair: both integrators died on a session-limit 429 and were
+  // reported as semantically empty, with the real cause visible only in the run's `failures` block
+  // one level up. It is the baton-level half of
+  // AN-UNFINISHED-WAVE-IS-NOT-A-WAVE-THAT-OPENED-NOTHING.
+  let integration = null
+  try {
+    integration = await integrator({ id: batonId }, { planPath }, kept, trailDir, undefined,
+      { terminal: true })
+  } catch (err) {
+    const detail = (err && (err.message || err.error)) || String(err)
+    return refuse(`the integrator DID NOT RUN (${detail}) — RESUME this run from its own run id `
+      + 'rather than re-emitting it; a repair that never executed is not a repair that found '
+      + 'nothing to disposition')
+  }
   // A NULL INTEGRATION IS A REFUSAL, never a repair. `integrator()` returns `agent(...)`
   // unconditionally, but an agent's structured-output call can return null when it exhausts its
   // retries — which is why the live wave branches on it one stage later (`resolveEscalations`
@@ -2609,7 +3041,28 @@ async function repairBaton(entry, trailDir) {
   // indistinguishable from one that re-dispositioned it".
   if (!integration) {
     return refuse('the integrator returned nothing — no integration report was written, so there '
-      + 'is no record of what was dispositioned; re-run rather than treating this as repaired')
+      + 'is no record of what was dispositioned; re-run rather than treating this as repaired. '
+      + "Check this run's own `failures` for this baton's integrate agent before re-emitting: a "
+      + 'call that errored without throwing lands here too, and that one resumes instead')
+  }
+  // THE SAME SHORTFALL, REFUSED HERE, because this path never reaches the reconciliation that
+  // catches it in a wave. Repair mode returns before the readiness gate — no verdict is produced,
+  // so there is nothing for the fifth reconciliation to reconcile. A repair whose integration
+  // again returns more escalations in prose than structurally has under-recorded a second time,
+  // and reporting `repaired: true` over it hands the driver the exact reassurance this mode's own
+  // header refuses: a plan that looks re-dispositioned and cleared.
+  //
+  // REFUSED rather than reported, and the distinction is the point. A printed line with no
+  // consumer is worse than no line, because a reader who sees a named mismatch infers something
+  // downstream handles it — which is how the wave-path version of this survived from the day the
+  // double-return contract was written. There is no downstream here at all.
+  const repairShortfall = escalationShortfall(integration)
+  if (repairShortfall) {
+    return refuse(`${repairShortfall} Whatever is uncovered exists only as text, and no record `
+      + 'of it was written. A repair is the LAST pass over this '
+      + 'plan — nothing downstream reads a repair verdict, so an escalation that does not become '
+      + 'a structured record here is lost rather than deferred. Re-run the integrator against the '
+      + 'same pointer records, requiring the double return.')
   }
   return { batonId, planPath, repaired: true, integration }
 }
@@ -2769,7 +3222,7 @@ const sizingLines = batons
   })
   .join('\n')
 
-const dispatch = await agent(
+const dispatch = await trackAgent('dispatch', agent(
   `phase: size-review
 
 ${ROLE_CONTRACTS['blitz-em']}
@@ -2799,6 +3252,20 @@ batons you let into it, not by how thinly you staff the authoring of one.
     restatement of the substrate), estimate, route, detents, fork, xl_exit, premise, and
     \`status: routed\`. Do NOT hand-write the file; the generator owns the id and the frontmatter.
     For a non-plannable route return null.
+
+    **A NULL ON A PLANNABLE BATON IS A FAILURE REPORT, AND IT NEEDS ITS REASON IN
+    \`sizingObjectAbsence\`.** Returning a bare null there says "this route owes no sizing object",
+    which is false, and the cost lands two phases away: the planner reaches for the only provenance
+    pointer left, usually the predecessor handoff, and \`plan.schema.json\` refuses THAT — naming a
+    field nobody mis-authored, on a plan that is otherwise finished. Nothing in that refusal points
+    back at your scaffold. So say what happened: the CLI was denied, the generator refused the
+    write, the baton's ask could not be stated without inventing an estimate. Name the command and
+    the refusal text. A null with no reason is the one shape that leaves the next reader guessing at
+    which of two opposite things occurred.
+
+    A scaffolder or any other write-path CLI runs only to make a write this brief assigns. Never
+    invoke one to probe it: a probe is a real write, it leaves an orphan file, and removing that
+    file is a destructive rm the guard denies. To learn its flags, read its source or its \`--help\`.
 
     Its top-level key set is CLOSED (\`additionalProperties: false\`), so a key you invent is not
     ignored — the generator REFUSES the write and the baton gets no plan at all. Measured: an em
@@ -2841,6 +3308,16 @@ batons you let into it, not by how thinly you staff the authoring of one.
 Anything that is the PM's call — route: pm-decision, or an XL exit — set surfacedToPm: true with
 the question stated in the PM's register, and give it no reviewers. You are an EM proxy, never a
 PM proxy.
+
+**The test is the QUESTION, not the baton's shape.** Before you set the flag, write the question
+out and ask whether an EM could settle it with what is already on disk. If it could, it is an EM
+call however the sizing looks — "an S on a roadmap baton is a sizing defect" describes a defect to
+fix, not a decision to escalate. Surfacing binds: nothing re-queues a surfacedToPm row without a PM
+answer, so a question the EM was meant to decide is not deferred by this flag, it is stranded.
+Measured on project-rag-ue-addon: two rows were surfaced on baton shape, the session's own stop
+guard refused them because neither question stated itself in the PM's nouns, and the EM settled
+both in minutes. A question that needs DIRECTION nobody has given — which exit, what it is worth,
+whose priority wins — is the PM's, and only that.
 ${NO_EXECUTION_RULE}
 ${REPO_ROOT_RULE}
 ${CLI_RESOLUTION_RULE}
@@ -2851,7 +3328,7 @@ ${TRAIL_RULE(sidecarFor(trailDir, waveSlot, 'em-size-review'))}`,
     model: 'opus',
     schema: WAVE_DISPATCH_SCHEMA,
   }),
-)
+))
 
 // Plannability follows the ROUTE, not a boolean. Only `plan` and `spec-dispatch`
 // produce a plan document; every other route is a different room, and sending
@@ -2862,6 +3339,25 @@ ${TRAIL_RULE(sidecarFor(trailDir, waveSlot, 'em-size-review'))}`,
 // dispatches for a confirm-and-close — because this filter tested
 // `surfacedToPm` alone. The resulting plan was good, which is exactly why the
 // defect was invisible in the output: quality does not reveal surplus.
+// A sizing-object absence that names a GUARD REFUSAL, as distinct from one that says no sizing was
+// owed. The difference decides whether the wave may continue: "the route owed none" is about this
+// baton, "a guard refused the write" is about the dispatch identity and therefore about every
+// stage below. Matched on the vocabulary the guards and the em actually use — `Guard:` is the
+// literal prefix every write guard's refusal carries, and the roster/confined wording is the
+// identity case specifically.
+//
+// Deliberately NOT matched: a bare "could not", "missing", "unavailable" or "n/a". Those are the
+// merit cases, and reading one as a denial would halt a wave that should run. The bias is toward
+// under-matching: a missed denial costs what it always cost, while a false denial stops good work.
+const DENIAL_SHAPED = /\b(guard:|denied|refused|blocked by|not on (the )?(coordinator\x27?s? )?(enumerated )?(agent )?roster|confined)\b/i
+
+// The subset of denials that are about WHO dispatched, as distinct from WHAT one agent ran. A
+// command-shape refusal — measured on example-market-data-repo: a sizing scout's read-only
+// `grep ... | xargs grep` refused as an indirection wrapper — is one agent's choice of command, and
+// a planner running different commands would not meet it. Only an identity denial predicts that
+// every stage below is refused too.
+const IDENTITY_SHAPED = /\b(not on (the )?(coordinator\x27?s? )?(enumerated )?(agent )?roster|confined|workflow-subagent|subagent_type)\b/i
+
 const PLANNABLE_ROUTES = new Set(['plan', 'spec-dispatch'])
 
 // `dispatch` is the XS lane: real work, just not plan-shaped work. It used to
@@ -2902,22 +3398,43 @@ function repoRelativeCitation(value) {
   if (typeof value !== 'string' || !value.trim()) return value
   const text = value.trim()
   if (!REPO_ROOT) return text
-  const root = REPO_ROOT.replace(/[/\\]+$/, '')
-  for (const sep of ['/', '\\']) {
-    const prefix = root + sep
-    if (text.startsWith(prefix)) return text.slice(prefix.length).replace(/\\/g, '/')
-  }
+  // Compared with separators folded on BOTH sides: an agent echoing a Windows root may respell
+  // it with forward slashes, which no suffix appended to the bound root matches. A drive letter
+  // compares case-insensitively, since `x:` and `X:` name one volume.
+  const fold = (s) => s.replace(/\\/g, '/')
+  const root = fold(REPO_ROOT).replace(/[/]+$/, '') + '/'
+  const folded = fold(text)
+  const drive = /^[A-Za-z]:/.test(root)
+  const head = drive ? folded.slice(0, root.length).toLowerCase() : folded.slice(0, root.length)
+  if (head === (drive ? root.toLowerCase() : root)) return folded.slice(root.length)
   // Absolute but NOT under this repo: left exactly as it is. The read-side gate refusing a
   // citation that resolves nowhere is the correct outcome; quietly rewriting it into something
   // that looks local would hide a real defect behind a plausible path.
   return text
 }
 
+// ONE DECISION PER BATON, enforced here rather than trusted to the em's output. Nothing downstream
+// dedups: `plannable` and `dispatchable` are filters over this list, so a baton the em decided twice
+// is planned twice or executed twice. Measured on example-market-data-repo wave 0 fire 2: two XS batons
+// each dispatched twice into one slot, and only the second executor's care and the memo tool's
+// collision guard kept that from being a double cross-repo send. First decision wins; every
+// dropped one is reported, never discarded silently, because a disagreeing duplicate is the em
+// contradicting itself and the reader should see which route lost.
+const duplicateDecisions = []
+const decidedById = new Map()
 const decisions = ((dispatch && dispatch.decisions) || []).map((d) =>
   d && typeof d === 'object' && d.sizingObject
     ? { ...d, sizingObject: repoRelativeCitation(d.sizingObject) }
     : d,
-)
+).filter((d) => {
+  const kept = d && decidedById.get(d.batonId)
+  if (kept) {
+    duplicateDecisions.push({ batonId: d.batonId, keptRoute: kept.route, droppedRoute: d.route })
+    return false
+  }
+  if (d && d.batonId) decidedById.set(d.batonId, d)
+  return true
+})
 const surfacedToPm = decisions.filter((d) => d.surfacedToPm)
 const plannable = decisions.filter(
   (d) => !d.surfacedToPm && PLANNABLE_ROUTES.has(d.route),
@@ -2966,6 +3483,67 @@ const routedElsewhere = decisions
 
 function batonFor(decision) {
   return batons.find((b) => b.id === decision.batonId)
+}
+
+// ---------------------------------------------------------------------------
+// A DENIED SCAFFOLD FAILS HERE, NOT FOUR STAGES LATER
+// ---------------------------------------------------------------------------
+//
+// A guard DENIAL is categorically different from a scaffold that failed on its merits: it says
+// THIS DISPATCH IDENTITY MAY NOT DO THIS JOB, which is equally true of every stage below and does
+// not improve by proceeding. Sizing is where it first becomes observable, so it is where the wave
+// must stop.
+//
+// Measured 2026-09-11, which is why this exists. Six fires were emitted without
+// `pluginAgentsAvailable`, so every dispatch was stamped `workflow-subagent` — a non-empty type on
+// no roster — and the write guards confined it. The `blitz-em` had its sizing-object scaffold
+// denied and RECORDED IT AS A BLOCKING DEFECT in its own size review. The wave wrote
+// `sizing_object: null` and ran planning, premise-check, review and integration to completion
+// anyway: 98 agents, ~8.3M tokens, and not one plan on disk, because the same guard refused every
+// plan body too. Every later stage behaved WELL and reported honestly — that is precisely what
+// made it expensive. Nothing halted, and the whole cost was paid before any of it was readable.
+//
+// Scoped to a TOTAL denial across plannable batons, never a partial one. One baton's scaffold can
+// be refused for a path-specific reason that says nothing about the others; a clean sweep is the
+// identity signature. Under-halting is the safe direction here — a partial denial still lands the
+// batons that worked, and `sizingObjectAbsences` still reports every one of them.
+//
+// And scoped to an IDENTITY denial. With declared agent identities (`PLUGIN_AGENTS`) the roster
+// cause is ruled out by construction, so a total sweep of plain denials is a coincidence of command
+// choices — at one plannable baton, a single scout's `xargs` — and halting on it stops a wave whose
+// planner would have run. Undeclared, any denial can be the confinement, and every one halts.
+const scaffoldDenials = plannable.filter((d) => DENIAL_SHAPED.test(String(d.sizingObjectAbsence || '')))
+const identityDenied = !PLUGIN_AGENTS
+  || scaffoldDenials.every((d) => IDENTITY_SHAPED.test(String(d.sizingObjectAbsence || '')))
+if (plannable.length && scaffoldDenials.length === plannable.length && identityDenied) {
+  return {
+    waveIndex,
+    trailDir,
+    ...(parsedArgs.engineRef ? { engineRef: parsedArgs.engineRef } : {}),
+    trailSlotDir: `${trailDir}/${waveSlot}`,
+    completed: false,
+    incompleteReason:
+      `HALTED AFTER SIZING: all ${plannable.length} plannable baton(s) had their sizing-object `
+      + 'scaffold DENIED BY A GUARD, not merely left unwritten. A denial is a fact about the '
+      + 'dispatch identity, so the planner, premise-check, reviewer and integrator below would be '
+      + 'refused identically — the wave was stopped rather than spending them to prove it. The '
+      + 'usual cause is an agentType the roster does not carry: check `pluginAgentsAvailable` in '
+      + 'this fire\'s bound args and re-emit with it resolved (`emit-wave-fire.py` detects it). '
+      + 'Tripwire: A-WORKFLOW-DISPATCH-WITHOUT-WITHROLE-IS-CONFINED.',
+    agentErrors: 0,
+    scaffoldDenials: scaffoldDenials.map((d) => ({ batonId: d.batonId, route: d.route, reason: d.sizingObjectAbsence })),
+    // The lanes stay present and EMPTY rather than absent: a reader diffing this against a normal
+    // result should see zero verdicts, not a missing shape they have to account for.
+    ready: [],
+    pulled: [],
+    replan: [],
+    surfacedToPm,
+    routedElsewhere,
+    duplicateDecisions,
+    sizingObjectAbsences: scaffoldDenials.map((d) => ({
+      batonId: d.batonId, route: d.route, reason: d.sizingObjectAbsence,
+    })),
+  }
 }
 
 // Phases 3-5 — plan, review, integrate, per baton, PIPELINED. No barrier between the stages: a
@@ -3104,6 +3682,24 @@ const dispatched = (
   )
 ).filter(Boolean)
 
+// Three states, never two. `(did not run)` was one string over two situations and a reader could
+// not tell which they were in: a chain that never had a plan to integrate, and an integration pass
+// that went missing over a plan on disk. The second is a defect and the first is not, and they are
+// the same length of silence. The line names the conclusion each one blocks, because the wrong
+// inference here is specific — a plan whose findings were never applied reads exactly like a plan
+// whose reviewers found nothing, and both render as a quiet row above.
+function integrationLine(plan, integration) {
+  if (integration) {
+    return `${integration.applied} applied, ${(integration.escalated || []).length} escalated -> ${integration.reportPath}`
+  }
+  if (!plan || plan.status === 'blocked') {
+    return '(not run — no plan was written for it to integrate over; expected, not a defect)'
+  }
+  return 'DID NOT RUN over a plan that EXISTS — no finding on this plan is known to have been '
+    + 'applied or escalated. This is NOT a quiet review set: it is the absence of the pass that '
+    + 'would report one. Reconciled to pulled if the verdict is ready.'
+}
+
 // Phase 6 — the EM's terminal gate, over the trail rather than over the agents' summaries.
 const trailLines = chains
   .filter(Boolean)
@@ -3139,7 +3735,7 @@ const trailLines = chains
       reviews: ${verdicts}${pivots.length ? `  <-- PIVOT (${pivots.map((r) => r.reviewer).join(', ')})` : ''}${blockers.length && !pivots.length ? '  <-- BLOCKED, fixable' : ''}${mixed}${aliases.length ? `\n      alias resolved: ${aliases.map((r) => `${r.reviewer}: ${r.aliased}`).join('; ')}` : ''}
       ${reviews.map((r) => `sidecar: ${r.sidecarPath}${r.premiseFailure ? ` premise-failure: ${r.premiseFailure}` : ''}${r.alternativesConsidered ? ` alternatives: ${r.alternativesConsidered}` : ''}`).join('\n      ')}
       premise rows: ${premiseLines(premise).split('\n').join('\n      ')}
-      integration: ${integration ? `${integration.applied} applied, ${(integration.escalated || []).length} escalated -> ${integration.reportPath}` : '(did not run)'}
+      integration: ${integrationLine(plan, integration)}
       escalated ASKs: ${integration && integration.escalated && integration.escalated.length ? integration.escalated.map((e, i) => `E${i + 1}: ${e}`).join('; ') : 'none'}
       resolve escalations: ${convergenceLines(convergence).split('\n').join('\n      ')}`
   })
@@ -3164,7 +3760,7 @@ const trailLines = chains
 // was Linux while its own declared `external_gate` withheld 8 of 13 rows for the Windows corpus
 // host, and `cq-17` was pulled for serialising behind it. Both plans were ready to execute on the
 // host they name. Tripwire: THE-BOX-THE-WAVE-RAN-ON-IS-NOT-THE-BOX-THE-PLAN-RUNS-ON.
-const readiness = await agent(
+const readiness = await trackAgent('readiness-gate', agent(
   `phase: readiness-gate
 
 ${ROLE_CONTRACTS['blitz-em']}
@@ -3223,9 +3819,40 @@ need a Windows box to plan for Windows any more than you need POSIX to plan for 
 pulled for the box it was planned on is a plan re-planned identically next wave, on a box that is
 just as likely to be the wrong one.
 
+**\`external_gate\` is a SPINE-ROW field, and on a BATON it is inert.** Do not tell anyone to
+declare one on a baton record so the gate stops re-offering it: \`roadmap.plan_gate\` never reads
+the key — candidacy is \`live\`, \`baton_role\`, \`status\` and \`deployment_state\`, and its scanner
+declares every baton key it reads, so one absent from that set reads as absent from the record.
+The write produces well-formed frontmatter, changes nothing, and leaves the baton recycling with an
+apparent fix in place, which is worse than the open defect: the next wave's EM reads the field and
+concludes the question is settled. Measured by example-game-workbench-repo-b8, who was given this
+no-op by two independent wave EMs. What suppresses a baton is a HOLD —
+\`plan_blitz_hold_reason\`, which the gate reads and reports under \`held\`. A \`blocked_by\` edge
+is not the alternative: an edge is a DISCOVERED dependency, and one the gate cannot resolve fails
+the baton closed forever. See the skill's § Read the gate.
+
 Pull for properties of the PLAN: a finding the integrator did not apply, an unsettled escalation
 whose answer changes the deliverable, acceptance criteria that contradict each other or the baton.
 "The rows cannot execute on this box" is a property of the box, and the plan already declared it.
+
+**Records sharing a \`deliverable_id\` are a continued lineage, not a duplicate.** The id is the
+thread tying every stage of one deliverable together, so each successor keeps its predecessor's —
+that is the whole point of the field, and the engine's own resolvers key on the id alone with no
+lineage awareness, so reading them without knowing this lands exactly here. Before you call it a
+record defect, check what the other holders ARE: archived, \`deployment_state: continued\` stages
+are the expected shape and the resolver picked correctly.
+
+**Report a record anomaly; never prescribe its repair, and never one that edits an identity
+field.** The observation costs a reader a minute. The prescription is the hazard: it arrives
+inside the strongest-sounding verdict a gate can write ("break-class record defect confirmed
+against the tree"), and a second claim resting on it — that some gate reopens once the fix lands —
+turns a remark into an instruction with a payoff attached. The engine's one instrument in this
+territory, \`coordinator_core/ops/deliverable_fork_detect.py\`, is deliberately built to report and
+not resolve: it emits a family and its evidence paths with no \`winner\` field and no
+\`superseded_by\` slot, so a shape with nowhere to put a winner cannot silently grow one. Match
+that posture. Measured on project-rag-ue-addon wave 1, baton cpr-22, where the gate recommended
+deduplicating a healthy lineage — and the second file it named did not even carry the contested
+id.
 
 Read the escalated ASKs first. They are the findings judged too consequential to apply silently,
 which makes them the highest-signal line in the trail and the one a fast read skips. Some of them
@@ -3293,7 +3920,7 @@ ${NO_EXECUTION_RULE}`,
     model: 'opus',
     schema: READINESS_SCHEMA,
   }),
-)
+))
 
 // WAVE RESULT — the caller stamps `ready` plans to `approved` (which is what opens the NEXT
 // wave's planning gates), mints a baton per `replan` entry, and re-queues both `pulled` and
@@ -3328,6 +3955,33 @@ const premiseById = new Map(
 const convergenceById = new Map(
   chains.filter(Boolean).map(({ baton, convergence }) => [baton.id, convergence || null]),
 )
+// Whether the integration pass produced a record for this baton, and — where it did not — whether
+// a plan existed for it to run over. The two are stored apart because they are two different
+// silences: no plan is the chain declaring it had nothing to integrate, while a plan with no
+// record is the pass going missing over a document that exists. Keyed off `chains`, so a baton
+// that never entered the planning pipeline (an XS, a baton this fire did not hold) is ABSENT from
+// this map and untouched by the reconciliation below, rather than defaulting to either silence.
+const integrationById = new Map(
+  chains.filter(Boolean).map(({ baton, plan, integration }) => [baton.id, {
+    ran: Boolean(integration),
+    rejected: Boolean(integration && integration.rejected),
+    reportPath: (integration && integration.reportPath) || null,
+    planWritten: Boolean(plan && plan.status !== 'blocked'),
+  }]),
+)
+
+// The plan this fire actually authored, per baton -- the only reader of `planPath` that is not a
+// prose-driven agent. `roadmap.blitz_land` resolves every plan-carrying lane through this field and
+// refuses the row outright without it ("verdict carries no planPath"), so a gate that narrates its
+// verdict and forgets to echo the path costs the whole fire: measured on claude-klabauter, a fire
+// landed 0/0/0 with four refusals after 31 agents, every plan on disk and every verdict sound. The
+// path is knowable here without asking anyone, so it is written here rather than gated on recall.
+const planPathById = new Map(
+  chains
+    .filter(Boolean)
+    .map(({ baton, plan }) => [baton.id, (plan && plan.planPath) || baton.planPath || null])
+    .filter(([, p]) => p),
+)
 
 // A PIVOT routes MECHANICALLY. The gate brief already says an EM may not override one,
 // and a rule only a prompt enforces is discharged by nobody — least of all by the one
@@ -3348,11 +4002,36 @@ const foreignVerdicts = ((readiness && readiness.verdicts) || [])
   .filter((v) => !fireBatonIds.has(v.batonId))
   .map((v) => ({ batonId: v.batonId, verdict: v.verdict, droppedBecause: 'not a member of this fire' }))
 
+// The dispatched XS work, by baton, so a verdict row can carry the one field only the DISPATCH
+// knows. `closableDispatched` synthesises a row for every completed XS the gate did NOT judge and
+// puts `priorShippedIn` on it; when the gate DOES return a verdict for one — which it routinely
+// does, since the trail shows it the dispatch — that row is built here instead and the field was
+// silently absent from it. `blitz_land` reads `priorShippedIn` off the READY row, so all three of
+// this run's fire-0-14 confirm-and-close batons were refused for want of a SHA each one was
+// carrying. Two paths to one row, one of them lossy: the same shape as every other defect this
+// file has been repaired for today.
+const dispatchedById = new Map(
+  (dispatched || []).filter((d) => d && d.batonId).map((d) => [d.batonId, d]),
+)
+
 const verdicts = ((readiness && readiness.verdicts) || []).filter((v) => fireBatonIds.has(v.batonId)).map((v) => {
   const reviews = reviewsById.get(v.batonId) || []
+  const dispatchRow = dispatchedById.get(v.batonId)
   const entry = {
     ...v,
     route: routeById.get(v.batonId) || null,
+    // Verbatim, unvalidated, and only where the dispatch actually completed — the landing owns the
+    // check and falls back to its own SHA. An incomplete dispatch has no commit to cite and must
+    // not acquire one here.
+    ...(dispatchRow && dispatchRow.completed && dispatchRow.priorShippedIn
+      ? { priorShippedIn: dispatchRow.priorShippedIn }
+      : {}),
+    // This fire's own record of the plan wins over the gate's echo of it. An XS carries none and
+    // stays null; a gate that named a DIFFERENT path than the one the planner wrote was naming a
+    // plan this fire did not author. Recorded repo-relative whatever spelling the planner echoed:
+    // its brief names a new plan by absolute path so the agent resolves it against the right
+    // checkout, and that host path is then committed state no other box can open.
+    planPath: repoRelativeCitation(planPathById.get(v.batonId) || v.planPath) || null,
     // Carried so the LANDING can refuse independently. `roadmap.blitz_land` re-checks
     // this and will not stamp a plan a reviewer pivoted, whatever this workflow decided
     // — two enforcement points, because the one in a file an agent edits is the one
@@ -3372,8 +4051,17 @@ const verdicts = ((readiness && readiness.verdicts) || []).filter((v) => fireBat
     return {
       ...entry,
       verdict: 'pulled',
-      spineOverride: 'EM returned ready; the plan carries no plan-tasks spine. Reconciled to pulled.',
-      reason: `${entry.reason} [reconciled: no plan-tasks spine — nothing to schedule]`,
+      // Names its SOURCE, not just its claim. The old wording was a flat assertion about the
+      // document ("the plan carries no plan-tasks spine"), which reads as a finding rather than
+      // as one reader's report — so a driver had no way to tell a measurement from a guess, and
+      // the field behind it appears in no sidecar. Whoever reads this next can now re-run the
+      // one check that produced it.
+      spineOverride:
+        'EM returned ready; the premise check reported plan-spine-check NO-SPINE for this plan. '
+        + 'Reconciled to pulled. VERIFY BEFORE ACTING ON IT: re-run plan-spine-check against the '
+        + 'plan, and if it reports VALID this override is wrong and the EM verdict stood.',
+      spinePresentSource: premiseRow.sidecarPath || null,
+      reason: `${entry.reason} [reconciled: premise check reported no plan-tasks spine — nothing to schedule]`,
     }
   }
 
@@ -3393,6 +4081,74 @@ const verdicts = ((readiness && readiness.verdicts) || []).filter((v) => fireBat
       verdict: 'pulled',
       recommendationOverride: `EM returned ready; ${ids} carries a reviewer-attributed option the resolve pass neither applied nor declined. Reconciled to pulled.`,
       reason: `${entry.reason} [reconciled: unaddressed reviewer recommendation ${ids}]`,
+    }
+  }
+
+  // ESCALATION SHORTFALL, reconciled mechanically for the fifth time. The integrator's contract is
+  // to return each escalation TWICE — once as prose in `escalated`, once structured in
+  // `escalations` — and only the structured half reaches the catalogue. `convergenceCatalogue`
+  // has detected the mismatch since the double-return was written, and REPORTED it. Reporting is
+  // not enough here for the reason every other reconciliation exists: the count the gate is
+  // offered is internally consistent. A resolve record saying 3 of 3 settled is a clean pass by
+  // its own arithmetic, and the eight that never became records are absent from the only number
+  // the gate can read.
+  //
+  // Measured 2026-09-11 on example-market-data-repo, wave 2: 11 ASKs escalated, 3 reaching the resolve
+  // pass, 8 returned as prose. Among the lost eight were a prime exit criterion whose falsifier
+  // named no committed instrument, an exit criterion still pointing at a replaced chunk, and a
+  // question the integrator had explicitly asked be routed to the PM rather than answered. The
+  // baton was pulled, but only because a reader opened the integration REPORT and compared its ASK
+  // count against the resolve record — two independently produced numbers. Nothing in the wave did
+  // that, and nothing in the wave could.
+  //
+  // THE GENERALISATION, which is fa's and is worth more than this fix: no check that validates an
+  // artifact against ITSELF can catch this class. A stale gate report is internally consistent too
+  // (see emit-wave-fire's landing-declaration refusal, the same shape one phase earlier). Every
+  // check that matters compares two sources.
+  const shortfall = convergenceRow && convergenceRow.contractViolation
+  if (shortfall && entry.verdict === 'ready') {
+    return {
+      ...entry,
+      verdict: 'pulled',
+      escalationShortfallOverride:
+        'EM returned ready; the integration returned more escalations in prose than it returned '
+        + 'structurally, so the resolve pass never saw the remainder and no count in this wave '
+        + `accounts for them. Reconciled to pulled. ${shortfall}`,
+      reason: `${entry.reason} [reconciled: escalations returned in prose never reached the resolve pass]`,
+    }
+  }
+
+  // INTEGRATION, reconciled mechanically for the fourth time, and this one is not about a defect
+  // the gate is tempted to overlook — it is about a fact the gate cannot see well enough to be
+  // consistent over. A missing integration record is INDISTINGUISHABLE AT THE RETURN from an
+  // integration that ran and found nothing, so whichever default the reading lane happens to hold
+  // becomes the verdict, and the verdict then moves between fires with nothing in the plan
+  // changing. Measured 2026-09-11 across two repos on the same absence: this wave's own fire-0-6
+  // PULLED with the reason "the integration pass DID NOT RUN", while a later fire returned READY
+  // over the identical silence; example-store-repo-fb saw the same pair on one baton
+  // (`hnd-knowledge-substrate-ingest-uni-d2305f`) across two waves of one trail — wave 1's slot
+  // carrying no `*.review-integration.md` and wave 2's carrying one, with neither RETURN saying so.
+  //
+  // Making the trail line louder does not close this and neither does fixing the write: both leave
+  // the coin-flip in place for the next absence. The verdict is decided here instead, in the one
+  // direction this file's reconciliations are allowed to move.
+  //
+  // A plan the planner never wrote is NOT this case — the chain carries it blocked, with nothing
+  // for an integrator to open, and `planWritten` is how the two are told apart rather than folded
+  // into one silence.
+  const integrationRow = integrationById.get(v.batonId)
+  if (integrationRow && integrationRow.planWritten && entry.verdict === 'ready'
+      && (!integrationRow.ran || integrationRow.rejected)) {
+    const what = integrationRow.rejected
+      ? `the integration report at ${integrationRow.reportPath || '(no reportPath)'} was rejected`
+      : 'no integration record reached this wave'
+    return {
+      ...entry,
+      verdict: 'pulled',
+      integrationOverride:
+        `EM returned ready; the plan was written and ${what}, so no reviewer finding is known to `
+        + 'have been applied or escalated. Reconciled to pulled.',
+      reason: `${entry.reason} [reconciled: integration did not run over a plan that exists]`,
     }
   }
 
@@ -3421,6 +4177,33 @@ const closable = closableDispatched(dispatched, verdicts, waveIndex)
 return {
   waveIndex,
   trailDir,
+  // The code this wave ran, echoed back verbatim from what the emitter stamped. A fire is a FROZEN
+  // COPY of this file with its args bound in, so two waves of one run can behave differently with
+  // nothing about the batons changing — and before this, nothing in either result said so. Written
+  // by `emit-wave-fire.py :: _engine_ref` because the emitter is the only actor here that can see
+  // a repo: this script has no filesystem primitive and could not compute it if it wanted to.
+  // Absent on a fire emitted before this field existed, which is itself the version signal — and
+  // is why it is echoed rather than defaulted to a plausible-looking unknown.
+  ...(parsedArgs.engineRef ? { engineRef: parsedArgs.engineRef } : {}),
+  // Declared, never inferred. `completed: false` plus a reason is what the landing refuses on, and
+  // it is set from the incident log rather than from any lane being empty — a wave can finish
+  // cleanly and legitimately open nothing, and that one must still land. Omitted entirely on a
+  // clean run, so a result carrying no claim is treated as complete.
+  ...(agentIncidents.length
+    ? {
+      completed: false,
+      agentErrors: agentIncidents.length,
+      incompleteReason:
+        `${agentIncidents.length} agent(s) did not complete: `
+        + agentIncidents.map((i) => `${i.role} (${i.kind})`).join(', ')
+        + '. Every lane below is a PARTIAL result, and a verdict in it may have been reached '
+        + 'without the pass that would have changed it — an integration that never ran reads '
+        + 'exactly like an integration that found nothing. Re-run or resume before landing.',
+      // The rows themselves: the count says the wave is unlandable, the detail says which role to
+      // look at first.
+      agentIncidents,
+    }
+    : {}),
   // The leaf of `trailDir` this fire's own trail records were written into. Reported because the
   // trail is shared: a caller handed only `trailDir` cannot tell this fire's planning report for
   // a baton from the one an earlier wave wrote for the same baton.
@@ -3434,6 +4217,24 @@ return {
   // concurrent fire is writing into the same shared trail. Carried so the caller can see what
   // was declined rather than discovering it as a silent absence.
   foreignVerdicts,
+  // Second and later decisions the em returned for a baton it had already decided, dropped before
+  // planning or dispatch. Non-empty means one baton would otherwise have run twice in this slot.
+  duplicateDecisions,
+  // Plannable batons the wave could not scaffold a sizing object for, each with the reason the em
+  // gave. Reported at the top level because the consequence is NOT in this wave: the plan lands
+  // fine, and the refusal arrives a ceremony later from the prep gate, against
+  // `prime_exit_criterion.derived_from`, naming a field nobody mis-authored. A driver reading this
+  // row knows the plan is uncertifiable before mise-prep tells them, and knows why.
+  sizingObjectAbsences: decisions
+    .filter((d) => d && !d.sizingObject && PLANNABLE_ROUTES.has(String(d.route)))
+    .map((d) => ({
+      batonId: d.batonId,
+      route: d.route,
+      // An unstated reason is itself the finding: it means the wave recorded an absence and
+      // nobody can tell whether the route owed no sizing or a tool refused to write one.
+      reason: d.sizingObjectAbsence || '(NOT STATED — the em returned a bare null on a plannable '
+        + 'route, so it is unknown whether no sizing was owed or a scaffold was refused)',
+    })),
   // XS work this wave actually finished, rather than handing back.
   dispatched,
   // Sized and routed, but neither planned nor dispatchable here — including an
@@ -3449,4 +4250,9 @@ return {
   // review — the findings are there and the integrator read them — but a review the disposition
   // op will refuse, so its dispositions are never recorded and nothing else reports that.
   unreachableSidecars,
+  // Sidecars whose holder segment disagrees with what the rest of this fire returned — a
+  // mistyped path in an agent's own structured result, which the next agent is handed verbatim
+  // and opens as a directory that does not exist. Same loss as above and the same silence: the
+  // review ran and its file is on disk under the true holder, and only the disposition is gone.
+  divergentSidecars: divergentSidecarHolders(),
 }

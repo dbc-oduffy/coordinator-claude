@@ -56,7 +56,7 @@
           "status": {
             "type": "string",
             "enum": ["not-started", "in-progress", "met", "at-risk"],
-            "description": "Current progress on this key result. not-started=no work begun; in-progress=active; met=achieved; at-risk=blocked or behind."
+            "description": "Current progress on this key result. not-started=no work begun; in-progress=active, including a healthy KR that carries across a period boundary with real delivery landing; met=achieved; at-risk=blocked, stalled, or unlikely to be met without intervention — genuine risk, not merely 'continuing past its period'."
           },
           "weekly_perceptible": {
             "type": "boolean",

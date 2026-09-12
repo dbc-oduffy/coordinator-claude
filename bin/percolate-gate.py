@@ -39,9 +39,17 @@ Subcommands:
       over the newline-delimited absolute file paths in <file-list-path>.
       Renders the Step 2c panel to stdout. Exits 2 if any HIGH hit fired
       (publish-blocking contract — mirrors the skill's "HIGH >=1: abort"
-      rule), else 0. With --percolate-root, the peer-repo-name leg's hits are
-      resolved against <target>'s `percolate-store.yaml` guards: a target
-      declaring a `no-residual-pattern` / `registry_codenames` guard gets
+      rule), else 0. A MEDIUM path-shape match whose rooted segment is a
+      placeholder (single letter, `<...>`, `$...`, `foo`, or any of those
+      under a file extension — `/x/y.md`), whose slash-rooted
+      match sits MID-path on a placeholder segment (`refs/x/old`), or whose
+      line carries `abs-path-ok: <reason>` / `foreign-path-ok: <reason>` is
+      discharged and never reaches the gating panel (`_medium_line_gates`);
+      email-shape matches are never discharged that way, the one exception
+      being a public-forge SSH service address (`git@github.com`), which
+      names a service and not a person. With --percolate-root, the
+      peer-repo-name leg's hits are resolved against <target>'s
+      `percolate-store.yaml` guards: a target declaring a `no-residual-pattern` / `registry_codenames` guard gets
       those hits rendered in a SEPARATE covered group (read pre-transform;
       Phase-4's post-rsync audit is the post-transform oracle), never mixed
       into the plain MEDIUM group the pre-transform read would otherwise
@@ -54,7 +62,10 @@ Subcommands:
       `git log` in <dest> scoped to the (dest-relative) paths in
       <file-list-path> since that anchor. Renders the Step 2d panel.
       Prints `anchor_mode: marker|30day-fallback|marker-stale` on its own
-      line first.
+      line first. Lists only hand-authored commits whose changes are still
+      live in HEAD. The publisher's own source-head-stamped commits, and hand
+      commits a later publish already rewrote, are counted on a `not drift:`
+      line and never listed.
 
   resolve-root [--explain]
       Fronts `coordinator_core.percolate.runtime_root.
@@ -136,7 +147,7 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Callable, List, NamedTuple, Optional, Tuple
 
 _BIN_DIR = Path(__file__).resolve().parent
 _LIB_DIR = _BIN_DIR.parent / "lib"
@@ -213,9 +224,10 @@ def _shares_one_destination(dests: List[str]) -> bool:
     publish, never a wrong-mirror one.
 
     `.lower()`, deliberately, NOT `.casefold()`. Review (code-reviewer on
-    d062782b) constructed `X:/aß` against `X:/ass/sub`: casefold maps `ß` to
-    `ss`, so those two genuinely-distinct directories collapse to the same
-    string and read as nested. That is a conflation, not an ordering problem —
+    d062782b) constructed `X:/aß` against `X:/ass/sub` (abs-path-ok: synthetic
+    pair): casefold maps `ß` to `ss`, so those two genuinely-distinct
+    directories collapse to the same string and read as nested. That is a
+    conflation, not an ordering problem —
     no choice of root fixes it, because the information is gone before the
     comparison starts. `.lower()` leaves `ß` alone.
 
@@ -380,14 +392,149 @@ _TIER_HIGH = re.compile(
 # continuation (`test-domain.com`, `invalid-corp.io`) and a further-label
 # continuation (`localhost.internal.example`), so only a genuine reserved
 # suffix (`foo.test`, `sub.example.test`) or the bare `example.com`/`.net`/
-# `.org` domain is exempt — never a bare-word prefix match.
+# `.org` domain is exempt — never a bare-word prefix match. `example` is in
+# the final-label set because RFC 2606 reserves the `.example` TLD as well as
+# the three second-level `example.*` domains (`t@t.example` is fixture data).
 _TIER_MEDIUM = re.compile(
     r"(~/\.claude/(tasks|projects|memory|plans)/|/x/[a-z-]+|[XxCc]:/[a-z-]+|"
     r"[A-Za-z0-9._%+-]+@"
     r"(?!(?:example\.(?:com|net|org)|"
-    r"(?:[A-Za-z0-9-]+\.)*(?:test|invalid|localhost))(?![A-Za-z0-9.-]))"
+    r"(?:[A-Za-z0-9-]+\.)*(?:test|example|invalid|localhost))(?![A-Za-z0-9.-]))"
     r"[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b)"
 )
+
+# A MEDIUM path-shape match is discharged -- it names no machine -- when the
+# segment it roots is a placeholder, or when its line carries the fleet's
+# same-line path marker with a reason. Both rules mirror
+# `coordinator_core.ops.session.guard_concrete_path_citations`
+# (`_is_placeholder_segment`, `_PLACEHOLDER_WORDS`, `_MARKER_RE` and its
+# reason-mandatory check), restated here rather than imported: that module's
+# import costs ~27 ms on a gate that runs inside every percolate round. The
+# restatement is a SUPERSET as of the extension rule below -- that guard reads
+# a cited path, which carries no leaf-file fixtures, so it has no equivalent. The
+# email alternative is never discharged by either rule -- the path marker
+# adjudicates a path, not an identity; its one discharge is the public-forge
+# service address (`_is_forge_service_address`), which is not an identity at
+# all.
+#
+# Negative-spec: this is NOT an allowlist of files or literals. A drive or
+# `/x/` root followed by a real repo name, or a Claude projects dir followed
+# by a real slug, still gates, as does a bare path marker with no reason, and
+# a line whose placeholder match sits beside a concrete one gates on the
+# concrete one.
+_PLACEHOLDER_SEGMENT_WORDS = frozenset(
+    {
+        "alice", "bob", "username", "you", "me",
+        "foo", "bar", "baz", "test", "example", "someone",
+        "operator", "yourname",
+        "host", "hostname", "server", "share", "fileserver", "machine",
+    }
+)
+_PATH_MARKER_RE = re.compile(r"(?:^|[^A-Za-z0-9_])(?:abs-path-ok|foreign-path-ok):")
+_PATH_SEGMENT_RE = re.compile(r"[^/\\\s`'\"()\[\],;]*")
+_PATH_ROOT_LEN = 3
+
+# A placeholder segment may carry a file extension: an extension is a TYPE, not
+# a name, so the stem is what the placeholder rule reads. `/x/y.md` is a
+# synthetic fixture path in both segments and names nothing on any machine.
+#
+# Negative-spec: only the stem's own placeholder shape discharges it. A real
+# stem under any extension still gates (`/x/notes.md`, `/x/claude-klabauter`),
+# and a deeper path is still read at its rooted segment, so
+# `/x/cross-repo/archive/a.md` gates on `cross-repo` -- the leaf `a.md` is
+# never what the rule looks at.
+_PATH_EXTENSION_RE = re.compile(r"\.[A-Za-z0-9]{1,8}$")
+
+# A slash-rooted MEDIUM match preceded by a path character roots nothing: it
+# is an interior slice of a longer path, and the segment it names is read by
+# the same placeholder rule the rooted case uses.
+_INTERIOR_ROOT_PREFIX_RE = re.compile(r"[A-Za-z0-9._-]")
+_SLASH_ROOT_RE = re.compile(r"^/([^/]+)/")
+
+# An email-shape match whose local part is the forge's own service account at
+# a PUBLIC forge host is a service address every clone of a public repo
+# carries -- generic by construction, naming no person and no machine of ours.
+_FORGE_SERVICE_LOCAL_PART = "git"
+_PUBLIC_FORGE_HOSTS = frozenset(
+    {"github.com", "gitlab.com", "bitbucket.org", "codeberg.org", "git.sr.ht"}
+)
+
+
+def _line_has_path_marker(line: str) -> bool:
+    return any(line[m.end():].strip() for m in _PATH_MARKER_RE.finditer(line))
+
+
+def _is_placeholder_segment(segment: str) -> bool:
+    if not segment:
+        return False
+    if segment == "..." or segment[0] in "<${*":
+        return True
+    if len(segment) == 1 and segment.isalpha():
+        return True
+    if segment.lower() in _PLACEHOLDER_SEGMENT_WORDS:
+        return True
+    stem = _PATH_EXTENSION_RE.sub("", segment)
+    return stem != segment and _is_placeholder_segment(stem)
+
+
+def _is_interior_placeholder_root(line: str, match: "re.Match[str]") -> bool:
+    """Does this slash-rooted MEDIUM match sit MID-path on a placeholder segment?
+
+    `refs/x/old` is a git ref namespace, not the `x` drive: the match `/x/old`
+    is preceded by a path character, so its leading `/` roots nothing and `x`
+    is an interior single-letter segment -- a placeholder under exactly the
+    reading `_is_placeholder_segment` already applies one segment further
+    along.
+
+    Negative-spec: this discharges nothing that names a machine. A path-rooted
+    `/x/claude-klabauter` (nothing path-like before the `/`) and every `X:/...`
+    drive form are untouched and still gate, as does any interior segment the
+    placeholder rule does not already accept.
+    """
+    root = _SLASH_ROOT_RE.match(match.group(0))
+    if root is None:
+        return False
+    start = match.start()
+    if start == 0 or not _INTERIOR_ROOT_PREFIX_RE.match(line[start - 1]):
+        return False
+    return _is_placeholder_segment(root.group(1))
+
+
+def _is_forge_service_address(token: str) -> bool:
+    """Is ``token`` a public code-forge's SSH service address (`git@github.com`)?
+
+    The local part is the forge's fixed service account, not a person, and the
+    host is a public service every clone URL of that forge repeats verbatim.
+
+    Negative-spec: not an allowlist of files, lines or literals, and it is the
+    ONLY discharge an email-shape match ever gets. Any other local part at
+    these hosts still gates (`someone@github.com`), and `git@` at any other
+    host -- a self-hosted forge, a company domain -- still gates.
+    """
+    local, _, host = token.partition("@")
+    return local.lower() == _FORGE_SERVICE_LOCAL_PART and host.lower() in _PUBLIC_FORGE_HOSTS
+
+
+def _medium_line_gates(line: str) -> bool:
+    """Does ``line`` carry at least one MEDIUM match that is not discharged?"""
+    marked = None
+    for match in _TIER_MEDIUM.finditer(line):
+        token = match.group(0)
+        if "@" in token:
+            if _is_forge_service_address(token):
+                continue
+            return True
+        if _is_interior_placeholder_root(line, match):
+            continue
+        if marked is None:
+            marked = _line_has_path_marker(line)
+        if marked:
+            continue
+        seg_start = match.end() if token.startswith("~") else match.start() + _PATH_ROOT_LEN
+        segment = _PATH_SEGMENT_RE.match(line, seg_start).group(0)
+        if not _is_placeholder_segment(segment):
+            return True
+    return False
 
 # Tier LOW — informational only (40-char hex commit SHAs, doctrine language).
 _TIER_LOW = re.compile(r"(\b[0-9a-f]{40}\b|First Officer Doctrine)")
@@ -402,12 +549,16 @@ _MEDIUM_PANEL_INFORMATIONAL_MARKER = "##SCAN-PANEL:INFORMATIONAL##"
 _MEDIUM_PANEL_GATING_MARKER = "##SCAN-PANEL:GATING##"
 
 
-def _scan_file(path: Path, pattern: re.Pattern) -> List[Tuple[Path, int, str]]:
+def _scan_file(
+    path: Path,
+    pattern: re.Pattern,
+    line_gates: Optional[Callable[[str], bool]] = None,
+) -> List[Tuple[Path, int, str]]:
     hits: List[Tuple[Path, int, str]] = []
     try:
         with path.open("r", encoding="utf-8", errors="ignore") as fh:
             for lineno, line in enumerate(fh, start=1):
-                if pattern.search(line):
+                if pattern.search(line) and (line_gates is None or line_gates(line)):
                     hits.append((path, lineno, line.rstrip("\n")))
     except OSError:
         pass
@@ -521,7 +672,7 @@ def _cmd_scan_secrets(args: argparse.Namespace) -> int:
 
     for path in files:
         high_hits.extend(_scan_file(path, _TIER_HIGH))
-        medium_hits.extend(_scan_file(path, medium_pattern))
+        medium_hits.extend(_scan_file(path, medium_pattern, _medium_line_gates))
         if peer_pattern is not None:
             peer_hits = _scan_file(path, peer_pattern)
             if transform_covers_peer:
@@ -669,30 +820,97 @@ def _resolve_target_source_dir(percolate_root: Path, target: str) -> Optional[Pa
     return Path(match[2])
 
 
+_LEGACY_SOURCE_STAMP = r" \[source [0-9a-f]{12}\]"
+
+
+class _DriftLog(NamedTuple):
+    """What ``_git_log_batched`` found in the anchor window, already sorted
+    into the three classes Step 2d reports."""
+
+    drift_lines: List[str]
+    publisher_commits: int
+    superseded_commits: int
+
+
+def _drift_log_cmd_base(dest: Path) -> List[str]:
+    """The one ``git log`` shape ``_git_log_batched`` parses.
+
+    ``%x1e`` opens each record so ``--name-only``'s path lines stay attached
+    to their commit; ``%ct`` orders the union across batches; ``--topo-order``
+    puts every descendant ahead of its ancestors, which the supersession walk
+    relies on; ``--no-renames`` keeps both sides of a rename visible as paths.
+    """
+    return [
+        "-C", str(dest), "log", "--no-merges", "--no-renames", "--topo-order",
+        "--name-only", "--date=short", "--format=%x1e%ct %h %ad %s",
+    ]
+
+
+def _publisher_stamp_re() -> "re.Pattern[str]":
+    """Matches a commit subject the publisher itself wrote into dest.
+
+    Every percolate leg that commits into a mirror (``publish.py``,
+    ``percolate-round.py``, ``percolate-mirror.py``) ends its subject with the
+    stamp ``coordinator_core.git.git_state.format_source_sha_suffix`` spells,
+    so the current spelling is derived from that function rather than copied
+    here. ``[source <sha12>]`` is the stamp's own earlier spelling (renamed
+    2026-09-04), still present in mirror history.
+
+    Negative-spec: NOT a match on the prose prefixes (``percolate publish:``,
+    ``percolate: sync``, ``engine sync from ...``). Those drift, and a hand
+    commit can reuse one. The stamp is machine-written and anchored at the
+    end of the subject.
+    """
+    _bootstrap_engine()
+    from coordinator_core.git.git_state import format_source_sha_suffix  # noqa: E402
+
+    probe = "0" * 12
+    current = re.escape(format_source_sha_suffix(probe)).replace(probe, "[0-9a-f]{12}")
+    return re.compile(rf"(?:{current}|{_LEGACY_SOURCE_STAMP})$")
+
+
 def _git_log_batched(
     log_cmd_base: List[str],
     revision_args: List[str],
     rel_paths: List[str],
-) -> List[str]:
-    """Run ``git log`` over ``rel_paths`` in command-line-safe batches.
+) -> _DriftLog:
+    """Run ``git log`` over ``rel_paths`` in command-line-safe batches, and
+    separate hand-authored drift from the publisher's own history.
 
-    ``log_cmd_base`` carries no leading ``"git"`` — it is passed straight to
-    ``run_git``, which takes args without one.
+    ``log_cmd_base`` carries no leading ``"git"`` (it goes straight to
+    ``run_git``) and must be ``_drift_log_cmd_base``'s shape.
 
     Windows caps a process command line at 32767 characters, and a mirror row
-    can carry hundreds of pathspecs — passing them in one invocation raises
+    can carry hundreds of pathspecs. Passing them in one invocation raises
     ``FileNotFoundError: [WinError 206] The filename or extension is too long``
     and takes the whole inverse-drift check down with it. ``git log`` has no
     ``--pathspec-from-file`` (verified against git 2.55: *unrecognized
     argument*; the flag exists on add/commit/checkout/reset only), so batching
     is the portable route rather than stdin.
 
+    Classification, per commit in the window:
+
+    * publisher: its subject carries the source-head stamp
+      (``_publisher_stamp_re``). Its bytes ARE the source's, so a sync
+      cannot overwrite anything of a human's in it.
+    * superseded: hand-authored, but a later publisher commit rewrote every
+      path of it the window covers, so what it changed is already gone from
+      HEAD. There is nothing left for this sync to overwrite.
+    * drift: hand-authored, with at least one path no later publisher commit
+      touched. That path's dest bytes are a human's, and this sync
+      overwrites them.
+
+    Supersession is judged per batch. A path lives in exactly one batch, so
+    every commit touching it is listed there in git's topological order.
+
     Negative-spec: batches are a command-line-length concession, NOT a scope
-    narrowing — every pathspec is still queried, and results are unioned by
-    abbreviated SHA so a commit spanning two batches is reported once.
+    narrowing. Every pathspec is still queried, and a commit spanning two
+    batches is reported once, as drift if any batch finds it live. A
+    hand-authored commit with no listed path counts as drift, not as
+    superseded.
     """
     if not rel_paths:
-        return []
+        return _DriftLog([], 0, 0)
 
     batches: List[List[str]] = []
     current: List[str] = []
@@ -710,7 +928,11 @@ def _git_log_batched(
 
     from coordinator_core.git.run import run_git  # noqa: E402
 
-    by_sha: dict = {}
+    stamp_re = _publisher_stamp_re()
+    display: dict[str, tuple[int, str]] = {}
+    publisher: set[str] = set()
+    hand_authored: set[str] = set()
+    drifting: set[str] = set()
     for batch in batches:
         cmd = log_cmd_base + revision_args + ["--"] + batch
         result = run_git(cmd)
@@ -719,30 +941,41 @@ def _git_log_batched(
             # so no drift" — not the swallowed-error class this raise exists
             # to expose (WinError 206, bad pathspec, unreadable repo).
             if "does not have any commits yet" in result.stderr:
-                return []
+                return _DriftLog([], 0, 0)
             raise RuntimeError(
                 f"git log failed (exit {result.returncode}) on a {len(batch)}-pathspec "
                 f"batch: {result.stderr.strip()}"
             )
-        for line in result.stdout.splitlines():
-            if not line.strip():
+        overwritten: set[str] = set()
+        for record in result.stdout.split("\x1e"):
+            header, _, body = record.partition("\n")
+            fields = header.split(" ", 3)
+            if len(fields) < 3:
                 continue
-            sha = line.split(" ", 1)[0]
-            by_sha.setdefault(sha, line)
+            committed_at, sha, date = fields[:3]
+            subject = fields[3] if len(fields) > 3 else ""
+            paths = [p for p in body.splitlines() if p.strip()]
+            if stamp_re.search(subject):
+                publisher.add(sha)
+                overwritten.update(paths)
+                continue
+            hand_authored.add(sha)
+            display.setdefault(sha, (int(committed_at), f"{sha} {date} {subject}"))
+            if not paths or any(p not in overwritten for p in paths):
+                drifting.add(sha)
 
-    # Batching destroys git's own newest-first ordering across batches; the
-    # %ad date (--date=short, so lexically sortable) restores it.
-    def _date_key(line: str) -> str:
-        parts = line.split(" ", 2)
-        return parts[1] if len(parts) > 1 else ""
-
-    return sorted(by_sha.values(), key=_date_key, reverse=True)
+    ordered = sorted((display[sha] for sha in drifting), reverse=True)
+    return _DriftLog(
+        [line for _committed_at, line in ordered],
+        len(publisher),
+        len(hand_authored - drifting),
+    )
 
 
 def _emit_inverse_drift_verdict(
     anchor_mode: str,
     since_ref: Optional[str],
-    log_lines: List[str],
+    drift_log: _DriftLog,
     rel_paths: List[str],
     dest: Path,
     source_dir: Optional[Path],
@@ -750,17 +983,19 @@ def _emit_inverse_drift_verdict(
     """Machine-readable inverse-drift verdict, so a caller consumes a FIELD
     instead of a human reading prose.
 
-    Two things it states rather than guesses:
+    Three things it states rather than guesses:
 
     `anchor_reliable` — only `anchor_mode == "marker"` bounds the log at the
     last real sync. Under `30day-fallback`/`marker-stale` the window reaches
-    back over already-published history, so the commits it returns are mostly
-    this repo's OWN prior publishes. Measured on claude-klabauter 2026-08-18:
-    36 commits in a 30-day window, of which 35 were publish echoes under three
-    different subject prefixes (`percolate publish:`, `publish: carry...`,
-    `engine sync from claude-klabauter:`). Subject-matching was rejected as the
-    dismissal oracle for exactly that reason — it is a guess that silently
-    drops real drift, the corrupting direction.
+    further back than the last reviewed round.
+
+    `publisher_commits_excluded` / `superseded_commits_excluded` — the
+    publisher's own commits, and hand commits a later publish already
+    rewrote (§ `_git_log_batched`). Neither is in `commit_lines`. Measured on
+    claude-klabauter 2026-09-11: 231 listed commits, every one a stamped
+    publish. Prose-prefix matching was rejected here earlier as a guess
+    (three prefixes observed); the stamp is not a prefix. One formatter
+    spells it and every publishing leg emits it.
 
     `crlf_only` — the sanctioned per-file dismissal (residue wiki §
     "Inverse-drift false-positive dismissal, in full"): source CRLF against an
@@ -791,11 +1026,15 @@ def _emit_inverse_drift_verdict(
         "anchor_mode": anchor_mode,
         "anchor_reliable": anchor_mode == "marker",
         "anchor_ref": since_ref,
-        "commits": len(log_lines),
-        "commit_lines": log_lines,
+        "commits": len(drift_log.drift_lines),
+        "commit_lines": drift_log.drift_lines,
+        "publisher_commits_excluded": drift_log.publisher_commits,
+        "superseded_commits_excluded": drift_log.superseded_commits,
         "dismissed_crlf_only": crlf_only,
         "content_differs": differing,
-        "real_drift": bool(log_lines) and anchor_mode == "marker" and bool(differing),
+        "real_drift": (
+            bool(drift_log.drift_lines) and anchor_mode == "marker" and bool(differing)
+        ),
     }
     print(json.dumps(verdict, indent=2))
     return 0
@@ -845,7 +1084,7 @@ def _cmd_inverse_drift(args: argparse.Namespace) -> int:
         )
         return 1
 
-    log_cmd_base = ["-C", str(dest), "log", "--no-merges", "--format=%h %ad %s", "--date=short"]
+    log_cmd_base = _drift_log_cmd_base(dest)
 
     if anchor_mode == "marker":
         from coordinator_core.git.run import run_git  # noqa: E402
@@ -861,14 +1100,20 @@ def _cmd_inverse_drift(args: argparse.Namespace) -> int:
     else:
         revision_args = ["--since=30 days ago"]
 
-    log_lines = _git_log_batched(log_cmd_base, revision_args, rel_paths)
+    drift_log = _git_log_batched(log_cmd_base, revision_args, rel_paths)
+    log_lines = drift_log.drift_lines
 
     if getattr(args, "json", False):
         return _emit_inverse_drift_verdict(
-            anchor_mode, since_ref, log_lines, rel_paths, dest, source_dir
+            anchor_mode, since_ref, drift_log, rel_paths, dest, source_dir
         )
 
     print(f"anchor_mode: {anchor_mode}")
+    if drift_log.publisher_commits or drift_log.superseded_commits:
+        print(
+            f"not drift: {drift_log.publisher_commits} publisher commit(s), "
+            f"{drift_log.superseded_commits} hand commit(s) a later publish already rewrote"
+        )
 
     if not log_lines:
         return 0

@@ -35,6 +35,7 @@ archive/**
 docs/research/archive/**
 coordinator/archive/**
 coordinator/cockpit-contract/conformance/inputs/archive/**
+state/cross-repo/archive/**
 cross-repo/archive/**
 
 # Per-dispatch ephemera: agent sidecars and review diffs. In an active repo this
@@ -43,6 +44,14 @@ cross-repo/archive/**
 # durably.
 state/subagent-share/**
 state/review-trail/**
+
+# The coordinator's gitignored per-machine scratch root: subagent-share, plan
+# sidecars, dispatch briefs, review trail and memo outbox all land here. Excluded
+# whole rather than subtree by subtree — a per-subtree list fails open on every
+# new subtree the coordinator adds. Gitignored is not excluded: this surface does
+# not read `.gitignore`, and leading-dot directories are not pruned by default,
+# so this line is required, not redundant.
+.coordinator-local/**
 
 # Fast-moving work-state. The semantic surface is the WRONG tier for these, on a
 # refresh-cost argument rather than a value one: an embeddings run is slow and

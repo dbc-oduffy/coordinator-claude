@@ -533,6 +533,10 @@ except KeyError as _e:
 
 # REPO_ALIASES: registryKey → shortname — matches the Python _REPO_KEY_ALIASES convention
 # in coordinator-doc-new and coordinator-queue-append.
+# Review: coordinator-code-reviewer Finding 3 — sibling reader:
+# coordinator_core/machine_resolver.py's _identity_repo_aliases() (lazy,
+# DR-047-forced second projection). Keep both in sync by hand on any
+# manifest-shape change.
 REPO_ALIASES: dict[str, str] = {a["registryKey"]: a["shortname"] for a in _repo_aliases_raw}
 
 # CENTRAL_RECEIVER_IDS: valid central EM receiver identity strings
@@ -540,6 +544,9 @@ CENTRAL_RECEIVER_IDS: frozenset[str] = frozenset(_central_receiver_ids_raw)
 
 
 def _central_canonical_id() -> str:
+    # Review: coordinator-code-reviewer Finding 3 — sibling reader:
+    # coordinator_core/machine_resolver.py's _identity_central_canonical_id().
+    # Keep both in sync by hand on any manifest-shape change.
     """The single canonical central-EM identity string.
 
     Derived from identity.centralReceiverIds[0] in the manifest — index 0 is
@@ -669,13 +676,14 @@ def repo_key_to_em_id(key: str) -> str:
     Negative-spec: the ~/.claude/home path is NOT special-cased here — central
     identity is anchored on repos.doe_claude, not the home directory.
     """
-    if key == "repos.doe_claude":
-        return _central_canonical_id()
-    shortname = key[len("repos."):] if key.startswith("repos.") else key
-    canonical = REPO_ALIASES.get(shortname)
-    if canonical is not None:
-        return canonical + "-em"
-    return shortname.replace("_", "-") + "-em"
+    if _REGISTRY_LIB_DIR not in sys.path:
+        sys.path.insert(0, _REGISTRY_LIB_DIR)
+    import cc_invoke
+
+    cc_invoke.ensure_engine_on_path(__file__)
+    from coordinator_core.machine_resolver import repo_key_to_em_id as _repo_key_to_em_id
+
+    return _repo_key_to_em_id(key)
 
 
 def em_id_for_root(root: str | None, repo_key_paths: dict[str, str]) -> str:
@@ -694,15 +702,14 @@ def em_id_for_root(root: str | None, repo_key_paths: dict[str, str]) -> str:
     Negative-spec: the old ~/.claude/home special-case is REMOVED — ~/.claude is no
     longer a memo-identity anchor. Central identity flows through repos.doe_claude only.
     """
-    if root is None:
-        return "unknown-sender-em"
-    doe_claude_path = repo_key_paths.get("repos.doe_claude")
-    if doe_claude_path and _same_path(root, doe_claude_path):
-        return _central_canonical_id()
-    key = _canonical_repo_key_for_root(root, repo_key_paths)
-    if key is not None:
-        return repo_key_to_em_id(key)
-    return os.path.basename(root.rstrip("/\\")) + "-em"
+    if _REGISTRY_LIB_DIR not in sys.path:
+        sys.path.insert(0, _REGISTRY_LIB_DIR)
+    import cc_invoke
+
+    cc_invoke.ensure_engine_on_path(__file__)
+    from coordinator_core.machine_resolver import em_id_for_root as _em_id_for_root
+
+    return _em_id_for_root(root, repo_key_paths)
 
 
 # ---------------------------------------------------------------------------

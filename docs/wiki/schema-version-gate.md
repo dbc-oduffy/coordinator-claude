@@ -475,6 +475,12 @@ notice at bump time.
 
 Always widen the **consumer** before bumping the **producer**.
 
+**Fleet-altitude rollback/pre-flight record:** `docs/decisions/DR-202-major-contract-version-bump-rollback-contract.md`
+states this ordering as the fleet-general reversibility/pre-flight/coordination-primitive/
+unmigrated-consumer contract for ANY cross-repo MAJOR contract-version bump, not the cockpit
+contract alone — this section is its reader-first ratification, with `DECISIONS.md` § D34 (9) as
+the cockpit-specific instance.
+
 > Sources: `state/improvement-queue/2026-06-27-reader-first-ordering-for-contract-bump.yaml`,
 > `state/improvement-queue/2026-06-23-contract-version-cutover-must-widen-the.yaml`.
 
@@ -540,6 +546,9 @@ bump against a declared-tolerant consumer set is exempt from this hold):
 - The producer **holds merge-to-main and production emit** until the consumer
   confirms re-vendor.
 - The bump sequence follows reader-first ordering strictly (§ above).
+
+See `docs/decisions/DR-202-major-contract-version-bump-rollback-contract.md` for the fleet-general
+pre-flight checklist a bumping plan runs before this hold engages.
 
 **The first cross-repo consumer of `x-schema-version` triggers D13-style bilateral
 widen-reader-first sequencing** (see `cockpit-contract/DECISIONS.md` D13).  This is a

@@ -47,8 +47,11 @@ Writes `<trail-dir>/fire-<waveIndex>-<n>.mjs` per fire and prints, for each, the
 from __future__ import annotations
 
 import argparse
+import hashlib
+import importlib.util
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -60,6 +63,130 @@ DEFAULT_BATONS_PER_FIRE = 8
 
 EXIT_OK = 0
 EXIT_REFUSED = 2
+
+
+# The planning report states the plan it wrote in its own first lines. It is the per-baton record
+# that survives in the slot even when the run's `wave-result.json` was never archived (a fire killed
+# before its landing), so it is read as the fallback source of `planPath`.
+_PLAN_LINE = re.compile(r"^\*\*Plan:\*\*\s*`([^`]+)`", re.M)
+
+_POINTER_SUFFIX = "-pointer.md"
+
+
+def _slot_order_fn():
+    """`recycle-check.py :: _slot_order`, imported rather than re-derived.
+
+    Both readers order the same slots for the same reason, and the ordering is subtle enough to get
+    wrong twice in the same way: `wave-10-…` sorts before `wave-2-…` as text, so a lexical sort
+    reports a ten-wave run's oldest records as its newest. The skill body names that one function as
+    the ordering; a copy here would be a second answer to it.
+    """
+    src = Path(__file__).resolve().parent / "recycle-check.py"
+    spec = importlib.util.spec_from_file_location("_recycle_check_for_repair", src)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod._slot_order
+
+
+def _latest_wave_slot(trail_dir: Path, baton_id: str) -> Path | None:
+    """The wave slot holding this baton's LATEST pointer records, or None if it has none.
+
+    `repair-…` slots are skipped rather than ordered last: a repair re-emits no reviewer, so its
+    slot holds an integration report and no pointers. Reading one as the pointer source hands
+    `reviews: []` to a baton whose reviews are on disk one directory over, and the workflow then
+    refuses a baton that was repairable all along.
+    """
+    order = _slot_order_fn()
+    slots = [
+        p
+        for p in trail_dir.glob(f"wave-*/{baton_id}.review-*{_POINTER_SUFFIX}")
+    ]
+    if not slots:
+        return None
+    return max(slots, key=lambda p: order(trail_dir, p)).parent
+
+
+def _plan_path_for(slot: Path, baton_id: str) -> str | None:
+    """This baton's plan, off the slot's own records. The landing's `wave-result.json` is the
+    first source because the verdict row is what the repair re-dispositions; the planning report
+    is the fallback for a fire that died before it landed."""
+    result = slot / "wave-result.json"
+    if result.is_file():
+        try:
+            data = json.loads(result.read_text(encoding="utf-8"))
+        except ValueError:
+            data = {}
+        for lane in ("pulled", "ready", "replan"):
+            for row in data.get(lane) or []:
+                if isinstance(row, dict) and row.get("batonId") == baton_id and row.get("planPath"):
+                    return row["planPath"]
+    report = slot / f"{baton_id}.planning-report.md"
+    if report.is_file():
+        m = _PLAN_LINE.search(report.read_text(encoding="utf-8"))
+        if m:
+            return m.group(1)
+    return None
+
+
+def _repair_entry(trail_dir: Path, repo_root: Path, baton_id: str) -> tuple[dict | None, str | None]:
+    """Resolve one baton's `repairBatons` entry from the trail, or say why it cannot be.
+
+    Returns (entry, refusal). The refusals mirror the workflow's own, deliberately: the workflow
+    refuses the same cases at fire time, and catching them here costs a print instead of a fire.
+    """
+    slot = _latest_wave_slot(trail_dir, baton_id)
+    if slot is None:
+        return None, (
+            f"{baton_id}: no reviewer pointer records under any wave slot of {trail_dir}. "
+            "A trail written before the structured pointer contract carries bare paths, not "
+            "records, and is not repairable."
+        )
+    plan_path = _plan_path_for(slot, baton_id)
+    if not plan_path:
+        return None, (
+            f"{baton_id}: {slot.name} names no plan for it — neither a landed verdict row nor a "
+            "planning report. Repair re-dispositions a plan; there is none to read."
+        )
+
+    reviews: list[dict] = []
+    unresolved: list[dict] = []
+    for pointer in sorted(slot.glob(f"{baton_id}.review-*{_POINTER_SUFFIX}")):
+        try:
+            record = json.loads(pointer.read_text(encoding="utf-8"))
+        except ValueError as exc:
+            unresolved.append({"pointerPath": str(pointer), "error": f"unreadable: {exc}"})
+            continue
+        if not isinstance(record, dict) or "verdict" not in record:
+            return None, (
+                f"{baton_id}: {pointer.name} carries no `verdict` — the pre-contract bare-path "
+                "shape. Integrating it would apply findings under a verdict nobody wrote."
+            )
+        target = Path(record.get("sidecarPath") or "")
+        if not target.is_absolute():
+            target = repo_root / target
+        if record.get("sidecarPath") and target.is_file():
+            reviews.append(record)
+        else:
+            unresolved.append(
+                {"pointerPath": str(pointer), "error": f"sidecar missing at {target}"}
+            )
+
+    if unresolved:
+        return None, (
+            f"{baton_id}: {len(unresolved)} pointer(s) name a sidecar that is gone "
+            f"({unresolved[0]['error']}). Repair disposition the whole baton or none of it."
+        )
+    if not reviews:
+        return None, f"{baton_id}: {slot.name} holds no resolvable reviewer pointer for it."
+    return (
+        {
+            "batonId": baton_id,
+            "planPath": plan_path,
+            "reviews": reviews,
+            "unresolvedPointers": [],
+        },
+        None,
+    )
 
 
 def _gate_payload(path: Path) -> dict:
@@ -77,18 +204,220 @@ def _pack_by_plan(entries: list[dict], per: int) -> list[list[dict]]:
 
     Batons linking one plan are one unit: in different fires they are two concurrent waves
     authoring one file, and whichever integrator writes last wins silently. A unit is placed
-    whole — over the cap when it alone exceeds it — and wave order is otherwise kept."""
+    whole — over the cap when it alone exceeds it — and wave order is otherwise kept.
+
+    Fires are balanced, not filled greedily: a fire's wall clock is roughly flat in its size, so
+    10 batons at a cap of 8 run as 5+5 rather than 8+2 — the same fire count, finishing sooner."""
     units: dict[object, list[dict]] = {}
     for n, entry in enumerate(entries):
         key = entry.get("planPath") or ("__unplanned__", n)
         units.setdefault(key, []).append(entry)
+    fire_count = -(-len(entries) // per)
+    target = -(-len(entries) // fire_count) if fire_count else per
     fires: list[list[dict]] = []
     for unit in units.values():
-        if fires and len(fires[-1]) + len(unit) <= per:
+        if fires and len(fires[-1]) + len(unit) <= target:
             fires[-1].extend(unit)
         else:
             fires.append(list(unit))
     return fires
+
+
+def _parse_porcelain(stdout: str) -> set[str]:
+    """Paths named by `git status --porcelain` output, forward-slashed; a rename's new path."""
+    paths = set()
+    for line in stdout.splitlines():
+        path = line[3:].strip()
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        paths.add(path.strip('"').replace("\\", "/"))
+    return paths
+
+
+def _live_writer_paths(repo_root: Path, rel_paths: list[str]) -> set[str] | None:
+    """Baton records a live writer holds — untracked, or modified in the working tree.
+
+    A baton whose record is uncommitted is being written right now: a minter stamped it
+    `pickup_ready` before its commit, or a peer is mid-edit on its gate fields. The gate
+    reads the working tree and cannot tell, and by contract spawns no git, so the driver
+    holds these the way it holds its own in-flight batons. None when git could not answer.
+    """
+    if not rel_paths:
+        return set()
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo_root), "status", "--porcelain", "--untracked-files=all",
+             "--", *rel_paths],
+            capture_output=True, text=True, timeout=60,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return _parse_porcelain(proc.stdout) if proc.returncode == 0 else None
+
+
+def _plans_edited_since(repo_root: Path, report_path: Path, plans: list[str]) -> list[str]:
+    """Plans whose file changed after the gate report was frozen.
+
+    THE BETWEEN-WAVES SEAM. The skill forbids intervening DURING a wave and says nothing about the
+    gap BETWEEN waves — which is exactly where a pulled baton is settled, and settling one means
+    editing its plan. Re-fire that baton and the next wave's planner re-authors the same plan from
+    the BATON, seeing neither the previous trail nor the EM's settlement, and the second author
+    silently overwrites the first. Measured on project-rag: a settled prime exit criterion was
+    rewritten by the next wave's planner, dropping the clause the freshly committed falsifier
+    asserts, so the instrument could not go green against its own criterion. Nothing failed loudly.
+
+    This is the cheap half — mechanism, no judgment. It names the collision at emit time; what to
+    do about it (fire anyway, re-freeze the gate, or hand the settlement to the planner) stays the
+    driver's call, because only the driver knows whether the edit was theirs.
+    """
+    if not plans:
+        return []
+    try:
+        frozen = report_path.stat().st_mtime
+    except OSError:
+        return []
+    touched = []
+    for rel in plans:
+        path = repo_root / rel
+        try:
+            if path.is_file() and path.stat().st_mtime > frozen:
+                touched.append(rel)
+        except OSError:
+            continue
+    return touched
+
+
+def _shared_wave_slots(payload: dict, wave_ids: list) -> list:
+    """Wave ids that more than one `batons[]` record answers to, with their paths.
+
+    `waves[]` is keyed by baton id and a baton id is NOT unique: a succession
+    chain and a roadmap stub's fan-out both share one deliberately. Binding
+    `batons[]` into a dict therefore collapses each such group to whichever
+    record happens to be read last, and every consumer walking `waves` reaches
+    that one alone -- the rest are unreachable, with nothing raised on any
+    surface.
+
+    Computed from `batons[]` directly rather than read off the gate's own
+    `shared_wave_slot[]`, which is not carried by every engine this script
+    resolves against: an absent field reads as an empty list, so consuming it
+    alone would fail OPEN on exactly the engines that cannot report the
+    collapse. The gate's field, where present, is corroboration and is unioned
+    in below; the local computation is what makes the check load-bearing.
+
+    Negative spec: this NAMES a collapse, it never repairs one. The sharing is
+    legitimate, so picking a survivor here would silently resolve a question
+    that belongs to the driver.
+    """
+    wanted = set(wave_ids)
+    seen: dict = {}
+    for baton in payload.get("batons") or []:
+        slot_id = baton.get("id")
+        if slot_id in wanted:
+            seen.setdefault(slot_id, []).append(baton.get("path") or "<no path>")
+    collapsed = {i: paths for i, paths in seen.items() if len(paths) > 1}
+
+    # Review (Kira revision, coordinator-overengineering-reviewer finding 3, applied-modified):
+    # the gate's real shape (`coordinator_core/roadmap/plan_gate.py :: assemble_plan_gate`, the
+    # `shared_wave_slot_rows` block) is {"id", "wave", "members": [{"path", "title"}, ...]} --
+    # the bare-id and "paths" shapes
+    # below were guessed and matched nothing the engine emits; reading them as bare strings fed
+    # dicts into the final `sorted(paths)` and raised TypeError on a gate-only slot with two or
+    # more members. Kept the union (a slot the gate names that the local batons[] scan did not
+    # reach is still worth reporting) but read only the shape the engine actually produces.
+    for entry in payload.get("shared_wave_slot") or []:
+        if not isinstance(entry, dict):
+            # Review (code-reviewer, slice D, nit, applied): corroboration-only and
+            # engine-controlled, but a malformed entry from a future engine revision
+            # should not vanish silently -- name it so drift is visible without
+            # blocking the local batons[] scan that remains the load-bearing check.
+            print(
+                f"  NOTE: shared_wave_slot entry is not a dict ({entry!r}); skipped as "
+                "corroboration only, batons[] scan is unaffected",
+                file=sys.stderr,
+            )
+            continue
+        slot_id = entry.get("id")
+        if slot_id not in wanted:
+            continue
+        members = [m.get("path") for m in entry.get("members") or [] if isinstance(m, dict) and m.get("path")]
+        collapsed.setdefault(slot_id, members or ["<named by the gate; members not carried>"])
+
+    return sorted((i, sorted(paths)) for i, paths in collapsed.items())
+
+
+def _report_predates_a_landing(trail_dir: Path, wave_number: int, wave_ids: list) -> str:
+    """The report is SHAPE-RIGHT and TIME-WRONG: frozen before a landing this run
+    has since made, so it proposes batons that landing already advanced.
+
+    Nothing else in this module can see it. A stale report is internally consistent —
+    every `batons[]` lookup resolves, every field is present, the manifest reads as a
+    healthy wave. The existing checks all ask the report about itself, and it answers
+    correctly; what is wrong is WHEN it was frozen, which no self-consistency check
+    reaches. Measured on example-market-data-repo 2026-09-11: a 6-candidate wave 2 emitted
+    18 batons across 3 fires from wave 0's report, five of them plans the same run had
+    approved or certified in the intervening three hours and three open in plan-author
+    agents at that moment. Caught by a human read, not by this script.
+
+    The question is asked of what the TRAIL DECLARES, never of file mtimes. A landing
+    record names `nextWave.waveIndex` and the exact batons it hands forward, so a report
+    frozen after that landing cannot propose a baton the landing did not hand forward.
+    An mtime comparison would rest the same refusal on filesystem metadata that a
+    checkout or a sync rewrites without anyone writing the thing it stands for —
+    claude-klabauter-1e's correction to the first-proposed fix, and the reason this reads
+    a declaration instead.
+
+    Returns the refusal text, or "" when nothing is wrong or nothing can be decided.
+    Silent when the prior landing is absent (wave 0, or a landing not yet written): an
+    absent record is not evidence of staleness.
+    """
+    if wave_number <= 0:
+        return ""
+    prior = trail_dir / f"wave-{wave_number - 1}.landing.json"
+    if not prior.is_file():
+        return ""
+    try:
+        landing = json.loads(prior.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    nxt = landing.get("nextWave")
+    if not isinstance(nxt, dict) or nxt.get("waveIndex") != wave_number:
+        return ""
+    handed = {
+        b.get("id") for b in (nxt.get("batons") or []) if isinstance(b, dict) and b.get("id")
+    }
+    if not handed:
+        return ""
+    extra = [i for i in wave_ids if i not in handed]
+    if not extra:
+        return ""
+    # A LIMIT-CAPPED landing hands forward `--limit` batons and says so in the same object:
+    # `remaining` is what it did not carry. A fresh gate read then legitimately proposes more,
+    # and calling that report time-wrong accuses the EM of a staleness it does not have.
+    # Reported by example-game-workbench-repo-b8, who landed at the default 8 with `remaining: 21`,
+    # was refused against a correctly-fresh 29-baton report, and read blitz_land source to find
+    # out which side was wrong.
+    remaining = nxt.get("remaining")
+    if isinstance(remaining, int) and remaining > 0:
+        return (
+            f"this report proposes {len(extra)} baton(s) that {prior.name} did not hand forward, "
+            f"and that landing declares `remaining: {remaining}` — it was LIMIT-CAPPED, so it "
+            f"handed forward {len(handed)} of a larger set and this report is not thereby stale. "
+            "Re-land the same wave-result files at a `--limit` above the remainder if you want "
+            "them all in one hand-forward; otherwise emit from a freshly frozen report and take "
+            "the extra batons deliberately."
+        )
+    shown = extra[:8]
+    tail = f" (and {len(extra) - len(shown)} more)" if len(extra) > len(shown) else ""
+    return (
+        f"this report proposes {len(extra)} baton(s) that {prior.name} did not hand "
+        f"forward to wave {wave_number}: {shown}{tail}. That landing declares "
+        f"{len(handed)} candidate(s), so the report was frozen BEFORE it — it is "
+        "shape-right and time-wrong, which is why nothing else here refused it. "
+        "Every lookup in a stale report resolves and the manifest reads healthy. "
+        f"Re-freeze the gate to {trail_dir.name}/wave-{wave_number}.gate-report.json "
+        "and emit from that."
+    )
 
 
 def _baton_arg(record: dict) -> dict:
@@ -142,6 +471,126 @@ def _refusal_text(stdout: str, stderr: str) -> str:
     if banner and detail:
         return f"{detail[:800]} [stderr: {banner[:300]}]"
     return (detail or banner or "no output on either stream")[:800]
+
+
+def _engine_ref(repo_root: Path, script_source: Path) -> dict:
+    """What code this fire is a frozen copy of, recorded at emit time.
+
+    Three fields because three different questions get asked of a wave result after the fact: the
+    repo `head` says what the tree was at, `workflowSha` identifies the workflow BYTES the fire
+    actually carries (the file may be dirty, so HEAD alone is not it), and `dirty` says whether
+    those bytes are committed anywhere at all. A fire built from an uncommitted workflow is normal
+    on a repair run and misleading without the flag.
+
+    Fails open to nulls with a `reason`. A wave that cannot be emitted because git was unavailable
+    would be a worse outcome than one whose provenance is unknown — and an unknown that says so is
+    not the silence this field exists to end.
+    """
+    ref: dict = {
+        # WHICH TREE, not only which bytes. A sha and a HEAD from two different checkouts are
+        # INCOMPARABLE rather than merely different, and without the path "2 distinct workflows in
+        # this trail" reads as version skew when it is tree skew. Not hypothetical where the
+        # doctrine plane and the published engine plane are separate checkouts: each holds files
+        # the other does not — this workflow lives only in the doctrine tree, while the prep
+        # upgrader lives only in the published engine — so a cross-tree difference is the plane
+        # boundary working as designed and must never be read as a staleness finding. Reported by
+        # example-store-repo-fb.
+        "repoRoot": str(repo_root),
+        "workflowPath": str(script_source),
+        "head": None,
+        "workflowSha": None,
+        "dirty": None,
+        "reason": None,
+    }
+    try:
+        ref["workflowSha"] = hashlib.sha1(script_source.read_bytes()).hexdigest()
+    except OSError as exc:
+        ref["reason"] = f"workflow bytes unreadable ({exc})"
+        return ref
+    try:
+        run = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=15,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if run.returncode == 0:
+            ref["head"] = run.stdout.strip()
+        else:
+            ref["reason"] = "git rev-parse HEAD failed"
+            return ref
+        status = subprocess.run(
+            ["git", "-C", str(repo_root), "status", "--porcelain", "--", str(script_source)],
+            capture_output=True, text=True, timeout=15,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        ref["dirty"] = bool(status.returncode == 0 and status.stdout.strip())
+    except (OSError, subprocess.SubprocessError) as exc:
+        ref["reason"] = f"git unavailable ({exc})"
+    return ref
+
+
+def _trail_provenance(trail_dir: Path, fresh_ref: dict) -> list[str]:
+    """How many DIFFERENT workflows this trail's fire scripts were built from.
+
+    A trail accumulates fires across a long run, and each is a full standalone COPY of
+    `plan-blitz.mjs`, not a wrapper around it — so an emitted-but-unfired fire silently carries
+    whatever the workflow said when it was emitted. Measured on this run: fires 15 through 21 sat
+    emitted through a day of repairs to the very defects they would have run into.
+
+    WHAT THIS DELIBERATELY DOES NOT DO IS COMPARE A FIRE AGAINST THE CURRENT FILE. On a repair run
+    the workflow moves under the reader — example-store-repo-fb watched `plan-blitz.mjs` go from 242712
+    to 244313 bytes while measuring it — so "differs from the source" is true of nearly every fire
+    nearly always, and a warning that fires every time is one a driver learns to skip. Worse, it
+    points the wrong way: fb's `fire-3-1` was emitted 60 seconds BEFORE the commit that is supposed
+    to contain its fix and carries the fix anyway, because it was bound from the working tree. A
+    HEAD-based or source-diffing check would have told them to throw away a live 40-minute wave to
+    acquire code it was already running.
+
+    So the reported fact is about the TRAIL and is stable: how many distinct workflows its fires
+    hold, and which fires hold which. Silent when they agree. What a fire CONTAINS is then a grep
+    against the fire itself — the one question whose answer does not move.
+    """
+    groups: dict[tuple, list[str]] = {}
+    for path in sorted(trail_dir.glob("fire-*.mjs")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        sha = re.search(r'"workflowSha"\s*:\s*"([0-9a-f]{40})"', text)
+        # JSON-DECODED, never compared raw. The bound literal is JSON, so a Windows path arrives
+        # with its separators escaped and the same tree reads as two — measured by this file's own
+        # test, which is the only reason it is not live.
+        tree_raw = re.search(r'"workflowPath"\s*:\s*("(?:[^"\\]|\\.)*")', text)
+        try:
+            tree = json.loads(tree_raw.group(1)) if tree_raw else None
+        except ValueError:
+            tree = None
+        # A fire carrying no `engineRef` predates the field. That says nothing about its bytes, so
+        # it is its own group rather than being lumped in with a known one.
+        key = (sha.group(1), tree) if sha else (None, None)
+        groups.setdefault(key, []).append(path.name)
+    fresh = (fresh_ref.get("workflowSha"), fresh_ref.get("workflowPath"))
+    if fresh[0] and fresh not in groups:
+        groups[fresh] = []
+    if len(groups) < 2:
+        return []
+    # Same bytes from two checkouts is not skew and the line says so, because the reader's next
+    # move differs: version skew may warrant a re-emit, tree skew never does.
+    trees = {t for _s, t in groups if t}
+    lines = []
+    for (sha, tree), names in sorted(groups.items(), key=lambda kv: (kv[0][0] is None, kv[0])):
+        if sha is None:
+            label = "(no engineRef — predates the field)"
+        else:
+            label = f"{sha[:12]}…"
+            if len(trees) > 1 and tree:
+                label += f" from {tree}"
+        if (sha, tree) == fresh:
+            label += "  <-- just bound"
+        lines.append(f"    {label}: {', '.join(names) or '(this emit only)'}")
+    if len(trees) > 1:
+        lines.append(
+            "    NOTE: more than one CHECKOUT is represented. Refs from different trees are "
+            "incomparable, not merely different — that is a plane boundary, not staleness."
+        )
+    return lines
 
 
 def _bind(
@@ -358,6 +807,40 @@ def _engine_bin(
     )
 
 
+#: Agent definitions every wave dispatches under. The roster the write guards consult is walked
+#: from the plugin's own `agents/*.md`, so their presence IS the question `--plugin-agents-available`
+#: asks — there is nothing to assume.
+_WAVE_AGENT_DEFINITIONS = ("plan-author.md", "blitz-em.md", "review-integrator.md")
+
+
+def _plugin_agents_available(plugin_root: Path | None, explicit: str) -> tuple[bool, str]:
+    """Resolve whether `coordinator:*` agent types resolve here. Returns (value, why).
+
+    `false` is not a safe default and must never be reached by omission. An `agent()` call
+    carrying no `agentType` is stamped `workflow-subagent` by the Workflow runtime — a non-empty
+    type on no roster — and the write guards confine it on that roster absence. The planner is
+    then refused its own plan body by `block_subagent_plan_body_write` and denied
+    `plan-spine-check.py` by `block-reviewer-bash-outside-allowlist`, so a wave dispatches, burns
+    its full token budget, writes planning research to sidecars, and lands no plan at all.
+    Absence of a label is not neutral; it is the most-confined state there is
+    (`A-WORKFLOW-DISPATCH-WITHOUT-WITHROLE-IS-CONFINED`).
+
+    Negative-spec: this NEVER probes the harness for whether a type would resolve at dispatch
+    time — no such read exists here. It answers the narrower question it can answer honestly,
+    "does this plugin root define the agents the wave dispatches", and says which question it
+    answered.
+    """
+    if explicit in ("true", "false"):
+        return explicit == "true", f"passed --plugin-agents-available {explicit}"
+    if plugin_root is None:
+        return False, "no plugin root resolved, so no agents/ directory to read"
+    agents_dir = plugin_root / "agents"
+    missing = [n for n in _WAVE_AGENT_DEFINITIONS if not (agents_dir / n).is_file()]
+    if missing:
+        return False, f"{agents_dir} is missing {', '.join(missing)}"
+    return True, f"{agents_dir} defines every agent this wave dispatches"
+
+
 def _default_spine_check_cli(plugin_root: Path | None) -> str | None:
     """`plan-spine-check`, resolved off the PLUGIN root — rung 3's plugin-local case.
 
@@ -484,6 +967,88 @@ def _default_dispositions_cli(
     )
 
 
+def _emit_repair(args, repo_root: Path, trail_dir: Path, plugin_root: Path, engine_root, refuse) -> int:
+    """Emit one repair fire, bound the same way a wave fire is — identity resolution included.
+
+    A repair reaches only the integrator, and a confined integrator cannot run
+    `append-integrator-dispositions` at all, so an unresolved identity costs a repair its entire
+    point just as silently as it costs a wave its plans.
+
+    Repair existed only as a shape the caller was told to assemble by hand — which is the one act
+    § Fire the wave forbids, and for the same reasons: an args object inside a tool call is not on
+    disk, so the repair cannot be re-read, re-fired or diffed, and nothing archives with the trail.
+    Everything the assembly needed was already mechanical (latest wave slot, the partition rule,
+    the refusals), so it is done here.
+    """
+    script_source = plugin_root / "workflows" / "plan-blitz.mjs"
+    if not script_source.is_file():
+        return refuse(f"no plan-blitz.mjs at {script_source} — pass --plugin-root")
+    if not trail_dir.is_dir():
+        return refuse(f"trail dir {trail_dir} does not exist — a repair reads its records")
+    plugin_agents, plugin_agents_why = _plugin_agents_available(plugin_root, args.plugin_agents_available)
+    print(f"  agent identities: {'declared' if plugin_agents else 'OMITTED'} — {plugin_agents_why}", file=sys.stderr)
+
+    entries, refusals = [], []
+    for baton_id in args.repair:
+        entry, why = _repair_entry(trail_dir, repo_root, baton_id)
+        (refusals if entry is None else entries).append(why if entry is None else entry)
+
+    for why in refusals:
+        print(f"  REFUSED {why}", file=sys.stderr)
+    if not entries:
+        return refuse("no repairable baton among --repair; every one is named above")
+
+    repair_args = {
+        "repoRoot": str(repo_root),
+        "trailDir": str(trail_dir),
+        "mode": "repair",
+        "repairBatons": entries,
+        # A repair's integrator needs the same two caller-resolved inputs a wave's does, and this
+        # path shipped without either. `pluginAgentsAvailable` is the one that bites hardest:
+        # `withRole` writes the agent's declared identity ONLY when it is true, so a repair emitted
+        # without it dispatches as `workflow-subagent` — a non-empty type on no roster, which the
+        # sandbox guard confines, and the confined integrator cannot run
+        # `append-integrator-dispositions` at all, "regardless of path spelling". Measured on
+        # example-store-repo-fb's repair: the op never executed, so every disposition record silently
+        # stayed at whatever an earlier pass wrote. `spineCheckCli`'s absence is quieter and also
+        # real — the integrator brief calls a missing one a CALLER defect and correctly refuses to
+        # guess a repo-relative substitute, so spine validation simply never ran on a repair while
+        # every wave fire got it.
+        "pluginAgentsAvailable": plugin_agents,
+    }
+    dispositions = args.dispositions_cli or _default_dispositions_cli(engine_root, plugin_root)
+    if dispositions:
+        repair_args["dispositionsCli"] = dispositions
+    spine_check_cli = args.spine_check_cli or _default_spine_check_cli(plugin_root)
+    if spine_check_cli:
+        repair_args["spineCheckCli"] = spine_check_cli
+    try:
+        text = _bind(engine_root, script_source, repair_args, args.live_engine_tree)
+    except ValueError as exc:
+        return refuse(str(exc))
+
+    # Numbered past the archive on the same rule a narrowed wave re-emit uses: a second repair of
+    # the same trail is a different fire, and overwriting the first destroys the record of what it
+    # re-dispositioned.
+    n = 1 + max(
+        (int(p.stem.rsplit("-", 1)[-1]) for p in trail_dir.glob("repair-fire-*.mjs")
+         if p.stem.rsplit("-", 1)[-1].isdigit()),
+        default=0,
+    )
+    out = trail_dir / f"repair-fire-{n}.mjs"
+    out.write_text(text, encoding="utf-8", newline="\n")
+
+    manifest = [{"fire": n, "scriptPath": str(out), "batons": [e["batonId"] for e in entries]}]
+    if args.json:
+        print(json.dumps({"mode": "repair", "fires": manifest, "refused": refusals}, indent=2))
+        return EXIT_OK
+    print(f"emit-wave-fire: repair — {len(entries)} baton(s), {len(refusals)} refused.")
+    for e in entries:
+        print(f"    {e['batonId']}  {len(e['reviews'])} review(s)  {e['planPath']}")
+    print(f'\n  Workflow({{ scriptPath: "{out}" }})   # no args — they are bound')
+    return EXIT_OK
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         prog="emit-wave-fire",
@@ -491,7 +1056,13 @@ def main(argv=None) -> int:
     )
     ap.add_argument("--repo-root", required=True, help="ABSOLUTE path to the repo being planned")
     ap.add_argument("--trail-dir", required=True, help="ABSOLUTE trail dir; also where scripts land")
-    ap.add_argument("--gate-report", help="frozen report (default: <trail-dir>/gate-report.json)")
+    ap.add_argument(
+        "--gate-report",
+        help="frozen report for THIS wave (default: <trail-dir>/wave-<N>.gate-report.json, "
+        "falling back to <trail-dir>/gate-report.json on wave 0 only). One report per wave, "
+        "never one per run: a report frozen for an earlier wave is shape-right and "
+        "time-wrong, and every check that asks a report about itself passes on it.",
+    )
     ap.add_argument(
         "--wave-index",
         type=int,
@@ -549,9 +1120,33 @@ def main(argv=None) -> int:
     )
     ap.add_argument(
         "--plugin-agents-available",
-        choices=("true", "false"),
-        default="false",
-        help="whether coordinator:* agent types resolve on this host (default false, the safe direction)",
+        choices=("true", "false", "auto"),
+        default="auto",
+        help=(
+            "whether coordinator:* agent types resolve on this host. Default `auto`: DETECTED "
+            "from the plugin root's own agents/ directory, never assumed. `false` is NOT the "
+            "safe direction on a box carrying the write guards — an undeclared agentType is "
+            "stamped `workflow-subagent`, which is on no roster, so the guards confine the "
+            "planner out of writing any plan at all. Measured: a whole wave of plans refused by "
+            "`block_subagent_plan_body_write`, with `plan-spine-check.py` denied alongside it. "
+            "A field whose wrong value costs a whole wave silently cannot have a default — the "
+            "same rule this module already applies to `executionOpen`."
+        ),
+    )
+    ap.add_argument(
+        "--include-dirty",
+        action="store_true",
+        help="fire batons whose record is uncommitted too (default: hold them — a live writer)",
+    )
+    ap.add_argument(
+        "--repair",
+        metavar="BATON-ID",
+        action="append",
+        default=[],
+        help="emit a REPAIR fire for these batons instead of a wave fire: their reviewer "
+        "pointer records are resolved from the latest wave slot of --trail-dir and bound as "
+        "`repairBatons`. No gate report is read and no reviewer, planner or scout is "
+        "dispatched — the one role a repair reaches is the integrator.",
     )
     ap.add_argument("--json", action="store_true", help="emit the fire manifest as JSON")
     args = ap.parse_args(argv)
@@ -560,6 +1155,7 @@ def main(argv=None) -> int:
     trail_dir = Path(args.trail_dir).resolve()
     # skills/plan-blitz/<this file> -> the plugin root is two parents up.
     plugin_root = Path(args.plugin_root).resolve() if args.plugin_root else Path(__file__).resolve().parents[2]
+    plugin_agents, plugin_agents_why = _plugin_agents_available(plugin_root, args.plugin_agents_available)
     _engine = args.engine_root or os.environ.get("COORDINATOR_ENGINE_ROOT") or ""
     engine_root = Path(_engine).resolve() if _engine.strip() else None
 
@@ -569,7 +1165,28 @@ def main(argv=None) -> int:
         engine_root, args.live_engine_tree
     )
 
-    report_path = Path(args.gate_report) if args.gate_report else trail_dir / "gate-report.json"
+    # PER WAVE, not per run. One report per wave is the truth; one path per run is what
+    # the old default and the skill's worked example together produced, and following both
+    # literally on wave 2 reads wave 0's report. `gate-report.json` stays the wave-0 name
+    # so existing trails resolve, but a later wave with no report of its own REFUSES
+    # rather than falling back — silently reading the previous wave's is the whole defect.
+    if args.gate_report:
+        report_path = Path(args.gate_report)
+    else:
+        per_wave = trail_dir / f"wave-{wave_number}.gate-report.json"
+        legacy = trail_dir / "gate-report.json"
+        report_path = per_wave if per_wave.is_file() else legacy
+        if report_path is legacy and wave_number > 0:
+            # NOT a refusal. A run-wide path RE-FROZEN in place is legitimate and common,
+            # and the name alone cannot tell that apart from wave 0's report left sitting
+            # there. What can is the previous wave's landing declaration, checked below —
+            # so this says what is being assumed and lets the evidence decide.
+            print(
+                f"  NOTE: no wave-{wave_number}.gate-report.json; reading {legacy.name}, "
+                f"which is wave 0's name. This is correct only if you re-froze it AFTER "
+                f"wave {wave_number - 1} landed. Freeze per wave and the ambiguity goes away.",
+                file=sys.stderr,
+            )
     if not report_path.is_absolute():
         report_path = repo_root / report_path
 
@@ -579,6 +1196,9 @@ def main(argv=None) -> int:
 
     if live_tree_refusal:
         return refuse(live_tree_refusal)
+
+    if args.repair:
+        return _emit_repair(args, repo_root, trail_dir, plugin_root, engine_root, refuse)
 
     if not report_path.is_file():
         return refuse(f"no frozen gate report at {report_path}")
@@ -606,6 +1226,10 @@ def main(argv=None) -> int:
     if not wave_ids:
         return refuse(f"wave {args.wave_index} is empty — nothing to fire")
 
+    stale = _report_predates_a_landing(trail_dir, wave_number, wave_ids)
+    if stale:
+        return refuse(stale)
+
     if args.exclude:
         unmatched = [i for i in args.exclude if i not in wave_ids]
         if unmatched:
@@ -620,6 +1244,27 @@ def main(argv=None) -> int:
                 f"every baton in wave {args.wave_index} was excluded — nothing to fire"
             )
 
+    collapsed = _shared_wave_slots(payload, wave_ids)
+    if collapsed:
+        lines = [
+            f"wave {args.wave_index} names {len(collapsed)} id(s) that more than one "
+            "baton record answers to, so the wave slot holds several candidates and a "
+            "fire would plan exactly one of them:"
+        ]
+        for slot_id, paths in collapsed:
+            lines.append(f"  {slot_id}")
+            for path in paths:
+                lines.append(f"    {path}")
+        lines.append(
+            "A baton id is legitimately non-unique -- a succession chain and a roadmap "
+            "stub's fan-out both share one by design -- so this is not corrupt data and "
+            "there is no survivor for this script to pick. Firing regardless plans a "
+            "subset and reports as a completed wave, which is the failure this refusal "
+            "exists to stop. Settle the group first: hold the stale member, re-mint a "
+            "genuinely separate deliverable, or fire the members by name."
+        )
+        return refuse("\n".join(lines))
+
     by_id = {b["id"]: b for b in (payload.get("batons") or [])}
     missing = [i for i in wave_ids if i not in by_id]
     if missing:
@@ -629,10 +1274,102 @@ def main(argv=None) -> int:
             "re-freeze it rather than emitting a fire that plans a subset."
         )
 
+    held: list[str] = []
+    if not args.include_dirty:
+        dirty = _live_writer_paths(repo_root, [by_id[i]["path"] for i in wave_ids])
+        if dirty is None:
+            print(
+                "  WARNING: git could not report which baton records are uncommitted; none "
+                "were held. A baton a live writer is still minting may be in these fires.",
+                file=sys.stderr,
+            )
+        else:
+            held = [i for i in wave_ids if by_id[i]["path"].replace("\\", "/") in dirty]
+        if held:
+            print(
+                f"  HELD {len(held)} baton(s) whose record is uncommitted — a live writer is "
+                f"still on them, and the gate cannot see that: {held}. Commit them and "
+                "re-emit, or pass --include-dirty if the uncommitted edit is your own.",
+                file=sys.stderr,
+            )
+            wave_ids = [i for i in wave_ids if i not in set(held)]
+            if not wave_ids:
+                return refuse("every baton in this wave is held behind an uncommitted record")
+
+    # Reported on EVERY emit, not only when it looks wrong: the omitted-identity failure is
+    # invisible at emit time AND at fire time, and surfaces only as a wave that dispatched
+    # everything, spent its full budget, and landed no plan.
+    if plugin_agents:
+        print(f"  agent identities: declared ({plugin_agents_why})", file=sys.stderr)
+    else:
+        print(
+            f"  agent identities: OMITTED ({plugin_agents_why}). Every dispatch is stamped "
+            "`workflow-subagent`, a non-empty type on no roster, so the write guards confine it: "
+            "the planner cannot write its plan body and cannot run plan-spine-check. On a box "
+            "carrying the guards this does not thin a wave, it empties it.",
+            file=sys.stderr,
+        )
+
     try:
         entries = [_baton_arg(by_id[i]) for i in wave_ids]
     except ValueError as exc:
         return refuse(str(exc))
+
+    # A PLAN THIS TRAIL ALREADY HOLDS IS BOUND, even when the gate report does not link it.
+    # `blitz_land` links a plan to its baton only on `ready`, so a PULLED baton — the one whose
+    # plan an EM then settles, and the one a repair re-dispositions — comes back from the gate
+    # with no `plan`. Re-firing it hands the planner a baton that looks unplanned, and it authors
+    # over the settled plan rather than revising it: the planner's revising branch keys on exactly
+    # this field. Reported by example-store-repo-fb, standing between a repaired plan and the only
+    # vehicle that can approve it. The trail is authoritative here because it is where THIS run's
+    # plan for that baton was written.
+    adopted = []
+    for entry in entries:
+        if entry.get("planPath"):
+            continue
+        slot = _latest_wave_slot(trail_dir, entry["id"])
+        found = _plan_path_for(slot, entry["id"]) if slot is not None else None
+        if found:
+            entry["planPath"] = found
+            adopted.append((entry["id"], found))
+    # SILENCE HERE HAS TWO MEANINGS AND A DRIVER CANNOT TELL THEM APART. Nothing to adopt (the
+    # gate already links every plan) and the trail lookup finding nothing both print no ADOPTED
+    # line, so a driver checking the fix worked has to grep `planPath` out of the generated .mjs
+    # — a step this skill asks of nobody. Report the census unconditionally.
+    linked = sum(1 for e in entries if e.get("planPath")) - len(adopted)
+    print(
+        f"  plan links: gate report links {linked} of {len(entries)} baton(s); "
+        f"adopted {len(adopted)} from this trail",
+        file=sys.stderr,
+    )
+    if adopted:
+        print(
+            f"  ADOPTED {len(adopted)} plan(s) from this trail that the gate report does not link "
+            "— the planner will REVISE these rather than author over them:",
+            file=sys.stderr,
+        )
+        for bid, rel in adopted:
+            print(f"      {bid}  {rel}", file=sys.stderr)
+
+    edited = _plans_edited_since(
+        repo_root, report_path, [e["planPath"] for e in entries if e.get("planPath")]
+    )
+    if edited:
+        by_plan = {e["planPath"]: e["id"] for e in entries if e.get("planPath")}
+        print(
+            f"  WARNING: {len(edited)} plan(s) in this wave changed AFTER the gate report was "
+            "frozen — if that was an EM settling a pull, this fire's planner will re-author the "
+            "plan from the baton and cannot see the settlement, so the second author silently "
+            "overwrites the first:",
+            file=sys.stderr,
+        )
+        for rel in edited:
+            print(f"      {by_plan.get(rel, '?')}  {rel}", file=sys.stderr)
+        print(
+            "    Re-freeze the gate and re-emit if the edit changed what the plan is, or fire "
+            "knowing the planner starts from the baton.",
+            file=sys.stderr,
+        )
 
     # Multi-OS is P0, and the env-prefix rungs above are POSIX-shaped by necessity —
     # `VAR=x cmd` is not a command on a PowerShell host. A Windows box with no install
@@ -670,14 +1407,44 @@ def main(argv=None) -> int:
                 file=sys.stderr,
             )
 
+    # A narrowed re-emit (`--exclude`, a wave already part-fired) never reuses a fire number that
+    # binds a different baton set: positional numbering would give its first fire `fire-N-1`,
+    # which the archived first fire already holds. It numbers past the archive, reusing a number
+    # only for a fire that binds exactly the same batons, so re-running the emit is idempotent.
+    archived_fires: dict[int, frozenset] = {}
+    narrowed = bool(args.exclude or held)
+    if narrowed:
+        for path in trail_dir.glob(f"fire-{wave_number}-*.mjs"):
+            suffix = path.stem.rsplit("-", 1)[-1]
+            identity = _archived_fire_identity(path) if suffix.isdigit() else None
+            if identity is not None:
+                archived_fires[int(suffix)] = identity[1]
+    next_n = max(archived_fires, default=0) + 1
+
+    engine_ref = _engine_ref(repo_root, script_source)
     manifest = []
     for n, batch in enumerate(fires, start=1):
+        if narrowed:
+            ids = frozenset(b["id"] for b in batch)
+            n = next((k for k, v in archived_fires.items() if v == ids), None) or next_n
+            if n == next_n:
+                next_n += 1
         wave_args = {
             "repoRoot": str(repo_root),
             "waveIndex": wave_number,
             "trailDir": str(trail_dir),
             "gateReportPath": str(report_path),
-            "pluginAgentsAvailable": args.plugin_agents_available == "true",
+            "pluginAgentsAvailable": plugin_agents,
+            # The code this fire will actually run, stamped where it is knowable. A fire is a
+            # FROZEN COPY of `plan-blitz.mjs` with its args bound in, so a wave fired an hour ago
+            # runs the workflow as it stood an hour ago — and nothing in the result said which.
+            # On a run where the workflow is itself being repaired, that makes every reconciliation
+            # forensic: a driver comparing two waves' behaviour has to recover the mtimes and the
+            # commit times by hand to learn whether they ran the same code. Reported by
+            # example-store-repo-fb, who proved it twice on this run — `sizingObjectAbsences` absent from
+            # four wave results because it shipped minutes after they fired, and a directory
+            # pathspec permitted twice then denied.
+            "engineRef": engine_ref,
             "batons": batch,
         }
         if dispositions:
@@ -731,7 +1498,7 @@ def main(argv=None) -> int:
         )
 
     if args.json:
-        print(json.dumps({"waveIndex": wave_number, "fires": manifest}, indent=2))
+        print(json.dumps({"waveIndex": wave_number, "fires": manifest, "held": held}, indent=2))
         return EXIT_OK
 
     print(
@@ -749,6 +1516,21 @@ def main(argv=None) -> int:
             "  WARNING: no provision-sidecar resolved. Every reviewer will place its own "
             "findings sidecar by guessing the machinery root and its session id, and the "
             "guess does not error — the findings land where the repo does not keep them.",
+            file=sys.stderr,
+        )
+    provenance = _trail_provenance(trail_dir, engine_ref)
+    if provenance:
+        print(
+            "  THIS TRAIL'S FIRES WERE BUILT FROM MORE THAN ONE WORKFLOW. A fire is a standalone "
+            "COPY of plan-blitz.mjs, so each runs the workflow as it stood when it was emitted:",
+            file=sys.stderr,
+        )
+        for line in provenance:
+            print(line, file=sys.stderr)
+        print(
+            "  Not a refusal and not a re-emit instruction — an older fire is sometimes exactly "
+            "right, and the current file moves under you, so it is no baseline either. To learn "
+            "what a fire CARRIES, grep the fire.",
             file=sys.stderr,
         )
     for row in manifest:

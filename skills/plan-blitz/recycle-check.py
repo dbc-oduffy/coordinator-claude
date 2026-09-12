@@ -36,13 +36,28 @@ the slug. This is the one deliberate id-keyed consumer of the trail; everything 
 pipeline passes `sidecarPath` verbatim. If `sidecarFor` changes, `_slug` here changes with it, and
 `tests/test_plan_blitz_recycle_check.py` is what fails if it does not.
 
+THE ARCHIVE IS THE SECOND WAY FINISHED WORK COMES BACK. A merge resolved against a pre-archive
+tree restores an archived baton at its old `state/handoffs/` path, the gate reads that copy as open,
+and it returns as a candidate. Measured on one consumer repo: 3 of 10 batons in one fire were such
+copies, and agents were dispatched on dead work. `git mv` into `archive/handoffs/<YYYY-MM>/` keeps
+the basename, so a candidate whose basename sits in the archive in a terminal state (`status:
+consumed`, or a `deployment_state` in the engine's `HANDOFF_TERMINAL_DEPLOYMENT`) is RESURRECTED:
+the archived copy is the truth. A candidate that shares only a `deliverable_id` with an archived
+record that shipped, closed or was abandoned is SHARED-ID, listed and never a finding. Successors
+and fan-out siblings share the id by design: measured on this plugin's source repo, 29 of 229
+candidates share one with an archived record, all but 4 through a `continued` link, and 2 of those
+4 are siblings.
+
 Negative-spec:
   - Does NOT write, stamp, land, or mutate anything. The repair for a RECYCLED baton is
-    `roadmap.blitz_land` with `shipped_in`, named in the report and never performed here.
+    `roadmap.blitz_land` with `shipped_in`, and for a RESURRECTED one it is removing or
+    re-archiving the live copy. Both are named in the report and never performed here.
   - Does NOT decide whether to fire. It reports the set; dropping a baton from a wave is the
     driver's act, and keeping that call explicit is what stops this from silently shrinking a wave.
-  - Does NOT read the baton records or call the engine. The gate report already carries every
-    baton's status; re-deriving it from disk would be a second answer to a settled question.
+  - Does NOT re-derive a baton's status or call the engine. The gate report already carries every
+    baton's status; re-deriving it from disk would be a second answer to a settled question. The
+    one read of a live record is its identity (`deliverable_id`, `predecessor`) for the archive
+    check, and an archived record is read for its terminal state alone.
   - Does NOT judge an INCOMPLETE record. A `completed: false` baton is correctly back in the wave,
     and calling that a finding would train the reader to ignore the ones that matter.
   - Does NOT spawn a subprocess. Pure stdlib reads over a directory of markdown.
@@ -56,9 +71,10 @@ no engine call): a FINISHED record on a baton the engine no longer counts is REP
 finding. Without a gate report candidacy CANNOT be known, and the honest state is UNVERIFIED --
 never a silent CLEAN, which would hide a live recycle.
 
-Exit status is a verdict: 0 CLEAN (nothing in the set is recycling; REPAIRED and UNFINISHED rows
-may still be listed), 1 RECYCLED or UNVERIFIED (a landing is owed, or candidacy could not be
-checked), 2 on a usage or precondition failure.
+Exit status is a verdict: 0 CLEAN (nothing in the set is recycling or resurrected; REPAIRED,
+UNFINISHED and SHARED-ID rows may still be listed), 1 RECYCLED, RESURRECTED or UNVERIFIED (a
+landing or an archive repair is owed, or candidacy could not be checked), 2 on a usage or
+precondition failure.
 """
 
 from __future__ import annotations
@@ -84,6 +100,41 @@ _OUTCOME = re.compile(r"^\s*(?:\*\*)?outcome(?:\*\*)?:\s*(.+?)\s*$", re.I | re.M
 # `outcome:` words that mean the work is DONE. A word outside this set is reported verbatim and
 # classified UNREADABLE — guessing at an unknown disposition is how a live baton gets dropped.
 _TERMINAL_OUTCOMES = ("closed", "closure", "completed", "confirm-and-close", "closed-superseded")
+
+# Words that take a terminal outcome back, wherever they appear in its value. Deliberately narrow:
+# each says the work stopped short, and none of them is a word a finished record reaches for.
+# `blocked` is NOT here — "not blocked" is a routine reassurance inside an honest partial.
+_QUALIFIED = re.compile(r"\b(partial(?:ly)?|deferred|incomplete|unfinished)\b", re.I)
+
+# The path an execution record names itself as written for. Agents write these records freehand,
+# and the corpus spells the key `handoff:` or `record:`. Two distinct handoffs can share one
+# `deliverable_id` (a legitimate sibling or fan-out); without this, one finished record for
+# handoff A flags handoff B's still-open candidate as RECYCLED too, because both slug to the same
+# filename stem. A record naming no path is not penalized for it -- see `_path_blocks_match`.
+_HANDOFF_PATH = re.compile(r"^\s*(?:handoff|record):\s*(\S.*?)\s*$", re.M)
+
+# Mirrors the engine's `lifecycle_constants.HANDOFF_TERMINAL_DEPLOYMENT`; a handoff is also DONE at
+# `status: consumed`. `continued` hands the deliverable to a successor carrying the same
+# `deliverable_id`, so only the other three END a deliverable.
+_TERMINAL_DEPLOYMENT = frozenset({"shipped", "abandoned", "continued", "closed"})
+_DELIVERABLE_ENDED = _TERMINAL_DEPLOYMENT - {"continued"}
+_FM_KEY = re.compile(r"^([A-Za-z_]+):\s*(.*?)\s*$")
+
+
+def _norm_path(p: str) -> str:
+    return p.strip().replace("\\", "/")
+
+
+def _record_handoff_path(text: str):
+    """The handoff path an execution record's leading key block names, or None when it names none.
+
+    A record whose frontmatter opens with `---` and never closes is still read: its key block is
+    the run of lines up to the first blank line."""
+    block = _frontmatter(text)
+    if not block and text.startswith("---"):
+        block = text[3:].lstrip("\n").split("\n\n", 1)[0]
+    m = _HANDOFF_PATH.search(block)
+    return _norm_path(m.group(1)) if m else None
 
 
 def _frontmatter(text: str) -> str:
@@ -143,6 +194,14 @@ def _disposition(text: str) -> tuple[str, str]:
     if word.startswith(("blocked", "pulled", "not-", "partial", "incomplete", "deferred", "failed")):
         return "UNFINISHED", f"outcome: {raw[:60]}"
     if word in _TERMINAL_OUTCOMES:
+        # A terminal first word is only as good as its qualifier. `confirm-and-close (partial —
+        # closure deferred, not blocked)` says plainly that closure did NOT happen, and reading its
+        # first word alone reports RECYCLED, whose every prescribed repair asserts a closure the
+        # tree does not show. Measured on project-rag-ue-addon: an XS verified two of four next
+        # steps and deferred the rest behind a sibling baton.
+        qualifier = _QUALIFIED.search(raw)
+        if qualifier:
+            return "UNFINISHED", f"outcome: {raw[:60]} ({qualifier.group(0).lower()})"
         return "FINISHED", f"outcome: {raw[:60]}"
     return "UNREADABLE", f"outcome: {raw[:60]}"
 
@@ -184,7 +243,19 @@ def scan(repo_root: Path, baton_ids, trail_root: str, exclude_run: str | None, l
             continue
         for rec in sorted(run_dir.rglob("*.execution.md"), key=lambda r: _slot_order(run_dir, r)):
             stem = rec.name[: -len(".execution.md")]
-            for bid in by_slug.get(stem, ()):
+            candidates = by_slug.get(stem, ())
+            if not candidates:
+                continue
+            rec_path = _record_handoff_path(rec.read_text(encoding="utf-8", errors="replace"))
+            for bid in candidates:
+                # A sibling handoff sharing this id's slug is not this record's baton. Only
+                # skip when BOTH sides name a path and they disagree -- a record or a gate row
+                # naming no path falls back to the id match this check has always made, because
+                # penalizing an unnamed path is how a legitimate single-candidate id starts
+                # reading UNVERIFIED for no reason.
+                bid_path = (live or {}).get(bid, {}).get("path")
+                if rec_path and bid_path and rec_path != _norm_path(str(bid_path)):
+                    continue
                 prior = latest.get(bid)
                 latest[bid] = (run_dir, rec, (prior[2] + 1) if prior else 0)
 
@@ -215,6 +286,67 @@ def scan(repo_root: Path, baton_ids, trail_root: str, exclude_run: str | None, l
                     }
                 )
     return findings, None
+
+
+def _keys(path: Path) -> dict:
+    """Top-level `key: value` pairs of a record's frontmatter, first occurrence wins."""
+    out = {}
+    for line in _frontmatter(path.read_text(encoding="utf-8", errors="replace")).splitlines():
+        m = _FM_KEY.match(line)
+        if m and m.group(1) not in out:
+            out[m.group(1)] = m.group(2).strip("'\"")
+    return out
+
+
+def _terminal(keys: dict) -> bool:
+    return keys.get("status") == "consumed" or keys.get("deployment_state") in _TERMINAL_DEPLOYMENT
+
+
+def resurrected(repo_root: Path, baton_ids, live, archive_root: str = "archive/handoffs"):
+    """Candidates whose record is already archived in a terminal state. Pure reads, no verdict on
+    fire: RESURRECTED on a basename match, SHARED-ID (advisory) on a `deliverable_id` match against
+    a record that ended its deliverable. An archived copy that is the candidate's own `predecessor`
+    is its chain, not a duplicate. Without the gate report's paths and candidacy nothing is read."""
+    root = repo_root / archive_root
+    if live is None or not root.is_dir():
+        return []
+    by_name, by_deliverable = {}, {}
+    for rec in sorted(root.rglob("*.md")):
+        keys = _keys(rec)
+        if not _terminal(keys):
+            continue
+        entry = (_norm_path(str(rec.relative_to(repo_root))), keys, rec.name)
+        by_name.setdefault(rec.name, []).append(entry)
+        if keys.get("deliverable_id") and keys.get("deployment_state") in _DELIVERABLE_ENDED:
+            by_deliverable.setdefault(keys["deliverable_id"], []).append(entry)
+
+    findings = []
+    for bid in baton_ids:
+        row = live.get(bid) or {}
+        if not row.get("candidate") or not row.get("path"):
+            continue
+        record = _norm_path(str(row["path"]))
+        name = Path(record).name
+        state, hits = "RESURRECTED", by_name.get(name, [])
+        if not hits:
+            live_rec = repo_root / record
+            if not live_rec.is_file():
+                continue
+            keys = _keys(live_rec)
+            predecessor = Path(_norm_path(keys.get("predecessor", ""))).name
+            state = "SHARED-ID"
+            hits = [h for h in by_deliverable.get(keys.get("deliverable_id"), ()) if h[2] != predecessor]
+        if hits:
+            archived, akeys, _ = hits[0]
+            findings.append({
+                "baton": bid,
+                "record": record,
+                "state": state,
+                "archived": archived,
+                "evidence": f"status: {akeys.get('status')}, deployment_state: {akeys.get('deployment_state')}"
+                + (f" (+{len(hits) - 1} more archived)" if len(hits) > 1 else ""),
+            })
+    return findings
 
 
 def _gate_body(gate_report: Path) -> dict:
@@ -249,6 +381,7 @@ def _live_map(data) -> dict:
             "candidate": bool(b.get("candidate")),
             "deployment_state": b.get("deployment_state"),
             "status": b.get("status"),
+            "path": b.get("path"),
         }
         for b in (data.get("batons") or [])
     }
@@ -265,6 +398,7 @@ def main(argv=None) -> int:
     ap.add_argument("--wave-index", type=int, default=0, help="which wave of the report (default 0)")
     ap.add_argument("--trail-root", default="state/plan-blitz", help="repo-relative trail root")
     ap.add_argument("--exclude-run", help="trail dir name to skip, normally this run's own")
+    ap.add_argument("--archive-root", default="archive/handoffs", help="repo-relative baton archive")
     ap.add_argument("--json", action="store_true", help="emit the full report as JSON")
     args = ap.parse_args(argv)
 
@@ -296,22 +430,47 @@ def main(argv=None) -> int:
         print(f"recycle-check: {err}", file=sys.stderr)
         return EXIT_USAGE
 
+    archived = resurrected(repo_root, ids, live, args.archive_root)
     finished = [f for f in findings if f["state"] == "FINISHED"]
     unverified = [f for f in findings if f["state"] == "UNVERIFIED"]
     repaired = [f for f in findings if f["state"] == "REPAIRED"]
-    verdict = "RECYCLED" if finished else ("UNVERIFIED" if unverified else "CLEAN")
+    raised = [a for a in archived if a["state"] == "RESURRECTED"]
+    shared = [a for a in archived if a["state"] == "SHARED-ID"]
+    verdict = ("RECYCLED" if finished else "RESURRECTED" if raised
+               else "UNVERIFIED" if unverified else "CLEAN")
 
     if args.json:
         print(json.dumps({"verdict": verdict, "scanned": len(ids), "recycling": len(finished),
                           "repaired": len(repaired), "unverified": len(unverified),
-                          "findings": findings}, indent=2))
+                          "resurrected": len(raised), "shared_id": len(shared),
+                          "findings": findings, "archive_findings": archived}, indent=2))
     else:
         head = f"recycle-check: {verdict} — {len(finished)} of {len(ids)} baton(s) recycling"
         if repaired:
             head += f", {len(repaired)} already repaired"
         if unverified:
             head += f", {len(unverified)} unverified (no --gate-report, candidacy unchecked)"
+        if raised:
+            head += f", {len(raised)} resurrected from the archive"
+        if shared:
+            head += f", {len(shared)} sharing a finished deliverable_id"
         print(head)
+        for a in archived:
+            tag = "RESURRECT" if a["state"] == "RESURRECTED" else "shared-id"
+            print(f"  {tag} {a['baton']}")
+            print(f"          {a['record']}")
+            print(f"          archived: {a['archived']}  {a['evidence']}")
+        if raised:
+            print(
+                "  repair  a resurrected baton's archived copy is the truth. Remove the live copy, or\n"
+                "          re-archive it if it carries edits the archive lacks; never fire on it."
+            )
+        if shared:
+            print(
+                "  note    a shared deliverable_id is advisory: successors and fan-out siblings share\n"
+                "          one by design. Read the archived record; if it finished this baton's work,\n"
+                "          the live one is a stale duplicate."
+            )
         for f in findings:
             tag = {
                 "FINISHED": "RECYCLED",
@@ -336,10 +495,15 @@ def main(argv=None) -> int:
                 "               nothing. Read the verdict's own reason: one that says the baton is\n"
                 "               closable while the verdict says pulled is the gate having no word\n"
                 "               for `done`. `ready` on a dispatch route is that word.\n"
+                "            3. the record says the remaining work is SEQUENCED BEHIND another\n"
+                "               baton, and no blocked_by edge says so — the repair is the edge, not\n"
+                "               a stamp. Stamping here asserts a closure the tree does not show.\n"
+                "               Adding it is a coupled write: blocked_by, deployment_state\n"
+                "               awaiting_gate, and pickup_ready false, all three or none.\n"
                 "          Dropping it from this wave by hand leaves the same baton to recycle into\n"
                 "          the next one."
             )
-    return EXIT_RECYCLED if (finished or unverified) else EXIT_CLEAN
+    return EXIT_RECYCLED if (finished or unverified or raised) else EXIT_CLEAN
 
 
 if __name__ == "__main__":

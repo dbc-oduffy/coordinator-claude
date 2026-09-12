@@ -430,3 +430,14 @@ only the mechanical assertion caught either.
 The only valid skip: **zero new commits today AND no agent-driven changes outside commits.**
 Anything else — one commit, one file — run the review. The strongest predictor of a review
 that surfaces regressions is a small commit count, not a large one.
+
+---
+
+## `archive/daily-summaries/` Read-Only Intake — Dispositions
+
+Named as read-only intake in `PIPELINE.md` § Phase 0 step 1 and `update-docs.md`'s `tasks/` vs
+`state/` paragraph. Three dispositions: (1) cadence-trigger extension is
+control-plane-engine work, out of this corpus's scope; (2) no harvest debt — debt is computed
+over `archive/specs/`, not this directory; (3) no new link-heal no-rewrite class — stays in
+AC19's ordinary rewritable `archive/` scope. Left open: the never-delete asymmetry —
+`state/week-changelog/` is on `artifact-pruning.md`'s Never-delete list, this directory is not.

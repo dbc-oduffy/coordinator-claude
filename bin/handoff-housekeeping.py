@@ -6,6 +6,19 @@ ceremony reaches all three through a single name instead of three separately
 dispatchable legs. Governing plan:
 `docs/plans/2026-08-27-one-corpus-read-or-the-housekeeping-job-dies-a-fourth-time.md`.
 
+SECOND JOB (C6, `docs/plans/2026-09-11-memo-deliveries-survive-the-receiver-s-
+o.md`): this is also the `/workday-start` door that runs `memo.heal_inbox`
+against the invoking repo, before `housekeeping.cycle`. It lives here, on this
+CLI, rather than on the memo surfacer or inside `housekeeping.cycle` itself,
+because neither of those can do it: the surfacer
+(`coordinator_core/ops/workday_start_cross_repo_memo_outbox_surface.py`) is
+READ-ONLY by its own negative-spec, and `housekeeping.cycle` forbids a second
+commit route through it — a heal is a commit (a restore lands a file and a
+commit; retire/rekey/adopt land ref writes). This door already IS the
+committing entrypoint `/workday-start` calls, so the heal rides here instead
+of minting a third call site. A heal failure never stops the handoff cycle —
+see `main`'s own docstring for the exit-code rule.
+
 WARM-SERVE IS THE POINT OF THIS FILE, not an incidental property of it. Every
 timing figure in the governing plan is a WARM figure. Reached cold, this job
 pays ~109ms of interpreter-plus-engine import before reading a single handoff,
@@ -91,12 +104,80 @@ def _stamp_archive_sweeps_liveness(repo_root: str) -> None:
         pass
 
 
+def _report_heal_inbox(result: dict) -> None:
+    """Print `memo.heal_inbox`'s outcome per this door's own output contract:
+    one line per restored memo, adopt/retire counts only when non-zero, and
+    (to stderr) one line naming a per-item failure count. Never raises —
+    a malformed result prints nothing rather than crashing the cycle it must
+    not stop.
+
+    Dry-run and act share this reporter but not an action-name vocabulary:
+    `memo_heal.py`'s dry-run candidates are named in the not-yet-acted
+    singular (`"restore"`, `"adopt"`, `"retire"`), the act path in the
+    past-tense (`"restored"`, `"adopted"`, `"retired"`) — a dry run must
+    report candidates in candidate voice and never claim a completed
+    action."""
+    try:
+        dry_run = bool(result.get("dry_run"))
+        items = (result.get("candidates") if dry_run else result.get("acted")) or []
+        restore_action = "restore" if dry_run else "restored"
+        adopt_action = "adopt" if dry_run else "adopted"
+        retire_action = "retire" if dry_run else "retired"
+        for item in items:
+            if item.get("action") == restore_action:
+                verb = "would restore" if dry_run else "restored"
+                print(f"{verb} from anchor: {item.get('id')}")
+        adopted = sum(1 for it in items if it.get("action") == adopt_action)
+        retired = sum(1 for it in items if it.get("action") == retire_action)
+        if adopted:
+            verb = "would adopt" if dry_run else "adopted"
+            print(f"heal: {verb} {adopted} memo(s)")
+        if retired:
+            verb = "would retire" if dry_run else "retired"
+            print(f"heal: {verb} {retired} anchor(s)")
+        failed = result.get("failed") or []
+        if failed:
+            print(
+                f"handoff-housekeeping: heal: {len(failed)} memo(s) failed to heal — "
+                f"check claude-klabauter logs",
+                file=sys.stderr,
+            )
+    except Exception as exc:  # noqa: BLE001 -- reporting a heal must never crash the cycle
+        print(f"handoff-housekeeping: heal report failed: {exc}", file=sys.stderr)
+
+
+def _run_heal_inbox(common_dir: Path, dry_run: bool) -> bool:
+    """Runs `memo.heal_inbox` against the invoking repo (`common_dir`) ahead
+    of `housekeeping.cycle`, `dry_run` passed straight through from this
+    CLI's own `--dry-run`. Returns True iff the heal itself failed (raised,
+    or returned a non-zero `exit_code`) — the caller folds that into its own
+    exit code only where its own path would otherwise have exited zero; a
+    heal failure never skips or stops the handoff cycle that follows."""
+    try:
+        from coordinator_core.ops.fleet.memo_heal import _memo_heal_inbox
+
+        result = _memo_heal_inbox({"dry_run": dry_run}, repo_root=str(common_dir))
+    except Exception as exc:  # noqa: BLE001 -- a heal failure must never stop the cycle
+        print(f"handoff-housekeeping: heal_inbox raised: {exc}", file=sys.stderr)
+        return True
+
+    _report_heal_inbox(result)
+    return result.get("exit_code") not in (0, None)
+
+
 def main(argv: "list[str] | None" = None) -> int:
     """Close finished handoffs, file them, sweep consumed. One call.
 
     `argv` is accepted and defaulted so the warm door can call `main(argv)` and
     a `__main__` block can call `main()` — see this module's docstring on why
     the arity is load-bearing rather than stylistic.
+
+    Also runs `memo.heal_inbox` against the invoking repo before the handoff
+    cycle (see module docstring, C6). A heal failure is printed, never
+    silent, and never stops the cycle; it flips this call's own exit code to
+    non-zero only where the cycle's own outcome would otherwise have been
+    zero — a cycle that already fails on its own terms is not further
+    distinguished by an unrelated heal failure.
     """
     args = list(sys.argv[1:] if argv is None else argv)
 
@@ -149,6 +230,8 @@ def main(argv: "list[str] | None" = None) -> int:
         print("handoff-housekeeping: not inside a git worktree", file=sys.stderr)
         return 1
 
+    heal_failed = _run_heal_inbox(common_dir, dry_run)
+
     if dry_run:
         from coordinator_core.ops.fleet.archive_terminal_handoffs import plan_sweep
 
@@ -157,7 +240,7 @@ def main(argv: "list[str] | None" = None) -> int:
         print(f"would archive {len(moves)} handoff(s); {len(skipped)} refused")
         for move in moves:
             print(f"  {getattr(move, 'candidate_id', move)}")
-        return 0
+        return 1 if heal_failed else 0
 
     from coordinator_core.housekeeping.cycle import _handler
 
@@ -199,7 +282,7 @@ def main(argv: "list[str] | None" = None) -> int:
             file=sys.stderr,
         )
         return 1
-    return 0
+    return 1 if heal_failed else 0
 
 
 if __name__ == "__main__":

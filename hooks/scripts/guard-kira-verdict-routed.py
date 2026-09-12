@@ -55,7 +55,9 @@ THE DECISION -- entirely from frontmatter, never from a sidecar body:
      is present -> BLOCK (a close that reviewed something owed Kira a run
      too).
   2. A Kira sidecar carrying `findings_count > 0` with no sibling sidecar
-     stamping `integrated_from` naming it -> BLOCK. The owed route is
+     stamping `integrated_from` naming it, and no `## Integrator
+     Dispositions` block recorded on the verdict itself -> BLOCK. That block
+     is the routing record when no integrator survived to write a sibling. The owed route is
      named unconditionally in the message (review-integrator, or a
      refactor executor if the verdict recommended a rebuild) -- an
      unanswered ordinary verdict and an unanswered rebuild verdict are
@@ -91,6 +93,8 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _block_discharge  # noqa: E402
@@ -340,7 +344,76 @@ def _find_answers(kira_filename: str, in_scope: list[tuple[str, dict]]) -> list[
     return answers
 
 
-def _unstamped_integrators(in_scope: list[tuple[str, dict]]) -> list[str]:
+#: The heading `append-integrator-dispositions` writes onto the REVIEWER's own
+#: sidecar (`coordinator_core/ops/append_integrator_dispositions.py`).
+_DISPOSITIONS_HEADING = "## Integrator Dispositions"
+
+
+def _body_lines(path: str) -> list[str]:
+    """Body lines below the frontmatter block. `[]` on any read failure — a
+    guard that cannot read a file must never block on what it did not see."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return []
+    if not lines or lines[0].strip() != "---":
+        return lines
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            return lines[i + 1:]
+    return []
+
+
+def _has_recorded_dispositions(path: str) -> bool:
+    """True when this sidecar carries its own `## Integrator Dispositions`
+    block with content under it.
+
+    That block IS the routing record when the integrator never ran to write a
+    sibling: `append-integrator-dispositions` writes it onto the reviewer's
+    sidecar, and stamps `integrated_from` on an integrator run-report only
+    when one exists. A fire killed before its integrators land leaves none,
+    and then every honest route to a sibling is closed — hand-authoring one is
+    refused by `block_hand_authored_sidecar_creation`, and
+    `coordinator-doc-new --type run-report` demands a plan and chunk asserting
+    an execution that never happened. Reported twice on example-market-data-repo
+    (nonces 2f8c15b2, 48e0aed6). The alternative to reading this block is an
+    EM stamping a receipt on an agent that never ran, which is the false
+    attestation the stamp exists to prevent."""
+    lines = _body_lines(path)
+    for i, line in enumerate(lines):
+        if line.strip() != _DISPOSITIONS_HEADING:
+            continue
+        for rest in lines[i + 1:]:
+            stripped = rest.strip()
+            if not stripped or stripped.startswith("<!--"):
+                continue
+            if stripped.startswith("#"):
+                break
+            return True
+    return False
+
+
+def _is_untouched_scaffold(path: str) -> bool:
+    """True when nothing has been written into this sidecar's body.
+
+    A provisioned scaffold carries headings and nothing under them. Its
+    `integrator_receipt` is spliced AT SPAWN, so an integrator killed before it
+    read anything is indistinguishable, by frontmatter alone, from one that ran
+    and skipped its stamp — and the guard then tells the EM to wait for a
+    corpse. Headings and HTML comments are the scaffold; one line of anything
+    else means the agent wrote."""
+    for line in _body_lines(path):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or stripped.startswith("<!--"):
+            continue
+        return False
+    return True
+
+
+def _unstamped_integrators(
+    in_scope: list[tuple[str, dict]], paths: dict | None = None
+) -> list[str]:
     """Filenames of sibling sidecars that RAN an integrator but stamped no
     `integrated_from`.
 
@@ -355,8 +428,13 @@ def _unstamped_integrators(in_scope: list[tuple[str, dict]]) -> list[str]:
     agent has read anything), one that finished and skipped only that last
     Edit, and -- to condition 2 -- one that was never dispatched at all.
 
-    All three still BLOCK: the stamp is genuinely absent in every case and the
-    guard has no business inventing it. They differ in the REMEDY, and naming
+    A FOURTH state is excluded rather than blocked: a sidecar whose body is
+    still the provisioned scaffold. Its agent was killed before it read
+    anything — the receipt was spliced at spawn — so naming it sends the EM to
+    wait on a run that will never finish. See `_is_untouched_scaffold`.
+
+    The other three still BLOCK: the stamp is genuinely absent in every case
+    and the guard has no business inventing it. They differ in the REMEDY, and naming
     the wrong one is not cosmetic in either direction. Telling an EM to
     dispatch an integrator that already ran invites a re-dispatch of findings
     already discharged, the exact miss `_find_answers` was widened to avoid;
@@ -372,8 +450,103 @@ def _unstamped_integrators(in_scope: list[tuple[str, dict]]) -> list[str]:
     return [
         f
         for f, m in in_scope
-        if "integrator_receipt" in m and not m.get("integrated_from")
+        if "integrator_receipt" in m
+        and not m.get("integrated_from")
+        and not (paths and _is_untouched_scaffold(paths.get(f, "")))
     ]
+
+
+#: How many integrator filenames the message prints before summarising the rest.
+#: A session that has run fifty integrators printed fifty names per unrouted
+#: verdict, three times over — and a list that long tells the reader nothing
+#: about WHICH sidecar to stamp, which is the one thing the remedy needs.
+_NAMES_SHOWN = 5
+
+
+def _name_a_few(names: list[str]) -> str:
+    ordered = sorted(names)
+    if len(ordered) <= _NAMES_SHOWN:
+        return ", ".join(ordered)
+    rest = len(ordered) - _NAMES_SHOWN
+    return f"{', '.join(ordered[:_NAMES_SHOWN])}, and {rest} more"
+
+
+def _integrators_that_could_have_received(
+    kira_meta: dict, unstamped: list[str], in_scope: list[tuple[str, dict]]
+) -> list[str]:
+    """Narrow the named integrators to those spawned at or after this review.
+
+    `spawned_at` is engine-written on every sidecar, so an integrator that
+    spawned BEFORE the review existed cannot have been given it — naming one
+    sends the EM to stamp a sidecar whose agent never saw these findings. The
+    filter is skipped whole when either timestamp is missing or unparseable:
+    a narrowing that silently drops every candidate would flip the message to
+    the "never dispatched" branch and invite a re-dispatch of discharged work,
+    which is the more expensive error of the two."""
+    reviewed_at = _spawned_at(kira_meta)
+    if reviewed_at is None:
+        return unstamped
+    later = [
+        f
+        for f in unstamped
+        for m in (dict(in_scope).get(f) or {},)
+        if (_spawned_at(m) or reviewed_at) >= reviewed_at
+    ]
+    return later or unstamped
+
+
+def _spawned_at(meta: dict):
+    raw = (meta or {}).get("spawned_at")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        return datetime.fromisoformat(raw.strip().strip("'\""))
+    except ValueError:
+        return None
+
+
+#: A journal untouched this long is a run that died, not one still working.
+_LIVE_JOURNAL_SECONDS = 2 * 60 * 60
+
+
+def _live_workflow_runs(transcript_path) -> list[str]:
+    """Workflow runs of this session with an agent still in flight.
+
+    A review inside a Workflow fire is unrouted by construction until that fire's integrator
+    runs, minutes to an hour later, so condition 2 read every in-flight wave as an unrouted
+    verdict and blocked each turn close with a nonce the EM could only discharge as "wait".
+    A run is live when its journal holds a `started` agent with no `result`, and the journal
+    was written recently: a killed run leaves a started agent forever and must not suppress
+    the check forever. The first Stop after the run lands evaluates everything it deferred."""
+    if not isinstance(transcript_path, str) or not transcript_path.endswith(".jsonl"):
+        return []
+    base = os.path.join(transcript_path[: -len(".jsonl")], "subagents", "workflows")
+    try:
+        runs = os.listdir(base)
+    except OSError:
+        return []
+    live = []
+    for run in runs:
+        journal = os.path.join(base, run, "journal.jsonl")
+        try:
+            if time.time() - os.path.getmtime(journal) > _LIVE_JOURNAL_SECONDS:
+                continue
+            started, finished = set(), set()
+            with open(journal, encoding="utf-8") as fh:
+                for line in fh:
+                    try:
+                        rec = json.loads(line)
+                    except ValueError:
+                        continue
+                    if rec.get("type") == "started":
+                        started.add(rec.get("agentId"))
+                    elif rec.get("type") == "result":
+                        finished.add(rec.get("agentId"))
+        except OSError:
+            continue
+        if started - finished:
+            live.append(run)
+    return sorted(live)
 
 
 _BLOCK_HEADER = (
@@ -478,8 +651,10 @@ def main() -> int:
         return 0
 
     entries: list[tuple[str, dict]] = []
+    paths: dict[str, str] = {}
     for fname, fpath in listed:
         entries.append((fname, _read_frontmatter(fpath)))
+        paths[fname] = fpath
 
     if not entries:
         return 0
@@ -502,6 +677,14 @@ def main() -> int:
         )
 
     kira_entries = [(f, m) for f, m in in_scope if _is_kira(f, m)]
+    live_runs = _live_workflow_runs(payload.get("transcript_path"))
+    if live_runs and kira_entries:
+        sys.stdout.write(
+            f"[guard] guard-kira-verdict-routed deferred: workflow run(s) {', '.join(live_runs)} "
+            "still in flight; their integrators route these verdicts. Evaluated at the first "
+            "Stop after they land.\n"
+        )
+        kira_entries = []
     for kira_file, kira_meta in kira_entries:
         findings_count = _to_int(kira_meta.get("findings_count"))
         answers = _find_answers(kira_file, in_scope)
@@ -510,10 +693,16 @@ def main() -> int:
         # owed route is named unconditionally -- an unanswered ordinary
         # verdict and an unanswered rebuild verdict are the same failure:
         # an unrouted Kira sidecar (staff-eng review, 2026-08-30).
+        # A dispositions block recorded on the verdict itself IS an answer.
+        if _has_recorded_dispositions(paths.get(kira_file, "")):
+            continue
+
         if findings_count is not None and findings_count > 0 and not answers:
-            ran_but_unstamped = _unstamped_integrators(in_scope)
+            ran_but_unstamped = _integrators_that_could_have_received(
+                kira_meta, _unstamped_integrators(in_scope, paths), in_scope
+            )
             if ran_but_unstamped:
-                named = ", ".join(sorted(ran_but_unstamped))
+                named = _name_a_few(ran_but_unstamped)
                 reasons.append(
                     f"- {kira_file} stamps findings_count={findings_count} with no "
                     f"sibling sidecar's integrated_from naming it. An integrator "
@@ -532,7 +721,12 @@ def main() -> int:
                     f"- {kira_file} stamps findings_count={findings_count} with no "
                     f"sibling sidecar's integrated_from naming it. Owed route: "
                     f"review-integrator, or a refactor executor if the verdict "
-                    f"recommended a rebuild."
+                    f"recommended a rebuild. Where the wave that would have "
+                    f"integrated these findings is dead (a killed fire leaves "
+                    f"untouched scaffolds), record the dispositions you landed "
+                    f"on {kira_file} itself with append-integrator-dispositions; "
+                    f"that block answers this verdict. Never stamp a receipt on "
+                    f"an agent that did not run."
                 )
 
     if not reasons:

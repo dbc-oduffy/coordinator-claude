@@ -1,10 +1,10 @@
 {
   "x-effective-delivery": {
     "version": 1,
-    "generated_from_sha": "6be6a7ead164925562810432acddbe90c4270352",
-    "generated_at": "2026-09-11T09:39:13Z",
+    "generated_from_sha": "02c82eab1077aeec4b9a3ae94978ca2480dec6e8",
+    "generated_at": "2026-09-11T17:51:42Z",
     "generated_from_dirty_tree": true,
-    "engine_source_sha": "d4cd91272b0e5db36c122f58f120a48ebe19d32e",
+    "engine_source_sha": "283472f7891cd67adb4340c8fe68e81b60578a37",
     "engine_source_dirty_tree": false,
     "engine_source_resolution": "resolved-engine/published-target",
     "carriers": {
@@ -1295,7 +1295,6 @@
         "id": "nudge-workflow-authoring-trampoline.py",
         "script": "scripts/nudge-workflow-authoring-trampoline.py",
         "tool_names": [
-          "Skill",
           "Workflow"
         ]
       },
@@ -1316,6 +1315,13 @@
         "script": "scripts/postuse-agent-dispatch.py",
         "tool_names": [
           "Agent"
+        ]
+      },
+      {
+        "id": "preuse-skill-dispatch.py",
+        "script": "scripts/preuse-skill-dispatch.py",
+        "tool_names": [
+          "Skill"
         ]
       },
       {

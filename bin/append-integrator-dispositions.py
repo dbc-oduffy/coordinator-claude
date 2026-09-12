@@ -16,6 +16,13 @@ Usage:
       [--escalated-p0 F3] [--deferred F8] [--root <repo-root>] \\
       [--rationale-stdin | --rationale-file <path>]
 
+A second call against an already-dispositioned sidecar is a REPAIR, not a
+no-op: it appends a further block naming the one it supersedes, and stdout says
+which block number superseded which. An integrator that notices its own bucket
+map was wrong fixes it by calling again with the right map. This was a silent
+no-op until 1b44e2138c (2026-09-11); the old behaviour left a wrong first write
+permanently wrong with a zero exit on every repair attempt.
+
 Two writes, one call. The disposition block goes to the REVIEWER's sidecar
 (--sidecar); the routing stamp `integrated_from: [<reviewer stem>]` goes into the
 caller's OWN run-report, auto-discovered beside it or named with --run-report when
@@ -36,7 +43,8 @@ different review
 (state/bug-backlog/2026-08-31-concurrent-sessions-collide-on-a-shared.yaml).
 
 Exit codes (parity with the ported module — coordinator_core/ops/append_integrator_dispositions.py):
-  0 — success (block appended, or already present — idempotent no-op)
+  0 — success (block appended; a sidecar that already carries the heading gets a
+      SECOND block naming the one it supersedes — the last block is operative)
   1 — validation error (wrong target, unfilled scaffold, no ids supplied, ...)
   2 — usage/transport error (bad args, both rationale flags, unreadable --rationale-file,
       unresolvable repo root)

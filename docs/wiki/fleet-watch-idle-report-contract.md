@@ -146,8 +146,11 @@ the watcher improvising a message to a peer, which is the highest-stakes improvi
 to it. Adding one is negotiated before it ships, on the same standing rule as a verdict.
 
 The evidence fields — `divergence`, `address`, `answered-by-group-em`, `report-to-group-em`,
-`EXITED since <iso>`, the summary counters — carry no such constraint. They inform; they do not
-select.
+`EXITED since <iso>`, `holder-liveness`, the summary counters — carry no such constraint. They
+inform; they do not select. `holder-liveness` stays report-only: the signal has repeatedly measured
+unreliable (false-alive in the grace window, entry stamps stealing the holder), so a verdict keyed
+on it would void live holders' ticks on false-deads — worse than the quiet defect it would replace.
+Revisit once the liveness signal itself is hardened (`state/handoffs/2026-09-11-group-em-watch-liveness-from-inbox-blitz.md`).
 
 ## A missing enrichment downgrades toward reporting, never toward sending
 

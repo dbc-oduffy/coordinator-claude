@@ -25,19 +25,39 @@ Soft signals ("overnight," "it's late") do not authorize hibernate. Default stan
 
 ## Phase 0a: Baton Intake
 
-`/pickup`'s auto-fire already claimed batons on the invocation line. Resolve open judgment points,
-claim residue (`pickup-assemble apply <path>`). Not ready → `pickup-assemble drop <path>`;
+`/pickup`'s auto-fire claims batons on the invocation line — **check that it did, don't assume
+it.** No claimed-baton list in `additionalContext` means the hook did not fire, and its bootstrap
+fails OPEN: a missing or unresolved script produces silence, not an error, so a run that skipped
+this phase's engine inputs reads exactly like one that had them. Claim by hand
+(`pickup-assemble apply <path>`), say so in the announcement, and carry on — the run is correct
+either way, but only if you noticed. Then resolve open judgment points and claim residue. Not ready → `pickup-assemble drop <path>`;
 readiness-routed but still coherent → keep the claim, name routed items in the Phase 1 ledger and
 the successor handoff. No brief → `pickup-assemble brief <path> [AND <path>]...`. Announce:
 "Claimed N batons: [paths]. [M put back down: reason.]" Detail: wiki.
 
 **Aggregate execution baton** (a baton carrying an `aggregate_execution` block): read the roll-up,
-never infer it — `python3 coordinator/skills/pickup/aggregate-rollup.py <baton>`. `FIRE` (exit 0)
+never infer it — `python3 "${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}/skills/pickup/aggregate-rollup.py" <baton>`. `FIRE` (exit 0)
 fires every constituent; `PARTIAL-FIRE` (exit 1) fires the named subset, and its `excluded` and
 `withheld` rows enter the Phase 1 inventory as items with a named non-terminal disposition;
 `NO-FIRE` (exit 2) fires nothing — put the baton back down. **Exit 1 is a membership fact, not an
 error**, and a PARTIAL-FIRE forces CONTINUANCE at Phase 6: a partial fire that reads as completion
 is the drop this shape exists to stop. Contract: wiki.
+
+## Resolving the scripts this ceremony runs
+
+These live only in the doctrine repo's `coordinator/bin/` and get no settings-home launcher, so
+rung 2 404s. Open every fence below with the prescribed rung from
+`snippets/resolve-coordinator-bin.md` § CLIs with no launcher — `_doe_root` does not survive from
+one Bash call to the next:
+
+    _sh=${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}
+    _doe_root=$(cat "$_sh/machine-local/.doe-root" 2>/dev/null || cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)
+    [ -n "$_doe_root" ] && [ -d "$_doe_root/coordinator" ] || { echo "unresolved .doe-root — re-run /coordinator:install" >&2; exit 1; }
+
+**Keep the `:-`, never `:?`, and keep the emptiness check.** `CLAUDE_PLUGIN_ROOT` is EMPTY in a
+Bash tool call, so the default arm is the one that carries; unguarded, it expands to a
+root-relative `/coordinator` that reads as "this script does not exist" rather than "the root did
+not resolve".
 
 ## Phase 0: Readiness Gate
 
@@ -45,7 +65,7 @@ is the drop this shape exists to stop. Contract: wiki.
 only; an item with no plan has nothing to certify and is not refused for it. One revalidation
 step, two ordered legs: recompute the plan body sha against `mise_prepped_sha` (pure, spawn-free);
 only if that passes, re-run each `census[].command` and diff against `result`. Fire on CERTIFIED
-alone. STALE → re-gate (`python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/mise-prep-gate.py" <plan>`), then re-stamp;
+alone. STALE → re-gate (`python3 "${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}/bin/mise-prep-gate.py" <plan>`), then re-stamp;
 UNSTAMPED → gate and stamp; MALFORMED → a hand-written stamp, repair the frontmatter; census
 drift → the premise moved, re-plan. **Name the state** — "not certified" sends an author to the
 wrong repair. A handoff can assert executability; it cannot assert a sha. States, recipe and the
@@ -73,13 +93,17 @@ residue isn't coherent or routing needs a PM call. Patterns/examples: wiki.
 `backlog-grind-assemble brief mise-en-place --run-id <run-id>` computes the empty-backlog judgment
 point and the `d-mise-executor-dispatch-prompt-template` directive; not Phase 0.
 
-Quote the `additionalContext`-minted run-id (`mint-run-id mise-en-place` if the hook didn't fire).
+Quote the `additionalContext`-minted run-id (`mint-run-id mise-en-place` if the hook didn't fire
+on either entry path — typed `UserPromptExpansion` or a model-invoked `Skill` call through the
+`preuse-skill-dispatch.py` fan-in). If two engine-minted run ids are in context, use the first.
 Capture `git rev-parse HEAD` as start SHA before dispatching.
 
 >3 items → backgrounded Sonnet scout writes `state/mise-inventory/<run-id>.md` (frontmatter
-`run_id`, `start_sha`; one row/item: identifier | spec path | summary | footprint | deps |
-verification | complexity | disposition), sourced from `tasks/*/todo.md`, enriched stubs,
-`$ARGUMENTS`, claimed batons — not `tasks/`. `disposition` updates every wave gate. ≤3 items
+`run_id`, `start_sha`; one row/item under a literal `## Chunk table` heading, first column named
+exactly `id`, then: spec path | summary | footprint | deps | verification | complexity |
+disposition), sourced from `tasks/*/todo.md`, enriched stubs,
+`$ARGUMENTS`, claimed batons — not `tasks/`. `disposition` updates every wave gate: a live row
+reads `pending`, `queued` or `in_progress`; a terminal one opens with a § Phase 6 verb. ≤3 items
 already read → inline instead. Template/sources: wiki.
 
 ## Pre-Dispatch Verification
@@ -89,7 +113,7 @@ Backlog/plan-sourced items: Haiku agent per item, `still-open` vs `already-fixed
 
 **Falsifier integrity**, same phase, plan-sourced items whose frontmatter carries
 `prime_exit_criterion.falsifier`: one `falsifier-integrity-reviewer` dispatch each. Run
-`python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/instrument-can-report-red.py" --json` over the instrument first and pass
+`python3 "${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}/bin/instrument-can-report-red.py" --json` over the instrument first and pass
 the on-disk JSON path as the brief's `can_report_red_report` — a brief field, never an instruction
 to go compute it. Verdict `SOUND` | `BROKEN` | `UNREVIEWABLE`, naming the tell; it reports and
 never refuses. `BROKEN` routes the item out of the wave with the tell named — the existing
@@ -151,9 +175,20 @@ is not a shape a Workflow cannot express. Verifiers ride inside the Workflow —
 `run-report`.
 
 Don't hand-author the script — mint and emit:
-`python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/emit-dispatch-workflow.py" --inventory state/mise-inventory/<run-id>.md`
+`COORDINATOR_AGENT_TYPE_HOST=coordinator python3 "${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}/bin/emit-dispatch-workflow.py" --inventory state/mise-inventory/<run-id>.md`
 writes the spine (item-id → chunk-id, footprint → `writes`) plus the `.mjs`; fire it with
-`Workflow({scriptPath: ...})`. It refuses on an unrecognized disposition or a footprint naming no
+`Workflow({scriptPath: ...})`.
+
+**The env var is not optional, and omitting it does not fail — it downgrades.** The script probes
+for a plugin root to decide whether `coordinator:*` agent types resolve, and a Bash subprocess
+carries neither `CLAUDE_PLUGIN_ROOT` nor a roster, so it degrades every `coordinator:executor`,
+`git-commit-agent` and `test-runner` in the run to `general-purpose` — no do-not-commit snippet,
+no pathspec discipline, no sandbox preamble — and says so in one stderr line that reads like
+housekeeping. You are the only party that can see your own agent roster: assert it. Pass
+`host` instead if your roster genuinely lacks the `coordinator:*` types, never to silence the
+narration. In PowerShell set `$env:COORDINATOR_AGENT_TYPE_HOST = "coordinator"` first. It reads the `## Chunk table` heading and its `id`
+column and nothing else — both names are literal, and a record spelling either differently is
+refused, not guessed at. It refuses too on an unrecognized disposition or a footprint naming no
 backticked path — fix the record, don't work around it. Both artifacts archive with the record.
 
 Enable the sentinel first: `misc-session-and-guards autonomous-sentinel enable --mode
@@ -161,14 +196,19 @@ mise-en-place` (disable at Phase 6). Executors always background; only the EM co
 wave, from the DONE summary — never the transcript.
 
 Per wave:
-1. Mark `in_progress`, tracker-sweep the item (wiki), dispatch each to a `run_in_background`
-   Sonnet executor with the spec, footprint, and the brief's
-   `d-mise-executor-dispatch-prompt-template` fields.
+1. Mark `in_progress`, tracker-sweep the item (wiki). The Workflow's executor phase carries each
+   item's spec, footprint, and the executor **return** contract — done-summary path, touched-files
+   set, self-verify constraint — in its emitted row prompt. The brief surfaces that same contract
+   as `d-mise-executor-dispatch-prompt-template`; the two are rendered from one definition, not
+   passed from one to the other, so reading it in the brief is not what puts it on an executor.
+   The wave gate's pathspec and the verifier's first evidence source both read what it produces. Never a hand-rolled `Agent` call to attach
+   them: a run that drops the contract reports narrative where the committer needs paths
+   (`AN-ORPHANED-RETURN-CONTRACT-IS-A-DROPPED-ONE`).
 
 <!-- engine-gap: field=tracker_sweep.item_state producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 2. On DONE (verify via disk — DONE path + scoped `git status`; never trust idle-alone; never
-   double-dispatch onto a live footprint): dispatch a Haiku verifier per item using the
-   brief's `d-mise-haiku-verifier-dispatch` fields. Batch per wave; gate on all-`PASS`.
+   double-dispatch onto a live footprint): the Workflow's verifier phase runs a Haiku verifier per
+   item from the brief's `d-mise-haiku-verifier-dispatch` fields. Batch per wave; gate on all-`PASS`.
    Non-PASS → re-dispatch, revert+re-plan, defer, or early-stop. **Peers write concurrently to
    this same checkout — footprint verification is scoped to the item's own declared paths.** A
    bare unscoped `git status`/`git diff` shows every live peer's work; a path outside the item's
@@ -180,14 +220,25 @@ Per wave:
    item's residue is scoped to that item's own declared footprint paths — never a bare
    `git checkout`/`git clean`, which reaches a peer's work. Unlanded items are non-terminal, so
    the run's verdict is CONTINUANCE.
-3. Wave gate: a commit phase INSIDE the Workflow — `coordinator:git-commit-agent` over the union
-   of changed paths, via `ceremony.commit_v2` (that plus a plain scoped `git commit -- <paths>`
-   is the whole allow surface; `ceremony.scoped_git_commit` is a deleted op, not a route). Neither
-   live route re-asserts the branch, so the phase's prompt names the expected branch and requires
-   a read-only check before committing. No ledger call in the phase — `commit_v2` writes the row
-   itself, so adding one duplicates it. Never hand-typed git.
+3. Wave gate: a commit phase INSIDE the Workflow — `coordinator:git-commit-agent` over **the
+   PASSed items' footprint paths**, via `ceremony.commit_v2` (that plus a plain scoped
+   `git commit -- <paths>` is the whole allow surface; `ceremony.scoped_git_commit` is a deleted
+   op, not a route). Neither live route re-asserts the branch, so the phase's prompt names the
+   expected branch and requires a read-only check before committing. No ledger call in the phase —
+   `commit_v2` writes the row itself, so adding one duplicates it. Never hand-typed git.
    Bookkeeping stays EM-side, outside the Workflow: `backlog-grind-assemble apply mise-en-place
    --run-id <id>` with **no** `--wave-path` (that form builds no commit directive).
+
+   **A partial wave still commits, and the pathspec comes from the reports, not the wave.** The
+   wave's declared union is INTENT — it names what the wave set out to write; the DONE executors'
+   reports are the CLAIM. Derive the pathspec from the reports and commit it. A blocked or
+   non-`PASS` item contributes no paths and blocks nothing: its chunk id drops out of the subject
+   alongside its paths, and § Partial wave landing above governs the rest. **Refusing to commit
+   because one item of N is blocked is the failure mode, not the safe choice** — it is a coherent
+   inverse of this rule that has been reasoned to in a live run, and it strands every other
+   executor's work uncommitted on a checkout a dozen peers are writing to, where HEAD moves
+   underneath it. Holding work back is the expensive outcome here; the unlanded item is
+   non-terminal and returns to `pending` either way.
 
    **Peer-session commit collision**, checked before the commit and not after:
    `git log <wave-dispatch-sha>..HEAD --name-only -- <this wave's footprint paths>`. Non-empty
@@ -223,8 +274,10 @@ check, anti-vacuity gate, diff freeze, inventory archival (COMPLETE only), track
   (PASSed/routed-out/already-fixed/dropped), else CONTINUANCE — wording only, tail always runs
   full. Three inputs force CONTINUANCE regardless of the item ledger: an aggregate PARTIAL-FIRE
   (its excluded plans ride a successor, so they are not terminal), an unlanded item from a partial
-  wave, and an INCOMPLETE adjudication. CONTINUANCE → `/handoff` naming the resume invocation, a
-  Phase-0-bypass assertion, the wave map — authored+pushed before hibernating.
+  wave, and an INCOMPLETE adjudication. CONTINUANCE → `state/mise-inventory/<run-id>-continuance.md`
+  naming the resume invocation, a Phase-0-bypass assertion, the wave map — committed+pushed before
+  hibernating. That record IS the discharge; `/handoff` is keyword-gated, so it is the PM's
+  follow-up, and the tail summary names it as such.
 - **Anti-vacuity:** scoped `git status --porcelain -- <this run's footprint paths>`, never bare
   unscoped. Non-empty → repair via the wave-commit op before freezing.
 - **Review routing:** no review gate of its own (PM ruling). Freeze:
@@ -240,8 +293,9 @@ check, anti-vacuity gate, diff freeze, inventory archival (COMPLETE only), track
   **necessary, not sufficient, and is never reported as a correctness verdict** — a surface can
   acquire a referencer and still be wrong, and a clean check licenses no claim that the run's work
   is right. It gates nothing, routes nothing, and never moves the verdict line.
-- **End-of-run verification:** run any deferred fast-test command once, EM-only, over the
-  cumulative diff. Never run a deferred full-suite/unscoped command unilaterally — surface it.
+- **End-of-run verification:** run every test file the cumulative diff touched, once, EM-only,
+  naming each path literally. Never the repo's fast- or full-suite command — the suite guard
+  refuses it without a PM grant; say which files you ran instead.
 - **Tracker sweep:** final pass, same procedure as the per-wave sweep (wiki); commit
   (`--message "mise: tracker sync"`).
 - **Baton disposition:** claimed+completed → `/workstream-complete` (`pickup-assemble apply` is
@@ -263,7 +317,7 @@ check, anti-vacuity gate, diff freeze, inventory archival (COMPLETE only), track
 
 **Close:** scoped footprint clean, commit residue, report the verdict, discharge review routing.
 Standard stops there. Hibernate additionally verifies+pushes (never on push failure), authors+
-pushes a CONTINUANCE handoff first if applicable, then `shutdown /h` / `systemctl hibernate`.
+pushes the CONTINUANCE record first if applicable, then `shutdown /h` / `systemctl hibernate`.
 
 Never merge to main; never worktrees, any phase. Full mechanics for every bullet above: wiki.
 
@@ -305,9 +359,14 @@ onto this body, not a second ceremony — there is one wide-run ceremony. **Eith
 first-class invocation:** both autofire hooks admit both spellings
 (`hooks/scripts/mise-autofire.py :: _MISE_COMMAND_NAMES`,
 `hooks/scripts/pickup-autofire.py :: _BATON_GRAB_COMMAND_NAMES`), so either mints the run-id and
-claims the batons. The engine vocabulary does not follow the verb — the sentinel mode, the cadence
-passed to `mint-run-id`/`brief`, and `handoff.schema.json`'s cadence key all stay `mise-en-place`,
-which is why this file keeps that name.
+claims the batons. **And either entry path fires them:** a typed slash command reaches both hooks
+under `UserPromptExpansion`; a model-invoked `Skill` call for either verb reaches the same two
+hooks' legs through `preuse-skill-dispatch.py`, the `PreToolUse`/`Skill` fan-in that hosts them —
+so a PM writing the verb inline, a skill forwarding to this one, or a skill fired under context
+pressure starts with the same inputs a typed invocation would have gotten. The engine vocabulary
+does not follow the verb — the sentinel mode, the cadence passed to `mint-run-id`/`brief`, and
+`handoff.schema.json`'s cadence key all stay `mise-en-place`, which is why this file keeps that
+name.
 
 `/update-docs`, `/workday-complete`, `/merging-to-main` are PM-run afterward, never auto-invoked.
 `/autonomous` composes with this run: it governs the unattended posture (sentinel, nudge

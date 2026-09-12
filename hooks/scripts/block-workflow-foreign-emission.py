@@ -92,6 +92,26 @@ def _session_id(payload: dict) -> "str | None":
     )
 
 
+def _emitter_invocation() -> str:
+    """A COPY-PASTEABLE `python3 <emitter>` prefix, absolute wherever possible.
+
+    This hook fires in whatever repo the session is standing in, which is very often not the
+    doctrine repo the emitter lives in. A repo-relative `coordinator/bin/...` in the refusal text
+    is therefore unrunnable exactly where it is read: a peer recovering a halted run from a
+    sibling checkout copy-pastes it and gets a "can't open file" error, which reads as a broken
+    tool rather than a wrong cwd. `CLAUDE_PLUGIN_ROOT` is set for hooks and is the plugin root
+    the session actually resolved, so it names the emitter that will actually run.
+    """
+    root = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    if root:
+        return 'python3 "' + str(Path(root) / "bin" / "emit-dispatch-workflow.py") + '"'
+    # No plugin root: say so rather than print a path resolving against the reader's cwd.
+    return (
+        "python3 <coordinator-plugin-root>/bin/emit-dispatch-workflow.py  "
+        "# CLAUDE_PLUGIN_ROOT unset here; substitute the absolute path"
+    )
+
+
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
@@ -134,13 +154,13 @@ def main() -> int:
             "If YOU edited it -- the documented recovery from a halted run is to "
             "edit the halting phase's agent step, and an unedited resume replays "
             "the cached refusal -- re-stamp the receipt over your own edit:\n"
-            "  python coordinator/bin/emit-dispatch-workflow.py --restamp "
-            f"{script.name}\n"
+            f"  {_emitter_invocation()} --restamp "
+            f'"{script}"\n'
             "It prints the phase spine it is authorizing, and refuses unless the "
             "receipt names this session, so a peer's emission cannot be laundered "
             "through it.\n\n"
             "If you did NOT edit it, re-emit before firing --\n"
-            "  python coordinator/bin/emit-dispatch-workflow.py --plan <plan-path>\n"
+            f"  {_emitter_invocation()} --plan <plan-path>\n"
             "then read the wave map it produces. Rows that changed may carry "
             "dispositions this run was never authorized for. A re-emit against a "
             "plan whose early chunks have landed narrows the script silently "
@@ -160,7 +180,7 @@ def main() -> int:
             "run THEIR wave map under your handle, and nothing in the handle would "
             "say so.\n\n"
             "Fix: re-emit before firing --\n"
-            "  python coordinator/bin/emit-dispatch-workflow.py --plan <plan-path>\n"
+            f"  {_emitter_invocation()} --plan <plan-path>\n"
             "The emitter refuses to overwrite a differing emission, so a refusal "
             "there means coordinate with that session rather than --force past it."
         )

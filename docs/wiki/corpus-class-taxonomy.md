@@ -11,7 +11,7 @@ Three classes, principled rules, open-ended extension:
 | Class | Authority value(s) | Corpus content | Examples |
 |---|---|---|---|
 | `engine` | `"api"`, `"editor"` | First-party engine source code | UE runtime, UE editor, Unity core assemblies |
-| `example` | `"reference"` | Sample/reference projects layered on an engine | Lyra, CitySample, community demo projects |
+| `example` | `"reference"` | Sample/reference projects layered on an engine | example_sample_project, CitySample, community demo projects |
 | `knowledge` | `"knowledge"` | Documentation, decisions, lessons, system meta-knowledge | Coordinator wikis, project ADRs, lessons files |
 
 Extension rule: if a new corpus type does not fit any of the three classes above,
@@ -28,7 +28,7 @@ commit and run `tests/test_schema_constant_parity.py`.
 A read-side classifier (`core/structural_schema.py:corpus_class_for`) maps a structural-index row's `(source, authority)` pair into a corpus class:
 
 - **`engine`** — engine source: UE runtime / plugin / editor C++. `authority in {"api", "editor"}`.
-- **`example`** — sample/reference projects layered on an engine: Lyra, CitySample, community samples. `authority == "reference"`.
+- **`example`** — sample/reference projects layered on an engine: example_sample_project, CitySample, community samples. `authority == "reference"`.
 - **`knowledge`** — meta-knowledge corpora: project/system documentation, decisions,
   lessons, plan history, coordinator wikis. `authority == "knowledge"`.
 - **`None`** — project rows, or any unrecognised pair. Caller decides.
@@ -39,9 +39,9 @@ A read-side classifier (`core/structural_schema.py:corpus_class_for`) maps a str
 
 Engine source and sample projects are physically similar (both are "not your project's code") but query semantics differ:
 
-- An "engine API lookup" should not return Lyra's `ULyraCharacter` even though Lyra's source is in the same structural index.
+- An "engine API lookup" should not return example_sample_project's `UExampleSampleProjectCharacter` even though example_sample_project's source is in the same structural index.
 - A "find a reference implementation" query should *prefer* sample-project rows over engine internals.
-- Future sample corpora beyond Lyra (CitySample, community demos) need to fit without code edits — they share the `reference` authority and join the existing class automatically.
+- Future sample corpora beyond example_sample_project (CitySample, community demos) need to fit without code edits — they share the `reference` authority and join the existing class automatically.
 
 The Data Science Reviewer's rationale memo: `project-rag-ue-addon` repo's `tasks/the Data Science Reviewer-engine-examples-split-2026-05-16.md`.
 

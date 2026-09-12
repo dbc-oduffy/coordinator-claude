@@ -111,8 +111,13 @@ proposes a revised shape, and asks the PM to confirm.
 
 `coordinator-doc-new --type goal --title "<objective-slug>"`, resolved per that ladder.
 
-Fill: `objective:` (ratified text), `key_results:` (≤5, weekly-perceptible), `period:` (e.g.
-`Q3-2026`), `status: active`.
+Fill: `objective:` (ratified text), `key_results:` (≤5, weekly-perceptible), `period:` (one of the
+schema enum `day|week|repo|quarter|year` — e.g. `period: quarter`, `period_value: Q3-2026`),
+`status: active`.
+
+Once filled, invoke `emit-goal-from-artifact.py` (claude-klabauter-owned, the goal-pipeline emitter
+per `goals-okr-system.md` § Emit → Cockpit → Cockpit Pipe) against the scaffolded artifact so the
+ratified goal actually lands on the wire — scaffolding alone does not emit.
 
 ### Step 5 — Spawn downstream stubs
 
@@ -168,6 +173,7 @@ scaffolded.
 - [ ] the VP-Product Reviewer dispatched at Opus altitude via `subagent_type: "coordinator:vp-product"`
 - [ ] PM confirmed revised OKR before any artifact written to disk
 - [ ] Goal artifact scaffolded with `coordinator-doc-new --type goal`
+- [ ] Goal artifact emitted via `emit-goal-from-artifact.py` after scaffolding
 - [ ] Each roadmap-seed stub carries `origin_goal_id:` FK and `deployment_state: awaiting_gate`
 - [ ] `/roadmap-planning` was NOT auto-invoked — offered and PM-gated
 - [ ] Commit is scoped to goal artifact + stubs only — no blanket add

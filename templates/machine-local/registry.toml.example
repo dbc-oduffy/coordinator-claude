@@ -45,7 +45,6 @@ schema = 1
 # baseline declaration (each trips check-machine-local-regeneratability.py
 # Check 2 once classified below without a matching declaration here).
 "repos.example-os-repo"                   = ""
-"repos.example_league_data_repo"           = ""
 "repos.example_cockpit_repo"            = ""
 "repos.project_rag_template_addon" = ""
 # Review: code-reviewer (Finding 7) — repos.example_store_repo and
@@ -56,6 +55,10 @@ schema = 1
 # list).
 "repos.example_store_repo"               = ""
 "repos.example_market_data_repo"        = ""
+# The doctrine repo's canonical key. It shares its path with the depersonalized
+# alias repos.example_doctrine_repo; declaring it here is what makes
+# canonical_repo_key_for_root pick it by roster rather than by tie-break.
+"repos.doe_claude"                 = ""
 
 # The published coordinator-engine mirror (claude-klabauter), NOT the
 # engine-source working tree — see `engine.working_repos.*` below for that.
@@ -98,18 +101,6 @@ schema = 1
 # ---------------------------------------------------------------------------
 "engine.working_repos.claude_klabauter" = ""
 "engine.working_repos.doe_claude"     = ""
-
-# ---------------------------------------------------------------------------
-# Cockpit emission — device-singular operator identity.
-#
-# These are per-machine values the installer cannot supply; set them via:
-#   machine-local set cockpit.meta_repo_slug   "myowner/my-meta-repo"
-# Real values go in registry.local.toml (gitignored). Do NOT commit them here
-# — committing real values re-introduces the identity leak and breaks OSS
-# distribution. Unset (empty) ⇒ cockpit emit fails loud with remediation.
-# ---------------------------------------------------------------------------
-# The operator's meta-repo in owner/repo form (e.g. "myowner/my-meta-repo").
-"cockpit.meta_repo_slug"   = ""
 
 # ---------------------------------------------------------------------------
 # Vendor / engine roots — place here ONLY if no concern file is loaded.
@@ -232,14 +223,12 @@ concerns = ["project_rag", "unreal"]
 "repos.example_repo"             = "session-accumulated-must-survive-crash"
 "repos.example_stats_repo"             = "session-accumulated-must-survive-crash"
 "repos.experiments"            = "session-accumulated-must-survive-crash"
-"cockpit.meta_repo_slug"       = "session-accumulated-must-survive-crash"
 # tasks/2026-07-14-install-dogfood-friction.md § F8 — classes for repos.*
 # keys registered during the 2026-07-14 cold-install dogfood (see matching
 # declarations above). All repos.* keys are session-accumulated-must-survive-crash
 # by definition (§13): they encode this operator's machine layout, not
 # something an idempotent script can re-derive.
 "repos.example-os-repo"                   = "session-accumulated-must-survive-crash"
-"repos.example_league_data_repo"           = "session-accumulated-must-survive-crash"
 "repos.example_cockpit_repo"            = "session-accumulated-must-survive-crash"
 "repos.project_rag_template_addon" = "session-accumulated-must-survive-crash"
 # Review: code-reviewer (Finding 7) — repos.example_store_repo and
@@ -250,6 +239,9 @@ concerns = ["project_rag", "unreal"]
 # (see repos.claude_klabauter below).
 "repos.example_store_repo"               = "session-accumulated-must-survive-crash"
 "repos.example_market_data_repo"        = "session-accumulated-must-survive-crash"
+# Operator-set: session-start-register-doe-claude-root.py only seeds it when
+# absent, never overwrites the operator's choice of clone.
+"repos.doe_claude"                 = "session-accumulated-must-survive-crash"
 # engine.working_repos.* — idempotent-regeneratable, unlike repos.* above. A
 # repos.* value encodes the OPERATOR's knowledge of another repo's on-disk
 # layout and cannot be re-derived from code; an engine.working_repos.* value

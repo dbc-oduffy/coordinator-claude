@@ -16,7 +16,7 @@ Run `d6` with `mode='supersede'` and `--continued-into` naming the successor; do
 `handoff.reconcile_open` (dead, superseded by K-057).
 
 Full operator mechanics — the `d6` directive, the manual `supersede` verb, `chain` vs
-`supersede`, `reconcile_close_terminal`, and the roadmap-baton refusal rationale — are the baton
+`supersede`, the dead-end `close-handoff` verb, and the roadmap-baton refusal rationale — are the baton
 lifecycle's, not this residue block's; they are documented against the op.
 **`--exclude` is required on the manual `supersede` verb** — without it the live-children guard
 sees the successor as a live child and the op silently retains rather than superseding.

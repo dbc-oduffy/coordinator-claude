@@ -45,21 +45,16 @@ under-scoped brief.
 Never an unscoped `git commit` — no pathspec, `-a`/`-A`/`--all`, or `git add -A`/`.`/`-u` — and
 never `coordinator-safe-commit` or `scoped-git-commit`.
 
-**Two shapes commit, and they are the WHOLE allow surface.** `block_subagent_commit` reads your
-command as literal, unquoted, top-level argv. It deliberately does NOT unwrap `sh -c`/`python -c`
-payloads on the allow side — so an in-process `from coordinator_core.git.commit import
-commit_paths` call, functionally the same commit, is unreadable to it and therefore DENIED. Do not
-reach for it; there is no prologue to run.
+**Two shapes commit, and they are the WHOLE allow surface.** Never call `commit_paths` in-process
+(`python -c`, heredoc, script): it skips the op's `Session-Id` trailer, and no guard reliably stops
+it (project-rag `f017ab837`).
 
 **Shape 1 — the door, and your default:**
 
 <!-- VERBATIM -->
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" ceremony.commit_v2 '{"repo":"<worktree-root>","paths":["a.py","b.py"],"deleted_paths":[],"message":"<subject>"}'` — Shape W / Shape A-B POSIX, `snippets/resolve-coordinator-bin.md`. A multi-paragraph message does not go on argv: pass the body through the op's body-file channel rather than embedding a newline in `message`.
 
-`coordinator-invoke` is the installed on-PATH forwarder to the same op, so it needs **no sys.path
-setup at all**. The op injects `blob_fallback` itself. `python3 -m coordinator_core.invoke
-ceremony.commit_v2 '{...}'` is the same thing spelled longhand and is read identically — but only
-from an interpreter whose `sys.path` is already set up, which a bare one is not. Prefer the door.
+`coordinator-invoke` is the on-PATH forwarder to the op: no `sys.path` setup, no `blob_fallback`.
 
 **Shape 2 — a scoped plain commit:**
 
@@ -81,19 +76,14 @@ staged path cannot ride along.
 **It runs no commit gates — deliberate.** § Verify before committing is the whole check. Never
 report a commit as "all gates passed": none ran.
 
-**Verify by SHA, never by tree cleanliness.** Confirm with `git log` that a commit carrying your
-subject exists and report that SHA. A post-commit clean tree is expected — never read "nothing
-left to stage" as a refusal.
-
 **A scoped `git commit` is shape 2, not a prohibited fallback.** `block_subagent_commit` denies
 an UNSCOPED subagent commit; a `git commit -m <subj> -- <path>...` from this agent type is an
 allowed shape. What stays denied is `-a`/`-A`/`--all`, a missing `--`, and any commit whose pathspec
 the guard cannot read as literal argv. If BOTH shapes are unavailable, report it with item 4's
 evidence and stop.
 
-**A guard denial is routing, not a dead end.** A denial naming `ceremony.commit_v2` means your
-invocation was not readable as shape 1 or shape 2 — re-spell it as one of the two above. It never
-licenses an unscoped `git commit`, and it is not evidence the route is broken.
+**A guard denial is routing, not a dead end.** A denial naming `ceremony.commit_v2` means re-spell
+the call as shape 1 or 2 — never an unscoped `git commit`, and never evidence the route is broken.
 
 ## Verify before committing — the pathspec is a claim, not a fact
 
@@ -106,10 +96,10 @@ pipeline's job, not yours.
   extra path is a STOP-and-report (see refusals table); an absent or unchanged one is not, and in
   a preflight/verify-only dispatch it is expected, never BLOCKED. 3) Only once the set matches
   exactly, commit per the route above.
-- **Pre-commit only — inverts if re-run after.** Post-commit a clean tree is expected, never
-  evidence of failure. Assert on `git show --name-only --format= <sha>` vs the pathspec handed —
-  never `--stat`, which elides leading path segments and hides a spurious prefix. Extra paths =
-  divergence = STOP-and-report; missing = landed short.
+- **This check is pre-commit only and inverts if re-run after.** A clean tree AFTER the commit call
+  is the expected state, never evidence of failure. Assert on `git show --name-only --format=
+  <sha>` vs the pathspec handed; `--stat` cannot carry this assertion — it elides leading path
+  segments. Extra paths = STOP-and-report; missing = landed short. Report the SHA.
   Tripwire: `A-CLEAN-TREE-AFTER-A-SCOPED-COMMIT-IS-NOT-A-DIVERGENCE`.
 - **Expand a directory to its files before passing it.** The pipeline's pre-stage guard rejects a
   directory pathspec outright — a directory matches whatever is inside it at commit time,

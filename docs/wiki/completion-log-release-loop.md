@@ -538,10 +538,16 @@ running a broad sweep over the full working tree.
 **workday-start Step 1.5:**
 Query recent roadmap entries to orient the session:
 ```bash
-query-completions --since "90d" --where "nature=roadmap" --sort "-loe.tshirt" --limit 10 --format markdown-list
+query-completions --since "90d" --where "nature=roadmap" --sort "-loe.agent_dispatches" --limit 10 --format markdown-list
 ```
 Zero-row rendering: always emit the count ("0 roadmap entries in the last 90 days") —
 do not skip the step silently.
+
+**Never `--sort "-loe.tshirt"`.** `--sort` compares non-numeric values as STRINGS, so descending
+t-shirt order is `XXL, XS, XL, S, M, L` — XS second, L last. Under `--limit 10` that reads as "the
+ten biggest" and is not. The weights above (XS=1 … XXL=32) are precisely the ordering `--sort` does
+not apply. Rank on a numeric field; `loe.em_tokens` is null in every completion record measured, so
+`agent_dispatches` is the proxy and nulls sink to 0.
 
 **spinoff:**
 Surface related-chain discovery at spinoff-authoring time via:

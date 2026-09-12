@@ -25,7 +25,7 @@ whose plan is already approved is not in it: it needs no planning work, and stay
 as a satisfied blocker for its dependents. `--roadmap-id` narrows the sweep to one roadmap.
 
 **Targeted (`<baton-id> ...`).** The EM's adjudged prioritisation, or the PM's targeting. Pass ids
-(`stub_id`, `handoff_id`, or filename stem) as `targets`. Everything unnamed stops being a
+(a gate row's `id`, or the baton's filename stem) as `targets`. Everything unnamed stops being a
 candidate but stays a fully-resolved BLOCKER — narrowing what you are asking about never narrows
 what the answer is computed from.
 
@@ -110,9 +110,61 @@ to no record and lands here permanently — the shape a baton waiting on a cross
 removing it makes the baton a live planning candidate the moment the sweep re-reads. It clears
 when the peer answers.
 
-**2. Scaffold the trail and freeze the gate.** `state/plan-blitz/<run-id>/gate-report.json`.
+**An edge is a DISCOVERED dependency, never a way to suppress a candidate.** A peer EM owes an
+answer, which is why that case is an edge. A baton you have decided not to fire — a PM ruling, an
+adjudication, a box in the wrong state, a wait on a peer's landing — owes nothing to anybody, and
+spelling it as an edge the gate cannot resolve fails the baton CLOSED forever — worse than the
+retype it was meant to save. That is a standing ruling, restated in the engine's own gate and in
+`handoff.schema.json`'s description of the hold fields below.
+
+**The mechanism for that is a HOLD, three flat baton keys the gate reads:
+`plan_blitz_hold_reason`, `plan_blitz_hold_cite`, `plan_blitz_hold_until`.** `roadmap.plan_gate`
+sets `candidate: false` and reports the baton under `held` with its reason. **A hold with no
+reason is not honoured** — an unexplained suppression is the thing this replaces, not a lighter
+version of it. `until:` is where a real expiry goes (a peer's re-vendor, a publish, a named
+event).
+
+**A hold is what `--exclude` was standing in for.** A per-fire exclusion list is retyped every
+run, lives in one driver's head, and is invisible to the next session — measured on
+Example-game-workbench-repo, 13 batons held that way across three waves by an EM who did not know the
+field existed. `--exclude` narrows one fire; a hold is the durable record. Reach for the flag only
+when a wave is already part-fired.
+
+Holds cover more than they look like they do: a PM ruling, two batons sharing one plan, a
+replanned source, a repair-lane baton, an adjudication standing three waves, a grouping assent, a
+live-editor-session or clean-machine precondition, and a baton waiting on a sibling repo's
+landing. **No separate host or precondition vocabulary is minted for these** — a reason in prose
+a reader can evaluate beats a token for a case that occurs twice, and a `host:` token would be
+inert AND false on a box that matches on platform but is in the wrong state.
+
+**What does NOT work, and reads as though it does: `external_gate` on the baton record.**
+`roadmap.plan_gate` never reads the key — candidacy is `live`, `baton_role`, `status` and
+`deployment_state` — and its scanner declares every baton key it reads, so a key outside that set
+reads as absent. `external_gate` is real, but it belongs to PLAN SPINE ROWS, where it withholds
+rows inside a plan that still certifies. Written onto a baton it is well-formed frontmatter that
+changes nothing, and the next wave's EM reads it and concludes the question is settled — worse
+than the open defect. Reported by example-game-workbench-repo-b8 after two independent wave EMs
+recommended it; four of their batons were being held out of waves by hand-maintained exclusion
+lists for want of the edge above.
+
+**2. Scaffold the trail and freeze the gate.** `state/plan-blitz/<run-id>/wave-<N>.gate-report.json`,
+where `<run-id>` is this run's UTC start as `YYYYMMDDTHHMMSSZ` — every trail on disk is one, and
+`recycle-check` orders runs by it.
+
+**One report PER WAVE, named for its wave — a run-wide `gate-report.json` is wave 0's name only.**
+Every wave freezes its own, after the previous wave landed. A report frozen for an earlier wave is
+SHAPE-RIGHT and TIME-WRONG: every `batons[]` lookup resolves, nothing refuses, and the manifest
+reads as a healthy wave several times the real one's size, carrying plans the run has since
+approved and plans open in a live agent. That is the opposite failure to
+`AN-ENVELOPE-FROZEN-AS-A-GATE-REPORT-READS-AS-AN-EMPTY-WAVE`, which fails loudly and empty.
+`emit-wave-fire.py` refuses it against the previous wave's landing declaration; pass the path and
+the refusal never has to fire.
 The workflow has no filesystem primitive — an unscaffolded directory means every sidecar write
 lands nowhere and the readiness gate reads an empty trail.
+
+**Pass `--bare`.** A successful invoke then prints `result` alone — the documented shape — and an
+error still prints the whole envelope, so a failure is never frozen as a valid-looking report.
+Everything below is what you get WITHOUT it.
 
 **Redirect `coordinator-invoke`'s stdout and what you froze is a JSON-RPC envelope** — the gate's
 own `waves`, `batons` and `counts` sit one level down, under `result`. That is the shape the
@@ -124,6 +176,13 @@ engine writes a `[warm-settings]` line there, and `2>&1` folds it into the JSON.
 
 **The readers tolerate either shape anyway** — `recycle-check.py` and `emit-wave-fire.py` both unwrap an envelope — but freeze the documented shape rather than relying on that: a consumer written later will not.
 
+**Freeze by redirection** (`1> gate-report.json 2> gate.stderr`); `ConvertFrom-Json |
+ConvertTo-Json` truncates every baton row at its default depth.
+
+**Redirection also decides ENCODING, and PowerShell 5.1 and 7 disagree** — 5.1 writes a UTF-8 BOM
+(`>`/`Out-File` there default to UTF-16LE), pwsh 7 does not. A BOM fails a plain `json.load`
+downstream and reports as a malformed gate. Read back with `utf-8-sig`, correct on both.
+
 **2a. Check the wave for finished work.** One pure read, before any agent is dispatched:
 
     python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-blitz/recycle-check.py" --repo-root <repo> \
@@ -133,21 +192,27 @@ engine writes a `[warm-settings]` line there, and `2>&1` folds it into the JSON.
 FINISHED, and which the gate still returns as a candidate — its landing never stamped it, because
 `blitz_land` refuses the XS lane without `shipped_in`. The repair is that landing, re-run with the
 SHA; **never drop the baton from this wave by hand**, which leaves it to recycle into the next one.
+`RESURRECTED` (exit 1) is a candidate already archived terminal: remove or re-archive the live copy.
 `back` entries are `completed: false` or `blocked-on-preflight` and are correctly here. Tripwire:
 `A-FINISHED-BATON-THE-LANDING-NEVER-STAMPED-COMES-BACK-AS-A-CANDIDATE`.
 
 **3. Fire the wave. Emit it; never hand-write the args.**
 
     python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-blitz/emit-wave-fire.py" \
-        --repo-root <abs> --trail-dir <abs> --wave-index N
+        --repo-root <abs> --trail-dir <abs> --wave-index N --wave-number N \
+        --gate-report <trail-dir>/wave-N.gate-report.json
 
 It reads the frozen gate report, derives every per-baton field from it, splits the wave into
 fires at the cap, binds each fire's args into a standalone `.mjs` through claude-klabauter's
 `workflow.bind_args`, and prints one `Workflow({ scriptPath })` line per fire — **with no `args`
-at all**, because they are bound into the file. Fire each printed line. The bound args are this
-host's absolute paths, so a fire emitted on another box is re-emitted here, never fired as found.
-Pass `--plugin-agents-available true` where `coordinator:*` agent types resolve; the default
-fires every role as a generic agent carrying only its inline contract.
+at all**, because they are bound into the file. Fire each printed line. Pass
+`--plugin-agents-available true` where `coordinator:*` types resolve.
+
+**An emitted fire is a SNAPSHOT, never a handle — RE-EMIT, never re-fire as found.** It binds this
+host's paths, so one from another box is wrong in space, and the workflow BODY as it stood at emit
+time, so one from this morning is wrong in time. The second is the trap: it runs and succeeds.
+Measured — a repair re-binding the args of an 11:20 fire reproduced a contract defect fixed at
+12:17, costing its driver an afternoon re-deriving rulings the source already honoured.
 
 **A hand-typed args object is the defect this replaces, not a shortcut past it.** Everything the
 args contract can lose, it loses silently: `executionOpen` reached a live wave missing because a
@@ -156,6 +221,22 @@ landing, and reported them under `routedElsewhere`. A derived field cannot be om
 script is also on disk, so it archives with the trail and the fire can be re-read, re-fired and
 diffed — an args object inside a tool call is none of those. Tripwire:
 `A-HAND-TYPED-WAVE-ARG-IS-AN-UNARCHIVED-FIRE`.
+
+**A fire is a SNAPSHOT of the workflow, so a fix to `plan-blitz.mjs` never reaches a script already
+emitted.** Re-firing or resuming an old one runs the old body against today's content, and such a
+bug fires on CONTENT, not on age: in one measured run, 23 fires each carried the same unguarded
+field access, and only the one whose integration raised the triggering shape died — after 40 agents
+had completed. **Before re-firing or resuming a script emitted before your last workflow fix, diff
+it against the live `plan-blitz.mjs` or re-emit it.** Do not retro-patch a fire that already ran:
+the archive is what ran, and rewriting it makes the trail lie.
+
+**Patching a script to resume it re-runs every agent DOWNSTREAM of the text you edited, not none of
+them.** Resume caches on `(prompt, opts)`, and the prompts interpolate the workflow's own helpers —
+so editing a function a later phase's prompt calls changes that phase's cache key and it runs live.
+Measured: a fire patched at its assembly step replayed 21 of 40 agents, the whole tail. That is the
+right outcome and cheap for a fire that died at the END; a patch further upstream re-runs almost
+everything, and re-emitting is then the cheaper repair. Decide by where the edit sits in the phase
+order, never by the size of the diff.
 
 **Pass `--wave-number` with the run's own wave count.** `roadmap.plan_gate` numbers `waves` from
 the READ, so every wave arrives as `waves[0]`: `--wave-index` selects which wave of the frozen
@@ -185,20 +266,33 @@ to fire one.
 **Fires may run CONCURRENTLY, and the driver owns disjointness — the gate cannot.** Concurrency is
 what makes a 200-baton wave finish, since a fire costs ~50 minutes of wall clock whatever its size.
 But `roadmap.plan_gate` reports the batons that need planning, and a baton being planned *right
-now* still needs planning: nothing on disk changes until that fire lands. So a driver that re-reads
-the gate to build its next fire gets its own in-flight batons back at the head of the list, and
-firing them plans the same baton twice — two waves writing one plan file, two size reviews, and
-whichever lands second overwrites the first. **Subtract your own in-flight set from every fresh
-gate read.** Keep it in the run's own notes; the engine has no session-scoped view to keep it for
-you, and adding one would make a derived read authoritative over disk.
+now* still needs planning: nothing on disk changes until that fire lands. So a driver re-reading
+the gate gets its own in-flight batons back at the head of the list, and firing them plans one
+baton twice — two waves writing one plan file, and whichever lands second overwrites the first.
+**Subtract your own in-flight set from every fresh gate read.** Keep it in the run's own notes; the
+engine has no session-scoped view, and adding one would make a derived read authoritative over disk.
+
+**Settling a pull edits a plan the next planner cannot see.** Adjudicating a pulled baton means
+editing its plan — but a planner reads the BATON, not the trail and not your settlement, so
+re-firing it re-authors the plan over your ruling, silently. **Re-freeze the gate before re-emitting
+a baton whose plan you edited**; the emitter warns when a plan changed after the frozen report.
+
+**A hold that only you remember is not a hold.** In-flight ends with the run, but a standing reason
+not to fire — adjudicated `pulled`, a DR that settled it, a blocker with no edge — outlives the
+session that learned it, and the next gate read hands the baton straight back. Measured on
+project-rag: 5 of 8 wave-0 candidates had a recorded reason not to fire, four re-fired across five
+runs. Write it where the next driver reads it: the trail's `RUN-NOTES.md`, and the baton record
+itself when the reason is the baton's. A note still has to be FOUND, so prefer the baton record
+whenever the reason belongs to the baton — a gate read sees that; it does not see your notes.
 
 **Disjointness is on `planPath`, not just on baton id — this is the one that bites.** Several
-batons routinely share one plan: a roadmap plan links every baton it emitted, and on this repo
-NINE batons link `docs/plans/2026-07-23-computed-skills-frontage-roadmap.md`. Two fires holding
-different batons that name the same plan are two waves authoring one file, and the sidecar keying
-above does not help — it makes each fire's SIZE REVIEW safe, and says nothing about the plan.
-Whichever integrator writes last wins, silently. Group batons by `planPath` when you build a fire:
-same plan, same fire, or different fires that do not overlap in time.
+batons routinely share one plan, and a roadmap plan links every baton it emitted: NINE share one
+here. Two fires holding different batons that name the same plan are two waves authoring one file,
+and whichever integrator writes last wins, silently. The sidecar keying above does not help — it
+makes each fire's SIZE REVIEW safe and says nothing about the plan. Same plan, same fire, or fires
+that do not overlap in time. **`emit-wave-fire.py._split` already enforces that WITHIN an emit — do
+not hand-audit it.** Your residual duty is ACROSS emits: a fresh gate read cannot see that a live
+fire holds a baton naming the same plan, so subtract in-flight `planPath`s before the next emit.
 
 **Subtract adjudicated batons too, for the same fire.** A `pulled` baton stays a candidate by
 design — the EM left it where it was — so it also returns at the head of the next read. Re-firing
@@ -255,12 +349,15 @@ condition from that sum. It refuses before landing anything if the fires disagre
 `waveIndex`, or if any fire dispatched XS and no `--shipped-in` was given.
 
 Read § the op below for what the landing DOES — the helper orders the calls and does the
-arithmetic; it decides nothing, fires nothing, and re-queues nothing.
+arithmetic; it decides nothing, fires nothing, and re-queues nothing. It writes the wave's own
+`wave-<n>.landing.json` into the trail, which is what the NEXT session reads instead of your
+stdout. **Never redirect its stdout onto that path** — the text report and the script's own
+write interleave into a file no reader can parse. Capture stdout elsewhere if you need it.
 
 **Commit before landing whenever the wave dispatched any XS.** `close_dispatched` stamps the
 baton `shipped` with a `shipped_in` SHA, and this op does not commit — a stamp written first
 would cite a commit that does not exist. Pass that SHA as `shipped_in`; without it the XS lane
-refuses and those batons stay open, which is the recycling defect, not a cosmetic gap.
+refuses and those batons stay open: the recycling defect, not a cosmetic gap.
 
     `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" roadmap.blitz_land '{"wave_result": <the workflow's return value verbatim>, "shipped_in": "<sha of the commit carrying the XS work>"}'`
 
@@ -285,9 +382,8 @@ An S baton's plan stays at `draft` by design — `needs_plan` keys off the execu
 so a later sweep does not re-plan work that already has its marching orders.
 
 **Never hand-stamp `status: approved` instead.** The op links before it stamps and refuses to stamp
-what it cannot link, because an approval that resolves to no baton is a silent no-op that reads as
-success — measured twice on this repo, once on a plan the pipeline authored and once on a 457-line
-plan authored months earlier. A hand stamp skips the check that exists for that.
+what it cannot link: an approval resolving to no baton is a silent no-op that reads as success,
+measured twice here. A hand stamp skips the check that exists for that.
 
 **Read `refused[]` on every landing.** Each entry names a baton and why. A refusal is the op
 declining to write something misleading; it is never a thing to route around.
@@ -310,24 +406,25 @@ declining to write something misleading; it is never a thing to route around.
   **And it is a WAVE-level test, not a fire-level one.** A wave over 8 is drained by several
   fires sharing one `waveIndex` (§ batching), but `blitz_land` takes ONE fire's result, so the
   landing you are holding is a fraction of the wave. Sum the three lanes across every fire at
-  this `waveIndex` before concluding anything. Same wave, same day: one fire of five landed
-  `approved: 0`, `closed: 0`, `execution_ready: 0` — genuinely nothing — while the wave around it
-  had opened 9. Stopping on that fire would have ended the run at its most productive point.
+  this `waveIndex` before concluding anything. Same wave, same day: one fire of five landed all
+  three lanes at 0 — genuinely nothing — while the wave around it had opened 9.
   **And the test only applies to a wave that FINISHED.** A fire killed part-way — a rate limit, a
-  crashed host, a cancelled run — returns the identical zero-lane signature, because a wave that
-  never reached its readiness gate has nothing to report in any lane. That is not "it opened
-  nothing"; it is "it never ran", and the two want opposite responses: stop versus resume. Check
-  completion BEFORE reading the lanes. The tells are in the result and its diagnostics, not in the
-  counts: agents that errored, and every `converged` row reading
-  `skipped: "no integration report to resolve over"`. **Never land an unfinished fire** — its
-  `ready: []` is an absence of judgment, not a judgment of nothing, and stamping it writes that
-  absence to disk as a verdict the wave never made. Resume it instead: a Workflow run resumes from
-  its own run id and replays every agent that already completed, so recovery costs only the agents
-  that died. **A run id resumes only in the session that fired it.** Once that session is gone the
-  fire is re-emitted and re-fired, and an XS its trail records as finished is closed with
-  `archive-stamp-cli ship-handoff <path> --sha <sha>` — an unfinished fire has no result to land. Measured 2026-09-10 on this repo: four concurrent fires hit one account session limit
-  within minutes of each other, and all four returned `ready: []`. A driver reading the lane test
-  first would have ended a 200-baton blitz on a transient limit that cleared by itself.
+  crashed host, a cancelled run — returns the identical zero-lane signature: it never reached its
+  readiness gate, so it has nothing to report in any lane. "It never ran" and "it opened nothing"
+  want opposite responses, stop versus resume, so check completion BEFORE reading the lanes. The
+  tells are in the result and its diagnostics, not the counts: agents that errored, and every
+  `converged` row reading `skipped: "no integration report to resolve over"`. A journal's
+  `{"type":"failed"}` record carries no label, phase or error text — join its `agentId` back to its
+  own `started` line, and read the cause off that agent's transcript's last message.
+  **Never land an unfinished fire** — its `ready: []` is an absence of judgment, not a judgment of
+  nothing, and stamping it writes that absence to disk as a verdict the wave never made. Resume
+  instead: a run replays every agent that already completed, so recovery costs only the ones that
+  died. **A run id resumes only in its own session**; after that, re-emit and re-fire, and close a
+  finished XS with `archive-stamp-cli ship-handoff <path> --sha <sha>`. Measured 2026-09-10: four
+  concurrent fires hit one account session limit within minutes and all four returned `ready: []`.
+  An 8-baton Opus fire is close to a limit-length run by itself. **The ceiling is the ACCOUNT, not
+  the box** — 2026-09-11, three fires here and a fourth in a peer repo died in one minute on one
+  limit. Budget against what peers are running, not your own fire count.
   Tripwire: `AN-UNFINISHED-WAVE-IS-NOT-A-WAVE-THAT-OPENED-NOTHING`.
 - `refused[]` is non-empty — report and stop; a landing that could not complete must not be
   built on.
@@ -397,7 +494,8 @@ in `surfacedToPm`. The blitz-em is an EM proxy, never a PM proxy.
 
 **`approved` is not `mise-prepped`, and a wave never stamps one.** Landing opens the *planning*
 gate; the `mise_prepped_by/_at/_sha/_findings` attest says a hands-off run may fire the plan
-without an overseer, and it is stamped by `plan.stamp_prepped` outside this skill. This skill
+without an overseer, and it is stamped by `plan.stamp_prepped` outside this skill, driven by
+`/mise-prep`. This skill
 stops at *ready to execute* in both vocabularies.
 
 **A wave's body edits invalidate a stamp; its frontmatter writes do not.** `mise_prepped_sha` is
@@ -412,8 +510,19 @@ consumer contract: `coordinator/docs/wiki/mise-prepped-attest.md`.
 
 ## Repair
 
-The caller builds `repairBatons` — the workflow reads it, never discovers it. One entry per plan
-to re-disposition:
+**Emit it; never hand-build `repairBatons`.** The rule from § Fire the wave holds here for the same
+reasons — an args object inside a tool call is not on disk, so the repair cannot be re-read,
+re-fired or diffed, and nothing archives with the trail:
+
+    python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-blitz/emit-wave-fire.py" \
+        --repo-root <abs> --trail-dir <abs of the run whose records you are repairing> \
+        --repair <baton-id> [--repair <baton-id> ...]
+
+It resolves each baton's pointer records itself under the rules below, refuses per baton with the
+reason on stderr, and writes `repair-fire-<n>.mjs` into the trail — numbered past any repair
+already there. Fire the printed `Workflow({ scriptPath })`, with no args. No gate report is read.
+
+The bound shape, for reading a fire rather than writing one — one entry per plan re-dispositioned:
 
 ```
 { batonId, planPath, reviews: [ <pointer record>, ... ], unresolvedPointers: [ ... ] }
@@ -422,33 +531,37 @@ to re-disposition:
 **Where the records come from.** A wave has each reviewer provision its findings sidecar through
 the `provisionSidecarCli` its caller resolved, and leaves in the trail only a pointer record naming
 it:
-`{ sidecarPath, verdict, premiseFailure }`. Resolve each pointer under the target plan's
-trail directory — RECURSIVELY, and from the latest WAVE slot only. Pointers sit in the per-fire
-slot of the wave that wrote them; a `repair-<fireId>/` slot holds an integration report and NO
-pointers, because a repair re-emits none — read one as your pointer source and you hand `reviews:
-[]` to a baton whose reviews are on disk one directory over, and it refuses. A baton planned in
-more than one wave has one set per wave slot, so take the latest wave slot's rather than merging
-them. **Latest is by INTEGER wave index, never lexical** — `wave-10-…` sorts before `wave-2-…` as
-text; a flat record at the run root predates every slot; `recycle-check.py :: _slot_order` is the
-ordering, do not re-derive it. Then partition: a record whose `sidecarPath` still exists on disk goes in
-`reviews`; one whose target is gone goes in `unresolvedPointers` as `{ pointerPath, error }`.
+`{ sidecarPath, verdict, premiseFailure }`. The emitter resolves each pointer from the latest WAVE
+slot only, and skips `repair-<fireId>/` slots — a repair re-emits no reviewer, so its slot holds an
+integration report and no pointers, and reading one hands `reviews: []` to a baton whose reviews are
+one directory over. **Latest is by INTEGER wave index, never lexical** — `wave-10-…` sorts before
+`wave-2-…` as text; `recycle-check.py :: _slot_order` is the ordering, imported rather than
+re-derived. A record whose `sidecarPath` still exists is a review; one whose target is gone is an
+`unresolvedPointer`, and any of those refuses the whole baton.
 
-**Refusals, all loud, none silent.** Repair refuses the whole baton — it never disposition a
-subset — when: no `planPath`; any `unresolvedPointers`; an empty `reviews`; any record missing
-`verdict` (the pre-pointer-contract bare-path shape, which would otherwise integrate under a
-verdict nobody wrote); or no `trailDir` on the run. Every refusal names the baton and the reason,
-because a repair run that quietly clears a plan it found nothing to disposition is indistinguishable
-from one that re-dispositioned it.
+**Refusals, all loud, none silent.** The whole baton or none of it — never a subset — when: no
+`planPath`; any `unresolvedPointers`; an empty `reviews`; any record missing `verdict`; or no
+`trailDir`. Every refusal names the baton and why, because a repair that quietly clears a plan it
+found nothing to disposition reads identical to one that re-dispositioned it. A missing `verdict`
+is the pre-contract bare-path shape, so a trail older than the pointer record is unrepairable:
+repair does not rescue the backlog that motivated it.
 
-**What it does not do.** It dispatches no `sizingScout`, no `planner`, no `reviewerAgent`. The one role it
-reaches is `integrator()`, unforked, which holds no `Agent`/`Task` tool and so cannot spawn one
-transitively. Verdicts resolve through the same `resolveVerdict()` a live wave uses, so a
-record carrying a premise failure becomes PIVOT here exactly as it would in a wave, rather than
-falling back to BLOCKED.
+**A pointer record names its plan by path, never by version, so check the plan has not moved under
+the review** — `git log -- <planPath>` against the sidecar's mtime. A rewrite between review and
+repair makes the findings stale, not wrong, and the repair re-escalates fixes the plan already
+carries. Tripwire: `A-REVIEW-SIDECAR-NAMES-ITS-PLAN-BY-PATH-NOT-BY-VERSION`.
 
-**Its first repairable input is a wave run after this shipped.** Trails written before the
-structured pointer record carry a bare path, not a record, and are refused by the verdict guard
-above. Repair does not rescue the backlog that motivated it.
+**A repair produces an integration, never a verdict — so a repaired plan is not yet `approved`.**
+There is no landing for a repair result: `blitz_land` lands a WAVE. The route to approval is one
+targeted re-fire of that baton, and it is safe because the emitter binds the plan this trail
+already holds even when the gate does not link it (a pulled baton comes back unlinked), so the
+planner REVISES rather than authors over your settlement. Re-freeze the gate first if you edited
+the plan. Do not hand-stamp `approved` — § the op says why.
+
+**What it does not do.** It dispatches no `sizingScout`, no `planner`, no `reviewerAgent`. The one role it reaches
+is `integrator()`, unforked, holding no `Agent`/`Task` tool and so unable to spawn one
+transitively. Verdicts resolve through the same `resolveVerdict()` a live wave uses, so a premise
+failure becomes PIVOT here exactly as it would in a wave.
 
 ---
 

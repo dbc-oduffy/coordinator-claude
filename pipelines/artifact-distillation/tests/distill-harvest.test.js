@@ -1652,3 +1652,229 @@ test('P1 fix: a normal ran-manifest merge does not set the without-manifest flag
 
   assert.equal(result.cross_repo_merged_without_manifest, undefined);
 });
+
+// ---------------------------------------------------------------------------
+// Distill durable-log correctness closeout (2026-09-11,
+// docs/plans/2026-09-11-distill-durable-log-correctness-closeout.md, chunk C1).
+//
+// Fixture-fork ruling: the baton's regression AC
+// (state/handoffs/2026-08-06-distill-next-run-quality.md) asked this oracle to replay run
+// 2026-08-06-14h38's journal and reproduce 182 DISTILLED / 69 EPHEMERAL / 6 SKIP. That journal
+// was never tracked on any ref — `state/scratch/` is .gitignore line 5, and
+// `git log --all --diff-filter=A --name-only -- 'state/scratch/artifact-distillation/**'` returns
+// zero hits. Recovery is not a fork arm; it is a dead end. This oracle therefore pins the JOIN
+// SHAPE and the REPAIRED-VS-NAIVE DELTA instead — the actual content of the incident — against a
+// synthetic fixture whose own counts are fixed by construction below. 182/69/6 remain the
+// historical measurement of a corpus that no longer exists; they are never asserted here, and a
+// future reader who wants to "restore" them is chasing an unjoinable source of their own.
+//
+// ONE new extraction spans the whole production chain the 2026-08-06 incident actually broke —
+// `normalizeNuggetSources`, its call site, and the join-integrity verdict — so the repair call
+// site sits INSIDE the evaluated block rather than being driven by hand from two stitched
+// fragments.
+// ---------------------------------------------------------------------------
+
+const joinIntegritySpanSrc = extractBlockSource(
+  SOURCE,
+  'function normalizeNuggetSources(results) {',
+  "(disposalSuppressed ? ` — DISPOSAL SUPPRESSED: ${disposalSuppressedReason}` : ''))"
+);
+
+const joinIntegrityThresholdMatch = SOURCE.match(/const\s+JOIN_INTEGRITY_MAX_UNJOINABLE_RATE\s*=\s*([\d.]+)/);
+assert.ok(joinIntegrityThresholdMatch, 'JOIN_INTEGRITY_MAX_UNJOINABLE_RATE declaration not found in workflow.js');
+const JOIN_INTEGRITY_THRESHOLD = Number(joinIntegrityThresholdMatch[1]);
+
+function runJoinIntegrity({ BATCHES, scanResults, JOIN_INTEGRITY_MAX_UNJOINABLE_RATE }) {
+  const logs = [];
+  const fn = new Function(
+    'BATCHES', 'scanResults', 'log', 'JOIN_INTEGRITY_MAX_UNJOINABLE_RATE',
+    `
+    ${joinIntegritySpanSrc}
+    return { sourceNormalization, joinIntegrity, disposalSuppressed };
+    `
+  );
+  return fn(BATCHES, scanResults, (msg) => logs.push(msg), JOIN_INTEGRITY_MAX_UNJOINABLE_RATE);
+}
+
+function countDispositions(rows) {
+  return rows.reduce((acc, r) => {
+    acc[r.disposition] = (acc[r.disposition] || 0) + 1;
+    return acc;
+  }, {});
+}
+
+// ---------------------------------------------------------------------------
+// Fixture A — verdict tiers, driven end-to-end through the extracted span. Every batch file
+// across Fixture A AND Fixture B carries a unique basename (normalizeNuggetSources maps a
+// colliding basename to null, workflow.js:531, which would corrupt the rate arithmetic), and no
+// unjoinable wsc-receipt id equals any batch file's basename either.
+// ---------------------------------------------------------------------------
+
+function fixtureABatches(arm) {
+  const files = Array.from({ length: 20 }, (_, i) => `state/fixture-a/${arm}/a-${arm}-f${String(i + 1).padStart(2, '0')}.md`);
+  return [{ batchId: `a-${arm}`, files }];
+}
+
+function fixtureACleanFactory() {
+  const files = fixtureABatches('clean')[0].files;
+  const nuggets = [];
+  for (let i = 0; i < 14; i++) nuggets.push({ id: `a-clean-${i}`, type: 'KNOWLEDGE', source: files[i], content: 'x' });
+  for (let i = 14; i < 20; i++) nuggets.push({ id: `a-clean-${i}`, type: 'KNOWLEDGE', source: files[i].split('/').pop(), content: 'x' });
+  return { BATCHES: fixtureABatches('clean'), scanResults: [{ batch_id: 'a-clean', nuggets, file_fates: [] }] };
+}
+
+function fixtureAFindingFactory(k) {
+  const files = fixtureABatches('finding')[0].files;
+  const nuggets = [];
+  for (let i = 0; i < 20 - k; i++) nuggets.push({ id: `a-finding-${i}`, type: 'KNOWLEDGE', source: files[i], content: 'x' });
+  for (let i = 0; i < k; i++) nuggets.push({ id: `a-finding-u${i}`, type: 'KNOWLEDGE', source: `2026-07-09-wsc-finding-uuid-${i}`, content: 'x' });
+  return { BATCHES: fixtureABatches('finding'), scanResults: [{ batch_id: 'a-finding', nuggets, file_fates: [] }] };
+}
+
+function fixtureAFailedFactory() {
+  const files = fixtureABatches('failed')[0].files;
+  const nuggets = [];
+  for (let i = 0; i < 16; i++) nuggets.push({ id: `a-failed-${i}`, type: 'KNOWLEDGE', source: files[i], content: 'x' });
+  for (let i = 0; i < 4; i++) nuggets.push({ id: `a-failed-u${i}`, type: 'KNOWLEDGE', source: `2026-07-09-wsc-failed-uuid-${i}`, content: 'x' });
+  return { BATCHES: fixtureABatches('failed'), scanResults: [{ batch_id: 'a-failed', nuggets, file_fates: [] }] };
+}
+
+test('C1 Fixture A clean: 14 exact + 6 basename sources, 0 unjoinable -> verdict clean, repaired_joins 6, disposal not suppressed', () => {
+  const { BATCHES, scanResults } = fixtureACleanFactory();
+  const result = runJoinIntegrity({ BATCHES, scanResults, JOIN_INTEGRITY_MAX_UNJOINABLE_RATE: JOIN_INTEGRITY_THRESHOLD });
+
+  assert.equal(result.joinIntegrity.verdict, 'clean', 'basename noise repaired by the join must never surface as unjoinable');
+  assert.equal(result.sourceNormalization.repaired_joins, 6);
+  assert.equal(result.sourceNormalization.unjoinable_sources.length, 0);
+  assert.equal(result.disposalSuppressed, false);
+});
+
+test('C1 Fixture A finding (boundary): rate exactly at threshold does not suppress disposal', () => {
+  const k = Math.round(JOIN_INTEGRITY_THRESHOLD * 20);
+  assert.strictEqual(
+    k, JOIN_INTEGRITY_THRESHOLD * 20,
+    're-tune this fixture if JOIN_INTEGRITY_MAX_UNJOINABLE_RATE moves to a value 20 sources cannot hit exactly'
+  );
+  const { BATCHES, scanResults } = fixtureAFindingFactory(k);
+  const result = runJoinIntegrity({ BATCHES, scanResults, JOIN_INTEGRITY_MAX_UNJOINABLE_RATE: JOIN_INTEGRITY_THRESHOLD });
+
+  assert.equal(result.joinIntegrity.unjoinable_rate, JOIN_INTEGRITY_THRESHOLD);
+  assert.equal(result.joinIntegrity.verdict, 'finding', 'a rate exactly at the threshold (<=) must be a finding, not failed');
+  assert.equal(result.disposalSuppressed, false, 'a boundary rate must NOT suppress disposal');
+});
+
+test('C1 Fixture A failed: 16 exact + 4 unjoinable -> rate 0.20, verdict failed, disposal suppressed', () => {
+  const { BATCHES, scanResults } = fixtureAFailedFactory();
+  const result = runJoinIntegrity({ BATCHES, scanResults, JOIN_INTEGRITY_MAX_UNJOINABLE_RATE: JOIN_INTEGRITY_THRESHOLD });
+
+  assert.equal(result.joinIntegrity.unjoinable_rate, 0.2);
+  assert.equal(result.joinIntegrity.verdict, 'failed');
+  assert.equal(result.disposalSuppressed, true);
+  assert.equal(result.sourceNormalization.unjoinable_sources.length, 4);
+  assert.deepEqual(
+    result.sourceNormalization.unjoinable_sources.sort(),
+    ['2026-07-09-wsc-failed-uuid-0', '2026-07-09-wsc-failed-uuid-1', '2026-07-09-wsc-failed-uuid-2', '2026-07-09-wsc-failed-uuid-3'],
+    'unjoinable_sources must carry exactly the 4 unjoined ids, surfaced not dropped'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Fixture B — the repaired-vs-naive delta, the shape (not the magnitude) of the 2026-08-06
+// incident. BATCHES: b1 = 12 files, b2 = 8 files, b3 = 3 files (23 total). b3 is a failedBatchId
+// so its 3 files are SKIP in both arms. `synthResults` and `CONTEXT_TERMS` are stated explicitly:
+// synthResults carries one non-SKIP ('INTEGRATE') disposition per nugget-bearing file
+// (workflow.js:1625-1633, :1655-1659 — a nugget with no disposition entry resolves undefined and
+// files EPHEMERAL, which would shrink BOTH arms' DISTILLED counts and hide the delta).
+// CONTEXT_TERMS is deliberately [] so termOk is unconditionally true (workflow.js:1671) and every
+// fate line passes on word count alone — this fixture is scoped to the join delta, not
+// fate-prose enforcement, which already has its own arm in the 'unavailable' path.
+// ---------------------------------------------------------------------------
+
+function fixtureBBatches() {
+  const b1 = Array.from({ length: 12 }, (_, i) => `state/fixture-b/b1/b-b1-f${String(i + 1).padStart(2, '0')}.md`);
+  const b2 = Array.from({ length: 8 }, (_, i) => `state/fixture-b/b2/b-b2-f${String(i + 1).padStart(2, '0')}.md`);
+  const b3 = Array.from({ length: 3 }, (_, i) => `state/fixture-b/b3/b-b3-f${String(i + 1).padStart(2, '0')}.md`);
+  return {
+    BATCHES: [
+      { batchId: 'b1', files: b1 },
+      { batchId: 'b2', files: b2 },
+      { batchId: 'b3', files: b3 },
+    ],
+    b1, b2, b3,
+  };
+}
+
+function fixtureBFateProse(i) {
+  return `Fixture B fate line number ${i} describing genuinely reviewed artifact content in real detail.`;
+}
+
+// Every arm builds a FRESH fixture — normalizeNuggetSources mutates n.source in place, and a run
+// that reused a prior run's already-normalized objects would be a false pass.
+function buildFixtureB() {
+  const { BATCHES, b1, b2, b3 } = fixtureBBatches();
+  const allTouched = [...b1, ...b2]; // 20 scanned files
+  const nuggetFiles = allTouched.slice(0, 14); // 14 carry a non-SKIP nugget
+  // remaining 6 of allTouched carry only a fate line and no nuggets
+
+  const nuggets1 = [];
+  const nuggets2 = [];
+  nuggetFiles.forEach((filePath, idx) => {
+    const source = idx < 8 ? filePath : filePath.split('/').pop(); // 8 exact-path, 6 bare-basename
+    const nugget = { id: `b-nug-${String(idx + 1).padStart(2, '0')}`, type: 'KNOWLEDGE', source, content: 'x' };
+    if (b1.includes(filePath)) nuggets1.push(nugget); else nuggets2.push(nugget);
+  });
+
+  const fates1 = b1.map((p, idx) => ({ path: p, fate_prose: fixtureBFateProse(idx) }));
+  const fates2 = b2.map((p, idx) => ({ path: p, fate_prose: fixtureBFateProse(100 + idx) }));
+
+  const scanResults = [
+    { batch_id: 'b1', nuggets: nuggets1, file_fates: fates1 },
+    { batch_id: 'b2', nuggets: nuggets2, file_fates: fates2 },
+  ];
+  const synthResults = [{
+    dispositions: nuggetFiles.map((_, idx) => ({ nugget_id: `b-nug-${String(idx + 1).padStart(2, '0')}`, op: 'INTEGRATE' })),
+  }];
+
+  return { BATCHES, scanResults, synthResults, failedBatchIds: ['b3'], CONTEXT_TERMS: [] };
+}
+
+test('C1 Fixture B repaired arm: join repair run first -> verdict clean, 14 DISTILLED / 6 EPHEMERAL / 3 SKIP', () => {
+  const fixture = buildFixtureB();
+  const { joinIntegrity } = runJoinIntegrity({
+    BATCHES: fixture.BATCHES,
+    scanResults: fixture.scanResults,
+    JOIN_INTEGRITY_MAX_UNJOINABLE_RATE: JOIN_INTEGRITY_THRESHOLD,
+  });
+  const rows = runDistillationLogRows(fixture);
+
+  assert.equal(joinIntegrity.verdict, 'clean');
+  assert.deepEqual(countDispositions(rows), { DISTILLED: 14, EPHEMERAL: 6, SKIP: 3 });
+});
+
+test('C1 Fixture B naive arm: join repair never run -> 8 DISTILLED / 12 EPHEMERAL / 3 SKIP', () => {
+  const fixture = buildFixtureB(); // fresh — the repair span never runs against this copy
+  const rows = runDistillationLogRows(fixture);
+
+  assert.deepEqual(countDispositions(rows), { DISTILLED: 8, EPHEMERAL: 12, SKIP: 3 });
+});
+
+test('C1 Fixture B delta: exactly 6 artifacts flip DISTILLED -> EPHEMERAL when the join repair is absent', () => {
+  const repairedFixture = buildFixtureB();
+  runJoinIntegrity({
+    BATCHES: repairedFixture.BATCHES,
+    scanResults: repairedFixture.scanResults,
+    JOIN_INTEGRITY_MAX_UNJOINABLE_RATE: JOIN_INTEGRITY_THRESHOLD,
+  });
+  const repairedRows = runDistillationLogRows(repairedFixture);
+
+  const naiveFixture = buildFixtureB(); // fresh, unrepaired
+  const naiveRows = runDistillationLogRows(naiveFixture);
+
+  const naiveByPath = new Map(naiveRows.map((r) => [r.path, r.disposition]));
+  let flips = 0;
+  for (const row of repairedRows) {
+    if (row.disposition === 'DISTILLED' && naiveByPath.get(row.path) === 'EPHEMERAL') flips++;
+  }
+
+  assert.equal(flips, 6, 'the naive arm is not decoration — without it a repaired-but-unneeded pass would look identical to a real one');
+});

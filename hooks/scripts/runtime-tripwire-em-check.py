@@ -969,7 +969,7 @@ def _check_hooks_json_staleness(git_root: str, session_id: str, common_dir: str)
     )
 
 
-def _check_push_failures(git_root: str, session_id: str) -> str | None:
+def _check_push_failures(git_root: str, session_id: str):
     """AUTO-PUSH-MID-SESSION-DETECT -- mid-session surfacing of a *newly
     growing* `.git/push-failures.log`, closing the gap left by the ceremony-
     only `## Auto-push health` section of `state/orientation_cache.md`
@@ -977,6 +977,19 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
     table), which regenerates only at `/workday-start`, `/update-docs` Phase
     10, `/workstream-complete`'s `d-append-orientation-pinboard` directive, and `/handoff` Step 2.9 -- structurally
     blind to a mid-session failure burst.
+
+    Returns `(text, advance_fn)`, mirroring `_check_zero_tool_use_surface`'s
+    contract: `advance_fn` must be invoked ONLY after a successful stdout
+    write of `text` -- never at this function's own read point, never
+    speculatively (see `_emit_advisory`'s `on_success` parameter). The cursor
+    is advanced immediately, inline, on every path that returns `(None, None)`
+    -- there is no alarm text to lose there. It is deferred to `advance_fn`
+    only on the path that returns real alarm text, closing the same
+    data-loss hazard `_check_zero_tool_use_surface` closes: a process killed
+    between this call and the eventual `_emit_advisory` write (a real risk on
+    this file's own `_push_failure_verdict` leg -- ~445ms process/~4.3s wall
+    against the hot-path timeout) would otherwise have already burned the
+    cursor, permanently losing the announcement.
 
     Origin incident (2026-07-20, this repo): the orientation cache regenerated
     at 10:30Z; auto-push then failed ~20 consecutive times between 10:50Z and
@@ -1057,17 +1070,17 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
     # AUTO-PUSH-MID-SESSION-DETECT.
     common_dir = _resolve_git_common_dir(git_root)
     if not common_dir:
-        return None  # fail-open: cannot resolve the common dir, nothing to do
+        return None, None  # fail-open: cannot resolve the common dir, nothing to do
     log_path = os.path.join(common_dir, "push-failures.log")
     try:
         log_size = os.path.getsize(log_path)
     except OSError:
-        return None  # no log on disk -- nothing has ever failed here (this
+        return None, None  # no log on disk -- nothing has ever failed here (this
         # topology's writer never created one, or this session's repo has
         # simply never had a push fail)
 
     if not session_id or not _ID_CHARSET_RE.match(session_id):
-        return None  # same charset guard as the rest of this hook
+        return None, None  # same charset guard as the rest of this hook
 
     cursor_dir = os.path.join(common_dir, "coordinator-sessions", session_id)
     cursor_path = os.path.join(cursor_dir, "push-failures-cursor.txt")
@@ -1084,18 +1097,20 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
 
     if baseline is None:
         # First check this session -- establish baseline, no alarm (the log
-        # is append-only historic state, not session-scoped).
+        # is append-only historic state, not session-scoped). Nothing here
+        # is ever surfaced as text, so writing the baseline inline (rather
+        # than deferring it) loses nothing.
         if not _ensure_session_cursor_dir(cursor_dir, session_id):
-            return None
+            return None, None
         try:
             with open(cursor_path, "w", encoding="utf-8") as fh:
                 fh.write(str(log_size))
         except Exception:
             pass
-        return None
+        return None, None
 
     if log_size <= baseline:
-        return None  # no NEW growth since we last looked this session
+        return None, None  # no NEW growth since we last looked this session
 
     # New line(s) landed since baseline -- read only the delta.
     new_lines: list = []
@@ -1106,20 +1121,24 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
     except Exception:
         pass
 
-    # Advance the cursor regardless of whether the checks below end up
-    # emitting -- this growth interval has been SEEN (by us, or deferred to a
-    # ceremony regen that already reported it), so the next call only reports
-    # further-new growth. This is what keeps a steady trickle of already-
-    # surfaced failures from re-firing every turn.
-    try:
-        with open(cursor_path, "w", encoding="utf-8") as fh:
-            fh.write(str(log_size))
-    except Exception:
-        pass
+    def _advance_cursor() -> None:
+        # This growth interval has been SEEN (by us, or deferred to a
+        # ceremony regen that already reported it), so the next call only
+        # reports further-new growth -- what keeps a steady trickle of
+        # already-surfaced failures from re-firing every turn.
+        try:
+            with open(cursor_path, "w", encoding="utf-8") as fh:
+                fh.write(str(log_size))
+        except Exception:
+            pass
 
     branch = _current_branch_cheap(git_root)
     if not branch.startswith("work/"):
-        return None  # mirrors the ceremony predicate's work/*-only scope
+        # Mirrors the ceremony predicate's work/*-only scope. No alarm text
+        # is produced on this path, so advancing inline loses nothing --
+        # only a path that returns real text defers to `advance_fn`.
+        _advance_cursor()
+        return None, None
 
     try:
         cache_path = os.path.join(git_root, "state", "orientation_cache.md")
@@ -1127,7 +1146,8 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
             log_mtime = os.path.getmtime(log_path)
             cache_mtime = os.path.getmtime(cache_path)
             if cache_mtime >= log_mtime:
-                return None  # ceremony already surfaced this backlog
+                _advance_cursor()
+                return None, None  # ceremony already surfaced this backlog
     except Exception:
         pass
 
@@ -1141,7 +1161,8 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
     # PUSH FAILED rows is not a failure signal and does not fire.
     failed_lines = [ln for ln in new_lines if _PUSH_FAILED_LINE_RE.search(ln)]
     if not failed_lines:
-        return None
+        _advance_cursor()
+        return None, None
 
     n_new = len(failed_lines)
     last_line = failed_lines[-1]
@@ -1153,7 +1174,7 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
     if verdict_result is not None:
         rendered = _render_push_failure_verdict(verdict_result, n_new, branch, last_line)
         if rendered is not None:
-            return rendered
+            return rendered, _advance_cursor
 
     # Fallback path: engine round-trip unresolvable/unimportable/malformed,
     # or (defensively) an unrecognized verdict slipped past
@@ -1181,7 +1202,7 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
     )
 
     if _unpushed_commit_count(git_root, session_id) == 0:
-        return (
+        text = (
             "AUTO-PUSH mid-session note — {n} push failure(s) landed in "
             ".git/push-failures.log on `{branch}` since this session started, but "
             "the branch is currently in sync with its upstream (0 unpushed "
@@ -1193,8 +1214,9 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
         ) + contract_note + resolve_wiki_citation(
             "Reference: docs/wiki/coordinator-tripwires/tripwire-registry/auto-push-mid-session-detector-auto-push-mid-session-detect.md"
         )
+        return text, _advance_cursor
 
-    return (
+    text = (
         "AUTO-PUSH MID-SESSION FAILURE — {n} new push failure(s) landed in "
         ".git/push-failures.log on `{branch}` since this session started, not "
         "yet reflected in state/orientation_cache.md's Auto-push health "
@@ -1207,6 +1229,7 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
     ) + contract_note + resolve_wiki_citation(
         "Reference: docs/wiki/coordinator-tripwires/tripwire-registry/auto-push-mid-session-detector-auto-push-mid-session-detect.md"
     )
+    return text, _advance_cursor
 
 
 # ---------------------------------------------------------------------------
@@ -2174,7 +2197,9 @@ def main() -> int:
     # dispatched agents this session and still have a mid-session push-failure
     # flood to surface). Wrapped so a bug here can never take down the
     # existing runtime-tripwire advisory -- fail-open per module contract.
-    push_failure_msg = _fail_open(_check_push_failures, git_root, session_id)
+    push_failure_msg, _push_failure_advance = _fail_open(
+        _check_push_failures, git_root, session_id, default=(None, None)
+    )
 
     # --- PLUGIN-HOOKS-JSON-RESTART-GATED (see _check_hooks_json_staleness
     # docstring + the module-level comment block above that function).
@@ -2225,10 +2250,27 @@ def main() -> int:
     # down; excised on the finding the gate had been False since -- see the
     # module docstring's SUBAGENT-ARRIVAL-CHECK note for the restore
     # pointer). Only the surviving advisories emit now. ---
+    def _on_success() -> None:
+        # Both deferred cursor-advances ride the SAME stdout write -- both
+        # texts (if present) are joined into one `_emit_advisory` call, so
+        # there is exactly one write event to gate on, not one per advisory.
+        # Each is independently best-effort: one raising must never suppress
+        # the other (mirrors this file's fail-open-per-leg posture).
+        if _push_failure_advance is not None:
+            try:
+                _push_failure_advance()
+            except Exception:
+                pass
+        if _zero_tool_use_advance is not None:
+            try:
+                _zero_tool_use_advance()
+            except Exception:
+                pass
+
     return _emit_advisory(
         [baton_msg, push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
         hook_event,
-        on_success=_zero_tool_use_advance,
+        on_success=_on_success,
     )
 
 
