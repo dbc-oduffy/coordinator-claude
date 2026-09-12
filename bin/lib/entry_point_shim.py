@@ -682,7 +682,7 @@ _ENGINE_ENTRIES: dict[str, Callable[[List[str]], int]] = {
     "consolidate-assemble": _simple_entry("consolidate-assemble", "coordinator_core.consolidate_assemble"),
     "merge-assemble": _merge_assemble_entry,
     "orient-assemble": _simple_entry("orient-assemble", "coordinator_core.orient_assemble"),
-    "pickup-assemble": _simple_entry("pickup-assemble", "coordinator_core.pickup_assemble"),
+    "pickup-assemble": _simple_entry("pickup-assemble", "coordinator_core.pickup_brief"),
     "plan-assemble": _simple_entry("plan-assemble", "coordinator_core.plan_assemble"),
     "quick-wrap-assemble": _simple_entry("quick-wrap-assemble", "coordinator_core.quick_wrap_assemble"),
     "review-assemble": _simple_entry("review-assemble", "coordinator_core.review_assemble"),

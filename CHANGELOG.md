@@ -4,6 +4,24 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.3.0] — 2026-09-12
+
+A hands-off-execution release: the chain from plan to fired run gained its missing gates.
+
+- **`mise-prep` and `warp-speed-execute` shipped, with the seams between them.** Plans now pass a
+  certification bar before an autonomous run, and the run consumes only certified plans.
+- **Plan-blitz checks premises and converges in-wave.** A premise check catches unresolvable
+  citations before an Opus reviewer reads them; a converged plan re-invokes in the same wave
+  instead of being pulled. Reviewers can now emit an applyable critical finding.
+- **Computed skill inputs reach model-invoked Skill calls.** Pickup, mise and handoff residue were
+  bound only to typed slash commands; a `PreToolUse(Skill)` fan-in now supplies them either way.
+- **Cloud sessions get fleet doctrine and know when they have no guard plane.** Doctrine rides the
+  published mirror, and a remote session is told when no coordinator plugin loaded.
+- **Deep-research teammate naming restored** after a name-strip silently broke four drivers.
+- Also: Perforce as a second-class VCS at the doctrine layer, `subagentStatusLine` V2 with an
+  identity-width cap, a navi claim race closed with a kernel advisory lock, and claude.ai hosted
+  plugin compliance for the marketplace source form.
+
 ## [4.2.0] — 2026-09-06
 
 A doctrine-and-operating-system release, cut as a three-week catch-up close.
