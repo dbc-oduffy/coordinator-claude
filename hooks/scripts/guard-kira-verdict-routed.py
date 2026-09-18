@@ -41,13 +41,35 @@ one-shot-per-turn block. Both legs are the platform contract for any
 blocking Stop hook (`claude-code-platform-gotchas.md:790`), not an
 implementation detail this module could shortcut.
 
-CONTRACT_EPOCH -- narrow by construction. This guard only ever lists the
-CURRENT session's own share dir, so the only sidecar that can be both
-pre-contract and visible here is one written by this same session before
-the epoch (a session open across the boundary) -- an already-closing
-window, not a standing one. `_postdates_epoch` draws that line and fails
-toward in-scope on a missing `spawned_at`. Delete `_CONTRACT_EPOCH_ISO`
-and `_postdates_epoch` once no session predating 2026-08-30 can still
+BOUNDED PICKUP CHAIN. `/coordinator:pickup` continues another session's
+review chain, and Kira's sidecar can then sit in the authoring session's
+share dir rather than the picking-up session's own -- the picking-up
+session's integrator sidecar stamps a correct `integrated_from` naming a
+stem `_find_answers` cannot resolve without also looking there, and
+condition 1 fires on every close as a false block (memo, confirmed; see
+docs/plans/2026-09-09-inbox-blitz-xs-s-bundle-21-fixes.md § C14). The
+reach is BOUNDED to exactly the other session-ids named on the ONE
+handoff record under `state/handoffs/` whose `consumed_by` or
+`claimed_by` contains this Stop's own `session_id` -- resolved from that
+record, never from a filesystem scan. No record found, or no other
+session-id on it, means the reachable set is empty and this guard behaves
+exactly as it does with no chain at all -- the non-pickup case is
+byte-identical to prior behaviour. `os.listdir` is still called only on
+`<share_root>/subagent-share/<session_id>` paths, one per `(root,
+session_id)` pair, now with the session-ids enumerated across the chain
+rather than singular; there is no scan of `subagent-share/` itself and no
+glob.
+
+CONTRACT_EPOCH -- narrow by construction. The epoch filter applies
+identically to every sidecar this guard reaches, whether from the current
+session's own share dir or a chain-resolved predecessor's (see BOUNDED
+PICKUP CHAIN above): `_postdates_epoch` draws the same line regardless of
+which session-id supplied the dir, and still fails toward in-scope on a
+missing `spawned_at`. The closing window this epoch exists to retire is
+now "a chain whose predecessor session opened before 2026-08-30," not
+merely "this session opened before 2026-08-30" -- delete
+`_CONTRACT_EPOCH_ISO` and `_postdates_epoch` once no session predating
+that date, nor any predecessor reachable through a chain, can still
 close.
 
 THE DECISION -- entirely from frontmatter, never from a sidecar body:
@@ -247,6 +269,50 @@ def _read_frontmatter(path: str) -> dict:
         meta[key] = rest.strip("'\"")
         i += 1
     return meta
+
+
+def _handoff_field_values(meta: dict, key: str) -> list[str]:
+    """Normalize `consumed_by`/`claimed_by` to a list of session-id
+    strings -- both fields are conventionally a bare scalar, but
+    `_read_frontmatter` already parses an inline `[a, b]` or block-list
+    shape into a list, and this reads whichever shape is on disk."""
+    val = meta.get(key)
+    if isinstance(val, list):
+        return [v for v in val if isinstance(v, str) and v.strip()]
+    if isinstance(val, str) and val.strip():
+        return [val.strip()]
+    return []
+
+
+def _pickup_chain_session_ids(repo_root: str, session_id: str) -> list[str]:
+    """The other session-ids named on the ONE handoff record under
+    `state/handoffs/` whose `consumed_by` or `claimed_by` contains this
+    Stop's own `session_id` -- see the module docstring's BOUNDED PICKUP
+    CHAIN section. `[]` when no such record exists, or the record names no
+    other session-id: the reachable set is bounded to that single record,
+    never a directory scan or fanout past it."""
+    handoffs_dir = os.path.join(repo_root, "state", "handoffs")
+    try:
+        names = sorted(os.listdir(handoffs_dir))
+    except OSError:
+        return []
+    for name in names:
+        if not name.endswith(".md"):
+            continue
+        meta = _read_frontmatter(os.path.join(handoffs_dir, name))
+        consumed = _handoff_field_values(meta, "consumed_by")
+        claimed = _handoff_field_values(meta, "claimed_by")
+        if session_id not in consumed and session_id not in claimed:
+            continue
+        others: list[str] = []
+        seen: set[str] = set()
+        for sid in consumed + claimed:
+            if sid == session_id or sid in seen:
+                continue
+            seen.add(sid)
+            others.append(sid)
+        return others
+    return []
 
 
 def _postdates_epoch(meta: dict) -> bool:
@@ -623,9 +689,11 @@ def main() -> int:
         _emit_could_not_evaluate("could not resolve repo root from cwd")
         return 0
 
+    chain_session_ids = _pickup_chain_session_ids(repo_root, session_id)
     share_dirs = [
-        os.path.join(repo_root, root, "subagent-share", session_id)
+        os.path.join(repo_root, root, "subagent-share", sid)
         for root in _SHARE_ROOTS
+        for sid in (session_id, *chain_session_ids)
     ]
     listed: list[tuple[str, str]] = []
     seen: set[str] = set()

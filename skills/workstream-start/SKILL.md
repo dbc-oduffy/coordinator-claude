@@ -114,6 +114,9 @@ Read any referenced files not yet in context, then **dispatch the first action i
 running**, per pickup's dispatch-economics checklist (`skills/pickup/SKILL.md`). Multiple next
 steps → execute in order unless the PM redirects.
 
+> **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
+> step names; it dissolves no gate this skill's own body names.
+
 **If no handoff loaded — fresh-install branch — fires ONLY when ALL hold:** no handoff loaded
 (established above), AND `$HOME/.claude/.coordinator-fresh-install` exists. Consume (delete) the
 sentinel BEFORE emitting anything, so this never re-fires on a later no-handoff session, then emit

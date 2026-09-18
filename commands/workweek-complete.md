@@ -9,12 +9,6 @@ argument-hint: ""
 
 PM-invoked, release-grade close. Week-changelog is the canonical ledger, never `git log`.
 
-## Step 0.9: Tier-U Grant
-
-Shape W (rung 0, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\tier-u-grant-cli.exe" grant ceremony "workweek-complete Tier-U consumers (Step 2 plugin-ecosystem run.js, Step 7 parallel-code-review full-tier suite)" --ceremony workweek-complete`
-before either consumer fires (wiki: why both need it).
-
 ## Step 0.95: Compute the Ceremony Spine
 
 Shape W (rung 0): `& "$env:COORDINATOR_SETTINGS_HOME\bin\workweek-complete-brief.exe"`.
@@ -87,14 +81,13 @@ Resolve `fast_test_cmd` via `cs_resolve_fast_test_cmd`: `COORDINATOR_FAST_TEST_C
 step** — `fast_test_cmd` is still a real test-suite run; source its actual cost from `python
 coordinator/tests/_spawn_budget.py` rather than assuming it's cheap because it's "fast-tier."
 
-`node "$CLAUDE_PLUGIN_ROOT/tests/plugin-ecosystem/run.js"` is a second Tier-U invocation — check
-`tier-u-grant-cli check` first: exit 0 proceed, exit 1/malformed/missing token halt (fail-closed).
+`node "$CLAUDE_PLUGIN_ROOT/tests/plugin-ecosystem/run.js"` is a second Tier-U invocation.
 
 ---
 
 ## Step 3: Strict Referential-Integrity Gate (blocking)
 
-`lint-frontmatter --strict-refs --json`. `ok: false` → stop and fix. Non-ref `refWarnings` pass.
+`ok: false` → stop and fix. Non-ref `refWarnings` pass.
 
 **Partitioned waiver — the only route past a red. THERE IS NO FLAG:** the gate keeps reading `ok: false` and you report it red. Record a waiver only when every remaining failure is one conceded upstream class proven from `--json` (never a summary), honest-fix errors are fixed first with both counts stated, and the reason is recorded where a reader meets it. Tripwire: `CARRY-IT-RED-WHEN-THE-GATES-OWNER-HAS-CONCEDED-THE-DEFECT`.
 

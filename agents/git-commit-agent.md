@@ -94,8 +94,11 @@ pipeline's job, not yours.
   1) Enumerate what the pathspec would stage: `git status --porcelain -- <paths>` and
   `git diff --name-only -- <paths>`. 2) Compare against the exact paths you were handed — any
   extra path is a STOP-and-report (see refusals table); an absent or unchanged one is not, and in
-  a preflight/verify-only dispatch it is expected, never BLOCKED. 3) Only once the set matches
-  exactly, commit per the route above.
+  a preflight/verify-only dispatch it is expected, never BLOCKED. **A path already inside the
+  handed set can still carry a peer's own uncommitted hunk mixed into that file's diff** — the
+  pathspec is file-granular and cannot flag this by itself; if the diff for a handed path contains
+  changes you don't recognize as your own executor's work, that is the same STOP-and-report as an
+  extra path, not a pass. 3) Only once the set matches exactly, commit per the route above.
 - **This check is pre-commit only and inverts if re-run after.** A clean tree AFTER the commit call
   is the expected state, never evidence of failure. Assert on `git show --name-only --format=
   <sha>` vs the pathspec handed; `--stat` cannot carry this assertion — it elides leading path

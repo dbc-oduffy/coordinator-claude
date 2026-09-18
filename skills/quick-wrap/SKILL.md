@@ -53,6 +53,9 @@ surface — `Skill(coordinator:review-code)` diff-shaped, or a direct `coordinat
 when scope is narrow; (2) integrate findings via the review-integrator, applied never ratified
 back as a list; (3) run the checklist below, verdict in step 4.
 
+> **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
+> step names; it dissolves no gate this skill's own body names.
+
 **2. Successor-runs-review handoff — only when the owed review is genuinely un-runnable in this
 session.** The class member that fires must be named per `coordinator/skills/handoff/SKILL.md`
 § Step 0 trigger 4; that trigger's own discharge (name the blocker and the event that clears it

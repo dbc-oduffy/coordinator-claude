@@ -92,6 +92,9 @@ test-evidence-parser — the untouched file fails the synthesizer's pre-flight a
 
 ## Parallel Dispatch
 
+> **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
+> step names; it dissolves no gate this skill's own body names.
+
 **Dispatch the whole span as one Workflow — `Workflow({scriptPath: "coordinator/workflows/review-wave.mjs", args: {...}})`.** It encodes this
 section and the synthesizer dispatch below; its `args` contract is in the script's own header.
 Pre-provision each dispatched agent's sidecar first, resolved per

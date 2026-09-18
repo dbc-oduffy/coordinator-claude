@@ -111,7 +111,7 @@ Any boundary-touching finding (module move, interface change, cross-system surfa
 
 The rotational architecture audit (`/architecture-audit`) is easy for the PM to forget. Step 7.6 makes it self-enforcing on two triggers:
 
-**Hard floor (automatic):** `python "$_cc_claude_klabauter/coordinator/bin/check-arch-audit-staleness.py"` (guarded trusted-root resolve; see CLAUDE-PLUGIN-ROOT-SOURCE-GUARD, `coordinator/docs/wiki/coordinator-tripwires/draft-plan-aging.md`; claude-klabauter resident post-b644d5a9) reads the `Last targeted audit` clock from `state/health-ledger.md`:
+**Hard floor (automatic):** `python3 "$_cc_claude_klabauter/coordinator/bin/check-arch-audit-staleness.py"` (guarded trusted-root resolve; see CLAUDE-PLUGIN-ROOT-SOURCE-GUARD, `coordinator/docs/wiki/coordinator-tripwires/draft-plan-aging.md`; claude-klabauter resident post-b644d5a9) reads the `Last targeted audit` clock from `state/health-ledger.md`:
 - `STALE` (>10 days, or never targeted-audited with a ledger present) → auto-fold a **targeted-on-diff** audit this cycle.
 - `FRESH` → no fold.
 - `UNKNOWN` (no ledger / unparseable) → do NOT auto-fold; note it and move on.

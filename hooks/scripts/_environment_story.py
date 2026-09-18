@@ -116,12 +116,20 @@ STRICTEST_STORY_NAME = "strictest"
 #   which host authored the diff -- no selectable story removes them.
 #
 #   "cross-repo-write-gating" -- its stated premise (sibling checkouts,
-#   other teams' live sessions) is genuinely false in an isolated VM, which
-#   is exactly what makes relaxing it dangerous rather than what makes it
-#   droppable: its real party is the PR reviewer, present and the entire
-#   safety model in a cloud session. Relaxing the rule because the stated
-#   premise is absent would remove protection for a party that is not
-#   absent at all, merely renamed.
+#   other teams' live sessions) is genuinely false in an isolated VM, and
+#   its real party is the PR reviewer, present and the entire safety model
+#   in a cloud session. That party is renamed there, never absent, so no
+#   story omits this member. Its ENFORCEMENT MODE is venue-conditional and
+#   that is not an omission: on a managed-remote host the write-confinement
+#   guards stand down from blocking to an after-the-fact warning, and the
+#   reviewer is served instead by the warning, the scoped pathspec, and one
+#   repo's work per commit stream. The reasoning is recorded in DoE-claude's
+#   own decision record for the managed-remote stand-down; that path is cited
+#   by name nowhere here because `docs/decisions/` is outside every publish
+#   row's source, so a reader of the published mirror would chase a directory
+#   the mirror does not carry. The rule above stands on its own text.
+#   A story that DROPPED the id would remove protection for a party that is
+#   not absent at all.
 CORE_RULE_IDS: frozenset[str] = frozenset(
     {"naked-python-mandate", "cross-repo-write-gating"}
 )

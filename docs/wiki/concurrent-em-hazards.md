@@ -78,6 +78,8 @@ For `--blanket` sweep ceremonies, the blanket path subtracts live-sibling-claime
 
 **A directory pathspec on a shared-queue dir is pure downside, even when it feels obviously yours.** Lifecycle dirs (`state/memo-outbox/`, `state/handoffs/`, other queue dirs) are the worst offenders: a CLI can add and remove files there on other sessions' behalf between your own calls, so naming the directory in `git add`/`git commit` can contribute zero of your own files while still sweeping in a peer's deletion or addition under your subject. Enumerate files explicitly, even when there are several and the directory feels obviously "mine."
 
+**A directory pathspec on `git commit` reads working-tree state, bypassing the index — a deliberate `git restore --staged` hold-back does not survive it.** `git commit -- <dir-pathspec>` commits the *working-tree* contents of every matching file, not the index. A file you deliberately unstaged (`git restore --staged <file>`) to hold it back from the commit is still swept in if its parent directory is named in the commit pathspec — its unstaged working-tree edits still match the directory pathspec. To truly hold a file back from a directory-scoped commit, either commit by explicit per-file pathspec that excludes it, or set the file aside first (never a whole-tree stash — see H6/H7) — never rely on `restore --staged` alone once a directory is named on the commit.
+
 ### H4 — A sibling's workstream-complete / blanket sweep absorbs your in-flight edits
 
 **Symptom.** Your uncommitted edits ship inside a sibling's commit; that commit's subject doesn't describe your work. Or your staged handoff `git mv` is reverted by the same sweep.

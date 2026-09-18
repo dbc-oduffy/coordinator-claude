@@ -530,7 +530,7 @@ def _bool_to_exit(result: bool) -> int:
 
 # AC5 — clear-claim-if-dead's classed forms (mkdir-based claim-record store,
 # NOT the artifact/path-touch plane, which is a different lookup entirely).
-_CLASSED_CLAIM_CLASSES = ("handoff", "memo", "plan")
+_CLASSED_CLAIM_CLASSES = ("handoff", "memo", "plan", "artifact")
 
 
 def _claim_lookup_dir(class_: str, basename: str, baton_repo_root: str):

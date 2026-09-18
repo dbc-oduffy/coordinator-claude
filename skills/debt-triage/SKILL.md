@@ -50,6 +50,9 @@ project-specific (flowing into triage)."* Doctrine ref: `CLAUDE.md § Improvemen
 
 ## Step 2: Verify relevance (Haiku agents)
 
+> **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
+> step names; it dissolves no gate this skill's own body names.
+
 Dispatch Haiku agents, grouped by system, to mechanically re-confirm each open item against
 current code: history since the finding's `created` date, the cited `file:line` still shows the
 issue. Verdict per item — `still-open` / `already-fixed` / `partially-addressed`.

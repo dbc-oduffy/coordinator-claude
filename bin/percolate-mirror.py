@@ -81,6 +81,28 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
+def _require_percolate_engine(root: str) -> None:
+    """Fail loud when `root` is an engine tree with no percolate package.
+
+    The resolvable-but-wrong case the locator rung order above makes unlikely
+    and this makes impossible to mistake: a published engine mirror carries
+    `coordinator_core` but NOT `coordinator_core/percolate` (percolate is
+    source-only), so a bootstrap that lands on one imports cleanly and then
+    dies several frames later on `from percolate.targets import ...`, naming a
+    module rather than the root. Checked against the FILESYSTEM, not an import
+    attempt: by this point `coordinator_core` is already bound and an
+    ImportError here would be indistinguishable from a genuine packaging
+    fault."""
+    if (Path(root) / "coordinator_core" / "percolate").is_dir():
+        return
+    raise RuntimeError(
+        f"percolate-mirror: resolved engine root '{root}' has no "
+        "coordinator_core/percolate — that is a PUBLISHED ENGINE MIRROR, not "
+        "the source checkout percolate publishes from. Run this from the "
+        "engine SOURCE checkout, or set COORDINATOR_ENGINE_SOURCE_ROOT to it."
+    )
+
+
 def _bootstrap_engine() -> None:
     """Resolve the engine root and bind `_round`/`publish_lane` module
     globals. Called once, first thing in `main()` (or lazily via
@@ -96,12 +118,32 @@ def _bootstrap_engine() -> None:
     published mirror, with nothing here naming the dependency. Declaring it is
     the same seam ~175 other CLIs under this directory already use.
 
+    LOCATOR AXIS, NOT DISPATCH — and that is the whole point of this function.
+    DR-326 splits the two questions: `COORDINATOR_ENGINE_ROOT` answers "which
+    engine executes" (dispatch, the published mirror on a conformant box) and
+    `COORDINATOR_ENGINE_SOURCE_ROOT` answers "where is the source checkout"
+    (locator). A PUBLISH TOOL IS ON THE LOCATOR AXIS BY CONSTRUCTION: percolate
+    is authored in the source checkout and publishes FROM it INTO the mirror, so
+    the engine it must import is the one it is about to publish, never the one
+    it is about to overwrite. Binding it to the dispatch root made the mirror
+    its own prerequisite — on a box whose dispatch root is the published mirror
+    (every cloud container: `COORDINATOR_ENGINE_ROOT=/root/klabauter`), the
+    mirror carries no `coordinator_core/percolate` package at all, so the only
+    tool that can refresh the mirror could not run, and the staler the mirror
+    got the more certainly it could not be updated. `require_colocated_engine_
+    on_path` is the existing locator-axis seam with the right rung order:
+    self-location FIRST (this file's own checkout, which is by definition the
+    source tree a percolation publishes from), registry ladder second, and an
+    ambient `COORDINATOR_ENGINE_ROOT` never consulted while self-location hits.
+    `percolate-round.py`, whose helpers this file drives, already binds on that
+    same axis (see its `_resolve_central_state` note) — this stops the two
+    contradicting each other.
+
     MUST run before `_load_round_module()` executes below: `percolate-round.py`
     binds `coordinator_core` at ITS OWN module level off a bare self-location
-    `sys.path` insert (no `require_dispatch_engine_on_path()` call of its own,
-    no LOCATOR-axis bootstrap) — once that exec_module() call runs, whatever
-    root it happened to bind wins, and no later `sys.path` insert here can
-    rebind an already-imported package.
+    `sys.path` insert — once that exec_module() call runs, whatever root it
+    happened to bind wins, and no later `sys.path` insert here can rebind an
+    already-imported package.
     NOTE `_BIN_DIR / "lib"`, not `_LIB_DIR` — this file's `_LIB_DIR` is
     `coordinator/lib` (the percolate helpers), while `cc_invoke` lives in
     `coordinator/bin/lib`. They are different directories.
@@ -116,20 +158,30 @@ def _bootstrap_engine() -> None:
         return
 
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from cc_invoke import require_dispatch_engine_on_path
+    from cc_invoke import _front_insert_on_path, require_colocated_engine_on_path
 
-    require_dispatch_engine_on_path()
+    # Rung 1 is the LOCATOR variable itself, ahead of `require_colocated_
+    # engine_on_path`'s own ladder, because that helper does not read it: its
+    # rung 2 falls through to `_resolve_claude_klabauter_root()`, the DISPATCH ladder,
+    # which on a conformant box answers with the published mirror. Consulting
+    # the locator variable here is what makes the remediation this module
+    # prints ("set COORDINATOR_ENGINE_SOURCE_ROOT") true rather than advice
+    # nothing honours.
+    source_override = (os.environ.get("COORDINATOR_ENGINE_SOURCE_ROOT") or "").strip()
+    if source_override and os.path.isdir(source_override):
+        root = _front_insert_on_path(source_override)
+    else:
+        root = require_colocated_engine_on_path(__file__)
     # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
-    # what BINDS coordinator_core, and binding it HERE is the whole fix.
-    # require_dispatch_engine_on_path() above only mutates sys.path -- it imports
-    # nothing. Without this line the next import below (a binder module
-    # that resolves on the LOCATOR axis) wins the race and binds coordinator_core off
-    # the working tree instead of the dispatch root, and no later sys.path insert can
-    # rebind an already-imported package. Removing it restores a silent wrong-tree
-    # divergence that require_dispatch_engine_on_path now raises on.
-    # Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
-    # docs/research/engine-provenance-carrier-dependence.md
+    # what BINDS coordinator_core, and binding it HERE is what makes the LOCATOR
+    # answer win. `require_colocated_engine_on_path` above only mutates sys.path --
+    # it imports nothing -- and `_load_round_module()` below binds coordinator_core
+    # off ITS own bare self-location insert, so whichever runs first wins for the
+    # life of the process and no later insert can rebind an already-imported
+    # package.
     import coordinator_core  # noqa: F401
+
+    _require_percolate_engine(root)
 
     _round_ = _load_round_module()
 
@@ -142,7 +194,7 @@ def _bootstrap_engine() -> None:
         globals().setdefault(_name, _value)
 
 
-def _mirror_groups(percolate_root: str) -> Dict[str, List[str]]:
+def _mirror_groups(percolate_root: str) -> Optional[Dict[str, List[str]]]:
     """Registered target names grouped by the git WORKTREE ROOT their dest
     resolves into, in `publish-targets.portable` order.
 
@@ -161,8 +213,13 @@ def _mirror_groups(percolate_root: str) -> Dict[str, List[str]]:
     try:
         rows = load_targets(setup_dir, target_filter=None)
     except TargetsError as exc:
+        # `None`, never `{}`. The two mean opposite things to the caller and
+        # collapsing them printed "no registered publish targets" over a
+        # resolution that ABORTED with a named, fixable cause -- an operator
+        # reading that last line goes looking for a missing topology file
+        # instead of the registry key the line above just named.
         print(exc.message, file=sys.stderr)
-        return {}
+        return None
 
     groups: Dict[str, List[str]] = {}
     for row in rows:
@@ -440,8 +497,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "mirror",
         help=(
             "Mirror worktree root (the path at machine-local key "
-            "`repos.claude_klabauter`), its bare name "
-            "(claude-klabauter), or any registered target name landing in it."
+            "`publish.mirrors.<key>.path` -- NOT `repos.claude_klabauter`, "
+            "which names this box's DEPLOYED ENGINE clone and is refused as a "
+            "publish dest), its bare name (claude-klabauter), or any registered "
+            "target name landing in it."
         ),
     )
     parser.add_argument("--percolate-root", default=None)
@@ -500,6 +559,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         return _round._EXIT_USAGE
 
     groups = _mirror_groups(str(percolate_root))
+    if groups is None:
+        print(
+            "percolate-mirror: publish-target resolution failed (cause above).",
+            file=sys.stderr,
+        )
+        return _round._EXIT_USAGE
     if not groups:
         print("percolate-mirror: no registered publish targets.", file=sys.stderr)
         return _round._EXIT_USAGE

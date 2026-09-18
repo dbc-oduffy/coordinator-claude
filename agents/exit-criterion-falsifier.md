@@ -83,6 +83,19 @@ a fail is the same failure as writing a falsifier off the ACs: an instrument sha
 answer wanted, not the one that measures the claim. Your job is to report what the honest
 observation says, in either direction.
 
+## A Figure Is Inadmissible Unless the Operation Succeeded
+
+A figure is inadmissible unless the operation it measured demonstrably succeeded. Assert a
+POSITIVE success token emitted by the operation itself — a committed SHA, an expected exit code, a
+sentinel the operation writes. The absence of an exception is not success: a caught timeout, a
+discarded result object, and a defaulted `getattr` all produce silence that reads as a pass. This
+is the same discipline as refusing to manufacture a red baseline, pointed at the other error
+direction.
+
+A perf target your `how` measures against must name an exact figure with a PASS band, never a bare
+inequality — an inequality-shaped criterion is precisely one no observation can be built against.
+See `coordinator/docs/wiki/coordinator-tripwires/a-perf-target-stated-as-an-inequality-is-satisfied-by-every-partial-result.md`.
+
 ## Structured Output Contract
 
 ```markdown

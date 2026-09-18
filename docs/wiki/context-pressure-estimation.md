@@ -9,8 +9,16 @@
 
 A `/handoff` carries **curated state forward** — the EM chooses what survives. Compaction is
 **lossy summarisation the EM does not control**. The mechanism's entire value is firing **before**
-compaction, while the curated-state option still exists. A warning after the fact is not a lesser
-version of the same product; it is a different, much weaker one.
+compaction, while the option the venue actually offers still exists. A warning after the fact is
+not a lesser version of the same product; it is a different, much weaker one.
+
+**Which option that is depends on the venue.** On an attended host it is the curated handoff. On a
+cloud box a successor costs a new container, a fresh clone and re-provisioning, so **compaction is
+the continuation primitive and the handoff is the expensive path** — the pre-emptible act there is
+the commit and the baton, not a handoff. The engine selects this with no configuration
+(`compaction_warnings`' environment rung); the band table below states both terminals. Ruled in
+`docs/decisions/DR-cloud-is-a-venue-where-compaction-is-the-continuation-primitive.md`; tripwire
+`A-HANDOFF-NAG-ASSUMES-A-SUCCESSOR-THAT-IS-CHEAP-TO-REACH`.
 
 That is why `PostCompact` is not a detection point. The **PreCompact sentinel bridge**
 (`context_pressure_precompact.py`) exists only for the residual case: it records that compaction
@@ -25,10 +33,13 @@ bridge is a consolation record for a missed pre-emption, not a second detection 
 | no usable reading | **silence** |
 | < 40% | **silence** |
 | ≥ 40% | INFORMATIONAL — checkpoint state to disk at the next natural boundary; do not stop |
-| ≥ 43% | HANDOFF NOW — run it before compaction takes the choice away |
+| ≥ 43%, attended host | HANDOFF NOW — run it before compaction takes the choice away |
+| ≥ 43%, cloud box | INFORMATIONAL — compaction is imminent and lossy; commit, checkpoint the baton, continue the run |
 
 Each band barks once per session, behind a 5-minute throttle. Crossing straight into the red band
-suppresses the orange text.
+suppresses the orange text. **The red band's two rows are one signal with two terminals, never an
+off switch** — no venue, mode or fleet value removes the warning; only the recommended act changes.
+The orange band is identical everywhere.
 
 **Nothing fires below 40%.** This is a floor, not a default: a check added to this path that
 emits under 40 violates it however quietly it is worded, and however good its reason. The

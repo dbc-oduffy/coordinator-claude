@@ -87,6 +87,45 @@ _LEDGER_FILENAME = "next-move-ledger.jsonl"
 #: guard applies here rather than trusting the producer.
 _SAFE_SID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
+#: Per-field character cap on the free-text values a peer/verdict producer
+#: hands us -- `entries[].state`, `entries[].source`, `suppressed[].reason`.
+#: `entries[].session_id` and `entries[].reason` are excluded: both are
+#: already bounded in shape (`_safe_session_id`/`_SAFE_SID_RE`, and the
+#: two-literal `SEND_ELIGIBLE_REASONS` frozenset) and are not the exposure.
+#: Counted in characters, never bytes or a mid-multibyte-sequence slice --
+#: Python string indexing is by code point, so a plain `value[:N]` already
+#: satisfies that.
+MAX_FIELD_CHARS = 500
+
+#: Appended to a value cut at `MAX_FIELD_CHARS`, so a truncated string is
+#: recognisable in place, not just in the sidecar `truncated_fields` record.
+_ELISION_MARKER = "...[truncated]"
+
+
+def _cap_field(
+    value: Any,
+    session_id: Optional[str],
+    field: str,
+    truncated_fields: list[dict[str, Any]],
+) -> Any:
+    """Cap `value` at `MAX_FIELD_CHARS`, recording the cut if one happened.
+
+    Non-strings and values within the cap pass through unchanged. A cut
+    value carries `_ELISION_MARKER` in place; the pre-truncation length and
+    which peer/field it came from are recorded in `truncated_fields` rather
+    than lost to the elision, so a consumer can tell how much was cut.
+    """
+    if not isinstance(value, str) or len(value) <= MAX_FIELD_CHARS:
+        return value
+    truncated_fields.append(
+        {
+            "session_id": session_id,
+            "field": field,
+            "original_length": len(value),
+        }
+    )
+    return value[:MAX_FIELD_CHARS] + _ELISION_MARKER
+
 
 def _safe_session_id(session_id: Any) -> bool:
     return (
@@ -263,9 +302,23 @@ def _cooldown_remaining(
     return remaining
 
 
-def _suppressed(session_id, why, reason=None, obligations=None, remaining=None):
+def _suppressed(
+    session_id,
+    why,
+    reason=None,
+    obligations=None,
+    remaining=None,
+    truncated_fields: Optional[list[dict[str, Any]]] = None,
+):
     """One `suppressed` row. Every row carries the same keys -- `None` where
-    inapplicable -- so a consumer never has to key-check by variant."""
+    inapplicable -- so a consumer never has to key-check by variant.
+
+    `reason` here is a producer-supplied verdict field, not one of the two
+    `SEND_ELIGIBLE_REASONS` literals -- unbounded, so it is character-capped
+    (`MAX_FIELD_CHARS`) whenever a `truncated_fields` sink is supplied.
+    """
+    if truncated_fields is not None:
+        reason = _cap_field(reason, session_id, "reason", truncated_fields)
     return {
         "session_id": session_id,
         "why": why,
@@ -309,18 +362,25 @@ def build_send_digest(
 
     eligible: list[dict[str, Any]] = []
     suppressed: list[dict[str, Any]] = []
+    truncated_fields: list[dict[str, Any]] = []
 
     for verdict in roster:
         raw_session_id = verdict.get("session_id")
         if not isinstance(raw_session_id, str) or not _safe_session_id(raw_session_id):
-            suppressed.append(_suppressed(raw_session_id, "unusable-session-id"))
+            suppressed.append(
+                _suppressed(
+                    raw_session_id, "unusable-session-id", truncated_fields=truncated_fields
+                )
+            )
             continue
         peer_session_id: str = raw_session_id
 
         reason = verdict.get("reason")
         why = send_suppression_reason(verdict)
         if why is not None:
-            suppressed.append(_suppressed(peer_session_id, why, reason))
+            suppressed.append(
+                _suppressed(peer_session_id, why, reason, truncated_fields=truncated_fields)
+            )
             continue
 
         # Corroboration, not a gate. `None` is a producer coverage gap, never
@@ -334,7 +394,12 @@ def build_send_digest(
         if remaining > 0:
             suppressed.append(
                 _suppressed(
-                    peer_session_id, "cooldown", reason, obligations, remaining
+                    peer_session_id,
+                    "cooldown",
+                    reason,
+                    obligations,
+                    remaining,
+                    truncated_fields=truncated_fields,
                 )
             )
             continue
@@ -342,9 +407,13 @@ def build_send_digest(
         eligible.append(
             {
                 "session_id": peer_session_id,
-                "state": verdict.get("state"),
+                "state": _cap_field(
+                    verdict.get("state"), peer_session_id, "state", truncated_fields
+                ),
                 "reason": reason,
-                "source": verdict.get("source"),
+                "source": _cap_field(
+                    verdict.get("source"), peer_session_id, "source", truncated_fields
+                ),
                 "undischarged_obligations": obligations,
                 "trigger": "paused-turn-ended-uncontradicted-by-live-status",
                 "gate1": None,
@@ -367,6 +436,7 @@ def build_send_digest(
                 "rate-ceiling",
                 entry["reason"],
                 entry["undischarged_obligations"],
+                truncated_fields=truncated_fields,
             )
         )
 
@@ -384,4 +454,5 @@ def build_send_digest(
         "eligible_before_ceiling": len(eligible),
         "unrecorded": unrecorded,
         "gate_declaration_required": True,
+        "truncated_fields": truncated_fields,
     }

@@ -59,6 +59,7 @@ from typing import IO, List, Optional
 
 from coordinator_core.win_portability import is_executable
 from coordinator.lib.percolate.resolve_target import (
+    UNSAFE_DEST,
     ResolveError,
     resolve_machine_local_bin,
     resolve_publish_row,
@@ -380,8 +381,22 @@ def load_targets(
         seen_names[name] = src
         targets.append(resolved_row)
 
-    def rc1_skip_or_abort(raw_row: str, src: str) -> None:
+    def rc1_skip_or_abort(raw_row: str, src: str, detail: str = "") -> None:
+        """The rc-1 ("ran fine, key unset") arm, CARRYING the resolver's own
+        remediation rather than replacing it.
+
+        `detail` is `ResolveError.message` from `resolve_publish_row`, which
+        already names the exact key and the exact `machine-local set` command
+        that fixes it. Before it was threaded through, this arm discarded it
+        and printed "see remediation above" with no remediation above --
+        every operator hitting an unset `publish.mirrors.<key>.path` got a
+        message naming neither the key nor how to set it, and had to read
+        `resolve_target.py` to act. It is appended to the `TargetsError`
+        message too, so a caller that only surfaces the exception (every
+        driver that prints `exc.message` and exits) is as well served as one
+        reading stderr."""
         name = raw_row.split("|", 1)[0]
+        detail = (detail or "").strip()
         if target_filter_set and name not in target_filter_set:
             print(
                 f"[publish.sh] target '{name}' unresolvable (unset registry key) "
@@ -389,14 +404,17 @@ def load_targets(
                 file=err,
             )
             return
+        if detail:
+            print(detail, file=err)
         print(
             f"[publish.sh] cannot resolve target '{name}' in {src} (unset "
-            "registry key — see remediation above). Aborting.",
+            "registry key). Aborting.",
             file=err,
         )
-        raise TargetsError(
-            f"cannot resolve target '{name}' in {src} (unset registry key)", 1
-        )
+        message = f"cannot resolve target '{name}' in {src} (unset registry key)"
+        if detail:
+            message = f"{message}\n{detail}"
+        raise TargetsError(message, 1)
 
     # --- Step 1: tracked portable topology (PRIMARY) ---
     # meta_root=root threaded into every resolve_publish_row call: the resolver's
@@ -410,16 +428,29 @@ def load_targets(
                 resolved = resolve_publish_row(raw_row, meta_root=root)
             except ResolveError as exc:
                 if exc.code == 1:
-                    rc1_skip_or_abort(raw_row, "publish-targets.portable")
+                    rc1_skip_or_abort(raw_row, "publish-targets.portable", exc.message)
                     continue
+                if exc.code == UNSAFE_DEST:
+                    # Every field well-formed; the DESTINATION is the problem.
+                    # Its own arm, not rc 2's, so the operator is not told a
+                    # row is malformed when nothing about the row is.
+                    print(exc.message, file=err)
+                    raise TargetsError(exc.message, 1) from exc
                 if exc.code == 2:
+                    # exc.message ahead of the generic line, and appended to
+                    # the raised message: the resolver's rc-2 text names WHICH
+                    # field is wrong and what to set instead, and a driver that
+                    # only surfaces the exception saw none of it.
+                    print(exc.message, file=err)
                     print(
                         f"[publish.sh] malformed portable row in {portable_file}: "
                         f"{raw_row} — aborting.",
                         file=err,
                     )
                     raise TargetsError(
-                        f"malformed portable row in {portable_file}: {raw_row}", 1
+                        f"malformed portable row in {portable_file}: {raw_row}"
+                        f"\n{exc.message}",
+                        1,
                     ) from exc
                 if exc.code == 4:
                     # Transport failure — the CLI exists but could not be
@@ -454,16 +485,25 @@ def load_targets(
                 resolved = resolve_publish_row(row, meta_root=root)
             except ResolveError as exc:
                 if exc.code == 1:
-                    rc1_skip_or_abort(row, "registry publish.targets")
+                    rc1_skip_or_abort(row, "registry publish.targets", exc.message)
                     continue
+                if exc.code == UNSAFE_DEST:
+                    # Every field well-formed; the DESTINATION is the problem.
+                    # Its own arm, not rc 2's, so the operator is not told a
+                    # row is malformed when nothing about the row is.
+                    print(exc.message, file=err)
+                    raise TargetsError(exc.message, 1) from exc
                 if exc.code == 2:
+                    print(exc.message, file=err)
                     print(
                         "[publish.sh] malformed registry publish.targets row: "
                         f"{row} — aborting.",
                         file=err,
                     )
                     raise TargetsError(
-                        f"malformed registry publish.targets row: {row}", 1
+                        f"malformed registry publish.targets row: {row}"
+                        f"\n{exc.message}",
+                        1,
                     ) from exc
                 if exc.code == 4:
                     # Transport failure, not "unset" — abort loud with the
@@ -506,16 +546,25 @@ def load_targets(
                 resolved = resolve_publish_row(row, meta_root=root)
             except ResolveError as exc:
                 if exc.code == 1:
-                    rc1_skip_or_abort(row, "publish-targets.sh")
+                    rc1_skip_or_abort(row, "publish-targets.sh", exc.message)
                     continue
+                if exc.code == UNSAFE_DEST:
+                    # Every field well-formed; the DESTINATION is the problem.
+                    # Its own arm, not rc 2's, so the operator is not told a
+                    # row is malformed when nothing about the row is.
+                    print(exc.message, file=err)
+                    raise TargetsError(exc.message, 1) from exc
                 if exc.code == 2:
+                    print(exc.message, file=err)
                     print(
                         f"[publish.sh] malformed row in publish-targets.sh: "
                         f"{row} — aborting.",
                         file=err,
                     )
                     raise TargetsError(
-                        f"malformed row in publish-targets.sh: {row}", 1
+                        f"malformed row in publish-targets.sh: {row}"
+                        f"\n{exc.message}",
+                        1,
                     ) from exc
                 if exc.code == 4:
                     # Transport failure, not "unset" — abort loud with the

@@ -245,10 +245,15 @@ subject was never this caller.
   `${CLAUDE_PLUGIN_DATA}`), and env-var interpolation is documented only for HTTP hook headers —
   there is no seam to name a registry-pinned or environment-resolved interpreter, let alone run a
   resolver ahead of the spawn.
+- An unexpanded placeholder **literalizes** rather than erroring or emptying, so naming a token
+  in `command` anyway would spawn a nonexistent executable and take the hook plane down on every
+  host. An absolute path is no better: `hooks.json` is committed plugin source, correct on one
+  machine if it names one.
 - For hooks specifically, whichever real interpreter bare `python3` resolves to at `CreateProcess`
-  time IS the resolver, by construction of there being no other seam — and that is fine because the
-  fail-open `BOOTSTRAP` injects the coordinator venv's `site-packages` into `sys.path` before the
-  target script imports anything, so it does not matter which real interpreter answers.
+  time IS the resolver, by construction of there being no other seam. Which one answers is
+  load-bearing, not immaterial: the site-packages injector is retired, so hook-path third-party
+  imports resolve from that interpreter and a missing distribution is an install-surface defect on
+  that host (`HOOK-PATH-DEPS-LIVE-ON-THE-MACHINE-INTERPRETER`).
 - The WindowsApps App Execution Alias hazard this doctrine exists to prevent remains live for
   hooks and is closed by a mechanical assertion that a real interpreter (not a stub) resolves ahead
   of `%LOCALAPPDATA%\Microsoft\WindowsApps` on PATH — not by this scope note.

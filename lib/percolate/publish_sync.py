@@ -598,6 +598,95 @@ def _sweep_mirror_top_level_orphans(
 # ---------------------------------------------------------------------------
 # Mirror mode — per-plugin subdir sync
 # ---------------------------------------------------------------------------
+#: Ceiling for the orphan-provenance git probes below. Three cheap local reads on
+#: a refusal path that is already fatal -- a bound, not a budget.
+_ORPHAN_PROVENANCE_TIMEOUT_S = 20
+
+
+def _git_out(repo: Path, args: "list[str]") -> str:
+    """One local `git` read, stdout stripped, empty string on any failure.
+
+    Fail-open by construction: every caller is a DIAGNOSTIC enriching a refusal
+    that has already been decided, so a git that is missing, slow, or pointed at
+    something that is not a repository must degrade to "no extra detail", never
+    change the verdict or raise into the abort path.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo), "--no-optional-locks", *args],
+            capture_output=True,
+            text=True,
+            timeout=_ORPHAN_PROVENANCE_TIMEOUT_S,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except Exception:  # noqa: BLE001 -- see docstring
+        return ""
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def _orphan_provenance(src_dir: Path, name: str) -> str:
+    """One sentence naming WHY a destination directory has no source counterpart,
+    or `""` when the source repo cannot answer.
+
+    THE QUESTION THIS ANSWERS. A top-level orphan has two causes that look
+    identical at the destination and have opposite remedies:
+
+      - GENUINELY ORPHANED -- the directory was removed on purpose and the
+        destination is carrying a stale copy. The sweep deleting it is correct.
+      - PUBLISHED FROM ANOTHER BRANCH -- the content is real, in-progress work
+        that lives on a source branch this publish is not running from. Deleting
+        it reverts a peer's landed work, and the remedy is to publish from (or
+        merge) that branch, NOT to override the sweep.
+
+    Telling them apart needed cross-branch archaeology the operator had to do by
+    hand, against a message that offered only `COORDINATOR_OVERRIDE_ORPHAN_SWEEP`
+    -- i.e. the remedy that is WRONG in the second case, as the only remedy on
+    offer. The source repository already holds the answer: `git log --all` over
+    the path the directory WOULD occupy in the source finds the commit that
+    carries it, and `git branch --contains` names the branches it is on.
+
+    Reads only; never fetches. A branch the local clone has never seen is
+    invisible here, which is why this returns a sentence rather than a verdict:
+    silence means "the source repo cannot answer", never "confirmed orphaned".
+    """
+    top = _git_out(src_dir, ["rev-parse", "--show-toplevel"])
+    if not top:
+        return ""
+    try:
+        rel = (src_dir / name).resolve().relative_to(Path(top).resolve()).as_posix()
+    except Exception:  # noqa: BLE001 -- src_dir outside its own toplevel; nothing to say
+        return ""
+    commit = _git_out(Path(top), ["log", "--all", "-n", "1", "--format=%H", "--", rel])
+    if not commit:
+        return (
+            "    Provenance: '{0}' appears nowhere in the SOURCE repository's history "
+            "({1}) -- no branch it knows of has ever carried it, so it was published "
+            "from a checkout this clone cannot see. Confirm before deleting.".format(
+                rel, top
+            )
+        )
+    branches = [
+        b.strip().lstrip("* ").strip()
+        for b in _git_out(
+            Path(top),
+            ["branch", "--all", "--contains", commit, "--format=%(refname:short)"],
+        ).splitlines()
+        if b.strip()
+    ]
+    if not branches:
+        return ""
+    shown = ", ".join(branches[:4])
+    if len(branches) > 4:
+        shown += " (+{0} more)".format(len(branches) - 4)
+    return (
+        "    Provenance: '{0}' IS in the source repository's history ({1}), on: {2}. "
+        "This is a BRANCH DIVERGENCE, not an orphan -- the destination carries work "
+        "published from one of those branches and this run's source branch does not "
+        "have it. Publish from that branch, or merge it into this one. Do NOT "
+        "override the sweep: the override DELETES it.".format(rel, top, shown)
+    )
+
+
 def sync_mirror(
     src_dir: Path,
     dst_dir: Path,
@@ -912,6 +1001,13 @@ def sync_mirror(
                     f"{sorted(renamed_dir_names) or '(empty)'}, foreign_dir_names="
                     f"{sorted(foreign_dir_names) or '(empty)'}."
                 )
+                provenance = "\n".join(
+                    line
+                    for line in (_orphan_provenance(src_dir, p.name) for p in at_risk)
+                    if line
+                )
+                if provenance:
+                    diagnostic = f"{diagnostic}\n{provenance}"
                 if dry_run:
                     print(
                         f"    WARNING (dry-run): WOULD ABORT — {diagnostic}\n    A real "

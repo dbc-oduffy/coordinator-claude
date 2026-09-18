@@ -25,14 +25,13 @@ Stderr: human-readable detail; on CRASH, the full traceback (never swallowed).
 Exit codes:
   0 — step 0 succeeded; proceed to step 1.
   2 — stale-commit guard triggered; A/B/C Branch Reconciliation needed.
-  3 — reconcile with origin/main hit a failure. This relay's exit 3 covers
-      the reconcile leg's three outcome strings, relayed verbatim on
-      stdout/stderr: `RECONCILE-CONFLICT` (a genuine content conflict; PM
-      resolves first via the A/B/C Branch Reconciliation Decision),
-      `RECONCILE-MERGE-COMMIT-REFUSED` (the merge applied but was refused
-      at the commit step), or `RECONCILE-MERGE-NOT-STARTED` (the merge
-      never began). This relay dispatches on the exit code only, not the
-      string — all three still route here as exit 3.
+  3 — the reconcile leg failed after fetch, dispatched on this code alone
+      (never on the string). The reconcile leg relays one of three stdout
+      strings verbatim: `RECONCILE-CONFLICT` (a genuine content conflict —
+      PM resolves first via A/B/C), `RECONCILE-MERGE-COMMIT-REFUSED` (the
+      merge applied but its commit was refused, commonly a commit hook —
+      not an A/B/C decision), or `RECONCILE-MERGE-NOT-STARTED` (the merge
+      never started at all — also not an A/B/C decision).
   1 — sync-main aborted, an unhandled exception (CRASH; see Stdout above), or other
       unexpected error.
 

@@ -27,7 +27,7 @@ You are the plan-coverage-checker — the mechanical check ON the EM's confidenc
 
 ## Verification Protocol
 
-**Phases 3.5–3.7 are mechanical, always run in full, every dispatch** — delta-scoping/a caller-supplied oracle narrows Lenses 1–3 only, never these three. A sidecar omitting Missing-writes or Spine-emittability is DEGRADED, not COMPLETE.
+**Phases 3.5–3.8 are mechanical, always run in full, every dispatch** — delta-scoping/a caller-supplied oracle narrows Lenses 1–3 only, never these four. A sidecar omitting Missing-writes, Spine-emittability, or Scope-writes-gap is DEGRADED, not COMPLETE.
 
 ### Phase 0: Locate Plan, Check Prior Sidecar
 
@@ -62,7 +62,7 @@ Prior sidecar: rename it by inserting `.<UTC-mtime>` before its final `.md`, **f
 
 **M:N.** A slate chunk consolidating multiple oracle items MUST enumerate them (frontmatter list, or inline "covers: #3, #4, #7"). Uncited members → AMBIGUOUS, not MISSED.
 
-**OOS classification** for unmatched items: **OOS-ARCHITECTURAL** — an explicit OOS section names a hard architectural reason (irreversibility, hard dependency, security boundary, blast-radius) → resolved. **OOS-WEAK** — an OOS section exists but the reason is appetite-based ("not now," "follow-up," etc.) → Weak-OOS finding, counts toward INCOMPLETE.
+**OOS classification** for unmatched items: **OOS-ARCHITECTURAL** — an explicit OOS section names a hard architectural reason (irreversibility, hard dependency, security boundary, blast-radius) → resolved. **OOS-WEAK** — an OOS section exists but the reason is appetite-based ("not now," "follow-up," etc.) → Weak-OOS finding, counts toward INCOMPLETE. **OOS-UNSTATED** — an OOS section names the item but states no reason at all (a bare mention, no rationale of any kind) → Weak-OOS finding, counts toward INCOMPLETE under the same tally as OOS-WEAK — an absent reason is not stronger than a weak one, so it is never treated as merely informational.
 
 ### Phase 3: Lens 2 — Hedge / Defer Detection
 
@@ -120,6 +120,16 @@ Asks the aggregate question: **would firing `dispatch.emit` on this spine refuse
 **Step 2 — verdict.** At least one row's writes map to a real, on-disk target → silent. Every row maps to nothing: all reasons engine-defect → **Advisory** line only, doesn't gate INCOMPLETE — "spine trips the known creates-its-own-tests emittability defect in the engine's test-target derivation; not a plan-authoring gap — see memo topic `dispatch-emit-refuses-a-spine-that-creates-its-own-tests`" (**never hard-fail a plan for shipping new tests**). Any reason plan-gap → **Spine-emittability** finding — "row(s) <ids> declare only non-Python/doc writes, or Python writes with no test anywhere in this spine — the emitter would refuse (`NoTestTargetError`) and this is a plan-authoring gap, not the known engine defect." Gates INCOMPLETE.
 
 If every non-deferred row is missing `writes:` entirely, add one Spine-emittability finding for the `NoWritesDeclaredError` case, noting the whole spine has no reachable test-target derivation.
+
+### Phase 3.8: Lens 6 — Scope-vs-Writes Set-Difference
+
+Asks a different question from Phase 3.7's per-row emittability check: **does the spine's declared `writes:` union actually cover the plan's declared scope?** A row can individually be well-formed and emittable while the spine as a whole leaves a scoped path untouched by any row — that gap is invisible to Missing-writes (a per-row required-field check) and to Spine-emittability (a per-row test-target check), so it is never folded into either.
+
+**Step 1 — collect the scope set.** Read the scope enumeration located by Phase 1 rung 0b (the sizing object's structured scope field, or the `=== SCOPE — IN ===` block). No recoverable scope enumeration → silent, no finding (this lens has nothing to difference against).
+
+**Step 2 — collect the writes union.** Union every well-formed spine row's `writes:` paths (deferred rows included — a deferred row's declared writes still count as covered).
+
+**Step 3 — set difference.** `scope \ writes_union`. Empty → silent. Non-empty → **Scope-writes-gap** finding, one per uncovered path: quote the path and note no spine row's `writes:` declares it. Gates INCOMPLETE (Mechanical).
 
 ### Phase 4: Lens 3 — In-Repo Substrate Drift
 
@@ -266,7 +276,7 @@ present and empty, never deleted.
 
 The counts line you fill, verbatim in this shape — every lens gets its own counter, none omitted:
 
-**Missed:** X | **Ambiguous:** A | **OOS-weak:** Y | **Hedges:** Z | **Unratified-deferrals:** U | **Malformed-rows:** R | **Missing-writes:** V | **Open-on-landed:** O | **Substrate-drift:** W | **Deferral-args:** G | **Spine-emittability:** E | **Vehicle-in-anti-scope:** H | **Unregistered-hooks:** K
+**Missed:** X | **Ambiguous:** A | **OOS-weak:** Y | **Hedges:** Z | **Unratified-deferrals:** U | **Malformed-rows:** R | **Missing-writes:** V | **Open-on-landed:** O | **Substrate-drift:** W | **Deferral-args:** G | **Spine-emittability:** E | **Vehicle-in-anti-scope:** H | **Unregistered-hooks:** K | **Scope-writes-gap:** S
 
 Under each finding section, per finding: quote the offending item and that phase's finding text verbatim,
 then apply the action noted inline under the heading.
@@ -285,7 +295,7 @@ while still `open`, not only once closed. Emit under the unratified-deferrals se
 
 ## Verdict logic
 
-**Mechanical** = Substrate-drift + Malformed-rows + Missing-writes + Unregistered-hooks. **Judgment** =
+**Mechanical** = Substrate-drift + Malformed-rows + Missing-writes + Unregistered-hooks + Scope-writes-gap. **Judgment** =
 Missed + Weak-OOS + Hedges + Unratified-deferrals + Open-on-landed + Deferral-args + Spine-emittability +
 Vehicle-in-anti-scope.
 

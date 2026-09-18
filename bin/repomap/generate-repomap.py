@@ -1084,6 +1084,26 @@ def pagerank(
 # Include graph centrality (UE projects)
 # ---------------------------------------------------------------------------
 
+#: Emitted into every generated map's own header, because this file is
+#: gitignored and regenerated -- no tracked file in any repo can carry the
+#: warning on its behalf.
+#:
+#: `.claude/repomap.md` and `docs/architecture/file-index.md` are confusable by
+#: name and by description, and they share neither writer, gating, nor
+#: freshness guarantee. An EM once resolved the second artifact's generator by
+#: name similarity to the first and briefed a subagent to run this tool against
+#: it; only that subagent's refusal prevented a wrong-artifact write. The
+#: reader most likely to make that mistake is holding this output, so the
+#: correction belongs here rather than only in a wiki they have no reason to
+#: open.
+_CONFUSABLE_ARTIFACT_NOTE = (
+    "Not to be confused with docs/architecture/file-index.md, a different map "
+    "artifact with a different writer "
+    "(coordinator/pipelines/deep-architecture-survey/survey.workflow.js, "
+    "Phase 3) and different freshness guarantees. This file is written only by "
+    "coordinator/bin/repomap/generate-repomap.py.\n"
+)
+
 _ENGINE_HEADER_PREFIXES = {
     "CoreMinimal.h",
     "Engine/",
@@ -1558,6 +1578,7 @@ def generate_task_scoped_map(
         f"Generated: {now_str} | Files: {len(selected)}/{len(valid_files)} | "
         f"Budget: {budget} tokens\n"
         f"Focus: {focus_str}\n"
+        f"{_CONFUSABLE_ARTIFACT_NOTE}"
     )
 
     sections = [header]
@@ -1774,6 +1795,7 @@ def generate_repomap(
         f"# Repository Map\n"
         f"Generated: {now_str} | Files: {len(selected)}/{len(valid_files)} | "
         f"Budget: {budget} tokens\n"
+        f"{_CONFUSABLE_ARTIFACT_NOTE}"
     )
 
     sections = [frontmatter + header]

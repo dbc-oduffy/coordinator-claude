@@ -477,6 +477,22 @@
         ]
       },
       {
+        "matcher": "Workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/allow-emitted-workflow-fire.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
         "matcher": "Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [
           {

@@ -22,10 +22,13 @@
 # script (which is why every value below is also hardcoded here):
 #
 #     COORDINATOR_SETTINGS_HOME=/root/.coordinator-claude-settings
-#     COORDINATOR_ENGINE_ROOT=/opt/coordinator/claude-klabauter
 #
-# If the report below says HOME is not /root, or /opt was not writable, change both to match the
-# ROOT= line this script printed — they must name the paths it actually used.
+# NOT COORDINATOR_ENGINE_ROOT. It is a live-tree override, so a session-wide value pins every
+# session to the manual test-and-execute rung rather than the published engine. This script writes
+# the published pointer file instead; contract § The literals carries the measurement.
+#
+# If the report below says HOME is not /root, or /opt was not writable, change it to match the
+# ROOT= line this script printed — it must name the path the script actually used.
 #
 # It always exits 0. A non-zero exit fails the whole session, so every finding is a FAIL line to
 # read in the setup checklist, never a boot abort. Phase 0 is the probe — it reports the facts a
@@ -271,7 +274,22 @@ if [ "$HAVE_ENGINE" -eq 0 ]; then
   # level: a verifying session read a green engine import as proof the deps landed, and it is not.
   "$PYBIN" -c "import pydantic, psutil, jsonschema, yaml; print('deps import: OK')" 2>&1 | tail -1
 fi
-echo "REMINDER: the env-var block must carry COORDINATOR_ENGINE_ROOT=$ROOT/claude-klabauter"
+# The PUBLISHED-engine pointer, written here so the env block never has to carry an override to
+# do this job. The published arm admits a root only if <root>/coordinator_core/_engine_stamp
+# exists, and the stamp is tracked, so a fresh clone of the mirror satisfies it. The name is
+# load-bearing: `-live-root` would be accepted on isdir alone and resolve the mirror AS a live
+# working tree. See contract § Why the pointer name is `-root` and not `-live-root`.
+if [ "$HAVE_ENGINE" -eq 0 ]; then
+  if [ -f "$ROOT/claude-klabauter/coordinator_core/_engine_stamp" ]; then
+    mkdir -p "$HOME/.coordinator-claude-settings/machine-local" 2>/dev/null || true
+    printf '%s\n' "$ROOT/claude-klabauter" \
+      > "$HOME/.coordinator-claude-settings/machine-local/.claude-klabauter-root" 2>/dev/null \
+      && echo "engine pointer: OK ($HOME/.coordinator-claude-settings/machine-local/.claude-klabauter-root)" \
+      || echo "engine pointer: FAIL — could not write under $HOME/.coordinator-claude-settings/machine-local"
+  else
+    echo "engine pointer: SKIPPED — no _engine_stamp, so this clone is not a published build"
+  fi
+fi
 # Everything above proves files are on disk. It cannot prove Claude Code READS them: this script
 # finishes before Claude Code launches, so hook firing is unobservable from here by construction.
 # The session that boots next is the only thing that can settle it, and cloud sessions are the

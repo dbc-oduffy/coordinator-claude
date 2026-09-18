@@ -19,6 +19,11 @@ defect (procedure invisible to every existing gate), not a preference.
 
 ## Checklist
 
+- [ ] **`--snapshot` run first (see § Snapshot record shape below).** Before any conversion edit
+      and before any `--regenerate`, run `skill_weight_harness.py --snapshot <path>` for the
+      surface under conversion, so `weight_before` exists. Skipping this step loses the
+      before-figure the moment `--regenerate` runs — see the item's tail section for the record
+      shape and the `--regenerate` mechanism's overwrite behavior.
 - [ ] **Intent + a named op only.** Every mutating step states what the caller wants and names
       an existing op the engine resolves (via the settings-home bin seam, per the precedence
       ladder in `coordinator/snippets/resolve-coordinator-bin.md`: rung 0 / Shape W on a
@@ -104,11 +109,31 @@ defect (procedure invisible to every existing gate), not a preference.
       evidence tail that a render budget sacrifices on the exact path it exists to serve. A green
       unit test on the compute layer and a correct-looking hook are each necessary and NEITHER is
       sufficient. The pickup exemplar's delivery-seam finding is the canonical trap; cross-ref
-      `invisible-doctrine.md` § realization #5 "The seam".
+      `invisible-doctrine.md` § realization #5 "The seam". **Per-seam render-budget test
+      obligation (AC10).** Each converted seam owes a test that forces a payload past
+      `_CONTEXT_BUDGET_CHARS` = 10,000 **on the protected segments alone** — not merely "a
+      payload past 10,000" overall, since `render_additional_context`'s first degrade loop
+      cannot drop a protected segment and a payload merely past 10,000 in aggregate passes the
+      original wording by construction and asserts nothing — and asserts `next_move` survives
+      `render_additional_context`'s second-stage degrade ladder (`kept = list(protected)` /
+      the `narration_slots` branch). Name the per-conversion test-file path recorded in the
+      conversion's close-out as the discharge artifact.
 - [ ] **The ergonomics/discharge test (AC-12).** The canonical path is genuinely *cheaper*
       (fewer keystrokes, less thinking) than the ad-hoc path it replaces, verified at a dogfood
       gate. A technically-correct conversion that makes the right thing harder has FAILED this
       item regardless of how cleanly it passes every item above.
+
+## Snapshot record shape
+
+`--snapshot`'s record carries only the fields this baton actually produces:
+`{skill, converted_by_plan, weight_before, weight_after}`. It is extended with `census`,
+`invariant_verdict`, `seam_audit_verdict`, and `inline_budget_baseline` as ccv-02, ccv-03, and
+ccv-05 respectively land and ratify those field names — this plan does not decide or state the
+record's home.
+
+`--regenerate` rewrites the whole `skills` snapshot from the live measurement, in either
+direction (growth as readily as shrink). The prior figure survives only in git history, and not
+at all if the baseline was uncommitted when `--regenerate` ran.
 
 ## Non-goals
 

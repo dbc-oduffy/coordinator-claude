@@ -19,6 +19,10 @@ Spec backlink: `archive/specs/2026-05/2026-05-09-skill-consolidation-pass.md § 
 
 The generator writes to **`<project>/.claude/repomap.md`** when `--output` is unspecified (`generate-repomap.py` resolves the `None` default to this path; the file is gitignored/regenerable, co-located with `.claude/repomap-cache/`). All callers and consumers — including the `project-orientation.py` staleness banner — read this path. Do **not** place it under `state/`: that directory is tracked session substrate, and a gitignored regenerated artifact does not belong there.
 
+**Not to be confused with** `docs/architecture/file-index.md` — a separate, tracked map artifact
+written only by Phase 3 of `coordinator/pipelines/deep-architecture-survey/survey.workflow.js`,
+with no standalone regen path and no relationship to this gating contract.
+
 ---
 
 ## Why Gating Exists
@@ -82,7 +86,7 @@ if [ -z "$_cc_claude_klabauter" ] || [ ! -d "$_cc_claude_klabauter" ]; then
 fi
 
 # 1. Detect RAG state
-RAG_STATE=$(python "$_cc_claude_klabauter/coordinator/bin/check-rag-state.py" 2>/dev/null || echo "unknown")
+RAG_STATE=$(python3 "$_cc_claude_klabauter/coordinator/bin/check-rag-state.py" 2>/dev/null || echo "unknown")
 
 # 2. Gate on state
 case "$RAG_STATE" in
@@ -91,7 +95,7 @@ case "$RAG_STATE" in
     ;;
   absent|stale|unknown)
     # Generate (stale/unknown → note it as RAG-fallback if RAG_STATE != absent)
-    python "$_cc_claude_klabauter/coordinator/bin/generate-repomap.py"
+    python3 "$_cc_claude_klabauter/coordinator/bin/generate-repomap.py"
     if [ "$RAG_STATE" != "absent" ]; then
       echo "Note: Repomap generated as RAG-fallback (RAG state: ${RAG_STATE})."
     fi
@@ -140,12 +144,12 @@ block in a guard that exits 0 on any failure:
     fi
   fi
 
-  RAG_STATE=$([ -n "$_cc_claude_klabauter" ] && python "$_cc_claude_klabauter/coordinator/bin/check-rag-state.py" 2>/dev/null || echo "unknown")
+  RAG_STATE=$([ -n "$_cc_claude_klabauter" ] && python3 "$_cc_claude_klabauter/coordinator/bin/check-rag-state.py" 2>/dev/null || echo "unknown")
   case "$RAG_STATE" in
     fresh) ;;
     *)
       if [ -n "$_cc_claude_klabauter" ]; then
-        python "$_cc_claude_klabauter/coordinator/bin/generate-repomap.py" 2>&1 >/dev/null | while IFS= read -r _line; do
+        python3 "$_cc_claude_klabauter/coordinator/bin/generate-repomap.py" 2>&1 >/dev/null | while IFS= read -r _line; do
           echo "[coordinator] WARNING: generate-repomap.py: $_line" >&2
         done
       fi

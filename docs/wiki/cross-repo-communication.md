@@ -255,8 +255,13 @@ copied body is a second system of record that diverges at the first amendment â€
 worse than a memo, because both sides believe they are aligned.** A peer needing their own plan
 writes one about their surface, cross-linked, not a mirror.
 
-**Driving is sequencing, not authority over the peer's half.** No cross-repo commit without that
-repo's per-session PM assent; their red suite is theirs to clear. Resolve addresses at point of use
+**Driving is sequencing, not authority over the peer's half.** On a durable host with a live fleet,
+no cross-repo commit without that repo's per-session PM assent; on a managed-remote host the gate
+stands down to an after-the-fact warning, the owning repo's assent is registered at the PR carrying
+the branch rather than asked for before the write, and the surviving preference is one repo's work
+per commit stream
+(`docs/decisions/DR-cross-repo-write-gating-stands-down-on-a-managed-remote-host.md`). Either way,
+their red suite is theirs to clear. Resolve addresses at point of use
 (`session-liveness-cli`, `coordinator/bin/resolve-peer-address.py`) and never store one â€” a resume
 mints a new session id while name and pid persist.
 

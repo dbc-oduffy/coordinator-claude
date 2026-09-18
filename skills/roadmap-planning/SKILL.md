@@ -77,6 +77,9 @@ STOP those clusters, never substitute web scouts, surface to PM. Other clusters 
 1.5.1. Dispatch one scout per KEEP/MERGE-target cluster (cap 8 concurrent), brief =
    `${CLAUDE_PLUGIN_ROOT}/snippets/internet-research-scout.md` + cluster scope → `research-corpus/<topic-
    slug>.md`, ≥2KB. Exceptions (per-project material, measurement-derived corpus): wiki.
+
+   > **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
+   > step names; it dissolves no gate this skill's own body names.
 1.5.2. Author `OVERVIEW.md`, one section per KEEP cluster, headed by NAME never number (wiki:
    why); each section cites its research-corpus file and carries `### Contested` (required, even
    empty). Frontmatter template: wiki.

@@ -19,8 +19,8 @@ re-learns the clock hazards wrong at least once per restart. A script cannot dri
 ## Invocation
 
 ```
-python -m coordinator_core.group_em.idle_report --repo-root <root> --group-em-session-id <sid>
-python -m coordinator_core.group_em.idle_report --repo-root <root> --group-em-session-id <sid> --peer <sid-or-prefix>
+python3 -m coordinator_core.group_em.idle_report --repo-root <root> --group-em-session-id <sid>
+python3 -m coordinator_core.group_em.idle_report --repo-root <root> --group-em-session-id <sid> --peer <sid-or-prefix>
 ```
 
 `--group-em-session-id` is the Group EM's, never the watcher's — same two-id split as
@@ -86,8 +86,10 @@ appears as a row with its reason. A classifier that silently drops rows makes a 
 and a quiet fleet emit identically — the same failure class as an exhausted one-shot subscription.
 
 The reason is a **key from a closed set**, never free prose — `liveness-unresolved`,
-`transcript-unreadable`, `no-records`, `clock-unparseable`. Prose in a machine field is prose the
-agent has to interpret, and interpretation is the drift this contract removes.
+`transcript-unreadable`, `no-records`, `clock-unparseable`, `rate-limited`. Prose in a machine
+field is prose the agent has to interpret, and interpretation is the drift this contract removes.
+`rate-limited` is the peer's own state — it means the peer itself cannot act, not that the oracle
+failed to enrich the row; see below for the two downgrade keys that mean the latter.
 
 ## Per-peer fields
 
@@ -168,6 +170,12 @@ So a cut enrichment returns its affected peers as `UNKNOWN` with a reason key na
 missing — `out-of-work-undetected`, `suppression-unavailable`. `UNKNOWN` routes to *report it*,
 which is the correct behaviour under partial information and keeps omission impossible. A degraded
 report stays honest; a degraded report that sends is worse than no report at all.
+
+`rate-limited` is a distinct case from those two downgrade keys: `out-of-work-undetected` and
+`suppression-unavailable` mean the **oracle** could not enrich the row — an enrichment step was
+cut. `rate-limited` means the **peer** itself is the one that cannot act, observed directly rather
+than inferred from a missing enrichment. Both land on `UNKNOWN` because omission stays impossible
+either way, but the cause is not the same and the reason key says which.
 
 ## `UNADDRESSABLE` has a named disposition, not an improvisation
 

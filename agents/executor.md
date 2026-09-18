@@ -182,6 +182,8 @@ Run the project checker at a sane boundary — after a logical unit of work, not
 
 Fix validation failures immediately — don't accumulate them across files.
 
+**A perf/timing figure you report is inadmissible unless the operation it measured demonstrably succeeded** — assert a positive success token from the operation itself before citing its number, never infer success from the absence of an exception. `coordinator/docs/wiki/coordinator-tripwires/a-perf-figure-whose-operation-may-have-failed-is-inadmissible.md`.
+
 ## Stop Conditions — Fixable vs Structural
 
 | Type | Examples | Action |

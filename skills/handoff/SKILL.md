@@ -96,7 +96,8 @@ and a re-point — so a handoff authored under compaction pressure buys nothing 
 hand anyone. Append what the post-compaction self needs to the baton this session already has
 (`baton.carry_forward`; the context-pressure advisory names the path), and continue the run. The
 engine selects this posture with no configuration —
-`${CLAUDE_PLUGIN_ROOT}/docs/wiki/coordinator-tripwires/tripwire-registry/a-mode-default-can-be-answered-by-the-environment.md`.
+`${CLAUDE_PLUGIN_ROOT}/docs/wiki/coordinator-tripwires/tripwire-registry/a-mode-default-can-be-answered-by-the-environment.md`;
+tripwire `A-HANDOFF-NAG-ASSUMES-A-SUCCESSOR-THAT-IS-CHEAP-TO-REACH`.
 A PM ask still self-authorizes a handoff anywhere, and a blocked next action is still a blocked
 next action.
 

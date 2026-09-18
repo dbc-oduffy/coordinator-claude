@@ -97,6 +97,15 @@ Closing out on "the substance is complete" is the failure, not the discipline.
 against the frozen-body guard. Chain LoE sums those rows
 (`session_ledger.aggregate_chain_loe`) — a session that never appends renders the chain as zero.
 
+**The window closes when the baton goes terminal, and it does not reopen.** Append as you close,
+while the record is still pre-terminal. Once `deployment_state` is `shipped`/`continued`/`closed`,
+`handoff.append_session_ledger` refuses — it delegates to `handoff.correct_body`, which will not
+correct a terminal archived baton — and no other route is open: a subagent `Edit` under `archive/`
+is hard-denied, and a hand-typed row is barred above. So a row missed before the flip can never be
+added, and that session is absent from chain LoE permanently. **Do not plan retroactive ledger
+appends** — a plan row declaring one is un-executable, whatever the carve-out's existence suggests.
+Hitting it: record the absence and move on, exactly as for the missing-heading case below.
+
 **A frozen baton with no `## Session Ledger` block at all: NO SANCTIONED VERB CAN CREATE THE
 HEADING TODAY. Claim anyway, and record the absence — do not stall.** `handoff.append_session_ledger`
 refuses without the heading (`no '## Session Ledger' heading found in the body`) and
@@ -212,6 +221,9 @@ uncommitted hunks, stage only your own.
 **Dispatch is the fast path, not a checkpoint.** With no plan in play, dispatch an executor by
 default below the plan threshold; EM-inline is the narrow carve-out gated by the dispatch-economics checklist, all
 criteria, re-decided at dispatch.
+
+> **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
+> step names; it dissolves no gate this skill's own body names.
 
 **A T3-cost handoff or mechanism-first directive is transitively authorized.** The handoff is
 PM-authored; if its body prescribes a plan, proving a mechanism first, or executing a plan that

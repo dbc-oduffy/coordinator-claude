@@ -56,7 +56,7 @@ fi
 **Or use the helper verb** (when the coordinator plugin is install-resolvable):
 
 ```bash
-python "$REPO_CLAUDE_KLABAUTER/coordinator/bin/coordinator-setup-state.py" \
+python3 "$REPO_CLAUDE_KLABAUTER/coordinator/bin/coordinator-setup-state.py" \
     check setup_concluded && echo "ready to chain"
 ```
 

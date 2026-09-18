@@ -397,6 +397,8 @@ EM spot-checks the diff after integration; does not re-do the integration manual
 
 For plan-based fan-out dispatches (via `bin/fan-out-dispatch.py`), the EM creates a per-chunk sidecar file at dispatch time and passes its path to the executor brief. The executor writes crash-safety status and observations into the sidecar — never into the plan body.
 
+**This is not the auto-provisioned subagent-share report sidecar.** The flight recorder at `tasks/<plan-slug>/flight/<chunk-id>.md` has no engine provisioner — the EM's dispatch-time create above, and the executor's fallback create (§ Executor responsibilities below) against starter frontmatter defined in `agents/executor.md § Flight-Recorder Sidecar`, are the only two writers. The **run-report sidecar** at `state/subagent-share/<session-id>/<provision_key>.md` (§ Run-Report Sidecar elsewhere in this doc) is a different artifact: it is auto-provisioned by `SubagentStart` catering (`coordinator_core/hooks/cater_subagent_start.py` → `subagent_sandbox.provision_report`, in-process, no subprocess) for every child spawn, named or unnamed, Agent-tool or Workflow `agent()` alike. `provision-sidecar` / `load_policy` is a separate, Workflow-path-only resolver used when no `SubagentStart` hook fires — not the auto-provisioning site itself, and not a provisioner for the flight-recorder path either. Neither auto-provisioning mechanism touches `tasks/<plan-slug>/flight/`; do not assume the flight sidecar exists before checking for it.
+
 ### Sidecar path convention
 
 ```

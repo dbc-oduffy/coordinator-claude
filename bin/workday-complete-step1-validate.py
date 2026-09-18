@@ -514,9 +514,10 @@ def _emit_test_red_record(ft_rc: int, ft_content: str, classify_rc: int) -> None
 
         outcome = "green" if ft_rc == 0 else ("build-failure" if classify_rc == 2 else "test-failures")
         runner, failing = parse_failing_nodeids(ft_content)
-        with recording_declared_writes(cwd=_REPO_ROOT):
+        repo_root = os.getcwd()
+        with recording_declared_writes(cwd=repo_root):
             write_test_red_record(
-                repo_root=Path(_REPO_ROOT),
+                repo_root=Path(repo_root),
                 tier="fast",
                 sha=_git_head_sha(),
                 exit_code=ft_rc,
@@ -532,7 +533,7 @@ def _emit_test_red_record(ft_rc: int, ft_content: str, classify_rc: int) -> None
             # machine-resolution logic changes independently, this
             # declare_write() call silently drifts out of sync with the
             # actual write site.
-            record_path = Path(_REPO_ROOT) / "state" / "test-red" / f"{compute_machine()}.yaml"
+            record_path = Path(repo_root) / "state" / "test-red" / f"{compute_machine()}.yaml"
             declare_write(record_path)
     except Exception as exc:  # noqa: BLE001 -- must never affect the validate verdict/exit code
         _err(f"[workday-complete-step1] test-red record: write failed ({exc!r}) — continuing.")

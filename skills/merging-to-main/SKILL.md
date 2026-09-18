@@ -33,10 +33,10 @@ Pre-authorized Tier-U ceremony — grant first: `tier-u-grant-cli grant ceremony
 merging-to-main`.
 
 `d0` (`node --test tests/plugin-ecosystem/run.js`, halt-on-fail) runs first, then detect and run
-the project's own test runner (`pnpm test`/`npm test`, `pytest`/`python -m pytest`, `/validate`, or
+the project's own test runner (`pnpm test`/`npm test`, `pytest`/`python3 -m pytest`, `/validate`, or
 project-specific from `CLAUDE.md`/`package.json`). **This is the most expensive step in the whole
 ceremony** — the project's full suite is a machine-wide event, not a cheap check; its actual
-magnitude is whatever `python coordinator/tests/_spawn_budget.py` reports for this repo, never a
+magnitude is whatever `python3 coordinator/tests/_spawn_budget.py` reports for this repo, never a
 hardcoded figure here, but treat "run the suite" as heavy every time you grant it. Fail on either →
 halt: _"Test suite failed. Fix first, or use `/merging-to-main --force` to bypass for hotfixes."_
 

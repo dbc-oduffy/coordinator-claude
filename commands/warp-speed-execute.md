@@ -27,9 +27,10 @@ through `preuse-skill-dispatch.py`, the `PreToolUse`/`Skill` fan-in that hosts t
 
 **Verify both arrived; there is no manual step only when they fire.** The registration's bootstrap
 fails OPEN on both entry paths, so a hook that did not run is silent rather than loud, and the run
-proceeds half-wired reporting success. No minted run-id in `additionalContext` → `mint-run-id
-mise-en-place` (Phase 1). No claimed-baton list → claim by hand (Phase 0a). Do both and name them
-in the announcement rather than inferring the inputs were there.
+proceeds half-wired reporting success. No minted run-id in `additionalContext` →
+`backlog-grind-assemble mint-run-id mise-en-place` (Phase 1) — a subcommand, never a CLI of its
+own, so the bare verb exits 127. No claimed-baton list → claim by hand (Phase 0a). Do both and
+name them in the announcement rather than inferring the inputs were there.
 
 Engine vocabulary does not follow the verb: the sentinel mode, the cadence passed to
 `mint-run-id`/`brief` (`mise-autofire.py :: _CADENCE`), the run-id family and
