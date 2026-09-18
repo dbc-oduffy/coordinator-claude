@@ -4,8 +4,6 @@
 
 > When the EM needs to tell another repo's EM (or session) something — or thinks it does — this is the decision tree.
 
-<!-- Spec backlink: archive/specs/2026-05/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Chunk 4 -->
-<!-- Negative-spec: The two-surface model (separate live-consult + archival surfaces) and the dual-write/symmetric-closure lifecycle are DELETED (plan: docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md). One surface, one pattern: cross-repo/. Hand-rolling a memo file is the named anti-pattern; use cross-repo-memo CLI. -->
 
 ## TL;DR
 
@@ -112,8 +110,7 @@ trustworthy positive; `idle` and `waiting` are not negatives — they mean *unkn
 that is unbounded rather than merely large, so no freshness gate rescues them. GATE 2 asks whether
 a peer is *paused*, which is exactly the direction the field cannot answer. The gap is trust, not
 vocabulary. `running_seconds` answers a different question. Until a paused-signal exists, GATE 2
-rests on what the sender already knows about the peer, never on a roster read. Evidence:
-`state/audits/2026-08-13-session-stop-reason-spike.md`.
+rests on what the sender already knows about the peer, never on a roster read.
 
 Evidence boundary: same-machine, registry-visible session reach — discovery, addressing,
 delivery — is claimable. Cross-machine reach, delivery to a registry-absent session, and any claim
@@ -123,7 +120,7 @@ about a peer's internal state are not.
 
 **An EM may reply live to a peer only when all three hold: the peer is reachable, the exchange
 closes in one turn, and it carries no work request.** Anything else routes as a memo, never a live
-reply. This mirrors DR-169's inbound-parks-by-default posture from the outbound side: a live reply
+reply. This mirrors the inbound-parks-by-default posture from the outbound side: a live reply
 never had the queuing property that earns outbound async its exception, so the bar for replying
 live is at least as strict as the bar for sending live above.
 
@@ -214,7 +211,7 @@ The act of sending is noted naturally in your workstream-complete notes — no s
 
 **Write-actor: `send`, and nothing else.** `send` routes through the claude-klabauter engine (`memo.send`)
 via `cc_invoke.route_mutation` rather than being written by the CLI process directly — the claude-klabauter
-send-class carve-out under claude-klabauter DR-210. It is fail-loud by design: it REFUSES when
+send-class carve-out under claude-klabauter's own op-migration decision. It is fail-loud by design: it REFUSES when
 Claude-klabauter is unreachable, and there is no direct-write fallback behind it. The legacy one-shot flag
 path that once bypassed claude-klabauter has been removed, so "unreachable engine" now means the channel is
 shut, not degraded.
@@ -229,7 +226,7 @@ this box being busy.
 
 `warm/client.py :: last_cold_reason()` separates the two failures: a NAMED reason means this
 process can never reach a warm server at all (notably an unstamped live working tree, which cannot
-host one — DR-315 s2), and the boot wait aborts early on it rather than burning the deadline.
+host one), and the boot wait aborts early on it rather than burning the deadline.
 
 **On a named reason the channel is shut, not degraded** — the one-shot fallback is gone, so the
 route is a direct peer session per the sync gate below. Say plainly that the memo channel failed;
@@ -259,8 +256,7 @@ writes one about their surface, cross-linked, not a mirror.
 no cross-repo commit without that repo's per-session PM assent; on a managed-remote host the gate
 stands down to an after-the-fact warning, the owning repo's assent is registered at the PR carrying
 the branch rather than asked for before the write, and the surviving preference is one repo's work
-per commit stream
-(`docs/decisions/DR-cross-repo-write-gating-stands-down-on-a-managed-remote-host.md`). Either way,
+per commit stream. Either way,
 their red suite is theirs to clear. Resolve addresses at point of use
 (`session-liveness-cli`, `coordinator/bin/resolve-peer-address.py`) and never store one — a resume
 mints a new session id while name and pid persist.
@@ -305,7 +301,7 @@ A plan can introduce a correctness-motivated reorder that ends up gating the ver
 
 <!-- distilled: run 2026-08-06-14h38; nugget: c7-067 -->
 
-A subagent dispatched without a governing plan (no `plan:`/`chunk:` pair to derive a sidecar path from) still needs a `report_sidecar` home per DR-091. The documented fallback is a **session-keyed** location, not a skipped sidecar — this is the same "genuinely non-plan solo/ad-hoc dispatch" case this repo's own executor-dispatch conventions carve out (§ Run-Report Sidecar, `sidecar_path`/`plan`+`chunk` three-way rule), applied at the cross-repo/ad-hoc-dispatch level: absent both a plan and an explicit sidecar path, the dispatch is genuinely sidecar-less and reports via exit-report only, per DR-091.
+A subagent dispatched without a governing plan (no `plan:`/`chunk:` pair to derive a sidecar path from) still needs a `report_sidecar` home per the sidecar-home rule. The documented fallback is a **session-keyed** location, not a skipped sidecar — this is the same "genuinely non-plan solo/ad-hoc dispatch" case this repo's own executor-dispatch conventions carve out (§ Run-Report Sidecar, `sidecar_path`/`plan`+`chunk` three-way rule), applied at the cross-repo/ad-hoc-dispatch level: absent both a plan and an explicit sidecar path, the dispatch is genuinely sidecar-less and reports via exit-report only, per that same rule.
 
 ## Plan skill integration
 
@@ -352,7 +348,6 @@ The active-memo path appears in exactly **five enforced code sites** that must s
 2. **Schema `applies_to`** — `schemas/cross-repo-memo.schema.json:2` (`cross-repo/inbox/[0-9]*.md`)
 3. **Own-inbox guard regex** — `coordinator_core/write_guards/validate_frontmatter_schema_deny.py:739` (`^cross-repo/inbox/[0-9]`)
 4. **Surface glob** — claude-klabauter `coordinator/bin/workday-start-cross-repo-memo-surface.py:34` (`cross-repo/inbox`)
-<!-- Spec backlink: cross-repo/inbox/2026-07-23-claude-klabauter-em-wsc-tail-doe-ask-list.md (Block 8) — boot_sweep is not invoked from project-orientation.py; Step 2.65 wiring removed -->
 5. **Archival sweep — RETIRED, no replacement.** `bin/sweep-actioned-memos.py` and the native `fleet.archive_actioned_memos` op it fired were both killed; the op module survives in the engine tree with no invoker and no CLI fronting it. Nothing sweeps `cross-repo/inbox/` → `cross-repo/archive/` today, so this axis has no automated consumer to keep in step — the receiver hand-archives, by hand, every time. Listed here because an inbox-path change still has to reach the four live surfaces above, and because a reader tracing the old sweep needs to learn it is gone rather than assume it silently ran.
 
 A **separate deliberately-broad negative-exclusion site** at `coordinator_core/write_guards/validate_frontmatter_schema_deny.py:791-792` uses `^cross-repo/inbox/` OR `^cross-repo/archive/` (not narrowed to `^cross-repo/inbox/` alone) — this must NOT be narrowed. It is the routing-mismatch check that must cover both `inbox/` and `archive/` writes so actioned archive memos are not wrongly offered a redirect.
@@ -363,7 +358,6 @@ Two human-facing doc declaration sites (the live `cross-repo/README.md` and `can
 
 ## `kind` lockstep set — keep in lockstep (surfacing-priority boundary)
 
-<!-- Spec backlink: docs/plans/2026-05-30-pickup-cross-repo-memo-fork.md § `kind` lockstep set -->
 
 The `kind` field appears in exactly **four enforced sites** that must stay in lockstep whenever the enum membership changes:
 
@@ -426,7 +420,7 @@ Otherwise: verify in-session, ship both producer and consumer halves under one w
 
 ## Cross-repo memo lifecycle — single-surface, receiver-only
 
-> One surface, no dual-write, no symmetric closure (plan `docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md`).
+> One surface, no dual-write, no symmetric closure (the cross-repo single-surface plan).
 
 Extracted to `docs/wiki/cross-repo-memo-lifecycle.md` — sender/receiver pattern, delivery-commit
 exception, and the worked examples live there now.
@@ -467,22 +461,21 @@ exception, and the worked examples live there now.
 
 5. **Sending the outbound completion memo IS part of "fix everything."** When a session closes a thread another team is gated on, the actionable list always includes (a) action their inbound, (b) send the outbound completion notification via `cross-repo-memo`, (c) hand the PM the receiver path for relay. The code landing is "code complete," not "thread closed."
 
-   <!-- spec-backlink: docs/decisions/DR-097-sibling-notification-duty-on-terminal-events.md -->
 
    The DoE→claude-klabauter sibling-notification duty names two recognized triggers. This is DoE→claude-klabauter
    specific, not fleet-wide doctrine:
    - **(A) A contract a sibling vendors moved.** Tell: a DoE-side schema/contract bump lands and
      `claude-klabauter` vendors that artifact. Notify naming the artifact, the version delta, and
      the bump's class. Weaker fit for this item's thread-closure shape — (A) has no antecedent
-     inbound, it's a unilateral proactive notify; see DR-097's reciprocal-of-claude-klabauter-DR-236-§G15 framing
+     inbound, it's a unilateral proactive notify; see the sibling-notification decision's reciprocal framing
      for the operative rule.
    - **(B) A spinoff whose deliverable IS a memo reached terminal close.** Tell: the closing
      spinoff's own body names the memo as its deliverable. Send a stand-down notice to the named
      receiver. This is the clean fit for this item's rule.
 
    <!-- distilled: run 2026-08-06-14h38; nuggets: c7-070, c7-071, c7-072, c7-074 -->
-   **DR-097 detail — ratification, enforcement split, and scope bound.** DR-097 ratifies the
-   sibling-notification duty as reciprocal to claude-klabauter's own DR-236 §G15 obligation, not a
+   **Sibling-notification detail — ratification, enforcement split, and scope bound.** That decision ratifies the
+   sibling-notification duty as reciprocal to claude-klabauter's own disk-truth decision's §G15 obligation, not a
    one-sided ask. Three consequences worth naming explicitly here rather than leaving them to a
    single unread wiki:
    - **The stand-down/closed-reason vocabulary is stamped at all three places that learn it** —
@@ -519,7 +512,7 @@ Two sharper corollaries of "the cited locus is hypothesis" (item 1 above), each 
 
 A third corollary of "the cited locus is hypothesis" (item 1 above), for the specific case where a consumer re-grades or re-maps a **producer's verdict surface** (a sibling/host CLI's `green/amber`, `pass/fail`, envelope `verdict` enum) rather than merely acting on a fix-locus.
 
-- **When a consumer maps a producer's composed verdict, read the producer's actual verdict-aggregation function before mapping — not the doc, memo, or envelope summary.** A verdict enum is itself a hypothesis about what the producer meant by it. The producer may already collapse a restart-gated / expected-transient case that a naive consumer will re-gate: e.g. a host `validate-live` deliberately suppresses a pre-restart `disconnected → green` and reserves `amber` for real-problems-*now*. A consumer that re-applies the gating the producer already inverted **masks a real failure** — the double-negative reads as pass. Symmetrically, a bare `verdict == "ok"` at the producer may be a summary the producer itself does not trust as ground truth (it grades index-queryable off a content round-trip, not the envelope flag). Read the aggregation source — `grep` the function that *computes* the verdict — before composing on top of it. *(Canonical: a consumer graded index-queryable off a bare envelope `verdict == "ok"` at `cc_live_validation.py` `_check_index_queryable_once`; the host had already moved to a real content round-trip, so verdict-ok + empty round-trip must set amber, never green. Fixed producer-side in project-rag `187853c61` via the D1 divergence rule.)* This is the fix-locus discipline (item 1) applied to a **verdict-composition seam**: the producer's live aggregation model is ground truth, not its summarized output — the same reason § Memo framing is hypothesis warns against trusting the framing over the producer's disk.
+- **When a consumer maps a producer's composed verdict, read the producer's actual verdict-aggregation function before mapping — not the doc, memo, or envelope summary.** A verdict enum is itself a hypothesis about what the producer meant by it. The producer may already collapse a restart-gated / expected-transient case that a naive consumer will re-gate: e.g. a host `validate-live` deliberately suppresses a pre-restart `disconnected → green` and reserves `amber` for real-problems-*now*. A consumer that re-applies the gating the producer already inverted **masks a real failure** — the double-negative reads as pass. Symmetrically, a bare `verdict == "ok"` at the producer may be a summary the producer itself does not trust as ground truth (it grades index-queryable off a content round-trip, not the envelope flag). Read the aggregation source — `grep` the function that *computes* the verdict — before composing on top of it. *(Canonical: a consumer graded index-queryable off a bare envelope `verdict == "ok"` at `cc_live_validation.py` `_check_index_queryable_once`; the host had already moved to a real content round-trip, so verdict-ok + empty round-trip must set amber, never green. Fixed producer-side in project-rag via the D1 divergence rule.)* This is the fix-locus discipline (item 1) applied to a **verdict-composition seam**: the producer's live aggregation model is ground truth, not its summarized output — the same reason § Memo framing is hypothesis warns against trusting the framing over the producer's disk.
 
 ## Memo framing is hypothesis at the architectural altitude too — leak/exclude/ownership claims
 
@@ -596,7 +589,6 @@ Cross-repo edits that bump a schema's `const:` version field (`WHOAMI_SCHEMA_VER
 
 A dispatch brief that names only the code edit will produce a schema/fixture gap that the receiver catches on review — a wasted round-trip.
 
-*Source: portability-guard Chunk 5c (whoami v4→v5) — `cross-repo/archive/2026-06-08-whoami-schema-v5-cluster-completion.md`.*
 
 ### Additive-optional cross-repo fields — dataclass-fields-guarded write decouples producer and consumer landings
 
@@ -672,17 +664,14 @@ The Director of Engineering (DoE) carries cross-team / cross-repo authority that
 
 ### DoE-owned cross-repo state drain (third axis)
 
-<!-- Spec backlink: archive/specs/2026-06/2026-06-15-universal-lesson-routing-mechanical-capture.md § C10 -->
 
 **DoE-owned cross-repo state drain (same shape as cross-repo memo delivery, applied to DoE-owned content):** A recurring DoE-initiated mutation of peer-repo state files whose data origin is doctrine-altitude. The structural precedent is cross-repo memo delivery: the sender's session writes into the receiver's repo because the content is sender-owned, even though it physically lives in the receiver's tree. The same shape applies when the DoE owns an inbox that is physically distributed as per-peer outboxes — the DoE manages its own state across peer trees, the peer repo is the storage substrate, not the content owner. Applies when: (a) the DoE owns the inbox — peer-repo outboxes are physically distributed instances of DoE-owned state, not peer-owned content; (b) the mutation is a drain confirmation (moving files from an outbox to a `drained/` subdirectory), not a content addition or transformation of peer-owned content; (c) the commit carries a `[doe-state-drain]` prefix naming the drain-side ledger (e.g., `$(python3 coordinator/lib/coordinator-state-root.py --central)/lessons-outbox-drained-manifest.<date>.json` in claude-klabauter — see `state-placement-law.md`) so downstream auditors can distinguish DoE-owned-state mutations from PM-authorized direct writes and from doctrine-seeding edits.
 
-**Canonical instance:** the `lessons-outbox/` drain — peer-repo state files under `state/lessons-outbox/*.yaml` are physically distributed instances of the DoE-owned universal-lessons inbox; the DoE drains them by `git mv` to `state/lessons-outbox/drained/` on a dedicated `drain/<YYYY-MM-DD>-doe-pull` branch (cut from peer `main`, never the peer's active workstream branch), committed locally on the DoE machine, NOT pushed — peer EM pulls and merges on their schedule. Per `docs/plans/2026-06-15-universal-lesson-routing-mechanical-capture.md` § C4.
-
+**Canonical instance:** the `lessons-outbox/` drain — peer-repo state files under `state/lessons-outbox/*.yaml` are physically distributed instances of the DoE-owned universal-lessons inbox; the DoE drains them by `git mv` to `state/lessons-outbox/drained/` on a dedicated `drain/<YYYY-MM-DD>-doe-pull` branch (cut from peer `main`, never the peer's active workstream branch), committed locally on the DoE machine, NOT pushed — peer EM pulls and merges on their schedule.
 This carve-out does NOT extend to: source code, machine-local entries, install scripts, registry edits, or any content the peer repo owns independent of DoE doctrine. Those remain on the code/install-surface axis (cross-repo-memo + PM-relay or PM-authorized direct write).
 
 ## Git-tracked location — never gitignored
 
-<!-- Spec backlink: archive/specs/2026-05/2026-05-23-cross-repo-inbox-archive-restructure.md § D5 -->
 <!-- Negative-spec: cross-repo/inbox/ must NOT appear in .gitignore. A broad deny-all ignore that swallows cross-repo/ is the concrete harm the global CLAUDE.md rule "deny-all .gitignore patterns are forbidden" is written to prevent. -->
 
 **The delivery contract is "sender drops a dirty file → receiver sees it in `git status`."** That signal only works if the receiver's `cross-repo/inbox/` is a real, git-tracked, non-ignored surface. Two silent-failure modes if it isn't:
@@ -701,7 +690,6 @@ This carve-out does NOT extend to: source code, machine-local entries, install s
 
 ## Publish-target repos are not receivers
 
-<!-- Spec backlink: archive/specs/2026-05/2026-05-23-cross-repo-inbox-archive-restructure.md § D6 -->
 <!-- Negative-spec: publish-target repos (coordinator-claude, deep-research-claude) do NOT have
      a live cross-repo/inbox/ — they are outward publish.sh destinations, not EM working trees.
      The canonical-structure manifest's cross-repo/inbox/ entry applies to EM working repos

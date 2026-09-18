@@ -10,8 +10,6 @@ created: 2026-07-27
 > What Claude Code 2.1.220 exposes to a plugin, and how much of it coordinator actually uses.
 > Spine is used-vs-unused: the gap is the actionable content, not the schema recap.
 
-<!-- spec-backlink: state/reference/anthropic-docs/_verify-harness-capabilities.md -->
-<!-- spec-backlink: state/reference/anthropic-docs/_mine/claude-code-product.md -->
 
 Sources: `state/reference/anthropic-docs/claude-code/{hooks,sub-agents,plugins-reference,
 plugin-marketplaces,skills,output-styles,statusline,model-config,interactive-mode,
@@ -30,7 +28,7 @@ architecture — Sonnet/Haiku workers dispatched via `Agent`, returning `DONE: <
 sidecar-pointer text — is **structurally unreachable** by that whole flag family. The one place
 this repo shells out `claude --print` at all is the six-item contract at
 `coordinator/docs/claude-cli-subprocess-contract.md`, and even its executable call sites migrated
-to `claude-klabauter` (commit `b644d5a9`) — this repo tracks zero `coordinator/bin/` files. Treat
+to `claude-klabauter` — this repo tracks zero `coordinator/bin/` files. Treat
 every CLI flag below as "useful if we ever build a subprocess-shaped tool," not as something a
 dispatched agent can reach today.
 
@@ -43,7 +41,7 @@ dispatched agent can reach today.
 > *could* be used. A quarantined empirical spike probed every unregistered event against installed
 > 2.1.220 and recorded fires / does-not-fire / inconclusive with observed payloads. Full verdicts,
 > method, and the two false negatives caught mid-spike:
-> `state/reference/anthropic-docs/_hook-frontmatter-reachability.md`. Verdicts below are observed,
+> Verdicts below are observed,
 > not documentation restatements; `—` means registered-already or not probed.
 
 | Event | What fires it | Registered? | Reachable? (probed) | Script(s) |
@@ -54,7 +52,7 @@ dispatched agent can reach today.
 | `UserPromptExpansion` | a typed slash-command expands into a prompt | **YES** | — | `pickup-autofire.py` (pickup-assemble brief, auto-fires on `coast==clear`) |
 | `PreToolUse` | before a tool call executes; can allow/deny/modify | **YES** | — | 10+ matcher-scoped scripts — `preuse-bash-dispatch.py`, `block-dispatch-suite-invocation.py`, `enforce-agent-dispatch-mode.py`, `nudge-multiwave-workflow.py`, `block-workflow-unmodeled-agent.py`, `validate-frontmatter-schema.py`, `check-claude-md-size.py`, `nudge-em-code-dispatch.py`, `preuse-write-dispatch.py`, `block-home-dir-memo-delivery.py`, `suggest-sonnet-research.py`, `nudge-autonomous-askuserquestion.py`, `session-heartbeat.py` |
 | `PermissionRequest` | permission dialog appears | no | **does not fire** on the headless auto-mode rule-deny path, under a *confirmed* denial; interactive/TTY path untested | — |
-| `PermissionDenied` | auto-mode classifier denies a call | no | **does not fire** — same run/evidence as `PermissionRequest`; denial surfaced only via `permission_denials` + `tool_response` | — could back the "permission policy generalization" item already claimed in `state/handoffs/2026-07-27-structural-policy-enforcement.md` |
+| `PermissionDenied` | auto-mode classifier denies a call | no | **does not fire** — same run/evidence as `PermissionRequest`; denial surfaced only via `permission_denials` + `tool_response` | — could back the "permission policy generalization" item already claimed in an in-flight structural-policy-enforcement handoff |
 | `PostToolUse` | after a tool call succeeds; can modify result | **YES** | — | `session-heartbeat.py`, `track-touched-files.py`, `nudge-initiative-goals-ladder.py`, `plan-persistence-check.py`, `agent-completion-log.py`, `track-dispatched-agents.py`, `runtime-tripwire-em-check.py`, `postuse-advisory-dispatch.py` (unauthorized-handoff nudge folded in) |
 | `PostToolUseFailure` | after a tool call fails | no | **fires, bounded** — hard failures with a top-level `error` key (Bash non-zero exit incl. 127, Read-missing) fire; `<tool_use_error>` *content* in a successful result (Edit-mismatch) does not. `tool_input` carries the failing command | could inject the known cross-repo-memo-forwarder-not-on-PATH remediation (`CLAUDE.md`) as `additionalContext` instead of relying on the EM remembering the doc |
 | `PostToolBatch` | after a parallel-tool batch resolves | no | **fires** — once per batch, payload `tool_calls[]` enumerates every member with its own `tool_name`/`tool_input`/`tool_response` | — |
@@ -160,7 +158,7 @@ cost, not grant scope).
 
 ## 3. Settings — scope table only; full key reference not archived
 
-`state/reference/anthropic-docs/claude-code/settings.md` is a 26-line **stub**, truncated after
+The archived Anthropic settings reference page is a 26-line **stub**, truncated after
 the scope table — the actual settings-key reference was never captured. Don't treat its absence
 here as "nothing to know"; it's an archive gap, flagged for a future harvest pass. What the stub
 does confirm: four scopes — **Managed** (server/plist/registry, org-wide), **User** (`~/.claude/`),
@@ -211,7 +209,7 @@ fields beyond the always-required-in-practice `name`/`description`. Adoption:
 | `model` / `effort` | 0/35 | per-invocation override, reverts next turn |
 | `context: fork` / `agent` / `background` | 0/35 | runs the skill in a forked subagent context |
 | `hooks` | 0/35 | skill-scoped lifecycle hooks |
-| `paths` | 0/35 | glob-gated auto-activation — **already spun off**, see `docs/plans/2026-07-27-doctrine-envelope-allocation.md` line 770 (path-scoped `.claude/rules/` conversion), not re-proposed here |
+| `paths` | 0/35 | glob-gated auto-activation — **already spun off**, see the doctrine-envelope-allocation plan's line 770 (path-scoped `.claude/rules/` conversion), not re-proposed here |
 | `arguments` / `when_to_use` / `shell` | 0/35 | named-arg substitution / extra trigger context / PowerShell inline blocks |
 
 The command-name resolution rules (`skills.md § How a skill gets its command name`) matter for
@@ -254,7 +252,7 @@ map onto in-session dispatch either, for the same reason. The one live use of th
 repo is `coordinator/docs/claude-cli-subprocess-contract.md`'s six-item contract (`--output-format
 json` for `total_cost_usd`/`usage.*` telemetry) — its `--json-schema` gap for structured
 deliverables (vs. text-parsed `result`) is a named-but-unbuilt discharge candidate, and its
-executable call sites now live in `claude-klabauter` (commit `b644d5a9`), not here.
+executable call sites now live in `claude-klabauter`, not here.
 
 ## What's confirmed absent, not just unused
 

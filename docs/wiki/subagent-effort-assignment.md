@@ -10,7 +10,6 @@
 > prose is a table that goes stale silently, which is the failure this whole mechanism exists to
 > end.
 >
-> spec-backlink: `docs/plans/2026-07-27-claude5-alignment-wave-one.md` § C2 (AC4, AC5a, AC5b)
 
 ## The ceiling — standing PM ruling
 

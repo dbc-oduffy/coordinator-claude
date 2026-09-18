@@ -3,18 +3,14 @@ title: Dispatch sidecar — the flight recorder's three-role contract (R1)
 created: 2026-07-09
 type: doctrine
 related:
-  - docs/plans/2026-06-09-executor-sidecar-flight-recorder.md
-  - docs/plans/2026-07-09-dispatch-sidecar-executor-confinement.md
   - plugins/coordinator/docs/wiki/workflow-orchestration.md
   - plugins/coordinator/docs/wiki/schema-version-gate.md
   - plugins/coordinator/docs/wiki/coordinator-tripwires.md
   - plugins/coordinator/schemas/run-report.schema.json
-  - archive/specs/2026-07/2026-07-13-subagent-run-report-subsume.md
   - coordinator/docs/wiki/computed-engine-model.md
   - coordinator/docs/wiki/invisible-doctrine.md
-  - docs/decisions/DR-091-agent-citizenship-identity-typed-sidecar-contract.md
-  - docs/plans/2026-07-24-agent-citizenship-identity-adapted-provisioning.md
 ---
+
 
 <!--
 Purpose: document the flight recorder's extended THREE-role contract (R1 "dispatch sidecar")
@@ -123,8 +119,7 @@ schema's.
 
 ## The versioned schema is the ground truth, not the live Workflow API
 
-Claude-Klabauter's consult reply on this question (`cross-repo/inbox/2026-07-09-claude-klabauter-em-pcli-claude-klabauter-engines-consult-reply.md`
-§ Q3) is explicit: the emitter's codegen ground truth **must be a versioned, DoE-owned contract
+Claude-Klabauter's consult reply on this question is explicit: the emitter's codegen ground truth **must be a versioned, DoE-owned contract
 schema, not the live harness tool description** — coupling a producer to an un-versioned upstream
 API is "the classic brittleness trap." This plan honors that stance directly: the extended
 schema (`run-report.schema.json`, renamed from `flight-recorder.schema.json` v1.1.0)
@@ -134,7 +129,7 @@ schema (`run-report.schema.json`, renamed from `flight-recorder.schema.json` v1.
 the live API, for every subsequent chunk it processes.
 
 **A standalone `workflow-dispatch.schema.json` is a ruled-out proposal, not a live alternative.**
-`docs/plans/2026-07-19-pcli-phase2-stubs-claude-klabauter-contracts.md` proposed a separate,
+An earlier phase-2 plan proposed a separate,
 standalone schema for this role; no such file exists on disk
 (`coordinator/schemas/workflow-dispatch.schema.json` — not present). That proposal is
 superseded by `run-report.schema.json`'s `dispatch_feed` object, which is the sole emitter
@@ -177,8 +172,7 @@ directly rather than assuming either way.
 `dispatch_feed.write_files` and `gate_kind` are **derived outputs**, not authored directly: the
 Claude-klabauter emitter (`coordinator_core.ops.dispatch_emit`, op `dispatch.emit`) derives them from the
 explicit per-task `writes:` (and `reads:`) declaration on the plan's `## Tasks` spine. That spine
-field landed as claude-klabauter's **contract-ask #2**, a `plan-tasks.schema.json` change authored by
-`docs/plans/2026-07-19-pcli-phase2-stubs-claude-klabauter-contracts.md` C2 (`x-schema-version: 1.7.0`), and
+field landed as claude-klabauter's **contract-ask #2**, a `plan-tasks.schema.json` change authored on claude-klabauter's side (`x-schema-version: 1.7.0`), and
 the emitter itself lives on claude-klabauter's side, deriving a Workflow wave-map from the spine.
 `write_files`/`gate_kind` have a live producer wherever a plan's spine declares `writes:`.
 
@@ -216,7 +210,7 @@ run cannot structurally re-assign what gets done next; a reader (human or agent)
 
 ## AC13 discharge — the plan-body-immutability guard was already there
 
-`docs/plans/2026-07-24-agent-citizenship-identity-adapted-provisioning.md` C9 went in
+The provisioning plan's chunk C9 went in
 expecting to build a guard denying `coordinator:executor` writes to `docs/plans/**/*.md`.
 Re-verification against current disk found the guard already live: **AC13's red test is
 ALREADY GREEN, not a build target.** This section records the discharge so a future reader
@@ -266,13 +260,12 @@ proposal deliberately excluded `docs/wiki/**` and `docs/decisions/**` from the w
 denylist: those two surfaces carry delegated authoring (executors legitimately write wikis and
 DRs as part of normal dispatch), and folding them into an immutable-path guard would break that
 delegation rather than close a gap. The widened scope stays strictly `coordinator:executor`
-(never a generic executor-class re-fence — DR-058's revisit-trigger forbids that) with personas
+(never a generic executor-class re-fence — the standing revisit-trigger forbids that) with personas
 exempt, unchanged from the existing guard's posture. **Status: accepted and landed.**
 `claude-klabauter-em` actioned the memo the same day (`disposition: accept`, direct-dispatch,
 archived at `claude-klabauter`'s `cross-repo/archive/2026-07-24-doe-claude-em-executor-spec-
 surface-widening.md`): `_PLAN_BODY_RE` widened to `(^|/)docs/(plans|problems)/.+\.md$`,
-`coordinator:executor`-only, wiki/decisions excluded exactly as proposed, landed at claude-klabauter
-commit `165ce86b` (fresh test module, 68 passed). `docs/problems/**` is now guard-protected for
+`coordinator:executor`-only, wiki/decisions excluded exactly as proposed, landed at claude-klabauter. `docs/problems/**` is now guard-protected for
 `coordinator:executor` on claude-klabauter's side — a future reader does not need to chase disposition
 further; the accept is the terminal state for this ask.
 
@@ -350,7 +343,7 @@ The fix moved the binding mechanism, not the words: from the large boot payload 
 identity block plus per-turn restatement**, and `/coordinator:review` gained inline
 authorization directly at its failure gate instead of relying on the boot-time doctrine to have
 survived that far into the session. Two collateral corrections landed in the same pass: a
-decision-record numbering collision was resolved by renumbering to DR-110, and an
+decision-record numbering collision was resolved by renumbering, and an
 unmechanizable detection claim in the original doctrine text was corrected rather than left
 standing.
 
@@ -412,41 +405,26 @@ asks the question fresh each time. Left unresolved, this produces a circularity:
 directive itself names the permission question, but nothing in-session can answer it without
 appealing back to the same directive that raised it.
 
-**DR-123 and DR-124 ground dispatch consent in co-authored global doctrine, not a live request.**
+**The standing grant grounds dispatch consent in co-authored global doctrine, not a live request.**
 An explicit standing grant — written into `CLAUDE.md`-class doctrine, co-authored by the human and
 the Claudes operating under it — is a **written-in-advance instruction**, categorically different
 from the request-conditioned directive the harness otherwise expects to answer the question. The
 standing grant is not the harness asking "may I?" in the moment; it is the human having already
 answered that question once, durably, in a doctrine artifact both parties can point to. This is
 the same "Human-Authored Doctrine Grants Consent" framing carried at the top of this repo's global
-doctrine (`~/.claude/CLAUDE.md` § Human-Authored Doctrine Grants Consent) — DR-123/DR-124 are the
-decision-record grounding for that same move as applied specifically to dispatch consent.
+doctrine (`~/.claude/CLAUDE.md` § Human-Authored Doctrine Grants Consent).
 
 **Why this belongs on this page.** The three-role sidecar contract, the confinement posture (§
 Two behavioral postures, not one above), and the dispatch-tiering rule (§ Dispatch tiering above)
 all presuppose that dispatch itself is already authorized — none of them re-litigate "may an EM
-dispatch a subagent at all." DR-123/DR-124 are the answer to that prior question; this page's
+dispatch a subagent at all." The standing grant is the answer to that prior question; this page's
 mechanics start downstream of it. A future reader auditing whether a dispatch was properly
-authorized should check the standing-grant doctrine (DR-123, DR-124), not look for a per-dispatch
+authorized should check the standing-grant doctrine, not look for a per-dispatch
 consent artifact on the sidecar itself — the sidecar records what the dispatch *did*, not whether
 it was permitted.
 
 ## Cross-references
 
-- `docs/plans/2026-07-09-dispatch-sidecar-executor-confinement.md` — the plan that extended the
-  schema; § Design decisions (`D-SCHEMA`, `D-DISPATCH-FEED`, `D-DIGRESSION`) carries the full
-  resolution history, including the Staff Engineer findings this page's write-owner table and untrusted-
-  narrative framing directly answer.
-- `docs/plans/2026-06-09-executor-sidecar-flight-recorder.md` — the original (now subsumed)
-  flight-recorder design (lifecycle role only); historical lineage, not the current mechanism.
-- `docs/plans/2026-07-13-subagent-run-report-subsume.md` — the subsuming plan: folds the flight
-  recorder into the universal run-report sidecar (`state/subagent-share/<session-id>/
-  <provision_key>.md`, typed by `run-report.schema.json`, provisioned by claude-klabauter's
-  `provision_report` engine), eligible for every scoped subagent, not just `/execute-plan` chunk
-  executors.
-- `cross-repo/inbox/2026-07-09-claude-klabauter-em-pcli-claude-klabauter-engines-consult-reply.md` § Q3 —
-  claude-klabauter's `ops/dispatch/` module-separation stance and the versioned-schema-as-ground-truth /
-  drift-gate / contract-ask #2 positions cited above.
 - `docs/wiki/workflow-orchestration.md` § The Workflow Script Is the Wave-Map — the wave-map-to-
   Workflow mapping table that `dispatch_feed`'s field set makes into a typed artifact.
 - `docs/wiki/schema-version-gate.md` — the additive-bump discipline this schema's 1.0.0 → 1.1.0
@@ -469,9 +447,6 @@ it was permitted.
   generalization this page's three-role table is now a specialization of.
 - `coordinator/docs/wiki/invisible-doctrine.md` — the discharge-test framing this page's N-role
   extension is scoped against (§ Generalizing the write-owner table below).
-- `docs/plans/2026-07-24-agent-citizenship-identity-adapted-provisioning.md` C9 — the chunk
-  that produced § AC13 discharge above: confirmed the existing guard, cross-referenced C1's
-  sidecar write-back, and sent the spec-surface-widening memo recorded there as sent-pending.
 
 ## Generalizing the write-owner table — from three roles to N identity-typed roles
 
@@ -534,14 +509,11 @@ personas (the review roster above) are unconfined on the source they're reviewin
 sidecars, offered as convenience rather than imposed as a fence. Confinement is "a behavioral
 speedbump, not security" — it does not change which agents get typed deliverable docs (all of
 them do), only whether the sidecar is the agent's *sole* write surface or one write surface among
-several. See `docs/decisions/DR-091-agent-citizenship-identity-typed-sidecar-contract.md` for the
-ratified decision record covering identity-typing, lead-stamping, tracked-inversion, and the
-two-posture model in full.
-
-### One-home reviewer→integrator seam — DR-091 implemented
+several.
+### One-home reviewer→integrator seam implemented
 <!-- Provenance: run 2026-08-06-14h38, derives from c7-018 -->
 
-DR-091 (§ Cross-references above) is not just a ratified decision record — it is implemented.
+The typed-sidecar contract is not just a ratified decision record — it is implemented.
 `review-integrator`'s intake, plus all 7 reviewer personas and all 5 review skills, now
 read/write exclusively `state/subagent-share/<session>/` for review findings. This retires the
 prior `review-trail/findings/` home and its sentinel-append convention entirely — a reviewer no

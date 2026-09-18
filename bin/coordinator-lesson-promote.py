@@ -437,16 +437,27 @@ def _wiki_inventory_dir() -> str:
     Respects LESSON_PROMOTE_WIKI_ROOT env var for test isolation (takes precedence;
     points DIRECTLY at a directory of .md files, mirroring _OUTBOX_ROOT_ENV's
     override shape — no real DoE-claude checkout required to exercise validation).
-    Default: <doe_root>/coordinator/docs/wiki/.
+    Default: the resolved DoE root's coordinator content root, either layout
+    (coordinator_data_root.content_root_for), plus docs/wiki/.
 
     Raises _DoeUnresolvable (from coordinator_registry.doe_root()) when the DoE root
     cannot be resolved and no env override is present.
     """
     _bootstrap_engine()
+    from coordinator_data_root import content_root_for
+
     override = os.environ.get(_WIKI_ROOT_ENV)
     if override:
         return override
-    return os.path.join(doe_root(), "coordinator", "docs", "wiki")
+    resolved = doe_root()
+    # Either content layout — the published flat mirror carries docs/wiki/ at
+    # its own root, with no "coordinator" segment to join.
+    content = content_root_for(resolved)
+    if content is not None:
+        return os.path.join(str(content), "docs", "wiki")
+    # Neither layout present — keep naming the private-shape path so
+    # _list_central_wiki_targets names the directory an operator expected.
+    return os.path.join(resolved, "coordinator", "docs", "wiki")
 
 
 def _list_central_wiki_targets(wiki_dir: str) -> frozenset[str]:

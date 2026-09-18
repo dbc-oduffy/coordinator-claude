@@ -34,6 +34,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 if _LIB_DIR not in sys.path:
@@ -113,6 +114,42 @@ COLLISION_RETRY_CAP = 1000
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
+def _is_swept_tmp_root(path: str) -> bool:
+    """True if `path` resolves under the OS temp directory and no longer
+    exists on disk -- the shape a pytest `tmp_path` fixture leaves behind
+    once its test has finished and the fixture tore the directory down.
+
+    Scoped to "under system temp AND absent" deliberately: a temp-dir root
+    that still exists is a live fixture mid-test, not a stale one, and this
+    predicate must not flag it.
+    """
+    try:
+        real = os.path.realpath(path)
+        tmp = os.path.realpath(tempfile.gettempdir())
+    except OSError:
+        return False
+    under_tmp = real == tmp or real.startswith(tmp + os.sep)
+    return under_tmp and not os.path.isdir(path)
+
+
+def _refuse_swept_isolation_root(env_var: str, value: str, caller_name: str) -> None:
+    """Fail closed (nonzero exit, one stderr line) on a swept test-isolation
+    root -- see `_is_swept_tmp_root` and `isolation_root_if_under_test`'s own
+    docstring for the silent-data-loss shape this replaces.
+    """
+    print(
+        f"error: {caller_name}: refusing to write under {env_var}={value!r} — "
+        f"this test-isolation root resolves under the system temp directory "
+        f"and no longer exists (a swept pytest tmp_path, inherited by a "
+        f"long-lived process). Writing here would recreate the directory and "
+        f"silently lose the entry nobody will ever look under it. Restart the "
+        f"process that holds this env var, or unset {env_var} before invoking "
+        f"{caller_name} outside a test.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
 def isolation_root_if_under_test(env_var: str, *, caller_name: str) -> str | None:
     """The value of test-isolation write-root override `env_var`, but only
     when this process is actually running under a test.
@@ -143,6 +180,10 @@ def isolation_root_if_under_test(env_var: str, *, caller_name: str) -> str | Non
     if not value:
         return None
     if os.environ.get(UNDER_TEST_ENV):
+        if _is_swept_tmp_root(value):
+            # A live tmp_path fixture always exists on disk; one that is gone
+            # is a snapshot a long-lived process inherited from a torn-down test.
+            _refuse_swept_isolation_root(env_var, value, caller_name)
         return value
     if env_var not in _ISOLATION_ROOT_WARNED:
         _ISOLATION_ROOT_WARNED.add(env_var)

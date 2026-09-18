@@ -1,8 +1,8 @@
 ---
 name: repomap-rag-gating
 status: active
-spec_backlink: archive/specs/2026-05/2026-05-09-skill-consolidation-pass.md
 ---
+
 
 # Repomap RAG-Gating Contract
 
@@ -11,7 +11,6 @@ is invoked. Every caller (update-docs, enrich-and-review, project-orientation ho
 `check-rag-state.py` before invoking the generator. This wiki is the single source of truth
 for the gating doctrine; callers reference it rather than embedding the logic inline.
 
-Spec backlink: `archive/specs/2026-05/2026-05-09-skill-consolidation-pass.md § T2`
 
 ---
 
@@ -75,7 +74,7 @@ case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal ch
 [ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
 
 # 0b. Resolve the claude-klabauter root — check-rag-state.py / generate-repomap.py migrated there
-# (coordinator bin/lib -> claude-klabauter, commit b644d5a9).
+# (coordinator bin/lib -> claude-klabauter).
 _cc_claude_klabauter="${REPO_CLAUDE_KLABAUTER:-${COORDINATOR_ENGINE_ROOT:-}}"
 if [ -z "$_cc_claude_klabauter" ]; then
   _cc_claude_klabauter="$(python3 "$_cc_root/hooks/scripts/_engine_root.py" 2>/dev/null)"

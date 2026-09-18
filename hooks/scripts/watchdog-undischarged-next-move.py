@@ -548,8 +548,8 @@ def _handle_stop(payload: dict) -> int:
         if nonce is not None:
             discharge_note = (
                 f"Recorded as {nonce}. When you have acted on this, run:\n"
-                f"  python {_block_discharge_cli_path()} record --nonce {nonce} "
-                f'--action "<what you did>" --repo-root {repo_root}\n'
+                f'  "{sys.executable}" "{_block_discharge_cli_path()}" record --nonce {nonce} '
+                f'--action "<what you did>" --repo-root "{repo_root}"\n'
             )
         else:
             discharge_note = (

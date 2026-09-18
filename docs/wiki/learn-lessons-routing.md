@@ -107,7 +107,7 @@ Each lesson processed produces one record:
 **`source:` format — pre-migration vs. post-migration.** Pre-migration entries reference
 `state/lessons.md` by line number (e.g. `source: "state/lessons.md:42"`). After migration
 to the per-entry YAML capture queue, post-migration entries use the per-entry filename as
-their source reference (e.g. `source: "state/lessons/2026-06-30-my-lesson.yaml"`).
+their source reference (e.g. `source: "state/lessons/<date>-<slug>.yaml"`).
 `extract-lessons.py`'s `:N` line-parsing is vestigial for post-migration entries; it is
 retained to read legacy pre-migration routing manifests that carry the old `<file>:<line>`
 form. Routing records derived from YAML-era captures use the filename; records derived from

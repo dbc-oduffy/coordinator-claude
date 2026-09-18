@@ -1,7 +1,5 @@
 # Portable Code Substrate
 
-<!-- spec-backlink: archive/specs/2026-05/2026-05-20-portable-code-substrate.md -->
-<!-- spec-backlink: archive/specs/2026-05/2026-05-20-eager-agent-calibration.md §5 -->
 
 > See also: substrate-pin-doctrine.md, machine-local-registry.md
 
@@ -101,11 +99,11 @@ Production traffic is unaffected (env var arrives unset from outside); the failu
 
 **Distinct from where the resolver family lives.** The PATH-injection claims above are about *bare-name invocability* on POSIX shells — a separate concern from *where the three helpers are installed*. Per DR-072, the `claude_machine_local.py` / `claude-machine-local.sh` / `claude-machine-local.ps1` resolver family's canonical home is `<settings-home>/bin/`, not `~/.claude/bin/`; see `machine-local-registry.md § 4e` for the settings-home ladder. Don't conflate "is this on PATH" with "where does the resolver family live" — a caller with the absolute `<settings-home>/bin/…` path works everywhere regardless of PATH.
 
-**`~/.claude/bin/` PATH-shim tenancy is OUTSIDE DR-072's vacate mandate.** DR-072's mandate is over durable machine-local *state* (root pointers, registries, per-machine installer-seeded values) — the axis is durability, not executability. An installer-authored PATH shim is a regenerable artifact whose absence self-resolves from a re-install, which is precisely the disposable-artifact shape DR-072 permits under `~/.claude` (DR-072 § "Decision rule for authors"). It is therefore **not** a DR-072 finding, and a repo that is reset-safe for durable state while still writing an executable here has no DR-072 hole. This is a fleet-wide exemption — every repo shipping a CLI shim inherits it.
+**`~/.claude/bin/` PATH-shim tenancy is OUTSIDE the vacate mandate.** The vacate mandate's scope is durable machine-local *state* (root pointers, registries, per-machine installer-seeded values) — the axis is durability, not executability. An installer-authored PATH shim is a regenerable artifact whose absence self-resolves from a re-install, which is precisely the disposable-artifact shape the mandate permits under `~/.claude`. It is therefore **not** a finding under it, and a repo that is reset-safe for durable state while still writing an executable here has no hole there. This is a fleet-wide exemption — every repo shipping a CLI shim inherits it.
 
-**Coordinator itself declines the exemption for its own forwarders (owns-zero).** The exemption above is a *permission* (a regenerable shim in `~/.claude/bin/` does not *violate* DR-072), not a mandate to keep one. Coordinator mints zero content into `~/.claude/bin/` and resolves nothing through it, consolidating its forwarder set onto the single durable settings-home home (`<settings-home>/bin/`, DR-071/072) — the `~/.claude/bin/` copy would otherwise be a byte-identical redundant mirror of settings-home, and `~/.claude/bin/` is the reset-*fragile* surface. The installer registers **settings-home\bin** (`bin_dst`) on the Windows user PATH (`install-substrate.py` Step 3b / `_windows_health_steps`), **not** `~/.claude/bin/` (`compat_bin_dst` is never PATH-registered) — settings-home is already the Windows bare-name home, so owns-zero relocates nothing there; it only stops minting redundant `.cmd` twins into a non-PATH directory. **Scope: this is coordinator declining a permitted option for its own minted content — NOT a fleet-wide vacate mandate.** The fleet-wide exemption is unchanged; any repo may still ship a regenerable shim there under the ruling above.
+**Coordinator itself declines the exemption for its own forwarders (owns-zero).** The exemption above is a *permission* (a regenerable shim in `~/.claude/bin/` does not *violate* the vacate mandate), not a mandate to keep one. Coordinator mints zero content into `~/.claude/bin/` and resolves nothing through it, consolidating its forwarder set onto the single durable settings-home home (`<settings-home>/bin/`) — the `~/.claude/bin/` copy would otherwise be a byte-identical redundant mirror of settings-home, and `~/.claude/bin/` is the reset-*fragile* surface. The installer registers **settings-home\bin** (`bin_dst`) on the Windows user PATH (`install-substrate.py` Step 3b / `_windows_health_steps`), **not** `~/.claude/bin/` (`compat_bin_dst` is never PATH-registered) — settings-home is already the Windows bare-name home, so owns-zero relocates nothing there; it only stops minting redundant `.cmd` twins into a non-PATH directory. **Scope: this is coordinator declining a permitted option for its own minted content — NOT a fleet-wide vacate mandate.** The fleet-wide exemption is unchanged; any repo may still ship a regenerable shim there under the ruling above.
 
-**The exemption is narrow, and it is not a licence to ship shims here.** DR-072 silence does not make `~/.claude/bin/` the right home for a plugin CLI shim — the tenancy correction above already governs that, on a separate axis: `~/.claude/bin/` is PATH-registered on no platform, so a shim written there yields **no bare-name reach anywhere**, not merely on macOS or Linux. A plugin shipping `~/.claude/bin/<tool>{,.cmd}` for cross-shell invocability is DR-072-clean and *still* wrong under this file — its POSIX users get a file that satisfies `ls` and fails `which`. Route such shims to `plugins/<plugin>/bin/` per § Consequence for plugin CLI shims.
+**The exemption is narrow, and it is not a licence to ship shims here.** The mandate's silence does not make `~/.claude/bin/` the right home for a plugin CLI shim — the tenancy correction above already governs that, on a separate axis: `~/.claude/bin/` is PATH-registered on no platform, so a shim written there yields **no bare-name reach anywhere**, not merely on macOS or Linux. A plugin shipping `~/.claude/bin/<tool>{,.cmd}` for cross-shell invocability is clean under the mandate and *still* wrong under this file — its POSIX users get a file that satisfies `ls` and fails `which`. Route such shims to `plugins/<plugin>/bin/` per § Consequence for plugin CLI shims.
 
 Empirically: `%APPDATA%\npm` is NOT on PATH for Git Bash or PowerShell on Windows (only cmd.exe via the standard Node installer); `/usr/local/bin` doesn't exist on Windows shells; `npm link` ships a file that satisfies `ls` but fails `which` for the agent's actual shell. The harness-injected plugin bin is the only directory guaranteed for bare-name invocation on all platforms.
 
@@ -120,7 +118,6 @@ Empirically: `%APPDATA%\npm` is NOT on PATH for Git Bash or PowerShell on Window
 The contract is a one-paragraph wiki addition for the consuming plugin; the producer is the install-phase function. Cross-repo doctrine — applies to every plugin authoring a cross-shell CLI shim. (case: example-game-repo)
 
 <!-- DoE resolved: 2026-06-15 — tenancy contract memo `cross-repo/inbox/2026-06-09-example-game-repo-bin-tenancy-contract.md` actioned 2026-06-09 (status: actioned, fyi-nil); namespaced `example-game-repo-control{,.cmd}`, no coordinator-side conflicts. -->
-<!-- Harness injects plugins/*/bin/ (cross-platform); ~/.claude/bin/ is PATH-registered on no platform. See docs/plans/2026-06-18-machine-local-bare-invocation-macos.md. -->
 
 ## Invoke workspace tooling from its package dir — `npx <tool>` from the wrong cwd resolves a decoy
 
@@ -132,7 +129,7 @@ The contract is a one-paragraph wiki addition for the consuming plugin; the prod
 
 ## Template Mirrors
 
-Canonical live install per DR-072 is `<settings-home>/bin/{claude_machine_local.py,claude-machine-local.sh,claude-machine-local.ps1}`. The installer mints these three helpers there only — the prior `~/.claude/bin/` compat mirror (the Step 3c-compat producer and its `compat_bin_dst` mkdir) is retired (Gate 6, `docs/plans/2026-07-24-coordinator-owns-zero-claude-bin.md`); a fresh install mints nothing into `~/.claude/bin/`.
+Canonical live install per the vacate mandate is `<settings-home>/bin/{claude_machine_local.py,claude-machine-local.sh,claude-machine-local.ps1}`. The installer mints these three helpers there only — the prior `~/.claude/bin/` compat mirror (the Step 3c-compat producer and its `compat_bin_dst` mkdir) is retired (Gate 6); a fresh install mints nothing into `~/.claude/bin/`.
 
 All three helpers live at two locations:
 - Live install: `<settings-home>/bin/{claude_machine_local.py,claude-machine-local.sh,claude-machine-local.ps1}`
@@ -160,7 +157,7 @@ The following were evaluated and deliberately excluded from the initial substrat
 |---|---|---|
 | PostToolUse hook detecting hardcoded paths | Evidence asymmetry: hook value only measurable after substrate-alone effectiveness observed; shipping both confounds the measurement | ≥3 new authored offenders over 30-day window post-substrate |
 | Sweep CLI (portability audit on demand) | No concrete consumer surface yet | A ceremony (e.g. `/workweek-complete`) wants a portability summary |
-| Doctor auto-population of `repos.*` | 3-line manual edit per machine dominated in cost by operator-identity capture (formerly `coordinator_whoami`'s job; retired, `archive/specs/2026-08-23-retire-coordinator-whoami-entirely.md`) | ≥1 OSS operator reports first-run friction |
+| Doctor auto-population of `repos.*` | 3-line manual edit per machine dominated in cost by operator-identity capture (formerly `coordinator_whoami`'s job; retired) | ≥1 OSS operator reports first-run friction |
 | Cross-OS CI gate | Same measurement-validity constraint as hook | Substrate shipped + demos landed + ≥3 portability bugs surfaced post-substrate |
 
 **Do not re-propose these without first checking whether the pickup signal has fired.** They were not deferred for lack of appetite; they were deferred because the measurement surface didn't exist yet.
@@ -174,7 +171,7 @@ The following hardcoded-path patterns are *not* `repos.*` problems and were expl
 | Hardcoded branch name in `run-phase5-rebisect-inline.ps1` | Branch-name bug, not path bug | `$env:BISECT_BASE_BRANCH ?? "main"` |
 | `api_registry_names.json` UE 5.7 install path | Runtime-data file | Resolve via `whoami`-discovered UE root |
 | `build-plugin.yml` hardcoded MSVC | GitHub Actions config | Parameterize via workflow input |
-| `server.json` placeholder `C:/Users/YourName` | Template placeholder | Substitute at install time or move to `.example` <!-- foreign-path-ok: template placeholder text, not an asserted location --> |
+| `server.json` placeholder naming a user home (`C:/<YourName>`) | Template placeholder | Substitute at install time or move to `.example` <!-- foreign-path-ok: template placeholder text, not an asserted location --> |
 | `integration.yml` sibling-checkout | CI workflow | Configurable checkout step or cross-OS CI matrix |
 
 The discriminator: if the wrong thing is a path to a *sibling repo root*, machine-local is the fix. If it is a configuration value, branch name, build parameter, or template placeholder — that is a different problem category.

@@ -4,7 +4,6 @@
 > most of them from the EM and let a dispatched specialist reach the rest. That shape is not
 > implementable, and the version of it that *is* implementable was built, shipped, and deleted.
 >
-> Source: `cross-repo/archive/2026-07-27-project-rag-em-mcp-tool-glut-deferred-visibility.md`
 > (project-rag-em, read against `example-game-workbench-repo` HEAD).
 > Mechanism detail: `mcp-topology.md § 3`.
 
@@ -180,7 +179,6 @@ most tool glut needs a routing table, not a fence.
      growing surface — it pays the enumeration rot cost of the bounded shape without the
      narrowness that makes that cost worth it.
    *(Discriminator and omit-`tools:` shape contributed by project-rag-em,
-   cross-repo/inbox/2026-07-28-project-rag-em-project-rag-agent-tool-surface-reference-implementation.md,
    as the reference implementation of `project-rag-researcher`/`project-rag-context-builder`. The
    omit-vs-enumerate resident-token delta and whether an MCP server's `instructions` block is
    resident are both explicitly **unmeasured** on their side as of that memo — do not treat either

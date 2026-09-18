@@ -316,9 +316,10 @@ def _missing_target_entry_guidance(target: str, all_rows: List[List[str]]) -> Li
 
     if len(matched) > 1 and _shares_one_destination([row[3] for row in matched]):
         names = sorted(row[0] for row in matched)
-        # All of them: `coordinator-publish` with no argument already means
-        # every resolved row, so naming them back would be noise.
-        argument = "" if len(names) == len(known) else " " + ",".join(names)
+        # All of them: echo the operator's own word — `publish.py`'s
+        # `_mirror_sigil_for_alias` resolves it to the same mirror — so the
+        # printed line is runnable verbatim.
+        argument = " " + (target if len(names) == len(known) else ",".join(names))
         return [
             f"route: {len(names)} rows match '{target}' and share one destination; "
             f"percolate-round is single-target. Use: coordinator-publish{argument}"

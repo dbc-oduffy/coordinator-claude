@@ -2,12 +2,12 @@
 title: "State placement law — where session-authored artifacts live"
 created: 2026-07-03
 status: active
-spec_backlink: docs/plans/2026-07-03-stop-the-rot-claude-klabauter-state-home-placement.md § AC7
 ---
+
 
 # State Placement Law — Where Session-Authored Artifacts Live
 
-> **Purpose (spec backlink: `docs/plans/2026-07-03-stop-the-rot-claude-klabauter-state-home-placement.md § AC7`).**
+> **Purpose.**
 > Durable rule for where every session-authored artifact lands after the claude-klabauter state-home
 > migration. This wiki is the SSOT for artifact-authoring surfaces (`coordinator-doc-new`,
 > `/handoff`, `/plan`, hooks, CLI tools) to resolve their write-target. Never hardcode
@@ -34,31 +34,30 @@ against permission-trip recurrence, and enabling the engine-absorbs-shell trajec
 | Artifact class | Post-migration home | Notes |
 |---|---|---|
 | **Central/global state** (`state/lessons/`, `state/trackers/`, `state/queues/`, `state/ledgers/`, `state/memos/`, `state/scratch/`, `state/debt-backlog/`, `state/bug-backlog/`, `state/improvement-queue/`, `state/lessons-outbox/`) | **claude-klabauter — unconditionally** | Central state for all coordinator-installed repos. `CLAUDE_KLABAUTER_ROOT` is the root; `coordinator-state-root.py --central`'s output is the write target. *Mechanism lag: the subject-classification seam rewire is pending the doe-authoring-repo spinoff — `coordinator-state-root.py --central` routes here unconditionally until that spinoff lands (see § Plan Homes).* |
-| **Per-repo work state** (`state/` under a sibling project). Includes session-scoped `state/handoffs/`, `state/orientation_cache.md`, `state/review-trail/`, `state/week-changelog/`, `state/audits/`, `state/recovery/` — resolved via `coordinator-state-root.py` (no flag), which for the meta-repo still redirects to claude-klabauter but for a sibling stays local. | **Unchanged for siblings** — `$GIT_ROOT/state/` | example-os-repo, project-rag, example-game-repo, etc. all keep writing their own `state/`. Only when `$GIT_ROOT` IS the meta-repo (`~/.claude`) does per-repo state redirect to claude-klabauter. **Exception — install-baton rendezvous:** the shared `state/handoffs/` rendezvous that a downstream repo's installer seeds an install/orient `kind: spinoff` baton into is NOT this per-repo `$GIT_ROOT/state/` and NOT row-36 central claude-klabauter state — it is machine-shared install substrate at `$(coordinator-settings-home)/state/handoffs/`, distinct from both. See the dedicated **Install-baton rendezvous** row below. **Distill-reap exception — `state/review-trail/` (historical; superseded home is `state/subagent-share/`, see below):** `state/review-trail/findings/*.md` sidecars carrying a `## Integrator Dispositions` block (already integrated into a plan by the review-integrator) ARE reaped by `/distill`'s targeted `bin/reap-integrated-review-findings.py` (`PIPELINE.md` § Phase 5 step 10) — a surgical, named, post-integration reap of one artifact class, distinct from a `/distill` directory purge, and history-preserving (`git rm`, not `rm -rf`). **Disjoint complement — claude-klabauter-owned, marker-ABSENT-and-aged:** the never-integrated tail — `state/review-trail/findings/*.md` sidecars that are marker-absent AND aged >14d — is reaped by claude-klabauter's `fleet.reap_unintegrated_findings` op (sanctioned by claude-klabauter DR-218, run on claude-klabauter's `session.boot_sweep` cadence at session-init + `/workday-start`), NOT by `/distill`. Age is filename-derived only (checkout-invariant — a fresh clone's recent mtimes never disable it — via a three-tier date cascade, fail-closed-to-keep on a genuinely date-less name), the delete is history-preserving (`git rm`, never `-f`, so a concurrently-modified sidecar fails closed and is retained), and each candidate gets an act-time terminality re-verify so a sidecar that gains the `## Integrator Dispositions` marker between scan and reap is skipped. Two disjoint reapers over one artifact class: leg (a) reaps marker-PRESENT (DoE-owned, `/distill`); leg (b) reaps marker-ABSENT-and-aged (claude-klabauter-owned, boot_sweep) — no overlap, nothing double-reaped. **`state/review-trail/` is a closed corpus** — nothing writes it; the live home for every provisioned sidecar is `state/subagent-share/` (DR-091, row below). The two reap legs above govern what is already there. |
-| **Per-repo work state — `state/subagent-share/`** (provisioned subagent run-report sidecars: review findings, staff-eng-review, and general run-reports) | **Unchanged for siblings — `$GIT_ROOT/state/subagent-share/<session>/<provision_key>.md`** (per-repo, same resolver as the row above) | DR-091's one home for every provisioned subagent sidecar — see `docs/decisions/DR-091-agent-citizenship-identity-typed-sidecar-contract.md`. **Not provisioned here:** the plan-pipeline sidecar-emitters — prior-art-check, plan-coverage-check, docs-check (and, when it fires, external-pattern) — do not provision here; their OUTPUT home is the plan-derivable `.coordinator-local/plan-sidecars/<plan-stem>.<lens>.md` (see the **Per-repo work state — `.coordinator-local/plan-sidecars/`** row below), because their path is derivable from the plan itself rather than session-keyed. Reaped by `bin/reap-stale-subagent-sidecars.py` (claude-klabauter-resident; shipped by `docs/plans/2026-07-24-reviewer-sidecar-provisioning-reconciliation.md` chunk C7) under the general delete-by-convention reap rule (see § Delete-by-Convention Reap Doctrine below): ephemeral scaffolding whose durable content has already folded into a consuming artifact (the review-integrator's Disposition block, an executor's doc-handoff contract, etc.) is deletable, gated on session liveness AND/OR an age floor — never `status:` alone. Wired into `/distill` Phase 5, `/update-docs`' sweep, a `/workweek-complete` cron step, and on-demand invocation. |
-| **Per-repo work state — `.coordinator-local/plan-sidecars/`** (plan-pipeline lens sidecars: prior-art-check, plan-coverage-check, docs-check, and — when it fires — external-pattern) | **`$GIT_ROOT/.coordinator-local/plan-sidecars/<plan-stem>.<lens>.md`** (per-repo, gitignored machinery root, plan-derivable — claude-klabauter's `provision_report`/`machinery_paths.plan_sidecars_dir` is the single path-deriving surface, D0/Z2) | **UNREAPED BY DESIGN** — not swept by `bin/reap-stale-subagent-sidecars.py` or any age/liveness-gated reaper, and deliberately NOT widened into that reaper's scope (the Director of Engineering Z1, rejecting the alternative of folding this class into row above). Rationale: these sidecars ARE the prior-art-checker / plan-coverage-checker false-positive-arbitration feedback-loop archive (`coordinator/agents/prior-art-checker.md:316`, "Never delete a prior sidecar") — a second run of the same lens against the same plan must find the first run's verdict at the same plan-derived path (rename-on-existing, never delete). Deleting them on an age/liveness floor would destroy exactly the cross-run continuity the feedback loop depends on. See D0's Reap-disposition paragraph in `docs/plans/2026-07-24-g2-plan-pipeline-sidecar-contract.md` for the full rejection-of-alternative reasoning. Single-machine by the 2026-09-02 fleet-machinery-sweep's relocation off tracked `state/`: the durable copy is the machine that wrote it, not git — `.gitignore` ignores this path accordingly. |
-| **Install-baton rendezvous** (shared install/orient batons — `kind: spinoff` batons carrying `install_chain_order:` or an orient-leg discriminator, seeded by a conforming repo's installer or coordinator's own onboarding flow) | **`$(coordinator-settings-home)/state/handoffs/`** — machine-shared, per-machine install substrate | Distinct from per-repo `state/handoffs/` (row above — session-scoped, `$GIT_ROOT`-resolved) and from central claude-klabauter state (row above — meta-repo session state). Mints the same `<settings-home>` root prefix as the C9 (`docs/plans/2026-07-06-durable-substrate-to-settings-home.md`) `<settings-home>/<repo-id>/` install-status-ledger / chain-walk-visited-set precedent — both are per-machine install substrate, a plane distinct from claude-klabauter's meta-repo session state — but the rendezvous is NOT scoped under `<settings-home>/<repo-id>/` (it is machine-shared, not per-repo-id). See `agent-install-contract.md` § The rendezvous and § Relocation boundary. Compat: legacy `~/.claude/state/handoffs/` read as fallback during the transition window. |
+| **Per-repo work state** (`state/` under a sibling project). Includes session-scoped `state/handoffs/`, `state/orientation_cache.md`, `state/review-trail/`, `state/week-changelog/`, `state/audits/`, `state/recovery/` — resolved via `coordinator-state-root.py` (no flag), which for the meta-repo still redirects to claude-klabauter but for a sibling stays local. | **Unchanged for siblings** — `$GIT_ROOT/state/` | example-os-repo, project-rag, example-game-repo, etc. all keep writing their own `state/`. Only when `$GIT_ROOT` IS the meta-repo (`~/.claude`) does per-repo state redirect to claude-klabauter. **Exception — install-baton rendezvous:** the shared `state/handoffs/` rendezvous that a downstream repo's installer seeds an install/orient `kind: spinoff` baton into is NOT this per-repo `$GIT_ROOT/state/` and NOT row-36 central claude-klabauter state — it is machine-shared install substrate at `$(coordinator-settings-home)/state/handoffs/`, distinct from both. See the dedicated **Install-baton rendezvous** row below. **Distill-reap exception — `state/review-trail/` (historical; superseded home is `state/subagent-share/`, see below):** `state/review-trail/findings/*.md` sidecars carrying a `## Integrator Dispositions` block (already integrated into a plan by the review-integrator) ARE reaped by `/distill`'s targeted `bin/reap-integrated-review-findings.py` (`PIPELINE.md` § Phase 5 step 10) — a surgical, named, post-integration reap of one artifact class, distinct from a `/distill` directory purge, and history-preserving (`git rm`, not `rm -rf`). **Disjoint complement — claude-klabauter-owned, marker-ABSENT-and-aged:** the never-integrated tail — `state/review-trail/findings/*.md` sidecars that are marker-absent AND aged >14d — is reaped by claude-klabauter's `fleet.reap_unintegrated_findings` op (sanctioned by claude-klabauter, run on claude-klabauter's `session.boot_sweep` cadence at session-init + `/workday-start`), NOT by `/distill`. Age is filename-derived only (checkout-invariant — a fresh clone's recent mtimes never disable it — via a three-tier date cascade, fail-closed-to-keep on a genuinely date-less name), the delete is history-preserving (`git rm`, never `-f`, so a concurrently-modified sidecar fails closed and is retained), and each candidate gets an act-time terminality re-verify so a sidecar that gains the `## Integrator Dispositions` marker between scan and reap is skipped. Two disjoint reapers over one artifact class: leg (a) reaps marker-PRESENT (DoE-owned, `/distill`); leg (b) reaps marker-ABSENT-and-aged (claude-klabauter-owned, boot_sweep) — no overlap, nothing double-reaped. **`state/review-trail/` is a closed corpus** — nothing writes it; the live home for every provisioned sidecar is `state/subagent-share/`. The two reap legs above govern what is already there. |
+| **Per-repo work state — `state/subagent-share/`** (provisioned subagent run-report sidecars: review findings, staff-eng-review, and general run-reports) | **Unchanged for siblings — `$GIT_ROOT/state/subagent-share/<session>/<provision_key>.md`** (per-repo, same resolver as the row above) | **Not provisioned here:** the plan-pipeline sidecar-emitters — prior-art-check, plan-coverage-check, docs-check (and, when it fires, external-pattern) — do not provision here; their OUTPUT home is the plan-derivable `.coordinator-local/plan-sidecars/<plan-stem>.<lens>.md` (see the **Per-repo work state — `.coordinator-local/plan-sidecars/`** row below), because their path is derivable from the plan itself rather than session-keyed. Reaped by `bin/reap-stale-subagent-sidecars.py` (claude-klabauter-resident; shipped by chunk C7) under the general delete-by-convention reap rule (see § Delete-by-Convention Reap Doctrine below): ephemeral scaffolding whose durable content has already folded into a consuming artifact (the review-integrator's Disposition block, an executor's doc-handoff contract, etc.) is deletable, gated on session liveness AND/OR an age floor — never `status:` alone. Wired into `/distill` Phase 5, `/update-docs`' sweep, a `/workweek-complete` cron step, and on-demand invocation. |
+| **Per-repo work state — `.coordinator-local/plan-sidecars/`** (plan-pipeline lens sidecars: prior-art-check, plan-coverage-check, docs-check, and — when it fires — external-pattern) | **`$GIT_ROOT/.coordinator-local/plan-sidecars/<plan-stem>.<lens>.md`** (per-repo, gitignored machinery root, plan-derivable — claude-klabauter's `provision_report`/`machinery_paths.plan_sidecars_dir` is the single path-deriving surface, D0/Z2) | **UNREAPED BY DESIGN** — not swept by `bin/reap-stale-subagent-sidecars.py` or any age/liveness-gated reaper, and deliberately NOT widened into that reaper's scope (the Director of Engineering Z1, rejecting the alternative of folding this class into row above). Rationale: these sidecars ARE the prior-art-checker / plan-coverage-checker false-positive-arbitration feedback-loop archive (`coordinator/agents/prior-art-checker.md:316`, "Never delete a prior sidecar") — a second run of the same lens against the same plan must find the first run's verdict at the same plan-derived path (rename-on-existing, never delete). Deleting them on an age/liveness floor would destroy exactly the cross-run continuity the feedback loop depends on.  Single-machine by the 2026-09-02 fleet-machinery-sweep's relocation off tracked `state/`: the durable copy is the machine that wrote it, not git — `.gitignore` ignores this path accordingly. |
+| **Install-baton rendezvous** (shared install/orient batons — `kind: spinoff` batons carrying `install_chain_order:` or an orient-leg discriminator, seeded by a conforming repo's installer or coordinator's own onboarding flow) | **`$(coordinator-settings-home)/state/handoffs/`** — machine-shared, per-machine install substrate | Distinct from per-repo `state/handoffs/` (row above — session-scoped, `$GIT_ROOT`-resolved) and from central claude-klabauter state (row above — meta-repo session state). Mints the same `<settings-home>` root prefix as the C9 `<settings-home>/<repo-id>/` install-status-ledger / chain-walk-visited-set precedent — both are per-machine install substrate, a plane distinct from claude-klabauter's meta-repo session state — but the rendezvous is NOT scoped under `<settings-home>/<repo-id>/` (it is machine-shared, not per-repo-id). See `agent-install-contract.md` § The rendezvous and § Relocation boundary. Compat: legacy `~/.claude/state/handoffs/` read as fallback during the transition window. |
 | **Meta-repo operational docs**: top-level `~/.claude/docs/{plans,research,problems}/` whose deliverable does NOT edit the plugin source tree | **claude-klabauter** | Physically moved at migration (not auto-resolved); new artifacts authored via seam-routed surfaces land in claude-klabauter. Doctrine-subject plans land in the DoE clone's single `docs/plans/` — see § Plan Homes below. |
 | **Plugin source** (`bin/`, `lib/`, `hooks/`, `skills/`, `agents/`) | **DoE clone — `coordinator/` tree, resolved live via `--plugin-dir`** | Current tooling shape: coordinator plugin source is resolved live from the external DoE clone (`$REPO_DOE_CLAUDE/coordinator/`) via Claude Code `--plugin-dir`; the `~/.claude/plugins/coordinator-claude/` marketplace copy is retired/vestigial. OSS publish (claude-klabauter `coordinator/bin/publish.py`) sources from the allowlisted plugin subpath inside the DoE clone (DoE→OSS percolation). |
 | **Wikis** (`docs/wiki/`) | **DoE clone — `coordinator/docs/wiki/`, resolved live via `--plugin-dir`** | Same coordinator tree as plugin source (`$REPO_DOE_CLAUDE/coordinator/docs/wiki/`); OSS-published Tier-1 orientation surface — moves would break publish + session boot. |
-| **Decisions** (`docs/decisions/`) | **DoE clone — `$REPO_DOE_CLAUDE/docs/decisions/`** | Tier-1 orientation. `~/.claude` has no `docs/` path in any commit reachable from this clone's fetched refs, and none untracked in the pre-incident config snapshot; the corpus was seeded into the DoE clone (`b683e4e49`) and is still written there (`a7235ccf8`). DR-083 makes DoE the SSOT for DR-identifier allocation, so the write target and the numbering authority are the same tree. Note the corpus is dual-indexed — some records are date-named files carrying an internal `id: DR-NNN`, so a filename-only scan shows phantom gaps (see `naming-discipline.md`). |
+| **Decisions** (`docs/decisions/`) | **DoE clone — `$REPO_DOE_CLAUDE/docs/decisions/`** | Tier-1 orientation. `~/.claude` has no `docs/` path in any commit reachable from this clone's fetched refs, and none untracked in the pre-incident config snapshot; the corpus was seeded into the DoE clone and is still written there. DR-083 makes DoE the SSOT for DR-identifier allocation, so the write target and the numbering authority are the same tree. Note the corpus is dual-indexed — some records are date-named files carrying an internal `id: DR-NNN`, so a filename-only scan shows phantom gaps (see `naming-discipline.md`). |
 | **`archive/`** | **claude-klabauter** | Session-init archives `state/handoffs → archive/handoffs` within the state-repo; claude-klabauter holds `archive/` alongside `state/`. |
-| **Strategic self-description** (`state/strategic/self-description.yaml`) | **Unchanged for siblings — `$GIT_ROOT/state/strategic/`** (per-repo, same resolver as row "Per-repo work state") | New artifact class under § Fleet Producer Contract, NOT a new topology — per-repo-emitted, harvested read-side, never consolidated. See § Fleet Producer Contract → Artifact class — strategic self-description below and `strategic-self-description-standard.md`. |
+| **Strategic self-description** (`self-description.yaml` under `state/strategic/`) | **Unchanged for siblings — `$GIT_ROOT/state/strategic/`** (per-repo, same resolver as row "Per-repo work state") | New artifact class under § Fleet Producer Contract, NOT a new topology — per-repo-emitted, harvested read-side, never consolidated. See § Fleet Producer Contract → Artifact class — strategic self-description below and `strategic-self-description-standard.md`. |
 | **File-based cross-session plans** (`tasks/<feature-name>/todo.md`) | **Unchanged for siblings — `$GIT_ROOT/tasks/<feature-name>/todo.md`** (per-repo, feature-scoped) | Not `state/` — this is `tasks/` ephemera (see § Taxonomy above for the `state/` vs `tasks/` split), aggressively swept by `/distill` and `/update-docs`. `/handoff` when ending a session mid-feature rather than leaving the todo file as the sole record. |
 
 **Summary rule:** working data moves to claude-klabauter; the coordinator plugin source is DoE-resident (resolved live via `--plugin-dir`); decisions moved to the DoE clone (see the Decisions row above); other doctrine surfaces (settings, harness config) remain in `~/.claude`.
-<!-- Review: code-reviewer — this sentence still listed decisions among the ~/.claude-resident surfaces, contradicting the corrected row eight lines above -->
 
 
 > **`docs/wiki/` is source-only — the naming-collision trap.** The DoE-claude clone is the coordinator doctrine source of truth; `~/.claude` is the live-install and post-cutover carries no durable coordinator-owned artifact — the one residual, `.doe-root`, is a disposable regenerated mirror of the settings-home anchor (see `coordinator-installer-shape.md`). Both trees are named "coordinator-claude"; they are not the same tree. A bare `coordinator/docs/wiki/<name>.md` citation resolves against the DoE clone only — grepping it under `~/.claude` finds nothing, and that absence is NOT evidence the doctrine doesn't exist. Cross-repo citations must repo-qualify to avoid a false stand-down — see `cross-repo-citation-conventions.md § When to qualify`.
 
-> **Negative-spec (soft-seam, claude-klabauter DR-210):** The authoritative-mutation subset — terminal work-state write + lifecycle stamp (e.g. `cross-repo-memo`'s emit-and-stamp op) — is a strangler candidate that may later relocate to claude-klabauter ops without violating this placement law.
+> **Negative-spec (soft-seam):** The authoritative-mutation subset — terminal work-state write + lifecycle stamp (e.g. `cross-repo-memo`'s emit-and-stamp op) — is a strangler candidate that may later relocate to claude-klabauter ops without violating this placement law.
 
 ---
 
 ## Delete-by-Convention Reap Doctrine
 
-> Spec backlink: `docs/plans/2026-07-24-reviewer-sidecar-provisioning-reconciliation.md` § C7 (the `state/subagent-share/` reaper that generalized this rule out of the review-findings-specific reap precedent).
+> Spec backlink: the reviewer-sidecar provisioning-reconciliation plan § C7 (the `state/subagent-share/` reaper that generalized this rule out of the review-findings-specific reap precedent).
 
 **General rule — applies to every ephemeral-scaffolding sidecar type, not just review findings.** A session-authored artifact is *ephemeral scaffolding* when its durable value is a fold: the artifact exists only to shepherd content into a longer-lived consuming artifact (a plan's `## Integrator Dispositions` block, an executor's doc-handoff contract, a queue entry, a wiki edit), and once that fold has happened the scaffolding itself carries no residual information the consuming artifact doesn't already have. Ephemeral scaffolding is **deletable once folded** — this is delete-by-convention: the convention (the artifact's typed shape + its consumer's contract) is what licenses the delete, not a per-instance judgment call.
 
@@ -88,9 +87,9 @@ sidecar.
 
 A plan, DR, or doc living in claude-klabauter records only that **claude-klabauter is coordinator's central
 working-data store** — it makes NO claim about who *owns* or *executes* the work. Ownership is
-set by the tri-plane boundary (DoE's `docs/decisions/DR-047-doe-claude-klabauter-boundary-redraw-contract-vs-e.md`,
+set by the tri-plane boundary (DoE's contract-vs-engine decision is the
 governing authority, with the custody-vs-projection framing supplied by
-`claude-klabauter/docs/decisions/DR-236-state-is-disk-truth-workstate-store-is-pro.md`):
+Claude-klabauter's state-is-disk-truth decision):
 *meaning* (artifact-shape-contract + skills) → coordinator-claude; *emission-write engine + custody
 of its own disk-truth bytes* → claude-klabauter; *query/retrieval capability over a derived, re-projectable
 projection of that disk-truth* → rag. A plan states its own ownership in its ownership-boundary table; **never
@@ -166,7 +165,7 @@ on *subject*, not tree location: e.g. a claude-klabauter install *script* → `e
 The single seam for resolving the state-root directory. **Python-native** — the retired bash
 oracle (`coordinator-state-root.sh`) was deleted by the de-bash campaign; invoke
 via claude-klabauter `coordinator/lib/coordinator-state-root.py` (or import `coordinator_state_root` from it,
-now itself migrated to claude-klabauter — commit b644d5a9), never as a sourced shell function. Encodes the
+now itself migrated to claude-klabauter), never as a sourced shell function. Encodes the
 full taxonomy, now subject-aware:
 
 - `coordinator-state-root.py --central` (no subject/artifact) → `$(coordinator_claude_klabauter_root)/state` unconditionally
@@ -195,7 +194,7 @@ comparison) and fails loud on an empty or unresolvable git root — never silent
 > shell seam, so routing their doctrine writes to DoE needs a Python-side subject-router (post-W3).
 
 **Central write target for any central-state artifact** (`coordinator-state-root.py` is
-Claude-klabauter-resident post-b644d5a9; resolve `$REPO_CLAUDE_KLABAUTER` first):
+Claude-klabauter-resident; resolve `$REPO_CLAUDE_KLABAUTER` first):
 ```
 $(python3 "$REPO_CLAUDE_KLABAUTER/coordinator/lib/coordinator-state-root.py" --central)/<artifact-path>
 ```
@@ -216,7 +215,7 @@ The anti-pattern is hardcoding the path:
 # WRONG — hardcodes the meta-repo as state home
 echo "$data" > ~/.claude/state/improvement-queue/"$id".yaml
 
-# CORRECT — routes through the seam (coordinator-state-root.py is claude-klabauter-resident post-b644d5a9)
+# CORRECT — routes through the seam (coordinator-state-root.py is claude-klabauter-resident)
 CENTRAL_ROOT=$(python3 "$REPO_CLAUDE_KLABAUTER/coordinator/lib/coordinator-state-root.py" --central)
 echo "$data" > "$CENTRAL_ROOT/improvement-queue/$id.yaml"
 ```
@@ -240,12 +239,11 @@ callers in the central loop must catch and degrade gracefully.
 
 > **DR-072 — durable machine-local state does not belong in `~/.claude`.** Before parking a
 > new durable, per-machine value under `~/.claude` (a config file, a cache, a registry entry),
-> read `docs/decisions/DR-072-durable-machine-local-coordinator-state-lives-in-settings-home-not-claude.md`
-> and `docs/decisions/DR-071-durable-coordinator-root-anchor-settings-home-registry-doe-root-demoted-to-cache.md`.
+> read both settings-home decision records
 > `~/.claude` is resettable/synced ground; the durable home is settings-home
 > (`coordinator/templates/bin/coordinator-settings-home` — `_coordinator_settings_home()`), registry mechanics in
 > `machine-local-registry.md`. This is the doctrine-decays-unless-greppable cross-ref that stops
-> the recurrence DR-071/DR-072 fixed.
+> the recurrence those two decisions fixed.
 
 ### Shared-Rendezvous Paths
 
@@ -264,7 +262,6 @@ and union-reads it in `_read_registry_dirs()` (`:286`, appended at `:310`). Neit
 legacy path, but a pre-flip entry left there is visible to example-game-repo and invisible to project-rag —
 the one-sided-rendezvous hazard this class exists to name.
 
-<!-- machine-local/, .coordinator-venv/, and bin/ live under ~/.coordinator-claude-settings/. .doe-root remains under ~/.claude only as a disposable regenerated mirror; the durable anchor is the settings-home registry key repos.doe_claude (DR-071/DR-072). Spec: docs/plans/2026-07-06-durable-substrate-to-settings-home.md -->
 
 These surfaces are NOT subject to the placement law:
 - Plugin source: `bin/`, `lib/`, `hooks/`, `skills/`, `agents/` — **DoE-resident** (resolved live via `--plugin-dir` from the DoE clone; NOT a `~/.claude`-resident surface in the current tooling shape — see § Taxonomy).
@@ -273,7 +270,7 @@ These surfaces are NOT subject to the placement law:
 - Decisions: `docs/decisions/`
 - Settings and config: `settings.json`, `.mcp.json`, `CLAUDE.md`, the (now-removed) `the (now-removed) meta-repo local-doctrine file`
 - `docs/README.md` (meta-repo master index — stays; updated to point cross-repo to claude-klabauter-resident plans)
-- **`.doe-root`** — **a disposable, non-authoritative mirror under `~/.claude` (DR-071/DR-072).** The durable, authoritative coordinator-root anchor is now the settings-home machine-local registry (`~/.coordinator-claude-settings/machine-local/registry.local.toml`, key `repos.doe_claude`), mirroring the sibling `.claude-klabauter-root` shape — see `docs/decisions/DR-071-durable-coordinator-root-anchor-settings-home-registry-doe-root-demoted-to-cache.md`. `~/.claude/.doe-root` remains as a regenerated, untracked cache (never a committed per-machine value); it is downstream of the registry, not the source of truth. → `docs/decisions/DR-072-durable-machine-local-coordinator-state-lives-in-settings-home-not-claude.md`; claude-klabauter `coordinator/bin/coordinator-settings-home` (the settings-home resolution seam).
+- **`.doe-root`** — **a disposable, non-authoritative mirror under `~/.claude`.** The durable, authoritative coordinator-root anchor is now the settings-home machine-local registry (`~/.coordinator-claude-settings/machine-local/registry.local.toml`, key `repos.doe_claude`), mirroring the sibling `.claude-klabauter-root` shape. `~/.claude/.doe-root` remains as a regenerated, untracked cache (never a committed per-machine value); it is downstream of the registry, not the source of truth. Claude-klabauter `coordinator/bin/coordinator-settings-home` (the settings-home resolution seam).
 - **`~/.claude/setup/`** — coordinator-written, coordinator-read, authoritative, durable, and
   deliberately RETAINED under `~/.claude` (DR-072 RETAINED-UNDER-CLAUDE): nothing reads `setup/` from settings-home at runtime,
   and migrating it would create two diverging copies the fail-loud divergent-file guard then
@@ -287,7 +284,7 @@ authority, and DR-072 is what classifies them as such.
 
 **Surfaces that RELOCATED to the coordinator settings home (`~/.coordinator-claude-settings/`):**
 
-The plan `docs/plans/2026-07-06-durable-substrate-to-settings-home.md` moved the full coordinator durable substrate out of `~/.claude` to make it clone-mutation-independent. The precise home location:
+The durable-substrate-to-settings-home plan moved the full coordinator durable substrate out of `~/.claude` to make it clone-mutation-independent. The precise home location:
 
 ```
 COORDINATOR_SETTINGS_HOME env var   (XDG / sandbox override — see machine-local-registry.md §4e)
@@ -300,7 +297,7 @@ Relocated surfaces:
 |---|---|---|---|
 | `machine-local/` | `~/.claude/machine-local/` | `~/.coordinator-claude-settings/machine-local/` | `~/.claude/machine-local` is a realpath-symlink to the settings home; consumers that read via the old path continue to resolve through it. Removed at phase-2 gated tail (all 5 consumers confirmed). |
 | `.coordinator-venv/` | `~/.claude/.coordinator-venv/` | `~/.coordinator-claude-settings/.coordinator-venv/` | Rebuilt (never copied) by `install-substrate.py` (C10a) via the native venv builder (`coordinator_core.install.ensure_venv`, claude-klabauter-resident); legacy venv removed only after rebuild + health probe both confirm healthy. |
-| `bin/` resolver family | `~/.claude/bin/machine-local` etc. | `~/.coordinator-claude-settings/bin/` | **Phase-2 gated tail: cleared** (owns-zero retirement, `docs/plans/2026-07-24-coordinator-owns-zero-claude-bin.md`, Gate 6) — the compat-mirror producer (`substrate.py`'s Step 3c-compat) is deleted; a fresh install writes forwarders to settings-home ONLY, minting nothing into `~/.claude/bin`. Coordinator does not *write* to that path. Pre-existing installs still have real files under `~/.claude/bin` until an uninstall/reinstall sweeps them (leg #7, individually, never `rm -rf`) — a fresh install resolves through settings-home only, but pre-existing installs may still fall back to `~/.claude/bin` as a last-resort read until swept (Gate 1's `bare_forwarder.py` settings-home-first rung and Gate 3's soft-fallback rungs deliberately retain that fallback by design, AC2/AC4). |
+| `bin/` resolver family | `~/.claude/bin/machine-local` etc. | `~/.coordinator-claude-settings/bin/` | **Phase-2 gated tail: cleared** (owns-zero retirement, Gate 6) — the compat-mirror producer (`substrate.py`'s Step 3c-compat) is deleted; a fresh install writes forwarders to settings-home ONLY, minting nothing into `~/.claude/bin`. Coordinator does not *write* to that path. Pre-existing installs still have real files under `~/.claude/bin` until an uninstall/reinstall sweeps them (leg #7, individually, never `rm -rf`) — a fresh install resolves through settings-home only, but pre-existing installs may still fall back to `~/.claude/bin` as a last-resort read until swept (Gate 1's `bare_forwarder.py` settings-home-first rung and Gate 3's soft-fallback rungs deliberately retain that fallback by design, AC2/AC4). |
 | `settings-manifest.md` | `~/.claude/settings-manifest.md` | `~/.coordinator-claude-settings/settings-manifest.md` | None needed. |
 
 **`setup/` is NOT in this table — it never relocated.** `setup/` is intentionally excluded from the settings-home migration: nothing reads `setup/` from the settings home at runtime (coordinator continues to read `~/.claude/setup/`), and the percolation step in `install-substrate.py` writes the canonical copy there. Migrating it would create two diverging locations that the fail-loud divergent-file guard then blocks on every re-run.
@@ -321,7 +318,7 @@ location is not a constraint on the items above.
 > observation surface (cockpit). Same "no single consolidation point" instinct as the rest of this
 > wiki, applied one layer up — from within-repo taxonomy to across-repo topology.
 >
-> Consumer-side canonical record: `example-cockpit-repo/docs/decisions/2026-07-07-cockpit-live-remote-per-repo-observation-model.md`.
+> Consumer-side canonical record: the cockpit repo's own live-remote observation-model decision record.
 > This section is the producer-side doctrine that record's "collaborating-repos contract" obligates.
 
 ### The three coupled producer requirements
@@ -423,7 +420,7 @@ harness-for-a-harness wrapping Claude Code, authoring and resolving work, not me
 **Cockpit *has* a hosted web observation plane** — the cloud information surface that renders the
 fleet from anywhere. Local = action, cloud = information. **"Cockpit is a web app" is a category
 error** — do not write or repeat that framing. Canonical consumer-side record:
-`example-cockpit-repo/docs/decisions/2026-07-07-cockpit-live-remote-per-repo-observation-model.md`.
+the cockpit repo's own live-remote observation-model decision record.
 
 ### Backlog and goal shape — sharded, not consolidated
 
@@ -448,19 +445,18 @@ unheld, so the two sides of the contract close symmetrically.
 > requirements, same Tier A/B degradation, same time-calibration — applied to a new artifact class.
 > Full standard: `strategic-self-description-standard.md`. Schema:
 > `coordinator/schemas/strategic-self-description.schema.json`.
-> Spec backlink: `docs/plans/2026-07-11-strategic-self-description-standard.md § DEC-1`.
 
 A repo's strategic self-description — mission, lifecycle phase, positioning, call-to-action — is a
 **new artifact class under this same Fleet Producer Contract**, not a new topology:
 
-- **Path: `state/strategic/self-description.yaml` (per-repo).** Rooted at each repo's own `state/`,
+- **Path: `self-description.yaml` under `state/strategic/` (per-repo).** Rooted at each repo's own `state/`,
   same as every other class this contract governs — see Taxonomy row "Per-repo work state" above.
   Curated (human-authored) provenance does NOT make it a `docs/` artifact; the Fleet Producer
   Contract's emission-surface rule applies regardless of how much of the content is hand-ratified
   vs. machine-derived.
 - **Per-repo-emitted, harvested read-side, never consolidated.** Requirement 1 (no single
   consolidation point) applies exactly as written above: each repo emits its own
-  `state/strategic/self-description.yaml`; consumers (cockpit's Strategic board first) aggregate N
+  `self-description.yaml` under `state/strategic/`; consumers (cockpit's Strategic board first) aggregate N
   per-repo paths read-side. No fleet-wide file ever authors or lands strategic content for another
   repo — the same brittleness triad this contract rejects elsewhere applies here unchanged.
 - **Tier A/B graceful degradation.** A Tier-A repo (coordinator + claude-klabauter) emits the full artifact
@@ -483,6 +479,5 @@ that fall under the Fleet Producer Contract proper.
 
 - `machine-local-registry.md` — `CLAUDE_KLABAUTER_ROOT` resolution and the §4b/§4c ladder that `machine-local get` encapsulates
 - `coordinator/docs/wiki/coordinator-tripwires/` — tripwires that enforce placement law at the hook layer
-- `docs/plans/2026-07-03-stop-the-rot-claude-klabauter-state-home-placement.md` — full plan: resolver seam (C1/C2), scripted repoint (C3/C4), migration (C6), placement law (C10)
 - `emission-conformance-contract.md` — the Consumer-Tolerance Ledger this contract's producer-side obligations are symmetric with
-- `example-cockpit-repo/docs/decisions/2026-07-07-cockpit-live-remote-per-repo-observation-model.md` — canonical consumer-side record for § Fleet Producer Contract
+- the cockpit repo's own live-remote observation-model decision record — canonical consumer-side record for § Fleet Producer Contract

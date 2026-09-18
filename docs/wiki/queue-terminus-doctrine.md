@@ -9,7 +9,6 @@ tags: [queue-terminus, debt-triage, bug-blitz, handoffs]
 
 # Queue Terminus Doctrine
 
-<!-- Spec backlink: docs/plans/2026-07-23-queue-triage-terminates-in-batons.md § Decision log (DEC-1, DEC-2, DEC-4, DEC-5) -->
 
 <!-- Negative-spec: Do NOT build a parallel baton tray (state/improvement-batons/ or similar) —
      DEC-2 is one inbox, state/handoffs/, picked up by ordinary /pickup. Do NOT treat "raw
@@ -29,9 +28,7 @@ Every structured queue we own terminated the same wrong way: **a row moved, and 
 more executable.** `/debt-triage` Step 6b `git mv`'d a `state/improvement-queue/<id>.yaml` row into
 `state/debt-backlog/<id>.yaml` — same shape, different directory, no new context. The one moment
 in the pipeline where an agent holds the most context about an item — triage itself — was spending
-that context and discarding it rather than writing it down. See
-`docs/plans/2026-07-23-queue-triage-terminates-in-batons.md § Problem` for the full origin story
-(proposed by `example-cockpit-repo-em`, PM-generalized from `/debt-triage` to the queue family).
+that context and discarding it rather than writing it down. (proposed by `example-cockpit-repo-em`, PM-generalized from `/debt-triage` to the queue family).
 
 ## The four outcome classes
 
@@ -160,7 +157,6 @@ investigation each.*
 
 ## The readiness bar a baton owes — `/pickup`-able, NOT `/mise`-autonomous
 
-<!-- Spec backlink: docs/plans/2026-07-23-queue-triage-terminates-in-batons.md § AC15 -->
 
 **A baton's readiness bar is `/pickup`-ability without further enrichment. It is NOT
 `/mise-en-place` Phase-0 readiness, and the two must not be conflated.** They gate different

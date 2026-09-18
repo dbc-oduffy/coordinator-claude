@@ -55,7 +55,7 @@ The skill-author convention: name the scratch path under `tasks/scratch/<skill>/
 ## Deep-research workdir — documented exception to the tasks/scratch/<skill>/<run-id>/ rule
 
 <!-- Review: Slice B reviewer F7 — added former path note for reader continuity -->
-This path was formerly `tasks/scratch/deep-research-teams/{run-id}/`; it was relocated to remove it from the filesystem-hygiene tooling kill-zone (see `docs/plans/2026-06-14-deep-research-workdir-out-of-killzone.md`).
+This path was formerly `tasks/scratch/deep-research-teams/{run-id}/`; it was relocated to remove it from the filesystem-hygiene tooling kill-zone.
 
 Deep-research pipelines (A/B/C/D) are an explicit exception to the standard `tasks/scratch/<skill>/<run-id>/` convention. Their in-flight working directory lives at `docs/research/{run-id}-{topic-slug}-workdir/`, not under `tasks/scratch/`.
 
@@ -63,9 +63,8 @@ Deep-research pipelines (A/B/C/D) are an explicit exception to the standard `tas
 
 **Why the exception:** the existing convention frames `tasks/scratch/<skill>/<run-id>/` as enabling *"a single `.gitignore` rule and a single cleanup convention cover them all"* (quoting § Where this surfaces in this codebase above). The unified-convention benefit is real — but filesystem-hygiene tooling (`/distill` Phase 8b, `/update-docs` Phase 8b, `/cruft-sweep`) sweeps `tasks/` aggressively. In-flight specialist files can be deleted from `tasks/scratch/deep-research-teams/{run-id}/` while the synthesizer is still reading them — a structural risk that overrides the single-convention benefit for this one skill.
 
-**Do not refactor the exception back to the common pattern without re-litigating the kill-zone risk.** A future reader noticing the asymmetry should reach for the plan at `docs/plans/2026-06-14-deep-research-workdir-out-of-killzone.md` (RD-1 rationale) before "cleaning it up."
+**Do not refactor the exception back to the common pattern without re-litigating the kill-zone risk.** A future reader noticing the asymmetry should reach for the plan (RD-1 rationale) before "cleaning it up."
 
-Spec backlink: `archive/specs/2026-06/2026-06-14-deep-research-workdir-out-of-killzone.md`.
 
 ## Adjacent doctrine — provisioned subagent sidecars are a different mechanism, same principle
 

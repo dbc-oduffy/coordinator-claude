@@ -359,16 +359,19 @@ def _resolve_and_guard_content_root() -> None:
     if content_root:
         return
 
+    from coordinator_data_root import content_root_for
+
     doe_root = _read_doe_root_pointer()
-    if not doe_root or not os.path.isdir(os.path.join(doe_root, "coordinator")):
+    # Either content layout — a pointer naming the published flat mirror was
+    # rejected as missing/invalid while only `<root>/coordinator` counted.
+    pointed = content_root_for(doe_root)
+    if pointed is None:
         sys.stderr.write(
             "ERROR: ~/.claude/.doe-root missing/invalid — re-run coordinator:install\n"
         )
         sys.exit(1)
 
-    content_root = os.environ.get("CLAUDE_PLUGIN_ROOT") or os.path.join(
-        doe_root, "coordinator"
-    )
+    content_root = os.environ.get("CLAUDE_PLUGIN_ROOT") or str(pointed)
     # coordinator_trusted_root_guard_or_exit calls sys.exit(1) itself on an
     # untrusted root (mirrors the bash oracle's exit-1 tail) — no local
     # try/except needed here.

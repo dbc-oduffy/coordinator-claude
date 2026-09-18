@@ -18,9 +18,20 @@ settings-home rung instead. This fixture changes no environment and no
 resolution, so it cannot alter what a correct test observes.
 
 NEGATIVE SPEC
-    - Adds NO other fixtures, markers, or hooks. This tree has never had a
-      conftest; anything beyond the single guard below silently widens its
-      fixture surface.
+    - Adds no fixture, marker, or hook beyond the two below without the same
+      tree-wide-leak justification each of these carries.
+
+2026-09-18 addition: this tree's CLI tests drive their subject as a real
+subprocess with ``{**os.environ}`` (``_run_cli`` and its twins) -- the same
+ambient-inheritance shape the registry guard above exists for, but for
+``COORDINATOR_WARM``. On a box that opted into warmth via the machine-local
+registry rung (unset ``COORDINATOR_WARM`` env, `warm/settings.py`'s rung 2),
+that copy silently routes CLI test traffic onto the box-shared warm server,
+and on a cache miss SPAWNS one carrying this exact test's env
+(``PYTEST_CURRENT_TEST``, any ``QUEUE_APPEND_OUTPUT_ROOT`` override) baked in
+for the rest of its life -- the 2026-09-18 incident this fixture closes.
+``COORDINATOR_WARM=0`` always wins over the registry rung, so pinning it here
+forces every subprocess CLI onto the cold route regardless of the box.
 """
 
 from __future__ import annotations
@@ -37,3 +48,12 @@ from coordinator_core.testing.registry_sandbox import fail_on_live_registry_writ
 # never correct. The remediation the failure names is
 # ``coordinator_core.testing.registry_sandbox.sandbox_registry_dir``.
 _fail_on_live_registry_write = pytest.fixture(autouse=True)(fail_on_live_registry_write_fixture)
+
+
+@pytest.fixture(autouse=True)
+def _pin_warm_disabled_for_subprocess_clis(monkeypatch):
+    """Force every CLI subprocess spawned from this tree onto the cold route.
+
+    See the module docstring's 2026-09-18 addition for the leak this closes.
+    """
+    monkeypatch.setenv("COORDINATOR_WARM", "0")

@@ -103,7 +103,7 @@ still leaving the *plan corpus* stale. Plans are long-lived prose snapshots; the
 path that was true when authored and don't self-update when the surface moves.
 
 **Empirical source (audit taken days after the `coordinator/bin/` →
-Claude-klabauter migration, commit `b644d5a9`, with DR-084's lifecycle-vocabulary overhaul landing
+Claude-klabauter migration lifecycle-vocabulary overhaul landing
 alongside):** 39 of 40 open plans cited `coordinator/bin/` paths against a repo that tracked
 zero files there. The disagreement was plan-vs-repo, not merely plan-vs-plan — a stale audit
 target found stale within days of the migration landing, because no leg of the migration swept

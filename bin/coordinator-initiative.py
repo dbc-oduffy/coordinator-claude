@@ -98,10 +98,19 @@ def _resolve_initiatives_dir() -> str | None:
     import subprocess
 
     from coordinator_core.win_portability import no_console_creationflags
+    from python_interp import resolve_console_python
+
+    interpreter = resolve_console_python()
+    if interpreter is None:
+        print(
+            "coordinator-initiative: no console Python interpreter could be resolved.",
+            file=sys.stderr,
+        )
+        return None
 
     try:
         proc = subprocess.run(
-            [sys.executable, _COORDINATOR_STATE_ROOT_PY, "--central"],
+            [interpreter, _COORDINATOR_STATE_ROOT_PY, "--central"],
             capture_output=True,
             text=True,
             **no_console_creationflags(),

@@ -173,3 +173,5 @@ already-fixed line, or a clean `Suite gate: PASS` line — their absence already
 Full tables: wiki. The load-bearing invariants that stay here: never rollback completed waves on
 early stop; never fabricate a test command; never weaken an assertion; `git revert` (never `git
 reset`) for a self-inflicted regression on a pushed branch.
+
+`/workstream-start` advocates this command on backlog depth and, independently of it, on a **red-suite predicate** — a non-empty delta in `state/test-red/<machine>.yaml` against the acknowledged baseline, never bare redness. Both arrive here as the same triage → wave → fix path.

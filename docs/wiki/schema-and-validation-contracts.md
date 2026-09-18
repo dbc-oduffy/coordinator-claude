@@ -1,6 +1,5 @@
 # Schema and Validation Contracts
 
-<!-- distilled: run 2026-07-19-synth; sources: archive/specs/2026-05/2026-05-01-portable-ideas-from-obsidian-research.md, 2026-05-21-cross-repo-memo-discoverability.md, archive/specs/2026-06/2026-06-24-handoff-lifecycle-transition-helper.md, archive/specs/2026-06/2026-06-27-ccos-2-plan-session-linkage.review-the Staff Engineer.md, archive/specs/2026-06/2026-06-27-ccos-3-provenance-triple-work-item-record.md, archive/specs/2026-06/2026-06-28-roadmap-stub-numbering-dependency-order.review-staff-eng.md, archive/specs/2026-06/2026-06-27-ccos-2-plan-session-linkage.md, archive/specs/2026-06/2026-06-29-handoff-lineage-dag-fan-in-fan-out.the Director of Engineering-review.md, 2026-07-17-claude-klabauter-em-schema-ssot-flip-accepted-sequencing.md -->
 
 > Purpose: how DoE-claude's tracked-record schemas (YAML frontmatter) are declared, validated, and evolved — and who is authoritative for which validator.
 
@@ -94,9 +93,9 @@ graph-primitive kind-gate pattern when the field is conceptually spinoff-only or
 similarly scoped.
 
 <!-- src: memo08-009 -->
-### Schema SSOT ownership split (DR-047 sub-decision)
+### Schema SSOT ownership split (boundary sub-decision)
 
-Per DR-047's contract-vs-engine boundary, ownership of schema *tooling* (not the
+Per the contract-vs-engine boundary, ownership of schema *tooling* (not the
 schema *contract*) has been split by ratified sequencing: claude-klabauter takes over (A)
 becoming the `.schema.json` emitter — retiring the DoE-vendored, drift-checked
 copy — and (B) retiring `schema-cli.js` in favor of native enum-introspection.
@@ -176,7 +175,7 @@ and whether the validator is wired live or stubbed permissive.
 | Concern | Owner / Location |
 |---|---|
 | Schema contract (schema file authorship, field semantics) | DoE (this repo) |
-| `.schema.json` emitter | claude-klabauter (post DR-047 sub-decision, memo08-009) |
+| `.schema.json` emitter | claude-klabauter (post-boundary sub-decision) |
 | `schema-cli.js` | Retiring → claude-klabauter native enum-introspection (memo08-009) |
 | Production validator for queue records | `schema_loader.validate()` (Python), via `coordinator-queue-append` |
 | `schema.js` | Non-production for queue records; list-of-map `validateField` support still missing |

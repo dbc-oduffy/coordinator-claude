@@ -1,6 +1,5 @@
 # Completion-log release-loop
 
-<!-- spec backlink: archive/specs/2026-05/2026-05-19-completion-log-phase1-foundational-loop.md (Phase 1) -->
 
 Per-entry queryable completion log — the substrate that connects workstream-complete authoring to
 workday clustering, workweek editorial bucketing, and merge-to-main release-note consumption.
@@ -94,12 +93,12 @@ created: 2026-05-19
 nature: roadmap
 chain: docs/plans/2026-05-19-completion-log-phase1-foundational-loop.md
 commits:
-  - a1b2c3d4e5f6
-  - 9f8e7d6c5b4a
+  - <commit-sha-1>
+  - <commit-sha-2>
 status: pending-release
 chain_terminal: true
 nature_inferred: true
-authored_by: abc123def456
+authored_by: <authoring-commit-sha>
 workstream: completion-log-release-loop
 ---
 
@@ -312,7 +311,6 @@ argument. Full detail in `coordinator/docs/wiki/coordinator-tripwires/`.
 
 ## Phase 2 — LoE Tracking + Handoff Session Ledger
 
-<!-- spec backlink: archive/specs/2026-05/2026-05-19-completion-log-phase2-loe-and-handoff-ledger.md -->
 
 Phase 2 augments the substrate with two features: (a) per-session level-of-effort (LoE) data written into completion entries, and (b) a Session Ledger convention on handoffs that captures mid-chain LoE without polluting the frontmatter schema.
 
@@ -495,7 +493,6 @@ The `chain_loe.tshirt: XL` is what workweek-complete Step 8.5 surfaces to the PM
 
 ## Phase 3 — Consumer Wiring
 
-<!-- spec backlink: archive/specs/2026-05/2026-05-19-completion-log-phase3-consumer-wiring.md -->
 
 Phase 3 wires the queryable completion substrate into downstream skills and personas so
 that coordinators and reviewers operate on signal rather than reconstructing it from git log.
@@ -600,7 +597,7 @@ This is an oracle-was-wrong resolution, not an appetite-based deferral.
 When a Phase 3 consumer needs to query completion entries across sibling repos registered in
 `<claude-klabauter>/coordinator/lib/coordinator-state-root.py --central`'s `repo-registry.md`, DO NOT use `yq` to parse the registry. The registry is markdown
 with YAML-list blocks inside HTML comment sentinels — it is not a top-level YAML document,
-and `yq` is not in the coreutils dependency surface (DR-016).
+and `yq` is not in the coreutils dependency surface.
 
 The registry carries no `path:` field — on-disk paths are machine-local-derived and
 resolved per `shortname` via claude-klabauter `coordinator/bin/resolve-repo-path.py`. Extract each entry's
@@ -652,7 +649,6 @@ A version bump is a user-facing signal: "something you'd notice has changed." Wh
 
 ## track-dispatched-agents.sh dedup fix
 
-<!-- spec backlink: archive/specs/2026-05/2026-05-19-completion-log-phase2-loe-and-handoff-ledger.md -->
 
 The dispatched-agents tracker file uses tab-delimited records in Phase 2:
 ```

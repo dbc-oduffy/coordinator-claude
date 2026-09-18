@@ -3,7 +3,7 @@
 > **What this is.** The shared *thinking framework* for the coordinator system's move to run its
 > skills, commands, and agents atop the claude-klabauter Python engine — "claude-klabauter-ization." It captures the
 > lenses and the layer model we reason with, NOT the specific architectural decisions (those are
-> resolved in the staff-session plan `docs/plans/2026-07-24-canonical-resolution-engine.md` and its
+> resolved in the staff-session plan `2026-07-24-canonical-resolution-engine.md` under `docs/plans/` and its
 > eventual DRs). Read this to understand *how to think about* a computed-skill / computed-agent
 > conversion; read the plan to see *what was decided*.
 >
@@ -45,7 +45,7 @@ The engine owns 1–3; the surface owns only the residue of 4.
    narrowing as **overridable offers, never verdicts.** The engine helps the operator decide faster;
    it never decides for them.
 4. **Canonical thin surface.** How a `SKILL.md` (or an agent `.md`) links the entrypoint and carries
-   only judgment residue — intent + a named op + model-uncomputable context (DR-090). No fences, no
+   only judgment residue — intent + a named op + model-uncomputable context. No fences, no
    narrated sequences, no restated invariants.
 
 ## The central insight — one contract, both ends
@@ -91,7 +91,7 @@ convenience.
 - **FOLD-INTO-CALLER** (`super-skill-architecture.md`): a shared core that is a thin middle layer
   adding no judgment must not exist — it belongs folded into its callers. The core earns its place as
   an *orchestrator surface over composed internals*, never a thin decider.
-- **DR-090 / skills-carry-no-code** binds the thin surface (layer 4).
+- **skills-carry-no-code** binds the thin surface (layer 4).
 
 ## Performance is a first-class property
 
@@ -101,7 +101,7 @@ dominate; compute is noise (R6). So performance is architecture, not polish:
 - Target: brief ≤60ms (stretch <10ms), **0 spawns on the hot path**, import ≤20ms, zero subprocess
   resolution rungs. State these AS acceptance criteria.
 - Two levers: lazy-import the heavy tree (same-day win); and eliminate per-call spawning (warm
-  worker / resident vs. per-call cold start — the claude-klabauter DR-215 daemon question, re-decided for the
+  worker / resident vs. per-call cold start — the claude-klabauter daemon question, re-decided for the
   user-facing assembler surface).
 - **On Windows the profile flips to spawn-dominated** (each git/interpreter spawn is far costlier),
   so zero-spawn is a *correctness* requirement on the primary machine, not a micro-optimization.
@@ -120,7 +120,7 @@ past instance #3 already; the **assembler envelope** (layer 2) is the genuinely 
 The framework above is the stable shared model. The specific architectural decisions (one core vs
 two; extract-the-envelope-now vs wait; the exact layer boundaries; the performance architecture; the
 sidecar schema; the build sequence) are D1–D6, resolved by the staff session
-(`docs/plans/2026-07-24-canonical-resolution-engine.md`). Update this wiki's layer/decision claims
+(`2026-07-24-canonical-resolution-engine.md` under `docs/plans/`). Update this wiki's layer/decision claims
 when that plan ratifies, and open DR(s) for the load-bearing calls.
 
 ## The perspective under the framework — continuity of care
@@ -153,10 +153,4 @@ This reframes the two moves at the heart of the sidecar convention:
 Hold this next to the engineering, not above it: the framework earns its cost because most of the
 people and agents it serves do not exist yet. Build it as you would want it built for you.
 
-<!-- Spec backlink: docs/plans/2026-07-24-canonical-resolution-engine.md; substrate:
-     state/scratch/computed-engine-design/R1-R7. Authored 2026-07-24 by machine-a-EM during the B0
-     pickup that the PM re-opened at engine altitude. -->
-<!-- § "The perspective under the framework — continuity of care" was added by the
-     agent-citizenship pickup session, at the PM's request — the model-of-care lens that motivates
-     the engineering above. Spec backlink: docs/plans/2026-07-24-agent-citizenship-identity-adapted-provisioning.md -->
 

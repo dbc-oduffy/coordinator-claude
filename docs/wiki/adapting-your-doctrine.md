@@ -9,8 +9,8 @@ related:
   - claude-klabauter coordinator/bin/render-posture-overlay.py
   - coordinator/docs/wiki/getting-started.md  (Movement 2)
   - coordinator/docs/wiki/eager-agent-calibration.md
-  - archive/specs/2026-07/2026-07-09-coordinator-end-user-modes.md
 ---
+
 
 <!-- RAG-bait: self-modification of doctrine, posture overlay, positronic net surgery, Mirror-Universe boundary, hook-hacking out of scope, managed section markers, ## Posture heading, doctrine layer vs enforcement substrate -->
 

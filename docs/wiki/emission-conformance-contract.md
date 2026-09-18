@@ -3,27 +3,25 @@ title: Emission Conformance Contract
 status: active
 kind: doctrine-wiki
 created: 2026-07-04
-spec-backlink: docs/plans/2026-07-04-doe-emission-conformance-fixture.md
 ---
+
 
 # Emission Conformance Contract
 
 > Normative shared contract for the DoE-hosted emission-conformance fixture. Coordinator keeps the
-> fixture current on HEAD; claude-klabauter DR-210's strangler drift-check (strang-02) and any other consumer
+> fixture current on HEAD; claude-klabauter's strangler drift-check and any other consumer
 > conform against it. This doc codifies the three contract decisions (CD-1/CD-2/CD-3) the fixture
 > answers — fixture path, version semantics + freshness protocol, and emitter reachability — plus the
 > shared provenance-normalization oracle (AC5-PROVENANCE) that makes the conformance compare
 > deterministic across stateful emitter output.
 
-<!-- spec-backlink: docs/plans/2026-07-04-doe-emission-conformance-fixture.md § CD-1/CD-2/CD-3 -->
-<!-- ratification: cross-repo/archive/2026-07-04-claude-klabauter-strangler-emission-fixture-and-fallback.md -->
 
 ---
 
 ## Purpose
 
 The coordinator cockpit-contract tc3 emitter (claude-klabauter's Python `artifact.emit`, the sole
-production emitter as of claude-klabauter DR-208/DR-210 — `coordinator/bin/emit-cockpit-snapshot.py` is now a
+production emitter as of the tri-plane relocation — `coordinator/bin/emit-cockpit-snapshot.py` is now a
 fail-loud facade stub, see § Reachability Contract) and `append-goal-event.py` produce structured
 NDJSON cockpit records covering every entity class (handoff-summary, backlog-item-summary,
 review-trail, routine-signal, completion-rollup, goal). The **contract SSOT stays DoE-side**; each
@@ -213,7 +211,7 @@ GitHub Action — the retired `.github/workflows/publish-cockpit-contract-releas
 fleet-wide and cost-driven: any use of GitHub Actions anywhere in the fleet requires PM permission
 *before* it is used, because GH Actions minutes are billed and burn budget fast.
 
-**Do not assume the hook fired.** On 2026-08-11 the 3.11.0 bundle commit (`081bdd2cf`) pushed
+**Do not assume the hook fired.** On 2026-08-11 the 3.11.0 bundle commit pushed
 cleanly and neither tag moved on origin; the manual script run published both. Check
 `git ls-remote --tags origin 'cockpit-contract*'` after any schema push, and run the publish
 script if the refs did not move — a stale origin ref is what blocks every fleet consumer polling
@@ -341,9 +339,8 @@ reusable for the memo-emission graduation fixture.)
 
 ## Reachability Contract (CD-3)
 
-### State-1 now fails loud — no bash-emitter fallback (claude-klabauter DR-208/DR-210)
-
-**As of claude-klabauter DR-208 (tri-plane relocation) and claude-klabauter DR-210 (strangler facade, strang-01 C2),
+### State-1 now fails loud — no bash-emitter fallback
+**As of the tri-plane relocation and the strangler facade,
 Claude-klabauter `coordinator/bin/emit-cockpit-snapshot.py` retains no working emitter body.** The
 original bash implementation was ported to claude-klabauter's Python `artifact.emit`, which is now the
 **sole production cockpit emitter**. The bash script is a facade router with a three-state model:
@@ -360,7 +357,7 @@ original bash implementation was ported to claude-klabauter's Python `artifact.e
 
 Consumers conforming against this contract MUST target claude-klabauter's `artifact.emit` output (State 2)
 as the live-producer surface. The bash script's continued presence at `coordinator/bin/` is a
-routing facade only (zero caller repoints, per claude-klabauter DR-210 AC8) — it is not an independent emitter
+routing facade only (zero caller repoints) — it is not an independent emitter
 implementation and must not be treated as one for conformance purposes.
 
 **`emit-cadence.py` shares this same State-1 fail-loud shape.** The per-repo cadence-trigger
@@ -389,9 +386,6 @@ change the State-1 fail-loud behavior above once invoked.
 
 → `docs/wiki/portable-code-substrate.md` and `docs/wiki/cross-platform-shell-portability.md` for
 the plugin-load PATH-injection mechanics.
-→ `docs/plans/2026-07-04-coordinator-maximalist-install-shape.md` § P0 for W4.2 PATH-injection
-specifics. (**Note: this plan was in DRAFT status at the time this contract was authored; confirm
-§ P0 details against current plan state before building against them.**)
 
 **W4.2 relocates the plugin source** (`~/.claude/plugins/coordinator-claude/coordinator` →
 `<DoE>/coordinator`, via `claude --plugin-dir <DoE>/coordinator`), **not the `bin/` layout**. The
@@ -399,26 +393,25 @@ facade script remains at `coordinator/bin/` relative to the plugin root. Claude 
 PATH-inject it at plugin-load post-cutover. Warm-session resolution: unaffected through and
 after W4.2.
 
-### Live per-repo cadence trigger — `emit-cadence.py` (DR-047, emission-cadence-trigger-rewire)
-
+### Live per-repo cadence trigger — `emit-cadence.py`
 A LIVE per-repo cadence trigger now exists: claude-klabauter `coordinator/bin/emit-cadence.py`
 fires claude-klabauter's `emit.cadence` composite op. It is called from the three `-complete` ceremonies —
 `/workstream-complete` (`skills/workstream-complete/SKILL.md`), `/workday-complete`
 (`commands/workday-complete.md`), and `/workweek-complete` (`commands/workweek-complete.md`) —
 after each ceremony's work-landing steps complete, so the emitted snapshot reflects *completed*
-work, not in-flight state. This is the cadence half of the DR-047 transport-seam split: DoE owns
+work, not in-flight state. This is the cadence half of the transport-seam split: DoE owns
 WHEN emission fires (the cadence trigger, at these three call sites); claude-klabauter owns WHAT the op does
 internally (backlog.record → artifact.emit ordering — see § New claude-klabauter composite op below).
 
 `emit-cadence.py` is gate-flagged by `COORDINATOR_EMISSION_CADENCE_LIVE` — **default OFF**. Only an
 explicit on value (`1`, `true`, `on`, case-insensitive) enables cadence emission; unset or any
 other value leaves it OFF, so all three ceremony-close triggers benign-skip and
-`state/cockpit-emission.json` does not advance. When OFF, the script logs once to stderr and exits
+the repo's `cockpit-emission.json` under `state/` does not advance. When OFF, the script logs once to stderr and exits
 0 — a skip that never wedges or errors the calling ceremony. Each call site treats a non-zero exit
 from `emit-cadence.py` as non-fatal to the ceremony (`|| echo "note: emission cadence skipped..."`).
 
-A halted repo's frozen `state/cockpit-emission.json` sits beside a `state/cockpit-emission.HALTED.md`
-marker naming the last captured `emitted_at`, so the stale file cannot be read as a current fleet
+A halted repo's frozen `cockpit-emission.json` sits beside a `cockpit-emission.HALTED.md`
+marker under `state/`, naming the last captured `emitted_at`, so the stale file cannot be read as a current fleet
 snapshot. `artifact.emit` remains available on demand; only the automatic trigger is off.
 
 **This trigger is new as of the emission-cadence-trigger-rewire plan** — no live call
@@ -459,7 +452,7 @@ resolve the emitter by absolute path.
 **NEVER use `machine-local get repos.doe_claude` as a CLI call in a cold shell.** The
 `machine-local` CLI is itself a coordinator bin — it is only on PATH at plugin-load. In a cold
 shell it is not reachable. This is verbatim the maximalist-P0 bootstrap hazard:
-`docs/plans/2026-07-04-coordinator-maximalist-install-shape.md` § P0. A cold-shell consumer that
+A cold-shell consumer that
 calls the CLI will fail with "command not found" on the very binary it needs to locate DoE.
 
 This constraint applies today and after W4.2 cutover alike — W4.2 does not change the
@@ -556,15 +549,14 @@ Every emission carries a single **top-level** `coordinator_root_path` field:
 
 **The machine axis is orthogonal to repo identity.** The same repo checked out on N machines is
 **one logical identity, not N.** `coordinator_root_path` varies per checkout — `C:\Users\alice\repo` <!-- foreign-path-ok: illustrating the per-machine path variance this contract exists to normalize -->
-and `/home/bob/repo` and `X:\DoE-claude` can all be the same logical repo observed from different <!-- foreign-path-ok: illustrating the per-machine path variance this contract exists to normalize -->
+and `/home/bob/repo` and `C:\dev\DoE-claude` can all be the same logical repo observed from different <!-- foreign-path-ok: illustrating the per-machine path variance this contract exists to normalize -->
 machines — so keying identity on it fragments one repo into as many rows as it has checkouts. Where
 a consumer genuinely needs per-machine differentiation (e.g. "which machine last emitted this"),
 that comes from `emitted_by_machine` / `coordinator.machine_slug` — never from the root path.
 Conflating the machine axis with the identity axis is exactly what produced the cross-machine
 identity drift this contract now forecloses.
 
-**This ratifies existing consumer behavior; it is not a consumer-facing break.** Per
-`docs/decisions/DR-022-cockpit-contract-canonical-repo-owner-form.md:28`, cockpit and rag already
+**This ratifies existing consumer behavior; it is not a consumer-facing break.** cockpit and rag already
 join on a machine-blind `lower(owner)/lower(repo)` key in practice — the path-in-key design this
 section previously described had already produced a live double-count defect at cockpit ingest.
 The producer contract is catching up to shipped consumer behavior, not changing it.
@@ -582,8 +574,7 @@ End-state: `owner` is a **validated string**, not a closed enum — D11 parity w
 or leading-slash values). This admits `local/<basename>` (a repo that resolves on disk but has no
 git remote) without needing a dedicated sentinel value — the validated-string shape already covers
 it. **This is a description of the end-state, not a change landed by this doc.** The contract change
-itself is authored and landed by the peer reshape plan
-`docs/plans/2026-07-07-cockpit-owner-string-not-enum.md` — do not re-author that change here.
+itself is authored and landed by the peer reshape plan — do not re-author that change here.
 
 ---
 
@@ -601,19 +592,13 @@ itself is authored and landed by the peer reshape plan
 - `docs/wiki/portable-code-substrate.md` — plugin-load PATH-injection mechanics.
 - `docs/wiki/cross-platform-shell-portability.md` — cross-platform shell portability (plugin-load PATH context).
 - `docs/wiki/state-placement-law.md` § Fleet Producer Contract — per-repo emission, live-remote horizon, Tier A/B observation model this Consumer-Tolerance Ledger and producer-contract details are symmetric with.
-- `docs/plans/2026-07-07-cockpit-owner-string-not-enum.md` — the peer reshape plan that lands the `owner` validated-string end-state described above.
 - claude-klabauter `coordinator/bin/emit-cadence.py` — live per-repo cadence-trigger facade for claude-klabauter's `emit.cadence` composite op; fires from the three `-complete` ceremonies (§ Reachability Contract).
-- `docs/plans/2026-07-11-emission-cadence-trigger-rewire.md` — the plan that lands the `emit-cadence.py` cadence trigger and `emit.cadence` composite op.
 
 ---
 
 ## Ratification
 
-This contract was ratified via the accepted memo
-`cross-repo/archive/2026-07-04-claude-klabauter-strangler-emission-fixture-and-fallback.md` (topic:
-`strang-emission-fixture-answers`). The fixture path, version semantics, freshness protocol,
+This contract was ratified via the accepted memo. The fixture path, version semantics, freshness protocol,
 resolution contract, provenance-normalization oracle, and reachability contract codified here are
 the definitive answers to the four sharp contract elements that memo raised.
 
-The plan that commissioned this fixture and contract doc is
-`docs/plans/2026-07-04-doe-emission-conformance-fixture.md`.

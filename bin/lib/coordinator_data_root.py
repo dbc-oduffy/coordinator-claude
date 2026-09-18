@@ -444,3 +444,60 @@ def data_root(dir_name: str) -> Path:
         f"Rung 2 (DoE-resident) tried: {private_candidate} (private layout, not found), "
         f"{flat_candidate} (OSS-flat layout, not found)."
     )
+
+
+#: The marker that makes a FLAT directory a coordinator content root. A flat
+#: clone without its own plugin manifest is not one, and must keep failing —
+#: the same gate `resolve_coordinator_clone` uses for its flat-layout rung, not
+#: a second spelling of the concept.
+FLAT_CONTENT_ROOT_MARKER = (".claude-plugin", "plugin.json")
+
+
+def content_root_for(doe_root) -> Path | None:
+    """The coordinator CONTENT root inside a resolved DoE root, either layout.
+
+    THE ONE PLACE THIS JOIN BELONGS on the bin/ side. Two live layouts hold
+    coordinator content, and a caller that knows only one is broken on the other:
+
+      <doe_root>/coordinator/     the private authoring tree
+      <doe_root>/ (flat)          the published mirror
+
+    Returns the content root, or None when `doe_root` is empty or holds neither
+    layout. Never raises and never returns a path that does not exist.
+
+    Behaviourally identical to `coordinator_core.data_root.content_root_for` —
+    same two-candidate order, same marker — for the same reason `data_root()`
+    here carries that constraint (AC4). This tree's bin/ CLIs cannot import
+    coordinator_core, which is why the twin exists at all.
+    """
+    if not doe_root:
+        return None
+    base = doe_root if isinstance(doe_root, Path) else Path(str(doe_root).rstrip("/\\"))
+    private = base / "coordinator"
+    if private.is_dir():
+        return private
+    if base.joinpath(*FLAT_CONTENT_ROOT_MARKER).is_file():
+        return base
+    return None
+
+
+def resolved_content_root() -> Path | None:
+    """`content_root_for` against the DoE root this module resolves.
+
+    Same two-rung DoE resolution `data_root()` uses (the codename-free ladder,
+    then `coordinator_registry.doe_root()`), so the two never disagree about
+    which root they are talking about. Returns None when nothing resolves.
+    """
+    doe = _cdr_codename_free_root()
+    if not doe:
+        try:
+            # Lazy import — see the module docstring's import-time purity note.
+            from coordinator_registry import _DoeUnresolvable, doe_root  # noqa: PLC0415
+
+            try:
+                doe = doe_root()
+            except _DoeUnresolvable:
+                return None
+        except Exception:  # noqa: BLE001 - an unresolvable root is None, never a raise
+            return None
+    return content_root_for(doe)

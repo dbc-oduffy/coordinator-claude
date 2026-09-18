@@ -235,10 +235,21 @@ def _cc_invoke_bare(op: str, params: dict[str, object], repo_root: str) -> dict[
 
         try:
             from coordinator_core.win_portability import no_console_creationflags
+            from python_interp import resolve_console_python
 
+            interpreter = resolve_console_python()
+            if interpreter is None:
+                raise RuntimeError(
+                    "no console Python interpreter could be resolved"
+                )
+
+            # `-m` subclass, not a sibling script: the interpreter itself
+            # imports coordinator_core.invoke via -m, so PYTHONPATH (set on
+            # `env` above, before this spawn) MUST already contain
+            # claude_klabauter_root — keep that ordering.
             proc = subprocess.run(
                 [
-                    sys.executable,
+                    interpreter,
                     "-m",
                     "coordinator_core.invoke",
                     op,

@@ -3,9 +3,9 @@ kind: wiki
 title: Roadmap Stub Numbering — Dependency-Order Invariant
 status: active
 created: 2026-06-28
-spec-backlink: docs/plans/2026-06-28-roadmap-stub-numbering-dependency-order.md
 tags: [roadmap-numbering, roadmap-planning, dependency-order]
 ---
+
 
 <!-- Purpose: States the stub-numbering invariant for coordinator roadmaps, enumerates the
 enforcement surfaces (audit gate + authoring helper), documents the sibling audit-roadmap.py

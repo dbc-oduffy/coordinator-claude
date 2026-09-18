@@ -1,13 +1,11 @@
 # Handoff Deployment-State Lifecycle and Transition-Verb Machinery
 
-<!-- distilled: run 2026-07-19-synth; sources: archive/specs/2026-05/2026-05-08-roadmap-skill-and-handoff-lifecycle.md, archive/specs/2026-05/2026-05-08-session-end-review-and-marker-trail.md, cross-repo/archive/2026-07-13-claude-klabauter-em-claude-klabauter-auto-reconcile-wire-surfaces.md, cross-repo/archive/2026-07-13-claude-klabauter-em-unconsume-verb-veneer-wiring.md, 2026-06-24-handoff-lifecycle-transition-helper.md.the Staff Engineer-review.md, 2026-07-13-reaper-ship-not-abandon-shipped-orphans.md, 2026-07-17-project-rag-em-pickup-archive-fallback-nested-dir.md, claude-klabauter-em → claude-central-em, claude-klabauter-em → claude-central-em, 2026-07-13-doe-auto-reconcile-adopt.md -->
 
 > Purpose: Documents the `deployment_state` lifecycle, transition-verb machinery, and the
 > reclamation/reaping sweeps that operate on handoff frontmatter. There is no rendered tracker
 > artifact — query the substrate live (`bin/query-records`) rather than reading a pre-rendered
 > snapshot.
 >
-> Spec backlink: docs/plans/2026-05-29-handoff-tracker-system.md
 >
 > Back-citations:
 >   - coordinator/CLAUDE.md § Live Queries vs. Scaffolded Indices — retired, no confirmed successor located (why no hand-maintained table)
@@ -71,8 +69,7 @@ Operating rules:
 
 ### Running ad-hoc
 
-`normalize-handoff-frontmatter.js` migrated to claude-klabauter's `coordinator/bin/` (commit
-b644d5a9) — resolve `$REPO_CLAUDE_KLABAUTER` per `percolate-setup.md` § PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT.
+`normalize-handoff-frontmatter.js` migrated to claude-klabauter's `coordinator/bin/` — resolve `$REPO_CLAUDE_KLABAUTER` per `percolate-setup.md` § PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT.
 
 ```sh
 # Dry-run (preview only):
@@ -110,14 +107,14 @@ queryable field, not a per-kind variant.
 stamp `claimed_at`/`claimed_by`) and commits that mutation with a single explicit-path commit —
 it does NOT move the file. Archival is a separate later event: whichever fires first, the async
 sweep (`fleet.archive_completed_handoffs`) or the picking-up session's own terminal event
-(`/handoff` chain-archival or `/workstream-complete`'s close). DR-084 renamed the fields
+(`/handoff` chain-archival or `/workstream-complete`'s close). The lifecycle-vocabulary overhaul renamed the fields
 (`consumed_by` -> `claimed_by`) at P2, and the write path has already cut over — `/pickup` stamps
 only `claimed_at`/`claimed_by` today. The corpus is still mixed during the P1..P4 migration window,
 so readers must prefer `claimed_by` and fall back to `consumed_by`.
 
 **Concurrent `/pickup` is fail-loud, not first-wins-silently.** The losing session's claim attempt
 fails — `cs_claim_handoff` returns EEXIST, or a post-`git fetch` re-read shows `claimed_by`/
-`claimed_at` (DR-084) already populated by the winner (the file itself never moves; both sessions
+`claimed_at` already populated by the winner (the file itself never moves; both sessions
 are racing the same in-place frontmatter mutation, not a file relocation). The loser MUST stop,
 surface to the PM, and must NOT retry, mutate, or commit anything further — no automatic fallback
 to a different handoff, no silent no-op. This mirrors `cs_claim_handoff` EEXIST semantics
@@ -125,10 +122,6 @@ referenced in `coordinator/skills/handoff/SKILL.md` § Handoff Lineage.
 
 ### Archival — Option-A cutover mechanics
 
-<!-- folded 2026-07-22-23h55-residue guide-review-2 integration: merged from docs/wiki/handoff.md
-(round-2 residue guide, itself merged from docs/wiki/archival.md), nuggets r2-001, r2-002,
-r2-003; source archive/handoffs/2026-07/2026-07-12_184145_9377a287-1399-4a71-8255-268555d14f61.md.
-Net-new detail behind the `fleet.archive_completed_handoffs` / Step 2.7 wiring named above. -->
 
 As of 2026-07-12, archival is an **event-driven** operation owned by claude-klabauter's engine, replacing a
 prior shell-side mtime-polling veto (Option A, chosen over re-keying the shell veto in place —
@@ -184,11 +177,6 @@ degrade path.
 
 ---
 
-<!-- folded 2026-07-22-23h55 guide-review integration: relocated from docs/wiki/handoff.md
-     (plugin-doctrine misplaced in the DoE-only docs/wiki/ tree — the session-handoff record
-     kind's schema belongs here, alongside the rest of the handoff-lifecycle doctrine).
-     spec-backlink: run 2026-07-22-23h55, derived from b1-018, b1-020, b1-021, b1-022, b1-023,
-     b1-024; source archive/specs/2026-07/2026-07-17-execution-handoff-phase-doe-contract.md -->
 ## Execution-Handoff Contract — the `handoff_phase` Field
 
 Historically a handoff covered only involuntary/voluntary continuation (context ran out,
@@ -200,7 +188,7 @@ for the authorization-stamp mechanics themselves).
 
 A 2026-07-17 fleet-wide sweep found **120 de-facto execution handoffs across 8 repos** already
 using this shape informally, with **five divergent dialects** across siblings. The 2026-07-17
-DoE contract (`archive/specs/2026-07/2026-07-17-execution-handoff-phase-doe-contract.md`)
+DoE contract 
 formalized this into schema rather than leaving it as convention, and shipped it same-day.
 
 ### An orthogonal field, not a new kind
@@ -311,7 +299,6 @@ state. These are two **distinct live sub-states** along an axis orthogonal to
 
 ### Reference
 
-- Source spec: `archive/specs/2026-07/2026-07-17-execution-handoff-phase-doe-contract.md`
 - Ships in five commits (C1–C5): schema, validation rules, query-surface view, scaffold,
   normalize.
 - Fleet census (six-scout sweep): 120 de-facto execution handoffs across 8 repos, five dialects
@@ -325,7 +312,7 @@ state. These are two **distinct live sub-states** along an axis orthogonal to
 
 `deployment_state` and `status` transitions are increasingly expressed as named **verbs**
 (`handoff.transition <verb>`) rather than by-hand frontmatter edits, ported one at a time from
-coordinator JS into claude-klabauter's Python engine (the DR-047 contract-vs-engine split — DoE authors the
+coordinator JS into claude-klabauter's Python engine (the contract-vs-engine split — DoE authors the
 verb contract, claude-klabauter owns the implementation).
 
 ### Verb inventory (as of 2026-07-13)
@@ -335,7 +322,7 @@ verb contract, claude-klabauter owns the implementation).
 | `consume` | `status: open → claimed`, stamps `claimed_at`/`claimed_by` | Ported to claude-klabauter; DoE side `strangle_route`d |
 | `supersede` | marks abandoned with lineage pointer | Ported to claude-klabauter |
 | `ship` | marks `deployment_state: shipped` | Ported to claude-klabauter |
-| `unconsume` | reverses `consume`: `status: claimed → open`; `deployment_state {in_flight\|ready_to_fire} → ready_to_fire`; strips `claimed_at`/`claimed_by` (and defensively any stray `consumed_at`/`consumed_by`); optional `note` param writes `park_note` frontmatter | Shipped (claude-klabauter 6c52aa16, 60 tests green); DoE wired via `cs_unconsume_handoff` |
+| `unconsume` | reverses `consume`: `status: claimed → open`; `deployment_state {in_flight\|ready_to_fire} → ready_to_fire`; strips `claimed_at`/`claimed_by` (and defensively any stray `consumed_at`/`consumed_by`); optional `note` param writes `park_note` frontmatter | Shipped (claude_klabauter60 tests green); DoE wired via `cs_unconsume_handoff` |
 | `gate-recheck` | re-evaluates a `blocked_by`/`gate_dependency` edge, clears if satisfied | Ported to claude-klabauter 2026-07-13 (was DoE-JS-only, `strangle_route`d after) |
 | `repark` | re-blocks a handoff; fail-loud when the handoff is not `in_flight` (guard preserved across the port) | Ported to claude-klabauter 2026-07-13 |
 
@@ -410,12 +397,6 @@ The reaper re-reads state at act-time (TOCTOU guard — the holder-liveness and 
 change between the sweep's initial read and its write) and `--dry-run` reports the decision without
 mutating anything.
 
-<!-- folded 2026-07-22-23h55-residue guide-review-2 integration: merged from
-docs/wiki/handoff.md (round-2 residue guide), nuggets r2-016, r4-032; source handoffs
-archive/handoffs/2026-07/2026-07-13_220730_9e520e01-838b-41ce-bcbe-d218f4db25fb.md and
-archive/handoffs/2026-07/2026-07-20_114653_revive-lost-capabilities-triage.md. Net-new
-material only — the auto-abandonment halt itself and the 30-event count are already covered
-above; this adds the ship-oracle framing and the other two loss-mechanism classes. -->
 
 ### Ship-oracle design — ship, don't abandon
 
@@ -476,7 +457,7 @@ hand-written copy of the member list is how the two branches silently diverged b
 `/pickup`'s Step 1 (Classify, Load, and Reconcile Against Reality) archive-fallback resolution originally used flat `[ -f <path> ]` existence
 checks, but DoE's actual archive layout sweeps handoffs into month-nested directories
 (`archive/handoffs/2026-07/…`), so a swept baton dead-ended to "Ambiguous" instead of resolving as
-shipped. Fixed (1c613e84) to `find` recursively across `cross-repo/archive`, `archive/handoffs`,
+shipped. Fixed to `find` recursively across `cross-repo/archive`, `archive/handoffs`,
 and `archive/completed` — tolerates flat, month-nested, or any other layout. When adding a new
 archive-sweep destination directory, check it against this fallback resolution or it will silently
 regress to the same "Ambiguous" failure mode.

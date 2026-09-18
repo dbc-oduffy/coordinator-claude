@@ -1,17 +1,9 @@
 # Skill Budget Discipline
 
-> Spec backlinks: `archive/specs/2026-05-06-skill-budget-phases-bcd.md`, `archive/specs/2026-05-06-skill-budget-structural-cleanup.md`.
 
 ---
 provenance:
   kind: distilled-spec
-  source_plans:
-    - path: docs/plans/2026-05-06-skill-budget-phases-bcd.md
-      last_verbose_sha: 813075af33e4add9d0c1fc5f5c7b8bbc35a1865a
-    - path: docs/plans/2026-05-06-skill-budget-structural-cleanup.md
-      last_verbose_sha: c7bfce032fdca4437e2bbfa43e1405b4b79f7ebb
-    - path: docs/plans/2026-05-06-phase-e-learn-lessons.md
-      last_verbose_sha: 400504b33d6b3bb0a61e4ac9eed7d22012b1b346
   distilled_run: 2026-05-08-1032
 ---
 
@@ -33,7 +25,7 @@ context window by default, configurable upward), and past that budget not everyt
 > offered as the remedy. This is a first-hand human observation of product behaviour, clear and
 > distinct in the PM's memory — it was never written down at the time, and its absence from the
 > written record is exactly what let a later EM treat "not in the docs" as "did not happen" and
-> wrongly retract a true claim (see `a129878e`'s commit message for that incident). Logging it
+> wrongly retract a true claim (see commit message for that incident). Logging it
 > here closes that gap. **This first-hand flag was a cause of the 2026-05-06/07 super-skill
 > consolidation** — see `docs/wiki/super-skill-architecture.md § Skill Consolidation` for the
 > causal record alongside that consolidation's already-documented stated causes.
@@ -54,8 +46,7 @@ above, on a sibling surface.
 
 **The strongest in-repo evidence is the 2026-05-06/07 super-skill consolidation itself**, which
 cut the catalog from 30 to 26 user-facing skills in one pass
-(`archive/specs/2026-05/2026-05-09-skill-consolidation-pass.md`,
-`coordinator/docs/wiki/super-skill-architecture.md § Skill Consolidation`). Read those records
+(`coordinator/docs/wiki/super-skill-architecture.md § Skill Consolidation`). Read those records
 carefully, though: they document the consolidation's stated reasons as folding thin
 pass-through skills into their only callers and enforcing a description-character-budget CI gate
 — they do not themselves state "too many skills, only the top-`n` load" as the trigger. That
@@ -81,7 +72,7 @@ way:**
 
    **Partially settled, not resolved.** A spike
    (`docs/research/spike-verdicts/2026-07-27-boot-context-envelope.md`, corroborated by
-   `state/audits/2026-07-27-boot-description-census.md`) observed all 62 skill-listing entries at
+   ) observed all 62 skill-listing entries at
    this repo's current catalog size intact by name. The 62 figure is a live-tool-listing
    self-observation made at spike time, not a number the census itself reports — the census
    separately enumerates on-disk source files by a different method and corpus (35 `SKILL.md`
@@ -117,7 +108,7 @@ Caveat: cross-machine sessions undercounted 30-50%; passive-doctrine skills may 
 
 ---
 
-## Phase A Cleanup Actions (commit e40441f)
+## Phase A Cleanup Actions
 
 PM-authorized cleanup:
 - Disabled 5 unused official-marketplace plugins globally
@@ -193,7 +184,6 @@ Empirically confirmed twice before the code was read: setting overrides on both 
 
 **Size the prize before spending on this again.** Collapsing all 80 coordinator entries (35 skills + 45 commands) to name-only saves 6,491 B of an 8,612 B surface — roughly 1,855 tokens, or ~24k tokens across a twelve-agent wave at 13 payers. Real, but an order of magnitude below what dispatch shape recovers (~332k on the same wave — see `agent-dispatch-economics.md § Agent Type Is the Largest Per-Dispatch Cost`). Rank it accordingly.
 
-<!-- spec-backlink: state/handoffs/2026-07-30-boot-payload-collapse-skills-to-name-onl.md item 1; measurement in docs/research/2026-07-30-boot-envelope-controllability.md. -->
 
 ---
 

@@ -44,7 +44,9 @@ rung bodies, since git-ops gates oss on .git while content gates oss on the
     3. registry plugin.mirrors.coordinator-claude.live_path
     4. Versioned cache: newest semver dir under
        ~/.claude/plugins/cache/coordinator-claude/coordinator/*/
-    5. Pointer file -> <root>/coordinator, gated on -d <root>/coordinator
+    5. Pointer file -> the coordinator content root inside it, either
+       layout (<root>/coordinator, else <root> itself when it carries
+       .claude-plugin/plugin.json)
     6. Flat layout: ~/.claude/plugins/coordinator-claude, gated on the
        .claude-plugin/plugin.json manifest marker
     7. FAIL-LOUD
@@ -485,8 +487,14 @@ def resolve_content() -> str:
         return newest
 
     doe_root = _read_doe_root_pointer()
-    if doe_root and (Path(doe_root) / "coordinator").is_dir():
-        return str(Path(doe_root) / "coordinator")
+    if doe_root:
+        # Either content layout — a pointer naming the published flat mirror
+        # resolved nothing while this rung knew only `<root>/coordinator`.
+        from coordinator_data_root import content_root_for
+
+        pointed = content_root_for(doe_root)
+        if pointed is not None:
+            return str(pointed)
 
     claude_home = _claude_home_dir()
     if claude_home:

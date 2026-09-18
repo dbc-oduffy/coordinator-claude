@@ -44,7 +44,7 @@ trips on timezone):
 ls -l --time-style=full-iso "$d"/*.jsonl | grep -E '<YYYY-MM-DD> 12:02:(4[0-9]|5[0-9])|<YYYY-MM-DD> 12:03:0'
 ```
 
-- Encoded-cwd dir naming: `X:\project-rag` → `X--project-rag`; `C:\Users\oduffy\.claude` → `C--Users-example-operator--claude`. <!-- foreign-path-ok: illustrating the harness's own path-encoding scheme, the subject of this bullet -->
+- Encoded-cwd dir naming: `C:\project-rag` → `C--project-rag`; `C:\home\<user>\.claude` → `C--home-<user>--claude`. <!-- foreign-path-ok: illustrating the harness's own path-encoding scheme, the subject of this bullet -->
   (Historic `-Users-example-operator-X-…` forms also exist; prefer the current `X--` / `C--` scheme.)
 - Sessions written *after* the cluster are restarts/new sessions — exclude them (the recovery session itself is one).
 - Tiny transcripts (a few KB) in the cluster are usually near-empty `/clear` shells — classify fast, low priority.
@@ -122,7 +122,7 @@ see `concurrent-em-hazards.md`.
   crash-dirty tree. Nothing else in their tree is touched — not a fix the forensics noticed, not a
   test, not a config.
   This is the one named carve-out to `NO_STANDING_XREPO_GRANT`
-  (`docs/decisions/DR-recovery-batons-land-in-the-affected-repo.md`): bounded to a crash occasion, a
+  : bounded to a crash occasion, a
   recovery handoff, and that pathspec. Every other cross-repo commit still needs per-session PM
   assent.
   **A memo is not the delivery.** It cannot be `/pickup`'d, carries no `deployment_state`, surfaces
@@ -156,7 +156,7 @@ So the reconcile step is: `git log --all` for peer commits touching the handoff'
 
 ### the Game Dev Reviewer rotation across a crash/compaction breaks wsc auto-resolution
 
-A session's `sid` rotates when it restarts after a crash **or** compacts mid-workstream. `wsc_resolve` then greps `consumed_by:`/`claimed_by:` (DR-084 renamed the field, corpus mixed, check both) / commit attribution by the **new** sid and reports single-session + `diff_loc 0` — even though the session consumed a handoff and shipped many commits (some authored by workflow agents under yet other sids). **Do not drive `wsc_commit` off that hollow auto-resolution** during recovery close-out: stamp the predecessor handoff by hand and run the review/commit close-out directly, rather than trusting the sid-keyed auto-resolution to have found the real workstream. (Universal — applies to any post-crash or post-compaction `/workstream-complete`.)
+A session's `sid` rotates when it restarts after a crash **or** compacts mid-workstream. `wsc_resolve` then greps `consumed_by:`/`claimed_by:` (the field was renamed, corpus mixed, check both) / commit attribution by the **new** sid and reports single-session + `diff_loc 0` — even though the session consumed a handoff and shipped many commits (some authored by workflow agents under yet other sids). **Do not drive `wsc_commit` off that hollow auto-resolution** during recovery close-out: stamp the predecessor handoff by hand and run the review/commit close-out directly, rather than trusting the sid-keyed auto-resolution to have found the real workstream. (Universal — applies to any post-crash or post-compaction `/workstream-complete`.)
 
 ## `~/.claude.json` torn-write recovery
 
@@ -178,7 +178,6 @@ section used to mandate was never once written on any machine — the discharge 
 **The trigger is the symptom, not the crash.** A crash that left the file intact — the normal case, and the
 case on 2026-08-23 — is a reason to leave it alone.
 
-Source: `state/recovery/2026-07-01-claude-json-crash-investigation.md`.
 
 ## Prevention
 

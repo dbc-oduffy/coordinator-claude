@@ -2,7 +2,7 @@
 title: Host-addon separation of concerns — umbrella principle
 created: 2026-05-19
 status: active
-spec_backlink: docs/plans/2026-05-19-host-side-engine-corpus-unreachable-fix.md §S-1c
+spec_backlink: 2026-05-19-host-side-engine-corpus-unreachable-fix.md §S-1c under docs/plans/
 relates_to:
   - docs/wiki/host-vs-addons.md
   - docs/wiki/corpus-band-protocol.md
@@ -11,9 +11,7 @@ relates_to:
   - docs/wiki/codebase-judgment/typed-surface-over-text-pattern.md
 ---
 
-<!-- Imported from X:/project-rag at SHA d376cb01. Inherited substrate; canonical lineage now in Claude Central. Origin: project-rag/docs/... — sibling-repo layout doctrine now lives in this repo's own wiki (the meta-repo local-doctrine file this once pointed at is retired). --> <!-- foreign-path-ok: import provenance, quoting the machine-specific path as it stood at import time, not a live location assertion -->
 
-<!-- Spec backlink: docs/plans/2026-05-19-host-side-engine-corpus-unreachable-fix.md §S-1c (umbrella-principle wiki) -->
 
 # Host-Addon Separation of Concerns
 

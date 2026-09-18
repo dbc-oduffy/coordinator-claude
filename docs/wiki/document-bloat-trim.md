@@ -2,7 +2,7 @@
 system: document-bloat-trim
 last_updated: 2026-04-28
 status: active
-provenance: archive/handoffs/2026-04-28_222800_2fc815ec.md + 2026-04-28_225450_5e6c9130.md
+provenance: the two 2026-04-28 origin handoffs under archive/handoffs/
 ---
 
 # Document Bloat Trim — CLAUDE.md as Link Index
@@ -217,11 +217,10 @@ evaluate it by whether every citation now resolves to a single coherent home.
 ## See also
 
 - [`scoped-safety-commits.md`](./scoped-safety-commits.md) — the helper this page references.
-- `archive/handoffs/2026-04-28_222800_2fc815ec.md`, `2026-04-28_225450_5e6c9130.md` — origin handoffs.
 
 ## Decision Records
 
-**DBT-DR-001 — Hybrid trim over `@`-import for subagent prompts**
+**DBT-1 — Hybrid trim over `@`-import for subagent prompts**
 
 *Problem:* ue-* agent prompts carried verbatim cookbook content. Could a link reference, summary+pointer, or `@`-import substitute?
 
@@ -229,7 +228,7 @@ evaluate it by whether every citation now resolves to a single coherent home.
 
 *Alternatives considered:* Bare link reference (rejected — the Staff Engineer P8, subagents see only the dispatch prompt). Summary + Read pointer (rejected — recreates the drift hazard). `@`-import (rejected — untested in agent prompts).
 
-**DBT-DR-002 — `/schedule` is for remote CCR agents, not local file tasks**
+**DBT-2 — `/schedule` is for remote CCR agents, not local file tasks**
 
 *Problem:* Should the 14-day cookbook recheck use `/schedule`?
 

@@ -1,6 +1,5 @@
 # Cross-Platform Invocation Parity
 
-<!-- spec-backlink: docs/plans/2026-07-21-macos-first-class-invocation.md -->
 
 **Purpose.** An entrypoint's *invocation path* — the mechanism an OS uses to turn "run this
 file" into a running process — is a per-OS artifact, distinct from the entrypoint's behavior
@@ -64,7 +63,7 @@ the other silently doesn't.
 
 ## The W4a incident (cautionary precedent)
 
-The `debash(W4a)` wave (`b5a4192c`) renamed 109 `coordinator/bin/*.sh` polyglot trampolines to
+The `debash(W4a)` wave renamed 109 `coordinator/bin/*.sh` polyglot trampolines to
 pure-Python `.py` files and generated a Windows `.cmd` launcher for every one — but built **no
 Unix invocation path at all**. Result: **109/109 Windows `.cmd` launchers, 0/109 Unix paths.**
 None of the 109 carried a shebang (line 1 was `from __future__ import annotations`), and 35/109
@@ -101,7 +100,7 @@ never a bash/git-bash wrapper.
 
 The ~16 remaining `#!/bin/sh` polyglot CLIs (the ones the claude-klabauter
 `block_bin_polyglot_break.py`/`block-bin-polyglot-break.sh` guard used to protect, until it was
-removed in claude-klabauter `f3b8b513` — the polyglot invariant it enforced is retired) are **legacy
+removed in claude-klabauter — the polyglot invariant it enforced is retired) are **legacy
 debt on the kill-bash roadmap**, not a coequal permanent class held open-ended. The polyglot shape
 was a crutch for shell-invoking a Python tool; since nothing should shell-invoke these bareword,
 the crutch has no remaining job. Any current git-bash reliance on one of the ~16 is a bug to gut,
@@ -113,11 +112,11 @@ workstream (§ Cross-repo write discipline — code/install-surface changes rout
 `cross-repo-memo` + PM-relay, never a direct DoE write to claude-klabauter), not folded into the plan that
 ratified this doctrine.
 
-## Forward obligation across the DR-047 boundary
+## Forward obligation across the doctrine/engine boundary
 
 The invocation-parity invariant (Unix shebang+exec-bit path symmetric with the `.cmd` launcher,
 generator-owned) is a **preserved forward obligation**, not a DoE-implementation-only detail. If
-`claude-klabauter` later extracts the bin-generation/install surface under DR-047, the invariant
+`claude-klabauter` later extracts the bin-generation/install surface under that boundary, the invariant
 travels with the surface — it does not lapse on extraction. Any DoE→claude-klabauter relay of this
 obligation is a doctrine-seeding forward-notice (not a bug report), routed via
 Claude-klabauter `coordinator/bin/cross-repo-memo` + PM-relay per `CLAUDE.md § Cross-repo
@@ -167,8 +166,7 @@ we ship it right?"* and nobody asked *"does the reader know what to run?"*
 `coordinator/snippets/resolve-coordinator-bin.md`'s precedence ladder: rung 0 / Shape W is now the
 canonical citation form on a PowerShell host (the `.cmd` twin invoked via the call operator, as
 shown above), and the bareword/`${...}` form above is retained only as the POSIX-host rung. New
-doctrine cites the snippet rather than restating either form. Evidence: DoE-claude
-`state/2026-08-07-oduffy-pc-install-dogfood-friction-log.md` § F5.
+doctrine cites the snippet rather than restating either form.
 
 ## See also
 
@@ -178,4 +176,5 @@ doctrine cites the snippet rather than restating either form. Evidence: DoE-clau
 - `install-surface-completeness.md` — the broader "works on every machine" doctrine this wiki is
   the invocation-layer instance of; § Windows-chmod commit mechanic for the exec-bit-in-index
   detail.
-- `docs/decisions/DR-076-cross-platform-invocation-parity.md` — the ratifying decision record.
+- The ratifying decision record lives in the DoE-claude source repo's `docs/decisions/` and does
+  not ship; its absence downstream is expected.

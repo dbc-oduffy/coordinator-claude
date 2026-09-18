@@ -35,7 +35,7 @@ which is empty in the one repo class the check was built for (example-game-repo)
 `bin/check_ubt_build_fresh.py`, puts its markers under `.coordinator-local/review-trail/` instead.
 The gate was reading an empty directory and reporting clean, from before its scanner was ever
 deleted. Nor was this ceremony ever its discharge: that writer's own docstring names
-Example-game-repo's `/session-end` Step 2.9 and `/workday-complete` as its consumers. UBT freshness is
+Example-game-repo's `/workstream-complete` Step 2.9 and `/workday-complete` as its consumers. UBT freshness is
 Example-game-repo's requirement, discharged by example-game-repo's own ceremonies. Do not re-add it here, and do not
 re-add compensating EM prose for it — a manual compensation for a requirement this ceremony does
 not own is worse than the gap it patches.

@@ -45,7 +45,7 @@ Scanning only the primary form misses the others. A real rename scanned only the
 
 ## Assign a new sequential ID by scanning bodies, not just filenames
 
-When you allocate the next number in a sequential ID space (decision records, chunk ids, anything `PREFIX-NNN`), enumerate BOTH the filename prefixes AND the in-file `id:` frontmatter across the whole directory. Picking the next fleet decision-record number from only `DR-NNN-*.md` filename prefixes misses date-named files that carry an internal `id: DR-NNN` (e.g. a `2026-07-14-*.md` file that claimed `id: DR-059`) — which caused a DR-059 collision on 2026-07-16. The filename is one index into the ID space; the frontmatter is another. Scan both before claiming the next number.
+When you allocate the next number in a sequential ID space (decision records, chunk ids, anything `PREFIX-NNN`), enumerate BOTH the filename prefixes AND the in-file `id:` frontmatter across the whole directory. Picking the next fleet decision-record number from only `DR-NNN-*.md` filename prefixes misses date-named files that carry an internal `id: DR-NNN` (e.g. a `2026-07-14-*.md` file that claimed an `id:` another file already held) — which caused a duplicate-id collision on 2026-07-16. The filename is one index into the ID space; the frontmatter is another. Scan both before claiming the next number.
 
 ## Cite a decision-id by the namespace that minted it, not the bare number
 
@@ -54,10 +54,10 @@ collide on number. A bare id means `docs/decisions/` — that is the default and
 qualifier. Every other namespace is cited in a form that names it:
 
 - a `claude-klabauter` record → repo-qualified, never a bare id that reads as ours. Two shapes
-  are both correct, chosen by purpose: `` `claude-klabauter DR-210` `` (repo name + bare id) to
+  are both correct, chosen by purpose: `` `claude-klabauter DR-NNN` `` (repo name + bare id) to
   cite a decision in prose; `` `claude-klabauter/docs/decisions/DR-###-<slug>.md` `` (full path)
   when the reader is being sent to open the record.
-- a plan-local `DR-1`..`DR-9` → cited only inside the plan that mints it, never from outside
+- a plan-local single-digit `DR-<n>` → cited only inside the plan that mints it, never from outside
 - a PREFIXED or document-local scheme (`SC-DR-###` in `scoped-safety-commits.md`, `DBT-DR-0##`
   in `document-bloat-trim.md`, the anchored `DR-001`..`DR-009` registry in `lesson-triage.md`,
   and any later one) → a document-local id, not a `docs/decisions/` citation, and never

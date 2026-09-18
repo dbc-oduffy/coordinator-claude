@@ -1,15 +1,14 @@
 ---
 name: daily-summary-procedure
 status: active
-spec_backlink: archive/specs/2026-05/2026-05-09-skill-consolidation-pass.md
 ---
+
 
 # Daily Summary Procedure
 
 > Reference wiki for `/workday-complete` Step 4. Heavy-weight artifacts extracted here to keep the
 > command body under 200 lines. Step 4 walks these sections inline — do not skip them.
 >
-> Spec backlink: `archive/specs/2026-05/2026-05-09-skill-consolidation-pass.md` § T1
 
 ---
 
@@ -180,10 +179,6 @@ print(compute_machine())
 
 ## Coverage Anchor Semantics and Phase A0 Backfill Deductions
 
-> Spec backlinks: `cross-repo/inbox/2026-07-02-workday-backfill-covered-tip.md` (Finding 2 —
-> content-true-tip doctrine) and
-> `cross-repo/inbox/2026-07-02-backfill-scan-legacy-anchor-migration.md` (descendant-tip
-> machine-row deduction). Canonicalized in `docs/plans/2026-07-02-backfill-anchor-injection-contract.md`.
 
 ### Anchor-semantics doctrine
 

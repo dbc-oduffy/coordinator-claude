@@ -2,11 +2,10 @@
 title: Reviewer-Routed Workers
 system: reviewer-routed-workers
 status: distilled
-distilled_from:
-  - archive/specs/2026-04-29-reviewer-routed-workers.md
 distilled_at: 2026-05-06
 distilled_run: 2026-05-06-13h00
 ---
+
 
 # Reviewer-Routed Workers
 
@@ -136,4 +135,3 @@ This sharpens the § Gotchas bullet "Validate worker findings independently — 
 ## Reference
 
 - Related: [reviewer-premise-challenge](reviewer-premise-challenge.md)
-- Source plan: `archive/specs/2026-04-29-reviewer-routed-workers.md`

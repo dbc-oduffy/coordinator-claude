@@ -4,10 +4,10 @@ title: project-rag MCP Self-Declaration and Content-Class Routing
 status: active
 created: 2026-05-24
 sources:
-  - docs/plans/2026-05-18-project-rag-mcp-self-declaration-and-content-class-routing.md
-  - docs/plans/2026-05-21-doe-side-mcp-registration-visibility-and-drift-audit.md
-  - cross-repo/archive/2026-05-23-project-rag-host-configure-not-edit-framing.md
-  - archive/specs/2026-04-29-project-rag-readiness.md
+  - the MCP self-declaration / content-class-routing plan under docs/plans/
+  - the DoE-side MCP registration-visibility and drift-audit plan under docs/plans/
+  - the host-configure-not-edit framing memo under cross-repo/archive/
+  - the project-rag readiness spec under archive/specs/
 tags: [project-rag, mcp, content-class-routing, self-declaration]
 ---
 

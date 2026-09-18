@@ -4,8 +4,6 @@
 > 2026-07-27). Distilled from `state/reference/anthropic-docs/` (96 archived platform pages) and
 > the `_mine/` second-pass sidecars.
 >
-> Spec backlinks: `state/reference/anthropic-docs/_verify-harness-capabilities.md` (primary
-> ground-truth), `state/reference/anthropic-docs/_mine/*.md` (per-family reachability mining).
 
 ## How to use this file
 
@@ -84,7 +82,7 @@ assert either way without a fresh probe.
   See also `_mine/claude-code-product.md` § "What I looked at and found nothing in" for corpus
   areas already fully mined against current claims (`mcp.md`, `skills.md`'s `paths:`
   glob-activation — already spun off in
-  `docs/plans/2026-07-27-doctrine-envelope-allocation.md`).
+  `2026-07-27-doctrine-envelope-allocation.md` under `docs/plans/`).
 - **A new archived page.** This corpus has gaps it names honestly: the **Advisor tool** page was
   never fetched (`_mine/tool-use.md` item 3 — a corpus hole, not a verified NO), `settings.md` is
   a **26-line stub**, and OpenTelemetry's actual metric schema was never archived. Don't treat

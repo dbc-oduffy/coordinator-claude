@@ -47,6 +47,14 @@ import sys
 
 import yaml
 
+GENERATES = [
+    {
+        "artifact": "state/audits/2026-09-07-guard-enforcement-join/guard-enforcement-join.yaml",
+        "stamp_key": "source_sha",
+        "sources": ["coordinator/bin/emit-guard-enforcement-join.py"],
+    },
+]
+
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(os.path.dirname(_BIN_DIR))
 if _REPO_ROOT not in sys.path:

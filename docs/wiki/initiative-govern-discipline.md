@@ -1,6 +1,6 @@
 ---
-spec-backlink: docs/plans/2026-07-04-initiative-govern-sweep-prioritize-doe-d.md § C6
 ---
+
 
 # Initiative Govern Discipline
 
@@ -59,9 +59,6 @@ Concrete checks before creating a new initiative:
 
 ## Queue-triage themes vs true initiatives — a carve-out on the shared FK
 
-**Per
-[2026-07-23-queue-triage-terminates-in-batons](../../../docs/plans/2026-07-23-queue-triage-terminates-in-batons.md)
-§ DEC-3/C3.** Check 4 above declines initiative altitude for single-type, short-horizon
 clusters. The queue-triage terminus reuses the *same* `initiative` FK as its grouping key
 for exactly those clusters anyway — this section states why that is not a silent
 contradiction, and where the line between the two uses sits.
@@ -238,7 +235,7 @@ Triage). It does NOT run at:
 - `workday-complete` — too frequent; daily triage is for queue closure, not initiative cuts.
 - `workstream-start` — forward-looking orientation; initiative govern is backward-looking
   accumulation review.
-- `workweek-start` — DR-209 suggested this placement, but DoE ratified `workweek-complete`
+- `workweek-start` — the engine-side decision suggested this placement, but DoE ratified `workweek-complete`
   (predecessor handoff Key Decision #6): a backward-looking cadence fits the initiative sweep
   better than a forward-looking orientation, and queue-triage teeth already live at complete.
 
@@ -264,6 +261,4 @@ Step 4.
 - **Weekly ritual:** `coordinator/commands/workweek-complete.md` § Step 4: Improvement-Queue
   Triage — initiative-govern sub-step (run lens + detector, surface candidates, prompt human
   attach/create).
-- **Fleet-deliverable spine:** `docs/plans/2026-07-03-fleet-deliverable-spine-identity-and-facets.md`
-  *(lives in the sibling `claude-klabauter` repo — awareness link, not in-repo navigable)* — the shipped
   substrate this discipline is layered on top of.

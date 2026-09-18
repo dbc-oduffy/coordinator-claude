@@ -2,7 +2,6 @@
 
 > A typed, standalone declarative view over coordinator's first-party MCP servers — the architecture-level answer to MCP tool proliferation.
 >
-> Spec backlink: `docs/plans/2026-06-27-ccos-9-mcp-topology-schema.md`
 > Declaration file: `plugins/coordinator/mcp-topology.yaml`
 
 ---

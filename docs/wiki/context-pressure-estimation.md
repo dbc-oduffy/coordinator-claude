@@ -16,8 +16,8 @@ not a lesser version of the same product; it is a different, much weaker one.
 cloud box a successor costs a new container, a fresh clone and re-provisioning, so **compaction is
 the continuation primitive and the handoff is the expensive path** — the pre-emptible act there is
 the commit and the baton, not a handoff. The engine selects this with no configuration
-(`compaction_warnings`' environment rung); the band table below states both terminals. Ruled in
-`docs/decisions/DR-cloud-is-a-venue-where-compaction-is-the-continuation-primitive.md`; tripwire
+(`compaction_warnings`' environment rung); the band table below states both terminals. Ruled in the
+cloud-is-a-venue decision record; tripwire
 `A-HANDOFF-NAG-ASSUMES-A-SUCCESSOR-THAT-IS-CHEAP-TO-REACH`.
 
 That is why `PostCompact` is not a detection point. The **PreCompact sentinel bridge**

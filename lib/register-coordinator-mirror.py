@@ -27,11 +27,13 @@ import subprocess
 import sys
 
 # This file lives in coordinator/lib/ (not coordinator/bin/), so the shared
-# cc_invoke helper is a sibling of coordinator/bin/, not of this file's own directory.
+# cc_invoke and python_interp helpers are siblings of coordinator/bin/, not of
+# this file's own directory.
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bin", "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
+from python_interp import python_argv  # noqa: E402
 
 
 def _import_main():
@@ -44,23 +46,30 @@ def _python_argv(script: str, *args: str) -> list:
     """Build an argv that invokes a `.py` script via a resolved interpreter.
 
     `[script, ...]` alone cannot exec a `.py` file directly on any platform —
-    this always needs an explicit interpreter in argv[0]. Probes python3 /
-    python / py in that order (matches the sibling shell callers of
-    resolve-coordinator-clone.py) rather than relying on a shebang re-exec,
-    which is the load-bearing fix over the retired bash predecessor: that one
-    shelled out via `bash <script>` on Windows — a bash dependency this port
-    removes entirely.
+    this always needs an explicit interpreter in argv[0]. Delegates to the
+    shared `python_interp.python_argv` ladder (venv-agnostic here; this is a
+    standalone script invocation, not a repo test resolver) rather than
+    relying on a shebang re-exec, which is the load-bearing fix over the
+    retired bash predecessor: that one shelled out via `bash <script>` on
+    Windows — a bash dependency this port removes entirely.
 
-    # Review: code-reviewer (slicedoe-2commits Finding 5) — on Windows, probe
-    # `sys.executable` first: `shutil.which("python3")` can resolve to the
-    # App-Execution-Alias stub under `%LOCALAPPDATA%/Microsoft/WindowsApps/`
-    # (a Store-redirect shim, not a real interpreter) when the operator
-    # hasn't disabled the alias, whereas `sys.executable` is always the real,
-    # currently-running interpreter and never a Store stub. POSIX behavior is
-    # unchanged.
+    On Windows, the shared ladder prefers a console CPython resolved from
+    `sys.executable` over probing `python3` on PATH: `shutil.which("python3")`
+    can resolve to the App-Execution-Alias stub under
+    `%LOCALAPPDATA%/Microsoft/WindowsApps/` (a Store-redirect shim, not a real
+    interpreter) when the operator hasn't disabled the alias. What changed:
+    the premise "`sys.executable` is always the real, currently-running
+    interpreter" is false under an installed forwarder (e.g. a
+    Store-alias-adjacent launcher exe) — handing that exe a script path
+    re-enters the forwarder's own argv parsing rather than running the
+    script. "Never a Store stub" still holds: the shared ladder refuses a
+    forwarder and falls through to `sys._base_executable` and then
+    `shutil.which("python3")`/`shutil.which("python")` instead. POSIX
+    behavior is unchanged.
     """
-    if os.name == "nt" and sys.executable:
-        return [sys.executable, script, *args]
+    resolved = python_argv(script, *args)
+    if resolved is not None:
+        return resolved
     for cand in ("python3", "python", "py"):
         if shutil.which(cand):
             return [cand, script, *args]

@@ -23,7 +23,7 @@ When our doctor needs to point an operator at a peer's doctor / setup / repo, re
 
 A hardcoded peer path is wrong on three axes:
 
-- **Per-machine variance.** `/x/project-rag` on one machine, `~/dev/project-rag` on another, `D:\project-rag` on the third. The registry is per-machine; the cascade reads it. <!-- foreign-path-ok: illustrates the very per-machine variance this doc is about, not a location claim -->
+- **Per-machine variance.** `/opt/project-rag` on one machine, `/srv/repos/project-rag` on another, `C:\project-rag` on the third. The registry is per-machine; the cascade reads it. <!-- foreign-path-ok: illustrates the very per-machine variance this doc is about, not a location claim -->
 - **Install state.** Operator may have the peer installed via MCP but no local clone; or a local clone but no MCP wiring; or neither. The cascade discriminates without prompting.
 - **Doctor liveness coupling.** If our doctor imports the peer's path constant, the peer's absence from `sys.path` crashes our doctor. The cascade is read-only — failure at one rung falls through to the next.
 

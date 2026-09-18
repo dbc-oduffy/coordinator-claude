@@ -102,14 +102,53 @@ def _emitter_invocation() -> str:
     tool rather than a wrong cwd. `CLAUDE_PLUGIN_ROOT` is set for hooks and is the plugin root
     the session actually resolved, so it names the emitter that will actually run.
     """
-    root = os.environ.get("CLAUDE_PLUGIN_ROOT")
-    if root:
-        return 'python3 "' + str(Path(root) / "bin" / "emit-dispatch-workflow.py") + '"'
-    # No plugin root: say so rather than print a path resolving against the reader's cwd.
+    for root in _emitter_root_candidates():
+        candidate = Path(root) / "bin" / "emit-dispatch-workflow.py"
+        if candidate.is_file():
+            return 'python3 "' + str(candidate) + '"'
+    # Nothing on disk: say so rather than print a path resolving against the reader's cwd,
+    # or an absolute one that does not exist.
     return (
-        "python3 <coordinator-plugin-root>/bin/emit-dispatch-workflow.py  "
-        "# CLAUDE_PLUGIN_ROOT unset here; substitute the absolute path"
+        "python3 <doe-claude-root>/coordinator/bin/emit-dispatch-workflow.py  "
+        "# not resolvable here; substitute the absolute path"
     )
+
+
+def _emitter_root_candidates() -> list[str]:
+    """Roots that may carry `bin/emit-dispatch-workflow.py`, best first.
+
+    `CLAUDE_PLUGIN_ROOT` alone is not enough, and printing it unchecked is the
+    failure this function exists to prevent. The emitter is a DoE-source-only CLI
+    -- it gets no settings-home launcher and the flat OSS mirror does not carry it
+    -- while a cloud container resolves its plugin root TO that mirror by design.
+    There, the unchecked branch printed an absolute path to a file that cannot
+    exist, and a peer copy-pasting it got `can't open file`: a broken tool, which
+    is exactly the reading this refusal must not produce.
+
+    So every candidate is probed on disk before it is printed, and the `.doe-root`
+    pointer -- the rung the no-launcher fences already use for this CLI -- is
+    consulted when the plugin root does not carry it.
+    """
+    candidates = []
+    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    if plugin_root:
+        candidates.append(plugin_root)
+
+    settings_home = os.environ.get("COORDINATOR_SETTINGS_HOME") or str(
+        Path(os.environ.get("CLAUDE_HOME") or Path.home()) / ".coordinator-claude-settings"
+    )
+    pointers = (
+        Path(settings_home) / "machine-local" / ".doe-root",
+        Path(os.environ.get("CLAUDE_HOME") or Path.home()) / ".claude" / ".doe-root",
+    )
+    for pointer in pointers:
+        try:
+            doe_root = pointer.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if doe_root:
+            candidates.append(str(Path(doe_root) / "coordinator"))
+    return candidates
 
 
 def main() -> int:

@@ -7,8 +7,10 @@
 # A cross-repo block opens a conversation
 
 A leg blocked on a sibling repo may not be parked on the word "blocked". It rests only on an
-**addressed, answered exchange**. Full definition, adversarial cases, and the carrier decision:
-`coordinator/docs/wiki/cross-repo-block-exchange-predicate.md`.
+**addressed, answered exchange**. The three conjuncts below are the whole operative rule. Full
+definition, adversarial cases, and the carrier decision live in the DoE-claude source repo at
+`coordinator/docs/wiki/cross-repo-block-exchange-predicate.md`, which is fleet-internal and does
+not ship — its absence from an installed or mirrored tree is expected, not a missing page.
 
 ## The three conjuncts
 

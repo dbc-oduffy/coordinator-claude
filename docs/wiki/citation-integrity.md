@@ -68,7 +68,7 @@ aren't markdown links at all.
 
 ## Ground-truthed rot count, and why it isn't a bare threshold
 
-**Measured at 816 wiki files, commit `b96f98fe76106816e2243925c90641ee2fca8dff`** (C1's first
+**Measured at 816 wiki files** (C1's first
 scan; superseded below by C1-repair, kept here because the ground-truth hand-classification below
 was performed against this run's 157-item bare-basename rot set):
 
@@ -107,7 +107,7 @@ point in time.
 ## The root-resolution fix, and what it moved
 
 The pathed-citation class (`` `docs/wiki/some-page.md` ``) was resolved repo-root-only in C1's
-first pass, then corrected (commit `66e54f7a3`) to try the plugin root (`coordinator/`) before
+first pass, then corrected to try the plugin root (`coordinator/`) before
 the repo root — same commit's `PATHED_RESOLUTION_ROOTS = (PLUGIN_ROOT, REPO_ROOT)`. Measured at
 816 wiki files, same tree:
 
@@ -132,7 +132,7 @@ shell commands or config values that happen to contain a `.md` token
 
 ## Standing counts
 
-**Measured live against this checkout at `8884273008a57a06eba593c7d5b4da7e84fcf634`, 819 wiki
+**Measured live against this checkout, 819 wiki
 files** (`citation_graph.scan_corpus()` — recomputed on every call, never persisted, since a
 resolution verdict is a fact about *other* files and goes stale on any change that doesn't touch
 the citing file):
@@ -194,5 +194,4 @@ unexamined defect into it is not, and the two are indistinguishable in the file 
   computed from.
 - `docs/research/2026-08-30-17h00-llm-wiki-doctrine-corpus-workdir/own-side-audit.md` — the
   original 805-file audit this page's figures supersede.
-- `docs/plans/2026-08-30-citation-integrity-tier-1.md` — the plan this page and its tripwire were
   dispatched from (chunk C7).

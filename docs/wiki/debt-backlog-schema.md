@@ -9,32 +9,13 @@ system: debt-triage
 
 # Debt-Backlog Schema
 
-<!-- Spec backlink: archive/specs/2026-06/2026-06-15-structured-queue-medium-rollout.md § C1 -->
 <!-- Spec backlink: docs/plans/2026-06-25-example-initiative-tc-2-queues-lessons-consolidation.md § D1 (unified base+extension shape) -->
 
-<!-- Negative-spec: The pre-plan approach of appending debt items as pipe-separated rows to
-     state/debt-backlog.md is REPLACED by per-entry YAML files at state/debt-backlog/*.yaml.
-     state/debt-backlog.md has been swept by tc-2 / C7 (after its 13 live straggler bullets
-     were drained in C6). The central universal improvement queue (state/improvement-queue/,
-     queue_scope:central) is governed by improvement-queue-schema.md and uses the same git-mv
-     closure as all other directory-form queues — it is not a markdown-line-per-entry holdout.
-     Do NOT add an `id:` field to debt entries — the filename (<date>-<slug>.yaml) is the
-     canonical handle (D2). Do NOT use `suggested_action:` — the canonical name is
-     `proposed_action:` (renamed). Do NOT use `resolved_at:` or `resolution_note:` — the
-     canonical closure fields are `closed_at:` and `closed_by:`. Do NOT use `cross_ref:` — the
-     canonical name is `evidence:`. Do NOT use `status: resolved` — the canonical done value is
-     `status: closed` (ported). Do NOT use `status: open for-weekly-arch-review` — use
-     `status: open` with `tags: [weekly-arch-review]` instead (space-bearing enum value removed).
-     Do NOT fold `source:` into the generic `evidence:` field — `source:` stays a required
-     debt-domain field to preserve provenance audit discipline (prior-art-checker Claim #12).
-     Do NOT add a stored `lifecycle:` or `live:` frontmatter field — liveness is DERIVED at
-     query time from `status` (tc-0 negative-spec).
-     Tombstone: state/debt-backlog.md was a migrated placeholder swept by tc-2 / C7. -->
 
 The debt backlog is a per-entry YAML store at `state/debt-backlog/<date>-<slug>.yaml` inside the
 repo — the **parked tier** of the Queue Terminus Doctrine (`docs/wiki/queue-terminus-doctrine.md`).
 Since the queue-triage terminus rework
-(`docs/plans/2026-07-23-queue-triage-terminates-in-batons.md`), this directory is reached **only**
+this directory is reached **only**
 by an explicit per-item park decision made at a queue's own triage ceremony (outcome class 4 of
 the four-outcome terminus) — it is not the default migration target for a triaged
 `state/improvement-queue/` row. An entry lands here when `/debt-triage` Step 6 (or, per its own
@@ -68,7 +49,7 @@ an entry to `archive/debt-backlog/<YYYY-MM>/` via `git mv` — see § Closure co
 | `surface` | string | optional | The file, subsystem, or script the entry concerns, using path-like notation. Debt entries rarely carry this; use `source` for provenance instead. | `"bin/fan-out-dispatch.py"` |
 | `proposed_action` | string | optional (required in improvement+debt domains) | What to do about it — the remediation. Action-form: what the EM or a future executor should do. Renamed from `suggested_action`. | `"Weekly arch pass: verify fan-out dispatch spec mandates interface pin verification."` |
 | `closed_at` | string (ISO date) | optional | Closure date. Set when `status: closed`. Format: `YYYY-MM-DD`. Renamed from `resolved_at`. | `"2026-06-15"` |
-| `closed_by` | string | optional | Closure attribution — commit SHA preferred; prose tolerated for ported entries. Renamed from `resolution_note`. | `"1044d68c"` |
+| `closed_by` | string | optional | Closure attribution — commit SHA preferred; prose tolerated for ported entries. Renamed from `resolution_note`. | `"deadbeef"` |
 | `tags` | list of strings | optional | Free-form filter tags: system name, symptom label, domain, triage bucket. Use `tags: [weekly-arch-review]` instead of the old `open for-weekly-arch-review` status value. Renamed from off-schema `tags`. | `["weekly-arch-review", "fan-out"]` |
 | `evidence` | string or list of strings | optional | Provenance: commit SHA, plan path, related entry IDs, or cross-queue references. Renamed from `cross_ref`. Note: for debt, originating-review provenance belongs in `source:` (required debt-domain field), not here. | `"BS-2026-06-14-1"` |
 
@@ -163,7 +144,7 @@ system:
   linked_sessions:
     - "ses-2026-06-27-abc123"
   linked_commits:
-    - "a232af90"
+    - "deadbeef"
   provenance_completeness: "complete"
 ```
 

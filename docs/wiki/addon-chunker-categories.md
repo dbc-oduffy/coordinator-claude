@@ -4,9 +4,6 @@ created: 2026-05-15
 status: active
 ---
 
-<!-- Imported from X:/project-rag at SHA d376cb01. Inherited substrate; canonical lineage now in Claude Central. Sibling-repo layout doctrine lives in this repo's own wiki. --> <!-- foreign-path-ok: import provenance, not a current-location claim -->
-
-<!-- Spec backlink: docs/plans/2026-05-15-addon-chunker-categories-field.md §Chunk 2 -->
 
 # Addon Chunker Categories
 

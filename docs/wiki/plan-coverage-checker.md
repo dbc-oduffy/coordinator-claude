@@ -11,8 +11,8 @@ related:
   - plugins/coordinator/docs/wiki/external-pattern-checker.md
   - plugins/coordinator/docs/wiki/ceremony-calibration.md
   - state/lessons/
-  - docs/plans/2026-05-18-plan-coverage-checker.md
-  - docs/plans/2026-07-09-plan-full-coverage-and-deferred-harvest.md
+  - the plan-coverage-checker plan under docs/plans/
+  - the full-coverage-and-deferred-harvest plan under docs/plans/
 ---
 
 # plan-coverage-checker Pre-Review Doctrine
@@ -74,7 +74,7 @@ For the complete token list, stage-1 heading regex, and stage-2 classification r
 
 ### Lens 2b — Task-spine closure-approval and malformed-row detection
 
-Parses the plan's `## Tasks` task-spine — the pinned, parser-locate `yaml plan-tasks` fenced block that all downstream tooling (this checker, the harvest tool, `coordinator-doc-new`) binds to. See `agents/plan-coverage-checker.md § Phase 3.5` and the schema SSOT at `docs/plans/2026-07-09-plan-full-coverage-and-deferred-harvest.md § The task-spine schema (Item A — pinned interface)`.
+Parses the plan's `## Tasks` task-spine — the pinned, parser-locate `yaml plan-tasks` fenced block that all downstream tooling (this checker, the harvest tool, `coordinator-doc-new`) binds to. See `agents/plan-coverage-checker.md § Phase 3.5` and the schema SSOT at `2026-07-09-plan-full-coverage-and-deferred-harvest.md § The task-spine schema (Item A — pinned interface)` under `docs/plans/`.
 
 **Report-only, not the enforcement surface for closure authorization** — that lives in the claude-klabauter frontmatter-schema layer and its write guards. This lens buys earlier visibility: the harvest tool WARN-AND-SKIPs a malformed row, so this checker is the first place a malformed row or a fabricated approval surfaces before it ships silently. It makes a bad approval *falsifiable*, not *impossible*.
 

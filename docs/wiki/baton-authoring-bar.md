@@ -4,7 +4,6 @@ last-updated: 2026-07-23
 
 # Baton-Authoring Bar
 
-<!-- Spec backlink: docs/plans/2026-07-23-queue-triage-terminates-in-batons.md § C2 (AC2) -->
 
 **What a themed baton owes its reader, beyond what any handoff owes.** A themed baton
 (`coordinator/docs/wiki/queue-terminus-doctrine.md`'s outcome class 2 — N queue rows

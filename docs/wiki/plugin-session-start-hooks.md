@@ -1,6 +1,5 @@
 # Plugin SessionStart Hook Authoring Guide
 
-> Spec backlink: `archive/specs/2026-05-27-cqcs-cluster6-infra-tooling.md` § Entry B
 > Purpose: Authoring rules for plugin SessionStart hooks — three rules that prevent the silent-skip failure mode detected by `scan-addon-health.py --red-and-stale`.
 > These are the **`SessionStart` platform hooks that constitute the SessionStart hook path** — distinct from the `/workstream-start` *skill*. This guide is about authoring that platform hook.
 
@@ -132,4 +131,3 @@ This is the SessionStart-hook corollary of Rule 3's silent-skip theme: a hook th
 - `scan-addon-health.py` — Third pass (SessionStart hook-script existence probe). Run manually: `COORDINATOR_PLUGINS_ROOT=~/.claude/plugins scan-addon-health.py --red-and-stale`
 - `docs/wiki/addon-health-sentinel.md` § Scanner — Scanner mode table; this probe rides the existing `--red-and-stale` surface.
 - `hooks/hooks.json` — Coordinator's own hook declarations; canonical example of the `${CLAUDE_PLUGIN_ROOT}/hooks/scripts/<name>.sh` command shape.
-- `archive/specs/2026-05-27-cqcs-cluster6-infra-tooling.md` § Entry B — Full rationale and design notes for the probe.

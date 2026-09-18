@@ -134,7 +134,7 @@ Percolation (`coordinator/` → the OSS `coordinator-claude` mirror) is governed
 independent layers**, and only one of them decides wiki/file *admission*:
 
 - **`coordinator/.percolate-ignore`** — structural leak-denial. It says explicitly, in its own
-  header (per DR-080), that it is NOT the boundary deciding which `docs/wiki/*.md` files reach the
+  header (per the curated-OSS-seed ruling), that it is NOT the boundary deciding which `docs/wiki/*.md` files reach the
   mirror.
 - **The per-file ALLOWLIST**, field 7 of the `coordinator-claude|mirror` row in
   `~/.claude/setup/publish-targets.portable`. Verified 2026-07-22, that field is exactly:
@@ -145,10 +145,9 @@ despite being the doctrine every coordinator session runs on. Corollary: this wi
 is also not on that allowlist, so it does not publish OSS either — it stays DoE-internal doctrine
 until someone deliberately adds it.
 
-## The regression of record — cold-install clobber (`~/.claude` commit `6563b3d`)
-
-Underneath the two traps above sits a realised defect, not just a naming confusion. Commit
-`6563b3d` in the `~/.claude` meta-repo (2026-07-21, "doctrine: recover rich global CLAUDE.md +
+## The regression of record — cold-install clobber
+Underneath the two traps above sits a realised defect, not just a naming confusion. A commit
+in the `~/.claude` meta-repo (2026-07-21, "doctrine: recover rich global CLAUDE.md +
 the (now-removed) meta-repo local-doctrine file from .example-doctrine-mirror-repo backup") records a cold install on the Windows PC that
 re-initialized `~/.claude` and rendered stripped-down installer TEMPLATES over the evolved
 originals — `CLAUDE.md` regressed from a 25.7KB evolved file to a 2.9KB posture seed. It survived
@@ -193,14 +192,14 @@ spinoff's own challenge note initially argued Piece 2 might be redundant — "`~
 a git repo with a remote, so a mirror elsewhere is redundancy, not the primary backup." Verified
 2026-07-22, that argument does not survive contact with the facts:
 
-- `~/.claude` has only 8 commits, the first (`78ef394`, "chore: initialize Claude Central") dated
+- `~/.claude` has only 8 commits, the first ("chore: initialize Claude Central") dated
   2026-07-20 — one day before the clobber described below.
 - At that initial commit, `CLAUDE.md` was **2,945 bytes** — the stripped installer template, not
   the evolved ~27KB file the operator had actually been running under. The repo's history
   therefore *begins from the already-clobbered state*: a cold install re-initialized the git repo
   along with the directory it lives in.
 - Neither `~/.claude`'s local history nor its `origin` remote ever contained the evolved doctrine.
-  Recovery in commit `6563b3d` (see § The regression of record above) came entirely from the
+  Recovery (see § The regression of record above) came entirely from the
   `.example-doctrine-mirror-repo` out-of-band backup — a copy living **outside `~/.claude`'s blast radius**. That
   backup was the only survivor; `~/.claude` itself contributed nothing to its own recovery.
 

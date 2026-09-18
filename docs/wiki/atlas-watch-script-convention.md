@@ -33,7 +33,7 @@ Contract:
   - `MISSING` — the source value the script tried to read is absent (file deleted, registry empty, etc.).
 
 - **Exit 0 on successful emission**, regardless of which token was emitted (FRESH/DRIFT/MISSING are all "the script worked"). **Non-zero exit = failure mode** — the aggregator treats non-zero as `ERROR <system>: <name>.watch.sh exit=<N>` and never silently re-interprets it as FRESH.
-- **Bash 3.2 + BSD coreutils + Git-Bash portable** per DR-061. The same cross-platform-shell-portability lens that applies to every `bin/*` script applies here — these are first-class repo shell scripts, not throwaway one-liners. No bash-4 idioms (`declare -A`, `mapfile`, `${v^^}`), no GNU-isms without a portable fallback (`sed -i`, `date -d`, `grep -P`, `realpath`).
+- **Bash 3.2 + BSD coreutils + Git-Bash portable**. The same cross-platform-shell-portability lens that applies to every `bin/*` script applies here — these are first-class repo shell scripts, not throwaway one-liners. No bash-4 idioms (`declare -A`, `mapfile`, `${v^^}`), no GNU-isms without a portable fallback (`sed -i`, `date -d`, `grep -P`, `realpath`).
 
 ## How it composes
 
@@ -69,7 +69,6 @@ The STALE-walk reads `last_attested`. A Branch B same-day re-attestation un-stal
 
 The inter-skill two-clock contract above is unaffected: `Last full audit` remains `/architecture-survey`-exclusive; `Last targeted audit` remains `/architecture-audit`-owned. The within-atlas split sits entirely inside `Last targeted audit`.
 
-Spec backlink: `archive/specs/2026-06/2026-06-08-atlas-attested-clock-split.md`.
 
 ## Non-goals (anti-scope)
 

@@ -5,12 +5,11 @@ status: deprecated
 deprecated_at: 2026-05-20
 superseded_by: docs/wiki/machine-local-registry.md
 provenance:
-  - spinoff_plan: docs/plans/2026-05-18-daemon-reads-wiring-env-directly.md
+  - spinoff_plan: 2026-05-18-daemon-reads-wiring-env-directly.md under docs/plans/
     audit_synthesis: tasks/comprehensive-audit-2026-05-18/SYNTHESIS.md
     audit_theme: Theme E (closed-circuit deprecation)
 ---
 
-<!-- Imported from X:/project-rag at SHA d376cb01. Inherited substrate; canonical lineage now in Claude Central. Sibling-repo layout doctrine lives in this repo's own wiki. --> <!-- foreign-path-ok: import provenance, not a current-location claim -->
 
 # Wiring.env — Source of Truth (DEPRECATED — transitional layer)
 
@@ -28,7 +27,6 @@ provenance:
 > `addons.ue.paths.corpus` (or the composed `core.whoami` CLI) directly, this
 > page goes to `archive/`.
 
-<!-- Spec backlink: docs/plans/2026-05-18-daemon-reads-wiring-env-directly.md § Chunk 3 -->
 
 `~/.project-rag/wiring.env` carries environment-variable declarations that the
 project-rag daemon needs at boot — typically corpus-band pointers set by addon
@@ -50,7 +48,7 @@ Key properties of the writer:
   values are preserved.
 - **Conflict-fail-loud.** If a second addon tries to set a key that already exists
   with a different value, the writer raises rather than silently overwriting.
-  (Spec: `docs/plans/2026-05-17-engine-rag-setup-doctor-catalog.md` L-5.)
+  (Spec: `2026-05-17-engine-rag-setup-doctor-catalog.md` L-5, under `docs/plans/`.)
 - **Location fixed at `~/.project-rag/wiring.env`.** The machine-local path is a
   producer-side decision — see § Producer-side open question below.
 
@@ -85,7 +83,7 @@ the same `_load_wiring_env` call. There is no wrapper-vs-direct split.
 
 **`_load_wiring_env` is the canonical reload primitive.** Every wiring.env consumer
 — boot-time `main()`, the audit-remediation `_reload_env_from_marker()` handler
-(per `docs/plans/2026-05-18-comprehensive-audit-remediation.md` line 340), any
+(per `2026-05-18-comprehensive-audit-remediation.md` under `docs/plans/` line 340), any
 future SIGHUP handler — invokes this same function. The precedence chain and
 `override=False` invariant hold across all call sites.
 
@@ -107,7 +105,7 @@ approach runs the dotenv load in `main()` before any env-reading code path.
 
 ## Removed: shell-sourcing in wrappers
 
-**Removed** by spinoff `docs/plans/2026-05-18-daemon-reads-wiring-env-directly.md`.
+**Removed** by spinoff `2026-05-18-daemon-reads-wiring-env-directly.md` under `docs/plans/`.
 
 The two wrapper scripts previously sourced wiring.env before launching the daemon:
 
@@ -152,9 +150,9 @@ machine-scoped path is canonical.
 - **Writer:** `scripts/wire.py` — AD-16 implementation; conflict-fail-loud contract.
 - **Reader:** `project_rag_mcp/project_rag_server.py::_load_wiring_env` — dotenv consumer,
   canonical reload primitive.
-- **Conflict-fail-loud spec:** `docs/plans/2026-05-17-engine-rag-setup-doctor-catalog.md` L-5.
+- **Conflict-fail-loud spec:** `2026-05-17-engine-rag-setup-doctor-catalog.md` L-5, under `docs/plans/`.
 - **Audit synthesis Theme E:** `tasks/comprehensive-audit-2026-05-18/SYNTHESIS.md`.
-- **Spinoff plan:** `docs/plans/2026-05-18-daemon-reads-wiring-env-directly.md`.
+- **Spinoff plan:** `2026-05-18-daemon-reads-wiring-env-directly.md` under `docs/plans/`.
 - **Operator-facing context:** `docs/wiki/project-rag-install-and-dogfood.md`
   § wire-project-rag-server.
 

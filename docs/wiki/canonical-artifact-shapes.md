@@ -35,7 +35,7 @@ uniformity, but a principled consolidation of the index layer (frontmatter gramm
 liveness predicate + section vocabulary) that leaves the expressive body dialects
 intact where they genuinely differ.
 
-**Inventory ground truth:** `state/scratch/query-friendly-fleet-substrate/inventory-records.md`
+**Inventory ground truth:** `inventory-records.md` under `state/scratch/query-friendly-fleet-substrate/`
 (handoff/spinoff/memo shapes), `inventory-fleet-machinery.md` (registry + warn-hook +
 query-records). The inventory reveals that the baton family accreted rather than was
 designed: the same concept (author, lineage/predecessor, liveness) carries multiple
@@ -55,7 +55,7 @@ against it.
 
 > Spec backlink: `schemas/handoff.schema.json` (10.9 KB; the canonical reference with
 > cross-field rules in claude-klabauter `coordinator/bin/lib/schema.js`) and `schemas/cross-repo-memo.schema.json` (the
-> live implementation; the originating spec `docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md`
+> live implementation; the originating spec `2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md` under `docs/plans/`
 > has been distilled/archived — the live CLI (claude-klabauter `coordinator/bin/cross-repo-memo`) `_compose_frontmatter`
 > l.615 + `_compose_memo` l.655 is the operative reference).
 
@@ -85,7 +85,7 @@ The author and lineage/predecessor concepts exist in both types but are spelled 
 | `authoring_session` | required-by-convention on spinoffs | Free-form one-liner back to origin; replaces `predecessor` link on spinoffs as audit trail |
 | `predecessor` | required | Lineage link — the handoff this one continues (`none` on spinoffs; SHA or filename for session-handoffs); expressed three ways in the wild (`none`, `null`, filename) — canonical form is `none` or a filename |
 | `consumed_by` | conditional | Session-id of the consuming `/pickup` invocation; set on lifecycle transition. Write path as of this writing; still emitted, never `claimed_by` (P3 pending). |
-| `claimed_by` | conditional | **DR-084 successor to `consumed_by`.** Same semantics (session-id of the consuming `/pickup` invocation). Schema-accepted since P0 (additive widen); the write path has not cut over — nothing emits this field yet, but the on-disk corpus is mixed (some records carry it via migration), so read-side logic must check both. |
+| `claimed_by` | conditional | **Successor to `consumed_by`.** Same semantics (session-id of the consuming `/pickup` invocation). Schema-accepted since P0 (additive widen); the write path has not cut over — nothing emits this field yet, but the on-disk corpus is mixed (some records carry it via migration), so read-side logic must check both. |
 
 **Memo author/lineage (canonical):**
 
@@ -98,7 +98,7 @@ The author and lineage/predecessor concepts exist in both types but are spelled 
 
 **Load-bearing divergences — deliberately kept:**
 - Memo `from`/`to` encode receiver-routing semantics that handoff `machine`/`authoring_session` do not. These fields are the delivery address; consolidating them with handoff author fields would break the single-surface delivery mechanism in claude-klabauter `coordinator/bin/cross-repo-memo`. They are explicitly marked as `deliberate-keep-with-architectural-reason` in `schemas/cross-repo-memo.schema.json`.
-- Handoff `predecessor` (ancestry) vs memo `supersedes`/`superseded_by` (supersession chain): same concept, but memos express the chain bidirectionally because the receiver may re-issue under a different memo ID. The handoff does not need bidirectional pointers because it uses `consumed_by`/`claimed_by` (DR-084) + `shipped_in` to record the lifecycle transition in place.
+- Handoff `predecessor` (ancestry) vs memo `supersedes`/`superseded_by` (supersession chain): same concept, but memos express the chain bidirectionally because the receiver may re-issue under a different memo ID. The handoff does not need bidirectional pointers because it uses `consumed_by`/`claimed_by` + `shipped_in` to record the lifecycle transition in place.
 
 ### Type-Specific Keys
 
@@ -288,7 +288,7 @@ before tc-1/tc-2 inherit the doctrine.
 The liveness mapping table defined above is **first-class contract data**, not a local
 implementation detail of claude-klabauter `coordinator/bin/query-records.js`. It travels with the tc-4 versioned emit
 artifact — the same Zod-source → emitted-versioned-JSON artifact pattern proven in-tree
-by the cockpit-contract owner-enum seam (`docs/plans/2026-06-25-cockpit-contract-owner-enum-seam.md`,
+by the cockpit-contract owner-enum seam (`2026-06-25-cockpit-contract-owner-enum-seam.md` under `docs/plans/`,
 cited here as the in-tree proof; this wiki does NOT extend that plan's scope).
 
 **Implication for tc-5 (project-rag store):** project-rag derives its LIVE/BLOCKED/DONE
@@ -1109,7 +1109,7 @@ thereafter.
 | `title` | **required** | string | Human-readable guide name |
 | `created` | **required** | iso-date | Authoring / last-distillation date |
 | `status` | **required** | enum: `active`, `archived` | Document-currency axis — see liveness below |
-| `id_range` | optional | string | DR range covered (e.g. `"DR-001–042"`) |
+| `id_range` | optional | string | DR range covered (e.g. `"DR-NNN–NNN"`) |
 | `decision_count` | optional | number | Total DRs folded into this guide |
 | `summary` | optional | string | One-line description of the guide's scope |
 | `owner` | optional | string | Owning team or person |

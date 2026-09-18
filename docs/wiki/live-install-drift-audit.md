@@ -5,8 +5,6 @@ author: claude-central-em
 status: active
 ---
 
-<!-- spec-backlink: plugins/project-rag/docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md § Chunk 2 (sibling repo) -->
-<!-- extended-by: docs/plans/2026-05-23-copy-install-drift-coverage.md § Chunk 3 -->
 <!-- distilled: run 2026-07-19-synth; sources: 2026-05-23-copy-install-coverage.md -->
 
 # Live-Install Drift Audit
@@ -77,7 +75,7 @@ Read-only probe. Six drift legs for Default (git-checkout-managed) mode; SHA-sen
 
 Exit 0 = clean or informational; exit 1 = drift detected. Surfaced daily via `/workday-start` Step 1.10 Addon Health (exit-0 states, including `[ok-via-git-propagation]`, are intentionally silent there — see comment at that step). Run `python check-plugin-drift.py --help` for the full probe description and per-leg remediation hints.
 
-**Dual-channel propagation model.** For `copy_install` plugins that are also git-tracked in the live install directory (e.g. the example-game-repo trio), live install content can advance through two independent channels: (1) a local install run — advances both file content and the `version.txt` sentinel atomically; or (2) a `git pull` from a peer machine that ran install at a later source HEAD — advances file content only, leaving the sentinel at the prior install's SHA. After a `git pull`, the live content may already match the current source HEAD while the sentinel still reflects "last local install." The forward probe now distinguishes these two states: `[ok-via-git-propagation]` for the git-pull case (exit 0, benign); `[drift]` only when content also differs (exit 1, genuinely stale). This distinction was not possible under the original sentinel-only probe. Predecessor that documented the WHAT (sentinel catches committed drift only): `archive/specs/2026-05-23-copy-install-drift-coverage.md § Known Limitations #1`; this paragraph adds the WHY (dual-channel).
+**Dual-channel propagation model.** For `copy_install` plugins that are also git-tracked in the live install directory (e.g. the example-game-repo trio), live install content can advance through two independent channels: (1) a local install run — advances both file content and the `version.txt` sentinel atomically; or (2) a `git pull` from a peer machine that ran install at a later source HEAD — advances file content only, leaving the sentinel at the prior install's SHA. After a `git pull`, the live content may already match the current source HEAD while the sentinel still reflects "last local install." The forward probe now distinguishes these two states: `[ok-via-git-propagation]` for the git-pull case (exit 0, benign); `[drift]` only when content also differs (exit 1, genuinely stale). This distinction was not possible under the original sentinel-only probe. Predecessor that documented the WHAT (sentinel catches committed drift only): `2026-05-23-copy-install-drift-coverage.md § Known Limitations #1` under `archive/specs/`; this paragraph adds the WHY (dual-channel).
 
 **Why `[warn]` (malformed sentinel) exits 0, not 1 (deliberate, not an oversight).** A malformed
 `version.txt` is a *corruption* signal, not a *behind-source* signal — exit-1 would conflate it with
@@ -155,7 +153,7 @@ installer injects UTF-8 BOMs into every `.ps1`, copies in the marketplace manife
 `.mcp.json` — so `live ≠ source` by construction even when perfectly current. The sentinel
 sidesteps all of it.
 
-**Refinement — sentinel-gated content-equivalence fallback is valid.** The rejection above applies to content-diff as the *primary* mechanism: running it unconditionally against every plugin, including those whose live tree was produced by the installer (with BOM injection, manifest copy, and `.mcp.json` strip applied), would generate false positives. A *sentinel-gated* content-equivalence fallback — fired only when `sentinel != source HEAD`, using blob-SHA comparison of the SOURCE tracked set — is a different operation and does not reintroduce that surface. Specifically: when `sentinel != HEAD`, the fallback can only be running against a tree where the installer either (a) did not run (content arrived via `git pull` — verbatim source bytes, no BOM, no manifest, no strip) or (b) ran at an older HEAD and source has since advanced. In case (a), blob SHAs match source and the probe correctly emits `[ok-via-git-propagation]` (exit 0). In case (b), SHAs differ and the probe correctly emits `[drift]` (exit 1). The SHA-sentinel remains the primary mechanism; the content-equivalence check is a secondary fallback that narrows the `[drift]` verdict to cases of genuine content divergence. **Honesty caveat:** for a future plugin that ships installer-transform-affected files (`.ps1` with BOM injection, `.mcp.json` that gets stripped), a stale-install scenario (case b) would compare a transformed live tree against pristine source bytes — the SHAs would differ, and `[drift]` would be the correct verdict, but the diff output would mention transform-affected files alongside genuine content changes. Correct attribution in that case requires transform-aware handling; this is a documented follow-up. No current plugin (`example-game-repo`, `example-game-repo-control`, `game-dev`) ships `.ps1` or `.mcp.json` inside its plugin tree, so this caveat is presently moot. The sentinel-gated fallback eliminates false-positives for git-propagated trees; it does not claim airtightness for all future plugin shapes. Spec: `docs/plans/2026-05-28-forward-drift-probe-content-equivalence.md § Prior-art reconciliation`.
+**Refinement — sentinel-gated content-equivalence fallback is valid.** The rejection above applies to content-diff as the *primary* mechanism: running it unconditionally against every plugin, including those whose live tree was produced by the installer (with BOM injection, manifest copy, and `.mcp.json` strip applied), would generate false positives. A *sentinel-gated* content-equivalence fallback — fired only when `sentinel != source HEAD`, using blob-SHA comparison of the SOURCE tracked set — is a different operation and does not reintroduce that surface. Specifically: when `sentinel != HEAD`, the fallback can only be running against a tree where the installer either (a) did not run (content arrived via `git pull` — verbatim source bytes, no BOM, no manifest, no strip) or (b) ran at an older HEAD and source has since advanced. In case (a), blob SHAs match source and the probe correctly emits `[ok-via-git-propagation]` (exit 0). In case (b), SHAs differ and the probe correctly emits `[drift]` (exit 1). The SHA-sentinel remains the primary mechanism; the content-equivalence check is a secondary fallback that narrows the `[drift]` verdict to cases of genuine content divergence. **Honesty caveat:** for a future plugin that ships installer-transform-affected files (`.ps1` with BOM injection, `.mcp.json` that gets stripped), a stale-install scenario (case b) would compare a transformed live tree against pristine source bytes — the SHAs would differ, and `[drift]` would be the correct verdict, but the diff output would mention transform-affected files alongside genuine content changes. Correct attribution in that case requires transform-aware handling; this is a documented follow-up. No current plugin (`example-game-repo`, `example-game-repo-control`, `game-dev`) ships `.ps1` or `.mcp.json` inside its plugin tree, so this caveat is presently moot. The sentinel-gated fallback eliminates false-positives for git-propagated trees; it does not claim airtightness for all future plugin shapes. Spec: `2026-05-28-forward-drift-probe-content-equivalence.md § Prior-art reconciliation` under `docs/plans/`.
 
 ### Known Limitations
 
@@ -169,7 +167,7 @@ sidesteps all of it.
 2. **`example-game-repo` and `game-dev` report `[info] no sentinel`** until the example-game-repo installer
    is updated to write `version.txt` unconditionally (currently gated on
    `requires_plugin_source_index: true` in the plugin manifest, set only for
-   `example-game-repo-control`). See the example-game-repo repo's `cross-repo/inbox/2026-05-23-copy-install-drift.md` (memo requesting the fix) (asks tracked in `docs/plans/2026-05-23-copy-install-drift-coverage.md`)
+   `example-game-repo-control`). See the example-game-repo repo's `2026-05-23-copy-install-drift.md` under `cross-repo/inbox/` (memo requesting the fix) (asks tracked in `2026-05-23-copy-install-drift-coverage.md` under `docs/plans/`)
    for the memo requesting the fix. This is honest degraded state — the prior coverage was
    zero; `[info]` is progress, not silence.
 
@@ -246,7 +244,7 @@ These are orthogonal failure modes at different capture points. Running both is 
 
 ## Spec Backlink
 
-This wiki documents the primitives shipped by: `docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md`
+This wiki documents the primitives shipped by: `2026-05-21-plugin-source-live-mirror-doctrine.md` under `docs/plans/`
 
 The plan contains the implementation rationale and dispatch decomposition. This wiki is the operator-facing reference.
 
@@ -254,8 +252,8 @@ The plan contains the implementation rationale and dispatch decomposition. This 
 
 ## Cross-References
 
-- `docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md` — implementation spec and rationale for Default + source_is_live modes
-- `docs/plans/2026-05-23-copy-install-drift-coverage.md` — implementation spec for copy_install mode
+- `2026-05-21-plugin-source-live-mirror-doctrine.md` under `docs/plans/` — implementation spec and rationale for Default + source_is_live modes
+- `2026-05-23-copy-install-drift-coverage.md` under `docs/plans/` — implementation spec for copy_install mode
 ## Directionality Verification Before Back-Propagation
 
 Reverse-drift detector can't tell direction — forward drift (live behind source) presents as "hand-edited, at risk." Live-ahead-of-source shows as a reverse-drift false positive. Always diff directionally before back-propagating: if the live install is ahead of the source (contains changes the source doesn't), back-propagating would DESTROY those changes. Apply: before any back-prop, run `diff <source> <live>` and classify direction; only back-propagate when live is verified to be a SUBSET of source.
@@ -263,5 +261,5 @@ Reverse-drift detector can't tell direction — forward drift (live behind sourc
 - `docs/wiki/machine-local-registry.md § plugin.mirrors` — registry schema and value-writing discipline; § 12 copy_install subsection
 - `docs/wiki/addon-health-sentinel.md` — health sentinel convention; design contrast documented above
 - `docs/wiki/plugin-identity-and-health-sentinels.md` — scanner-is-reader-never-writer rule
-- the example-game-repo repo's `cross-repo/inbox/2026-05-23-copy-install-drift.md` (memo requesting the fix) (asks tracked in `docs/plans/2026-05-23-copy-install-drift-coverage.md`) — cross-repo memo requesting version.txt ungating + installer self-registration
+- the example-game-repo repo's `2026-05-23-copy-install-drift.md` under `cross-repo/inbox/` (memo requesting the fix) (asks tracked in `2026-05-23-copy-install-drift-coverage.md` under `docs/plans/`) — cross-repo memo requesting version.txt ungating + installer self-registration
 - Global CLAUDE.md § Plugin live-install propagation — managed-refresh model

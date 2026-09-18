@@ -44,7 +44,7 @@ This command is the mechanical half. Weighing an unexpected surface, when to sto
 that uncertainty routes to **reported-and-untouched** (never a guessed reversal) lives at:
 
 ```
-${CLAUDE_PLUGIN_ROOT}/docs/wiki/uninstall-agentic-judgment.md
+coordinator/docs/wiki/uninstall-agentic-judgment.md
 ```
 
 Read it whenever a run turns up a surface nothing below covers.

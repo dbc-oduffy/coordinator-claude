@@ -3,7 +3,7 @@
 <!-- distilled: run 2026-07-19-synth; sources: cross-repo/archive/2026-07-12-example-cockpit-repo-em-strategic-self-description-repo-setup-lifecycle.md, cross-repo/archive/2026-07-12-example-cockpit-repo-em-superpowers-editorial-honesty.md, 2026-07-14-self-description-competitor-marking-deliverable.md -->
 
 > **Spec backlink.** DoE's producer/schema leg of the fleet strategic self-description standard —
-> `docs/plans/2026-07-11-strategic-self-description-standard.md` (Chunk C6). Schema:
+> `2026-07-11-strategic-self-description-standard.md` under `docs/plans/` (Chunk C6). Schema:
 > `coordinator/schemas/strategic-self-description.schema.json` (Chunk C1). Placement doctrine:
 > `state-placement-law.md § Fleet Producer Contract → Artifact class — strategic self-description`
 > (Chunk C2). Maintenance ceremony: `coordinator/skills/strategic-self-description-refresh/SKILL.md`
@@ -15,7 +15,7 @@
 
 A repo's strategic self-description is its own authored declaration of what it strategically *is* —
 mission, lifecycle phase, positioning, notable milestones, competitive stance, and a call-to-action —
-living at `state/strategic/self-description.yaml`, one per repo. It is a **new artifact class under
+living at `self-description.yaml` under `state/strategic/`, one per repo. It is a **new artifact class under
 the already-ratified Fleet Producer Contract**, not a new topology: per-repo emitted, harvested
 read-side by consumers (cockpit's Strategic board first), never consolidated into a fleet-wide file.
 See `state-placement-law.md § Fleet Producer Contract` for the placement doctrine this class extends.
@@ -23,7 +23,7 @@ See `state-placement-law.md § Fleet Producer Contract` for the placement doctri
 ## Schema reference
 
 Canonical schema: `coordinator/schemas/strategic-self-description.schema.json`
-(`x-schema-name: strategic-self-description`, `applies_to: state/strategic/self-description.yaml`).
+(`x-schema-name: strategic-self-description`, `applies_to` pointing at `self-description.yaml` under `state/strategic/`).
 Top-level required fields:
 
 | Field | Shape | Notes |
@@ -80,9 +80,9 @@ it.
 
 The standard splits authorship into two channels that never write the same file directly:
 
-- **`state/strategic/self-description.yaml`** — the canonical, human-ratified artifact. Only a human
+- **`self-description.yaml` under `state/strategic/`** — the canonical, human-ratified artifact. Only a human
   ratify decision writes here (directly, by hand-authoring, or via the refresh skill's Step 4 write).
-- **`state/strategic/self-description.draft.yaml`** — a per-repo sibling claude-klabauter may emit, carrying
+- **`draft.yaml` under `state/strategic/self-description.`** — a per-repo sibling claude-klabauter may emit, carrying
   `provenance: generated` observable fields ONLY (e.g. `version_highlights` candidates, competitor
   signal candidates). Claude-Klabauter never writes the canonical file and never writes the human-curated
   `competitors[].relationship` judgment value, even inside the draft.
@@ -127,7 +127,7 @@ Two properties every consumer of this artifact can rely on, enforced at the sche
   <!-- Review: code-reviewer Finding 3 (P2) — plan chunk C1 named only `url` and `claude-session` as
        worked examples ("e.g." framing); `none` (label-only, no payload key) was added by the executor
        beyond those two, for a repo with genuinely no call-to-action (confirmed use case:
-       state/strategic/self-description.yaml-shaped instances that predate a CTA decision). It does
+       `self-description.yaml`-shaped instances under `state/strategic/` that predate a CTA decision). It does
        not weaken DEC-5's closed-union guarantee — a consumer switching on `kind` still gets a hard
        validation failure on any unrecognized value, and `none` degrades trivially (render the label,
        no action). Noted here for plan/executed-diff provenance traceability. -->
@@ -156,7 +156,7 @@ canonical set is a signal the canonical enum itself may need to grow, and that g
 altitude the field operates at and the two orthogonal axes a single `relationship` value carries.
 
 **Two-altitude model.** Per-repo competitor marking — the human-curated `competitors[]` array in
-`state/strategic/self-description.yaml` — is **repo-owned source-of-truth**: this standard, and this
+`self-description.yaml` under `state/strategic/` — is **repo-owned source-of-truth**: this standard, and this
 repo (DoE), own the shape and the ratification ceremony. An **org-wide or cross-company rollup** —
 resolving a repo's raw competitor mark into a canonical cross-fleet competitor identity
 (`competitor_uid`), deduplicating "Repo A calls it X, Repo B calls it Y" across the whole fleet — is a
@@ -164,7 +164,7 @@ different altitude entirely, and is **explicitly out of scope for a single repo'
 running DoE's coordinator and a human PM pairing is not guaranteed to belong to a single company; the
 per-repo artifact cannot assume org-wide context it may not have. That rollup altitude belongs to
 Example-store-repo/cockpit (and, downstream, example-market-data-repo's `competitor_uid` resolution — see
-`docs/competitive-intel-enablement-initiative.md § Fleet convention`). See DR-057 for the ratified
+`docs/competitive-intel-enablement-initiative.md § Fleet convention`). See the ratified fleet-convention decision for the
 boundary this subsection encodes.
 
 **Two orthogonal axes.** `relationship` conflates two questions a reader might assume are one:
@@ -202,10 +202,10 @@ correct behavior, not a gap. This is a ratified EM decision encoded here as the 
 contract, not an open fork left for each consumer to resolve independently — a consumer collapsing
 `prior-art` into `competitor` (or any other stance bucket) would be non-conformant.
 
-**Total is not onto.** Cockpit `category` carries a `first_party` member (DR-192) that no
+**Total is not onto.** Cockpit `category` carries a `first_party` member that no
 `relationship` value projects to. That vacancy is the two-altitude model working: a repo marks its
 stance toward *others*, never itself, and org-wide "this entity is ours" identity is out of scope
-for a per-repo artifact (DR-057). Restoring symmetry by adding an own-product `relationship` value
+for a per-repo artifact, per that decision. Restoring symmetry by adding an own-product `relationship` value
 re-imports the altitude this standard ejected. The cockpit enum may grow members this table cannot
 source; totality forbids only the reverse — a `relationship` value with no outcome. Discharged
 mechanically: `relationship-out-of-enum.json` fails any value outside the 7, so an 8th lands red.
@@ -221,7 +221,7 @@ treatment an agent gets mid-work.
 ## Lifecycle hooks — repo-setup and workweek-complete
 <!-- src: memo03-010 -->
 
-DoE owns two lifecycle touch-points for `state/strategic/self-description.yaml`, both PM-authorized
+DoE owns two lifecycle touch-points for `self-description.yaml` under `state/strategic/`, both PM-authorized
 and both **advisory, not hard gates**:
 
 - **`/repo-setup`** mints a **born-compliant skeleton** — a schema-conformant instance with
@@ -274,7 +274,7 @@ schema on their own plans, each memo'd separately per the source plan's § Out o
   describes: version highlights from commit/release history, competitor deltas from
   example-market-data-repo signals, emitted to the per-repo `self-description.draft.yaml` sibling path
   (path + present-triggers-consume trigger confirmed with claude-klabauter,
-  `cross-repo/archive/2026-07-11-claude-klabauter-em-strategic-self-description-draft-path-seam.md`; the
+  `2026-07-11-claude-klabauter-em-strategic-self-description-draft-path-seam.md` under `cross-repo/archive/`; the
   draft's internal field shape is claude-klabauter's own follow-on shape-confirm against this schema, not
   pinned by this plan). Claude-Klabauter never writes the canonical file.
 - **cockpit leg** — widens `StrategicViewDto` to carry per-field provenance badges and maps the
@@ -292,7 +292,7 @@ properties already documented above compose: the `competitors[]` field is **mint
 once ratified recently (§ Execution notes — competitor-marking deliverable), and the 7-value
 `relationship` enum's stance-vs-lineage split (§ Competitor marking — two altitudes, two axes)
 gives a rollup consumer a total, unambiguous projection to draw from rather than a free-text field
-it must interpret. The per-repo-owned / org-rollup-not-ours boundary (DR-057, § Competitor marking
+it must interpret. The per-repo-owned / org-rollup-not-ours boundary (that decision, § Competitor marking
 above) is what keeps this repo's `competitors[]` array honest as a *source* rather than a
 *rollup* — a fleet-wide competitive-identity consumer reads N per-repo instances rather than
 expecting any one of them to already be cross-fleet-deduplicated.

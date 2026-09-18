@@ -1,0 +1,379 @@
+# canonical-structure.yaml — single source of truth for the document-structure scaffold.
+#
+# Purpose: consumed by the claude-klabauter coordinator_core.install.scaffold_structure CLI, repo-setup, coordinator:install,
+# and the doctor probe to define EVERY canonical directory (and key file) in a coordinator-managed
+# repo. No parallel dir lists in four places — one manifest, many consumers.
+#
+# Spec backlink: docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Chunk 1
+#
+# Fields per entry:
+#   path       — repo-relative path (trailing / = directory; no trailing / = file or hook)
+#   creation   — eager (scaffold immediately with README) | lazy (create on first use)
+#   schema     — schema name (file in schemas/<name>.yaml) or null
+#   readme     — purpose text for the directory's README.md, or null (for files/hooks)
+#
+# EAGER entries: contract-bearing dirs (inbound cross-repo writers, schema-validated surfaces)
+# and key files needed from day 1. Scaffold with README.md — real content, not .gitkeep.
+#
+# LAZY entries: purely-accumulative local dirs with no addressability requirement and no
+# inbound writer. Created by their producing skill on first use.
+#
+# Source table: skills/repo-setup/SKILL.md lines 195–208 (EAGER/LAZY audit verdict).
+# The ONLY new EAGER directory beyond that table is state/cross-repo/ (added by this plan).
+# archive/cross-repo/ is LAZY — optional housekeeping destination, not required lifecycle.
+# ---------------------------------------------------------------------------
+
+entries:
+
+  # ---------------------------------------------------------------------------
+  # EAGER — present from day 1
+  # ---------------------------------------------------------------------------
+
+  # state/cross-repo/inbox/ is the active inbound channel for cross-repo memos. The CLI
+  # (bin/cross-repo-memo) commits memo files onto the receiver's active work branch
+  # here (durable across devices/sessions), degrading to a dirty write only if the
+  # delivery commit fails. Eager because sibling EMs address THIS repo's
+  # state/cross-repo/inbox/ by name; the dir must exist and be discoverable before any
+  # memo arrives.
+  - path: state/cross-repo/inbox/
+    creation: eager
+    schema: cross-repo-memo
+    readme: |
+      This directory is **this repo's active inbox** for cross-repo memos: messages
+      addressed **to** this repo's EM by another repo's EM. Memos arrive **committed**
+      onto this repo's active work branch — durable across devices and sessions,
+      visible in `git log` (or after a push, on other clones) — degrading to an
+      uncommitted/dirty file only as a fallback if the delivery commit itself fails.
+
+      ## Receiving — memos addressed to you land *here*
+
+      A memo arrives with `status: open`. Read it, act, set `status: actioned` (add a
+      `decision:` if relevant), and commit it into this repo. Closed memos are swept to
+      `state/cross-repo/archive/` — the whole channel lives under `state/cross-repo/`.
+
+      ## Sending — deliver to the RECIPIENT's box, **never your own**
+
+      To send a memo, do **not** hand-write a file in this directory. This is *your*
+      inbox; anything you drop here sits where the recipient never looks. Use the CLI:
+
+      ```
+      bin/cross-repo-memo draft <slug> --to <recipient-em> --title "<one line>"
+      # write the body at the printed outbox path, then:
+      bin/cross-repo-memo send <slug>
+      ```
+
+      It writes the memo into the **recipient's** `state/cross-repo/inbox/` (their inbox),
+      commits it there on their active work branch (falling back to leaving it dirty
+      only if that commit fails), and prints the path to hand the PM for relay. The
+      recipient sees it in *their* `git log` (or `git status`, on the fallback path).
+
+      ## Why writing into another repo's inbox is allowed
+
+      General doctrine says: don't make changes in another repo. **Delivering a memo into
+      a recipient's `state/cross-repo/inbox/` is the canonical exception** — it's a message, not
+      a change to what runs (delivery-intent), and it is the one primitive that makes
+      cross-repo coordination work at all. Send freely; the recipient owns what they do
+      with it.
+
+      ---
+      Schema: `state/cross-repo/inbox/[0-9]*.md` is validated by claude-klabauter's
+      `coordinator_core/write_guards/` engine at write time.
+      Full doctrine: `coordinator/docs/wiki/cross-repo-communication.md`.
+      For the full send-verb reference (draft → compose → send), see `bin/cross-repo-memo.md`.
+
+  # state/cross-repo/archive/ holds closed actioned memos (co-located with inbox/ under
+  # state/cross-repo/). Lazy: memos are swept here after being actioned; not required on day 1.
+  - path: state/cross-repo/archive/
+    creation: lazy
+    schema: null
+    readme: |
+      Closed actioned memos live here. There is NO sent/ — outbound memos live in the
+      recipient's inbox (`state/cross-repo/inbox/`), not here.
+
+  # bin/cross-repo-memo.md is a discoverability breadcrumb: the send verb is DoE-owned
+  # and on PATH (not vendored), so a consumer EM's tree-scoped `ls bin/` search finds
+  # nothing without this pointer. Scaffolded from a static template (no substitution).
+  # Spec: cross-repo/inbox/2026-07-06-cross-repo-memo-send-discoverability.md
+  - path: bin/cross-repo-memo.md
+    creation: eager
+    schema: null
+    readme: null
+    template: templates/cross-repo-memo-breadcrumb.md
+
+  # CLAUDE.md — project conventions apply immediately; filled in Phase 2 of onboarding.
+  - path: CLAUDE.md
+    creation: eager
+    schema: null
+    readme: null
+
+  # docs/README.md — structural index with project name, pointers to plans/research/wikis.
+  - path: docs/README.md
+    creation: eager
+    schema: null
+    readme: null
+
+  # docs/exec-summary.md — per-repo executive summary: what this project is, what makes it
+  # special, near-term goals, and progress. Documentary file (like CLAUDE.md): two MANAGED
+  # sections are auto-populated by bin/generate-exec-summary.py from README + week-changelog;
+  # two HAND sections are authored once and preserved verbatim across every regeneration.
+  # Eager because MANAGED sections derive from day-1 disk artifacts (README, git log);
+  # HAND sections ship as documented placeholders (EAGER-with-HAND-placeholder is compliant
+  # with produce-not-prescribe.md — real derivable content exists on day 1).
+  # kind: exec-summary is deliberately outside the schema registry — no schemas/ entry by
+  # design (light render path, no typed entity). See docs/wiki/exec-summary-artifact.md
+  # § Deliberately outside the schema registry.
+  # Spec backlink: docs/plans/2026-07-03-exec-summary-per-repo-brief.md § D3
+  - path: docs/exec-summary.md
+    creation: eager
+    schema: null
+    readme: null
+
+  # .gitignore entry — prevents accidental credential commits from first commit onwards.
+  - path: .gitignore
+    creation: eager
+    schema: null
+    readme: null
+
+  # .project-rag-ignore — starter project-rag exclusion surface, scaffolded verbatim
+  # (no substitution, static copy) from templates/dotprojectragignore.tmpl — same
+  # file-entry `template:` mechanism as bin/cross-repo-memo.md above. Never clobbers
+  # an existing file at this path (repo-setup Phase 1: "never overwrite existing
+  # files"; scaffold_structure CLI is idempotent). Full contract:
+  # coordinator/docs/wiki/coordinator-tripwires/project-rag-ignore-scaffold-parity.md
+  - path: .project-rag-ignore
+    creation: eager
+    schema: null
+    readme: null
+    template: templates/dotprojectragignore.tmpl
+
+  # fleet PR template — static copy, never clobbers an existing file at this
+  # path, scaffolded verbatim from templates/github-pull-request-template.md —
+  # same file-entry `template:` mechanism as .project-rag-ignore above. Full
+  # contract: coordinator/docs/wiki/coordinator-tripwires/
+  # agent-pr-bodies-bypass-the-github-template.md
+  - path: .github/pull_request_template.md
+    creation: eager
+    schema: null
+    readme: null
+    template: templates/github-pull-request-template.md
+
+  # Post-commit hook — auto-push crash insurance is needed from the very first commit.
+  - path: .git/hooks/post-commit
+    creation: eager
+    schema: null
+    readme: null
+
+  # ---------------------------------------------------------------------------
+  # LAZY — created on first use by their producing skill
+  # ---------------------------------------------------------------------------
+
+  # ---------------------------------------------------------------------------
+  # EAGER (gitkeep) — state/ subdirectories scaffolded empty from day 1.
+  # These are always-on load-bearing surfaces: session-continuity dirs, cross-repo
+  # memo store, review infrastructure. They must exist before the first write so that
+  # skills and CLIs referencing them don't fail on a missing directory.
+  # Scaffold with .gitkeep (not README) by default — content accumulates organically
+  # and a content-free placeholder README adds noise without signal. state/handoffs/
+  # and state/review-trail/ are the named exception: their READMEs below clear the
+  # signal bar (writer + filler event + owning skill, no frontmatter — see
+  # skills/repo-setup/SKILL.md § Lazy-creation discipline), so they scaffold with a
+  # real README instead of a bare .gitkeep.
+  #
+  # Spec backlink: docs/plans/2026-06-08-tasks-state-folder-split.md § C4
+  # ---------------------------------------------------------------------------
+
+  # state/handoffs/ — session-continuity artifacts written by coordinator:handoff.
+  - path: state/handoffs/
+    creation: eager
+    schema: handoff
+    readme: |
+      Session-continuity artifacts written by the `handoff` skill (`coordinator/skills/handoff/SKILL.md`)
+      when a session ends via `/handoff`. Each entry is a per-session handoff record consumed by
+      the next session picking up the same workstream. Empty until the first session ends.
+
+  # state/review-trail/ — review records written by /workstream-complete and /handoff.
+  - path: state/review-trail/
+    creation: eager
+    schema: review
+    readme: |
+      Review records written by `/workstream-complete` and the `handoff` skill
+      (`coordinator/skills/handoff/SKILL.md`) whenever a review pass completes. Each entry is a
+      per-review record forming the audit trail consumed by later review/distill passes. Empty
+      until the first review completes.
+
+  # state/subagent-share/ — DURABLE, git-tracked "keepers" dir for scoped subagents.
+  # Generalizes state/review-trail/findings/ beyond reviewers: any dispatched worker
+  # can durably persist triage/assessment/intermediate output here instead of only
+  # returning it in chat. Also serves context-window protection — a scoped Sonnet can
+  # persist assess-and-execute state here mid-task rather than holding it in one
+  # long-lived context window. Twin of the EPHEMERAL, git-ignored scratch/subagent-sandbox/
+  # (kept off state/ and out of this manifest — scratch/ is .gitignore'd at the repo root).
+  # readme: null — this dir is gitkeep: true, so the scaffold script's README-render
+  # branch never fires for it (confirmed: the scaffold_structure CLI's `template:`
+  # field is a FILE-entry-only mechanism — it has no directory-entry render path, so a
+  # `template:` field here would be silently inert, unlike bin/cross-repo-memo.md's
+  # file-entry template). This repo's hand-authored state/subagent-share/README.md is
+  # THIS-REPO-ONLY: fresh consumer repos scaffolding from this manifest get only
+  # .gitkeep, no purpose doc, until the scaffold_structure CLI grows a
+  # directory-entry template mechanism (out of scope here — see Finding 1,
+  # state/review-trail/findings/2026-07-12-codereview-slicesliceB-config-provisioning-coordinator-subagent-sandbox-policy-yaml.md).
+  - path: state/subagent-share/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/week-changelog/ — weekly changelog entries appended by /workday-complete.
+  - path: state/week-changelog/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/memos/ — cross-repo memo store (outbound + in-flight tracking).
+  # Load-bearing: bin/cross-repo-memo CLI references this path; must exist on all repos.
+  - path: state/memos/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/cross-repo-declarations/ — peer-repo relationship declarations.
+  # Load-bearing: cross-repo-memo CLI; must exist before any memo is dispatched.
+  - path: state/cross-repo-declarations/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/cross-repo-outbound/ — NOT a memo channel, and nothing reads it.
+  # The cross-repo-memo CLI contains no reference to this path: it drafts to
+  # `.coordinator-local/memo-outbox/<topic>.md`, falls back to reading
+  # `state/memo-outbox/` for drafts staged before the outbox moved, and records
+  # delivery in that outbox's sent-ledger. A body hand-written here is the
+  # frontmatter-and-summary-cap bypass the memo rule exists to prevent, minus
+  # the sibling-tree crossing that would make it obvious — two such memos are
+  # still sitting undelivered. Kept only because the directory already exists
+  # in live trees; route memos through `cross-repo-memo draft` and write at the
+  # path it prints.
+  - path: state/cross-repo-outbound/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/reviews/ — review artifacts collected during workstream-complete.
+  - path: state/reviews/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/review-findings/ — per-workstream review findings written by code-reviewer.
+  - path: state/review-findings/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/roadmap/ — roadmap-planning artifacts (spinoff-roadmap handoffs, planning notes).
+  - path: state/roadmap/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/audits/ — periodic audit outputs (security, deps, test-evidence sweeps).
+  - path: state/audits/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/recovery/ — recovery artifacts from crashed or incomplete workstreams.
+  - path: state/recovery/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/scratch/deep-architecture-survey/ — managed-namespace scratch: sustained architecture survey work.
+  # Protected from /distill aggression (managed namespace, not loose ephemera).
+  - path: state/scratch/deep-architecture-survey/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/scratch/bug-blitz/ — managed-namespace scratch: coordinated bug-investigation sessions.
+  - path: state/scratch/bug-blitz/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/scratch/artifact-distillation/ — managed-namespace scratch: distillation working area.
+  - path: state/scratch/artifact-distillation/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # tasks/ — Tasks-API UUID flight-recorder dirs, dated reports, loose scratch.
+  # Kept as a top-level dir with .gitkeep so the directory is always present even
+  # when no active flight recorders exist.
+  - path: tasks/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # ---------------------------------------------------------------------------
+  # LAZY — created on first use by their producing skill
+  # ---------------------------------------------------------------------------
+
+  # archive/completed/ — no completed work until first work item ships.
+  - path: archive/completed/
+    creation: lazy
+    schema: completion-entry
+    readme: null
+
+  # docs/wiki/ — wiki guides come from /distill after artifacts accumulate.
+  - path: docs/wiki/
+    creation: eager
+    schema: null
+    readme: |
+      Wiki guides written by the `/distill` command (`coordinator/commands/distill.md`) once
+      artifacts accumulate — `/distill` synthesizes plans, lessons, and decisions into durable
+      reference guides here. Empty until the first `/distill` pass runs.
+
+  # docs/plans/ — plans come from plan mode; none exist on day 1.
+  - path: docs/plans/
+    creation: eager
+    schema: plan
+    readme: |
+      Plan documents written by the `plan` skill (`coordinator/skills/plan/SKILL.md`) once a
+      plan is ratified in plan mode. Each entry is a per-workstream plan consumed by
+      `/execute-plan` dispatch. Empty until the first plan is ratified.
+
+  # docs/research/ — research outputs come from /deep-research pipelines.
+  - path: docs/research/
+    creation: eager
+    schema: null
+    readme: |
+      Research outputs written by the `/research` command (`coordinator/commands/research.md`)
+      once a research pipeline run completes. Each entry is a per-run synthesis (plus an
+      `archive/` for completed run workdirs) consumed by planning and prior-art checks. Empty
+      until the first research run completes.
+
+  # state/health/ — periodic health summaries; created on first health-status record.
+  - path: state/health/
+    creation: lazy
+    schema: health-status
+    readme: null
+
+  # state/lessons.md — header + comment only; no lessons exist until first session runs.
+  - path: state/lessons.md
+    creation: lazy
+    schema: lesson-entry
+    readme: null

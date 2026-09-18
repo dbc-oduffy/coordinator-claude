@@ -1,7 +1,5 @@
 # `Resolves:` commit-trailer convention
 
-> Spec backlink: `docs/plans/2026-07-08-lifecycle-vocab-c2-durable-links-rollup.md` § C4
-> Producer backlink: `docs/plans/2026-08-01-baton-spine-information-integrity.md` § A1
 
 ## Producer
 
@@ -103,8 +101,7 @@ zero-match into "gate failed": treating "no commits reference this yet" as
 The vacuous-pass rule above governs a closer that resolved its inputs fine and then found no
 resolving commits. It never governed a closer that could not resolve its inputs at all — that case
 was reported as success too, which is what let one defect be rediscovered by hand by four separate
-EMs on four separate days. Claude-klabauter's closers now separate the two
-(`fdbff578b7dc`, corrected at `40bf1064a124`):
+EMs on four separate days. Claude-klabauter's closers now separate the two:
 
 - **Join resolved, zero resolving commits** — unchanged. Vacuous pass, `no-resolving-commits`,
   exit 0. The Session-Id reasoning above is untouched.

@@ -1,6 +1,5 @@
 # Machine-local Registry
 
-<!-- spec-backlink: archive/specs/2026-05/2026-05-19-machine-local-registry.md § 5 -->
 
 This wiki is the **substrate doctrine** — what belongs in the registry, how the reader resolves values, what does NOT belong. For **operator-facing health verification** of the registry (is my install populated correctly? what to do when probes fail?), see the companion wiki: [`coordinator-doctor.md`](coordinator-doctor.md). Together these wikis form the doctrine-vs-operator-guide pair for the machine-local substrate.
 
@@ -73,7 +72,7 @@ The reader (`machine-local get <key>`) resolves in this order, most-specific-and
 
 Layers 1–4 are all `.toml` files and all outrank the env layer. The env layer (5) sits below all `.toml` layers because env-vars in a parent process are *ambient*, not deliberate — any export in a parent shell, IDE launch configuration, `.envrc`, or CI step would silently shadow the operator's registry values if env ranked above them. The registry's authority comes precisely from being the audited, operator-set source. The env var is an emergency one-off escape valve, not the default channel.
 
-**DR-087 — `docs/decisions/DR-087-repo-repo-id-env-override-family-ratified.md`** ratifies `REPO_<REPO_ID>` (§4c rung 1) as the fleet's canonical env-override family for `repos.*` sibling-discovery. **Its discriminant is value PROVENANCE, not ambience.** An ambient export is not itself a violation: `claude-machine-local.sh` (Ergonomic helpers, below) ambiently exports `$REPO_<NAME>` on every source, and that is the sanctioned surface — the value IS the registry's own live answer, so it cannot diverge from what this rung distrusts shadowing, and §4b's `[[ -z ]]` guard still lets an operator-pre-set value win. The violation is narrower: exporting a `REPO_<REPO_ID>`-shaped variable sourced from a channel that CAN diverge from the registry — a pointer file, a baked path, anything a decision record has demoted — promotes a demoted value to rung-1 authority and defeats the escape hatch exactly when someone reaches for it. Historical named case (see DR-087's addendum): `claude-doe-shim.sh.tmpl` injecting the DR-071-demoted `.doe-root` mirror. `MACHINE_LOCAL_<KEY>` (this rung) and `REPO_<REPO_ID>` do not conflict — both trust only registry-equivalent or operator-typed values; they differ in scope (any key vs. `repos.*`) and ranking (below vs. above the TOML layers).
+**DR-087 —** ratifies `REPO_<REPO_ID>` (§4c rung 1) as the fleet's canonical env-override family for `repos.*` sibling-discovery. **Its discriminant is value PROVENANCE, not ambience.** An ambient export is not itself a violation: `claude-machine-local.sh` (Ergonomic helpers, below) ambiently exports `$REPO_<NAME>` on every source, and that is the sanctioned surface — the value IS the registry's own live answer, so it cannot diverge from what this rung distrusts shadowing, and §4b's `[[ -z ]]` guard still lets an operator-pre-set value win. The violation is narrower: exporting a `REPO_<REPO_ID>`-shaped variable sourced from a channel that CAN diverge from the registry — a pointer file, a baked path, anything a decision record has demoted — promotes a demoted value to rung-1 authority and defeats the escape hatch exactly when someone reaches for it. Historical named case (see DR-087's addendum): `claude-doe-shim.sh.tmpl` injecting the demoted `.doe-root` mirror. `MACHINE_LOCAL_<KEY>` (this rung) and `REPO_<REPO_ID>` do not conflict — both trust only registry-equivalent or operator-typed values; they differ in scope (any key vs. `repos.*`) and ranking (below vs. above the TOML layers).
 
 **`MACHINE_LOCAL_<KEY>` naming.** The key `repos.example_game_workbench_repo` maps to env var `MACHINE_LOCAL_REPOS_EXAMPLE_GAME_WORKBENCH_REPO` (dots and hyphens become underscores, all uppercase). It supersedes ad-hoc per-repo env-var opt-ins (e.g. `EXAMPLE_GAME_REPO_ROOT=`, `docs/wiki/cross-repo-citation-conventions.md § peerless-installs`): one named registry, one documented fallback chain.
 
@@ -201,7 +200,7 @@ From the resolved `$HOME` analog, the downstream paths derive trivially: `<home>
 
 **Why `CLAUDE_HOME` ranks above `HOME`.** Unlike `MACHINE_LOCAL_<KEY>` env vars (which rank *below* the registry because the registry is the deliberate audited source — §4), `CLAUDE_HOME` ranks *above* `HOME` because it answers a different question: not "what is this value" but "where does the entire Claude install live for this invocation". Test sandboxes, CI runners, scratch installs, and per-user-on-shared-machine setups all need to point the resolution at an alternate root without polluting the operator's real `$HOME`. There is no "registry of registries" to consult above it; `CLAUDE_HOME` *is* the deliberate audited override at this layer.
 
-**Canonical resolver — `claude-home`.** Installed by `/coordinator:install` Phase 3 Step 3 alongside `machine-local`. Same shape: shell shim → Python module → Windows `.cmd`. Source-of-truth at claude-klabauter's `coordinator/lib/claude-home/` (migrated from DoE-claude, commit b644d5a9 — load-bearing module: README + tests + artifacts co-located); install destination `<settings-home>/bin/` (§4e), the only place it is minted — no forwarder exists at `~/.claude/bin/`. The `lib/<module>/` location is deliberate — it signals "cross-repo contract surface, do not customize" rather than "template scaffolding the operator may modify." Use from any coordinator-installed environment:
+**Canonical resolver — `claude-home`.** Installed by `/coordinator:install` Phase 3 Step 3 alongside `machine-local`. Same shape: shell shim → Python module → Windows `.cmd`. Source-of-truth at claude-klabauter's `coordinator/lib/claude-home/` (migrated from DoE-claude — load-bearing module: README + tests + artifacts co-located); install destination `<settings-home>/bin/` (§4e), the only place it is minted — no forwarder exists at `~/.claude/bin/`. The `lib/<module>/` location is deliberate — it signals "cross-repo contract surface, do not customize" rather than "template scaffolding the operator may modify." Use from any coordinator-installed environment:
 
 ```bash
 # Resolve the $HOME analog (CLAUDE_HOME if set, else $HOME)
@@ -258,7 +257,7 @@ The shell-out form is preferred for cross-language portability AND avoids the du
 
 Why: `/coordinator:install` installs `_claude_home.py` at the operator's REAL `$HOME/.claude/bin/`, never at `CLAUDE_HOME/.claude/bin/`. A test setting `CLAUDE_HOME=/tmp/sandbox` to redirect contents resolution will find no module at `/tmp/sandbox/.claude/bin/`, the import fails, the peer falls back to its inlined copy, and the central path is never exercised under CI. The bug is invisible until production drift between the two copies surfaces.
 
-Reference adoption shape: claude-klabauter's `coordinator/lib/claude-home/README.md § "Adopting from a peer repo"` (migrated from DoE-claude, commit b644d5a9) carries the canonical Python snippet for the bootstrap-lookup half. Peer repos retiring inlined `_claude_config.py`-shaped modules MUST use the real-`$HOME`-only chain for the bootstrap import and let the central module own the full-precedence chain for everything it returns.
+Reference adoption shape: claude-klabauter's `coordinator/lib/claude-home/README.md § "Adopting from a peer repo"` (migrated from DoE-claude) carries the canonical Python snippet for the bootstrap-lookup half. Peer repos retiring inlined `_claude_config.py`-shaped modules MUST use the real-`$HOME`-only chain for the bootstrap import and let the central module own the full-precedence chain for everything it returns.
 
 ## 4b. Env-var resolver idempotency — gate re-resolution on `[[ -z ]]`
 
@@ -281,7 +280,7 @@ The generic key-resolution order above (§4, rungs 1–7) governs ALL keys in th
 
 **SSOT:** `project-rag/docs/wiki/cross-machine-path-resolution-contract.md`
 
-**Naming ratification (DR-087):** `REPO_<SLUG>` (equivalently `REPO_<REPO_ID>`, keyed to the `repos.<id>` registry keys) is the fleet's ratified env-override family — see `docs/decisions/DR-087-repo-repo-id-env-override-family-ratified.md`. Its rung-1 primacy holds for both a genuinely operator-typed value and a value ambiently exported from the registry itself (e.g. `claude-machine-local.sh`'s `$REPO_<NAME>` exports — the Ergonomic-helpers section); §4 states the provenance-not-ambience discriminant and the historical named case (`claude-doe-shim.sh.tmpl`; see DR-087's addendum). Legacy `*_ROOT`-shaped names (`DOE_ROOT`, `CLAUDE_KLABAUTER_ROOT`) remain readable indefinitely by their respective resolvers per DR-087 but are not part of this ratified family and are retired from documentation going forward.
+**Naming ratification (DR-087):** `REPO_<SLUG>` (equivalently `REPO_<REPO_ID>`, keyed to the `repos.<id>` registry keys) is the fleet's ratified env-override family. Its rung-1 primacy holds for both a genuinely operator-typed value and a value ambiently exported from the registry itself (e.g. `claude-machine-local.sh`'s `$REPO_<NAME>` exports — the Ergonomic-helpers section); §4 states the provenance-not-ambience discriminant and the historical named case (`claude-doe-shim.sh.tmpl`; see DR-087's addendum). Legacy `*_ROOT`-shaped names (`DOE_ROOT`, `CLAUDE_KLABAUTER_ROOT`) remain readable indefinitely by their respective resolvers per DR-087 but are not part of this ratified family and are retired from documentation going forward.
 
 The four rungs in summary: **(1)** an explicit, operator-typed `REPO_<SLUG>` env-var or CLI flag overrides everything (see the ratification note above — the discriminant is value provenance, not ambience: a registry-derived ambient export qualifies too, and only a non-registry-derived export sourced from a divergence-capable channel does not); **(2)** a tracked `search-roots.toml` lists OS-keyed parent directories and the scanner autodiscovers repos via `.claude-plugin/marketplace.json` identity markers — this is the primary rung for convention-installed repos (derive-not-store, no absolute paths stored); **(3)** a small tracked `path-exceptions.toml` maps OS-keyed slug → parent-path overrides for genuinely off-convention repos that cannot appear under any standard search-root; **(4)** `registry.local.toml`'s `repos.<slug>` key is the last-resort fallback for off-convention repos not discoverable under any search-root or path-exception (rung 2/3) — the documented, supported escape hatch named in the contract's remediation string. Do NOT re-specify the rung mechanics here — the SSOT contract is the authoritative source; a second copy would drift.
 
@@ -289,11 +288,9 @@ Coordinator retains ownership of: the key-namespace SCHEMA (what `repos.*` keys 
 
 ## 4e. Settings Home — `~/.coordinator-claude-settings` and the Registry-Dir Seam
 
-<!-- spec-backlink: docs/plans/2026-07-06-durable-substrate-to-settings-home.md § Design -->
 
 > **DR-072 — durable machine-local state does not belong in `~/.claude`.** This settings-home
-> seam is the mechanism `docs/decisions/DR-072-durable-machine-local-coordinator-state-lives-in-settings-home-not-claude.md`
-> (and its predecessor `docs/decisions/DR-071-durable-coordinator-root-anchor-settings-home-registry-doe-root-demoted-to-cache.md`)
+> seam is the mechanism that decision
 > ratifies: durable, per-machine coordinator state lives in settings-home, not the
 > resettable/synced `~/.claude` tree. See also `coordinator-settings-home` and
 > `docs/wiki/state-placement-law.md § Surfaces That Deliberately Stay in ~/.claude`.
@@ -326,8 +323,7 @@ COORDINATOR_SETTINGS_HOME              (explicit home root override — document
 
 **Seam is location-only.** `coordinator-settings-home` (shell) and `settings_home()` (Python, `_settings_home.py`) return the home path and stop — they do not read registry contents.
 
-**`~/.claude` compat window (transitional, phase-2 gated).** During the transition from `~/.claude`-resident substrate, `~/.claude/machine-local` is a realpath-symlink to `<settings-home>/machine-local`. Consumers that read the old absolute path continue to resolve the relocated content unchanged. The symlink is removed only at the single phase-2 gated tail, once all 5 consumers confirm migration. See `docs/plans/2026-07-06-durable-substrate-to-settings-home.md § Transitional compat window`.
-
+**`~/.claude` compat window (transitional, phase-2 gated).** During the transition from `~/.claude`-resident substrate, `~/.claude/machine-local` is a realpath-symlink to `<settings-home>/machine-local`. Consumers that read the old absolute path continue to resolve the relocated content unchanged. The symlink is removed only at the single phase-2 gated tail, once all 5 consumers confirm migration.
 **`machine-local dir` subcommand.** Returns `<settings-home>/machine-local` as an absolute path — the sanctioned dir-resolution primitive for concern-file readers that need to construct a path to a specific concern file (e.g. `project_rag.local.toml`):
 
 ```bash
@@ -346,7 +342,6 @@ project_rag_toml=$(machine-local dir)/project_rag.local.toml
 
 **Pin the composed path to the CLI; never read `registry.toml` to resolve it.** The arithmetic resolver is a *fallback that must not drift* from the canonical `coordinator-settings-home` CLI. Pin it with a parity/drift test comparing the arithmetic result against the CLI output, and resolve using arithmetic only — never open `registry.toml` to compute a path. This is the shape project-rag adopted for its impl-path sites. A `machine-local impl-path` wrapper subcommand would NOT solve the Windows problem — invoking it hits the same wrapper trap the `.py` pin exists to dodge; arithmetic composition of `<settings-home>/bin/<name>` is the seam.
 
-<!-- spec-backlink: docs/plans/2026-07-06-durable-substrate-to-settings-home.md § Transitional compat window; surfaced by the example-game-repo-em settings-home residuals consult (Windows shape-iii gap), 2026-07-07 -->
 
 ## 4d. `.claude.json` `projects` map — EM last-resort repo-discovery hint (advisory)
 
@@ -451,7 +446,6 @@ After that, claude-klabauter `coordinator/bin/publish.py` reads the portable top
 The `publish.mirrors.*` namespace holds outward-only OSS distribution destinations — repos the coordinator team *pushes to* and must *never* treat as source or working trees.
 
 ### Three-namespace taxonomy
-<!-- Review: code-reviewer-b1042315 — F6: kept the old heading's self-documenting cardinality now that the table has 3 rows. -->
 
 | Class | Namespace | Purpose | How to resolve |
 |---|---|---|---|
@@ -524,12 +518,10 @@ The `claude-machine-local.sh` shell helper exports `$REPO_<NAME>` for every `rep
 **Key shape.** `engine.working_repos.<repo_slug> = "<abs-path>"`, one key per engine-working repo. Currently two: `engine.working_repos.claude_klabauter`, `engine.working_repos.doe_claude`. The tracked `registry.toml.example` (§ machine-local template) carries only the empty-string declarations — never absolute paths, same convention as every other coordinator-owned per-machine key.
 
 **Who writes it.** Target state: each engine-working repo's OWN installer, at install time — the installer already knows its own root (it's the repo running the install), so it writes its own key via an idempotent `machine-local set engine.working_repos.<slug> <path>` call. Current state is per-key: `claude_klabauter` is written this way today, by `register_claude_klabauter_root()` in `claude-klabauter`'s `scripts/setup.py`. `doe_claude` is written a different way, not "NOT written": `coordinator/hooks/scripts/session-start-register-doe-claude-root.py`, a DoE-resident `async: true` SessionStart hook (`coordinator/hooks/hooks.json`), idempotently self-heals it every session rather than only at install time — it reads the current value first and does nothing when already correct, and otherwise shells out to the same sanctioned `machine-local set` writer. Guarded against registering the wrong tree by the repo-root `.coordinator-dev-repo` sentinel (`slug: doe-claude` content match), which is structurally absent from every OSS/consumer install, and otherwise writes via the same `_machine_local.py` implementation the `machine-local set` CLI resolves to (invoked directly under `sys.executable`, not through the CLI shim, so the hook doesn't depend on the shim being present/executable). Contrast with `repos.*`, whose values are the OPERATOR's knowledge of *other* repos' layout and cannot be self-written by the target repo.
-<!-- Review: code-reviewer-b1042315 — F5: blanket "each repo's own installer writes it" was untrue for doe_claude; scoped per-key. -->
 
 **Regeneratability.** `idempotent-regeneratable` is the target class for the whole namespace — NOT `session-accumulated-must-survive-crash` like `repos.*`. For `claude_klabauter`, this holds today: re-running its installer regenerates the value with no human input and no state loss, because the installer is authoritative about its own root by construction. For `doe_claude`, this now also holds: every session's SessionStart hook re-derives and, if needed, rewrites the key from this repo's own `__file__`-resolved root, so a wiped registry or a fresh clone self-heals on the next session with no human input (gated on the repo-root sentinel, see above). This is the same reasoning class as `coordinator.python` (rewritten by `ensure_venv`), not the class as `repos.*` (which encodes operator knowledge of someone else's layout and has no self-writer).
 
-**Consumer.** Engine resolution — specifically the working-tree-vs-published-artifact gate in `coordinator/hooks/scripts/_engine_root.py`'s `resolve_claude_klabauter_root_with_class()` / `_is_engine_working_repo()`. Wired at `972eb5d06`; `_resolve_published_engine()` has a producer — it reads `repos.claude_klabauter`, written at install time by the published mirror's own installer (`scripts/setup.py::register_claude_klabauter_root()`, commit `5080edc48d3f`) — so the divert branch is live on any machine where that key is registered. On a machine with no `repos.claude_klabauter` registration, the ladder still degrades to pre-gate behaviour.
-<!-- Review: code-reviewer-b1042315 — F1: paragraph was stale ("not yet wired") after 972eb5d06 wired the gate fail-open; also fixed the misattributed function name. -->
+**Consumer.** Engine resolution — specifically the working-tree-vs-published-artifact gate in `coordinator/hooks/scripts/_engine_root.py`'s `resolve_claude_klabauter_root_with_class()` / `_is_engine_working_repo()`. Wired in the engine; `_resolve_published_engine()` has a producer — it reads `repos.claude_klabauter`, written at install time by the published mirror's own installer (`scripts/setup.py::register_claude_klabauter_root()`) — so the divert branch is live on any machine where that key is registered. On a machine with no `repos.claude_klabauter` registration, the ladder still degrades to pre-gate behaviour.
 
 **`_is_engine_working_repo() is False` is one of two divert co-conditions, not the sole gate.** The
 divert condition is a disjunction: `published and (target_is_readable or
@@ -540,7 +532,7 @@ consumer (`_is_engine_working_repo()`) are otherwise unaffected; the gate that r
 second, independent way to fire, so a repo registered in `engine.working_repos.*` (this
 namespace's own discriminant) can still be diverted when `engine.target` is readable, even though
 `_is_engine_working_repo()` itself refuses. The other disjunct is pending retirement, gated on the
-engine plane's `engine.target` write running live for a cycle. See DR-132 § Consequences for the
+engine plane's `engine.target` write running live for a cycle. See Consequences for the
 fuller anti-strand argument and the retirement gating.
 
 
@@ -602,10 +594,10 @@ Keys authored by coordinator infrastructure (not user-set). These are registered
 | Key | Writer | Consumer | Meaning |
 |---|---|---|---|
 | `coordinator.python` | operator, or `coordinator_core.install.ensure_venv` when the value needs repair | direct consumers of the resolution contract below (`COORDINATOR_PYTHON` env / registry / PATH — no shared lib since `lib/resolve-python.sh`'s retirement in the bash-kill campaign) | Absolute path to the **general** coordinator interpreter on this machine — the one an operator deliberately chooses. `ensure_venv` writes it only when it is unset, already names the venv python, carries the doubled `/.claude/.claude/` marker, or fails interpreter validation; a healthy value naming anything else survives an install run untouched. Hand-setting it is therefore supported, and is the seam that makes the venv retirement reachable. |
-| `coordinator.whoami_python` | — RETIRED — | — | Retired along with `coordinator_whoami` (`archive/specs/2026-08-23-retire-coordinator-whoami-entirely.md`). A value under this key in a live registry is inert; safe to leave or clear, never re-provisioned. |
+| `coordinator.whoami_python` | — RETIRED — | — | Retired along with `coordinator_whoami`. A value under this key in a live registry is inert; safe to leave or clear, never re-provisioned. |
 | `coordinator.whoami_src` | — RETIRED — | — | Retired along with `coordinator_whoami`. Its value names `<settings-home>/coordinator-whoami/`, which holds no package — never a probe candidate or a PYTHONPATH entry. A consumer wanting host GPU inventory shells out to `coordinator/bin/host-gpu-probe.py`; host RAM is read from the OS. Safe to clear. |
 | `coordinator.machine_slug` | `coordinator:install` (eager seed); `/workday-start` Step 0 (lazy self-heal) | `coordinator_core.machine_resolver` (`compute_machine`; de-bash campaign, unit "daily-branch" — `coordinator-daily-branch.sh` retired) | The canonical machine token used in daily branch names (`work/{machine}/{date}`). Classification: `idempotent-regeneratable` — seeded from `cs_compute_machine_live` (hostname-derived) at a known-good moment; re-seeded by `/workday-start` on any pre-seed install. Drift vs. live hostname is surfaced by `/workday-start` Step 0 (detect-then-fail-loud, not silent overwrite). Never inherit from an existing branch name or substrate label — see `docs/wiki/daily-branch-discipline.md § Machine-token derivation`. |
-| `coordinator.contributor_slug` | `coordinator:install` (silent absent-only eager seed); `/workday-start` Step 0 (lazy self-heal) | `coordinator_core.machine_resolver` (`compute_contributor` / `compute_contributor_live`; de-bash campaign, unit "daily-branch" — `coordinator-daily-branch.sh` retired) | **SCOPE (read this before building on the key):** a BRANCH-NAMING and shard token, structurally mirroring `coordinator.machine_slug`'s `{machine}` axis. It is NOT the human-identity axis. The identity axis is engine-subject and lives in claude-klabauter: `coordinator_core.person_resolver.resolve_operating_person()`, surfaced as the `human_owner`/`human_assignee`/`human_claimant` contract fields and authored at the creation and claim doors. Claude-klabauter explicitly forbids extending `compute_contributor` into identity use — it "slugs an email for branch naming, joined to nothing, never reaches frontmatter" and is "NOT this axis's value space" (`coordinator_core/person_resolver.py` § Anti-scope, `archive_stamp.py:1825-1828`). Note the two resolvers disagree by design: this one falls back to `"unknown"`, while the identity axis writes NO field when unresolvable (DEC-41). Do not join them. **Resolver precedence (four-tier, most-specific first):** (1) `$COORDINATOR_CONTRIBUTOR` env escape valve (persisting it is discouraged — it silently masks registry-key drift detection, exactly like `$COORDINATOR_MACHINE`, see §4 above); (2) `coordinator.contributor_slug` registry key (canonical); (3) sanitized git `user.email` local-part (seed source only); (4) `"unknown"`. **Charset:** resolved slugs MUST match `^[a-z0-9][a-z0-9-]*$` — enforced by the same bash port of the `_memo_filename` sanitize idiom used elsewhere (`cross-repo-memo:868-870`: lowercase → collapse non-`[a-z0-9-]` runs to a single dash → collapse consecutive dashes → strip leading/trailing dashes). **Fleet-unique onboarding note:** slugs must be unique across the collaborator fleet; uniqueness is operator-set and drift-surfaced (not enforced structurally) — collision likelihood is LOW per the ratified risk table (`tasks/multi-collaborator-support/D0-ownership-model-RATIFIED.md`), and a collision surfaces via `/workday-start` Step 0's detect-then-fail-loud drift comparator, never a silent pick. **Seed-source demotion / PII note:** git `user.email` is a seed source ONLY — it is PII-bearing (drops the `@domain` half before sanitizing, local-part only) and is never promoted to the canonical key; the registry value, once seeded or operator-set, is authoritative and `user.email` is not re-consulted except as the live/drift comparator. Classification: `idempotent-regeneratable` — seeded from `cs_compute_contributor_live` at a known-good moment (silent, absent-only, never a canonical overwrite); re-derivable with no state loss. **Caveat vs. `machine_slug`:** unlike `machine_slug` (purely hostname-derived, re-derives to the *same* value on every clean re-seed), `contributor_slug`'s seed source is git `user.email`, which can change over the contributor's lifetime — regeneration after key loss recovers the value as of the *current* seed-time email, not necessarily the value that was lost, if the operator's email changed between loss and re-seed. See `docs/plans/2026-07-08-mcollab-01-contributor-slug.md § Design` for the full resolver/seed lifecycle. |
+| `coordinator.contributor_slug` | `coordinator:install` (silent absent-only eager seed); `/workday-start` Step 0 (lazy self-heal) | `coordinator_core.machine_resolver` (`compute_contributor` / `compute_contributor_live`; de-bash campaign, unit "daily-branch" — `coordinator-daily-branch.sh` retired) | **SCOPE (read this before building on the key):** a BRANCH-NAMING and shard token, structurally mirroring `coordinator.machine_slug`'s `{machine}` axis. It is NOT the human-identity axis. The identity axis is engine-subject and lives in claude-klabauter: `coordinator_core.person_resolver.resolve_operating_person()`, surfaced as the `human_owner`/`human_assignee`/`human_claimant` contract fields and authored at the creation and claim doors. Claude-klabauter explicitly forbids extending `compute_contributor` into identity use — it "slugs an email for branch naming, joined to nothing, never reaches frontmatter" and is "NOT this axis's value space" (`coordinator_core/person_resolver.py` § Anti-scope, `archive_stamp.py:1825-1828`). Note the two resolvers disagree by design: this one falls back to `"unknown"`, while the identity axis writes NO field when unresolvable (DEC-41). Do not join them. **Resolver precedence (four-tier, most-specific first):** (1) `$COORDINATOR_CONTRIBUTOR` env escape valve (persisting it is discouraged — it silently masks registry-key drift detection, exactly like `$COORDINATOR_MACHINE`, see §4 above); (2) `coordinator.contributor_slug` registry key (canonical); (3) sanitized git `user.email` local-part (seed source only); (4) `"unknown"`. **Charset:** resolved slugs MUST match `^[a-z0-9][a-z0-9-]*$` — enforced by the same bash port of the `_memo_filename` sanitize idiom used elsewhere (`cross-repo-memo:868-870`: lowercase → collapse non-`[a-z0-9-]` runs to a single dash → collapse consecutive dashes → strip leading/trailing dashes). **Fleet-unique onboarding note:** slugs must be unique across the collaborator fleet; uniqueness is operator-set and drift-surfaced (not enforced structurally) — collision likelihood is LOW per the ratified risk table (`tasks/multi-collaborator-support/D0-ownership-model-RATIFIED.md`), and a collision surfaces via `/workday-start` Step 0's detect-then-fail-loud drift comparator, never a silent pick. **Seed-source demotion / PII note:** git `user.email` is a seed source ONLY — it is PII-bearing (drops the `@domain` half before sanitizing, local-part only) and is never promoted to the canonical key; the registry value, once seeded or operator-set, is authoritative and `user.email` is not re-consulted except as the live/drift comparator. Classification: `idempotent-regeneratable` — seeded from `cs_compute_contributor_live` at a known-good moment (silent, absent-only, never a canonical overwrite); re-derivable with no state loss. **Caveat vs. `machine_slug`:** unlike `machine_slug` (purely hostname-derived, re-derives to the *same* value on every clean re-seed), `contributor_slug`'s seed source is git `user.email`, which can change over the contributor's lifetime — regeneration after key loss recovers the value as of the *current* seed-time email, not necessarily the value that was lost, if the operator's email changed between loss and re-seed. See for the full resolver/seed lifecycle. |
 
 **`coordinator.python` resolution contract.** The coordinator Python resolves in this order: (1) `COORDINATOR_PYTHON` env var (test override), (2) `machine-local get coordinator.python` (registry pin), (3) existing PATH Python as a fallback. Callers apply the order directly; there is no FLOOR shim to source. A stale or broken pin (the path in the registry fails to resolve to a working interpreter) fails loud with a remediation pointing at `coordinator_core.install.ensure_venv` (invoked via `install-substrate.py`). This key names the system interpreter fleet-wide — no venv pointer, split or otherwise; see `docs/wiki/fleet-shared-python-environment.md`. One predicate in `ensure_venv` drives both the mutating write and the `check_only` verdict, so a dry-run cannot drift from a real run.
 
@@ -647,17 +639,17 @@ When a concern file is listed in `registry.toml`'s `concerns` array, that concer
 **`hardware` concern — shape and lifecycle.** The concern follows the same two-file split as `unreal`:
 
 - **Tracked `hardware.toml` schema baseline** — copy-if-not-exist at install time (same `install-substrate.py` logic as the `unreal.toml` baseline at lines 96-98). Contains the key declarations for the concern namespace; no machine-specific values. Travels via git so the key shape is discoverable across machines.
-- **Gitignored `hardware.local.toml` machine values** — written (and upserted on re-run) by `lib/detect-hardware.sh` via `machine-local set --concern hardware hardware.cores <n>` etc. (the `--concern` writer from the machine-local-concern-set-writer plan, commit `210fa58a`). Values are regeneratability class `idempotent-regeneratable` (§13) — lost values are recovered by re-running `lib/install-substrate.py` or the OSS `setup/install.sh --setup-only`.
+- **Gitignored `hardware.local.toml` machine values** — written (and upserted on re-run) by `lib/detect-hardware.sh` via `machine-local set --concern hardware hardware.cores <n>` etc. (the `--concern` writer from the machine-local-concern-set-writer plan). Values are regeneratability class `idempotent-regeneratable` (§13) — lost values are recovered by re-running `lib/install-substrate.py` or the OSS `setup/install.sh --setup-only`.
 - **Concern registration** — `registry.toml`'s `concerns` array includes `"hardware"` so that `machine-local get hardware.*` resolves from `hardware.local.toml` rather than falling through to the core registry. The install-substrate.py migration step (AC10) performs a TOML-aware upsert to add `"hardware"` to the `concerns` array on existing installs where the entry is absent.
 - **Doctor probe** — the hardware-absence probe registered in `bin/doctor-probes.toml` detects missing `hardware.cores`/`hardware.ram_gb` and emits population-aware remediation: "run coordinator:install Phase 3" for coordinator-install users; "re-run setup/install.sh" for OSS users. See `coordinator-doctor.md` for the probe narrative.
 
 **Writing concern-namespace keys via the CLI — `machine-local set --concern`.** The bare `machine-local set <key> <value>` writer REFUSES concern-namespace keys (the concern file owns the namespace; a bare `set unreal.x` redirects to the concern owner). To set an individual concern scalar without hand-editing the TOML or running a concern owner's full seeder, use the explicit opt-in:
 
 ```bash
-machine-local set --concern unreal unreal.samples_root /x/ExampleSampleProjectStarterGame
+machine-local set --concern unreal unreal.samples_root /c/ExampleSampleProjectStarterGame
 ```
 
-The writer resolves `<name>.local.toml`, validates the key is under the `<name>.` namespace (rejects cross-concern pollution; rejects mixed-case keys fail-loud), performs an atomic read-merge-write that preserves every co-writer key/table **with its scalar type intact** (the DR-CONTRACT-001 witness integer `unreal.emit_shape_version` round-trips as an int, not a string — see §12), and stamps `[provenance.<bare_key>]` with `written_by = machine-local`, `source = cli:--concern`. This is purely additive: bare `set` still refuses concern keys (the negative-spec is preserved; `--concern` is the explicit carve-out). A concern owner's own seeder (e.g. project-rag-ue-addon's `_seed_unreal_keys.py --set`) remains valid as a seeder-local shortcut. Spec: cross-repo memo `2026-06-23-machine-local-concern-set-writer.md`; `docs/plans/2026-06-23-machine-local-concern-set-writer.md`.
+The writer resolves `<name>.local.toml`, validates the key is under the `<name>.` namespace (rejects cross-concern pollution; rejects mixed-case keys fail-loud), performs an atomic read-merge-write that preserves every co-writer key/table **with its scalar type intact** (the DR-CONTRACT-001 witness integer `unreal.emit_shape_version` round-trips as an int, not a string — see §12), and stamps `[provenance.<bare_key>]` with `written_by = machine-local`, `source = cli:--concern`. This is purely additive: bare `set` still refuses concern keys (the negative-spec is preserved; `--concern` is the explicit carve-out). A concern owner's own seeder (e.g. project-rag-ue-addon's `_seed_unreal_keys.py --set`) remains valid as a seeder-local shortcut. Spec: cross-repo memo `2026-06-23-machine-local-concern-set-writer.md`.
 
 **Extension path (per the Director of Engineering review, F7).** If a future need for per-repo metadata (kind, role, version, consumer-set) emerges, the extension path is a new concern file (e.g., `repos_meta.toml`), not restructuring the flat `repos.*` namespace. The flat namespace is correct for the current consumer set (sibling-repo roots are strings, not structured objects). YAGNI: add the concern file if and when the need is concrete; this note just records that the extension path exists so a future contributor does not feel forced to restructure the baseline.
 
@@ -679,8 +671,7 @@ The reader is **read-only**. It never writes, never caches to disk, never mutate
 
 ### DoE ruling — malformed input: isolate on read, still validate on write; the two are not substitutes
 
-**Ruling: BOTH — reader isolation AND write-time round-trip validation — but they are not substitutes for each other, and isolation is the load-bearing half.** See `cross-repo/inbox/2026-08-03-project-rag-ue-addon-em-machine-local-rulings-still-outstanding.md` for the requesting memo.
-
+**Ruling: BOTH — reader isolation AND write-time round-trip validation — but they are not substitutes for each other, and isolation is the load-bearing half.**
 **Fail soft on read, loud on write.** That one line is the governing shape for this whole seam.
 
 - **A malformed concern file degrades only its own layer.** `machine-local` warns on stderr and drops that one file — every other concern, and every other layer of the resolution chain, still resolves. This is blast-radius containment, not validation: the reader is not being asked to *understand* the malformed file, only to *survive* it. Consistent with §7's minimal-reader contract above — the reader still does no per-key schema checking; it just does not let one bad file take down unrelated concerns.
@@ -715,7 +706,7 @@ echo "$REPO_PROJECT_RAG/subdir/file.py"
 
 Exports `$REPO_<NAME>` for every declared `repos.*` key — prefix is singular `REPO_`, not `REPOS_`. Hyphens and dots in keys both normalize to underscores (`repos.project-rag` → `REPO_PROJECT_RAG`); identifiers that fail POSIX validation are skipped with a stderr warning.
 
-> **Ratification (DR-087).** `REPO_<REPO_ID>` is the fleet's canonical env-override family for `repos.*` keys — `docs/decisions/DR-087-repo-repo-id-env-override-family-ratified.md`. **This helper's ambient export is the sanctioned pattern, not a violation**: the value comes live from the registry ladder at source time, so it cannot diverge from what rung 1 exists to override, and §4b's `[[ -z ]]` guard still lets an operator-pre-set value win. §4 carries the provenance-not-ambience discriminant and the historical named case (`claude-doe-shim.sh.tmpl`; see DR-087's addendum). Legacy `*_ROOT` names (`DOE_ROOT`, `CLAUDE_KLABAUTER_ROOT`) stay readable indefinitely as permanent alias-reads — no rename, no removal schedule — but are retired from documentation; new doctrine and resolvers cite `REPO_<REPO_ID>` only.
+> **Ratification (DR-087).** `REPO_<REPO_ID>` is the fleet's canonical env-override family for `repos.*` keys. **This helper's ambient export is the sanctioned pattern, not a violation**: the value comes live from the registry ladder at source time, so it cannot diverge from what rung 1 exists to override, and §4b's `[[ -z ]]` guard still lets an operator-pre-set value win. §4 carries the provenance-not-ambience discriminant and the historical named case (`claude-doe-shim.sh.tmpl`; see DR-087's addendum). Legacy `*_ROOT` names (`DOE_ROOT`, `CLAUDE_KLABAUTER_ROOT`) stay readable indefinitely as permanent alias-reads — no rename, no removal schedule — but are retired from documentation; new doctrine and resolvers cite `REPO_<REPO_ID>` only.
 
 **PowerShell** — dot-source:
 
@@ -744,7 +735,7 @@ The `machine-local set --concern` CLI writer (§6) is NOT an exception to this r
 
 **(e) Adding a value that is universal across machines.** If the value is the same on every machine the operator runs (e.g., a fixed public URL, a schema version constant, a vendor SDK that always installs to the OS-canonical location), commit it to the relevant repo. Git-tracked durability is the right primitive; no operator action needed per machine.
 
-**(f) Putting machine-specific path values in `registry.toml` instead of `registry.local.toml`.** `registry.toml` is git-tracked and travels with the `~/.claude` repo across machines. If you bake `repos.example_game_workbench_repo = "E:/dev/example-game-workbench-repo"` into `registry.toml`, that path is wrong on every other machine the operator uses. <!-- foreign-path-ok: illustrative anti-pattern example, the subject of this rule --> Machine-specific values go in `registry.local.toml`, which is gitignored. See §9 for the full split rationale and the Machine-a-and-Mac worked example. **This stays a documented convention, not a reader-enforced constraint — see §9's 2026-08-03 DoE ruling before proposing read-time rejection.**
+**(f) Putting machine-specific path values in `registry.toml` instead of `registry.local.toml`.** `registry.toml` is git-tracked and travels with the `~/.claude` repo across machines. If you bake `repos.example_game_workbench_repo = "C:/dev/example-game-workbench-repo"` into `registry.toml`, that path is wrong on every other machine the operator uses. <!-- foreign-path-ok: illustrative anti-pattern example, the subject of this rule --> Machine-specific values go in `registry.local.toml`, which is gitignored. See §9 for the full split rationale and the Machine-a-and-Mac worked example. **This stays a documented convention, not a reader-enforced constraint — see §9's 2026-08-03 DoE ruling before proposing read-time rejection.**
 
 ## 9. Tracked Baseline + `.local` Overrides — Why and When
 
@@ -755,26 +746,26 @@ The `machine-local set --concern` CLI writer (§6) is NOT an exception to this r
 
 This matches the `*.local.*` precedent already established at `~/.claude/`: the (now-removed) `the (now-removed) meta-repo local-doctrine file`, `coordinator.local.md`, `settings.local.json`. The `.local` convention is consistent throughout the install tree.
 
-**Worked example — Machine-a and Mac.** The operator runs from Machine-a (Windows, repos under `X:/...`) and a Mac on the go (repos under `~/work/...`). <!-- foreign-path-ok: worked example of real per-machine registry.local.toml values, the subject of this section --> One git-tracked `~/.claude` repo lives on both machines. `registry.toml` is identical on both — it declares `repos.project_rag`, `repos.example-sim-repo`, etc. as keys, sets `schema = 1`, lists `concerns`. On Machine-a, `registry.local.toml` contains:
+**Worked example — Machine-a and Mac.** The operator runs from Machine-a (Windows, repos under `C:/...`) and a Mac on the go (repos under `~/<repos>/...`). <!-- foreign-path-ok: worked example of real per-machine registry.local.toml values, the subject of this section --> One git-tracked `~/.claude` repo lives on both machines. `registry.toml` is identical on both — it declares `repos.project_rag`, `repos.example-sim-repo`, etc. as keys, sets `schema = 1`, lists `concerns`. On Machine-a, `registry.local.toml` contains:
 
 ```toml
-"repos.project_rag" = "X:/project-rag"    # <!-- foreign-path-ok: worked-example registry.local.toml value -->
-"repos.example-sim-repo"    = "E:/dev/example-sim-repo"   # <!-- foreign-path-ok: worked-example registry.local.toml value -->
+"repos.project_rag" = "C:/project-rag"    # <!-- foreign-path-ok: worked-example registry.local.toml value -->
+"repos.example-sim-repo"    = "C:/dev/example-sim-repo"   # <!-- foreign-path-ok: worked-example registry.local.toml value -->
 
 [publish.mirrors.coordinator_claude]
-path = "X:/coordinator-claude"    # <!-- foreign-path-ok: worked-example registry.local.toml value -->
+path = "C:/coordinator-claude"    # <!-- foreign-path-ok: worked-example registry.local.toml value -->
 
 [publish.mirrors.deep_research_claude]
-path = "X:/deep-research-claude"    # <!-- foreign-path-ok: worked-example registry.local.toml value -->
+path = "C:/deep-research-claude"    # <!-- foreign-path-ok: worked-example registry.local.toml value -->
 ```
 
 On the Mac, `registry.local.toml` contains:
 
 ```toml
-"repos.project_rag" = "~/work/project-rag"
+"repos.project_rag" = "~/<repos>/project-rag"
 
 [publish.mirrors.coordinator_claude]
-path = "~/work/coordinator-claude"
+path = "~/<repos>/coordinator-claude"
 ```
 
 Same keys, different machine-specific values, no manual reconciliation, no merge conflicts — `.local.toml` is gitignored on both ends so it never appears in the shared history. Single-machine operators ignore the `.local` layer entirely; it is opt-in by virtue of the file simply not existing unless the operator creates it. Note that publish mirror paths follow the same `.local.toml` convention but live under `[publish.mirrors.*]` nested tables (§5c.2) rather than flat `repos.*` keys.
@@ -791,15 +782,14 @@ Same keys, different machine-specific values, no manual reconciliation, no merge
 
 **Sanctioned future shape, if enforcement ever lands: write-time, never read-time.** A **warning** at `machine-local set` when a machine-specific-shaped value targets the tracked file is the only sanctioned enforcement shape — narrow, advisory, and at the point where the operator can act on it. A read-time hard failure is out of scope permanently, not merely deferred; do not re-open this as an oversight in a later session.
 
-*Corroboration:* the requesting memo's own leaning (`cross-repo/inbox/2026-08-03-project-rag-ue-addon-em-machine-local-rulings-still-outstanding.md`) independently reached the same conclusion — offered as input to this ruling, not its basis. This answers the 2026-07-15 ask that went unaddressed for three weeks.
+*Corroboration:* the requesting memo's own leaning independently reached the same conclusion — offered as input to this ruling, not its basis. This answers the 2026-07-15 ask that went unaddressed for three weeks.
 
 ### 9a. Registry resolution reads `registry.local.toml` by VALUE, not `registry.toml` by EXISTENCE
 
-<!-- spec-backlink: archive/completed/2026-07/2026-07-12-wsc-d536a9d1-b12d-4e3a-8c37-dadf6b20bd46.md — synth run 2026-08-06-14h38, nugget c5-003 -->
 
 **A rename/migration plan cannot infer the resolver's behavior from whether `registry.toml` (tracked) *exists*.** The resolver reads `registry.local.toml` **by value**: it opens the per-machine gitignored file and resolves whatever key/value pairs are actually present there, per the §4 precedence chain (rung 3, above the tracked baseline at rung 4). Existence of the tracked file is not the signal; the *content* of the local override is. A rename or re-key of a `repos.*`/`publish.mirrors.*` entry must edit `registry.local.toml`'s value directly (e.g. via `machine-local set`) — touching or recreating `registry.toml` alone does not re-point the resolved value on a machine that already has a local override set.
 
-This is a **misdiagnosis-prevention note**, not a new resolution rule — §4's rungs and §9's tracked/`.local` split already describe the correct mechanics; this entry exists so a future rename/migration plan doesn't re-derive the wrong premise from scratch. The same workstream also surfaced two unrelated pre-existing coordinator-tooling bugs while re-keying the registry: a `walkGlob` crash on an undefined `globPattern`, fixed with a fail-loud guard at `queryRecords()` (commit `17fcc557`), and a stale test exercising the pre-migration `lessons.md` format instead of the target `state/lessons/*.yaml` (commit `30c37bd1`) — noted here for provenance only; neither changes machine-local's own contract.
+This is a **misdiagnosis-prevention note**, not a new resolution rule — §4's rungs and §9's tracked/`.local` split already describe the correct mechanics; this entry exists so a future rename/migration plan doesn't re-derive the wrong premise from scratch. The same workstream also surfaced two unrelated pre-existing coordinator-tooling bugs while re-keying the registry: a `walkGlob` crash on an undefined `globPattern`, fixed with a fail-loud guard at `queryRecords()`, and a stale test exercising the pre-migration `lessons.md` format instead of the target `state/lessons/*.yaml` — noted here for provenance only; neither changes machine-local's own contract.
 
 ## 10. When NOT to Use `.local`
 
@@ -817,14 +807,14 @@ The test: *"If I cloned `~/.claude` to a second machine right now, would this va
 
 Machine-local handles operator-set config (key-value, TOML, reader-mediated). The orthogonal substrate is **per-project state directories** under `~/.claude/<project>/` — bespoke paths each project owns for runtime artifacts (PID files, lockfiles, status JSON, install logs, sentinels) that aren't shaped like key-value config. Two substrates, one canonical root.
 
-**Doctrine (DoE):** The §1.2 namespace-scalability critique of `~/.project-rag/` (per the DoE reply memo, `~/.claude/cross-repo/archive/2026-05-19-machine-local-doe-reply.md` — grandfathered pre-cutoff memo) is content-agnostic. State directories do NOT get a top-level carve-out — `~/.<project>/` is the anti-pattern whether the contents are config or state. State lives under `~/.claude/<project>/` alongside the project's other claude-home artifacts. XDG's `STATE_HOME` vs `CONFIG_HOME` split informs sub-path naming inside the namespace, not separate top-level dirs.
+**Doctrine (DoE):** The §1.2 namespace-scalability critique of `~/.project-rag/` (per the DoE reply memo) is content-agnostic. State directories do NOT get a top-level carve-out — `~/.<project>/` is the anti-pattern whether the contents are config or state. State lives under `~/.claude/<project>/` alongside the project's other claude-home artifacts. XDG's `STATE_HOME` vs `CONFIG_HOME` split informs sub-path naming inside the namespace, not separate top-level dirs.
 
 **Registered namespaces:**
 
 | Namespace | Owner | Contents | Notes |
 |---|---|---|---|
 | `~/.coordinator-claude-settings/` | coordinator | **Settings home** — durable coordinator substrate: `machine-local/` (TOML registry), `bin/` (resolver family), `.coordinator-venv/`, `settings-manifest.md` (`setup/` stays at `~/.claude/setup/` — intentionally NOT migrated by the one-time settings-home migration) | A top-level FS namespace, sibling to `~/.claude`. Redirectable via `COORDINATOR_SETTINGS_HOME` env var; sandbox-safe via `CLAUDE_HOME`. See §4e for the full resolution ladder. |
-| `~/.claude/example-game-repo/` | example-game-workbench-repo | install-status.json, install-logs/, setup-state.json; **imminent:** watchdog/status.json, chain-walk-*.json (migrating from `~/.example-game-repo/`) | Collapses the dual-namespace split (`~/.example-game-repo/` + `~/.claude/example-game-repo/`) into the canonical root. See `example-game-workbench-repo/state/memos/2026-05-19-doe-question-example-game-repo-namespace-collapse.md` (grandfathered pre-cutoff memo) |
+| `~/.claude/example-game-repo/` | example-game-workbench-repo | install-status.json, install-logs/, setup-state.json; **imminent:** watchdog/status.json, chain-walk-*.json (migrating from `~/.<peer-repo>/`) | Collapses the dual-namespace split (`~/.<peer-repo>/` + `~/.claude/example-game-repo/`) into the canonical root. See `example-game-workbench-repo/state/memos/2026-05-19-doe-question-example-game-repo-namespace-collapse.md` (grandfathered pre-cutoff memo) |
 | `~/.claude/project-rag/` | project-rag host | host runtime state | Existing; predates this doctrine |
 | `~/.claude/machine-local/` | coordinator | **Transitional compat symlink only** — realpath-symlink → `~/.coordinator-claude-settings/machine-local/`. Retained for consumers that read the old absolute path; removed at phase-2 gated tail. **Actual content lives at `~/.coordinator-claude-settings/machine-local/`.** | DoE-altitude: claiming this top-level dir is unchanged; it is now a symlink pointer. |
 | `~/.claude/plugins/<plugin>/data/` | each plugin | addon-owned on-disk state | Plugin-addressed; orthogonal to top-level project dirs |
@@ -862,7 +852,6 @@ For the coordinator plugin, there is no "source → live" propagation step becau
 
 ### `propagation_mode = "copy_install"`
 
-<!-- spec-backlink: archive/specs/2026-05/2026-05-23-copy-install-drift-coverage.md § Chunk 1 -->
 
 For plugins whose live install is produced by a copy-based installer (rather than a git
 checkout), set `propagation_mode = "copy_install"`. The canonical example is the
@@ -912,7 +901,7 @@ per-component forwarder) and exits non-zero — it never silently no-ops or gues
 exits 0 — this is honest degraded state, not drift. The sentinel is only written when
 `requires_plugin_source_index: true` is set in the plugin manifest; for plugins without it,
 `[info] no sentinel` is the expected output until the example-game-repo installer is updated (see
-the example-game-repo repo's `cross-repo/2026-05-23-copy-install-drift.md` (example-game-repo pre-restructure root-level placement; will move to cross-repo/inbox/ on next migration) (asks tracked in `docs/plans/2026-05-23-copy-install-drift-coverage.md`)).
+the example-game-repo repo's own cross-repo record.
 
 **Known limitation.** SHA-sentinel catches **committed drift only**. Uncommitted source edits
 are invisible. Content-diff (the only alternative) is a false-positive machine because the
@@ -923,7 +912,7 @@ installer injects BOMs into `.ps1` files, copies the marketplace manifest, and s
 
 ```bash
 machine-local set plugin.mirrors.example-game-repo-control.propagation_mode copy_install
-machine-local set plugin.mirrors.example-game-repo-control.source_path X:/example-game-workbench-repo  # <!-- foreign-path-ok: worked registration example, the subject of this section -->
+machine-local set plugin.mirrors.example-game-repo-control.source_path C:/example-game-workbench-repo  # <!-- foreign-path-ok: worked registration example, the subject of this section -->
 machine-local set plugin.mirrors.example-game-repo-control.live_path "$HOME/.claude/plugins/example-game-workbench-repo/example-game-repo-control"
 machine-local set plugin.mirrors.example-game-repo-control.refresh_cmd 'bash scripts/install-control-plugin.sh --allow-standalone --no-enable'
 # game-dev: same shape, refresh_cmd → install-game-dev-plugin.sh --allow-standalone --no-enable
@@ -931,8 +920,7 @@ machine-local set plugin.mirrors.example-game-repo-control.refresh_cmd 'bash scr
 ```
 
 For clean-install reproducibility on a fresh machine, installers should self-register these
-entries at install time. See the example-game-repo repo's `cross-repo/2026-05-23-copy-install-drift.md` (example-game-repo pre-restructure root-level placement; will move to cross-repo/inbox/ on next migration) (asks tracked in `docs/plans/2026-05-23-copy-install-drift-coverage.md`)
-for the memo requesting this from the example-game-repo installer.
+entries at install time. See the example-game-repo repo's own cross-repo recordfor the memo requesting this from the example-game-repo installer.
 
 ### `reverse_drift_cmd` (reverse-drift merge gate)
 
@@ -961,7 +949,7 @@ Example-sim-repo, example-repo, …) checks only `copy_install` plugins whose `s
 none, so a clean no-op. This prevents a consumer-repo release from gating on a *sibling* plugin's
 live-install drift, which would violate the dependency-direction invariant (a host must never be forced
 to sync with a consumer's state). Path forms are normalized before comparison (Windows `the checkout root` vs MSYS
-`/x/` vs `$HOME`-derived `/c/`), <!-- foreign-path-ok: naming the cross-platform path-shape variance this normalization step handles --> so the meta-repo and `source_path` matches survive cross-platform path
+a Git-Bash drive mount such as `/c/` vs a `$HOME`-derived path), <!-- foreign-path-ok: naming the cross-platform path-shape variance this normalization step handles --> so the meta-repo and `source_path` matches survive cross-platform path
 representations. Omitting `--scope-repo` (direct callers, tests) retains the legacy emit-all behavior.
 The scope filter runs **before** the `copy_install`-seen counter, so a consumer repo that legitimately
 sources none of the registered plugins exits `0` (clean), not `3` (misconfig).
@@ -1007,7 +995,7 @@ machine-local get repos.project_rag                     # P-3 — sample working
 
 Note: `repos.coordinator_claude` is not a `repos.*` key — the equivalent path lives at `publish.mirrors.coordinator_claude.path`. The sample probe above uses `repos.project_rag` as a stable working-repo key. See `coordinator-doctor.md` for the full probe narrative and current remediation steps.
 
-Bare `machine-local …` invocation works on POSIX because a forwarder shim ships in the harness-injected coordinator bin for both `machine-local` and `claude-home` (pre-migration path: `plugins/coordinator/bin/{machine-local,claude-home}`; the forwarders now live in claude-klabauter's `coordinator/bin/`, commit b644d5a9) — see `docs/plans/2026-06-18-machine-local-bare-invocation-macos.md`.
+Bare `machine-local …` invocation works on POSIX because a forwarder shim ships in the harness-injected coordinator bin for both `machine-local` and `claude-home` (pre-migration path: `plugins/coordinator/bin/{machine-local,claude-home}`; the forwarders now live in claude-klabauter's `coordinator/bin/`).
 <!-- review: code-reviewer slice2-F3 — extended to name both resolvers; workstream shipped forwarders for machine-local AND claude-home -->
 
 If any probe fails, coordinator-doctor.md §3 has the remediation steps.
@@ -1048,7 +1036,6 @@ How to apply: at install time, write the manifest's interpreter field as `sys.ex
 
 ## 13. Regeneratability Classification
 
-<!-- spec-backlink: archive/specs/2026-06/2026-06-22-invariant-verification-observers.md § C1 (Flag 3) -->
 
 Every coordinator-owned registry key is classified by its **regeneratability** — the answer to: *if this value is lost (e.g., a fresh-machine clone, a crash, or a gitignored file not restored), can it be recovered without losing work?*
 
@@ -1093,8 +1080,8 @@ See `templates/machine-local/registry.toml.example` § `[regeneratability]` for 
 | `repos.example_cockpit_repo` | `idempotent-regeneratable` | Derived at runtime by rung-2 marker autodiscovery via `search-roots.toml` for convention-installed repos; rung-4 `registry.local.toml` is the fallback for off-convention repos. |
 | `repos.example-os-repo` | `idempotent-regeneratable` | Derived at runtime by rung-2 marker autodiscovery via `search-roots.toml` for convention-installed repos; rung-4 `registry.local.toml` is the fallback for off-convention repos. |
 | `repos.claude_klabauter` | **`session-accumulated-must-survive-crash`** — NOT rung-2-autodiscoverable | `claude-klabauter` is an engine repo, not a Claude Code plugin — it carries no `.claude-plugin/marketplace.json` marker at either scanned location (`<root>/.claude-plugin/marketplace.json` or `<root>/plugin/.claude-plugin/marketplace.json`), so the rung-2 scanner (`_scan_marker` in `templates/bin/_machine_local.py`) can never resolve it. The AUTHORITATIVE writer is `claude-klabauter`'s own standalone installer — `scripts/setup.py::register_claude_klabauter_root()` (claude-klabauter repo, the `standalone_setup_script.posix`/`.windows` target in `docs/install/agent-install-manifest.json`) — which is cross-platform naked Python but is **never invoked by DoE-claude's own install path** (`coordinator/commands/install.md`, `coordinator/scripts/install-maximalist.py`). A second, weaker writer exists and must not be mistaken for a guarantee: `coordinator_core/install/first_run.py` seeds `repos.<slug>` keys generically by discovering working repos and deriving the slug from the directory basename, so it *can* land this key — but it is opt-out-interactive (declining the prompt skips seeding entirely), best-effort (failures warn and continue under a never-block contract), and reached via a separate `coordinator/scripts/first-run` entrypoint rather than the maximalist install chain. Neither install-order (claude-klabauter-first or coordinator-first) writes the key automatically: claude-klabauter-first skips registration (advisory, exit 0) because `machine-local` isn't yet on PATH; coordinator-first never chains claude-klabauter's registration step at all. The operator (or an install orchestrator, on either OS) must explicitly run `claude-klabauter`'s `python3 scripts/setup.py` *after* both repos are present AND coordinator-claude's `machine-local` CLI resolves, or hand-run `machine-local set repos.claude_klabauter <path>` (rung 4). Every consumer (`cc_invoke.py`, `coordinator_core/claude_klabauter_root.py`, `queue_promote.py`, `queue_append.py`, coordinator's own `scripts/setup.py --preflight`, `gen-claude-klabauter-root-pointer.py`, `bin/claude-klabauter-doctor-probe.py`) fails loud with this exact remediation string when the key is unresolvable — the gap is a missing install-time write, not a silent failure. |
-| `repos.claude_klabauter` | `idempotent-regeneratable` | The published coordinator-engine mirror root, distinct from `repos.claude_klabauter` (the engine-source working tree) and from `engine.working_repos.*` (§5c.3, the discriminant for repos that *develop* the engine). Written at install time by the mirror's own installer, `scripts/setup.py::register_claude_klabauter_root()` (commit `5080edc48d3f`), when `resolve_repo_identity()` determines the current checkout is a published claude-klabauter mirror rather than the engine-source tree — a `claude-klabauter` install writes neither this key nor a ref/sha alongside it. No ref/sha field is stored, deliberately (a stored value nothing compares against gets trusted eventually); the sha is read live via `git rev-parse` when one is needed. Consumer: `coordinator/hooks/scripts/_engine_root.py::_resolve_published_engine()`, which also requires `(<root>/coordinator_core).is_dir()` before trusting the registered root — the half-installed-clone guard. |
-| `engine.working_repos.*` | `idempotent-regeneratable` | Each key self-heals from its own repo's own installer, distinct from `repos.*`'s rung-2 autodiscovery (§ below): `engine.working_repos.claude_klabauter` is written by `claude-klabauter`'s `scripts/setup.py::register_claude_klabauter_root()`; `engine.working_repos.doe_claude` is written by `coordinator/hooks/scripts/session-start-register-doe-claude-root.py`, a SessionStart hook (`async: true`) that idempotently re-derives and, if needed, rewrites the key every session from this repo's own `__file__`-resolved root, guarded by the repo-root `.coordinator-dev-repo` sentinel so it can never register a consumer repo's tree. See §5c.3 and DR-132. |
+| `repos.claude_klabauter` | `idempotent-regeneratable` | The published coordinator-engine mirror root, distinct from `repos.claude_klabauter` (the engine-source working tree) and from `engine.working_repos.*` (§5c.3, the discriminant for repos that *develop* the engine). Written at install time by the mirror's own installer, `scripts/setup.py::register_claude_klabauter_root()`, when `resolve_repo_identity()` determines the current checkout is a published claude-klabauter mirror rather than the engine-source tree — a `claude-klabauter` install writes neither this key nor a ref/sha alongside it. No ref/sha field is stored, deliberately (a stored value nothing compares against gets trusted eventually); the sha is read live via `git rev-parse` when one is needed. Consumer: `coordinator/hooks/scripts/_engine_root.py::_resolve_published_engine()`, which also requires `(<root>/coordinator_core).is_dir()` before trusting the registered root — the half-installed-clone guard. |
+| `engine.working_repos.*` | `idempotent-regeneratable` | Each key self-heals from its own repo's own installer, distinct from `repos.*`'s rung-2 autodiscovery (§ below): `engine.working_repos.claude_klabauter` is written by `claude-klabauter`'s `scripts/setup.py::register_claude_klabauter_root()`; `engine.working_repos.doe_claude` is written by `coordinator/hooks/scripts/session-start-register-doe-claude-root.py`, a SessionStart hook (`async: true`) that idempotently re-derives and, if needed, rewrites the key every session from this repo's own `__file__`-resolved root, guarded by the repo-root `.coordinator-dev-repo` sentinel so it can never register a consumer repo's tree. See §5c.3. |
 | `test.xdist_workers` | `idempotent-regeneratable` | Fast-tier pytest-xdist worker cap; computed count passed as `-n <N>` at invocation. Default formula: `max(1, floor(cores*0.5))`. Per-repo convention key — no coordinator infrastructure writes this; repos read it at invocation to cap parallelism on shared concurrent-EM boxes. → `docs/wiki/test-design-discipline.md § Posture: Proportional Test-Running`. |
 
 ### `repos.*` regeneratability — common case vs. rung-4 fallback
@@ -1125,7 +1112,7 @@ When `~/.claude` is git-cloned onto a fresh machine, the machine-local substrate
 ### Step 1 — Clone
 
 ```bash
-git clone <your-~/.claude-remote> ~/.claude
+git clone <your-claude-config-remote> ~/.claude
 ```
 
 Nothing else exists yet. The machine-local registry directory, the coordinator venv, and all gitignored per-machine files are absent by design (§9).
@@ -1176,7 +1163,7 @@ After the reload, run `/coordinator:install` for the full install sequence (oper
 
 Per-machine state (`settings.local.json`, `known_marketplaces.json`, `registry.local.toml`, `.coordinator-venv/`) is **gitignored by design** (§9). These files contain machine-specific paths, platform-specific config, and environment-derived values that are wrong on every other machine. The correct fix for new-machine landing is **reliable regeneration on arrival** (the sequence above) plus a **machine-path guard** (values resolved through `machine-local get <key>` rather than hardcoded) — NOT tracking machine state in git. Tracking machine-specific values into git is the §8(f) and §9 anti-pattern; the §13 `session-accumulated-must-survive-crash` classification documents the one class of value (operator-set `repos.*` paths) that genuinely requires manual re-entry per machine.
 
-**PERCOLATION NOTE:** `coordinator/scripts/first-run` (naked Python, with its `.cmd` sibling) ships to the OSS coordinator-claude publish repo via claude-klabauter's `coordinator/bin/publish.py` (resolved via `CLAUDE_KLABAUTER_ROOT`, migrated out of this repo in commit `b644d5a9`; driven by the `/percolate` skill; the shell `publish.sh` predecessor was deleted in the percolate Python port). OSS users hit the same bootstrap paradox on a fresh clone and the same script solves it.
+**PERCOLATION NOTE:** `coordinator/scripts/first-run` (naked Python, with its `.cmd` sibling) ships to the OSS coordinator-claude publish repo via claude-klabauter's `coordinator/bin/publish.py` (resolved via `CLAUDE_KLABAUTER_ROOT`, migrated out of this repo in the engine repo; driven by the `/percolate` skill; the shell `publish.sh` predecessor was deleted in the percolate Python port). OSS users hit the same bootstrap paradox on a fresh clone and the same script solves it.
 
 ## 15. Operator-Identity Surface Completeness Sweep
 

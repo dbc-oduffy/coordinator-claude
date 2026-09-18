@@ -60,7 +60,7 @@ python3 "$REPO_CLAUDE_KLABAUTER/coordinator/bin/coordinator-setup-state.py" \
     check setup_concluded && echo "ready to chain"
 ```
 
-(`coordinator-setup-state.py` migrated to claude-klabauter's `coordinator/bin/`, commit b644d5a9 —
+(`coordinator-setup-state.py` migrated to claude-klabauter's `coordinator/bin/` —
 resolve `$REPO_CLAUDE_KLABAUTER` per `percolate-setup.md` § PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT.)
 
 `status` prints the whole receipt (exit non-zero if absent, or if seeded but no milestone is recorded yet).

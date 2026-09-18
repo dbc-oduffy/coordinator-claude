@@ -83,7 +83,7 @@ The Game Dev Reviewer (`game-dev:staff-game-dev`) is gated to UE-context session
 
 ## verify-ue-overrides.py — Manual Diagnostic Only
 
-`verify-ue-overrides.py` is a personal-machine config diagnostic: it walks a hardcoded list of peer directories (stored in `NAMED_DIRS` within the script, e.g. `/x/example-sim-repo`, `/x/project-rag`, `~/.claude`) and asserts each carries the expected `enabledPlugins` keys. Because the peer paths are specific to the source author's local layout, the script is not shipped with this plugin and is never auto-invoked by any ceremony. Per `docs/plans/2026-05-08-coordinator-claude-publish-sanitization.md` PM-D3, wiring it into automated sequences on consumer machines would produce false failures wherever the hardcoded peer dirs don't exist. Run it manually when you suspect drift on your own machine; do not add it to any ceremony hook or workstream-start nudge.
+`verify-ue-overrides.py` is a personal-machine config diagnostic: it walks a hardcoded list of peer directories (stored in `NAMED_DIRS` within the script, e.g. `/c/example-sim-repo`, `/c/project-rag`, `~/.claude`) and asserts each carries the expected `enabledPlugins` keys. Because the peer paths are specific to the source author's local layout, the script is not shipped with this plugin and is never auto-invoked by any ceremony. Per PM-D3, wiring it into automated sequences on consumer machines would produce false failures wherever the hardcoded peer dirs don't exist. Run it manually when you suspect drift on your own machine; do not add it to any ceremony hook or workstream-start nudge.
 
 ---
 

@@ -12,8 +12,7 @@ Cross-repo line citations use a repo qualifier:
 
 Examples:
 - `project-rag:mcp/graph/extractor.py:2980`
-- `claude-klabauter:coordinator/bin/verify-coverage:142` (executable surface migrated from DoE-claude, commit b644d5a9)
-- `example-game-repo-control:src/tools/manage_blueprint.py:51`
+- `claude-klabauter:coordinator/bin/verify-coverage:142` (executable surface migrated from DoE-claude- `example-game-repo-control:src/tools/manage_blueprint.py:51`
 
 **Foreign spec-backlink id form.** A spec-backlink citing a peer repo's plan or deliverable uses the minted id, repo-qualified: `<repo>:pln-<slug>-<hash>` / `<repo>:dlv-<slug>-<hash>` — e.g. `claude-klabauter:pln-claude-klabauter-deliverable-spine-fact-a1b2c3`. This composes with the `<repo>:<path>:<line>` form above without ambiguity: no repo-relative path begins `pln-`/`dlv-`, so the segment after the colon disambiguates itself. It is **not** the `<repo>@<sha>` vendor-pin form below (§ Vendor / submodule SHA pins) — that form is scoped to build-consumed SHAs, a different convention entirely. `pln-` is preferred over `dlv-` at authoring time (`dlv-` is group-stamped across plan/handoff/completion-entry and can be ambiguous; `plan_id` is plan-scoped) — see `rag-bait-conventions.md § 3` for the full rule.
 
@@ -52,7 +51,6 @@ Additional qualifications:
 
 The allowlist (`setup/percolate-hooks/coordinator-claude-toplevel-wiki/post-rsync/publish-native-allowlist.txt`) is the registry of files with publish-native authorship. Files not on the allowlist are treated as plugin-sourced and will be overwritten on the next sync. See `docs/wiki/plugin-extraction-and-distribution.md` § Auxiliary Sync for the full mechanism.
 
-Spec backlink: `archive/specs/2026-05/2026-05-18-publish-repo-toplevel-wiki-sync.md` § Chunk 3.
 
 ## Migration patterns — one-shot cross-repo deletion
 
@@ -103,7 +101,7 @@ When a peer repo is vendored (submodule, copy-in, `git subtree`, manifest pin), 
 
 ```yaml
 peer: project-rag
-pinned_sha: 9d682c51
+pinned_sha: <40-hex commit sha>
 pinned_at: 2026-05-14
 reason: verify-coverage hard-gate landed here; downstream consumes the gate output schema
 ```
@@ -158,7 +156,7 @@ holds." The claim was stale the day it was written — claude-klabauter's DEC-3 
 from that path the same day, and nothing linked the prose to the governing source, so it rotted
 silently. A second, uncited copy of the same false claim was found only by an independent sweep.
 Governing source: `claude-klabauter coordinator_core/ops/ceremony/wsc_tail.py:217-220`, ratified in
-`claude-klabauter docs/plans/2026-07-22-wsc-tail-sub-2s-invoke-budget.md § DEC-1/DEC-3/C3`.
+`claude-klabauter docs/plans/<plan>.md § DEC-1/DEC-3/C3`.
 
 **Compliant form:**
 ```
@@ -258,14 +256,14 @@ Without inline preconditions, sentinel blocks become orphan auto-generated regio
 
 > **Runtime `repos.*` discovery.** The MUST-use-sibling-layout contract codified below is the **port-time cleanup discipline** (absolute-path sweep at extraction) — unchanged. At runtime, `repos.<slug>` discovery is governed by the 4-rung ladder in `machine-local-registry.md` §4c (SSOT: `project-rag/docs/wiki/cross-machine-path-resolution-contract.md`); the blind sibling-relative walk is **not a runtime rung**. Marker-autodiscovery (§4c rung 2) satisfies the original "no forced cutover" intent without requiring sibling-layout compliance or operator seeding. See `machine-local-registry.md` and `plugin-extraction-and-distribution.md § 11`. The `EXAMPLE_GAME_REPO_ROOT` → `MACHINE_LOCAL_<KEY>` note remains accurate.
 
-**Incomplete migrations leak absolute paths into vendored code; `../sibling/...` is the contract for sibling repos.** When a repo is split into peer/sibling repos that live in the same parent directory (e.g. `<drive>:/project-rag/` and `<drive>:/project-rag-ue-addon/` — `X:/`, `C:/`, `D:/` etc. are all illustrative; substitute the host's actual root prefix), any cross-repo reference in vendored code, scripts, or docs MUST use a `../<sibling-repo-name>/...` relative path — never an absolute path like `<drive>:/...` or `/c/Users/.../`. <!-- abs-path-ok: enumerating illustrative drive-letter literals, not a claim about any real checkout -->
+**Incomplete migrations leak absolute paths into vendored code; `../sibling/...` is the contract for sibling repos.** When a repo is split into peer/sibling repos that live in the same parent directory (e.g. `<drive>:/project-rag/` and `<drive>:/project-rag-ue-addon/` — `C:/` and any other drive letter are equally illustrative; substitute the host's actual root prefix), any cross-repo reference in vendored code, scripts, or docs MUST use a `../<sibling-repo-name>/...` relative path — never an absolute path like `<drive>:/...` or `$HOME/...`. <!-- abs-path-ok: enumerating illustrative drive-letter literals, not a claim about any real checkout -->
 
 Two reasons:
 
 - (a) Absolute paths break for any developer with a different layout (CI, peer machines, anyone else picking up the repo).
 - (b) Absolute paths fail the depersonalize/sanitize hooks at publish time even when those hooks know about the substring keys.
 
-**Port-time discipline:** at every repo split, grep the vendored tree for absolute repo prefixes (`<drive>:/`, `/c/`, `/Users/`, `/home/` — substitute the host's actual root prefix so e.g. `C:/`, `D:/` matches aren't missed) and rewrite to `../sibling/...`. The sibling-layout convention is the contract — document it in the source repo's README so consumers don't fight it. <!-- abs-path-ok: enumerating illustrative drive-letter literals, not a claim about any real checkout -->
+**Port-time discipline:** at every repo split, grep the vendored tree for absolute repo prefixes (`<drive>:/`, `/c/`, `$HOME/`, `/home/` — substitute the host's actual root prefix so e.g. `C:/` and every other drive letter are covered) and rewrite to `../sibling/...`. The sibling-layout convention is the contract — document it in the source repo's README so consumers don't fight it. <!-- abs-path-ok: enumerating illustrative drive-letter literals, not a claim about any real checkout -->
 
 Source: `project-rag-ue-addon:state/lessons.md:121`.
 
@@ -290,7 +288,7 @@ So a link that is green at author time ships broken to every `copy_install` cons
 
 ## Peerless installs — env-var opt-in for peer-repo paths
 
-Most installs place `~/.claude`, the publish target (`X:/coordinator-claude`), and peer dev repos (`E:/dev/example-game-workbench-repo`, etc.) such that sibling-relative paths (`$PLUGIN_ROOT/../../example-game-workbench-repo/...`) resolve correctly. Sync scripts default to this layout. <!-- foreign-path-ok: illustrating a real-world Windows install layout, the subject of this section -->
+Most installs place `~/.claude`, the publish target (`C:/coordinator-claude`), and peer dev repos (`C:/dev/example-game-workbench-repo`, etc.) such that sibling-relative paths (`$PLUGIN_ROOT/../../example-game-workbench-repo/...`) resolve correctly. Sync scripts default to this layout. <!-- foreign-path-ok: illustrating a real-world Windows install layout, the subject of this section -->
 
 The `~/.claude/` install on a Windows user-profile root (`C:\Users\<name>\.claude\`) is structurally peerless: there is no sibling-capable parent, and no companion dev folder lives next to it. Sync scripts that assume a sibling peer silently skip verification on this install (skip-if-absent guard — looks fine, never actually checks the peer copy). <!-- foreign-path-ok: illustrating the real Windows profile-root path shape, the subject of this section -->
 
@@ -301,7 +299,7 @@ The `~/.claude/` install on a Windows user-profile root (`C:\Users\<name>\.claud
 EXAMPLE_GAME_REPO_ROOT="${EXAMPLE_GAME_REPO_ROOT:-../example-game-workbench-repo}"
 
 # Override for peerless installs (e.g. C:/-rooted ~/.claude): <!-- foreign-path-ok: illustrative Windows-root example, the subject of this snippet -->
-# export EXAMPLE_GAME_REPO_ROOT=/x/example-game-workbench-repo
+# export EXAMPLE_GAME_REPO_ROOT=/c/example-game-workbench-repo
 ```
 
 **Do NOT rewrite the sibling default in scripts that ship to normal-layout deployments** — fixing the `C:/` edge case by hardcoding an absolute path breaks what already works everywhere else. <!-- abs-path-ok: naming the historical drive-letter literal this sentence critiques, not a claim about any real checkout -->

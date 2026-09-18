@@ -73,6 +73,12 @@ VERDICT_ARMED = "armed"
 
 _CLAUDE_AGENTS_CMD = ["claude", "agents", "--json"]
 
+#: `_fetch_live_agents`'s third answer, and not a synonym for its `None`:
+#: this host carries no session registry to probe at all, so neither this
+#: read nor any later one can observe a holder's liveness. A failed probe is
+#: a moment; an uninstalled registry is a property of the box.
+REGISTRY_UNINSTALLED = "registry-uninstalled"
+
 
 def watch_path(repo_root: str) -> str:
     """Absolute path of the heartbeat file for `repo_root`."""
@@ -223,14 +229,23 @@ def stamp(
 
 def _fetch_live_agents(
     run: Callable[..., "subprocess.CompletedProcess[str]"] = subprocess.run,
-) -> Optional[list]:
-    """Re-invoke `claude agents --json`. Returns None when the registry
-    could not be reached or parsed at all (command missing, non-JSON output)
-    -- distinct from an empty-but-successful `[]` result, which genuinely
-    means no live sessions. None is the caller's signal to fail open rather
-    than manufacture a false `vacant` off an unreachable registry."""
+) -> Optional[list] | str:
+    """Re-invoke `claude agents --json`, with THREE answers, not two.
+
+    A list (including an empty-but-successful `[]`, which genuinely means no
+    live sessions) is the registry's own answer. `None` is a probe that
+    failed where a registry does exist -- a spawn refused mid-flight
+    (`EAGAIN`/`ENOMEM`/`EMFILE` on a box running dozens of sessions) or
+    output that would not parse; the caller fails open on it rather than
+    manufacture a `vacant` off a call that never ran. `REGISTRY_UNINSTALLED`
+    is `ENOENT` on the executable itself: there is no registry on this host,
+    no retry changes that, and the caller must not report a watch it cannot
+    see as `armed`.
+    """
     try:
         result = run(_CLAUDE_AGENTS_CMD, capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        return REGISTRY_UNINSTALLED
     except OSError:
         return None
     try:
@@ -261,11 +276,14 @@ def read_watch(
     `agents`, when given, is the injected registry (tests never spawn
     `claude agents --json` themselves -- they pass this list). When omitted,
     the registry is fetched fresh via `run` (never cached, per
-    `read_pass.fetch_live_agents`'s same discipline) -- and a registry that
-    could not be reached at all (`None` from `_fetch_live_agents`) fails
-    OPEN to a freshness-only verdict (`armed`/`stale`) rather than reporting
-    a holder `vacant` on no evidence; only a registry that was successfully
-    read and does not list the holder earns `vacant`.
+    `read_pass.fetch_live_agents`'s same discipline). A probe that failed
+    against a registry that exists (`None`) fails OPEN to a freshness-only
+    verdict (`armed`/`stale`) rather than reporting a holder `vacant` off a
+    call that never ran. A host with no registry at all
+    (`REGISTRY_UNINSTALLED`) is `vacant`: freshness is the record's own word
+    about itself, so `armed` on an unobservable holder is an all-clear
+    derived from the record's existence -- the inference `SKILL.md` refuses
+    when it says a nomination record outlives its session.
 
     Every verdict carries `holder_session_id`, `holder_name`, `last_tick_at`,
     and `declination_count` (the length of that tick's `declinations` list).
@@ -333,6 +351,8 @@ def read_watch(
     }
 
     registry = agents if agents is not None else _fetch_live_agents(run=run)
+    if registry is REGISTRY_UNINSTALLED:
+        return {"verdict": VERDICT_VACANT, **base}
     if registry is not None:
         row = _holder_row(holder_session_id, registry)
         if row is None:

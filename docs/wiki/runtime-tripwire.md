@@ -6,7 +6,6 @@ status: active
 
 # Runtime Tripwire — Model-Aware Nudge for Long-Running Background Executors
 
-<!-- spec-backlink: docs/plans/2026-06-08-runtime-tripwire-background-executors.md § C5 -->
 
 > **This tripwire does not currently fire (PM ruling) — both caller-side surfaces are stood
 > down, not restorable by a flag flip.** `runtime-tripwire-em-check.py`'s subagent-overrun
@@ -15,12 +14,12 @@ status: active
 > constant remains); `runtime-tripwire-stop-watcher.py`'s `Stop` registration remains removed
 > from `coordinator/hooks/hooks.json` (script retained on disk). Measured basis: 681 fires over
 > 26 days concerning only 6 distinct agents against a 0.59% genuine stall rate;
-> `7a928d741`'s demotion of the `"unknown"` arrival state to suppressing stopped the false-fire
+> demotion of the `"unknown"` arrival state to suppressing stopped the false-fire
 > storm but, since subagent transcripts are absent for ~99.5% of dispatched-agent rows, also
 > left the nudge unable to fire on a real stall — a nudge that mostly cannot fire, ~99.4% wrong
 > on the rare occasions it did. **Restore recipe:** reconstitute `_check_subagent_arrival`,
 > `_runtime_threshold_minutes`, the dispatch-tracking loop body, and the retired tests from git
-> history (verbatim recipe: `archive/debt-backlog/2026-08/2026-08-29-runtime-tripwire-em-check-py-four-overengin-a1f27c2e8c.yaml`),
+> history,
 > AND re-add the `Stop` registration for `runtime-tripwire-stop-watcher.py` in
 > `coordinator/hooks/hooks.json`. The engine-side prerequisite the stand-down named (a durable
 > arrival record) still does not exist, so restore remains blocked on that regardless. The rest
@@ -111,13 +110,13 @@ This log is intended for triage at `/workweek-complete` Step 3.5 — wiring TBD.
 
 **The failure mode this defends against:** a default that fires constantly trains the EM and agents to ignore the nudge — which regresses the actuator to status-quo prose-only doctrine. The log makes systematic miscalibration visible before it reaches that failure state.
 
-**2026-06-09 — skip-if-completed false-positive fixed.** Empirical fire-log evidence (same `agentId` re-firing as `em-side-restage` long after the agent returned, e.g. `ae4c9a965adb5095f` at 10:39 then 10:48; multiple same-batch agents at 11:57 / 12:05 / 13:59) showed the EM-side hook was nudging on already-completed dispatches — exactly the train-EM-to-ignore failure mode this section warns about. Root cause: `agent-completion-log.py` recorded `tool_input.name` (the optional addressable-teammate name, almost never set), and the EM-check skip grepped for `"name":"$agentId"`, which never matched. Fix: log `tool_response.agentId` and skip against that. Records before 2026-06-09 lack the `agentId` field; the failure mode is invisible to back-dated analysis but is fully captured going forward.
+**2026-06-09 — skip-if-completed false-positive fixed.** Empirical fire-log evidence (same `agentId` re-firing as `em-side-restage` long after the agent returned at 10:39 then 10:48; multiple same-batch agents at 11:57 / 12:05 / 13:59) showed the EM-side hook was nudging on already-completed dispatches — exactly the train-EM-to-ignore failure mode this section warns about. Root cause: `agent-completion-log.py` recorded `tool_input.name` (the optional addressable-teammate name, almost never set), and the EM-check skip grepped for `"name":"$agentId"`, which never matched. Fix: log `tool_response.agentId` and skip against that. Records before 2026-06-09 lack the `agentId` field; the failure mode is invisible to back-dated analysis but is fully captured going forward.
 
 **Orphan-tail follow-up: max-age cap.** An `agentId`-field fix can leave rows dispatched before the fix without an `agentId` in their audit-log entries, so their dispatched-agents.txt rows have no path to skip-if-completed matching and read as stale runaways hours after their work landed. `RUNTIME_TRIPWIRE_MAX_TRACK_MIN` (default 90 min) is a structural backstop for exactly this: any dispatch older than the cap is silently skipped regardless of audit-log state — read today by `runtime-tripwire-stop-watcher.py` (see §5), the EM-side dispatch-tracking loop having been excised.
 
 **`agent-audit.jsonl` completion cross-check: retired (deliberately, and correctly).** The SUBAGENTSTOP TRIGGER-LOSS branch does not use `agent-audit.jsonl` as a completion signal, on measured justification: that branch fired 681 times over 26 days concerning only 6 distinct agents, against a 0.59% genuine stall rate, and diagnosed the root cause precisely — **`agent-audit.jsonl` is a DISPATCH log, not a completion log.** Every record has exactly one shape (`agentId`, `description`, `logged_at`, `name`, `subagent_type` — no exit status, no completion field, ever), and it is written by the SAME `PostToolUse:Agent` event that writes `dispatched-agents.txt`. Every dispatched row is therefore present in the audit log by construction, 100% of the time, regardless of whether the dispatch ever returned — the commit measured 1336/1336 rows matching this way. A membership check against this file cannot distinguish "returned" from "still running"; it suppresses every row unconditionally. The commit replaced that dead cross-check with a per-agent transcript-arrival oracle (`hooks.subagent_arrival_check`) as the sole completion/liveness signal.
 
-**2026-07-31 — a same-day false restoration, reverted the same day.** The arrival oracle above answers `"unknown"` for the overwhelming majority of agents (measured on this repo: 14 subagent transcript files on disk against 3,083 distinct dispatched agentIds), and the hook at the time treated `"unknown"` as fire-worthy ("fail toward firing") — so the EM-side hook fired on essentially every completed dispatch. A cross-repo memo misdiagnosed this as the loss of a working `agent-audit.jsonl` completion oracle (reading `d75402345`'s retirement backwards) and this file briefly restored an audit-log completion cross-check on that premise. It was reverted within the same day once the dispatch-log-not-completion-log fact above was verified directly (6,245 audit-log records, one shape, no exceptions; every `dispatched-agents.txt` row present by construction). **The actual, correct fix, landed and retained:**
+**2026-07-31 — a same-day false restoration, reverted the same day.** The arrival oracle above answers `"unknown"` for the overwhelming majority of agents (measured on this repo: 14 subagent transcript files on disk against 3,083 distinct dispatched agentIds), and the hook at the time treated `"unknown"` as fire-worthy ("fail toward firing") — so the EM-side hook fired on essentially every completed dispatch. A cross-repo memo misdiagnosed this as the loss of a working `agent-audit.jsonl` completion oracle (reading the retirement backwards) and this file briefly restored an audit-log completion cross-check on that premise. It was reverted within the same day once the dispatch-log-not-completion-log fact above was verified directly (6,245 audit-log records, one shape, no exceptions; every `dispatched-agents.txt` row present by construction). **The actual, correct fix, landed and retained:**
 
 - The arrival oracle (`hooks.subagent_arrival_check`) nudges ONLY on a confirmed `"running"`; both `"arrived"` and `"unknown"` now suppress. `"unknown"` does not fail toward firing, because it is the overwhelmingly common no-information case (absent/unreadable transcript), not evidence of a live agent.
 - There is deliberately NO `agent-audit.jsonl` completion cross-check anywhere in this hook. It cannot be one — see above.
@@ -126,9 +125,8 @@ This log is intended for triage at `/workweek-complete` Step 3.5 — wiring TBD.
 
 ## §7 — Layered idle-EM coverage
 
-<!-- spec-backlink: docs/plans/2026-06-15-runtime-tripwire-idle-em-layered-fix.md -->
 
-The v1 wiring fired only on `PostToolUse`. Empirical evidence on 2026-06-15 (handoff `state/handoffs/2026-06-15_111753_runtime-tripwire-not-firing-on-20min-executor.md`) showed an EM in active PM conversation with a 20-min Sonnet executor in flight got no nudge for the entire dispatch window — the trigger surface was structurally silent in the exact case the tripwire was built for. The fix is layered coverage, each layer addressing a distinct failure shape:
+The v1 wiring fired only on `PostToolUse`. Empirical evidence on 2026-06-15 showed an EM in active PM conversation with a 20-min Sonnet executor in flight got no nudge for the entire dispatch window — the trigger surface was structurally silent in the exact case the tripwire was built for. The fix is layered coverage, each layer addressing a distinct failure shape:
 
 | Layer | Trigger surface | Failure shape covered | Always-on? |
 |---|---|---|---|
@@ -140,7 +138,7 @@ L1 fires fastest; L2 backstops genuine idle (no events at all); L3b provides ong
 
 ### Bootstrap path for L3b — orientation-cache fallback, not SessionStart-stdout
 
-L3b was originally planned as a `SessionStart` hook that emits the heartbeat-bootstrap reminder via plain stdout. The empirical platform constraint (`additionalContext` is silently dropped on `SessionStart` per `state/coordinator-improvement-queue.md` and convergent pre-flight checks; stdout reliability was unverified at plan time) drove a **pre-specified fallback** (the Staff Engineer review finding #5): bootstrap from `state/orientation_cache.md` doctrine — a Pinboard line read every session under the existing Tier 0 orientation pattern. This is the path shipped in production (Probe B was deferred under session-boundary discipline; the fallback is the production code path). The `SessionStart`-stdout path is documented as the alternative that would activate if a future session probes the read path empirically and confirms WORKS — see plan §C3b-i.
+L3b was originally planned as a `SessionStart` hook that emits the heartbeat-bootstrap reminder via plain stdout. The empirical platform constraint (`additionalContext` is silently dropped on `SessionStart` and convergent pre-flight checks; stdout reliability was unverified at plan time) drove a **pre-specified fallback** (the Staff Engineer review finding #5): bootstrap from `state/orientation_cache.md` doctrine — a Pinboard line read every session under the existing Tier 0 orientation pattern. This is the path shipped in production (Probe B was deferred under session-boundary discipline; the fallback is the production code path). The `SessionStart`-stdout path is documented as the alternative that would activate if a future session probes the read path empirically and confirms WORKS — see plan §C3b-i.
 
 ### What this does NOT add
 
@@ -171,7 +169,6 @@ The return body reaches the EM via `<task-notification><result>...</result></tas
 
 ## §9 — Sibling post-hoc observer: dispatch-shape classifier
 
-<!-- spec-backlink: archive/specs/2026-06/2026-06-22-invariant-verification-observers.md § C3 -->
 
 Claude-klabauter `coordinator/bin/classify-dispatch-shape.py` is a **post-hoc, read-only observer** that fires as `/workstream-complete`'s `d-classify-dispatch-shape` directive. It is NOT a runtime hook — it reads the on-disk record (the plan's `## Tasks` spine non-deferred rows / fan-out TSV row count + `dispatched-agents.txt`) after the session is complete. No live process instrumentation.
 

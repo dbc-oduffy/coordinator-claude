@@ -563,5 +563,10 @@ def admission_check_for_surface(
             message = f"{message} {_DEFAULT_DEMOTE_TARGET_HINT}"
         return False, message
 
+    # A surface already over its watermark (grown by a route this hook never
+    # sees) must still accept the edits that shrink it; refusing them freezes
+    # the file and leaves "raise the watermark" as the only way out.
+    if len(new_content.encode("utf-8")) < len(old_content.encode("utf-8")):
+        return True, ""
     watermark = parse_watermark(ledger_path)
     return ratchet_check(new_content, watermark)

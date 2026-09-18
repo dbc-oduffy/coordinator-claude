@@ -14,7 +14,6 @@ provenance: extracted from coordinator/CLAUDE.md § Implementation Standards Clu
 
 ## Cross-cutting standards (formerly `coordinator/CLAUDE.md § Implementation Standards`)
 
-<!-- spec backlink: docs/plans/2026-07-27-claude-md-altitude-triage.md C11 — coordinator/CLAUDE.md
      was retired and deleted whole; these three flat bullets from its § Implementation Standards
      had no other verified destination in the corpus at deletion time, so they land here rather
      than being silently dropped. -->
@@ -319,7 +318,7 @@ if shim.is_file() and os.access(shim, os.X_OK):
 ```
 If an older deploy emitted the shim and its format/content has since changed upstream, this guard is satisfied by the *stale* shim and returns immediately — never re-invoking the refresh logic that would otherwise catch the drift. The lesson: a presence check standing in for a freshness check is the defect, independent of whether any particular instance is live.
 
-`coordinator/hooks/scripts/bootstrap-substrate.py` does not exist — it was the last live instance of this exact anti-pattern before it was deleted as orphaned dead code (PM-authorized delete-vs-keep ruling: the SessionStart hook was orphaned by the full-kill directive and nothing invoked it). The freshness-inventory audit (`state/audits/2026-07-21-generated-artifact-freshness-inventory.md`) confirms the `coordinator/{bin,lib,hooks,skills}` tree carries **no live presence-only hazard instances**. Whether this hazard class warrants a shared runtime primitive (vs. staying a per-site review lens) is ratified in `docs/decisions/DR-078-freshness-gate-per-site-not-runtime-primitive.md` — per-site, not a runtime primitive.
+`coordinator/hooks/scripts/bootstrap-substrate.py` does not exist — it was the last live instance of this exact anti-pattern before it was deleted as orphaned dead code (PM-authorized delete-vs-keep ruling: the SessionStart hook was orphaned by the full-kill directive and nothing invoked it). The freshness-inventory audit confirms the `coordinator/{bin,lib,hooks,skills}` tree carries **no live presence-only hazard instances**. Whether this hazard class warrants a shared runtime primitive (vs. staying a per-site review lens) is ratified — per-site, not a runtime primitive.
 
 **Reference implementation (gate done right) — claude-klabauter `coordinator/bin/sync-cockpit-contract.py` (formerly `.sh`, lines ~90–113 of the pre-port script).** Vendor-sync staleness check between the canonical `cockpit-contract.schema.json` and a consumer's vendored copy:
 ```bash

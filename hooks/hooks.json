@@ -119,10 +119,10 @@
               "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
               "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
               "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${COORDINATOR_PROBE_CANARY}"
+              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
             },
             "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "COORDINATOR_PROBE_CANARY"
+              "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "HOME", "USERPROFILE"
             ],
             "args": [
               "-c",
@@ -272,7 +272,7 @@
               "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
               "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
               "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${COORDINATOR_PROBE_CANARY}",
+              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}",
               "X-Coordinator-Env-COORDINATOR_ALLOW_CAT_HEREDOC": "${COORDINATOR_ALLOW_CAT_HEREDOC}",
               "X-Coordinator-Env-COORDINATOR_ALLOW_CD_PREFIX": "${COORDINATOR_ALLOW_CD_PREFIX}",
               "X-Coordinator-Env-COORDINATOR_ALLOW_FIND_EXEC": "${COORDINATOR_ALLOW_FIND_EXEC}",
@@ -317,7 +317,7 @@
             "allowedEnvVars": [
               "COORDINATOR_DOOR_KEY",
               "COORDINATOR_CLONE_ROOT",
-              "COORDINATOR_PROBE_CANARY",
+              "HOME", "USERPROFILE",
               "COORDINATOR_ALLOW_CAT_HEREDOC",
               "COORDINATOR_ALLOW_CD_PREFIX",
               "COORDINATOR_ALLOW_FIND_EXEC",
@@ -535,11 +535,11 @@
               "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
               "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
               "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${COORDINATOR_PROBE_CANARY}",
+              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}",
               "X-Coordinator-Env-COORDINATOR_AUTONOMOUS_ASK_OK": "${COORDINATOR_AUTONOMOUS_ASK_OK}"
             },
             "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "COORDINATOR_PROBE_CANARY",
+              "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "HOME", "USERPROFILE",
               "COORDINATOR_AUTONOMOUS_ASK_OK"
             ],
             "args": [
@@ -580,15 +580,15 @@
               "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
               "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
               "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${COORDINATOR_PROBE_CANARY}",
+              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}",
               "X-Coordinator-Env-CLAUDE_HOME": "${CLAUDE_HOME}",
               "X-Coordinator-Env-HOME": "${HOME}",
               "X-Coordinator-Env-USERPROFILE": "${USERPROFILE}",
               "X-Coordinator-Env-CLAUDE_PROJECT_DIR": "${CLAUDE_PROJECT_DIR}"
             },
             "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "COORDINATOR_PROBE_CANARY",
-              "CLAUDE_HOME", "HOME", "USERPROFILE", "CLAUDE_PROJECT_DIR"
+              "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "HOME", "USERPROFILE",
+              "CLAUDE_HOME", "CLAUDE_PROJECT_DIR"
             ],
             "args": [
               "-c",
@@ -621,10 +621,10 @@
               "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
               "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
               "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${COORDINATOR_PROBE_CANARY}"
+              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
             },
             "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "COORDINATOR_PROBE_CANARY"
+              "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "HOME", "USERPROFILE"
             ],
             "args": [
               "-c",
@@ -662,10 +662,10 @@
               "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
               "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
               "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${COORDINATOR_PROBE_CANARY}"
+              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
             },
             "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "COORDINATOR_PROBE_CANARY"
+              "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "HOME", "USERPROFILE"
             ],
             "args": [
               "-c",

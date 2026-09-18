@@ -81,5 +81,5 @@ The atomic-write temp files (`settings.json.tmp.*`, `settings.json.head.*`, `.se
   this machine even now that it's registered**, because `hooks.json` is not the surface that
   delivers hooks here (see `external-plugin-live-resolution.md § Hook-delivery`) and
   `settings.json`'s own hooks block, the surface that does deliver, has been deliberately stripped
-  to stop the bricking. Registration is not delivery — do not read the `c12623534` wiring as this
+  to stop the bricking. Registration is not delivery — do not read the wiring as this
   guard being live.

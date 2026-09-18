@@ -84,7 +84,6 @@ If a new operator clones the repo and follows `INSTALL.md` (or `README.md`'s set
 
 ## The three recurring failure shapes — "works only by accident of machine state"
 
-*Source: project-rag-ue-addon EM (clean-install worked example: `project-rag-ue-addon/docs/plans/2026-05-29-clean-install-just-works.md`). [universal]*
 
 The § Failure-mode narrative above describes the *pattern*; in practice it recurs in three concrete shapes. Each shares one root: **a step that succeeds only because of incidental author-machine state, and fails silently or late on a clean machine.** When your work touches install surface, audit it against all three explicitly — they are the recurring instances the abstract rule exists to catch.
 
@@ -102,11 +101,11 @@ The § Failure-mode narrative above describes the *pattern*; in practice it recu
 
 A "yes" to any of these without the named mitigation is incomplete work, not a follow-up.
 
-## Maintainer-green is not clean-install-green — the install-surface face of DR-117
+## Maintainer-green is not clean-install-green — the install-surface face of the maintainer-signal ruling
 
-*Source: claude-klabauter EM (memo `2026-07-31-claude-klabauter-em-doe-only-signals-in-shipped-guards.md`; claude-klabauter `d6fa361d` → `d19dbe78`). [universal]*
+*Source: claude-klabauter EM (memo `2026-07-31-claude-klabauter-em-doe-only-signals-in-shipped-guards.md`). [universal]*
 
-**The rule itself is DR-117 — read it there.** `docs/decisions/DR-117-maintainer-signals-may-classify-never-diagnose.md`, registered as `MAINTAINER-SIGNAL-DIAGNOSIS`: a DoE-only signal (`.doe-root`, `COORDINATOR_CONTENT_ROOT`, a machine-local key) may **classify** an install — "dev or OSS?" — but its absence must never be **evidence that an install is unhealthy**. The discriminator is polarity, not vocabulary: `.coordinator-dev-repo` is exactly as DoE-only and is entirely legitimate, because absence there is a designed fact landing on a fully-supported path. This section carries only what that ruling implies *for install-surface work specifically*, and exists so prior-art-checker surfaces the class on install-touching plans.
+**The rule itself lives in its own decision record — read it there.** Registered as `MAINTAINER-SIGNAL-DIAGNOSIS`: a DoE-only signal (`.doe-root`, `COORDINATOR_CONTENT_ROOT`, a machine-local key) may **classify** an install — "dev or OSS?" — but its absence must never be **evidence that an install is unhealthy**. The discriminator is polarity, not vocabulary: `.coordinator-dev-repo` is exactly as DoE-only and is entirely legitimate, because absence there is a designed fact landing on a fully-supported path. This section carries only what that ruling implies *for install-surface work specifically*, and exists so prior-art-checker surfaces the class on install-touching plans.
 
 **Maintainer-green is not clean-install-green.** This wiki's § Rule says local-green is not clean-install-green; the guard-time sibling is that verifying a fix on the maintainer's own box is the one observation that *cannot distinguish* the two outcomes. `DoE-claude` is one person's tree; `coordinator` ships to dozens, so the absent-signal branch is the **majority** branch and earns primary-path scrutiny.
 
@@ -116,7 +115,7 @@ A "yes" to any of these without the named mitigation is incomplete work, not a f
 
 **Audit checklist — apply alongside the § three-shapes checklist whenever the work touches a guard:**
 
-- [ ] Does any guard/probe/banner treat the **absence** of a maintainer-only signal as ill-health rather than as a classification? (DR-117)
+- [ ] Does any guard/probe/banner treat the **absence** of a maintainer-only signal as ill-health rather than as a classification?
 - [ ] If a health discriminator reads a registry or config **declaration** (`enabledPlugins`, `installed_plugins.json`, `known_marketplaces.json`), is it paired with a **stat** of the thing it declares? Declarations outlive the tree they name.
 - [ ] If the guard arms persistent state, does its own printed remedy work from a clean install *with that state already armed*?
 - [ ] Does the guard's docstring claim a true positive wider than the delivery surface it is registered on can reach?
@@ -213,7 +212,6 @@ Fix shape: `_looks_like_coordinator_tree()` gates on the plugin manifest (`.clau
 
 ## Running-in-Claude-Code — install-surface-completeness ≠ running-in-Claude-Code
 
-<!-- spec-backlink: docs/plans/2026-06-24-install-baton-completeness-claude-code-validation.md § C1 -->
 
 **install-surface-completeness (files on disk + green script phases) is not the same as the integration actually running-in-Claude-Code.** A chain leg is only "complete" when its Claude Code surface is **validated live**:
 
@@ -346,7 +344,7 @@ The discriminator is **audience, not convenience**: is this surface something th
 
 ## Committed machine-specific absolute paths are a dark install on every other machine
 
-An absolute interpreter path, install root, or OS-specific path that is *emitted on one machine and committed* (e.g. a Windows `python.exe` path baked into a tracked `marketplace.json`, a `/Users/<name>/` prefix in a config) silently breaks the artifact on every other machine and OS that clones it — the path resolves to nothing, and nothing errors until the artifact is used. **Per-machine artifacts must be gitignored and emitted at install time, never committed.** The tracked layer carries the cross-machine union; machine-specific values resolve from `machine-local get` or are re-emitted by the installer on the target box. This is the general form of § `settings.json` portability (relocate machine PATHs to the gitignored local layer) and § Worked example: editable-install venv pin (interpreter path lives in the registry, not the tree). (Source: project-rag-ue-addon.)
+An absolute interpreter path, install root, or OS-specific path that is *emitted on one machine and committed* (e.g. a Windows `python.exe` path baked into a tracked `marketplace.json`, a `$HOME/<name>/` prefix in a config) silently breaks the artifact on every other machine and OS that clones it — the path resolves to nothing, and nothing errors until the artifact is used. **Per-machine artifacts must be gitignored and emitted at install time, never committed.** The tracked layer carries the cross-machine union; machine-specific values resolve from `machine-local get` or are re-emitted by the installer on the target box. This is the general form of § `settings.json` portability (relocate machine PATHs to the gitignored local layer) and § Worked example: editable-install venv pin (interpreter path lives in the registry, not the tree). (Source: project-rag-ue-addon.)
 
 ## git push "Device not configured" is a credential-routing gap, not a network failure
 
@@ -358,7 +356,7 @@ A `git push` that dies with "Device not configured" (or falls through to an inte
 
 - **Pure runtime path resolution** — covered by `docs/wiki/machine-local-registry.md` § 4 Resolution Order (formerly `Build For Someone Else's Machine` in coordinator/CLAUDE.md), not this rule. That rule says "explicit flag → env var → marker auto-discovery → silent skip / hard error"; this rule says "and your installer must produce the marker."
 - **Test fixtures and battle-story comments** — pinned paths in fixtures or one-off forensic comments are exempt from the cross-machine reproduction requirement.
-- **Genuinely one-machine ephemera** — `~/.bash_history`, editor state, OS-level config a project has no business touching. If you find yourself writing to user-level state the project doesn't own, the question isn't installer-completeness — it's *should the project be writing there at all*.
+- **Genuinely one-machine ephemera** — shell history, editor state, OS-level config a project has no business touching. If you find yourself writing to user-level state the project doesn't own, the question isn't installer-completeness — it's *should the project be writing there at all*.
 
 ## Skill-script phase parity — audit both surfaces when one gains a phase
 
@@ -412,7 +410,7 @@ Empirical basis (Machine-c portability-tracked-per-machine-config C5): moving a 
 
 An editable `pip install -e` of a coordinator-owned Python package into the bare system `python3` failed in two independent ways that were invisible at authoring time. First, Homebrew Python and Debian Python now refuse direct `pip install` into the system interpreter (PEP 668 — "externally managed environment"), so the install command errored on fresh macOS/Linux machines. Second, even where the install initially succeeded, a system Python bump (e.g. Homebrew upgrading from 3.12 to 3.13) silently invalidated the `.dist-info` entry — the package raised `ImportError` after the upgrade with no signal pointing at the coordinator install.
 
-The fix: a coordinator-owned venv builder — originally `bin/ensure-coordinator-venv.sh`, since ported to the native `coordinator_core.install.ensure_venv` (claude-klabauter-resident, invoked via `/coordinator:install` Phase 3 Step 6 / `install-substrate`) — creates a coordinator-owned venv at `~/.coordinator-venv/`, seeds the dependency-bearing package via editable install into that venv, and writes the absolute interpreter path to the machine-local registry as `coordinator.python`. The `coordinator.python` resolution contract resolves `COORDINATOR_PYTHON` env → `machine-local get coordinator.python` → PATH fallback, with a loud error if the pin is stale (formerly implemented by `lib/resolve-python.sh`; that FLOOR shim is retired — see `machine-local-registry.md § coordinator.python resolution contract`). The coordinator doctor (P-5) uses the resolved interpreter, not bare `python3`, so it catches venv-absent and pin-stale states and self-heals via the venv builder (`/coordinator:install` Phase 3 Step 6).
+The fix: a coordinator-owned venv builder — originally `bin/ensure-coordinator-venv.sh`, since ported to the native `coordinator_core.install.ensure_venv` (claude-klabauter-resident, invoked via `/coordinator:install` Phase 3 Step 6 / `install-substrate`) — creates a coordinator-owned venv under the home directory (`.coordinator-venv/`), seeds the dependency-bearing package via editable install into that venv, and writes the absolute interpreter path to the machine-local registry as `coordinator.python`. The `coordinator.python` resolution contract resolves `COORDINATOR_PYTHON` env → `machine-local get coordinator.python` → PATH fallback, with a loud error if the pin is stale (formerly implemented by `lib/resolve-python.sh`; that FLOOR shim is retired — see `machine-local-registry.md § coordinator.python resolution contract`). The coordinator doctor (P-5) uses the resolved interpreter, not bare `python3`, so it catches venv-absent and pin-stale states and self-heals via the venv builder (`/coordinator:install` Phase 3 Step 6).
 
 This instance illustrates the **editable-install label drift** failure shape (§ Three recurring failure shapes, shape 2) combined with a **PEP-668 install block** that prevents recovery via the old remediation path. The venv is the canonical solution: interpreter isolation + drift-proof re-pinning via the registry + doctor-driven self-heal closes all three gaps.
 
@@ -426,7 +424,6 @@ Example-game-repo's `settings.json` carried a hand-wired `powershell.exe -File .
 
 ### Worked example — this rule held 22 violations on the maintainer's own box, undetected {#duplicate-registration-worked-example}
 
-*DoE-claude dev install on Windows. Full write-up: DoE-claude `state/2026-08-07-oduffy-pc-install-dogfood-friction-log.md` § F3.*
 
 `~/.claude/settings.json` carried 27 hook commands (22 distinct scripts) that the coordinator plugin's own `hooks.json` already registered at the same event. Confirmed three independent ways: claude-klabauter's `detect_hook_delivery_duplication()` (`double_fire=True, duplicated=22, settings_only=6`); an independent basename+event enumeration; and **direct runtime observation** — `agent-completion-log.py` is one of the 22, and every agent dispatch wrote two identical rows to `.git/coordinator-sessions/logs/agent-audit.jsonl` (same timestamp, same `agentId`). Onset dating across 218 rows: zero doubled on every prior date, 3-of-3 on the day it was found.
 
@@ -468,7 +465,6 @@ Sibling EMs in all repos may amend this wiki on receipt — doctrine-seeding und
 
 ## Step Zero Preflight and Env-Normalization Shape
 
-<!-- spec-backlink: docs/plans/2026-06-22-coordinator-env-normalization-step-zero.md -->
 
 ### FB-2 rule — functional-not-existence probes (required)
 
@@ -535,7 +531,7 @@ The probe lib (`coordinator_core.install.prereq_probe`) and the fixer (`normaliz
 
 ## OS-level autostart registration is unsolicited by default
 
-Installers that register OS-level autostart (scheduled tasks, Windows `Startup` LNK files, systemd user units, login items) are unsolicited by default — the user did not ask for the process to run at every session. Gate autostart registration on consumer-session presence (e.g., verify the consuming tool is actually running), or replace with lazy-boot on `SessionStart` hook. Never register autostart silently as a convenience. Apply: any installer that writes to `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, `~/.config/systemd/user/`, or `~/Library/LaunchAgents/` must carry a `--autostart` explicit opt-in flag.
+Installers that register OS-level autostart (scheduled tasks, Windows `Startup` LNK files, systemd user units, login items) are unsolicited by default — the user did not ask for the process to run at every session. Gate autostart registration on consumer-session presence (e.g., verify the consuming tool is actually running), or replace with lazy-boot on `SessionStart` hook. Never register autostart silently as a convenience. Apply: any installer that writes to `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, `~/.config/systemd/user/`, or the macOS `LaunchAgents` directory must carry a `--autostart` explicit opt-in flag.
 
 ## Unit-test the WRAPPER/integration path, not just the self-contained helper
 
@@ -543,7 +539,6 @@ Green helper tests mask integration-layer guards. At least one test must drive t
 
 ## Exec-bit-shebang invariant
 
-> Spec backlink: `archive/specs/2026-06/2026-06-11-exec-bit-install-surface-completion.md`
 
 ### The invariant
 
@@ -565,9 +560,9 @@ Losing any one surface means silent failure at that stage. **Cross-surface oblig
 
 ### Windows-chmod commit mechanic
 
-On Windows with `core.fileMode=false` (standard Machine-a config), the SC-DR-008 scoped-commit form `git commit -m "..." -- <paths>` silently resets exec bits: the path-restricted commit re-reads the working-tree pathspec and overwrites the `update-index` staged mode with the on-disk mode (always `100644` when `fileMode=false`).
+On Windows with `core.fileMode=false` (a standard Windows git config), the scoped-commit form `git commit -m "..." -- <paths>` silently resets exec bits: the path-restricted commit re-reads the working-tree pathspec and overwrites the `update-index` staged mode with the on-disk mode (always `100644` when `fileMode=false`).
 
-**Correct mechanic for chmod-bearing commits** (named exception to SC-DR-008):
+**Correct mechanic for chmod-bearing commits** (named exception to the scoped-commit rule):
 
 ```bash
 # Stage via update-index — NOT git add:
@@ -581,7 +576,7 @@ git commit -m "<subject>"
 # core.fileMode=false and resets the staged exec bit back to 100644.
 ```
 
-The path restriction in SC-DR-008 is a re-staging guard to prevent blanket-staging of unrelated files. Once files are correctly staged via `update-index`, the path restriction is redundant and triggers the `fileMode=false` interaction. This carve-out also appears in `agents/executor.md § Commit Discipline` so dispatched executors see it at load time.
+The path restriction in the scoped-commit rule is a re-staging guard to prevent blanket-staging of unrelated files. Once files are correctly staged via `update-index`, the path restriction is redundant and triggers the `fileMode=false` interaction. This carve-out also appears in `agents/executor.md § Commit Discipline` so dispatched executors see it at load time.
 
 Source lesson: `state/lessons/` content-anchor "Windows `core.fileMode=false` + path-restricted `git commit` resets exec-bit in index [universal]".
 
@@ -613,13 +608,13 @@ For `copy_install` mirror metadata specifically, the **source repo's `git ls-fil
 
 **Failure mode.** `coordinator:install` Phase 1a.0 originally **detected** stock bash 3.2 on macOS and **printed** a remediation block (`brew install bash` + a PATH-prepend line). The user reading the printed text could ignore it, or follow it incorrectly (writing to `~/.zshrc` — interactive-only — instead of `~/.zprofile` — login-shell). Empirical: on Machine-c, brew bash 5.3 was installed via the printed hint but no rc edit followed; `/workday-complete`'s orphan-branch-sweep then hit `coordinator-safe-commit`'s `BASH_VERSINFO<4` fail-loud guard because login PATH still resolved `/bin/bash` (3.2).
 
-**Fix shape.** Detect → **offer** (three nested `default-with-warning` prompts: brew presence, `brew install bash`, append shellenv block to `~/.zprofile`) → **act** (execute on accept) → **marker-guard for idempotency** (sentinel `# coordinator-install: brew shellenv (DR-148)` so re-runs are silent no-ops — the `DR-148` inside that sentinel is frozen historical numbering already written into users' rc files and must never be renumbered; the live record is `docs/decisions/DR-166-require-bash4-on-macos.md`) → **tell user to restart shell** (running Claude Code session inherits the stale PATH; new shell or `source <rc>` is mandatory).
+**Fix shape.** Detect → **offer** (three nested `default-with-warning` prompts: brew presence, `brew install bash`, append shellenv block to `~/.zprofile`) → **act** (execute on accept) → **marker-guard for idempotency** (a sentinel comment marks the appended block so re-runs are silent no-ops) → **tell user to restart shell** (running Claude Code session inherits the stale PATH; new shell or `source <rc>` is mandatory).
 
 **Generalizable rule.** Detect-and-print remediation is install-surface-incomplete when the print recipient is a user-already-running-the-installer: they came to be installed, not to read text. The pattern is detect → offer → act → idempotency-guard → restart-notice when the change requires shell reload.
 
-See `docs/decisions/DR-166-require-bash4-on-macos.md` for the underlying policy.
+See the require-bash4-on-macos decision under `docs/decisions/` for the underlying policy.
 
-**Extension — the login-shell-orphan dimension.** A related incident revealed a new failure mode: an operator `chsh`'d to brew bash believing `docs/decisions/DR-166-require-bash4-on-macos.md` required it. It does not — that decision's requirement is on the **PATH-resolved interpreter** (`bash <script>` resolution), not on login-shell identity. Switching the login shell to brew bash via `chsh` caused `~/.local/bin` to disappear from PATH in fresh terminals: macOS bash reads `~/.bash_profile` on login, not the zsh rc files (`~/.zshrc`, `~/.zprofile`) where the operator's PATH additions lived. An absent or minimal `~/.bash_profile` silently strands those entries.
+**Extension — the login-shell-orphan dimension.** A related incident revealed a new failure mode: an operator `chsh`'d to brew bash believing that policy required it. It does not — that decision's requirement is on the **PATH-resolved interpreter** (`bash <script>` resolution), not on login-shell identity. Switching the login shell to brew bash via `chsh` caused `~/.local/bin` to disappear from PATH in fresh terminals: macOS bash reads `~/.bash_profile` on login, not the zsh rc files (`~/.zshrc`, `~/.zprofile`) where the operator's PATH additions lived. An absent or minimal `~/.bash_profile` silently strands those entries.
 
 **Coordinator's posture:** coordinator never requires or suggests `chsh`. When it detects a bash login shell with an absent or minimal `~/.bash_profile`, it offers to reconstruct `~/.bash_profile` — consent-gated, backed up before write, and reverted via `--restore` if needed (the same discipline all `normalize-env` mutations follow). The installer also SUPPORTS operators who are already on a bash login shell and whose environment is intact. What it never does is proactively offer to change login shell identity.
 
@@ -653,7 +648,7 @@ echo '[ -f ~/.bashrc ] && [ -r ~/.bashrc ] && . ~/.bashrc' >> ~/.bash_profile
 
 **The snapshot-not-enumerate principle.** The anti-pattern is enumerating a fixed list of expected PATH directories. Enumerations diverge per machine, miss operator-specific entries, and may include paths absent on other operators' machines. Snapshotting the prior shell's own PATH resolution is the portable form: the prior shell's `$PATH` is the ground truth, not a guess. The same principle generalises to any PATH reconstruction task where the target state is operator-specific.
 
-Cross-reference: `docs/decisions/DR-166-require-bash4-on-macos.md § Amendment 2026-06-25` for the policy ruling; `docs/wiki/cross-platform-shell-portability.md § PATH vs login shell` for the interpreter-identity summary.
+Cross-reference: `DR-166-require-bash4-on-macos.md § Amendment 2026-06-25` under `docs/decisions/` for the policy ruling; `docs/wiki/cross-platform-shell-portability.md § PATH vs login shell` for the interpreter-identity summary.
 
 ## De-LFS at tip is incomplete — the same workstream must run history purge + force-push + backup tags
 
@@ -672,7 +667,7 @@ Defer any of these four steps to a follow-up and the LFS cost persists indefinit
 
 <!-- anchor: git-lfs-materialization — cross-refs use "§ Git-LFS materialization" -->
 
-*claude-central (DoE), discharging the cross-repo `ask` memo `cross-repo/inbox/2026-06-24-git-lfs-step-zero-requirement.md` from the project-rag-ue-addon EM.*
+*claude-central (DoE), discharging the cross-repo `ask` memo `2026-06-24-git-lfs-step-zero-requirement.md` under `cross-repo/inbox/` from the project-rag-ue-addon EM.*
 
 **A repo that LFS-tracks binary assets (`*.png`, `*.uasset`, `*.umap`, `*.fbx`, `*.psd`, …) clones into broken silent-pointer state when git-lfs was never verified/enabled at install — and the failure surfaces late, at first asset *open*, not at clone.** A plain `git clone` with git-lfs absent **succeeds and looks fine**, but every LFS-tracked file is a ~130-byte text pointer, not real content. Nothing errors until something tries to load one (an extension manifest referencing unmaterialized icons; a cooked `.uasset`; an embedded `.pdf`). This is the install-surface-completeness rule (§ Rule) applied to LFS content: the clone path silently fails to reproduce the binary state the work depends on.
 

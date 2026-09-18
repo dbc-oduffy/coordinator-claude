@@ -2,8 +2,8 @@
 title: "Baton bookkeeping — the engine mechanics pickup does not narrate"
 created: 2026-08-14
 status: active
-spec_backlink: docs/plans/2026-08-14-eager-supersede-archival-and-pickup-slimming.md § C1
 ---
+
 
 # Baton Bookkeeping
 
@@ -81,7 +81,7 @@ fires are load-bearing and easy to conflate:
 
 **Exception:** a roadmap-baton predecessor (`canonical_kind(...) == "roadmap-baton"`) never reaches
 the unconditional flip — refused on `kind` alone, in any state, whether or not a live `blocked_by`
-dependent exists today (`handoff_archive_transition.py:1037-1069`, DR-126 § Clarifications C-1). A
+dependent exists today (`handoff_archive_transition.py:1037-1069`). A
 `blocked_by`/`stub_id` dependent edge on a roadmap baton is invisible to the archival path, so no
 guard on that path can safely auto-supersede it — this is a deliberate, permanent scoping, not a
 gap to close.

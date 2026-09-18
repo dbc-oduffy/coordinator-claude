@@ -102,6 +102,13 @@ One question per plan: **is this ready to execute?** Three answers, no fourth:
 **`pulled` and `replan` both require a written reason naming the evidence.** "Looks off" is not a
 disposition. You are reading a durable trail precisely so that a rejection costs a deliberate act.
 
+**A `plan.prep_gate` SPINE class reporting kind `body-absent` is a readiness defect, the same as
+any other.** Run it (per `resolve-coordinator-bin.md`):
+`coordinator-invoke plan.prep_gate '{"repo_root":"<repo>","plan":"<plan-path>"}'`. A non-empty
+`withheld_rows` on a `body-absent` result is `pulled` — name the withheld row ids back to the
+plan's author; do not reword or re-derive the predicate
+(`coordinator_core.ops.dispatch_emit.spine_read.executable_body`).
+
 **Read the integrator's escalated ASKs before anything else.** They are the findings that were
 judged too consequential to apply silently, which makes them the highest-signal item in the trail —
 and the one a fast read skips. An empty ASK list on a plan with P0/P1 findings is itself a finding.

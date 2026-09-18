@@ -309,7 +309,8 @@ def _resolve_scan_roots() -> list[Path]:
 
     (i) claude-klabauter's own coordinator/ tree (via _resolve_plugin_root() — either
     CLAUDE_PLUGIN_ROOT or this script's own parent directory), and (ii) the
-    DoE-resident coordinator/ tree (<doe_root()>/coordinator), since
+    DoE-resident coordinator content root (either layout — see
+    coordinator_data_root.content_root_for), since
     coordinator/ content post-migration is split across both repos and a
     `.doe-root` cat-read site can live in either half.
 
@@ -318,16 +319,26 @@ def _resolve_scan_roots() -> list[Path]:
     claude-klabauter-only checkout, not hard-fail for lacking a sibling clone.
     """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_data_root import content_root_for
     from coordinator_registry import _DoeUnresolvable, doe_root
 
     roots = [_resolve_plugin_root()]
     try:
-        doe_coordinator = Path(doe_root()) / "coordinator"
+        resolved = doe_root()
     except _DoeUnresolvable as exc:
         print(
             f"verify-doe-root-seam-sync.py: WARNING — coordinator doctrine repo root "
             f"unresolvable ({exc}); skipping the DoE-resident coordinator/ "
             "tree half of the scan.",
+            file=sys.stderr,
+        )
+        return roots
+    doe_coordinator = content_root_for(resolved)
+    if doe_coordinator is None:
+        print(
+            f"verify-doe-root-seam-sync.py: WARNING — no coordinator content root "
+            f"under the resolved doctrine repo root ({resolved}); skipping the "
+            "DoE-resident coordinator/ tree half of the scan.",
             file=sys.stderr,
         )
         return roots

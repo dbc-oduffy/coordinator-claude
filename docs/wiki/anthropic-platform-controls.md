@@ -2,8 +2,8 @@
 title: "Anthropic platform controls — what reaches a Claude Code plugin"
 created: 2026-07-27
 status: active
-spec_backlink: state/reference/anthropic-docs/_verify-harness-capabilities.md
 ---
+
 
 # Anthropic Platform Controls — What Reaches a Claude Code Plugin
 
@@ -16,7 +16,7 @@ spec_backlink: state/reference/anthropic-docs/_verify-harness-capabilities.md
 > capability documented at the API level is reachable **only if the harness re-exposes it** as a
 > frontmatter field, a hook event, a settings.json knob, or a CLI flag. Absent that re-exposure,
 > "documented" and "reachable" are different claims, and this file keeps them separate on
-> purpose. Ground truth for reachability: `state/reference/anthropic-docs/_verify-harness-capabilities.md`,
+> purpose. Ground truth for reachability: the archived harness-capability verification sidecar,
 > verified against the installed **Claude Code 2.1.220** build.
 
 ## Context — windows, compaction, editing, counting
@@ -42,7 +42,7 @@ item 4).
   infer compaction happened from a byte-size sentinel written pre-compaction rather than
   confirming completion via `PostCompact`. Genuine gap, not a documentation curiosity.
 - **Token counting**: `POST /v1/messages/count_tokens` is free, rate-limited only. Already
-  adopted (`claude-klabauter` commit `4dc5d518`, per the claude5-alignment plan's C1) — nothing
+  adopted (`claude-klabauter`, per the claude5-alignment plan's C1) — nothing
   further to mine here.
 - **Coordinator takeaway:** our context-pressure hooks (`postuse_advisory_dispatch.py`, the
   sidecar read) are not a redundant layer on top of a native mechanism we could instead
@@ -68,7 +68,7 @@ reachability specifically; see below).
   `color` are populated (`_verify-harness-capabilities.md` § 2, § 4). "Documented in schema" is
   not "observed in effect" — nobody has yet empirically confirmed the plugin agent-loading path
   actually honours a frontmatter `effort:` value (that's the open AC4 blocker on
-  `docs/plans/2026-07-27-claude5-alignment-wave-one.md` C2; the `effort.md` line above narrows,
+  the claude5-alignment wave-one plan's C2; the `effort.md` line above narrows,
   but doesn't close, that gap).
 - **Prompt-level thinking steering is reachable *today*, independent of the frontmatter gate.**
   `thinking-steering-and-cost.md` documents three levers in priority order: `effort` (frontmatter,
@@ -222,7 +222,7 @@ match for categorical outputs, LLM-based grading (Likert/binary/ordinal) for jud
 | Context window sizes, thinking-token accounting | N/A (automatic, no lever) | `context-windows.md` |
 | `context_management` (compaction/editing config) | UNCONFIRMED, inferred NO | `_verify-harness-capabilities.md` (silent) |
 | `PostCompact` hook | YES, documented, **unused** | `_verify-harness-capabilities.md` § 5 |
-| Token counting API | YES, already adopted | `4dc5d518` |
+| Token counting API | YES, already adopted | the claude5-alignment wave-one plan's C1 |
 | `effort:` subagent frontmatter | Documented field, **unverified in effect, unused (0/31)** | `_verify-harness-capabilities.md` § 2/4 |
 | Prompt-body thinking-steering phrasing | YES, live now | `thinking-steering-and-cost.md` |
 | Task budgets | NO — beta, not on Sonnet 5, API-only | `task-budgets.md` |

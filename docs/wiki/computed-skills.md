@@ -18,10 +18,10 @@
 > discharge test ("for every rule, what artifact discharges it?") is what tells you whether a
 > converted surface actually removed the need to know something, or merely reworded it.
 >
-> Spec backlink: `docs/plans/2026-07-23-computed-skills-pickup-beachhead.md` (chunk A1).
+> Spec backlink: the computed-skills pickup-beachhead plan (chunk A1).
 > Generalization target named there: `workstream-complete` and the rest of the skill
 > frontage, once this POC converges — see § Generalizing this pattern below.
-> Amendment spec backlink: `docs/plans/2026-07-23-computed-skills-bz-pickup-rebuild.md`
+> Amendment spec backlink: the computed-skills BZ pickup-rebuild plan
 > (chunk C4) — the `apply` mutating half, the three-tier model, and the arrival-legibility
 > surface all land here from that plan.
 
@@ -869,7 +869,7 @@ re-deriving the shape from scratch:
    `[placeholder]` the EM resolves by inference, or a restated invariant ("never
    `git add -A`") are each pure functions of disk/git/frontmatter and become a
    `directives[]` entry exactly as a branching step would. The unit of extraction is
-   the mechanical step, not the mechanical branch (DR-090; see
+   the mechanical step, not the mechanical branch (see
    `docs/wiki/coordinator-tripwires/draft-plan-aging.md § SKILL-NARRATES-PROCEDURE`). The census itself
    is a schema'd artifact, not a hand-rolled table: it validates against
    `coordinator/schemas/census-document.schema.json` and lives at
@@ -941,8 +941,8 @@ this wiki alone; step 7 needs the same evergreen-rewrite discipline
 
 ### Legacy census gap — recorded, not migrated
 
-`state/plan-sidecars/2026-07-26-workstream-complete-computed-frontage.census-steps.md` (the
-92-row `workstream-complete` census used above) predates `census-document.schema.json` and does
+The
+92-row `workstream-complete` census sidecar used above predates `census-document.schema.json` and does
 not validate against it. Recorded here so a census author reads the gap before assuming that file
 is a conforming example; it is not migrated. Missing: the entire envelope — no YAML frontmatter at
 all, so none of `schema_version`/`skill`/`source_path`/`source_sha`/`unit`/`taken_at`/
@@ -964,7 +964,7 @@ write target, so the module divides into domain-cohesive submodules —
 `directives_lessons_plan.py`, `directives_completion.py`, `directives_memo_lifecycle.py`,
 `directives_session_hygiene.py`, `directives_review.py`, `directives_commit_tail.py`,
 `judgments.py` — with `__init__.py` retained as the assembly + CLI seam
-(`docs/plans/2026-07-26-workstream-complete-computed-frontage.md` D-4). This is the
+(the workstream-complete computed-frontage plan's D-4). This is the
 convention the next large conversion inherits deliberately, not by imitation:
 
 - **Split on domain seam, not on step-number adjacency.** A cut is legitimate when it
@@ -1008,8 +1008,8 @@ rule the next `X-complete` converter inherits:
   existing consumers onto it. A third ceremony-close assembler joining `ceremony_common` is
   conforming to an existing family factoring surface, not inventing a new dependency.
 - **Abstain from the cross-family runner by name.** Do not import or extend `apply_base.py`
-  from an `X_complete` assembler — that consolidation is a different owner's baton (DR-092
-  AC-5), and joining it as an ad-hoc 5th consumer creates migration debt on someone else's
+  from an `X_complete` assembler — that consolidation is a different owner's baton (tracked under its own
+  decision record's AC-5), and joining it as an ad-hoc 5th consumer creates migration debt on someone else's
   future reshaping of it. Author the family's own standalone `apply.py` (own exit-code
   enum via `extend_exit_codes`, own closed dispatch table) and state the abstention as an
   explicit negative-spec docstring line, paired with the positive counterpart naming what
@@ -1018,12 +1018,12 @@ rule the next `X-complete` converter inherits:
   already share this," not raw instance count.** A third similar-shaped module does not by
   itself justify folding into the cross-family runner — the trigger for that fold is
   understood divergence against the runner's owner's own axes, not count=2 or count=3
-  (`docs/plans/2026-07-24-canonical-resolution-engine.md` AC-5).
+  (the canonical-resolution-engine plan's AC-5).
 
-## Decision-Object Schema-of-Record (DR-047)
+## Decision-Object Schema-of-Record
 
 DoE owns the decision-object schema-of-record; claude-klabauter owns the engine that emits and
-validates against it. Per DR-047's split (DoE owns contract, claude-klabauter owns engine), the
+validates against it. Per that ownership split (DoE owns contract, claude-klabauter owns engine), the
 canonical shape of the 8-key envelope described throughout this wiki is now codified as
 a standalone JSON Schema (draft 2020-12) at `schemas/decision-object.schema.json` — not
 re-derived informally from prose each time a new computed skill or validator is
@@ -1101,7 +1101,7 @@ What's shared is the *shape* those decisions must conform to, not the decision l
   recommendation-nullability distinction at construction time rather than leaving it to
   per-caller discipline.
 - **Consumer discipline** — the shared shape only holds if every caller actually uses it. That
-  discipline is the DR-090 per-baton checklist
+  discipline is the per-baton conversion checklist
   (`coordinator/docs/wiki/computed-skills-conversion-checklist.md`, authored this session) plus
   the anti-rebound inline-mechanism budget gate: a converted skill that re-accretes a mechanical
   step inline is rebound, and the checklist is what catches it before merge rather than three
@@ -1119,7 +1119,7 @@ attack) or under-check a plugin root (treating trust as a formatting concern) �
 modes are not symmetric, so the function boundary encodes a real distinction, not a stylistic
 one.
 
-**Schema-of-record ownership (DR-047) restated for this session's build.** DoE owns
+**Schema-of-record ownership restated for this session's build.** DoE owns
 `schemas/decision-object.schema.json` (authored this session, § Decision-Object Schema-of-Record
 above); the claude-klabauter-side `contract/decision_object` validators conform to it rather than defining
 a competing notion of the envelope shape.
@@ -1141,13 +1141,13 @@ assembler that genuinely exercises an apply/dispatch half.** Until that second w
 the plan's own defer branch is the one to follow, and it was followed this session — B3 (the
 agent-side sidecar, below) was built ahead of any Tier-B runner factoring, exactly as the plan's
 priority ordering specified. AC-5 is satisfied by the act of NOT factoring, not despite it; the
-trigger condition itself is recorded in DR-092 rather than left to institutional memory, so the
+trigger condition itself is recorded in the owning decision record rather than left to institutional memory, so the
 next assembler that lands can check the decision record instead of re-deriving the reasoning.
 <!-- distill:2026-08-06-14h38 src:c7-009 -->
 
-**claude-klabauter DR-215 stays retired for this surface.** The ≤60 ms per-brief budget this session's facade and
+**claude-klabauter's retired per-brief-budget decision stays retired for this surface.** The ≤60 ms per-brief budget this session's facade and
 contract library hit is met by lazy-import plus in-process git, not a resident daemon; a
-`<10 ms` target is an explicitly-deferred stretch goal that would require re-litigating claude-klabauter DR-215's
+`<10 ms` target is an explicitly-deferred stretch goal that would require re-litigating that retired decision's
 daemon-retirement, not something either tier was built to hit this session.
 
 **Agent-side sidecar — the same envelope shape, read from the input end.** The
@@ -1170,8 +1170,6 @@ budget gate (§ above, "Consumer discipline") exist to protect: a conversion tha
 new shape but leaves the old ceremony cheaper (or no cheaper) at the point of use is the
 failure mode those gates catch before merge.
 
-Spec backlink: `docs/decisions/DR-092-canonical-resolution-engine.md`;
-`docs/plans/2026-07-24-canonical-resolution-engine.md`.
 
 ## Multi-baton `/pickup` — one hook, N==1 and N>1 uniformly
 
@@ -1217,8 +1215,7 @@ the stripped EM-facing suffix as engine-authored text — pinned against the
 
 <!-- distill-run: 2026-08-14; C1 epistemic-premise gate. Measured, not inferred. -->
 **Doctrine may not cite a bare `session-reachability-cli` command line as resolving on a
-fresh install.** Name the capability instead. The CLI landed in `claude-klabauter` at
-`2b8a3bdb606d` but is absent from that repo's `docs/install/bin-inventory.json` — the
+fresh install.** Name the capability instead. The CLI landed in `claude-klabauter` but is absent from that repo's `docs/install/bin-inventory.json` — the
 tracked baseline gating which oracles get forwarders written into
 `$COORDINATOR_SETTINGS_HOME/bin` — so a fresh-install reader typing the bareword gets
 `command not found`. The whole derive/write chain lives in claude-klabauter; this repo has no local
@@ -1233,7 +1230,7 @@ cross-repo claude-klabauter handoff path; both resolved, returning per-owner
 
 ```
 $ python3 coordinator/bin/session-reachability-cli.py artifact-owner <plan-or-handoff-path>
-{"artifact_path": "...", "owners": [{"session_id": "0269582a-…",
+{"artifact_path": "...", "owners": [{"session_id": "<session-id>",
  "source_field": "agent_sessions", "outcome": "reachable",
  "address": "doe-claude-ee [5950ee]", "claim_live": null, "claim_stage": null}],
  "file_error": null}

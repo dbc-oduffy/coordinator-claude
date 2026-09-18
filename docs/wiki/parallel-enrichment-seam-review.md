@@ -59,14 +59,13 @@ It does NOT apply when subagents write to entirely separate files with no inter-
 2. Wait for all N to complete.
 3. Assemble the full artifact (or confirm it is already assembled in one file).
 4. **Dispatch a single seam reviewer** — the brief carries the reviewer's provisioned
-   `state/subagent-share/<session>/<provision_key>.md` sidecar path (DR-091 one-home model); the
+   `state/subagent-share/<session>/<provision_key>.md` sidecar path (one-home model); the
    reviewer writes findings there and returns a pointer+verdict line. No EM pre-scaffold, no
    sentinel-append self-persist. This applies uniformly to `coordinator:code-reviewer` (UNNAMED)
    and to a persona reviewer alike — both write to the provisioned path; inline only when no path
    is in the brief.
    Brief: "Check cross-chunk seam coherence — narrative continuity, terminology consistency,
    structural coherence, no duplicates, no orphaned references."
-   Spec backlink: `cross-repo/inbox/2026-07-01-reviewer-selfpersist-confinement-redirect.md`.
 5. Read the returned pointer line: `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`.
    `coordinator:code-reviewer` extends that line with a trailing `| executed: <yes|no>`; a persona
    reviewer's does not. The shared-grammar claim in step 4 covers the sidecar home, not the

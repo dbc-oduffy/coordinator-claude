@@ -101,8 +101,7 @@ When a foundational shape changes mid-plan, **re-thread every consumer before sh
 
 ## Worked Example — Package Retirement Down to a Subprocess-Invoked Script
 
-`coordinator_whoami` (a Python package, `coordinator/whoami/`) was retired
-(archive/specs/2026-08-23-retire-coordinator-whoami-entirely.md). Its cross-repo consumers
+`coordinator_whoami` (a Python package, `coordinator/whoami/`) was retired. Its cross-repo consumers
 (project-rag, example-game-repo) never imported it — every one shelled out
 (`[sys.executable, "-m", "coordinator_whoami.machine"]`), because project-rag's own contract
 bans importing whoami-shaped capability (`core/host_inventory.py:6-11`, "LOAD-BEARING -- do NOT

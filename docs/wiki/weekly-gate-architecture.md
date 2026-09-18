@@ -9,8 +9,8 @@ created: 2026-05-28
 > Architecture and rationale for the weekly code-review gate and advisory passes in `/workweek-complete`.
 > Procedural steps (what the EM actually runs) live in `commands/workweek-complete.md` §§ Step 7 / 7.5 / 7.6.
 >
-> Plans: `docs/plans/2026-05-06-parallel-code-review-weekly-gate.md`;
-> restructure: `docs/plans/2026-05-23-weekly-gate-restructure-and-arch-survey-audit-rename.md`.
+> Plans: `2026-05-06-parallel-code-review-weekly-gate.md` under `docs/plans/`;
+> restructure: `2026-05-23-weekly-gate-restructure-and-arch-survey-audit-rename.md` under `docs/plans/`.
 
 ---
 
@@ -20,11 +20,11 @@ created: 2026-05-28
 
 Before invoking `parallel-code-review`, the EM computes the narrowed **code-semantics** scope from the workstream-complete review trail. The three mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) always see the full week diff — only the code-semantics lens narrows, and that narrowed scope is then **chunked** into N disjoint file-scope partitions, one Sonnet `code-reviewer-weekly` per chunk.
 
-> The helper's JSON keys are role slugs, not persona names (producer-side, claude-klabauter `a78271b1a`, no back-compat shim): the `staff_eng` SHA set is the code-semantics chunking input and `staff_eng_seam_files` additionally feeds the Staff Engineer's Layer-2 pass in Step 7.5.
+> The helper's JSON keys are role slugs, not persona names (producer-side no back-compat shim): the `staff_eng` SHA set is the code-semantics chunking input and `staff_eng_seam_files` additionally feeds the Staff Engineer's Layer-2 pass in Step 7.5.
 
 ### Trail helper contract
 
-`"$PYTHON_BIN" "${PYTHON_ARGS[@]}" "$_cc_claude_klabauter/coordinator/lib/workweek-trail-scope.py"` (naked-Python trampoline over `coordinator_core.ops.workweek_trail_scope`, renamed to its native `.py` extension in the 2026-07-21/22 bash-clean-slate residual migration, now claude-klabauter resident post-b644d5a9 — guarded trusted-root resolve; see CLAUDE-PLUGIN-ROOT-SOURCE-GUARD, `coordinator/docs/wiki/coordinator-tripwires/draft-plan-aging.md`) — fail-loud; reads `state/week-changelog/HEADER.md`, globs `state/review-trail/*.json`, writes a session-keyed `state/review-trail/.weekly-reviewer-scopes-<TIMESTAMP>-<SID_SHORT>.json` shard.
+`"$PYTHON_BIN" "${PYTHON_ARGS[@]}" "$_cc_claude_klabauter/coordinator/lib/workweek-trail-scope.py"` (naked-Python trampoline over `coordinator_core.ops.workweek_trail_scope`, renamed to its native `.py` extension in the 2026-07-21/22 bash-clean-slate residual migration, now claude-klabauter resident trusted-root resolve; see CLAUDE-PLUGIN-ROOT-SOURCE-GUARD, `coordinator/docs/wiki/coordinator-tripwires/draft-plan-aging.md`) — fail-loud; reads `HEADER.md` under `state/week-changelog/`, globs `state/review-trail/*.json`, writes a session-keyed `state/review-trail/.weekly-reviewer-scopes-<TIMESTAMP>-<SID_SHORT>.json` shard.
 
 The helper parses `Week starting:` from HEADER.md, filters trail records to the current week by filename date-prefix, then computes:
 
@@ -47,7 +47,7 @@ The review-coverage-gate DAG mode delegates to `coordinator_core` `build_reviewe
 
 The `parallel-code-review` skill dispatches **N Sonnet `code-reviewer-weekly` chunks + 3 mechanical workers** (security-audit-worker + dep-cve-auditor + test-evidence-parser) in parallel into a no-rewrite synthesizer. It emits a structured `BLOCKED | WARN | OK` verdict.
 
-**the Staff Engineer is NOT in this gate** — they run a separate architecture pass in Step 7.5 (DECISION D3). The step-7 gate is the only hard merge block. The brief references `state/review-trail/.weekly-reviewer-scopes.json` so the synthesizer narrates 'code-semantics chunks scoped to gap+seams; mechanical workers full diff' in the verdict.
+**the Staff Engineer is NOT in this gate** — they run a separate architecture pass in Step 7.5 (DECISION D3). The step-7 gate is the only hard merge block. The brief references `weekly-reviewer-scopes.json` under `state/review-trail/.` so the synthesizer narrates 'code-semantics chunks scoped to gap+seams; mechanical workers full diff' in the verdict.
 
 ### Verdict handling
 
@@ -83,7 +83,7 @@ When the run condition is met, dispatch the Staff Engineer (`coordinator:staff-e
 1. **Changelog digest** — the week's `state/week-changelog/*.md` daily summaries (what shipped, at a glance).
 2. **`arch_tier_candidates`** — from `$FINDINGS_DIR/synthesis.json`; the findings the Sonnet chunk reviewers flagged `escalate_to_architecture: true`. This is the explicit "a Sonnet thought this needed Opus judgment" feed.
 3. **`convergent_findings`** — from `synthesis.json`; issues independently flagged by ≥2 lenses. Convergence is a cross-cutting signal N independently-scoped Sonnets cannot self-produce.
-4. **Seam-file set** — `staff_eng_seam_files` from `state/review-trail/.weekly-reviewer-scopes.json` (the actual cross-segment integration surface computed by `workweek-trail-scope.py`). The integration surface is exactly where multi-session erosion lives.
+4. **Seam-file set** — `staff_eng_seam_files` from `weekly-reviewer-scopes.json` under `state/review-trail/.` (the actual cross-segment integration surface computed by `workweek-trail-scope.py`). The integration surface is exactly where multi-session erosion lives.
 5. **Daily strategic-observer trail** — the week's accumulated daily paper trail authored *for* this pass: the `## Strategic Review (Sonnet daily observer)` sections across `archive/daily-summaries/*.md` and the `state/debt-backlog/*.yaml` entries tagged `for-weekly-arch-review` (the debt-backlog is a directory of per-entry YAML, not a flat markdown file — see `docs/wiki/debt-backlog-schema.md`). The daily Sonnet observer (workday-complete Step 4c) flags candidates; this is where future-the Staff Engineer adjudicates them. A flag here is signal a single day's Sonnet thought worth an Opus look — treat it like input #2, but accumulated across the week rather than from the chunk reviewers.
 
 ### Output and disposition ladder
@@ -111,7 +111,7 @@ Any boundary-touching finding (module move, interface change, cross-system surfa
 
 The rotational architecture audit (`/architecture-audit`) is easy for the PM to forget. Step 7.6 makes it self-enforcing on two triggers:
 
-**Hard floor (automatic):** `python3 "$_cc_claude_klabauter/coordinator/bin/check-arch-audit-staleness.py"` (guarded trusted-root resolve; see CLAUDE-PLUGIN-ROOT-SOURCE-GUARD, `coordinator/docs/wiki/coordinator-tripwires/draft-plan-aging.md`; claude-klabauter resident post-b644d5a9) reads the `Last targeted audit` clock from `state/health-ledger.md`:
+**Hard floor (automatic):** `python3 "$_cc_claude_klabauter/coordinator/bin/check-arch-audit-staleness.py"` (guarded trusted-root resolve; see CLAUDE-PLUGIN-ROOT-SOURCE-GUARD, `coordinator/docs/wiki/coordinator-tripwires/draft-plan-aging.md` reads the `Last targeted audit` clock from `state/health-ledger.md`:
 - `STALE` (>10 days, or never targeted-audited with a ledger present) → auto-fold a **targeted-on-diff** audit this cycle.
 - `FRESH` → no fold.
 - `UNKNOWN` (no ledger / unparseable) → do NOT auto-fold; note it and move on.

@@ -131,7 +131,7 @@ def render_verdict_line(result: Optional[dict]) -> Optional[str]:
     elif verdict == vacant_verdict():
         held = f" ({holder})" if holder else ""
         tail = (
-            f"the session holding this watch{held} has exited, leaving its record behind. "
+            f"this watch's record{held} has no live holder. "
             "Nobody is watching. Arm one with /group-em."
         )
     else:

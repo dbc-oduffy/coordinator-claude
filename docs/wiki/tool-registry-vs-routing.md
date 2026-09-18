@@ -1,4 +1,3 @@
-<!-- Imported from X:/project-rag at SHA d376cb01. Inherited substrate; canonical lineage now in Claude Central. Source: project-rag/docs/... — sibling-repo layout doctrine now lives in this repo's own wiki (the meta-repo local-doctrine file this once pointed at is retired). --> <!-- foreign-path-ok: dated import provenance, not a current-location claim -->
 
 # Tool registry vs. routing — reconciled catalog
 

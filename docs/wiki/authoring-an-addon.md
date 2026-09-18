@@ -2,12 +2,10 @@
 title: Authoring an addon
 created: 2026-05-17
 status: active
-spec_backlink: docs/plans/2026-05-17-engine-rag-addon-contract.md
+spec_backlink: 2026-05-17-engine-rag-addon-contract.md under docs/plans/
 ---
 
-<!-- Imported from X:/project-rag at SHA d376cb01. Inherited substrate; canonical lineage now in Claude Central. Origin: project-rag/docs/... — sibling-repo layout doctrine now lives in this repo's own wiki (the meta-repo local-doctrine file this once pointed at is retired). --> <!-- foreign-path-ok: import provenance, not a current-location claim -->
 
-<!-- Spec backlink: docs/plans/2026-05-17-engine-rag-addon-contract.md §Component design -->
 
 # Authoring an addon
 
@@ -102,8 +100,6 @@ and semantics. The table in §1 above is the index; that wiki is the field refer
 
 ## 4. CorpusBand v13 field semantics
 
-<!-- See `addon-protocol.md §v13` and `docs/plans/2026-05-19-fusion-pipeline-n-lane.md`
-     for `default_weight`'s ownership model. -->
 
 `CorpusBand` is the façade type returned by `project_rag_register_corpus_provider`.
 All fields are declared in `core/addon_protocol.py`.

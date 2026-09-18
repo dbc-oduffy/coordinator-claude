@@ -64,12 +64,14 @@ not resolve".
 **Certification leg — runs first, and the bypass below does not reach it.** Plan-sourced items
 only; an item with no plan has nothing to certify and is not refused for it. One revalidation
 step, two ordered legs: recompute the plan body sha against `mise_prepped_sha` (pure, spawn-free);
-only if that passes, re-run each `census[].command` and diff against `result`. Fire on CERTIFIED
-alone. STALE → re-gate (`python3 "${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}/bin/mise-prep-gate.py" <plan>`), then re-stamp;
+only if that passes, re-run each `census[].command` and diff against `result`. Fire on sha-leg
+CERTIFIED with no entry-level census DRIFT; an unclosed census leg (`UNDECIDABLE` / `REFUSED` /
+`UNRUNNABLE`, per-entry or rolled up) does not block the fire — record it as a named,
+non-blocking finding in the Phase 1 ledger. STALE → re-gate (`python3 "${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}/bin/mise-prep-gate.py" <plan>`), then re-stamp;
 UNSTAMPED → gate and stamp; MALFORMED → a hand-written stamp, repair the frontmatter; census
 drift → the premise moved, re-plan. **Name the state** — "not certified" sends an author to the
 wrong repair. A handoff can assert executability; it cannot assert a sha. States, recipe and the
-four repairs: `docs/wiki/mise-prepped-attest.md`.
+four repairs: `coordinator/docs/wiki/mise-prepped-attest.md`.
 
 Bypass only if the invoking handoff asserts **executability** (not merely pickup-readiness) for
 the named items in its body — a stated stop condition or `deployment_state: awaiting_gate` always
@@ -121,7 +123,7 @@ to go compute it. Verdict `SOUND` | `BROKEN` | `UNREVIEWABLE`, naming the tell; 
 never refuses. `BROKEN` routes the item out of the wave with the tell named — the existing
 dropped-item behaviour. An item with no `falsifier` sub-object is not reviewed and is not a
 finding here. Inputs the phase marshals, and the blinding invariant that bounds them:
-`docs/wiki/falsifier-integrity.md`.
+`coordinator/docs/wiki/falsifier-integrity.md`.
 
 ## Phase 2: Sequence and Parallelize
 
@@ -280,7 +282,7 @@ check, anti-vacuity gate, diff freeze, inventory archival (COMPLETE only), track
   under the seven landing rules in the wiki. Every candidate — revoked, accepted, refused,
   unadjudicated — lands in `state/mise-inventory/<run-id>-adjudication.md`. Any `unadjudicated`
   candidate makes the phase INCOMPLETE, and the verdict line may not read COMPLETE while it is.
-  Enforcement detail: `docs/wiki/subtractive-adjudication.md`.
+  Enforcement detail: `coordinator/docs/wiki/subtractive-adjudication.md`.
 - **Exhaustion check** (live disposition ledger): COMPLETE if every item terminal
   (PASSed/routed-out/already-fixed/dropped), else CONTINUANCE — wording only, tail always runs
   full. Three inputs force CONTINUANCE regardless of the item ledger: an aggregate PARTIAL-FIRE

@@ -26,7 +26,7 @@ duplicate or restate the superseded text elsewhere.
 opposite of what stood before, not merely a refinement, narrowing, or correction of the same
 ruling.
 
-This is why `DR-088` (test-breadth ladder) carries seven-plus amendment sections rather than a
+This is why the test-breadth-ladder decision carries seven-plus amendment sections rather than a
 chain of superseding records: none of R1–R10 nor the later amendments reversed the tiered-
 invocation-authority ruling itself, each refined or extended it.
 
@@ -39,12 +39,6 @@ invocation-authority ruling itself, each refined or extended it.
 Do not use created-date, DR-number ordering, or "the newest passage wins" as the discriminator —
 `status:` is the only field that says whether a record is live.
 
-## Reading DR-numbers from a peer repo
-
-`docs/decisions/` in this repo holds 195+ files; the highest local number is DR-189 (DR-190
-being the record that ratified this page). A `DR-` citation numbered higher than that, or
-matching a record that does not exist locally, is a **claude-klabauter-plane record**, not a typo or a
-missing file here — do not go looking for it in this tree.
 
 ## Negative spec
 

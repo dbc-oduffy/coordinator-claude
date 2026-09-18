@@ -29,8 +29,25 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _is_swept_tmp_root(path: str) -> bool:
+    """Mirrors `cli_shared._is_swept_tmp_root` (bin/lib) -- see that module's
+    docstring. Deliberately duplicated rather than imported: this module's
+    bootstrap is order-sensitive (see `_isolation_root`'s own docstring), and
+    forcing `cli_shared` on before `_bootstrap_imports()` runs would re-resolve
+    the registry inside a caller's env-stripped window.
+    """
+    try:
+        real = os.path.realpath(path)
+        tmp = os.path.realpath(tempfile.gettempdir())
+    except OSError:
+        return False
+    under_tmp = real == tmp or real.startswith(tmp + os.sep)
+    return under_tmp and not os.path.isdir(path)
 
 
 def _bootstrap_imports() -> None:
@@ -79,6 +96,18 @@ def _isolation_root(env_var: str, caller_name: str) -> str | None:
     if not value:
         return None
     if os.environ.get("PYTEST_CURRENT_TEST"):
+        if _is_swept_tmp_root(value):
+            # A live tmp_path fixture always exists on disk; one that is gone is a
+            # snapshot a long-lived process inherited from a torn-down test.
+            print(
+                f"error: {caller_name}: refusing dedup scan under {env_var}="
+                f"{value!r} — this test-isolation root resolves under the "
+                f"system temp directory and no longer exists (a swept pytest "
+                f"tmp_path, inherited by a long-lived process). Unset "
+                f"{env_var} before invoking {caller_name} outside a test.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         return value
     # WARNS EVERY TIME, not once. The dedup set that used to live at module
     # scope made this warn-once-per-PROCESS, and this name warm-serves: in a

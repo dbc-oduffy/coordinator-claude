@@ -1,10 +1,8 @@
 # Cruft-sweep cadence
 
-<!-- distilled: run 2026-07-19-synth; sources: 2026-06-09-distill-cruft-sweep.md, archive/specs/2026-06/2026-06-15-workstream-complete-self-clean.md -->
 
-<!-- Spec backlink: archive/specs/2026-06/2026-06-09-distill-cruft-sweep.md § C5 -->
 
-Filesystem hygiene is a distinct lifecycle from knowledge extraction (`/distill`) and artifact pruning (`/update-docs` Phase 8b). `/distill` extracts actionable signal from completed work; Phase 8b prunes stale plan/report artifacts from `tasks/`; neither touches the three classes of filesystem residue that accumulate silently between sessions — harness state under `~/.claude/`, in-repo scratch dirs created by agents, and parent-folder orphans at `X:\` / `E:\dev\`. <!-- foreign-path-ok: naming the Class 3 detection shape this system targets --> The cruft-sweep system handles these with a **three-layer design**: a non-agentic script (Layer 1) that runs on a scheduler and covers mechanical age + name + fingerprint cases without requiring PM attention, an on-demand skill (Layer 2) that handles judgment-needed cases and the broader registry-diff scan, and a front-line EM-judgment step (Layer 3) at `/workstream-complete` that disposes of session-authored scratch with fresh context, before Layers 1 and 2 ever see it.
+Filesystem hygiene is a distinct lifecycle from knowledge extraction (`/distill`) and artifact pruning (`/update-docs` Phase 8b). `/distill` extracts actionable signal from completed work; Phase 8b prunes stale plan/report artifacts from `tasks/`; neither touches the three classes of filesystem residue that accumulate silently between sessions — harness state under `~/.claude/`, in-repo scratch dirs created by agents, and parent-folder orphans at the checkout's parent directory. <!-- foreign-path-ok: naming the Class 3 detection shape this system targets --> The cruft-sweep system handles these with a **three-layer design**: a non-agentic script (Layer 1) that runs on a scheduler and covers mechanical age + name + fingerprint cases without requiring PM attention, an on-demand skill (Layer 2) that handles judgment-needed cases and the broader registry-diff scan, and a front-line EM-judgment step (Layer 3) at `/workstream-complete` that disposes of session-authored scratch with fresh context, before Layers 1 and 2 ever see it.
 
 ## Three classes of cruft
 
@@ -12,13 +10,13 @@ Filesystem hygiene is a distinct lifecycle from knowledge extraction (`/distill`
 
 **Class 2 — In-repo scratch.** Agent-created directories with cruft-name anchors inside a repo tree: `tmp-cc/`, `nonexistent/`, `fake/`, single-character names `[a-z]/`, and chain'd identical-segment paths like `z/z/z/`. These are name-anchored (identity is in the name, not the content) and age-gated (> 7 days mtime). The gate also requires the path to be git-untracked and not inside a `.git/` boundary. Confirm-needed names (`tmp/`, `scratch/`, `output/`) are context-dependent — Layer 1 reports them; Layer 2 confirms.
 
-**Class 3 — Parent-folder orphans.** Directories at `X:\` and `E:\dev\` <!-- foreign-path-ok: naming the Class 3 detection shape --> that exist because an agent ran `mkdir -p nonexistent/...` from inside a repo, escaping the repo tree. These require a **conjoint gate**: name must match the literal cruft list AND contents must fingerprint as sonnet defaults (`vector/store/chroma.sqlite3`, `project/Saved/ProjectRag/vector_store/chroma.sqlite3`, lone `mcp_queries.jsonl`). Broader registry-diff (detecting dirs that are neither sibling repos nor known working areas) is a Layer 2 judgment operation — Layer 1 touches only the fingerprint-confirmed cases.
+**Class 3 — Parent-folder orphans.** Directories at the checkout's parent altitude that exist because an agent ran `mkdir -p nonexistent/...` from inside a repo, escaping the repo tree. These require a **conjoint gate**: name must match the literal cruft list AND contents must fingerprint as sonnet defaults (`vector/store/chroma.sqlite3`, `project/Saved/ProjectRag/vector_store/chroma.sqlite3`, lone `mcp_queries.jsonl`). Broader registry-diff (detecting dirs that are neither sibling repos nor known working areas) is a Layer 2 judgment operation — Layer 1 touches only the fingerprint-confirmed cases.
 
 ## Three-layer design
 
 **Layer 1 — claude-klabauter `coordinator/bin/cruft-sweep` (non-negotiable floor).** A non-agentic naked-Python script (bash-to-Python port, 2026-07 de-bash campaign) that runs on mechanical criteria: age, name, and content fingerprint. It is cron-safe, pure-stdlib cross-platform portable (Windows/.cmd launcher, macOS, Linux), lock-protected against concurrent invocations, and idempotent. Two install legs ship with the coordinator: `/workday-start` Step 1.11 runs `--dry-run --quiet` to surface the morning advisory, and `/workday-complete` Step 1.5 runs `--apply --quiet` to sweep the mechanical floor at end-of-day. Operators may additionally schedule `--apply --quiet` on a higher threshold via cron / Task Scheduler for days when Claude Code is not opened, but that is optional layering on top of the in-session install. Layer 1 is the backstop that ensures boundless accumulation cannot occur even when the PM does not invoke the skill.
 
-**Layer 2 — `/cruft-sweep` skill (on-demand judgment layer).** A skill that dispatches a read-only Sonnet scout for confirm-needed items (Class 2 `tmp/`, `scratch/`, `output/` — context-dependent) and for the broader Class 3 registry-diff scan against `the sibling-repo registry (`machine-local get repos.<key>`)`. Findings are surfaced via batched `AskUserQuestion` in offer-shape: each finding leads with the reclaim opportunity (_"Reclaim 240 MB by pruning `X:\nonexistent\` (sonnet-fingerprint vector store, mtime 8d)? [y/N/inspect]"_) — not with a violation warning. <!-- foreign-path-ok: illustrative offer-shape banner text, not a live path --> Layer 2 reads the Layer 1 sweep log to surface cadence context; it does NOT re-walk the tree — it consumes the `--dry-run --json` JSONL wire output from Layer 1.
+**Layer 2 — `/cruft-sweep` skill (on-demand judgment layer).** A skill that dispatches a read-only Sonnet scout for confirm-needed items (Class 2 `tmp/`, `scratch/`, `output/` — context-dependent) and for the broader Class 3 registry-diff scan against `the sibling-repo registry (`machine-local get repos.<key>`)`. Findings are surfaced via batched `AskUserQuestion` in offer-shape: each finding leads with the reclaim opportunity (_"Reclaim 240 MB by pruning `<parent>/nonexistent/` (sonnet-fingerprint vector store, mtime 8d)? [y/N/inspect]"_) — not with a violation warning. <!-- foreign-path-ok: illustrative offer-shape banner text, not a live path --> Layer 2 reads the Layer 1 sweep log to surface cadence context; it does NOT re-walk the tree — it consumes the `--dry-run --json` JSONL wire output from Layer 1.
 
 <!-- src: plan15-035 -->
 **Layer 1 → Layer 2 wire contract.** Each `--dry-run --json` invocation emits one JSONL row per candidate with the fields `{class, path, name, size_bytes, mtime, disposition, evidence}`, where `disposition ∈ {auto-prune, confirm-needed, skip}`. Layer 2 consumes this stream directly and dispatches its confirm-needed judgment pass only on rows where `disposition == confirm-needed` — it never re-derives class/name/fingerprint membership itself. This keeps the two layers from drifting on what counts as a candidate: Layer 1 owns candidate identification, Layer 2 owns judgment on the subset Layer 1 flags as ambiguous.
@@ -120,7 +118,7 @@ These surfaces are excluded at all layers, regardless of name or fingerprint mat
 
 - Dirs whose path contains a `state/` segment
 - `docs/` and `docs/wiki/` trees
-- `docs/research/*-workdir/` — explicit (transitively covered by the `docs/` rule above; named here as belt-and-suspenders so future contributors don't introduce a sweep that re-enters the kill-zone via a refactor of the `docs/` rule). See RD-1 in `docs/plans/2026-06-14-deep-research-workdir-out-of-killzone.md`.
+- `docs/research/*-workdir/` — explicit (transitively covered by the `docs/` rule above; named here as belt-and-suspenders so future contributors don't introduce a sweep that re-enters the kill-zone via a refactor of the `docs/` rule). See RD-1 in `2026-06-14-deep-research-workdir-out-of-killzone.md` under `docs/plans/`.
 - `archive/` trees
 - Any directory containing `CLAUDE.md` at its root (the sibling `CLAUDE.local.md` file class this
   exclusion once also named has since been retired)
@@ -190,9 +188,9 @@ A one-off sweep measured the scale of the problem:
 
 The 2.6 GB recovered came almost entirely from the 14-day harness prune (Class 1). Class 3 fixtures confirmed in the sweep:
 
-- `X:\nonexistent\` — sonnet vector-store fingerprint (`vector/store/chroma.sqlite3`), chain'd `z/z/z/` subdirectory <!-- foreign-path-ok: historical fixture from a real Class 3 sweep -->
-- `X:\rename-to-unreal-daemon.md` — orphan markdown at parent altitude (confirm-needed; not auto-pruned) <!-- foreign-path-ok: historical fixture from a real Class 3 sweep -->
-- `X:\working-memory.md` — same shape as above <!-- foreign-path-ok: historical fixture from a real Class 3 sweep -->
+- `<parent>/nonexistent/` — sonnet vector-store fingerprint (`vector/store/chroma.sqlite3`), chain'd `z/z/z/` subdirectory <!-- foreign-path-ok: historical fixture from a real Class 3 sweep -->
+- `<parent>/rename-to-unreal-daemon.md` — orphan markdown at parent altitude (confirm-needed; not auto-pruned) <!-- foreign-path-ok: historical fixture from a real Class 3 sweep -->
+- `<parent>/working-memory.md` — same shape as above <!-- foreign-path-ok: historical fixture from a real Class 3 sweep -->
 
 The orphan markdown cases illustrate why Layer 2 exists: they do not match the fingerprint gate, so Layer 1 skips them. Layer 2's registry-diff surfaces them as candidates for PM-confirmed deletion.
 
@@ -233,7 +231,7 @@ checkpoint anchors; sweeping them breaks lineage queries.
 **Sonnet-scratch name patterns (Layer 1 auto-prune candidates).** Default
 agent-created cruft names: `tmp/`, `tmp-cc/`, `nonexistent/`, `fake/`,
 `scratch/`, `test-output/`, `untitled*/`, `output/`, single-char `[a-z]/`,
-chain'd identical `z/z/z/`. Also parent-folder orphans at `X:\` / `E:\dev\` <!-- foreign-path-ok: naming the Class 3 detection shape -->
+chain'd identical `z/z/z/`. Also parent-folder orphans at the checkout's parent altitude
 with fingerprints like `vector/store/chroma.sqlite3` and lone
 `mcp_queries.jsonl`. **Auto-prune gate is class-specific — see § Name list
 (Layer 1 auto-prune) above for the authoritative table; this paragraph does

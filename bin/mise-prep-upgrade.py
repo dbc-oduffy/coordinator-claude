@@ -95,6 +95,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
+GENERATES = []  # rewrites the plan document named by its caller in place — a data-dependent target chosen per invocation, not a fixed emitted artifact with sources to be stale against
+
 EXIT_CLEAN = 0
 EXIT_RESIDUE = 1
 EXIT_USAGE = 2

@@ -74,9 +74,8 @@ coverage_score: 5  # 1 = major holes ... 5 = comprehensive
 Severity: HIGH (changes conclusions), MEDIUM (adds meaningful depth), LOW (cosmetic). Type:
 `absent_claim`, `contradiction`, `uncorroborated`, `contested`, `coverage_imbalance`.
 
-**Also write a durable copy** to `docs/research/{run-stem}-gap-report.md` (`{run-stem}` =
-`{output-path}` minus its `docs/research/` prefix and `.md` suffix) — enumerated by
-`query-records --type gap-report`.
+**Also write a durable copy** to `docs/research/{run-stem}-gap-report.md` (`{run-stem}` per
+§ Completion) — enumerated by `query-records --type gap-report`.
 
 ### Phase 2: Fill Negative Space
 
@@ -154,7 +153,7 @@ coverage_score: {N}  # from Phase 1 gap-report (1-5 scale)
 ### Advisory Template (optional — only if substantive)
 
 Write to BOTH `{advisory-path}` AND `{scratch-dir}/advisory.md`. Every section is optional — omit
-those with nothing to say; include at least one section or skip the file entirely.
+those with nothing to say; include at least one, or skip the file entirely.
 
 ```markdown
 # Sweep Advisory — {Topic}
@@ -231,9 +230,9 @@ For each specialist who contributed findings to the synthesis:
 
 When your prompt includes `[MERGE_MODE: true]`, you are the sweep agent for a deepening pass
 (Team 2): Team 1 already produced a synthesis, and your job is a delta document, not a
-replacement. You'll receive Team 1's synthesis (current document at the output path), Team 1's
-gap report (the targets you're helping fill), and Team 2 gap-specialist outputs
-(`D-{letter}-claims.json` + `D-{letter}-summary.md`).
+replacement. Inputs: Team 1's synthesis (current document at the output path), Team 1's gap report
+(the targets you're helping fill), and Team 2 gap-specialist outputs (`D-{letter}-claims.json` +
+`D-{letter}-summary.md`).
 
 **Modified phases:**
 
@@ -288,21 +287,20 @@ re-rank, drop, or add a claim; never alter a field's meaning. But two mechanical
 yours, because `claims-emit` validates per record and rejects the whole batch on the first
 offender: **strip every null-valued key** (an optional field carries a scalar of its declared
 type or is absent — never `null`), and **flatten any dict or list found in a string-typed field
-to prose**. A specialist emitting `"counter_evidence": null` is the known producer defect; passing
-it through fails the emission and costs the EM the repair.
+to prose**. `"counter_evidence": null` is the known producer defect; passing it through fails the
+emission and costs the EM the repair.
 
 **Do not report `ran_at` — you have no clock.** Your `tools` list grants no shell, so any
 timestamp you produce is an estimate wearing a measured value's format, and `claims-emit`
-validates only its *shape*. The merge moment is recorded for you as the mtime of
-`{scratch-dir}/merged-claims.json` the instant you write it; the EM reads that. If you find
-yourself about to state a time, state instead that you wrote the merged array — that IS the
-stamp.
+validates only its *shape*. The merge moment is the mtime of `{scratch-dir}/merged-claims.json`,
+which the EM reads. About to state a time? State instead that you wrote the merged array — that IS
+the stamp.
 
 **Completion steps:** (1) write the final document to the output path AND
 `{scratch-dir}/synthesis.md` (normal mode) or `{scratch-dir}/deepening-delta.md` (merge mode);
 (2) write the merged array to `{scratch-dir}/merged-claims.json` (normal mode
-only) — writing it IS the `ran_at` stamp, via its mtime; (3) confirm the durable gap-report exists, writing it if missing (normal mode
-only); (4) write advisory to `{advisory-path}` AND `{scratch-dir}/advisory.md` if applicable;
+only) — that write IS the `ran_at` stamp; (3) confirm the durable gap-report exists, writing it if
+missing (normal mode only); (4) write advisory to `{advisory-path}` AND `{scratch-dir}/advisory.md` if applicable;
 (5) mark your task completed via TaskUpdate; (6) send a brief completion message to the EM ("No
 advisory" if skipped; "Durable: {run-stem}.md + -gap-report.md. Merged claims:
 {scratch-dir}/merged-claims.json, pipeline: web") — no `ran_at`; the EM takes it from the

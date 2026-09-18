@@ -4,9 +4,6 @@ created: 2026-05-28
 author: coordinator-em
 status: active
 kind: wiki
-spec-backlink:
-  - docs/plans/2026-05-28-shared-install-divergence-primitive-lift.md § C4
-  - docs/plans/2026-06-09-classifier-polarity-disambiguation.md § C4
 related:
   - claude-klabauter coordinator/bin/check-install-divergence.py
   - claude-klabauter coordinator/bin/install-sentinel-write
@@ -23,6 +20,7 @@ keywords:
   - doctrine-version sentinel
   - agentic install
 ---
+
 
 # Agentic Install Integrity
 
@@ -76,7 +74,7 @@ copy_install drift is detected and remediated in the drift-audit primitives, see
 by a single LF byte (`\n`). No other content. No trailing spaces. No BOM.
 
 ```
-e3b0c44298fc1c149afbf4c8996fb92427ae41e4\n
+<40-hex-source-head-sha>\n
 ```
 
 **Encoding.** UTF-8. Because the content is pure ASCII hexadecimal, the encoding is
@@ -246,9 +244,7 @@ comparing the settings-home copy against source, auto-repairable under `--fix` �
 from a single authoritative source clears doctor's own repair-safety bar, which bars only
 bidirectionally-synced files. That is detect-and-repair, not class-retirement; the structural
 alternative (bootstrap-plus-live-load, retiring the class) was cut at sizing as a scope call, not
-a technical verdict — see
-`state/improvement-queue/2026-08-14-shrink-settings-home-shim-to-bootstrap-load-resolver-live.yaml`.
-
+a technical verdict.
 ---
 
 ## Cross-Tool Discipline
@@ -293,7 +289,7 @@ routes the guidance). The publish-side C3 sentinel addresses a different surface
 consumers who `git pull` the publish-repo directly).
 
 **Adjacent prior art.** The shipped `2026-05-28-forward-drift-probe-content-equivalence.md`
-plan (commit 6ae3493b) is adjacent prior art: `check-plugin-drift.py` now performs content-equivalence fallback when
+plan is adjacent prior art: `check-plugin-drift.py` now performs content-equivalence fallback when
 `sentinel != source HEAD`, so the sentinel-write primitive in this plan feeds a reader that can
 already distinguish "git-propagated current content with stale sentinel" from "genuinely stale
 install." Our writer feeds an already-richer reader.
@@ -302,7 +298,6 @@ install." Our writer feeds an already-richer reader.
 
 ## Polarity disambiguation in `consumer_modified`
 
-<!-- Spec backlink: archive/specs/2026-06/2026-06-09-classifier-polarity-disambiguation.md § Mechanism / § Chunks/C4 -->
 
 The `consumer_modified` bucket indicates that both the live install and the incoming source have
 diverged from the baseline — but it does not by itself say *which side moved*. This matters for
@@ -402,7 +397,6 @@ script exercising the polarity routing rule) lives in the example-game-repo repo
 Example-game-repo-em's adoption of the polarity routing rule per the 2026-06-09 `kind: ask` memo.
 Adoption status: pending (memo just sent; receiver disposition open).
 
-Spec backlink: `archive/specs/2026-06/2026-06-09-classifier-polarity-disambiguation.md` § Mechanism / § Chunks/C4.
 
 ---
 

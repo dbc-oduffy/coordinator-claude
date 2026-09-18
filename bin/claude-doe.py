@@ -120,6 +120,41 @@ import sys
 from pathlib import Path, PureWindowsPath
 
 
+def _is_console_python_basename(path: str) -> bool:
+    """True if `path`'s basename names a console CPython interpreter.
+
+    Inline mirror of `coordinator/bin/lib/python_interp.py ::
+    is_console_python_basename` -- source of truth there, pinned by C6's
+    parity test. Kept inline (not imported) because this wrapper is
+    installed STANDALONE and cannot import a sibling lib (see
+    `_machine_local_argv`'s docstring, same constraint, same reason).
+    """
+    stem = os.path.splitext(os.path.basename(path))[0].lower()
+    return stem.startswith("python") and not stem.startswith("pythonw")
+
+
+def _resolve_console_python() -> str | None:
+    """Resolve a real CPython interpreter, never a non-python launcher exe.
+
+    Inline mirror of `coordinator/bin/lib/python_interp.py ::
+    resolve_console_python` -- source of truth there, pinned by C6's parity
+    test. Kept inline (not imported) because this wrapper is installed
+    STANDALONE and cannot import a sibling lib (see `_machine_local_argv`'s
+    docstring, same constraint, same reason).
+    """
+    exe = sys.executable or ""
+    if _is_console_python_basename(exe):
+        return exe
+    base = getattr(sys, "_base_executable", None)
+    if base and _is_console_python_basename(base):
+        return base
+    for name in ("python3", "python"):
+        found = shutil.which(name)
+        if found:
+            return found
+    return None
+
+
 def _machine_local_argv(ml_bin: str) -> list[str]:
     """Windows-safe invocation argv for the resolved machine-local CLI.
 
@@ -137,7 +172,9 @@ def _machine_local_argv(ml_bin: str) -> list[str]:
     """
     impl = os.path.join(os.path.dirname(os.path.abspath(ml_bin)), "_machine_local.py")
     if os.path.isfile(impl):
-        return [sys.executable, impl]
+        interpreter = _resolve_console_python()
+        if interpreter is not None:
+            return [interpreter, impl]
     return [ml_bin]
 
 
@@ -446,6 +483,48 @@ def _resolve_stamped_engine_root() -> str | None:
     return None
 
 
+def _resolve_plugin_root(coord_path: str) -> str | None:
+    """Map a resolved DoE-clone root onto the coordinator-claude PLUGIN dir
+    (the one `--plugin-dir` wants), deciding nested-vs-flat by MARKER, never
+    by path shape.
+
+    Inline mirror of `coordinator_core.coordinator_root ::
+    _resolve_plugin_root_for_machine_local` -- source of truth there, adopted
+    by `coordinator_core.install._shared :: _repo_to_coordinator_content_root`
+    in 79d0dbd719. Kept inline (not imported) because this wrapper is
+    installed STANDALONE and cannot import coordinator_core (see
+    `_machine_local_argv`'s docstring, same constraint, same reason).
+
+    Two accepted layouts:
+      - nested (DoE dev-clone): plugin payload lives under `<root>/coordinator`.
+      - flat (published OSS/marketplace clone, claude-klabauter#6 / DoE F7):
+        the plugin payload IS the repo root.
+
+    Probes for the artifact `--plugin-dir` actually needs
+    (`templates/bin/_machine_local.py`) under each candidate first, then falls
+    back to the flat marketplace marker (`.claude-plugin/plugin.json`) for a
+    published clone that ships no templates/bin. Returns None when NEITHER
+    layout's marker is present -- the caller then knows the clone predates
+    the coordinator/ cutover (or is not a coordinator-claude clone at all)
+    rather than silently guessing a path that does not exist.
+
+    Deliberately does NOT accept a bare `<root>/coordinator` directory by
+    `isdir` alone the way `coordinator_core.data_root.content_root_for` does
+    for its own, looser, ~45-call-site "content root" question — a nested
+    `coordinator/` dir with no plugin payload in it is not a clone this
+    launcher can resolve `--plugin-dir` against, and `gen_doe_root_pointer.py`
+    already fails CLOSED on exactly that shape via the same engine twin this
+    function mirrors (claude-klabauter#6 conflict resolution, 2026-09-18).
+    """
+    coord = Path(coord_path)
+    for candidate in (coord / "coordinator", coord):
+        if (candidate / "templates" / "bin" / "_machine_local.py").is_file():
+            return str(candidate)
+    if (coord / ".claude-plugin" / "plugin.json").is_file():
+        return str(coord)
+    return None
+
+
 def _resolve_doe_clone(cli_doe_root: str = "") -> str | None:
     """Resolution order documented in the module header. Returns the clone
     root path, or None with a fail-loud message already written to stderr.
@@ -571,15 +650,19 @@ def _resolve_doe_clone(cli_doe_root: str = "") -> str | None:
     # which runs a python-source file regardless of on-disk name and sidesteps the
     # Windows .cmd/extensionless CreateProcess exec traps (same principle as
     # _machine_local_argv above). Supersedes the stale Review-F7 note that assumed
-    # the resolver's de-bash port had not yet happened.
+    # the resolver's de-bash port had not yet happened. `sys.executable` on its own
+    # is not trustworthy here (a forwarder-shaped launcher exe re-enters its own
+    # argv parsing with the script as an unknown positional and still exits 0) --
+    # go through `_resolve_console_python` (see its docstring) instead.
     home_for_shim = _resolve_home_for_clone_shim()
     fallback = ""
-    if home_for_shim is not None:
+    interpreter = _resolve_console_python()
+    if home_for_shim is not None and interpreter is not None:
         cc_home = Path(home_for_shim) / ".claude"
         resolver = cc_home / "bin" / "resolve-coordinator-clone"
         try:
             result_r3 = subprocess.run(
-                [sys.executable, str(resolver), "--clone-root"],
+                [interpreter, str(resolver), "--clone-root"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 text=True,
@@ -703,10 +786,30 @@ def main(argv: list[str]) -> int:
         sys.stderr.write("  Then: python3 <engine-clone>/scripts/setup.py\n")
         return 1
 
-    doe_coordinator = os.path.join(doe_clone, "coordinator")
+    # Marker-based, not path-shape: a nested DoE dev-clone nests the plugin
+    # payload under <clone>/coordinator, but a flat published OSS/marketplace
+    # clone (claude-klabauter#6 / DoE F7) carries it at the clone root itself.
+    # Guessing "always append coordinator" resolved every flat clone to a
+    # nonexistent directory and failed closed with a misleading "pull" hint.
+    resolved_plugin_root = _resolve_plugin_root(doe_clone)
+    doe_coordinator = resolved_plugin_root if resolved_plugin_root is not None else os.path.join(doe_clone, "coordinator")
     if not os.path.isdir(doe_coordinator):
-        sys.stderr.write(f'claude-doe: DoE coordinator/ dir not found at "{doe_coordinator}"\n')
-        sys.stderr.write(f'  Remediation: git -C "{doe_clone}" pull   (clone predates the coordinator/ cutover)\n')
+        sys.stderr.write(
+            f'claude-doe: no coordinator content root under "{doe_clone}" — neither '
+            f'"{os.path.join(doe_clone, "coordinator")}" (nested dev-clone payload) nor '
+            f'"{os.path.join(doe_clone, ".claude-plugin", "plugin.json")}" (flat OSS/marketplace marker)\n'
+        )
+        if resolved_plugin_root is None:
+            # Neither accepted layout's marker is present — the historical
+            # cutover case this message was written for.
+            sys.stderr.write(f'  Remediation: git -C "{doe_clone}" pull   (clone predates the coordinator/ cutover)\n')
+        else:
+            sys.stderr.write(
+                "  Remediation: re-run python3 <engine-clone>/scripts/setup.py, or confirm "
+                f'"{doe_clone}" is a coordinator-claude clone -- either a nested dev-clone '
+                "(payload under coordinator/) or a flat OSS/marketplace clone (payload at the "
+                "clone root)\n"
+            )
         return 1
 
     if dry_run:

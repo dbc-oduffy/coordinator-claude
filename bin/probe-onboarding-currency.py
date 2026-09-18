@@ -73,13 +73,15 @@ def _resolve_plugin_root() -> str | None:
     caller always does — see that module's _currency_plugin_root()). Otherwise
     resolves via doe_root() (coordinator/bin/lib/coordinator_registry.py:
     DOE_ROOT env -> REPO_DOE_CLAUDE env -> machine-local repos.doe_claude) and
-    returns <doe_root()>/coordinator.
+    returns the coordinator content root inside it, either layout
+    (coordinator_data_root.content_root_for).
 
     Does NOT derive from this trampoline's own __file__ location (see module
     docstring's "Plugin-root resolution note" for why self-location broke).
 
     Returns None (never raises, never sys.exit) when doe_root() is
-    unresolvable — this probe's contract (module docstring) is never-block:
+    unresolvable, or when the resolved root holds no coordinator content root
+    — this probe's contract (module docstring) is never-block:
     an unresolvable root must degrade to inconclusive(...)/exit 0 like every
     other soft-infra failure here, not fail loud the way a CI gate script
     would. Every real caller (lib/detect-onboarding-offer.py) treats a
@@ -89,11 +91,16 @@ def _resolve_plugin_root() -> str | None:
     if override:
         return override
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_data_root import content_root_for
     from coordinator_registry import _DoeUnresolvable, doe_root
     try:
-        return os.path.join(doe_root(), "coordinator")
+        resolved = doe_root()
     except _DoeUnresolvable:
         return None
+    # Either content layout — the published flat mirror carries
+    # coordinator-schema-version at its own root, no "coordinator" segment.
+    content = content_root_for(resolved)
+    return str(content) if content is not None else None
 
 
 def _import_main():

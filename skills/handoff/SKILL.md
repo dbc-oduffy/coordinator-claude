@@ -96,14 +96,14 @@ and a re-point — so a handoff authored under compaction pressure buys nothing 
 hand anyone. Append what the post-compaction self needs to the baton this session already has
 (`baton.carry_forward`; the context-pressure advisory names the path), and continue the run. The
 engine selects this posture with no configuration —
-`${CLAUDE_PLUGIN_ROOT}/docs/wiki/coordinator-tripwires/tripwire-registry/a-mode-default-can-be-answered-by-the-environment.md`;
+`coordinator/docs/wiki/coordinator-tripwires/tripwire-registry/a-mode-default-can-be-answered-by-the-environment.md`;
 tripwire `A-HANDOFF-NAG-ASSUMES-A-SUCCESSOR-THAT-IS-CHEAP-TO-REACH`.
 A PM ask still self-authorizes a handoff anywhere, and a blocked next action is still a blocked
 next action.
 
 **Trigger 4 (review-owed close) is an instance of this same blocked-next-action skip, not a
 second discharge.** The ratified closed class of un-runnable-here reasons is stated once, at
-`${CLAUDE_PLUGIN_ROOT}/docs/wiki/coordinator-tripwires/two-ceremonies-two-predicates-one-handover.md`
+`coordinator/docs/wiki/coordinator-tripwires/two-ceremonies-two-predicates-one-handover.md`
 (which cites its own ruling record) — this is a citation, not a restatement; that tripwire is the
 source, this roster is reproduced inline only so an EM deciding whether trigger 4 fires is not
 forced to open a second file to learn what the class contains. Trigger 4 qualifies only when the

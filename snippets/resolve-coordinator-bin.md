@@ -226,8 +226,10 @@ name, no `.exe`. Take rung 1 or 3, never a different resolution mechanism.
 walks the ENGINE's bin, so a script that lives only in the doctrine repo's `coordinator/bin/` gets
 no launcher, ever. Cite it against the **plugin root**, never cwd-relative: a bare
 `coordinator/bin/<cli>.py` resolves only in a session whose cwd is the doctrine repo, and a ceremony read
-from a consumer repo gets `can't open file`. The prescribed rung, correct under both the dev-tree
-and OSS-plugin-install layouts:
+from a consumer repo gets `can't open file`. **This set does not publish:** the mirror row sources
+`bin/` wholly from the engine, so a coordinator-claude + klabauter consumer has none of these
+scripts and no `.doe-root` it could set would supply them. The rung below works only where a
+doctrine-repo clone is on disk:
 
     _sh=${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}
     _doe_root=$(cat "$_sh/machine-local/.doe-root" 2>/dev/null || cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)

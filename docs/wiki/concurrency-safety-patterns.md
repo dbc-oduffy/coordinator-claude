@@ -39,7 +39,6 @@ fail-loud on first collision, because its caller is designed to retry (a differe
 slug and resubmits). The discriminator is the caller's own retry contract, not the artifact type: same
 `O_EXCL` primitive, opposite failure posture, because the calling contexts differ.
 
-(Provenance: `docs/plans/2026-07-08-multi-collaborator-concurrency-safety-stub-1b.md`, archived.)
 
 ## Pattern: singleton-to-session-shard conversion for high-concurrency multi-writer artifacts
 
@@ -57,7 +56,6 @@ as a different severity class from a permanent silent-data-loss singleton with m
 render-from-structured-queue redesign (derive the rollup from an underlying append-only source at read
 time) is the more proportionate fix, not shard-conversion.
 
-(Provenance: `docs/plans/2026-07-08-multi-collaborator-concurrency-safety-stub-1b.md`, archived.)
 
 ## Pattern: two overlapping-scan promoters need an explicit disjoint-WRITE argument, not just disjoint-decision
 
@@ -79,7 +77,6 @@ Argue safety explicitly via:
 Both must be present and stated as an explicit argument in the design — "the two promoters have
 disjoint decisions" alone is not a safety proof.
 
-(Provenance: `docs/plans/2026-07-11-consumed-in-flight-stub-shipped-stamp-propagation.md`, archived.)
 
 ## Pattern: baseline a concurrency/timing test 6+ times before attributing a failure to your change
 

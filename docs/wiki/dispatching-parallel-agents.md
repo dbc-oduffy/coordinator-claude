@@ -72,7 +72,7 @@ When dispatching N independent agents in background, you'll be notified as each 
 
 **Pass a bare command to `run_in_background` — no `nohup`, no trailing `&`.** `run_in_background: true` already detaches the process and hands the EM a poll handle. Wrapping the command in `nohup … &` double-detaches it: the harness loses the handle to the now-orphaned worker, so the EM can neither poll its status nor reap it on completion. The orphan keeps running with no completion signal. The background flag IS the detach mechanism; adding shell-level backgrounding on top severs the only channel the EM has back to the process. (observed empirically.)
 
-**A worker's own backgrounded command (`Bash run_in_background` inside a subagent's turn) is killed by the harness after 60 minutes by default — distinct from the EM's dispatch-sizing budget below.** Raise it via `CLAUDE_SUBAGENT_BG_SHELL_MAX_MS` (ms). Not the EM's own backgrounded commands, nor an `Agent run_in_background` worker — those sit under a separate 30-minute idle-pressure reap, not this one. A long build/test killed at 60 min is lost and reads identically to work still running (killed-vs-finished signalling is undocumented, not confirmed absent). Cite `state/reference/anthropic-docs/cli-using.md:282`. Before harness v2.1.218 neither reap covered a Ctrl+B-backgrounded command at all — older OSS installs have no ceiling here.
+**A worker's own backgrounded command (`Bash run_in_background` inside a subagent's turn) is killed by the harness after 60 minutes by default — distinct from the EM's dispatch-sizing budget below.** Raise it via `CLAUDE_SUBAGENT_BG_SHELL_MAX_MS` (ms). Not the EM's own backgrounded commands, nor an `Agent run_in_background` worker — those sit under a separate 30-minute idle-pressure reap, not this one. A long build/test killed at 60 min is lost and reads identically to work still running (killed-vs-finished signalling is undocumented, not confirmed absent).  Before harness v2.1.218 neither reap covered a Ctrl+B-backgrounded command at all — older OSS installs have no ceiling here.
 
 ## When to Use
 
@@ -1318,6 +1318,6 @@ own and still produces a green trail — a lost `blocked` reads as a clean close
 record. Tripwire: `AN-IDLE-SUBAGENT-HAS-NOT-NECESSARILY-FAILED`.
 
 **Do not build the recovery into a `SubagentStop` hook here.** Opening and interpreting a
-transcript is engine decision logic; this plane owns only the thin relay shim across the DR-047
+transcript is engine decision logic; this plane owns only the thin relay shim across the contract/engine
 seam, and `subagent-zero-tool-use-detect.py`'s AC7 pins that it never opens a transcript. Automatic
 recovery belongs in an engine op.

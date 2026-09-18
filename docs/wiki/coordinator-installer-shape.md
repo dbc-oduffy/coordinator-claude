@@ -36,8 +36,7 @@ audience you are shapes which flags and flows are operative.
 
 ### Internal users (example-game-repo team and other downstream consumers)
 
-**Who:** Teams where coordinator is a semi-hard prerequisite — chain step 5 per
-`docs/plans/2026-05-08-install-chain-readiness-coord-and-dr.md`. These callers may invoke
+**Who:** Teams where coordinator is a semi-hard prerequisite — chain step 5. These callers may invoke
 `/coordinator:install` programmatically from a setup wrapper (e.g. `scripts/example_game_repo_setup.sh`).
 
 **Operative constraints:**
@@ -220,7 +219,6 @@ For the producer-side row contract that example-game-repo-callable wrappers shou
 
 ## 5. Step Zero — preflight gate and env-normalization
 
-<!-- spec-backlink: docs/plans/2026-06-22-coordinator-env-normalization-step-zero.md -->
 
 Step Zero runs BEFORE Phase 1 of `/coordinator:install`. It gates the install on functional prerequisite verification and offers idempotent fixes for advisory failures.
 
@@ -253,7 +251,7 @@ longer applies anywhere in this surface: the former in-process bash-source bridg
 `scripts/lib/prereq_probe.sh` (`bash -c 'source ...'`) was retired on the
 2026-07-21 de-bash cutover — probe logic now runs in-process via the native
 `coordinator_core.install.prereq_probe` port. `scripts/lib/prereq_probe.sh` itself is **not**
-deleted — per DR-079 it remains on disk as the byte-stable vendor SSOT that
+deleted — per the de-bash contract it remains on disk as the byte-stable vendor SSOT that
 project-rag-ue-addon and deep-research vendor-and-source; only DoE's own bridge to it was
 retired ("MIGRATE, not PORT" — claude-klabauter owns the port, DoE + the vendored consumers migrate to
 the seam). Cross-ref: `cross-platform-shell-portability.md` § support matrix.
@@ -309,7 +307,7 @@ trail:
   in meta-repo `docs/plans/`; not bundled with the plugin) — seven chunks (C1–C7), file-overlap
   analysis, sequential gate order. The Staff Engineer review integrated prior to execution.
 
-- **Related wiki updates (commit `9527128d`):**
+- **Related wiki updates:**
   - `docs/wiki/plugin-identity-and-health-sentinels.md` — narrowed scope to
     runtime-queryable state, making the operator-configuration/runtime-identity distinction
     explicit (operator name is stable configuration, not runtime state).
@@ -370,8 +368,7 @@ The Central meta-repo (the DoE-claude clone as of the 2026-07 cutover) and the O
 > `.claude-plugin/marketplace.json`); install is via the native `claude plugin` CLI + post-restart
 > `/coordinator:install`, not a `setup/install.sh` script. The `setup/install.sh` row below is
 > retained as a legacy pointer — it is **not the OSS entry point** and is not shipped to
-> OSS `main`. See `docs/plans/2026-06-22-oss-install-flat-layout-cli-primary-migration.md`.
-
+> OSS `main`.
 | Artifact | Central | Publish-target |
 |---|---|---|
 | `setup/install.sh` | Absent | **Not shipped** (legacy/sandboxed manual fallback only — replaced by the `claude plugin` CLI + `/coordinator:install`) |
@@ -402,7 +399,6 @@ The `.doe-root` bootstrap pointer lives at the settings home (`<settings-home>/m
 
 ## 10. Durable Substrate Install Home — `~/.coordinator-claude-settings`
 
-<!-- spec-backlink: docs/plans/2026-07-06-durable-substrate-to-settings-home.md § Design + § Chunks C1–C8 -->
 
 As of 2026-07-06, `/coordinator:install` Phase 3 installs the durable coordinator substrate to a **settings home** that is a deliberate sibling to `~/.claude` — NOT inside `~/.claude`. The settings home is clone-mutation-independent: a user editing the coordinator-claude plugin clone cannot break example-game-repo's or project-rag's identity/config resolution.
 
@@ -435,7 +431,7 @@ All other coordinator-owned `~/.claude` content (harness-owned `settings.json`, 
 
 **`~/.claude/machine-local` symlink** — a realpath-symlink to `<settings-home>/machine-local/`. Consumer direct reads (e.g. `registry.local.toml`) resolve through the symlink unchanged. This one remains gated open; its own phase-2 tail is separate and still pending.
 
-**`~/.claude/bin/`** is not written by any installer path. The `bin/` resolver family's compat mirror (the installer's Step 3c-compat producer, plus its `compat_bin_dst` mkdir) is deleted (`docs/plans/2026-07-24-coordinator-owns-zero-claude-bin.md`, Gate 6): a fresh install writes forwarders to settings-home only, minting nothing into `~/.claude/bin`. `~/.claude/bin/machine-local` is not functional on a fresh install. All 5 consumers (example-game-repo, project-rag, project-rag-ue-addon, cockpit, claude-klabauter) confirmed migrated off the legacy `~/.claude/bin` surface before this producer was deleted, including `project-rag-ue-addon`'s absolute-path probe.
+**`~/.claude/bin/`** is not written by any installer path. The `bin/` resolver family's compat mirror (the installer's Step 3c-compat producer, plus its `compat_bin_dst` mkdir) is deleted (Gate 6): a fresh install writes forwarders to settings-home only, minting nothing into `~/.claude/bin`. `~/.claude/bin/machine-local` is not functional on a fresh install. All 5 consumers (example-game-repo, project-rag, project-rag-ue-addon, cockpit, claude-klabauter) confirmed migrated off the legacy `~/.claude/bin` surface before this producer was deleted, including `project-rag-ue-addon`'s absolute-path probe.
 
 ### Uninstall / teardown symmetry
 
@@ -454,7 +450,7 @@ Pre-existing installs may still carry real files under `~/.claude/bin` from befo
 
 ### project-rag:doctor hardcodes a machine-specific drive letter
 
-`project-rag:doctor` Step 1 hardcodes `"X:/project-rag"`. Violates "build for someone else's machine." Fix: `$(machine-local get repos.project_rag --default "")`. <!-- foreign-path-ok: the hardcoded path IS the anti-pattern being critiqued -->
+`project-rag:doctor` Step 1 hardcodes `"C:/project-rag"`. Violates "build for someone else's machine." Fix: `$(machine-local get repos.project_rag --default "")`. <!-- foreign-path-ok: the hardcoded path IS the anti-pattern being critiqued -->
 
 ### workstream-start --red-only is vacuous-pass eligible on fresh installs
 

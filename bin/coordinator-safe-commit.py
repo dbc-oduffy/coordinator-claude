@@ -3100,18 +3100,25 @@ def main(argv: Sequence[str]) -> None:
     # Self-heal orphaned git locks before any git operation. Best-effort:
     # non-zero rc is not fatal — git itself surfaces a real collision.
     # See docs/wiki/concurrent-em-hazards.md § H21.
-    # Review: code-reviewer — Finding 1: invoke via sys.executable, not the
-    # bare extensionless path, so this self-heal is Windows-invocable
-    # (CreateProcess has no shebang support; the old bare-path form raised
-    # FileNotFoundError there and was silently swallowed).
+    # Review: code-reviewer — Finding 1: invoke via the shared resolver's
+    # console interpreter, not the bare extensionless path, so this self-heal
+    # is Windows-invocable (CreateProcess has no shebang support; the old
+    # bare-path form raised FileNotFoundError there and was silently
+    # swallowed) — the resolver is what makes that note true.
     reap_script = os.path.join(SCRIPT_DIR, "coordinator-reap-stale-locks.py")
-    try:
-        subprocess.run(
-            [sys.executable, reap_script],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
-        )
-    except OSError:
-        pass
+    from python_interp import resolve_console_python
+
+    _reap_interpreter = resolve_console_python()
+    if _reap_interpreter is not None:
+        try:
+            subprocess.run(
+                [_reap_interpreter, reap_script],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+            )
+        except OSError:
+            pass
+    # A None from the resolver takes the same silently-swallowed branch as
+    # today's OSError — the self-heal is best-effort either way.
 
     cs_core, cs_liveness, cs_scope, cs_claims = _import_session()
 

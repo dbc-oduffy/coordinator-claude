@@ -3,8 +3,8 @@ title: Step Zero NDJSON Emitter Contract
 status: active
 kind: doctrine-wiki
 created: 2026-06-22
-spec-backlink: docs/plans/2026-06-22-step-zero-emitter-contract-lib.md
 ---
+
 
 # Step Zero NDJSON Emitter Contract
 
@@ -14,7 +14,7 @@ spec-backlink: docs/plans/2026-06-22-step-zero-emitter-contract-lib.md
 
 The Step Zero probe surface emits one compact JSON line per probe — a single-emitter, single-consumer NDJSON stream. The contract below is **ratified and stable**. Each sibling repo that ships probes emits against this same shape; drift from it is caught by running the conformance fixture against the repo's own emitter before shipping.
 
-The contract was ratified via `cross-repo/inbox/2026-06-22-env-stepzero-convergence-reply.md`. The reference implementation (ported from the original bash) lives at claude-klabauter `coordinator_core/install/step_zero_emit.py`. The **fixture bytes** (`tests/fixtures/step-zero-conformance.json`) are the single normative authority — non-bash consumers conform against the fixture, not against bash `printf` formatting quirks.
+The contract was ratified via a cross-repo reply memo. The reference implementation (ported from the original bash) lives at claude-klabauter `coordinator_core/install/step_zero_emit.py`. The **fixture bytes** (`tests/fixtures/step-zero-conformance.json`) are the single normative authority — non-bash consumers conform against the fixture, not against bash `printf` formatting quirks.
 
 ---
 

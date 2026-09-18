@@ -3,10 +3,9 @@ title: "Cockpit-contract entity-addition protocol"
 created: 2026-06-30
 updated: 2026-07-19
 status: active
-spec_backlink: docs/decisions/DR-167-cockpit-contract-standing-owner.md
+spec_backlink: the cockpit-contract standing-owner record under docs/decisions/
 ---
 
-<!-- distilled: run 2026-07-19-synth; sources: archive/specs/2026-06/2026-06-27-emit-new-record-types-producer-wiring.md, archive/specs/2026-06/cockpit-contract-ext-research-corpus/consumer-render-needs.md, archive/specs/2026-06/cockpit-contract-ext-research-corpus/contract-amendment-mechanics.md, 2026-06-22-cockpit-tc-3-coordinator-emission.md, 2026-06-24-cockpit-cockpit-contract-reshape.md, archive/specs/2026-06/2026-06-23-cockpit-contract-ext-wave2-emit-and-queue-migration.md, 2026-07-17-example-cockpit-repo-em-dr047-execution-handoffs-accept.md -->
 
 
 # Cockpit-Contract Entity-Addition Protocol
@@ -33,9 +32,9 @@ spec_backlink: docs/decisions/DR-167-cockpit-contract-standing-owner.md
 > The crash-safety rationale for minor bumps is retired by consumer choice — reversible if a
 > future consumer re-strictens (hence the consumer-capability census in Step g). Spec backlink
 > for the field-addition pattern, provenance `ref` ref-conditional convention, and v2.4.0
-> example row: `docs/plans/2026-07-03-fleet-deliverable-spine-identity-and-facets.md`.
+> example row: `2026-07-03-fleet-deliverable-spine-identity-and-facets.md` under `docs/plans/`.
 >
-> **Producer-identity note (claude-klabauter DR-208/DR-210):** claude-klabauter's Python `artifact.emit`
+> **Producer-identity note (claude-klabauter's producer-identity rulings):** claude-klabauter's Python `artifact.emit`
 > is the **sole production cockpit emitter**. `coordinator/bin/emit-cockpit-snapshot.sh`
 > is a fail-loud facade stub — its body lives in claude-klabauter now and is not
 > present at the line numbers this doc cites below (SECTION templates, sentinel-guard
@@ -43,8 +42,8 @@ spec_backlink: docs/decisions/DR-167-cockpit-contract-standing-owner.md
 > procedure** and are retained for historical/structural reference only — treat any
 > `emit-cockpit-snapshot.sh:NNN` line citation below as **stale** pending a follow-up
 > rewrite of Step (e) against the Python port (`coordinator_core/ops/emit/`, per
-> `cross-repo/archive/` claude-klabauter DR-208/DR-210 ratification). Out of scope for this repoint pass
-> (`docs/plans/2026-07-08-retire-js-cockpit-emitter-lockstep.md` § C7) — flagged, not
+> `cross-repo/archive/` claude-klabauter producer-identity ratification). Out of scope for this repoint pass
+> (`2026-07-08-retire-js-cockpit-emitter-lockstep.md` under `docs/plans/` § C7) — flagged, not
 > rewritten, here.
 
 ---
@@ -129,13 +128,13 @@ identifier. <!-- src: plan24-008 -->
 
 ## Owner vs. Contributor Split
 
-The **cockpit-contract surface** is a standing single owner of record (codified in
-`docs/decisions/DR-167-cockpit-contract-standing-owner.md`). The surface comprises:
+The **cockpit-contract surface** is a standing single owner of record (codified in a
+standing-owner decision under `docs/decisions/`). The surface comprises:
 
 - claude-klabauter's Python `artifact.emit` — the records-spine → `cockpit-emission.json`
-  projection step (sole production emitter as of claude-klabauter DR-208/DR-210).
+  projection step (sole production emitter as of claude-klabauter's producer-identity rulings).
   `plugins/coordinator/bin/emit-cockpit-snapshot.sh` remains on disk
-  as a fail-loud facade stub (zero caller repoints, claude-klabauter DR-210 AC8) but is not an independent
+  as a fail-loud facade stub (zero caller repoints, claude-klabauter producer-identity ruling AC8) but is not an independent
   producer — see producer-identity note above.
 - `plugins/coordinator/cockpit-contract/` — the entity definitions,
   schema bundle, and TypeScript contract package.
@@ -339,7 +338,7 @@ decision_guides: z.array(DecisionGuideSummarySchema)
 This change modifies the contract surface and belongs to the owner. Wire the envelope
 before running codegen so the bundle reflects the updated envelope shape.
 
-**v2.2.0 example (commit `72863b3b`):** `decision_guides` added to `snapshot-envelope.ts`
+**v2.2.0 example:** `decision_guides` added to `snapshot-envelope.ts`
 before codegen ran.
 
 **v2.4.0 example (`initiatives`):** `initiatives: z.array(InitiativeSummary)` added to
@@ -362,7 +361,7 @@ This produces:
 - Updated `cockpit-contract/schema/cockpit-contract.schema.json` (the bundled envelope).
 - Updated `cockpit-contract/dist/index.js` (the runtime validator).
 
-**v2.2.0 example (commit `72863b3b`):** C4 ran codegen — emitted
+**v2.2.0 example:** C4 ran codegen — emitted
 `decision-guide-summary.schema.json`, rebuilt at version 2.2.0. The desync guard
 (Step d) verified the match.
 
@@ -383,7 +382,7 @@ lines ~1841–1863).
 **v2.1.0 example:** `CONTRACT_VERSION` bumped from `2.0.0` → `2.1.0` when the first
 three entity types landed.
 
-**v2.2.0 example (commit `5772e865`):** `CONTRACT_VERSION` bumped `2.1.0` → `2.2.0` in
+**v2.2.0 example:** `CONTRACT_VERSION` bumped `2.1.0` → `2.2.0` in
 C2/Cn/C3, alongside the envelope wiring for `decision_guides`.
 
 ### Step (e) — Wire the entity into `emit-cockpit-snapshot.sh` [OWNER]
@@ -423,7 +422,7 @@ lines 1646–1722) is the worked template; its wiring in the final jq is at line
 > in `state/` directories are NOT supported by `query-records.js`. Those types use a
 > **direct file-read per source directory** instead. This addendum closes that gap so future
 > spine-type adds have a complete recipe regardless of collection mechanism.
-> — Spec backlink: `docs/plans/2026-06-30-ccos-8-cockpit-read-contract-spine-entities.md § C8`
+> — Spec backlink: `2026-06-30-ccos-8-cockpit-read-contract-spine-entities.md § C8` under `docs/plans/`
 
 **When this branch applies.** Determine the upstream writer of the record type:
 
@@ -504,7 +503,6 @@ so the crash-safety gate is empty for a minor/patch bump. Coordination does not 
 emit-block; it needs a notification.
 
 See `DECISIONS.md § D21` and
-`state/review-trail/findings/2026-07-06-the Director of Engineering-dr203-sentinel-handshake-doctrine-ruling.md`
 (`coordinator/cockpit-contract/DECISIONS.md` § D21) for the ruling behind the reader-class tiering.
 
 **Consumer-capability census (run before every MINOR/PATCH bump).** The minor-bump
@@ -555,12 +553,12 @@ total cockpit outage.
    bindings, confirm their suite is green, and send a return confirmation memo.
 4. Only after all consumers confirm: remove the sentinel, merge the owner branch, run emit.
 
-**v2.1.0 example (commit confirmed by `cross-repo/archive/2026-06-27-cockpit-contract-v210-revendor-confirmed.md`):**
+**v2.1.0 example (commit confirmed by `2026-06-27-cockpit-contract-v210-revendor-confirmed.md` under `cross-repo/archive/`):**
 Cockpit vendored `cockpit-contract` v2.1.0 verbatim (roadmap/tracker/health arrays),
 updated their `src/lib/contract/version.ts` to `CONTRACT_VERSION = "2.1.0"`, ran full
 suite (744 passed), and sent the confirmation. The emit was held until that reply arrived.
 
-**v2.2.0 example (commit `73de1a4b`):** C6 dropped sentinel
+**v2.2.0 example:** C6 dropped sentinel
 `state/cockpit-revendor-pending-v220` and filed the outbox memo
 `cockpit-decision-guide-v220-reader-first.md` to cockpit requesting v2.2.0 re-vendor.
 Production emit was held until cockpit replied.
@@ -596,7 +594,7 @@ guard only when a sentinel FILE is present. For a minor bump the owner simply do
 a sentinel — the guard never fires. The guard is unchanged and remains the hard backstop for
 MAJOR bumps.
 
-*Authorities: `docs/plans/2026-07-03-ccos-8-consumer-model-rework-rag-ingest.md` (coordinator
+*Authorities: `2026-07-03-ccos-8-consumer-model-rework-rag-ingest.md` under `docs/plans/` (coordinator
 plan ratifying the consumer-model split); `DR-cockpit-store-inheritance` (project-rag decision
 record governing quarantine semantics); `coordinator/cockpit-contract/DECISIONS.md` § D21 (sentinel-handshake
 relaxation to reader-class-tiered, 2026-07-06).*
@@ -667,7 +665,7 @@ sequence call; contributors notify the owner when their entity shape is ready.
 | Envelope wiring | `cockpit-contract/src/entities/snapshot-envelope.ts` |
 | `CONTRACT_VERSION` source | `cockpit-contract/src/index.ts` |
 | Schema bundle (computed) | `cockpit-contract/schema/cockpit-contract.schema.json` |
-| Emitter | claude-klabauter Python `artifact.emit` (sole producer; `bin/emit-cockpit-snapshot.sh` is a fail-loud facade stub, claude-klabauter DR-208/DR-210) |
+| Emitter | claude-klabauter Python `artifact.emit` (sole producer; `bin/emit-cockpit-snapshot.sh` is a fail-loud facade stub, claude-klabauter producer-identity rulings) |
 | Sentinel pattern | `state/cockpit-revendor-pending-<version>` |
 | Outbox memo landing zone | `state/memo-outbox/` |
 | Provenance envelope + ref-conditional | `cockpit-contract/src/provenance.ts` |
@@ -680,27 +678,27 @@ sequence call; contributors notify the owner when their entity shape is ready.
 
 | Version | What changed | Key commits / artifacts | Episode note |
 |---|---|---|---|
-| 2.1.0 | New entities: roadmap-summary, tracker-summary, health-status-summary | Batch entity + codegen + reader-first (held on AC10) | `cross-repo/archive/2026-06-27-cockpit-contract-v210-revendor-confirmed.md` |
-| 2.2.0 | New entity: decision-guide-summary | C1 entity → C4 envelope+codegen → C2/Cn/C3 bump → C5 emitter-wire → C6 sentinel + memo | commits `38636099`…`73de1a4b` |
+| 2.1.0 | New entities: roadmap-summary, tracker-summary, health-status-summary | Batch entity + codegen + reader-first (held on AC10) | `2026-06-27-cockpit-contract-v210-revendor-confirmed.md` under `cross-repo/archive/` |
+| 2.2.0 | New entity: decision-guide-summary | C1 entity → C4 envelope+codegen → C2/Cn/C3 bump → C5 emitter-wire → C6 sentinel + memo | — |
 | 2.3.0 (ccos-8) | New entities: session-hierarchy, file-attribution + session-events-summary spine types; new `required[]` entity arrays on envelope | Widen-reader-first + sentinel handshake; baseline for 2.4.0 | No outstanding sentinel — clean baseline |
 | 2.4.0 (spine) | New entity: initiative-summary; deliverable-spine fields (D9 `.nullable()`) on HandoffSummary/PlanSummary/RoadmapSummary; shared enum module `deliverable-spine.ts`; emit projections for identity + facets + `workstream_type` + `shipped_sha` + derived `deliverable_status` | C1 entities + C3 authoring threading + C4 emit projection; reader-first gated behind `cockpit-revendor-pending-v2.4.0` sentinel (C0) | Cockpit re-vendor confirmation required before C6 flips `CONTRACT_VERSION` |
-| (in-flight) | `handoff_phase` field on execution-scoped handoff entities, feeding cockpit's `executionHandoffs` fleet-state category (`{fireable, gated, other}`) | `query_fleet_state` reader (cockpit 4260a9c3) already lands and degrades gracefully empty/sparse until the field is populated | Two-part closure explicitly named: DoE-side cockpit-contract widening (cockpit's vendored v2.1.0 does not yet carry `handoff_phase`) + claude-klabauter's emit-side stamping leg — a worked example of a reader shipping ahead of the producer under the graceful-degradation contract |
+| (in-flight) | `handoff_phase` field on execution-scoped handoff entities, feeding cockpit's `executionHandoffs` fleet-state category (`{fireable, gated, other}`) | `query_fleet_state` reader already lands and degrades gracefully empty/sparse until the field is populated | Two-part closure explicitly named: DoE-side cockpit-contract widening (cockpit's vendored v2.1.0 does not yet carry `handoff_phase`) + claude-klabauter's emit-side stamping leg — a worked example of a reader shipping ahead of the producer under the graceful-degradation contract |
 
 ---
 
 ## See Also
 
-- `docs/decisions/DR-167-cockpit-contract-standing-owner.md` — governance decision
+- the cockpit-contract standing-owner decision under `docs/decisions/` — governance decision
   record; names the owner, codifies the contributor contract, and points to the
   originating PM gate.
-- `state/roadmap/2026-06-27-ccos/pm-gates.md` — originating PM decisions (owner
+- `pm-gates.md` under `state/roadmap/2026-06-27-ccos/` — originating PM decisions (owner
   ratification + contributor re-scope).
-- `cross-repo/archive/2026-06-27-cockpit-readcontract-analysis.md` — cockpit ingest
+- `2026-06-27-cockpit-readcontract-analysis.md` under `cross-repo/archive/` — cockpit ingest
   architecture. **Note:** for the authoritative gate behavior read the source directly —
   `checkSchemaVersion` at `example-cockpit-repo/src/lib/store/ingest.ts:164-199` (major-only throw;
   same-major minor-newer accepted). Any doc citing `assertSchemaVersion`/`:76-98` or
   "throws on any newer version" is stale.
-- `docs/plans/2026-07-03-fleet-deliverable-spine-identity-and-facets.md` — the plan
+- `2026-07-03-fleet-deliverable-spine-identity-and-facets.md` under `docs/plans/` — the plan
   that introduced deliverable-spine fields, `InitiativeSummary`, and the v2.4.0
   reader-first handshake shape; source of D1–D6 design decisions.
 - `cockpit-contract/src/provenance.ts` — `ProvenanceEnvelope` definition including the

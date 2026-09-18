@@ -8,10 +8,9 @@ related:
   - plugins/coordinator-claude/global-doctrine/CLAUDE.md
   - plugins/coordinator/snippets/em-operating-doctrine.md
   - plugins/deep-research/agents/coverage-auditor.md
-  - docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md
 ---
 
-<!-- spec-backlink: archive/specs/2026-05/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md § C8, § AC13 -->
+
 
 # Independent Post-Hoc Coverage Auditor Pattern
 
@@ -60,7 +59,6 @@ deep-research plan).
 ### Instantiation 1 — deep-research `coverage-auditor`
 
 **Agent file:** `deep-research/agents/coverage-auditor.md`
-**Spec:** `docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md`
 
 The coverage auditor for the four deep-research pipelines (A web, B repo, C structured, D
 notebooklm). It is dispatched by the EM at the pipeline driver's "On Completion Notification"

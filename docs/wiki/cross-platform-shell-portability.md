@@ -1,23 +1,22 @@
 # Cross-Platform Shell Portability
 
 <!-- distilled: run 2026-07-19-synth; sources: 2026-05-29-windows-console-flash-elimination.md, 2026-06-17-ccos-2-plan-session-linkage.md, 2026-06-17-foreign-cwd-pickup-hardening.md, 2026-06-23-new-machine-clone-lands-correctly.md, 2026-06-28-roadmap-stub-numbering-dependency-order.md -->
-<!-- spec-backlink: docs/decisions/DR-164-portability-guard-spinoff.md -->
 <!-- spec-backlink: docs/wiki/portable-code-substrate.md (hardcoded-path class) -->
 
 > See also: `claude-code-platform-gotchas.md` (Windows/CRLF quirks), `portable-code-substrate.md` (the `repos.*` / machine-local **path** class), `build-for-someone-elses-machine` doctrine in `CLAUDE.md`, `cross-platform-ci-discipline.md` (CI-measurement enforcement — the sibling discipline to this wiki's code-portability scope).
 
-**Purpose.** Coordinator ships shell scripts and hooks to consumers' machines. This is the canonical reference for *runtime-syntax* portability — the bash-version and coreutils-flavor traps that pass on the author's machine and fail on someone else's. It is distinct from the hardcoded-**path** class (`X:\…` → `repos.*`), which `portable-code-substrate.md` owns. <!-- foreign-path-ok: naming the anti-pattern shape this wiki explicitly excludes from its own scope -->
+**Purpose.** Coordinator ships shell scripts and hooks to consumers' machines. This is the canonical reference for *runtime-syntax* portability — the bash-version and coreutils-flavor traps that pass on the author's machine and fail on someone else's. It is distinct from the hardcoded-**path** class (`<drive>:\…` → `repos.*`), which `portable-code-substrate.md` owns. <!-- foreign-path-ok: naming the anti-pattern shape this wiki explicitly excludes from its own scope -->
 
 ## Support matrix (the bar every script must clear)
 
 | OS | Status | Worst-case assumption you must code against |
 |---|---|---|
-| **macOS** | **P0 — must work** | bash **≥ 4** (required — `brew install bash`, ahead of `/bin/bash` on PATH; see `docs/decisions/DR-166-require-bash4-on-macos.md`) **and** BSD coreutils (`sed`/`date`/`grep`/`readlink` differ from GNU — do **not** assume GNU coreutils; `brew install bash` does not provide them). |
+| **macOS** | **P0 — must work** | bash **≥ 4** (required — `brew install bash`, ahead of `/bin/bash` on PATH) **and** BSD coreutils (`sed`/`date`/`grep`/`readlink` differ from GNU — do **not** assume GNU coreutils; `brew install bash` does not provide them). |
 | **Linux** | Likely, untested | Modern bash + GNU coreutils. Keep it working; we don't gate on it. |
 | **Windows Git-Bash** | Must work | Author environment; CRLF + MSYS path-translation quirks (see `claude-code-platform-gotchas.md`). |
 
-**Two independent axes (`docs/decisions/DR-166-require-bash4-on-macos.md`):**
-1. **bash version** — Coordinator *requires* bash ≥ 4 (PM-ratified, `docs/decisions/DR-166-require-bash4-on-macos.md`); stock `/bin/bash` 3.2 is not a supported execution target. bash-4 features are allowed **only behind** a `BASH_VERSINFO<4` fail-loud guard with a `brew install bash` hint (so a mis-provisioned Mac gets a clean error, never a cryptic abort). **Namerefs (`local -n`/`declare -n`) raise the floor to 4.3** — guard those scripts at 4.3, not 4.0 (`coordinator-safe-commit` is the live case). The 3.2-subset patterns (parallel arrays, temp-file maps — the historical example was `coordinator-session.sh`, since deleted, session-family-repoint C4a) remain available but are not mandated. `coordinator:install` § 1a.0 checks the PATH-resolved bash version at setup time as a forward backstop to the per-script runtime guards.
+**Two independent axes:**
+1. **bash version** — Coordinator *requires* bash ≥ 4 (PM-ratified); stock `/bin/bash` 3.2 is not a supported execution target. bash-4 features are allowed **only behind** a `BASH_VERSINFO<4` fail-loud guard with a `brew install bash` hint (so a mis-provisioned Mac gets a clean error, never a cryptic abort). **Namerefs (`local -n`/`declare -n`) raise the floor to 4.3** — guard those scripts at 4.3, not 4.0 (`coordinator-safe-commit` is the live case). The 3.2-subset patterns (parallel arrays, temp-file maps — the historical example was `coordinator-session.sh`, since deleted, session-family-repoint C4a) remain available but are not mandated. `coordinator:install` § 1a.0 checks the PATH-resolved bash version at setup time as a forward backstop to the per-script runtime guards.
 2. **coreutils** — must stay **BSD-portable** regardless of bash version (we do NOT require GNU coreutils): `sed -i` / `date -d`/`%N` / `grep -P` / `realpath` / `readlink -f` have no GNU guarantee.
 
 **Why macOS is the sharp edge:** the PM runs a Mac laptop, and a broken **SessionStart/PreToolUse hook** means Coordinator cannot boot to fix itself — a bootstrap trap. Boot-path hooks (`hooks/scripts/*.sh` registered in `hooks/hooks.json`) are invoked as `bash <path>`, so they run under whatever `bash` is first on PATH — which on a correctly-provisioned Mac is the brew bash ≥ 4.
@@ -60,7 +59,7 @@ The bash-≥4 requirement is about the **PATH-resolved interpreter**, not about 
 
 **If a user is already on a bash login shell, env reconstruction is mandatory.** The coordinator detects this state and offers to reconstruct `~/.bash_profile` by snapshotting the intact prior-shell (zsh) PATH — consent-gated and backed-up per the claude-klabauter `coordinator/scripts/normalize-env` mutation contract. Coordinator never proactively offers to initiate the login-shell switch; it only remediates operators who have already made that change.
 
-Cross-reference: `install-surface-completeness.md § Worked example: brew bash on macOS (2026-06-15)` for the full incident account and the snapshot-not-enumerate reconstruction approach; `docs/decisions/DR-166-require-bash4-on-macos.md § Amendment 2026-06-25` for the policy ruling.
+Cross-reference: `install-surface-completeness.md § Worked example: brew bash on macOS (2026-06-15)` for the full incident account and the snapshot-not-enumerate reconstruction approach.
 
 **The Claude Code Bash-tool invoking shell is a THIRD, separate axis — not covered by login-shell repair.** Beyond the PATH-resolved-interpreter axis and the login-shell identity axis, the Claude Code Bash tool resolves its *own* invoking shell through an undocumented mechanism distinct from both. `coordinator:install`'s login-shell repair (Offers A/B/C) does **not** guarantee that invoking shell is bash ≥ 4: a fresh Mac can still hand the Bash tool a bash < 4 even after a clean login-shell fix. Any coordinator lifecycle skill that sources a bash-4-guarded lib then aborts mid-flow with an opaque `requires bash >=4 (found unknown)` (historical example: `coordinator/lib/strangler-facade.sh`, since killed in the bash-kill campaign — no lifecycle skill sources a bash-4-guarded lib live any more, but the risk class persists for any future bash lib). The tactical stopgap is a detect-then-fail-loud probe (claude-klabauter `coordinator/scripts/lib/invoking-shell-bash4-probe.sh` + install verification + a SessionStart advisory). The DURABLE fix — routing the guarded-lib source callsites behind a `cc_invoke` seam so lifecycle skills do not depend on the invoking shell's own bash version — is tracked on the claude-klabauter Python track, not here. **For CONSUMER repos** this "not here" is not silence: the fleet directive against seeding *new* bash surfaces downstream lives in `no-new-bash-surfaces.md` — this file owns the coordinator's OWN runtime-syntax portability; that one owns the consumer-facing de-bash rule. Do NOT treat a green login-shell repair as proof the Bash-tool invoking shell is bash ≥ 4; the probe is the only reliable signal.
 
@@ -273,8 +272,7 @@ Get-Item "$env:LOCALAPPDATA\Microsoft\WindowsApps\python3.exe" -Force -ErrorActi
 ```
 Length 0 + LinkType ReparsePoint + no Target ⇒ orphan stub. `Remove-Item -Force`. If Store Python reinstalls, the stub regenerates; re-clean.
 
-## Hook registration exec form — bare `python3` is safe there (DR-044)
-
+## Hook registration exec form — bare `python3` is safe there
 Hooks register in **exec form** — `type: "command"` plus an `args` array — naming a bare,
 platform-neutral `python3`. There is **no** "venv must come first on PATH" rule — do not write
 one, and do not flag a registration's `command` field as a portability hazard on that basis.
@@ -315,10 +313,6 @@ oversight.
 <!-- Review: code-reviewer — Finding 1: corrected the `.exe` location from the settings-home shim
      dir (contradicted by `windows-cmd-shims.md` in the same commit) to beside the real interpreter. -->
 
-**DR-044 disambiguation.** Eliminating the bash rungs via exec form is orthogonal to, not a
-reversal of, DR-044's tolerated console-flash ruling — a `command`-type exec-form spawn is still a
-harness-owned `CreateProcess` call, and DR-044's exemption at `verify-no-console-flash.py` §(5)
-still applies.
 
 ## False-positive triage taxonomy (portability audits)
 
@@ -338,7 +332,7 @@ A mechanical portability-grep over the meta-repo (a representative audit found ~
 Two valid responses to a bash-4-only construct, picked per-script not by edict:
 
 - **Refactor to the bash-3.2 subset** when the construct is one or two associative arrays used as immutable lookup tables. Pattern: `mktemp` a temp file, `printf 'key=val\n'`, `_lookup() { grep -qxF "key=val" "$tmpfile"; }`. See `verify-dist-publish-repo-sync.py` for the canonical refactor (assoc array → tempfile set + `grep -qxF` helper, bash-4 guard removed). Refactor cost: ~5-20 LOC; risk: low (covered by the script's own tests).
-- **Add a fail-loud bash-4 guard** when the construct is structural — 5+ assoc arrays, 2+ namerefs, `-v` membership tests scattered through helpers. Pattern: the `docs/decisions/DR-166-require-bash4-on-macos.md` guard with `brew install bash` remediation at the top, exit code chosen per the `docs/decisions/DR-166-require-bash4-on-macos.md` § "Bash-guard exit-code principle" table. See claude-klabauter `coordinator/bin/coordinator-safe-commit` for the canonical guard placement. Refactor cost would be ~80-150 LOC of risky churn on the most load-bearing commit helper; guard cost: ~10 LOC + an executor-side prereq.
+- **Add a fail-loud bash-4 guard** when the construct is structural — 5+ assoc arrays, 2+ namerefs, `-v` membership tests scattered through helpers. Pattern: the bash-4 guard with `brew install bash` remediation at the top, exit code chosen per the "Bash-guard exit-code principle" table. See claude-klabauter `coordinator/bin/coordinator-safe-commit` for the canonical guard placement. Refactor cost would be ~80-150 LOC of risky churn on the most load-bearing commit helper; guard cost: ~10 LOC + an executor-side prereq.
 
 The decision principle: **emulate when emulation is small and local; gate when the script's whole shape is bash-4.** A script that lives at coordinator's critical path (commit helpers, boot-path hooks) prefers the gate so its main path stays clean; a script with one peripheral assoc array prefers the refactor so a Mac without brew bash still gets useful work done.
 
@@ -360,7 +354,7 @@ This is not a runtime-syntax portability issue, but it shares the failure shape 
 
 ## Git hooks must run under MinGit (GitHub Desktop), not just full Git for Windows
 
-> **De-bash contract (`docs/decisions/DR-079-debash-residual-full-python-port-no-carve-out-class-doe-keeps-percolate-engine.md` / git-hook-installers-port).** The coordinator-ensure-* emitted hook bodies (`post-commit`, `prepare-commit-msg`) **run bash-free via a python probe**, so they FIRE on a bash-less box (MinGit) instead of silently no-op'ing. The installed body is `#!/bin/sh` (git runs hooks through its bundled sh regardless — unavoidable) + `_PY="$(command -v python3 || command -v python || command -v py)"` + invoke the (polyglot) helper via `"$_PY"`, NEVER via `bash`. The bash-guard shape documented below does not describe that emitted pair; it still describes the `install-meta-repo-precommit-hook.py` / `install-publish-repo-precommit-hook.py` `pre-commit` bodies, which remain bash-guarded pending their own de-bash wave. The Part-A/Part-B completeness backstop `test-hook-shims-portable.sh` keyed on had provided is retired; a full-emitter-set backstop needs re-homing once the pre-commit installer wave lands.
+> **De-bash contract.** The coordinator-ensure-* emitted hook bodies (`post-commit`, `prepare-commit-msg`) **run bash-free via a python probe**, so they FIRE on a bash-less box (MinGit) instead of silently no-op'ing. The installed body is `#!/bin/sh` (git runs hooks through its bundled sh regardless — unavoidable) + `_PY="$(command -v python3 || command -v python || command -v py)"` + invoke the (polyglot) helper via `"$_PY"`, NEVER via `bash`. The bash-guard shape documented below does not describe that emitted pair; it still describes the `install-meta-repo-precommit-hook.py` / `install-publish-repo-precommit-hook.py` `pre-commit` bodies, which remain bash-guarded pending their own de-bash wave. The Part-A/Part-B completeness backstop `test-hook-shims-portable.sh` keyed on had provided is retired; a full-emitter-set backstop needs re-homing once the pre-commit installer wave lands.
 
 **MinGit is bundled inside GitHub Desktop and ships `sh`, `dash`, and `env` — but NOT `bash`.** A hook shim with a `#!/usr/bin/env bash` or `#!/bin/bash` shebang causes every GUI commit made through GitHub Desktop to fail:
 
@@ -391,7 +385,7 @@ Two key properties:
 1. `#!/bin/sh` — resolves to a POSIX shell that every git distribution ships (MinGit, full Git-for-Windows, macOS `/bin/sh`, Linux `/bin/sh`).
 2. `command -v bash >/dev/null 2>&1 || exit 0` — graceful skip when bash is absent. This is correct for coordinator hooks: a GUI commit from GitHub Desktop carries no coordinator session id and needs no auto-push, so the skip is behaviour-preserving, not a loss.
 
-**Generators** (`coordinator-ensure-prepare-commit-msg-hook`, `coordinator-ensure-hooks-fleet`) are native Python (`docs/decisions/DR-079-debash-residual-full-python-port-no-carve-out-class-doe-keeps-percolate-engine.md` de-bash; logic in claude-klabauter `coordinator/bin/lib/git_hook_install.py`). They emit the **bash-free python-probe** shim (see the De-bash update above) on fresh install, and self-heal ANY stale routed body — old `#!/usr/bin/env bash` bare-exec, `nohup bash`/`exec bash`, or a stale baked path — to the current bash-free form, conservatively (marker must appear on a non-comment line; a marker only in a comment is treated as not-routed and appended, never clobbered).
+**Generators** (`coordinator-ensure-prepare-commit-msg-hook`, `coordinator-ensure-hooks-fleet`) are native Python (logic in claude-klabauter `coordinator/bin/lib/git_hook_install.py`). They emit the **bash-free python-probe** shim (see the De-bash update above) on fresh install, and self-heal ANY stale routed body — old `#!/usr/bin/env bash` bare-exec, `nohup bash`/`exec bash`, or a stale baked path — to the current bash-free form, conservatively (marker must appear on a non-comment line; a marker only in a comment is treated as not-routed and appended, never clobbered).
 
 **Append paths** (foreign hooks that the generator amends rather than replaces) wrap helper calls in a `command -v bash` guard: `{ command -v bash >/dev/null 2>&1 && bash "$HOME/.../<helper>"; } || true` (or `&` variant for backgrounded post-commit), so a MinGit pre-commit that reaches the appended block also exits cleanly.
 
@@ -424,12 +418,12 @@ Cross-platform audits scoped to `*.sh` / `bin/*` / hooks miss whole-OS assumptio
 
 2. **Install manifests `cmd`/`probe` fields.** Same principle — bare binary or `npx`, not `cmd /c`.
 
-3. **Skill / command / agent markdown command-embeds and dispatch-prompt bodies.** Inline shell snippets, `bin/…` invocations, and path examples in prose must avoid hardcoded drive letters (`X:\`, `E:\dev\`) and GNU-only CLI flags. When a snippet is platform-conditional by design, say so explicitly (e.g., "Windows only:"). <!-- foreign-path-ok: naming the prohibited pattern shape, not a live path -->
+3. **Skill / command / agent markdown command-embeds and dispatch-prompt bodies.** Inline shell snippets, `bin/…` invocations, and path examples in prose must avoid hardcoded drive letters (`<drive>:\`, `<drive>:\dev\`) and GNU-only CLI flags. When a snippet is platform-conditional by design, say so explicitly (e.g., "Windows only:"). <!-- foreign-path-ok: naming the prohibited pattern shape, not a live path -->
 
 **Status: item 3's path-hardcode half is discharged, not still an open TODO.**
-`coordinator/agents/code-reviewer.md § Path-shape hazard lens` (added `37a775acd`) now runs
+`coordinator/agents/code-reviewer.md § Path-shape hazard lens` now runs
 always-on against `.mcp.json`, `settings.json`-shaped config, `extraKnownMarketplaces`, and
-markdown command-embeds — covering the `X:\`, `E:\dev\`-shaped hardcoded-path case named above <!-- foreign-path-ok: naming the pattern shape the reviewer lens now catches -->
+markdown command-embeds — covering the `<drive>:\`, `<drive>:\dev\`-shaped hardcoded-path case named above <!-- foreign-path-ok: naming the pattern shape the reviewer lens now catches -->
 for items 1 and 3. See that lens for current scope, verification evidence, and its own
 documented anti-noise carve-outs; do not restate it here.
 
@@ -460,7 +454,7 @@ A guarantee that is only installer-provisioned on one OS is a portability trap �
 macOS/Linux** — bareword invocation (`cross-repo-memo`, `machine-local`, …) fails on those
 platforms, silently for every forwarder except `cross-repo-memo` (the one that self-checks). Root
 cause: the 2026-06-18 plan chose harness plugin-bin injection over a login-profile PATH edit,
-then commit `b644d5a9` migrated the executable surface out of `coordinator/bin/`
+then migrated the executable surface out of `coordinator/bin/`
 (which the harness still injects, but which now tracks zero files), leaving nothing for that
 injection to serve. The plan's own rejection premise — that tool shells don't reliably source
 login profiles — is separately falsified: the installer's own Step 3e already puts
@@ -470,7 +464,7 @@ Three surfaces (`CLAUDE.local.md`, `claude-code-platform-gotchas.md`,
 `portable-code-substrate.md`) had documented the resulting bareword failure as **intended
 design** rather than a known defect under repair — one of them self-contradicted in the same
 paragraph, a STALE box correctly warning bare-name resolution was broken directly above prose
-still asserting it worked "by bare name from any cwd, in any repo." Corrected in `be17ad4c9`; the operative instruction is unchanged by the correction — invoke the
+still asserting it worked "by bare name from any cwd, in any repo." Corrected; the operative instruction is unchanged by the correction — invoke the
 settings-home CLI family by absolute path regardless of whether the underlying PATH-provisioning
 fix has landed, per the precedence ladder in `coordinator/snippets/resolve-coordinator-bin.md`:
 rung 0 / Shape W on a PowerShell host, the POSIX `${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/<cli>`
@@ -611,7 +605,7 @@ done < <(producer)
 exit "$found"   # correctly reflects loop state
 ```
 
-Process substitution (`< <(cmd)`) is bash/zsh/ksh syntax, not POSIX `sh` — acceptable in coordinator scripts (bash ≥ 4 is the floor per `docs/decisions/DR-166-require-bash4-on-macos.md`) but not inside a `#!/bin/sh` git-hook shim (see § Git hooks must run under MinGit). Where POSIX `sh` compatibility is required, redirect the producer to a temp file first and `read` from that instead.
+Process substitution (`< <(cmd)`) is bash/zsh/ksh syntax, not POSIX `sh` — acceptable in coordinator scripts (bash ≥ 4 is the floor) but not inside a `#!/bin/sh` git-hook shim (see § Git hooks must run under MinGit). Where POSIX `sh` compatibility is required, redirect the producer to a temp file first and `read` from that instead.
 
 **Regression-test discipline:** assert the *outer* script's exit code after a failing inner check, not just that the loop body ran — a test that only checks the loop's side effects (e.g. a log line was printed) will not catch this class of bug.
 
@@ -668,16 +662,16 @@ A helper script meant to be `source`d must NOT resolve its own directory from `B
 
 ## Windows console-popup — fix at the Python spawn site with creationflags
 
-On Windows, a console-subsystem child (`python.exe` incl. `.venv/Scripts/python.exe`, `powershell.exe`, `netstat.exe`, `cmd.exe`, `git.exe`) spawned from the **headless Claude Code Bash-tool parent** calls `AllocConsole()` and pops a focus-stealing window per invocation. This is **specifically** a Claude-Code-headless-parent condition — outside Claude Code (a real terminal, CI, a normal shell) the terminal IS the console and the same child does not pop. `git.exe` is **not** exempt: measured at ~50ms to a visible window, and stream redirection does not suppress it (`claude-klabauter state/audits/2026-08-07-git-console-allocation-measurement.md`, claude-klabauter `03b12f87e`).
+On Windows, a console-subsystem child (`python.exe` incl. `.venv/Scripts/python.exe`, `powershell.exe`, `netstat.exe`, `cmd.exe`, `git.exe`) spawned from the **headless Claude Code Bash-tool parent** calls `AllocConsole()` and pops a focus-stealing window per invocation. This is **specifically** a Claude-Code-headless-parent condition — outside Claude Code (a real terminal, CI, a normal shell) the terminal IS the console and the same child does not pop. `git.exe` is **not** exempt: measured at ~50ms to a visible window, and stream redirection does not suppress it.
 
 **Canonical fix (DR-054): `creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)` at the `subprocess.run`/`Popen` spawn site** (plus `stdin=DEVNULL` where appropriate). This is genuine suppression — the Win32 `CREATE_NO_WINDOW` bit is settable ONLY at the spawning parent's `CreateProcess`, i.e. inside the Python that spawns the child — output preserved, zero bash. **Do NOT wrap Python in a bash launcher (`python-quiet.sh`) as the primary answer:** a pure-bash wrapper cannot set `CREATE_NO_WINDOW`; it can only swap to `pythonw.exe`, which loses stdout and breaks live-stdin / pytest-xdist. The wrapper / `pythonw` / `spawn-hidden.sh` remain legitimate ONLY where a *shell* script must spawn Python and `creationflags` (a Python-source concept) is unavailable. Canonical spawn pattern: `docs/wiki/windows-process-spawn-and-console.md §2`.
 
 **`pythonw.exe` is additionally UNSAFE for any spawn where the caller pipes structured input on stdin** — not just "loses stdout." `pythonw.exe` is a `/SUBSYSTEM:WINDOWS` binary; when its console-less parent (the Claude Code harness invoking a PreToolUse hook, which pipes hook-event JSON on stdin) hands it a NULL/invalid stdin handle, `json.load(sys.stdin)` fails silently and the process **exits 0** — a false-success, not a crash. `pythonw` is therefore safe ONLY for spawns where the caller controls (or does not need) stdin; it must never be substituted for a hook interpreter that reads its invocation payload from stdin.
 
-**Layer status.** The original doctrine (`docs/plans/2026-06-19-windows-console-popup-coordinator-doctrine.md`) was hooks-first and shipped an execution-layer advisory (Layer 0 / C1). **DR-054 retires Layer 0**: it fired on the harness-owned execution-layer flash (DR-044 popup-a), where the only offered fix — the `pythonw` swap — is unusable when output is wanted, and it mis-pointed the fixable Python-spawns-Python case at a bash wrapper instead of `creationflags`. The remaining coordinator layers reinforce the authoring-time fix:
+**Layer status.** The original doctrine was hooks-first and shipped an execution-layer advisory (Layer 0 / C1). **Layer 0 is retired**: it fired on the harness-owned execution-layer flash (the harness-owned popup class), where the only offered fix — the `pythonw` swap — is unusable when output is wanted, and it mis-pointed the fixable Python-spawns-Python case at a bash wrapper instead of `creationflags`. The remaining coordinator layers reinforce the authoring-time fix:
 
-- **~~Layer 0 — `nudge-windows-console-popup.sh`~~ RETIRED (DR-054).** Hook, live `check_windows_popup` (claude-klabauter `coordinator_core.bash_guards`), and `tests/nudge-windows-console-popup.bats` deleted. The residual ad-hoc `python -c` flash is DR-044-tolerated (the Bash tool's own `bash.exe` already flashes per call anyway).
-- **Layer 0'** — claude-klabauter `write_guards/nudge_windows_subprocess_popup.py` (PreToolUse `Write|Edit|MultiEdit`, deny-with-offer): blocks authoring a console-subprocess spawn that lacks `CREATE_NO_WINDOW`/`creationflags` into `.sh`/`.py`/`.ps1`/`.psm1`. **`-WindowStyle Hidden` is NOT an accepted suppression spelling for `.sh`** (claude-klabauter `fe7f6eb65`): it is create-then-hide, so the window may still flash — `verify_no_console_flash.py`'s own docstring and `windows-process-spawn-and-console.md § 2` both say so independently, and the guard had been offering a remedy that does not work. The `.ps1` leg still accepts it, deliberately and **as advisory only**: `_PS1_SUPPRESSION_RE`'s entire body is that one token, so removing it would leave `_should_deny_ps1` permanently unsatisfiable — a wall with no compliant spelling rather than an offer. The remaining accepted `.sh` spellings are `creationflags=`, `CREATE_NO_WINDOW`, `python-quiet.sh`, `pythonw`. **This is the load-bearing layer and stays** — engine-tier only: the DoE-side `hooks/scripts/nudge-windows-subprocess-popup.sh` shell equivalent was dead/unwired (never referenced in `hooks.json`) and was removed along with its dedicated tests (`tests/nudge-windows-subprocess-popup.bats`, `hooks/scripts/tests/test-nudge-windows-subprocess-popup.sh`). **Deny on all platforms** (authored code ships to Windows regardless of the authoring host), with a **throwaway-path exemption** — `*/tasks/*` and `*/state/scratch/*` are session-scratch that never ships, so the deny does not fire there (Option A). Deny is justified because the **portable** suppression one-liner `creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)` is universally available at authoring time. **Caveat:** the offer must show the `getattr` form, NOT a bare `0x08000000` / `subprocess.CREATE_NO_WINDOW` — the integer/attribute is Windows-only and raises `ValueError` off-Windows, so complying with a bare-form offer breaks the author's own host. See § Platform-conditional guard taxonomy.
+- **~~Layer 0 — `nudge-windows-console-popup.sh`~~ RETIRED.** Hook, live `check_windows_popup` (claude-klabauter `coordinator_core.bash_guards`), and `tests/nudge-windows-console-popup.bats` deleted. The residual ad-hoc `python -c` flash is tolerated as harness-owned (the Bash tool's own `bash.exe` already flashes per call anyway).
+- **Layer 0'** — claude-klabauter `write_guards/nudge_windows_subprocess_popup.py` (PreToolUse `Write|Edit|MultiEdit`, deny-with-offer): blocks authoring a console-subprocess spawn that lacks `CREATE_NO_WINDOW`/`creationflags` into `.sh`/`.py`/`.ps1`/`.psm1`. **`-WindowStyle Hidden` is NOT an accepted suppression spelling for `.sh`**: it is create-then-hide, so the window may still flash — `verify_no_console_flash.py`'s own docstring and `windows-process-spawn-and-console.md § 2` both say so independently, and the guard had been offering a remedy that does not work. The `.ps1` leg still accepts it, deliberately and **as advisory only**: `_PS1_SUPPRESSION_RE`'s entire body is that one token, so removing it would leave `_should_deny_ps1` permanently unsatisfiable — a wall with no compliant spelling rather than an offer. The remaining accepted `.sh` spellings are `creationflags=`, `CREATE_NO_WINDOW`, `python-quiet.sh`, `pythonw`. **This is the load-bearing layer and stays** — engine-tier only: the DoE-side `hooks/scripts/nudge-windows-subprocess-popup.sh` shell equivalent was dead/unwired (never referenced in `hooks.json`) and was removed along with its dedicated tests (`tests/nudge-windows-subprocess-popup.bats`, `hooks/scripts/tests/test-nudge-windows-subprocess-popup.sh`). **Deny on all platforms** (authored code ships to Windows regardless of the authoring host), with a **throwaway-path exemption** — `*/tasks/*` and `*/state/scratch/*` are session-scratch that never ships, so the deny does not fire there (Option A). Deny is justified because the **portable** suppression one-liner `creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)` is universally available at authoring time. **Caveat:** the offer must show the `getattr` form, NOT a bare `0x08000000` / `subprocess.CREATE_NO_WINDOW` — the integer/attribute is Windows-only and raises `ValueError` off-Windows, so complying with a bare-form offer breaks the author's own host. See § Platform-conditional guard taxonomy.
 - **Layer 1** — per-repo tripwire `tests/templates/test_no_bare_console_subprocess.py`, onboarded via `/coordinator:repo-setup`.
 - **Reach** — `agents/executor.md` + `agents/enricher.md` negative-spec, so doctrine arrives at the executor before it writes the call.
 
@@ -685,23 +679,20 @@ On Windows, a console-subsystem child (`python.exe` incl. `.venv/Scripts/python.
 - `# popup-intentional-last-resort` — the console popup occurs and is accepted (pythonw fallback or genuine console need).
 - `# popup-safe-env-suppressed` — the popup is suppressed at this site by env-var means and is therefore safe.
 
-Both markers are env-agnostic. Place with the comment prefix correct for the host file, OUTSIDE any embedded interpreter string (see § Allowlist-comment markers). The env-var-NAME-based structural escape (e.g. `FOR_DISABLE_CONSOLE_CTRL_HANDLER=...`) is project-rag-local and is NOT adopted into the universal coordinator hooks — it is numerical-stack-specific. The deep in-repo catalog of the two-axis suppression (subsystem byte + Fortran-RTL env vars) lives in project-rag's `intel-fortran-rtl-console-popup.md`; the registry entry is `coordinator-tripwires.md § WINDOWS-CONSOLE-POPUP`. Plan: `docs/plans/2026-06-19-windows-console-popup-coordinator-doctrine.md`.
-
+Both markers are env-agnostic. Place with the comment prefix correct for the host file, OUTSIDE any embedded interpreter string (see § Allowlist-comment markers). The env-var-NAME-based structural escape (e.g. `FOR_DISABLE_CONSOLE_CTRL_HANDLER=...`) is project-rag-local and is NOT adopted into the universal coordinator hooks — it is numerical-stack-specific. The deep in-repo catalog of the two-axis suppression (subsystem byte + Fortran-RTL env vars) lives in project-rag's `intel-fortran-rtl-console-popup.md`; the registry entry is `coordinator-tripwires.md § WINDOWS-CONSOLE-POPUP`.
 ## Harness-level Windows console flash — `CLAUDE_CODE_USE_POWERSHELL_TOOL`, not ConPTY
 
 <!-- src: plan14-004, plan14-005 -->
 
 The Windows console-popup fix above (§ Windows console-popup — fix at the Python spawn site with creationflags) covers **authored code spawning a console-subsystem child**. A distinct, harness-level flash source exists: the Claude Code harness's own PowerShell-tool spawn behavior. An earlier investigation hypothesized a two-layer belt — (1) `lib/spawn-hidden.sh` for spawns coordinator owns, (2) a ConPTY-as-default-terminal registry/config change as a "machine-belt" for spawns it doesn't own (hook interpreters, the pwsh hook) — treating ConPTY as the load-bearing lever for residual flashes.
 
-**The ConPTY hypothesis was wrong.** A follow-up investigation traced the actual root cause to the `CLAUDE_CODE_USE_POWERSHELL_TOOL` harness flag — when set, the harness routes tool invocations through a PowerShell subprocess that flashes a console per call, independent of ConPTY state. The durable fix is a `settings.json` entry pinning `CLAUDE_CODE_USE_POWERSHELL_TOOL=0` explicitly, not a ConPTY/registry change. The ConPTY belt experiment was abandoned; shipped fix: commit `a444c856`.
+**The ConPTY hypothesis was wrong.** A follow-up investigation traced the actual root cause to the `CLAUDE_CODE_USE_POWERSHELL_TOOL` harness flag — when set, the harness routes tool invocations through a PowerShell subprocess that flashes a console per call, independent of ConPTY state. The durable fix is a `settings.json` entry pinning `CLAUDE_CODE_USE_POWERSHELL_TOOL=0` explicitly, not a ConPTY/registry change. The ConPTY belt experiment was abandoned.
 
-**Do NOT re-apply the `=0` pin.** `CLAUDE_CODE_USE_POWERSHELL_TOOL=1` is the standing state — observed set in every one of 9 concurrent sessions on 2026-08-08 — and the PowerShell tool is now the deliberately preferred tool path on this host. Two reasons, both measured: it spawns as a **direct child of `claude.exe`** (depth 1, zero shell rungs), where the Bash tool sits at depth 4 behind three Git-Bash rungs; and the Bash tool is separately PM-directed off on this box. Setting this flag to 0 would reverse both. The flash cost above is real and is accepted in exchange. Evidence: `state/audits/2026-08-08-hook-spawn-topology-measured-live.md`.
-
+**Do NOT re-apply the `=0` pin.** `CLAUDE_CODE_USE_POWERSHELL_TOOL=1` is the standing state — observed set in every one of 9 concurrent sessions on 2026-08-08 — and the PowerShell tool is now the deliberately preferred tool path on this host. Two reasons, both measured: it spawns as a **direct child of `claude.exe`** (depth 1, zero shell rungs), where the Bash tool sits at depth 4 behind three Git-Bash rungs; and the Bash tool is separately PM-directed off on this box. Setting this flag to 0 would reverse both. The flash cost above is real and is accepted in exchange.
 **Takeaway for future Windows-flash investigations:** before reaching for a system-level lever (ConPTY default-terminal, registry edits), check the harness's own tool-invocation config flags first — a harness-level flash is frequently a harness-config issue, not a Win32 console-subsystem issue, and the fix is a one-line settings change rather than a machine-wide belt. Second-order lesson from the `=0` pin's own fate: a harness-config fix that trades away a *spawn path* can be overtaken by later performance findings, so state what the pin costs, not only what it buys.
 
 ## Cross-platform safe filename components
 
-<!-- spec-backlink: docs/plans/2026-06-30-cross-platform-file-naming-helper.md -->
 
 **The canonical safe timestamp form for filenames is `YYYY-MM-DDTHH-MM-SSZ` (UTC, hyphenated, colon-free)** — e.g. `2026-05-06T14-23-07Z`, NOT `2026-05-06T14:23:07Z`. ISO-8601's standard colon separators are illegal in Windows filenames.
 

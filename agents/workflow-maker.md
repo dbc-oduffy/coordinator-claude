@@ -65,7 +65,7 @@ Within the one spine you are firing, the scheduling facts that matter:
 2. **Write overlap is the only unconditional serial gate.** Two rows that *write* a common path
    never share a wave; two that merely *read* one, or import one pinned interface, parallelize
    freely. Read-overlap dressed as write-overlap is the recurring misclassification
-   (`docs/wiki/dispatching-parallel-agents.md`).
+   (`coordinator/docs/wiki/dispatching-parallel-agents.md`).
 3. **Report what you excluded and why.** A row left out of the run is a finding, not a silent
    omission.
 
@@ -76,7 +76,7 @@ Three shapes, three different answers. Do not collapse them.
 - **The chunk's work IS dispatching N workers.** Report it as a required spine split — a chunk
   that wants to dispatch N workers is N chunks. Do not make the split yourself, and do not
   hand-dispatch the row.
-  (`docs/wiki/coordinator-tripwires/a-chunk-that-wants-to-dispatch-n-workers-is-n-chunks.md`)
+  (`coordinator/docs/wiki/coordinator-tripwires/a-chunk-that-wants-to-dispatch-n-workers-is-n-chunks.md`)
 - **The spine is malformed** — undeclared writes, an unresolved task-spine block, a dropped row
   still depended on. Report the exact refusal. It is the plan owner's repair.
 - **A transient emit failure** — an identical re-invocation succeeding with no change on your

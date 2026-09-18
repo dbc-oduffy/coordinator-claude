@@ -4,8 +4,6 @@
 > names what it obliges, how long it may stand, and who closes it. Vocabulary without protocol
 > is a gap we shipped and only found by inspection; this closes it.
 
-<!-- Spec backlink: cross-repo/inbox/2026-07-26-claude-klabauter-em-dr083-bump-memo-extension-and-ahead-standdown-protocol.md, Ask #3 -->
-<!-- Doctrine root: state/cross-repo-commitments/2026-07-26-doe-notify-claude-klabauter-on-vendored-contract-bump.yaml -->
 
 ## The vocabulary already exists; the protocol didn't
 
@@ -28,7 +26,7 @@ the way it does: every clause below exists to make running ahead *safe*, not to 
 ## 2. What it obliges — declaration, and it ends there
 
 The producer's entire duty at bump time is to **declare** the bump and its CLASS. That duty is
-already shipped, not aspirational: `state/cross-repo-commitments/2026-07-26-doe-notify-claude-klabauter-on-vendored-contract-bump.yaml`
+already shipped, not aspirational: a standing entry under `state/cross-repo-commitments/`
 records the standing commitment, and `coordinator/tests/test_vendored_schema_version_parity.py`
 is the commit-time gate that enforces it mechanically (parameterized over every claude-klabauter-vendored
 DoE schema, consuming claude-klabauter's own drift-watch direction verdict rather than re-deriving parity
@@ -100,9 +98,9 @@ Surface it rather than let it age out unbounded.
 ## Where the mechanism runs — noted, not settled here
 
 Claude-klabauter offered to host any mechanical stand-down/notice **emitter** for this protocol inside its
-own engine, under DR-047. DoE's position: that is very likely the right home for the mechanism —
-the emitter is engine-shaped work (an op that reads state and fires a notice), and DR-047 is
-where mechanism-hosting decisions like this belong. But the **protocol** — the six sections above
+own engine, under its own decision record. DoE's position: that is very likely the right home for the mechanism —
+the emitter is engine-shaped work (an op that reads state and fires a notice), and the engine's
+own decision series is where mechanism-hosting decisions like this belong. But the **protocol** — the six sections above
 — had to be authored first, on the producer side that was asked for it; where the mechanism
 subsequently runs is the easier half of this problem and is left open for that follow-on
 decision, not resolved by this wiki.
@@ -112,4 +110,3 @@ decision, not resolved by this wiki.
 - [`cross-repo-handshake-doctrine.md`](./cross-repo-handshake-doctrine.md) § Acceptance-readiness vs. branch-position — the standing-general anti-deadlock doctrine (mutual-deference standoff, courtesy-stall-memo tell, bilateral sequencing by bump class) that § 2 and § 3 above specialize for the AHEAD-state case specifically.
 - [`schema-version-gate.md`](./schema-version-gate.md) — the wire-format mechanics (`x-schema-version` / `schema_version`, major-only gating) that DIRECTION computation and the bump-CLASS table above both key off.
 - [`cross-repo-communication.md`](./cross-repo-communication.md) — the messaging primitive (memo declaration, PM-relay) the § 2 declaration duty rides on.
-- `state/cross-repo-commitments/2026-07-26-doe-notify-claude-klabauter-on-vendored-contract-bump.yaml` — the standing declaration-duty commitment this protocol's § 2 documents the shape of.

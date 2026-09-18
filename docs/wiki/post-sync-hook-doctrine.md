@@ -159,7 +159,6 @@ Cross-references:
 - `docs/wiki/agentic-install-integrity.md` §3 — the version.txt carve-out this section generalises
 - `plugins/coordinator-claude/.percolate-ignore` — `coordinator/dist/oss-only-skills/` exclusion
   that makes the inject the sole delivery path (prevents double-ship)
-- `docs/plans/2026-05-30-oss-coordinator-update-skill.md` § Chunk 4 — the reviewed plan that
   introduced this pattern
 
 ## Cross-References

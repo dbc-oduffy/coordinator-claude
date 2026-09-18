@@ -1,6 +1,5 @@
 # Work Tracking and Records
 
-<!-- distilled: run 2026-07-19-synth; sources: 2026-05-29-handoff-tracker-system.md, archive/specs/2026-05/2026-05-19-completion-log-phase1-foundational-loop.md, archive/specs/2026-05/2026-05-19-completion-log-phase2-loe-and-handoff-ledger.md, archive/specs/2026-05/2026-05-19-completion-log-phase3-consumer-wiring.md, archive/specs/2026-05/2026-05-06-phase-e-learn-lessons.md -->
 
 How handoffs, completion logs, and level-of-effort (LoE) records are schematized, written, queried, and consumed across the fleet — the durable-records layer underneath session handoffs and workweek rollups.
 
@@ -21,7 +20,7 @@ All three are designed around the same principle: **write once at the natural au
 <!-- src: plan13-016, plan13-017, plan13-019 -->
 
 - The status dimension for a handoff is the `deployment_state` enum: `awaiting_gate | ready_to_fire | in_flight | shipped | continued | closed`. Query results built from this field are **not terminal by design** — do not invent a parallel status field alongside it.
-- Auto-archival is covered by four idempotent surfaces, each independently sufficient: handoff chain-archival, session-end Step 2.7 (on `claimed_by`/`consumed_by` match — DR-084 renamed the field, corpus mixed, check both), session-init boot sweep, and `/update-docs` supersession (with a 24h mtime veto to avoid archiving something mid-edit). Canonical archive dir: `archive/handoffs/`.
+- Auto-archival is covered by four idempotent surfaces, each independently sufficient: handoff chain-archival, session-end Step 2.7 (on `claimed_by`/`consumed_by` match — the field was renamed, corpus mixed, check both), session-init boot sweep, and `/update-docs` supersession (with a 24h mtime veto to avoid archiving something mid-edit). Canonical archive dir: `archive/handoffs/`.
 - Schema additions: `category` (enum: `roadmap|infra|bug|docs|research|refactor`) and `summary` (≤120 chars). Memos use `--type cross-repo-memo` plus `summary`. Chain-point granularity is **workstream-count**, not ticket-count.
 - State lives per-repo in `state/handoffs/*.md` frontmatter, queried live via `bin/query-records` (no rendered tracker artifact). Daily rollup view = handoffs/spinoffs/memos; weekly rollup view = plans (explicitly out of scope for the daily query).
 - Lineage: `predecessor:` field is effectively dead (one exception found across three repos audited). The real continuity signal is the `workstream:` slug, not a predecessor chain. A separate roadmap ticket DAG (`tc_id`/`blocks`/`blocked_by`/`roadmap_id`/`sprint`/`wave`/`cost`) exists but is `kind:spinoff-roadmap-only` — the schema validator rejects those fields on any other `kind`. Treat the ticket DAG as an optional addon column, not the primary chain-continuity mechanism.

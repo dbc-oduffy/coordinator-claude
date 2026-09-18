@@ -3,7 +3,7 @@ title: Cross-Repo Contract-Field Parity
 status: active
 kind: doctrine-wiki
 created: 2026-06-09
-provenance: project-rag EM memo 2026-05-28 (cross-repo/inbox/2026-05-28-cross-repo-contract-parity-pattern-promotion.md), promoted at instance #2 ahead of anticipated Unity-addon instance #3
+provenance: project-rag EM memo 2026-05-28, promoted at instance #2 ahead of anticipated Unity-addon instance #3
 ---
 
 # Cross-Repo Contract-Field Parity
@@ -88,7 +88,6 @@ A clean, reusable companion shape for the migration itself: **optional-with-fall
 the new preferred field as optional, and keep the old field as the fallback witness read only when the
 new field is absent. This lets producer and consumer migrate independently without a hard cutover.
 
-(Provenance: `docs/plans/2026-07-11-packageability-point2-entry-split.md`, archived.)
 
 ### Convention B — Vendored-constant cross-repo identity parity
 
@@ -99,7 +98,7 @@ When both repos must pin the same identity (embedding model + revision, schema v
 ```python
 # core/<module>.py
 EMBED_MODEL_NAME = "Qwen/Qwen3-Embedding-0.6B"
-EMBED_MODEL_REVISION = "3c4b60807d71f79b43f3c4363786d9493691f8b1"  # full 40-char SHA, mandatory
+EMBED_MODEL_REVISION = "<full-40-char-model-revision-sha>"  # full 40-char SHA, mandatory
 ```
 
 **Producer side:**
@@ -107,7 +106,7 @@ EMBED_MODEL_REVISION = "3c4b60807d71f79b43f3c4363786d9493691f8b1"  # full 40-cha
 ```python
 # addon/embed_constants.py — vendored copy
 EMBED_MODEL_NAME = "Qwen/Qwen3-Embedding-0.6B"
-EMBED_MODEL_REVISION = "3c4b60807d71f79b43f3c4363786d9493691f8b1"
+EMBED_MODEL_REVISION = "<full-40-char-model-revision-sha>"
 
 # addon/tests/test_embed_constant_parity.py
 def test_embed_constant_parity():
@@ -116,7 +115,7 @@ def test_embed_constant_parity():
     assert EMBED_MODEL_REVISION == HOST_REV
 ```
 
-**Full SHAs only.** Abbreviated prefixes (`"3c4b608"`) are weaker immutability — registries silently resolve them against the current tip of a tag, which can drift when upstream republishes weights. Existing abbreviated pins are migration items; new pins MUST use the full 40-char SHA.
+**Full SHAs only.** Abbreviated prefixes (a 7-char SHA prefix) are weaker immutability — registries silently resolve them against the current tip of a tag, which can drift when upstream republishes weights. Existing abbreviated pins are migration items; new pins MUST use the full 40-char SHA.
 
 **Why vendor instead of runtime-import?** Runtime cross-repo import recreates exactly the install-time coupling that "each repo is independently deployable" exists to prevent. Vendor-both-sides preserves self-containment; the parity test catches drift the moment either side updates without the other.
 
@@ -124,9 +123,9 @@ def test_embed_constant_parity():
 
 **`source_is_live` SSOT degrades the producer's freshness leg — compensate with a bump-memo.** A producer-side parity test has two legs: *faithfulness* (the vendored bytes match a pinned SSOT SHA) and *freshness* (the pinned SHA is still the SSOT's tip). When the SSOT repo is **`source_is_live`** (no published/released version the producer can import or pin a tag against — e.g. `coordinator-claude` over `~/.claude`), the freshness leg degrades to **advisory**: the producer pins a *committed snapshot* and cannot mechanically detect that the SSOT has since changed. The faithfulness leg still holds. To close the resulting gap, the SSOT-side editor owes a **bump-memo** to the producer EM on any breaking change to a vendored file — the manual signal that substitutes for the freshness test the producer cannot run. Mark the obligation as RAG-bait at the vendored file's structural boundary (a header note naming the downstream vendor + the bump-memo rule) so the editor sees it at the edit site. This does **not** reintroduce the consumer-enumerates-producers anti-pattern: a passive editorial header is not a maintained drift-guard registry, and it carries no test dependency.
 
-#### Resolved instance — op-keying table parity via importable constant (commit `6a2eaba`)
+#### Resolved instance — op-keying table parity via importable constant
 
-When the engine exposes a **derived, importable constant** (not a vendored copy), the `source_is_live` bump-memo obligation for that surface is superseded by the import. Claude-Klabauter commit `6a2eaba` exposed `coordinator_core.WORKTREE_SCOPED_OPS` (a `frozenset` of ops requiring `_origin_worktree`, derived from the private `_OP_KEY_SCOPE` at import time) and `coordinator_core.OP_KEY_SCOPE` (a `MappingProxyType` op→scope map). DoE's contract test (`test_worktree_scoped_ops_parity_with_claude_klabauter_core`) imports `WORKTREE_SCOPED_OPS` and asserts two SUBSET relations rather than set-equality — because DoE invokes only a subset of engine ops, raw `==` would false-fail as the engine set grows: (1) DoE's `_WORKTREE_SCOPED_OPS ⊆ CORE_WTS` (never inject on a non-scoped op); (2) `(SHIM_OPS ∩ CORE_WTS) ⊆ _WORKTREE_SCOPED_OPS` (never omit on a scoped op the shim calls). The bump-memo pattern for the vendored-schema faithfulness/freshness legs (Instance 3, Instance 4 above) is **unchanged** — this carve-out applies specifically to the op-keying table because the engine exposes it as a first-class importable surface.
+When the engine exposes a **derived, importable constant** (not a vendored copy), the `source_is_live` bump-memo obligation for that surface is superseded by the import. Claude-Klabauter exposed `coordinator_core.WORKTREE_SCOPED_OPS` (a `frozenset` of ops requiring `_origin_worktree`, derived from the private `_OP_KEY_SCOPE` at import time) and `coordinator_core.OP_KEY_SCOPE` (a `MappingProxyType` op→scope map). DoE's contract test (`test_worktree_scoped_ops_parity_with_claude_klabauter_core`) imports `WORKTREE_SCOPED_OPS` and asserts two SUBSET relations rather than set-equality — because DoE invokes only a subset of engine ops, raw `==` would false-fail as the engine set grows: (1) DoE's `_WORKTREE_SCOPED_OPS ⊆ CORE_WTS` (never inject on a non-scoped op); (2) `(SHIM_OPS ∩ CORE_WTS) ⊆ _WORKTREE_SCOPED_OPS` (never omit on a scoped op the shim calls). The bump-memo pattern for the vendored-schema faithfulness/freshness legs (Instance 3, Instance 4 above) is **unchanged** — this carve-out applies specifically to the op-keying table because the engine exposes it as a first-class importable surface.
 
 ## Engine-agnostic design checklist
 
@@ -155,12 +154,11 @@ Neither convention should require engine-shaped naming or tooling. Before applyi
 ### Instance 4 — Step Zero prereq lib vendored from `coordinator-claude` (Convention B, source_is_live)
 
 - **Consumer (SSOT):** `coordinator-claude` carries `scripts/lib/{prereq_probe.sh, manifest_reader.sh, step_zero_emit.sh}` — a self-sourcing 3-file unit (`prereq_probe.sh` sources the other two). SSOT for the Step Zero install-prereq probe + NDJSON emitter contract.
-- **Producer:** `project-rag-ue-addon` vendors all three BYTE-STABLE into `project_rag_ue_addon_scripts/lib/coordinator_prereq/` with DR-PARITY-001 vendor headers + Layer-1 parity tests, pinning the committed snapshot `dc41493c` (not chasing live HEAD).
+- **Producer:** `project-rag-ue-addon` vendors all three BYTE-STABLE into `project_rag_ue_addon_scripts/lib/coordinator_prereq/` with DR-PARITY-001 vendor headers + Layer-1 parity tests, pinning the committed snapshot (not chasing live HEAD).
 - **`source_is_live` wrinkle:** because `coordinator-claude` is `source_is_live`, the producer's parity *faithfulness* leg is pinned to the vendored SHA's blob but the *freshness* leg is advisory. Compensation: a breaking change to ANY of the three files warrants a **bump-memo to `project-rag-ue-addon-em`**. Recorded as a header note on each of the three SSOT files.
 - **Generic-name self-source collision (follow-up memo):** the unit's three files share generic names (`prereq_probe.sh`, `manifest_reader.sh`, `step_zero_emit.sh`) and `prereq_probe.sh` self-sources the other two by name from its own dir. A consumer that vendors them **flat** alongside its own different-purpose `manifest_reader.sh` self-sources the WRONG file — source succeeds, but the expected symbol (`_co_find_python`) is undefined, surfacing downstream as a *misleading* `[WARN] python — No functional Python 3.11+ found`. **Vendoring contract: vendor the unit into a dedicated isolated subdir (e.g. `lib/coordinator_prereq/`), never flat next to same-named consumer libs.** Producer-side defense (the addon's shipped `coordinator_prereq/` subdir) is correct, but the SSOT also carries (a) a "vendor as a unit into an isolated subdir" header directive on `prereq_probe.sh` + `step_zero_emit.sh`, and (b) **detect-then-fail-loud post-source guards** in `prereq_probe.sh` that assert the expected symbol resolved — converting a silent mis-resolution into a self-diagnosing error. The structural guard (b) was chosen over renaming the generic files because `manifest_reader.sh` is a general-purpose lib with independent callers (`setup.sh`, `dep_check.sh`) — renaming it would misdescribe its role AND be a breaking change forcing immediate re-vendor.
 - **Live-source consumers are a SECOND consumer class, and a vendor registry cannot see them.** A repo that resolves the SSOT files at runtime out of a coordinator clone — rather than vendoring a byte-stable copy — has no vendor header, no pinned SHA, and no parity test, so it appears nowhere in the vendor records this instance enumerates. `project-rag` is exactly that shape: it sourced `manifest_reader.sh` and `prereq_probe.sh` live through `resolve-coordinator-clone` from `install-project-rag-plugin.sh`. When the bash-kill campaign computed its owed-bump-memo list from vendor records, project-rag was *structurally unable to appear on it* and was not notified; both of its seams broke silently (one warn-and-skip, one hard prerequisite-gate failure). The two classes fail in opposite directions and that asymmetry is the whole point: a **vendored** consumer survives deletion of the SSOT (it holds its own copy) and needs the memo only to know its copy is now orphaned, whereas a **live-source** consumer breaks the moment the file is deleted and needs the memo *before* the delete lands. So enumerating owed bump-memos means enumerating BOTH — grep the fleet for live resolution of the file (`resolve-coordinator-clone` call sites and hardcoded `scripts/lib/` / `lib/` path fragments) in addition to reading the vendor records. Deleting a `source_is_live` SSOT file without that second sweep is how a consumer discovers the break by tripping over it days later, with no CI signal.
 - **Known bump-memo recipients for this unit:** `project-rag-ue-addon-em` (vendored, isolated subdir), `deep-research-em` (vendored), and `project-rag-em` (**live-source**, added after the omission above).
-- **Provenance:** `cross-repo/inbox/2026-06-22-addon-stepzero-longpaths-adopted.md` (fyi receipt) + `cross-repo/inbox/2026-06-22-prereq-probe-sibling-source-collision.md` (collision root-fix ask) + `cross-repo/archive/2026-07-29-project-rag-em-bash-kill-campaign-missed-project-rag.md` (the live-source omission).
 
 ### Anticipated Instance 3 — Unity addon
 
@@ -238,7 +236,7 @@ A defect present in both copies sits where each side's gate is individually gree
 standing layering rule forbids. Claude-klabauter renamed it locally, watched
 `test_handoff_schema_matches_doe_head_after_dr084_revendor` fire exactly as designed, and reverted
 rather than carry a unilateral divergence — the gate working correctly was, in that moment, the
-thing preventing the fix. Only the SSOT could clear it (DoE `89bd4256b`).
+thing preventing the fix. Only the SSOT could clear it.
 
 **The corollary is sharper than the rule: a red parity gate names *which two things disagree*,
 never *which one is wrong*.** In the same incident DoE's generated
@@ -296,4 +294,3 @@ registry-sync golden), so re-vendoring the schema alone does not discharge the w
 - [`cross-repo-contract-test-discipline`](cross-repo-contract-test-discipline.md) — discipline for contract tests that skip-vs-run. Convention A's producer-side assertion needs a CI lane that actually runs it.
 - [`parity-audit-doctrine`](parity-audit-doctrine.md) — plugin-migration audit; complementary to this wiki but governs the move-event, not the steady-state contract.
 - [`named-contracts-vs-incidental-flags`](named-contracts-vs-incidental-flags.md) — when to name a contract at all.
-- Provenance: `project-rag` repo, `docs/wiki/addon-protocol.md § Cross-repo parity conventions` and `docs/plans/2026-05-28-addon-protocol-parity-conventions.md` (resolve the repo root via `repos.project_rag`).

@@ -2,7 +2,6 @@
 title: Host vs. addons — content-agnostic core and domain-specific extensions
 created: 2026-05-15
 status: active
-spec_backlink: docs/plans/2026-05-15-ws1-multi-language-core-spine.md §Step 12
 relates_to:
   - docs/wiki/addon-protocol.md
   - docs/wiki/standalone-vs-ue-augmented.md
@@ -11,9 +10,7 @@ relates_to:
   - ../../../project-rag-ue-addon/docs/wiki/triad-roles-doctrine.md
 ---
 
-<!-- Imported from X:/project-rag at SHA d376cb01. Inherited substrate; canonical lineage now in Claude Central. Origin: project-rag/docs/... — sibling-repo layout doctrine now lives in this repo's own wiki (the meta-repo local-doctrine file this once pointed at is retired). --> <!-- foreign-path-ok: historical import provenance, quoting the machine-specific path as it stood at import time, not a live location assertion -->
 
-<!-- Spec backlink: docs/plans/2026-05-15-ws1-multi-language-core-spine.md §Step 12 (doc reframe — AC-WS1-9) -->
 
 # Host vs. Addons
 
@@ -99,12 +96,11 @@ flag is a *capability declaration*, not a corpus-class assertion. Reference:
 Wave 2a (scaffold) landed the hookspecs and façade types. Wave 2b (physical extraction)
 moved UE code out of the host into `project-rag-ue-addon`. Phases 1A–1I and Phase 2
 (P2.1–P2.4) shipped via `/mise-en-place`; P2.5 (delete `structural_index_lite.py`) is
-tracked in spinoff handoff `state/handoffs/2026-05-15_203216_wave-2b-p2.5-spinoff.md`.
+tracked in a spinoff handoff.
 Wave 2c (terminal carve-out) proceeds once the Phase 1 hookspec
 contract is solid (parse-test + round-trip fixture-addon test
 green). A second installed addon is not a precondition. Authority:
 plan §(b) "B-3 disposition"
-(docs/plans/2026-05-16-phase-1-addon-extensible-schema.md).
 
 *"second addon validates migration contract"
 precondition is retired per PM disposition; hookspec-
@@ -118,7 +114,7 @@ conditionals that Wave 2b executors grep to find all gate sites.
 
 Engine-only mode lets the daemon serve engine-RAG tools (`project_engine_examples`,
 `engine_domain_status`, `project_rag_blended_query`) against a non-UE project root
-— for example, when `--project-root` points at `X:/project-rag` itself (a Python <!-- foreign-path-ok: illustrative example value for --project-root -->
+— for example, when `--project-root` points at `C:/project-rag` itself (a Python <!-- foreign-path-ok: illustrative example value for --project-root -->
 codebase with no `.uproject`).
 
 **Activation:** pass `--require-uproject=false` (or let `--require-uproject=auto`
@@ -154,7 +150,6 @@ legacy "caller cwd not registered" (F-2, F-7) so operators know the exact fix pa
 addon that mounts an engine corpus (e.g. `project-rag-ue-addon`) should register its bands
 even when pointed at a non-UE project root so engine-RAG tools work.
 
-Spec backlink: docs/plans/2026-05-18-host-side-install-surface-from-addon-relay.md §C-1
 
 ## Related docs
 
