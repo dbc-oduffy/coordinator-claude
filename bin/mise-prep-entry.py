@@ -21,17 +21,10 @@ THE TWO LEGS, and why neither is transcribed here:
           `execution_authorized` (the S exit, whose plan stays at `draft` by design). Both arms,
           because plan-blitz has two exits — `constituents` reads "approved" nowhere in its own
           count. This module lives inside the engine, so it imports the gate directly — no seam.
-  SEAM 2  `coordinator_core.roadmap.aggregate_rollup :: certification_state` -> the four-state
-          attest read over each plan's own bytes -- SITED IN THE ENGINE (coordinator_core), NOT
-          reached through a doctrine-plugin path: aggregate-rollup.py has not yet arrived from
-          DoE-claude (docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W3-C7 moves it to
-          coordinator/bin/aggregate-rollup.py), so at THIS chunk's landing there is no engine
-          seam to import. This module resolves it through the "doctrine asset" class of § Path
-          resolution instead: the plugin root (`coordinator_core.warm.caller_context ::
-          resolve_caller_context`, itself falling back to `coordinator_core.subagent_sandbox.
-          provision_report :: resolve_plugin_root`), never a DoE-relative literal derived from
-          this module's own `__file__` (the DoE-claude@b644d5a9 lesson). Once W3-C7 lands, a
-          later chunk retargets this seam at the in-engine module and this note retires with it.
+  SEAM 2  `coordinator/bin/aggregate-rollup.py :: certification_state` -> the four-state
+          attest read over each plan's own bytes, loaded by path from this module's own
+          `coordinator/bin` sibling (arrived via docs/plans/2026-09-18-doe-holds-no-scripts.md,
+          chunk W3-C7).
 
 THE PREDICATE IS THE RECOMPUTED SHA, NEVER THE PRESENCE OF `mise_prepped_by`. In a chained world
 the stamp-to-fire window is wide by construction — planning runs waves ahead of execution — so a
@@ -164,35 +157,21 @@ class SeamError(RuntimeError):
     question look identical downstream, and the second one must never read as the first."""
 
 
-def _resolve_plugin_root() -> Optional[Path]:
-    """The doctrine-plugin content root, for SEAM 2's not-yet-arrived sibling.
+def _ensure_engine_on_path() -> None:
+    """Put the engine root on `sys.path`, fail-loud — the same self-location-first bootstrap
+    every other `coordinator/bin/*.py` engine-backed CLI uses (see e.g.
+    `coordinator/bin/compose-review-wave.py`). Idempotent: `require_colocated_engine_on_path`
+    front-inserts onto `sys.path` and a second call is harmless."""
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
 
-    `resolve_caller_context()`'s own fallback ladder already reaches
-    `subagent_sandbox.provision_report.resolve_plugin_root()` when no per-call payload names one —
-    the same ladder every other warm-engine call site uses, so this read and any other consumer
-    never disagree about which plugin root answered."""
-    if str(_REPO_ROOT) not in sys.path:
-        sys.path.insert(0, str(_REPO_ROOT))
-    try:
-        from coordinator_core.warm.caller_context import resolve_caller_context
-    except Exception as exc:  # pragma: no cover - import-shape guard
-        raise SeamError(f"coordinator_core.warm.caller_context unimportable: {exc}")
-    root = resolve_caller_context().plugin_root
-    return Path(root) if root else None
+    require_colocated_engine_on_path(__file__)
 
 
 def _load_rollup():
-    """SEAM 2's module, loaded by path off the resolved plugin root.
-
-    `aggregate-rollup.py` is a doctrine asset that has not yet arrived from DoE-claude (see module
-    docstring) — resolved through the plugin root, never through this module's own `__file__`."""
-    plugin_root = _resolve_plugin_root()
-    if plugin_root is None:
-        raise SeamError(
-            "coordinator_core.warm.caller_context could not resolve a plugin root — set "
-            "CLAUDE_PLUGIN_ROOT, or register the plugin path in machine-local"
-        )
-    rollup_path = plugin_root / "skills" / "pickup" / "aggregate-rollup.py"
+    """SEAM 2's module, loaded by path from this engine's own `coordinator/bin` — never off the
+    plugin root, which holds no scripts."""
+    rollup_path = Path(__file__).resolve().parent / "aggregate-rollup.py"
     if not rollup_path.is_file():
         raise SeamError(f"aggregate-rollup.py not found at {rollup_path}")
 
@@ -212,8 +191,7 @@ def _load_rollup():
 def _engine_plan_gate():
     """`assemble_plan_gate`, imported directly — this module lives inside the engine, so SEAM 1
     resolves through this module's own tree with no seam at all."""
-    if str(_REPO_ROOT) not in sys.path:
-        sys.path.insert(0, str(_REPO_ROOT))
+    _ensure_engine_on_path()
     try:
         from coordinator_core.roadmap.plan_gate import assemble_plan_gate
     except Exception as exc:

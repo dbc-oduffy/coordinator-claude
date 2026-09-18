@@ -131,7 +131,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _posture import resolve_posture  # noqa: E402
 import _next_move_ledger as _ledger  # noqa: E402
 from _touch_record import _touch_lines, _touch_record_jsonl_paths, _touched_txt_paths  # noqa: E402
-import _block_discharge  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Static seam table (emission side). See module docstring for the full
@@ -192,27 +191,22 @@ _POST_SIZE_PROMPT_DETENT = "post_size_prompt_pending"
 # ---------------------------------------------------------------------------
 
 
-def _block_discharge_cli_path() -> str:
-    """Absolute path to `block-discharge.py`, derived from THIS guard's own
-    location rather than from the invoking repo.
+def _record_fire(repo_root: str, session_id: str, guard: str, reason: str) -> str | None:
+    """Mint a block-discharge nonce through the engine's ledger writer
+    (`coordinator_core.block_discharge.record_fire`). None when the engine is
+    unresolvable or the write fails; the caller reports that as an unrecorded
+    fire, never as a clean check."""
+    try:
+        from _engine_root import place_engine_root_on_path, resolve_claude_klabauter_root
 
-    A consumer repo that installs coordinator as a plugin has no
-    `coordinator/` tree of its own, so the relative
-    `coordinator/bin/block-discharge.py` this used to print does not exist
-    there -- and the guard's whole instruction is therefore unrunnable in
-    exactly the repos the ledger-root fix just taught the CLI to serve.
-    Reported independently by `example-cockpit-repo-em` and `example-game-repo-em`.
-
-    This guard file sits at `<plugin-root>/hooks/scripts/`, so the CLI is at
-    `<plugin-root>/bin/block-discharge.py`. Falls back to the old relative
-    form only if that path is absent, which keeps a partially-deployed tree
-    printing something rather than nothing.
-    """
-    here = os.path.dirname(os.path.abspath(__file__))
-    candidate = os.path.join(os.path.dirname(os.path.dirname(here)), "bin", "block-discharge.py")
-    if os.path.isfile(candidate):
-        return candidate
-    return os.path.join("coordinator", "bin", "block-discharge.py")
+        root = resolve_claude_klabauter_root()
+        if not root:
+            return None
+        place_engine_root_on_path(root)
+        from coordinator_core.block_discharge import record_fire
+    except Exception:
+        return None
+    return record_fire(repo_root, session_id, guard, reason)
 
 
 def _repo_root(payload: dict):
@@ -540,7 +534,7 @@ def _handle_stop(payload: dict) -> int:
     if posture in ("default", "substrate-free"):
         repo_root = _repo_root(payload)
         if repo_root is not None:
-            nonce = _block_discharge.record_fire(
+            nonce = _record_fire(
                 repo_root, session_id, "watchdog-undischarged-next-move", text
             )
         else:
@@ -548,12 +542,12 @@ def _handle_stop(payload: dict) -> int:
         if nonce is not None:
             discharge_note = (
                 f"Recorded as {nonce}. When you have acted on this, run:\n"
-                f'  "{sys.executable}" "{_block_discharge_cli_path()}" record --nonce {nonce} '
+                f'  block-discharge record --nonce {nonce} '
                 f'--action "<what you did>" --repo-root "{repo_root}"\n'
             )
         else:
             discharge_note = (
-                f"Could not record this fire (write failed) at "
+                f"Could not record this fire (engine unresolvable or write failed) at "
                 f"state/block-discharge/{session_id}.jsonl.\n"
                 "No nonce to discharge -- this failure is visible in stderr, not "
                 "laundered into a clean check.\n"

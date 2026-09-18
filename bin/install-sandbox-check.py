@@ -87,7 +87,7 @@ def _resolve_coordinator_root() -> str:
     unresolvable DoE root must not degrade to a silent no-op default.
     """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from coordinator_data_root import content_root_for
+    from coordinator_data_root import content_root_or_private
     from coordinator_registry import _DoeUnresolvable, doe_root
 
     try:
@@ -102,14 +102,9 @@ def _resolve_coordinator_root() -> str:
         )
         sys.exit(_TRANSPORT_FAILURE_RC)
     # Either content layout — the published flat mirror carries the install surfaces at its
-    # own root, with no "coordinator" segment to join
-    # (coordinator_data_root.content_root_for is the one place that join lives).
-    content = content_root_for(root)
-    if content is not None:
-        return str(content)
-    # Neither layout present — keep naming the private-shape path so the
-    # downstream read reports the directory an operator expected to see.
-    return os.path.join(root, "coordinator")
+    # own root, with no "coordinator" segment to join — routed through the
+    # promoted content_root_or_private wrapper (overengineering-reviewer finding 2).
+    return content_root_or_private(root)
 
 
 def _import_main():

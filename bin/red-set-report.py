@@ -59,6 +59,30 @@ NEGATIVE SPEC
       node-ids, if a peer's concurrent commit violates that invariant. Also
       reports the git HEAD SHA before and after the whole measurement so a
       caller can see whether the tree moved.
+    - Never treats an empty collected-test count as a passing/silent result
+      (ported from the DoE-plane fork's denominator assertion, W3-C5,
+      `docs/plans/2026-09-18-doe-holds-no-scripts.md`) -- a `target` that
+      collects zero tests raises `ValueError` rather than reporting a
+      vacuously green (0 collected, 0 failed) census.
+
+RECONCILED AGAINST THE DoE-PLANE FORK (W3-C5). DoE's `coordinator/bin/red-
+set-report.py` solves a DIFFERENT problem under the same filename: it derives
+a red-nodeid set for a `coordinator.local.md` `ceremony_test_cmds` entry
+(`observed`/`count` subcommands, keyed on `collection_roots` via `tier-last-
+run.py`). That concept has a real analogue here (`coordinator/bin/tier-last-
+run.py`, ported at an earlier wave), but this repo already solved "how do we
+track the known-red set" with a different, already-wired mechanism this
+script's own `derive_red_set`/`unmarked_failed` feeds:
+`coordinator/bin/regenerate-known-red-registry.py` diffs the LIVE unmarked-
+red set against `state/bash-guards/known-red.json`'s registry keys -- a
+strictly stronger check than DoE's `derive_known_red_count` (`len(entries)`,
+a count DoE's own module docstring names as gameable by a fix-one-break-one
+swap that leaves any count flat, per a 2026-08-28 PM ruling). No caller in
+this repo invokes DoE's `observed`/
+`count` verb shape, so it carries no unmet requirement here; only its
+denominator assertion (above) named a real, still-applicable gap and was
+ported. See `state/audits/doe-script-arrivals/W3-C5.yaml` for the full
+reconciliation record.
 """
 from __future__ import annotations
 
@@ -423,6 +447,17 @@ def derive_red_set(
     head_before = current_head_sha()
 
     collected_all = run_pytest_collect(target, marker_expr=None)
+    if not collected_all:
+        # Ported from the DoE-plane fork's `derive_observed_red` negative spec
+        # (W3-C5, docs/plans/2026-09-18-doe-holds-no-scripts.md): a vacuous
+        # target -- a mistyped path, an empty directory -- must fail loudly
+        # here, not report a vacuously green (0 collected, 0 failed) census
+        # that reads as "no reds" to a caller diffing the unmarked-failed set
+        # against a registry.
+        raise ValueError(
+            f"red-set-report: target {target!r} collected zero tests -- refusing to report "
+            "a red set over an empty corpus"
+        )
     collected_fast = run_pytest_collect(target, marker_expr=marker_expr)
     marked = derive_marked_split(collected_all, collected_fast)
 

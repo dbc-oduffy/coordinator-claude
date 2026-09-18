@@ -444,20 +444,16 @@ def _wiki_inventory_dir() -> str:
     cannot be resolved and no env override is present.
     """
     _bootstrap_engine()
-    from coordinator_data_root import content_root_for
+    from coordinator_data_root import content_root_or_private
 
     override = os.environ.get(_WIKI_ROOT_ENV)
     if override:
         return override
     resolved = doe_root()
     # Either content layout — the published flat mirror carries docs/wiki/ at
-    # its own root, with no "coordinator" segment to join.
-    content = content_root_for(resolved)
-    if content is not None:
-        return os.path.join(str(content), "docs", "wiki")
-    # Neither layout present — keep naming the private-shape path so
-    # _list_central_wiki_targets names the directory an operator expected.
-    return os.path.join(resolved, "coordinator", "docs", "wiki")
+    # its own root, with no "coordinator" segment to join (overengineering-
+    # reviewer finding 2 — routed through the promoted wrapper).
+    return os.path.join(content_root_or_private(resolved), "docs", "wiki")
 
 
 def _list_central_wiki_targets(wiki_dir: str) -> frozenset[str]:

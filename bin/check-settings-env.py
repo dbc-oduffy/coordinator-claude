@@ -75,28 +75,47 @@ class _Row:
         self.windows_only = windows_only
 
 
-_SPEC: tuple[_Row, ...] = (
-    _Row(
-        "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
-        required="1",
-        all_machines=True,
-        gates="Agent Teams, the deep-research pipelines, and the Task* task-graph they block on",
-    ),
-    _Row(
-        "CLAUDE_CODE_ENABLE_TODO_TOOLS",
-        required="1",
-        all_machines=True,
-        gates="TaskCreate/TaskGet/TaskList/TaskUpdate in a main session on v2.1.233+ models",
-    ),
-    _Row(
-        "CLAUDE_CODE_USE_POWERSHELL_TOOL",
-        required=None,
-        all_machines=False,
-        gates="the PowerShell tool's availability (pinned, not inherited from a progressive rollout)",
-        forbidden=("0",),
-        windows_only=True,
-    ),
-)
+_SPEC_CACHE: tuple[_Row, ...] | None = None
+
+
+def _spec() -> tuple[_Row, ...]:
+    """`_SPEC`'s lazy build -- deferred out of module scope so instantiating `_Row` objects is
+    not a module-body-inertness violation (`coordinator_core.warm.serve_classifier`). Cached: the
+    rows are static, so every caller after the first gets the same tuple back."""
+    global _SPEC_CACHE
+    if _SPEC_CACHE is None:
+        _SPEC_CACHE = (
+            _Row(
+                "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
+                required="1",
+                all_machines=True,
+                gates="Agent Teams, the deep-research pipelines, and the Task* task-graph they block on",
+            ),
+            _Row(
+                "CLAUDE_CODE_ENABLE_TODO_TOOLS",
+                required="1",
+                all_machines=True,
+                gates="TaskCreate/TaskGet/TaskList/TaskUpdate in a main session on v2.1.233+ models",
+            ),
+            _Row(
+                "CLAUDE_CODE_USE_POWERSHELL_TOOL",
+                required=None,
+                all_machines=False,
+                gates="the PowerShell tool's availability (pinned, not inherited from a progressive rollout)",
+                forbidden=("0",),
+                windows_only=True,
+            ),
+        )
+    return _SPEC_CACHE
+
+
+def __getattr__(name: str) -> object:
+    """PEP 562 module `__getattr__` -- `module._SPEC` (the shape
+    `test_arrival_check_settings_env.py` reads via `importlib.util.module_from_spec`) resolves
+    here to `_spec()`'s build, without binding `_SPEC` itself at module scope."""
+    if name == "_SPEC":
+        return _spec()
+    raise AttributeError(f"module 'check-settings-env' has no attribute {name!r}")
 
 
 def _default_settings_path() -> Path:
@@ -150,7 +169,7 @@ def _evaluate(
     """
     local_env = local_env or {}
     findings: list[dict[str, object]] = []
-    for row in _SPEC:
+    for row in _spec():
         if not _applies_here(row):
             continue
         from_local = row.name in local_env

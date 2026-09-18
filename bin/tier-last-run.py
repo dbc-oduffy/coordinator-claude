@@ -45,11 +45,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-try:
-    import yaml
-except ImportError:  # pragma: no cover - environment defect, not a code path under test
-    yaml = None
-
 _STATE_RELATIVE = Path("state") / "tier-last-run.json"
 _LOCAL_DOCTRINE_RELATIVE = Path("coordinator.local.md")
 _ISO_FORMAT = "%Y-%m-%dT%H:%M:%S.%f%z"
@@ -70,6 +65,11 @@ def _load_local_doctrine(repo_root: Path) -> dict[str, Any]:
     frontmatter delimiters, or a YAML document that is not a mapping — every caller here treats
     that as a hard failure, never a silent empty-config fallback.
     """
+    try:
+        import yaml
+    except ImportError:  # pragma: no cover - environment defect, not a code path under test
+        yaml = None
+
     path = repo_root / _LOCAL_DOCTRINE_RELATIVE
     try:
         text = path.read_text(encoding="utf-8")
@@ -365,9 +365,9 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str]) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv[1:])
+    args = parser.parse_args((sys.argv if argv is None else argv)[1:])
     return args.func(args)
 
 

@@ -108,20 +108,17 @@ _WIKI_ANCHOR = (
 # plan-derivable lens sidecars that live there by design.
 #
 # The `.coordinator-local/subagent-share/` alternative is NOT that widening and
-# does not reopen it. It is the SAME bucket at a relocated root -- the engine's
-# `machinery_root()` moved 2026-09-02 from `state/` to `.coordinator-local/`, so
-# one corpus answers to two spellings while readers migrate. The forbidden
+# does not reopen it. It is the SAME bucket at a second root. The engine writes
+# sidecars under `.coordinator-local/` and its reader-side accessor consults
+# both roots, current first (`coordinator_core/session/machinery_paths.py ::
+# share_dirs`), so one corpus answers to two spellings; a sidecar
+# self-scaffolded where provisioning failed lands under `state/`. The forbidden
 # widening admits a DIFFERENT bucket with a different reap lifecycle; this
-# admits the same bucket at the address it moved to. BOTH roots stay accepted:
-# the served tree and the source tree diverge across a republish, and
-# provisioning and matching can be served from different vintages inside that
-# window, so both roots are legal until it closes and the matcher cannot tell
-# which it is serving.
-#
-# RETIRE-AFTER: no live session predates the .coordinator-local republish
-# (2026-09-02) -- see state/debt-backlog/2026-09-02-retire-dual-root-sidecar-
-# path-regex-alternation-c1a9e2b3.yaml for the retirement condition and the
-# exact one-line revert.
+# admits the same bucket at either address it is provisioned under. BOTH roots
+# stay accepted: the matcher cannot tell which root served the sidecar it is
+# asked about, and denying a correct on-disk citation is the failure mode this
+# guard exists to prevent. `guard-kira-verdict-routed.py`'s `_SHARE_ROOTS`
+# reads the same two.
 _SIDECAR_PATH_RE = re.compile(
     r"(?:^|[\s(\[\"'`/\\])((?:state|\.coordinator-local)[/\\]subagent-share[/\\][^\s()\[\]\"'`,;:]+\.md)"
 )

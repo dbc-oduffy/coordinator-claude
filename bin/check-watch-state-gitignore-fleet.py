@@ -39,6 +39,7 @@ Spec backlink: docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W2-C5.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -69,7 +70,7 @@ BOX_LOCAL_STATE_GROUPS = (
     ),
 )
 
-CHECKED_PATHS = tuple(rel for _header, group in BOX_LOCAL_STATE_GROUPS for rel in group)
+CHECKED_PATHS = WATCH_STATE_PATHS + ENGINE_PROVENANCE_PATHS
 
 
 def _settings_home() -> Path:
@@ -112,23 +113,24 @@ def _run(argv: list[str]) -> str | None:
 
 
 def _repo_paths() -> dict[str, Path]:
-    """Every `repos.*` registry key that resolves to a real git worktree on this machine."""
-    ml = _machine_local()
-    listing = _run(ml + ["keys"])
-    if listing is None:
+    """Every `repos.*` registry key that resolves to a real git worktree on this machine.
+
+    One `machine-local dump` resolves every key in a single process; `keys` plus a `get` per key
+    cost 1+N processes for the same file read."""
+    dumped = _run(_machine_local() + ["dump"])
+    if dumped is None:
+        return {}
+    try:
+        registry = json.loads(dumped)
+    except ValueError:
         return {}
     resolved: dict[str, Path] = {}
-    for line in listing.splitlines():
-        key = line.strip()
-        if not key.startswith("repos."):
-            continue
-        value = _run(ml + ["get", key])
-        if not value:
+    for key, value in registry.items():
+        if not key.startswith("repos.") or not isinstance(value, str) or not value.strip():
             continue
         path = Path(value.strip())
-        if not (path / ".git").exists():
-            continue
-        resolved[key[len("repos.") :]] = path
+        if (path / ".git").exists():
+            resolved[key[len("repos.") :]] = path
     return resolved
 
 
@@ -160,14 +162,20 @@ def audit_repo(repo: Path) -> tuple[list[str], list[str]]:
     repos that matter. The two questions are independent and both are asked: is the RULE present
     (`--no-index`), and is the path in the INDEX (`ls-files`).
     """
-    unignored, tracked = [], []
-    for rel in CHECKED_PATHS:
-        if _git(repo, "check-ignore", "--no-index", "-q", "--", rel).returncode != 0:
-            unignored.append(rel)
-        in_index = _git(repo, "ls-files", "--error-unmatch", "--", rel).returncode == 0
-        in_head = bool(_git(repo, "ls-tree", "HEAD", "--name-only", "--", rel).stdout.strip())
-        if in_index or in_head:
-            tracked.append(rel)
+    paths = list(CHECKED_PATHS)
+    ignored = set(
+        _git(repo, "check-ignore", "--no-index", "--", *paths).stdout.splitlines()
+    )
+    in_index = _git(repo, "ls-files", "--", *paths).stdout.splitlines()
+    in_head = _git(repo, "ls-tree", "-r", "HEAD", "--name-only", "--", *paths).stdout.splitlines()
+    present = set(in_index) | set(in_head)
+
+    def _carried(rel: str) -> bool:
+        prefix = rel.rstrip("/") + "/"
+        return rel in present or any(p.startswith(prefix) for p in present)
+
+    unignored = [rel for rel in paths if rel not in ignored]
+    tracked = [rel for rel in paths if _carried(rel)]
     return unignored, tracked
 
 

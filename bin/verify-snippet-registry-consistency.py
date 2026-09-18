@@ -62,7 +62,7 @@ def _resolve_plugin_root() -> str:
     below — this is a gate script, not a never-block hook.
     """
     _bootstrap_engine()
-    from coordinator_data_root import content_root_for
+    from coordinator_data_root import content_root_or_private
     from coordinator_registry import _DoeUnresolvable, doe_root
 
     env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
@@ -79,14 +79,9 @@ def _resolve_plugin_root() -> str:
         )
         sys.exit(_TRANSPORT_FAILURE_EXIT)
     # Either content layout — the published flat mirror carries snippets/ and its registry at its
-    # own root, with no "coordinator" segment to join
-    # (coordinator_data_root.content_root_for is the one place that join lives).
-    content = content_root_for(root)
-    if content is not None:
-        return str(content)
-    # Neither layout present — keep naming the private-shape path so the
-    # downstream read reports the directory an operator expected to see.
-    return os.path.join(root, "coordinator")
+    # own root, with no "coordinator" segment to join — routed through the
+    # promoted content_root_or_private wrapper (overengineering-reviewer finding 2).
+    return content_root_or_private(root)
 
 
 def _bootstrap_engine() -> str:

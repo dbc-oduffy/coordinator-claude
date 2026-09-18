@@ -114,7 +114,7 @@ def _plugin_root() -> str:
     trampoline's existing engine-root-resolution-failure convention below.
     """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from coordinator_data_root import content_root_for
+    from coordinator_data_root import content_root_or_private
     from coordinator_registry import _DoeUnresolvable, doe_root
 
     env_val = os.environ.get("CLAUDE_PLUGIN_ROOT")
@@ -131,14 +131,9 @@ def _plugin_root() -> str:
         )
         sys.exit(3)
     # Either content layout — the published flat mirror carries dist/ at its
-    # own root, with no "coordinator" segment to join
-    # (coordinator_data_root.content_root_for is the one place that join lives).
-    content = content_root_for(root)
-    if content is not None:
-        return str(content)
-    # Neither layout present — keep naming the private-shape path so the
-    # downstream read reports the directory an operator expected to see.
-    return os.path.join(root, "coordinator")
+    # own root, with no "coordinator" segment to join — routed through the
+    # promoted content_root_or_private wrapper (overengineering-reviewer finding 2).
+    return content_root_or_private(root)
 
 
 def _import_run_op_main():

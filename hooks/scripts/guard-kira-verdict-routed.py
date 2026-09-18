@@ -72,7 +72,17 @@ merely "this session opened before 2026-08-30" -- delete
 that date, nor any predecessor reachable through a chain, can still
 close.
 
-THE DECISION -- entirely from frontmatter, never from a sidecar body:
+THE DECISION -- from frontmatter, plus exactly ONE body read. Every routing
+fact comes from a column-zero frontmatter key; the single exception is the
+`## Integrator Dispositions` heading, read off the verdict's own body by
+`_has_recorded_dispositions` (and by `_is_untouched_scaffold`, which reads a
+body only to tell a killed agent from a silent one). That heading is the
+ONLY routing record reachable when a fire dies before its integrator lands:
+no sibling sidecar exists to carry `integrated_from`, and both honest routes
+to authoring one are refused (see `_has_recorded_dispositions`). A reader who
+takes the decision for frontmatter-only concludes a recorded dispositions
+block cannot discharge this guard, and re-dispatches an integrator whose
+findings are already applied -- the reported miss `_find_answers` documents.
   1. No Kira sidecar in the session share dir, but other review activity
      is present -> BLOCK (a close that reviewed something owed Kira a run
      too).
@@ -107,8 +117,8 @@ Contract:
 
 Graceful degradation: any failure to read stdin, resolve the repo root, or
 list/parse the session share directory falls through to a silent exit 0 --
-this guard can only ever block on a POSITIVELY-read frontmatter fact, never
-on its own inability to read one.
+this guard can only ever block on a POSITIVELY-read fact, never on its own
+inability to read one.
 """
 from __future__ import annotations
 
@@ -119,7 +129,6 @@ import time
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _block_discharge  # noqa: E402
 
 # The commit/date C1's terminal-stamp contract lands at -- see the module
 # docstring's CONTRACT_EPOCH section. Delete this constant and
@@ -137,39 +146,40 @@ _CONTRACT_EPOCH_ISO = "2026-08-30T00:00:00Z"
 _KIRA_AGENT_TYPE = "overengineering-reviewer"
 
 # Both machinery roots are read, union-of-filenames, first root wins on a
-# duplicate name. The engine's `machinery_paths.machinery_root()` moved from
-# `state/` to `.coordinator-local/` on 2026-09-02, so an integrator that
-# stamps `integrated_from` in the provisioned directory is invisible to a
-# scan of the old literal alone -- the guard then blocks a session that did
-# exactly what its own remedy prescribes, which is the one state where
-# blocking is wrong. Same reasoning and same retirement condition as
-# `guard-review-integrator-sidecar-intake.py`'s dual-root path regex; see
-# state/debt-backlog/2026-09-02-retire-dual-root-sidecar-path-regex-
-# alternation-c1a9e2b3.yaml for the revert.
+# duplicate name -- the same two the engine's own reader-side accessor
+# consults, current root first (`coordinator_core/session/machinery_paths.py
+# :: share_dirs`), reimplemented here because this hook is stdlib-only. A
+# scan of one root alone cannot see a verdict or an `integrated_from` stamp
+# written under the other, and the guard then blocks a session that did
+# exactly what its own remedy prescribes -- the one state where blocking is
+# wrong.
+#
+# Session-directory naming is not one convention across the two: an
+# engine-provisioned sidecar is named by the coordinator session-id, a
+# self-scaffolded one -- written where provisioning failed -- by the harness
+# session-id. A Stop payload carries one id, so every (root, id) pair is
+# tried rather than inferring which naming this session holds.
+# `guard-review-integrator-sidecar-intake.py`'s path regex admits the same
+# two roots for the same reason.
 _SHARE_ROOTS = (".coordinator-local", "state")
 
 
-def _block_discharge_cli_path() -> str:
-    """Absolute path to `block-discharge.py`, derived from THIS guard's own
-    location rather than from the invoking repo.
+def _record_fire(repo_root: str, session_id: str, guard: str, reason: str) -> str | None:
+    """Mint a block-discharge nonce through the engine's ledger writer
+    (`coordinator_core.block_discharge.record_fire`). None when the engine is
+    unresolvable or the write fails; the caller reports that as an unrecorded
+    fire, never as a clean check."""
+    try:
+        from _engine_root import place_engine_root_on_path, resolve_claude_klabauter_root
 
-    A consumer repo that installs coordinator as a plugin has no
-    `coordinator/` tree of its own, so the relative
-    `coordinator/bin/block-discharge.py` this used to print does not exist
-    there -- and the guard's whole instruction is therefore unrunnable in
-    exactly the repos the ledger-root fix just taught the CLI to serve.
-    Reported independently by `example-cockpit-repo-em` and `example-game-repo-em`.
-
-    This guard file sits at `<plugin-root>/hooks/scripts/`, so the CLI is at
-    `<plugin-root>/bin/block-discharge.py`. Falls back to the old relative
-    form only if that path is absent, which keeps a partially-deployed tree
-    printing something rather than nothing.
-    """
-    here = os.path.dirname(os.path.abspath(__file__))
-    candidate = os.path.join(os.path.dirname(os.path.dirname(here)), "bin", "block-discharge.py")
-    if os.path.isfile(candidate):
-        return candidate
-    return os.path.join("coordinator", "bin", "block-discharge.py")
+        root = resolve_claude_klabauter_root()
+        if not root:
+            return None
+        place_engine_root_on_path(root)
+        from coordinator_core.block_discharge import record_fire
+    except Exception:
+        return None
+    return record_fire(repo_root, session_id, guard, reason)
 
 
 def _repo_root(payload: dict) -> str | None:
@@ -622,18 +632,18 @@ _BLOCK_HEADER = (
 
 
 def _emit_block(reasons: list[str], repo_root: str, session_id: str) -> int:
-    nonce = _block_discharge.record_fire(
+    nonce = _record_fire(
         repo_root, session_id, "guard-kira-verdict-routed", "\n".join(reasons)
     )
     if nonce is not None:
         discharge_note = (
             f"Recorded as {nonce}. When you have acted on this, run:\n"
-            f'  "{sys.executable}" "{_block_discharge_cli_path()}" record --nonce {nonce} '
+            f'  block-discharge record --nonce {nonce} '
             f'--action "<what you did>" --repo-root "{repo_root}"\n'
         )
     else:
         discharge_note = (
-            f"Could not record this fire (write failed) at "
+            f"Could not record this fire (engine unresolvable or write failed) at "
             f"state/block-discharge/{session_id}.jsonl.\n"
             "No nonce to discharge -- this failure is visible in stderr, not "
             "laundered into a clean check.\n"

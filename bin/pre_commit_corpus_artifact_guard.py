@@ -124,7 +124,7 @@ def _max_bytes() -> int:
     return mb * 1024 * 1024
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     if os.environ.get(_BYPASS_ENV) == "1":
         print(f"[corpus-artifact-guard] bypassed via {_BYPASS_ENV}=1", file=sys.stderr)
         return 0
@@ -195,4 +195,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv))

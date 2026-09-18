@@ -48,6 +48,28 @@ Negative-spec:
       command fails to resolve: an unconfigured or misconfigured inner
       statusline means this script emits its own minimal line, never a
       silently-different substitute command.
+    - Still never fabricates a context percentage in the OWN line below —
+      that stays C4's job (the sidecar consumer), unchanged by the addition
+      below.
+
+PEER LABEL / GROUP EM / UHURA STANDING (W3-C5, reconciled from the DoE-plane
+fork of this file). ``uhura-mode.py``'s own docstring names this script as
+its consumer ("the statusline reads this on a hot path"), and
+``group-em-nomination.py`` exists for the same "operator can see who they are
+talking to" reason -- both landed in this repo (W2-C7) with no renderer yet
+reading them. The DoE fork's own-line rendering (peer name label, gold Group
+EM glyph, scarlet Uhura glyph) is ported into ``_own_status_line`` below,
+reusing this repo's already-ported primitives (``coordinator_core.group_em
+.session_registry.find_registry_row``, ``.nomination.read_record``,
+``.atomic_record.load_by_path`` for the hyphenated ``uhura-mode.py`` sibling)
+rather than DoE's own separate ``bin/lib`` copies or its file-backed peer-name
+memo cache -- ``session_registry``'s own docstring names its directory scan as
+affordable per call and its negative spec as deliberately cache-free, so no
+second cache is built on top of it here. What did NOT port: DoE's inline
+percentage/colour-by-pressure rendering. This script's own negative spec above
+already assigns that job to C4's sidecar consumer, on purpose -- porting it
+would re-open the exact fail-quiet risk that assignment exists to close, not
+satisfy an unmet requirement.
 """
 
 from __future__ import annotations
@@ -59,7 +81,7 @@ import shlex
 import subprocess
 import sys
 import time
-from pathlib import Path
+from pathlib import Path, PurePath
 
 _BIN_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _BIN_DIR.parent.parent  # coordinator/bin -> coordinator -> repo root
@@ -68,6 +90,12 @@ _SETTINGS_PATH = _REPO_ROOT / "coordinator" / "settings.json"
 _DEBUG_ENV_VAR = "COORDINATOR_STATUSLINE_DEBUG"
 
 _BOOTSTRAP_DONE = False
+
+_GROUP_EM_GLYPH = "\U0001F9ED"  # 🧭 -- ported from the DoE fork, unchanged.
+_UHURA_GLYPH = "\U0001F4DE"  # 📞 -- one codepoint, no variation selector, like the glyph above.
+_GOLD = "\033[38;5;220m"
+_SCARLET = "\033[38;5;196m"
+_RESET = "\033[0m"
 
 
 def _bootstrap_engine() -> None:
@@ -155,22 +183,181 @@ def _resolve_inner_command() -> list[str] | None:
     return None
 
 
+def _colorize_256(text: str, code: str) -> str:
+    """Wrap ``text`` in a 256-colour escape ``code``, honouring ``NO_COLOR``."""
+    if os.environ.get("NO_COLOR"):
+        return text
+    return f"{code}{text}{_RESET}"
+
+
+def _colorize_gold(text: str) -> str:
+    return _colorize_256(text, _GOLD)
+
+
+def _colorize_scarlet(text: str) -> str:
+    return _colorize_256(text, _SCARLET)
+
+
+def _workspace_root(payload: dict) -> str | None:
+    """The repo root this session is working in, for the Group EM / Uhura join.
+
+    Same source order as ``_folder`` below (``workspace.project_dir`` then
+    ``workspace.current_dir`` then ``cwd``), but returns the full path rather
+    than just the trailing folder name — the holder records this joins
+    against are keyed on the full, normalised repo root
+    (``coordinator_core.group_em.atomic_record.repo_key``), never on a
+    display name two different repos could share.
+    """
+    workspace = payload.get("workspace")
+    candidate = None
+    if isinstance(workspace, dict):
+        candidate = workspace.get("project_dir") or workspace.get("current_dir")
+    candidate = candidate or payload.get("cwd")
+    if not isinstance(candidate, str) or not candidate.strip():
+        return None
+    return candidate
+
+
+def _folder(payload: dict) -> str | None:
+    """The session's home folder name — the label's fallback when no live
+    registry row names this session (see ``_peer_label``)."""
+    candidate = _workspace_root(payload)
+    if not candidate:
+        return None
+    name = PurePath(candidate.rstrip("/\\")).name
+    return name or None
+
+
+def _peer_label(payload: dict, session_id: str) -> str | None:
+    """The address this session is reachable at over SendMessage, or the
+    session's folder name if no live registry row names it. Never raises.
+
+    Resolved via ``coordinator_core.group_em.session_registry
+    .find_registry_row`` — the primitive already ported into this engine at
+    W2-C1 for exactly this join (harness session id -> registry row), scanned
+    fresh on every call per that module's own negative spec (no caching layer
+    added on top here; see this file's module docstring).
+    """
+    if session_id:
+        try:
+            _bootstrap_engine()
+            from coordinator_core.group_em.session_registry import find_registry_row
+
+            row = find_registry_row(session_id)
+            if row is not None and row.name:
+                return row.name
+        except Exception as exc:  # noqa: BLE001 - never let a lookup failure blank the line
+            _debug(f"peer label lookup failed: {exc!r}")
+    return _folder(payload)
+
+
+def _group_em_glyph(payload: dict, session_id: str) -> str | None:
+    """The gold Group-EM glyph, iff THIS session currently holds the Group EM
+    nomination for this repo — never for any other reason. Never raises."""
+    if not session_id:
+        return None
+    repo_root = _workspace_root(payload)
+    if not repo_root:
+        return None
+    try:
+        _bootstrap_engine()
+        from coordinator_core.group_em import nomination
+
+        record = nomination.read_record(repo_root)
+    except Exception as exc:  # noqa: BLE001
+        _debug(f"group-em standing lookup failed: {exc!r}")
+        return None
+    if not isinstance(record, dict):
+        return None
+    if str(record.get("session_id") or "") != session_id:
+        return None
+    return _colorize_gold(_GROUP_EM_GLYPH)
+
+
+def _uhura_module():
+    """Load ``uhura-mode.py`` by path — its hyphenated filename is not
+    import-safe as a package module, same as every other trampoline CLI in
+    this directory. Best-effort: any failure here means no standing, never a
+    raise."""
+    try:
+        _bootstrap_engine()
+        from coordinator_core.group_em.atomic_record import load_by_path
+
+        return load_by_path("_statusline_uhura", _BIN_DIR / "uhura-mode.py")
+    except Exception:
+        return None
+
+
+def _holds_uhura(payload: dict, session_id: str) -> bool:
+    """Whether THIS session currently holds this repo's Uhura comms channel.
+    Same session-id join as ``_group_em_glyph``; never raises."""
+    if not session_id:
+        return False
+    repo_root = _workspace_root(payload)
+    if not repo_root:
+        return False
+    try:
+        _bootstrap_engine()
+        from coordinator_core.group_em import atomic_record
+
+        uhura = _uhura_module()
+        if uhura is None:
+            return False
+        record = uhura.read_record(atomic_record, repo_root)
+    except Exception as exc:  # noqa: BLE001
+        _debug(f"uhura standing lookup failed: {exc!r}")
+        return False
+    if not isinstance(record, dict):
+        return False
+    return str(record.get("session_id") or "") == session_id
+
+
 def _own_status_line(raw_stdin: bytes) -> str:
     """The minimal line this script emits when no inner statusline is
     configured. Never fabricates a context reading — that is the sidecar
-    consumer's job (C4), not this script's."""
+    consumer's job (C4), not this script's.
+
+    Prefixed with the session's peer-name label (or folder name), and the
+    gold Group-EM / scarlet Uhura glyphs when this session holds either
+    standing — see this file's module docstring, "PEER LABEL / GROUP EM /
+    UHURA STANDING". A lookup failure at any stage degrades to the plain
+    ``[model] coordinator`` / ``coordinator`` line, never a crash or a blank
+    line.
+    """
     try:
         payload = json.loads(raw_stdin)
     except (json.JSONDecodeError, UnicodeDecodeError):
         payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
 
     model = ""
-    if isinstance(payload, dict):
-        model_block = payload.get("model")
-        if isinstance(model_block, dict):
-            model = model_block.get("display_name") or model_block.get("id") or ""
+    model_block = payload.get("model")
+    if isinstance(model_block, dict):
+        model = model_block.get("display_name") or model_block.get("id") or ""
 
-    return f"[{model}] coordinator" if model else "coordinator"
+    base = f"[{model}] coordinator" if model else "coordinator"
+
+    session_id = str(payload.get("session_id") or "")
+    label = _peer_label(payload, session_id)
+    if not label:
+        return base
+
+    standing = _group_em_glyph(payload, session_id)
+    holds_uhura = _holds_uhura(payload, session_id)
+    # Uhura outranks the Group EM ON THE LABEL ONLY, matching the DoE fork's
+    # own reasoning: a session can hold both, and scarlet answers "will a PM
+    # message come from this window", the scarcer fact a reader scans for.
+    if holds_uhura:
+        colored_label = _colorize_scarlet(label)
+    elif standing:
+        colored_label = _colorize_gold(label)
+    else:
+        colored_label = label
+    receiver = _colorize_scarlet(_UHURA_GLYPH) if holds_uhura else None
+    segments = [s for s in (receiver, standing, colored_label) if s]
+    prefix = " · ".join(segments)
+    return f"{prefix} · {base}" if prefix else base
 
 
 def _run_inner(command: list[str], raw_stdin: bytes) -> int:
