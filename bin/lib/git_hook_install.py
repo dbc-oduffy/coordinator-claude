@@ -362,9 +362,15 @@ def _resolve_coord_bin(bin_dir: str, script_name: str) -> str:
         except OSError:
             continue
         if doe_root:
-            cand_bin = os.path.join(doe_root, "coordinator", "bin")
-            if _helper_present(cand_bin, script_name):
-                return cand_bin
+            # Either content layout — a pointer naming the published flat
+            # mirror found no helper while only `<root>/coordinator` counted.
+            from coordinator_data_root import content_root_for
+
+            content = content_root_for(doe_root)
+            if content is not None:
+                cand_bin = os.path.join(str(content), "bin")
+                if _helper_present(cand_bin, script_name):
+                    return cand_bin
 
     # Rung 3: machine-local registry — engine-repo path (the
     # executable surface's post-migration home).

@@ -105,7 +105,7 @@ result = subprocess.run(
 
 ## Windows headless spawn: CREATE_NO_WINDOW vs pythonw.exe
 
-> **Default (DR-054):** `creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)` at the `subprocess.run`/`Popen` site is the primary fix. The `pythonw.exe` sibling approach below is the documented **exception** for uv-managed venvs (whose `python.exe` is a CONSOLE-subsystem stub launcher that `CREATE_NO_WINDOW` cannot suppress) — not a general reversal toward "prefer pythonw".
+> **Default:** `creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)` at the `subprocess.run`/`Popen` site is the primary fix. The `pythonw.exe` sibling approach below is the documented **exception** for uv-managed venvs (whose `python.exe` is a CONSOLE-subsystem stub launcher that `CREATE_NO_WINDOW` cannot suppress) — not a general reversal toward "prefer pythonw".
 
 **CREATE_NO_WINDOW alone is unreliable for python.exe spawns on uv-managed venvs** (project-rag). On uv-managed virtual environments, `python.exe` is a stub launcher compiled with the CONSOLE subsystem. Passing `creationflags=subprocess.CREATE_NO_WINDOW` to `subprocess.Popen` suppresses the console window for the parent-spawned process, but the stub launcher itself may briefly flash a console window before handing off to the real interpreter — because the stub's PE header declares CONSOLE subsystem, the OS creates a console for it regardless of the flag.
 

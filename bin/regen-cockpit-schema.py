@@ -429,7 +429,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  ({mak_root}/scripts/setup.sh or setup.ps1), then re-run this script under it.", file=sys.stderr)
         return 2
 
-    out_dir = os.path.join(doe_root, "coordinator", "cockpit-contract", "schema")
+    # Either content layout — the published flat mirror carries
+    # cockpit-contract/ at its own root, with no "coordinator" segment to join
+    # (coordinator_data_root.content_root_for is the one place that join lives).
+    # `doe_root` itself stays the REPO root: every git -C / relpath call below
+    # is repo-scoped, only the schema out-dir is content-scoped.
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_data_root import content_root_for
+
+    _content = content_root_for(doe_root)
+    _content_base = str(_content) if _content is not None else os.path.join(doe_root, "coordinator")
+    out_dir = os.path.join(_content_base, "cockpit-contract", "schema")
     print(f"Regenerating cockpit-contract schema via claude-klabauter emitter ({sys.executable})...")
     env = dict(trampoline_env)
     env["COCKPIT_SCHEMA_OUT_DIR"] = out_dir

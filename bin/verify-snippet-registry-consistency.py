@@ -17,7 +17,10 @@ from __future__ import annotations
 #   2 — missing dep or file not found (ALSO: missing schema_version — a
 #       faithfully-reproduced oracle quirk, see the claude-klabauter module's own
 #       negative-spec docstring)
-#   3 — schema_version present but unsupported (not 1 or 2)
+#   3 — schema_version present but unsupported. The supported set is
+#       coordinator_core.snippet_sync.registry._SUPPORTED_SCHEMA_VERSIONS and is
+#       not restated here — a second statement of it is what let this gate sit
+#       six weeks behind the registry it verifies.
 #   4 — DEDICATED transport-failure code (PORTER-BRIEF-ADDENDUM § 3b): the
 #       coordinator-root / engine-root resolution failed, the DoE-claude repo
 #       root (which owns snippets/registry.toml) was unresolvable, or
@@ -59,6 +62,7 @@ def _resolve_plugin_root() -> str:
     below — this is a gate script, not a never-block hook.
     """
     _bootstrap_engine()
+    from coordinator_data_root import content_root_for
     from coordinator_registry import _DoeUnresolvable, doe_root
 
     env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
@@ -74,6 +78,14 @@ def _resolve_plugin_root() -> str:
             file=sys.stderr,
         )
         sys.exit(_TRANSPORT_FAILURE_EXIT)
+    # Either content layout — the published flat mirror carries snippets/ and its registry at its
+    # own root, with no "coordinator" segment to join
+    # (coordinator_data_root.content_root_for is the one place that join lives).
+    content = content_root_for(root)
+    if content is not None:
+        return str(content)
+    # Neither layout present — keep naming the private-shape path so the
+    # downstream read reports the directory an operator expected to see.
     return os.path.join(root, "coordinator")
 
 

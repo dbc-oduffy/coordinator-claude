@@ -628,8 +628,8 @@ def _emit_block(reasons: list[str], repo_root: str, session_id: str) -> int:
     if nonce is not None:
         discharge_note = (
             f"Recorded as {nonce}. When you have acted on this, run:\n"
-            f"  python {_block_discharge_cli_path()} record --nonce {nonce} "
-            f'--action "<what you did>" --repo-root {repo_root}\n'
+            f'  "{sys.executable}" "{_block_discharge_cli_path()}" record --nonce {nonce} '
+            f'--action "<what you did>" --repo-root "{repo_root}"\n'
         )
     else:
         discharge_note = (

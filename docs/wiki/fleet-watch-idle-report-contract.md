@@ -27,7 +27,7 @@ python3 -m coordinator_core.group_em.idle_report --repo-root <root> --group-em-s
 `group_em.watch`, and for the same reason: it is the Group EM's offer log that decides a peer has
 already been answered. A `--json` arm carries the same fields.
 
-**`--group-em-session-id` needs an engine at or past `b584851c` on the published mirror.** The
+**`--group-em-session-id` needs an engine at or past the published mirror's current tip.** The
 pre-2026-09-01 spelling was `--crown-session-id`, retained engine-side as a suppressed alias, so
 old text runs on a new engine — but not the reverse: this page's spelling on an engine older than
 that commit is an argparse hard-error in every dispatched fleet-watch agent. A box whose mirror is
@@ -152,7 +152,6 @@ The evidence fields — `divergence`, `address`, `answered-by-group-em`, `report
 inform; they do not select. `holder-liveness` stays report-only: the signal has repeatedly measured
 unreliable (false-alive in the grace window, entry stamps stealing the holder), so a verdict keyed
 on it would void live holders' ticks on false-deads — worse than the quiet defect it would replace.
-Revisit once the liveness signal itself is hardened (`state/handoffs/2026-09-11-group-em-watch-liveness-from-inbox-blitz.md`).
 
 ## A missing enrichment downgrades toward reporting, never toward sending
 

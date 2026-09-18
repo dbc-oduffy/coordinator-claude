@@ -12,8 +12,8 @@
 - **The maximalist shape is CONFIRMED for skills — via `--plugin-dir`, the official editable-install
   mechanism** (the `pip install -e` equivalent). External source, live in-place, resolved at runtime
   from the external dir. Runtime confirmed (fresh boot with `claude --plugin-dir
-  ~/X/_doe-spike/doe-spike-plugin`): the `doe-spike-echo` skill loaded with base dir
-  `~/X/_doe-spike/...` and **zero cache/registry footprint** — live-external, not byte-copied.
+  $SPIKE_ROOT/_doe-spike/doe-spike-plugin`): the `doe-spike-echo` skill loaded with base dir
+  `$SPIKE_ROOT/_doe-spike/...` and **zero cache/registry footprint** — live-external, not byte-copied.
 - ~~**BUT plugin-declared hooks do NOT fire under `--plugin-dir`, even on a fresh boot** (bug
   **#38699**).~~ **SUPERSEDED — refuted 2026-08-02/03 on Claude Code 2.1.220.** Plugin-declared
   hooks in `coordinator/hooks/hooks.json` fire normally under `--plugin-dir`, and they are the
@@ -76,14 +76,14 @@ to cached), **#38699** (`CLAUDE_PLUGIN_ROOT` inconsistent between hooks and agen
 
 ## Runtime confirmation test — EXECUTED 2026-07-04 (fresh boot with `--plugin-dir`)
 
-Spike rig was at `~/X/_doe-spike/doe-spike-plugin` (skill `doe-spike-echo` + plugin-declared
-SessionStart hook `echo-root.sh` appending to `~/X/_doe-spike/hook-fire.log`). **Rig torn down after
-this run** (`rm -rf ~/X/_doe-spike`) — throwaway; verdict captured here.
+Spike rig was at `$SPIKE_ROOT/_doe-spike/doe-spike-plugin` (skill `doe-spike-echo` + plugin-declared
+SessionStart hook `echo-root.sh` appending to `$SPIKE_ROOT/_doe-spike/hook-fire.log`). **Rig torn down after
+this run** (`rm -rf $SPIKE_ROOT/_doe-spike`) — throwaway; verdict captured here.
 
-**Test A (executed):** booted fresh with `claude --plugin-dir ~/X/_doe-spike/doe-spike-plugin`. **Split
+**Test A (executed):** booted fresh with `claude --plugin-dir $SPIKE_ROOT/_doe-spike/doe-spike-plugin`. **Split
 result:**
 - **Skill leg — PASS.** `doe-spike-echo` loaded; skill base dir resolved to the EXTERNAL path
-  `~/X/_doe-spike/doe-spike-plugin/skills/doe-spike-echo`, with **no cache copy** and **no
+  `$SPIKE_ROOT/_doe-spike/doe-spike-plugin/skills/doe-spike-echo`, with **no cache copy** and **no
   registry/settings entry** anywhere. Live-external resolution confirmed.
 - **Hook leg — FAIL.** `hook-fire.log` was never created — the plugin-declared SessionStart hook did
   not fire on a clean first boot. `--plugin-dir` registers skills but not plugin-declared hooks
@@ -96,8 +96,6 @@ the W4/W5 adoption decision (launch-flag vs registry), not a separate spike.
 
 ## Hook REGISTRATION staleness — MEASURED 2026-08-02/03 (Claude Code 2.1.220, macOS)
 
-> Spinoff `state/handoffs/2026-08-02-hooks-json-registration-staleness.md`, forked from
-> `docs/plans/2026-08-02-subagent-bash-confinement-two-classes.md` task-spine row `D1`.
 
 ### Two different freshness questions — do not merge them
 
@@ -125,10 +123,10 @@ then compared sessions that booted before and after the edit. Edit landed ~14:45
 
 | Session | Booted | Fired on its next `Read`? |
 |---|---|---|
-| `343049ca` (the editing session) | **before** the edit | ❌ **no** — 2 `Read` calls, 0 firings |
-| `989857fe`, `414d5600`, `751ab9de`, `83f2a788`, `c02dff73` | after the edit | ✅ yes, all five, first `Read` |
-| `75c7db45` (next day) | after the edit | ✅ yes |
-| `343049ca`, after the operator ran `/reload-plugins` | — | ✅ **yes**, immediately |
+| session A (the editing session) | **before** the edit | ❌ **no** — 2 `Read` calls, 0 firings |
+| five further sessions | after the edit | ✅ yes, all five, first `Read` |
+| one more session (next day) | after the edit | ✅ yes |
+| session A, after the operator ran `/reload-plugins` | — | ✅ **yes**, immediately |
 
 Three facts fall out, each independently observed:
 
@@ -157,7 +155,7 @@ answer came back positive: `/reload-plugins` works, so there is no *unfixable* d
 detect, only an unprompted one. Building it is also not the drop-in it first appears — the
 obvious host is a `Stop` hook, whose own contract forbids exactly what the check needs ("no
 filesystem probes… a future editor adding just one more check is adding that cost to every
-turn-end in the fleet"), and detection *logic* in a DoE-resident hook runs into DR-118's
+turn-end in the fleet"), and detection *logic* in a DoE-resident hook runs into the transport seam's
 pointer-only rule for the transport seam. That is a scoped follow-up with a real plane-boundary
 call in it, not a paragraph of this one.
 
@@ -256,8 +254,7 @@ is **runtime-proven at boot**, not just same-session:
 > are retained as the **historical record** of the original Phase 1/Phase 2 cutover mechanics —
 > useful for understanding *why* each surface exists, not as an operative rollback procedure. Do not
 > hand-run them for a rollback going forward; invoke `coordinator-uninstall.py` (or
-> `/coordinator:uninstall`) instead. See `docs/plans/2026-07-08-coordinator-uninstall.md`.
-
+> `/coordinator:uninstall`) instead.
 The maximalist cutover was fired in two phases to keep the live daily-driver reversible until a fresh
 boot proves DoE resolution. **Phase 1 (this record) is additive** — the running session's substrate is
 never removed; the destructive removal is Phase 2, deferred to the post-relaunch session.
@@ -274,14 +271,12 @@ session-identity/machine-state infra is deliberately NOT moved:
 | Host-GPU probe (`coordinator/bin/host-gpu-probe.py`) | DoE clone `coordinator/bin/` | Plain script, not doctrine; invoked by absolute path, never imported (see `coordinator-doctor.md` § Machine info). |
 
 **Phase 1 actions taken (additive, committed on `work/machine-b/2026-07-04`):**
-1. Snapshot: `~/.claude-cutover-backup/2026-07-04-w4.2-cutover/{plugins.tar.gz,settings.json}` (rollback net).
 2. Relocated git-tracked coordinator source (1482 files, `git archive HEAD:<subdir>` prefix-stripped, +3 untracked bin scripts carried) → `<DoE>/coordinator/`, EXCLUDING `whoami/`. Built artifacts (`.venv`, `node_modules`, `dist`, `__pycache__`) NOT copied — they self-heal at DoE (claude-klabauter's `coordinator_core.install.ensure_venv` for the venv; npm for cockpit-contract).
 3. Registry: `plugin.mirrors.coordinator-claude` = `source_is_live`, `source_path`/`live_path` → `<DoE>/coordinator` (no-op drift/refresh semantics, recognized by `check-plugin-drift.py`/claude-klabauter `coordinator/bin/refresh-plugin-live-install.py`).
 4. `settings.json` hooks regenerated via claude-klabauter `coordinator/bin/gen-settings-hooks.py` → 32 coordinator hooks now DoE-absolute; 2 harness-native hooks preserved; non-hook keys byte-identical; idempotent.
 5. `~/.claude/plugins/coordinator-claude/` tree LEFT IN PLACE (removal is Phase 2). `--plugin-dir` takes precedence over the vestigial marketplace entry, so a relaunched `claude-doe` cleanly resolves from DoE.
 
 **Rollback runbook (Phase 1 — before relaunch, trivial since nothing destructive ran):**
-1. `cp ~/.claude-cutover-backup/2026-07-04-w4.2-cutover/settings.json ~/.claude/settings.json` (restore hooks).
 2. `rm -rf <DoE>/coordinator` + drop the DoE commit.
 3. Remove the registry keys: `machine-local` unset `plugin.mirrors.coordinator-claude.*`.
 4. Launch stays bare `claude` (Phase 1 never changed the launch command).
@@ -298,16 +293,16 @@ items have since resolved independently — see per-item disposition below, not 
    (`~/.coordinator-claude-settings/machine-local/registry.local.toml:38`). The
    whoami source landed at `<settings-home>/coordinator-whoami/` — **not** `~/.claude/coordinator-whoami/`
    as speculated here; that path does not exist. The real relocation was carried out by
-   `docs/plans/2026-07-06-durable-substrate-to-settings-home.md` (chunks C5 + C10a, both committed) and
+   the durable-substrate-to-settings-home plan (chunks C5 + C10a, both committed) and
    is codified in `state-placement-law.md:260` and `coordinator-installer-shape.md:408`. The `WHOAMI_PKG`
    registry-seam-with-fallback resolution this item asked someone to write already exists natively as
    `_resolve_whoami_pkg` in `coordinator_core/install/ensure_venv.py` (claude-klabauter-resident) — `ensure-coordinator-venv.sh`,
-   the artifact this item named, was deleted in commit `e19314de`. Regression coverage:
+   the artifact this item named, was deleted. Regression coverage:
    claude-klabauter `coordinator/tests/test_install_substrate.sh` (test 4a, test 5b).
 2. **Still open — superseded by a dedicated owning artifact.** `git rm` the
    `~/.claude/plugins/coordinator-claude` tree + remove the marketplace / `enabledPlugins` entry, to
    achieve the W4.1s singularity end-state (`~/.claude/plugins/coordinator-claude` absent), now belongs
-   to `docs/plans/2026-07-19-phase2-flat-tree-removal.md` (`status: draft`, AC2/AC3/AC4/AC7 pending, two
+   to a dedicated phase-2 flat-tree-removal plan (`status: draft`, AC2/AC3/AC4/AC7 pending, two
    hard gates outstanding), which cites this wiki block as its source runbook. Track it there, not here.
 3. **Contingent on item 2, not yet asserted either way.** "W5 (percolation DoE→OSS) and W6.4
    (placement-law spots) unblock" was a consequence clause, not an action — no artifact declares either
@@ -319,8 +314,6 @@ resolution) and settings.json SessionStart hooks fire at boot from DoE-absolute 
 
 ## Resolution-altitude model: COLD vs WARM
 
-> **Source:** Design decision ratified PM (`docs/plans/2026-07-04-coordinator-maximalist-install-shape.md`
-> § Design decisions). One source of truth (the machine-local registry), two read-paths.
 
 Post-cutover, artifacts that need the coordinator root fall into two altitude classes depending on when
 and how they run. The split is not two competing mechanisms — the pointer is a **projected cache** of
@@ -349,7 +342,7 @@ skill/command markdown file, or any surface where `machine-local` is unavailable
 > callee's PATH assumptions no matter how you spell the path to it.
 
 **Resolution mechanism (POSIX-host form; a PowerShell host resolves the same pointer via rung 0 /
-Shape W, see `coordinator/snippets/resolve-coordinator-bin.md`):** durable-first (DR-072) `cat` of
+Shape W, see `coordinator/snippets/resolve-coordinator-bin.md`):** durable-first `cat` of
 the settings-home pointer
 (`${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.doe-root`),
 falling back to the legacy `cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root"` during the transition
@@ -383,8 +376,8 @@ resolver was current, bash then Python).
 **Resolution mechanism:** read the registry directly via `machine-local get repos.doe_claude`. The
 hook generators (`coordinator-ensure-post-commit-hook`, `coordinator-ensure-prepare-commit-msg-hook`,
 Claude-klabauter `coordinator/bin/gen-settings-hooks.py`) bake the registry-resolved path into the hook body at generate-time — the
-**warm half** of the coherent split. See `8be19f9` ("hooks: installers resolve coordinator bin from
-registry — fixes stale-path clobber post-cutover") for the canonical warm-surface implementation.
+**warm half** of the coherent split. See the commit "hooks: installers resolve coordinator bin from
+registry — fixes stale-path clobber post-cutover" for the canonical warm-surface implementation.
 
 ### The pointer is a projection of the registry — coherence assertion
 
@@ -410,7 +403,7 @@ inlining their own fallback. Its header precedence docblock enumerates every tie
 
 Post-W4.2 the resolver gained a `.doe-root` **pointer tier** (settings-home first, legacy
 `~/.claude/.doe-root` fallback; added by
-`docs/plans/2026-07-04-coordinator-maximalist-install-shape.md` C3). This tier sits **above** the
+the maximalist-install plan's C3). This tier sits **above** the
 flat-layout tier and **below** the registry tier. Critically, the two resolver modes resolve to
 **different directories** under maximalist — they were the same directory in the old flat-clone model
 and this divergence is now explicit in the resolver's header docblock:
@@ -468,18 +461,12 @@ settings.json hook block, and the DoE clone itself. The installer is the canonic
 exists out-of-repo; the uninstall is its inverse.
 
 **Uninstall surface — `coordinator/commands/uninstall.md` + claude-klabauter `coordinator/bin/coordinator-uninstall.py`:**
-<!-- Review: code-reviewer (F1) — repointed from the superseded handoff
-     (`state/handoffs/2026-07-04_195849_coordinator-uninstall.md`, status: consumed) now that
-     the command/script pair has shipped and is the canonical uninstall surface. -->
 The "What gets reversed" surface list reverses the install. Surface #6 (`.doe-root` pointer) and the
 reshaped surface #4 (owned shim file + marked rc source line + legacy `~/.bashrc` block) were added
 in lockstep by C4 of the maximalist-install plan. The uninstall also strips the legacy
 `# --- coordinator maximalist launch ---` `claude()` block from `~/.bashrc` even though the install
 only migration-notes it (not silently rewrites it) — the uninstall surface list is a superset on that
-point by design. (Originally captured in `state/handoffs/2026-07-04_195849_coordinator-uninstall.md`,
-now fully absorbed into the shipped command/script pair — `status: consumed` in that handoff's
-frontmatter.)
-
+point by design.
 The install uses `$SHELL`-detection to target the correct interactive rc for the `source` line; the
 uninstall uses the same detection to strip it. If you override with `COORDINATOR_SHIM_RC`, the
 uninstall must receive the same override to strip the correct file.

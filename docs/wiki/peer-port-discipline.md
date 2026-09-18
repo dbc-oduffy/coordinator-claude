@@ -23,7 +23,7 @@ Copy-paste scaffolding from a precedent file silently carries that project's **l
 
 A peer-comparison gap-audit must include an **"already-shipped-in-this-repo"** coverage check before declaring a gap. "No peer has an equivalent" implicitly asserts "and we don't either" — that's the omitted half.
 
-- **Case (UE+MCP peer-comparison S4 closeout in example-game-repo):** T15 (material function introspection) was spun off as a P3 absorption candidate with "no peer including S2/S3 has an equivalent." Pickup-side Phase 0 found it had **already shipped** in `390928b48 — feat(VUE-4G)` weeks prior — full stack including TS dispatch, schema, and 4 unit tests. The synthesis gap-audit looked outward (peer tools) but never ran the symmetric inward check (this repo).
+- **Case (UE+MCP peer-comparison S4 closeout in example-game-repo):** T15 (material function introspection) was spun off as a P3 absorption candidate with "no peer including S2/S3 has an equivalent." Pickup-side Phase 0 found it had **already shipped**  — full stack including TS dispatch, schema, and 4 unit tests. The synthesis gap-audit looked outward (peer tools) but never ran the symmetric inward check (this repo).
 - **How to apply:** at gap-audit time on any comparison campaign, the substrate-coverage check runs in two directions. Cheap mechanical test: **grep the proposed action name across the host's handler tree** before authoring the absorption candidate.
 
 ## When this fires

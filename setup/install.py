@@ -1046,31 +1046,6 @@ def register_settings(state: InstallState, claude_dir: str, plat: str) -> None:
             data["permissions"]["allow"].append(tool)
             state.perms_appended.append(tool)
 
-    # THE CANARY IS WRITTEN BY THE SAME ACT THAT ENABLES THE HOOKS NEEDING IT.
-    # `COORDINATOR_PROBE_CANARY` is the interpolated half of the http override
-    # channel's veto discriminator (`hooks.json`'s X-Coordinator-Env-Canary).
-    # Unset, that header interpolates to the empty string, which is
-    # byte-identical to what an `httpHookAllowedEnvVars` setting produces when
-    # it vetoes the registration -- so the forwarder reads a permanent veto and
-    # DENIES EVERY BASH CALL for the life of the session, naming a setting the
-    # box does not have.
-    #
-    # The launchers (`claude-doe`, and the two Windows launcher templates) each
-    # setdefault it, so the guarantee cannot live only there: a bare `claude` --
-    # an OSS install, a container, a CI runner, Claude Code on the web -- has no
-    # launcher at all, and would enable the hooks above and brick its own shell
-    # on first use. Writing it HERE is what makes that unreachable, and this is
-    # the cold path by construction: it runs before any session exists, so
-    # unlike `/coordinator:install`'s `check-settings-env.py --apply` leg it
-    # does not depend on the very tool its own absence would deny.
-    #
-    # Only when unset -- an operator who pinned a different value keeps it, and
-    # a re-run is a no-op, matching the blocks above.
-    if not isinstance(data.get("env"), dict):
-        data["env"] = {}
-    if not data["env"].get("COORDINATOR_PROBE_CANARY"):
-        data["env"]["COORDINATOR_PROBE_CANARY"] = "1"
-
     settings_file.parent.mkdir(parents=True, exist_ok=True)
     _atomic_write_json(settings_file, data)
     print("  OK: settings.json updated")

@@ -42,7 +42,6 @@ Run this after all `git mv` operations in the batch, before committing.
 
 ### Cross-Repo-Commitments Closure
 
-<!-- Spec backlink: docs/plans/2026-07-11-cross-repo-commitment-lifecycle.md § C3b (AC9) -->
 
 `state/cross-repo-commitments/` follows the same directory-form `git mv`-to-archive mechanic
 above, with ONE divergence: **its `status:` enum is pinned to `{open, fulfilled, withdrawn}`**
@@ -86,7 +85,7 @@ For directory-form queues, `git mv` preserves per-entry history through the move
 ## The Discipline
 
 - **Stamp frontmatter, then `git mv` to archive, in the same commit as the fix.**
-- **Name closed entry IDs in the commit subject.** The subject line is the index into `git log`; without it, the audit trail requires reading every diff. Example: `fix: collapse duplicate scout step [closes queue: b7e3d2f1]`.
+- **Name closed entry IDs in the commit subject.** The subject line is the index into `git log`; without it, the audit trail requires reading every diff. Example: `fix: collapse duplicate scout step [closes queue: deadbeef]`.
 - **Never annotate "resolved/done/closed/complete" inline** in a YAML entry.
 
 ## Anti-Patterns
@@ -125,7 +124,6 @@ Git preserves the rename-chain across the `git mv`, so the combined history span
 
 ## Age-Ping — Parked-Tier Aging Discipline
 
-<!-- Spec backlink: docs/plans/2026-07-23-queue-triage-terminates-in-batons.md § C5, DEC-1 -->
 
 Applies to the parked tier of the Queue Terminus Doctrine (`docs/wiki/queue-terminus-doctrine.md`)
 — `state/debt-backlog/` and `state/bug-backlog/` once each queue family's triage ceremony (currently
@@ -174,7 +172,6 @@ re-stated or updated, not silently carried over unexamined.
 
 - Canonical rule: `coordinator/snippets/em-operating-doctrine.md` § How to Plan and Hand Off, "Improvement Queue" — closure mechanics, two-tier model.
 - Structured-form rollout: `docs/wiki/improvement-queue-schema.md` — directory-form shape + `coordinator-queue-append` CLI.
-- Central-queue migration: `docs/plans/2026-06-22-cockpit-contract-ext.md` § C2c — prose→YAML migration of `state/coordinator-improvement-queue.md`.
 - Schema docs (per-queue field contracts): `docs/wiki/debt-backlog-schema.md`, `docs/wiki/bug-backlog-schema.md`, `docs/wiki/improvement-queue-schema.md`, `docs/wiki/cross-repo-commitments-schema.md`.
 - Parked-tier terminus doctrine: `docs/wiki/queue-terminus-doctrine.md` — the four-outcome triage
   terminus whose outcome class 4 (explicit park) feeds § Age-Ping — Parked-Tier Aging Discipline

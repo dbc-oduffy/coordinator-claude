@@ -350,6 +350,12 @@ PUBLISHER_ONLY_TARGETS = frozenset({
     "publish-time-transform-py.py",
     "publish.py",
     "verify-publish-targets-portable-sync.py",
+    "test_append_goal_event_prose.py",
+    "test_coordinator_delegation_prose.py",
+    "test_coordinator_doc_new_prose.py",
+    "test_coordinator_workflow_scaffold_prose.py",
+    "test_priority_set_prose.py",
+    "test_workweek_start_prose.py",
 })
 
 

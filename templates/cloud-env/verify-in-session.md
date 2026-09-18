@@ -33,10 +33,9 @@ Whether **plugin-declared hooks** (`coordinator/hooks/hooks.json`) fire in a clo
 more in cloud than anywhere else, because cloud sessions are the unattended ones: a guard that
 silently fails to load has no operator to notice.
 
-There is indirect evidence in both directions and neither is conclusive. `setup.sh` pre-sets
-`COORDINATOR_PROBE_CANARY` precisely because a PreToolUse hook would otherwise deny every Bash call
-for the session's life — which presumes hooks fire; but that line was written prophylactically, not
-after observing a denial.
+One observation points toward firing: dbc-oduffy/coordinator-claude#42 reports the http Bash
+guard denying calls in a Claude Code Cloud container, which only a fired PreToolUse hook can do.
+The probes below settle it per environment.
 
 ## The probes
 

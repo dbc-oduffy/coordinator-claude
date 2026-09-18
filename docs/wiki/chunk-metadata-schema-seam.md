@@ -4,9 +4,7 @@ created: 2026-05-16
 status: active
 ---
 
-<!-- Imported from X:/project-rag at SHA d376cb01. Inherited substrate; canonical lineage now in Claude Central. Origin: project-rag/docs/... — sibling-repo layout doctrine now lives in this repo's own wiki (the meta-repo local-doctrine file this once pointed at is retired). --> <!-- foreign-path-ok: dated import provenance, not a current-location claim -->
 
-<!-- Spec backlink: docs/plans/2026-05-16-host-pluggy-chunk-metadata-schema-seam.md -->
 <!-- Spec backlink: tasks/w2a-1i-revised/the Staff Engineer-pluggy-seam-design-2026-05-16.md -->
 
 # Chunk Metadata Schema Seam (γ-prime)
@@ -192,7 +190,6 @@ and is not a host gate for this plan.
 
 ## References
 
-- Plan: `docs/plans/2026-05-16-host-pluggy-chunk-metadata-schema-seam.md`
 - the Staff Engineer consult: `tasks/w2a-1i-revised/the Staff Engineer-pluggy-seam-design-2026-05-16.md`
 - v6 precedent: `core/addon_hookspecs.py:543-577` (`register_schema_tables`, `register_schema_edge_types`)
 - Addon protocol v7 bump notes: `docs/wiki/addon-protocol.md` (v7 section)

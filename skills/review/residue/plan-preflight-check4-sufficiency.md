@@ -12,7 +12,7 @@ written and perfectly, does the falsifier go green? The baseline makes it answer
 measured start and a stated target, so estimate the distance the spine closes against the distance
 the prime exit criterion demands.
 
-**Distinct from divergence** (`${CLAUDE_PLUGIN_ROOT}/docs/wiki/coordinator-tripwires/a-green-plan-is-not-a-delivered-plan.md`):
+**Distinct from divergence** (`coordinator/docs/wiki/coordinator-tripwires/a-green-plan-is-not-a-delivered-plan.md`):
 divergence is right size, wrong direction — every AC passes and the falsifier still doesn't move.
 Sufficiency is right direction, wrong size. The falsifier alone catches insufficiency only at
 close-out, after the execution is paid for; this check catches it before the spine is authored.

@@ -286,32 +286,6 @@ if not defined COORDINATOR_CLONE_ROOT (
   )
 )
 
-rem Export the http-hook override-channel CANARY -- see the .ps1 launcher's
-rem block, which is the primary surface, for the full rationale. Short version:
-rem a `type: "http"` registration reaches the caller's environment only through
-rem interpolated headers, an `httpHookAllowedEnvVars` setting vetoes a name by
-rem EMPTYING its header rather than erroring, and an emptied override header
-rem reads identically to a caller who set none -- which the guard resolves
-rem permissively. The interpolated canary is the half of the discriminator pair
-rem that a veto empties; a static literal beside it is the half that survives
-rem one. An allowlisted canary the launcher never exports interpolates empty on
-rem every fire and reads as a PERMANENT veto, so this export is the runtime half
-rem of what test_hooks_json_http_fail_open_boundary.py gate 5 pins statically.
-rem
-rem The value is arbitrary and only ever tested for non-emptiness -- not a
-rem secret, not a token, grants nothing.
-rem
-rem setdefault, never overwrite, and `setlocal` at the top scopes it to this
-rem process, so no restore is needed here (unlike the .ps1, which runs in the
-rem operator's shell).
-rem
-rem Same known cmd.exe limitation as the kite above: an inherited empty-valued
-rem variable is dropped from the environment entirely, so an operator
-rem deliberately simulating a veto with an empty canary cannot do it through
-rem this leg -- it reads as absent and gets '1'. That operator wants the .ps1
-rem launcher, which honours the empty string.
-if not defined COORDINATOR_PROBE_CANARY set "COORDINATOR_PROBE_CANARY=1"
-
 rem Export the front door's shared CREDENTIAL -- see the .ps1 launcher's block,
 rem which is the primary surface, for the full rationale. Short version:
 rem `front_door._Handler.do_POST` short-circuits to `credential_absent` BEFORE

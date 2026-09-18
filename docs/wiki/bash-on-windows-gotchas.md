@@ -146,7 +146,7 @@ Use `env`-based shebangs for all interpreted scripts:
 **Discriminant — which shape is my entrypoint? Answer this before applying any rule below.** A `python3` shebang's safety on Windows depends entirely on how the file is invoked there, not on the shebang line in isolation. Two shapes exist for a `coordinator/bin` entrypoint:
 
 - **Legacy `#!/bin/sh` polyglot** — the ~16 not-yet-migrated `coordinator/bin` CLIs. These retain operator/shell-invocation surfaces (bareword-through-git-bash, `bash <script>`) that the shebang is consulted for. This is legacy debt on a kill-bash-roadmap continuation being migrated away, not a permanent coequal class — the Windows exception and ban below apply to it in full until each CLI migrates.
-- **Pure-Python-with-`.cmd`** — the migration target every `coordinator/bin` entrypoint converges on: the 109 W4a trampolines (commit `b5a4192c`) and any future pure-`.py` bin entrypoint with a generated `.cmd` launcher (the generator, C1/`gen-launcher-shim.py`, keeps `.cmd` and shebang symmetric). Here a `python3` shebang is **required and correct** — see the carve-out below the ban.
+- **Pure-Python-with-`.cmd`** — the migration target every `coordinator/bin` entrypoint converges on: the 109 W4a trampolines and any future pure-`.py` bin entrypoint with a generated `.cmd` launcher (the generator, C1/`gen-launcher-shim.py`, keeps `.cmd` and shebang symmetric). Here a `python3` shebang is **required and correct** — see the carve-out below the ban.
 
 If your file is the legacy polyglot shape, the Windows exception and ban in the next two paragraphs apply as written. If it is pure-Python-with-`.cmd`, skip to the carve-out below "Still banned."
 
@@ -160,7 +160,7 @@ If your file is the legacy polyglot shape, the Windows exception and ban in the 
 
 **Still banned on the legacy `#!/bin/sh` polyglot shape: flipping the shebang to `#!/usr/bin/env python3`.** On a file that still carries the bin/sh polyglot trampoline, a `python3` shebang on line 1 overrides the polyglot and exec-127s on Windows (clean Windows installs ship only `python`/`py`, not `python3`). The trampoline resolves python3/python/py portably at runtime — the shebang must not pre-empt it. **There is no live PreToolUse hook enforcing this.** A `block-python3-shebang-flip.sh` hook and a `bin/check-windows-python-shebang.sh` static-grep backstop are both absent from this repo; do not assume edit-time interception. The real teeth are the **AC5 two-layer test gate** — layer (a) asserts entrypoint-invariant `.cmd`/shebang symmetry, layer (b) asserts no caller invokes a pure-`.py` entrypoint as a bareword through git-bash — not a hook.
 
-**Carve-out — `python3` shebang is SAFE, and correct, on the pure-Python-with-`.cmd` shape, when BOTH invariants hold.** This does not weaken the ban above; the ban still governs the legacy `#!/bin/sh` polyglot shape (the ~16 CLIs awaiting migration) in full. For the pure-`.py` bin entrypoint shape instead (the 109 W4a trampolines, `b5a4192c`, and any future pure-`.py` bin entrypoint with a generated `.cmd`):
+**Carve-out — `python3` shebang is SAFE, and correct, on the pure-Python-with-`.cmd` shape, when BOTH invariants hold.** This does not weaken the ban above; the ban still governs the legacy `#!/bin/sh` polyglot shape (the ~16 CLIs awaiting migration) in full. For the pure-`.py` bin entrypoint shape instead (the 109 W4a trampolines, and any future pure-`.py` bin entrypoint with a generated `.cmd`):
 
 - **(a) Guaranteed `.cmd` launcher coverage.** On Windows, invoked as a bareword from `cmd.exe`, the co-located `.cmd` wins via `PATHEXT` and the shebang is never read there; on macOS/Linux, `python3` is the only interpreter present, so the shebang is exactly right. Enforced by AC5 layer (a). The generator (C1 / `gen-launcher-shim.py`) is the mechanism that keeps `.cmd` and shebang symmetric — a `.cmd`-less pure-`.py` entrypoint does not qualify for this carve-out.
 - **(b) No caller invokes the entrypoint as a bareword `.py` through git-bash.** A git-bash-invoked bareword `.py` DOES read and honor the shebang on stock Windows — the `.cmd` does not rescue a `.py`-suffixed bareword from a bash context, so it exec-127s with no `python3` present. Every caller of a pure-`.py` bin entrypoint must use a resolved-interpreter prefix or the extensionless `.cmd`, never a bareword `.py`. Enforced by AC5 layer (b) (the caller-side gate).
@@ -353,20 +353,20 @@ Use ShellCheck (the real lint) rather than `bash -n` as the syntax gate on insta
 
 **Source:** self (`cross-repo-memo` papercut).
 
-> **Do not apply the trampoline prescription below — it is retired.** The blessed shape is DR-076
+> **Do not apply the trampoline prescription below — it is retired.** The blessed shape is
 > cross-platform-invocation-parity: a `#!/usr/bin/env python3` shebang plus a co-located `.cmd`
 > launcher, no polyglot trampoline. Claude-klabauter's
 > `coordinator/bin/tests/test_no_bin_polyglot_invariant.py` enforces it.
 >
 > The trampoline costs **~326ms per invocation on Windows** (1306ms through the sh-shim re-exec
-> versus 980ms direct, byte-identical output — `state/audits/2026-07-20-sh-suffixed-python-trampolines.md`),
+> versus 980ms direct, byte-identical output — `2026-07-20-sh-suffixed-python-trampolines.md` under `state/audits/`),
 > paid on every call whether or not the hazard below is ever hit. It is also not what fixes the
 > hang described below: **the docstring is the hazard, and demoting it to a `#` comment block is
 > the fix** — comments are inert to bash, and the demotion costs nothing at runtime.
 >
 > Without a trampoline, a mistaken `bash <script>` fails fast with a syntax error instead of
 > hanging. That is the intended outcome, not a regression: Windows callers use the `.cmd` sibling,
-> which is why DR-076 requires the pairing. Fail-fast plus a working `.cmd` beats an unbounded
+> which is why that ruling requires the pairing. Fail-fast plus a working `.cmd` beats an unbounded
 > hang plus a permanent tax.
 >
 > Enforcement for DoE's own templates:
@@ -437,7 +437,7 @@ Add one inert-to-Python, executable-to-sh line directly below the shebang. Under
 
 Now `bash <script>`, `python <script>`, and direct shebang invocation all re-exec under whichever Python interpreter the platform actually ships — the `bash` prefix is *forgiven*, not punished. Recovery improves too: `bash <script> --help` prints the argparse help instead of a traceback.
 
-**Why the three-way probe.** macOS 12.3+ removed the `/usr/bin/python` symlink (Apple ships `python3` only); modern Linux distros likewise ship only `python3`; standard Windows python.org installs ship `python` and the `py` launcher but no `python3` symlink. A trampoline that hard-codes any single name exec-127s on the other platforms, and our EMs reach for `bash <script>` from all three. `command -v python3 || command -v python || command -v py` picks whichever exists. Keep all three — single-interpreter forms have regressed before (see `cross-repo-memo` commit history: `6fe5a986` flipped to `python` for Windows and silently broke Mac/Linux EMs until the three-way probe landed).
+**Why the three-way probe.** macOS 12.3+ removed the `/usr/bin/python` symlink (Apple ships `python3` only); modern Linux distros likewise ship only `python3`; standard Windows python.org installs ship `python` and the `py` launcher but no `python3` symlink. A trampoline that hard-codes any single name exec-127s on the other platforms, and our EMs reach for `bash <script>` from all three. `command -v python3 || command -v python || command -v py` picks whichever exists. Keep all three — single-interpreter forms have regressed before.
 
 **Why command-substitution, not `&& exec foo || exec bar`.** A chained `exec X || exec Y` form looks symmetric but isn't: in sh, a failed `exec` is fatal and does NOT fall through to the `||` branch. The `||` only fires if the preceding command (e.g. `command -v X`) returns non-zero before `exec` runs. Command-substitution collapses the probe to one resolved path and a single `exec` — no chained-`exec`-fallback footgun, and it's the form already used by claude-klabauter `coordinator/bin/install-sentinel-write`. Stay aligned with that sibling.
 
@@ -469,29 +469,29 @@ Any hit is a `bash <script>` papercut waiting to happen.
 
 ---
 
-## 10. `git -C /x/...` via a Python `subprocess` silently fails — Windows-native git can't resolve MSYS paths
+## 10. `git -C /c/...` via a Python `subprocess` silently fails — Windows-native git can't resolve MSYS paths
 
 **Source:** example-game-repo-em (cross-repo memo — phantom-dirty-index investigation).
 
 ### Symptom
 
-A Python `subprocess.run(["git", "-C", "/x/repo", "status", "--porcelain"])` returns **empty stdout with a non-zero returncode** — which *reads exactly like* "0 modified / clean tree." An enumeration built on that output (e.g. a phantom-dirty file list, a drift check, a "which files changed" sweep) silently produces an **empty set that masks the real state**. The author iterates against a clean-looking nothing while the tree is actually dirty.
+A Python `subprocess.run(["git", "-C", "/c/repo", "status", "--porcelain"])` returns **empty stdout with a non-zero returncode** — which *reads exactly like* "0 modified / clean tree." An enumeration built on that output (e.g. a phantom-dirty file list, a drift check, a "which files changed" sweep) silently produces an **empty set that masks the real state**. The author iterates against a clean-looking nothing while the tree is actually dirty.
 
 ### Why
 
-A `/x/...` (or `/c/...`) path is an **MSYS/Git-Bash mount-table POSIX path**, not a real filesystem path. When you run `git` *inside* bash, bash's MSYS layer translates `/x/repo` → `X:\repo` before the `git.exe` exec. A Python `subprocess`, by contrast, invokes **Windows-native `git.exe` directly** with no MSYS translation — so git.exe is handed a literal `/x/repo` it cannot resolve, errors out, and returns empty. The empty stdout is an *error channel*, not an *answer channel* — but a caller that only inspects stdout cannot tell the difference. <!-- foreign-path-ok: illustrates MSYS mount-path translation mechanism, not a checkout location -->
+A `/c/...` (or `/d/...`) path is an **MSYS/Git-Bash mount-table POSIX path**, not a real filesystem path. When you run `git` *inside* bash, bash's MSYS layer translates `/c/repo` → `C:\repo` before the `git.exe` exec. A Python `subprocess`, by contrast, invokes **Windows-native `git.exe` directly** with no MSYS translation — so git.exe is handed a literal `/c/repo` it cannot resolve, errors out, and returns empty. The empty stdout is an *error channel*, not an *answer channel* — but a caller that only inspects stdout cannot tell the difference. <!-- foreign-path-ok: illustrates MSYS mount-path translation mechanism, not a checkout location -->
 
 ### Fix
 
-- **Enumerate in bash, not Python, for any `git -C /x/...`.** Bash resolves the mount path; the command actually runs. This is the simplest fix and the one the memo validated.
-- If Python *must* drive git, pass a **Windows-native path** (`X:/repo` or `X:\\repo`, or translate via `cygpath -w "$p"`), AND **check `returncode` explicitly** — never treat empty stdout as "clean." `result.check_returncode()` or an explicit `if result.returncode != 0: raise` converts the silent mask into a loud failure. <!-- foreign-path-ok: illustrative Windows-native path shape, not a checkout location -->
+- **Enumerate in bash, not Python, for any `git -C /c/...`.** Bash resolves the mount path; the command actually runs. This is the simplest fix and the one the memo validated.
+- If Python *must* drive git, pass a **Windows-native path** (`C:/repo` or `C:\\repo`, or translate via `cygpath -w "$p"`), AND **check `returncode` explicitly** — never treat empty stdout as "clean." `result.check_returncode()` or an explicit `if result.returncode != 0: raise` converts the silent mask into a loud failure. <!-- foreign-path-ok: illustrative Windows-native path shape, not a checkout location -->
 
 This is arguably the higher-value universal in the source memo: it silently corrupts **any** Python-driven git enumeration on Windows, well beyond the phantom-dirty case that surfaced it.
 
 ### Greppable signature
 
 ```bash
-# Python subprocess invoking git -C with an MSYS mount path (/x/, /c/, …).
+# Python subprocess invoking git -C with an MSYS mount path (/c/, /d/, …).
 # These run Windows-native git.exe, which cannot resolve the POSIX path.
 grep -rn 'subprocess.*git.*-C.*["'\'']/[a-z]/' --include='*.py' . \
   | grep -v 'cygpath\|check_returncode\|returncode'
@@ -601,11 +601,11 @@ Any argv-passed `<params_json>` that can carry a resolved_state round-trip is a 
 
 ### Symptom
 
-A CLI that prints a filesystem path a shell will later execute must normalize to forward-slash/POSIX **at the emit seam** on Windows. `machine-local get repos.*` printed `str(Path)` → the native backslash-drive form `X:\DoE-claude`. Baked into a bash-executed hook command string, the leading backslash of a segment is an escape: `\D` → `X:DoE-claude` (drive-relative), the path doubles against cwd → `ENOENT` → **every PreToolUse hook fails → all Write/Edit blocked.** A single un-normalized path emit at one `get` seam bricked the entire cold install. <!-- foreign-path-ok: reproduces a real observed backslash-drive bug string, not a location claim -->
+A CLI that prints a filesystem path a shell will later execute must normalize to forward-slash/POSIX **at the emit seam** on Windows. `machine-local get repos.*` printed `str(Path)` → the native backslash-drive form `C:\DoE-claude`. Baked into a bash-executed hook command string, the leading backslash of a segment is an escape: `\D` → `C:DoE-claude` (drive-relative), the path doubles against cwd → `ENOENT` → **every PreToolUse hook fails → all Write/Edit blocked.** A single un-normalized path emit at one `get` seam bricked the entire cold install. <!-- foreign-path-ok: reproduces a real observed backslash-drive bug string, not a location claim -->
 
 ### Why
 
-`pathlib.Path.__str__()` emits the OS-native separator (`\` on Windows). Bash treats `\` as an escape inside a double-quoted command string, so `X:\DoE-claude` collapses to `X:DoE-claude`. Every downstream consumer that `eval`s or execs the string sees a broken drive-relative path. <!-- foreign-path-ok: reproduces a real observed backslash-drive bug string, not a location claim -->
+`pathlib.Path.__str__()` emits the OS-native separator (`\` on Windows). Bash treats `\` as an escape inside a double-quoted command string, so `C:\DoE-claude` collapses to `C:DoE-claude`. Every downstream consumer that `eval`s or execs the string sees a broken drive-relative path. <!-- foreign-path-ok: reproduces a real observed backslash-drive bug string, not a location claim -->
 
 ### Fix
 
@@ -623,7 +623,6 @@ grep -rn 'print(.*str(.*[Pp]ath\|print(.*resolved\b' --include='*.py' bin/ lib/ 
 
 ## 15. Native-Python `git push` reaches the Windows SSH agent with no PowerShell detour — the real dependency is ssh-binary selection
 
-**Source:** claude-klabauter-em spike (`cross-repo/inbox/2026-07-20-claude-klabauter-em-auto-push-naked-python-doe-cutover.md` § "Spike verdict: Windows SSH-agent reachability — VIABLE"; full verdict record `claude-klabauter:state/handoffs/2026-07-20_103000_spike-result-windows-ssh-agent-auto-push.md`).
 
 ### Finding
 
@@ -727,8 +726,6 @@ inside a Bash tool call gives a false negative:** the parent is already a login 
 `/etc/profile:38` preserves `ORIGINAL_PATH` and the `PATH` recompute looks like a no-op, and
 `LANG`/`LC_*` look set when at profile time they are not — a guard keyed on them never fires.
 Both traps were hit here, on different variables. Measure from PowerShell.
-→ `state/2026-08-23-the-login-shell-tax-on-this-host.md` for measurements and the
-verified-equivalence diff.
 
 ---
 
@@ -746,12 +743,12 @@ verified-equivalence diff.
 | `git commit -m @'…'@` in the Bash tool | PowerShell here-string syntax; subject becomes `@`, body shifts down; use heredoc or `-m "..."` |
 | `bash -n` used as syntax gate on installers in Windows working tree | False positives under `core.autocrlf=true` (SC1017 literal CR); use ShellCheck instead |
 | Cross-shell line-count comparison (`bash wc -l` vs PowerShell `Measure-Object -Line`) | CRLF/final-newline handling differs; mismatches misread as concurrent-EM edits; use `git status` + `git log -- <file>` as the ONLY drift oracle — never cross-shell counts |
-| Extensionless Python CLI in `bin/` (shebang `python`, no `''''exec python "$0"` line) | `bash <script>` feeds Python to bash → traceback; the §9 polyglot trampoline is retired — see §9 notice — demote any module docstring to a `#` comment block and pair with a `.cmd` launcher (DR-076) instead |
+| Extensionless Python CLI in `bin/` (shebang `python`, no `''''exec python "$0"` line) | `bash <script>` feeds Python to bash → traceback; the §9 polyglot trampoline is retired — see §9 notice — demote any module docstring to a `#` comment block and pair with a `.cmd` launcher instead |
 | Trampolined file with BOTH a `''''exec…'''` line AND a `"""docstring"""` before `from __future__` | Two leading string literals → `SyntaxError: from __future__ … must occur at the beginning`; retired shape — see §9 notice — demote the docstring to a `#` comment block; do not add a new trampoline to resolve this |
-| Python `subprocess` calling `git -C /x/...` (or `/c/...`) without `cygpath -w` / explicit `returncode` check | Windows-native git.exe can't resolve the MSYS path → empty stdout masquerades as a clean tree (§10); enumerate in bash, or pass a Windows path and check returncode |
+| Python `subprocess` calling `git -C /c/...` (or `/d/...`) without `cygpath -w` / explicit `returncode` check | Windows-native git.exe can't resolve the MSYS path → empty stdout masquerades as a clean tree (§10); enumerate in bash, or pass a Windows path and check returncode |
 | Script reads a `git status` count under `GIT_OPTIONAL_LOCKS=0` and acts on it | Refresh computed in memory but never persisted → `--porcelain` and `--short` disagree second-to-second (§11); trust the stable repeated read, persist via a real `git add` |
 | `coordinator_core.invoke <op> <params_json>` with a large round-tripped `params_json` on argv | Windows/msys ARG_MAX (~32 KB) overflow → `Argument list too long` exit 126, deterministic (§13); pass params via stdin/temp file |
-| CLI prints `str(Path)` at a seam a shell later execs, no `.as_posix()` | Native `X:\...` backslash-drive form → `\D` escape collapses the path → ENOENT bricks every consumer (§14); normalize at the emit seam with `resolved.as_posix()` | <!-- foreign-path-ok: illustrative backslash-drive form, not a location claim -->
+| CLI prints `str(Path)` at a seam a shell later execs, no `.as_posix()` | Native `C:\...` backslash-drive form → `\D` escape collapses the path → ENOENT bricks every consumer (§14); normalize at the emit seam with `resolved.as_posix()` | <!-- foreign-path-ok: illustrative backslash-drive form, not a location claim -->
 | Hook/script shells out to `git push` over SSH on Windows with no `core.sshCommand` pin | Git can select a bundled MSYS `ssh.exe` instead of Win32-OpenSSH → agent unreachable, push fails auth (**reproduced**, not theoretical — §15 control table); PowerShell parent is not the fix — the pin to `C:/Windows/System32/OpenSSH/ssh.exe` is **required, not recommended**, and the hook exits 0 either way so `push-failures.log` is the only signal | <!-- foreign-path-ok: fixed Windows system path, identical on every Windows machine -->
 
 ---

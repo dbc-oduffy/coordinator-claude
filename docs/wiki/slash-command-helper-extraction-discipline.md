@@ -7,7 +7,6 @@ related:
   - plugins/coordinator/docs/wiki/install-surface-completeness.md
 ---
 
-<!-- spec-backlink: archive/specs/2026-05-27-cqcs-cluster2-review-pipeline-calibration.md § Entry 121 — code-reviewer path-resolution sub-lens -->
 
 # Slash-Command Helper Extraction Discipline
 
@@ -90,8 +89,7 @@ grep -rh 'CLAUDE_PLUGIN_ROOT' commands/lib/ lib/ | \
 
 The loop is not required infrastructure — it is a reference pattern for an extraction
 author to run locally before committing. A CI-grade harness tying `${CLAUDE_PLUGIN_ROOT}`
-to a fully simulated marketplace install layout is a separate infra workstream (see
-`archive/specs/2026-05-27-cqcs-cluster2-review-pipeline-calibration.md` § Out-of-scope).
+to a fully simulated marketplace install layout is a separate infra workstream.
 
 ## Review surface
 

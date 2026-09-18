@@ -84,7 +84,7 @@ Both `stack_tags` and `relationships.kind` are closed. Extending requires:
 3. Update existing registry entries that should carry the new tag (or leave for next PM review pass).
 4. Commit the wiki + registry changes together.
 
-Silent additions in `state/repo-registry.md` without a wiki update are doctrine drift — the wiki is the contract.
+Silent additions in the state-side repo registry without a wiki update are doctrine drift — the wiki is the contract.
 
 ## Phase 15 behavior (registry refresh)
 

@@ -4,17 +4,12 @@ purpose: Doctrine for project-rag's three-layer OOM defense — kernel ceilings,
 audience: EM, executors editing any file under core/, embed_sidecar/, priming/, indexer/, scripts/ that may add a subprocess.Popen or subprocess.run callsite
 last_distilled: 2026-05-14
 provenance:
-  - archived_spec: archive/specs/2026-05-05-belt-and-suspenders-oom-prevention.md
-    original_path: docs/plans/2026-05-05-belt-and-suspenders-oom-prevention.md
-    last_verbose_sha: e12fd3f4ab4e15af309ec25e469c00b2304f91f8
     distilled: 2026-05-06
 distilled_from:
-  - archive/specs/2026-05-07-bounded-popen-convergence.md
-  - docs/plans/2026-05-13-tc-2-long-lived-subprocess-hookspec.md
   - tasks/install-chain-readiness/2026-05-08-readiness-confirmation.md
 ---
 
-<!-- Imported from X:/project-rag at SHA d376cb01. Inherited substrate; canonical lineage now in Claude Central. Origin: project-rag/docs/... — sibling-repo layout doctrine now lives in this repo's own wiki (the meta-repo local-doctrine file this once pointed at is retired). --> <!-- foreign-path-ok: import provenance, quoting the machine-specific path as it stood at import time, not a live location assertion -->
+
 
 # Host resilience and bounded subprocess spawn
 
@@ -119,7 +114,6 @@ The embed sidecar dogfoods this seam via `BUILTIN_EMBED_SIDECAR_SPEC` in `embed_
 
 **Addons wanting a GPU sidecar or LSP server:** return an `AddonLongLivedSubprocessSpec` from `project_rag_register_long_lived_subprocess`. The host harness handles all lifecycle mechanics; the addon supplies `argv_builder`, `env_extras`, memory ceilings, idle/exit timeouts, health URL, and doctor probe step ID. See `core/addon_protocol.py` for the full field spec.
 
-> Distilled from: `docs/plans/2026-05-13-tc-2-long-lived-subprocess-hookspec.md` §WS-1, §WS-8; `docs/wiki/addon-protocol.md` §project_rag_register_long_lived_subprocess
 
 ## Tenant registry — `<data-home>/process-tenants/`
 
@@ -143,7 +137,6 @@ GPU tenants are a **separate registry with a different schema**, not a second wr
 
 **GC policy:** stale entries are removed lazily on next tenant-registry read — PID not running, or older than `PROCESS_TENANTS_STALE_AGE_S` (default 3600s, defending against PID recycling). No dedicated GC daemon.
 
-> Verified at `project-rag/core/process_tenants.py` (`_registry_dir`, `register_tenant`, `_legacy_registry_dir`). Origin: `docs/plans/2026-05-13-tc-2-long-lived-subprocess-hookspec.md` §WS-5 tenant-registry.
 
 ## Cross-repo SHA-pin policy (DR-DIST-cross-repo-sha-pin)
 
@@ -152,11 +145,9 @@ For any helper genuinely vendored across repos (`core/host_resilience.py` is aut
 1. **SHA pin must reference `origin/main`**, never `work/*` or `feature/*`. A pinned work branch that later rebases or is abandoned invalidates the vendor record without failing a test.
 2. **Vendor-with-mechanical-SHA-pin beats doc-only policy.** "Keep in sync" in a CLAUDE.md has no enforcement; a test reading the SHA from the file header and checking it against the upstream git log catches drift automatically.
 
-> Distilled from: `archive/specs/2026-05-07-bounded-popen-convergence.md` (DR-DIST-cross-repo-sha-pin)
 
 ## Cross-references
 
-- example-game-repo peer plan (now archived): `example-game-workbench-repo` repo, `archive/specs/2026-05-05-host-resource-resilience.md` (was: `docs/plans/2026-05-05-host-resource-resilience.md`; resolve the repo root via `repos.example_game_workbench_repo`)
 ## startup-only guard does not cover mid-life resource failure
 
 A startup-only guard (a flag set at load time that says "resource is available") does not cover mid-life failure of the same resource. If the resource fails after startup, the guard reports it as available until the next restart. Health probes must reflect functional state (liveness), not just load-time availability. Apply: any health flag set once at import/startup must be backed by a periodic re-check or replaced with a functional probe that queries the resource directly.
@@ -172,9 +163,6 @@ Hook zombie discriminator: PID-file-holder liveness (process is alive) does not 
 ## three lifecycle topologies — _boot_subprocess vs ensure-script vs outer-process supervisor
 
 Per-project Windows daemons need a per-user outer-process supervisor (e.g., a coordinator `ensure-<daemon>` script launched by `SessionStart`), NOT a Windows service AND NOT the in-process `_boot_subprocess` harness. Three distinct topologies: (1) `_boot_subprocess` — inline child managed by the caller process, dies when caller dies; (2) `ensure-script` — idempotent launch script, suitable for short-lived services; (3) outer-process supervisor — started by SessionStart hook, independent lifetime, correct for per-project HTTP daemons.
-
-- Cross-repo bug filing: `example-game-workbench-repo` repo, `archive/bugs/2026-05-05-cross-repo-217gb-virtual-memory-recurring.md` (resolve the repo root via `repos.example_game_workbench_repo`)
-- project-rag archived spec: `archive/specs/2026-05-05-belt-and-suspenders-oom-prevention.md`
 - Companion VRAM-coexistence wiki: `docs/wiki/cross-process-vram-coexistence.md`
 - Doctor surface: `coordinator/docs/wiki/coordinator-doctor.md` Step 1.7 (watchdog status read)
 - Long-lived subprocess hookspec: `docs/wiki/addon-protocol.md` §project_rag_register_long_lived_subprocess

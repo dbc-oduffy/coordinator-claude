@@ -1,6 +1,5 @@
 # No New Bash Surfaces — Fleet Directive for Consumer Repos
 
-<!-- spec-backlink: cross-repo/archive/2026-07-21-project-rag-em-debash-must-be-fleet-propagated.md -->
 <!-- ratified 2026-07-21 (PM): elevates de-bash from coordinator-internal migration to a propagated fleet directive. -->
 
 **Purpose.** De-bash — porting structural bash off the shell interpreter and onto a repo's own
@@ -36,7 +35,7 @@ internal surfaces — those are already on the claude-klabauter Python track (`c
 3. **Rationale consumers can see.** The claude-klabauter subagent-indirection guard
    (`coordinator_core/bash_guards/block_subagent_destructive_action.py`) denies
    `<interpreter> <file>` for subagents, but only for a specific, deliberately narrow interpreter
-   set: `_SHELL_FILE_INTERPRETERS` (line 406 as of claude-klabauter `37e6d9cd1e99`) is `{bash, sh, zsh}`,
+   set: `_SHELL_FILE_INTERPRETERS` (line 406) is `{bash, sh, zsh}`,
    and python is excluded on purpose. The wider wrapper-probe regex, `_WRAPPER_PROBE_RE` (lines
    388-390, same SHA), matches
    `bash|sh|zsh|python3?|env|xargs` — so a `python3 <file>` invocation is probed but never

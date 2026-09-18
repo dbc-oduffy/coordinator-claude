@@ -4,11 +4,8 @@
 `pytest -n <N>` (pytest-xdist) on Windows under a headless parent (Git Bash / mintty without
 a ConPTY). Documents the working approach and the two dead ends that break worker reaping.
 
-**See also:** `docs/decisions/DR-054-*` — the general-case fix is `creationflags=CREATE_NO_WINDOW` at the Python spawn site; the pythonw shell-only fallback is explicitly banned for the pytest runner (below).
+**See also:** the general-case fix is `creationflags=CREATE_NO_WINDOW` at the Python spawn site; the pythonw shell-only fallback is explicitly banned for the pytest runner (below).
 
-<!-- spec-backlink: archive/specs/2026-05/2026-05-30-windows-console-popup-child-process-audit.md
-     That audit hardened CODE-UNDER-TEST spawn sites and explicitly scoped the test-RUNNER
-     layer OUT. This doc closes the runner-layer gap for the xdist case. -->
 
 See also: `windows-process-spawn-and-console.md` (production subprocess spawn patterns);
 `python-subprocess-patterns.md` (cross-platform creationflags).
@@ -64,7 +61,7 @@ Key properties:
 ### Reference implementation
 
 `project-rag-ue-addon/conftest.py:_install_xdist_worker_no_console_patch` (committed
-`24feff18c`, 2026-06-29). Canonical port for any repo:
+ Canonical port for any repo:
 
 ```python
 # conftest.py — root of the pytest project

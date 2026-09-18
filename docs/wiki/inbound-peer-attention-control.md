@@ -5,7 +5,6 @@
 > *sent*; this page governs what happens when one *arrives*.
 >
 > Tripwire: `PEER-MESSAGE-IS-NOT-A-PRIORITY-CLAIM`. Decision:
-> [`DR-169`](../../../docs/decisions/DR-169-inbound-peer-messages-park.md).
 
 ## The rule
 
@@ -54,7 +53,7 @@ to work on." No single step in that chain was wrong. The PM had not been told a 
 
 Outbound memo dispatch is deliberately EM-autonomous **because it queues**: a memo is an addressed,
 revertible item that costs the receiver nothing until they choose to read it, and the PM controls
-when that is. `SendMessage` was granted the same autonomy (DR-160) without the queuing property
+when that is. `SendMessage` was granted the same autonomy without the queuing property
 that earned it.
 
 The permission is correct on the sender's side. It was simply never mirrored on the receiver's, and
@@ -94,7 +93,7 @@ Two corollaries:
 - **A sub-bar live send is still legitimate — frame it parkable.** Lead with "no action needed
   now —" so the receiver does not have to derive that it parks.
 
-Across repos the memo remains the default (DR-160, unchanged). It reaches the receiver at a
+Across repos the memo remains the default. It reaches the receiver at a
 PM-chosen moment, which is the right moment for anything not already on their desk.
 
 ## What this is not
@@ -107,7 +106,7 @@ PM-chosen moment, which is the right moment for anything not already on their de
   call, `MessageDisplay` fires on outbound assistant text, and nothing observes an inbound
   `<cross-session-message>`. A receiver cannot be given a non-interrupting queue, which is why this
   half is doctrine and must be. The **sender** side is gateable — `PreToolUse` matches `SendMessage`
-  and sees the full payload — and a send-time gate is scoped in DR-169.
+  and sees the full payload — and a send-time gate is scoped.
 - **Not a new fast lane.** The in-flight-correction carve-out *is* the fast lane — narrow, named,
   and defined receiver-side so a sender cannot claim it. A future session reading the
   duplicate-channel send as unmet demand for a priority channel would be rebuilding something
@@ -122,4 +121,3 @@ PM-chosen moment, which is the right moment for anything not already on their de
   lifecycle, the send verbs.
 - [`concurrent-em-hazards.md`](./concurrent-em-hazards.md) — the other class of harm concurrent
   sessions do each other, over the shared tree rather than over attention.
-- `DR-160` — intra-repo EM comms are live-only; the outbound half this page mirrors.

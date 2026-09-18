@@ -67,3 +67,32 @@ standing nomination lapses across that boundary — it does not automatically re
 session id. An operator can be sitting under a nomination that has already gone not-live with no
 visible reason to suspect it; a reader resolving standing should treat lapse as the default
 outcome of a restart, not an edge case.
+
+## Entry op refusal shapes — full rationale
+
+An unreachable engine refuses (exit 7) rather than quietly assembling in-tree, because a silent
+fallback would route around an authz classification, not a latency budget — `--local` exists as
+the explicit opt-in for in-tree assembly, and prints whether this tree's copies match the
+engine's (`DRIFT UNKNOWN` counts as an unknown, never a match). Exit 6 means a digest arrived
+under a refused standing: that engine armed cooldowns for peers the caller has no standing to
+offer, so the payload is refused whole rather than salvaged, and the caller re-runs once the
+mirror carries the standing-gate fix.
+
+"Standing first, last writer wins" exists because a nomination record outlives its own session —
+"someone is listed" is not "someone is coordinating," and entry never refuses over an incumbent
+(there is no override flag). Re-entry by the current holder is a refresh, not a challenge.
+
+## Owed introductions — the full argument
+
+A displaced holder that is still running is owed a message because it may still believe it holds
+the role and act on that belief; a holder that is not live has nobody to tell. A peer that does
+not know who holds the crown routes its asks to the PM instead — the exact standing failure this
+mode exists to absorb — and nothing in the entry payload tells a peer that on its own.
+
+The five constraints on that introduction (name+session id+routing+"no reply wanted", never a
+routing request back through the crown, content-enforced as an introduction rather than a nudge,
+arming no cooldown, and tracked per session id once) each close a specific failure mode: an
+acknowledgement storm, an accidental relay hop into a conversation that already has a direct PM
+channel, a smuggled nudge riding a gate-exempt broadcast, a double-counted offer against the
+digest, and a peer that joins the roster later never learning who holds the crown. A name is not
+an identity — see the section above.

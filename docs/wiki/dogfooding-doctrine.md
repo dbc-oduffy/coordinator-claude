@@ -103,15 +103,14 @@ The agentic-install-hardening dogfood smoke is the canonical example of fix-thro
 
 Three real bugs surfaced and shipped in the same session:
 
-- **W6 (`e35c6551`):** `install_status_writer` did not accept `status=skip` via `phase_end`. This caused phases that legitimately produced no work to emit no signal, leaving the watchdog and probe consumers without confirmation that the phase ran. Fixed forward.
-- **W7 (`ab951c2a`):** Watchdog autostart relied solely on Task Scheduler, which is unavailable on locked-down user profiles. The fix added a Startup-shortcut fallback and added unconditional immediate-launch at install time, closing a race window where the watchdog was not running between install and the first scheduler trigger.
-- **W8 (`f7f6c552`):** Setup honesty — phase status accuracy and summary truth-telling. The setup script reported phases as complete when their observable output (status file, probe state) hadn't confirmed it.
+- **W6:** `install_status_writer` did not accept `status=skip` via `phase_end`. This caused phases that legitimately produced no work to emit no signal, leaving the watchdog and probe consumers without confirmation that the phase ran. Fixed forward.
+- **W7:** Watchdog autostart relied solely on Task Scheduler, which is unavailable on locked-down user profiles. The fix added a Startup-shortcut fallback and added unconditional immediate-launch at install time, closing a race window where the watchdog was not running between install and the first scheduler trigger.
+- **W8:** Setup honesty — phase status accuracy and summary truth-telling. The setup script reported phases as complete when their observable output (status file, probe state) hadn't confirmed it.
 
 The convergence signal was concrete: **Probe 9 status mtime advanced from FAIL to PASS in 0.9 seconds** after W7 landed. That transition was the observable that proved the capability worked end-to-end.
 
 Universal lesson captured from this run: **"Dogfood means fix-through, not file-and-defer."** No bug from this run was deferred to `state/bug-backlog/`. All three were fixed in the same session, on the same branch, with smoke evidence in the commit message.
 
-Canonical archived plan: `archive/specs/2026-05-06-agentic-install-hardening.md`.
 
 ---
 
@@ -265,5 +264,5 @@ This has a producer-side twin the harness cannot compensate for: **any `--dry-ru
 ## Cross-References
 
 - **`/dogfood` skill** — `coordinator/skills/dogfood/SKILL.md` — the full operational procedure: three-tier gate (narrow/broad/shakedown), pre-flight gates (idempotency, machine-parseable progress, framing audit, coverage matrix), loop mechanics, switch-gears protocol, convergence criteria, commit doctrine, flight recorder directory structure.
-- **Doctrine rule.** Dogfood new capabilities end-to-end via `/dogfood` before declaring stable. Binary outcome — converge or switch gears; no file-and-defer. (Formerly stated in `coordinator/CLAUDE.md` § Self-Improvement Loop; relocated here as part of that file's retirement — see `docs/plans/2026-07-27-doctrine-delivery-by-audience-and-hook.md` C3.)
+- **Doctrine rule.** Dogfood new capabilities end-to-end via `/dogfood` before declaring stable. Binary outcome — converge or switch gears; no file-and-defer. (Formerly stated in `coordinator/CLAUDE.md` § Self-Improvement Loop; relocated here as part of that file's retirement — see `2026-07-27-doctrine-delivery-by-audience-and-hook.md` under `docs/plans/` C3.)
 - **`/learn-lessons` skill** — `coordinator/skills/learn-lessons/SKILL.md` — the upstream step; surfaces patterns that need dogfooding before they can be declared stable.

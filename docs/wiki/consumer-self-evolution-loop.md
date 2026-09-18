@@ -11,7 +11,7 @@ This page states, for a consumer reading their own installed copy, three things 
 are **not** open questions: (a) `learn-lessons` local mode works out of the box against their own
 `state/`; (b) that gives them a genuine self-evolution loop; (c) DoE's central improvement queue is
 fleet-private, does not ship to them, is not readable by them, and their local lessons will never reach
-DoE. The last point is a PM-ratified accepted asymmetry (decision P-B, `state/roadmap/v3split/OVERVIEW.md`
+DoE. The last point is a PM-ratified accepted asymmetry (decision P-B, recorded in DoE's own fleet-private roadmap
 § "PM decisions banked"), handled by periodic release discipline — **not** a feedback channel.
 
 ## The loop a consumer already has
@@ -90,8 +90,8 @@ by them, and consumers must not expect their local lessons to ever reach DoE.
   and DoE's doctrine improvements reach them only on the next marketplace/percolate release. This asymmetry
   is a **PM-ratified accepted cost** (decision P-B), handled by **release discipline** — DoE periodically
   cuts a fresh coordinator build and runs as a consumer — **not** by any feedback/telemetry/upload channel.
-  A back-channel from consumer lessons to DoE was explicitly considered and **dropped** (option (d) in
-  `state/roadmap/v3split/research-corpus/consumer-machinery-delivery.md`). It is out of scope, not a
+  A back-channel from consumer lessons to DoE was explicitly considered and **dropped** (option (d) in the
+  consumer-machinery-delivery research corpus). It is out of scope, not a
   missing feature.
 
 ## Where a consumer's own durable data lives
@@ -127,6 +127,3 @@ install an equivalent per-repo durable home outside their working tree. Neither 
 - `skills/learn-lessons/SKILL.md` — the loop's implementation; local mode is the consumer-facing subset.
 - `docs/wiki/state-placement-law.md` § Taxonomy — the SSOT for per-repo vs central/fleet-private state.
 - `docs/wiki/learn-lessons-routing.md` — change-kind enum and local-mode auto-apply bounds.
-- `state/roadmap/v3split/research-corpus/consumer-machinery-delivery.md` — the research corpus (Finding 1
-  how the machinery works, Finding 3 the confirmed closed-system blindness gap, option (c) this loop, option
-  (d) the dropped back-channel).

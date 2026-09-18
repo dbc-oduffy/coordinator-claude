@@ -2,11 +2,10 @@
 title: Reviewer Premise Challenge
 system: reviewer-premise-challenge
 status: distilled
-distilled_from:
-  - archive/specs/2026-05-04-reviewer-premise-challenge.md
 distilled_at: 2026-05-06
 distilled_run: 2026-05-06-13h00
 ---
+
 
 # Reviewer Premise Challenge
 
@@ -117,4 +116,3 @@ Case: backlog item F1 proposed switching `_cs_session_live` Layer-2 to fs-mtime 
 ## Reference
 
 - Related: [reviewer-routed-workers](reviewer-routed-workers.md)
-- Source plan: `archive/specs/2026-05-04-reviewer-premise-challenge.md`

@@ -1,12 +1,12 @@
-# Computed-skills conversion checklist (DR-090 per-baton review)
+# Computed-skills conversion checklist (per-baton review)
 
-> Spec backlinks: `docs/decisions/DR-090-the-unit-of-extraction-is-the-mechanical-step.md`;
+> Spec backlinks: the extraction-unit decision record (fleet-internal, does not ship);
 > `coordinator/docs/wiki/computed-skills.md` § Generalizing this pattern (AC14);
-> `docs/plans/2026-07-24-canonical-resolution-engine.md` chunk W1-A3 / AC-11 / AC-12.
+> the canonical-resolution-engine plan's chunk W1-A3 / AC-11 / AC-12.
 >
 > This is the discharge artifact for AC-11: every computed-skills conversion baton —
 > **including convert #2 (`workstream-complete`) and every conversion after it** — is held
-> against this checklist at review, not against reviewer memory of DR-090's prose. DR-090
+> against this checklist at review, not against reviewer memory of that decision's prose. The decision
 > itself states this rule binds by review, not by a test
 > (`coordinator-tripwires.md § SKILL-NARRATES-PROCEDURE`); this file is that review's
 > instrument.
@@ -14,7 +14,7 @@
 ## How to use this
 
 Run each item below against the converted `SKILL.md` / `agent.md` (or the diff that produced
-it). An item that fails is a finding, not a style nit — DR-090 frames it as a correctness
+it). An item that fails is a finding, not a style nit — that decision frames it as a correctness
 defect (procedure invisible to every existing gate), not a preference.
 
 ## Checklist
@@ -45,7 +45,7 @@ defect (procedure invisible to every existing gate), not a preference.
       `workstream-complete/SKILL.md` and is unaffected by this item).
 - [ ] **Zero narrated procedures.** The surface names ops; it does not narrate an ordinal step
       sequence ("stage this, then commit that"). Applies **regardless of fencing** — the unit
-      of extraction is the mechanical *step*, not the mechanical *branch* (DR-090). Tells to
+      of extraction is the mechanical *step*, not the mechanical *branch*. Tells to
       scan for: an ordinal or a "then" joining two mutations in one sentence/step; an
       inline-backticked mutation (`git commit`, a write, an `mv`) inside imperative prose,
       fence or no fence. Cross-ref `coordinator-tripwires.md § SKILL-NARRATES-PROCEDURE`.
@@ -73,13 +73,12 @@ defect (procedure invisible to every existing gate), not a preference.
       convert #2: the Step 2.96 completeness-checklist WARN gate had no directive owner
       until the plan-coverage-checker's delta pass forced one — promoted here from
       incident to a standing checklist item so a future converter's coverage pass is a
-      review-instrument check, not a rediscovery. Cross-ref
-      `docs/plans/2026-07-26-workstream-complete-computed-frontage.md` C2i.
+      review-instrument check, not a rediscovery. Cross-ref the workstream-complete
+      computed-frontage plan's C2i.
 - [ ] **The completion test.** Thinner and less imperative is *evidence* a port converged,
       never the bar a port is measured against — line-count and fence-count heuristics can
       flag a candidate but can never render the verdict, and "still long" is not itself a
-      finding (same-day universal lesson `state/lessons/2026-07-26-universal-thin-is-not-
-      the-bar-a-long-ski-40be3485c6a5.yaml`). A skill whose judgment load is genuinely
+      finding (same-day universal lesson: *thin is not the bar*). A skill whose judgment load is genuinely
       front-loaded and text-heavy may legitimately converge well above a shorter sibling's
       line count; a short file with a manufactured judgment_point invented to force brevity
       has FAILED this item, not passed it. What the port is actually measured against is
@@ -139,6 +138,6 @@ at all if the baseline was uncommitted when `--regenerate` ran.
 
 This checklist does not re-derive the three-tier model, the census procedure, or the
 eight-key schema shape — those live in `computed-skills.md` § Decision-Object Schema-of-Record
-(DR-047) and § Generalizing this pattern (AC14), and are followed once per conversion, upstream
+and § Generalizing this pattern (AC14), and are followed once per conversion, upstream
 of this review. This file is the review instrument that comes *after* that build, not a
 substitute for it.

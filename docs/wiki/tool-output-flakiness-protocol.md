@@ -203,7 +203,7 @@ The Windows / parallel-fan-out flakiness has a consistent two-stage shape:
 
 2. **Stage 2 — confabulation fill.** The model receives an empty / garbled / contradictory result, and absent a structural signal that the channel failed, completes the pattern by hallucinating plausible state. The signature shape is **Shape-3 confabulation** — a complete-looking response with **no actual tool-use** behind it (phantom merge SHAs, fake green CI summaries, asserted file contents that were never read).
 
-**Diagnostic differentiator.** Shape-3 distinguishes from the block-destructive floor cases. The floors (`BLOCK-DESTRUCTIVE-GIT-ORPHAN`, `BLOCK-DESTRUCTIVE-RM`) prevent irreversible *actions* on flaky reads. Shape-3 is the upstream *belief* failure that, absent floors, would feed those actions. Mitigation order matters: re-run SOLO (not inside the failed fan-out loop), and where two reads disagree, read a third way — never act on a single flaky read before an irreversible operation. Per `docs/decisions/DR-165-tool-output-flakiness-stop-at-current-floors.md`, the boundary holds at current floors — no new guards; the doctrine fold-in here is the *naming*, not new guard surface.
+**Diagnostic differentiator.** Shape-3 distinguishes from the block-destructive floor cases. The floors (`BLOCK-DESTRUCTIVE-GIT-ORPHAN`, `BLOCK-DESTRUCTIVE-RM`) prevent irreversible *actions* on flaky reads. Shape-3 is the upstream *belief* failure that, absent floors, would feed those actions. Mitigation order matters: re-run SOLO (not inside the failed fan-out loop), and where two reads disagree, read a third way — never act on a single flaky read before an irreversible operation. Per the tool-output-flakiness decision under `docs/decisions/`, the boundary holds at current floors — no new guards; the doctrine fold-in here is the *naming*, not new guard surface.
 
 ## A Pasted Transcript Is a Specimen, Not Live Session State
 
@@ -219,7 +219,7 @@ A transcript, quoted command output, or copy-pasted log the PM hands you is a **
 
 **The three wrongful-takeover shapes — named side by side so a reader sees all three:**
 
-1. **TZ-false-dead (lstart primitive):** the machine TZ roll corrupts `_cs_stable_pid_alive` — it computes a stale lstart comparison that returns dead for a live session. Owned by `docs/plans/2026-06-30-liveness-lstart-tz-invariant-epoch.md`. The primitive is wrong; fixing it makes `cs_claim_holder_live` return the correct answer.
+1. **TZ-false-dead (lstart primitive):** the machine TZ roll corrupts `_cs_stable_pid_alive` — it computes a stale lstart comparison that returns dead for a live session. Owned by `2026-06-30-liveness-lstart-tz-invariant-epoch.md` under `docs/plans/`. The primitive is wrong; fixing it makes `cs_claim_holder_live` return the correct answer.
 
 2. **Human bypass (this entry):** the EM bypasses the liveness primitive entirely — eyeballs a transcript, judges the claim "crashed" on heuristic evidence (old-looking timestamps, truncated-looking transcript), and clears the lock by hand. The primitive would have returned live; it was never called. Fix: force the manual claim-clear path through `cs_claim_holder_live` / `cs_clear_claim_if_dead` before any `rm` or re-claim. → `CLAIM-CLEAR-LIVENESS` in `coordinator/docs/wiki/coordinator-tripwires/`.
 

@@ -399,7 +399,7 @@ and maximalist post-W4.2 (doctrine-plane clone via
 `plugin.mirrors.coordinator-claude.live_path`, with
 `~/.claude/plugins/coordinator-claude` absent — the live_path is the sole
 reachable tree). In both cases exactly one distinct canonical tree is
-expected; a stray second tree (a rogue `~/coordinator-claude` clone, a stale
+expected; a stray second tree (a rogue second `coordinator-claude` clone in the home directory, a stale
 worktree) is always an accidental split. Also catches a doubled
 `.claude/.claude` venv pin and a `.claude`-suffixed `CLAUDE_HOME`. A single
 explicitly-exported `COORDINATOR_CLONE`/`COORDINATOR_ROOT` dev-loop override

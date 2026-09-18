@@ -129,6 +129,5 @@ caller that parses the status table should:
 
 ## Provenance
 
-- Architecture decision: `docs/plans/2026-05-19-coordinator-installer-redesign.md` § D4 (per-callsite annotation contract; `--non-interactive` controls only `AskUserQuestion` fallback; `--check-only` is a strict superset)
-- Implementation chunk: `docs/plans/2026-05-19-coordinator-installer-redesign-implementation.md` § C4
+- Architecture decision: `2026-05-19-coordinator-installer-redesign.md` under `docs/plans/` § D4 (per-callsite annotation contract; `--non-interactive` controls only `AskUserQuestion` fallback; `--check-only` is a strict superset)
 - Producer code: `commands/install.md` § 4. Status Report

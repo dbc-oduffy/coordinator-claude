@@ -4,14 +4,9 @@ title: Lesson + Improvement Workflow — Triage, Promotion, and Coordinator Swee
 status: active
 created: 2026-05-06
 sources:
-  - archive/specs/2026-05-05-lesson-triage-skill.md
+  - the lesson-triage skill spec under archive/specs/
   - tasks/lesson-triage-2026-05-05/SYNTHESIS.md
-  - archive/handoffs/2026-04-27_125441_243a4ab4.md
-  - archive/handoffs/2026-04-27_164304_sweep-resume.md
-  - archive/handoffs/2026-05-01_193000_pickup01.md
-  - archive/handoffs/2026-05-05_104956_lesson-triage-skill.md
-  - archive/handoffs/2026-05-05_104958_lesson-triage-structural.md
-  - archive/handoffs/2026-05-05_113500_08614bff.md
+  - the 2026-04-27 .. 2026-05-05 triage-sweep handoffs under archive/handoffs/
 tags: [lesson-triage, improvement-queue, coordinator-sweep]
 ---
 
@@ -59,7 +54,7 @@ Every entry in the central structured queue (claude-klabauter — `$(python3 coo
 
 **Schema:** The `recurring:` and `resolution:` sub-lines are dropped from the canonical schema. Empirical data showed 100% of central-queue entries had `recurring: 0` and `resolution: pending` (266 lines of unchanging ceremony across 133 entries). The fields never moved. New schema is main-line-only; recurrence bumps are recorded as ` [recurring: N]` on the main line when N ≥ 1. The pruner strips trivial sub-lines (`recurring: 0`, `resolution: pending`, `resolution: in_progress`) on every `/update-docs` run.
 
-**Why:** Closure-log retention contradicted wiki doctrine (DR-020: "improvement queue is a triage surface, not a paper trail"). Schema ceremony that never changes is the same anti-pattern at the sub-line level. Git log recovers the full lifecycle for both.
+**Why:** Closure-log retention contradicted wiki doctrine (the ratified ruling: "improvement queue is a triage surface, not a paper trail"). Schema ceremony that never changes is the same anti-pattern at the sub-line level. Git log recovers the full lifecycle for both.
 
 ### Triage cadence — three-session execution plan
 
@@ -231,7 +226,6 @@ This sets expectations for fan-out budget: 4 parallel scouts, ~5 minutes each, �
 **Context:** `lessons-trim` was per-project Phase 6 maintenance. Cross-project promotion was ad-hoc twice. Need: a stable surface for both, plus cadence rechecks.
 **Decision:** One skill, three modes (project-local, cross-project, recheck). Pipeline split deferred until SKILL.md exceeds 500 lines or modes diverge.
 **Consequences:** Single mode-detection point at default invocation; mode-conditional authorization rules live in one place; alias `lessons-trim` for one cadence cycle to avoid breaking Phase 6 invocation.
-**Source:** `archive/specs/2026-05-05-lesson-triage-skill.md`
 
 ### DR-002 — Wait-for-instance-3 doctrine on skill creation
 
@@ -239,21 +233,18 @@ This sets expectations for fan-out budget: 4 parallel scouts, ~5 minutes each, �
 **Context:** Cross-project promotion was performed ad-hoc twice before formal skill.
 **Decision:** Don't formalize a skill until the third instance. The third invocation is the one that justifies skill scaffolding.
 **Consequences:** Bias toward executing patterns in-prose; only codify when repetition is empirically confirmed.
-**Source:** `archive/handoffs/2026-05-05_104956_lesson-triage-skill.md`
 
 ### DR-003 — Config in `coordinator.local.md`, not sibling file
 
 **Status:** accepted (PM resolved)
 **Decision:** Extend `~/.claude/coordinator.local.md` with `lesson_triage:` block; do not create `~/.claude/lesson-triage.local.md`.
 **Consequences:** Fewer files to discover; co-located with other coordinator config.
-**Source:** `archive/specs/2026-05-05-lesson-triage-skill.md`
 
 ### DR-004 — Fan-out is information gathering, not workstream emission
 
 **Status:** accepted
 **Decision:** The skill itself does NOT auto-emit spinoff handoffs. Synthesis may surface "missing skill X" recommendations advisory-only; acting is a separate session decision.
 **Consequences:** Triage outputs are documents, not commitments. Prevents skill from racing the PM into dispatching workstreams.
-**Source:** `archive/specs/2026-05-05-lesson-triage-skill.md`
 
 ### DR-005 — Self-exclusion of central root
 
@@ -266,39 +257,33 @@ This sets expectations for fan-out budget: 4 parallel scouts, ~5 minutes each, �
 **Status:** accepted
 **Context:** Even HIGH-priority items have shape choices the PM might disagree with (wiki link vs CLAUDE.md section; consolidation grouping).
 **Decision:** Synthesis is the authorization surface; PM reviews then this handoff's picking-up EM applies what's authorized.
-**Source:** `archive/handoffs/2026-05-05_104958_lesson-triage-structural.md`
 
 ### DR-007 — Improvement-queue daily depth nudge, weekly action
 
 **Status:** accepted
 **Decision:** `/workday-complete` emits depth notice only at ≥5 new entries; `/workweek-complete` Step 4 triggers triage action.
 **Consequences:** Queue is not "consumed daily"; promoting through it solely for symmetry is theater.
-**Source:** `archive/handoffs/2026-05-01_193000_pickup01.md`, `archive/handoffs/2026-05-05_113500_08614bff.md`
 
 ### DR-008 — Phase 11d reports only, never auto-fixes
 
 **Status:** accepted
 **Decision:** Frontmatter drift sweep is a visibility tool. Schema violations frequently encode intentional decisions (record predates schema, deprecation in flight). Carve-out: tradeoff-free fixes on records the EM authored *this same session*.
-**Source:** `archive/handoffs/2026-05-01_193000_pickup01.md`
 
 ### DR-009 — the Staff Engineer review BEFORE dispatch on multi-file sweeps
 
 **Status:** accepted
 **Context:** 35-finding sweep across 7 executors hit 16 review findings (6 P0/P1) at the cluster-disjointness layer. Without pre-dispatch review, parallel executors would have stomped each other's edits.
 **Decision:** Run the Staff Engineer review pre-dispatch when sweep targets >5 files in parallel; pre-create shared parent dirs.
-**Source:** `archive/handoffs/2026-04-27_164304_sweep-resume.md`
 
 ### DR-010 — Stand down on concurrent peer absorption
 
 **Status:** accepted
 **Decision:** When a peer EM is detected absorbing the same mandate during a sweep, stand down rather than push on. Cost of merge conflict > cost of stopping. Promote the lesson; hand off.
-**Source:** `archive/handoffs/2026-05-05_113500_08614bff.md`
 
 ### DR-011 — CLAUDE.md growth is gated, not accepted on uniqueness alone
 
 **Status:** accepted
 **Rule:** CLAUDE.md growth is governed by `skills/learn-lessons/SKILL.md` § CLAUDE.md char-budget pre-flight (40K hard refuse, 38K–40K demote-target gate) plus § Routing Bias DoE-only adjudication on `doctrine-edit`/`memory-pointer`. Most CLAUDE.md proposals filter to wiki-* via the DoE gate; survivors must clear both the four-check justification gate AND the char-budget gate. A line being a unique lesson is not, by itself, sufficient.
-**Source:** `archive/handoffs/2026-05-05_113500_08614bff.md`
 
 ### Neutralise reverted lessons in-place, do not delete
 
@@ -340,7 +325,6 @@ A `[universal]`-tagged lesson is a promotion candidate for the central queue —
 
 **Status:** accepted
 **Decision:** When review findings span small auto-fixes + a real refactor + a third orthogonal category, ship as three commits so the audit trail per category is greppable.
-**Source:** `archive/handoffs/2026-05-01_185201_532ebcc5.md`
 
 ## Haiku Scouts Are Unreliable on Lessons-Extraction — Use Sonnet or EM-Author
 

@@ -35,6 +35,6 @@ When citing install state in a plan or lesson, name the file explicitly. Bare re
 
 ## Known distinctions — prior-art checker corpus notes
 
-**`~/.example-game-repo/setup-state.json` vs `~/.claude/example-game-repo/install-status.json` are distinct files by design** (example-game-workbench-repo). `~/.example-game-repo/setup-state.json` is the Wave-4 persistent mode state file; `~/.claude/example-game-repo/install-status.json` is per-run telemetry from agentic-install-hardening. Checker corpora and prior-art lookups must document both as canonical separately. Conflating them produces false Conflict findings.
+**The game repo's own home-directory `setup-state.json` and `~/.claude/example-game-repo/install-status.json` are distinct files by design** (example-game-workbench-repo). The former is the Wave-4 persistent mode state file; the latter is per-run telemetry from agentic-install-hardening. Checker corpora and prior-art lookups must document both as canonical separately. Conflating them produces false Conflict findings.
 
 **`status_phase_skip` vs `status_phase_end status=skip` have distinct semantics** (self). `status_phase_skip` is an explicit opt-out; `status_phase_end status=skip` is an idempotency-done branch. Both are valid in the current codebase per the Staff Engineer WAVE2H F8 (9 idempotency-done sites + 7 explicit-opt-out sites in `example_game_repo_setup.sh`). Prior-art tooling must distinguish the two forms to avoid miscalling the idempotency form a violation.

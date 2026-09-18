@@ -88,7 +88,6 @@ authoritative current state; do not restate the situation here beyond this point
 
 **Workaround:** claude-klabauter `coordinator/bin/coordinator-auto-push` routes through `powershell.exe -NonInteractive -NoProfile` for SSH remotes (where 1Password-agent is inaccessible from Git Bash OpenSSH). For HTTPS remotes, the same routing provides credential access via Windows OpenSSH.
 
-Source: `archive/handoffs/2026-05-07_101517_https-autopush-credential-failure.md`.
 
 ### PreToolUse deny: use JSON output, not exit 2
 
@@ -134,7 +133,6 @@ When `track-touched-files.py` is async, the next Bash tool call (e.g. `coordinat
 
 If `track-touched-files.py` runs with `async: true`, it races against `coordinator-safe-commit`'s reads of `touched.txt`. This causes same-session files to be misclassified as orphans ("owned by another session"), leading to scope-sweep failures where the commit absorbs files from concurrent sessions. Fix: set `async: false` (default) on this hook.
 
-Source: `archive/completed/2026-04.md`.
 
 ### "LSP/watcher reverts my writes" is a TEXT-ONLY hallucination variant
 
@@ -164,7 +162,7 @@ when adopting plugin-managed MCPs.
 
 ### Source-path MCP registrations make "install vN" a near-no-op
 
-When a consumer's MCP entry in `~/.claude.json` points at a source tree (`X:/<your-rag-indexer>/mcp/server.py`) rather than a pip-installed wheel, the source tree's current HEAD is what executes — `pip show <pkg>` reports a separate, possibly stale wheel. Installer re-runs refresh registration + editable wheel, but the version that *actually runs* is whichever branch is checked out. <!-- foreign-path-ok: generic placeholder path illustrating a source-vs-wheel registration shape, not a real location -->
+When a consumer's MCP entry in `~/.claude.json` points at a source tree (`C:/<your-rag-indexer>/mcp/server.py`) rather than a pip-installed wheel, the source tree's current HEAD is what executes — `pip show <pkg>` reports a separate, possibly stale wheel. Installer re-runs refresh registration + editable wheel, but the version that *actually runs* is whichever branch is checked out. <!-- foreign-path-ok: generic placeholder path illustrating a source-vs-wheel registration shape, not a real location -->
 
 Before running an installer for "version N" against a consumer, inspect whether the MCP entry is source-path or wheel-import. If source-path, surface that the actual version gate is the checked-out branch — don't conflate `pip show` output with what the MCP harness boots.
 
@@ -174,7 +172,6 @@ If `~/.claude.json` has a user-scope `mcpServers.<name>` entry AND a plugin prov
 
 **Fix:** `claude mcp remove <name> --scope user`. Scope precedence: Local > Project > User > Plugin.
 
-Source: `archive/completed/2026-04.md`.
 
 ### PostToolUse JSON does not carry parent-session pointer
 
@@ -236,7 +233,6 @@ case "$_path" in */WindowsApps/*|*\\WindowsApps\\*) _path="" ;; esac
 
 **Cross-repo resolver shape.** Shape β (a shared runtime lib at `coordinator/lib/resolve-python.sh`, sourced by hooks, lib helpers, and several bin scripts) was the live deployment through the bash-kill campaign; it has since been retired in favor of the plain `COORDINATOR_PYTHON`/registry/PATH resolution contract (`machine-local-registry.md § coordinator.python resolution contract`) — no shared runtime lib to source at all. Shape α (vendor per-repo) remains deprecated for coordinator-internal scripts.
 
-Source: `archive/completed/2026-05.md`.
 
 ### Windows Open-With picker flood — ShellExecute + AppX Execution Alias
 
@@ -268,7 +264,7 @@ host where WindowsApps precedes it, bare `python3` still hits the Store alias.
 
 The Claude Code harness prepends every installed plugin's `bin/` dir to PATH for tool/hook execution (verify: `echo "$PATH" | tr ':' '\n' | grep -i claude` shows each `plugins/*/bin` — that is the harness-provided guarantee). Note: `~/.claude/bin` is NOT harness-injected and is PATH-registered on no platform — the installer registers `<settings-home>/bin` on the Windows user PATH, never `~/.claude/bin`, so it will not appear in that grep on any host. The harness `plugins/*/bin` injection is cross-platform — so it reproduces on every machine running the plugin, for whatever a plugin actually ships in its own `bin/`. **This does NOT reach coordinator's own scripts** — see the STALE box above: they live outside any plugin's `bin/`, in claude-klabauter, so the injection this paragraph describes does not apply to them, and bare-name resolution for `fan-out-dispatch.py`/`coordinator-safe-commit`/`check-shipped-on-main.py`/etc. does not work today. Nor does it reach the settings-home CLI family (`~/.coordinator-claude-settings/bin/`, 300+ generated forwarders, e.g. `machine-local`, `cross-repo-memo`) — that directory is a separate, non-harness-injected location, off PATH on macOS/Linux; those tools need the explicit `${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/<cli>` path (POSIX-host form; a PowerShell host uses rung 0 / Shape W — see `coordinator/snippets/resolve-coordinator-bin.md`). A fix generalizing the installer's login-profile PATH block to also cover settings-home/bin has been requested from claude-klabauter by memo and has not yet landed.
 
-**The core invariant:** both `bin/X` and bare `X` are **PATH-namespace** references — they name "the coordinator bin tool X", which resolves the same from any cwd in any repo. Neither is cwd-relative. The failure to avoid is resolving `bin/X` against the *current repo's* `./bin/` — an EM standing in a consumer repo (`X:\project-rag`) that looks for `./bin/X`, finds nothing, and wrongly concludes the script "isn't mirrored here." <!-- foreign-path-ok: illustrative example of the cwd-relative failure mode, not a location claim -->
+**The core invariant:** both `bin/X` and bare `X` are **PATH-namespace** references — they name "the coordinator bin tool X", which resolves the same from any cwd in any repo. Neither is cwd-relative. The failure to avoid is resolving `bin/X` against the *current repo's* `./bin/` — an EM standing in a consumer repo (`C:\project-rag`) that looks for `./bin/X`, finds nothing, and wrongly concludes the script "isn't mirrored here." <!-- foreign-path-ok: illustrative example of the cwd-relative failure mode, not a location claim -->
 
 **Citation rule for doctrine prose (CLAUDE.md, wikis, skills, commands):**
 - **Invokable scripts** — executable `.sh` and extensionless-executable commands (`fan-out-dispatch.py`, `check-plugin-drift.py`, `machine-local`, `cross-repo-memo`) → **cite by the explicit settings-home forwarder path, never bare name.** (Bare-name citations were originally correct on the strength of the plugin `bin/` PATH injection; the executable-surface migration retired that premise — see the STALE box above. None of these resolve bare today: the coordinator entrypoints moved out of any plugin's `bin/` into claude-klabauter, and the settings-home forwarder family (`machine-local`, `cross-repo-memo`, etc.) was never harness-PATH-injected on macOS/Linux to begin with.) The current citation form in a runnable block follows the precedence ladder in
@@ -303,7 +299,6 @@ Processes spawned from hooks (post-commit, SessionStart) may open console window
 - Python subprocess: `creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)` — the **portable** form. Do NOT write a bare `creationflags=subprocess.CREATE_NO_WINDOW` / `0x08000000`; that raises `ValueError` on macOS/Linux (the attribute is Windows-only). The `getattr` form is `CREATE_NO_WINDOW` on Windows and `0` (no-op) elsewhere, so it is safe to write unconditionally in cross-platform code.
 - Registry: `HKCU\Console\%%Startup\Delegation{Console,Terminal}` — switch from Windows Terminal to Console Host so allocations don't open focus-stealing WT tabs
 
-Source: `archive/completed/2026-05.md` (PowerShell flash fix).
 
 ### Windows bootstrap test harnesses must set `windowsHide` / `CREATE_NO_WINDOW` explicitly
 
@@ -324,7 +319,7 @@ Claude Code ships **bundled** skills and workflows (e.g. the `/deep-research` *w
 - **Suppress** the bundled one via `skillOverrides: { "<name>": "off" }` in `settings.json` (the convention we already use for `review`/`security-review`/`simplify`/`init`, extended to `deep-research`). `"off"` hides it from Claude and the `/` menu entirely. Takes effect at the **next session start** (settings load at boot), not mid-session. Doctrine then points agents at the namespaced command.
 - **Reclaim** the bare name by authoring `~/.claude/skills/<name>/SKILL.md` (or `~/.claude/workflows/<name>.js`) as a thin router into our pipeline — heavier; use only when the bare name's muscle-memory must keep working.
 
-**Rule when Claude Code ships a new bundled skill/workflow that collides with a coordinator-provided equivalent:** suppress it via `skillOverrides` and repoint doctrine to the namespaced command. Don't let the bundled version own the bare name. The standing set (`review`, `security-review`, `simplify`, `init` unconditionally; `deep-research` gated on the deep-research plugin being present) is **install-seeded** — the `bin/install-health/seed-skill-overrides.sh` orchestrator drop-in calls `bin/seed-skill-overrides.py` to merge them into `~/.claude/settings.json` idempotently and non-clobberingly on every `coordinator:install` run, so a fresh machine / OSS user gets them automatically (no hand-edit). A new collision is added by extending the helper's override set, not by hand-curating each machine. (Residual: a corrupted/reset `settings.json` is restored only on the next install run — doctor-surface absence-detection is a tracked follow-on, `state/improvement-queue/2026-06-27-doctor-probe-skill-overrides-presence.yaml`.)
+**Rule when Claude Code ships a new bundled skill/workflow that collides with a coordinator-provided equivalent:** suppress it via `skillOverrides` and repoint doctrine to the namespaced command. Don't let the bundled version own the bare name. The standing set (`review`, `security-review`, `simplify`, `init` unconditionally; `deep-research` gated on the deep-research plugin being present) is **install-seeded** — the `bin/install-health/seed-skill-overrides.sh` orchestrator drop-in calls `bin/seed-skill-overrides.py` to merge them into `~/.claude/settings.json` idempotently and non-clobberingly on every `coordinator:install` run, so a fresh machine / OSS user gets them automatically (no hand-edit). A new collision is added by extending the helper's override set, not by hand-curating each machine. (Residual: a corrupted/reset `settings.json` is restored only on the next install run — doctor-surface absence-detection is a tracked follow-on in the improvement queue.)
 
 ### `CLAUDE_PLUGIN_ROOT` resolves to the plugin install dir (marketplace source subdir), not the repo root
 
@@ -496,11 +491,11 @@ Any `powershell.exe` or `pwsh` call that fires on every hook event (e.g. Claude-
 
 **node/python PreToolUse hook flashes (separate from the blue tool flash):** spawned by Claude Code's harness on Write/Edit/MultiEdit, not by our scripts. We cannot set `CREATE_NO_WINDOW` on them from a shell. The only real suppression levers are (a) a compiled no-window launcher shim, or (b) eliminating the console-interpreter spawn (reimplement the hook in the already-running shell). Whether these *visibly* flash — distinct from the now-fixed blue tool flash — was never empirically confirmed (the measuring spike was the abandoned ConPTY belt). Verify by direct observation after the settings fix lands before investing in a shim.
 
-**Child-of-a-child flashes (the class the shell-script grep can't see):** the loudest, hardest-to-diagnose source is a console exe (`powershell.exe`, `git.exe`, `nvidia-smi.exe`, `uv.exe`, `node.exe`) spawned by `subprocess.run`/`Popen` *inside a `.py` module* that itself runs as a child of a console-less parent (an MCP server, a scheduled task, a GUI Claude Code host).  A conftest/main-process monkeypatch that ORs `CREATE_NO_WINDOW` into `subprocess` only patches the process it runs in — a freshly-imported child gets a clean `subprocess` module and flashes.  project-rag chased this for weeks before isolating it (`cross-repo/archive/2026-05-30-windows-popup-child-process-hypothesis.md`).  `verify-no-console-flash.py` greps shell scripts and claude-klabauter `coordinator/bin/coordinator-auto-push` and is structurally blind to this class.  Coordinator's fix: every spawn in a production `.py` module splats a module-local `_NO_CONSOLE_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}`, enforced by `tests/test_no_console_window_guard.py` (tripwire `CONSOLE-FLASH-GUARD-PY`).  Confirmation method when a popup persists: spawn a child `-c` snippet that prints `GetConsoleWindow()` / `IsWindowVisible()` — `HWND=0` means that link in the chain is clean; keep walking outward.
+**Child-of-a-child flashes (the class the shell-script grep can't see):** the loudest, hardest-to-diagnose source is a console exe (`powershell.exe`, `git.exe`, `nvidia-smi.exe`, `uv.exe`, `node.exe`) spawned by `subprocess.run`/`Popen` *inside a `.py` module* that itself runs as a child of a console-less parent (an MCP server, a scheduled task, a GUI Claude Code host).  A conftest/main-process monkeypatch that ORs `CREATE_NO_WINDOW` into `subprocess` only patches the process it runs in — a freshly-imported child gets a clean `subprocess` module and flashes.  project-rag chased this for weeks before isolating it.  `verify-no-console-flash.py` greps shell scripts and claude-klabauter `coordinator/bin/coordinator-auto-push` and is structurally blind to this class.  Coordinator's fix: every spawn in a production `.py` module splats a module-local `_NO_CONSOLE_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}`, enforced by `tests/test_no_console_window_guard.py` (tripwire `CONSOLE-FLASH-GUARD-PY`).  Confirmation method when a popup persists: spawn a child `-c` snippet that prints `GetConsoleWindow()` / `IsWindowVisible()` — `HWND=0` means that link in the chain is clean; keep walking outward.
 
 **Rule:** `-NonInteractive -NoProfile -WindowStyle Hidden` remains the required preamble for all coordinator `powershell`/`pwsh` invocations on Windows.  The tripwire `verify-no-powershell-flash.py` greps shell scripts (shim delegates to `verify-no-console-flash.py`) to catch bare invocations in coordinator and sibling plugins. `hooks.json` `command`-field spawns are architecturally exempt as of 2026-06-14 — Claude Code is the CreateProcess parent there; shell-level suppression is impossible. Tracked upstream at `anthropics/claude-code#61051`.
 
-**Empirical source:** `state/lessons/:171` — original fix in commits 2b762da (install side) + 45fbf63 (coordinator-claude), 2026-05-07.  Mechanism correction verified 2026-05-29 against Node/Python/Win32 docs (issue #15572).
+**Empirical source:** `state/lessons/:171` — original fix, 2026-05-07.  Mechanism correction verified 2026-05-29 against Node/Python/Win32 docs (issue #15572).
 
 ### Git Bash on Windows cannot reach 1Password's SSH agent
 
@@ -747,7 +742,7 @@ The Bash tool's cwd persists across calls in the same session. Issuing `cd <work
 
 Dispatched executors must NOT bundle GPU validation (model loading, CUDA smoke tests) into their own done-criteria. Executor context + a spawned GPU smoke-test combined can lock up the system (GPU contention, OOM). GPU validation must be a separate EM-issued Bash call under PM observation of the GPU meter. Apply: any executor brief that includes model loading or CUDA validation must have that step removed and flagged as "EM-gated post-executor step."
 
-**Rule.** When a symptom "appeared at some point" and you're tempted to blame the platform, bisect your own config history BEFORE theorizing about upstream. The PM's "we didn't always have this" is the tell. `git log -S <setting_name> -- settings.json ~/.mcp*.json` takes 3 seconds and eliminates half the hypothesis space.
+**Rule.** When a symptom "appeared at some point" and you're tempted to blame the platform, bisect your own config history BEFORE theorizing about upstream. The PM's "we didn't always have this" is the tell. `git log -S <setting_name> -- settings.json .mcp*.json` takes 3 seconds and eliminates half the hypothesis space.
 
 ### WMI hangs on a thrashed Windows host — use kernel APIs for crash forensics
 

@@ -1,6 +1,5 @@
 # Agent Install Contract
 
-<!-- distilled: run 2026-07-19-synth; sources: archive/specs/2026-06/2026-06-22-coordinator-env-normalization-step-zero.md, cross-repo/archive/2026-07-13-example-cockpit-repo-em-publish-validate-install-contract-to-oss-sibling.md, archive/specs/2026-06/2026-06-23-coordinator-install-surface-dogfood-hardening-d2-13-disposition.md, 2026-06-15-coordinator-install-chain-application-phase-b.md, 2026-06-15-deep-research-install-chain-application-phase-b.md, archive/specs/2026-06/2026-06-17-chain-preinstall-phase-vocabulary.md, archive/specs/2026-06/2026-06-17-coordinator-install-seed-phase-and-manifest-alignment.md, docs/plans/2026-06-24-install-baton-completeness-claude-code-validation.md, docs/plans/2026-07-11-packageability-contract-fleet-doctrine.md -->
 <!-- Single-Entry-Point Doctrine canonical home: docs/wiki/doctor-probe-design.md § Single-Entry-Point Consolidation Must Stay Addressable (+ docs/wiki/implementation-standards-by-domain.md § Cross-cutting standards, formerly coordinator/CLAUDE.md § Implementation Standards). Originated in archive/specs/2026-05-04-example-game-repo-umbrella-plugin.md §Single Entry-Point Doctrine (example-game-repo-side; not present in this repo) — canonicalized here 2026-05-27. -->
 <!-- spec-backlink: archive/specs/2026-05-08-example-game-repo-install-chain-deps.md §3.1 -->
 <!-- migration: this doc's canonical home is coordinator-claude, moved here from example-game-workbench-repo as the ecosystem-wide canonical home. Example-game-repo's copy is a one-line pointer redirect; project-rag-ue-addon and other consumers cite this file rather than mirroring it. -->
@@ -111,7 +110,6 @@ Two distinct authorities meet inside the contract; the field-level split keeps t
 
 ## No subagent-hostile bash wrappers
 
-<!-- spec-backlink: cross-repo/archive/2026-07-21-project-rag-em-debash-must-be-fleet-propagated.md -->
 
 **Conformance expectation (PM-ratified):** a packageable consumer repo **declares no
 subagent-hostile bash wrappers.** A `.sh` surface a subagent invokes is denied by the claude-klabauter
@@ -140,7 +138,7 @@ note). Stated here so the contract is the greppable home; the teeth land when th
 | `repo_id` | `string` | yes | Canonical repo identifier — matches the GitHub repository name. Used as the visited-set entry key during chain-walk. |
 | `setup_skill` | `string` | no (optional when `standalone_setup_script` is present) | The slash-command a human types to invoke the agentic setup flow (informational — not the agent dispatch primitive; see §Skill chain-walker). **Optional** for a script-only install node: a repo that ships working `standalone_setup_script.{posix,windows}` and no agentic setup skill (e.g. Claude-klabauter, which has retired its plugin surface) omits this field rather than naming a non-existent or unrelated skill. The chain-walker never reads `setup_skill` (the real dispatch target is `standalone_setup_script` — see §512), so its absence changes no behavior. This mirrors `doctor_skill`'s optionality directly below. |
 | `doctor_skill` | `string` | no (optional) | The slash-command a human types to invoke a doctor/health-check flow (informational; unread by the chain-walker). **Omitted entirely** by repos with no health-check flow — not every conforming repo warrants one (e.g. deep-research, a research-pipeline plugin, declares none). Requiring it previously forced a do-nothing stub skill whose bare name collided with Claude Code's native `/doctor`; the field is now optional. When a repo DOES declare one, avoid the bare name `doctor`/`/doctor` (native-command collision) — name it distinctly (e.g. `/coordinator:code-health`). |
-| `standalone_setup_script.posix` | `string` | yes | Relative path to the POSIX (bash) standalone setup script, resolved against the declaring repo's own root in the general case. A repo whose actual entrypoint files live in a dependency's tree instead of its own is an exception to that general case, not a different field meaning — coordinator-claude is the reference instance (files migrated to claude-klabauter, `b644d5a9b`): its value resolves against whichever engine root `_engine_root.py` returns (the live `repos.claude_klabauter` checkout or the declared `claude-klabauter` dependency), never against this repo's own tree; see `coordinator/docs/install/agent-install-manifest.json`. This is the actual agent dispatch target. |
+| `standalone_setup_script.posix` | `string` | yes | Relative path to the POSIX (bash) standalone setup script, resolved against the declaring repo's own root in the general case. A repo whose actual entrypoint files live in a dependency's tree instead of its own is an exception to that general case, not a different field meaning — coordinator-claude is the reference instance : its value resolves against whichever engine root `_engine_root.py` returns (the live `repos.claude_klabauter` checkout or the declared `claude-klabauter` dependency), never against this repo's own tree; see `coordinator/docs/install/agent-install-manifest.json`. This is the actual agent dispatch target. |
 | `standalone_setup_script.windows` | `string` | yes | Relative path to the Windows standalone setup entrypoint — a `.cmd`/`.bat` launcher or a `.ps1` script, per the declaring repo; not assumed to be PowerShell. Resolved the same way as `standalone_setup_script.posix` above, including that row's dependency-tree exception. For coordinator-claude this is `scripts/setup.cmd`, a launcher that forwards argv to `setup.py` — not a `.ps1`. |
 | `programmatic_entry_point.*` | `object` | **no** (optional) | The Point-2 COLD-INSTALL entry per § Packageability contract point 2 — a single non-interactive, flag-driven, deterministic-exit-code install/register/assemble command, DISTINCT from `standalone_setup_script` (the chain-walk dispatch target; see § Two entries, two roles). For coordinator-claude this is `coordinator_core/install/maximalist.py` (engine-root-relative, same resolution as `standalone_setup_script.posix` above — resolves against either the live `repos.claude_klabauter` checkout or the declared `claude-klabauter` dependency, per `coordinator/docs/install/agent-install-manifest.json`), with `entry_point_contract` flags `--non-interactive` / `--check-only` and `deterministic_exit: true`. When both `programmatic_entry_point.entry_point_contract` and `standalone_setup_script.entry_point_contract` are present, `programmatic_entry_point` is the authoritative Point-2 witness; `standalone_setup_script.entry_point_contract` describes only the chain-walk invocation and is the Point-2 fallback only when `programmatic_entry_point` is absent. Because the engine is a separate install, coordinator-claude's `bin/` entrypoints resolve it at runtime through `cc_invoke`'s env/registry rungs rather than from anything inside the resolved engine root; a conforming check MUST NOT strip those rungs and assert a standalone-runnable contract this distribution does not make. |
 | `direct_deps` | `array<DirectDep>` | yes | Ordered list of direct upstream dependencies. The chain-walker processes these in declaration order. Does not include transitive deps — each upstream declares its own. |
@@ -167,7 +165,7 @@ note). Stated here so the contract is the greppable home; the teeth land when th
 <!-- manifest-prereq schema (DR-INSTALL-002 §3): id | tier | probe{kind,cmd,shell?,ref?} | install{mode,posix?,windows?,remediation?} | applies_to? | reference -->
 <!-- tier uses ENV-PREREQ-PROBE taxonomy (hard|semi-hard|advisory — NO optional) — ORTHOGONAL to manifest-dep taxonomy (hard|soft|optional) -->
 
-Canonical shape ruled by **DR-INSTALL-002** (`docs/decisions/DR-INSTALL-002-system-prerequisites-schema-owner.md`): central owns the shape, consumers mirror it.
+Canonical shape ruled by **DR-INSTALL-002** (`DR-INSTALL-002-system-prerequisites-schema-owner.md` under `docs/decisions/`): central owns the shape, consumers mirror it.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -188,7 +186,6 @@ Canonical shape ruled by **DR-INSTALL-002** (`docs/decisions/DR-INSTALL-002-syst
 
 ### `provider_capabilities` — upstream-provider early-hoist (reader-first contract seeding)
 
-<!-- spec-backlink: docs/plans/2026-06-24-install-baton-completeness-claude-code-validation.md § Upstream-provider early-hoist (PM directive B) C8c -->
 <!-- additive-no-bump: this field follows the same precedent as the orient-leg amendment (lines above); see § Versioning note at :25–40 -->
 
 **Reader-first up front.** This is contract *seeding*: coordinator **declares**
@@ -263,7 +260,6 @@ a `3 → 4` bump or a reader-widen lockstep.
 ### Chain-walk prereq-gate posture (Decision-3)
 
 <!-- chain-walk-prereq-gate-posture: post-consumer chain-walk advisory WARN; --preflight strict -->
-<!-- spec-backlink: docs/plans/2026-06-23-coordinator-root-system-prerequisites.md Decision-3 -->
 <!-- boundary: docs/wiki/install-surface-completeness.md § Post-Consumer Gates Must Be Advisory WARN -->
 
 The DAG-root chain-walk (`setup.py` default body, the POST-CONSUMER path) now resolves coordinator's `system_prerequisites` at Step Zero before any install proceeds. On this post-consumer path the probe outcomes are gated as follows:
@@ -1045,7 +1041,7 @@ agent to a no-op; name `/coordinator:install` for bootstrap remediation specific
 
 **Negative-spec for downstream runbooks.** A downstream bootstrap runbook (e.g. a example-game-repo
 `/example-game-repo:install` re-run that re-seeds the install-chain legs) MUST NOT print a hard
-`/pickup state/handoffs/continue-onboarding-and-installation.md` as its post-restart instruction.
+a `/pickup` of `continue-onboarding-and-installation.md` under `state/handoffs/` as its post-restart instruction.
 That path dangles on every re-run / already-onboarded machine, because nothing re-stages the spine
 (and nothing should). There is **no hard-`/pickup`-of-spine site at all** — coordinator's own
 cold-start playbook does not seed the spine (no §1f `cp`), so it joins the same pattern as every
@@ -1075,7 +1071,7 @@ single-capability install.
 > `/workday-start` (documented there as "a day-orientation sweep, a non-sequitur mid-install"). This
 > subsection ratifies the **safety goal** (no dangling-spine hard-pickup) as the contract — satisfiable
 > by `/workday-start` **or** by a curated ordered-leg `/pickup` — so the dangling-path failure does not
-> recur for other downstreams. See `cross-repo/archive/2026-06-17-spine-staging-asymmetry.md`.
+> recur for other downstreams. See `2026-06-17-spine-staging-asymmetry.md` under `cross-repo/archive/`.
 
 ### Guidance for conforming (downstream) repos
 
@@ -1115,7 +1111,7 @@ This is the "teach the other side in a wiki, don't code their ceremony" half of 
 
 5. For your **post-restart instruction**, print either `/workday-start` **or** a curated, ordered
    direct `/pickup` of your seeded **leg** batons (in install order, each leg pointing to the next) —
-   **not** a hard `/pickup state/handoffs/continue-onboarding-and-installation.md`. The hard
+   **not** a hard `/pickup` of `continue-onboarding-and-installation.md` under `state/handoffs/`. The hard
    prohibition is narrowly on the **spine** path: it is cold-start-only and does not exist on
    re-run / already-onboarded machines. Both sanctioned options satisfy the same safety goal — no
    dangling-spine hard-pickup, and (for the leg-walk) the legs are idempotently re-seeded (step 1) so
@@ -1231,7 +1227,6 @@ the spine can surface a human-readable estimate.
 
 ## chain-preinstall phase — sanctioned pre-restart full-install seam
 
-<!-- Spec backlink: docs/plans/2026-06-17-chain-preinstall-phase-vocabulary.md -->
 
 > Minted at the DAG root (coordinator-claude). This section
 > is the canonical vocabulary every leg in the install chain honors; the section name is the
@@ -1409,7 +1404,6 @@ Each conforming repo's install-status ledger (e.g. `<settings-home>/example-game
 
 ## v2 → v3 migration playbook
 
-<!-- spec-backlink: docs/plans/2026-06-23-coordinator-root-system-prerequisites.md C6/C7 -->
 
 For consumers and upstreams adopting v3, the per-repo mechanical steps are:
 
@@ -1485,7 +1479,6 @@ invocation-composition gap.
 
 ## Packageability contract (portable-core repos)
 
-<!-- spec-backlink: docs/plans/2026-07-11-packageability-contract-fleet-doctrine.md § Problem -->
 <!-- source: example-os-repo-em inbound ask (source_memo 2026-07-11-unknown-sender-em-example-os-repo-packageability-contract.md), PM-ratified -->
 
 Example-os-repo packages the assembled fleet into a native `.exe`/`.app` a "just-technical-enough" human
@@ -1498,7 +1491,7 @@ and future, inherits by virtue of being in the fleet, not a per-repo goodwill ta
 This section is the **doctrine layer**. The **schema layer** (optional-additive `agent-install-manifest.schema.json`
 fields encoding points 1/2/3/4/6) and the **enforcement layer** (`validate-install-contract.py`, a
 DoE-local opt-in-scoped compliance gate) are separate, cross-linked surfaces — see the
-`packageability-compliance` marker note below and `docs/plans/2026-07-11-packageability-contract-fleet-doctrine.md`
+`packageability-compliance` marker note below and `2026-07-11-packageability-contract-fleet-doctrine.md` under `docs/plans/`
 for the full six-chunk delivery.
 
 <!-- src: memo05-011 -->
@@ -1573,7 +1566,7 @@ authoritative Point-2 witness; `standalone_setup_script.entry_point_contract` de
 chain-walk invocation and is the Point-2 fallback only when `programmatic_entry_point` is absent.
 
 **Coordinator-claude's own declaration.** The manifest's `standalone_setup_script` names
-`scripts/setup.py` (engine-root-relative, per migration `b644d5a9b` — resolves against either the
+`scripts/setup.py` (engine-root-relative — resolves against either the
 live `repos.claude_klabauter` checkout or the declared `claude-klabauter` dependency, whichever
 `_engine_root.py` returns) — the install-chain **walker**, with `entry_point_contract` flags
 `--i-am-agent` (non-interactive) / `--check` (check-only). `setup.py` performs no mechanical
@@ -1709,9 +1702,9 @@ that is both SHA-current and within the 30-day window to remain tested.
 runs a real ceremony/op and captures a pass/fail verdict may land a record here, keyed off its own
 `surface` value (only records whose `surface` resolves to a manifest-declared entry point feed the
 promotion/demotion rules above). Two producers fold their live-verification outcomes into this
-ledger rather than a bespoke scratch note: `docs/plans/2026-07-19-review-folded-into-workflow-sidecars.md`'s
+ledger rather than a bespoke scratch note: `2026-07-19-review-folded-into-workflow-sidecars.md` under `docs/plans/`'s
 C1 confinement dogfood (confinement-dogfood outcome, one record per dogfood run) and
-`docs/plans/2026-07-19-architecture-survey-workflow-claude-klabauter-rebuild.md`'s scheduled live-fire run
+`2026-07-19-architecture-survey-workflow-claude-klabauter-rebuild.md` under `docs/plans/`'s scheduled live-fire run
 (architecture-survey live-fire outcome, one record per scheduled run). Neither `surface` is a
 manifest-declared entry point, so neither backs a `tested_platforms` claim.
 

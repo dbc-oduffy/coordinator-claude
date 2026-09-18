@@ -339,34 +339,6 @@ if (-not $__cdlCloneRootPresent) {
     if ($__cdlEngineRoot) { $env:COORDINATOR_CLONE_ROOT = $__cdlEngineRoot }
 }
 
-# Export the http-hook override-channel CANARY. A `type: "http"` registration
-# reaches the caller's environment only through interpolated headers -- the POST
-# body carries no `env` key under any spelling -- and an `httpHookAllowedEnvVars`
-# setting can veto a name by emptying its header rather than by erroring. An
-# emptied override header is indistinguishable from a caller who set no
-# override, and the guard resolves that ambiguity permissively, so the channel
-# carries two discriminators: a STATIC literal that survives a veto, and this
-# INTERPOLATED canary, which does not. Declared-plus-empty-canary is a vetoed
-# channel and answers "the guard did not run"; undeclared is silent, so no
-# legacy registration fails closed. Registration side is pinned by
-# test_hooks_json_http_fail_open_boundary.py gate 5; this is the other half --
-# an allowlisted canary the launcher never exports interpolates EMPTY on every
-# fire, which reads as a permanent veto.
-#
-# The value is arbitrary and only ever tested for non-emptiness. It is not a
-# secret, not a token, and grants nothing.
-#
-# setdefault on a PRESENCE test, same posture and same measured reason as the
-# two exports above -- and here the empty string is meaningful rather than
-# merely possible: an operator exporting it empty is simulating a veto, which a
-# truthiness guard would silently overwrite with '1'.
-#
-# Save/restore for the same reason as the clone root: this runs in the
-# operator's own pwsh process.
-$__cdlProbeCanaryPresent = Test-Path -LiteralPath Env:\COORDINATOR_PROBE_CANARY
-$__cdlProbeCanaryPrior = if ($__cdlProbeCanaryPresent) { $env:COORDINATOR_PROBE_CANARY } else { $null }
-if (-not $__cdlProbeCanaryPresent) { $env:COORDINATOR_PROBE_CANARY = '1' }
-
 # Export the front door's shared CREDENTIAL. `front_door._Handler.do_POST`
 # reads it off the X-Coordinator-Door-Key header and SHORT-CIRCUITS to
 # `credential_absent` before it resolves a route or consults its own key --
@@ -447,11 +419,6 @@ try {
         $env:COORDINATOR_SETTINGS_HOME = $__cdlSettingsHomePrior
     } else {
         Remove-Item -LiteralPath Env:\COORDINATOR_SETTINGS_HOME -ErrorAction SilentlyContinue
-    }
-    if ($__cdlProbeCanaryPresent) {
-        $env:COORDINATOR_PROBE_CANARY = $__cdlProbeCanaryPrior
-    } else {
-        Remove-Item -LiteralPath Env:\COORDINATOR_PROBE_CANARY -ErrorAction SilentlyContinue
     }
     if ($__cdlDoorKeyPresent) {
         $env:COORDINATOR_DOOR_KEY = $__cdlDoorKeyPrior

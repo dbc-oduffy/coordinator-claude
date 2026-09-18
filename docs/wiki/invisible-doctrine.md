@@ -9,9 +9,6 @@
 > when scoping a baton, writing a contract, or deciding what a surface should look like. It is
 > deliberately not written to be recalled mid-ceremony, because nothing should have to be.
 >
-> Spec backlinks: `docs/decisions/DR-090-the-unit-of-extraction-is-the-mechanical-step.md`;
-> `docs/wiki/computed-skills.md` (the contract); `docs/wiki/coordinator-tripwires.md §
-> SKILL-NARRATES-PROCEDURE`. Origin: the DR-090 alignment session.
 
 ## The north star, in one paragraph
 
@@ -39,7 +36,7 @@ Each one looked like the whole answer at the time. Each was a special case of th
    invocations passes that gate and is the same defect. *"Stage these paths, then commit them as
    one unit, and say whether this was a first run or a refresh"* has zero branches and is entirely
    mechanical. The unit of extraction is the mechanical **step**, not the mechanical **branch** —
-   branching is one species of step; sequencing is another. Cured by DR-090.
+   branching is one species of step; sequencing is another. Cured by the mechanical-step ruling.
 
 3. **The reader.** Sharper still: that step explains `git commit` to a frontier model that has
    known how to commit since pretraining. It is not merely badly factored, it is a *tutorial
@@ -122,7 +119,7 @@ This is the single test to apply when scoping any conversion. Worked examples:
 | extract the mechanical step | the assembler exists, so there is no step to narrate |
 | don't misremember the CLI subcommand | the answer is already in the brief, so there is no name to recall |
 | classify the pickup, then act on its class | the assembler resolves the class and injects only the applicable branch's guidance into the fired message — there is no branch for the operator to select, and no rulebook section for them to find |
-| don't retire a form while a reader survives | the advance op re-derives consumers and refuses (`docs/plans/2026-07-25-cutover-state-machine.md`; `coordinator/docs/wiki/cutover-state-machine.md`) |
+| don't retire a form while a reader survives | the advance op re-derives consumers and refuses (`coordinator/docs/wiki/cutover-state-machine.md`) |
 | don't remember which sidecar a review dispatch owns | one structural home, one mechanical guard — reviewer sidecar provisioning resolves the path and reconciles it against the mechanical guard, so there is no sentinel left to remember across the fleet's review dispatches (`2026-07-24-reviewer-sidecar-provisioning-reconciliation-7d4e70.md`) |
 
 None of those require learning anything. The artifact's shape *is* the rule.

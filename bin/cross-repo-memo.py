@@ -3931,6 +3931,19 @@ def _cmd_version() -> int:
             doe_root = fh.read().strip()
         if doe_root:
             canonical = os.path.join(doe_root, "coordinator", "bin", "cross-repo-memo")
+            # Either content layout — a pointer naming the published flat
+            # mirror named a canonical path that cannot exist there. A
+            # --version diagnostic must survive an unimportable bin/lib, so
+            # the private-shape path above stands if the resolver is unreachable.
+            try:
+                import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+                from coordinator_data_root import content_root_for
+
+                content = content_root_for(doe_root)
+            except Exception:  # noqa: BLE001
+                content = None
+            if content is not None:
+                canonical = os.path.join(str(content), "bin", "cross-repo-memo")
     except OSError:
         canonical = None
 

@@ -1,6 +1,5 @@
 # Artifact Distillation & Harvest
 
-<!-- distilled: run 2026-07-19-synth; sources: archive/specs/2026-05/2026-05-27-cqcs-cluster5-phase-completeness.md, archive/specs/2026-05/2026-05-28-distill-structured-manifests.md, archive/specs/2026-06/2026-06-18-distill-plan-priority-atlas-gate-archive-foldering.md, archive/specs/2026-06/2026-06-15-workstream-complete-self-clean.md, cross-repo/archive/2026-07-12-example-cockpit-repo-em-distill-memory-not-durable-capture.md, cross-repo/archive/2026-07-12-project-rag-em-distill-workflow-fanout-pattern.md, 2026-07-12-claude-klabauter-em-distill-ceremony-mechanical-substrate.md, 2026-07-12-claude-klabauter-em-distill-normalizer-mapping-gap.md -->
 
 `/distill` and its sibling harvest/cleanup ceremonies (plan-priority atlas gate, archive foldering, workstream-complete self-clean) turn ripe archived artifacts — specs, plans, memos — into durable knowledge (archived handoffs are excluded: not a cohort, not a knowledge source, no distill fate) (wiki guides, Decision Records) while disposing safely of what's already captured. This guide consolidates the architectural decisions and hard-won gotchas behind that pipeline.
 
@@ -13,16 +12,16 @@ The pipeline runs roughly: **Phase 0** (dedup/overlap check) → **Phase 1** (nu
 <!-- src: plan12-028, plan12-032, plan12-033 -->
 ### Nugget ID pinning and manifest schema
 
-- **DR-1 (nugget IDs pinned at Phase 1, not Clustering):** Phase 1 emits `id: <batch>-<n>` per nugget at extraction time. Clustering may re-key IDs for human-readable tables, but the canonical ID — the one that travels through YAML end-to-end — is assigned at Phase 1. This reversed an earlier substrate where IDs were assigned at Clustering (format `batch-N/nugget-M`, re-keyed to `K-001`/`D-001`/`A-001`), which made disposition-maps unstable because nugget identity wasn't fixed until mid-pipeline.
-- **DR-5 (manifest schema versioning):** Manifests carry `schema_version: 1` as their first key. Unknown forward-version consumption is fail-loud; matching-version consumption is silent. Integer versioning — semver is YAGNI at this scope.
-- **DR-6 (agent-prompts split):** `pipelines/artifact-distillation/agent-prompts.md` was decomposed into per-phase fragments (`agent-prompts/<phase>.md`); the original path is now a thin index. PM-waived re-review on this split.
+* **DR-1 — nugget IDs pinned at Phase 1, not Clustering:** Phase 1 emits `id: <batch>-<n>` per nugget at extraction time. Clustering may re-key IDs for human-readable tables, but the canonical ID — the one that travels through YAML end-to-end — is assigned at Phase 1. This reversed an earlier substrate where IDs were assigned at Clustering (format `batch-N/nugget-M`, re-keyed to `K-001`/`D-001`/`A-001`), which made disposition-maps unstable because nugget identity wasn't fixed until mid-pipeline.
+* **DR-5 — manifest schema versioning:** Manifests carry `schema_version: 1` as their first key. Unknown forward-version consumption is fail-loud; matching-version consumption is silent. Integer versioning — semver is YAGNI at this scope.
+* **DR-6 — agent-prompts split:** `pipelines/artifact-distillation/agent-prompts.md` was decomposed into per-phase fragments (`agent-prompts/<phase>.md`); the original path is now a thin index. PM-waived re-review on this split.
 
 <!-- src: plan12-029, plan12-030, plan12-031 -->
 ### Apply-agent slicing and quality-gate semantics
 
-- **DR-2 (apply-agent A/B/C slicing preserved):** A PM intuition that per-slice apply felt inefficient was addressed by adding manifest-driven done-conditions per slice, not by re-slicing the work. Don't re-architect the slicing in response to a vague efficiency complaint — add verifiable done-conditions instead.
-- **DR-3 (Phase 1.5 disposition — investigate before deciding):** Run the diagnostic chunk first. If Phase 1.5 turns out non-functional, a new manifest-driven quality gate subsumes it (consolidate). If Phase 1.5 is doing real work, the new QG is additive — different altitude: 1.5 checks Phase 1 internal consistency, the new QG checks Phase 1→2 coverage.
-- **DR-4 (different failure modes need different gates):** Opus contradiction-escalation output *replaces* source nuggets — a semantic transformation, so it needs a Sonnet fidelity check. Phase 2 synthesis *transforms* nuggets into deltas — a mechanical mapping, so it needs an ID set-diff, not a fidelity re-read.
+* **DR-2 — apply-agent A/B/C slicing preserved:** A PM intuition that per-slice apply felt inefficient was addressed by adding manifest-driven done-conditions per slice, not by re-slicing the work. Don't re-architect the slicing in response to a vague efficiency complaint — add verifiable done-conditions instead.
+* **DR-3 — Phase 1.5 disposition — investigate before deciding:** Run the diagnostic chunk first. If Phase 1.5 turns out non-functional, a new manifest-driven quality gate subsumes it (consolidate). If Phase 1.5 is doing real work, the new QG is additive — different altitude: 1.5 checks Phase 1 internal consistency, the new QG checks Phase 1→2 coverage.
+* **DR-4 — different failure modes need different gates:** Opus contradiction-escalation output *replaces* source nuggets — a semantic transformation, so it needs a Sonnet fidelity check. Phase 2 synthesis *transforms* nuggets into deltas — a mechanical mapping, so it needs an ID set-diff, not a fidelity re-read.
 
 <!-- src: plan12-034, plan12-035 -->
 ### Root problem: no machine-checkable contracts past Phase 2
@@ -61,7 +60,7 @@ The deterministic `memo.triage` partition (classifying memos for disposition) li
 
 - **Disposal gates on scan success-rate, not coverage-% alone.** A mass-throttle or partial-failure harvest run must not be allowed to dispose artifacts on an empty/failed scan. This re-derives terminal status from disk rather than trusting a coverage percentage that could be computed against a broken run (finding #8, re-deriving `cleanup-sweep-hazards.md` §38/§44 mandate).
 - **No-rewrite classes are explicit.** `/distill` §5d must never rewrite: historical logs (`state/week-changelog/*`, `wsc/*.json` receipts, `review-trail/findings/*`), inbox-path provenance, or bare `source_memo:` basenames. Active-ref scope deliberately stops at `docs/`, `tasks/`, `archive/` — it does not reach into point-in-time state records. This mirrors `cleanup-sweep-hazards.md` #45's "point-in-time state record → LEAVE" class.
-- **§7 disposition-mapping covers all 7 live-log action types**, verified against claude-klabauter's real 392-row corpus and captured as DR-053: `distill-harvest → DISTILLED` (keyed on `belongs_to_spec`), `DELETE → EPHEMERAL` (explicit enum), and `DELETE-GROUP` plus run-event rows skip with an explicit reason (these are spec-disposition-only log intent, not harvestable content).
+- **§7 disposition-mapping covers all 7 live-log action types**, verified against claude-klabauter's real 392-row corpus and captured as a decision record: `distill-harvest → DISTILLED` (keyed on `belongs_to_spec`), `DELETE → EPHEMERAL` (explicit enum), and `DELETE-GROUP` plus run-event rows skip with an explicit reason (these are spec-disposition-only log intent, not harvestable content).
 
 <!-- distilled: run 2026-08-06-14h38; sources: c2-026, c2-027 -->
 ### Artifact identity — mint seam and derived lifecycle state

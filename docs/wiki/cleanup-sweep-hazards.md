@@ -20,7 +20,7 @@ and flag any hits in active (non-archived) docs. Only proceed if every hit is in
 
 ## 2. Sed-Based Link-Heal Over-Rewrites Provenance Frontmatter
 
-When sweeping `s|docs/plans/X.md|archive/specs/X.md|g` across a repo, the regex hits both intended Spec backlinks AND provenance frontmatter fields like `original_path: docs/plans/X.md` — where the original location is the *literal* point of the field.
+When sweeping `s|docs/plans/foo.md|archive/specs/foo.md|g` across a repo, the regex hits both intended Spec backlinks AND provenance frontmatter fields like `original_path: docs/plans/foo.md` — where the original location is the *literal* point of the field.
 
 **Concrete failure:** the distill Phase E sed pass rewrote 98 files correctly for `Spec backlink:` comments, but corrupted `original_path:` provenance frontmatter on 9 wiki entries from `docs/plans/` to `archive/specs/` — making the provenance frontmatter self-referential and lying about where the spec originally lived.
 
@@ -59,7 +59,7 @@ A commit titled `path-sweep + grep gate + allowlist` silently reverted a prior s
 
 ## 6. Hardcoded Developer-Machine Paths Hurt Every External Consumer
 
-A SessionStart hook had a hardcoded fallback `$KnownRoots = @("X:\<project-1>", "E:\dev\ue\Keep_Blank")` for graph.db location when env vars were unset. Worked silently on the author's machine. Would have emitted nothing useful (or worse, misleading freshness reports about the wrong codebase) on every external consumer with a different drive layout. <!-- foreign-path-ok: the hardcoded path IS the anti-pattern being critiqued -->
+A SessionStart hook had a hardcoded fallback `$KnownRoots = @("C:\<project-1>", "C:\dev\ue\Keep_Blank")` for graph.db location when env vars were unset. Worked silently on the author's machine. Would have emitted nothing useful (or worse, misleading freshness reports about the wrong codebase) on every external consumer with a different drive layout. <!-- foreign-path-ok: the hardcoded path IS the anti-pattern being critiqued -->
 
 **Defense pattern** for any path-resolution fallback in shipped tooling:
 
@@ -77,7 +77,7 @@ Edit-tool success return value is NOT proof the change landed — concurrent wri
 
 Any bulk find/replace tool that defines its own substitution vocabulary in-file (or in a sibling script) will rewrite *itself* unless its scan path explicitly excludes those vocabulary-carrying files. The tool's identifier strings, replacement templates, and pattern tables become substitution targets — the first run corrupts the table, the second run runs against the corrupted table, and recovery requires `git checkout` against the tool source.
 
-**Concrete failure:** 2026-05-09 publish-sanitization dogfood ran `publish-time-transform-py --fix` (claude-klabauter `coordinator/bin/publish-time-transform-py`) over `/x/coordinator-claude`. The publish-repo's `check-persona-names.py` mirrors the same `PERSONA_NAMES` vocabulary; the bulk-fix rewrote the literal table entries inside that checker, breaking persona detection on the publish side. Recovery via `git checkout` was clean, but the failure mode is silent — exit code 0, files rewritten, only a content audit catches it.
+**Concrete failure:** 2026-05-09 publish-sanitization dogfood ran `publish-time-transform-py --fix` (claude-klabauter `coordinator/bin/publish-time-transform-py`) over the publish-repo checkout. The publish-repo's `check-persona-names.py` mirrors the same `PERSONA_NAMES` vocabulary; the bulk-fix rewrote the literal table entries inside that checker, breaking persona detection on the publish side. Recovery via `git checkout` was clean, but the failure mode is silent — exit code 0, files rewritten, only a content audit catches it.
 
 **Defense:** every bulk-substitution tool carries an `EXCLUDED_BASENAMES` (or equivalent) guard listing its own filename AND any sibling file that mirrors its vocabulary. See claude-klabauter `coordinator/bin/publish-time-transform-py` `EXCLUDED_BASENAMES` + basename-pattern guards for the canonical shape. The guard runs ahead of subtree-prefix exclusion (a file under `bin/` shouldn't be skipped wholesale, only the vocabulary-bearing ones).
 
@@ -172,7 +172,6 @@ Refactors that fix or close a bug-backlog entry by side effect (without naming i
 
 1. Any sweep refactor or cleanup pass should grep `state/bug-backlog/` (and project-equivalents) for paths/symbols it touches, and close matching entries in the same commit.
 2. Consumer-side: bug-blitz's pickup phase must verify each entry against current `HEAD` (not against the entry's authoring date) before dispatching a fix — entries that fail to reproduce get deleted, not "investigated."
-3. The commit subject names the closed backlog entry; `git log -- state/bug-backlog.md` becomes the audit trail.
 
 ## 20. Doctrine Flips: Audit Test Infra AND Write-Sites
 
@@ -505,7 +504,7 @@ A fleet-wide identity rename (e.g. `delphi-cockpit` → `example-store-repo`) is
 
 A blanket `grep -v archive` acceptance criterion is insufficient and can even contradict its own anti-scope — it does not distinguish shapes 3/5 (which *should* stay untouched, archive or not) from shapes 1/2/4/6 (which need to move). Classify each hit by shape before deciding fix-vs-leave; do not run a single global sed pass across all hits.
 
-This composes with, but is broader than, the rename-blast-radius miss captured in `state/lessons/2026-07-07-rename-blast-radius-needs-both-reference.yaml` (which covers only the narrower colon-namespace-vs-slash-form grep miss) — that lesson is about *finding* every hit; this entry is about *disposing* of each found hit correctly once you have it.
+This composes with, but is broader than, the rename-blast-radius miss captured in `2026-07-07-rename-blast-radius-needs-both-reference.yaml` under `state/lessons/` (which covers only the narrower colon-namespace-vs-slash-form grep miss) — that lesson is about *finding* every hit; this entry is about *disposing* of each found hit correctly once you have it.
 
 ## 46. Premise-Check Dead-vs-Fallback Before Bulk-Deleting "Dead" Scripts
 

@@ -182,17 +182,20 @@ REFUSED_REASON = "http-hook-forwarder: engine backend refused the request"
 #: Bash call, and the deny stands for the life of the session (hook registrations are read at
 #: session start). `guard-proportionality.md`'s outlet test is exactly this: the denied actor
 #: must be able to state what it does next WITHOUT a human. So the text names the file edit,
-#: which file tools alone can make. It also stops asserting the veto as fact: an empty canary
-#: has two causes and this module cannot see which, so claiming one is the false-cause deny the
-#: `DENY_REASON` note warns costs more than a silent one.
+#: which file tools alone can make: the `enabledPlugins` entry in `~/.claude/settings.json`,
+#: which takes effect in the next session. It does not assert the veto as fact: an empty canary
+#: also results from a harness process with neither canary variable set, and this module cannot
+#: see which, so claiming one is the false-cause deny the `DENY_REASON` note warns costs more
+#: than a silent one.
 VETOED_ENV_REASON = (
-    "http-hook-forwarder: the override channel is declared but its canary header arrived "
-    "empty, so no caller override reached the guard and the Bash guard did not run. Two "
-    "causes are indistinguishable from here: an httpHookAllowedEnvVars setting vetoing the "
-    "registration's allowedEnvVars, or COORDINATOR_PROBE_CANARY unset in this session. "
-    'Instead: add "COORDINATOR_PROBE_CANARY": "1" to the "env" block of '
-    "~/.claude/settings.json -- file tools suffice, and env is read at process start, so it "
-    "takes effect in the next session. The backend is not implicated"
+    "http-hook-forwarder: the override channel is declared but its canary header (HOME / "
+    "USERPROFILE) arrived empty, so no caller override reached the guard and the Bash guard "
+    "did not run. Two causes are indistinguishable from here: an httpHookAllowedEnvVars "
+    "setting that names neither HOME nor USERPROFILE, or a Claude Code process started with "
+    "both unset. "
+    'Instead: add HOME and USERPROFILE to that setting, or set "coordinator@coordinator-claude" '
+    'to false under "enabledPlugins" in ~/.claude/settings.json -- file tools suffice, and '
+    "both take effect in the next session. The backend is not implicated"
 )
 
 #: Discovery resolved a backend and it could not be reached -- distinct from `DENY_REASON`'s
@@ -1714,6 +1717,18 @@ def _env_from_request_headers(headers) -> Tuple[Dict[str, str], Optional[str]]:
     detects an `httpHookAllowedEnvVars` SETTING vetoing the registration's own `allowedEnvVars`,
     which empties every override header and is otherwise indistinguishable from a caller who set
     nothing.
+
+    The canary is `${HOME}${USERPROFILE}`: variables the harness process carries on every entry
+    point with no launcher or installer involved -- `HOME` on macOS and Linux, `USERPROFILE` on
+    Windows -- so an empty canary means a veto, not a missing launch signal. Two names because no
+    single variable is present on all three platforms; either one arriving non-empty proves the
+    interpolation is live. A setting that allowlists `HOME` or `USERPROFILE` but vetoes the
+    override names passes the canary undetected; a veto is detected only when the setting names
+    neither.
+
+    NOT a launcher export. A canary only the launcher sets interpolates empty under a bare
+    `claude` -- a container, an OSS install, Claude Code on the web -- and reads as a permanent
+    veto, denying every Bash call in a session whose every recovery is a Bash call.
     """
     lowered = {k.lower(): v for k, v in headers.items()}
 
@@ -1722,9 +1737,9 @@ def _env_from_request_headers(headers) -> Tuple[Dict[str, str], Optional[str]]:
 
     if not (lowered.get(_ENV_CANARY_HEADER) or "").strip():
         return {}, (
-            "override channel declared but the canary header interpolated empty -- an "
-            "httpHookAllowedEnvVars setting is vetoing this registration's allowedEnvVars, "
-            "so no caller override reached the guard"
+            "override channel declared but the canary header (HOME / USERPROFILE) "
+            "interpolated empty -- an httpHookAllowedEnvVars setting naming neither is vetoing "
+            "this registration's allowedEnvVars, so no caller override reached the guard"
         )
 
     reserved = {_ENV_CHANNEL_HEADER, _ENV_CANARY_HEADER}

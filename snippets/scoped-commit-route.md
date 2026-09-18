@@ -11,8 +11,9 @@ rule is invariant; only the mechanism underneath it changes.
 
 **Dispatch `git-commit-agent` with an explicit pathspec.** It is the one dispatchable committer,
 it verifies the pathspec before staging, and it already carries both legs of the current mechanism
-split — you do not reproduce that logic in a skill body. Hand it the enumerated paths and the
-subject; it refuses an unbounded or missing pathspec rather than guessing.
+split — you do not reproduce that logic in a skill body. Hand it the enumerated paths, the
+subject, and your own id as `Dispatching Session-Id: <uuid>` (`$CLAUDE_CODE_SESSION_ID`) — without
+it the commit lands unattributed and every session-keyed gate undercounts. It refuses an unbounded or missing pathspec rather than guessing.
 
 ## Why the mechanism is not named here
 

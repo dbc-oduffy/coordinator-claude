@@ -3,16 +3,10 @@ title: Addon Protocol
 created: 2026-05-08
 status: active
 last_distilled: 2026-05-14
-distilled_from:
-  - docs/plans/2026-05-08-ue-carveout-wave-2.md
-  - docs/plans/2026-05-13-tc-2-long-lived-subprocess-hookspec.md
 ---
 
-<!-- Imported from X:/project-rag at SHA d376cb01. Inherited substrate; canonical lineage now in Claude Central. Source: project-rag/docs/... — sibling-repo layout doctrine now lives in this repo's own wiki (the meta-repo local-doctrine file this once pointed at is retired). --> <!-- foreign-path-ok: dated import provenance, not a current-location claim -->
 
-<!-- Spec backlink: docs/plans/2026-05-08-ue-carveout-wave-2.md §A-2 §B-1 §B-5 §B-6 §C-1 §C-4 -->
 <!-- Spec backlink: tasks/ue-carveout-wave-2/PR-9-receiver-harness.md (sole author / wiki serializer) -->
-<!-- Spec backlink: docs/plans/2026-05-13-tc-2-long-lived-subprocess-hookspec.md (v1→v2 bump, 7th register hookspec) -->
 
 # Addon Protocol
 <!-- Review: Sonnet burst-2 P2-2 — dropped "v1" version qualifier from title; protocol version lives in body (ADDON_PROTOCOL_VERSION constant) -->
@@ -83,10 +77,8 @@ extraction to `example-game-workbench-repo` is Wave 2b.
       `register_schema_edge_types` precedent. Zero UE source_type names in host
       code (polarity rule). Full contract:
       [`docs/wiki/chunk-metadata-schema-seam.md`](chunk-metadata-schema-seam.md).
-      Spec backlink:
-      `docs/plans/2026-05-16-host-pluggy-chunk-metadata-schema-seam.md`.
 
-      **Joint v6 surface — concurrent W8c T1 contribution (commit `6e4dee00`)
+      **Joint v6 surface — concurrent W8c T1 contribution
       lands eight additional façades + eight hookspecs under the same v6
       stamp** (no separate bump; bump-once economics across workstreams):
       (d) host-addon-capability-dispatch (W8a AC-3): AddonCapabilityResult,
@@ -101,7 +93,7 @@ extraction to `example-game-workbench-repo` is Wave 2b.
           (parallel-call).
       Joint v6 totals: 11 new façades + 12 new register_*/dispatch hookspecs
       across three contributing workstreams. ADDON_PROTOCOL_VERSION=6 stamp
-      shipped in commit `38ab63bf` (port-out Stage B); W8c T1 declared
+      shipped (port-out Stage B); W8c T1 declared
       signatures additively without a second bump.
     * `7 → 8` (engine-RAG mega-plan E-NAMED-BANDS): Extends `CorpusBand`
       with five additive defaulted fields (`engine_version`, `chunk_filter`,
@@ -110,9 +102,7 @@ extraction to `example-game-workbench-repo` is Wave 2b.
       addon-side failure-catalog contribution. Also adds three new exception subclasses
       (`AddonCatalogIdCollision`, `AddonCatalogModeCollision`,
       `AddonCatalogInvalidVerdict`) all subclassing `AddonProtocolViolation`.
-    * `8 → 9` (E-RUNTIME H1): Verified at `core/addon_protocol.py:65`. Plan reference:
-      `docs/plans/2026-05-18-comprehensive-audit-remediation.md` §Prior-art Conflict 2
-      disposition.
+    * `8 → 9` (E-RUNTIME H1): Verified at `core/addon_protocol.py:65`.
     * Phase 6 closure (host+addon paired migration): no
       `ADDON_PROTOCOL_VERSION` bump — the schema-extension hookspec contract
       (`project_rag_register_schema_tables`, `project_rag_register_schema_edge_types`)
@@ -192,7 +182,7 @@ extraction to `example-game-workbench-repo` is Wave 2b.
          unreachable without the new field DOES NOT bump on the dispatch
          axis alone. Pre-bump addons cannot set the field; the host falls
          through to the prior dispatch surface; observed behavior is
-         identical. `single_file_runner` (shipped `1ec27543` without bump)
+         identical. `single_file_runner` (shipped without bump)
          is the canonical example. *New façade dataclasses and new
          hookspecs still bump on their own surface-shape rules,
          independently of this carve-out.*
@@ -301,9 +291,6 @@ extraction to `example-game-workbench-repo` is Wave 2b.
       gated on a separate failing-test consumer proof (per the Director of Engineering F#2 convergence).
       v14 stub at `tasks/2026-05-19-fusion-pipeline-n-lane/v14-authority-rank-stub.md`.
 
-      Plan reference: `docs/plans/2026-05-19-fusion-pipeline-n-lane.md`.
-      Waves A–D (code changes) committed in `124eb3dd` (A), `2d21415c` (B),
-      `3c5262d9` (C), `a273fefc` (D).
 
     * `11 → 12` (addon-protocol-v12-and-ue-tool-migration):
       Adds `requires_project_graph_db: bool = False` to
@@ -356,7 +343,6 @@ extraction to `example-game-workbench-repo` is Wave 2b.
 
 ## Manifest validation modes
 
-<!-- Spec backlink: docs/plans/2026-05-17-addon-manifest-boot-gate-decoupling.md -->
 
 As of 2026-05-17, `core/addon_manifest.py:validate_manifest()` is mode-aware.
 Boot uses **lenient mode** (`mode='boot'`); `/project-rag:doctor` probe
@@ -398,8 +384,7 @@ for the doctrine placing strict validation in `/doctor`, not the boot path.
 The strict unknown-field gate was originally a deliberate "detect-then-fail-loud"
 choice (ratified in the Staff Engineer's Wave 2a review). The 2026-05-17 motivating incident
 exposed a type-confusion: a `_comment` field added to
-`project-rag-ue-addon/project_rag_ue_addon/addon-manifest.json` (commit
-`d690d0c1e`) for author bookkeeping — explicitly marked `"INFORMATIONAL — not
+`project-rag-ue-addon/project_rag_ue_addon/addon-manifest.json` for author bookkeeping — explicitly marked `"INFORMATIONAL — not
 authoritative, not loaded at runtime"` by its own text — caused the host's strict
 validator to raise `AddonProtocolMismatchError` and brick cold-boot, taking down
 all L3 retrieval queries. The manifest's own `_comment` says the file is advisory;
@@ -408,9 +393,7 @@ operational truth is pm.hook.project_rag_register_producer() results at boot").
 Failing loud on self-declared advisory data is the type confusion. The five
 irreducible gates are the genuinely ambiguous cases — they remain fail-LOUD
 because the host cannot proceed without them. Everything above them (unknown
-fields, optional-field drift) is validly informational. Authoritative spec:
-`docs/plans/2026-05-17-addon-manifest-boot-gate-decoupling.md`.
-
+fields, optional-field drift) is validly informational.
 ### Note for addon authors
 
 If you want strict validation in your addon's CI, import
@@ -463,9 +446,7 @@ versioning — `ADDON_PROTOCOL_VERSION` is the single version constant.
 
 ### `project_rag_register_long_lived_subprocess`
 
-The 7th register hookspec, added in tc-2 (protocol bump v1 → v2). Authority:
-`docs/plans/2026-05-13-tc-2-long-lived-subprocess-hookspec.md §WS-1` and the tc-1
-audit memo at `docs/strategy/2026-05-13-c-core-host-runtime-audit.md §5 R-1`.
+The 7th register hookspec, added in tc-2 (protocol bump v1 → v2).
 
 An addon returns one or more `AddonLongLivedSubprocessSpec` instances describing a
 daemon-style subprocess (a GPU sidecar, an LSP server, a background extractor) that
@@ -620,12 +601,8 @@ The UE addon uses this to contribute `ue_plugin_enabled`, replacing the deprecat
 
 ## v6 hookspecs — host-addon-capability-dispatch + Phase-1 schema extension
 
-<!-- Spec backlink: docs/plans/2026-05-16-w8c-v6-ratification-content-error-migration.md §T10 (AC-10, AC-11) -->
-<!-- Spec backlink: docs/plans/2026-05-16-w8c-v6-ratification-content-error-migration.md §T1 -->
 
-All eight v6 hookspecs land under `ADDON_PROTOCOL_VERSION=6` (commit `38ab63bf` for the
-bump; W8c T1 declared signatures in commit `6e4dee00` without a second bump — bump-once
-economics across concurrent workstreams). Full hookspec signatures are in
+All eight v6 hookspecs land under `ADDON_PROTOCOL_VERSION=6`. Full hookspec signatures are in
 `core/addon_hookspecs.py`. Full capability-dispatch doctrine is in
 [capability-dispatch.md](capability-dispatch.md).
 
@@ -1011,7 +988,6 @@ Any new allowlist additions require an explicit rationale entry in the tripwire 
   addon's hookimpl recreates them. Addon-vs-core name collisions
   raise `AddonRegistrationError` at the runtime guard
   (`project_rag_mcp/graph/db.py:887-920`) — no transition carve-out remains.
-  Authority: `docs/plans/2026-05-18-phase-6-ue-cleanup-host-and-addon-paired.md`.
 
   The hookspec contract is the operational reality, not a pending bump; a
   second addon to validate the migration contract is not a precondition —
@@ -1019,10 +995,7 @@ Any new allowlist additions require an explicit rationale entry in the tripwire 
 - **B-4 taxonomy** — `_VALID_DOMAINS = {"project","engine","official_docs","external"}`
   + per-domain `_VALID_SUBTYPES` is the routing taxonomy per spec §6.1
   (Amendment 1). The `source=` singular routing kwarg is the collection-axis
-  routing mechanism (see plan
-  `docs/plans/2026-05-16-multi-source-daemon-and-source-kwarg.md`). See
-  `docs/decisions/DR-WAVE2-valid-sources-frozen.md`.
-
+  routing mechanism
   The hookspec table carries `project_rag_register_schema_tables` +
   `project_rag_register_schema_edge_types` (Phase-1 addon-extensible-schema).
   `schema_extension_version` capability-dict field is load-bearing: host
@@ -1094,7 +1067,6 @@ Python entry-point machinery, no pluggy process-boundary introspection required.
 doctor = "project_rag_ue_addon.doctor:run_command"
 ```
 
-Spec backlink: docs/plans/2026-05-17-engine-rag-addon-section5-doctor.md §5.6.x
 
 ---
 
@@ -1127,7 +1099,6 @@ conventions the host does not and should not know. Encoding derivation logic in 
 creates a tight-coupling footgun every time a new addon engine has a different naming
 scheme. The addon owns the corpus; the addon owns the name.
 
-Spec backlink: docs/plans/2026-05-18-comprehensive-audit-remediation.md § W1-keystone
 
 ---
 
@@ -1163,7 +1134,7 @@ Empty list is the graceful-fail signal (addon contributes no whoami sub-block).
 
 The canonical aggregation site. Validates each spec (type, namespace regex, callable probe) and enforces namespace uniqueness across **all** contributors (host + every addon). Raises `AddonWhoamiNamespaceCollision` (subclasses `AddonProtocolViolation`) with both contributor identity strings AND the conflicting namespace in the message.
 
-**Lifecycle divergence (the Staff Engineer F6):** NOT called from `discover_addons()` at boot. Whoami is a command-time introspection surface — collisions surface at first `python -m core.whoami` invocation, not at server start. A bad whoami contributor must not prevent the MCP server from starting; the consumer (`core/whoami.py`, lands in W3 of `docs/plans/2026-05-19-first-class-install-redesign.md`) calls the aggregator at invocation time.
+**Lifecycle divergence (the Staff Engineer F6):** NOT called from `discover_addons()` at boot. Whoami is a command-time introspection surface — collisions surface at first `python -m core.whoami` invocation, not at server start. A bad whoami contributor must not prevent the MCP server from starting; the consumer (`core/whoami.py`, lands in W3 of the first-class install-redesign plan) calls the aggregator at invocation time.
 
 ### Host JSON shape
 
@@ -1179,7 +1150,7 @@ Contributors compose under a top-level `addons:` key, nested per namespace:
 }
 ```
 
-The namespaced shape (vs. the addon EM's original top-level-merge proposal) is the deliberate re-shape negotiated in `../project-rag/archive/cross-repo/2026-05-19-host-whoami-hookspec-reply.md` (grandfathered pre-cutoff memo) — operator tooling can iterate contributors without knowing the addon set in advance, and host-owned top-level keys never collide with addon-contributed keys (anticipated Unity addon).
+The namespaced shape (vs. the addon EM's original top-level-merge proposal) is the deliberate re-shape negotiated in the addon EM's reply memo — operator tooling can iterate contributors without knowing the addon set in advance, and host-owned top-level keys never collide with addon-contributed keys (anticipated Unity addon).
 
 ### Contracts the addon must honor
 
@@ -1192,8 +1163,6 @@ Enforcement of the must-not-raise and time-budget contracts is consumer-side (`c
 
 ### Cross-repo origin
 
-- Ask doc: `../project-rag-ue-addon/archive/cross-repo/2026-05-19-host-whoami-hookspec-request.md`
-- Reply doc: `../project-rag/archive/cross-repo/2026-05-19-host-whoami-hookspec-reply.md` (grandfathered pre-cutoff memo)
 - the Staff Engineer review: APPROVED_WITH_NOTES on the in-tree diff; all 7 findings folded inline.
 
 ---
@@ -1204,7 +1173,6 @@ Restores `CorpusBand.default_weight: float | None = None` as a SUGGESTED multipl
 
 The v10 removal was correct given the three-lane hardcoded fusion pipeline that had no consumer for per-band values; v13's N-lane fusion is the first real consumer. `authority_pairs` remains REMOVED (v14 may revisit gated on a separate failing-test consumer proof per the Director of Engineering finding F#2).
 
-Plan: `docs/plans/2026-05-19-fusion-pipeline-n-lane.md` § Wave C.
 
 ---
 
@@ -1302,4 +1270,3 @@ hierarchy), which is why it lives in the UE addon rather than in-host.
 `project_blueprint_graph`, `project_cvar`, `project_actor_composition`,
 `project_overrides`, `project_tag_graph`, `project_test_coverage`.
 
-Spec backlink: docs/plans/2026-05-18-addon-protocol-v12-and-ue-tool-migration.md §Chunk-1.3 edit 4 (the Staff Engineer Finding 2)

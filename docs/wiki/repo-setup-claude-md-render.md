@@ -66,7 +66,7 @@ Concatenate block bodies for each selected type (in selection order); blank line
 ## 3. Render Helper Call
 
 ```bash
-# render-template.py migrated to claude-klabauter (coordinator bin/lib -> claude-klabauter, commit b644d5a9).
+# render-template.py migrated to claude-klabauter (coordinator bin/lib -> claude-klabauter).
 # POSIX-host form (this is the cc-root-source-guard.md SSOT preamble, not a coordinator-CLI
 # invocation); a PowerShell host resolves the trusted root by its own PowerShell-native path.
 _cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.doe-root" 2>/dev/null || cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"

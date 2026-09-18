@@ -1,6 +1,5 @@
 # Executor Sidecar and Discipline
 
-<!-- distilled: run 2026-07-19-synth; sources: 2026-05-27-cqcs-cluster1-delegate-constraint-adherence.md, 2026-05-05-executor-touched-branch-pin.md, 2026-05-05-issue-a-agent-id-linkage.md, archive/specs/2026-03/2026-03-08-agent-hierarchy-design.md, 2026-06-15-execute-plan-plan-doc-oos-injection.md, 2026-06-15-executor-no-self-commit-em-only-gate.md, 2026-07-13-subagent-run-report-subsume.md, 2026-07-16_144733_59903006-30d2-4392-87da-7fa571bd7047.md -->
 
 Reference for the mechanisms that keep executor subagents inside their lane: the run-report sidecar (record-of-work surface), the plan-body/archive immutability hooks, the touched-files/branch-pin scope guards, and the self-commit gate. These are the enforced, structural counterparts to the doctrine prose in `agents/executor.md`.
 
@@ -22,7 +21,7 @@ The flight-recorder sidecar was **subsumed**, not left to coexist alongside a ne
 
 - **Injection point**: folds into `enforce-agent-dispatch-mode.py`, the single `updatedInput` emitter allowed per `Agent` matcher. The emit-gate widens to fire on *either* mode-elevation-needed *or* sidecar-provisioned (DEC-2).
 - **Schema**: a superset of flight-recorder fields plus universal fields. `divergence` is object-typed (`{diverged, summary, detail}`), not an array — this keeps it backward-compatible with existing flight-recorder consumers (DEC-3).
-- **Injection framing is unconditional, not an offer (revised post-DR-091)**: DEC-4 governs whether a sidecar gets provisioned at all — only `report_sidecar`-eligible types get one prescaffolded, so ineligible types aren't over-provisioned with empty docs. It never licensed treating a sidecar that WAS provisioned as optional to fill. DR-091 made that explicit: the sidecar is prescaffolded before the agent's first tool call and its required fields (`divergence`, etc.) are a deliverable. The injected notice text reads "fill it in as part of this dispatch... completing it is expected, not optional" rather than "if you need it" — a live dogfood run found an executor read the old offer-shaped wording as license to leave its sidecar at scaffold.
+- **Injection framing is unconditional, not an offer**: DEC-4 governs whether a sidecar gets provisioned at all — only `report_sidecar`-eligible types get one prescaffolded, so ineligible types aren't over-provisioned with empty docs. It never licensed treating a sidecar that WAS provisioned as optional to fill. The typed-sidecar contract made that explicit: the sidecar is prescaffolded before the agent's first tool call and its required fields (`divergence`, etc.) are a deliverable. The injected notice text reads "fill it in as part of this dispatch... completing it is expected, not optional" rather than "if you need it" — a live dogfood run found an executor read the old offer-shaped wording as license to leave its sidecar at scaffold.
 - **Eligibility (`report_sidecar` policy key)**: a distinct write-capable/multi-step allowlist drawn across both confined *and* exempt agent categories — not a subset of confined alone. A miss fails open to ineligible. `coordinator:executor` is included (DEC-5).
 - **Deterministic `provision_key` for chunk executors**: pre-flattened as `<plan-slug>.<chunk-id>` — a single dotted segment (e.g. `2026-07-13-subagent-run-report-subsume.C5`). The dot survives sanitization because it's on the character whitelist, which is what prevents a `<plan-slug>/<chunk-id>` nested form from colliding (DEC-6).
 - **Migration then retirement**: the flight-recorder producer chain — claude-klabauter `coordinator/bin/fan-out-dispatch.py`, `coordinator-doc-new`, `execute-plan`, `workstream-complete`'s `d-fold-execution-observations` directive, `coordinator-fold-execution-record` — migrates onto the run-report shape first; only then does the flight-recorder schema and the `tasks/*/flight/` path get retired (DEC-7).
@@ -95,7 +94,6 @@ When an executor's output survives a crash mid-chunk, the recovery path is **rec
 The same recover-not-rerun precedent holds at wave scale, not just per-chunk: in a five-way parallel executor wave, two of the five crashed mid-response. Their partial work had already persisted to disk, so the remainder executors picked it up and finished it rather than the crashed chunks being re-run from scratch. This is the multi-agent-wave analogue of the single-executor recovery pattern above — persisted partial work survives a crash and is a completion input for whichever executor picks it up next, not a discard-and-restart signal.
 
 ### Freeze a review slice per-commit, not as a range, on a shared branch
-<!-- src: lessons-outbox c6f577e0, from claude-klabauter-em 2026-08-03; re-hit independently 2026-08-04 -->
 
 A partitioned `/workstream-complete` review that freezes its slices with a contiguous range —
 `git diff <first>^..<last>` across this session's own commits, or the `range=` the brightline
@@ -116,7 +114,6 @@ a reviewer reporting a finding about a file you do not recognise touching, and a
 reporting a one-line edit as a several-hundred-line "new file".
 
 ### Residual routing: mid-execution discoveries go to ceremony, not plan prose
-<!-- distilled: run 2026-08-06-14h38; src: c12-015 (archive/completed/2026-08/2026-08-06-adhoc-e08d6c.md) -->
 
 A residual discovered mid-execution — a defect, gap, or follow-up noticed while working a chunk but out of scope for it — is **routed, never written into the plan body as prose**. Dumping it inline (an ad-hoc paragraph under the chunk, a footnote in the ledger) is itself the violation this rule targets; it also collides with plan-body immutability (§ above) since the executor cannot edit that surface anyway.
 
@@ -137,7 +134,7 @@ A residual discovered mid-execution — a defect, gap, or follow-up noticed whil
 
 | Mechanism | Enforcement | Bypass surface |
 |---|---|---|
-| Sidecar / run-report | `enforce-agent-dispatch-mode.py` injection + `report_sidecar` policy key | N/A — provisioned unconditionally for eligible types; filling it is a deliverable (DR-091), not optional |
+| Sidecar / run-report | `enforce-agent-dispatch-mode.py` injection + `report_sidecar` policy key | N/A — provisioned unconditionally for eligible types; filling it is a deliverable, not optional |
 | Plan-body immutability | `preuse-write-dispatch.py` (PreToolUse deny; dispatches to claude-klabauter's `block_subagent_plan_body_write.py`) | none (hard block) |
 | Archive-write confinement | claude-klabauter `block_subagent_archive_write.py` (PreToolUse deny, path-shape exempt) | sanctioned `archive/completed/YYYY-MM/<entry>.md` path only |
 | Touched-files scope | `track-dispatched-agents.py` + `track-touched-files.py` (agent_id linkage) | `--scope-from` + `--allow-out-of-scope-dirty` |

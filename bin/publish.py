@@ -12195,6 +12195,35 @@ def _walk_published_payload(published_dest_dirs: "Iterable[Path]") -> "set[Path]
     return found
 
 
+def _mirror_sigil_for_alias(alias: str, sigil_map: Mapping[str, str]) -> Optional[str]:
+    """The `publish-mirror:` sigil a non-row name stands for, or None.
+
+    `klabauter` is the name an operator types for the klabauter mirror, yet it
+    is neither a row name nor the mirror key (`claude_klabauter`), so it used
+    to die on the unknown-target FATAL while `percolate-gate branch0-gate`
+    routed the same word here. The match is the gate's own token-set-subset
+    test (`_missing_target_entry_guidance`), with `_` also splitting so a
+    mirror key's tokens count: every token of `alias` must appear in a row
+    name or its mirror key.
+
+    Resolves only when every matched row sits under ONE `publish-mirror:`
+    sigil. Matches spanning mirrors, or reaching a non-mirror row, return None
+    and fall through to the FATAL — an alias never picks between destinations."""
+    wanted = {tok for tok in re.split(r"[-_]", alias) if tok}
+    if not wanted:
+        return None
+    matched = set()
+    for name, sigil in sigil_map.items():
+        key = sigil.split(":", 1)[1] if sigil.startswith("publish-mirror:") else ""
+        if wanted <= set(re.split(r"[-_]", name)) | set(re.split(r"[-_]", key)):
+            matched.add(sigil)
+    if len(matched) == 1:
+        (sigil,) = matched
+        if sigil.startswith("publish-mirror:"):
+            return sigil
+    return None
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """Exit-code contract (state/bug-backlog/2026-08-10-coordinator-publish-s-
     exit-code-is-not-a-542c9750e55a.yaml): a caller may trust the exit code
@@ -12296,6 +12325,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         sole_name = solo_requested[0]
         sigil_map = raw_dest_sigil_by_name(setup_dir)
         sigil = sigil_map.get(sole_name)
+        if sigil is None:
+            sigil = _mirror_sigil_for_alias(sole_name, sigil_map)
         if sigil and sigil.startswith("publish-mirror:"):
             siblings = sorted(n for n, s in sigil_map.items() if s == sigil)
             if len(siblings) > 1:

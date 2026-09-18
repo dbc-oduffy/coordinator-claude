@@ -15,7 +15,7 @@ absorbs on that half.
 The remit DOES also include the per-repo sensor half used to hold: the watch
 subprocess (arming `coordinator_core.group_em.watch`), the `Monitor` that wakes the
 assistant off it, park-spool triage, and reading/holding the holder record in
-`state/group-em-watch.json`. The assistant's existing per-repo binding already makes it
+`group-em-watch.json` under `state/`. The assistant's existing per-repo binding already makes it
 the right home — the sensor half is irreducibly per-repo, exactly like the inbox it
 already reads. What it absorbs nothing of, on either half: no watch loop of its own
 invention, no re-bucketing, no lifecycle-field edit, no outbound memo of its own, no
@@ -39,7 +39,7 @@ addresses its own Group EM.
 
 Inbound reach — a Group EM's `SendMessage` reaching back INTO the assistant between
 asks — is this shape's measured strength, not its open question:
-`state/audits/2026-09-02-session-shaped-watcher-mechanics.md` leg (4) records this
+`2026-09-02-session-shaped-watcher-mechanics.md` under `state/audits/` leg (4) records this
 repo's live Group EM messaging its watcher five times in one session with every
 message arriving, plus a clean round trip whose reply echoed the exact sent text. That
 is why this role stays a subagent rather than moving to a separately spawned session —
@@ -80,3 +80,41 @@ assistant routed outbound, or to anything else — lands in the Group EM's own
 conversation regardless of this dispatch, per the asymmetric substrate above. Nothing
 measured here reduces that; the shed is triage-and-verification only, not
 correspondence.
+
+## Liveness — why the banned instrument is tempting anyway
+
+`ListAgents`' `busy`/`idle` is banned as a liveness input even though `busy` is usually accurate,
+because status age is unbounded: an hours-old `busy` is exactly the shape of a session that has
+since stopped, and `idle` means unknown rather than quiet. The named failure mode is a reader who
+learns "busy is a trustworthy positive" and narrows the ban on that basis rather than dropping it
+entirely.
+
+`last_tick_at` age is the sanctioned replacement precisely because a sensor that dies silently is
+indistinguishable from a quiet fleet without some liveness arm — but that arm must not be shaped
+as a process-table check. `pgrep -f` cannot read Windows process command lines, and even where it
+can, the watch runs under two different command lines depending on whether the trampoline or the
+bare module launched it, so a pattern matched against either reports a false death for the other.
+A false death is worse than no arm at all: it teaches the holder to discount the one wire that
+wakes them. The cadence to compare against is the record's own `next_expected_by`, not a fixed
+threshold, because the cadence itself varies by an order of magnitude between a `Monitor` (~12 s)
+and a cron tick (~23 min) — a fixed number is trigger-happy against one and blind against the
+other depending on which instrument stamped last.
+
+## Arming the watch — the two false premises, worked
+
+**False premise 1: the bare module is a safe fallback.** `python3 -m coordinator_core.group_em.watch`
+needs the engine already importable, so it only starts from an engine-rooted cwd; from a doctrine
+repo it is a `ModuleNotFoundError` at start-up, and a watcher whose subprocess never started
+presents as `idle` — indistinguishable from a quiet fleet, with no error anywhere pointing at the
+cause.
+
+**False premise 2: an ALIVE `--status` confirms a working watch.** Read two lines down for
+*"Reported on nobody: 0 subscribed peers"* — the holder that armed nothing. Its absence is
+currently not evidence of a real watch, because the guard emitting it is disarmed whenever the
+record carries declination rows, which entry always writes. An ALIVE with no population line is
+therefore unresolved, not confirmed — read `group-em-watch.json` under `state/` directly and treat
+`tick_source: entry` with `subscribed_peers: 0` as a holder that never armed.
+
+Both false premises end the same way: a holder concluding the trampoline is absent and briefing
+the bare-module fallback on a false premise, or standing down on a status line that never
+confirmed anything.

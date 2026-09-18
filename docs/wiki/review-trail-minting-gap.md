@@ -1,7 +1,5 @@
 # Review-Trail Minting Gap
 
-<!-- Spec backlink: run 2026-08-06-14h38, derived from nugget c8-013
-     (archive/completed/2026-07/2026-07-27-adhoc-2b4b88.md) -->
 
 > How the coordinator system tracks *who reviewed what, when* — and the structural gap in
 > that tracking discovered during the 2026-07-27 review-trail investigation.
@@ -68,7 +66,6 @@ evidence absence of review, but nothing on disk distinguishes "no review occurre
 
 ## Reference
 
-- Source: `archive/completed/2026-07/2026-07-27-adhoc-2b4b88.md`
 - Related: `coordinator/docs/wiki/invisible-doctrine.md` (discharge test)
 - Existing writer: `workstream-complete` ceremony (see `coordinator/skills/` for the
   ceremony definition)
@@ -77,8 +74,6 @@ evidence absence of review, but nothing on disk distinguishes "no review occurre
 
 ## `/spinoff` origin_* provenance — stamper, not author, writes it
 
-<!-- Spec backlink: run 2026-08-06-14h38, derived from nugget c8-048
-     (archive/completed/2026-07/2026-07-27-adhoc-6dad39.md) -->
 
 A separate provenance gap, distinct from the review-trail hole above: an earlier `/spinoff`
 run landed all 11 spinoffs with `origin_*` provenance frontmatter unset. Every spinoff file

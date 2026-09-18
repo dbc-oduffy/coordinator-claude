@@ -36,7 +36,7 @@ plugin project-instructions"* / *"fleet-wide via `--plugin-dir`"*.
 directory of the repo root, and Claude Code loads a child-directory `CLAUDE.md` only when it reads
 a file in that directory. Established by five parallel probes plus a live cross-repo verification
 from a `claude-klabauter` session with the plugin confirmed loaded — a verbatim-recall probe for a
-string unique to `coordinator/CLAUDE.md` returned NOT-PRESENT (commit `3c342db0`).
+string unique to `coordinator/CLAUDE.md` returned NOT-PRESENT.
 
 Three consequences, in severity order:
 
@@ -119,8 +119,7 @@ argument is about — appear in neither list.** The combined emit-gate
 four today. So on current disk, the dispatch hook sees every one of these agents and appends
 nothing to any of them. An unconditional role-framing append that actually reaches this population
 is a thing **to be built** — the architecture this section argues for, not a behaviour already
-running. Full evidence: `state/audits/2026-07-27-explore-plan-hook-reach.md`.
-
+running.
 **A second, separate claim about `Explore`/`Plan` needs its own downgrade — it was stated as fact
 and is actually an unverified inference.** The claim that the dispatch append "reaches
 `Explore`/`Plan`, where it is the only framing they get" stacks two things nobody has ever
@@ -167,10 +166,6 @@ in question. To test fleet reach, probe from a *sibling repo* session, not from 
 
 ## See also
 
-- `state/audits/2026-07-27-explore-plan-hook-reach.md` — the per-claim verdict table (fires vs.
-  appends vs. inference) behind the § Why role-by-hook corrections above. Read this before
-  extending the append to `general-purpose`/`claude`/`Explore`/`Plan` — it also names the cheap
-  quarantined probe that would settle the Explore/Plan inference.
 - `docs/wiki/claude-md-surfaces.md` — the five-surface disambiguation. **Carried the falsified
   `--plugin-dir` claim; check it has been corrected before citing it.**
 - `docs/wiki/invisible-doctrine.md` — the discharge test, which is why role-by-hook beats
@@ -178,7 +173,5 @@ in question. To test fleet reach, probe from a *sibling repo* session, not from 
 - `docs/problems/2026-07-27-the-boot-envelope-is-paid-per-agent-and-.md` — the ratified problem-set.
   **Its Problem 8 states the falsified `--plugin-dir` mechanism**; the problem it names survives,
   its stated mechanism does not.
-- `state/roadmap/boot-envelope/COORDINATOR-RESOLUTIONS.md` § Resolution 0 — the mid-flight
-  falsification and what it invalidated.
 - `docs/research/spike-verdicts/2026-07-27-boot-context-envelope.md` — the per-agent amplification
   evidence and the role-miscasting probes.

@@ -41,7 +41,7 @@ which reports only that the script is present and executable. It returns green o
 real invocation then fails.
 
 Full execution proof on Windows is tracked in this repo's dogfood log rather than re-run per doc
-edit — see `docs/plans/2026-08-07-windows-pc-install-repair-and-dogfood-log.md`, a doctrine-repo
+edit — a doctrine-repo
 authoring-repo working-data doc with no OSS-mirror counterpart.
 
 ## Step 1e — engine-root export, and the retired token
@@ -64,7 +64,7 @@ both, at different rungs asserting different things: `.claude-klabauter-root` ad
 with a tracked `coordinator_core/_engine_stamp` (the published build), `.claude-klabauter-live-root`
 admits one on `isdir` alone (a live working tree). The wrong name is not a failure you will see —
 the published arm falls through, the live arm accepts, and the box resolves by asserting a
-published mirror is a live tree, which is DR-326's manual test-and-execute carve-out taken by
+published mirror is a live tree, which is the engine-root decision's manual test-and-execute carve-out taken by
 accident. The engine root is the published mirror on every box; the live tree is reachable only
 via an explicit `COORDINATOR_ENGINE_ROOT`.
 
@@ -99,7 +99,7 @@ with no explanation.
 ## Percolation surface — full detail
 
 Percolation (`python3 "$(python3 coordinator/hooks/scripts/_engine_root.py)/coordinator/bin/publish.py"`
-— this driver migrated to the engine repo in commit `b644d5a9`, resolved via the engine-root seam,
+— this driver migrated to the engine repo, resolved via the engine-root seam,
 not this repo — driven by `/percolate`) resolves its runtime root (`PERCOLATE_ROOT`) via a
 four-rung chain — see `coordinator/docs/wiki/percolate-setup.md § PERCOLATE_ROOT Resolution` for
 the full mechanism. A fresh-machine install produces a *working* percolation surface only if all

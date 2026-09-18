@@ -61,7 +61,7 @@ of the *identical* design:
 
 The gh token (scope `repo`) already in the keyring/keychain serves the push; no new PAT is needed if
 `gh auth status` shows a `repo`-scoped token. Reverse with `git remote set-url origin
-git@github.com:<owner>/<repo>.git`. Validate **live on both platforms** (DR-076 / both-platform
+git@github.com:<owner>/<repo>.git`. Validate **live on both platforms** (both-platform
 discipline) — a `git ls-remote origin` + a real push must authenticate with the SSH agent
 unreachable. Fleet note: other `work/*` repos hitting the same idle-lock symptom flip identically;
 the engine (`coordinator_core/hooks/auto_push.py`) is protocol-agnostic and needs no change.

@@ -131,7 +131,6 @@ Also check the `\Memory\% Committed Bytes In Use` performance counter — near 1
 
 ## 7. Windows Terminal AtlasEngine Crash — Fan-Out Streaming Trigger
 
-Source: `state/recovery/2026-07-01-windows-terminal-av-crash-research.md`, `state/recovery/2026-07-01-crash/crash-cause-findings.md`.
 
 Two `WindowsTerminal.exe` crashes on 2026-07-01 (12:02:45 and 12:38:37 BST), Application Error Event 1000:
 **access violation `0xc0000005` in `Microsoft.Terminal.Control.dll` at byte-identical fault offset `0x2c924`** both

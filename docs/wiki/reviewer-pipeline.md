@@ -1,12 +1,11 @@
 ---
 name: reviewer-pipeline
-spec_backlink: archive/specs/2026-05/2026-05-09-skill-consolidation-pass.md
 status: active
 ---
 
+
 <!-- Purpose: Canonical home for the shared reviewer pipeline phases used by both /review (plan-shaped) and /review-code (code-shaped). Carries Phases 2.5, 2.7, 2.7b, 2.7c, 2.8, 3.5, 3.7, 4, and 5 verbatim from the former review-dispatch skill. Does NOT carry the routing table (lives in each skill's Branch A.2) or the sequential-dispatch HARD RULE (lives in each skill's Branch A.3). -->
 
-<!-- distilled: run 2026-07-19-synth; sources: archive/specs/2026-05/2026-05-06-parallel-code-review-weekly-gate.md, archive/specs/2026-05/2026-05-08-session-end-review-and-marker-trail.md, archive/specs/2026-05/2026-05-08-session-end-review-doctrine-recalibration.md, archive/specs/2026-05/2026-05-18-code-reviewer-agent.md, archive/specs/2026-05/2026-05-28-archive-aware-review-oracle-and-audit-skill.md, archive/specs/2026-03/2026-03-08-agent-hierarchy-design.md, archive/specs/2026-03/2026-03-16-structured-review-output.md, archive/specs/2026-04/2026-04-29-claude-setup-borrows.md, archive/specs/2026-04/2026-04-29-reviewer-routed-workers.md, archive/specs/2026-05/2026-05-03-docs-checker-default-pre-flight.md, archive/specs/2026-05/2026-05-04-reviewer-premise-challenge.md, archive/specs/2026-06/2026-06-30-chain-review-coverage-dag-consumer.md -->
 
 # Reviewer Pipeline — Shared Phases Reference
 
@@ -84,7 +83,6 @@ If the artifact is code (no status header), note the review in the tracker or pl
 >
 > **Disambiguation:** Plan-body `**Status:**` is EM-owned phase state. Sidecar frontmatter `status:` is executor-owned lifecycle state. These are distinct fields; do not cross-reference.
 >
-> Cross-references: `docs/plans/2026-06-09-executor-sidecar-flight-recorder.md`, `agents/executor.md § Flight-Recorder Sidecar`.
 
 ---
 
@@ -331,13 +329,12 @@ All reviewer output is wrapped in a `ReviewOutput` envelope: `reviewer`, `verdic
 
 These schemas are what Phase 3.5's JSON-block parser expects; the field-drift normalization table in Phase 3.5 step 3 exists precisely because reviewers occasionally emit near-miss field names against this canonical shape.
 
-**Sidecar-path note — integrator intake vs. human/audit artifact.** The JSON written to `state/review-findings/{timestamp}-{reviewer}.json` (step 2 above) is a **human/audit artifact and is NOT the intake path for the review-integrator**. The integrator reads from the reviewer-scaffolded on-disk sidecar. Spec backlink: `cross-repo/inbox/2026-07-01-reviewer-selfpersist-confinement-redirect.md`.
+**Sidecar-path note — integrator intake vs. human/audit artifact.** The JSON written to `state/review-findings/{timestamp}-{reviewer}.json` (step 2 above) is a **human/audit artifact and is NOT the intake path for the review-integrator**. The integrator reads from the reviewer-scaffolded on-disk sidecar.
+All findings-producing reviewers persist to the `state/subagent-share/<session>/<provision_key>.md` home by default — no EM pre-scaffold in the common case, no claim marker:
 
-All findings-producing reviewers persist to the DR-091 `state/subagent-share/<session>/<provision_key>.md` home by default — no EM pre-scaffold in the common case, no claim marker:
+- **Sonnet `code-reviewer`** (the one reviewer — no `-selfpersist` variant): writes to itsprovisioned sidecar — pre-provisioned by the dispatching EM in the common case, self-scaffolded into that same home via `coordinator-doc-new --type review-findings` only when no path arrived pre-provisioned — edits the `<!-- FINDINGS -->` sentinel with its findings, and returns: `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N> | executed: <yes|no>`. The EM reads the returned path.
 
-- **Sonnet `code-reviewer`** (the one reviewer — no `-selfpersist` variant): writes to its DR-091-provisioned sidecar — pre-provisioned by the dispatching EM in the common case, self-scaffolded into that same home via `coordinator-doc-new --type review-findings` only when no path arrived pre-provisioned — edits the `<!-- FINDINGS -->` sentinel with its findings, and returns: `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N> | executed: <yes|no>`. The EM reads the returned path.
-
-- **Persona reviewers** (the Staff Engineer, the Director of Engineering, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Game Dev Reviewer): are dual-use (advisory OR sidecar-review). When dispatched for a review that feeds an integrator, the invoking skill injects the DR-091 provisioned `state/subagent-share/<session>/<provision_key>.md` path into the dispatch brief — claude-klabauter's `provision_report` engine has already created the sidecar at spawn — and the persona writes its findings into that path and returns the same pointer line. No sentinel-append self-scaffold, no EM pre-scaffold, no claim marker. The review-integrator intake fails loud (BLOCKED) if the returned sidecar is a trivial/unfilled scaffold — the intake fill-guard, not a per-dispatch-site check.
+- **Persona reviewers** (the Staff Engineer, the Director of Engineering, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Game Dev Reviewer): are dual-use (advisory OR sidecar-review). When dispatched for a review that feeds an integrator, the invoking skill injects the provisioned `state/subagent-share/<session>/<provision_key>.md` path into the dispatch brief — claude-klabauter's `provision_report` engine has already created the sidecar at spawn — and the persona writes its findings into that path and returns the same pointer line. No sentinel-append self-scaffold, no EM pre-scaffold, no claim marker. The review-integrator intake fails loud (BLOCKED) if the returned sidecar is a trivial/unfilled scaffold — the intake fill-guard, not a per-dispatch-site check.
 
 **No inline return is a valid reviewer mode.** An EM walking Phases 3.5 and 3.7 never hands the integrator an inline finding list — the on-disk sidecar is the integrator's intake contract (`agents/review-integrator.md § Intake precondition`). If a reviewer returns inline, re-dispatch it — do not transcribe.
 
@@ -347,7 +344,7 @@ All findings-producing reviewers persist to the DR-091 `state/subagent-share/<se
 
 After each reviewer completes (and Phase 3.5 runs):
 
-> **Sidecar pre-condition.** The reviewer writes to its DR-091-provisioned sidecar at `state/subagent-share/<session>/<provision_key>.md` and returns a pointer line. Phase 3.5's `state/review-findings/{timestamp}-{reviewer}.json` is a human/audit render, NOT the integrator intake. See Phase 3.5 § Sidecar-path note for the full contract.
+> **Sidecar pre-condition.** The reviewer writes to itsprovisioned sidecar at `state/subagent-share/<session>/<provision_key>.md` and returns a pointer line. Phase 3.5's `state/review-findings/{timestamp}-{reviewer}.json` is a human/audit render, NOT the integrator intake. See Phase 3.5 § Sidecar-path note for the full contract.
 
 1. Dispatch the review-integrator agent with:
    - The **on-disk sidecar path** returned by the reviewer in its pointer line (`DONE: <sidecar-path> | verdict: … | findings: …`). Never an inline finding list; the integrator hard-stops on inline-relayed findings (`agents/review-integrator.md § Intake precondition`).
@@ -500,7 +497,7 @@ entry points delivering convergence-as-confidence. <!-- src: plan04-010 -->
 `$FINDINGS_DIR` mirror — `workflows/review-wave.mjs` derives the `.head.sha` sibling from the
 printed `.diff` path and passes both paths explicitly into the synthesizer dispatch as
 `DIFF_PATH`/`HEAD_SHA_PATH`. Run Step 7 prelude (external to skill body) to compute seam-first
-chunks and write `state/review-trail/.weekly-reviewer-scopes.json`.
+chunks and write the `.weekly-reviewer-scopes.json` scope file under `state/review-trail/`.
 
 **Step B (parallel — single Agent batch):**
 - N × `code-reviewer-weekly` (Sonnet variant, Write-capable for findings files only):

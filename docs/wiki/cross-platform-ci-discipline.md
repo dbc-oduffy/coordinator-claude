@@ -1,6 +1,5 @@
 # Cross-Platform CI Discipline
 
-<!-- spec-backlink: docs/plans/2026-06-25-cross-platform-ci-standardization.md -->
 
 **Purpose.** Coordinator consumers that declare cross-platform support must measure it — running CI on only the developer's OS is not measurement, it is optimism. This wiki codifies the measurement discipline: how to structure the CI matrix, how to mark tests that can't be fixed from this repo, and how to skip hardware-gated tests with an honest contract signal rather than a silent pass. It is the enforcement arm of the broader doctrine in `install-surface-completeness.md` — that wiki tells you what "works on every machine" means; this one tells you how to prove it in CI.
 
@@ -22,7 +21,7 @@ A CI matrix that runs only one OS lane gives a false pass signal for every OS-sp
 
 3. **Mark hardware-gated tests with a skip-with-explanation.** A test that requires a GPU or a real hardware sidecar must skip on a runner that lacks the hardware with a clear reason string — not a silent pass. Per `test-environment-discipline.md` §3: a skip-with-explanation is a contract signal ("this test was not run on this runner because it requires hardware X"); a silent pass in a CPU-only runner is a contract violation.
 
-**Empirical basis.** project-rag's `macos-first-class-test-parity` spinoff (`docs/plans/2026-06-24-macos-first-class-test-parity.md` in the project-rag repo) surfaced 71 `tests/install/` failures on macOS that were completely invisible under a Windows+Linux-only matrix — despite the repo's own doctrine already declaring macOS first-class. The coordinator had the intuition ("green on your dev OS is not green on the others") but shipped no measurement gate, so the next consumer inherited the gap. This wiki closes that gap.
+**Empirical basis.** project-rag's `macos-first-class-test-parity` spinoff surfaced 71 `tests/install/` failures on macOS that were completely invisible under a Windows+Linux-only matrix — despite the repo's own doctrine already declaring macOS first-class. The coordinator had the intuition ("green on your dev OS is not green on the others") but shipped no measurement gate, so the next consumer inherited the gap. This wiki closes that gap.
 
 ---
 

@@ -441,8 +441,15 @@ if not os.path.exists(_MANIFEST_PATH):
             if _doe:
                 break
     if _doe:
-        _candidate = os.path.join(_doe, "coordinator", _MANIFEST_RELPATH)
-        if os.path.exists(_candidate):
+        # Both layouts, via the shared prober: the private DoE tree keeps the
+        # manifest under `coordinator/`, the published mirror ships it flat at
+        # the repo root. Hardcoding the `coordinator/` arm here made this rung
+        # blind to a flat mirror even when `repos.doe_claude` named it exactly —
+        # which is the shape a cloud container registers, so the canonical
+        # registry anchor missed and the whole ladder fell through to rungs that
+        # a not-yet-written `.doe-root` had already starved.
+        _candidate = _mp_candidate_manifest_path(_doe)
+        if _candidate:
             _MANIFEST_PATH = _candidate
 
 if not os.path.exists(_MANIFEST_PATH):

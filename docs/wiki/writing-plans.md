@@ -428,13 +428,39 @@ facts reaches for the falsifier's multiple legs, not a new checklist.
 plane — not a new one.** When `exit_criterion_met.asserted` is set on a plan whose
 `prime_exit_criterion.derived_from` is a `<goal_id>#kr-<kr-id>` reference, the EM writes one
 `state/kr-suggestions/<date>-<slug>.yaml` record (`kr-suggestion.schema.json`) rather than editing
-the goal artifact directly — that write stays the confirming human's, per DR-130's
+the goal artifact directly — that write stays the confirming human's, per the
 never-auto-apply invariant. Use the schema's own fields, nothing invented: `provenance`
 (`producing_system`, `source_ref` = the close-out sha, `recorded_at`) carries the plan's own
 promoted-test path in `source_ref`; `rationale` is prose for the confirming human, never raw
 falsifier output; `expected_current_status` records the KR status the EM believed live, so a stale
 suggestion is detectable; `from_repo` names the originating repo when the plan is here but the KR
 lives in a sibling. No plan is required to serve a KR, and this never gates close-out.
+
+**What the instrument may observe — the measured failure tells behind the rule.** The plan-route
+corpus states the rules (`coordinator/skills/plan/residue/plan-corpus.md`, Branch C): the
+falsifier observes artifact state, never process residue; a criterion not observable in artifact
+state is the wrong criterion and never earns a chunk to make it observable; a ratified absence is
+observed as an absence. The evidence, measured 2026-09-02 on one plan:
+
+- **Process residue scores the bookkeeping as the work.** A falsifier grepping commit subjects
+  needed a five-entry denylist of bookkeeping subjects — without it every item read RESOLVED off
+  the triage pass's own status-flip commits, the instrument scoring the act of recording as the
+  act of doing.
+- **A commit-subject criterion is often unsatisfiable as authored.** One chunk discharging four
+  memos cannot fit four sixty-five-character basenames in a commit subject, so the criterion
+  imposed a commit convention on nineteen chunks just to stay measurable.
+- **An unobservable criterion recruits a chunk.** The same plan carried a spine row whose own body
+  said its job was to give the disposition check something to find — the instrument authoring the
+  work rather than measuring it, and it reads as diligence on every surface.
+- **A presence assertion over a ratified absence never goes green.** Where the plan rules an
+  artifact out of scope, a falsifier asserting presence reports that criterion unmet forever,
+  correctly by its own logic and wrongly against the plan, and the pressure it creates is to build
+  the thing to satisfy the instrument.
+
+**What the silence cost.** Two Opus reviewers ruled oppositely on that instrument and neither was
+wrong — one said sound in kind, broken in detail, fix and keep; the other said the instrument is
+the defect, delete it and read the spine dispositions. The doctrine did not say, so both readings
+were available and the plan paid a full review cycle plus a re-authoring pass.
 
 ## Gated Exit Criteria (Fleet Brightlines)
 

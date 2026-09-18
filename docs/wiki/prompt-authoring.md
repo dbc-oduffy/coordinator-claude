@@ -12,7 +12,6 @@ related:
 
 # Prompt Authoring for Agent/Persona Prompts
 
-<!-- spec-backlink: state/reference/anthropic-docs/_survey-prompt-shape.md (empirical survey of the 31 coordinator/agents/*.md files this wiki is grounded in) -->
 
 This wiki governs how `coordinator/agents/*.md` persona/agent prompts are written: what belongs
 in the agent definition versus the per-dispatch brief, which pieces of Anthropic's current
@@ -114,7 +113,7 @@ returns an API 400 error; the replacement lever is `effort`, not a token budget.
 - **What to do instead:** an agent prompt authored for the coordinator fleet should never encode a
   `budget_tokens` value — the replacement lever is `effort`. Frontmatter `effort:` on the agent
   definition is the durable per-agent default locus (see
-  `docs/plans/2026-07-27-claude5-alignment-wave-one.md` chunk C2) — no agent defaults to `high`;
+  the claude5-alignment wave-one plan's chunk C2) — no agent defaults to `high`;
   mechanical workers get `low`, executors/review-integrator/code-reviewer/Opus personas get
   `medium`. Dispatch-time `effort` remains the override for the exceptional task that genuinely
   warrants raising it, not the primary locus. The per-agent assignment, the empirical confirmation
@@ -227,7 +226,7 @@ concrete failure modes seen in the agent-prompt corpus and its cousins, not abst
   say why: "3 retries, because most intermittent failures resolve by the second" is authorable;
   "RETRIES = 3" alone is not (Anthropic's own skill-authoring guide calls this "voodoo constants,"
   Ousterhout's law).
-- **Absolute or Windows-style paths.** No `/Users/...`, no `C:\...`, no backslash path separators <!-- foreign-path-ok: illustrating the forbidden shape itself, not asserting a location -->
+- **Absolute or Windows-style paths.** No absolute macOS/Linux home paths, no `C:\...`, no backslash path separators <!-- foreign-path-ok: illustrating the forbidden shape itself, not asserting a location -->
   anywhere in an agent prompt body. This fleet runs cross-platform by design (Windows is the
   primary machine); a hardcoded path in a durable, every-dispatch-loaded file is exactly the
   install-surface-completeness failure this repo's own doctrine already names for code — the same

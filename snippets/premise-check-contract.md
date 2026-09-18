@@ -2,12 +2,13 @@
 <!-- consumers: see bin/snippet-registry list-consumers premise-check-contract -->
 
 <!-- BEGIN premise-check-contract (synced from snippets/premise-check-contract.md) -->
-## Premise Check Contract
+## Premise Check Contract — Classes 1-3 (Mechanical)
 
-A premise check asks one question, over a plan's cited paths, symbols, refs, and in-repo
-behaviour claims: **does this plan's premise actually hold against the tree right now?** (Its
+A premise check asks one question, over a plan's cited paths, symbols and refs:
+**does this plan's premise actually hold against the tree right now?** (Its
 sibling snippet, `instrument-can-report-red.md`, asks the companion question for a falsifier
-itself: is its verdict wired to its exit path?)
+itself: is its verdict wired to its exit path?) The judgment half — class 5, semantics — is a
+separate block, `premise-check-class-5-semantics.md`, delivered only to consumers that enact it.
 It is written to be INLINED into a dispatch brief, never dispatched as its own agent — the
 `PLUGIN_AGENTS` default-off constraint means an `agentType` the harness cannot resolve silently
 degrades to a generic agent wearing the role's label, which reuses the persona and loses the
@@ -47,45 +48,11 @@ two parties running one wrong instrument agree with each other. Tripwire:
 "verified against HEAD" cannot distinguish `main` from someone's unmerged branch, and the failure
 is silent in both directions. See tripwire `VERIFIED-AGAINST-HEAD-DOES-NOT-NAME-A-BRANCH`.
 
-**Class 5 — semantics (judgment, new).** A claim that code EXISTS is not a claim it BEHAVES as
-described. This class fires on either of two conditions:
-
-1. The repo carries a surface that FORBIDS the plan's assumption — a wiki page that says so, or a
-   sanctioned resolver that raises instead of defaulting.
-2. Defect vocabulary (wrong, broken, fails, silently, unsafely) appears in the plan's description
-   of in-repo behaviour — the cheaper, second firing condition.
-
-On either trigger, open the cited symbol and compare its actual behaviour against the plan's claim
-before trusting it — a substrate pre-flight verifies existence, not described behaviour, so a
-claim that code EXISTS is never treated as a claim it BEHAVES as described. Where NEITHER surface
-fires, class 5 degrades to reviewer judgment and the verdict must say so plainly rather than
-guessing — this asymmetry is why the pass reports and does not refuse.
-
-**Class 5 is PROVISIONAL.** Classes 1-3 generalize from a measured corpus; class 5's second firing
-condition (defect vocabulary) generalizes from ONE incident (2026-07-27: a plan claimed a model
-resolver's default was defective when it was in fact a PM-ratified asymmetry, caught only because
-a defect-vocabulary trigger like this one would have flagged it for a symbol read). That is
-enough to ship it as an acceptance criterion and not enough to call the trigger calibrated. The
-mark comes off once a later session has counted enough real firings, in
-`state/audits/2026-09-06-blitz-conversion-re-measurement.md`'s Arm C table, to say the trigger's
-precision — each row sourced from a wave's per-baton `*.premise-check.md` sidecar under that
-wave's trail directory (`sidecarFor(trailDir, batonId, 'premise-check')` in `plan-blitz.mjs`).
-Until a wave has actually run this check, that table is empty and the PROVISIONAL mark stands —
-an empty table is not evidence the trigger is miscalibrated, only that it has not fired yet. Until
-the mark comes off, a class-5 finding carries the same weight as any other finding — only the
-TRIGGER is under review, not the finding's validity.
-
-**Mechanical vs. judgment split, carried over verbatim.** Classes 1, 2 and 3 are mechanical:
-existence either holds or does not. Class 5 is judgment: it requires reading a symbol's actual
-behaviour and comparing it to a claim. A verdict that mixes the two without labeling which is
-which loses the distinction that lets a reader gauge rework altitude at a glance.
-
 **Reporting, never refusing.** State plainly, in every verdict, which class(es) were checked and
-what was found — name the check in words (path, symbol, ref, semantic, instrument), never a bare
+what was found — name the check in words (path, symbol, ref, instrument), never a bare
 class number: a number alone reads as more precise than the taxonomy underneath it actually is.
 **A premise check never claims plan correctness.** It catches a class of false premise; a plan
 whose every citation resolves against the tree can still be wrong. This pass reports what it
 checked and what it found; it does not ratify the plan, and it does not refuse to report a partial
-or degraded result — a semantic-check miss with no forbidding surface and no defect vocabulary is
-reported as "semantic check not applicable, degrades to reviewer judgment," not withheld.
+or degraded result.
 <!-- END premise-check-contract -->

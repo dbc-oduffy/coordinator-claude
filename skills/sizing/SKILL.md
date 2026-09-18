@@ -12,7 +12,7 @@ Novel work enters via this sizing lobby, not directly into plan/shape/dispatch.
 
 The EM's first move on any PM ask that isn't a mid-workstream continuation — before
 `coordinator:plan`, `coordinator:shape`, or direct dispatch. Full framing and every worked
-incident: `${CLAUDE_PLUGIN_ROOT}/docs/wiki/sizing-lobby.md`.
+incident: `coordinator/docs/wiki/sizing-lobby.md`.
 
 **Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 

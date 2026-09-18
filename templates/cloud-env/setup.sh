@@ -143,12 +143,6 @@ s.setdefault("extraKnownMarketplaces", {})["coordinator-claude"] = {
     "source": {"source": "directory", "path": os.environ["MP"]}
 }
 s.setdefault("enabledPlugins", {})["coordinator@coordinator-claude"] = True
-# Without this, EVERY Bash call in the session is denied for the session's life. The warm-hook
-# override channel interpolates ${COORDINATOR_PROBE_CANARY} into a header and reads an empty
-# canary as a veto it must refuse on; the var is exported by the claude-doe LAUNCHER, and a cloud
-# session has no launcher. This is the recovery the forwarder's own deny text prescribes
-# (http_hook_forwarder.py VETOED_ENV_REASON), applied at provision time so no session has to.
-s.setdefault("env", {})["COORDINATOR_PROBE_CANARY"] = "1"
 with open(path, "w") as f:
     json.dump(s, f, indent=2)
 print("settings: OK ->", path)

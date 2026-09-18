@@ -1,5 +1,4 @@
 <!-- RAG-bait: doctor proportionality, when does a component earn a doctor skill vs scripts, delegation bloat, probe theater, doctor-vs-scripts decision rule, health-verification proportionality -->
-<!-- distilled: run 2026-07-19-synth; sources: archive/specs/2026-05/2026-05-27-doctor-shape-doe-alignment.md, 2026-05-19-cross-plugin-whoami-contract.md -->
 
 # Doctor Proportionality
 
@@ -28,7 +27,7 @@ Both anti-patterns share a root: treating "has a `/doctor`" as a maturity signal
 | **Wiki-form doctor** | Shared substrate other components cite; a runnable probe catalog + citation contract, but not an interactive flow. | **coordinator-claude** — `coordinator-doctor.md` (machine-local substrate, cited by downstream doctors). |
 | **Skill-form doctor** | Genuine aggregate surface: multiple planes, live bindings (MCP), fleet-consumer contract drift — an operator must *triage across* many independent failure modes. | **cockpit** — multiple planes, live MCP bindings, fleet-consumer contract drift. Warrants a real branching skill; should lean in. |
 | **Scripts + one host probe** | Thin component: few failure modes, each caught by its own setup script's post-condition. | **example-market-data-repo** — thin producer addon: fail-loud scripts + one failure-catalog probe (`MI-F-1`) contributed to the host. Deliberately **no** doctor skill. |
-| **Collapse candidate** | A skill that on inspection is delegation bloat or probe theater — collapse to scripts + host probe. | **claude-klabauter** — collapsed: retired its `/claude-klabauter:doctor` plugin skill to scripts + host probe (`bin/claude-klabauter-doctor-probe.py`), per claude-klabauter's `docs/plans/2026-07-20-retire-claude-klabauter-plugin-surface.md`. |
+| **Collapse candidate** | A skill that on inspection is delegation bloat or probe theater — collapse to scripts + host probe. | **claude-klabauter** — collapsed: retired its `/claude-klabauter:doctor` plugin skill to scripts + host probe (`bin/claude-klabauter-doctor-probe.py`)|
 
 *(The cockpit/claude-klabauter/example-market-data-repo classifications are illustrative of the rule; the actual collapse/invest decisions belong to those repos' EMs responding to their own copies of the originating memo — this wiki authors only the central citable principle.)*
 
@@ -56,9 +55,9 @@ Practical read: when standing up a new doctor, ask *why* each piece of machinery
 
 <!-- src: plan12-013, plan09-009 -->
 
-This doctrine was not planned top-down — it was **seeded from a proven implementation**. The project-rag host doctor overhaul (`archive/specs/2026-05/2026-05-27-doctor-shape-doe-alignment.md`) is the proving ground: single-entry-point consolidation + selective addressability + manifest-as-SSOT were built and shipped there first, then generalized into this wiki's citable rule. A second seeding pass (example-market-data-repo-em's `doctor-proportionality-doctrine-candidate` memo) added the thin-component classification (scripts + one host probe, collapse candidates) from a different empirical angle. Both seedings are evidence-first, not spec-first — consistent with this repo's general doctrine-from-implementation posture.
+This doctrine was not planned top-down — it was **seeded from a proven implementation**. The project-rag host doctor overhaul is the proving ground: single-entry-point consolidation + selective addressability + manifest-as-SSOT were built and shipped there first, then generalized into this wiki's citable rule. A second seeding pass (example-market-data-repo-em's `doctor-proportionality-doctrine-candidate` memo) added the thin-component classification (scripts + one host probe, collapse candidates) from a different empirical angle. Both seedings are evidence-first, not spec-first — consistent with this repo's general doctrine-from-implementation posture.
 
-**Layering note.** Where a doctor's defining contract lives matters as much as its form. When coordinator-claude inherited the whoami/machine-local substrate (`archive/specs/2026-05/2026-05-19-cross-plugin-whoami-contract.md` — the wiki page this cited has since been retired along with the package itself), the ratified call was that coordinator-claude — not a cross-plugin layer sitting above it — is the correct primitive layer for the doctor that checks that substrate: a doctor at a higher layer would inherit the writer-boundary doctrine without owning the substrate that defines "conformant." The general form of this: **the doctor for a contract lives at the layer that ships the contract**, not at a layer that merely consumes it.
+**Layering note.** Where a doctor's defining contract lives matters as much as its form. When coordinator-claude inherited the whoami/machine-local substrate (the wiki page this cited has since been retired along with the package itself), the ratified call was that coordinator-claude — not a cross-plugin layer sitting above it — is the correct primitive layer for the doctor that checks that substrate: a doctor at a higher layer would inherit the writer-boundary doctrine without owning the substrate that defines "conformant." The general form of this: **the doctor for a contract lives at the layer that ships the contract**, not at a layer that merely consumes it.
 
 ## Cross-links
 

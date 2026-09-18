@@ -1,4 +1,3 @@
-<!-- Imported from X:/project-rag at SHA d376cb01. Inherited substrate; canonical lineage now in Claude Central. Origin: project-rag/docs/... — sibling-repo layout doctrine now lives in this repo's own wiki (the meta-repo local-doctrine file this once pointed at is retired). --> <!-- foreign-path-ok: import provenance, not a current-location claim -->
 
 # Corpus-class taxonomy
 
@@ -100,7 +99,7 @@ it does not need a new class.
 
 ## See also
 
-- Plan: `docs/plans/2026-05-16-wave-2b-engine-si-handler-schema-drift.md` (Chunk 0 — origin)
+- Plan: `2026-05-16-wave-2b-engine-si-handler-schema-drift.md` under `docs/plans/` (Chunk 0 — origin)
 - Authority column convention: `core/structural_schema.py` § "authority column convention (PR-3 multi-rag-coexistence)"
 - Host/addon split: [host-vs-addons.md](host-vs-addons.md)
 - Cross-repo memo: `project-rag-ue-addon` repo's `tasks/cross-repo-memo-2026-05-16-to-project-rag-em.md`

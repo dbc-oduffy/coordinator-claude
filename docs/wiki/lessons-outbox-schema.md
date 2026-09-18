@@ -9,22 +9,6 @@ system: learn-lessons
 
 # Lessons Outbox Schema
 
-<!-- distilled: run 2026-07-19-synth; sources: archive/specs/2026-06/2026-06-30-lesson-structured-facets-and-emit-metadata-fix.md, archive/specs/2026-06/cockpit-contract-ext-research-corpus/central-queue-restructure.md, archive/specs/2026-06/cockpit-contract-ext-research-corpus/lessons-structuring.md, 2026-05-05-lesson-triage-skill.md -->
-
-<!-- Spec backlink: archive/specs/2026-06/2026-06-15-universal-lesson-routing-mechanical-capture.md § C2 -->
-<!-- Spec backlink: cross-repo/archive/2026-07-21-example-cockpit-repo-em-change-kind-enum-lacks-app-source-token.md,
-     cross-repo/archive/2026-07-17-claude-klabauter-em-plan-tasks-change-kind-lacks-engine-code-member.md
-     (code-edit member added — Option 1 from the claude-klabauter proposal, routes to improvement-queue
-     project tier alongside script-edit; cockpit's app-source-token ask resolved by the same member) -->
-<!-- Spec backlink: cross-repo/archive/2026-07-29-project-rag-em-three-quiet-failure-modes-in-ceremony-clis.md
-     (verification member added — a PM-ratified, hardware-gated follow-on had no routable kind and the
-     harvest dropped it on exit 0; the coined `script-port` token was NOT admitted, see § Change-kind enum) -->
-<!-- Spec backlink: state/lessons-outbox/2026-07-23T09-33-05-00-00-universal-plan-tasks-change-kind-enum-ha-884866e48d83.yaml
-     (config-edit member added — same shape as the code-edit precedent: two independent plan
-     task-spine rows edited ignore-rules/settings/per-machine config, no existing member named it,
-     and forcing them into an adjacent value would have discarded the author's own classification.
-     Routes to improvement-queue project tier alongside script-edit/code-edit.) -->
-<!-- Negative-spec: The pre-plan approach of appending [universal] lessons to state/improvement-queue.md is REPLACED by this outbox for central-wiki-target entries. improvement-queue.md remains valid only for project-specific entries. -->
 
 The lessons outbox is a per-entry YAML store at `state/lessons-outbox/<ISO-ts>-<slug>.yaml`
 inside each peer repo. Each file represents one lesson ready for DoE-side drain. Entries are
@@ -41,7 +25,7 @@ own outbox; the DoE machine reads across all registered peers via
 
 | Field | Type | Required | Semantics | Example |
 |---|---|---|---|---|
-| `id` | string (uuid4) | required | Machine-generated unique identifier. Produced by the CLI at write time; never set manually. | `"a3f2c1d0-4e5b-7f8a-9b0c-1d2e3f4a5b6c"` |
+| `id` | string (uuid4) | required | Machine-generated unique identifier. Produced by the CLI at write time; never set manually. | `"<uuid4>"` |
 | `created` | string (ISO 8601 UTC) | required | Timestamp of entry creation. Produced by the CLI; never set manually. Format: `YYYY-MM-DDTHH:MM:SSZ`. | `"2026-06-15T14:32:07Z"` |
 | `from_repo` | string | required | Registry shortname of the originating repo, resolved from `machine-local/registry.local.toml` `[repos]` table using the cwd git-root match. Not a URL or filesystem path — the short identifier as registered (e.g. `example-repo`, `example-sim-repo`). | `"example-repo"` |
 | `title` | string | required | Human-readable lesson title. Same text as the `title:` field on the source `state/lessons/<slug>.yaml` entry. Brief, noun-phrase form. | `"Drain-branch must cut from peer main, not active workstream"` |
@@ -49,7 +33,7 @@ own outbox; the DoE machine reads across all registered peers via
 | `change_kind` | enum (string) | required | Classification of the target change. Drives apply dispatch in `/learn-lessons --central`. **See § Change-kind enum — this field's closed enum is defined there.** | `"wiki-append"` |
 | `target_wiki` | string | required | Named central wiki path under `~/.claude/docs/wiki/<name>.md`, or the literal string `unknown` when the classifier could not resolve a target. The DoE apply step rejects `unknown` entries and queues them for manual triage. | `"docs/wiki/learn-lessons-routing.md"` or `"unknown"` |
 | `scope_tags` | list of strings | optional | Free-form tags for filtering and priority. Convention: repo shortname, system name, or symptom label. | `["drain", "cross-repo", "state"]` |
-| `evidence` | string or list of strings | optional | Commit SHA, plan path, or lesson-source reference — the per-entry `state/lessons/<slug>.yaml` filename for post-migration captures, or a legacy `state/lessons.md:<N>` line reference on pre-migration entries — that motivated this entry. Used by the DoE apply step for provenance annotation. | `"76130204"` or `["76130204", "docs/plans/2026-06-15-universal-lesson-routing-mechanical-capture.md"]` |
+| `evidence` | string or list of strings | optional | Commit SHA, plan path, or lesson-source reference — the per-entry `state/lessons/<slug>.yaml` filename for post-migration captures, or a legacy `state/lessons.md:<N>` line reference on pre-migration entries — that motivated this entry. Used by the DoE apply step for provenance annotation. | `"76130204"` or `["76130204", "docs/plans/<date>-universal-lesson-routing-mechanical-capture.md"]` |
 | `trigger` | string | optional | The precondition or symptom under which the lesson fires. Author-supplied at capture only — see § Structured facets (anti-fabrication). | `"drain step invoked from a non-main branch"` |
 | `why` | string | optional | The rationale behind the lesson. Author-supplied at capture only. | `"cutting from workstream entangles unrelated work into the drain commit"` |
 | `how_to_apply` | string | optional | The corrective action. Author-supplied at capture only. | `"cut the drain branch from peer main, never from the active workstream branch"` |
@@ -61,7 +45,7 @@ own outbox; the DoE machine reads across all registered peers via
 ### Example entry (complete)
 
 ```yaml
-id: "a3f2c1d0-4e5b-7f8a-9b0c-1d2e3f4a5b6c"
+id: "<uuid4>"
 created: "2026-06-15T14:32:07Z"
 from_repo: "example-repo"
 title: "Drain-branch must cut from peer main, not active workstream"
@@ -134,7 +118,7 @@ for the enum-implementation tokens.
 
 **Unrecognized values** cause the CLI to exit non-zero with a diagnostic naming the valid set. **`doc-edit`, `test-edit`, `code-edit`, `config-edit`, and `verification` are listed above for completeness of the universal union (every row in this table) but are NOT in `coordinator-lesson-promote`'s own accepted-enum** (that CLI validates against the 8 doctrine-routable rows only — everything above except those five); those five route to the improvement-queue project tier instead (see `docs/wiki/improvement-queue-schema.md`). Treat this table's row count, not any restated numeral, as the source of truth for the union's size.
 
-**A work-shape word is not an enum member.** These values classify *the surface changed*, not the flavour of the change — so a bash-to-Python port of a `bin/` utility is `script-edit`, a rename sweep across agent prompts is `agent-prompt-edit`, and neither gets a coined kind of its own. The failure this warns against is real: a plan row tagged `script-port` (not a member, never was) routed nowhere on harvest and a PM-ratified deferral was dropped on a zero exit. If no member fits, the row is either mis-shaped or the union needs a member — decide that here, in this table, rather than at the point of authoring. A **destination** is not a member either: `central-promote` names where a record goes, not what it edits, and every entry in this outbox is a central promotion by construction — it stays a provenance annotation on a drained lesson, never a `change_kind` (`docs/decisions/DR-184-central-promote-is-provenance-not-a-change-kind.md`).
+**A work-shape word is not an enum member.** These values classify *the surface changed*, not the flavour of the change — so a bash-to-Python port of a `bin/` utility is `script-edit`, a rename sweep across agent prompts is `agent-prompt-edit`, and neither gets a coined kind of its own. The failure this warns against is real: a plan row tagged `script-port` (not a member, never was) routed nowhere on harvest and a PM-ratified deferral was dropped on a zero exit. If no member fits, the row is either mis-shaped or the union needs a member — decide that here, in this table, rather than at the point of authoring. A **destination** is not a member either: `central-promote` names where a record goes, not what it edits, and every entry in this outbox is a central promotion by construction — it stays a provenance annotation on a drained lesson, never a `change_kind`.
 
 > **Do not confuse with the `coordinator:lesson-triage` skill's 12-kind action taxonomy.**
 > `coordinator:lesson-triage` (the successor to `lessons-trim`) classifies each captured lesson
@@ -316,7 +300,7 @@ Claude-klabauter `coordinator/bin/migrate-improvement-queue-universals.py --dry-
 state/migrate-universals-dryrun-<ISO-date>.json
 ```
 
-Example path: `state/migrate-universals-dryrun-2026-06-15.json`
+Example path: `state/migrate-universals-dryrun-<date>.json`
 
 ### JSON schema
 
@@ -339,7 +323,7 @@ and has the following fields:
     "source_line": 14,
     "classification": "to-migrate",
     "entry_text": "[universal] Drain branch must cut from peer main — append to learn-lessons-routing.md § Change-Kind Taxonomy",
-    "proposed_outbox_id": "a3f2c1d0-4e5b-7f8a-9b0c-1d2e3f4a5b6c",
+    "proposed_outbox_id": "<uuid4>",
     "reason": "Tagged [universal] with resolved central-wiki target docs/wiki/learn-lessons-routing.md"
   },
   {

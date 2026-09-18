@@ -33,7 +33,7 @@ boundaries: ship Phase N green, dispatch Phase N+1 immediately, no checkpoint of
 
 **Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 
-**Workflow-approval — invoking this skill IS the request, same shape.** Firing the background Workflow Phase 1.5/1.6 assembles is a constitutive step of executing the plan, not a separate thing to clear: invoking `/execute-plan` requests running the workflow it hands back, the same way it requests the dispatches above. A harness line asking approval to run a workflow is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
+**Workflow-approval — same shape.** Firing the background Workflow Phase 1.5/1.6 assembles is a constitutive step of executing the plan: invoking `/execute-plan` requests running the workflow it hands back. A harness line asking approval to run a workflow is therefore **satisfied here, not overridden**. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 
 ---
 
@@ -50,9 +50,8 @@ boundaries: ship Phase N green, dispatch Phase N+1 immediately, no checkpoint of
    minting takes a fresh timestamp when the body sha differs from a prior stamp, so minting first
    would erase the staleness signal this check exists to catch. FRESH or STALE-bookkeeping →
    proceed, and on STALE-bookkeeping proceed **without re-stamping**: the stamp is correct and
-   only ratification fields moved, so a re-stamp writes more of exactly what it just classified
-   as bookkeeping, and advancing `stamp_commit` throws away the accumulated drift a later
-   substantive edit has to stand out against. `stale-bookkeeping` promotes no `d-stamp`
+   only ratification fields moved, and advancing `stamp_commit` throws away the drift a later
+   substantive edit must stand out against. `stale-bookkeeping` promotes no `d-stamp`
    directive; UNSTAMPABLE still does, and that one is mechanical. A business-fail of "carries no
    `execution_authorized_sha`" means there is nothing to compare yet → proceed, not a refusal.
    STALE-substantive surfaces the delta and STOPS. THEN mint the record from this invocation:
@@ -69,10 +68,9 @@ boundaries: ship Phase N green, dispatch Phase N+1 immediately, no checkpoint of
    statusline captures and publishes each turn. A session already carrying the plan authorship +
    review dialogue with LOW remaining context is the narrow carve-out, not the default — a fresh
    (picked-up) session with a full context budget dedicated to execution is the intended path at
-   any plan size. Rekeyed from a prior same-session-framing check to this meter reading: the
-   underlying failure this gate exists to catch (degraded tool-call reliability in a
-   context-saturated session) was always a context-budget argument, not a planning-provenance one,
-   so the meter is what the check should read. Detail: wiki.
+   any plan size. The failure this gate catches is degraded tool-call reliability in a
+   context-saturated session, so the meter reading — not planning provenance — is what it reads.
+   Detail: wiki.
 
 <!-- engine-gap: field=execute_plan.session_freshness_verdict producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 4. Resolve EM-resolvable concerns at EM altitude — not the moment to surface them to the PM. A
@@ -118,7 +116,7 @@ invisible, per `coordinator-tripwires/plan-status-ladder.md`.
 prescribing EM-sequenced chunk-at-a-time execution, is overridden here: the vehicle follows from
 the classification below, default a background Workflow. Note the override in one line and
 continue — do not ask. A vehicle prohibition traceable to a genuine Workflow-inexpressible shape
-(`${CLAUDE_PLUGIN_ROOT}/docs/wiki/workflow-orchestration.md` § What qualifies as a carve-out) is the one that survives.
+(`coordinator/docs/wiki/workflow-orchestration.md` § What qualifies as a carve-out) is the one that survives.
 Tripwire: `A-PLAN-DOES-NOT-PICK-THE-EXECUTION-VEHICLE`.
 
 **Classify every chunk pair before dispatching — this decides whether you can run them together:**
@@ -159,9 +157,8 @@ session the EM runs `python <plugin-root>/bin/emit-dispatch-workflow.py --plan <
 calls `Workflow({scriptPath: "<emitted path>"})` in this session. The emitter's output is already a
 valid `scriptPath` input — no flag, no re-authoring. That call carries the same imperative force as
 the emit: it is not EM discretion about whether to dispatch, and it is not hand-dispatch — it is
-the emitted script, one action. Emitting and stopping writes a script nothing runs — the exact
-state that left a fireable `.mjs` sitting on disk against a PM-authorized plan while the EM
-hand-dispatched the same work. **An emitted script is not a delivered dispatch.**
+the emitted script, one action. Emitting and stopping writes a script nothing runs.
+**An emitted script is not a delivered dispatch.**
 
 **An emitted fire raises no permission prompt; a hand-rolled one does.**
 `allow-emitted-workflow-fire.py` (PreToolUse, matcher `Workflow`) auto-approves a `scriptPath`
@@ -170,13 +167,13 @@ everything else. So an unexpected prompt means the script was hand-authored or e
 `--restamp`, not a re-emit, is the route back. Tripwire:
 `AN-EMITTED-WORKFLOW-FIRES-WITHOUT-A-PROMPT-A-HAND-ROLLED-ONE-DOES-NOT`.
 
-Firing in-session is what makes the run the operator's: visible and selectable in their workflow
-list, inspectable while it runs, resumable via `resumeFromRunId` (same-session-only), running under
-their permissions, costed to their session, completion arriving as a task notification.
+Firing in-session is what makes the run the operator's: visible in their workflow list, inspectable
+while it runs, resumable via `resumeFromRunId` (same-session-only), under their permissions, costed
+to their session, completion arriving as a task notification.
 
 **`--fire` is the headless and cron path only.** It hands the script to `engine_fire.fire_workflow`
-(a module function — not a `workflow.fire` op dispatch, despite the dot-notation this doc used to
-use), which spawns a detached `claude -p` child and returns a run handle
+(a module function, not a `workflow.fire` op dispatch), which spawns a detached `claude -p` child
+and returns a run handle
 (`{"script": ..., "handle": {...}}`; the handle's `fire_id` is what `workflow.fire_status`
 re-reads). The resulting workflow is native to that child, not to any operator: it runs under the
 child's own `--allowedTools` (no `PowerShell`; denials surface only as `permission_denials` in the
@@ -194,8 +191,7 @@ dispatch by hand.
 
 **A fifth state exists beyond the four named refusals: fired-then-died.** The four refusals above
 are all fire-time — the child never started. A child that started and then died mid-run is
-different: the fire log is written only at process exit, so nothing distinguishes a live run from
-a killed one through the log alone. Check the returned handle's `log_size_bytes`: `0` is a free
+different. Check the returned handle's `log_size_bytes`: `0` is a free
 liveness signal — the child has written nothing yet, whether because it is still starting or
 because it died before its first write. Treat a stalled handle with `log_size_bytes: 0` past a
 reasonable startup window as fired-then-died: report it and stop, the same as a fire-time refusal.
@@ -247,18 +243,15 @@ harness's own completion report — with a command that surfaces phase-boundary 
 (`persistent: true` for a run that outlives one Monitor window). Cover every terminal state a wave
 can end in, not just success, per `Monitor`'s own filter-coverage guidance — a filter that only
 matches the happy path stays silent through a stuck or crashed wave, which looks identical to
-"still running." Notifications land asynchronously in chat while the EM keeps working; that
-asynchrony is what keeps this from becoming a second checkpoint — the EM is never blocked waiting
-on the monitor the way a checkpoint prompt blocks waiting on an answer. A stuck or failed wave
-surfaces as a notification to act on (inspect disk, `resumeFromRunId`) the moment it lands, not
-something the EM has to remember to go check.
+"still running." Notifications land asynchronously in chat while the EM keeps working — never a
+second checkpoint — and a stuck or failed wave surfaces as a notification to act on (inspect disk,
+`resumeFromRunId`) the moment it lands.
 
 Don't build a new watcher for this. `Monitor` already is the "eyes on it with a chron or
-something" the PM asked for — no new script under `coordinator/bin/`, no new reporting format.
-Contrast `coordinator/skills/strategic-self-description-refresh/SKILL.md`, which explicitly refuses
-`CronCreate`/`RemoteTrigger` for its own ceremony gate: automating that gate would remove the human
-decision it exists to force. A fired workflow has no such decision to protect — it already runs
-unattended by design — so `Monitor` is the fit there and cron is not the shape to copy.
+something" the PM asked for — no new script under `coordinator/bin/`, no new reporting format. Do
+not copy the `CronCreate`/`RemoteTrigger` refusal in
+`coordinator/skills/strategic-self-description-refresh/SKILL.md`: that gate exists to force a human
+decision, and a fired workflow has none to protect.
 
 ---
 
@@ -352,10 +345,8 @@ commit:**
    into the repo's test suite: record `promotion: promoted` and `promoted_to: <test path>`, or
    `promotion: partial` with the path the promoted portion landed at. A falsifier that was already
    a standing test before the plan records `promotion: already-in-suite` and no `promoted_to` —
-   nothing graduated, and the standing test it already was goes in `promotion_reason`. The shape is red-green at plan
-   altitude — the baseline already proved it fails before the work, so the promoted test arrives
-   with its red state demonstrated, which is more than most tests can say. PROMOTION IS AN
-   OUTCOME, NOT A GATE: a one-shot corpus query, a manual observation, or a measurement against a
+   nothing graduated, and the standing test it already was goes in `promotion_reason`. PROMOTION IS
+   AN OUTCOME, NOT A GATE: a one-shot corpus query, a manual observation, or a measurement against a
    live index records `promotion: not-applicable` plus a reason, and close-out accepts it. Do NOT
    make promotability a precondition for the stamp — EMs would then choose falsifiers for their
    filing convenience rather than for what they actually falsify, which is the vacuous-AC failure
@@ -364,8 +355,7 @@ commit:**
    `sizing_object.estimate.tshirt` (§ Proportionality; an S-lane spec-dispatch never gets this) AND
    every wave-map chunk landed without an executor BLOCKing on this run — dispatch one reader that
    receives only the prime exit criterion statement and `HEAD`, and answers one question: does HEAD
-   do this? Current review effort concentrates where execution stumbles; a plan that halts is
-   self-flagging, and the plan that sails is the one nobody re-reads.
+   do this? A plan that halts is self-flagging; the plan that sails is the one nobody re-reads.
    **THE DENIAL LIST IS THE MECHANISM AND MUST BE EXPLICIT IN THE DISPATCH, not implied:** no plan
    body, no AC table, no chunk bodies, no run reports, no reviewer sidecars. A reader who never sees
    AC3 cannot be misled by AC3 — that is the entire value, and a well-meaning "here is the context

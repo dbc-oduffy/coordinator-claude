@@ -474,3 +474,158 @@ The override protocol exists so that proceeding anyway leaves a durable trace. O
 agreement, recorded verbatim before any finding is applied, and landed in the EM's coordination
 notes or task log rather than chat alone. Paraphrase is insufficient — the whole value of the
 premise-challenge is that overriding it costs something visible.
+
+## review-integrator.md § Identity — why the integrator is unconditional on verdict
+
+The agent body keeps the rule (`OK` does not skip integration; never gate on `WARN`/`BLOCKED`) and
+the tripwire citation. This is the argument.
+
+Confirmation and verification emit the same token. A reviewer that actually re-derived a claim and a
+reviewer that skimmed and agreed both return `OK`, so an integrator that only runs on
+`WARN`/`BLOCKED` gives the cheapest-to-produce verdict the least scrutiny — precisely inverted. An
+`OK` dispatch is therefore normal traffic, not a dispatch error to be reported back, and it costs
+the integrator one empty triage table. Full tell:
+`coordinator/docs/wiki/coordinator-tripwires/an-ok-is-not-evidence-anyone-checked.md`.
+
+## review-integrator.md § AUTO-FIX vs ASK Routing — why always-ASK outranks the table
+
+The agent body keeps the rule (math/algebra/precedence and any symbolic-reasoning finding is ALWAYS
+ASK, at any confidence, severity or fix class, including a calibrated `AUTO-FIX` at confidence 10
+and a P0/P1 that passes the Verification Gate) and the ordering (apply it before any table row).
+This is why the ordering is load-bearing.
+
+A symbolic-reasoning finding also matches a severity row. An integrator reading the routing table as
+a severity lookup therefore reaches "P0/P1, calibrated AUTO-FIX → verify and apply" and applies the
+algebra silently, without ever noticing that a separate rule governed it. The always-ASK rule is
+stated above the table, not inside it, so that a row-first read cannot miss it.
+
+The Verification Gate does not close the gap. The Gate confirms that the finding's cited evidence
+matches current source — "the evidence block matches the source" confirms the quote, never the
+algebra. A reviewer that mis-derived a precedence result will quote the source correctly and still
+be wrong, and the Gate passes.
+
+## review-integrator.md § ASK Options Carry Their Source
+
+The agent body keeps the rule (every option names its source; only a reviewer-sourced option is
+choosable downstream; never author a fix or narrow a reviewer's stated option set) and the
+plan-blitz tripwire citation. This is the mechanism and the argument.
+
+**Attribution errs both ways, and both ways break settleability.** An option the integrator composed
+and left under a reviewer's name launders the integrator's own judgment as the reviewer's — the EM
+or planner downstream reads a reviewer recommendation that no reviewer made. A reviewer's option
+left unattributed is not merely uncredited: it is *dropped*, because the downstream gate can only
+settle an escalation by choosing a reviewer-sourced option, so an escalation whose only options read
+as the integrator's arrives unsettleable. An option the integrator composed is still the
+integrator's, still unchoosable, and still never a reason to apply an ASK itself.
+
+**Escalation destination.** An escalated ASK does not necessarily stop at the EM. `plan-blitz.mjs`
+conditionally re-invokes the planner — its revising branch — once a plan's integration escalates at
+least one ASK, and hands that planner a catalogue built from the reviewer-attributed options the
+escalation states. That planner reads the structured escalations and nothing else, so a finding the
+integrator neither applied nor escalated reaches no one at all. This changes only WHERE an escalated
+ASK is read next; it never widens what the integrator may apply. See
+`coordinator/docs/wiki/coordinator-tripwires/the-revising-planner-also-edits-the-plan-body.md`.
+
+## review-integrator.md § Trail-File Ownership — what a returning writer would owe
+
+The agent body keeps the operative rule: the integrator writes no trail file, nothing does,
+`state/review-trail/*.json` is frozen, its UNCOVERED never means "unreviewed", and the record is the
+`review_receipt:` block a reviewer stamps into its own sidecar
+(`A-SUSPENDED-OP-IS-NOT-A-MECHANISM-TO-WAIT-OUT`).
+
+Retained here because the shape matters if a writer ever returns, and because a reader finding the
+frozen file might otherwise reconstruct the wrong ownership rule: one file per
+`(session_id, sha_range)`, never an append to another session's file, and escalate rather than guess
+when the pair cannot be determined. That is not a live obligation on any integrator today. Reading
+it as one is the failure this note exists to prevent — the suspension is not a queue to wait out.
+
+## review-integrator.md § Apply Everything — an annotation without the edit beside it
+
+The agent body keeps the rule: an annotation standing alone beside unchanged operative text is an
+UNAPPLIED finding, dispositioned `escalated-ask` and returned in the structured escalation with the
+reviewer's fix attributed as its one option — never `applied`, never `deferred`, never closed by the
+annotation (`A-SINGLE-REVIEWER-OPTION-IS-A-RECOMMENDATION-NOT-A-DEAD-END`).
+
+Why it is worth a rule of its own: the annotation quotes the reviewer's fix, so the artifact reads as
+though the finding was considered and handled, while the operative text it sits beside is byte-identical
+to before. Nothing downstream distinguishes that from an applied fix except re-reading the diff. A plan
+reaching the readiness gate carrying one of these is pulled, which is the cost the rule prevents —
+the finding looked closed for as long as nobody looked, and then cost a whole gate cycle.
+
+## review-integrator.md § Apply Everything — annotating a plan spine row
+
+The agent body keeps the rules: apply spine-row findings with `Edit` like anything else, never reach
+for the retired `plan-tasks-stamp`, and escalate ASK on a finding proposing an edit to
+`disposition`/`disposition_ref`/`disposition_detail` (engine-reserved, owned by `resolve`) or to
+`pm_approved`/`deferred` (authorization and scope semantics).
+
+Why no CLI path is the right answer rather than a gap to fill: a spine row is markdown inside a
+fenced YAML block in a plan the integrator is already editing. A mechanically-mappable finding
+tempts an integrator toward a stamping CLI, and `plan-tasks-stamp` was retired precisely because a
+second writer into the spine produced rows whose `disposition` no longer agreed with the engine's.
+A retired path is not one to reconstruct because a finding looks mechanically mappable.
+
+## review-integrator.md § Detector Widened — why attribution defaults to the detector
+
+The agent body keeps the rule: a fix touching detection logic (lint, guard, matcher, validator,
+schema check) changes what that detector matches, so when the suite goes red after such a fix the
+default attribution is the detector, not the newly-flagged site; read the flagged content rather
+than only the assertion, and name the attribution and its reason in the report
+(`DETECTOR-WIDENED-ATTRIBUTE-BEFORE-ESCALATING`).
+
+The asymmetry is what justifies a default rather than a case-by-case judgment. A widened detector
+firing on a site that was always wrong and never matched is the expected, healthy outcome of the
+fix; a widened detector firing on a correct site is a defect in the widening. Both present
+identically as a red assertion, and the cheap read — escalate the flagged site — is wrong in the
+second case and wasteful in the first, because the flagged site's own author is not the one who
+changed anything. Attributing to the detector first puts the question where the change was.
+
+## review-integrator.md § Terminal Stamp — why column zero and why a list
+
+The agent body keeps the rule: `integrated_from` as a top-level frontmatter key at column zero in
+the integrator's OWN run-report sidecar, never the reviewer findings sidecar, valued as a list of
+reviewer-sidecar stems in receipt order, skipped entirely when nothing was integrated, plus the
+pre-completion self-check and the `guard-kira-verdict-routed.py` consequence.
+
+Two mechanisms, both silent on failure. The run-report scaffold's `divergence:` pair is itself
+indented, so a key appended at the end of the frontmatter lands nested under it; the record then
+fails `additionalProperties: false` and the stamp is discarded without an error anyone reads. And
+`guard-kira-verdict-routed.py` joins on this key alone — an unstamped run-report reads at session
+close as a dispatch that never happened, which hard-stops the EM at the gate rather than at the
+integrator. The list shape matters for the same reason: a scalar satisfies "the key is present"
+while carrying only one of N sidecars, and the guard's join then silently covers a subset.
+
+Re-deriving the list from the triage table is the tempting shortcut and is wrong: the triage table
+holds the findings that were triaged, not the sidecars that were received, so a sidecar that
+stopped at an intake precondition or contributed no rows disappears from it.
+
+## review-integrator.md § Sidecar Disposition Annotation — hand-authored shape
+
+Hand-authoring is licensed by exactly one condition: an `agent_type` refusal from
+`append-integrator-dispositions`. It stays mandatory, stays self-checked, and goes in the report.
+The worked example is above, under § How to write the block. The shape it must match:
+
+1. A `---` divider.
+2. The literal `## Integrator Dispositions` heading.
+3. A fenced `yaml` block carrying `schema_version: 1` plus the six buckets.
+4. An optional `### Rationale` subsection — one bullet per finding that needs one, never a row per
+   finding.
+
+Five buckets always render, `[]` included. `verified-no-action` renders only when non-empty, and
+last — `DISPOSITION-BUCKET-SIXTH-RENDERS-ONLY-WHEN-USED`, whose contact points include
+`claude-klabauter:coordinator_core/ops/append_integrator_dispositions.py` `BUCKET_ORDER`. Matching the
+CLI's byte-for-byte output is the whole point of the shape spec: a hand-authored block that renders
+a sixth empty bucket, or orders them differently, diverges from every block the CLI wrote.
+
+## review-integrator.md § Escalation Protocol — the one-option carve-out
+
+The four anti-dodge fields and the three-escalation circuit breaker are above, under § Escalation
+blocks and the circuit breaker. One clause needs its own note, because it looks like a hole in the
+floor and is not.
+
+Field (2) normally demands two or more concrete options. Where the reviewer wrote exactly one named
+fix and the integrator composed nothing, that single reviewer-sourced option satisfies it. The floor
+exists to stop an integrator inventing an option or laundering its own as a reviewer's — it was
+never meant to suppress the one option a reviewer actually wrote, and reading it that way turns a
+settleable recommendation into a dropped finding. Downstream, a one-option escalation is settled as
+a recommendation, not a dead end: `A-SINGLE-REVIEWER-OPTION-IS-A-RECOMMENDATION-NOT-A-DEAD-END`.

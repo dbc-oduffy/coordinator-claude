@@ -1,6 +1,5 @@
 # Plan-Deviation Reconciliation
 
-<!-- spec backlink: archive/specs/2026-05-26-session-end-deviation-reconciliation-gate.md -->
 
 A plan document is a **forecast**. `/distill` crystallizes ALLOWLIST sections of that forecast
 into evergreen wiki entries. Without reconciliation, a deprecated forecast shape — a function
@@ -201,9 +200,9 @@ deviated (see § Proportionality above — do not manufacture corrections).
 Repairing a stale reference or handoff axis during reconciliation can surface a genuine design
 collision with a ratified decision record, not just a mechanical pointer fix. One instance: repair
 of an `abandoned-to-closed` handoff axis surfaced that the axis, if repaired as originally
-proposed, would drive claude-klabauter into re-divergence from DR-084. The resolution was not to force the
+proposed, would drive claude-klabauter into re-divergence from the lifecycle vocabulary. The resolution was not to force the
 original repair through — the axis was narrowed to the plan/initiative/goal axes only, and the
-narrowed scope was verified isolated from the DR-084 collision before landing.
+narrowed scope was verified isolated from the vocabulary collision before landing.
 
 **Rule.** When a reconciliation repair collides with a ratified decision, narrow the repair's
 scope to what's provably isolated from the collision rather than overriding the decision inline.

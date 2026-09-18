@@ -1,14 +1,9 @@
 ---
-provenance:
-  - archived_spec: archive/specs/2026-05-15-ubt-compile-gate-review-trail.md
-    original_path: docs/plans/2026-05-15-ubt-compile-gate-review-trail.md
-    last_verbose_sha: af9b63e49817131fa7c88c8dcb0513271a50012d
-    distilled: 2026-05-15
 ---
+
 
 # Workstream-Complete Review and Marker Trail
 
-<!-- spec-backlink: archive/specs/2026-05/2026-05-08-session-end-review-and-marker-trail.md §T9 -->
 
 `/workstream-complete` is the natural pause point for post-executor code review — the diff is fresh, the EM has context, and the cost of catching an integration bug now is one Sonnet call instead of a debugging session three weeks later. The marker trail at `state/review-trail/` records what has been reviewed so downstream weekly and daily ceremonies shed redundant load rather than re-reviewing work already covered.
 
@@ -44,13 +39,34 @@ EM judgment with anchored ranges — the numbers below are decision anchors, not
 
 ## A partition verdict is answered by slicing, never by narrowing
 
-*From `cross-repo/inbox/2026-08-04-project-rag-em-mise-phase6-review-does-not-scale-with-baton-count.md`.* Two rules, both learned the expensive way. Greppable token: `SLICE_NEVER_NARROW`.
+Two rules, both learned the expensive way. Greppable token: `SLICE_NEVER_NARROW`.
 
 **1. `/mise-en-place` Phase 6 and `/workstream-complete` § Review are not interchangeable.** Phase 6 reviews **the run's own diff**; this ceremony reviews **the chain diff** — that work plus its ancestry. Both are owed, and neither discharges the other. The trap is specific and sharp: a `/mise` run ends with a *mandated* review, so the EM arrives at close having just satisfied a review obligation, which reads as satisfying *the* review obligation. In the reporting run, the Phase-6 review over a 5027-LOC session diff returned **zero** findings; the chain-scoped partitioned review over the same work plus ancestry returned **eight**, across three of four slices — test surface, non-workstate code, and specs/decision records. Not a weaker version of the right review; a different, smaller one. Both skill bodies now carry a one-sentence pointer at the other.
 
 **2. Never answer a partition-mandatory verdict by reducing scope.** On a shared `work/*` branch the foreign-session guard legitimately refuses a trail record spanning peer commits (§ `sha_range` in SKILL.md). The documented answer is per-slice records over one's own commits (`<sha>~1..<sha>` — `~1`, never `^`: cmd.exe eats a literal `^` in argv on Windows). The failure mode is using that legitimate refusal to *narrow the reviewed diff* instead — which conveniently also shrinks what gets reviewed. **The guard constrains what may be recorded, not how much must be reviewed.** If a guard blocks a contiguous range, slice it. And where a partition legitimately excludes ceremony bookkeeping — in the reporting chain, 227 files / 31043 insertions of review-trail JSON, subagent sidecars, and memo/handoff frontmatter — **the exclusion and its LOC must be stated**, because a silent narrowing reads as coverage. Same class as the § Bookkeeping-commit partition rule below, applied at review-scope time rather than at coverage-verdict time.
 
 **Why `/mise` bites hardest here:** it is a no-stopping autonomous run, Phase 6 is the last checkpoint before the EM relinquishes control, and the EM reaching it has just watched twenty-odd items go green under per-item verifiers. Everything about that moment argues "this is done." A floor phrased as "at minimum one reviewer" becomes a ceiling the instant it is met — hence the tier-vs-count wording now in PIPELINE.md § Phase 6.
+
+## Hand-measuring the brightline
+
+A last resort, never a shortcut past `gates['review_scale']`: reachable only once
+`decisions["stage_paths"]` has been supplied and the gate still will not resolve.
+
+1. **Sum per-owned-commit diffs** — `<sha>~1..<sha>` for each commit this session owns. `~1`, never
+   `^`: cmd.exe eats a literal `^` in argv on Windows.
+2. **Never measure a range across the `oldest..newest` span.** A full-span range silently counts
+   every peer commit landed in that window on a shared branch, inflating the measurement into the
+   wrong brightline row. On one close, `oldest..newest` returned 33,246 gross LOC where summing the
+   session's own commits returned 16,037 — the same peer-commit inflation this repo's lessons
+   corpus already names as a confirmed, recurring shared-branch failure mode.
+3. **Count code only.** `.md`/`.yaml`/`.yml` are excluded before counting, so a doc-only commit
+   contributes nothing to `commit_count` or `gross_loc`.
+4. **When `partition_mandatory` is true and `commit_slices` is empty**, derive the slices from the
+   same per-owned-commit list step 1 produced — the summation and the slicing are one walk, not
+   two.
+
+A hand count also uses different definitions from the engine's, which is why it is never a
+substitute for a resolving gate: 1245/9 by hand against the engine's 976/26/4 on one diff.
 
 ## The review-owed close trampoline
 
@@ -155,8 +171,8 @@ Every completed workstream-complete review writes a small JSON record to disk. T
 ```
 
 > **RETIRED — read this section as archaeology, never as instruction.** `review_trail.write`
-> and `coordinator-write-review-trail.py` are a kill-ledger K-060 gravestone (DR-372/DR-374) with
-> `Returns-when: Not applicable` — the replacement DR-372 built is the `review_receipt:` block a
+> and `coordinator-write-review-trail.py` are a kill-ledger K-060 gravestone with
+> `Returns-when: Not applicable` — the replacement built is the `review_receipt:` block a
 > dispatched reviewer stamps into its own sidecar, which `gates.review_receipt` reads and
 > `jp-review-receipt-block-stamp` gates the terminal stamp on. Dispatching the reviewer IS
 > recording the review; nobody writes a trail record. The op id is still dialable because draining
@@ -244,8 +260,7 @@ This field is optional; handoffs without it are valid (field is only present whe
    mechanical_scope = full week diff (always)
 7. Write state/review-trail/.weekly-reviewer-scopes.json:
      {"staff_eng": "<scope_sha_list>", "staff_eng_seam_files": "<seam_paths>", "mechanical_workers": "full"}
-   (The JSON keys are role slugs, not persona names — renamed producer-side 2026-08-04
-   (claude-klabauter `a78271b1a`) with no back-compat shim. The `staff_eng` SHA set is the
+   (The JSON keys are role slugs, not persona names — renamed producer-side 2026-08-04 with no back-compat shim. The `staff_eng` SHA set is the
    code-semantics CHUNKING input; `staff_eng_seam_files` additionally feeds the Staff Engineer's advisory
    Layer-2 pass at Step 7.5.)
    Pass this scope file in the brief to parallel-code-review.
@@ -253,7 +268,7 @@ This field is optional; handoffs without it are valid (field is only present whe
      "code-semantics chunks scoped to gap+seams; mechanical workers full diff."
 ```
 
-The `parallel-code-review` skill body IS modified for the N-chunk model (Strand 1), but the doctrine-guarded carve-out from `archive/specs/2026-05-06-parallel-code-review-weekly-gate.md` is preserved: scope-narrowing still happens in Step 7's prelude, and the frozen-diff / orthogonal-lens / no-rewrite-synthesizer conditions still hold (orthogonality now spans the 3 specialist lenses + code-semantics-as-a-class; the N chunks partition that class disjointly by file-scope).
+The `parallel-code-review` skill body IS modified for the N-chunk model (Strand 1), but the doctrine-guarded carve-out is preserved: scope-narrowing still happens in Step 7's prelude, and the frozen-diff / orthogonal-lens / no-rewrite-synthesizer conditions still hold (orthogonality now spans the 3 specialist lenses + code-semantics-as-a-class; the N chunks partition that class disjointly by file-scope).
 
 **`cross_segment_seams` defined precisely:** a *segment* is the sha-range of one trail record (one workstream-complete review). Cross-segment seams are the set of file paths that appear in the diff of ≥2 distinct segments — computed by taking the union of files-touched per record and intersecting pairwise. The per-segment file-touch set is derived from `git diff --name-only <sha-range>`. These seams carry integration risk because multiple independent sessions touched them; they feed BOTH the code-semantics chunk review (seam-first chunking gives them extra integration scrutiny) AND the Staff Engineer's advisory Layer-2 pass at Step 7.5, which reads the seam set as an integration-surface signal but does NOT gate merge.
 
@@ -273,14 +288,13 @@ Companion: "Detect-then-silently-pick is a footgun." Source: weekly-gate the Sta
 
 ## review-coverage-gate.py — chain-end mechanical coverage gate (RETIRED) <!-- guard-allow: directive-ids-are-engine-current — K-001/K-005 retired this gate; the section is a design record and every directive id in it is quoted as it stood, per its own banner below -->
 
-<!-- spec-backlink: docs/plans/2026-06-23-chain-end-review-coverage-gate.md § Design -->
 
 **RETIRED — absence is the operative fact, not an oversight.** `coordinator/bin/review-coverage-gate.py`
 does not exist in claude-klabauter; the DoE-side `review-coverage-gate` forwarder exits 127.
 Neither `/workstream-complete`'s `d-run-chain-coverage-gate` directive nor `/merging-to-main`'s
 pre-merge step has a mechanical review-coverage gate to invoke — do not cite either as gated on
 this mechanism, and do not restore it on the grounds it "looks like it should still work."
-Provenance: claude-klabauter `state/kill-ledger.md` K-001, K-005. The rest of this section is a
+The rest of this section is a
 historical design record (mechanics, footguns, verdict semantics), kept for a reader tracing an
 old trail record's shape — none of it describes invocable behavior.
 
@@ -296,7 +310,7 @@ old trail record's shape — none of it describes invocable behavior.
 
 **`UNCOVERED` is currently a census, not a signal — do not halt on it, and do not
 dispatch a reviewer off it.** `reviewed_set` is built from a corpus nothing writes to: `review_trail.write` is retired with no live writer, and reviews land in the
-reviewer sidecar's `## Integrator Dispositions` receipt (DR-372 § 3) that this gate
+reviewer sidecar's `## Integrator Dispositions` receipt that this gate
 cannot read. Every chain touching recent commits therefore returns a confident
 `UNCOVERED` **whether or not it was reviewed**, so the verdict supports no reading in
 either direction. Establish coverage from the sidecars under
@@ -319,8 +333,7 @@ because nobody can act on it, and that is exactly what makes it invisible — th
 failure is not a wrong verdict but every session privately inventing the same
 workaround and none of them recording it. Dispatching a `code-reviewer` because
 the gate said `UNCOVERED` spends review capacity re-deriving a verdict that already
-exists — the same failure `plan-delivery-audit`'s Oracle 3 committed before
-`d575c16a5`. Tripwire: `A-RETIRED-PRODUCER-LEAVES-ITS-READERS-ANSWERING`.
+exists — the same failure `plan-delivery-audit`'s Oracle 3 committed. Tripwire: `A-RETIRED-PRODUCER-LEAVES-ITS-READERS-ANSWERING`.
 
 **Shared lib:** the coverage computation (SAFE_RANGE validator, per-record `git rev-list` union loop, JSON-OR-JSONL dual-shape parse) lives in `lib/review-coverage-core.py`, consumed by BOTH this gate and `lib/workweek-trail-scope.py`. The drift vector between the two gates is closed permanently: a naïve re-implementation would silently drop JSONL integrator-envelope records from `reviewed_set`, producing false UNCOVERED verdicts — sharing the core prevents this.
 
@@ -330,7 +343,7 @@ Review coverage is a question about code, not about the ceremony's own bookkeepi
 
 **Where the partition happens — the verdict split, not chain-set derivation.** Bookkeeping commits stay in the chain set and are still counted in `chain_commits`. The partition is applied to the *uncovered* list at verdict time (`coordinator_core/coverage.py`, `run_coverage_gate`): uncovered commits are split into a code partition and a bookkeeping partition, and `VERDICT=COVERED` iff the **code** partition is empty. Do not read this section as saying the chain set shrinks — it does not, and a fix aimed at `_derive_dag_chain_set` would be aimed at the wrong place.
 
-**Consequence for the counts.** Because the frozen verdict line `chain_commits=N covered=M uncovered=K` must keep its arithmetic (`covered + uncovered == chain_commits`), a bookkeeping commit is counted as *covered* in `M`. That is a deliberate, mild over-claim in the count, and it is the reason the accompanying note is not optional: the gate emits a note naming every excluded SHA. `CoverageResult.bookkeeping_shas` carries them structurally. **`coverage.gate`'s JSON-RPC op and the `state/coverage/gate-result.json` disk artifact are RETIRED** (kill-ledger K-001/K-005; claude-klabauter carries no `coordinator/bin/review-coverage-gate.py`) — there is no mechanical floor producing either artifact. See `docs/wiki/coordinator-tripwires/anti-literal-tripwires-fire-on-docstring-examples-apply-noqa-marker-during-tripwire-chunk.md` § CHAIN-END-COVERAGE-GATE for the retirement record and the substitute (establish coverage from reviewer sidecars under `state/subagent-share/<session>/`, not from a gate verdict). Read `M` as "not awaiting review," not as "opened by a reviewer."
+**Consequence for the counts.** Because the frozen verdict line `chain_commits=N covered=M uncovered=K` must keep its arithmetic (`covered + uncovered == chain_commits`), a bookkeeping commit is counted as *covered* in `M`. That is a deliberate, mild over-claim in the count, and it is the reason the accompanying note is not optional: the gate emits a note naming every excluded SHA. `CoverageResult.bookkeeping_shas` carries them structurally. **`coverage.gate`'s JSON-RPC op and the `gate-result.json` disk artifact are RETIRED** (kill-ledger K-001/K-005; claude-klabauter carries no `coordinator/bin/review-coverage-gate.py`) — there is no mechanical floor producing either artifact. See `docs/wiki/coordinator-tripwires/anti-literal-tripwires-fire-on-docstring-examples-apply-noqa-marker-during-tripwire-chunk.md` § CHAIN-END-COVERAGE-GATE for the retirement record and the substitute (establish coverage from reviewer sidecars under `state/subagent-share/<session>/`, not from a gate verdict). Read `M` as "not awaiting review," not as "opened by a reviewer."
 
 **Mixed commits classify as code, always.** A commit touching both a bookkeeping path and anything else is code — the exclusion tests "every touched path is bookkeeping," not "any touched path is bookkeeping," so it fails closed by construction and cannot become a hole a real source change hides in.
 
@@ -353,10 +366,7 @@ independently re-derivable here.
 carried a machine-absolute `source_handoff` path, tripping the absolute-path-literal gate. Rewritten
 repo-relative on the strength of a read of `chain_ancestry_waived_shas` at that date: it matches a
 waiver on directory/`chain_id` and filename/`sha` only and never parses `source_handoff`, so the
-rewrite is semantics-preserving. See commit `c3a437888` (the rewrite) and the cross-repo memo
-`state/memo-outbox/sent/chain-ancestry-waiver-absolute-path.md` (root-cause ask: the write site,
-`coordinator_core/chain_ancestry_waivers.py:206` via `coordinator_core/ops/coverage_gate.py:432`,
-persists `from_handoff` verbatim and should normalize at the source instead of per-consumer). A
+rewrite is semantics-preserving. A
 future review of these records should re-derive this from `claude-klabauter` directly rather than
 citing this note as still-current — it is a snapshot of one verification, not a standing guarantee.
 
@@ -366,7 +376,7 @@ citing this note as still-current — it is a snapshot of one verification, not 
 
 `git rev-list A..B` covers the half-open interval `(A, B]` — it lists commits reachable from `B` but NOT from `A`. This means `A` itself is NOT in the output. A trail record with `sha_range=A..B` does NOT cover commit `A`.
 
-**Incident shape (project-rag-ue-addon):** record `76619a87f..df44968f9` covered C3→C5 + fixes. Because `A` (= `76619a87f` = C2's own tip) was excluded, C1 (`37798a455`) and C2 (`76619a87f`) — the 521-LOC correctness-critical core — were unreviewed. The trail *looked* like it covered the work.
+**Incident shape (project-rag-ue-addon):** record `A..B` covered C3→C5 + fixes. Because `A` (= C2's own tip) was excluded, C1 and C2 — the 521-LOC correctness-critical core — were unreviewed. The trail *looked* like it covered the work.
 
 **Why per-commit is correct:** `review-coverage-core.py` computes `git rev-list <sha_range>` per record and unions the resulting SHA sets. Commit `A` is covered only if some *other* record's range includes it as a right endpoint (e.g. a prior record `X..A` where `A` IS in `git rev-list X..A`). This is not a special case — it is the natural behavior of per-commit union coverage. The bug in the incident was the absence of any such prior record, which a per-commit gate surfaces immediately and an endpoint-string comparison silently misses.
 
@@ -458,7 +468,7 @@ from build-execution (expensive, daily) from gate-enforcement (cheap, weekly).
 ### Cost profile
 
 <!-- guard-allow: directive-ids-are-engine-current same retired leg as the table row above -->
-**The writer leg is gone, so this chain currently starts at its second link.** `d-run-ubt-pending-check` was removed from `/workstream-complete` along with its CLI: the directive named `scan_unresolved_ubt_records.py` as its `cli` and no such script ever existed on disk, so the gate could not fire and reported success anyway — the worked example in `coordinator-tripwires/phantom-cli-guard-seam.md`. The op it fronted (`review_trail.scan_unresolved_ubt`) still exists and is still callable; what does not happen automatically is the per-session marker write. Read the two rows below as a resolver and a merge gate over a marker set nothing is currently populating, and see `state/bug-backlog/2026-09-01-ubt-pending-chain-lost-its-writer-leg.yaml`.
+**The writer leg is gone, so this chain currently starts at its second link.** `d-run-ubt-pending-check` was removed from `/workstream-complete` along with its CLI: the directive named `scan_unresolved_ubt_records.py` as its `cli` and no such script ever existed on disk, so the gate could not fire and reported success anyway — the worked example in `coordinator-tripwires/phantom-cli-guard-seam.md`. The op it fronted (`review_trail.scan_unresolved_ubt`) still exists and is still callable; what does not happen automatically is the per-session marker write. Read the two rows below as a resolver and a merge gate over a marker set nothing is currently populating.
 
 The asymmetry the table records still holds for the pattern: the writer leg was "Cheap (no build)" — a marker write, not a test tier. The full-tier run this pattern exists to gate happens at `/workday-complete` Step 0c, one of the three ceremonies holding an implicit Tier-U grant; `/workstream-complete` holds none and stays test-free → `docs/wiki/test-design-discipline.md § The Three Implicit-Grant Ceremonies`.
 
@@ -505,7 +515,6 @@ repos see no change. See `docs/wiki/example-game-repo-doctrine.md §7.7` for the
 `--reviewer` enum extended with `ubt-compile` (alongside `code-reviewer | the Staff Engineer | code-reviewer+the Staff Engineer | waived`).
 `--scope chain` (existing value — UBT verdicts are chain-scoped, not per-diff-slice).
 
-Spec backlink: `docs/plans/2026-05-15-ubt-compile-gate-review-trail.md` §Shape.
 
 ## Boundary-relabeling defect class — a cross-segment seam signal
 
@@ -535,9 +544,9 @@ Pattern shape: a taxonomy / enum / failure-reason vocabulary is refactored, and 
 
 `state/review-trail/` only ever holds the current week; any coverage check reading only it systematically under-counts review for anything older. The **review oracle** is git range-membership — `git merge-base --is-ancestor C B && ! ...C A` — over BOTH live (`state/review-trail/*.json`) and archived (`archive/review-trail/**/*.json`) records.
 
-*Claude-unreal-example-game-repo.* A plan-delivery audit's central alarm ("only 4 review-trail records, all this week → most shipped work unreviewed") was an archival artifact — the missing 05-24 record was in `archive/review-trail/2026-05-21/` (moved there by weekly-reset commit `db151655e`), and its `session_id` matched the shipped plan's completion-entry filename suffix. Both audited `implemented` plans were DELIVERED+REVIEWED; zero PARTIAL.
+*Claude-unreal-example-game-repo.* A plan-delivery audit's central alarm ("only 4 review-trail records, all this week → most shipped work unreviewed") was an archival artifact — the missing 05-24 record was in `archive/review-trail/2026-05-21/`, and its `session_id` matched the shipped plan's completion-entry filename suffix. Both audited `implemented` plans were DELIVERED+REVIEWED; zero PARTIAL.
 
-When auditing delivery-vs-review: glob both dirs. The three-oracle plan-delivery audit shape (plan-claim / code-reality-on-disk / review-coverage) + this archive-aware fix were routed to the DoE as a coordinator-universal skill/doctrine candidate via cross-repo memo (`~/.claude/cross-repo/inbox/2026-05-27-plan-delivery-audit-shape.md`).
+When auditing delivery-vs-review: glob both dirs. The three-oracle plan-delivery audit shape (plan-claim / code-reality-on-disk / review-coverage) + this archive-aware fix were routed to the DoE as a coordinator-universal skill/doctrine candidate via cross-repo memo.
 
 **No lister CLI exists.** The per-commit review-trail writer/lister family is retired with no
 launcher of any kind, replaced by a binary review receipt. Every consumer walks both trees
@@ -557,9 +566,9 @@ A "one-line" pin or identity bump (version constant, schema revision, protocol c
 
 ## Session-scoped diff via `--session-id` — fixes the brightline gate on shared-branch concurrent EM work
 
-*Claude-central + project-rag.* On a `work/<machine>/<date>` branch shared by 3-4 concurrent EM sessions, `review-brightline-gate.py` (migrated to claude-klabauter's `coordinator/bin/`, commit b644d5a9) was firing `PARTITION-MANDATORY` on the whole branch since split — most of which was other EMs' already-reviewed work. The gate's input range was branch-scoped (`merge-base origin/main..HEAD`), but its job is session-scoped: only THIS session's commits should be assessed for partitioning. The branch-scoped reading reduced the gate to noise EMs routed around (manual review-trail intersection, waive-with-rationale, partition someone else's work).
+*Claude-central + project-rag.* On a `work/<machine>/<date>` branch shared by 3-4 concurrent EM sessions, `review-brightline-gate.py` (migrated to claude-klabauter's `coordinator/bin/`) was firing `PARTITION-MANDATORY` on the whole branch since split — most of which was other EMs' already-reviewed work. The gate's input range was branch-scoped (`merge-base origin/main..HEAD`), but its job is session-scoped: only THIS session's commits should be assessed for partitioning. The branch-scoped reading reduced the gate to noise EMs routed around (manual review-trail intersection, waive-with-rationale, partition someone else's work).
 
-**Fix shape:** `prepare-commit-msg` hook injects `Session-Id: <id>` git trailer on every commit (resolution-order, env-only: `CLAUDE_SESSION_ID` → `CLAUDE_CODE_SESSION_ID`, identical to `coordinator-write-review-trail.py:182-199` (retired from `.sh`; migrated to claude-klabauter's `coordinator/bin/`, commit b644d5a9)). `review-brightline-gate.py` gains `--session-id <id>` flag that filters the range via `git log --grep='^Session-Id: <id>$'` and recomputes loc/commits/surfaces/files over the filtered SHAs.
+**Fix shape:** `prepare-commit-msg` hook injects `Session-Id: <id>` git trailer on every commit (resolution-order, env-only: `CLAUDE_SESSION_ID` → `CLAUDE_CODE_SESSION_ID`, identical to `coordinator-write-review-trail.py:182-199` (retired from `.sh`; migrated to claude-klabauter's `coordinator/bin/`)). `review-brightline-gate.py` gains `--session-id <id>` flag that filters the range via `git log --grep='^Session-Id: <id>$'` and recomputes loc/commits/surfaces/files over the filtered SHAs.
 
 **Canonical invocation at `/workstream-complete`'s `d-run-review-brightline-gate` directive** —
 `review-brightline-gate --session-id "$WSC_SID"`, resolved per the precedence ladder in
@@ -574,11 +583,10 @@ POSIX).
 
 **Output field order is pinned** (consumers grep for `VERDICT=`, `loc=`, etc.): `range=<r> loc=<l> commits=<c> surfaces=<s> files=<f> filtered_to=<N> VERDICT=<v>`. The `filtered_to=<N>` field appears only when `--session-id` is passed.
 
-**Install surface:** `coordinator-ensure-prepare-commit-msg-hook` is installed by `repo-setup` § 3f.5.5 and self-healed every session boot via the session-init op — same two-wire install pattern as the post-commit auto-push hook. Plan: `docs/plans/2026-06-15-brightline-session-scope-fix.md`.
-
+**Install surface:** `coordinator-ensure-prepare-commit-msg-hook` is installed by `repo-setup` § 3f.5.5 and self-healed every session boot via the session-init op — same two-wire install pattern as the post-commit auto-push hook.
 ## Two-oracle chain+plan contract — terminus-only reviewer-quantity narrowing (RETIRED) <!-- guard-allow: directive-ids-are-engine-current — K-007 removed the two-oracle brightline gate; section kept as the design record its successors are measured against -->
 
-**RETIRED — absence is the operative fact.** claude-klabauter `state/kill-ledger.md` K-007 removed the
+**RETIRED — absence is the operative fact.** A kill-ledger entry removed the
 chain-terminal two-oracle brightline gate. Nothing computes a terminus reviewer-quantity verdict;
 the brightline stays mandatory on `gates['review_scale']`'s measurement alone. What follows is the
 design record, not invocable behaviour.
@@ -601,7 +609,7 @@ uses rung 0 / Shape W — see `coordinator/snippets/resolve-coordinator-bin.md`.
 
 **Tiered disagreement guard — not a uniform hard stop.** When the oracles disagree, severity is classified into a tier, and only one tier halts:
 - **Tier `A`** (declared-but-unwalked-repo — the plan names a repo the chain walk never actually visited): **HARD stop.** Override is gated on the `/autonomous` sentinel being present AND a recorded reviewer whose findings artifact names the unwalked repo — both conditions, not either.
-- **Tier `B`** (a magnitude disagreement between oracles that doesn't rise to the declared-but-unwalked case) and **`none`** (oracles agree): **communicate loudly, do not halt.** The runner surfaces the three oracle numbers + `basis` and requires a recorded EM reviewer-count decision, cross-checked against findings artifacts already under `state/subagent-share/<session-id>/` (the DR-091 provisioned home) — but does not block progress to Step 3.
+- **Tier `B`** (a magnitude disagreement between oracles that doesn't rise to the declared-but-unwalked case) and **`none`** (oracles agree): **communicate loudly, do not halt.** The runner surfaces the three oracle numbers + `basis` and requires a recorded EM reviewer-count decision, cross-checked against findings artifacts already under `state/subagent-share/<session-id>/` — but does not block progress to Step 3.
 
 **Enforcement wrapper — `wsc-coverage-gate-runner brightline-gate`.** `/workstream-complete`'s `d-run-chain-plan-brightline-gate` directive does not call `review-brightline-gate --from-handoff` directly; it calls the claude-klabauter enforcer subcommand that wraps it and owns the halt-or-communicate policy above:
 
@@ -645,9 +653,9 @@ One asymmetry survives, and it must not be harmonised away: the weekly gate's ra
 **Rule — after `wsc_commit` returns, verify four effects before treating the workstream as closed:**
 
 1. **Completion entry is filled, not a bare scaffold** *(doe-L99)*. `wsc_commit` applies `f_slots` to in-memory `ctx` nodes but did not (historically) write the step-2.6.6c prose / `nature` / `commits` into the scaffolded `archive/completed` entry FILE — it committed a bare scaffold (`nature:infra` default, placeholder prose, `commits:[]`). Read the committed entry; if it is a scaffold, the fill residues must land via an explicit EM `Edit` (or the op fixed to fill from `f_slots` + `resolved_state`).
-2. **`review_trail` param was present when `b_adjudication` was passed** *(doe-L98)*. Whenever `b_adjudication` is passed, `wsc_commit` REQUIRES a top-level `review_trail:{sha_range,reviewer,scope,verdict,diff_loc}` dict (read at `wsc_commit.py:1591`, separate from `b_adjudication`) — else `coordinator-write-review-trail.py` (claude-klabauter `coordinator/bin/`, migrated from DoE-claude commit b644d5a9) raises a `failed_critical` and the op exits 1. The D-5 jq payload in `skills/workstream-complete/SKILL.md` must carry `review_trail`, not just `b_adjudication`.
-3. **No actioned-memo inbox path was passed in `wsc_paths`** *(doe-L67)*. `sweep-actioned-memos.py` (migrated to claude-klabauter's `coordinator/bin/`, commit b644d5a9; over the native `fleet.archive_actioned_memos` op) moves actioned memos inbox→archive during the archival phase BEFORE the stage step git-adds `wsc_paths`; passing a memo-inbox path in `wsc_paths` makes the stage fail with `pathspec did not match` (commit+push then skip). Pass only non-memo session artifacts — the sweep owns actioned-memo staging.
-4. **YOUR consumed handoff actually shipped** *(doe-L154)*. `wsc_resolve` can populate `resolved_state.consumed_handoff` with a foreign-repo / phantom handoff path (and `resolved_state.sid` null), so Step 2.7's stamp-only targets the wrong handoff and leaves your real consumed handoff frozen at `consumed`/`claimed`/`in_flight`. After `wsc_commit`, grep `state/handoffs/` for your session id against BOTH vocabularies (`grep -rlE "(claimed_by|consumed_by): <sid>" state/handoffs/` — DR-084 renamed `consumed_by` to `claimed_by`; the write path hasn't cut over but the on-disk corpus is mixed, so dual-read) and confirm that handoff is `deployment_state:shipped`; if not, ship it manually via `archive-stamp-cli`'s `stamp-shipped-in` + `ship-handoff` verbs.
+2. **`review_trail` param was present when `b_adjudication` was passed** *(doe-L98)*. Whenever `b_adjudication` is passed, `wsc_commit` REQUIRES a top-level `review_trail:{sha_range,reviewer,scope,verdict,diff_loc}` dict (read at `wsc_commit.py:1591`, separate from `b_adjudication`) — else `coordinator-write-review-trail.py` (claude-klabauter `coordinator/bin/`) raises a `failed_critical` and the op exits 1. The D-5 jq payload in `skills/workstream-complete/SKILL.md` must carry `review_trail`, not just `b_adjudication`.
+3. **No actioned-memo inbox path was passed in `wsc_paths`** *(doe-L67)*. `sweep-actioned-memos.py` (migrated to claude-klabauter's `coordinator/bin/`; over the native `fleet.archive_actioned_memos` op) moves actioned memos inbox→archive during the archival phase BEFORE the stage step git-adds `wsc_paths`; passing a memo-inbox path in `wsc_paths` makes the stage fail with `pathspec did not match` (commit+push then skip). Pass only non-memo session artifacts — the sweep owns actioned-memo staging.
+4. **YOUR consumed handoff actually shipped** *(doe-L154)*. `wsc_resolve` can populate `resolved_state.consumed_handoff` with a foreign-repo / phantom handoff path (and `resolved_state.sid` null), so Step 2.7's stamp-only targets the wrong handoff and leaves your real consumed handoff frozen at `consumed`/`claimed`/`in_flight`. After `wsc_commit`, grep `state/handoffs/` for your session id against BOTH vocabularies (`grep -rlE "(claimed_by|consumed_by): <sid>" state/handoffs/` — renamed `consumed_by` to `claimed_by`; the write path hasn't cut over but the on-disk corpus is mixed, so dual-read) and confirm that handoff is `deployment_state:shipped`; if not, ship it manually via `archive-stamp-cli`'s `stamp-shipped-in` + `ship-handoff` verbs.
 
 **cc_invoke timeout floor** *(doe-L92)*: the `cc_invoke` default `CC_INVOKE_TIMEOUT_SECS=10` is too short for the commit+push tail — it can time out mid-tail, leaving a partial commit (e.g. an unfilled completion entry committed before fill). Set `CC_INVOKE_TIMEOUT_SECS=180` for the `wsc_commit` invoke (or raise the op-specific default). A timeout mid-tail is not cleanly idempotent-recoverable if it committed a half-baked artifact.
 
@@ -680,7 +688,7 @@ These are claude-klabauter-owned engine bugs / robustness gaps (each routed via 
   page's `Session-Id:` trailer, including the same zero-match
   vacuous-pass semantics (§ Session-scoped diff above); consumed by
   claude-klabauter's `coordinator/bin/rollup-derive.py` (migrated from
-  DoE-claude, commit b644d5a9) for artifact-to-commit roll-up.
+  DoE-claude) for artifact-to-commit roll-up.
 
 ## partitioned reviewers require partitioned integrators
 
@@ -694,4 +702,24 @@ A partial-shipped execute-plan (where one or more chunks landed in `BLOCKED-ON-E
 - `coordinator:parallel-code-review` — the merge-gate carve-out doctrine that this trail integrates with (without modifying); Step 7's prelude is the external interface between the trail and this skill
 - `docs/wiki/ceremony-calibration.md` § "Workstream-complete-as-defer is hedging in disguise" — **complementary doctrine**: ceremony-calibration prevents using `/workstream-complete` itself as a deferral mechanism; this guide prevents using "`code-reviewer`-only" as deferral within `/workstream-complete`. The two framings are paired: one catches session-level hedging, the other catches review-scale hedging. Future EMs should read both.
 - `coordinator/skills/review/SKILL.md` § A.3 — Sequencing — the top-level sequential-review rule this wiki elaborates
-- `archive/specs/2026-05-06-parallel-code-review-weekly-gate.md` — the original spec whose Non-goals required Step 7 scope-narrowing to be implemented externally (not inside the parallel-code-review skill body)
+
+## Dispatch authorization
+
+Invoking a skill requests the actions that skill performs. A harness line permitting dispatch
+"unless the user requested it" is satisfied by skill invocation itself, not overridden — no
+precedence claim is needed and none is made. Re-asking spends the very context the dispatch
+exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate:
+keyword-gated skills gate entry, and every gate a skill names for itself still binds —
+per-session cross-repo-commit assent, ask-before-external-action, and any other the skill's own
+body names.
+
+## Execution-residual reason classes, in full
+
+`peer-contention` names the surface and confirms via session-registry rather than guessing a
+peer is live. `other-repo` routes via memo, or a live send only once the peer is confirmed live
+and both gates pass — default to memo when unclear. `own-plan` states the scale that makes the
+residual too large for an inline fix. `irreversible` needs PM assent before acting.
+`not-real` states why the residual doesn't survive examination. None of *"predating this
+work"*, *"pre-existing"*, *"not now"*, *"follow-up"*, *"out of scope"*, or *"noted for the next
+sweep"* is a named reason — a break-class residual carrying only one of those phrases is fixed,
+not filed.

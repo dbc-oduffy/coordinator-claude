@@ -1,8 +1,8 @@
 # `computed-skills-conversion-checklist.md` run — B1 cluster
 
 > Purpose: the recorded outcome of running `coordinator/docs/wiki/computed-skills-conversion-checklist.md`
-> (the DR-090 discharge instrument) against the three B1-converted surfaces, as AC11 of
-> `docs/plans/2026-07-24-b1-ceremony-complete-computed-conversion.md` requires. Prior sweeps had
+> (the extraction-unit decision's discharge instrument) against the three B1-converted surfaces,
+> as AC11 of the B1 ceremony-complete computed-conversion plan requires. Prior sweeps had
 > confirmed the named tells absent by direct re-read but never recorded a run of this specific
 > instrument — this file is that record.
 
@@ -25,8 +25,8 @@ AC6 spec-backlink relocation), `coordinator/commands/autonomous.md` (44 lines).
 | Ergonomics/discharge test (AC-12/AC16) | PASS — 2 compute calls + fixed JP set replaces ~15-20 self-navigated prose steps (AC16) | PASS | PASS |
 
 **Outcome: PASS on all applicable items, all three surfaces.** No new findings — this run
-confirms, via the named instrument rather than reviewer memory of DR-090's prose, what the prior
+confirms, via the named instrument rather than reviewer memory of that decision's prose, what the prior
 2026-07-25 AC sweep had already found by direct re-read.
 
-Run 2026-07-25 as part of `docs/plans/2026-07-24-b1-ceremony-complete-computed-conversion.md`'s
+Run 2026-07-25 as part of the B1 ceremony-complete computed-conversion plan's
 AC11 close-out.

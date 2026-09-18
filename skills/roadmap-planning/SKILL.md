@@ -191,9 +191,16 @@ integrated or its skip recorded; Step 2.4's disjointness check done.
 
 Phase 2 close IS the deliverable. A stub is a baton; a fresh session picks it up via `/pickup`
 whenever ready. This skill has no execution phase and never invokes `coordinator:plan` (§
-Anti-scope — this session cannot outlive the roadmap's whole execution). Three mechanisms live
-downstream, owned by other sessions, not this run: a readiness view, gate transitions, and the
-end-of-roadmap review — full spec in `residue/downstream-mechanisms.md`.
+Anti-scope — this session cannot outlive the roadmap's whole execution).
+
+**Three mechanisms are owned downstream and never run here:** the readiness view
+(`roadmap-number-stubs --state <run-id>`); `awaiting_gate → ready_to_fire` gate transitions, made
+by some *other* session's `/handoff` or `/workstream-complete` — **never auto-transition a
+sibling's stub, and never pre-emptively mark one ready because its gate looks satisfied from
+here**; and the end-of-roadmap review, owned by whoever closes the roadmap out. **Roadmap stubs are
+NEVER handed to `/mise-en-place` directly** — its Phase 0 readiness gate rejects them by
+construction. Full spec of all three, plus the gate-meaningfulness audit whose gates this skill
+authors: wiki § Downstream mechanisms.
 
 ---
 

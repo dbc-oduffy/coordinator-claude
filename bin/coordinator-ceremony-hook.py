@@ -45,7 +45,7 @@ Contract (unchanged from the bash oracle, except `main(argv)`'s own indexing
           backslash path separators survives intact instead of being
           mis-tokenized and then echoed back mangled in this hook's own
           diagnostics. See that helper's docstring for the prior bug.
-  Redaction — the command is NEVER echoed raw. `_redact_for_diag` redacts it
+  Redaction — the command is NEVER echoed raw. `redact_for_diag` redacts it
           in the summary line and any WARN; `_metachar_warn` fires a light
           advisory tripwire on shell-metacharacter shapes.
 
@@ -135,7 +135,7 @@ _KNOWN_CEREMONIES = (
 # — the naked-python port of the former lib/coordinator-resolve-validation-cmd.sh
 # (DoE c187f5b9, 2026-07-21) this hook used to source for
 # cs_read_local_md_key / _cs_metachar_warn / _cs_redact_for_diag. See
-# that module's read_local_md_key / _metachar_warn / _redact_for_diag.
+# that module's read_local_md_key / _metachar_warn / redact_for_diag.
 
 
 def main(argv: list[str]) -> int:
@@ -222,7 +222,7 @@ def main(argv: list[str]) -> int:
         return 0
 
     rvc._metachar_warn(cmd, f"ceremony-hook:{ceremony}", caller="coordinator-ceremony-hook")
-    redacted = rvc._redact_for_diag(cmd)
+    redacted = rvc.redact_for_diag(cmd)
 
     # Argv-only contract (PM-ruled 2026-08-06, breaking change): no shell=True,
     # no compatibility path. win_argv.win_safe_shlex_split failure (e.g. an

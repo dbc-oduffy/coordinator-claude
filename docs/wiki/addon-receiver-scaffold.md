@@ -4,9 +4,7 @@ created: 2026-05-08
 status: active
 ---
 
-<!-- Imported from X:/project-rag at SHA d376cb01. Inherited substrate; canonical lineage now in Claude Central. Source: project-rag/docs/... — sibling-repo layout doctrine now lives in this repo's own wiki (the meta-repo local-doctrine file this once pointed at is retired). --> <!-- foreign-path-ok: dated import provenance, not a current-location claim -->
 
-<!-- Spec backlink: docs/plans/2026-05-08-ue-carveout-wave-2.md §D-1 §"Wave 2a" -->
 <!-- Spec backlink: tasks/ue-carveout-wave-2/PR-9-receiver-harness.md -->
 
 # Addon Receiver Scaffold (Wave 2a)
@@ -95,7 +93,6 @@ The trigger condition is hookspec contract solid: both
 a round-trip fixture-addon test green (per Phase 1 ACs). A
 second installed addon is not a precondition. Authority: plan
 §(b) "B-3 disposition"
-(`docs/plans/2026-05-16-phase-1-addon-extensible-schema.md`).
 
 ## Corpus §5 architectural calls cross-reference
 

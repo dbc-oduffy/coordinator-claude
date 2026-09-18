@@ -2,7 +2,7 @@
 
 **Purpose.** Triage, canonical fix, and test-discipline rules for Windows hidden-window child-process spawning under the Claude Code headless-bash parent, plus the console-input-mode rule that governs launching an interactive TUI. Sections 1-3 consolidate queue entries 52, 65, and 66; § 4 governs the launch chain.
 
-See also: `cross-platform-shell-portability.md` § Windows console-popup (the full layer doctrine); `coordinator/docs/wiki/coordinator-tripwires/` § WINDOWS-CONSOLE-POPUP; `docs/decisions/DR-054-*` (retirement of the execution-layer nag; creationflags-at-authoring is the canonical fix); `docs/plans/2026-06-19-windows-console-popup-coordinator-doctrine.md` (superseded in part by DR-054).
+See also: `cross-platform-shell-portability.md` § Windows console-popup (the full layer doctrine); `coordinator/docs/wiki/coordinator-tripwires/` § WINDOWS-CONSOLE-POPUP; `docs/decisions/DR-054-*` (retirement of the execution-layer nag; creationflags-at-authoring is the canonical fix).
 
 ## 1. Triage — audit session-lifecycle scripts first
 
@@ -50,7 +50,7 @@ Or use the `no_console_creationflags()` helper if your codebase ships one (see `
 
 **Do not use `Start-Process -WindowStyle Hidden` + `-RedirectStandard*` as the canonical cross-session solution.** It is unreliable for console-subsystem children (`python.exe`, `powershell.exe`, `netstat.exe`, `cmd.exe`, `git.exe`).
 
-**`git.exe` is not exempt.** Spawned with no `creationflags` from a console-less parent it allocates and shows a visible `ConsoleWindowClass` window in ~50ms, and redirecting the standard streams — the shape `capture_output=True` produces — does not suppress it. Measured across six cases with both controls discriminating: `claude-klabauter state/audits/2026-08-07-git-console-allocation-measurement.md` (claude-klabauter `03b12f87e`). The older "GUI-subsystem, exempt" claim traced to no observation at any link and is refuted; `git.exe` needs `CREATE_NO_WINDOW` like any other console child.
+**`git.exe` is not exempt.** Spawned with no `creationflags` from a console-less parent it allocates and shows a visible `ConsoleWindowClass` window in ~50ms, and redirecting the standard streams — the shape `capture_output=True` produces — does not suppress it. Measured across six cases with both controls discriminating. The older "GUI-subsystem, exempt" claim traced to no observation at any link and is refuted; `git.exe` needs `CREATE_NO_WINDOW` like any other console child.
 
 **Empirical source (queue line 65):** a daemon launcher using `Start-Process -WindowStyle Hidden -RedirectStandardOutput ...` continued to flash a console window on Windows under the Claude Code parent. Replacing with `subprocess.Popen(creationflags=CREATE_NO_WINDOW, stdin=DEVNULL)` eliminated the popup unconditionally.
 

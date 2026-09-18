@@ -2,7 +2,6 @@
 title: CorpusBand protocol — field-by-field contract
 created: 2026-05-19
 status: active
-spec_backlink: docs/plans/2026-05-19-host-side-engine-corpus-unreachable-fix.md §S-1a §S-1b
 relates_to:
   - docs/wiki/addon-protocol.md
   - docs/wiki/host-vs-addons.md
@@ -10,9 +9,8 @@ relates_to:
   - docs/wiki/engine-rag-runtime-contract.md
 ---
 
-<!-- Imported from X:/project-rag at SHA d376cb01. Inherited substrate; canonical lineage now in Claude Central. Origin: project-rag/docs/... — sibling-repo layout doctrine now lives in this repo's own wiki (the meta-repo local-doctrine file this once pointed at is retired). --> <!-- foreign-path-ok: dated import provenance, not a current-location claim -->
 
-<!-- Spec backlink: docs/plans/2026-05-19-host-side-engine-corpus-unreachable-fix.md §S-1a (CorpusBand.structural_index_resolver addition) §S-1b (this wiki) -->
+
 
 # CorpusBand Protocol
 
@@ -280,7 +278,7 @@ existing verdict (semantic match preferred over exact-string match).
 
 **Empirically (addon-EM rev-4 sweep):** the addon's `A-F-22`
 (`sentinels_absent`) and `A-F-23` (`umbrella_source_rejected`) rows failed boot
-post-`419b8d16`. Mechanical relabel succeeded: `A-F-22` → `registered_but_not_setup`
+after that change. Mechanical relabel succeeded: `A-F-22` → `registered_but_not_setup`
 (semantic match — project IS registered, a setup phase didn't run);
 `A-F-23` → `input_invalid` (exact match of actual failure verdict).
 

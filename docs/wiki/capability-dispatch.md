@@ -2,17 +2,13 @@
 title: Capability dispatch — v6 host-addon-capability surface
 created: 2026-05-16
 status: active
-spec_backlink: docs/plans/2026-05-16-w8c-v6-ratification-content-error-migration.md §T10
 relates_to:
   - docs/wiki/addon-protocol.md
   - docs/wiki/addon-receiver-scaffold.md
   - docs/wiki/thin-wrapper-graceful-fail.md
 ---
 
-<!-- Imported from X:/project-rag at SHA d376cb01. Inherited substrate; canonical lineage now in Claude Central. Sibling-repo layout doctrine lives in this repo's own wiki. --> <!-- foreign-path-ok: import provenance, not a current-location claim -->
 
-<!-- Spec backlink: docs/plans/2026-05-16-w8c-v6-ratification-content-error-migration.md §T10 (AC-10, AC-11) -->
-<!-- Spec backlink: docs/plans/2026-05-16-w8c-v6-ratification-content-error-migration.md §T1 -->
 
 # Capability dispatch
 

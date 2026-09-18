@@ -751,7 +751,9 @@ function resolveReviewers(named) {
   return { reviewers: [...new Set(resolved)], substitutions }
 }
 
-// Hand-synced from coordinator/snippets/premise-check-contract.md (C1) and
+// Hand-synced from coordinator/snippets/premise-check-contract.md (C1, classes 1-3),
+// coordinator/snippets/premise-check-class-5-semantics.md (C1, class 5 — split out of that
+// contract, and this file is its only live consumer) and
 // coordinator/snippets/instrument-can-report-red.md (C2) — NOT verify-snippet-sync-governed.
 // See tripwire `verify-snippet-sync-has-no-language-awareness.md` for why: this file is a `.mjs`
 // paste target the sync tool cannot produce valid output against. Falling back per this chunk's

@@ -3,7 +3,7 @@ title: DOM-Scraping Contract Discipline
 status: active
 kind: doctrine-wiki
 created: 2026-06-21
-provenance: state/coordinator-improvement-queue.md L61 (2026-06-08)
+provenance: coordinator improvement-queue L61 (2026-06-08)
 ---
 
 # DOM-Scraping Contract Discipline

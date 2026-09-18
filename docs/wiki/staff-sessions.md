@@ -3,11 +3,11 @@ title: Staff Sessions
 system: staff-sessions
 status: distilled
 distilled_from:
-  - archive/specs/2026-03-22-staff-sessions.md
   - plugins/coordinator/skills/requesting-staff-session/SKILL.md
 distilled_at: 2026-05-06
 distilled_run: 2026-05-06-13h00
 ---
+
 
 # Staff Sessions
 
@@ -140,4 +140,3 @@ The related antipattern — allocating a team slot to an agent whose only job is
 ## Reference
 
 - Related: [reviewer-routed-workers](reviewer-routed-workers.md)
-- Source plan: `archive/specs/2026-03-22-staff-sessions.md`

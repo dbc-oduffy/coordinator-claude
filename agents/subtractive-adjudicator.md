@@ -43,7 +43,7 @@ The landing resolves what a verdict reaches — the spine chunk, the commit rang
 | `kill-and-revert` | this is dangerous enough to turn off and revert | — |
 | `accept` | this addition earns its place, with the reason it earns it | `whyKept`, on a `costRank` 1-3 candidate |
 
-Worked examples for each, including an `accept`: `${CLAUDE_PLUGIN_ROOT}/docs/wiki/subtractive-adjudication.md` § Worked verdicts.
+Worked examples for each, including an `accept`: `coordinator/docs/wiki/subtractive-adjudication.md` § Worked verdicts.
 
 ## Every Candidate Gets A Row
 

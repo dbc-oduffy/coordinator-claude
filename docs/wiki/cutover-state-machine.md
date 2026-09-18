@@ -3,7 +3,6 @@
 Purpose: document the phase-gated migration primitive that discharges the
 widen/dual-write/retire safety property — *do not advance a phase until every
 consumer is confirmed* — as an engine-derived gate rather than operator memory.
-Spec backlink: `docs/plans/2026-07-25-cutover-state-machine.md`.
 
 ## Shipped surface
 
@@ -43,17 +42,17 @@ under-list both, and the gate cheerfully passes. The safety property survives
 only if the known set is **derived by the engine at advance time**, never read
 off the record's own claim.
 
-This is DR-084's own lesson, learned the expensive way and written down as
-*"recount before applying, not before deciding."* DR-084 widened
+This is the handoff-vocabulary overhaul's own lesson, learned the expensive way and written down as
+*"recount before applying, not before deciding."* That overhaul widened
 the handoff terminal vocabulary to add `closed` + `closed_reason`. Three days
 later an executor tried to close a genuinely dead baton (`roadmap-lvv-07`) and
 found `archive-stamp-cli` had no verb that wrote it — the widen had shipped, a
 consumer was never migrated, and nobody noticed until someone tried to use the
 new vocabulary. The record was corrupted (a zero-byte-diff archive left
-`status: open` on an archived handoff) and reverted in `f145480d`. The doctrine
+`status: open` on an archived handoff) and reverted. The doctrine
 against this failure was already written down three times before it recurred
-— DR-028 (additive-then-destructive phasing), DR-029 (multi-consumer compat
-windows), DR-084 itself (the worked instance) — and prose is precisely what
+— additive-then-destructive phasing, multi-consumer compat
+windows, and this worked instance — and prose is precisely what
 kept failing. The cutover primitive exists to make the rule discharge
 mechanically instead of by recollection.
 
@@ -76,16 +75,15 @@ derivation matches nothing. It refuses unless all hold:
 
 ## `closed_reason` on a memo-deliverable handoff — send the stand-down notice
 
-<!-- spec-backlink: docs/decisions/DR-097-sibling-notification-duty-on-terminal-events.md -->
 
-Closing a handoff into this vocabulary's `closed` + `closed_reason:` (DR-084)
+Closing a handoff into this vocabulary's `closed` + `closed_reason:` 
 is one write short of done when the handoff's own deliverable was a
 cross-repo memo to a named receiver: send that receiver a stand-down notice
 before treating the close as terminal, so their side doesn't keep watching
 for a baton that already landed. This is the DoE→sibling direction
-(claude-klabauter named per DR-097), not a fleet-wide broadcast — one receiver,
+(claude-klabauter named as the receiver), not a fleet-wide broadcast — one receiver,
 the one the deliverable was addressed to. The close itself still writes
-`closed_reason:` exactly as DR-084 defines it; the notice is the one
+`closed_reason:` exactly as the vocabulary defines it; the notice is the one
 additional step, not a replacement for it.
 
 ## `gate_source.kind` is a closed enum — the one place this wiki restates the why
@@ -95,7 +93,7 @@ Everywhere else in this primitive (`cutover.schema.json`'s `allOf`,
 *what* a derivation must cover — schema shape and engine implementation. This
 section is the only place the *why* is restated, deliberately: a rule enforced
 only in prose is re-authored per record and silently drifts, which is the
-exact pattern this plan's own Problem section indicts DR-028/DR-029/DR-084 for.
+exact pattern this plan's own Problem section indicts those three prior rulings for.
 
 `gate_source.kind` is therefore a **closed enum of engine-implemented
 derivation kinds** — one member to start, `value-vocabulary` — rather than a
@@ -103,7 +101,7 @@ free-form descriptor the operator fills in per record. Each kind binds to a
 fixed, engine-implemented derivation-mode set: `value-vocabulary` always
 enumerates both writers *and* hardcoded-enum readers, unconditionally, because
 that is what the kind IS, not an option a record author can under-select.
-DR-084's own near-miss — `consumed-marker.js`'s `TERMINAL_DEPLOYMENT`, a
+The overhaul's own near-miss — `consumed-marker.js`'s `TERMINAL_DEPLOYMENT`, a
 hardcoded-enum reader a writer-only sweep would have missed — is the concrete
 case a per-record authoring choice would have reproduced inside the gate
 itself. Binding the mode set to the kind converts *"the operator must
@@ -166,7 +164,7 @@ vocabulary cutover.
 
 Signal 2's re-verification is only as durable as the paths inside the refs, and
 those paths point into a repo whose EM owes this record nothing. On 2026-07-25,
-Claude-klabauter's `3e818e6b` renamed 63 `coordinator/bin/*.test.py` files to
+Claude-klabauter renamed 63 `coordinator/bin/*.test.py` files to
 pytest-collectable names — a good change, correctly scoped to their own tree —
 and in doing so invalidated **nine** `verified_by` refs held by a single DoE-side
 cutover record (`closed-reason-terminal`). Nothing on either side noticed. It
@@ -269,14 +267,14 @@ would have caught drifting from it. The operational lesson: a gate whose job
 is to prevent silent gaps needs to be run against its own worked examples
 before being trusted, not just unit-tested in isolation.
 
-## `close-handoff --reason` — the verb DR-084 needed and didn't have
+## `close-handoff --reason` — the verb the vocabulary overhaul needed and didn't have
 
 <!-- spec-backlink: run 2026-08-06-14h38, nugget c7-030 -->
 
-`close-handoff --reason` is now a landed verb, filling the vocabulary gap
-DR-084 widened for but never wired a writer to. This is the concrete fix for
+`close-handoff --reason` is now a landed verb, filling the vocabulary gap the overhaul 
+widened for but never wired a writer to. This is the concrete fix for
 the exact gap the `roadmap-lvv-07` corruption (§ The derive-don't-trust rule,
-above) exposed three days after DR-084 shipped: the vocabulary existed, but no
+above) exposed three days after that overhaul shipped: the vocabulary existed, but no
 CLI verb could write `closed` + `closed_reason` for a handoff, so an executor
 trying to close a genuinely dead baton had no compliant path and the record
 was hand-edited into a corrupt (zero-byte-diff, still `status: open`) state
@@ -315,11 +313,11 @@ convention for the same thing.
 
 ## Prior art this structuralises
 
-- **DR-028** — additive-then-destructive phasing.
-- **DR-029** — multi-consumer compat windows.
-- **DR-084** — the worked instance ("recount before applying, not before
+- **Additive-then-destructive phasing**.
+- **Multi-consumer compat windows**.
+- **The handoff-vocabulary overhaul** — the worked instance ("recount before applying, not before
   deciding") and the live near-miss (`archive-stamp-cli`) this primitive's
-  first exemplar record (`state/roadmap/lifecycle-vocab/cutovers/closed-reason-terminal.md`)
+  first exemplar record 
   tracks.
 
 ## Established cross-repo pattern — reader-first ordering
@@ -331,7 +329,7 @@ the producer's widen. This follows the already-ratified reader-first rule:
 reader-first widen is a *consumer* responsibility, and that section's own
 header instructs callers to reference the established pattern rather than
 re-derive it. The narrower producer-emit-hold-removal /
-reader-first-consumer-owned memo (`cross-repo/archive/2026-07-08-claude-klabauter-em-claude-klabauter-cockpit-v290-and-emit-hold-doctrine.md`)
+reader-first-consumer-owned memo 
 is the concrete instance of the same rule this plan cites elsewhere; this wiki
 is its canonical, repo-general form — the memo stays scoped to its own
 producer/consumer pair, this page is where the rule lives for every future
@@ -365,7 +363,7 @@ cutover.
 Re-derived at pickup, per the baton's own acceptance criterion: **12 live
 consumer files across ~7 distinct cutover surfaces**
 (`closed-reason-terminal`, the plan/initiative/goal `abandoned`→`closed_reason`
-rename, the flat-tree removal two-gate cutover, the DR-084 skill-layer/bin
+rename, the flat-tree removal two-gate cutover, the skill-layer/bin
 `claimed_by`/`consumed_by` dual-read window, the cockpit-contract
 `owner`→`repo_owner` rename, the cockpit-contract v2.7.0 `backlog_history`
 reader-widen-before-emit dance, and the owner-axis vocabulary freeze/contract
@@ -381,12 +379,7 @@ asking for the same underlying cutover.
 - `coordinator/docs/wiki/schema-version-gate.md` § Reader-first ordering, §
   Dual-gate requirement.
 - `coordinator/docs/wiki/cross-repo-handshake-doctrine.md`.
-- `docs/plans/2026-07-08-producer-emit-hold-removal-reader-first-consumer-owned.md`.
 - `coordinator/docs/wiki/invisible-doctrine.md` § The discharge test.
-- `docs/decisions/DR-028-cutover-phasing-additive-then-destructive.md`,
-  `docs/decisions/DR-029-multi-consumer-durable-surface-compat-window-migration.md`,
-  `docs/decisions/DR-084-handoff-lifecycle-vocabulary-overhaul-open-claimed-continued-closed.md`.
 - `state/cross-repo-commitments/*.yaml`,
   `coordinator/schemas/cross-repo-commitment.schema.json`.
 - `state/migration-kill-list/`.
-- `docs/plans/2026-07-25-cutover-state-machine.md` — the authorizing plan.

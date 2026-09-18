@@ -1,8 +1,6 @@
 # Schema-Version Gate
 
-> Spec backlink: docs/plans/2026-06-27-ccos-1-dual-context-validator.md § W2 (ccos-1)
-> Gate implementation: claude-klabauter `coordinator_core/frontmatter/schema_validate.py` — `validate_frontmatter()` (write/refuse-on-newer path) and `validate()` (read/warn-on-newer path); `schema.js` was deleted in claude-klabauter `480ad8f8`
-
+> Gate implementation: claude-klabauter `coordinator_core/frontmatter/schema_validate.py` — `validate_frontmatter()` (write/refuse-on-newer path) and `validate()` (read/warn-on-newer path); `schema.js` was deleted
 The coordinator uses a schema-version gate to detect cross-repo contract drift at
 validation time.  The gate is **opt-in** (schemas and records without the relevant
 fields pass through unchanged) and operates on **major-version differences only**
@@ -101,7 +99,7 @@ the tolerance gets attached to *one function* rather than to the *role*, and eve
 reaching the same check through a different entry point silently keeps the strict behaviour.
 
 **Concrete precedent (greppable).** After the C10 baton-`kind` narrow stranded sibling records,
-Claude-klabauter `d2b28ac9` added D1 pre-rename alias tolerance so legacy batons stay claimable. It
+Claude-klabauter added D1 pre-rename alias tolerance so legacy batons stay claimable. It
 applied `_tolerate_handoff_kind_aliases` as a post-process inside `validate_frontmatter()` and
 deliberately excluded `_dispatch_validate()`, on the correct stated principle that *"alias tolerance
 is a reader contract, not a writer one."* It also shipped a parity test driving both arms over the
@@ -150,7 +148,6 @@ triggers only apply to their own record class.
 
 ### Additive-bump holding/non-holding split
 
-<!-- spec-backlink: docs/decisions/DR-097-sibling-notification-duty-on-terminal-events.md -->
 
 **Scoping note (read first):** the `nested-field-additive` **holding** rule below applies
 **only to the `CONTRACT_VERSION` axis** — the cockpit-emission / cockpit consumer path (row
@@ -182,10 +179,8 @@ consumer re-vendor.
 
 ### Bump-class extension key — making the CLASS machine-readable
 
-<!-- spec-backlink: docs/decisions/DR-097-sibling-notification-duty-on-terminal-events.md -->
-<!-- spec-backlink: cross-repo/inbox/2026-07-26-claude-klabauter-em-dr083-bump-memo-extension-and-ahead-standdown-protocol.md (ask #2 part B) -->
 
-**This key implements DR-097, it does not propose it.** `docs/decisions/DR-097-sibling-notification-duty-on-terminal-events.md`
+**This key implements the sibling-notification duty, it does not propose it.** That decision's
 § Trigger (A) already ratifies both the requirement and the vocabulary: "The (A) notification
 must state the bump's CLASS — `top-level-array-additive`, `nested-field-additive`,
 `enum-value-additive`, or `major` — not merely that a bump occurred... a bare 'we bumped' notice
@@ -226,13 +221,13 @@ do not invent new terms):
 |---|---|
 | `top-level-array-additive` | A new array field added at the document's top level (e.g. `handoff.schema.json`'s `carried_items`, `handoff-archived.schema.json`'s `disposed_successors`). |
 | `nested-field-additive` | A new field added on an existing entity object — top-level scalar/object or nested inside an array item (e.g. `cross-repo-memo.schema.json`'s `to_repo`, `strategic-self-description.schema.json`'s `depends_on[].strength`). |
-| `enum-value-additive` | One or more values added to an existing closed enum on an existing field — no field added, no field removed, no existing value's semantics changed (e.g. `sizing-object.schema.json`'s `detents[]` enum gaining `premise_unproven` and `premise_not_applicable`). **Note:** that widen did not land as a standalone, cleanly-classed bump — it was folded into a bundled 1.3.0→1.5.0 commit alongside the required-`premise` add, and the bundled bump's own recorded `x-bump-class` is `major`, because the most restrictive of the bundled changes' classes governs the whole commit. The standalone reference instance is `percolate-store.schema.json` 1.2.0→1.3.0 (`cd6d1b8325c0`): two values added across two enums, nothing else in the commit, recorded `x-bump-class` `enum-value-additive`. |
+| `enum-value-additive` | One or more values added to an existing closed enum on an existing field — no field added, no field removed, no existing value's semantics changed (e.g. `sizing-object.schema.json`'s `detents[]` enum gaining `premise_unproven` and `premise_not_applicable`). **Note:** that widen did not land as a standalone, cleanly-classed bump — it was folded into a bundled 1.3.0→1.5.0 commit alongside the required-`premise` add, and the bundled bump's own recorded `x-bump-class` is `major`, because the most restrictive of the bundled changes' classes governs the whole commit. The standalone reference instance is `percolate-store.schema.json` 1.2.0→1.3.0: two values added across two enums, nothing else in the commit, recorded `x-bump-class` `enum-value-additive`. |
 | `major` | A breaking change — a required field added, a field removed, or existing semantics changed (e.g. `review-findings.schema.json` 1.0.0→2.0.0 made `status` required, breaking the old bare-prose no-frontmatter shape). |
 
 **A class alone never determines holding behaviour — the axis does too, and this key sits on
 only one of the two.** `x-bump-class` is scoped to the `x-schema-version` axis (§ Two-axis
 version scheme above) — the on-disk record-schema axis this whole document governs — not the
-separate `CONTRACT_VERSION` axis (cockpit-emission entities). Per DR-097 § Reconciliation, the
+separate `CONTRACT_VERSION` axis (cockpit-emission entities). Per the sibling-notification duty's § Reconciliation, the
 two axes do **not** apply the same holding rule to the same class name:
 
 - **`nested-field-additive` on `x-schema-version` (this key's home axis) is holding
@@ -241,7 +236,7 @@ two axes do **not** apply the same holding rule to the same class name:
   Every `nested-field-additive` value this key ever carries follows reader-first / dual-gate
   discipline in full.
 - **`top-level-array-additive` is axis-agnostic** — non-holding on `x-schema-version` too, per
-  DR-097, but only against a consumer set that has declared
+  the sibling-notification duty, but only against a consumer set that has declared
   BOTH structural and version-envelope tolerance (the two-dimensional predicate in § Additive-bump
   holding/non-holding split); absent that declaration it reverts to bilateral-sequencing on this
   axis exactly as on the other.
@@ -321,7 +316,6 @@ exist, is a candidate follow-up and is explicitly **not** implemented by this ch
 
 ### Pin-gate two-hash split — `shape_hash` gates, `content_hash` is advisory
 
-<!-- spec-backlink: docs/plans/2026-07-31-pin-gate-shape-hash.md -->
 
 `coordinator/schemas/schema-version-pins.json` pins each of the 58 versioned schemas with
 **two** hash fields plus `x-schema-version`:
@@ -339,7 +333,7 @@ exist, is a candidate follow-up and is explicitly **not** implemented by this ch
 **`shape_hash` is what `test_schema_version_pin.py::test_schema_shape_hash_matches_pin` gates
 on.** It strips both pure-prose *annotations* — `description` and `$comment` (but not a property
 literally named either one —
-see § The trap the obvious implementation walks into, `docs/plans/2026-07-31-pin-gate-shape-hash.md`)
+see § The trap the obvious implementation walks into, `2026-07-31-pin-gate-shape-hash.md` under `docs/plans/`)
 before hashing, so a prose-only edit to an annotation cannot move it. **`$comment` is included in
 the strip set** because this corpus parks multi-paragraph cross-field-rule rationale in
 `$comment` beside a two-line `if`/`then`; the JSON-Schema spec gives `$comment` no validation
@@ -351,7 +345,7 @@ refreshed by the same regenerator on every run but is not itself gated** — the
 pass/fail weight.
 
 **A description-only edit moves `content_hash` alone, and that is not a bump.** It owes no
-`x-bump-class` and no sibling notification under DR-097. This is not a new ruling — § Bump-class
+`x-bump-class` and no sibling notification duty. This is not a new ruling — § Bump-class
 extension key above already settled it for `x-bump-class`, for exactly the same reason:
 
 > Where a schema's most recent version change was a pure routing/metadata edit (an `applies_to`
@@ -362,7 +356,7 @@ extension key above already settled it for `x-bump-class`, for exactly the same 
 
 This plan extends that same settled conclusion to the pin gate's hash mechanics: a
 description-only edit is not a bump there either, so it gets no `shape_hash` movement, no
-`x-bump-class`, and no DR-097 notice.
+`x-bump-class`, and no sibling-notification notice.
 
 **This is not "nothing happens" for a genuine description rewrite, though.** Because the
 regenerator (`python3 coordinator/tests/test_schema_version_pin.py --regen`) refreshes
@@ -371,9 +365,9 @@ line moving in the pin file with **no** `shape_hash` movement is a precise, zero
 human-readable "prose changed here, no shape delta" signal, visible in the pin-file diff at PR
 review time. No new gate and no new warning channel were added to produce it; it falls out of
 the regenerator refreshing both fields on every invocation (§ Anti-scope,
-`docs/plans/2026-07-31-pin-gate-shape-hash.md`).
+`2026-07-31-pin-gate-shape-hash.md` under `docs/plans/`).
 
-**Worked example:** `a7524193c` — a description-only re-vendor from `claude-klabauter` — tripped
+**Worked example:** a description-only re-vendor from `claude-klabauter` — tripped
 two pins under the pre-split gate (which hashed `description` prose alongside shape) and had to
 be cleared by editing `content_hash` by hand, with no mechanical evidence that the shape had
 actually held still. That incident is what motivated this split: after it, the same re-vendor
@@ -392,7 +386,6 @@ no class.
 
 #### Cross-boundary semantic shape — the third axis
 
-<!-- spec-backlink: docs/plans/2026-08-06-vendored-parity-equal-version-discriminator.md -->
 
 Three independent axes now govern a vendored schema, and the vendored-parity duty gate
 (`coordinator/tests/test_vendored_schema_version_parity.py`) reads a different one of them at
@@ -415,7 +408,7 @@ each decision point:
 
 **Neither a `description`/`$comment` delta NOR an `x-bump-*` authoring-annotation delta is
 drift.** The first is already-ratified doctrine — this same section, and
-`docs/plans/2026-07-31-pin-gate-shape-hash.md` — and this section inherits it unchanged. The
+`2026-07-31-pin-gate-shape-hash.md` under `docs/plans/` — and this section inherits it unchanged. The
 second is new here and needs its own reason stated: `x-bump-class`/`x-bump-note` are DoE-side
 metadata *about* a bump, not document shape — a validator behaves identically with or without
 them, and claude-klabauter's vendored copies of `cross-repo-commitment.schema.json` and
@@ -431,12 +424,12 @@ table claude-klabauter's `coordinator_core/contract/cockpit_schema/entities/summ
 of the vendored copy**; its own docstring (:255-259) says a missing `x-baton-class.mapping`
 entry nulls silently absent a parity gate. A glob would absorb exactly that key.
 
-**This gate detects equal-version shape drift; it does NOT discharge or replace DR-097's
+**This gate detects equal-version shape drift; it does NOT discharge or replace the sibling-notification duty's
 push-side notification duty.** Those are independent obligations answering different questions:
 this section's gate tells you whether two vendored copies of a schema currently validate
 identically; § Push-side duty on a vendored-schema bump (immediately below) governs whether a
 bump owed an explicit notice to the sibling that vendors it. Passing this gate is not evidence
-DR-097's duty was discharged, and discharging DR-097's duty does not exempt a schema from this
+that duty was discharged, and discharging it does not exempt a schema from this
 gate.
 
 **A red-by-design gate gets suppressed within a week** — which is why the discriminator is
@@ -452,17 +445,16 @@ benign entries at HEAD today, measured against both repos' committed `HEAD`:
 
 ### Push-side duty on a vendored-schema bump
 
-<!-- spec-backlink: docs/decisions/DR-097-sibling-notification-duty-on-terminal-events.md -->
 
 Everything above governs **pull-side** discipline: how a consumer's validator reacts once it
 reads a record against a schema it may not have re-vendored yet. It does not, by itself, tell
 DoE-claude to *tell* claude-klabauter a vendored schema bumped — that push-side duty is
-`DR-097`. Read this doc first for whether/how a bump is holding or non-holding; DR-097 governs
+the sibling-notification duty. Read this doc first for whether/how a bump is holding or non-holding; that duty governs
 whether the bump also owes an explicit notice to the sibling that vendors it. The two are
-independent: a non-holding `top-level-array-additive` bump can still trigger DR-097's notice
+independent: a non-holding `top-level-array-additive` bump can still trigger that duty's notice
 duty, and a holding bump does not get a free pass on it either.
 
-The parity guard that keeps the vendored set enumerated (12 schemas, not 14 — see DR-097) lives
+The parity guard that keeps the vendored set enumerated (12 schemas, not 14 — see that decision) lives
 at `coordinator/tests/test_vendored_schema_version_parity.py`; it is the mechanical
 backstop that catches an unnotified bump on the next test run, not a substitute for sending the
 notice at bump time.
@@ -475,14 +467,12 @@ notice at bump time.
 
 Always widen the **consumer** before bumping the **producer**.
 
-**Fleet-altitude rollback/pre-flight record:** `docs/decisions/DR-202-major-contract-version-bump-rollback-contract.md`
+**Fleet-altitude rollback/pre-flight record:** the major-contract-version-bump rollback contract under `docs/decisions/`
 states this ordering as the fleet-general reversibility/pre-flight/coordination-primitive/
 unmigrated-consumer contract for ANY cross-repo MAJOR contract-version bump, not the cockpit
 contract alone — this section is its reader-first ratification, with `DECISIONS.md` § D34 (9) as
 the cockpit-specific instance.
 
-> Sources: `state/improvement-queue/2026-06-27-reader-first-ordering-for-contract-bump.yaml`,
-> `state/improvement-queue/2026-06-23-contract-version-cutover-must-widen-the.yaml`.
 
 The correct sequence for a major-version bump:
 
@@ -511,7 +501,7 @@ does not have its own `schema_version` assertion.
 Rule: every cross-repo schema cutover needs **both**:
 - a producer drift gate (this validator, `mode: 'write'`), AND
 - a consumer-side ingest-time `schema_version` fail-loud assertion (e.g. Cockpit's
-  `checkSchemaVersion`, major-only — see `example-cockpit-repo/docs/decisions/2026-07-07-cockpit-live-remote-per-repo-observation-model.md`).
+  `checkSchemaVersion`, major-only — see `2026-07-07-cockpit-live-remote-per-repo-observation-model.md` under example-cockpit-repo's `docs/decisions/`).
 
 A producer-only gate gives false confidence.  The dual-gate principle holds regardless
 of which specific consumer-side assertion is in play: a producer gate alone never
@@ -531,7 +521,7 @@ absent (check the registry path and the correct dir name) rather than inferring 
 ### Outage-gate implication (cross-plan dependency for ccos-8)
 
 A consumer's ingest-time `schema_version` assertion (e.g. Cockpit's
-`checkSchemaVersion` — see `example-cockpit-repo/docs/decisions/2026-07-07-cockpit-live-remote-per-repo-observation-model.md`)
+`checkSchemaVersion` — see `2026-07-07-cockpit-live-remote-per-repo-observation-model.md` under example-cockpit-repo's `docs/decisions/`)
 gates on **MAJOR mismatch or malformed version only**: same-major bumps are accepted
 at **any minor** (cockpit has no minor floor) — a higher minor warns and ignores
 unknown arrays; a lower minor warns and proceeds.  Cockpit does **not** hard-throw on
@@ -547,7 +537,7 @@ bump against a declared-tolerant consumer set is exempt from this hold):
   confirms re-vendor.
 - The bump sequence follows reader-first ordering strictly (§ above).
 
-See `docs/decisions/DR-202-major-contract-version-bump-rollback-contract.md` for the fleet-general
+See that rollback contract for the fleet-general
 pre-flight checklist a bumping plan runs before this hold engages.
 
 **The first cross-repo consumer of `x-schema-version` triggers D13-style bilateral
@@ -616,14 +606,14 @@ narrowed `coordinator/schemas/handoff.schema.json`'s live `kind` enum, retiring
 `spinoff-goal`/`spinoff-roadmap`/`spinoff-roadmap-creator`. The plan HAD a gate for exactly this —
 chunk C5, "Consumer-corpus pre-flight" (claude-klabauter
 `coordinator_core/ops/fleet/consumer_corpus_preflight.py`) — and C5's own module docstring names
-**DR-084** (an earlier producer-scoped-oracle failure) as the incident it was purpose-built to fix.
+**the handoff-lifecycle vocabulary overhaul** (an earlier producer-scoped-oracle failure) as the incident it was purpose-built to fix.
 It failed anyway, on the same pattern, for three structural reasons: its `FLEET_REPO_KEYS` dict was
 a hardcoded four repos, omitting 2 of the 3 repos actually stranded; it reported raw per-kind counts
 without ever loading the schema, so it never exited non-zero on an off-enum value, only on an
 unresolvable repo; and nothing invoked it — no hook, ceremony, or CI binding wired it into the
 cutover. Result: 59 sibling records went unclaimable across example-cockpit-repo (25),
-project-rag-ue-addon (21), and example-game-workbench-repo (13) — a purpose-built fix for DR-084's exact
-failure mode recurred anyway, because the fix itself inherited DR-084's shape (hand-maintained
+project-rag-ue-addon (21), and example-game-workbench-repo (13) — a purpose-built fix for that incident's exact
+failure mode recurred anyway, because the fix itself inherited that incident's shape (hand-maintained
 consumer list, no fail-loud). **A purpose-built gate is not proof against the failure it was built
 to fix if it reintroduces the same hardcoded-consumer-set shape.**
 
@@ -689,7 +679,7 @@ verifiably inert against a ref-flat pin — identical ok/drift/unmatched counts 
 *before* the bump rather than under crash pressure.
 
 (Source: project-rag, `bin/validate-artifacts.py` on the v1.12.0→v3.0.0 pin flip;
-fixed in `dbdbb0c14`. Post-fix the bump was a substantial net win there — drift 316→68, coverage
+fixed. Post-fix the bump was a substantial net win there — drift 316→68, coverage
 2686→3152 artifacts — which is exactly why the consumer defect must not be allowed to look like a
 contract regression.)
 
@@ -728,7 +718,7 @@ these are permanently valid — not technical debt.
 |---|---|
 | `schemas/lesson-entry.yaml` | Uses `match_mode: inline-tag-per-entry` — validated by `validateLessonsFile`, not the frontmatter path.  JSON Schema frontmatter validation is irrelevant for inline-tagged lesson entries; migrating would add noise without benefit. |
 | `schemas/review-trail.yaml` | Validates `.json` records, not markdown frontmatter.  The lint tool skips `.json` files, so this schema is exercised by a different code path (`validate_frontmatter()` on emitted JSON blobs).  Migrating to `.schema.json` would collide with the loader's file-extension heuristic for the JSON Schema path. |
-| `schemas/bug-backlog.yaml` | **Validated via the native schema seam.** Validated at write time by `bin/coordinator-queue-append.py` via `coordinator_core/frontmatter/schema_cli.py`'s `describe()`/`validate()` (the byte-identical parity successor to the deleted `schema-cli.js`, claude-klabauter `480ad8f8`), which reads the YAML-dialect shape directly (not JSON Schema); `schema_loader.py` does not cover this schema — see option (d). |
+| `schemas/bug-backlog.yaml` | **Validated via the native schema seam.** Validated at write time by `bin/coordinator-queue-append.py` via `coordinator_core/frontmatter/schema_cli.py`'s `describe()`/`validate()` (the byte-identical parity successor to the deleted `schema-cli.js`, which reads the YAML-dialect shape directly (not JSON Schema); `schema_loader.py` does not cover this schema — see option (d). |
 | `schemas/debt-backlog.yaml` | Native-seam-validated (see bug-backlog). |
 | `schemas/improvement-queue.yaml` | Native-seam-validated (see bug-backlog). |
 | `schemas/lessons-outbox.yaml` | Native-seam-validated (see bug-backlog). |

@@ -28,7 +28,6 @@ The receipt surface and the identity surface are deliberately **not** merged int
 
 ## Scope of this doctrine: runtime-queryable state only
 
-<!-- Narrowing amendment. Source: docs/plans/2026-05-19-coordinator-installer-redesign.md (the Director of Engineering review Conflict #1, direction: both). Framing: narrowing, not overturning — the three-EM consensus on runtime-identity is preserved. -->
 
 The decay-discipline described in this wiki applies to **runtime-queryable plugin state** — MCP binding, daemon PID, consumer-project path, current binding state. These are the artifacts whose live source makes on-disk persistence an active lie after a state change.
 
@@ -107,10 +106,6 @@ Both are receipt/health-shaped, not identity-shaped. Both unblock when a concret
 
 ## Cross-references
 
-- `~/.claude/cross-repo/archive/2026-05-19-project-rag-host-em-whoami-sentinel.md` — original consult to host EM (grandfathered pre-cutoff memo)
-- `~/.claude/cross-repo/archive/2026-05-19-project-rag-host-em-whoami-sentinel.reply.md` — host EM reply (canonical statement of the writer-boundary rule)
-- `~/.claude/cross-repo/archive/2026-05-19-project-rag-addon-em-whoami-sentinel.cover.md` — addon EM consult after host reply
-- `~/.claude/cross-repo/archive/2026-05-19-project-rag-em-whoami-sentinel.md` — initial addon EM consult
 
 ## Decision shape (for the next person to find this)
 

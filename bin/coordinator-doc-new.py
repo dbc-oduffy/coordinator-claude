@@ -197,6 +197,7 @@ _BOOTSTRAP_DONE = False
 # derived constant comes from.
 _BOOTSTRAPPED_NAMES = (
     "lib",
+    "_resolve_console_python",
     "_memo_compose",
     "_today",
     "_yaml_quote",
@@ -280,6 +281,7 @@ def _bootstrap_engine() -> None:
         return
     try:
         _ensure_bin_lib_bootstrapped()
+        from python_interp import resolve_console_python as _resolve_console_python  # noqa: E402
         from memo_compose import (  # noqa: E402
             compose_memo as _memo_compose,  # Review: code-reviewer S3-F3 — use compose_memo (full-doc composer) instead of compose_frontmatter + manual concat
             _today,
@@ -683,11 +685,13 @@ def _machine_local_impl() -> str:
     """Return the path to _machine_local.py, honouring MACHINE_LOCAL_IMPL for tests.
 
     NOTE: MACHINE_LOCAL_IMPL must point to a Python script (.py). This function
-    always invokes it via sys.executable (never as a raw executable), so the stub
-    convention cross-repo-memo uses (run-as-executable if path doesn't end in .py)
-    does not apply here. Tests that override MACHINE_LOCAL_IMPL must provide a .py file.
-    # Review: code-reviewer S3-F5 — documents that sys.executable is always prepended;
-    # mirrors the constraint instead of silently differing from cross-repo-memo's ext check.
+    always invokes it via the shared resolver's console interpreter (never as a
+    raw executable), so the stub convention cross-repo-memo uses (run-as-executable
+    if path doesn't end in .py) does not apply here. Tests that override
+    MACHINE_LOCAL_IMPL must provide a .py file.
+    # Review: code-reviewer S3-F5 — documents that the resolved interpreter is always
+    # prepended; mirrors the constraint instead of silently differing from
+    # cross-repo-memo's ext check.
 
     Security: MACHINE_LOCAL_IMPL is validated before use — must be an absolute path to
     an existing .py file. An unvalidated env var reaching subprocess.run as an arg is an
@@ -718,10 +722,14 @@ def _machine_local_impl() -> str:
 
 def _machine_local_get(key: str) -> str | None:
     """Call machine-local get <key> and return the value, or None on failure."""
+    _bootstrap_engine()
     impl = _machine_local_impl()
+    interpreter = _resolve_console_python()
+    if interpreter is None:
+        return None
     try:
         result = subprocess.run(
-            [sys.executable, impl, "get", key],
+            [interpreter, impl, "get", key],
             capture_output=True, text=True,
         )
     except OSError:
@@ -741,10 +749,14 @@ def _machine_local_dump_repos() -> dict[str, str]:
     parseable stdout is a partial/crashed dump, not a value to trust);
     callers already tolerate an empty/partial paths table.
     """
+    _bootstrap_engine()
     impl = _machine_local_impl()
+    interpreter = _resolve_console_python()
+    if interpreter is None:
+        return {}
     try:
         result = subprocess.run(
-            [sys.executable, impl, "dump", "--prefix", "repos", "--format", "json"],
+            [interpreter, impl, "dump", "--prefix", "repos", "--format", "json"],
             capture_output=True, text=True,
         )
     except OSError:
@@ -760,10 +772,14 @@ def _machine_local_dump_repos() -> dict[str, str]:
 
 def _machine_local_repos_keys() -> list[str]:
     """Return all repos.* keys from the machine-local registry."""
+    _bootstrap_engine()
     impl = _machine_local_impl()
+    interpreter = _resolve_console_python()
+    if interpreter is None:
+        return []
     try:
         result = subprocess.run(
-            [sys.executable, impl, "keys"],
+            [interpreter, impl, "keys"],
             capture_output=True, text=True,
         )
     except OSError:
@@ -1008,13 +1024,18 @@ def _resolve_state_root(central: bool = False) -> str | None:
     can degrade gracefully (fallback to repo-root anchoring on un-migrated installs).
     Negative-spec: does NOT call coordinator_state_root with both flags at once.
     """
+    _bootstrap_engine()
     script_dir = os.path.dirname(os.path.abspath(__file__))
     # This script lives in bin/; the lib is at bin/../lib/ = coordinator/lib/.
     lib_dir = os.path.join(script_dir, "..", "lib")
     state_root_py = os.path.realpath(os.path.join(lib_dir, "coordinator-state-root.py"))
     if not os.path.isfile(state_root_py):
         return None
-    cmd = [sys.executable, state_root_py]
+    interpreter = _resolve_console_python()
+    if interpreter is None:
+        # A None from the resolver takes the same branch as an OSError below.
+        return None
+    cmd = [interpreter, state_root_py]
     if central:
         cmd.append("--central")
     try:
@@ -1074,6 +1095,7 @@ def _mint_deliverable_id(
             file=sys.stderr,
         )
         return deliverable_id
+    _bootstrap_engine()
     script_dir = os.path.dirname(os.path.abspath(__file__))
     mint_script = os.path.join(script_dir, "mint-deliverable-id.py")
     if not os.path.isfile(mint_script):
@@ -1084,9 +1106,12 @@ def _mint_deliverable_id(
         cmd_args = ["--slug", slug]
     else:
         return None
+    interpreter = _resolve_console_python()
+    if interpreter is None:
+        return None
     try:
         result = subprocess.run(
-            [sys.executable, mint_script] + cmd_args,
+            [interpreter, mint_script] + cmd_args,
             capture_output=True,
             text=True,
             **_no_console_creationflags(),
@@ -1981,9 +2006,14 @@ def _delegate_to_queue_append(doc_type: str) -> None:
     here would be a product decision (e.g. "open" is not universally correct)
     this scaffold has no authority to make.
     """
+    _bootstrap_engine()
     delegate = _find_sibling_binary("coordinator-queue-append.py")
     passthrough = _argv_without_type()
-    cmd = [sys.executable, delegate, "--schema", doc_type] + passthrough
+    interpreter = _resolve_console_python()
+    if interpreter is None:
+        print("error: no console Python interpreter could be resolved.", file=sys.stderr)
+        sys.exit(1)
+    cmd = [interpreter, delegate, "--schema", doc_type] + passthrough
     result = subprocess.run(
         cmd,
         capture_output=True,
@@ -2009,9 +2039,14 @@ def _delegate_to_lesson_promote() -> None:
     Negative-spec: does NOT append to lessons.md — that surface stays a direct-append
     low-friction operation; this scaffolder is for the outbox/promote altitude only.
     """
+    _bootstrap_engine()
     delegate = _find_sibling_binary("coordinator-lesson-promote.py")
     passthrough = _argv_without_type()
-    cmd = [sys.executable, delegate] + passthrough
+    interpreter = _resolve_console_python()
+    if interpreter is None:
+        print("error: no console Python interpreter could be resolved.", file=sys.stderr)
+        sys.exit(1)
+    cmd = [interpreter, delegate] + passthrough
     result = subprocess.run(cmd, **_no_console_passthrough_kwargs())
     sys.exit(result.returncode)
 
@@ -2021,9 +2056,9 @@ def _delegate_to_workflow_scaffold() -> None:
 
     workflow.scaffold is a COMPUTE_ONLY claude-klabauter op — it returns Workflow-skeleton
     text, it does not write a frontmatter document. There is no local schema to
-    scaffold; the veneer is a Python bin invoked via sys.executable (owns the
-    cc_invoke transport seam), not a schema-generating scaffold itself. All
-    sys.argv args (minus --type)
+    scaffold; the veneer is a Python bin invoked via the shared resolver's
+    console interpreter (owns the cc_invoke transport seam), not a
+    schema-generating scaffold itself. All sys.argv args (minus --type)
     are forwarded verbatim to the veneer.
 
     --repo is NEVER injected here. workflow.scaffold is a "none"-scoped op, so
@@ -2037,6 +2072,7 @@ def _delegate_to_workflow_scaffold() -> None:
     Negative-spec: does NOT parse or validate --name/--phase/--pattern here — the
     veneer owns all flag parsing and the op contract. This function only forwards.
     """
+    _bootstrap_engine()
     delegate = _find_sibling_binary("coordinator-workflow-scaffold.py")
     passthrough = _argv_without_type()
     # An empty-string --repo value ("--repo ""` or `--repo=`) is treated the same
@@ -2048,7 +2084,11 @@ def _delegate_to_workflow_scaffold() -> None:
         if _idx + 1 < len(passthrough) and passthrough[_idx + 1] == "":
             del passthrough[_idx : _idx + 2]
     passthrough = [a for a in passthrough if a != "--repo="]
-    cmd = [sys.executable, delegate] + passthrough
+    interpreter = _resolve_console_python()
+    if interpreter is None:
+        print("error: no console Python interpreter could be resolved.", file=sys.stderr)
+        sys.exit(1)
+    cmd = [interpreter, delegate] + passthrough
     # Explicit capture-then-forward, not bare stdio inheritance: a parent
     # whose OWN stdout is already a redirected pipe (the common shape for
     # any caller that itself captures this CLI's output — see

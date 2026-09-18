@@ -92,7 +92,7 @@ hook-quoting issue is solving an already-solved problem with a retired mechanism
 
 ## python-direct shims
 
-Wave 0 of the Windows de-bash campaign (`docs/plans/2026-07-19-debash-coordinator-windows.md`)
+Wave 0 of the Windows de-bash campaign 
 rewrote the `.cmd`/`.ps1` shims for every `bin/*` entrypoint that is a pure `.py` file or an
 sh/python polyglot to be **python-direct**: they resolve an interpreter and run the entrypoint
 directly, with `py -3` demoted to a last-resort tier instead of being the primary route the older
@@ -127,8 +127,7 @@ modeled on the retired `python3.cmd`'s fast-path rationale — see "What the shi
 **Shims converted to this shape (Wave 0):** `claude-home.cmd`/`.ps1` (generator-produced),
 `coordinator-lesson-add.cmd`, `coordinator-doc-new.cmd`, `mint-deliverable-id.cmd`,
 `coordinator-queue-append.cmd`, `cross-repo-memo.cmd` (all seven now share the same 3-tier ladder;
-twin filenames never carry the target's language extension — claude-klabauter erratum, landed
-`b4707679` — the installed forwarder twin in the settings-home `bin/` dir is `mint-deliverable-id.sh.cmd`,
+twin filenames never carry the target's language extension — claude-klabauter erratum — the installed forwarder twin in the settings-home `bin/` dir is `mint-deliverable-id.sh.cmd`,
 keeping `.sh` in the installed name for caller-path stability, a known parked PATHEXT quirk).
 `templates/bin/machine-local.cmd` also converted — its bash target's only value was locating
 `_machine_local.py` via the settings-home seam and picking an interpreter, so that path-resolution
@@ -143,15 +142,13 @@ the bare name to the `.ps1` twin ahead of the `.cmd` twin — on both pwsh 7 and
 5.1, despite `.PS1` being absent from `PATHEXT`. This is **observed and pinned by a claude-klabauter
 regression test, not a documented Microsoft guarantee** — treat it as empirical behavior to keep
 verifying, not settled vendor contract. Verified on pwsh 7.6.4 and Windows PowerShell
-5.1.26100.8875. Source: § 6(i) of
-`cross-repo/archive/2026-08-07-claude-klabauter-em-cmd-forwarder-newline-truncation-fix.md`.
 
 **An execution-policy-blocked `.ps1` hard-fails rather than falling back to its `.cmd` sibling** —
 PowerShell refuses to run a `.ps1` under a `Restricted`-class policy, and nothing downstream
 recovers the call once that refusal fires; bare-name resolution having already picked `.ps1` (see
 above) means the `.cmd` twin is never tried. This hazard is now closed at install time:
 Claude-klabauter's fail-closed policy gate (`coordinator_core/install/policy_gate.py`, wired into
-`substrate.py`'s `.ps1`-emission path, landed `2b9e319aa`) probes both PowerShell hosts before
+`substrate.py`'s `.ps1`-emission path) probes both PowerShell hosts before
 emitting `.ps1` launchers and skips `.ps1` emission entirely on a RED verdict, leaving only the
 `.cmd` twin installed — so a `Restricted`-policy host never receives a `.ps1` it can't run. The
 residual: execution policy is mutable *after* install (the gate's own AC10), so a host that goes
@@ -183,7 +180,7 @@ the same directory rung 0 / Shape W in `coordinator/snippets/resolve-coordinator
 on a PowerShell host), not
 `~/.claude/bin/` — the compat-mirror producer that once wrote a second copy there
 (`substrate.py`'s Step 3c-compat) was deleted as part of the owns-zero-`~/.claude/bin` retirement
-(`docs/plans/2026-07-24-coordinator-owns-zero-claude-bin.md`, Gate 6; a live `CHECK_ONLY=1`
+(Gate 6; a live `CHECK_ONLY=1`
 sweep confirmed zero `~/.claude/bin` writes, AC6). Step 3b (Windows-only conditional) adds the
 settings-home bin dir to the Windows user `PATH` if not already present. Both are idempotent.
 `python3.exe` lands beside the real interpreter (never the settings-home bin dir — the loader
@@ -258,8 +255,8 @@ subject was never this caller.
   hooks and is closed by a mechanical assertion that a real interpreter (not a stub) resolves ahead
   of `%LOCALAPPDATA%\Microsoft\WindowsApps` on PATH — not by this scope note.
 
-Full mechanism and the DR-044 disambiguation: `cross-platform-shell-portability.md § Hook
-registration exec form — bare python3 is safe there (DR-044)`. Tripwire:
+Full mechanism and the disambiguation: `cross-platform-shell-portability.md § Hook
+registration exec form — bare python3 is safe there`. Tripwire:
 `coordinator-tripwires.md § HOOK-EXEC-FORM-BARE-PYTHON3-SAFE`.
 
 ## Non-goals (explicitly rejected shapes)
@@ -285,8 +282,6 @@ The shim is the universal structural fix; per-repo code that names `python3` or 
 PowerShell binder consumes a bare `--` while parsing the call to the launcher itself, before any
 construct inside the launcher's own body can see it — nothing downstream recovers it once that
 happens. Quoting it as a string literal (`'--'`) passes it through as an ordinary argument instead.
-Source: § 6(ii) of
-`cross-repo/archive/2026-08-07-claude-klabauter-em-cmd-forwarder-newline-truncation-fix.md`.
 
 ## PowerShell Python Inline Invocation — Use `-c`, Not Bare `-`
 

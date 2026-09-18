@@ -1,6 +1,5 @@
 # Writing Skills — TDD Applied to Process Documentation
 
-> Spec backlink: `archive/specs/2026-05-06-skill-budget-structural-cleanup.md` (demote writing-skills → wiki; archived to the meta-repo).
 
 Writing skills is Test-Driven Development applied to process documentation. Skills live at
 `${CLAUDE_PLUGIN_ROOT}/skills/{skill-name}/SKILL.md`. Write pressure scenarios with subagents
@@ -75,7 +74,7 @@ upstream, deliberately not used here.
 
 ### Frontmatter
 
-Only `name` and `description` are supported in SKILL.md frontmatter. Two different character caps apply to two different surfaces — don't conflate them: the platform/API Skills `description` field validation caps at 1024 chars total; Claude Code's own skill-listing mechanism caps at 1,536 chars combining `description` + `when_to_use`. Neither cap governs a subagent's `description:` field — no documented character limit exists for that surface. Evidence: `state/audits/2026-07-27-boot-description-census.md`, `docs/research/spike-verdicts/2026-07-27-boot-context-envelope.md`.
+Only `name` and `description` are supported in SKILL.md frontmatter. Two different character caps apply to two different surfaces — don't conflate them: the platform/API Skills `description` field validation caps at 1024 chars total; Claude Code's own skill-listing mechanism caps at 1,536 chars combining `description` + `when_to_use`. Neither cap governs a subagent's `description:` field — no documented character limit exists for that surface. Evidence: `2026-07-27-boot-description-census.md` under `state/audits/`, `docs/research/spike-verdicts/2026-07-27-boot-context-envelope.md`.
 
 - `name`: letters, numbers, hyphens only.
 - `description`: third-person, **describes ONLY when to use, NOT what it does** — start with "Use when..."
@@ -473,7 +472,7 @@ Claude-klabauter engine and are named by the skill, never embedded beside it —
 by `coordinator/docs/wiki/coordinator-tripwires.md § NO-MULTI-LINE-SHELL-FENCE /
 SKILLS-CARRY-NO-CODE` ("a `.md` file is an instruction document, not executable bash... a
 multi-command payload moves to a named claude-klabauter CLI and the skill names it instead of pasting it")
-and by `docs/decisions/DR-090-the-unit-of-extraction-is-the-mechanical-step.md` ("A skill states
+and by the unit-of-extraction decision under `docs/decisions/` ("A skill states
 intent and names an op; it never narrates the steps of an operation"). Those two surfaces are the
 citation; do not reconstruct the rule from this paragraph.
 
@@ -562,7 +561,7 @@ inline `--agents` JSON and file-based `.claude/agents/*.md` frontmatter. `access
 from Anthropic's authoritative 16-field subagent frontmatter list.
 
 What DOES read `access-mode` is a CI lint —
-`~/X/coordinator-claude/.github/scripts/validate-agent-tools.py`, run by
+the publish repo's `.github/scripts/validate-agent-tools.py`, run by
 `.github/workflows/validate-plugins.yml:47-48` on the OSS publish mirror. Its actual semantics:
 `read-only` implies no `{Write, Edit, Bash}` in `tools:` AND `Read` present; `read-write` is
 unrestricted; a non-empty LIST-form `tools:` with no `access-mode` key is itself an error; a

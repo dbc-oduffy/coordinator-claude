@@ -1,21 +1,12 @@
 # Super-Skill Architecture — Decision-Tree Skill Pattern
 
-<!-- distilled: run 2026-07-19-synth; sources: archive/specs/2026-05/2026-05-07-dogfood-super-skill.md, archive/specs/2026-05/2026-05-09-skill-consolidation-pass.md, docs/plans/2026-07-12-spike-pipeline-skill.md, archive/specs/2026-05/2026-05-06-skill-budget-structural-cleanup.md -->
 
-> Spec backlink: `archive/specs/2026-05-06-decision-tree-skill-pattern.md` (adopted 2026-05-06).
+
 
 ---
 provenance:
   kind: distilled-spec
-  source_plans:
-    - path: docs/plans/2026-05-06-decision-tree-skill-pattern.md
-      last_verbose_sha: 1048b2ecee5be7f96824353c4601b97f6fb7448a
-    - path: docs/plans/2026-05-06-plan-super-skill.md
-      last_verbose_sha: b654bd9648d9776da999470a8113cdf55e6ac683
-    - path: docs/plans/2026-05-06-review-code-super-skill.md
-      last_verbose_sha: 72039b6ccabe74d4d16b5040eea36ead5d70baef
-    - path: docs/plans/2026-05-06-review-super-skill.md
-      last_verbose_sha: 3911b7704403240cd98e96bdc128794caf3081f4
+  source_plans: the four 2026-05-06 super-skill plans under docs/plans/
   distilled_run: 2026-05-08-1032
 ---
 
@@ -155,7 +146,6 @@ Alternative exits are switch-gears (fundamental wrong-shape) or a PM stop. "Budg
 
 ## Generation 3 — Computed Skill
 
-<!-- src: docs/plans/2026-07-23-computed-skills-pickup-beachhead.md § Vocabulary -->
 
 The decision-tree shape above is **Generation 2** of the coordinator skill lineage. A further
 generation exists for skills whose branching is dense enough, and frequent enough, that walking
@@ -218,7 +208,7 @@ Not every skill-surface reduction is a decision-tree conversion; some prior-gene
 > fewer, larger ones partly in response to it.
 
 This is recorded here as an added cause, not a replacement for the ones already documented above
-(thin-engine folding) or in `archive/specs/2026-05/2026-05-09-skill-consolidation-pass.md`
+(thin-engine folding) or in `2026-05-09-skill-consolidation-pass.md` under `archive/specs/2026-05/`
 (which additionally cites a description-character-budget CI gate we built ourselves). Those records are true as far as
 they go; none of them independently traces this specific Anthropic-tooling flag, because it was
 never logged at the time — this paragraph is that missing log entry, added retrospectively.
@@ -232,14 +222,14 @@ its description or drops from the listing entirely).
 
 ## Reference
 
-- Pattern spec: `archive/specs/2026-05-06-decision-tree-skill-pattern.md`
+- Pattern spec: `2026-05-06-decision-tree-skill-pattern.md` under `archive/specs/`
 - coordinator:plan: `plugins/coordinator/skills/plan/SKILL.md`
 - coordinator:review: `plugins/coordinator/skills/review/SKILL.md`
 - coordinator:review-code: `plugins/coordinator/skills/review-code/SKILL.md`
 - Writing-skills wiki (skill TDD): `docs/wiki/writing-skills.md`
 - Skill budget discipline: `docs/wiki/skill-budget-discipline.md`
-- Dogfood super-skill spec: `archive/specs/2026-05/2026-05-07-dogfood-super-skill.md`
-- Spike pipeline skill plan: `docs/plans/2026-07-12-spike-pipeline-skill.md`
+- Dogfood super-skill spec: `2026-05-07-dogfood-super-skill.md` under `archive/specs/2026-05/`
+- Spike pipeline skill plan: `2026-07-12-spike-pipeline-skill.md` under `docs/plans/`
 - Computed skill (Generation 3): `CONTEXT.md § computed skill`, `coordinator/docs/wiki/computed-skills.md`
 
 ## Superpowers gap-analysis verdict — capability surface is complete

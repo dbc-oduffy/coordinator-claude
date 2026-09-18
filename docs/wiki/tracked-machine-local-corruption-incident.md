@@ -25,10 +25,10 @@ cite this page as evidence the guards are active; re-check `~/.claude/settings.j
 `~/.claude/.coordinator-hooks-disabled` disables coordinator hook generation on a machine that
 cannot afford it (Windows spawn tax). It was **tracked** in the synced
 `~/.claude` meta-repo — a decision that belongs to one machine, committed into a file both
-machines pull from. A second machine untracked it (`0371a29`, "untrack machine-local coordinator
+machines pull from. A second machine untracked it ("untrack machine-local coordinator
 state"). Untracking a file does not just stop future syncing of it — `git rm --cached` stages a
 **deletion**, and that deletion is exactly what the next `git merge` on every other machine
-applies. This Mac's merge (`0bb6812`) deleted the marker locally, re-enabled hook generation, and
+applies. This Mac's merge deleted the marker locally, re-enabled hook generation, and
 `settings.json` acquired a hooks block baked with paths that only exist on the machine that
 generated it.
 
@@ -78,7 +78,7 @@ underlying state is.
 
 `.settings-last-good.json`, the snapshot `settings-integrity-guard.md`'s clobber-guard
 auto-restores from on an unhealthy boot, was *also* tracked and *also* held machine-absolute hook
-paths (`c5c2504`, `52251f3`) — 37 of them, per that commit's own message. Tracked, this means a
+paths — 37 of them, per that commit's own message. Tracked, this means a
 losing machine does not merely inherit a bad `settings.json` on pull — its own repair mechanism
 installs one, because the restore source is itself the cross-machine leak.
 
@@ -93,14 +93,14 @@ machine-absolute hook paths — the clobber-guard had snapshotted a foreign-mach
 supposed to be the escape hatch had, by design of its own predicate, no way to tell "healthy for
 THIS machine" from "healthy-shaped but poisoned."
 
-The intent to untrack the snapshot (`c5c2504`) initially failed on top of this: `git commit --
+The intent to untrack the snapshot initially failed on top of this: `git commit --
 <paths>` commits the **working-tree** state of the given paths regardless of what's staged, so a
 `git rm --cached` staged for those paths was silently overridden and the macOS-path content was
 committed anyway — the very machine-absolute snapshot the fix was trying to remove. A follow-up
-commit (`52251f3`) recorded the deletion correctly. The corruption itself landed via a blind
-whole-tree "safety" commit (`ed0b972`) made while the sidecar was still dirty with local paths —
+A later commit recorded the deletion correctly. The corruption itself landed via a blind
+whole-tree "safety" commit made while the sidecar was still dirty with local paths —
 see § 6. The sharpest fact in the whole incident: recovery ultimately depended on an *error* — the
-one clean copy of the config that survived came from `c5c2504`'s accidental working-tree commit,
+one clean copy of the config that survived came from the accidental working-tree commit,
 not from any deliberate backup. The system's designed recovery path (the snapshot) had degraded
 into the poison; the thing that actually saved the machine was a bug in an unrelated `git commit`
 invocation.
@@ -123,7 +123,7 @@ entry in `hooks.json` — they were written, tested, and never invoked. All thre
 pre-commit gates (`coordinator-precommit-exec-bit-check`,
 `coordinator-precommit-foreign-platform-check`, `coordinator-precommit-settings-tracking-check`)
 resolved against a `coordinator/bin/` path that stopped existing once the executable surface
-migrated to `claude-klabauter` (DoE-claude commit `b644d5a9`) — every invocation hit a missing file.
+migrated to `claude-klabauter` — every invocation hit a missing file.
 
 Every one of the five shared the same shape: `if [ -f "$script" ]; then ... fi` (or the Python
 equivalent). A missing script skips silently and the hook still exits 0. Passing unit tests on a
@@ -131,7 +131,7 @@ guard nobody wires reads as coverage on a dashboard and is not coverage in pract
 prove the function works in isolation, never that anything calls it.
 
 **Fixing the wiring surfaced a second, deeper layer of the same defect: registration is not
-delivery.** `hooks.json` gained entries for both SessionStart guards (`c12623534`) — but
+delivery.** `hooks.json` gained entries for both SessionStart guards — but
 `--plugin-dir` hook delivery is dead on this install (harness bug #38699, `external-plugin-live-
 resolution.md § Hook-delivery`); the plugin manifest's `hooks.json` does not fire hooks at all on
 this machine. The only surface that actually delivers is `~/.claude/settings.json`'s own baked-in
@@ -195,8 +195,6 @@ attempt after the first failure had already supplied the disconfirming evidence.
   guard-degradation shape (active guard, lookup miss) vs. this incident's § 5 (guard never wired).
 - `cross-machine-path-leak-is-a-recurring-class` (session memory) — three distinct instances of
   the same leak class in one day.
-- `state/lessons/2026-07-28-the-em-manufactured-urgency-for-a-risky-low-value-action.yaml` — the
   authorization/urgency angle on § 6's incident; this page covers the technical-practice angle.
-- `state/handoffs/2026-07-28-windows-first-class-settings-json-clobbe.md` — session handoff
   written mid-investigation; some of its "unresolved, unidentified writer" framing was settled by
   the commits cited in § 1 and § 4 above.

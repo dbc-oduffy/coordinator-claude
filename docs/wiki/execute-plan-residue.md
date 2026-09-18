@@ -9,7 +9,7 @@
 A fresh execution session cannot rely on chat history. `execution_authorized_at` (with
 `execution_authorized_by: PM`) is minted from the authorizing act itself — at the
 `coordinator:review` Exit gate when review-integration completes and the baton is handed off, or
-directly at `/execute-plan` invocation — never a precondition checked beforehand (DR-174). That
+directly at `/execute-plan` invocation — never a precondition checked beforehand. That
 disk stamp, not an in-conversation utterance, is the authorization of record. `/autonomous` mode
 bypasses this mint entirely upstream, so execute-plan proceeds with no stamp there. Re-verifying the stamp binds to current plan
 content (not just bookkeeping drift) is defense-in-depth: it repeats `/pickup` Step 1's check here
@@ -476,7 +476,7 @@ by checking the candidate commit's touched files against the chunk's declared `w
 `surface` — never as a standalone verdict. This triple is the EM's own recovery reasoning and has
 no engine counterpart: `close_out_and_stamp` performs no commit-message join at all. The
 subject/`Deliverable-Id`-trailer join it once carried was deleted — not narrowed — on measured low
-recall (`docs/plans/2026-08-20-the-close-ceremony-stops-paying-for-the-join.md` C3, and the
+recall (`2026-08-20-the-close-ceremony-stops-paying-for-the-join.md` under `docs/plans/` C3, and the
 module's own `_determine_shipped` docstring); its absence is a ruling, not an oversight to repair.
 What close-out reads instead is a sha somebody wrote down: a `disposition: coded` row's
 `disposition_ref`, or a pre-spine plan's `## Dispatch Ledger` `committed <sha>` cells, each

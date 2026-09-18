@@ -1,12 +1,11 @@
 ---
 name: percolate-setup
-spec_backlink: archive/specs/2026-05/2026-05-09-skill-consolidation-pass.md
+spec_backlink: 2026-05-09-skill-consolidation-pass.md under archive/specs/2026-05/
 status: active
 ---
 
 # Percolation Setup Procedure
 
-<!-- spec backlink: archive/specs/2026-05/2026-05-09-skill-consolidation-pass.md § T4 -->
 
 Canonical reference for the percolation setup procedure — registering a publish target, auditing `.percolate-ignore`, and scaffolding hook directories. This wiki is the single source of truth; both `/percolate` (Branch 0) and `/setup` (percolation phase) walk it inline.
 
@@ -16,15 +15,15 @@ Canonical reference for the percolation setup procedure — registering a publis
 
 ## Fresh-install path
 
-Earlier readers of this wiki could assume `~/.claude/setup/publish.sh` already existed (the Claude-Prime-clone case). The bash engine that file named is retired — the percolate entrypoint is now `coordinator/bin/publish.py`, migrated to claude-klabauter wholesale (commit b644d5a9 — see § PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT below) rather than copied into `~/.claude/setup/`. What still arrives via the coordinator-claude install path on any consumer machine — operator-local files do too:
+Earlier readers of this wiki could assume `~/.claude/setup/publish.sh` already existed (the Claude-Prime-clone case). The bash engine that file named is retired — the percolate entrypoint is now `coordinator/bin/publish.py`, migrated to claude-klabauter wholesale rather than copied into `~/.claude/setup/`. What still arrives via the coordinator-claude install path on any consumer machine — operator-local files do too:
 
-- `setup/install.sh` (publish-repo fresh-install entry point) AND `/coordinator:install` Phase 3 (ongoing maintenance, via `install-substrate.py`) install `publish_sync.py` and `.percolate-identity.example` into `~/.claude/setup/` (single source of truth for this file list: claude-klabauter's `coordinator/lib/setup-templates-manifest.py`, migrated from DoE, commit b644d5a9). `publish.py` itself is NOT among them — it is invoked from `$REPO_CLAUDE_KLABAUTER` (see § PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT below), never copied. `publish-targets.example.sh` and `test-publish-allowlist-builder.sh` are absent from this list — the legacy-fallback `TARGETS=( ... )` shape is documented next to claude-klabauter's `coordinator/lib/percolate/targets.py`'s `_parse_legacy_targets_array`.
+- `setup/install.sh` (publish-repo fresh-install entry point) AND `/coordinator:install` Phase 3 (ongoing maintenance, via `install-substrate.py`) install `publish_sync.py` and `.percolate-identity.example` into `~/.claude/setup/` (single source of truth for this file list: claude-klabauter's `coordinator/lib/setup-templates-manifest.py`). `publish.py` itself is NOT among them — it is invoked from `$REPO_CLAUDE_KLABAUTER` (see § PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT below), never copied. `publish-targets.example.sh` and `test-publish-allowlist-builder.sh` are absent from this list — the legacy-fallback `TARGETS=( ... )` shape is documented next to claude-klabauter's `coordinator/lib/percolate/targets.py`'s `_parse_legacy_targets_array`.
 - Operator then registers targets (see Step 1a/1b/1c below — the tracked `setup/publish-targets.portable` topology is preferred, machine-local registry is a per-machine supplement, and `publish-targets.sh` is a deprecated legacy fallback).
 - Operator authors `~/.claude/setup/.percolate-identity` from `.percolate-identity.example` with their own identity tokens.
-- If org-slug rewrites are needed, operator copies claude-klabauter's `coordinator/bin/depersonalize-identity.example.yaml` (migrated from DoE, commit b644d5a9) to `depersonalize-identity.yaml` and edits it.
+- If org-slug rewrites are needed, operator copies claude-klabauter's `coordinator/bin/depersonalize-identity.example.yaml` to `depersonalize-identity.yaml` and edits it.
 
 Spec backlinks:
-- `docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md § Chunk 5` — `source_is_live` propagation model.
+- `2026-05-21-plugin-source-live-mirror-doctrine.md § Chunk 5` under `docs/plans/` — `source_is_live` propagation model.
 - `docs/wiki/coordinator-installer-shape.md § 2` — operator-local vs publish-target distinction (basis for non-circular framing).
 - `docs/wiki/post-sync-hook-doctrine.md` — touched-file-list stdin contract for post-rsync hooks.
 
@@ -36,11 +35,11 @@ Spec backlinks:
 
 ## PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT — Two Roots, Not One Four-Rung Chain
 
-**Canonical env-var naming (DR-087, `docs/decisions/DR-087-repo-repo-id-env-override-family-ratified.md`):**
+**Canonical env-var naming** — ratified in the `repo`/`repo-id` env-override-family decision under `docs/decisions/`:
 `REPO_CLAUDE_KLABAUTER` (registry key `repos.claude_klabauter`) is the ratified canonical name for
 the claude-klabauter root override — new prose and invocations in this doc and elsewhere should
 teach `REPO_CLAUDE_KLABAUTER` first. `CLAUDE_KLABAUTER_ROOT` is retained forever as a readable legacy alias
-(`docs/decisions/DR-087-repo-repo-id-env-override-family-ratified.md` ruling 2 —
+(that decision's ruling 2 —
 documentation-only, no rename, no removal schedule) and
 this section's heading keeps its existing name because it is cited by exact heading text from
 several other wikis; the heading is a stable citation anchor, not an endorsement of `CLAUDE_KLABAUTER_ROOT`
@@ -131,7 +130,7 @@ Phase 4 machine-slug audit) is per-operator and gitignored — it is never commi
 `setup/` tree. `publish.py` reads it from `setup_dir / ".percolate-identity"`
 (`claude-klabauter/coordinator/bin/publish.py:1765`), where `setup_dir` is whatever its own
 `resolve_percolate_root()` resolved — per § PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT above, that self-resolution
-is presently unreliable post-`b644d5a9`, so the file it actually reads on a given machine tracks
+is presently unreliable, so the file it actually reads on a given machine tracks
 whatever `setup_dir` that section's hazard describes, not a guaranteed constant. In the working
 model this doc otherwise assumes (`PERCOLATE_ROOT` = the DoE-claude clone root), provision it at
 **`setup/.percolate-identity` at this repo's root** — copying
@@ -140,8 +139,7 @@ model this doc otherwise assumes (`PERCOLATE_ROOT` = the DoE-claude clone root),
 nothing in the installer can infer codenames it hasn't been told.
 
 **Do not confuse this with `~/.coordinator-claude-settings/.percolate-identity`.** That file is a
-distinct artifact from the older shared-install (`~/.claude`-rooted) topology: commit `2f534a6f`
-ratified that its durable home is the **settings-home root**, not a `setup/` subdirectory
+distinct artifact from the older shared-install (`~/.claude`-rooted)ratified that its durable home is the **settings-home root**, not a `setup/` subdirectory
 underneath it, and that nothing reads `.percolate-identity` from a `setup/` tree inside
 settings-home. `~/.coordinator-claude-settings/setup/` is a **retired orphan** left over from
 before that ratification — any copy of `publish-targets.portable` found there predates the
@@ -225,7 +223,7 @@ When walking this procedure, open with:
 
 ## Step 1 — Detect or Scaffold the Publish Target Registry
 
-> **Python-port 3-tier resolution.** The detection logic below mirrors `coordinator/lib/percolate/targets.py`'s `load_targets()` (spec backlink: `docs/plans/2026-06-22-portable-registry-resolved-publish-targets.md`; port: `docs/plans/2026-07-21-percolate-python-port.md`). The tracked `setup/publish-targets.portable` topology is the PRIMARY tier; the machine-local registry `publish.targets` key is a per-machine SUPPLEMENT (dedup'd by target name against the portable tier); the deprecated `setup/publish-targets.sh` bash-array file is a LEGACY fallback, consulted only if the first two tiers together resolve nothing.
+> **Python-port 3-tier resolution.** The detection logic below mirrors `coordinator/lib/percolate/targets.py`'s `load_targets()` (spec backlink: `2026-06-22-portable-registry-resolved-publish-targets.md` under `docs/plans/`; port: `2026-07-21-percolate-python-port.md` under `docs/plans/`). The tracked `setup/publish-targets.portable` topology is the PRIMARY tier; the machine-local registry `publish.targets` key is a per-machine SUPPLEMENT (dedup'd by target name against the portable tier); the deprecated `setup/publish-targets.sh` bash-array file is a LEGACY fallback, consulted only if the first two tiers together resolve nothing.
 
 The wizard checks for publish target configuration in preference order, mirroring the runtime in `coordinator/bin/publish.py` (via `load_targets`):
 
@@ -391,7 +389,7 @@ For every observed top-level path (and any second-level path that's load-bearing
 - **PUBLISH** — canonical plugin payload that USERS need: skills, commands, agents, hooks, bin, lib, schemas, pipelines, snippets, README, CLAUDE.md (the plugin's), routing tables, capability catalogs, plugin-bundled `docs/wiki/`. Reference: `docs/wiki/plugin-extraction-and-distribution.md`.
 - **IGNORE** — authoring/state/personal content that MUST NOT leak. Sub-buckets:
   - *personal-docs:* private wikis, internal-only notes
-  - *session-state:* `state/handoffs/`, `state/lessons/`, `state/distillation-log.md`, `state/review-trail/`, project trackers, daily-review logs, improvement queues, archived specs
+  - *session-state:* `state/handoffs/`, `state/lessons/`, `distillation-log.md` under `state/`, `state/review-trail/`, project trackers, daily-review logs, improvement queues, archived specs
   - *install-state:* `install-profile.json`, `install-status.json`, `.last-cleanup`, similar machine-local state
   - *machine-config:* `settings.json`, `settings.local.json`, `.mcp.json` containing secrets/tokens, environment-specific configs
   - *scratch:* `scratch/`, `_archived/`, `*.bak`, `*.tmp`, orphan `.tmp.<pid>.<nanos>` files
@@ -553,21 +551,21 @@ If any step was skipped due to an existing artifact, note it explicitly so the P
 
 **`/percolate` dry-run file-count is inflated by the depersonalization-delta — not a signal of real changes.** A dry-run may report 200+ "UPDATE" files when the real run syncs only 2-3 genuinely-changed files and re-depersonalizes the rest (the dest is already depersonalized; the source is not, so every file reads as "changed" in a naive diff). Percolate scope is what the dest repo's working tree shows after the real run, not the dry-run UPDATE count. The content-leakage scan result (0 hits) is the real safety signal.
 
-*Note on depersonalize scope:* the depersonalize hook strips identity tokens (Dónal/oduffy/paths) but does NOT convert reviewer-persona display names (the Staff Engineer/the Game Dev Reviewer/the Data Science Reviewer/the Front-End Reviewer/the UX Reviewer/the Director of Engineering) to role labels — that is a separate `check-persona-names` CI gate. When editing `dist/publish-repo-toplevel/` or any OSS-shipped doc, use role labels, not persona names, or CI will catch it.
+*Note on depersonalize scope:* the depersonalize hook strips identity tokens (operator name, username, home paths) but does NOT convert reviewer-persona display names (the Staff Engineer/the Game Dev Reviewer/the Data Science Reviewer/the Front-End Reviewer/the UX Reviewer/the Director of Engineering) to role labels — that is a separate `check-persona-names` CI gate. When editing `dist/publish-repo-toplevel/` or any OSS-shipped doc, use role labels, not persona names, or CI will catch it.
 
 *Source: meta-repo `state/lessons/`.*
 
-**Fail-closed publish allowlist silently strips new top-level dirs.** Re-homing a package into DoE is NOT sufficient to make percolate ship it — the coordinator-claude mirror row carries a fail-closed allowlist (`bin,lib,hooks,skills,agents,commands,docs/wiki,.claude-plugin` — `docs/wiki` here is illustrative of the *shape*; it is narrowed to a curated seed, see below), and a new top-level dir absent from that allowlist is silently dropped. The re-home *looks* done but the mirror won't carry it. Detection: always run `python3 "$CLAUDE_KLABAUTER_ROOT/coordinator/bin/publish.py" --dry-run` (`publish.py` migrated to claude-klabauter in `b644d5a9`) and grep the write-set to confirm the new dir appears before declaring the re-home complete. Fix: add the dir to the allowlist in `~/.claude/setup/publish-targets.portable`. (This is the allowlist twin of the `.percolate-ignore` denylist hazards above — one gate ships what's listed, the other blocks what's listed; both fail silently when a path is mis-classed.)
+**Fail-closed publish allowlist silently strips new top-level dirs.** Re-homing a package into DoE is NOT sufficient to make percolate ship it — the coordinator-claude mirror row carries a fail-closed allowlist (`bin,lib,hooks,skills,agents,commands,docs/wiki,.claude-plugin` — `docs/wiki` here is illustrative of the *shape*; it is narrowed to a curated seed, see below), and a new top-level dir absent from that allowlist is silently dropped. The re-home *looks* done but the mirror won't carry it. Detection: always run `python3 "$CLAUDE_KLABAUTER_ROOT/coordinator/bin/publish.py" --dry-run` and grep the write-set to confirm the new dir appears before declaring the re-home complete. Fix: add the dir to the allowlist in `~/.claude/setup/publish-targets.portable`. (This is the allowlist twin of the `.percolate-ignore` denylist hazards above — one gate ships what's listed, the other blocks what's listed; both fail silently when a path is mis-classed.)
 
-**The OSS mirror ships a curated wiki SEED, not the whole `docs/wiki/` tree — a bare `docs/wiki` allowlist entry is the drift, not a fix** (PM ruling, `docs/decisions/DR-080-oss-mirror-publishes-a-curated-seed-wiki-not-the-whole-tree.md`). Left unchecked, the public `coordinator-claude` mirror's deliberate curated seed silently drifts toward publishing every wiki, because nobody re-narrows the allowlist as new wikis are authored — the admission bar quietly goes from "curated" to "everything by default." Read this before ever widening a wiki allowlist entry back to a bare `docs/wiki`:
+**The OSS mirror ships a curated wiki SEED, not the whole `docs/wiki/` tree — a bare `docs/wiki` allowlist entry is the drift, not a fix** (PM ruling, recorded under `docs/decisions/`). Left unchecked, the public `coordinator-claude` mirror's deliberate curated seed silently drifts toward publishing every wiki, because nobody re-narrows the allowlist as new wikis are authored — the admission bar quietly goes from "curated" to "everything by default." Read this before ever widening a wiki allowlist entry back to a bare `docs/wiki`:
 
-- **Admission bar: "stable conceptual core that does not move often."** Adding a wiki to the seed is a **DR-080 amendment** — a ratified decision, never a default and never an opportunistic add during unrelated work. Every wiki looks universal to its author; that pull is exactly the counter-pressure that produced the 200-wiki drift. A soft bar is the failure mode, not an edge case of it.
+- **Admission bar: "stable conceptual core that does not move often."** Adding a wiki to the seed is an **amendment to that ruling** — a ratified decision, never a default and never an opportunistic add during unrelated work. Every wiki looks universal to its author; that pull is exactly the counter-pressure that produced the 200-wiki drift. A soft bar is the failure mode, not an edge case of it.
 - **THE TRAP — two rows publish wikis in `~/.claude/setup/publish-targets.portable`, and both must move together.** The `coordinator-claude|mirror` row's field-7 allowlist and the `coordinator-claude-toplevel-wiki|flat-mirror` row's allowlist are independent lists over the same source tree. Narrowing only one changes nothing observable in the mirror — the other row still ships the full tree unrestricted. A fix that looks correct after editing one row and changes nothing in the published set is the primary failure mode here.
 - **Verify against the round's own published set, never by reading the config.** Reading the allowlist and confirming it "looks narrow" does not prove the mirror agrees — the second row is invisible unless you check the actual write-set. Diff the round's wiki entries against the seed before declaring a narrowing complete.
 - **Allowlist entries are exact-path, per-entry — not a prefix match or a glob.** File-level entries (`docs/wiki/rag-bait-conventions.md`) work standalone; there is no shorthand for "this directory except these files."
 - **An allowlist entry naming a file that does not exist is silently skipped** — publishing nothing for that entry, with no error. A typo'd seed filename drops a wiki from the mirror with zero signal.
 - **`task-tier-guidance.md` is publish-native, not source-tracked** — authored mirror-side, absent from this DoE source tree, restored by the post-rsync hook allowlist (`setup/percolate-hooks/coordinator-claude-toplevel-wiki/post-rsync/publish-native-allowlist.txt`), not by either publish-target allowlist. Do not add it to a publish-target allowlist as a "fix" for its apparent absence — that changes nothing; the published-wiki total is 8, the two publish-target allowlists carry 7.
-- **A second, untracked copy of the allowlist file can silently govern the real publish.** `setup/publish-targets.portable` is tracked in *this* repo, but `publish.py` actually reads whichever copy sits beside it at `$PERCOLATE_ROOT/setup/`, and per § PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT above, rung 4 (`${CLAUDE_HOME:-$HOME}/.claude`) is the usual winner on both macOS and Windows when no repo-local clone or DoE-root pointer resolves first — a live-install copy, not this DoE-source one. Narrowing the seed here changes nothing on a typical publish run unless that live copy is narrowed too; see the residual gap noted in DR-080 §Consequences.
+- **A second, untracked copy of the allowlist file can silently govern the real publish.** `setup/publish-targets.portable` is tracked in *this* repo, but `publish.py` actually reads whichever copy sits beside it at `$PERCOLATE_ROOT/setup/`, and per § PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT above, rung 4 (`${CLAUDE_HOME:-$HOME}/.claude`) is the usual winner on both macOS and Windows when no repo-local clone or DoE-root pointer resolves first — a live-install copy, not this DoE-source one. Narrowing the seed here changes nothing on a typical publish run unless that live copy is narrowed too; see the residual gap noted in that decision's §Consequences.
 
 **One-way mirror percolate silently reverts direct edits in publish repo** (self). The mirror step overwrites publish-repo content from source without checking whether the publish repo has received direct edits (e.g., a hotfix applied while the source repo was out of reach). Any commit in the publish repo that post-dates the last percolate run is silently deleted by the next mirror pass. Detection step: before running the mirror, run `git log --since=<last-percolate-sha> -- <synced-paths>` in the publish repo; if non-empty, surface to PM before proceeding. Implementation: add this check to `/percolate` before the mirror/rsync step fires.
 
@@ -584,14 +582,13 @@ If any step was skipped due to an existing artifact, note it explicitly so the P
 
 **Top-level presence invariant — restated for multi-source rows specifically.** The general invariant (below) already governs every mirror row: a top-level dir present at the destination and absent from the restricted source is deleted by the orphan sweep regardless of `.percolate-ignore`, because the sweep never consults it. Multi-source rows do not get a pass on this — the restricted-source tree the sweep evaluates is the *composed* tree after all contributing roots have copied in, so a top-level dir is safe only if *some* contributing root actually populates it. An entry-collision preflight (no two source_map entries may resolve to the same or a nesting restricted-tree path across roots) runs before any copy, so a same-name collision between two roots aborts loudly rather than one root silently shadowing the other.
 
-*Source: `state/subagent-share/41c1917d-53d5-49f9-9e70-cf281768cc5d/coordinatorexecutor-ce8e8bec.md`; regression gate at `coordinator/tests/test_publish_allowlist_source_populated.py`; evidence commits `b644d5a9`, `8a28a6ca`.*
 
 ## Vocabulary and schema renames — OSS mirror consequence
 
-**Occasion:** DR-084 (`docs/decisions/DR-084-handoff-lifecycle-vocabulary-overhaul-open-claimed-continued-closed.md`) renamed handoff-lifecycle vocabulary (`owner`→`repo_owner`, `consumed`→`claimed`, `abandoned`→`closed`/`continued`) and added fields to `coordinator/schemas/handoff.schema.json`. Several of those plans mutate percolation-source files under `coordinator/` without stating the OSS-mirror consequence. Verified:
+**Occasion:** the handoff-lifecycle vocabulary overhaul renamed handoff-lifecycle vocabulary (`owner`→`repo_owner`, `consumed`→`claimed`, `abandoned`→`closed`/`continued`) and added fields to `coordinator/schemas/handoff.schema.json`. Several of those plans mutate percolation-source files under `coordinator/` without stating the OSS-mirror consequence. Verified:
 
 - **`skills/`, `commands/`, `agents/` are default-inclusive** under the `coordinator-claude|mirror` row's fail-closed allowlist (`setup/publish-targets.portable`, field 7 — those three dirs are listed wholesale, not per-file). A vocabulary rename *inside* an already-listed directory needs **no new allowlist entry** — it is a content edit within an already-published path, not the "new top-level dir silently dropped" hazard documented above (that hazard is about admitting a *new path*, not editing an existing one). It ships on the next real `/percolate` run automatically.
-- **`coordinator/schemas/handoff.schema.json` is NOT in the allowlist at all** (no `schemas` entry exists — only the unrelated `cockpit-contract/schema` path is listed). The new/renamed schema fields do not reach the OSS mirror today, renamed or not — this is a pre-existing gate, not something the rename changes. Adding `schemas` to the allowlist would be a deliberate scope-widening call (DR-080-shaped), out of scope of a vocabulary rename.
+- **`coordinator/schemas/handoff.schema.json` is NOT in the allowlist at all** (no `schemas` entry exists — only the unrelated `cockpit-contract/schema` path is listed). The new/renamed schema fields do not reach the OSS mirror today, renamed or not — this is a pre-existing gate, not something the rename changes. Adding `schemas` to the allowlist would be a deliberate scope-widening call (seed-amendment-shaped), out of scope of a vocabulary rename.
 - **`docs/wiki/**` is gated by the curated `publish-targets.portable` allowlist (two rows, both must move together per DR-080's THE TRAP note above), NOT by `.percolate-ignore`.** `handoff-tracker-system.md` and `spinoff-handoffs.md` — the wikis most likely to document the new vocabulary — are absent from the current 7-wiki seed and will not publish even after editing, until explicitly added to both rows as a ratified DR-080 amendment.
 - **`.percolate-ignore` patterns are SOURCE_DIR-relative and carry no `coordinator/` prefix** (see this file's header) — a stray `coordinator/schemas/` pattern would double-prefix and silently match nothing. Not relevant here since no `.percolate-ignore` edit is needed, but worth restating so the next author doesn't reach for this file reflexively.
 

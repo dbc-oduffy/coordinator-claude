@@ -59,7 +59,7 @@ commit hook or force-pushes is a real problem, but it is a coordination problem 
 trail, not a breach — and it is not what the expensive parts of this package are protecting.
 
 **A second, narrower named harm, scoped to the commit class only: sweeping a peer session's
-uncommitted work into a commit that isn't yours.** DR-125 Ruling 1(b) promotes commits to one of
+uncommitted work into a commit that isn't yours.** Ruling 1(b) of the governing decision promotes commits to one of
 exactly two sanctioned confinement classes on this surface for this reason. A confined subagent
 running `git add -A`/`git commit -a` on a shared branch can silently absorb hunks, whole files, or
 staged orphan ops that belong to a concurrent workstream — the file lands under the wrong author,
@@ -324,7 +324,7 @@ was trying to prevent.
 | Is a well-worded nudge sufficient? | Not a security control at all. | Not sufficient either — an agent deep in context will not reliably act on prose. Needs a structural belt behind it. |
 | Is moving confinement to the exec/credential boundary the strategic answer? | Strongly yes — command-string inspection is a losing game. | Re-cost it. A restricted `git` wrapper or a withheld credential defends the *branch*; neither stops a subagent spawning 879 processes and taking down a Windows host, which is the actual harm. |
 | What does a deny message owe the caller? | An explanation of the policy. | A working alternative, first. Absent that, the deny is pressure. |
-| What is a confined type's Bash surface scoped to? | Whatever the enumerated allowlist happens to cover — no stated boundary. | Exactly two sanctioned classes: machine-harm shapes, and the commit class (scoped `git add -- <paths>` + a named committer, guarding sweep-contamination — see § What the harm is). Anything else is out of scope for this package (DR-125). |
+| What is a confined type's Bash surface scoped to? | Whatever the enumerated allowlist happens to cover — no stated boundary. | Exactly two sanctioned classes: machine-harm shapes, and the commit class (scoped `git add -- <paths>` + a named committer, guarding sweep-contamination — see § What the harm is). Anything else is out of scope for this package. |
 
 ## A bash guard is not a file-creation guard
 
@@ -407,7 +407,7 @@ absence with a separate call, not a step fused onto the probe.
   isolation is not evidence about the seam between them. Then actually try to defeat it — every
   bypass in the bash-guard-is-not-a-file-creation-guard family was found by attempting it, not by a
   test suite reporting healthy.
-- **Confining a Bash surface that is neither machine-harm nor a commit.** DR-125 names exactly two
+- **Confining a Bash surface that is neither machine-harm nor a commit.** The governing decision names exactly two
   sanctioned confinement classes on this page. A guard reaching for a third — because a shape
   merely looks worth restricting — is scope creep on a package that already has a stated boundary;
   name which of the two classes the restriction serves, or don't add it.

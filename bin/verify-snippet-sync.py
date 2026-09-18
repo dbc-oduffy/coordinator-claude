@@ -94,8 +94,8 @@ def _resolve_plugin_root() -> Path:
 
     Env var CLAUDE_PLUGIN_ROOT wins if set, returned verbatim. Otherwise
     resolves via doe_root() (see that function's own docstring for its
-    env-var/machine-local resolution chain) and returns
-    <doe_root()>/coordinator.
+    env-var/machine-local resolution chain) and returns the coordinator content
+    root inside it, either layout (coordinator_data_root.content_root_for).
 
     This does NOT derive from this script's own __file__ location. b644d5a9
     migrated this executable to claude-klabauter while snippets/ (and every
@@ -110,6 +110,7 @@ def _resolve_plugin_root() -> Path:
     degrade to a silent scan of the wrong tree.
     """
     _bootstrap_engine()
+    from coordinator_data_root import content_root_for
     from coordinator_registry import _DoeUnresolvable, doe_root
 
     env = os.environ.get("CLAUDE_PLUGIN_ROOT")
@@ -125,6 +126,13 @@ def _resolve_plugin_root() -> Path:
             file=sys.stderr,
         )
         sys.exit(1)
+    # Either content layout: the published flat mirror carries snippets/ at its
+    # own root, with no "coordinator" segment to join.
+    content = content_root_for(root)
+    if content is not None:
+        return content
+    # Neither layout present — keep naming the private-shape path so the
+    # downstream snippets/ read reports the directory an operator expected.
     return Path(root) / "coordinator"
 
 

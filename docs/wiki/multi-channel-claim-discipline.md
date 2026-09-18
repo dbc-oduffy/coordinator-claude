@@ -24,7 +24,7 @@ A daily-changelog claimed *"Windows console-popup suppression — 4 deployment r
 - 10 more in coordinator-claude
 - No `spawn-hidden.sh` helper, no shell-spawn annotation doctrine
 
-The changelog framing was *true for the channel it named* — Python `CREATE_NO_WINDOW` and TS `windowsHide` were genuinely landed. But "console popup" is a *language-agnostic symptom*: it has three channels (Python subprocess, TS child_process, shell-spawn), and only two were addressed. The shell channel was unaddressed and invisible to readers who took the changelog at face value. The 230-site retro-fit shipped as Waves 2-5 of a separate workstream (`state/handoffs/2026-06-14_115639_example_game_repo-shell-channel-console-flash-suppression.md`). (case: example-game-workbench-repo)
+The changelog framing was *true for the channel it named* — Python `CREATE_NO_WINDOW` and TS `windowsHide` were genuinely landed. But "console popup" is a *language-agnostic symptom*: it has three channels (Python subprocess, TS child_process, shell-spawn), and only two were addressed. The shell channel was unaddressed and invisible to readers who took the changelog at face value. The 230-site retro-fit shipped as Waves 2-5 of a separate workstream (`2026-06-14_115639_example_game_repo-shell-channel-console-flash-suppression.md` under `state/handoffs/`). (case: example-game-workbench-repo)
 
 ## Discipline
 
@@ -41,8 +41,8 @@ At fix-time, enumerate the channels for any cross-cutting infrastructure claim. 
 **Format for the claim:**
 
 ```
-console-popup suppression — channels: Python ✓ (CREATE_NO_WINDOW, commit abc1234);
-TS ✓ (windowsHide, commit def5678); shell ✗ (deferred to <handoff-path>)
+console-popup suppression — channels: Python ✓ (CREATE_NO_WINDOW, commit <sha>);
+TS ✓ (windowsHide, commit <sha>); shell ✗ (deferred to <handoff-path>)
 ```
 
 The explicit ✗-with-pointer is what prevents the next reader from inheriting a false-coverage handoff.
