@@ -556,7 +556,7 @@ def run_gate(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     try:
         raw = sys.stdin.read()
     except Exception as exc:
@@ -582,4 +582,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv))

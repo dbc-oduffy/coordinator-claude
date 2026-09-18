@@ -72,11 +72,6 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-try:
-    import yaml
-except ImportError:  # pragma: no cover - environment defect, not a code path under test
-    yaml = None
-
 # A console-subsystem child with no console of its own allocates a fresh conhost on Windows, with
 # a visible window. `git show` below is short-lived and output-captured. 0 on POSIX.
 _NO_CONSOLE: Dict[str, Any] = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
@@ -114,6 +109,10 @@ def _load_plan_text(plan_path: Path) -> str:
 
 
 def _parse_frontmatter(text: str, plan_path: Path) -> dict[str, Any]:
+    try:
+        import yaml
+    except ImportError:  # pragma: no cover - environment defect, not a code path under test
+        yaml = None
     if not text.startswith("---"):
         raise PlanReadError(f"{plan_path} has no YAML frontmatter (expected leading '---')")
     parts = text.split("---", 2)
@@ -138,6 +137,10 @@ def _parse_tasks(text: str, plan_path: Path) -> list[dict[str, Any]]:
     spine is handled the same as a spine with no writes at all: containment checks vacuously
     hold, and check 4 (delegation_declarations) still gates independently.
     """
+    try:
+        import yaml
+    except ImportError:  # pragma: no cover - environment defect, not a code path under test
+        yaml = None
     match = _TASKS_FENCE.search(text)
     if not match:
         return []

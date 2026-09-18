@@ -98,17 +98,24 @@ def _default_engine_root() -> Path | None:
     return _ENGINE_ROOT if _ENGINE_ROOT.is_dir() else None
 
 
-def _invoke(repo_root: Path, engine_root: Path | None, op: str, params: dict) -> dict:
+def _ensure_engine_on_path() -> None:
+    """Put the engine root on `sys.path`, fail-loud — the same self-location-first bootstrap
+    every other `coordinator/bin/*.py` engine-backed CLI uses (see e.g.
+    `coordinator/bin/compose-review-wave.py`). Idempotent: `require_colocated_engine_on_path`
+    front-inserts onto `sys.path` and a second call is harmless."""
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
+    require_colocated_engine_on_path(__file__)
+
+
+def _invoke(repo_root: Path, op: str, params: dict) -> dict:
     """Dispatch one op IN-PROCESS via `coordinator_core.invoke.dispatch.dispatch_message` — the
-    same JSON-RPC envelope the subprocess route parsed, minus the process hop. `engine_root` is
-    accepted for call-site parity with the pre-port signature (and is still consulted below to
-    make coordinator_core importable on a box that invoked this file from outside the engine
-    checkout); the op itself is dispatched against `repo_root`, via `_origin_worktree`, exactly as
+    same JSON-RPC envelope the subprocess route parsed, minus the process hop. The op itself is
+    dispatched against `repo_root`, via `_origin_worktree`, exactly as
     `coordinator_core.ops.check_auto_reconcile.get_response` dispatches `handoff.reconcile_open`.
     """
-    root = engine_root or _default_engine_root()
-    if root is not None and str(root) not in sys.path:
-        sys.path.insert(0, str(root))
+    _ensure_engine_on_path()
     import asyncio
 
     try:
@@ -436,7 +443,7 @@ def main(argv=None) -> int:
     rows = []
     for plan in plans:
         try:
-            gate = _invoke(repo_root, engine_root, "plan.prep_gate", {"plan": plan})
+            gate = _invoke(repo_root, "plan.prep_gate", {"plan": plan})
         except ValueError as exc:
             return refuse(f"{plan}: {exc}")
 
@@ -455,7 +462,7 @@ def main(argv=None) -> int:
             # nothing, so a re-gate here would just repeat the same verdict.
             if wrote and not args.dry_run:
                 try:
-                    gate = _invoke(repo_root, engine_root, "plan.prep_gate", {"plan": plan})
+                    gate = _invoke(repo_root, "plan.prep_gate", {"plan": plan})
                 except ValueError as exc:
                     return refuse(f"{plan}: re-gate after upgrade: {exc}")
 
@@ -478,7 +485,7 @@ def main(argv=None) -> int:
 
         if gate.get("verdict") == "PREPPED" and not args.dry_run:
             try:
-                stamp = _invoke(repo_root, engine_root, "plan.stamp_prepped", {"plan": plan})
+                stamp = _invoke(repo_root, "plan.stamp_prepped", {"plan": plan})
             except ValueError as exc:
                 return refuse(f"{plan}: {exc}")
             # A refusal is a REPLY here, not an exception — the per-class breakdown is

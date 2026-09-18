@@ -75,10 +75,13 @@ DoE-relative paths this script used to derive from `_engine_root`/its own
     inputs -- the caller's cwd, unchanged from DoE's version.
 
 Windows-first: `subprocess.run` with an argv list, `shell=False` throughout
--- `freeze-review-diff` is resolved via `shutil.which` (which honours
-PATHEXT) rather than invoked as a bare name, because CreateProcess does not
-consult PATHEXT itself and a bare `.cmd` forwarder name is invisible to it
-on this platform. `pathlib` throughout; every path in the emitted JSON is
+-- `waste-signal.py`'s attribution child is spawned via `sys.executable`,
+never a bare interpreter name. Diff-freezing no longer spawns at all:
+`_freeze_slices_batch` calls `coordinator_core.ops.review_freeze_diff.
+freeze_diffs_batch` in-process, once per compose() call, for every slice
+lacking a pre-frozen `diffPath` -- see that function's own docstring for the
+single-git-spawn-per-phase batching this replaces the one-CLI-spawn-per-slice
+shape with. `pathlib` throughout; every path in the emitted JSON is
 repo-relative.
 
 CLI:
@@ -105,7 +108,6 @@ import argparse
 import json
 import os
 import re
-import shutil
 import subprocess
 import tempfile
 import sys
@@ -238,18 +240,6 @@ def _resolve_report_type(policy: dict, agent_type: str) -> str:
     return report_type if isinstance(report_type, str) else ""
 
 
-def _resolve_freeze_review_diff_cli() -> str:
-    """Resolve the installed `freeze-review-diff` forwarder's FULL path,
-    extension included -- CreateProcess does not consult PATHEXT itself
-    (a bare "freeze-review-diff" name is invisible to it on this
-    platform), so this uses `shutil.which`, which DOES honour PATHEXT,
-    then passes the resolved absolute path (already carrying its `.cmd`
-    extension) to `subprocess.run`. Never invoked via a shell string."""
-    resolved = shutil.which("freeze-review-diff")
-    if not resolved:
-        raise ComposeError("freeze-review-diff CLI not found on PATH")
-    return resolved
-
 
 def _repo_relative(path_str: str) -> str:
     """Normalize an emitted path to repo-relative POSIX form.
@@ -277,10 +267,23 @@ def _repo_relative(path_str: str) -> str:
         return candidate.as_posix()
 
 
-def _freeze_slice_diff(slice_id: str, range_spec: str) -> str:
-    """Delegate diff-freezing to the installed `freeze-review-diff` CLI --
-    never reimplemented here. Returns the diff path; `_repo_relative`
-    normalizes it at the emission point.
+def _freeze_slices_batch(requests: list[dict[str, str]]) -> list[dict]:
+    """Freeze every slice in `requests` (each `{"slice_id": ..., "range": ...}`)
+    via ONE in-process call to `coordinator_core.ops.review_freeze_diff.
+    freeze_diffs_batch` -- never the `freeze-review-diff` CLI, and never one
+    call per slice (that per-slice CLI spawn was amplification site
+    `compose:649` in the pre-batch inventory; this function's only caller,
+    `compose()`, calls it exactly once, outside its per-slice loop).
+
+    Returns `freeze_diffs_batch`'s own result list, same order as `requests`
+    -- `compose()` maps each entry back onto its slice and raises
+    `ComposeError` (this module's own fail-loud posture) on any per-request
+    `error`, rather than this function doing it, so the one ComposeError
+    wording for "which slice, what precondition" lives in one place.
+
+    Module-scope inert per this module's own bootstrap convention -- the
+    import happens here, not at module import time, matching every other
+    `coordinator_core`-reaching function in this file.
 
     NO TRAIL RECORD IS REQUESTED, and its absence is not a gap. `review_trail.
     write` was gravestoned at kill-ledger K-060 (2026-08-27, DoE-claude) and
@@ -294,31 +297,13 @@ def _freeze_slice_diff(slice_id: str, range_spec: str) -> str:
     always the binding; the trail record was a separate artifact it admitted.
     With nothing written, there is nothing to admit, and nothing else changes.
     """
-    cli = _resolve_freeze_review_diff_cli()
-    argv = [cli, "--range", range_spec, "--slice-id", slice_id]
+    _ensure_engine_on_path()
+    from coordinator_core.ops.review_freeze_diff import freeze_diffs_batch
+
     try:
-        proc = subprocess.run(
-            argv,
-            capture_output=True,
-            text=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
+        return freeze_diffs_batch(_REPO_ROOT, requests)
     except Exception as exc:
-        raise ComposeError(
-            f"freeze-review-diff failed to spawn for slice {slice_id!r}: {exc}"
-        ) from exc
-    if proc.returncode != 0:
-        raise ComposeError(
-            f"freeze-review-diff exited {proc.returncode} for slice {slice_id!r}: "
-            f"{(proc.stderr or '').strip()}"
-        )
-    lines = [ln.strip() for ln in (proc.stdout or "").splitlines() if ln.strip()]
-    if not lines:
-        raise ComposeError(
-            f"freeze-review-diff produced no stdout for slice {slice_id!r}; "
-            "it promises the frozen diff path on the first line"
-        )
-    return lines[0]
+        raise ComposeError(f"freeze_diffs_batch failed for this wave: {exc}") from exc
 
 
 def _provision_key(run_id: str, slice_id: str, role: str) -> str:
@@ -356,77 +341,54 @@ def _provision_phase(
     contract_block_names: list[str],
     report_type: str,
 ) -> tuple[str, str]:
-    """One `provision_report` subprocess resolving BOTH catering parts (i)
-    resolved contract_blocks prose and (ii) the pre-allocated sidecar path
-    for a single phase. No `timeout=` -- see module docstring on why this
-    composer does not inherit the hook's 2s budget. Any failure leg here
-    (spawn failure, non-zero exit, empty/malformed stdout, either output
-    key missing) is a ComposeError -- fail loud, never fail open, per this
+    """One IN-PROCESS call resolving BOTH catering parts (i) resolved
+    contract_blocks prose and (ii) the pre-allocated sidecar path for a
+    single phase -- `provision_report._provision` /
+    `assemble_contract_blocks_for_payload` directly, the same functions the
+    `python -m coordinator_core.subagent_sandbox.provision_report` CLI this
+    replaced called as its own last step (Review: overengineering-reviewer,
+    Finding 1). No cold interpreter, no `PYTHONPATH` env splice: this module
+    already lives inside the engine's own tree (`_ensure_engine_on_path`),
+    so `coordinator_core` is importable directly. `main()`'s own `--type`
+    default ("run-report", applied only when the payload doesn't already
+    carry one) is mirrored here rather than inherited, since there is no CLI
+    arg parser in this path to apply it for us.
+
+    Any failure leg here (either function raising, either output value
+    missing) is a ComposeError -- fail loud, never fail open, per this
     module's inverted posture."""
-    argv = [
-        sys.executable,
-        "-m",
-        "coordinator_core.subagent_sandbox.provision_report",
-        "--policy",
-        str(policy_file),
-    ]
-    if report_type:
-        argv += ["--type", report_type]
+    _ensure_engine_on_path()
+    from coordinator_core.subagent_sandbox.provision_report import (
+        _provision,
+        assemble_contract_blocks_for_payload,
+    )
 
     payload: dict[str, Any] = {
         "session_id": session_id,
         "agent_type": agent_type,
         "provision_key": provision_key,
+        "type": report_type or "run-report",
     }
     if contract_block_names:
         payload["contract_blocks"] = contract_block_names
 
-    env = dict(os.environ)
-    existing_pp = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = (
-        str(_REPO_ROOT) if not existing_pp else (str(_REPO_ROOT) + os.pathsep + existing_pp)
-    )
+    try:
+        sidecar_path = _provision(payload, str(policy_file), None)
+    except Exception as exc:
+        raise ComposeError(
+            f"provision_report._provision failed for {agent_type}/{provision_key}: {exc}"
+        ) from exc
 
     try:
-        proc = subprocess.run(
-            argv,
-            input=json.dumps(payload),
-            capture_output=True,
-            text=True,
-            env=env,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        injected_blocks = assemble_contract_blocks_for_payload(
+            payload, cwd=None, report_sidecar_path=sidecar_path
         )
     except Exception as exc:
         raise ComposeError(
-            f"provision_report subprocess failed for {agent_type}/{provision_key}: {exc}"
+            f"provision_report.assemble_contract_blocks_for_payload failed for "
+            f"{agent_type}/{provision_key}: {exc}"
         ) from exc
 
-    if proc.returncode != 0:
-        raise ComposeError(
-            f"provision_report exited {proc.returncode} for {agent_type}/{provision_key}: "
-            f"{(proc.stderr or '').strip()}"
-        )
-
-    out = (proc.stdout or "").strip()
-    if not out:
-        raise ComposeError(
-            f"provision_report produced no output for {agent_type}/{provision_key}: "
-            f"{(proc.stderr or '').strip()}"
-        )
-
-    try:
-        data = json.loads(out)
-    except Exception as exc:
-        raise ComposeError(
-            f"provision_report output not valid JSON for {agent_type}/{provision_key}: {exc}"
-        ) from exc
-    if not isinstance(data, dict):
-        raise ComposeError(
-            f"provision_report output not a JSON object for {agent_type}/{provision_key}"
-        )
-
-    sidecar_path = data.get("report_sidecar")
-    injected_blocks = data.get("injected_prompt_blocks")
     if not isinstance(sidecar_path, str) or not sidecar_path:
         raise ComposeError(
             f"provision_report returned no report_sidecar for {agent_type}/{provision_key} "
@@ -491,10 +453,9 @@ def _extract_trailing_json_object(text: str) -> Optional[dict]:
     pipe interleaves both onto one fd -- `json.loads(stdout)` on the whole
     capture then fails even on a clean, successful run).
 
-    Defensive trailing-object extraction, in the same spirit as this file's
-    own `_freeze_slice_diff` reading specific stdout lines rather than
-    trusting the whole stream -- never a change to how `waste-signal.py`
-    itself prints. Returns `None` (never raises) if no suffix of the output
+    Defensive trailing-object extraction -- never a change to how
+    `waste-signal.py` itself prints. Returns `None` (never raises) if no
+    suffix of the output
     parses as a JSON object, which the caller folds into the same
     not-measurable path as every other unparseable-output case."""
     lines = text.splitlines()
@@ -614,6 +575,54 @@ def _write_waste_report(report: dict, run_id: str, slice_id: str) -> Path:
     return out_path
 
 
+def _slice_attribution_view(union_attribution: dict, slice_paths: set[str]) -> dict:
+    """Narrow ONE union-wide `waste-signal.py --attribute-diff` result (run
+    over every slice's changed paths combined -- see `compose()`'s own
+    docstring for why this replaced amplification site `compose:658`) down
+    to the view for `slice_paths` alone: "give each slice the attribution for
+    its own paths" (module docstring).
+
+    `attributable_paths`/`attributable_redundant_opens` (dynamic) and
+    `static.per_path` are PER-PATH -- `AttributedWasteReport.as_report()` and
+    `StaticWasteReport.as_report()` both key their per-path breakdown by
+    path (coordinator/bin/waste-signal.py), so filtering to `path in
+    slice_paths` and re-summing `attributable_redundant_opens` from the
+    filtered list is exact, not an approximation.
+
+    `elsewhere_in_repo_redundant_opens`/`out_of_repo_redundant_opens`/
+    `status`/`reason`/`basis` and `static`'s own `duplicate_groups`/
+    `dropped_count`/`call_status`/`hint` stay as the union computed them --
+    they were already aggregate, run-scoped facts under the pre-batch
+    per-slice call (each slice's own `_run_waste_attribution` reported them
+    for ITS OWN changed-path set only; sharing one union-wide value across
+    every slice is the one axis this restructuring changes, and it is
+    unavoidable without re-running the instrument per slice, exactly the
+    amplification this change exists to remove)."""
+    view = dict(union_attribution)
+
+    attributable_paths = [
+        entry
+        for entry in union_attribution.get("attributable_paths", [])
+        if isinstance(entry, dict) and entry.get("path") in slice_paths
+    ]
+    view["attributable_paths"] = attributable_paths
+    view["attributable_redundant_opens"] = sum(
+        entry.get("redundant_opens", 0) for entry in attributable_paths
+    )
+
+    static = union_attribution.get("static")
+    if isinstance(static, dict):
+        static_view = dict(static)
+        per_path = static.get("per_path")
+        if isinstance(per_path, dict):
+            static_view["per_path"] = {
+                path: entry for path, entry in per_path.items() if path in slice_paths
+            }
+        view["static"] = static_view
+
+    return view
+
+
 def compose(
     manifest: dict,
     *,
@@ -644,7 +653,17 @@ def compose(
     # FILENAME), which is what the shared-sidecar requirement actually needs,
     # so nothing is lost by dropping the per-run directory.
 
-    slices_out: list[dict[str, Any]] = []
+    # Pass 1: validate every slice entry and resolve its range/diffPath.
+    # Slices lacking a pre-frozen `diffPath` are collected here, never frozen
+    # inline -- amplification site `compose:649` (one `freeze-review-diff`
+    # CLI spawn per slice) is closed by freezing the whole collected set in
+    # ONE call after this loop, not inside it (module docstring).
+    slice_ids: list[str] = []
+    range_specs: list[str] = []
+    diff_paths: list[Optional[str]] = []
+    freeze_requests: list[dict[str, str]] = []
+    freeze_positions: list[int] = []
+
     for slice_entry in slices_in:
         if not isinstance(slice_entry, dict):
             raise ComposeError("a slice entry is not a JSON object")
@@ -667,18 +686,60 @@ def compose(
                 "reviewed_range it was never given"
             )
 
-        diff_path = slice_entry.get("diffPath")
-        if not (isinstance(diff_path, str) and diff_path):
-            diff_path = _freeze_slice_diff(slice_id, range_spec)
+        slice_ids.append(slice_id)
+        range_specs.append(range_spec)
 
-        # Attribute this slice's own diff, never the reviewer's or the
-        # emitter's -- see _run_waste_attribution's docstring for the
-        # child-process crash-isolation rationale.
+        diff_path = slice_entry.get("diffPath")
+        if isinstance(diff_path, str) and diff_path:
+            diff_paths.append(diff_path)
+        else:
+            diff_paths.append(None)
+            freeze_positions.append(len(diff_paths) - 1)
+            freeze_requests.append({"slice_id": slice_id, "range": range_spec})
+
+    if freeze_requests:
+        freeze_results = _freeze_slices_batch(freeze_requests)
+        for pos, result in zip(freeze_positions, freeze_results):
+            slice_id = slice_ids[pos]
+            if result.get("error"):
+                raise ComposeError(
+                    f"freeze_diffs_batch failed for slice {slice_id!r}: {result['error']}"
+                )
+            frozen_path = result.get("diff_path")
+            if not isinstance(frozen_path, str) or not frozen_path:
+                raise ComposeError(
+                    f"freeze_diffs_batch produced no diff_path for slice {slice_id!r} -- "
+                    "the reviewer would arrive with nothing to review"
+                )
+            diff_paths[pos] = frozen_path
+
+    # Pass 2: derive every slice's changed paths from its OWN frozen diff
+    # (pure file reads -- no spawn), then attribute the UNION of every
+    # slice's changed paths in ONE `waste-signal.py --attribute-diff` child
+    # -- amplification site `compose:658` (one child per slice) is closed by
+    # running the instrument once over the combined set and splitting its
+    # per-path result back out per slice (`_slice_attribution_view`), never
+    # by re-running it per slice.
+    changed_paths_by_slice: list[list[str]] = []
+    union_paths: set[str] = set()
+    for diff_path in diff_paths:
+        assert isinstance(diff_path, str) and diff_path  # pass 1 guarantees this
         diff_path_obj = Path(diff_path)
         if not diff_path_obj.is_absolute():
             diff_path_obj = _REPO_ROOT / diff_path_obj
         changed_paths = _changed_paths_from_diff(diff_path_obj)
-        waste_attribution = _run_waste_attribution(changed_paths, _REPO_ROOT)
+        changed_paths_by_slice.append(changed_paths)
+        union_paths.update(changed_paths)
+
+    union_attribution = _run_waste_attribution(sorted(union_paths), _REPO_ROOT)
+
+    slices_out: list[dict[str, Any]] = []
+    for idx, slice_id in enumerate(slice_ids):
+        range_spec = range_specs[idx]
+        diff_path = diff_paths[idx]
+        changed_paths = changed_paths_by_slice[idx]
+
+        waste_attribution = _slice_attribution_view(union_attribution, set(changed_paths))
         waste_report_path = _write_waste_report(
             {"changed_paths": changed_paths, "attribution": waste_attribution},
             run_id,

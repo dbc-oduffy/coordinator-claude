@@ -46,10 +46,12 @@ from __future__ import annotations
 
 import argparse
 import filecmp
+import json
 import os
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -1072,6 +1074,147 @@ def sync_mirror(
 
 
 # ---------------------------------------------------------------------------
+# Manifest layout-rewrite transform — declarative, row-supplied, caller-owned.
+#
+# Folds DoE-claude's `setup/publish_sync.py` per-root override (the coordinator
+# install-manifest layout transform, `_is_coordinator_install_src` /
+# `_apply_coordinator_install_manifest_transform`) into this engine module —
+# docs/plans/2026-09-18-doe-holds-no-scripts.md chunk W3-C10 / reviewer
+# finding 6 (ACCEPT). That override kept the transform out of this module
+# because it was keyed to ONE publish row's identity
+# (`coordinator-claude-toplevel-install`) and its own DoE-repo-specific
+# nested-vs-flat layout — hardcoding a row name and a layout into a generic
+# percolate library is the same doctrine-layout coupling the DR-141 cluster
+# already forbids. `ManifestLayoutRewrite` is how the row supplies that
+# instead: every field below — the manifest filename, the source-directory
+# suffix that gates it, the literal string rewrite pairs, and the top-level
+# fields excluded from rewriting — is caller data. This module holds no row
+# name and no source-repo layout anywhere in it.
+#
+# `apply_manifest_layout_rewrite` is the ACTUAL substitution logic DoE's own
+# override never wrote: `_COORDINATOR_MANIFEST_PATH_REWRITES` there has
+# always been an empty list (its own docstring: the only two fields the
+# transform ever targeted, `standalone_setup_script.{posix,windows}` and
+# `programmatic_entry_point.posix`, are engine-root-relative and must publish
+# byte-identical everywhere, so no rewrite has ever actually applied), and
+# `_apply_coordinator_install_manifest_transform` only guarded against a
+# rewrite pair being added without also wiring the apply — it never performed
+# one. This function performs one: it walks the manifest's top-level fields
+# (skipping `excluded_top_level_fields`) and substring-replaces every
+# `path_rewrites` pair inside every string leaf, recursively through nested
+# dicts/lists, exactly the shape `standalone_setup_script`/
+# `programmatic_entry_point` (nested `{posix, windows}` objects) would need
+# were either ever un-excluded.
+#
+# NOT wired to any real row by this chunk: `sync_flat_mirror`'s own
+# `manifest_layout_rewrite` parameter below defaults to `None` (a true no-op,
+# 100% behavior-preserving for every existing caller — the same contract
+# `renamed_dir_names`/`foreign_dir_names` already hold in `sync_mirror`).
+# Passing a row's real rewrite pairs through requires `coordinator/bin/
+# publish.py`'s row-resolution layer and a field on the row in
+# `setup/publish-targets.portable` to read it from — outside this chunk's
+# footprint (chunk W3-C10 writes only this module, its test, and the cockpit
+# publisher). Both DoE copies (`setup/publish_sync.py` and
+# `coordinator/templates/setup/publish_sync.py`) retire once that field
+# lands and is wired through.
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class ManifestLayoutRewrite:
+    """Declarative, row-supplied top-level path-rewrite for a JSON manifest
+    file `sync_flat_mirror` copies. See the module-level comment above for
+    why every field here is caller data rather than a constant this module
+    hardcodes.
+
+    `filename` — the manifest's basename (e.g. "agent-install-manifest.json").
+    `src_dir_suffix` — a POSIX-style suffix `src_dir.as_posix()` must end with
+        for the rewrite to apply at all (e.g. "/coordinator/docs/install") —
+        the row-specific layout gate, supplied by the caller, never matched
+        against a hardcoded row identity here.
+    `path_rewrites` — ordered `(old, new)` literal substring-replacement
+        pairs, applied to every string leaf value under a non-excluded
+        top-level field. Empty (the default) makes `apply_manifest_layout_
+        rewrite` a documented no-op, matching DoE's own dormant transform.
+    `excluded_top_level_fields` — top-level manifest keys the rewrite must
+        never touch, e.g. `{"standalone_setup_script", "programmatic_entry_
+        point"}` for the coordinator install-manifest (both engine-root-
+        relative, never coordinator-tree-relative — see DoE's own
+        `_EXCLUDED_ENGINE_ROOT_RELATIVE_FIELDS`).
+    """
+
+    filename: str
+    src_dir_suffix: str
+    path_rewrites: "tuple[tuple[str, str], ...]" = ()
+    excluded_top_level_fields: "frozenset[str]" = frozenset()
+
+
+def _rewrite_manifest_json_value(value: object, path_rewrites: "tuple[tuple[str, str], ...]") -> object:
+    """Recursively applies every `(old, new)` pair in `path_rewrites` to
+    every string leaf under `value` — dicts and lists are walked, every
+    other type (int, float, bool, None) is returned unchanged."""
+    if isinstance(value, str):
+        for old, new in path_rewrites:
+            value = value.replace(old, new)
+        return value
+    if isinstance(value, dict):
+        return {k: _rewrite_manifest_json_value(v, path_rewrites) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_rewrite_manifest_json_value(v, path_rewrites) for v in value]
+    return value
+
+
+def apply_manifest_layout_rewrite(dst_file: Path, rewrite: ManifestLayoutRewrite) -> bool:
+    """Applies `rewrite.path_rewrites` to `dst_file` (already a byte-identical
+    copy of the source manifest, placed there by `sync_flat_mirror`'s Phase 1)
+    in place, skipping `rewrite.excluded_top_level_fields` entirely. Returns
+    whether anything changed — the caller uses this to decide whether to
+    print a `TRANSFORM:` line, matching `_apply_install_md_doe_strip_
+    transform`'s own report-only-on-real-change contract in DoE's override.
+
+    A no-op `path_rewrites` (the `ManifestLayoutRewrite` default) returns
+    `False` without reading `dst_file` at all — every existing caller of
+    `sync_flat_mirror` (which never supplies `manifest_layout_rewrite`) never
+    reaches this function in the first place, so this early return is
+    defense-in-depth, not the only guard.
+
+    Malformed JSON or a non-object top-level document is left untouched and
+    reported to stderr rather than raised: a manifest transform must never be
+    the reason an otherwise-valid copy fails a publish outright — the
+    original bytes `sync_flat_mirror` already copied stay in place."""
+    if not rewrite.path_rewrites:
+        return False
+    try:
+        data = json.loads(dst_file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        print(
+            f"    WARNING: manifest layout rewrite skipped for {dst_file} — "
+            f"could not parse as JSON: {exc}",
+            file=sys.stderr,
+        )
+        return False
+    if not isinstance(data, dict):
+        print(
+            f"    WARNING: manifest layout rewrite skipped for {dst_file} — "
+            "top-level JSON value is not an object.",
+            file=sys.stderr,
+        )
+        return False
+
+    changed = False
+    for key, value in list(data.items()):
+        if key in rewrite.excluded_top_level_fields:
+            continue
+        new_value = _rewrite_manifest_json_value(value, rewrite.path_rewrites)
+        if new_value != value:
+            data[key] = new_value
+            changed = True
+
+    if not changed:
+        return False
+    dst_file.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Flat-mirror mode — top-level files only, no subdirs
 # ---------------------------------------------------------------------------
 def sync_flat_mirror(
@@ -1082,11 +1225,20 @@ def sync_flat_mirror(
     *,
     copy_file: CopyFileFn | None = None,
     changed_paths: "set[str] | None" = None,
+    manifest_layout_rewrite: "ManifestLayoutRewrite | None" = None,
 ) -> tuple[int, int]:
     """`changed_paths` — see `sync_mirror`'s own parameter docstring for the
     full contract (structured copy-decision sink, `None`-default no-op,
     mutate-in-place, tri-state ownership boundary); identical here, without
-    a plugin prefix since flat-mirror has no per-plugin subdir."""
+    a plugin prefix since flat-mirror has no per-plugin subdir.
+
+    `manifest_layout_rewrite` (default `None` — 100% behavior-preserving for
+    every existing caller) — see the module-level comment above `Manifest
+    Layout-rewrite transform` for the full contract. Applied, non-dry-run
+    only, to a copied file whose basename equals `manifest_layout_rewrite.
+    filename` AND whose `src_dir` ends with `manifest_layout_rewrite.
+    src_dir_suffix` — both caller-supplied, so this module never names a row
+    or a layout itself."""
     synced = 0
     removed = 0
     copier = copy_file or _default_copy_file
@@ -1120,6 +1272,18 @@ def sync_flat_mirror(
         else:
             dst_dir.mkdir(parents=True, exist_ok=True)
             copier(src_file, dst_file, False)
+            # Manifest layout-rewrite transform — see the long comment block
+            # above `apply_manifest_layout_rewrite` for the full contract.
+            # Applied ONLY when the caller supplied one AND this copy matches
+            # both its filename and its src_dir_suffix gate; never dry-run
+            # (dst_file is not written under dry-run).
+            if (
+                manifest_layout_rewrite is not None
+                and rel_path == manifest_layout_rewrite.filename
+                and src_dir.as_posix().endswith(manifest_layout_rewrite.src_dir_suffix)
+            ):
+                if apply_manifest_layout_rewrite(dst_file, manifest_layout_rewrite):
+                    print(f"    TRANSFORM: {rel_path} layout rewrite applied", file=sys.stderr)
             _restore_shebang_executable_bit(dst_file)
             print(f"    {'NEW:   ' if is_new else 'UPDATE:'} {rel_path}")
         if changed_paths is not None:

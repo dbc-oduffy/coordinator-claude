@@ -71,6 +71,7 @@ Prior JS implementation: see git log (coordinator/bin/emit-artifact-shape-contra
 """
 from __future__ import annotations
 
+import importlib
 import os
 import pathlib
 import re
@@ -96,7 +97,7 @@ def _resolve_coordinator_root() -> str:
     if env_root:
         return env_root
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from coordinator_data_root import content_root_for
+    from coordinator_data_root import content_root_or_private
     from coordinator_registry import _DoeUnresolvable, doe_root
 
     try:
@@ -110,14 +111,9 @@ def _resolve_coordinator_root() -> str:
         )
         sys.exit(2)
     # Either content layout — the published flat mirror carries schemas/ and artifact-shape-contract/ at its
-    # own root, with no "coordinator" segment to join
-    # (coordinator_data_root.content_root_for is the one place that join lives).
-    content = content_root_for(root)
-    if content is not None:
-        return str(content)
-    # Neither layout present — keep naming the private-shape path so the
-    # downstream read reports the directory an operator expected to see.
-    return os.path.join(root, "coordinator")
+    # own root, with no "coordinator" segment to join — routed through the
+    # promoted content_root_or_private wrapper (overengineering-reviewer finding 2).
+    return content_root_or_private(root)
 
 
 def _import_runner():
@@ -195,8 +191,17 @@ def _assert_resolved_engine_is_this_source() -> "str | None":
     Returns None if the check passes or cannot be performed (no local source
     to compare against). Otherwise returns a multi-line error string
     describing the mismatch; never raises, never prints.
+
+    The resolved module is fetched through importlib, never `import
+    coordinator_core.ops.emit_artifact_shape_contract as resolved`: the
+    statement form binds through the PARENT PACKAGE's attribute, which keeps
+    pointing at whichever module object was bound there first and so reports a
+    module that sys.modules no longer holds. sys.modules is the authoritative
+    record of which engine this interpreter resolved, and it is the only thing
+    this check may read — the statement form silently answered about the wrong
+    module the moment anything in the process had already imported the op.
     """
-    import coordinator_core.ops.emit_artifact_shape_contract as resolved
+    resolved = importlib.import_module("coordinator_core.ops.emit_artifact_shape_contract")
 
     source_version = _source_contract_version()
     if source_version is None:

@@ -472,7 +472,17 @@ def content_root_for(doe_root) -> Path | None:
     """
     if not doe_root:
         return None
-    base = doe_root if isinstance(doe_root, Path) else Path(str(doe_root).rstrip("/\\"))
+    if isinstance(doe_root, Path):
+        base = doe_root
+    else:
+        # Review: code-reviewer S1/F1 -- rstrip("/\\") alone collapses "/" or
+        # "//" to "", and Path("") resolves to the process cwd, silently
+        # probing cwd instead of failing closed on a degenerate root. Fall
+        # back to the un-stripped string when stripping empties it, so an
+        # all-slash root stays anchored at the filesystem root (where the
+        # marker/private-dir checks below correctly find nothing).
+        raw = str(doe_root)
+        base = Path(raw.rstrip("/\\") or raw)
     private = base / "coordinator"
     if private.is_dir():
         return private
@@ -481,23 +491,21 @@ def content_root_for(doe_root) -> Path | None:
     return None
 
 
-def resolved_content_root() -> Path | None:
-    """`content_root_for` against the DoE root this module resolves.
+def content_root_or_private(doe_root) -> str:
+    """`content_root_for`, falling back to the private-shape join.
 
-    Same two-rung DoE resolution `data_root()` uses (the codename-free ladder,
-    then `coordinator_registry.doe_root()`), so the two never disagree about
-    which root they are talking about. Returns None when nothing resolves.
+    Review: overengineering-reviewer finding 2 — the shape every bin/ CLI that
+    needs "content root, or the private-shape join to keep naming a path when
+    neither layout resolves" actually needed was previously re-derived by hand
+    at each call site. Promoted here as the one public spelling, mirroring
+    `coordinator_core._content_root_primitive.content_root_or_private` (AC4 —
+    same fallback, same order).
+
+    The fallback is a REAL requirement: it preserves each caller's own
+    "candidate does not exist on disk" diagnostic rather than regressing to a
+    bare `None` with no path to name.
     """
-    doe = _cdr_codename_free_root()
-    if not doe:
-        try:
-            # Lazy import — see the module docstring's import-time purity note.
-            from coordinator_registry import _DoeUnresolvable, doe_root  # noqa: PLC0415
-
-            try:
-                doe = doe_root()
-            except _DoeUnresolvable:
-                return None
-        except Exception:  # noqa: BLE001 - an unresolvable root is None, never a raise
-            return None
-    return content_root_for(doe)
+    content = content_root_for(doe_root)
+    if content is not None:
+        return str(content)
+    return os.path.join(str(doe_root), "coordinator")

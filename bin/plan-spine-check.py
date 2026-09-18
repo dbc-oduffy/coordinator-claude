@@ -100,6 +100,17 @@ class CheckError(RuntimeError):
     """A precondition this module cannot proceed without, named rather than guessed."""
 
 
+def _ensure_engine_on_path() -> None:
+    """Put the engine root on `sys.path`, fail-loud — the same self-location-first bootstrap
+    every other `coordinator/bin/*.py` engine-backed CLI uses (see e.g.
+    `coordinator/bin/compose-review-wave.py`). Idempotent: `require_colocated_engine_on_path`
+    front-inserts onto `sys.path` and a second call is harmless."""
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
+    require_colocated_engine_on_path(__file__)
+
+
 def _locate_spine(text: str):
     """The `## Tasks` ```yaml plan-tasks block, via the engine's own locator.
 
@@ -107,8 +118,7 @@ def _locate_spine(text: str):
     info string, blanking of nested fences) resolve through this module's own tree with no seam —
     a second copy here is how the two would drift into disagreeing about what a spine even is.
     """
-    if str(_REPO_ROOT) not in sys.path:
-        sys.path.insert(0, str(_REPO_ROOT))
+    _ensure_engine_on_path()
     try:
         from coordinator_core.frontmatter.body_blocks import LocateStatus, locate_fenced_block
     except Exception as exc:  # pragma: no cover - import-shape guard

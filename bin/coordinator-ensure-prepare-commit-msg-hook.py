@@ -8,7 +8,9 @@ lib/git_hook_install.py; this is the thin entrypoint. The INSTALLED
 the polyglot coordinator-prepare-commit-msg directly) so it fires on a Windows box
 that has sh + python but no bash — the case the bash predecessor silently no-op'd on.
 
-Runs from session-init on every session boot, and from /repo-setup § 3f.5.6.
+Invoked fleet-wide by `coordinator-ensure-hooks-fleet` at /workday-start Step -0.45
+and by scripts/cloud_setup.py's cloud pre-boot install, and directly from
+/repo-setup § 3f.5.6.
 Idempotent; always exits 0 — must never block a session start.
 
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md § git-hook-installers-port
@@ -35,7 +37,7 @@ def _bootstrap_engine() -> None:
     resolvable only from the repo root, not from _LIB_DIR, so it must be on
     sys.path too or the import below raises ModuleNotFoundError every time
     this entrypoint runs as a subprocess (which is how it is invoked from
-    session-init and from the test suite).
+    `coordinator-ensure-hooks-fleet`, cloud pre-boot, and the test suite).
 
     Idempotent; safe to call more than once. Moved out of module scope
     (2026-08-28) -- unconditionally mutating `sys.path` at import time made

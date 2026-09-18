@@ -57,7 +57,7 @@ _BIN_LIB_DIR = os.path.join(os.path.dirname(_LIB_DIR), "bin", "lib")
 if _BIN_LIB_DIR not in sys.path:
     sys.path.insert(0, _BIN_LIB_DIR)
 from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-from coordinator_data_root import content_root_for  # noqa: E402
+from coordinator_data_root import content_root_or_private  # noqa: E402
 from coordinator_registry import _DoeUnresolvable, doe_root  # noqa: E402
 
 
@@ -97,13 +97,9 @@ def _derive_plugin_root() -> str:
         )
         sys.exit(1)
     # Either content layout: the published flat mirror holds lib/ and templates/
-    # at its own root, with no "coordinator" segment to join.
-    content = content_root_for(resolved)
-    if content is not None:
-        return str(content)
-    # Neither layout present — keep naming the private-shape path so main()'s
-    # layout precondition reports the directory an operator expected to see.
-    return os.path.join(resolved, "coordinator")
+    # at its own root, with no "coordinator" segment to join (overengineering-
+    # reviewer finding 2 — routed through the promoted wrapper).
+    return content_root_or_private(resolved)
 
 
 def _import_main():

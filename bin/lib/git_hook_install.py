@@ -1033,6 +1033,29 @@ def _replace_block(text: str, start: int, end: int, block: str) -> str:
     return out
 
 
+#: Stderr WARNING for the UNRESOLVED-repo-root branch, shared by `_ensure_hook`
+#: and `ensure_prepare_commit_msg_hook` — both short-circuit on the same verdict
+#: and owe the operator the same line. Format with `hook_name`.
+#:
+#: Why it is printed at all (state/bug-backlog/2026-08-25-hook-emitters-exit-0-
+#: having-installed-no-*.yaml): UNRESOLVED is genuinely non-fatal on the
+#: session-boot path — this module's always-returns-0 contract is unchanged, and
+#: this text is diagnostics only, never part of an installed hook body — but an
+#: installer that writes nothing and says nothing is indistinguishable from one
+#: that succeeded. NOT the same disposition as DR-277 MISMATCH (a *different*
+#: verdict, carrying `_git_root()`'s own stderr line): UNRESOLVED means the
+#: checked resolver found no repo identity to gate at all, not "found one that
+#: disagrees".
+#:
+#: Review: Kira (overengineering, F5) — was pasted verbatim into both sites.
+_UNRESOLVED_ROOT_WARNING = (
+    "[git_hook_install] WARNING: {hook_name} install/repair "
+    "skipped this run -- the checked repo-root resolver came back "
+    "UNRESOLVED (no git root at this cwd) -- no hook was written. "
+    "Run this from inside the target git clone to install it."
+)
+
+
 def _git_root() -> Optional[str]:
     """Resolve the cwd's repo root via the checked resolver
     (`repo_identity.resolve_checked_repo_root`).
@@ -1150,6 +1173,14 @@ def _ensure_hook(
     if root is None:
         root = _git_root()
     if not root:
+        # Printed independently of whether the caller collects `outcome` --
+        # the same fix `skipped-no-helper` already has a few lines below; this
+        # branch predates that one and never got it. Rationale and the DR-277
+        # distinction live on `_UNRESOLVED_ROOT_WARNING`.
+        print(
+            _UNRESOLVED_ROOT_WARNING.format(hook_name=hook_name),
+            file=sys.stderr,
+        )
         return _note("skipped-no-root")
 
     coord_bin = _resolve_coord_bin(bin_dir, script_name)
@@ -1326,6 +1357,13 @@ def ensure_prepare_commit_msg_hook(
     if root is None:
         root = _git_root()
     if not root:
+        # This early return short-circuits BEFORE `_ensure_hook` is ever
+        # called, so its stderr line never fires for this path; the resolver's
+        # `root` classifies this as UNRESOLVED.
+        print(
+            _UNRESOLVED_ROOT_WARNING.format(hook_name="prepare-commit-msg"),
+            file=sys.stderr,
+        )
         if outcome is not None:
             outcome.append("skipped-no-root")
         return 0

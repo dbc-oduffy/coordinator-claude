@@ -832,6 +832,14 @@ Machine-local handles operator-set config (key-value, TOML, reader-mediated). Th
 
 The `plugin.mirrors` table namespace registers plugins whose live install may be a separate git checkout of the plugin's source repo. The drift probe (`check-plugin-drift.py`) reads these entries to detect when a live install has fallen behind its source.
 
+**`plugin.mirrors.coordinator-claude.live_path` is also a trust anchor — the SERVED tree's own.**
+`repos.doe_claude` names the AUTHORING checkout; this key names the plugin root a session actually
+runs, which is a different tree on any box served a flat published mirror. Both are anchors in
+`claude-klabauter coordinator_core/trusted_root_guard.py`, matched textually, and the served mirror
+must stay trusted or the install orchestrator fail-loud-refuses. The split, its activation
+condition, and what remains open:
+`docs/decisions/DR-the-authoring-checkout-and-the-served-mirror-are-two-anchors.md`.
+
 **Full schema, field reference, and operator examples live in `<settings-home>/machine-local/README.md § plugin.mirrors`** (§4e; `~/.claude/machine-local/README.md` resolves the same content via the transitional compat symlink during the phase-2 gated migration window) — do not duplicate here. The summary below covers only the doctrine decision points.
 
 **No provenance stamp on `plugin.mirrors.<name>` writes (DoE ruling).** Each `[plugin.mirrors.<name>]` table is repo-namespaced and single-writer — only that plugin's own installer ever writes its table, so the table key already encodes the writer. The `[provenance]` convention (§5b case 3, §6) exists specifically for *multi-writer collision diagnosis* — disambiguating which automated writer set a key several installers can write (e.g. `[provenance.unreal]` on the shared `unreal.install_root`, seeded by more than one installer). It is **not** a universal stamp on every `registry.local.toml` write. A single-writer namespaced table has nothing to disambiguate, so a provenance stamp there is ceremony, not signal. Append-only writers that structurally preserve sibling tables (read → `tomllib`-parse-absent-check → append → atomic `os.replace`) satisfy the preserve-unrelated-tables property by construction and need no provenance. (Triggered by project-rag-em's question on `_register_plugin_mirror.py`.)

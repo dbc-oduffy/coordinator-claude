@@ -136,35 +136,6 @@ def _resolve_plugin_root() -> Path:
     return Path(root) / "coordinator"
 
 
-def _resolve_cs_lib(plugin_root: Path) -> "Path | None":
-    """Historical coordinator-session.sh ladder mirroring the 7 retired
-    originals' `_CS_LIB` resolution: plugin_root/lib/coordinator-session.sh
-    first (covers both the CLAUDE_PLUGIN_ROOT-set and default-relative-to-
-    script cases, since plugin_root already folds that env var in), else the
-    ~/.claude/.doe-root pointer file's coordinator/lib/coordinator-session.sh.
-    coordinator-session.sh was deleted 2026-07-22 (session-family-repoint
-    C4a) — both rungs now resolve to None and this vestigial ladder is kept
-    only for the legacy-consumer resolution shape it still feeds `run()`.
-    """
-    direct = plugin_root / "lib" / "coordinator-session.sh"
-    if direct.is_file():
-        return direct
-    doe_root_file = Path(
-        os.environ.get("CLAUDE_HOME")
-        or os.environ.get("HOME")
-        or os.environ.get("USERPROFILE")
-        or os.path.expanduser("~")
-    ) / ".claude" / ".doe-root"
-    try:
-        doe_root_text = doe_root_file.read_text(encoding="utf-8").strip()
-    except OSError:
-        return None
-    if not doe_root_text:
-        return None
-    candidate = Path(doe_root_text) / "coordinator" / "lib" / "coordinator-session.sh"
-    return candidate if candidate.is_file() else None
-
-
 def main(argv: "list[str] | None" = None) -> int:
     _bootstrap_engine()
     args = (sys.argv[1:] if argv is None else argv)
@@ -222,7 +193,6 @@ def main(argv: "list[str] | None" = None) -> int:
         plugin_root=plugin_root,
         content_root=content_root,
         machine_local_bin=resolve_machine_local_bin(script_dir),
-        cs_lib=_resolve_cs_lib(plugin_root),
     )
 
     # `run()`'s SyncOutcome.lines carry native-OS separators for verify/--fix
