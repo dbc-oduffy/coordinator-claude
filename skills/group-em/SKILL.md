@@ -150,7 +150,7 @@ minute. In this order, as your first act:
    here?" in plain words and exits (0 alive, 1 not running, 2 unknown — **unknown is never
    green**); `--once` fires a single tick, the form a cron floor uses.
 
-   **Prefer the trampoline to the bare module.** `python -m coordinator_core.group_em.watch` needs
+   **Prefer the trampoline to the bare module.** `python3 -m coordinator_core.group_em.watch` needs
    the engine already importable, so it starts only from an engine-rooted cwd; from a doctrine repo
    it is a `ModuleNotFoundError` at start-up, and a watcher whose subprocess never started presents
    as `idle` — indistinguishable from a quiet fleet, no error anywhere. Reach for the bare module
@@ -220,7 +220,7 @@ surface: watcher alive, subprocess alive, log filling. Measured: ~50 minutes of 
 The wire also needs a liveness arm, because a sensor that dies silently is indistinguishable from a
 quiet fleet — but **do not shape that arm as a process-table check.** `pgrep -f` cannot read Windows
 process command lines, and even where it can, the watch runs under two different command lines
-(`python -m coordinator_core.group_em.watch`, or the trampoline's `group-em-watch.py`), so a pattern
+(`python3 -m coordinator_core.group_em.watch`, or the trampoline's `group-em-watch.py`), so a pattern
 matched against either one reports a false death for the other. A false death is worse than no arm:
 it teaches the holder to discount the one wire that wakes them. Measured twice in one afternoon on
 two boxes — once from `pgrep -f` on Windows, once from a watcher grepping the module path while the
@@ -292,16 +292,20 @@ required, not duplication.
 and why. A tick closing on "nothing sent" with no declination is indistinguishable from one that
 never looked.
 
-**And each tick STAMPS them to disk**, via `watch_heartbeat.stamp(repo_root, holder_session_id,
-declinations, interval_seconds, subscribed_peers=…, tick_source=…, writer_session_id=…)`. Copy that
-order: `declinations` is the THIRD positional and `interval_seconds` the fourth and required, so a
-call shaped `(repo_root, session_id, name, source, declinations)` raises rather than stamping — and
-a tick that raises here is exactly the tick that cannot tell "looked, nothing to do" from "did not
-look". `writer_session_id` is a keyword, **optional in the signature and required at runtime**: the
-call raises on a falsy value, so an omitting call refuses once and succeeds only on the retry. It is
-YOUR session id — the instrument doing the writing — which is not `holder_session_id` when a
-delegate arm stamps on the crown's behalf; the two together are what let a reader tell one crown's
-two instruments apart from two crowns racing.
+**And each tick STAMPS them to disk**, via the **engine's** `cron`/`monitor` writer,
+`<engine_root>/coordinator_core/group_em/watch_heartbeat.py :: stamp(repo_root, holder_session_id,
+declinations, interval_seconds, subscribed_peers=…, tick_source=…, writer_session_id=…)` — a
+different function from this skill's own `watch_heartbeat.py :: stamp`, which `_stamp_watch` in
+`group-em-enter.py` calls for the `entry` tick and takes a different signature. Copy the ENGINE
+copy's order: `declinations` is the THIRD positional and `interval_seconds` the fourth and
+required, so an engine `cron`/`monitor` call shaped `(repo_root, session_id, name, source,
+declinations)` raises rather than stamping — and a tick that raises here is exactly the tick that
+cannot tell "looked, nothing to do" from "did not look". `writer_session_id` is a keyword,
+**optional in the signature and required at runtime**: the call raises on a falsy value, so an
+omitting call refuses once and succeeds only on the retry. It is YOUR session id — the instrument
+doing the writing — which is not `holder_session_id` when a delegate arm stamps on the crown's
+behalf; the two together are what let a reader tell one crown's two instruments apart from two
+crowns racing.
 `tick_source` is `cron` or `monitor` and is a KEYWORD, never positional; entry stamps its own.
 `declinations` is THIS tick's rows only — each `{session_id, name, gate, reason}`, never an
 accumulating history; a tick that declined nothing passes `[]`. `subscribed_peers` is the count your
@@ -496,7 +500,7 @@ comparison had looked sound on the two prior ticks because every peer happened t
 is the worse failure: **a check that is coincidentally right is harder to catch than one that is
 plainly wrong.**
 
-Two settling reads: `claude agents --json` counts the room without this ladder, and `python -m
+Two settling reads: `claude agents --json` counts the room without this ladder, and `python3 -m
 coordinator_core.group_em.idle_report --repo-root <root> --group-em-session-id <your sid>` derives
 the population independently. Only `--repo-root` is CLI-enforced (exits 2 bare on omission);
 `--group-em-session-id` is required BY THIS PROCEDURE, not by the CLI — the parser defaults it to

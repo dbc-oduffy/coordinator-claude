@@ -194,7 +194,7 @@ Every corpus addon should ship:
 - `scripts/setup.{ps1,sh}` with a Phase 4 step that calls the host's registration
   helpers via the addon's own CLI subcommand:
   ```
-  python -m <addon_cli_module> register-with-project-rag --target-project-root <consumer_root>
+  python3 -m <addon_cli_module> register-with-project-rag --target-project-root <consumer_root>
   ```
 - An optional Phase 5 step that downloads the corpus artifact if absent locally
   (only relevant for addons distributing a pre-built corpus).

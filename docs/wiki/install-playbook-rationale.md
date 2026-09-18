@@ -98,7 +98,7 @@ with no explanation.
 
 ## Percolation surface — full detail
 
-Percolation (`python "$(python3 coordinator/hooks/scripts/_engine_root.py)/coordinator/bin/publish.py"`
+Percolation (`python3 "$(python3 coordinator/hooks/scripts/_engine_root.py)/coordinator/bin/publish.py"`
 — this driver migrated to the engine repo in commit `b644d5a9`, resolved via the engine-root seam,
 not this repo — driven by `/percolate`) resolves its runtime root (`PERCOLATE_ROOT`) via a
 four-rung chain — see `coordinator/docs/wiki/percolate-setup.md § PERCOLATE_ROOT Resolution` for
@@ -123,7 +123,7 @@ wiki's § Per-operator identity for the distinction and for why a
 `~/.coordinator-claude-settings/setup/` tree is a retired orphan, not a live surface.
 
 **Verifying the surface is complete:** run
-`python "$(python3 coordinator/hooks/scripts/_engine_root.py)/coordinator/bin/publish.py" --dry-run coordinator-claude`
+`python3 "$(python3 coordinator/hooks/scripts/_engine_root.py)/coordinator/bin/publish.py" --dry-run coordinator-claude`
 from the repo root and confirm the output includes both an `Allowlist enforcement:` line and a
 `Restricted source:` line, and does **not** print a `machine-slug detection net is DOWN` warning.
 The warning firing means `.percolate-identity` is either absent or has an empty

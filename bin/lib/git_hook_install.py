@@ -275,10 +275,59 @@ def _resolve_coord_bin(bin_dir: str, script_name: str) -> str:
     Rung 3: `machine-local get repos.claude_klabauter` →
             `<claude_klabauter>/coordinator/bin/<script_name>` — the executable
             surface's actual current home on a migrated machine.
-    Rung 4: marketplace path
+    Rung 4: the published engine mirror, resolved via
+            `coordinator_core.engine_root.published_engine_mirror_path()` —
+            the same shim-backed seam `resolve_claude_klabauter_root_with_class()`
+            uses (`coordinator/lib/resolve-claude-klabauter/_resolve_claude_klabauter.py ::
+            _resolve_published_engine`), rather than a hand-rolled
+            env-then-registry read. Validates directory existence,
+            `<root>/coordinator_core` presence, and a valid engine build
+            stamp (C5: "no stamp, no engine") — strictly more than the
+            prior hand-rolled rung validated
+            (code-review 2026-09-17-codereview-sliceD-claude-klabauter-hook-resolution.md,
+            F1/F2) → `<klabauter>/coordinator/bin/<script_name>`. This is
+            the DISPATCH axis (DR-326: "which engine should execute?"),
+            which defaults to the published mirror by ruling — see this
+            function's own docstring, DR-326 axis note, below.
+    Rung 5: marketplace path
             `$HOME/.claude/plugins/coordinator/bin` —
             unconditional backstop, no isfile probe (matches prior behavior;
             this is the last resort, not a candidate to skip past).
+
+    RUNG 4 EXISTS BECAUSE RUNGS 1-3 ALL NAME AUTHORING TREES. `claude-klabauter`
+    is where the executable surface is *authored*; the published
+    `claude-klabauter` mirror is the resolved engine root on every box, and in
+    an ephemeral container it is the ONLY one of the four present — there is no
+    doctrine clone, no `.doe-root`, no `repos.claude_klabauter`, and
+    `$HOME/.claude/plugins/` is never populated because the plugin is resolved
+    via `--plugin-dir`. Without this rung the ladder exhausts to a rung-5 path
+    that does not exist, `_ensure_hook` finds no target and skips fail-open, and
+    NOTHING stamps `Session-Id:` on a plain `git commit` for the life of that
+    machine. That silence is not cosmetic: it is what makes the brightline gate
+    match zero commits and report `indeterminate`, and it equally defeats
+    `review_trail.write`'s foreign-session guard and `close-out-and-stamp`'s
+    join — the same three consumers
+    `session-start-repair-prepare-commit-msg-hook.py` names for the stale-path
+    form of this failure. That repair hook cannot cover this case: it repairs a
+    shim that exists, and here none was ever installed.
+
+    DR-326 axis note. DR-326 splits "where is the claude-klabauter repo?" (the
+    LOCATOR axis, deliberately live-tree-only — `resolve_claude_klabauter_bin_dir()`
+    is the function that answers it and correctly stays un-flipped) from
+    "which engine should execute?" (the DISPATCH axis, which DR-326 rules
+    defaults to the published engine: "the fleet runs off the warm engine
+    in klabauter. I don't want 'the engine' to resolve via claude-klabauter" — PM,
+    2026-08-19). Rung 4 answers the DISPATCH question — which coordinator
+    executable a hook execs — and writes nothing into the resolved tree, so
+    it takes DR-326's published-mirror-default rather than deviating from
+    it; it is not the locator DR-326 keeps un-flipped, and no ratification
+    is needed here. Rung 4 also has no direct `COORDINATOR_ENGINE_ROOT`
+    read (unlike an earlier version of this rung): DR-326's 2026-08-19
+    refinement holds that on the dispatch axis an ambient env var every
+    fired session inherits is "exactly the 'oops, wrong var set' hole the
+    PM vetoed", so a dispatch-axis caller does not honour it — the
+    registry-backed `_resolve_published_engine()` seam is dispatch's
+    correct opt-out-of-ambient-env answer instead.
     """
     home = os.path.expanduser("~")
     ml_bin = _resolve_machine_local_bin(bin_dir)
@@ -325,7 +374,23 @@ def _resolve_coord_bin(bin_dir: str, script_name: str) -> str:
         if _helper_present(cand_bin, script_name):
             return cand_bin
 
-    # Rung 4: marketplace fallback (unconditional — last resort).
+    # Rung 4: the PUBLISHED engine mirror — reuses the registry-backed,
+    # stamp-validated seam (`_resolve_published_engine`) rather than a
+    # hand-rolled env+registry read (code-review F1/F2). No direct
+    # `COORDINATOR_ENGINE_ROOT` read here: that also removes the precedence
+    # self-contradiction F3 named (this rung previously ranked
+    # `COORDINATOR_ENGINE_ROOT` below rungs 1-3 while every other resolver
+    # in the codebase treats it as the highest rung — with the read gone,
+    # this rung has no precedence opinion left to be wrong about).
+    from coordinator_core.engine_root import published_engine_mirror_path
+
+    klabauter_root = published_engine_mirror_path()
+    if klabauter_root:
+        cand_bin = os.path.join(klabauter_root, "coordinator", "bin")
+        if _helper_present(cand_bin, script_name):
+            return cand_bin
+
+    # Rung 5: marketplace fallback (unconditional — last resort).
     return os.path.join(home, _MARKETPLACE_SUFFIX)
 
 
@@ -345,6 +410,31 @@ def _resolve_claude_klabauter_bin_sh(bin_dir: str, script_name: str) -> Optional
     if not claude_klabauter_root:
         return None
     return _sh_path(os.path.join(claude_klabauter_root, "coordinator", "bin", script_name))
+
+
+def _resolve_klabauter_bin_sh(script_name: str) -> Optional[str]:
+    """Best-effort, install-time-only read of the published engine mirror
+    for baking a klabauter-bin candidate into the shell fallback chain —
+    the mirror twin of `_resolve_claude_klabauter_bin_sh` above, added by code-review
+    finding F4: the emitted hook's own runtime `[ -f ... ]` probe chain had
+    a claude-klabauter candidate but no mirror candidate, so a hook baked on this
+    rung's own ephemeral-container premise (rung 4 answering because there
+    IS no authoring tree) would still stale-out with no self-heal candidate
+    to fall back to if the baked absolute path later went stale.
+
+    Resolved via `published_engine_mirror_path()` — same registry-backed,
+    stamp-validated seam as `_resolve_coord_bin`'s rung 4 — rather than a
+    hand-rolled env/registry read. Returns a forward-slash `sh`-literal path
+    or None if the mirror is unregistered/unusable right now; as with
+    `_resolve_claude_klabauter_bin_sh`, the emitted shim still probes `[ -f ... ]` at
+    hook-run time regardless, so a stale/absent bake-time value only means
+    that one candidate is a dead literal, not a shim that fails to run."""
+    from coordinator_core.engine_root import published_engine_mirror_path
+
+    klabauter_root = published_engine_mirror_path()
+    if not klabauter_root:
+        return None
+    return _sh_path(os.path.join(klabauter_root, "coordinator", "bin", script_name))
 
 
 # ---------------------------------------------------------------------------
@@ -543,7 +633,8 @@ def _shim_body(
     flag — that is the hooksPath redirect wearing a disguise.
 
     The shell fallback chain (settings-home forwarder → baked SCRIPT →
-    .doe-root pointer → engine-repo-bin candidate → marketplace) means
+    .doe-root pointer → engine-repo-bin candidate → published-mirror
+    candidate (F4) → marketplace) means
     an already-installed hook can recover a dead baked path WITHOUT waiting
     for the next `_resolve_coord_bin` regeneration — self-healing at
     hook-run time, not only at install time. The settings-home rung is
@@ -580,10 +671,16 @@ def _shim_body(
         f'{script_name}'
     )
     claude_klabauter_cand = _resolve_claude_klabauter_bin_sh(bin_dir, script_name) if bin_dir else None
+    klabauter_cand = _resolve_klabauter_bin_sh(script_name)
     claude_klabauter_probe = (
         f'_have_py "$SCRIPT" || SCRIPT="{claude_klabauter_cand}"\n'
         f'_have_py "$SCRIPT" || SCRIPT="{claude_klabauter_cand}.py"\n'
         if claude_klabauter_cand
+        else ""
+    ) + (
+        f'_have_py "$SCRIPT" || SCRIPT="{klabauter_cand}"\n'
+        f'_have_py "$SCRIPT" || SCRIPT="{klabauter_cand}.py"\n'
+        if klabauter_cand
         else ""
     )
     skip_guard = (
@@ -750,9 +847,14 @@ def _append_block(
         f'{script_name}'
     )
     claude_klabauter_cand = _resolve_claude_klabauter_bin_sh(bin_dir, script_name) if bin_dir else None
+    klabauter_cand = _resolve_klabauter_bin_sh(script_name)
     claude_klabauter_probe = (
         f'_have_py "$_T" || _T="{claude_klabauter_cand}"; _have_py "$_T" || _T="{claude_klabauter_cand}.py"; '
         if claude_klabauter_cand
+        else ""
+    ) + (
+        f'_have_py "$_T" || _T="{klabauter_cand}"; _have_py "$_T" || _T="{klabauter_cand}.py"; '
+        if klabauter_cand
         else ""
     )
     start_marker, _end_marker = _append_markers(header)

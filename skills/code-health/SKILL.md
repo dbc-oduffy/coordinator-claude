@@ -40,6 +40,9 @@ reviewer selection.
 
 ## Step 3: Dispatch the Reviewer
 
+> **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
+> step names; it dissolves no gate this skill's own body names.
+
 Always the Sonnet `coordinator:code-reviewer`, never a persona — personas are Opus-only, reserved
 for the weekly arch pass and explicit architectural decisions; a finding that genuinely needs one
 gets flagged for `/workweek-complete` Step 7.5, not escalated here. Tell it what to weight by

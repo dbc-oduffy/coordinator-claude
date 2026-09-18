@@ -27,6 +27,16 @@ into, so a local `main` that cannot fast-forward cannot make this round
 overwrite a peer -- it is a repo-hygiene fact worth printing, not a reason to
 block a publish.
 
+WHAT "LEVEL WITH ORIGIN" MEANS FOR A BRANCH WITH NO UPSTREAM. It means level
+with the remote's DEFAULT branch, not a refusal. A tracking ref is how the
+comparison is USUALLY made, never the thing being protected -- what is protected
+is that this clone's base is not behind the tip a peer landed on, and a branch
+with no upstream has a base like any other. A fresh clone on a fresh local
+branch is the ordinary cloud shape, so refusing it made the normal case the
+broken one. `default_remote_branch` resolves the base; only a clone that can
+name no remote branch at all is refused, and detached HEAD still is (there is no
+landing branch to measure).
+
 NEGATIVE SPEC. This module never forces, resets, rebases, or discards: every
 update here is fast-forward-only. A landing branch that has diverged from its
 upstream is a human's call -- the round refuses and says so, and no code path
@@ -170,6 +180,74 @@ def _refresh_local_main(repo_root: Path, checked_out: Optional[str]) -> Optional
     return None
 
 
+def default_remote_branch(repo_root: Path) -> Optional[str]:
+    """`origin/<default branch>`, or `None` when the clone cannot name one.
+
+    Three rungs, cheapest first, all local — no network:
+      1. `refs/remotes/origin/HEAD`'s symbolic target, which a normal
+         `git clone` writes and which is the remote's OWN answer.
+      2. `refs/remotes/origin/main`, then 3. `refs/remotes/origin/master`,
+         for a clone fetched with `--no-tags`/`--single-branch` or one whose
+         `origin/HEAD` was never set (a fetched-into-existing-repo shape).
+
+    This exists for the NO-UPSTREAM case below and nothing else; a branch that
+    HAS an upstream is always measured against that upstream, never against
+    this.
+    """
+    head = _git(repo_root, ["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"])
+    if head.returncode == 0:
+        ref = head.stdout.strip()
+        if ref.startswith("refs/remotes/"):
+            return ref[len("refs/remotes/") :]
+    for candidate in ("origin/main", "origin/master"):
+        probe = _git(
+            repo_root,
+            ["rev-parse", "--verify", "--quiet", "refs/remotes/" + candidate],
+        )
+        if probe.returncode == 0:
+            return candidate
+    return None
+
+
+def _no_upstream_base(
+    repo_root: Path, branch: Optional[str], *, out: TextIO
+) -> "tuple[Optional[str], Optional[str]]":
+    """`(base_ref, refusal_reason)` for a checked-out branch with no upstream.
+
+    WHY THIS IS NOT A FATAL. The refusal it replaces read "cannot be brought
+    level with origin before publishing", which is the right INSTINCT applied
+    to the wrong FACT: a branch with no upstream has no remote counterpart to
+    be level WITH, so there is nothing to fast-forward and nothing a publish
+    here could revert on that branch. What the module actually protects is
+    narrower and survives intact — a clone whose BASE is behind the fleet's
+    tip would republish the whole surface over the top of work landed since.
+    That base is the remote's default branch, which this resolves, so the
+    no-upstream case is measured against the same tip every other case is,
+    instead of being refused for lacking a ref it was never going to need.
+
+    A fresh clone on a new local branch is the ORDINARY cloud shape — a
+    container clones the mirror and a session checks out its own branch — and
+    a fatal there made the normal case the broken one. It still refuses when
+    the clone can name no remote branch at all, because then there genuinely
+    is no tip to measure against, and it names the one command that fixes it.
+    """
+    base = default_remote_branch(repo_root)
+    if base is None:
+        return None, (
+            "{0}'s checked-out branch ({1}) has no upstream tracking ref and the "
+            "clone can name no remote default branch either (no "
+            "refs/remotes/origin/HEAD, origin/main or origin/master), so there is "
+            "no tip to bring it level with.\n"
+            "  Fix: git -C {0} remote set-head origin --auto".format(repo_root, branch)
+        )
+    print(
+        "[dest-refresh] {0}: {1} has no upstream; measuring against {2} "
+        "(the remote's default branch)".format(repo_root, branch, base),
+        file=out,
+    )
+    return base, None
+
+
 def refresh_dest_from_origin(repo_root: Path, *, out: TextIO, err: TextIO) -> RefreshResult:
     """Fetch `origin` and fast-forward `repo_root`'s landing branch (and `main`).
 
@@ -181,16 +259,23 @@ def refresh_dest_from_origin(repo_root: Path, *, out: TextIO, err: TextIO) -> Re
     branch, upstream, name_err = _branch_and_upstream(repo_root)
     if name_err is not None or upstream is None:
         if branch == "HEAD":
-            reason = (
-                "{0} is in detached HEAD -- a round cannot tell which branch it would "
-                "land on, so it cannot be brought level with origin first".format(repo_root)
+            # Detached HEAD stays a refusal, and the asymmetry with the
+            # no-upstream case below is the point: a round cannot tell which
+            # branch it would land on, so there is no landing branch to
+            # measure, let alone bring level.
+            return RefreshResult(
+                repo_root,
+                ok=False,
+                reason=(
+                    "{0} is in detached HEAD -- a round cannot tell which branch it "
+                    "would land on, so it cannot be brought level with origin "
+                    "first".format(repo_root)
+                ),
+                branch=branch,
             )
-        else:
-            reason = (
-                "{0}'s checked-out branch ({1}) has no upstream tracking ref, so it "
-                "cannot be brought level with origin before publishing".format(repo_root, branch)
-            )
-        return RefreshResult(repo_root, ok=False, reason=reason, branch=branch)
+        upstream, refusal = _no_upstream_base(repo_root, branch, out=out)
+        if refusal is not None:
+            return RefreshResult(repo_root, ok=False, reason=refusal, branch=branch)
 
     print(
         "[dest-refresh] {0}: fetching origin (landing branch {1})".format(repo_root, branch),
@@ -229,7 +314,10 @@ def refresh_dest_from_origin(repo_root: Path, *, out: TextIO, err: TextIO) -> Re
             reason=(
                 "{0}'s {1} has diverged from {2} ({3} ahead, {4} behind) -- reconciling "
                 "that is a human's call, and publishing over it would discard one "
-                "side".format(repo_root, branch, upstream, ahead, behind)
+                "side.\n"
+                "  Fix: git -C {0} merge {2}   (or rebase, then re-run)".format(
+                    repo_root, branch, upstream, ahead, behind
+                )
             ),
             branch=branch,
             upstream=upstream,
@@ -312,15 +400,13 @@ def reconcile_dest_before_push(repo_root: Path, *, out: TextIO, err: TextIO) -> 
     repo_root = Path(repo_root)
     branch, upstream, name_err = _branch_and_upstream(repo_root)
     if name_err is not None or upstream is None:
-        return RefreshResult(
-            repo_root,
-            ok=False,
-            reason=(
-                "{0}'s checked-out branch ({1}) has no upstream tracking ref, so its "
-                "push cannot be checked against origin first".format(repo_root, branch)
-            ),
-            branch=branch,
-        )
+        # Same base substitution as `refresh_dest_from_origin`, for the same
+        # reason: a branch with no upstream is checked against the remote's
+        # DEFAULT branch, which is the tip a peer's landed work is on. Only a
+        # clone that can name no remote branch at all is refused here.
+        upstream, refusal = _no_upstream_base(repo_root, branch, out=out)
+        if refusal is not None:
+            return RefreshResult(repo_root, ok=False, reason=refusal, branch=branch)
 
     fetch = _git(repo_root, ["fetch", "--no-tags", "--prune", "origin"], remote=True)
     if fetch.returncode != 0:

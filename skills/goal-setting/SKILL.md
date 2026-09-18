@@ -80,6 +80,9 @@ second marking store. On decline, proceed to Step 2 without repeating the offer.
 
 ### Step 2 — Dispatch the VP-Product Reviewer as full OKR critic
 
+> **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
+> step names; it dissolves no gate this skill's own body names.
+
 **Dispatch via `Agent(subagent_type: "coordinator:vp-product", model: "opus")`.** Inline verbatim:
 
 > You are the VP-Product Reviewer (VP of Product, they/them). You are reviewing a draft OKR set for strategic rigor.

@@ -37,8 +37,14 @@ Paste both. They are `.env` format, one per line:
 
 ```
 COORDINATOR_SETTINGS_HOME=/root/.coordinator-claude-settings
-COORDINATOR_ENGINE_ROOT=/opt/coordinator/claude-klabauter
 ```
+
+**Do not add `COORDINATOR_ENGINE_ROOT` here.** It is a live-tree override
+(`_engine_root.LIVE_TREE_ENV_VARS`), so setting it box-wide pins every session to the manual
+test-and-execute rung instead of the published engine — same path, wrong rung, and the session
+reports `env-override` provenance where `published-target` is healthy. The engine root travels by
+pointer file or registry key instead; `cloud-preboot-install-contract.md` § The literals carries
+the reasoning and the measurement.
 
 **These reach the SESSION, not the setup script.** The script cannot read this box, which is why it
 hardcodes the same values internally — the two must agree. If the script's report says `HOME` is

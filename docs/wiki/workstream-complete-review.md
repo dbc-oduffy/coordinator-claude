@@ -175,7 +175,7 @@ RETIRED — DO NOT RUN. Kept as a shape record, not an invocation. The op behind
 refuses (-32006, K-060 gravestone); running it records nothing and tells you nothing
 about your close. The live mechanism is the reviewer's own sidecar receipt.
 
-    python coordinator-write-review-trail.py \
+    python3 coordinator-write-review-trail.py \
       --sha-range abc123..def456 \
       --reviewer code-reviewer \
       --scope chain \

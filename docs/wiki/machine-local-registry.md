@@ -614,13 +614,17 @@ before any coordinator code runs, so there is no seam to read `COORDINATOR_PYTHO
 `machine-local get` ahead of the `CreateProcess` spawn — every hook registration lands on
 PATH-fallback unavoidably, not by choice. Tiers (1) and (2) are unchanged and remain the
 resolution path for every caller that can reach them; this is not PATH-first promoted over the
-registry pin generally. What makes tier (3) correct-by-construction for hooks, despite being a
-documented fallback rather than a pin, is that its correctness does not depend on which
-interpreter PATH resolves to: `fail_open_launcher.BOOTSTRAP`'s site-packages injection gives
-whatever interpreter answers the venv's own distributions, so only a real interpreter — never a
-WindowsApps App Execution Alias stub — needs to sit ahead of
-`%LOCALAPPDATA%\Microsoft\WindowsApps` on PATH. That guarantee is an install-surface property this
-contract does not itself provide; it is owned by the installer, claude-klabauter, not this repo.
+registry pin generally. Nor is a token a way out: an unexpanded placeholder literalizes rather
+than erroring, so naming one in `command` would spawn a nonexistent executable on every host, and
+an absolute path cannot be baked into what is committed plugin source.
+
+Tier (3) therefore carries hooks on two install-surface guarantees, both owned by the installer
+(claude-klabauter) rather than by this contract: a real interpreter — never a WindowsApps App
+Execution Alias stub — sits ahead of `%LOCALAPPDATA%\Microsoft\WindowsApps` on PATH, and that
+interpreter carries the hook path's third-party dependencies. The second is load-bearing because
+the site-packages injector is retired: hook-path imports resolve from whichever interpreter the
+bare name lands on, so *which* one answers matters here in a way it does not for tiers (1) and
+(2) (`HOOK-PATH-DEPS-LIVE-ON-THE-MACHINE-INTERPRETER`).
 
 ## 6. Concern-file Convention
 

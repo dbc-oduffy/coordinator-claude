@@ -61,6 +61,9 @@ direct Opus domain-reviewer dispatch, larger ones need Haiku→Sonnet pre-digest
 reviewer overloads. Threshold, dispatch procedure, prompt sources, and multi-reviewer criteria:
 wiki.
 
+> **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
+> step names; it dissolves no gate this skill's own body names.
+
 <!-- engine-gap: field=dispatch.review_tier producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 
 <!--

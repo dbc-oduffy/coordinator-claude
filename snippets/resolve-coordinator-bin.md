@@ -47,11 +47,48 @@ settings home; where `<settings-home>/bin/` does not exist, all of them — Shap
 command-not-found, which reads as "this CLI does not exist". Same misreading as a missing launcher,
 one state further out.
 
-Its remedy is NOT the installer § The door names. A container cloned fresh per session and reclaimed
-at session end has no install to repair and nothing to carry one, and the installer may not even be
-runnable there. The engine source is on disk regardless, and the engine is a Python package:
+**A settings home that EXISTS settles this rung before you read further: take
+`<settings-home>/bin/coordinator-invoke` and stop.** That launcher resolves the registered,
+stamped, published engine whatever directory you are standing in, which is the whole reason to
+prefer it — the raw form below does not, and the difference is invisible until it has already
+answered wrong. Reach past the launcher only when `<settings-home>/bin/` genuinely is not there.
 
-    PYTHONPATH=<engine-root> python3 -m coordinator_core.invoke <op> '<json params>' [--repo <repo-root>]
+Then the remedy is NOT the installer § The door names. A container cloned fresh per session and
+reclaimed at session end has no install to repair and nothing to carry one, and the installer may
+not even be runnable there. The engine source is on disk regardless, and the engine is a Python
+package:
+
+    PYTHONSAFEPATH=1 PYTHONPATH=<engine-root> python3 -m coordinator_core.invoke <op> '<json params>' [--repo <repo-root>]
+
+**`PYTHONSAFEPATH=1` is load-bearing, not hygiene: without it `PYTHONPATH` does not decide which
+engine runs — the current directory does.** `python3 -m` puts cwd at the FRONT of `sys.path`, ahead
+of `PYTHONPATH`, so in any tree that carries its own `coordinator_core/` the import resolves THAT
+copy and `<engine-root>` is silently ignored. `claude-klabauter` and `claude-klabauter` are both such
+trees, and they are the two you are most likely to be standing in when running an engine op. The
+failure does not look like a path problem: the engine reports the clone it actually loaded from, so
+standing in claude-klabauter yields *"this clone carries no engine build stamp … Resolved engine root:
+…/claude-klabauter"* — a stamp refusal naming the tree you did not choose, which reads as a broken
+engine rather than a shadowed import. `PYTHONSAFEPATH=1` drops cwd from `sys.path` and makes
+`PYTHONPATH` authoritative.
+
+**It belongs on that one `-m` invocation and nowhere else — never exported, never in front of a
+`bin/` CLI.** The same mechanism that makes `PYTHONPATH` authoritative also drops the *script's own
+directory* from `sys.path`, and every CLI under the plugin's `bin/` depends on that entry: `bin/lib/
+__init__.py` is the single `sys.path` bootstrap for all of them, and it resolves only because a
+script's own directory is `sys.path[0]`. Set in the environment instead of on the one command, it
+reaches those CLIs as children and each one dies on an import of its own sibling — `coordinator_core
+unresolvable: No module named 'cc_invoke'`, from a script sitting next to the module it cannot
+import. That refusal names the engine, so it reads as an engine-resolution failure, which is the
+problem this very section is about; the two failures are opposites and their messages are not
+distinguishable by eye. Prefix the command, never the shell.
+
+**The published mirror is the default engine; the live tree is a deliberate choice, never an
+accident of cwd.** `claude-klabauter` is what `engine.target: main` names and what a healthy
+resolution answers (`(<klabauter>, 'resolved-engine', 'published-target')`). Running claude-klabauter's tree
+instead is selecting the CANDIDATE channel over main — legitimate, and reached by declaring it
+(`engine.target`, or the explicit live-tree env override), never by which directory a shell
+happened to be in. A cwd-shadowed import is that choice made silently and unrecorded, which is why
+the guard above is a requirement rather than a suggestion.
 
 **`<engine-root>` and `--repo` are two different trees, and the flag is per-OP, not per-call.** A
 worktree-scoped op REQUIRES it here: without it `coordinator_core.invoke` resolves the repo from
@@ -195,7 +232,8 @@ and OSS-plugin-install layouts:
     _sh=${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}
     _doe_root=$(cat "$_sh/machine-local/.doe-root" 2>/dev/null || cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)
     [ -n "$_doe_root" ] && [ -d "$_doe_root/coordinator" ] || { echo "unresolved .doe-root — re-run /coordinator:install" >&2; exit 1; }
-    python "${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}/bin/<cli>.py" …
+    _py=$(command -v python3 || command -v python) || { echo "no python interpreter on PATH" >&2; exit 1; }
+    "$_py" "${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}/bin/<cli>.py" …
 
 Keep the guarded `:-` form: `CLAUDE_PLUGIN_ROOT` is empty in a Bash tool call on a dev box, so the
 default arm is the one that actually carries. Refuse on an empty or non-directory `_doe_root` —
@@ -205,6 +243,23 @@ spells this `<plugin-root>/bin/<cli>.py`; that placeholder means this ladder. No
 `CLAUDE_PLUGIN_ROOT` names the plugin root itself — `<doe-root>/coordinator` in a dev tree, and the
 bundle root under an OSS install — so `bin/` hangs directly off it. `<plugin-root>/coordinator/bin/`
 double-counts the segment and resolves nowhere under either layout.
+
+**An unresolved `.doe-root` beside a POPULATED `bin/` is its own state, and the fence's refusal
+names the wrong remedy for it.** Rung N covers a settings home that is absent entirely; this is
+one state in from that — `<settings-home>/bin/` is full of launchers, so rungs 1-2 work and only
+the no-launcher residue above fails. A fresh container gets there routinely: the settings home is
+provisioned, the pointer and `repos.*` entries are not, because they name paths on the box the
+install ran on. Read the discriminant before believing "re-run /coordinator:install":
+`ls "$_sh/bin"` non-empty with `.doe-root` unreadable is THIS state, not a broken install.
+
+Its remedy is to write what is missing, which is two facts and no install:
+
+    printf '%s\n' "$(git -C <doe-clone> rev-parse --show-toplevel)" > "$_sh/machine-local/.doe-root"
+    "$_py" "$_sh/bin/machine-local" set repos.<key> <path>   # per clone actually on disk
+
+**Scope it by the box's lifetime, exactly as Rung N does.** On a durable box a missing pointer is
+an install defect: write it to unblock the call, then report it. On a container reclaimed at
+session end it is ordinary provisioning, done once at session start and not reported.
 
 **The publisher chain — by construction, not a gap.** `percolate-round`, `percolate-gate`,
 `percolate-push`, `publish` and `coordinator-publish` produce the published engine and are
@@ -217,16 +272,23 @@ corpus, and the publisher chain is the one set of CLIs guaranteed absent from it
 that way gets `can't open file` and reads as "the publisher is missing" when it is exactly where it
 belongs:
 
-    _mk=$(python "$_sh/bin/machine-local" get repos.claude_klabauter)
-    python "$_mk/coordinator/bin/<cli>.py" …
+    _py=$(command -v python3 || command -v python) || { echo "no python interpreter on PATH" >&2; exit 1; }
+    _mk=$("$_py" "$_sh/bin/machine-local" get repos.claude_klabauter)
+    "$_py" "$_mk/coordinator/bin/<cli>.py" …
 
 A POSIX forwarder for each DOES sit in the settings-home `bin/`, and **from a POSIX shell
-`python "$_sh/bin/<cli>"` is equivalent** — it resolves that same authoring checkout and execs the
+`"$_py" "$_sh/bin/<cli>"` is equivalent** — it resolves that same authoring checkout and execs the
 CLI there. What fails is the *bare* settings-home path on PowerShell: with no launcher beside it,
 PowerShell ShellExecutes the forwarder as a document and returns at once with no output and an
 empty `$LASTEXITCODE`. Present-but-silent, not absent — so on a PowerShell host take the
 `machine-local` form above through Shape W, not the forwarder.
 
+> Portability: **resolve the interpreter, never spell it literally in a POSIX fence** —
+> `_py=$(command -v python3 || command -v python)`. macOS ships `python3` with no `python`; a
+> Windows POSIX shell ships `python` with no `python3` alias, so either literal is
+> command-not-found on some supported box. PowerShell fences (Shape W) spell `python` bare —
+> that host has no other name. Test-runner commands in `coordinator.local.md` are exempt: the
+> engine normalizes their interpreter token before running them.
 > Portability: no GNU-isms (`sed -i`, `grep -P`, `realpath`, `mapfile`, `declare -A`).
 > No wrapper CLI is invoked in this bootstrap — the launcher is execed directly by absolute path —
 > so the Windows `CreateProcess`-no-`PATHEXT` / shebang trap does not apply here.

@@ -481,8 +481,19 @@ Each row is `{brightline, statement, met}`, plus an optional `evidence`:
 - **`statement`** is authored at plan-write time: what evidence at close-out would show this
   brightline held for THIS plan's delivered work — the same falsifiable-sentence discipline as
   `prime_exit_criterion.statement`, scoped to one brightline instead of the whole plan.
-- **`met`** starts `false` and is flipped only by the session writing `exit_criterion_met`. An
-  unmet brightline blocks `implemented` the same way an unresolved AC would.
+- **`met`** starts `false` and is flipped only by the session writing `exit_criterion_met`.
+  Refusing the stamp on an unmet row is the house shape already: every `GOAL_REFUSAL_*` arm in
+  `claude-klabauter`'s `close_out_and_stamp` (`_evaluate_goal_falsifier_gate`,
+  `_read_status_override`) refuses with a single escape — a *current*
+  `status_override_by`/`_reason`/`_at` attestation bound to the plan-body hash. DoE's forward
+  election for a per-brightline escape is that same trio, not a bespoke exemption key: the arm
+  family already has one precedent for a per-criterion exemption
+  (`prime_exit_criterion.falsifier_exemption`, honoured ahead of the override), and this repo is
+  declining to extend it to `gated_exit_criteria`. **That arm is not built yet** —
+  `close_out_and_stamp` contains no reference to `gated_exit_criteria` today, so an unmet row does
+  not currently block the stamp; which sizes/created-dates a future arm covers is
+  `close_out_and_stamp`'s to settle, not this doctrine's. Tracked via this plan's relay memo to
+  `claude-klabauter-em` and a `state/improvement-*/` entry, closed the day the arm ships.
 - **`evidence`** is optional, written at close-out beside the `met` flip: what was actually
   observed that shows the `statement` held. `statement` is the plan-time question, `evidence` is
   the answer — never put proof text in `statement`, and never strip a recorded observation to get

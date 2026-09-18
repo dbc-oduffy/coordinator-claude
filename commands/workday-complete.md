@@ -23,8 +23,8 @@ expensive thing this ceremony runs (source its magnitude from `python
 coordinator/tests/_spawn_budget.py`, never a hardcoded number here):
 
 POSIX hosts: Shape A, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` — resolve
-`tier-u-grant-cli`, then `workday-complete-args-and-validate parse-front-door`, then
-`workday-complete-args-and-validate check-cross-machine`, each with `"${ARGUMENTS:-}"`.
+`tier-u-grant-cli`, then `workday-complete-args-and-validate check-cross-machine`, each with
+`"${ARGUMENTS:-}"`.
 
 PowerShell hosts (rung 0, Shape W, same snippet), one command per line:
 

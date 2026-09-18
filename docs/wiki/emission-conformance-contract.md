@@ -186,7 +186,7 @@ nothing for a fleet consumer polling the origin:
 ```bash
 _cc_claude_klabauter="$REPO_CLAUDE_KLABAUTER"
 [ -n "$_cc_claude_klabauter" ] || _cc_claude_klabauter="$CLAUDE_KLABAUTER_ROOT"
-python "$_cc_claude_klabauter/coordinator/bin/regen-cockpit-schema.py" --advance-ref
+python3 "$_cc_claude_klabauter/coordinator/bin/regen-cockpit-schema.py" --advance-ref
 # internally: git tag -f cockpit-contract-release (local only, skipped if the
 # regen produced no change under coordinator/cockpit-contract/schema/)
 ```

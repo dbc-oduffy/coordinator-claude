@@ -17,67 +17,40 @@ Import only; never invoked directly.
 """
 from __future__ import annotations
 
+import importlib.util
 import os
-import shutil
+import shutil  # noqa: F401 -- re-export shim keeps this name patchable by callers/tests
 import subprocess
 import sys
 
 
-def _is_console_python_basename(path: str) -> bool:
-    """True if `path`'s basename names a console CPython interpreter.
+def _ensure_bin_lib_bootstrapped() -> None:
+    """Import `coordinator/bin/lib` by location, never by bare name.
 
-    Negative spec: `pythonw`/`pythonw3` (any extension) are excluded even
-    though they start with "python". `pythonw.exe` is the GUI-subsystem
-    build with no usable stdout by default -- this locator's whole contract
-    is that `coordinator-queue-append` PRINTS the path it wrote, so handing
-    a `pythonw`-resolved interpreter back here would reproduce the exact
-    silent-loss class this module exists to close, just one level down: a
-    plausible exit code with nothing on stdout. Console-flash avoidance
-    (`coordinator_core/win_portability.py`, `verify-no-console-flash.py`) is
-    an active pattern in this repo, so a launcher chosen specifically to
-    avoid a console flash is exactly the context where `sys.executable`
-    would be `pythonw.exe` -- do not "simplify" this back to a bare
-    `startswith("python")`.
-    # Review: code-reviewer P2 — pythonw.exe/pythonw3.exe silently accepted.
+    Same by-location bootstrap as `coordinator-doc-new.py`'s
+    `_ensure_bin_lib_bootstrapped` -- see that function's docstring for why a
+    bare `import lib` is unsafe here (a PEP-420 namespace-package shadow from
+    `coordinator/lib` when `coordinator/` precedes `coordinator/bin` on
+    `sys.path`). Idempotent; safe to call more than once.
     """
-    stem = os.path.splitext(os.path.basename(path))[0].lower()
-    # Review: code-reviewer — nit: `startswith("python")` would also accept a
-    # hypothetical non-python `pythonstub.exe` on PATH with no further
-    # validation here. Defended in depth: the sibling `--help` probe in
-    # `find_cli_cmd` (`returncode == 0` check) gates the value before it is
-    # ever handed back as the final argv, so this is not a live hole.
-    return stem.startswith("python") and not stem.startswith("pythonw")
+    if "lib" in sys.modules and getattr(sys.modules["lib"], "__file__", None):
+        return
+    _bin_lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+    _spec = importlib.util.spec_from_file_location(
+        "lib", os.path.join(_bin_lib, "__init__.py"), submodule_search_locations=[_bin_lib]
+    )
+    if _spec is None or _spec.loader is None:
+        raise ImportError(f"coordinator/bin/lib is not importable at {_bin_lib}")
+    _module = importlib.util.module_from_spec(_spec)
+    sys.modules["lib"] = _module
+    _spec.loader.exec_module(_module)
 
 
-def _resolve_python_interpreter() -> str | None:
-    """Resolve a real CPython interpreter, never a non-python launcher exe.
-
-    Negative spec: `sys.executable` is NOT trustworthy as-is here. A sibling
-    CLI reached through an installed `.exe` forwarder (e.g.
-    `coordinator-lesson-add.exe`) reports that forwarder's own embedded
-    interpreter as `sys.executable`. Handing that exe a script path re-enters
-    the FORWARDER's own argv parsing with the script as an unknown
-    positional -- the child never runs the intended script, while the
-    forwarder still exits 0, so the failure is silent.
-
-    A `pythonw`-named `sys.executable` is rejected on the same theory (see
-    `_is_console_python_basename`) but does NOT return None immediately --
-    it falls through to `sys._base_executable` and then `shutil.which`,
-    either of which may resolve a console interpreter. Returning None early
-    on a `pythonw` `sys.executable` would turn a recoverable case into a
-    refusal.
-    """
-    exe = sys.executable or ""
-    if _is_console_python_basename(exe):
-        return exe
-    base = getattr(sys, "_base_executable", None)
-    if base and _is_console_python_basename(base):
-        return base
-    for name in ("python3", "python"):
-        found = shutil.which(name)
-        if found:
-            return found
-    return None
+_ensure_bin_lib_bootstrapped()
+from python_interp import (  # noqa: E402
+    is_console_python_basename as _is_console_python_basename,
+    resolve_console_python as _resolve_python_interpreter,
+)
 
 
 def find_cli_cmd(caller_dir: str, cli_name: str) -> list[str] | None:

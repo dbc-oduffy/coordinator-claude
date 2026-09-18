@@ -48,6 +48,9 @@ If verifying, dispatch one Haiku agent per system: read each cited `file:line` a
 `still-open`/`already-fixed` (SHA, or `unattributed`). Drop `already-fixed`; record verified-fixed
 IDs + SHAs to `pre-dispatch-already-fixed.md` (Phase 4 prunes the backlog from this file).
 
+> **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
+> step names; it dissolves no gate this skill's own body names.
+
 **A concurrent-EM peer can invert a verdict mid-pipeline** — check
 <!-- VERBATIM -->`git log --since="1 hour ago" --remotes='origin/work/*' --oneline` before
 dispatching verifiers; non-empty means escalate the verifier to Sonnet and re-verify at Phase 1
@@ -135,6 +138,9 @@ Output: "Fix now"/"Backlog" lists grouped by file, cross-agent duplicates merged
 ```
 
 ## Phase 3: Fix (dispatch Sonnet executors, parallel)
+
+> **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
+> step names; it dissolves no gate this skill's own body names.
 
 Dispatch Sonnet executors, grouped by file/system to minimize conflicts. Each receives its finding
 group, source files, acceptance criteria per fix, and this verify-first contract, verbatim

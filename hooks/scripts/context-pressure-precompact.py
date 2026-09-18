@@ -16,13 +16,19 @@ mirroring `preuse-write-dispatch.py`'s
 
 Contract:
   stdin   — PreCompact hook JSON (session_id, transcript_path, …)
-  stdout  — NOTHING (PreCompact output is ignored by Claude Code — the legacy
-            bash oracle never wrote to stdout either)
+  stdout  — NOTHING. Not because PreCompact output is ignored: it is not.
+            `decision: "block"` / `continue: false` REFUSE the compaction, and
+            `newCustomInstructions` rewrites the summarizer's prompt. We decline
+            both surfaces deliberately.
   exit 0  — ALWAYS, unconditionally, on every code path including every
-            resolve/import/run failure. This hook has no advisory/deny
-            surface to convey via exit code (unlike the PreToolUse dispatcher
-            this mirrors) — its entire product is the on-disk sentinel +
-            state-snapshot side-effect, or silent no-op.
+            resolve/import/run failure. This is load-bearing, NOT incidental:
+            a non-zero exit from a PreCompact hook BLOCKS the compaction, on all
+            five paths (manual, auto, reactive, precomputed, fork). The published
+            hooks reference says exit 2 does not prevent compaction; measured
+            against claude v2.1.274, it does. So the ordinary habit of exiting
+            non-zero on failure would, here, silently strand a session at its
+            context ceiling. Our entire product is the on-disk sentinel +
+            state-snapshot side-effect, or a silent no-op.
 
 Graceful degradation — REQUIRED: any failure to resolve/import/run the
 Claude-klabauter engine falls through to fail-open silent no-op (exit 0, no stdout, no
@@ -77,7 +83,7 @@ def main() -> int:
         # PreCompact event, no matter what regressed inside the engine.
         pass
 
-    return 0  # PreCompact always exits 0 — no advisory/deny surface exists
+    return 0  # non-zero here BLOCKS the compaction — see the Contract note
 
 
 if __name__ == "__main__":

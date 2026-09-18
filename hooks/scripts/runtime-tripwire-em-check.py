@@ -1043,7 +1043,20 @@ def _check_push_failures(git_root: str, session_id: str):
     all) is therefore NOT covered by this check and would need the more
     expensive ref-comparison approach -- see the plan report's rejected
     designs for the reasoning and a debounced ref-file-diff sketch that could
-    close this residual gap without a subprocess, if it's ever empirically hit.
+    close this residual gap without a subprocess. This is no longer
+    hypothetical: claude-klabauter's cadence-decline admission predicate
+    (`docs/plans/2026-08-31-the-cadence-declines-the-push-it-cannot-finish.md`)
+    declines a push before any process spawns for a repo whose recent cost
+    exceeds its budget, and a decline deliberately writes no `PUSH FAILED`
+    row -- so "log never grows" becomes the STEADY-STATE outcome for the
+    median repo, not a rare edge case. Fleet-wide guarantee: NO -- this check
+    only sees `.git/push-failures.log` under THIS session's own `git_root`
+    (via `_resolve_git_common_dir`), so it covers exactly the repos this hook
+    is registered in and says nothing about a sibling repo's push health. The
+    now-steady-state silent-decline class above is covered on claude-klabauter's own
+    side instead (`coordinator_core/orientation/regenerate_cache.py ::
+    emit_auto_push_health`'s declined-repo class), per that team's own memo
+    -- this function is deliberately NOT being widened to compensate.
 
     Ceremony-dedup: if `state/orientation_cache.md`'s mtime is >= the log's
     mtime, a ceremony regen already ran AFTER the newest failure landed and

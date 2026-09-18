@@ -143,6 +143,7 @@ import argparse
 import difflib
 import importlib.util
 import json
+import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -1267,6 +1268,407 @@ def _cmd_list_targets(args: argparse.Namespace) -> int:
     return 0
 
 
+
+# ---------------------------------------------------------------------------
+# publish-readiness — the one preflight that reports EVERY blocker at once
+# ---------------------------------------------------------------------------
+
+#: Bound for this subcommand's git spawns. The fetch leg is a remote round trip
+#: and gets its own, larger ceiling.
+_READINESS_LOCAL_TIMEOUT_S = 30
+_READINESS_REMOTE_TIMEOUT_S = 120
+
+_PASS, _WARN, _FAIL = "PASS", "WARN", "FAIL"
+
+
+def _readiness_git(repo: str, args: "List[str]", *, remote: bool = False):
+    import subprocess
+
+    try:
+        return subprocess.run(
+            ["git", "-C", repo, "--no-optional-locks", *args],
+            capture_output=True,
+            text=True,
+            timeout=_READINESS_REMOTE_TIMEOUT_S if remote else _READINESS_LOCAL_TIMEOUT_S,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except Exception:  # noqa: BLE001 -- a probe that cannot run reports, never raises
+        return None
+
+
+def _check_engine_root(findings: "List[tuple]") -> Optional[str]:
+    """Rung 1 of the report: which engine tree will percolate bind, and does it
+    carry the percolate package at all.
+
+    First because it is the one failure that makes every later check a lie: a
+    run bound to a published mirror cannot import `coordinator_core.percolate`,
+    so it dies before resolving a single target and the operator learns nothing
+    about the four problems waiting behind it.
+    """
+    root = str(_REPO_ROOT)
+    dispatch = os.environ.get("COORDINATOR_ENGINE_ROOT", "")
+    if (Path(root) / "coordinator_core" / "percolate").is_dir():
+        detail = "percolate engine source: {0}".format(root)
+        if dispatch and os.path.realpath(dispatch) != os.path.realpath(root):
+            detail += " (dispatch root is {0}; a publish tool is on the LOCATOR axis, so this is expected)".format(dispatch)
+        findings.append((_PASS, "engine-root", detail))
+        return root
+    findings.append((
+        _FAIL,
+        "engine-root",
+        "'{0}' has no coordinator_core/percolate -- that is a published engine "
+        "mirror, not the source checkout percolate publishes from.\n"
+        "    Fix: run this from the engine SOURCE checkout, or set "
+        "COORDINATOR_ENGINE_SOURCE_ROOT to it.".format(root),
+    ))
+    return None
+
+
+def _check_targets(
+    findings: "List[tuple]", percolate_root: str, mirror: Optional[str]
+) -> "List[tuple]":
+    """Resolve every registered row, reporting the resolver's OWN remediation.
+
+    Returns the resolved `(name, source, dest)` tuples for the selected mirror,
+    or `[]`. A resolution abort is one finding carrying the resolver's message
+    verbatim -- it already names the exact registry key and the exact
+    `machine-local set` command, and rewording it here would be a second copy to
+    drift.
+    """
+    _bootstrap_engine()
+    from percolate.targets import TargetsError, load_targets  # noqa: E402
+
+    try:
+        rows = load_targets(Path(percolate_root) / "setup", target_filter=None)
+    except TargetsError as exc:
+        findings.append((_FAIL, "registry", exc.message))
+        return []
+
+    parsed = []
+    for row in rows:
+        fields = row.split("|")
+        if len(fields) >= 4:
+            parsed.append((fields[0], fields[2], fields[3]))
+    if not parsed:
+        findings.append((_FAIL, "registry", "no publish targets resolved from any tier."))
+        return []
+
+    if mirror is None:
+        findings.append((_PASS, "registry", "{0} row(s) resolved".format(len(parsed))))
+        return parsed
+
+    normalized = mirror.replace("-", "_").lower()
+    selected = [
+        r for r in parsed
+        if r[0] == mirror
+        or normalized in os.path.realpath(r[2]).replace("-", "_").lower()
+    ]
+    if not selected:
+        findings.append((
+            _FAIL,
+            "registry",
+            "no resolved row lands in a mirror matching '{0}'. Known rows: {1}".format(
+                mirror, ", ".join(name for name, _, _ in parsed)
+            ),
+        ))
+        return []
+    findings.append((
+        _PASS, "registry", "{0} row(s) resolved for '{1}'".format(len(selected), mirror)
+    ))
+    return selected
+
+
+def _check_worktree(findings: "List[tuple]", dests: "List[str]") -> Optional[str]:
+    """One git worktree root for every selected row's dest, and it is a
+    worktree rather than this box's deployed engine."""
+    roots = set()
+    for dest in dests:
+        proc = _readiness_git(dest if os.path.isdir(dest) else os.path.dirname(dest),
+                              ["rev-parse", "--show-toplevel"])
+        if proc is None or proc.returncode != 0:
+            findings.append((
+                _FAIL, "mirror-worktree",
+                "'{0}' is not inside a git worktree.\n"
+                "    Fix: clone the publish repo and point the registry key at "
+                "the clone.".format(dest),
+            ))
+            return None
+        roots.add(os.path.realpath(proc.stdout.strip()))
+    if len(roots) != 1:
+        findings.append((
+            _FAIL, "mirror-worktree",
+            "the selected rows land in {0} different worktrees: {1} -- one "
+            "publish round writes one mirror.".format(len(roots), sorted(roots)),
+        ))
+        return None
+    root = sorted(roots)[0]
+
+    try:
+        from coordinator_core.engine_root import is_published_engine_mirror
+
+        if is_published_engine_mirror(root):
+            findings.append((
+                _FAIL, "mirror-worktree",
+                "'{0}' IS this box's deployed engine mirror, not a publish "
+                "worktree. Publishing there pushes onto the mirror's own "
+                "checked-out branch.\n"
+                "    Fix: machine-local set publish.mirrors.<key>.path "
+                "<a SEPARATE clone>".format(root),
+            ))
+            return None
+    except Exception:  # noqa: BLE001 -- fail-open, same contract as the predicate
+        pass
+
+    status = _readiness_git(root, ["status", "--porcelain"])
+    dirty = len([ln for ln in (status.stdout or "").splitlines() if ln.strip()]) if status else 0
+    findings.append((
+        _PASS if not dirty else _WARN,
+        "mirror-worktree",
+        "{0}{1}".format(root, "" if not dirty else " ({0} uncommitted path(s) -- a "
+                        "previous round may have stopped mid-run)".format(dirty)),
+    ))
+    return root
+
+
+def _check_upstream(findings: "List[tuple]", root: str, *, fetch: bool) -> Optional[str]:
+    """Branch, tracking state, and how far the clone is from the tip it will be
+    measured against. Returns the checked-out branch name."""
+    _bootstrap_engine()
+    from percolate.dest_refresh import default_remote_branch  # noqa: E402
+
+    head = _readiness_git(root, ["rev-parse", "--abbrev-ref", "HEAD"])
+    branch = head.stdout.strip() if head and head.returncode == 0 else ""
+    if not branch or branch == "HEAD":
+        findings.append((
+            _FAIL, "upstream",
+            "'{0}' is in detached HEAD -- a round cannot tell which branch it "
+            "would land on.\n    Fix: git -C {0} checkout <branch>".format(root),
+        ))
+        return None
+
+    if fetch:
+        _readiness_git(root, ["fetch", "--no-tags", "--prune", "origin"], remote=True)
+
+    up = _readiness_git(root, ["rev-parse", "--abbrev-ref", "@{u}"])
+    base = up.stdout.strip() if up and up.returncode == 0 else ""
+    if not base:
+        base = default_remote_branch(Path(root)) or ""
+        if not base:
+            findings.append((
+                _FAIL, "upstream",
+                "'{0}' branch '{1}' has no upstream and the clone can name no "
+                "remote default branch.\n"
+                "    Fix: git -C {0} remote set-head origin --auto".format(root, branch),
+            ))
+            return branch
+        note = " (no upstream; measured against the remote default branch)"
+    else:
+        note = ""
+
+    counts = _readiness_git(root, ["rev-list", "--left-right", "--count", "HEAD..." + base])
+    if counts is None or counts.returncode != 0:
+        findings.append((
+            _WARN, "upstream",
+            "could not measure '{0}' against {1}{2}".format(branch, base, note),
+        ))
+        return branch
+    parts = counts.stdout.split()
+    ahead, behind = (int(parts[0]), int(parts[1])) if len(parts) == 2 else (0, 0)
+    if ahead and behind:
+        findings.append((
+            _FAIL, "upstream",
+            "'{0}' has diverged from {1} ({2} ahead, {3} behind){4} -- publishing "
+            "over it would discard one side.\n"
+            "    Fix: git -C {5} merge {1}".format(branch, base, ahead, behind, note, root),
+        ))
+        return branch
+    findings.append((
+        _PASS, "upstream",
+        "{0} vs {1}: {2} ahead, {3} behind{4}".format(branch, base, ahead, behind, note),
+    ))
+    return branch
+
+
+def _branch_rules_over_http(slug: str, branch: str) -> Optional[str]:
+    """GitHub's branch-rules endpoint, read directly. `None` on any failure.
+
+    Fail-open to `None` so the caller reports UNKNOWN rather than inventing
+    either verdict; a proxy, an offline box, or a private repo with no token all
+    land here and all mean "not answered", never "allowed".
+    """
+    import urllib.error
+    import urllib.request
+
+    url = "https://api.github.com/repos/{0}/rules/branches/{1}".format(slug, branch)
+    request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json"})
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if token:
+        request.add_header("Authorization", "Bearer " + token)
+    try:
+        with urllib.request.urlopen(request, timeout=_READINESS_REMOTE_TIMEOUT_S) as response:
+            return response.read().decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 -- see docstring
+        return None
+
+
+def _check_ref_creation(findings: "List[tuple]", root: str, branch: str) -> None:
+    """Would this push CREATE a ref on the remote, and is creation allowed.
+
+    THE TRAP THIS CLOSES. `git push --dry-run` does NOT evaluate a GitHub
+    repository ruleset: it reports success and the real push is then refused
+    with `GH013 ... Cannot create ref due to creations being restricted`, after
+    a full round has already run, committed, and left the mirror dirty. A
+    dry-run that passes where the real action is refused is a false
+    confirmation, so this asks the two questions the dry-run cannot:
+
+      1. does `refs/heads/<branch>` already exist on the remote? If it does, the
+         push UPDATES a ref and no creation rule applies.
+      2. if it does not, does the remote restrict creation? Answered by `gh api
+         repos/<owner>/<repo>/rules/branches/<branch>`, which reports the rules
+         that WOULD apply. Without `gh`, or without credentials, this cannot be
+         determined locally and the finding is a WARN naming what is unknown --
+         never a PASS, because "we could not check" and "it is allowed" are the
+         two answers this whole check exists to stop conflating.
+    """
+    import subprocess
+
+    ls = _readiness_git(root, ["ls-remote", "--exit-code", "--heads", "origin", branch], remote=True)
+    if ls is not None and ls.returncode == 0 and ls.stdout.strip():
+        findings.append((
+            _PASS, "ref-creation",
+            "origin already has refs/heads/{0}; this push updates it".format(branch),
+        ))
+        return
+
+    url = _readiness_git(root, ["remote", "get-url", "origin"])
+    slug = ""
+    if url is not None and url.returncode == 0:
+        raw = url.stdout.strip()
+        for prefix in ("https://github.com/", "git@github.com:", "ssh://git@github.com/"):
+            if raw.startswith(prefix):
+                slug = raw[len(prefix):]
+                break
+        if slug.endswith(".git"):
+            slug = slug[: -len(".git")]
+
+    if not slug:
+        findings.append((
+            _WARN, "ref-creation",
+            "this push would CREATE refs/heads/{0} on origin, and origin is not a "
+            "GitHub URL this check can query -- ref-creation permission UNKNOWN. "
+            "`git push --dry-run` does NOT evaluate a remote's creation rules, so "
+            "a passing dry-run is not evidence here.\n"
+            "    Fix: confirm the branch is allowed, or land on a branch that "
+            "already exists on origin.".format(branch),
+        ))
+        return
+
+    payload = None
+    try:
+        proc = subprocess.run(
+            ["gh", "api", "repos/{0}/rules/branches/{1}".format(slug, branch)],
+            capture_output=True, text=True, timeout=_READINESS_REMOTE_TIMEOUT_S,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if proc.returncode == 0:
+            payload = proc.stdout
+    except Exception:  # noqa: BLE001 -- gh absent or unrunnable
+        pass
+
+    if payload is None:
+        # `gh` is a convenience, not the capability. A cloud container commonly
+        # has no `gh` on PATH while the REST endpoint is plainly reachable, and
+        # leaving the answer UNKNOWN there would make the one environment this
+        # whole check exists for the one it cannot serve. Token if present, no
+        # token otherwise -- the endpoint answers unauthenticated for a public
+        # repo, which every publish mirror is.
+        payload = _branch_rules_over_http(slug, branch)
+
+    if payload is None:
+        findings.append((
+            _WARN, "ref-creation",
+            "this push would CREATE refs/heads/{0} on {1}. A repository ruleset "
+            "can refuse that, and `git push --dry-run` does NOT evaluate rulesets "
+            "-- it reports success and the real push fails with GH013 after the "
+            "round has already run. `gh` could not answer here, so the permission "
+            "is UNKNOWN.\n"
+            "    Fix: confirm the branch is allowed, or land on a branch that "
+            "already exists on origin.".format(branch, slug),
+        ))
+        return
+
+    try:
+        rules = json.loads(payload or "[]")
+    except ValueError:
+        rules = []
+    restricted = [r for r in rules if isinstance(r, dict) and r.get("type") == "creation"]
+    if restricted:
+        existing = _readiness_git(root, ["ls-remote", "--heads", "origin"], remote=True)
+        names = []
+        if existing is not None and existing.returncode == 0:
+            names = [
+                ln.split("refs/heads/", 1)[1]
+                for ln in existing.stdout.splitlines()
+                if "refs/heads/" in ln
+            ]
+        findings.append((
+            _FAIL, "ref-creation",
+            "{0} FORBIDS ref creation, and this push would create "
+            "refs/heads/{1}. The real push fails with GH013; a --dry-run does "
+            "not evaluate this rule and reports success.\n"
+            "    Fix: land on one of the branches that already exist on origin: "
+            "{2}".format(slug, branch, ", ".join(sorted(names)) or "(none readable)"),
+        ))
+        return
+    findings.append((
+        _PASS, "ref-creation",
+        "{0} permits creating refs/heads/{1}".format(slug, branch),
+    ))
+
+
+def _cmd_publish_readiness(args: argparse.Namespace) -> int:
+    """Every blocker on the publish path, in one invocation.
+
+    WHY ONE COMMAND AND NOT FIVE. Each of these failures only becomes visible
+    once the one before it is fixed, so discovering them costs one full run
+    each -- and a publish run is minutes and writes to a shared clone. Serial
+    rediscovery IS the defect; this reports all of them together and never stops
+    at the first, which is why every check below degrades to a finding instead
+    of returning early.
+
+    Exit 0 when nothing FAILED (WARNs do not gate -- an unanswerable question is
+    not a refusal), 1 when anything did.
+    """
+    findings: "List[tuple]" = []
+
+    root = _check_engine_root(findings)
+    percolate_root = args.percolate_root or (root or str(_REPO_ROOT))
+
+    rows = _check_targets(findings, percolate_root, args.mirror) if root else []
+    worktree = _check_worktree(findings, [dest for _, _, dest in rows]) if rows else None
+    branch = _check_upstream(findings, worktree, fetch=not args.no_fetch) if worktree else None
+    if worktree and branch:
+        _check_ref_creation(findings, worktree, branch)
+
+    width = max((len(name) for _, name, _ in findings), default=0)
+    print("=== percolate publish-readiness{0} ===".format(
+        ": " + args.mirror if args.mirror else ""))
+    for verdict, name, detail in findings:
+        print("  [{0}] {1}  {2}".format(verdict.ljust(4), name.ljust(width), detail))
+    failed = [f for f in findings if f[0] == _FAIL]
+    print("--- {0} check(s): {1} pass, {2} warn, {3} fail ---".format(
+        len(findings),
+        sum(1 for f in findings if f[0] == _PASS),
+        sum(1 for f in findings if f[0] == _WARN),
+        len(failed),
+    ))
+    if failed:
+        print("NOT READY: fix the FAIL line(s) above, then re-run this command.")
+        return 1
+    print("READY: every check that can be answered locally passes.")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # CLI wiring
 # ---------------------------------------------------------------------------
@@ -1330,6 +1732,16 @@ def _build_parser() -> argparse.ArgumentParser:
     p_mtime = sub.add_parser("ignore-mtime")
     p_mtime.add_argument("source_dir")
     p_mtime.set_defaults(func=_cmd_ignore_mtime)
+
+    p_ready = sub.add_parser("publish-readiness")
+    p_ready.add_argument("mirror", nargs="?", default=None)
+    p_ready.add_argument("--percolate-root", default=None)
+    p_ready.add_argument(
+        "--no-fetch",
+        action="store_true",
+        help="Skip the origin fetch; report ahead/behind against refs already local.",
+    )
+    p_ready.set_defaults(func=_cmd_publish_readiness)
 
     p_crlf = sub.add_parser("crlf-diff")
     p_crlf.add_argument("dest_file")

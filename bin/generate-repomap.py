@@ -3,9 +3,11 @@
 generate-repomap.py — CLI trampoline over claude-klabauter
 coordinator_core.ops.generate_repomap.
 
-Thin wrapper around the Python repomap generator (bin/repomap/generate-repomap.py,
-DoE-resident, NOT ported — this trampoline only replaces the bash argument-
-building/interpreter-resolution/trust-guard shell, not the generator itself).
+Thin wrapper around the Python repomap generator, which lives in THIS repo at
+bin/repomap/generate-repomap.py — this trampoline only replaces the bash
+argument-building/interpreter-resolution/trust-guard shell, not the generator
+itself. It was DoE-resident before the executable bin/ tree migrated here;
+a reader who still expects it in DoE-claude will not find it there.
 Contains NO RAG-gating logic — callers gate via bin/check-rag-state.py before
 invoking this. Full gating doctrine: docs/wiki/repomap-rag-gating.md.
 

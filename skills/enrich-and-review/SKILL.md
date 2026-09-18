@@ -69,6 +69,9 @@ treating its authority here as settled.
 
 ## Phase 3: Dispatch Enrichers
 
+> **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
+> step names; it dissolves no gate this skill's own body names.
+
 Optional task-scoped repo map via `misc-session-and-guards.py rag-freshness-gate` when the stub's
 file scope benefits from one — pass its path in the dispatch prompt (judgment call, not every
 dispatch needs it). Scan enabled plugins for root-level `enricher-pre-pass.md` fragments — these
@@ -92,6 +95,9 @@ Same op as Phase 2.5 with `stub_ids=<enriched stubs>`, `to_status="Under review"
 immediately after.
 
 ## Phase 5: Dispatch Reviewers
+
+> **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
+> step names; it dissolves no gate this skill's own body names.
 
 Selection: explicit `--reviewers` override, or auto-detect (classify enriched-stub work type,
 merge this plugin's `routing.md` with every enabled plugin's root-level `routing.md` fragment,

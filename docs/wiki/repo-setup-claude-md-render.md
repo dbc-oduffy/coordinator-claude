@@ -94,7 +94,7 @@ if [ -z "$_cc_claude_klabauter" ] || [ ! -d "$_cc_claude_klabauter" ]; then
   exit 1
 fi
 
-python "$_cc_claude_klabauter/coordinator/bin/render-template.py" \
+python3 "$_cc_claude_klabauter/coordinator/bin/render-template.py" \
   "$_cc_root/skills/repo-setup/templates/CLAUDE.md.template" \
   -o CLAUDE.md \
   PROJECT_NAME="<derived-name>" \

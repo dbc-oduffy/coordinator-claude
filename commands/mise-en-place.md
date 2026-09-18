@@ -93,9 +93,11 @@ residue isn't coherent or routing needs a PM call. Patterns/examples: wiki.
 `backlog-grind-assemble brief mise-en-place --run-id <run-id>` computes the empty-backlog judgment
 point and the `d-mise-executor-dispatch-prompt-template` directive; not Phase 0.
 
-Quote the `additionalContext`-minted run-id (`mint-run-id mise-en-place` if the hook didn't fire
-on either entry path — typed `UserPromptExpansion` or a model-invoked `Skill` call through the
-`preuse-skill-dispatch.py` fan-in). If two engine-minted run ids are in context, use the first.
+Quote the `additionalContext`-minted run-id (`backlog-grind-assemble mint-run-id mise-en-place`
+if the hook didn't fire on either entry path — typed `UserPromptExpansion` or a model-invoked
+`Skill` call through the `preuse-skill-dispatch.py` fan-in). **`mint-run-id` is a subcommand of
+`backlog-grind-assemble`, never a CLI of its own** — no launcher carries that name, so the bare
+verb exits 127. If two engine-minted run ids are in context, use the first.
 Capture `git rev-parse HEAD` as start SHA before dispatching.
 
 >3 items → backgrounded Sonnet scout writes `state/mise-inventory/<run-id>.md` (frontmatter
@@ -178,6 +180,15 @@ Don't hand-author the script — mint and emit:
 `COORDINATOR_AGENT_TYPE_HOST=coordinator python3 "${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}/bin/emit-dispatch-workflow.py" --inventory state/mise-inventory/<run-id>.md`
 writes the spine (item-id → chunk-id, footprint → `writes`) plus the `.mjs`; fire it with
 `Workflow({scriptPath: ...})`.
+
+**Then stay awake for as long as it runs — on a managed-remote host, ending the turn to wait for
+the completion notification is what kills the run.** The container is reclaimed on session
+inactivity and background work does not count as activity, so a fired wave plus a quiet EM is a
+dead wave: journals stop mid-run, no halt verdict is written, and `resumeFromRunId` is
+same-session-only so what died is not resumable. Hold the turn with a `Monitor` that emits on a
+poll interval and re-arm it at expiry. Push after every wave, not at the end of the run — the repo
+volumes and settings home survive reclamation, so an unpushed commit is the only thing that does
+not. `a-quiet-session-gets-its-container-reclaimed-under-running-work`.
 
 **The env var is not optional, and omitting it does not fail — it downgrades.** The script probes
 for a plugin root to decide whether `coordinator:*` agent types resolve, and a Bash subprocess

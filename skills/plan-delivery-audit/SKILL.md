@@ -42,6 +42,9 @@ scope/chunks/AC prose, extracts concrete artifact claims, checks each, reports P
 UNVERIFIABLE. No file modification, commit, or push during Oracle 2. If a plan names no concrete
 artifacts, Oracle 2(a) is unverifiable — treat the plan conservatively (see tie-breaks below).
 
+> **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
+> step names; it dissolves no gate this skill's own body names.
+
 (b) *Project test suite* — not on the implicit-grant ceremony list; gate via (shape per
 `snippets/resolve-coordinator-bin.md`; PowerShell shown)
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\tier-u-grant-cli.exe" check`

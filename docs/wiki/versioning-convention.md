@@ -58,7 +58,7 @@ to `marketplace.json`). It is wired in two places so drift cannot ship:
   `check_marketplace_version_regression` non-regression gate in
   `setup/lib/percolate-gate.sh`).
 
-Run it manually any time (claude-klabauter): `python coordinator/bin/check-version-consistency.py [--check-tag]`.
+Run it manually any time (claude-klabauter): `python3 coordinator/bin/check-version-consistency.py [--check-tag]`.
 
 ## Why marketplace.json tracks the plugin version
 

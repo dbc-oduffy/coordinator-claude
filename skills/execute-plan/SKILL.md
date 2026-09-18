@@ -14,7 +14,9 @@ satisfies a chunk body's own "needs PM assent at execution dispatch" clause** �
 this exact moment, and the invocation is it. Never re-ask per chunk, and never offer to halt a
 fired run at that chunk's wave; a plan the PM authorized is authorized to its hot-path edit. A
 chunk gate the invocation does NOT satisfy is one naming a different act — a cross-repo commit
-(per-session assent, obtained at that dispatch) or an external-facing action. Does not chain
+(per-session assent, obtained at that dispatch; on a managed-remote host that gate stands down, the
+assent is registered at the PR carrying the branch instead, and it stands down to a
+warning and one repo's work per commit stream is what binds) or an external-facing action. Does not chain
 into branch disposition — that's the PM-gated `/merging-to-main`. Full rationale and mechanics:
 wiki.
 
@@ -160,6 +162,13 @@ the emit: it is not EM discretion about whether to dispatch, and it is not hand-
 the emitted script, one action. Emitting and stopping writes a script nothing runs — the exact
 state that left a fireable `.mjs` sitting on disk against a PM-authorized plan while the EM
 hand-dispatched the same work. **An emitted script is not a delivered dispatch.**
+
+**An emitted fire raises no permission prompt; a hand-rolled one does.**
+`allow-emitted-workflow-fire.py` (PreToolUse, matcher `Workflow`) auto-approves a `scriptPath`
+whose `<script>.emitted.json` digest still matches the bytes on disk, and stays silent for
+everything else. So an unexpected prompt means the script was hand-authored or edited in place —
+`--restamp`, not a re-emit, is the route back. Tripwire:
+`AN-EMITTED-WORKFLOW-FIRES-WITHOUT-A-PROMPT-A-HAND-ROLLED-ONE-DOES-NOT`.
 
 Firing in-session is what makes the run the operator's: visible and selectable in their workflow
 list, inspectable while it runs, resumable via `resumeFromRunId` (same-session-only), running under

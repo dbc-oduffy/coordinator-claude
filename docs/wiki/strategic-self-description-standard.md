@@ -28,7 +28,7 @@ Top-level required fields:
 
 | Field | Shape | Notes |
 |---|---|---|
-| `repo_identity` | `{owner, repo, coordinator_root_path}` | Canonical join key — the SAME tuple the Fleet Producer Contract's emission join-key already uses (`emission-conformance-contract.md § Producer Contract`), not a competing single-field slug. |
+| `repo_identity` | `{owner, repo, coordinator_root_path}` | Canonical join key — the SAME tuple the Fleet Producer Contract's emission join-key already uses (`emission-conformance-contract.md § Producer Contract`), not a competing single-field slug. `coordinator_root_path` is a machine-local location hint for the emitting clone, MAY be `null`, and is NOT part of the join key — consumers key on `(owner, repo)`; the key itself is always present, carried present-as-null when there is no meaningful value. |
 | `lifecycle` | enum, see § Lifecycle enum below | DoE-canonical, richer than any one consumer's need. |
 | `vision` | `{value, provenance}` | One-paragraph strategic statement. |
 | `version_highlights` | array of `{label, date, bullets[], provenance}` | Ordered, most-relevant-first; may be empty. |

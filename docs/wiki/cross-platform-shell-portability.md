@@ -276,17 +276,32 @@ Length 0 + LinkType ReparsePoint + no Target ⇒ orphan stub. `Remove-Item -Forc
 ## Hook registration exec form — bare `python3` is safe there (DR-044)
 
 Hooks register in **exec form** — `type: "command"` plus an `args` array — naming a bare,
-platform-neutral `python3`. The registered hook path is **interpreter-agnostic**: the fail-open
-BOOTSTRAP injects the coordinator venv's `site-packages` into `sys.path` before the target script
-imports anything, so it does not matter which real `python3` bare-name resolution lands on, only
-that a real interpreter (not a WindowsApps App Execution Alias stub) does. There is **no**
-"venv must come first on PATH" rule — do not write one.
+platform-neutral `python3`. There is **no** "venv must come first on PATH" rule — do not write
+one, and do not flag a registration's `command` field as a portability hazard on that basis.
 
 This is narrower than the bare-`python3` ban above: that ban governs runtime **scripts**; a
-`hooks.json` `command` field is harness config resolved before any script exists, so a resolver
-pattern has no seam to invoke there. Whichever real interpreter bare `python3` resolves to at
-`CreateProcess` time is the resolver for hooks specifically, and the venv `sys.path` injection
-makes which one immaterial.
+`hooks.json` `command` field is harness config, resolved to an executable by `CreateProcess`
+before any coordinator code exists to run a resolver. **The `command` field has no expansion
+seam and must stay a bare name.** The documented path placeholders are a closed set
+(`${CLAUDE_PROJECT_DIR}`, `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`) with production
+evidence of expansion at exactly one `args` index and none in `command`; an unexpanded token
+does not error or empty, it **literalizes**, so a `${…}` interpreter token in `command` would
+spawn a nonexistent executable and fail the whole hook plane open on every host, healthy ones
+included. An absolute interpreter path is equally wrong: `hooks.json` is committed plugin source
+resolved live via `--plugin-dir`, not an install-time-generated artifact, so a host path baked
+there is correct on exactly one machine. Whichever real interpreter bare `python3` resolves to at
+`CreateProcess` time IS the resolver for hooks, by construction of there being no other seam.
+
+**Which interpreter answers is therefore load-bearing, not immaterial.** The site-packages
+injector is retired: hook-path third-party imports resolve from that same interpreter, so a
+missing distribution is an install-surface defect on that host, never a reason to regrow a
+path-mutating step in the seam (`HOOK-PATH-DEPS-LIVE-ON-THE-MACHINE-INTERPRETER`). Two
+install-surface guarantees carry the whole contract, and neither belongs in `hooks.json`: a real
+interpreter (not a WindowsApps App Execution Alias stub) resolves for the bare name, and it
+carries the hook path's dependencies. Where those fail — a host whose `PATH` names no real
+directory at all — every hook fails open with `Executable not found in $PATH: "python3"` and
+nothing announces it; that is an environment defect with its own correction, not a `hooks.json`
+one (`A-LITERAL-PATH-IN-THE-CLOUD-ENV-BOX-DISABLES-EVERY-HOOK-SILENTLY`).
 
 `coordinator/templates/bin/python3.cmd` is retired. A reader who does not know that will restore
 it to fix the `CreateProcess`/`PATHEXT` problem — which is real. The correct answer is now a real

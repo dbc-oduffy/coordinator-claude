@@ -58,12 +58,25 @@ from typing import Optional
 from coordinator_core.win_portability import is_executable
 
 
+#: `ResolveError.code` for a row that resolved cleanly to a destination no
+#: publish may write into. Aborts every tier; see `_refuse_engine_root_as_dest`.
+UNSAFE_DEST = 5
+
+
 class ResolveError(Exception):
     """Raised by `resolve_publish_row` / `resolve_machine_local_bin` for a
     non-zero bash return code. `code` mirrors the bash exit code exactly
     (1/2/3); `message` is the diagnostic text the bash equivalent would have
     printed to stderr (empty string for rc 3, which is a silent fall-through
-    signal in the bash original)."""
+    signal in the bash original).
+
+    Codes past the bash original's three have no bash twin and are named
+    here: 4 is TRANSPORT (the machine-local CLI exists but could not be run),
+    5 is UNSAFE DEST (the row resolved cleanly to a destination that must
+    never be published into -- see `_refuse_engine_root_as_dest`). Both abort
+    the whole resolution like rc 2; they are separate codes because the
+    operator-facing framing differs and "malformed row" is false for each.
+    """
 
     def __init__(self, message: str, code: int):
         super().__init__(message)
@@ -429,6 +442,8 @@ def _resolve_repo_row(
             1,
         )
 
+    _refuse_engine_root_as_dest(name, f"repos.{dest_key}", dest_root)
+
     abs_dest = dest_root if not dest_subdir else f"{dest_root}/{dest_subdir}"
 
     if native_slugs:
@@ -521,6 +536,52 @@ def _resolve_source_sigil(
     return str(root / sigil)
 
 
+def _refuse_engine_root_as_dest(name: str, key: str, dest_root: str) -> None:
+    """Refuse a publish dest that IS this box's deployed engine mirror.
+
+    An engine root is a BUILD ARTIFACT that the fleet executes; a publish
+    mirror is a WORKTREE a round writes a projection into and pushes. They are
+    the same repository on two different clones, which is exactly why the
+    registry can be pointed at the wrong one and nothing downstream notices:
+    `/root/klabauter` is a real clone of `claude-klabauter`, checked out on
+    `main`, with a live push remote. A publish resolving there commits and
+    pushes the round straight onto the published mirror's default branch --
+    the branch cloud Setup scripts curl from HEAD -- bypassing the
+    percolate -> candidate -> PR -> main flow entirely, with no error at any
+    layer because every operation succeeds.
+
+    `is_published_engine_mirror` is the existing single predicate for "am I
+    about to treat a build artifact as a working tree" and is reused rather
+    than re-derived (it is fail-open on an unreadable registry, so a registry
+    hiccup cannot invent this refusal). Code 2 -- shared-data corruption, the
+    arm that aborts the WHOLE resolution -- never code 1: a value that is a
+    live trap must not be skippable by a target filter, and the "unset
+    registry key" framing rc 1 carries would send the operator to set a key
+    that is already set, just set to the wrong thing. `UNSAFE_DEST` rather
+    than rc 2 so the driver does not print "malformed row" over a row whose
+    every field is well-formed.
+    """
+    try:
+        from coordinator_core.engine_root import is_published_engine_mirror
+    except Exception:  # noqa: BLE001 -- a guard that cannot load must not block a publish
+        return
+    try:
+        if not is_published_engine_mirror(dest_root):
+            return
+    except Exception:  # noqa: BLE001 -- same fail-open contract as the predicate itself
+        return
+    raise ResolveError(
+        f"resolve-publish-target: {key} resolves to '{dest_root}', which is this "
+        "box's DEPLOYED ENGINE MIRROR (the registered repos.claude_klabauter "
+        f"clone), not a publish worktree -- refusing to resolve dest for target "
+        f"'{name}'. Publishing there would commit and push onto the published "
+        "mirror's own checked-out branch.\n"
+        f"  Remediation: machine-local set {key} "
+        "<absolute-path-to-a-SEPARATE-clone-of-the-publish-repo>",
+        UNSAFE_DEST,
+    )
+
+
 def _resolve_publish_mirror_row(
     raw_row: str,
     fields: list[str],
@@ -579,6 +640,8 @@ def _resolve_publish_mirror_row(
             "<absolute-path-to-the-publish-repo>",
             1,
         )
+
+    _refuse_engine_root_as_dest(name, f"publish.mirrors.{key}.path", dest_root)
 
     abs_dest = dest_root if not dest_subdir else f"{dest_root}/{dest_subdir}"
 
