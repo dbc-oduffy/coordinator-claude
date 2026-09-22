@@ -49,8 +49,11 @@ Splice `$ONLY_FLAG`/`${SCOPE_SUMMARY:+...}` exactly as shown — do not hand-der
 
 ## Step 3-4: RAG Nudge, Plugin Validation
 
-If `ToolSearch` finds `mcp__project-rag__*`, run the staleness survey; surface only if
-stale/very-stale. Run `node --test coordinator/tests/plugin-ecosystem/run.js` — hook-behavior failures block;
+If `ToolSearch` finds `mcp__project-rag__*`, run the staleness survey with this repo's root as
+`project_root`; an unnamed call is ambiguous whenever a second session is live. Surface
+stale/very-stale only for a repo `project_list_sources` reports as `origin: consumer-project` —
+elsewhere the step is N/A and silent (`A-RAG-VERDICT-ON-AN-UNINDEXED-REPO-IS-NOT-STALENESS`).
+Run `node --test coordinator/tests/plugin-ecosystem/run.js` — hook-behavior failures block;
 non-hook failures report and continue.
 
 ## Step 5: Resolve Judgment Points
