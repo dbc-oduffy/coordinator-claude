@@ -183,11 +183,13 @@ When you receive a notification that the sweep task is complete:
    **`--ran-at` is measured off disk, never quoted from the agent.** The synthesizer has no shell and no clock; the merge moment is the mtime of `merged-claims.json`. Read it:
    
       ```bash
-      RAN_AT=$(python -c "import datetime,os,sys; print(datetime.datetime.fromtimestamp(os.path.getmtime(sys.argv[1]), datetime.timezone.utc).isoformat())" {workdir}/merged-claims.json)
+      python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/pipelines/deep-research/merged-claims-ran-at.py" {workdir}/merged-claims.json
       ```
       ```powershell
-      $RanAt = (Get-Item "{workdir}/merged-claims.json").LastWriteTimeUtc.ToString("yyyy-MM-ddTHH:mm:ssZ")
+      python "$env:CLAUDE_PLUGIN_ROOT\pipelines\deep-research\merged-claims-ran-at.py" {workdir}\merged-claims.json
       ```
+      It prints one RFC3339 stamp; pass that verbatim as `--ran-at`. It exits 1 rather
+      than inventing a stamp for a path it cannot stat.
       A timestamp offered in a completion message is an estimate — `claims-emit` validates RFC3339 *shape*, so a confident guess lands in the durable sidecar indistinguishable from a measured value. Take the pipeline token from the completion message; take the clock from the file.
    ```bash
    "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/claims-emit" \

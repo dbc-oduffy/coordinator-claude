@@ -1226,7 +1226,7 @@ def _handle_source_is_live_venv(plugin: str, sil_source: str, sil_dist: str, ref
         except ArgvCommandError as exc:
             eprint(f"{PROG}: {exc}")
             return 1
-        # Review: the resolution pre-check in _parse_argv_command only prevents the
+        # the resolution pre-check in _parse_argv_command only prevents the
         # common case — a TOCTOU race, a permission-denied file, or a non-executable
         # -format file still raises here. Loud, actionable WARN instead of a bare
         # traceback, matching coordinator-ceremony-hook.py's OSError handling.
@@ -1516,7 +1516,7 @@ def _handle_copy_install(
     # still fires.
     refresh_failed = False
     try:
-        # Review: resolve_cwd=source_path — the actual subprocess.run below runs
+        # resolve_cwd=source_path — the actual subprocess.run below runs
         # with cwd=source_path, not this validating process's cwd, so a relative
         # first-token path (e.g. "./install.sh") must be checked against that
         # execution cwd too, or it is wrongly rejected as unresolvable.
@@ -1565,7 +1565,7 @@ def _handle_copy_install(
         # half of the report piping alone makes VISIBLE without making it
         # stop.
         print(f"{PROG}: [copy_install] running (cwd={source_path}): {refresh_cmd}")
-        # Review: the resolution pre-check above only prevents the common case — a
+        # the resolution pre-check above only prevents the common case — a
         # TOCTOU race, a permission-denied file, or a non-executable-format file
         # still raises OSError here, which the snapshot-restore-on-failure route
         # below is meant to cover for ANY parse/resolve/launch failure — a bare

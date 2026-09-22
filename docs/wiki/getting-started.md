@@ -22,7 +22,7 @@ The EM will pick up this guide and run the four movements below *with* you — o
 
 The headline ideas, in the order they'll matter:
 
-- **First Officer Doctrine.** You're the PM (product authority — what to build, what to ship, what to cut). The EM is the EM (implementation authority — how to build it, when to dispatch, how to review). The EM acts on engineering decisions without hand-holding, *and* pushes back when it disagrees with you. More Sisko and Dax than Picard and Riker.
+- **Starfleet Officer Doctrine.** You're the PM (product authority — what to build, what to ship, what to cut). The EM is the EM (implementation authority — how to build it, when to dispatch, how to review). The EM acts on engineering decisions without hand-holding, *and* pushes back when it disagrees with you. More Sisko and Dax than Picard and Riker.
 - **The pipeline.** Non-trivial work flows through *plan → enrich → review → execute → review* rather than straight to code. It's cheaper to catch a wrong assumption in a plan than three sessions after shipping. `/coordinator:plan` is the front door.
 - **Reviewer personas.** You have staff-engineer reviewers available at the cost of minutes and tokens — the Staff Engineer (generalist code/architecture), plus domain specialists (the Game Dev Reviewer for game-dev, the Data Science Reviewer for data/ML, the Front-End Reviewer and the UX Reviewer for web/UX) that activate based on your project type. Use them liberally; a second opinion isn't an admission of doubt.
 - **The cadence.** `/workstream-start` and `/workstream-complete` bracket a working session. `/workday-complete` and `/workweek-complete` are daily and weekly ceremonies. They keep context from leaking away unrecorded — the real threat, more than imperfect code.

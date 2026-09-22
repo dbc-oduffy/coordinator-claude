@@ -47,11 +47,11 @@ never widens what counts as "safe to delete."
 
 ## Cross-repo consumption
 
-DoE owns this vocabulary; the engine — claude-klabauter's `active_reference_guard` in
+The doctrine repo owns this vocabulary; the engine's `active_reference_guard` in
 `coordinator_core/distill/_common.py` — consumes it, holding a local set of excluded keys in
 lockstep with a back-pointer comment to this file. This is the same ownership split as
-`SIDECAR_SUFFIXES`, whose own code comment already names DoE's contract as the eventual
-cross-repo single owner: DoE authors and evolves the vocabulary here, the engine mirrors it
+`SIDECAR_SUFFIXES`, whose own code comment already names the doctrine repo's contract as the eventual
+cross-repo single owner: the doctrine repo authors and evolves the vocabulary here, the engine mirrors it
 locally rather than reading it live.
 
 The engine's mirror is `coordinator_core/distill/_common.py :: PROVENANCE_MARKER_KEYS`, holding

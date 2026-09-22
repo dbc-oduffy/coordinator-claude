@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """check-settings-env — assert `settings.json`'s `env` block carries the VALUES the manifest requires.
 
 WHY THIS EXISTS. DoE-claude's `templates/settings-manifest.md` § Environment Variables names the
@@ -212,7 +211,7 @@ def _apply(path: Path, findings: list[dict[str, object]]) -> list[str]:
     doc.setdefault("env", {})
     for finding in repairable:
         doc["env"][str(finding["var"])] = str(finding["expected"])
-    path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8", newline="\n")
     return [str(f["var"]) for f in repairable]
 
 

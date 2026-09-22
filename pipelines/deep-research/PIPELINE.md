@@ -284,8 +284,8 @@ Produces:
 > from Pipeline B's `--compare` (which produces PROSE gap-analysis of a repo against your project).
 > Code-Comparison mode produces STRUCTURED comparison records — one record per
 > `(subject, competitor, axis)` — that a downstream producer projects into an `intelligence[]`
-> emission envelope. DoE emits a neutral intermediate; it does not resolve entities or compute merge
-> classification.
+> emission envelope. This pipeline emits a neutral intermediate; it does not resolve entities or
+> compute merge classification.
 
 ## Architecture
 
@@ -320,7 +320,7 @@ never invents or extends the axis set.
 3. Emits one structured record per `(subject, competitor, axis)` — record shape, negative-specs
    (no `competitor_uid`, no CONFIRMED/UPDATED/NEW/REFUTED classification), and `SourceRef` usage
    are defined in `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/code-comparison-record-schema.md`
-4. Writes the output file itself — no downstream synthesis step in DoE's scope
+4. Writes the output file itself — no downstream synthesis step in this pipeline's scope
 
 **Prompt template:** `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/code-comparison-agent-prompt-template.md`
 — fill in the bracketed fields (subject repo, peer target, axis list) and dispatch as a single
@@ -333,8 +333,9 @@ not an EM fill-in — see `repo-driver.md` § Mode Dispatch — `--code-compare`
 
 **Downstream consumption:** market-intel's producer resolves `peer_ref` → `competitor_uid` and
 applies the CONFIRMED/UPDATED/NEW/REFUTED merge classification at ingest time — both steps are
-explicitly out of DoE's scope. DoE's own emit path is bound (see § Prompt template above); DoE
-writes the neutral handoff records, never into `intelligence[]` or any producer envelope directly.
+explicitly out of this pipeline's scope. This pipeline's own emit path is bound (see § Prompt
+template above); it writes the neutral handoff records, never into `intelligence[]` or any
+producer envelope directly.
 
 ---
 

@@ -7,7 +7,7 @@ with ONE python3 hook entry -- zero Git-Bash cold-start per Agent dispatch
 on Windows (each bash.exe spawn costs 200-500ms; this is the whole point).
 
 The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
-the claude-klabauter engine, hand it the mapped params, relay its stdout. Claude-klabauter owns the
+the engine repo, hand it the mapped params, relay its stdout. The engine repo owns the
 REROUTE-gate LOGIC (coordinator_core.hooks.nudge_foreground_agent_dispatch,
 registered under the JSON-RPC method hooks.nudge_foreground_agent_dispatch).
 The engine is imported and run IN-PROCESS via coordinator_core.ipc.dispatch_from_hook
@@ -77,7 +77,7 @@ Raising still isn't the answer -- that would brick the hook on a cwd-less payloa
 -- but neither is passing silently.
 
 Graceful degradation -- NARROWED 2026-07-29 (PM ruling), was unconditionally
-fail-open. Any failure to resolve/import/run the claude-klabauter engine still degrades
+fail-open. Any failure to resolve/import/run the engine repo still degrades
 without bricking the session, but the degraded answer now depends on whether
 this shim can tell, from the payload alone (plus a best-effort, no-subprocess
 read of the durable calibration marker -- see below), that it is looking at a
@@ -91,11 +91,11 @@ deliberately-foreground Agent dispatch (`_is_deliberate_foreground`):
     Finding 1 (2026-07-29) named -- the engine-down leg could not previously
     see calibration state at all, so a session already proven to expose
     run_in_background silently PASSed foreground the moment the engine went
-    down, exactly the case claude-klabauter's own D7b durable marker was written to
+    down, exactly the case the engine repo's own D7b durable marker was written to
     close on the engine-up path. Closing it here needs no engine: the shim
     already knows cwd/session_id at parse time, so it can resolve the git dir
     itself (no subprocess -- see `_resolve_git_dir`) and stat the same marker
-    file claude-klabauter's `_bg_capable_path` writes/reads.
+    file the engine repo's `_bg_capable_path` writes/reads.
   - CANNOT tell (any other tool, absent run_in_background with NO calibration
     marker found or resolvable, unparseable stdin, non-Agent payload) -> exit
     0, no stdout. Fail OPEN, as before -- this is still the brick-proof rule:
@@ -221,7 +221,7 @@ def _resolve_git_dir(cwd: str) -> str | None:
 
 
 def _bg_capable_marker_path(git_dir: str, session_id: str) -> Path:
-    """Same durable calibration marker claude-klabauter's `_bg_capable_path` writes/reads.
+    """Same durable calibration marker the engine repo's `_bg_capable_path` writes/reads.
 
     Kept as a named helper (not a bare string) precisely so a rename on either side has a
     findable second site -- see coordinator_core/hooks/nudge_foreground_agent_dispatch.py
@@ -242,7 +242,7 @@ def _is_deliberate_foreground(flat: dict, cwd: str | None = None) -> bool:
     call on the machine). But a session already CALIBRATED -- proven, by an earlier
     present-key dispatch, to expose run_in_background -- reading absent now IS a deliberate
     foreground choice, and that fact is readable without the engine: it is exactly the
-    durable `.harness-bg-capable` marker claude-klabauter's D7b write leaves behind (Finding 1,
+    durable `.harness-bg-capable` marker the engine repo's D7b write leaves behind (Finding 1,
     2026-07-29). `cwd` is used only for this best-effort, no-subprocess marker lookup; an
     unparseable payload, a missing cwd/session_id, or an unresolvable git dir all fall
     through to the same fail-open False a build-without-the-param would get.
@@ -315,7 +315,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return _fail()  # claude-klabauter unresolvable on this machine
+        return _fail()  # engine repo unresolvable on this machine
 
     if root not in sys.path:
         sys.path.insert(0, root)

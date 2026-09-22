@@ -31,7 +31,7 @@ EM judgment with anchored ranges — the numbers below are decision anchors, not
 
 **Anchored-ranges note:** the small-side anchor (50 LOC at row 3) is a calibration anchor — shape can pull a 49-LOC change in or release a 51-LOC change out. **The big-side brightlines (≥500 gross LOC / ≥5 commits / ≥4 surfaces) are hard floors, not calibration anchors.** Above the brightline, single-reviewer is a doctrine violation regardless of how coherent the diff feels — `gates['review_scale']` carries the engine-measured `gross_loc`/`commit_count`/`surface_count` an EM reads before picking a row.
 
-**Hand-derived figures overshoot:** a hand-derived gross figure will exceed the floors (one close: 990/6 by hand vs the gate's 225/4) and read as under-measurement. The verdict string discloses none of this; asked of claude-klabauter.
+**Hand-derived figures overshoot:** a hand-derived gross figure will exceed the floors (one close: 990/6 by hand vs the gate's 225/4) and read as under-measurement. The verdict string discloses none of this; asked of the engine repo.
 
 **Why the gate keys on `commits` and `surfaces`, not raw file count.** File count is a blunt proxy for review-cost — a mass-rename touches many files at zero cost, while a 1-file 800-LOC change is genuinely large. `commits >= 5` tracks independent logical slices, the unit slicing actually operates on. `surfaces >= 4` (rather than 3) avoids tripping on hook-fixes, which routinely span shell+test+wiki at zero genuine breadth. The worked counterexample below still trips under this shape (loc=890, commits=7); a small, coherent diff that merely touches several file types does not.
 
@@ -80,7 +80,7 @@ substitute for a resolving gate: 1245/9 by hand against the engine's 976/26/4 on
 
 **Tells, all meaning stop and take the trampoline:** a sentence forming that says the next session can review this; a range narrowed to one commit because the honest range was refused; "mandatory" reasoned about as advisory; a trail record composed before any reviewer was dispatched.
 
-Enforcement today is these two skill bodies — prose, i.e. the operator remembering. The engine-side refusal, and the fact that a review owed by one session and paid by another cannot record trail coverage at all, are asked of `claude-klabauter`.
+Enforcement today is these two skill bodies — prose, i.e. the operator remembering. The engine-side refusal, and the fact that a review owed by one session and paid by another cannot record trail coverage at all, are asked of the engine repo.
 
 ## No named-reviewer escalation from code review
 
@@ -120,6 +120,38 @@ If a waive rationale boils down to "the plan was already reviewed," that's the s
 **Summary.** Plan-time review (coordinator:plan pre-flight) and post-impl review (workstream-complete `code-reviewer`) catch different defect classes — pre-flight finds substrate/path/framework mismatches, post-impl finds integration/test-coverage/edge-case gaps. Doctrine-table defaults are defaults, not negotiation starting points; don't drop workstream-complete review because "pre-flight passed."
 
 **Worked example.** A multi-executor session shipped a substantial workstream with plan-time prior-art-check (7 findings folded), plan-time the Staff Engineer review (8 findings folded), per-executor self-acceptance gates (all PASS), and a final-segment validation including an OOM smoke test. The EM waived workstream-complete `code-reviewer` on the rationale "distributed coverage upstream." The audited holes: a the Staff Engineer plan-time finding had been factually wrong (the executor caught it — meaning plan-review surface had a leak that *more downstream eyes*, not fewer, was the right response to); one executor segment swept up unrelated concurrent work whose commit message described only the headline change; the OOM smoke passed in 8s of a 600s budget without verifying it had actually exercised the install path vs. short-circuiting on cached state. None of these were catchable by plan-time review or by mechanical executor gates. They were exactly the class of finding a fresh `code-reviewer` lens on the actual diff catches.
+
+## Per-wave sidecars are integration inputs, never the close's review record
+
+*Self — per-wave review stages in the emitted Workflow.* Five rules, stated once here; other
+surfaces cite this section rather than re-deriving it.
+
+**(a) Integration inputs, not the close's review record.** A per-wave sidecar's `review_receipt`
+is spliced at spawn (`A-RECEIPT-SPLICED-AT-SPAWN-ATTESTS-DISPATCH-NOT-COMPLETION`), so it attests
+a spawn, not a finished review — the engine credits every earlier commit of the session against
+it, including waves the reviewer never read . Cite the engine as that mirror at that ref, never the engine's own working tree.
+
+**(b) Kira first.** Per-wave sidecars stay unintegrated until Kira's verdict routes. Any per-wave
+sidecar over a scope Kira sends to rebuild is void and never integrated; the correctness pass runs
+over the rebuilt shape, per the SKILL's own rule.
+
+**(c) One 1:1 dispatch per surviving sidecar.** Each surviving sidecar gets one 1:1
+`review-integrator` dispatch, which re-verifies each finding against HEAD — a later wave may have
+moved the file.
+
+**(d) The close review still runs, whole-diff, unchanged.** The Scale-selected,
+brightline-partitioned close review runs over the whole diff exactly as today, and it is what
+catches the cross-wave seam (§ Boundary-relabeling defect class). `gates.review_receipt` reading
+`blocks: false` is not read as discharged unless a reviewer the close dispatched has returned —
+per-wave receipts alone flip it to `blocks: false`, and that flip is not a discharge.
+
+**(e) No per-wave sidecars: byte-for-byte today's behaviour.** That is every plan in the corpus
+until placement lands.
+
+**Aggregation rides the receipt model** — not `review_trail`, not `wsc_commit`, not
+`review-coverage-gate.py` (all three are gravestones). **NO-AUTO-INTEGRATE, restated explicitly:**
+`review-integrator` dispatch is an EM act, N reviewer sidecars means N 1:1 integrator dispatches,
+and an emitted Workflow never gains integrator-dispatch authority.
 
 ## Dogfood as a structurally distinct review surface
 
@@ -181,6 +213,19 @@ Every completed workstream-complete review writes a small JSON record to disk. T
 > below describes the retired mechanism and is kept for readers tracing why a `state/review-trail/`
 > file exists. Tripwire: `A-SUSPENDED-OP-IS-NOT-A-MECHANISM-TO-WAIT-OUT`.
 
+**cross-repo-review-credit.** `gates.review_receipt` — the gate `/workstream-complete` actually
+reads — is session-scoped, not commit-scoped: it checks whether a reviewer receipt landed for
+the closing session's own id, independent of which repo the reviewed commits physically live in.
+Dispatching the reviewer IS recording the review, in the dispatching session's own tree,
+regardless of where the diff is later committed, so a session's own cross-repo reviewed range is
+credited here. A separate, narrower consumer —
+`gate.validate_invocable`'s `"review"` dimension (`gate_dimension_review.py`) — is
+commit-and-repo-scoped and does not credit a sibling-repo commit whose receipt lives in the
+dispatching session's own repo; it reports an explicit FAIL/uncovered there, never a silent pass.
+Neither path silently drops a cross-repo review. Tripwire:
+`A-REVIEW-THAT-LANDED-IN-A-SIBLING-REPO-IS-CREDITED-BY-NOTHING-HERE`. Disposition record:
+.
+
 Records land at `state/review-trail/YYYY-MM-DD-HHMMSS-{session-id-short}.json` (git-tracked, per-session, no concurrent-write risk — one file per session).
 
 **Helper (historical — retired, see banner above):** `coordinator-write-review-trail.py` was a
@@ -207,10 +252,10 @@ matching column 1 of this session's own `dispatched-agents.txt`. `em-verified`/`
 characters of justification instead. Exempt: `wsc-auto-adjudication`, and a delegate reviewer at
 `--verdict pending`. The value gates the write and is not persisted into the record.
 
-Session-id resolution uses strict precedence, env-only: `CLAUDE_SESSION_ID` (explicit override) first; then `CLAUDE_CODE_SESSION_ID` (platform-injected, per-session, unclobberable — Claude Code ≥ ~2.1.150) — resolved server-side by the native op (`coordinator_core/ops/session_context.py:resolve_current_session_id`, claude-klabauter). An unresolvable session id is reported as unresolved rather than papered over. The write is additive-create/last-write-wins: same timestamp + session-id-short → same filename → the new write overwrites atomically (no collision-fail).
+Session-id resolution uses strict precedence, env-only: `CLAUDE_SESSION_ID` (explicit override) first; then `CLAUDE_CODE_SESSION_ID` (platform-injected, per-session, unclobberable — Claude Code ≥ ~2.1.150) — resolved server-side by the native op (`coordinator_core/ops/session_context.py:resolve_current_session_id`, the engine repo). An unresolvable session id is reported as unresolved rather than papered over. The write is additive-create/last-write-wins: same timestamp + session-id-short → same filename → the new write overwrites atomically (no collision-fail).
 
 **Reviewer enum current values (post the persona-to-role-slug migration; source of
-truth: `_VALID_REVIEWERS` in claude-klabauter's `coordinator_core/ops/review_trail_write.py`):**
+truth: `_VALID_REVIEWERS` in the engine repo's `coordinator_core/ops/review_trail_write.py`):**
 `code-reviewer | staff-eng | code-reviewer+staff-eng | em-verified | waived | ubt-compile | wsc-auto-adjudication`
 
 `em-verified` names a review the EM performed directly — distinct from `waived`, which asserts
@@ -290,7 +335,7 @@ Companion: "Detect-then-silently-pick is a footgun." Source: weekly-gate the Sta
 
 
 **RETIRED — absence is the operative fact, not an oversight.** `coordinator/bin/review-coverage-gate.py`
-does not exist in claude-klabauter; the DoE-side `review-coverage-gate` forwarder exits 127.
+does not exist in the engine repo; the doctrine-repo-side `review-coverage-gate` forwarder exits 127.
 Neither `/workstream-complete`'s `d-run-chain-coverage-gate` directive nor `/merging-to-main`'s
 pre-merge step has a mechanical review-coverage gate to invoke — do not cite either as gated on
 this mechanism, and do not restore it on the grounds it "looks like it should still work."
@@ -343,7 +388,7 @@ Review coverage is a question about code, not about the ceremony's own bookkeepi
 
 **Where the partition happens — the verdict split, not chain-set derivation.** Bookkeeping commits stay in the chain set and are still counted in `chain_commits`. The partition is applied to the *uncovered* list at verdict time (`coordinator_core/coverage.py`, `run_coverage_gate`): uncovered commits are split into a code partition and a bookkeeping partition, and `VERDICT=COVERED` iff the **code** partition is empty. Do not read this section as saying the chain set shrinks — it does not, and a fix aimed at `_derive_dag_chain_set` would be aimed at the wrong place.
 
-**Consequence for the counts.** Because the frozen verdict line `chain_commits=N covered=M uncovered=K` must keep its arithmetic (`covered + uncovered == chain_commits`), a bookkeeping commit is counted as *covered* in `M`. That is a deliberate, mild over-claim in the count, and it is the reason the accompanying note is not optional: the gate emits a note naming every excluded SHA. `CoverageResult.bookkeeping_shas` carries them structurally. **`coverage.gate`'s JSON-RPC op and the `gate-result.json` disk artifact are RETIRED** (kill-ledger K-001/K-005; claude-klabauter carries no `coordinator/bin/review-coverage-gate.py`) — there is no mechanical floor producing either artifact. See `docs/wiki/coordinator-tripwires/anti-literal-tripwires-fire-on-docstring-examples-apply-noqa-marker-during-tripwire-chunk.md` § CHAIN-END-COVERAGE-GATE for the retirement record and the substitute (establish coverage from reviewer sidecars under `state/subagent-share/<session>/`, not from a gate verdict). Read `M` as "not awaiting review," not as "opened by a reviewer."
+**Consequence for the counts.** Because the frozen verdict line `chain_commits=N covered=M uncovered=K` must keep its arithmetic (`covered + uncovered == chain_commits`), a bookkeeping commit is counted as *covered* in `M`. That is a deliberate, mild over-claim in the count, and it is the reason the accompanying note is not optional: the gate emits a note naming every excluded SHA. `CoverageResult.bookkeeping_shas` carries them structurally. **`coverage.gate`'s JSON-RPC op and the `gate-result.json` disk artifact are RETIRED** (kill-ledger K-001/K-005; the engine repo carries no `coordinator/bin/review-coverage-gate.py`) — there is no mechanical floor producing either artifact. See `docs/wiki/coordinator-tripwires/anti-literal-tripwires-fire-on-docstring-examples-apply-noqa-marker-during-tripwire-chunk.md` § CHAIN-END-COVERAGE-GATE for the retirement record and the substitute (establish coverage from reviewer sidecars under `state/subagent-share/<session>/`, not from a gate verdict). Read `M` as "not awaiting review," not as "opened by a reviewer."
 
 **Mixed commits classify as code, always.** A commit touching both a bookkeeping path and anything else is code — the exclusion tests "every touched path is bookkeeping," not "any touched path is bookkeeping," so it fails closed by construction and cannot become a hole a real source change hides in.
 
@@ -353,12 +398,12 @@ Review coverage is a question about code, not about the ceremony's own bookkeepi
 
 **This does not make COVERED easier to reach as a goal.** The point is that the verdict means something: a gate that always says COVERED is worse than one that always says UNCOVERED, because the first is trusted. Excluding bookkeeping narrows the gate to the class of commit where an UNCOVERED verdict is actually informative.
 
-### Chain-ancestry-waiver records (`state/review-trail/chain-ancestry-waivers/`) — reader is `claude-klabauter`-resident
+### Chain-ancestry-waiver records (`state/review-trail/chain-ancestry-waivers/`) — reader is engine-resident
 
-**These records exist in DoE-claude but their reader does not.** `record_chain_ancestry_waiver`
-(write side) and `chain_ancestry_waived_shas` (read side) both live in `claude-klabauter`'s
-`coordinator_core/chain_ancestry_waivers.py` — DoE-claude has no local copy of either, by design
-(§ Place in the fleet, `coordinator/CLAUDE.md`). A reviewer working from this repo alone cannot
+**These records exist in the doctrine repo but their reader does not.** `record_chain_ancestry_waiver`
+(write side) and `chain_ancestry_waived_shas` (read side) both live in the engine's
+`coordinator_core/chain_ancestry_waivers.py` — the doctrine repo has no local copy of either, by design
+(§ Place in the fleet, this repo's root `CLAUDE.md`). A reviewer working from this repo alone cannot
 open that source; treat any claim about the reader's parsing behavior as attributed, not
 independently re-derivable here.
 
@@ -367,7 +412,7 @@ carried a machine-absolute `source_handoff` path, tripping the absolute-path-lit
 repo-relative on the strength of a read of `chain_ancestry_waived_shas` at that date: it matches a
 waiver on directory/`chain_id` and filename/`sha` only and never parses `source_handoff`, so the
 rewrite is semantics-preserving. A
-future review of these records should re-derive this from `claude-klabauter` directly rather than
+future review of these records should re-derive this from the engine repo directly rather than
 citing this note as still-current — it is a snapshot of one verification, not a standing guarantee.
 
 ### The `A..B` per-commit footgun — net-new doctrine
@@ -488,7 +533,7 @@ write collisions by construction.
 Automated-check reviewers are mechanism-named (`ubt-compile`, not `automated-check`). This
 prevents enum ambiguity when `clippy`, `eslint`, or `pytest-coverage` each add one entry.
 Each adds exactly one closed-enum value to the native `review_trail.write` op's `reviewer`
-enum (`coordinator_core/ops/review_trail_write.py:_VALID_REVIEWERS`, claude-klabauter).
+enum (`coordinator_core/ops/review_trail_write.py:_VALID_REVIEWERS`, the engine repo).
 Pattern established by Chunk 0 of the UBT plan (DR-UBT-001).
 
 ### Detection signature — file-path, not workstream name
@@ -546,7 +591,7 @@ Pattern shape: a taxonomy / enum / failure-reason vocabulary is refactored, and 
 
 *Claude-unreal-example-game-repo.* A plan-delivery audit's central alarm ("only 4 review-trail records, all this week → most shipped work unreviewed") was an archival artifact — the missing 05-24 record was in `archive/review-trail/2026-05-21/`, and its `session_id` matched the shipped plan's completion-entry filename suffix. Both audited `implemented` plans were DELIVERED+REVIEWED; zero PARTIAL.
 
-When auditing delivery-vs-review: glob both dirs. The three-oracle plan-delivery audit shape (plan-claim / code-reality-on-disk / review-coverage) + this archive-aware fix were routed to the DoE as a coordinator-universal skill/doctrine candidate via cross-repo memo.
+When auditing delivery-vs-review: glob both dirs. The three-oracle plan-delivery audit shape (plan-claim / code-reality-on-disk / review-coverage) + this archive-aware fix were routed to the doctrine repo as a coordinator-universal skill/doctrine candidate via cross-repo memo.
 
 **No lister CLI exists.** The per-commit review-trail writer/lister family is retired with no
 launcher of any kind, replaced by a binary review receipt. Every consumer walks both trees
@@ -566,9 +611,9 @@ A "one-line" pin or identity bump (version constant, schema revision, protocol c
 
 ## Session-scoped diff via `--session-id` — fixes the brightline gate on shared-branch concurrent EM work
 
-*Claude-central + project-rag.* On a `work/<machine>/<date>` branch shared by 3-4 concurrent EM sessions, `review-brightline-gate.py` (migrated to claude-klabauter's `coordinator/bin/`) was firing `PARTITION-MANDATORY` on the whole branch since split — most of which was other EMs' already-reviewed work. The gate's input range was branch-scoped (`merge-base origin/main..HEAD`), but its job is session-scoped: only THIS session's commits should be assessed for partitioning. The branch-scoped reading reduced the gate to noise EMs routed around (manual review-trail intersection, waive-with-rationale, partition someone else's work).
+*Claude-central + project-rag.* On a `work/<machine>/<date>` branch shared by 3-4 concurrent EM sessions, `review-brightline-gate.py` (migrated to the engine repo's `coordinator/bin/`) was firing `PARTITION-MANDATORY` on the whole branch since split — most of which was other EMs' already-reviewed work. The gate's input range was branch-scoped (`merge-base origin/main..HEAD`), but its job is session-scoped: only THIS session's commits should be assessed for partitioning. The branch-scoped reading reduced the gate to noise EMs routed around (manual review-trail intersection, waive-with-rationale, partition someone else's work).
 
-**Fix shape:** `prepare-commit-msg` hook injects `Session-Id: <id>` git trailer on every commit (resolution-order, env-only: `CLAUDE_SESSION_ID` → `CLAUDE_CODE_SESSION_ID`, identical to `coordinator-write-review-trail.py:182-199` (retired from `.sh`; migrated to claude-klabauter's `coordinator/bin/`)). `review-brightline-gate.py` gains `--session-id <id>` flag that filters the range via `git log --grep='^Session-Id: <id>$'` and recomputes loc/commits/surfaces/files over the filtered SHAs.
+**Fix shape:** `prepare-commit-msg` hook injects `Session-Id: <id>` git trailer on every commit (resolution-order, env-only: `CLAUDE_SESSION_ID` → `CLAUDE_CODE_SESSION_ID`, identical to `coordinator-write-review-trail.py:182-199` (retired from `.sh`; migrated to the engine repo's `coordinator/bin/`)). `review-brightline-gate.py` gains `--session-id <id>` flag that filters the range via `git log --grep='^Session-Id: <id>$'` and recomputes loc/commits/surfaces/files over the filtered SHAs.
 
 **Canonical invocation at `/workstream-complete`'s `d-run-review-brightline-gate` directive** —
 `review-brightline-gate --session-id "$WSC_SID"`, resolved per the precedence ladder in
@@ -591,7 +636,7 @@ chain-terminal two-oracle brightline gate. Nothing computes a terminus reviewer-
 the brightline stays mandatory on `gates['review_scale']`'s measurement alone. What follows is the
 design record, not invocable behaviour.
 
-*Reviewer-quantity chain+plan two-oracle detector plan.* The session-scoped `--session-id` gate (§ Session-scoped diff above) answers a mid-chain question — does THIS session's own diff need partitioning. It structurally cannot answer the chain-terminal question — does the WHOLE closing chain, aggregated across every contributing session, carry enough reviewers for its actual size and risk. The gate lives at claude-klabauter (`coordinator_core/ops/review_brightline_gate.py`) and is invoked in a NEW mode, additive to the existing `--session-id` mode:
+*Reviewer-quantity chain+plan two-oracle detector plan.* The session-scoped `--session-id` gate (§ Session-scoped diff above) answers a mid-chain question — does THIS session's own diff need partitioning. It structurally cannot answer the chain-terminal question — does the WHOLE closing chain, aggregated across every contributing session, carry enough reviewers for its actual size and risk. The gate lives at the engine repo (`coordinator_core/ops/review_brightline_gate.py`) and is invoked in a NEW mode, additive to the existing `--session-id` mode:
 
 `review-brightline-gate --from-handoff <closing-handoff-path> [<git-range>]`, resolved per
 `coordinator/snippets/resolve-coordinator-bin.md`.
@@ -611,7 +656,7 @@ uses rung 0 / Shape W — see `coordinator/snippets/resolve-coordinator-bin.md`.
 - **Tier `A`** (declared-but-unwalked-repo — the plan names a repo the chain walk never actually visited): **HARD stop.** Override is gated on the `/autonomous` sentinel being present AND a recorded reviewer whose findings artifact names the unwalked repo — both conditions, not either.
 - **Tier `B`** (a magnitude disagreement between oracles that doesn't rise to the declared-but-unwalked case) and **`none`** (oracles agree): **communicate loudly, do not halt.** The runner surfaces the three oracle numbers + `basis` and requires a recorded EM reviewer-count decision, cross-checked against findings artifacts already under `state/subagent-share/<session-id>/` — but does not block progress to Step 3.
 
-**Enforcement wrapper — `wsc-coverage-gate-runner brightline-gate`.** `/workstream-complete`'s `d-run-chain-plan-brightline-gate` directive does not call `review-brightline-gate --from-handoff` directly; it calls the claude-klabauter enforcer subcommand that wraps it and owns the halt-or-communicate policy above:
+**Enforcement wrapper — `wsc-coverage-gate-runner brightline-gate`.** `/workstream-complete`'s `d-run-chain-plan-brightline-gate` directive does not call `review-brightline-gate --from-handoff` directly; it calls the engine's enforcer subcommand that wraps it and owns the halt-or-communicate policy above:
 
 `wsc-coverage-gate-runner brightline-gate --from-handoff "$WSC_CONSUMED_HANDOFF"`, resolved per
 `coordinator/snippets/resolve-coordinator-bin.md`.
@@ -626,7 +671,7 @@ This mirrors the existing `wsc-coverage-gate-runner coverage-gate --from-handoff
 
 <!-- Spec backlink: cross-repo/inbox/2026-07-23-example-cockpit-repo-em-mise-en-place-run-friction-five-observations.md § 3 -->
 
-`code-reviewer`'s Bash is allowlist-confined to `coordinator-doc-new --type review-findings` by the engine-side guard `coordinator_core.bash_guards.block_reviewer_bash_outside_allowlist` (claude-klabauter) — fail-closed, no escape-hatch env var. That is deliberate: it's what keeps the reviewer's own footprint auditable (§ `agents/code-reviewer.md`'s Bash-confinement note). The consequence that doctrine had not fully reckoned with: **the reviewer cannot run `git show`, `git diff`, or `git log`.** It has no way to ask git what changed.
+`code-reviewer`'s Bash is allowlist-confined to `coordinator-doc-new --type review-findings` by the engine-side guard `coordinator_core.bash_guards.block_reviewer_bash_outside_allowlist` (the engine repo) — fail-closed, no escape-hatch env var. That is deliberate: it's what keeps the reviewer's own footprint auditable (§ `agents/code-reviewer.md`'s Bash-confinement note). The consequence that doctrine had not fully reckoned with: **the reviewer cannot run `git show`, `git diff`, or `git log`.** It has no way to ask git what changed.
 
 Every non-weekly gate that dispatches it — `/workstream-complete`'s `d-freeze-and-dispatch-review-partition-integrator` directive, `coordinator:review-code` Branch A.2, `/mise-en-place` Phase 6 steps 2 and 5 — says "review the diff" in its own framing while actually passing the reviewer a list of paths or a commit range. A confined reviewer handed a path does the only thing it can: it opens that path and reads its current on-disk contents. That is not the diff. It is the file.
 
@@ -648,18 +693,18 @@ One asymmetry survives, and it must not be harmonised away: the weekly gate's ra
 
 ## The wsc_commit tail is a fragile multi-step engine op — verify its effects after firing
 
-`/workstream-complete`'s commit tail is executed by claude-klabauter's `ceremony.wsc_commit` engine op (invoked via `cc_invoke` from the SKILL's D-5 step), not by inline EM bash. One call does scaffold + fill + stage + commit + push + claim-release, and `wsc_resolve` stamps the consumed handoff — a long, non-atomic sequence whose mid-tail failures are NOT cleanly idempotent-recoverable (a timeout after commit-before-fill leaves a half-baked artifact on `origin`). Several empirically-observed failure modes share one remedy: the EM verifies the tail's *effects on disk* after it returns, rather than trusting the op's exit code.
+`/workstream-complete`'s commit tail is executed by the engine's `ceremony.wsc_commit` engine op (invoked via `cc_invoke` from the SKILL's D-5 step), not by inline EM bash. One call does scaffold + fill + stage + commit + push + claim-release, and `wsc_resolve` stamps the consumed handoff — a long, non-atomic sequence whose mid-tail failures are NOT cleanly idempotent-recoverable (a timeout after commit-before-fill leaves a half-baked artifact on `origin`). Several empirically-observed failure modes share one remedy: the EM verifies the tail's *effects on disk* after it returns, rather than trusting the op's exit code.
 
 **Rule — after `wsc_commit` returns, verify four effects before treating the workstream as closed:**
 
 1. **Completion entry is filled, not a bare scaffold** *(doe-L99)*. `wsc_commit` applies `f_slots` to in-memory `ctx` nodes but did not (historically) write the step-2.6.6c prose / `nature` / `commits` into the scaffolded `archive/completed` entry FILE — it committed a bare scaffold (`nature:infra` default, placeholder prose, `commits:[]`). Read the committed entry; if it is a scaffold, the fill residues must land via an explicit EM `Edit` (or the op fixed to fill from `f_slots` + `resolved_state`).
-2. **`review_trail` param was present when `b_adjudication` was passed** *(doe-L98)*. Whenever `b_adjudication` is passed, `wsc_commit` REQUIRES a top-level `review_trail:{sha_range,reviewer,scope,verdict,diff_loc}` dict (read at `wsc_commit.py:1591`, separate from `b_adjudication`) — else `coordinator-write-review-trail.py` (claude-klabauter `coordinator/bin/`) raises a `failed_critical` and the op exits 1. The D-5 jq payload in `skills/workstream-complete/SKILL.md` must carry `review_trail`, not just `b_adjudication`.
-3. **No actioned-memo inbox path was passed in `wsc_paths`** *(doe-L67)*. `sweep-actioned-memos.py` (migrated to claude-klabauter's `coordinator/bin/`; over the native `fleet.archive_actioned_memos` op) moves actioned memos inbox→archive during the archival phase BEFORE the stage step git-adds `wsc_paths`; passing a memo-inbox path in `wsc_paths` makes the stage fail with `pathspec did not match` (commit+push then skip). Pass only non-memo session artifacts — the sweep owns actioned-memo staging.
-4. **YOUR consumed handoff actually shipped** *(doe-L154)*. `wsc_resolve` can populate `resolved_state.consumed_handoff` with a foreign-repo / phantom handoff path (and `resolved_state.sid` null), so Step 2.7's stamp-only targets the wrong handoff and leaves your real consumed handoff frozen at `consumed`/`claimed`/`in_flight`. After `wsc_commit`, grep `state/handoffs/` for your session id against BOTH vocabularies (`grep -rlE "(claimed_by|consumed_by): <sid>" state/handoffs/` — renamed `consumed_by` to `claimed_by`; the write path hasn't cut over but the on-disk corpus is mixed, so dual-read) and confirm that handoff is `deployment_state:shipped`; if not, ship it manually via `archive-stamp-cli`'s `stamp-shipped-in` + `ship-handoff` verbs.
+2. **`review_trail` param was present when `b_adjudication` was passed** *(doe-L98)*. Whenever `b_adjudication` is passed, `wsc_commit` REQUIRES a top-level `review_trail:{sha_range,reviewer,scope,verdict,diff_loc}` dict (read at `wsc_commit.py:1591`, separate from `b_adjudication`) — else `coordinator-write-review-trail.py` (the engine repo `coordinator/bin/`) raises a `failed_critical` and the op exits 1. The D-5 jq payload in `skills/workstream-complete/SKILL.md` must carry `review_trail`, not just `b_adjudication`.
+3. **No actioned-memo inbox path was passed in `wsc_paths`** *(doe-L67)*. `sweep-actioned-memos.py` (migrated to the engine repo's `coordinator/bin/`; over the native `fleet.archive_actioned_memos` op) moves actioned memos inbox→archive during the archival phase BEFORE the stage step git-adds `wsc_paths`; passing a memo-inbox path in `wsc_paths` makes the stage fail with `pathspec did not match` (commit+push then skip). Pass only non-memo session artifacts — the sweep owns actioned-memo staging.
+4. **YOUR consumed handoff actually shipped** *(doe-L154)*. `wsc_resolve` can populate `resolved_state.consumed_handoff` with a foreign-repo / phantom handoff path (and `resolved_state.sid` null), so Step 2.7's stamp-only targets the wrong handoff and leaves your real consumed handoff frozen at `consumed`/`claimed`/`in_flight`. After `wsc_commit`, grep `state/handoffs/` for your session id against BOTH vocabularies (`grep -rlE "(claimed_by|consumed_by): <sid>" state/handoffs/` — renamed `consumed_by` to `claimed_by`; the write path hasn't cut over but the on-disk corpus is mixed, so dual-read) and confirm that handoff is `deployment_state:shipped`; if not, ship it manually via `archive-stamp-cli`'s `stamp-shipped-in` + `ship-handoff` verbs.  `wsc_resolve` returned a project-rag handoff path in place of the actual cockpit handoff the session consumed; `wsc_commit`'s Step-2.7 handoff-ship non-critically failed to stamp it, leaving the real handoff stranded at `in_flight`. The op-tail's `failed` array is the tell — check it for a handoff-stamp miss specifically, then run `coordinator-handoff-archive.sh <correct-handoff> --stamp-only` by hand. The root cause is `wsc_resolve`'s cross-repo `consumed_by`-scope leak in the engine's disposition detection, not a doctrine-repo-side fix.
 
 **cc_invoke timeout floor** *(doe-L92)*: the `cc_invoke` default `CC_INVOKE_TIMEOUT_SECS=10` is too short for the commit+push tail — it can time out mid-tail, leaving a partial commit (e.g. an unfilled completion entry committed before fill). Set `CC_INVOKE_TIMEOUT_SECS=180` for the `wsc_commit` invoke (or raise the op-specific default). A timeout mid-tail is not cleanly idempotent-recoverable if it committed a half-baked artifact.
 
-These are claude-klabauter-owned engine bugs / robustness gaps (each routed via cross-repo memo to claude-klabauter). The durable EM-facing discipline is the post-commit effect-verification above: the exit code says the op ran, not that the four effects landed correctly.
+These are engine-owned bugs / robustness gaps (each routed via cross-repo memo to the engine repo). The durable EM-facing discipline is the post-commit effect-verification above: the exit code says the op ran, not that the four effects landed correctly.
 
 ## `wsc-session-disposition` Detector C false-positive — shared-directory scope overlap is not chain-terminal proof
 
@@ -687,8 +732,8 @@ These are claude-klabauter-owned engine bugs / robustness gaps (each routed via 
   commit-trailer convention (`Resolves: <artifact-id>`) modeled on this
   page's `Session-Id:` trailer, including the same zero-match
   vacuous-pass semantics (§ Session-scoped diff above); consumed by
-  claude-klabauter's `coordinator/bin/rollup-derive.py` (migrated from
-  DoE-claude) for artifact-to-commit roll-up.
+  the engine repo's `coordinator/bin/rollup-derive.py` (migrated from
+  the doctrine repo) for artifact-to-commit roll-up.
 
 ## partitioned reviewers require partitioned integrators
 
@@ -723,3 +768,85 @@ residual too large for an inline fix. `irreversible` needs PM assent before acti
 work"*, *"pre-existing"*, *"not now"*, *"follow-up"*, *"out of scope"*, or *"noted for the next
 sweep"* is a named reason — a break-class residual carrying only one of those phrases is fixed,
 not filed.
+
+## Crash-recovery re-dispatch that ships code still owes the review gate
+
+Recovering a crashed executor by re-dispatching and verifying green (typecheck/test/build) is
+NOT workstream-complete on its own — the `code-reviewer` diff gate, the review-trail-equivalent
+record, and the completion entry are still owed once the recovered work ships code. Verify-green
+closes correctness; it does not discharge ceremony. A PM catch on exactly this shape — an EM
+treating a successful crash-recovery re-dispatch as "resolved" without routing the shipped diff
+through review — is the origin of this rule.
+
+## The commit that applies review findings needs its own review round
+
+A review round that returns clean does not make the *next* commit — the one that applies its own
+findings — exempt from review. That fix-applying commit is written fast, under the sense that
+review is already finished, by whichever agent (often the EM integrating directly) was never
+itself reviewed; the reviewed-diff frontier by construction sits behind it. On one close, a
+five-slice partitioned review returned OK/OK/OK/WARN/WARN with zero correctness defects; the EM
+integrated the findings and committed, then re-ran the coverage gate, which refused to close and
+demanded a re-freeze from the integration commit forward. That sixth round came back BLOCKED
+with a P0 — the integrator had written literal tool-call artifact text (`</content>`,
+`</invoke>`) into a new queue YAML, which the EM had then committed unparsed — plus a P2 where an
+inline review annotation had been inserted inside a pre-existing HTML comment block, closing it
+early.
+
+**Treat the gate's re-freeze demand as load-bearing, not ceremony friction.** The loop closes
+when a round finds nothing and therefore generates no further commit — a real terminating
+condition, not an infinite regress. The tell to watch for is reaching for a coverage-gate
+override immediately after an integration commit on the reasoning that "the findings were
+already reviewed" — that reviews the findings, not the commit that applied them.
+
+## `close-out-and-stamp` assumes one commit per chunk-id — verify substance directly when it disagrees
+
+`close-out-and-stamp` derives shipped-ness from commit *subjects*, looking for a `<chunk-id>:`
+prefix per chunk — a heuristic that silently assumes chunk-granular commits are always
+achievable. Two ordinary plan shapes break it without the underlying work being incomplete:
+
+1. **Single-file serial chains.** When several chunks all write one file — precisely the shape
+   the plan skill recommends running as a sequence of small dispatches rather than a fan-out —
+   they land in one commit. A background Workflow (the doctrinal default execution vehicle) gives
+   the EM no seam to commit between phases, since it runs detached and returns only at the end;
+   the vehicle doctrine and the stamping heuristic pull in opposite directions here.
+2. **Verification-only chunks.** A chunk typed `change_kind: verification` produces no diff by
+   construction — a shape the plan skill explicitly blesses — so it can never have a matching
+   commit and reads as permanently uncommitted.
+
+**Do not fabricate empty commits or pad subjects to satisfy the parser** — that launders a green
+signal out of a heuristic mismatch and destroys the recovery property the per-chunk-subject
+convention exists to provide. Instead: verify substance directly against the plan's own
+acceptance criteria and scoped tests, stamp `status: implemented` by hand, and record the commit
+mapping in the plan body — which chunks landed in which commit, and which produce no diff by
+design — so the next reader isn't left reconciling a "partial" report against genuinely shipped
+work. When a completeness gate disagrees with directly-verified substance, establish which one is
+actually measuring the property you care about before treating either as authoritative, and never
+resolve the disagreement by manufacturing the artifact the heuristic is looking for.
+
+This is the same tension named from the vehicle side: `execute-plan`'s background-Workflow
+default returns control to the EM only once every wave is done, so the natural commit is one
+combined commit per Workflow run — which the chunk-subject detector cannot read as any chunk
+shipping, and which also costs the crash-recovery triple's git-log leg its per-chunk signal.
+Choose the granularity before dispatch: per-wave sub-Workflows buy per-chunk commits and
+detector-visible shipping; a single combined Workflow buys speed and knowingly costs the
+detector.
+
+## Staged deletions plus an empty directory establish absence, never destruction
+
+A tracked directory that shows as thousands of staged deletions, with nothing at the path on
+disk, is not by itself evidence that data was destroyed — it is equally consistent with a
+deliberate move to an untracked location, where `git status` shows only the delete-half of the
+move and the add-half (into an ignored path) is invisible to it. From inside `git status` alone
+the two are indistinguishable, and jumping to the destruction reading has produced duplicate
+false escalations: one session read 2,843 staged deletions under `state/subagent-share/` and
+`state/review-trail/`, concluded fleet-wide data loss, and escalated to the PM recommending an
+immediate restore from HEAD — when the content had in fact been moved deliberately to
+`.coordinator-local/subagent-share/` and was fully intact, provenance stamps included. A peer
+session had made the identical inference and identical escalation roughly forty minutes earlier
+and had already been corrected; the PM received the same non-incident twice. The same pattern
+recurred within the hour on a different directory (3,301 staged deletions); checking the
+`.coordinator-local/` mirror first that time cost one `ls` and produced no escalation at all.
+
+**Before escalating a mass-deletion read as data loss, check whether the content moved to a
+known local/ignored mirror.** One `ls` against the obvious candidate location settles it far
+cheaper than an escalation the PM then has to re-diagnose.

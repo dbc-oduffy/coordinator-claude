@@ -1,6 +1,7 @@
 """Detector for OSS-payload LOCALITY defects — a private sibling-repo name
-(today: `claude-klabauter`, the doctrine-authoring engine with no OSS
-distribution of its own) appearing in a file that reaches the OSS
+(today: the engine repo, which has no OSS distribution of its own; the
+names themselves come from `SIBLING_REPO_NAMES`, never from this prose)
+appearing in a file that reaches the OSS
 `coordinator-claude` mirror, in a position that COSTS an OSS reader
 something rather than merely mentioning machinery that doesn't concern them.
 
@@ -293,7 +294,7 @@ def is_in_scope(path) -> bool:
     Deliberately LOCAL-only, same as `_oss_payload.is_payload_path` itself —
     a write-time guard built on this can only ever observe a write in THIS
     repo's working tree; the engine third of the payload (`bin`, `lib`,
-    resolved against `claude-klabauter`) is out of reach for a guard by
+    resolved against the engine repo) is out of reach for a guard by
     construction. `current_counts()` below reaches further, via
     `_oss_payload.payload_files()`, because a ratchet test (unlike a guard)
     is not scoped to "what did this one write touch"."""
@@ -326,6 +327,33 @@ WINDOWS_DRIVE_PATH = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z]:[\\/]")
 #: apostrophe) — a possessive in prose correctly yields the bare name, with
 #: the trailing apostrophe-s excluded.
 _IDENT_CHAR = re.compile(r"[A-Za-z0-9_.\-]")
+
+
+#: Windows SYSTEM roots — identical on every Windows machine, carrying no
+#: operator identity and no private-repo name. The defect class this module
+#: detects is a path that COSTS an OSS reader something; `<drive>:\Windows\System32\\
+#: OpenSSH\\ssh.exe` costs them nothing, it is the actionable guidance they came
+#: for. Flagging it pushed a remediator toward fencing the one part of a
+#: Windows-gotchas page an OSS Windows user needs.
+#:
+#: DELIBERATELY NARROW, and `<drive>:\Users\` is the reason: a user-profile path is
+#: where the operator's account name lives, which is the identity leak this
+#: module exists to catch, so it is NOT here and must never be added. Only
+#: machine-invariant system roots qualify.
+_WELL_KNOWN_SYSTEM_ROOT = re.compile(
+    r"(?:Windows|Program Files(?: \(x86\))?|ProgramData)(?=[\\/]|$)",
+    re.IGNORECASE,
+)
+
+
+def _is_well_known_system_root(line: str, match_end: int) -> bool:
+    """True when the drive-path match at `match_end` opens a Windows system
+    root rather than an operator- or repo-specific path.
+
+    Reads only the text IMMEDIATELY following the separator, so a drive-rooted
+    `/Windows/...` carves out while `/Users/<name>/...` and `/repo/...` still
+    flag."""
+    return bool(_WELL_KNOWN_SYSTEM_ROOT.match(line, match_end))
 
 
 def _token_span(line: str, start: int, end: int) -> tuple:
@@ -762,6 +790,44 @@ def _markdown_fence_lines(text: str) -> frozenset:
 # ---------------------------------------------------------------------------
 
 
+#: A fleet-only span opened or closed MID-LINE is stripped by the publish
+#: transform exactly as a whole-line one is, so an OSS reader never sees
+#: either. The line-oriented fence walk below can only recognize a marker
+#: that owns its whole line (`_structural_comment_body` matches
+#: `_HTML_COMMENT_LINE`), so an inline span would otherwise be scanned and
+#: flagged -- a false positive against this detector's own "does an OSS
+#: reader see it" test. Blanking the span's CONTENT while preserving every
+#: newline keeps `line_no` aligned with the caller's file and lets the
+#: existing whole-line walk run unchanged over what remains.
+_FLEET_ONLY_START_MARK = re.compile(r"<!--\s*coordinator:fleet-only:start\s*-->")
+_FLEET_ONLY_END_MARK = re.compile(r"<!--\s*coordinator:fleet-only:end\s*-->")
+
+
+def _blank_fleet_only_spans(text: str) -> str:
+    """`text` with every `coordinator:fleet-only` span's content replaced by
+    spaces, newlines preserved so line numbers do not shift.
+
+    Mirrors the publish-side strip rather than re-deciding what a fence is:
+    an unclosed start blanks to EOF, matching the unclosed-fence contract the
+    line walk already documents. NOT a general HTML-comment stripper -- only
+    this one marker pair, and only between a start and its next end."""
+    out = list(text)
+    pos = 0
+    while True:
+        start = _FLEET_ONLY_START_MARK.search(text, pos)
+        if start is None:
+            break
+        end = _FLEET_ONLY_END_MARK.search(text, start.end())
+        stop = end.end() if end else len(text)
+        for i in range(start.start(), stop):
+            if out[i] != "\n":
+                out[i] = " "
+        if end is None:
+            break
+        pos = end.end()
+    return "".join(out)
+
+
 def iter_violations(text: str, *, path=None, sibling_pattern=_SIBLING_NAME_TOKEN) -> list:
     """Every locality violation in `text`, in line order.
 
@@ -795,6 +861,12 @@ def iter_violations(text: str, *, path=None, sibling_pattern=_SIBLING_NAME_TOKEN
         except Exception:
             path_str = str(p)
 
+    # Blanking is markdown/prose-shaped: it must not disturb a Python file's
+    # `ast`/`tokenize` position lens, which parses the ORIGINAL source, so
+    # shifting bytes here would misalign every span that lens classifies.
+    if not is_python:
+        text = _blank_fleet_only_spans(text)
+
     attribution_lines = _python_attribution_lines(text) if is_python else None
     python_scan_disabled = is_python and attribution_lines is None
     literal_spans = _python_string_literal_spans(text) if is_python else None
@@ -824,6 +896,8 @@ def iter_violations(text: str, *, path=None, sibling_pattern=_SIBLING_NAME_TOKEN
             if is_python and _is_escaped_drive_path_match(
                 line, m.start(), m.end(), literal_spans.get(line_no) if literal_spans else None
             ):
+                continue
+            if _is_well_known_system_root(line, m.end()):
                 continue
             violations.append(
                 Violation(path_str, line_no, "drive-rooted windows path", _excerpt(line), fingerprint)
@@ -967,7 +1041,7 @@ def new_violations(before: str, after: str, *, path=None) -> list:
 def current_counts() -> dict:
     """repo-relative path -> violation count, over the FULL OSS payload
     (`_oss_payload.payload_files()`: local files resolved against this
-    clone, plus engine files resolved against the `claude-klabauter` checkout
+    clone, plus engine files resolved against the engine-repo checkout
     when it is resolvable). See module docstring's coverage-asymmetry note —
     this reaches further than `is_in_scope()`/a write-time guard ever could,
     because a ratchet test (unlike a guard) is not scoped to one write."""

@@ -7,7 +7,7 @@ means no repos discovered and the caller falls through to Tier C (an interactive
 prompt, not implemented here). This file is a thin DoE-side (contract) trampoline per
 DR-047 — the discovery logic itself is ported to coordinator_core/ops/discover_working_repos.py.
 """
-# Review: code-reviewer -- Finding 2 (2026-07-17 BIG_PORT Wave C sidecar): the
+# The
 # live caller is coordinator_core.install.first_run._seed_machine_local_registry
 # (reached via the `coordinator/scripts/first-run` trampoline), not the retired
 # bash oracle this comment used to cite.

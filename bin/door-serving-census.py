@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """door-serving-census.py — durable, operator-runnable CLI trampoline over
 `coordinator_core.install.door_serving_census`.
 

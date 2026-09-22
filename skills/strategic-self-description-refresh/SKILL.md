@@ -51,7 +51,7 @@ Write-capable on both the canonical and draft files. Observe:
   this session.** Only `provenance: generated` may carry forward from the draft unconfirmed, and
   only into a field the human hasn't overridden.
 - **NEVER delete or truncate `self-description.yaml`.** If absent, create fresh via Shape W
-  (`snippets/resolve-coordinator-bin.md`):
+  (`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
   `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.exe" --type strategic-self-description` —
   never treat a missing canonical file as license to bulk-write unreviewed content.
 - **The draft may be archived/cleared ONLY after its fields are reconciled into the canonical
@@ -108,9 +108,9 @@ the correct outcome is `blocked`, recorded, not a generated write.
 
 **Known residual: detection is coupled to ceremony execution.** A repo whose
 `/workweek-complete` does not run for three weeks gets zero nudges, and the drift is invisible
-locally — a consumer notices first. This is the mechanism behind the 2026-07-13..07-19
-fleet-wide simultaneous staleness. An elapsed-time surface that runs independently of the
-ceremony would close it; none is built.
+locally — a consumer notices first. Left unaddressed, this produces fleet-wide simultaneous
+staleness across every repo sharing that gap. An elapsed-time surface that runs independently of
+the ceremony would close it; none is built.
 
 ## Discovery-surface integration
 

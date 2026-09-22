@@ -265,100 +265,10 @@
         "matcher": "Bash|PowerShell",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook",
-            "timeout": 15,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}",
-              "X-Coordinator-Env-COORDINATOR_ALLOW_CAT_HEREDOC": "${COORDINATOR_ALLOW_CAT_HEREDOC}",
-              "X-Coordinator-Env-COORDINATOR_ALLOW_CD_PREFIX": "${COORDINATOR_ALLOW_CD_PREFIX}",
-              "X-Coordinator-Env-COORDINATOR_ALLOW_FIND_EXEC": "${COORDINATOR_ALLOW_FIND_EXEC}",
-              "X-Coordinator-Env-COORDINATOR_ALLOW_FIND_ROOT": "${COORDINATOR_ALLOW_FIND_ROOT}",
-              "X-Coordinator-Env-COORDINATOR_ALLOW_GIT_COMMIT_AMEND": "${COORDINATOR_ALLOW_GIT_COMMIT_AMEND}",
-              "X-Coordinator-Env-COORDINATOR_ALLOW_GIT_COMMIT_BARE": "${COORDINATOR_ALLOW_GIT_COMMIT_BARE}",
-              "X-Coordinator-Env-COORDINATOR_ALLOW_GREP_VIA_BASH": "${COORDINATOR_ALLOW_GREP_VIA_BASH}",
-              "X-Coordinator-Env-COORDINATOR_ALLOW_HEAD_TAIL_PLUMBING": "${COORDINATOR_ALLOW_HEAD_TAIL_PLUMBING}",
-              "X-Coordinator-Env-COORDINATOR_ALLOW_HEREDOC_REPO_WRITE": "${COORDINATOR_ALLOW_HEREDOC_REPO_WRITE}",
-              "X-Coordinator-Env-COORDINATOR_ALLOW_INVOKE_ARGV_PARAMS": "${COORDINATOR_ALLOW_INVOKE_ARGV_PARAMS}",
-              "X-Coordinator-Env-COORDINATOR_ALLOW_MULTIPROBE_BANNER": "${COORDINATOR_ALLOW_MULTIPROBE_BANNER}",
-              "X-Coordinator-Env-COORDINATOR_ALLOW_OPTIONAL_LOCKS": "${COORDINATOR_ALLOW_OPTIONAL_LOCKS}",
-              "X-Coordinator-Env-COORDINATOR_ALLOW_ORPHAN": "${COORDINATOR_ALLOW_ORPHAN}",
-              "X-Coordinator-Env-COORDINATOR_ALLOW_RM": "${COORDINATOR_ALLOW_RM}",
-              "X-Coordinator-Env-COORDINATOR_ALLOW_SED_RANGE": "${COORDINATOR_ALLOW_SED_RANGE}",
-              "X-Coordinator-Env-COORDINATOR_ALLOW_X": "${COORDINATOR_ALLOW_X}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_BLANKET_ADD": "${COORDINATOR_OVERRIDE_BLANKET_ADD}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_BRANCH": "${COORDINATOR_OVERRIDE_BRANCH}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_CLAUDEMD_BUDGET": "${COORDINATOR_OVERRIDE_CLAUDEMD_BUDGET}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_CLAUDE_MD_WRITE": "${COORDINATOR_OVERRIDE_CLAUDE_MD_WRITE}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_DEV_REPO_SENTINEL": "${COORDINATOR_OVERRIDE_DEV_REPO_SENTINEL}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_DISPATCH_SUITE_GUARD": "${COORDINATOR_OVERRIDE_DISPATCH_SUITE_GUARD}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_GIT_CLEAN": "${COORDINATOR_OVERRIDE_GIT_CLEAN}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_GIT_REVERT": "${COORDINATOR_OVERRIDE_GIT_REVERT}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_GREP_VIA_BASH_GUARD": "${COORDINATOR_OVERRIDE_GREP_VIA_BASH_GUARD}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_ILLEGAL_FILENAME": "${COORDINATOR_OVERRIDE_ILLEGAL_FILENAME}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_MULTIPROBE_BANNER": "${COORDINATOR_OVERRIDE_MULTIPROBE_BANNER}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_MULTIWAVE_WORKFLOW": "${COORDINATOR_OVERRIDE_MULTIWAVE_WORKFLOW}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_NO_VERIFY": "${COORDINATOR_OVERRIDE_NO_VERIFY}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_PATHSPEC_DIVERGENCE": "${COORDINATOR_OVERRIDE_PATHSPEC_DIVERGENCE}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_PHANTOM_STAGED_DELETION": "${COORDINATOR_OVERRIDE_PHANTOM_STAGED_DELETION}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_PLUMBING_AND_LOOPS": "${COORDINATOR_OVERRIDE_PLUMBING_AND_LOOPS}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_POWERSHELL_VIA_BASH_GUARD": "${COORDINATOR_OVERRIDE_POWERSHELL_VIA_BASH_GUARD}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_RAW_PID_LIVENESS": "${COORDINATOR_OVERRIDE_RAW_PID_LIVENESS}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_REGISTRATION_QUAD": "${COORDINATOR_OVERRIDE_REGISTRATION_QUAD}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_SUBAGENT_PLAN_BODY": "${COORDINATOR_OVERRIDE_SUBAGENT_PLAN_BODY}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_TEST_SUITE_INVOCATION": "${COORDINATOR_OVERRIDE_TEST_SUITE_INVOCATION}",
-              "X-Coordinator-Env-COORDINATOR_OVERRIDE_WORKFLOW_MODEL_GUARD": "${COORDINATOR_OVERRIDE_WORKFLOW_MODEL_GUARD}",
-              "X-Coordinator-Env-COORDINATOR_SCOPE_STRICT": "${COORDINATOR_SCOPE_STRICT}",
-              "X-Coordinator-Env-COORDINATOR_SCOPE_STRICT_OFF": "${COORDINATOR_SCOPE_STRICT_OFF}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME", "USERPROFILE",
-              "COORDINATOR_ALLOW_CAT_HEREDOC",
-              "COORDINATOR_ALLOW_CD_PREFIX",
-              "COORDINATOR_ALLOW_FIND_EXEC",
-              "COORDINATOR_ALLOW_FIND_ROOT",
-              "COORDINATOR_ALLOW_GIT_COMMIT_AMEND",
-              "COORDINATOR_ALLOW_GIT_COMMIT_BARE",
-              "COORDINATOR_ALLOW_GREP_VIA_BASH",
-              "COORDINATOR_ALLOW_HEAD_TAIL_PLUMBING",
-              "COORDINATOR_ALLOW_HEREDOC_REPO_WRITE",
-              "COORDINATOR_ALLOW_INVOKE_ARGV_PARAMS",
-              "COORDINATOR_ALLOW_MULTIPROBE_BANNER",
-              "COORDINATOR_ALLOW_OPTIONAL_LOCKS",
-              "COORDINATOR_ALLOW_ORPHAN",
-              "COORDINATOR_ALLOW_RM",
-              "COORDINATOR_ALLOW_SED_RANGE",
-              "COORDINATOR_ALLOW_X",
-              "COORDINATOR_OVERRIDE_BLANKET_ADD",
-              "COORDINATOR_OVERRIDE_BRANCH",
-              "COORDINATOR_OVERRIDE_CLAUDEMD_BUDGET",
-              "COORDINATOR_OVERRIDE_CLAUDE_MD_WRITE",
-              "COORDINATOR_OVERRIDE_DEV_REPO_SENTINEL",
-              "COORDINATOR_OVERRIDE_DISPATCH_SUITE_GUARD",
-              "COORDINATOR_OVERRIDE_GIT_CLEAN",
-              "COORDINATOR_OVERRIDE_GIT_REVERT",
-              "COORDINATOR_OVERRIDE_GREP_VIA_BASH_GUARD",
-              "COORDINATOR_OVERRIDE_ILLEGAL_FILENAME",
-              "COORDINATOR_OVERRIDE_MULTIPROBE_BANNER",
-              "COORDINATOR_OVERRIDE_MULTIWAVE_WORKFLOW",
-              "COORDINATOR_OVERRIDE_NO_VERIFY",
-              "COORDINATOR_OVERRIDE_PATHSPEC_DIVERGENCE",
-              "COORDINATOR_OVERRIDE_PHANTOM_STAGED_DELETION",
-              "COORDINATOR_OVERRIDE_PLUMBING_AND_LOOPS",
-              "COORDINATOR_OVERRIDE_POWERSHELL_VIA_BASH_GUARD",
-              "COORDINATOR_OVERRIDE_RAW_PID_LIVENESS",
-              "COORDINATOR_OVERRIDE_REGISTRATION_QUAD",
-              "COORDINATOR_OVERRIDE_SUBAGENT_PLAN_BODY",
-              "COORDINATOR_OVERRIDE_TEST_SUITE_INVOCATION",
-              "COORDINATOR_OVERRIDE_WORKFLOW_MODEL_GUARD",
-              "COORDINATOR_SCOPE_STRICT",
-              "COORDINATOR_SCOPE_STRICT_OFF"
-            ]
+            "type": "command",
+            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" hooks.preuse_bash_dispatch",
+            "shell": "bash",
+            "timeout": 15
           }
         ]
       },
@@ -374,6 +284,23 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-agent-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 18,
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-named-agent-report-delivery.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -689,6 +616,63 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/context-pressure-precompact.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "_comment": "Register entry #17. Fires only for a hard tool failure carrying a top-level `error` key (confirmed: Bash non-zero exit, Read on a missing path). Narrowed in-script to Bash exit-127 commands naming cross-repo-memo; every other failure passes through silently.",
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postusefailure-cross-repo-memo-remediate.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      }
+    ],
+    "CwdChanged": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "_comment": "Register entry #15. Fires on every OSS install regardless of whether claude-klabauter resolves in the sibling registry: _resolve_live_working_tree() returns (None, provenance) with no repos.claude_klabauter rung, and the script exits 0 having emitted nothing on that arm. CwdChanged carries no matcher enforcement; all narrowing happens in-script against old_cwd/new_cwd.",
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-cross-repo-cwd-boundary.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      }
+    ],
+    "ConfigChange": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "_comment": "Register entry #21. C1's probe (docs/research/spike-verdicts/2026-09-11-configchange-trigger-scope-and-block-path.md) verdict: BUILD -- out-of-band settings.local.json edits and disableAllHooks:true flips FIRE (source local_settings); a plugin hooks/hooks.json edit does not; decision:block is emitted-and-ignored on this event. Fires and flags via additionalContext only, scoped to source==local_settings; never sets decision:block. ConfigChange carries no matcher enforcement either, so narrowing happens in-script against the payload.",
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-config-change-hookstack-selfdefence.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }

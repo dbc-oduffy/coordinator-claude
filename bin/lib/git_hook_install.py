@@ -294,7 +294,7 @@ def _resolve_coord_bin(bin_dir: str, script_name: str) -> str:
             unconditional backstop, no isfile probe (matches prior behavior;
             this is the last resort, not a candidate to skip past).
 
-    RUNG 4 EXISTS BECAUSE RUNGS 1-3 ALL NAME AUTHORING TREES. `claude-klabauter`
+    RUNG 4 EXISTS BECAUSE RUNGS 1-3 ALL NAME AUTHORING TREES. This repo
     is where the executable surface is *authored*; the published
     `claude-klabauter` mirror is the resolved engine root on every box, and in
     an ephemeral container it is the ONLY one of the four present — there is no
@@ -311,13 +311,12 @@ def _resolve_coord_bin(bin_dir: str, script_name: str) -> str:
     form of this failure. That repair hook cannot cover this case: it repairs a
     shim that exists, and here none was ever installed.
 
-    DR-326 axis note. DR-326 splits "where is the claude-klabauter repo?" (the
+    DR-326 axis note. DR-326 splits "where is the engine repo?" (the
     LOCATOR axis, deliberately live-tree-only — `resolve_claude_klabauter_bin_dir()`
     is the function that answers it and correctly stays un-flipped) from
     "which engine should execute?" (the DISPATCH axis, which DR-326 rules
-    defaults to the published engine: "the fleet runs off the warm engine
-    in klabauter. I don't want 'the engine' to resolve via claude-klabauter" — PM,
-    2026-08-19). Rung 4 answers the DISPATCH question — which coordinator
+    defaults to the published engine mirror rather than the authoring tree
+    — PM, 2026-08-19). Rung 4 answers the DISPATCH question — which coordinator
     executable a hook execs — and writes nothing into the resolved tree, so
     it takes DR-326's published-mirror-default rather than deviating from
     it; it is not the locator DR-326 keeps un-flipped, and no ratification
@@ -423,7 +422,7 @@ def _resolve_klabauter_bin_sh(script_name: str) -> Optional[str]:
     for baking a klabauter-bin candidate into the shell fallback chain —
     the mirror twin of `_resolve_claude_klabauter_bin_sh` above, added by code-review
     finding F4: the emitted hook's own runtime `[ -f ... ]` probe chain had
-    a claude-klabauter candidate but no mirror candidate, so a hook baked on this
+    an authoring-tree candidate but no mirror candidate, so a hook baked on this
     rung's own ephemeral-container premise (rung 4 answering because there
     IS no authoring tree) would still stale-out with no self-heal candidate
     to fall back to if the baked absolute path later went stale.
@@ -793,13 +792,14 @@ def _shim_body(
         # `baton-assemble apply`.
         # Pure parameter expansion, never `cygpath` in a subshell: this runs on
         # every commit, and a spawn here is a DR-344 cost the hook must not pay.
-        # /c/Users/... -> c:/Users/... ; the MSYS single-letter drive form is the
-        # only shape $HOME or $COORDINATOR_SETTINGS_HOME ever takes here.
-        # LOWERCASE `c:` -- this line read "-> C:/Users/..." until 2026-08-31
-        # and was wrong. The expansion relocates the drive letter, it does not
-        # upcase it. Harmless (Windows drive letters are case-insensitive, so
-        # the native python.exe resolves either), but corrected because a
-        # reader who trusts the wording writes a test asserting `C:` and
+        # `/<drive>/Users/...` -> `<drive>:/Users/...` ; the MSYS single-letter
+        # drive form is the only shape $HOME or $COORDINATOR_SETTINGS_HOME ever
+        # takes here. The relocated drive letter stays LOWERCASE -- this line
+        # spelled it uppercase until 2026-08-31 and was wrong. The expansion
+        # relocates the drive letter, it does not upcase it. Harmless (Windows
+        # drive letters are case-insensitive, so the native python.exe resolves
+        # either), but corrected because a reader who trusts the wording writes
+        # a test asserting an uppercase drive letter and
         # watches it fail against a fix that works -- which is exactly what
         # happened while `test_append_block_msys_normalisation_actually_
         # transforms_the_path` was being written.
@@ -1335,7 +1335,7 @@ def _ensure_hook(
 # cannot work. Reported from example-cockpit-repo 2026-09-01. The forwarder half
 # is retired by `install.substrate._KILLED_OP_ORPHAN_NAMES` (see that set's
 # own note); the 13 installed hook bodies are UNFIXED here — they are each
-# repo's own local `.git/` state, not claude-klabauter's, and rewriting a peer's hooks
+# repo's own local `.git/` state, not this repo's, and rewriting a peer's hooks
 # mid-commit on a box running ~50 concurrent sessions is not a change this
 # module may make unasked. Do not re-derive "the horizon is zero" from this
 # gravestone: measure the fleet first.

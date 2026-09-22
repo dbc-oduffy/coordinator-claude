@@ -78,7 +78,7 @@ sibling-repo edit (skills are discovery-resolved surfaces owned by that
 repo, out of scope here) -- this chunk ships the runnable and its contract
 only.
 """
-# Review: coordinatorcode-reviewer-eb287fb6 — `from __future__ import
+# `from __future__ import
 # annotations` was placed before this docstring, demoting the string to a
 # dead expression statement that never became `__doc__`. Moved below the
 # docstring so it registers.
@@ -267,7 +267,7 @@ def _run(liveness_mod, peer_roster_mod, machine_resolver_mod) -> int:
     # only when it is the sole name for that path, so the operator-facing
     # report shows a real registered repo name over the placeholder
     # whenever one exists.
-    # Review: coordinatorcode-reviewer-eb287fb6 -- sorting "_this_repo"
+    # Sorting "_this_repo"
     # (leading '_') ahead of lowercase alias names displaced a real
     # registry alias in the report; fixed to prefer real aliases.
     groups: "dict[str, list[str]]" = {}

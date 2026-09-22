@@ -42,7 +42,7 @@ item 4).
   infer compaction happened from a byte-size sentinel written pre-compaction rather than
   confirming completion via `PostCompact`. Genuine gap, not a documentation curiosity.
 - **Token counting**: `POST /v1/messages/count_tokens` is free, rate-limited only. Already
-  adopted (`claude-klabauter`, per the claude5-alignment plan's C1) — nothing
+  adopted (the engine repo, per the claude5-alignment plan's C1) — nothing
   further to mine here.
 - **Coordinator takeaway:** our context-pressure hooks (`postuse_advisory_dispatch.py`, the
   sidecar read) are not a redundant layer on top of a native mechanism we could instead

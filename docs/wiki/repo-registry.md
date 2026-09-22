@@ -40,7 +40,7 @@ The repo registry (`$(python3 <claude-klabauter>/coordinator/lib/coordinator-sta
 
 **`publish_wiki` — not a tracked/consumed field.** The registry does not carry (and `prior-art-checker` does not read) a `publish_wiki` field. It is not merely undocumented — the engine may drop it from the data file entirely (alongside `path`/`working_wiki`); this schema does not name it as a consumer surface. Its two prior jobs are handled elsewhere: (1) the coordinator doctrine wiki is reached as an always-on corpus resolved by construction via `${CLAUDE_PLUGIN_ROOT}/docs/wiki` (plugin-root), not via any registry field; (2) the `claude-central`/`coordinator-claude` registry entries are not doctrine-wiki *pointers* for that purpose (plugin-root supersedes them) — the entries themselves may still exist as ordinary peers, carrying no doctrine-wiki-pointer role.
 
-**On-disk path is resolver-derived, not a tracked field.** The registry carries no `path:` key — a hardcoded absolute path is machine-specific and breaks cross-machine portability. Instead, obtain a repo's on-disk path at consumption time via claude-klabauter `coordinator/bin/resolve-repo-path.py <shortname>`, which maps the shortname to the machine-local `[repos]` registry key (via `s/-/_/g` normalization, e.g. `project-rag-ue-addon` → `repos.project_rag_ue_addon`) and emits the resolved path on stdout. Pass `--wiki` to get `<path>/docs/wiki` directly (or `<path>/<docs_wiki>` when the entry carries a relative `docs_wiki` override — see schema above). The resolver is FAIL-LOUD-SKIP on an unregistered shortname (empty stdout, exit 0) — never a silent mis-resolution. An unregistered or unreachable repo is **skipped and reported**; there is no cross-machine path fallback (the earlier `publish_wiki`-fallback narrative is retired — see above). The coordinator doctrine wiki avoids this failure mode entirely by resolving via plugin-root rather than through this registry at all.
+**On-disk path is resolver-derived, not a tracked field.** The registry carries no `path:` key — a hardcoded absolute path is machine-specific and breaks cross-machine portability. Instead, obtain a repo's on-disk path at consumption time via the engine repo `coordinator/bin/resolve-repo-path.py <shortname>`, which maps the shortname to the machine-local `[repos]` registry key (via `s/-/_/g` normalization, e.g. `project-rag-ue-addon` → `repos.project_rag_ue_addon`) and emits the resolved path on stdout. Pass `--wiki` to get `<path>/docs/wiki` directly (or `<path>/<docs_wiki>` when the entry carries a relative `docs_wiki` override — see schema above). The resolver is FAIL-LOUD-SKIP on an unregistered shortname (empty stdout, exit 0) — never a silent mis-resolution. An unregistered or unreachable repo is **skipped and reported**; there is no cross-machine path fallback (the earlier `publish_wiki`-fallback narrative is retired — see above). The coordinator doctrine wiki avoids this failure mode entirely by resolving via plugin-root rather than through this registry at all.
 
 ## Closed enums
 
@@ -90,7 +90,7 @@ Silent additions in the state-side repo registry without a wiki update are doctr
 
 Runs only when `pwd` resolves to `~/.claude`. Skipped by the `/update-docs` doc-maintenance Sonnet agent (EM-only, same pattern as Phase 13 distillation check).
 
-1. Decode `~/.claude/projects/` dir names via claude-klabauter `coordinator/bin/decode-claude-projects-dir.py` to candidate paths.
+1. Decode `~/.claude/projects/` dir names via the engine repo `coordinator/bin/decode-claude-projects-dir.py` to candidate paths.
 2. Diff against the active registry block. New paths → append to `<!-- BEGIN repo-registry-candidates -->` block with `status: needs-pm-review`.
 3. For each existing entry: `ls <path>` to verify on-disk. Update `last_verified` if reachable; flip to `status: unreachable` otherwise (don't auto-delete).
 4. End-of-phase output: "Registry has N new candidates. Edit `$(python3 <claude-klabauter>/coordinator/lib/coordinator-state-root.py --central)/repo-registry.md` (claude-klabauter-resident — see `docs/wiki/state-placement-law.md`) to promote."
@@ -171,7 +171,7 @@ for shortname in $(awk '/<!-- BEGIN repo-registry -->/,/<!-- END repo-registry -
 done
 ```
 
-This yields a per-repo markdown list of roadmap-tagged completion records from the last 7 days. The loop reads each entry's `shortname` from the sentinel-bounded registry block and resolves its on-disk path via claude-klabauter `coordinator/bin/resolve-repo-path.py` (machine-local `[repos]`-derived) — there is no `path:` field to grep. An unregistered shortname resolves to empty stdout and is skipped by the guard. Adjust `--since` and `--where` to taste (e.g., `nature=shipped` for cross-repo release summaries).
+This yields a per-repo markdown list of roadmap-tagged completion records from the last 7 days. The loop reads each entry's `shortname` from the sentinel-bounded registry block and resolves its on-disk path via the engine repo `coordinator/bin/resolve-repo-path.py` (machine-local `[repos]`-derived) — there is no `path:` field to grep. An unregistered shortname resolves to empty stdout and is skipped by the guard. Adjust `--since` and `--where` to taste (e.g., `nature=shipped` for cross-repo release summaries).
 
 ### Schema mismatch warning — do NOT use yq
 
@@ -188,7 +188,7 @@ The sentinel-bounded `awk` pattern above is the canonical extraction method. It 
 ## Related
 
 - `$(python3 <claude-klabauter>/coordinator/lib/coordinator-state-root.py --central)/repo-registry.md` (claude-klabauter-resident — see `docs/wiki/state-placement-law.md`) — the registry file itself
-- claude-klabauter `coordinator/bin/decode-claude-projects-dir.py` — projects-dir decoder used by Phase 15 (bundled with the coordinator plugin)
+- the engine repo `coordinator/bin/decode-claude-projects-dir.py` — projects-dir decoder used by Phase 15 (bundled with the coordinator plugin)
 - `~/.claude/plugins/coordinator/agents/prior-art-checker.md` — peer_repos consumer
 - `~/.claude/plugins/coordinator/commands/update-docs.md` — Phase 15 host
 - `~/.claude/plugins/coordinator/snippets/em-operating-doctrine.md` — EM

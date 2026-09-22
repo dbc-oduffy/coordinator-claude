@@ -39,7 +39,7 @@ from typing import NamedTuple
 #: value does not prematurely terminate the outer expansion (the shape
 #: `resolve-coordinator-bin.md` itself documents:
 #: `${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}`).
-_EXPANSION_OPEN_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*:-")
+_EXPANSION_OPEN_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*):-")
 
 #: A forwarder invocation suffix: `/bin/<cli-name>`. Matched in the text
 #: immediately following the expansion's closing brace, within
@@ -56,28 +56,70 @@ _BIN_CLI_RE = re.compile(r"/bin/([A-Za-z0-9_.-]+)")
 _TRAILING_WINDOW = 200
 
 #: A Shape W invocation: the PowerShell call operator (`&`) applied to a
-#: quoted path ending `\bin\<cli>.cmd` -- `resolve-coordinator-bin.md` rung
-#: 0's own documented form, e.g.
-#: `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.cmd" ...`.
+#: quoted path ending `\bin\<cli>.exe` or `\bin\<cli>.cmd` --
+#: `resolve-coordinator-bin.md` rung 0's own documented form, e.g.
+#: `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.exe" ...`.
+#: BOTH extensions, because rung 0 rules that `.exe` is the spelling for
+#: every settings-home CLI and `.cmd` belongs to exactly six pre-engine
+#: bootstrap resolvers (`claude-home`, `coordinator-settings-home`,
+#: `example-game-repo-control`, `machine-local`, `platform-localize`,
+#: `resolve-coordinator-clone`). Matching `.cmd` alone makes every
+#: correctly-authored `.exe` sibling invisible to the pairing check below,
+#: so a doc that shows both forms side by side reports its POSIX line as
+#: unaccompanied -- the false positive this predicate exists to avoid.
 #: The path prefix before `\bin\` varies (`$env:COORDINATOR_SETTINGS_HOME`,
-#: `$HOME\.coordinator-claude-settings`, ...) so only the `\bin\<cli>.cmd`
+#: `$HOME\.coordinator-claude-settings`, ...) so only the `\bin\<cli>.<ext>`
 #: suffix inside the quotes is pinned; `<cli>` is captured so a same-CLI
 #: pairing (see `_has_nearby_shape_w_sibling`) can be checked structurally,
 #: never by matching prose like "PowerShell hosts use Shape W".
-_SHAPE_W_RE = re.compile(r'&\s*"[^"\n]*\\bin\\([A-Za-z0-9_.-]+?)\.cmd"')
+_SHAPE_W_RE = re.compile(r'&\s*"[^"\n]*\\bin\\([A-Za-z0-9_.-]+?)\.(?:exe|cmd)"')
 
 #: Line-distance window a POSIX invocation is allowed to pair with a
 #: same-CLI Shape W sibling before the POSIX hit is treated as unaccompanied
-#: (a true violation). `coordinator/commands/install.md`'s 21 correctly-
-#: paired invocations sit 5-6 lines from their Shape W sibling (the POSIX
-#: form under a ```bash fence, then a "PowerShell host (rung 0):" line, then
-#: the Shape W form) -- 8 lines clears that with margin. `skills/percolate/
-#: SKILL.md` states Shape W once in prose ("every CLI below takes its `.cmd`
-#: sibling...") 12 lines above its `percolate-round` POSIX invocation, and
-#: relies on a "per the note above" cross-reference rather than a structural
-#: sibling for either of its two POSIX invocations -- 8 lines does not reach
-#: that 12-line gap, so both stay flagged as the true positives they are.
-_SIBLING_LINE_WINDOW = 8
+#: (a true violation). `coordinator/commands/install.md`'s correctly-paired
+#: invocations sit 5-6 lines from their Shape W sibling (the POSIX form
+#: under a ```bash fence, then a "PowerShell host (rung 0):" line, then the
+#: Shape W form). `skills/percolate/SKILL.md` carries a STRUCTURAL same-CLI
+#: sibling (`& "$env:COORDINATOR_SETTINGS_HOME\bin\machine-local.cmd"`) 13
+#: lines below its POSIX fence -- the gap is the load-bearing `_py`
+#: resolution paragraph that must sit between the two fences, not slack.
+#: The window has to clear a correct doc's own prose, or it fails the
+#: authors who followed the ladder; 16 keeps a same-CLI pair adjacent-ish
+#: without letting one Shape W block excuse an invocation in a different
+#: section. Pairing is same-CLI (`_has_nearby_shape_w_sibling`), so a wider
+#: window never lets one CLI's block launder another CLI's POSIX line.
+#: KNOWN LIMIT, accepted not overlooked: pairing is by CLI name over flat
+#: text, so a Shape W block CAN excuse a genuinely unaccompanied hit of the
+#: SAME CLI in an unrelated section within the window. Untriggered by any
+#: doctrine file today, and section-scoping would need this predicate to
+#: model document structure, which § Deliberately narrow rules out. Pinned
+#: by `test_posix_invocation_predicate_same_cli_sibling_window_stays_scoped`.
+#: Measured, not assumed: with the `.exe`/`.cmd` alternation and the
+#: `CLAUDE_PLUGIN_ROOT` carve-out both landed, reverting this constant to 8
+#: alone reintroduces exactly one failure --
+#: `test_no_posix_only_coordinator_cli_invocation_in_doctrine` flags
+#: `coordinator/skills/percolate/SKILL.md:52` as unaccompanied. Neither of
+#: the other two fixes touches that site, so the widening is load-bearing
+#: for it specifically, not redundant with them.
+_SIBLING_LINE_WINDOW = 16
+
+#: The plugin-local no-launcher rung is POSIX-only BY RULING, so it can
+#: never have a Shape W sibling to pair with. `resolve-coordinator-bin.md`
+#: § "Plugin-local `coordinator/bin/` -- the doctrine-repo set" prescribes
+#: `"$_py" "${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}/bin/<cli>.py"`
+#: verbatim and says "Keep the guarded `:-` form" -- the launcher set walks
+#: the ENGINE's bin, so a doctrine-repo-only script gets no launcher on any
+#: host and there is no `.exe`/`.cmd` for a Shape W line to name. Flagging
+#: it would demand a repair that doctrine forbids and the platform cannot
+#: supply. Recognised structurally: a `CLAUDE_PLUGIN_ROOT` expansion whose
+#: forwarder basename ends `.py`, AND the literal `coordinator/bin/` path
+#: segment (optionally closed by the expansion's own trailing `}`, as in
+#: the prescribed form above) sits immediately before the `/bin/<cli>.py`
+#: match -- var-name + extension ALONE is not sufficient, since neither
+#: constrains the path: `${CLAUDE_PLUGIN_ROOT:-x}/some/other/bin/foo.py`
+#: is a real, plausible plugin-relative `.py` invocation outside the
+#: sanctioned rung and must NOT be silently exempted.
+_NO_LAUNCHER_VAR = "CLAUDE_PLUGIN_ROOT"
 
 
 class PosixInvocationHit(NamedTuple):
@@ -173,7 +215,11 @@ def find_posix_forwarder_invocations(text: str) -> "list[PosixInvocationHit]":
     zero hits). A prose cross-reference ("PowerShell hosts use Shape W per
     the note above") does NOT satisfy this -- only a structural, same-CLI
     Shape W invocation within the window does; see
-    `_has_nearby_shape_w_sibling`."""
+    `_has_nearby_shape_w_sibling`.
+
+    RUNG-AWARE: the plugin-local `coordinator/bin/<cli>.py` rung is excluded
+    outright -- see `_NO_LAUNCHER_VAR` for why it can carry no Shape W
+    sibling."""
     shape_w_lines = _shape_w_lines_by_cli(text)
     raw: "list[PosixInvocationHit]" = []
     for m in _EXPANSION_OPEN_RE.finditer(text):
@@ -187,6 +233,19 @@ def find_posix_forwarder_invocations(text: str) -> "list[PosixInvocationHit]":
         if bin_match is None:
             continue
         cli = bin_match.group(1)
+        if m.group(1) == _NO_LAUNCHER_VAR and cli.endswith(".py"):
+            # Require the literal `coordinator/bin/` segment immediately
+            # before this match -- var-name + `.py` alone does not narrow
+            # to the doctrine-repo rung (Review: coordinator-code-reviewer
+            # -- var-name+extension carve-out silently exempted a `.py`
+            # forwarder under ANY plugin-relative `bin/` path, not just
+            # `coordinator/bin/`). The prescribed form's own closing `}`
+            # sits between `coordinator` and `/bin/`, so strip at most one.
+            prefix = text[: bin_match.start()]
+            if prefix.endswith("}"):
+                prefix = prefix[:-1]
+            if prefix.endswith("coordinator"):
+                continue  # sanctioned plugin-local rung -- see _NO_LAUNCHER_VAR
         if _has_nearby_shape_w_sibling(_line_of(text, m.start()), cli, shape_w_lines):
             continue
         end = bin_match.end()

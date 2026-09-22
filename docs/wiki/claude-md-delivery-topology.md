@@ -14,8 +14,8 @@
 | Surface | Reaches | When | Publishes OSS? |
 |---|---|---|---|
 | `~/.claude/CLAUDE.md` | **Every session in the fleet, and every dispatched subagent** except built-in `Explore`/`Plan` | At boot, and again after every compaction | No — it is personal |
-| repo-root `CLAUDE.md` (e.g. `DoE-claude/CLAUDE.md`) | Sessions whose cwd is that repo, **and their subagents** | At boot | No |
-| `coordinator/CLAUDE.md` | **Only DoE-claude sessions, and only after something Reads a file under `coordinator/`** | Lazily, not at boot | **No — absent from the publish allowlist** |
+| repo-root `CLAUDE.md` (e.g. the doctrine repo's own `CLAUDE.md`) | Sessions whose cwd is that repo, **and their subagents** | At boot | No |
+| `coordinator/CLAUDE.md` | **Only sessions in the doctrine repo, and only after something Reads a file under `coordinator/`** | Lazily, not at boot | **No — absent from the publish allowlist** |
 | `coordinator/templates/CLAUDE.md.tmpl`, `templates/postures/*.md` | **Nobody at runtime.** Percolation artifacts for external consumers | n/a | **Yes** — this is the distribution doctrine |
 
 > **The meta-repo local-doctrine file this table used to list as a row (`CLAUDE.local.md`) no
@@ -26,6 +26,18 @@
 > personal layer, it was never a real per-agent doctrine multiplier. Do not cite it as a current
 > surface.
 
+## Placing doctrine means knowing the surface's load-trigger first
+
+The retired `CLAUDE.local.md` surface (see the note above) is the concrete case of a more general
+rule worth stating on its own: before placing posture, relationship, or cross-repo doctrine in any
+config surface, know that surface's actual load-trigger, not its name or its apparent scope.
+Cross-repo posture doctrine belongs in the globally-loaded `~/.claude/CLAUDE.md` @import surface —
+the one surface confirmed to reach every session and every dispatched subagent — never in a
+surface like the retired `CLAUDE.local.md`, which loaded only when a session's cwd was `~/.claude`
+itself. A file that *sounds* like a natural home for relational or cross-repo doctrine (by name,
+by directory, by "this is where config like this goes") is not evidence it is actually read at the
+right scope; check the load-trigger before trusting the placement.
+
 ## The myth, and why it was sticky
 
 The claim — stated in this repo's own `CLAUDE.md`, `claude-md-surfaces.md`, and
@@ -35,13 +47,13 @@ plugin project-instructions"* / *"fleet-wide via `--plugin-dir`"*.
 **It is false.** Delivery is ordinary **nested-CLAUDE.md lazy loading**: `coordinator/` is a child
 directory of the repo root, and Claude Code loads a child-directory `CLAUDE.md` only when it reads
 a file in that directory. Established by five parallel probes plus a live cross-repo verification
-from a `claude-klabauter` session with the plugin confirmed loaded — a verbatim-recall probe for a
+from a sibling-repo session with the plugin confirmed loaded — a verbatim-recall probe for a
 string unique to `coordinator/CLAUDE.md` returned NOT-PRESENT.
 
 Three consequences, in severity order:
 
 1. **No sibling-repo session has ever received coordinator doctrine.**
-2. **Even in DoE-claude it is absent at boot**, arriving only after an incidental `coordinator/` Read.
+2. **Even in the doctrine repo it is absent at boot**, arriving only after an incidental `coordinator/` Read.
 3. **Nested CLAUDE.md does not survive `/compact`** the way a project-root file does.
 
 ### Why it survived so long
@@ -53,7 +65,7 @@ Three consequences, in severity order:
   question produced a confabulated "yes" from both. **What separated them was a verbatim-quote
   discriminator**: asking an agent to *recite a unique string* from the file, rather than asking
   whether it had the file. Use that shape when probing what is in a context window.
-- **It was never falsifiable from inside DoE-claude.** Here, a `coordinator/` Read happens early
+- **It was never falsifiable from inside the doctrine repo.** Here, a `coordinator/` Read happens early
   and often, so the file *is* usually present by the time anyone looks — the failure is only
   visible from a sibling repo, or at boot before the first Read.
 
@@ -162,7 +174,7 @@ explicitly excluded from `skillOverrides`, so that lever does not reach coordina
 
 Do not ask an agent whether it has a file — it will confabulate. **Ask it to recite a string unique
 to that file.** To test the boot-vs-lazy distinction, probe before anything has read the directory
-in question. To test fleet reach, probe from a *sibling repo* session, not from DoE-claude.
+in question. To test fleet reach, probe from a *sibling repo* session, not from the doctrine repo.
 
 ## See also
 

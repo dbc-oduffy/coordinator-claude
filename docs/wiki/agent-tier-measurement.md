@@ -87,6 +87,46 @@ Each of these fails silently. None of them errors.
   order-dependent flakes, so a failure that appears only in a batch run may be collection order
   rather than your edit.
 
+## A number without its instrument gets acted on as if it were the other instrument
+
+The prior section catalogues instrument defects in a scoring harness. The same failure recurs, at
+higher cost, in performance and cost measurement generally: a number is correct when measured and
+wrong when used, because what it measured got dropped on the way to the decision. Six instances in
+one day of cost work, none an arithmetic error:
+
+- **An xtrace inter-line delta read as a cost attribution** — a figure the audit's own text called
+  "could not be re-measured standalone" got promoted into a ruling anyway. Directly re-measured, it
+  was off by roughly 20x from the audit's number.
+- **Wall clock published as if it were cost.** The same change's wall-clock figure and its
+  process-time figure differ by roughly 2x on their own, and a re-run during a load spike gave a
+  figure over 6x the first wall-clock reading for the *same* work. Load does not scale a system
+  uniformly, and assuming it does — even implicitly, by quoting one ratio as "the same ratio,
+  absolutes inflated Nx" — is this same failure one level up.
+- **A timeout ceiling recorded as if it were a duration.** Several ops in a suspension table sat
+  within ~1ms of each other, all near a round dispatch-timeout value — not three measurements, but
+  the dispatcher's own timeout constant written down as if it were a measured cost. Such a row is
+  unfalsifiable: an op cannot prove it beats the ceiling when the ceiling is only where the
+  dispatcher gave up.
+- **Selection on `max` punishing an op for being called often.** An op with a low, tight p50 across
+  thousands of calls got suspended on a single outlier hundreds of times its typical cost. Under a
+  max criterion, the more often an op runs the more certain it is to eventually catch one contention
+  spike — so high-frequency ops are selected against by their own sample count, and some suspensions
+  in the same table rested on a sample size of one.
+
+**What to do instead.** Attach the instrument to the number, every time, in the same sentence — "X
+wall clock, on a box under load" is a fact; "X" alone is not. On a contended box, prefer the
+**minimum** of many runs over any percentile: the minimum approximates the unloaded cost, and a
+median measures the box, not the work. A measurement names the artifact version it measured, or says
+which build it was — re-verify rather than reusing a stale number for a since-changed artifact. A
+timed-out sample is not a slow sample; record it as a timeout, in a field separate from real
+durations, or the table cannot later tell you which of its own rows are trustworthy. Separate a
+machine **defect** (a misconfigured scanner, an uncleared antivirus exclusion) from machine
+**load** (peer contention) — they decay differently: load is permanent and belongs in the number,
+a defect gets fixed and every measurement taken under it is contaminated and outlives the fix
+(observed on one box: minimum/median/max collapsed roughly 6x on the tail alone after clearing a
+scanner exclusion, while medians barely moved) — freezing a fleet's cost roster against a defect
+that no longer exists is the ratchet this splits apart.
+
 ## What the method found
 
 Reported so the numbers are usable, not to be taken on faith — reproduce them rather than cite them.

@@ -3,14 +3,14 @@
 > A **computed skill** is a fourth-generation coordinator skill: instead of a prose
 > decision-tree the EM walks by hand (the super-skill shape) or a prose tree plus
 > extracted one-liner helpers the EM still sequences (the ASIC shape), a single
-> read-only claude-klabauter CLI computes the whole routing over disk/git/frontmatter state and
+> read-only engine CLI computes the whole routing over disk/git/frontmatter state and
 > returns it as one JSON decision object. The EM's job collapses to resolving the
 > judgment residue the object surfaces — it stops re-deriving mechanical branches by
 > hand on every invocation. This wiki is the CONTRACT the assembler CLI is built
 > against: the decision-object schema, the invocation protocol, the exit-code
 > semantics, and the classification of `pickup`'s branch inventory that the contract
 > must compute versus surface as judgment. The implementation (`pickup-assemble` in
-> `claude-klabauter`) is built to this document, not the other way around.
+> the engine repo) is built to this document, not the other way around.
 >
 > **Read `docs/wiki/invisible-doctrine.md` first.** This page is the CONTRACT — the schema,
 > the protocol, the classification. That page is the AMBITION the contract exists to serve,
@@ -32,7 +32,7 @@
 | Narrative skill | prose principles | absorb and apply |
 | Decision-tree super-skill | a prose tree in `SKILL.md` | walk the tree |
 | ASIC helper-extraction | prose tree + extracted `bin/wsc-*` helpers | walk the tree, invoke each helper |
-| **Computed skill** (this contract) | a claude-klabauter assembler CLI computes the routing | resolve the judgment residue |
+| **Computed skill** (this contract) | an engine assembler CLI computes the routing | resolve the judgment residue |
 
 The decision-tree shape is not deprecated — it remains correct for judgment-dense,
 low-frequency skills. A computed skill is the right shape only for a high-frequency
@@ -42,7 +42,7 @@ skill whose branch inventory skews heavily mechanical, as `pickup`'s does.
 ## Beachhead outcome — `pickup` as the first computed skill
 
 `pickup` is the beachhead conversion this contract was built against and validated
-by. The read-only claude-klabauter assembler computes the mechanical routing; `pickup/SKILL.md`
+by. The read-only engine assembler computes the mechanical routing; `pickup/SKILL.md`
 itself carries judgment only — no command fences, no branch prose the assembler
 already resolved. The line-count delta is the headline evidence the conversion
 discharged its own goal rather than merely reorganizing prose: `pickup/SKILL.md` went
@@ -485,7 +485,7 @@ claim of inheritance.
 | `0` | OK — a decision object was computed and returned. |
 | `1` | Business failure — artifact unreadable/absent-and-not-archived, claim held by a live peer, addressee mismatch without override. |
 | `2` | Usage error — malformed arguments, malformed `--decisions` JSON. |
-| `3` | Transport failure — claude-klabauter root unresolvable, `coordinator_core` import failure. Distinguishable from a business failure without parsing stderr — a caller (hook or EM) that sees `3` knows the *engine* is unreachable, not that the artifact itself is a problem. |
+| `3` | Transport failure — engine root unresolvable, `coordinator_core` import failure. Distinguishable from a business failure without parsing stderr — a caller (hook or EM) that sees `3` knows the *engine* is unreachable, not that the artifact itself is a problem. |
 
 **A decision object is emitted on every exit, including non-zero — never a bare exit
 code with no object.** Exit `1` collapses three semantically distinct business failures
@@ -875,7 +875,7 @@ re-deriving the shape from scratch:
    `coordinator/schemas/census-document.schema.json` and lives at
    `state/plan-sidecars/<plan-or-skill-stem>.census-steps.md`, one per conversion.
 2. **No MIXED row may remain unsplit.** This is the MIXED concession's actual term:
-   claude-klabauter's row schema persists MIXED as a container of two half-steps, so the
+   the engine's row schema persists MIXED as a container of two half-steps, so the
    invariant is `MIXED ⇒ both mechanical_part and judgment_part present` — exactly its
    own `allOf` conditional, not a looser "mostly split" reading. A row that resists
    splitting is a BLOCKED finding surfaced to the PM, not a re-parked middle bucket.
@@ -949,7 +949,7 @@ all, so none of `schema_version`/`skill`/`source_path`/`source_sha`/`unit`/`take
 `round_trip_shape`/`rows` exist on disk. Its `## Table` rows carry no `step_id` field (the `Step`
 column is a locus label, not a stable id) and their `Classification` values fail the row schema's
 enum: the file's `DIRECTIVE`/`JUDGMENT`/`MIXED-SPLIT` vocabulary (plus ad hoc values like
-`BLOCKED` and `Not a step (...)`) has no member in common with claude-klabauter's closed
+`BLOCKED` and `Not a step (...)`) has no member in common with the engine's closed
 `MECHANICAL | JUDGMENT | MIXED` set — `DIRECTIVE` and `MECHANICAL` name the same concept under
 different words, and `MIXED-SPLIT` is expressed as two separate table rows (a mechanical-half row
 and a judgment-half row) rather than one `MIXED` row carrying both `mechanical_part` and
@@ -1022,12 +1022,12 @@ rule the next `X-complete` converter inherits:
 
 ## Decision-Object Schema-of-Record
 
-DoE owns the decision-object schema-of-record; claude-klabauter owns the engine that emits and
-validates against it. Per that ownership split (DoE owns contract, claude-klabauter owns engine), the
+The doctrine repo owns the decision-object schema-of-record; the engine repo owns the engine that emits and
+validates against it. Per that ownership split (the doctrine repo owns contract, the engine repo owns engine), the
 canonical shape of the 8-key envelope described throughout this wiki is now codified as
 a standalone JSON Schema (draft 2020-12) at `schemas/decision-object.schema.json` — not
 re-derived informally from prose each time a new computed skill or validator is
-authored. Claude-klabauter's `coordinator_core` decision-object validators (`envelope.py` for the
+authored. The engine repo's `coordinator_core` decision-object validators (`envelope.py` for the
 top-level envelope, `judgment.py` for `judgment_points[]` shape) conform to this schema;
 they do not define their own competing notion of the shape.
 
@@ -1091,7 +1091,7 @@ What's shared is the *shape* those decisions must conform to, not the decision l
 
 **Two tiers + one discipline.**
 
-- **Tier-A — the resolution facade** (`claude-klabauter`'s `coordinator_core/resolution/facade.py`):
+- **Tier-A — the resolution facade** (the engine repo's `coordinator_core/resolution/facade.py`):
   the compute-only entrypoint both front-ends call to resolve a target artifact/session/root down
   to a typed result, before either front-end starts assembling its own decision object.
 - **Tier-B — the declarative contract library** (`coordinator_core/contract/decision_object/`):
@@ -1119,9 +1119,9 @@ attack) or under-check a plugin root (treating trust as a formatting concern) �
 modes are not symmetric, so the function boundary encodes a real distinction, not a stylistic
 one.
 
-**Schema-of-record ownership restated for this session's build.** DoE owns
+**Schema-of-record ownership restated for this session's build.** The doctrine repo owns
 `schemas/decision-object.schema.json` (authored this session, § Decision-Object Schema-of-Record
-above); the claude-klabauter-side `contract/decision_object` validators conform to it rather than defining
+above); the engine-side `contract/decision_object` validators conform to it rather than defining
 a competing notion of the envelope shape.
 
 **The divergence-understood extraction trigger — and why the Tier-B apply-side runner was NOT
@@ -1145,7 +1145,7 @@ trigger condition itself is recorded in the owning decision record rather than l
 next assembler that lands can check the decision record instead of re-deriving the reasoning.
 <!-- distill:2026-08-06-14h38 src:c7-009 -->
 
-**claude-klabauter's retired per-brief-budget decision stays retired for this surface.** The ≤60 ms per-brief budget this session's facade and
+**The engine repo's retired per-brief-budget decision stays retired for this surface.** The ≤60 ms per-brief budget this session's facade and
 contract library hit is met by lazy-import plus in-process git, not a resident daemon; a
 `<10 ms` target is an explicitly-deferred stretch goal that would require re-litigating that retired decision's
 daemon-retirement, not something either tier was built to hit this session.
@@ -1204,28 +1204,28 @@ engine-computed evidence, and belongs to the same class of untrusted,
 non-computed content the recommendation-forbidden discriminator (§ The
 three-tier model) already excludes from influencing engine-authored output.
 
-**Pinned by a negative-spec docstring naming the claude-klabauter contract.** The
+**Pinned by a negative-spec docstring naming the engine contract.** The
 decode/normalize step carries a negative-spec docstring stating explicitly
 what it does *not* do — it does not special-case N==1, and it does not accept
 the stripped EM-facing suffix as engine-authored text — pinned against the
-`claude-klabauter` contract this hook is a client of, per
+engine repo's contract this hook is a client of, per
 `docs/wiki/rag-bait-conventions.md` § negative-spec blocks.
 
 ## `session-reachability-cli` / `artifact_owner` — what may be cited, and what it answers
 
 <!-- distill-run: 2026-08-14; C1 epistemic-premise gate. Measured, not inferred. -->
 **Doctrine may not cite a bare `session-reachability-cli` command line as resolving on a
-fresh install.** Name the capability instead. The CLI landed in `claude-klabauter` but is absent from that repo's `docs/install/bin-inventory.json` — the
+fresh install.** Name the capability instead. The CLI landed in the engine repo but is absent from that repo's `docs/install/bin-inventory.json` — the
 tracked baseline gating which oracles get forwarders written into
 `$COORDINATOR_SETTINGS_HOME/bin` — so a fresh-install reader typing the bareword gets
-`command not found`. The whole derive/write chain lives in claude-klabauter; this repo has no local
+`command not found`. The whole derive/write chain lives in the engine repo; this repo has no local
 trigger. Neighbouring `session-liveness-cli` resolves precisely because it *has* an
-inventory entry. **Owed by claude-klabauter, not doable here:** the inventory entry plus a re-run of
+inventory entry. **Owed by the engine repo, not doable here:** the inventory entry plus a re-run of
 the install/substrate write step. Recheck disk before trusting it is still absent.
 
 **`artifact_owner` subsumes one of the three `pickup/SKILL.md:189-193` liveness
-heuristics, not all three.** Exercised live on a claimed DoE plan and on an absolute
-cross-repo claude-klabauter handoff path; both resolved, returning per-owner
+heuristics, not all three.** Exercised live on a claimed doctrine-repo plan and on an absolute
+cross-repo engine-repo handoff path; both resolved, returning per-owner
 `reachable`/`not_reachable` rather than failing on the cross-repo pointer:
 
 ```

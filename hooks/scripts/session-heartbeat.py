@@ -16,7 +16,7 @@ write), so this ONE stub file services both hook events unchanged -- no
 event-name branching needed, since the op only reads session_id.
 
 The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
-the claude-klabauter engine, hand it the mapped params, relay its stdout. Claude-klabauter owns the
+the engine repo, hand it the mapped params, relay its stdout. The engine repo owns the
 bookkeeping LOGIC (coordinator_core.hooks.session_heartbeat, registered under
 the JSON-RPC method "hooks.session_heartbeat"). The engine is imported and run
 IN-PROCESS via coordinator_core.ipc.dispatch_from_hook (DR-175 -- the named
@@ -54,8 +54,8 @@ actual worktree -> common-dir resolution engine-side (identical semantics to
 the bash original's GIT_ROOT lookup, just resolved in-process instead of via a
 git subprocess spawn per stub invocation).
 
-Graceful degradation -- REQUIRED: any failure to resolve/import/run the claude-klabauter
-engine, or to parse stdin, falls through to fail-open (exit 0, no stdout). A
+Graceful degradation -- REQUIRED: any failure to resolve/import/run the engine
+repo, or to parse stdin, falls through to fail-open (exit 0, no stdout). A
 missing sibling engine must NEVER brick a Bash tool call -- identical
 philosophy to preuse-write-dispatch.py._resolve_claude_klabauter_root (kept in
 lockstep deliberately; see W2-stub-contract.md).
@@ -117,7 +117,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open -- claude-klabauter unresolvable on this machine
+        return 0  # fail-open -- engine repo unresolvable on this machine
 
     if root not in sys.path:
         sys.path.insert(0, root)

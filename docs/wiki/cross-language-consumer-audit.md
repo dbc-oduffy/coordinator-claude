@@ -124,6 +124,12 @@ who calls the old package must therefore also search for who calls the new scrip
 same inline-invocation checklist above (item 2, `python -c`/`-m` stanzas) rather than assuming a
 deleted package has no remaining textual footprint.
 
+## Cross-Language Config Mirrors Drift Invisibly — Hold Them With an Execution-Based Conformance Test, Not Docstrings
+
+Documented-mirror discipline — a docstring naming a sibling implementation as "the contract of record" — is not itself a defense; it can rot inside the very commit that introduces it. In one incident, two cross-references were born stale and a bash mirror diverged from its TS twin the same day the mirror convention was written.
+
+**The fix that works:** author one implementation per runtime boundary only where possible — plain ESM lets TS and bare-node share a single source rather than mirroring it. For the residual genuine mirrors that a real runtime boundary forces (bash/Python twins of a TS or JS config), hold them with a test that **executes all implementations** over a shared env matrix and asserts identical output. That converts drift from an archaeology finding (a docstring nobody re-reads) into a red test. This is the config-mirror-specific instance of the inline-invocation blind spot above: a docstring "see the other file" is a textual reference a reader can skip, where an executed conformance test cannot be skipped.
+
 ## Cross-References
 
 - `docs/wiki/implementation-standards-by-domain.md` — domain-level standards including subprocess and shell integration patterns

@@ -1,6 +1,6 @@
 ---
 name: setup
-description: "Install-chain walker (step 5/5) — verifies claude-klabauter, finishes install."
+description: "Install-chain walker (step 5/5) — verifies the engine, finishes install."
 allowed-tools: ["Read", "Bash"]
 argument-hint: "[--skip-dep-check --accept-missing-deps-risk]"
 ---
@@ -45,9 +45,9 @@ Surface a needed merge to the EM instead of doing it.
 
 **On a PowerShell host, invoke the `.exe` launcher through the call operator** (Shape W) for every
 `setup-verify` invocation on this page, never the `${...}` POSIX-shell form shown. Ladder and
-shapes: `snippets/resolve-coordinator-bin.md`.
+shapes: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
-Run `& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" layout --plugin-root "<PLUGIN_ROOT>"` (Shape W; ladder and POSIX shapes: `snippets/resolve-coordinator-bin.md`).
+Run `& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" layout --plugin-root "<PLUGIN_ROOT>"` (Shape W; ladder and POSIX shapes: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`).
 Prints `Layout: <flat|nested>` and `Manifest path: <path>`; exits 1 with a "Manifest not found"
 remediation if `docs/install/agent-install-manifest.json` is absent under the resolved repo root.
 Surface an exit-1 error verbatim.
@@ -68,7 +68,7 @@ continue with a corrupt manifest.
 
 Disk-resident, for diamond-DAG and cycle detection across recursive subagent dispatches:
 `<settings-home>/coordinator-claude/chain-walk-<session-id>.json`, where `<settings-home>` is
-resolved per `snippets/resolve-coordinator-bin.md` (Shape W on PowerShell hosts).
+resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape W on PowerShell hosts).
 
 Run `& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" visited-init` (Shape W)
 — generates a session id, prunes `chain-walk-*.json` files older than 60 minutes, writes the new
@@ -262,4 +262,4 @@ exit code. All probes PASS → emit the summary table, exit 0.
 <!-- negative-spec: this skill does NOT dispatch subagents. coordinator-claude's one direct_dep (the engine) self-confirms via the claude_klabauter_seam_resolvable probe kind — there is no recursive chain-walk into the engine's own manifest. The visited-set is initialised for contract-conformance only. -->
 <!-- negative-spec: this skill does NOT replace coordinator:install (OSS plugin install) or coordinator:repo-setup (consumer-project first-time setup). This skill DOES assert, via Probe 0, that the plugin is actually reachable — by marketplace registration or live --plugin-dir resolution — rather than merely enabled by membership; that assertion is in scope here even though performing the registration itself remains coordinator:install's job. -->
 <!-- negative-spec: this skill does NOT seed install-leg spinoffs into the install-baton rendezvous (`$(coordinator-settings-home)/state/handoffs/`). Spinoffs are PM-authorized via /spinoff only. -->
-<!-- negative-spec: the visited-set path is <settings-home>/coordinator-claude/chain-walk-*.json where <settings-home> resolves per snippets/resolve-coordinator-bin.md (Shape W on PowerShell hosts) — canonical per agent-install-contract.md § Visited-set protocol. -->
+<!-- negative-spec: the visited-set path is <settings-home>/coordinator-claude/chain-walk-*.json where <settings-home> resolves per ${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md (Shape W on PowerShell hosts) — canonical per agent-install-contract.md § Visited-set protocol. -->

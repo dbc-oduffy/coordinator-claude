@@ -45,7 +45,7 @@ default to resolving CLIs under `settings_home / "bin"`. `_cmd_fresh_scaffold_pr
 and `_cmd_distill_threshold` pass no such override — they have no sibling CLI to
 resolve. This file is now the ONLY place the `_BIN_DIR`-vs-`settings_home` split
 lives; `updatedocs_gates.py` itself has no notion of "this file's own directory".
-Review: coordinator:code-reviewer — flagged as under-documented relative to how
+Flagged as under-documented relative to how
 carefully every other design decision in this file is annotated.
 
 Idempotent: every subcommand is read-mostly (queue-prune-sweep is the one

@@ -11,7 +11,8 @@ zero `Monitor` subscriptions, must be distinguishable on disk from a repo
 nobody ever watched -- that is the whole of P1/P2/P2a/P2b/P3 in the owning
 plan's `## Problem set`.
 
-ONE HOLDER, THREE PRODUCERS, TWO PLANES, NO FOLD HERE. `group-em-nomination.py`
+ONE HOLDER, THREE PRODUCERS, TWO PLANES, NO FOLD HERE EXCEPT THE PRIOR-HOLDER
+TRACE (identity-only, see `stamp()`). `group-em-nomination.py`
 enforces exactly one HOLDER session per repo, never exactly one WRITER, and
 the three producers named by `_TICK_SOURCES` are split across two planes with
 two different `stamp()` signatures over the SAME on-disk record: the
@@ -167,7 +168,38 @@ def stamp(
     engine's `cron`/`monitor` writer replaces this same file the same way,
     so `entry` must produce the identical record shape or the next engine
     tick, ~3 minutes away at worst, silently drops whatever this module
-    added that the engine's writer does not know about.
+    added that the engine's writer does not know about. The one thing this
+    replace DOES carry forward from the record it destroys is the
+    prior-holder trace below -- an identity-only exception, never a fold of
+    any other field.
+
+    PRIOR-HOLDER TRACE. Mirrors `coordinator_core/group_em/watch_heartbeat.py`
+    `stamp()` (`claude-klabauter@95e93303`, lines ~373-405) -- read it and
+    copy its semantics; never import across the repo boundary. Before the
+    atomic replace, this reads the record about to be destroyed with
+    `_read_existing`. Whenever that prior record's `(holder_session_id,
+    writer_session_id, tick_source)` differs from the one this tick is about
+    to write -- one disjunction, deliberately kept WHOLE rather than
+    narrowed to the holder arm, as record-shape parity with the engine, even
+    though the holder arm is the only one this module's own caller can
+    reach -- the write carries six `prior_*` keys forward: `prior_holder_session_id`,
+    `prior_holder_name`, `prior_tick_source`, `prior_last_tick_at`,
+    `prior_subscribed_peers`, and `prior_declination_count` (the length of
+    the prior record's `declinations` list, or `None` when that key is
+    absent or not a list). A first stamp (no prior record) writes none of
+    these keys -- absent, not null.
+
+    PARITY-ONLY ARMS. This module's `stamp()` always writes
+    `writer_session_id = session_id` and `tick_source = "entry"` -- there is
+    no delegate caller and no second `source` value in practice (see the
+    `writer_session_id` paragraph below). `_stamp_watch` is this function's
+    sole non-test caller, and once it gains its own holder check (`_stamp_watch`
+    in `coordinator/bin/group-em-enter.py`) the writer-differs and
+    tick_source-differs arms of the disjunction above are PARITY-ONLY: they
+    keep this module's record shape honest against the engine's contract,
+    but no call this module's own caller can make will ever exercise them in
+    production. Kept anyway, and named here so a reader does not mistake
+    them for live paths.
 
     `source` must be one of `cron` | `monitor` | `entry` (P2b/P3's `tick_source`
     vocabulary) -- `entry` in practice for this module's own callers; the other
@@ -181,14 +213,14 @@ def stamp(
     lets the reader tell "did not look" apart from "looked, nothing to do".
 
     `writer_session_id` on the written record is the INSTRUMENT that wrote it,
-    which is not `session_id` when a delegate stamps on the crown's behalf. It
+    which is not `session_id` when a delegate stamps on the standing holder's behalf. It
     is not decoration: the engine's arm-time refusal reads foreignness off the
     pair `(holder_session_id, writer_session_id)`, so a record omitting the
-    field presents as `(<holder>, None)` and is FOREIGN to the very crown that
+    field presents as `(<holder>, None)` and is FOREIGN to the very standing holder that
     wrote it. Entry then locks out the watch entry exists to arm, for the
     whole freshness window, silently -- the arm refuses and a refusal read as
     a quiet result is a fleet nobody is watching. This module has no delegate
-    caller (see the module header: `entry` writes on the crown's own behalf
+    caller (see the module header: `entry` writes on the standing holder's own behalf
     only), so the value is always `session_id` -- no parameter, since there is
     no second value on this axis to take.
 
@@ -213,6 +245,9 @@ def stamp(
         "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + DEFAULT_TICK_INTERVAL_SECONDS)
     )
 
+    path = watch_path(repo_root)
+    prior_record = _read_existing(path)
+
     payload = {
         "holder_session_id": session_id,
         "writer_session_id": session_id,
@@ -224,7 +259,55 @@ def stamp(
     }
     if name:
         payload["holder_name"] = name
-    return _write_atomic(watch_path(repo_root), payload)
+
+    if isinstance(prior_record, dict) and _writer_identity(prior_record) != (
+        session_id,
+        session_id,
+        source,
+    ):
+        payload["prior_holder_session_id"] = prior_record.get("holder_session_id")
+        payload["prior_holder_name"] = prior_record.get("holder_name")
+        payload["prior_tick_source"] = prior_record.get("tick_source")
+        payload["prior_last_tick_at"] = prior_record.get("last_tick_at")
+        payload["prior_subscribed_peers"] = prior_record.get("subscribed_peers")
+        prior_declinations = prior_record.get("declinations")
+        payload["prior_declination_count"] = (
+            len(prior_declinations) if isinstance(prior_declinations, list) else None
+        )
+
+    return _write_atomic(path, payload)
+
+
+def _writer_identity(record: dict) -> tuple:
+    """The three fields that together name WHICH INSTRUMENT wrote `record`.
+
+    Mirrors `coordinator_core/group_em/watch_heartbeat.py::_writer_identity`
+    (`claude-klabauter@95e93303`) -- holder alone is not the identity: two
+    different producers can stamp the same holder/writer pair under a
+    different `tick_source`, and `tick_source` is a first-class arm of this
+    tuple precisely so that case is not collapsed away.
+    """
+    return (
+        record.get("holder_session_id"),
+        record.get("writer_session_id"),
+        record.get("tick_source"),
+    )
+
+
+def current_holder(repo_root: str) -> Optional[str]:
+    """The `holder_session_id` on `state/group-em-watch.json`, or `None`.
+
+    Identity only -- no freshness, no arm/stale verdict. Returns `None` when
+    the record is absent (`_read_existing` sees no file), unreadable
+    (malformed JSON or not a JSON object), or has no `holder_session_id` key
+    at all. Lets a caller like `group-em-enter.py` ask "who holds this
+    record" without reaching into `_read_existing` itself.
+    """
+    record = _read_existing(watch_path(repo_root))
+    if not isinstance(record, dict):
+        return None
+    holder = record.get("holder_session_id")
+    return holder if isinstance(holder, str) and holder else None
 
 
 def _fetch_live_agents(

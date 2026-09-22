@@ -59,6 +59,15 @@ box running 50–70 concurrent agents.**
 The incident: an EM asked its PM to create an unlock sentinel so that nine finished, passing,
 correct tests could be committed — a human unblocking a machine, from a guard that was advisory by
 design. That is not an escape hatch, it is a stall with paperwork.
+
+**A guard's own remediation text can instruct the denied actor into the very breach a standing
+constraint forbids.** A repo's dev runner hard-errored on a missing venv with "run `<install>`
+first" — and that install command silently created the venv, which a live cross-repo commitment
+forbade. Remediation strings are written once and outlive the constraints they predate; nobody
+re-reads them when a rule changes, so a reader who follows the outlet sentence walks straight
+into the breach it was supposed to prevent. When a constraint lands that forbids an action, grep
+error messages, docstrings, and READMEs whose remediation text recommends that action — the outlet
+rule above demands the sentence be correct, not merely present.
 [`guard-unlock-channel.md`](guard-unlock-channel.md) is the deliberate, narrow exception that
 proves the shape: an operator-facing, one-shot, per-guard, per-session channel for a guard that
 genuinely gates irreversible harm. Routine finished work reaching it is a proportionality defect

@@ -17,7 +17,7 @@ Exits 0 on success. Exits 2 (benign, already-migrated no-op) if the log is alrea
 canonical. Exits 1 with a JSON error object on stdout ({"error": "<message>"}) for any
 other genuine error (missing file, not legacy-shaped, existing backup collision).
 
-# Review: code-reviewer (Finding 7) — a distinct exit code for the benign
+# A distinct exit code for the benign
 # already-canonical outcome lets a scripted caller (e.g. a setup/install step) treat
 # "already migrated" as a no-op success rather than string-matching the error message.
 

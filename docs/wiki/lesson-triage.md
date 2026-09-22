@@ -15,7 +15,7 @@ tags: [lesson-triage, improvement-queue, coordinator-sweep]
 This guide consolidates three closely-coupled processes that together form the EM's loop for converting per-session war-stories into greppable doctrine:
 
 1. **`lesson-triage`** — the unified skill that processes `state/lessons/` capture queues (project-local maintenance + cross-project promotion + cadence rechecks).
-2. **Improvement-queue triage** — the daily/weekly cadence over the central structured queue in claude-klabauter at `$(python3 coordinator/lib/coordinator-state-root.py --central)/improvement-queue/` (`queue_scope: central` entries — see `state-placement-law.md`).
+2. **Improvement-queue triage** — the daily/weekly cadence over the central structured queue in the engine repo at `$(python3 coordinator/lib/coordinator-state-root.py --central)/improvement-queue/` (`queue_scope: central` entries — see `state-placement-law.md`).
 3. **Coordinator-sweep pattern** — the dispatch/verification shape used when promoting universal patterns into multiple files at once.
 
 Treat the three as one workflow seen from different time horizons (in-session → daily/weekly → multi-repo).
@@ -38,8 +38,8 @@ Treat the three as one workflow seen from different time horizons (in-session �
 
 ### Queue routing — universal vs project-specific
 
-Every entry in the central structured queue (claude-klabauter — `$(python3 coordinator/lib/coordinator-state-root.py --central)/improvement-queue/`, `queue_scope: central` — see `state-placement-law.md`) should route to one of:
-- **universal** — applies to any coordinator user / any project type → keep in the central queue in claude-klabauter (`queue_scope: central`, append via `coordinator-queue-append --schema improvement-queue --queue-scope central`)
+Every entry in the central structured queue (the engine repo — `$(python3 coordinator/lib/coordinator-state-root.py --central)/improvement-queue/`, `queue_scope: central` — see `state-placement-law.md`) should route to one of:
+- **universal** — applies to any coordinator user / any project type → keep in the central queue in the engine repo (`queue_scope: central`, append via `coordinator-queue-append --schema improvement-queue --queue-scope central`)
 - **project-specific** — rooted in a specific project's codebase → route to `state/improvement-queue/` in that repo
 - **delete (resolved/dropped)** — already applied/marked resolved/promoted; no signal left in keeping it
 - **delete (dup)** — crossed out by sentinels in-file
@@ -68,7 +68,7 @@ Queue cleanup at entry level 91 residual was ~6:1 prose-doctrine to engineering 
 
 ## Deterministic Extraction Discipline
 
-**Extraction is never a model call.** claude-klabauter `coordinator/bin/extract-lessons.py` is the canonical extraction surface for the central run. It applies a three-check grounding gate before emitting any lesson record:
+**Extraction is never a model call.** The engine repo's `coordinator/bin/extract-lessons.py` is the canonical extraction surface for the central run. It applies a three-check grounding gate before emitting any lesson record:
 
 1. **Source-line check:** the lesson text exists at the cited source line
 2. **ID check:** the emitted `id` field matches the extracted entry's identifier  
@@ -76,7 +76,7 @@ Queue cleanup at entry level 91 residual was ~6:1 prose-doctrine to engineering 
 
 The model handles only bounded routing judgment (after extraction); the grounding gate catches LLM fakery at the routing layer. Free-form classifiers that emit their own `L<n>` line numbers (rather than echoing the extractor's `id` field) drift from the file's true lines and cannot drive a line-number prune — feed classifiers the `extracted.yaml` records and require them to echo the extractor `id` field.
 
-**F6 colon-suffix filter stays "drop all."** The `**Rule:** prose continues` body-emphasis pattern is widespread in the project corpus — lesson titles end with `.`, `?`, or a plain word; never with `:`. Tightening the filter to "alone-on-line" regressed extraction from 149 to 619 records. This corpus-aligned convention is documented in the claude-klabauter `extract-lessons.py` docstring as load-bearing; do not weaken the colon filter without re-running the extraction regression check.
+**F6 colon-suffix filter stays "drop all."** The `**Rule:** prose continues` body-emphasis pattern is widespread in the project corpus — lesson titles end with `.`, `?`, or a plain word; never with `:`. Tightening the filter to "alone-on-line" regressed extraction from 149 to 619 records. This corpus-aligned convention is documented in the engine repo's `extract-lessons.py` docstring as load-bearing; do not weaken the colon filter without re-running the extraction regression check.
 
 **Generalized pattern:** Identify the determinism seam and don't run a model on the deterministic side. Any agent-enumerates-N-items-from-structured-source task should: script extracts → model routes → grounding gate catches LLM fakery at routing layer.
 
@@ -110,9 +110,9 @@ escalation_reason: ""                   # one-line; only meaningful if doe_escal
 > `docs/wiki/lessons-outbox-schema.md` — including `skill-edit`. The
 > summary list below is for reading convenience; if the two diverge, the schema doc wins.
 
-`doctrine-edit` (**DoE-only**), `agent-prompt-edit`, `hook-edit`, `skill-edit`, `script-edit`, `snippet-sync-update`, `wiki-new`, `wiki-append`, `memory-pointer` (**DoE-only**), `project-structural`, `retag-local`, `strip-local` (gated on central commit SHA), `discard`.
+`doctrine-edit` (**doctrine-owner-only**), `agent-prompt-edit`, `hook-edit`, `skill-edit`, `script-edit`, `snippet-sync-update`, `wiki-new`, `wiki-append`, `memory-pointer` (**doctrine-owner-only**), `project-structural`, `retag-local`, `strip-local` (gated on central commit SHA), `discard`.
 
-**DoE-only annotation.** Workers (Haiku scouts, Sonnet consolidators, EMs running the skill outside Claude Central with DoE authority) MUST NOT emit `doctrine-edit` or `memory-pointer`. Records arriving with either kind are downgraded to `wiki-*` + `doe_escalation: true` before PM surfacing. CLAUDE.md edits are authored only by the DoE as a separate downstream plan after reviewing escalation-flagged records. See `skills/learn-lessons/SKILL.md` § Routing Bias for the full gate.
+**Doctrine-owner-only annotation.** Workers (Haiku scouts, Sonnet consolidators, EMs running the skill outside Claude Central with doctrine-owner authority) MUST NOT emit `doctrine-edit` or `memory-pointer`. Records arriving with either kind are downgraded to `wiki-*` + `doe_escalation: true` before PM surfacing. CLAUDE.md edits are authored only by the doctrine owner as a separate downstream plan after reviewing escalation-flagged records. See `skills/learn-lessons/SKILL.md` § Routing Bias for the full gate.
 
 ## Mode-conditional authorization
 
@@ -124,7 +124,7 @@ escalation_reason: ""                   # one-line; only meaningful if doe_escal
 
 ## Central-mode six-phase pipeline
 
-- **Phase 0 — Configuration:** read the sentinel block in `learn-lessons-config.md` (roots between `<!-- BEGIN learn-lessons-roots -->` and `<!-- END learn-lessons-roots -->`); this file lives in claude-klabauter at `$(python3 coordinator/lib/coordinator-state-root.py --central)/learn-lessons-config.md` (see `state-placement-law.md`). The skill auto-populates the running repo's path via claude-klabauter `coordinator/bin/learn-lessons-config-update.py`. Stale-entry pruning in central mode only. Never hardcode `the checkout root`. (Superseded the prior `lesson_triage:` block in `coordinator.local.md`.)
+- **Phase 0 — Configuration:** read the sentinel block in `learn-lessons-config.md` (roots between `<!-- BEGIN learn-lessons-roots -->` and `<!-- END learn-lessons-roots -->`); this file lives in the engine repo at `$(python3 coordinator/lib/coordinator-state-root.py --central)/learn-lessons-config.md` (see `state-placement-law.md`). The skill auto-populates the running repo's path via the engine repo's `coordinator/bin/learn-lessons-config-update.py`. Stale-entry pruning in central mode only. Never hardcode `the checkout root`. (Superseded the prior `lesson_triage:` block in `coordinator.local.md`.)
 - **Phase 1 — Discovery:** glob configured roots, count tagged universals.
 - **Phase 2 — Fan-out scouts:** one per repo, parallel `general-purpose` Sonnet, two-pass extraction (tagged + untagged candidates), themes section, DONE protocol.
 - **Phase 3 — Synthesis:** EM directly produces the four-section A/B/C/D structure (see below).
@@ -152,7 +152,7 @@ When writing a `[universal]` lesson in a project's `state/lessons/` capture queu
 | `[universal]` | Central coordinator wiki (`~/.claude/docs/wiki/`) | Invoke `coordinator-lesson-promote` CLI → `state/lessons-outbox/<ts>-<slug>.yaml`. Do **not** use `coordinator-queue-append` targeting the central queue (`$(python3 coordinator/lib/coordinator-state-root.py --central)/improvement-queue/`, `queue_scope: central`) for this path — the outbox is the correct surface. |
 | `[universal]` | Project-local wiki (`docs/wiki/` in the project repo) | Auto-apply locally via `/learn-lessons` local-mode — unchanged. |
 | `[universal]` | Unknown / not yet determined | Manual-review path: capture the tagged lesson to `state/lessons/<date>-<slug>.yaml` (via `coordinator-lesson-add`) and surface at next `/learn-lessons` central run. |
-| Project-specific | Any | `state/improvement-queue/<date>-<slug>.yaml` in the project repo (per-entry YAML directory — the flat `state/improvement-queue/` prose file is retired); `/debt-triage` terminates in the four-outcome baton terminus (solo baton / themed baton / immediate dispatch / explicit park) per `docs/wiki/queue-terminus-doctrine.md` — not a migration to `state/debt-backlog/`. |
+| Project-specific | Any | `state/improvement-queue/<date>-<slug>.yaml` in the project repo (per-entry YAML directory — the flat `state/improvement-queue.md` prose file is retired as a write target); `/debt-triage` terminates in the four-outcome baton terminus (solo baton / themed baton / immediate dispatch / explicit park) per `docs/wiki/queue-terminus-doctrine.md` — not a migration to `state/debt-backlog/`. |
 
 **Source of truth for this routing contract:** `CLAUDE.md § Improvement Queue` (Routing contract paragraph). **Schema for outbox YAML entries:** `docs/wiki/lessons-outbox-schema.md`.
 
@@ -283,7 +283,7 @@ This sets expectations for fan-out budget: 4 parallel scouts, ~5 minutes each, �
 ### DR-011 — CLAUDE.md growth is gated, not accepted on uniqueness alone
 
 **Status:** accepted
-**Rule:** CLAUDE.md growth is governed by `skills/learn-lessons/SKILL.md` § CLAUDE.md char-budget pre-flight (40K hard refuse, 38K–40K demote-target gate) plus § Routing Bias DoE-only adjudication on `doctrine-edit`/`memory-pointer`. Most CLAUDE.md proposals filter to wiki-* via the DoE gate; survivors must clear both the four-check justification gate AND the char-budget gate. A line being a unique lesson is not, by itself, sufficient.
+**Rule:** CLAUDE.md growth is governed by `skills/learn-lessons/SKILL.md` § CLAUDE.md char-budget pre-flight (40K hard refuse, 38K–40K demote-target gate) plus § Routing Bias doctrine-owner-only adjudication on `doctrine-edit`/`memory-pointer`. Most CLAUDE.md proposals filter to wiki-* via the doctrine-owner gate; survivors must clear both the four-check justification gate AND the char-budget gate. A line being a unique lesson is not, by itself, sufficient.
 
 ### Neutralise reverted lessons in-place, do not delete
 
@@ -305,7 +305,7 @@ Local mode enumerates the full directory (no `--since`) and counts every uncover
 
 **Retagging a lesson by string-replacing `[universal]` corrupts prior retag-history comments — replace on the `## **...**` header line specifically.**
 
-Claude-klabauter `extract-lessons.py`'s `tag_universal` matches the tag anywhere in the block, including provenance comments like `<!-- Retag proposed ...: [universal] → [python] -->`. A naive global replace hits the comment text, not the actual header tag (which may already carry the target tag from a prior run).
+The engine repo's `extract-lessons.py` — its `tag_universal` — matches the tag anywhere in the block, including provenance comments like `<!-- Retag proposed ...: [universal] → [python] -->`. A naive global replace hits the comment text, not the actual header tag (which may already carry the target tag from a prior run).
 
 **How to apply:** (1) replace the tag on the header line specifically, not globally in the block; (2) before re-applying a router's retag proposal, confirm the entry wasn't already retagged in a prior run — a retag whose header already carries the target tag is a no-op, not a re-edit. Stale proposals are common on multi-run cadences. Source: project-rag. [universal]
 
@@ -338,12 +338,12 @@ Empirical evidence (a delta `/learn-lessons` central run, 28 entries, 3 parallel
 
 All three outputs were discarded. The records the run shipped were EM-authored from source.
 
-**Why this is a structural failure mode, not a one-off.** Lessons-extraction is a high-paraphrase task on unstructured prose — the worker must read a war-story bullet, normalise it to a schema, and emit a record that grounds back to the cited line. Haiku underperforms on the grounding step specifically: it produces output that *looks* like a routing record but does not match the source bullet. The claude-klabauter `coordinator/bin/extract-lessons.py` deterministic-extraction gate (lesson-triage.md § Deterministic Extraction Discipline) is the load-bearing defence against this; downstream classification and routing should run on the extractor's `id`-grounded output, not on fresh Haiku reads of `state/lessons/`.
+**Why this is a structural failure mode, not a one-off.** Lessons-extraction is a high-paraphrase task on unstructured prose — the worker must read a war-story bullet, normalise it to a schema, and emit a record that grounds back to the cited line. Haiku underperforms on the grounding step specifically: it produces output that *looks* like a routing record but does not match the source bullet. The engine repo's `coordinator/bin/extract-lessons.py` deterministic-extraction gate (lesson-triage.md § Deterministic Extraction Discipline) is the load-bearing defence against this; downstream classification and routing should run on the extractor's `id`-grounded output, not on fresh Haiku reads of `state/lessons/`.
 
 **Operating rule.**
 
 - Phase 2 fan-out scouts default to **Sonnet** (`general-purpose`), not Haiku, when the input is a raw `state/lessons/` directory.
-- Haiku may be used downstream of claude-klabauter `coordinator/bin/extract-lessons.py` when the input is the deterministic `extracted.yaml` (the grounding is already done; Haiku only echoes IDs and adds a routing field).
+- Haiku may be used downstream of the engine repo's `coordinator/bin/extract-lessons.py` when the input is the deterministic `extracted.yaml` (the grounding is already done; Haiku only echoes IDs and adds a routing field).
 - If all parallel scouts hit fabrication / malformed-inline / no-write on a given run, **EM-authors the records from source** rather than re-dispatching the same scout class.
 
 This pattern is also referenced in the central CLAUDE.md "Disk is the only reliable signal" guidance — ~30% Haiku hallucinate text-only on write-capable workers under load. The lessons-extraction surface is one of the empirically-confirmed regions where that hit rate manifests.

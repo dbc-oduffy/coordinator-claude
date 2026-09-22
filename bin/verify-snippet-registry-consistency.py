@@ -105,7 +105,7 @@ def _import_main():
 
 
 def main(argv: "list[str] | None" = None) -> int:
-    # Review: code-reviewer — business codes 0/1/2/3 are all already spoken
+    # Business codes 0/1/2/3 are all already spoken
     # for here (2 = "missing dep or file not found", a repo-content problem);
     # a claude-klabauter-link failure is an architecturally distinct failure mode (a
     # coordinator/claude-klabauter packaging problem) and gets its OWN dedicated

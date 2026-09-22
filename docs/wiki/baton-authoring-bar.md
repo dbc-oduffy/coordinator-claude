@@ -84,7 +84,7 @@ authorization, and the PM's authorization is itself a checkpoint against a row-l
 slipping through. This is not a mechanical refusal; it is a discipline the existing gate
 gives a place to bite.
 
-**A strengthening has been asked for, not depended on.** The C9 claude-klabauter memo additionally
+**A strengthening has been asked for, not depended on.** The C9 engine-repo memo additionally
 requests a `nudge_baton_body_bar`-style write-guard over row-list-only baton bodies, on the
 shipped `coordinator_core/write_guards/` precedent shape (`block_completion_monolith_write.py`,
 `nudge_improvement_queue_write.py`, `block_subagent_plan_body_write.py`). This bar holds
@@ -126,6 +126,39 @@ turn out not to belong once work starts.>
 
 A body that stops after "## Constituent items" — no thesis paragraph, no first-move list —
 has failed the bar in this wiki regardless of how well-formed its frontmatter is.
+
+## A baton citation is a claim about live state — verify it at citation time, not authoring time
+
+A plan's Out-of-scope section named a sibling spinoff as "open, unclaimed, and carries its own XL
+sizing." That was true when the plan was written. By the time the plan shipped, an archive sweep
+had moved that handoff to `archive/`, stamped `pickup_ready: false`, and prefixed its body with
+"SUPERSEDED — do not pick this up."
+
+The prose did not decay quietly — it was copied forward, verbatim in substance, into a decision
+record and a lesson resolution (both durable artifacts a future reader trusts) and into the EM's
+own status report to the PM. Three restatements of a claim nobody re-checked, because in each case
+the source was a coordinator artifact rather than disk.
+
+**The failure is not that the original citation was wrong.** It is that a baton citation *reads*
+like a stable fact ("the sibling spinoff owns this") while actually being a claim about live,
+mutable state that a concurrent archive sweep can invalidate within the hour — not an edge case on
+a busy shared branch. Here it cost the workstream its own remedy: the already-landed misattributed
+commits the workstream existed to fix ended up with no live baton owning their repair, while three
+documents asserted one existed. The supersession chain terminated in nothing, and only an
+adversarial reviewer who went outside the diff into `archive/` and git history caught it.
+
+**Rule.** When citing a baton by path in anything durable — a decision record, a lesson
+resolution, a plan's Out-of-scope section, a handoff body — stat the path and read its
+`deployment_state` / `pickup_ready` **at citation time**, never at plan-authoring time, and never
+by trusting an upstream artifact's description of it. If it is archived or not `pickup_ready`, say
+so in the citation. If the work it tracked is genuinely unowned, say that plainly, in those
+words, rather than pointing at a dead end — an unowned loop named plainly gets picked up; one
+hidden behind a stale pointer does not.
+
+**Corollary for review briefs.** Background stated as settled fact invites a reviewer to skip
+verifying it. State it as a claim to check, not as context. The reviewer that caught this incident
+had been handed the false claim as background and verified it anyway.
+
 
 ## Cross-links
 

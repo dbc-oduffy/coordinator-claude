@@ -41,7 +41,9 @@ canonical, case-normalized paths via ``pathlib.Path.resolve()`` (which
 follows NTFS junctions on Windows since Python 3.8, unlike
 ``os.path.islink()`` -- ``~/.claude/machine-local`` is one such junction and
 must never be mistaken for "not a link, so not worth resolving") before
-comparison.
+comparison. The one exception is a Windows-spelled path on a non-Windows
+host: it is normalized by Windows rules instead (see ``_canonical``), since
+``resolve()`` there would root it under the process cwd.
 
 NEGATIVE-SPEC -- ``--dry-run`` is exempt. The scaffold CLI's dry run prints
 its plan and writes nothing, so there is no write to refuse; the
@@ -108,6 +110,7 @@ a-projec-7439cdca3aa3.yaml
 from __future__ import annotations
 
 import json
+import ntpath
 import os
 import re
 import sys
@@ -160,6 +163,40 @@ _LEADING_CD_RE = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
+#: A drive-letter (``<drive>:\``, ``<drive>:/``) or UNC (``\\server``) path. Recognized
+#: on EVERY host, not only Windows: the payload and env may carry a
+#: Windows-spelled path while the guard runs on POSIX (the cold/warm parity
+#: oracle, a cross-host fixture), where ``pathlib.Path`` treats ``\`` as an
+#: ordinary character and a drive-letter path as relative.
+_WINDOWS_SPELLED_RE = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
+
+
+def _is_windows_spelled(path: str) -> bool:
+    return bool(_WINDOWS_SPELLED_RE.match(path))
+
+
+def _join_onto_cwd(raw: str, cwd: "str | None") -> str:
+    """``raw`` made absolute against ``cwd`` in ``cwd``'s own path flavour,
+    or ``raw`` unchanged when it is already absolute or there is no cwd."""
+    if _is_windows_spelled(raw) or Path(raw).is_absolute() or not cwd:
+        return raw
+    if _is_windows_spelled(cwd):
+        return ntpath.join(cwd, raw)
+    return str(Path(cwd) / raw)
+
+
+def _canonical(path: str) -> str:
+    """The comparison key for a path. A Windows-spelled path is compared
+    by Windows rules (separators and ``..`` normalized, case folded); off
+    Windows it is never handed to ``Path.resolve()``, which would root it
+    under the process cwd. Everything else is ``Path.resolve()``d. Raises
+    ``OSError`` as ``resolve`` does."""
+    if not (_is_windows_spelled(path) and os.name != "nt"):
+        path = str(Path(path).resolve())
+    if _is_windows_spelled(path):
+        return ntpath.normpath(path).casefold()
+    return path
+
 
 def _resolve_claude_home(env: "dict[str, str]") -> "str | None":
     """Canonical, resolved path to Claude Home, or ``None`` if unresolvable.
@@ -170,7 +207,7 @@ def _resolve_claude_home(env: "dict[str, str]") -> "str | None":
     config_dir = env.get("CLAUDE_CONFIG_DIR")
     if config_dir:
         try:
-            return str(Path(config_dir).resolve())
+            return _canonical(config_dir)
         except OSError:
             pass
     for key in ("HOME", "USERPROFILE"):
@@ -178,7 +215,7 @@ def _resolve_claude_home(env: "dict[str, str]") -> "str | None":
         if not val:
             continue
         try:
-            return str((Path(val) / ".claude").resolve())
+            return _canonical(_join_onto_cwd(".claude", val))
         except OSError:
             continue
     return None
@@ -236,10 +273,7 @@ def _leading_cd_target(cmd: str, cwd: "str | None", env: "dict[str, str]") -> "s
     if not match:
         return None
     raw = _expand_home_shorthand(match.group(1).strip("'\""), env)
-    candidate = Path(raw)
-    if not candidate.is_absolute() and cwd:
-        candidate = Path(cwd) / candidate
-    return str(candidate)
+    return _join_onto_cwd(raw, cwd)
 
 
 def _extract_candidate_root(cmd: str, cwd: "str | None", env: "dict[str, str]") -> "str | None":
@@ -252,10 +286,7 @@ def _extract_candidate_root(cmd: str, cwd: "str | None", env: "dict[str, str]") 
     match = _ROOT_FLAG_RE.search(cmd)
     if match:
         raw = _expand_home_shorthand(match.group(1).strip("'\""), env)
-        candidate = Path(raw)
-        if not candidate.is_absolute() and cwd:
-            candidate = Path(cwd) / candidate
-        return str(candidate)
+        return _join_onto_cwd(raw, cwd)
     cd_target = _leading_cd_target(cmd, cwd, env)
     if cd_target is not None:
         return cd_target
@@ -284,7 +315,7 @@ def is_denied_repo_setup_claude_home(
         return False  # no cwd and no explicit flag -- nothing to compare
 
     try:
-        resolved_candidate = str(Path(candidate).resolve())
+        resolved_candidate = _canonical(candidate)
     except OSError:
         return False  # unresolvable candidate path -- fail open
 

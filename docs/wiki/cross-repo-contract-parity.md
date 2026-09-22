@@ -123,9 +123,6 @@ def test_embed_constant_parity():
 
 **`source_is_live` SSOT degrades the producer's freshness leg — compensate with a bump-memo.** A producer-side parity test has two legs: *faithfulness* (the vendored bytes match a pinned SSOT SHA) and *freshness* (the pinned SHA is still the SSOT's tip). When the SSOT repo is **`source_is_live`** (no published/released version the producer can import or pin a tag against — e.g. `coordinator-claude` over `~/.claude`), the freshness leg degrades to **advisory**: the producer pins a *committed snapshot* and cannot mechanically detect that the SSOT has since changed. The faithfulness leg still holds. To close the resulting gap, the SSOT-side editor owes a **bump-memo** to the producer EM on any breaking change to a vendored file — the manual signal that substitutes for the freshness test the producer cannot run. Mark the obligation as RAG-bait at the vendored file's structural boundary (a header note naming the downstream vendor + the bump-memo rule) so the editor sees it at the edit site. This does **not** reintroduce the consumer-enumerates-producers anti-pattern: a passive editorial header is not a maintained drift-guard registry, and it carries no test dependency.
 
-#### Resolved instance — op-keying table parity via importable constant
-
-When the engine exposes a **derived, importable constant** (not a vendored copy), the `source_is_live` bump-memo obligation for that surface is superseded by the import. Claude-Klabauter exposed `coordinator_core.WORKTREE_SCOPED_OPS` (a `frozenset` of ops requiring `_origin_worktree`, derived from the private `_OP_KEY_SCOPE` at import time) and `coordinator_core.OP_KEY_SCOPE` (a `MappingProxyType` op→scope map). DoE's contract test (`test_worktree_scoped_ops_parity_with_claude_klabauter_core`) imports `WORKTREE_SCOPED_OPS` and asserts two SUBSET relations rather than set-equality — because DoE invokes only a subset of engine ops, raw `==` would false-fail as the engine set grows: (1) DoE's `_WORKTREE_SCOPED_OPS ⊆ CORE_WTS` (never inject on a non-scoped op); (2) `(SHIM_OPS ∩ CORE_WTS) ⊆ _WORKTREE_SCOPED_OPS` (never omit on a scoped op the shim calls). The bump-memo pattern for the vendored-schema faithfulness/freshness legs (Instance 3, Instance 4 above) is **unchanged** — this carve-out applies specifically to the op-keying table because the engine exposes it as a first-class importable surface.
 
 ## Engine-agnostic design checklist
 
@@ -194,7 +191,7 @@ When a plan introduces or modifies a producer/consumer contract field across sep
 
 ## Wire-field op-classification is an allowlist, not a consumer heuristic
 
-*Source: DoE. [universal]*
+*Source: the doctrine repo. [universal]*
 
 When a **consumer** must decide which producer ops carry a producer-routed envelope field (a `_origin_worktree`, a scope tag, any state-scoped wire attribute), classify with an **allowlist of confirmed state-scoped ops** — never an `all-minus-X` denylist. The allowlist is safe under BOTH failure hypotheses:
 
@@ -207,15 +204,15 @@ A denylist is safe only under the first hypothesis; under the second it ships a 
 
 ## Anchor a landed contract block on the WRITER + convention, not the reader's scaffolded placeholder
 
-*Source: DoE. [universal]*
+*Source: the doctrine repo. [universal]*
 
 When landing a cross-repo contract/schema block, anchor every field decision — casing, key names, types, identity-field qualification — on **the producer contract's own conventions plus the actual WRITER's emitted form**, NOT on the reader's local generator, panel, or fixture artifacts, even when the reader scaffolded ahead and those artifacts *look* authoritative. A consumer's disclaimed-as-non-contract types (a reader's TypeScript backlog-history panel, say) are context, never wire authority: the writer emits against whatever the contract declares, so the contract-plane owner just makes the better convention-consistent choice and the reader conforms.
 
-**Empirical:** three initial contract-field decisions (camelCase key, bare repo id, `IsoDate` type) were driven by an cockpit reader's scaffolded placeholder types and were all wrong — the producer (claude-klabauter) emits against the contract, so the correct anchor was the producer convention + the writer's emitted shape. Read the reader's shape for context; never treat it as the wire authority. This composes with § Cross-repo hookspec compat fields — verify at the *receiver's* assertion site — both say: the authoritative shape lives at the emitting/validating end, not in a local copy that may have drifted.
+**Empirical:** three initial contract-field decisions (camelCase key, bare repo id, `IsoDate` type) were driven by an cockpit reader's scaffolded placeholder types and were all wrong — the producer (the engine repo) emits against the contract, so the correct anchor was the producer convention + the writer's emitted shape. Read the reader's shape for context; never treat it as the wire authority. This composes with § Cross-repo hookspec compat fields — verify at the *receiver's* assertion site — both say: the authoritative shape lives at the emitting/validating end, not in a local copy that may have drifted.
 
 ## A shared-vocabulary contract change is atomic across ALL consumers — the validator/reader is a consumer too
 
-*Source: DoE. [universal]*
+*Source: the doctrine repo. [universal]*
 
 When a shared contract's field **vocabulary** changes (e.g. an override block's keys `{mechanism, name}` → `{flag, env}`), every consumer must sync in the same atomic change set: the schema, the data instances, AND the validator/reader that hardcodes the field names. Calling a downstream reader "no change needed" is a trap — a validator that still keys on the old `.override.mechanism` silently fails a compliant manifest even though the schema and data both moved. Grep **every** consumer of the changed field before declaring scope; the validator/reader is a first-class consumer, not infrastructure exempt from the rename.
 
@@ -223,7 +220,7 @@ This extends Convention B's upgrade discipline ("both repos move in the same cha
 
 ## An equality gate asserts agreement, never correctness — a vocabulary rule and a parity rule do not compose into coverage
 
-*Source: DoE + claude-klabauter. [universal]*
+*Source: the doctrine repo and the engine repo. [universal]*
 
 **Rule.** Every parity gate in this wiki — Convention B's vendored-constant check, a byte-for-byte
 drift check, a committed-vs-fresh-regen check — asserts two copies **agree**, never that the agreed
@@ -231,15 +228,9 @@ content is **right**. A rule governing the *content* (a naming convention, a lay
 what a public string may name) **stacks** with the parity rule; it does not compose into coverage.
 A defect present in both copies sits where each side's gate is individually green.
 
-*Case.* `handoff.schema.json` is vendored byte-for-byte from DoE into `claude-klabauter`. Its
-`origin_goal_id` description used a downstream consumer's codename as the worked example, which a
-standing layering rule forbids. Claude-klabauter renamed it locally, watched
-`test_handoff_schema_matches_doe_head_after_dr084_revendor` fire exactly as designed, and reverted
-rather than carry a unilateral divergence — the gate working correctly was, in that moment, the
-thing preventing the fix. Only the SSOT could clear it.
 
 **The corollary is sharper than the rule: a red parity gate names *which two things disagree*,
-never *which one is wrong*.** In the same incident DoE's generated
+never *which one is wrong*.** In the same incident the doctrine repo's generated
 `artifact-shape-contract.schema.json` had already been corrected while the `coordinator/schemas/`
 sources it generates from had not, so `test_artifact_shape_contract_freshness` was **red at HEAD**.
 It reads as "the generated file is stale" — and the reflex fix, rerun the generator and commit,
@@ -249,11 +240,11 @@ Picking the wrong side of a parity failure is a silent regression the gate itsel
 **Discipline.**
 
 - **Fix content defects at the SSOT, never in a vendored copy** — a local rename is a divergence
-  the drift check will correctly reject. Route it via `cross-repo-memo`, as claude-klabauter did.
+  the drift check will correctly reject. Route it via `cross-repo-memo`, as the engine repo did.
 - **On a parity failure, establish which side is authoritative before choosing a direction.** For a
   generated artifact the sources are authoritative; green is not the goal.
-- **A sender's sweep covers only what the sender vendors.** claude-klabauter cited the one file it copies;
-  the string had six live sites in the DoE SSOT. An example propagates by copy-paste across sibling
+- **A sender's sweep covers only what the sender vendors.** the engine repo cited the one file it copies;
+  the string had six live sites in the doctrine repo's SSOT. An example propagates by copy-paste across sibling
   schemas faster than any of them get re-read — sweep the whole SSOT, don't fix only the cited locus.
 - **Historical records are out of scope** — review-trail diffs, recovery patches, and plan sidecars
   keep the old string deliberately.
@@ -261,12 +252,72 @@ Picking the wrong side of a parity failure is a silent regression the gate itsel
 No mechanism is proposed for the gap; two incidents do not justify one. This exists so a third
 lands on a named pattern instead of being rediscovered.
 
+**Case — an inbound drift memo needs the same authority check as a red gate.** A memo reporting
+drift on your surface can be reporting the *sender's* own stale vendored pin rather than a defect
+of yours — the memo-shaped version of the same question above. Before re-reading your own surface
+for the reported defect, establish which side pinned what: if the sender's copy is the one that
+went stale, the fix is on their pin, not on your surface.
+
+**Case — a red parity gate names a version gap, never which side moved.** A vendored-schema
+parity gate's message is conventionally phrased as though the sibling always lags ("re-vendor
+into your tree, or hold the bump") — but the gate fires identically when the sibling has moved
+AHEAD, having already spent a version number on genuinely different content. Reading only the
+gate's message and bumping to the next number risks making one version string mean two different
+property sets across two repos. Read both files before bumping, not just the gate's text:
+sibling-behind means bump-and-ask; sibling-ahead means adopt the sibling's already-spent versions
+first, then bump past the highest one actually in use.
+
+## Cross-boundary validation splits by fixability-at-source — sender rejects, receiver absorbs-and-warns
+
+*Source: the doctrine repo and the engine repo. [universal]*
+
+When two repos validate the same cross-boundary artifact (a memo, a manifest, any
+producer-emitted payload a consumer also checks), the two validators should not run the same
+policy. **The sender-side validator rejects** — the sender can fix the defect before anything
+ships, so a violation there is an authoring failure, gated hard. **The receiver-side validator
+absorbs and warns** — by the time a malformed artifact reaches the receiver, the receiver cannot
+fix the sender's defect, so rejecting outright means blocking the receiver's own pipeline on
+someone else's bug; absorbing it while logging loudly keeps the receiver live and still surfaces
+the problem. The discriminator is fixability-at-source, not severity: the identical defect class
+gets the strict gate on the side that authored it and the lenient one on the side that only
+consumes it.
+
+This generalizes past the memo-cap field it was ratified on — any cross-boundary validation pair
+should ask "which side can actually fix this" before choosing reject-vs-absorb, rather than
+mirroring one policy on both ends of the seam.
+
+## A shared key name crossing a repo seam must name its axis, not just its value
+
+*Source: the doctrine repo. [universal]*
+
+A key shared across a repo seam can pass every check a normal contract review runs — type
+matches, required-ness matches, glob shape matches — and still be silently inert end to end,
+because review never asked what the token *denotes*. Two repos froze a two-key sidecar contract
+where both sides named a key `platform`, but each meant a different axis: one meant pipeline
+modality (web/repo/structured/notebooklm), the other meant evidence venue (youtube/gdelt/rss/x).
+Both facts are real, both readings are natural, and neither contract said which axis the key was
+on — so it landed green on both sides. The producer emitted, the consumer's lander returned exit
+0, and every landed record then died at the classification step: all four producer tokens
+unmappable against the consumer's own vocabulary. Not one byte flowed correctly or incorrectly —
+the seam was inert, and neither side's own test suite could have caught it, because each owned
+only one half and each half was internally consistent on its own.
+
+**Discipline.** State each cross-seam field's AXIS in the contract, not just its type and an
+example value — "the venue the evidence came from, vocabulary owned by X" beats "non-blank
+string, e.g. web." An enumerated vocabulary is the tell: if a field takes a closed set of tokens,
+the contract must name whose set it is and where it's defined, or two repos will each supply
+their own. Prefer a name that resists a second reading (`pipeline` over `platform` when the value
+is a pipeline modality). Where producer and consumer vocabularies genuinely differ, have the
+consumer supply its own token caller-side rather than reading the producer's. Treat this class as
+unreachable by review alone — a passing contract review checks shape, never meaning — and schedule
+one real end-to-end run across the seam before declaring the contract proven.
+
 ## A schema the fleet shares is authored in `coordinator/schemas/` and vendored outward — never originated in a consumer
 
-*Source: DoE + claude-klabauter. [universal]*
+*Source: the doctrine repo and the engine repo. [universal]*
 
 **Rule.** A schema of record that more than one repo validates against is authored canonically in
-DoE `coordinator/schemas/`; consumers vendor the generated output (claude-klabauter into
+the doctrine repo's `coordinator/schemas/`; consumers vendor the generated output (the engine repo into
 `coordinator_core/frontmatter/schemas/`) and never hand-edit their copy. A shared schema
 first authored inside a consumer makes that consumer the source of record for a contract it does
 not own, which inverts every parity gate on this page: the drift check still passes, and the side
@@ -274,7 +325,7 @@ it certifies is the wrong one. This holds for a schema that does not exist yet a
 one already vendored — homing is decided before the first field, not retrofitted after.
 
 **Corollary — a not-yet-existing schema still has a home, and asking where is cheap.** The
-`spine.schema.json` case: claude-klabauter needed one, found it absent on both sides, and asked
+`spine.schema.json` case: the engine repo needed one, found it absent on both sides, and asked
 where it must live rather than authoring it locally and letting the vendoring direction be
 settled by whoever typed first. That is the correct move, and the answer is always this section.
 Field shape is a separate conversation from homing; pinning the home does not commit either side
@@ -284,8 +335,72 @@ to a shape.
 becomes invalid, so it is additive — but every consumer that decides *which files ARE* records of
 that class by its own hardcoded glob must widen in the same change set, or the newly-admitted
 documents validate while staying invisible to that consumer. Those globs live on both sides of the
-vendoring boundary (in claude-klabauter, `coordinator_core/ops/records_query.py`'s `_TYPE_TO_GLOB` and the
+vendoring boundary (in the engine repo, `coordinator_core/ops/records_query.py`'s `_TYPE_TO_GLOB` and the
 registry-sync golden), so re-vendoring the schema alone does not discharge the widen.
+
+## A cross-plane contract whose only caller lives in the other repo has no test on either side
+
+*Source: the doctrine repo and the engine repo. [universal]*
+
+**Rule.** When a producer's contract has exactly one caller and that caller lives in a *different*
+repo, neither side's own test suite can assert the join — asserting it means reaching into the
+other repo's tree, which neither side's test runner does. Each half can be green in isolation
+while the join between them has never run.
+
+**Case.** A cross-plane contract (a plan-status ladder) shipped green on both planes and had never
+actually run. The engine gated on a kwarg whose documented sole caller was the doctrine repo's skill — and that
+skill never passed it. The engine's own tests passed: the gate behaves correctly for every input its
+suite exercises, including the default it falls back to when the kwarg is absent. The doctrine repo's own tests
+passed: the skill does everything its own suite checks. Neither suite exercises the seam, because
+the seam is "does the doctrine repo's skill actually pass the engine's kwarg," and that assertion has no home on
+either side. This survived a full plan review and a delivery memo exchange between the two repos —
+both processes checked their own half against its own spec, and the spec on each side was
+satisfied.
+
+**Discipline.**
+- When a plan proposes a producer/consumer split across repos, name the consumer callsite in the
+  *same memo* that asks for the producer change — not as a follow-up, in the memo that requests
+  the producer surface at all. A producer built without its caller named has nowhere for the join
+  to be asserted from either side.
+- State explicitly who asserts the join. If the answer is "nobody, each side tests its own half,"
+  that is the gap this section names, not a resolved design.
+- Prefer a default-ON flag over a default-off one for a cross-plane kwarg: a caller that never
+  passes it should get the SAFE behavior loudly, not the unsafe behavior silently. A gate that
+  silently no-ops when its only caller omits the kwarg is exactly the shape that let a one-producer/
+  one-consumer contract ship unexercised.
+- A one-producer/one-consumer split across repos is a standing candidate for a joint integration
+  test that runs against both repos' current code — not each side's own suite — precisely because
+  no other mechanism can assert the join.
+
+## A doc that names a key, glob, or path must name the LAYER it belongs to — the failure mode is a confident reader, not an error
+
+*Source: example-market-data-repo. [universal]*
+
+Two documents in two repos can each correctly describe a shared name — a natural key, a glob
+constant, a join field — from its own layer, and each be right, while neither names which layer it
+is describing. Read together they look like a contradiction; each reads as a refutation of the
+other, when in fact both facts are true at different points in the pipeline. One repo's doc named
+the natural key for a shared row "at ingest" as a three-field composite; a sibling repo's doc,
+reading a downstream delta module, said the join key was a single field, flatly, with no layer
+qualifier. Trusting the second doc's framing over the code led to a near-miss: a proposal to clear
+a table as "cheap insurance" against a duplicate-row risk that the actual store schema (checked
+directly) showed did not exist — and the proposed "insurance" would have destroyed real tombstone
+state the reconcile mechanism already handled correctly.
+
+The same class recurs in the opposite direction just as easily: two files in the same repo can both
+reference a named constant that no longer exists anywhere in the tree, because the transport layer
+it named was retired and nothing updated the callers' comments — leading a reader to regenerate and
+ship artifacts through a path that was never actually consulted downstream, mistaking "verified the
+fix" for "delivered the fix."
+
+**Discipline.** When a doc states a key, glob, or path, name the pipeline layer it applies to
+("at ingest," "at the delta/join step," "as read by the live producer invocation") — not just the
+value. A doc that omits the layer is not wrong, but it reads as universal, and a second doc making
+an equally true claim about a different layer will read as contradicting it. Before treating two
+docs' claims as opposed, check the code at both layers rather than picking a side from the prose
+alone — this composes with § An equality gate asserts agreement, never correctness above: a
+plausible-sounding doc disagreement is a "which layer" question to verify, not a fact to reason
+from directly.
 
 ## See also
 

@@ -113,6 +113,28 @@ Corollaries: subagents get exactly one rung — Tier T. A dispatch brief must ne
 
 See the "Targeted tests during fix-loops" bullet (~§95) for the fix-loop/gate split; §97 for why going sequential is the wrong lever; `concurrent-em-hazards.md` (~line 384, "full-suite spins during concurrent EM activity are unstable signal") for the shared-box rationale.
 
+### "Full suite green" is not a plan acceptance criterion — write ACs against the scoped tier
+
+**PM ruling, verbatim:** *"I don't like 'all tests must be green' as a plan item."* Struck from a
+ratified plan at execution time, with the grant the AC would have required declined in the same
+breath. Two reasons this is the wrong AC shape, and the first is now mechanical under the ladder
+above: (1) since both Tier F and Tier U require a live session-scoped grant, a plan carrying a
+whole-repo run as an AC manufactures a PM interrupt at the worst possible moment — after every
+chunk has landed and the plan is otherwise closeable. (2) It over-claims: a plan is answerable for
+the surfaces it touched, not for the health of every unrelated test in the repo, and a red suite
+from a peer's concurrent work would block a plan that broke nothing.
+
+**How to apply.** Name the specific test files covering the surfaces the plan changes — a green
+targeted (Tier T) run is sufficient evidence to commit. If a plan genuinely needs whole-repo
+evidence, that belongs at a ceremony gate (`/workstream-complete`, `/merging-to-main`) where the PM
+is already in the loop, not as a plan AC. When an already-ratified plan carries a whole-suite AC,
+strike it on the record with the PM's ruling rather than silently skipping it — a skipped AC and a
+struck AC read identically six weeks later, and only one of them is honest.
+
+*Source: promoted from auto-memory at workstream-complete; corroborated the same day by a plan
+chunk that closed its own scoped AC (three named schema test files) green without incident while
+the plan's whole-suite run was declined for lack of a grant.*
+
 ## 1. Spike Pass-Conditions Must Match the Actual Wire Path
 
 A spike that confirms "subsystem registration succeeds" or "object lookup returns non-null" doesn't prove the subsystem's outbound code path is functional — early-return guards (`IsRunningCommandlet`, `IsRunningClientOnly`, `IsRunningDedicatedServer`) commonly leave a subsystem registered-but-half-initialized.
@@ -198,6 +220,8 @@ Patching standard-library entry points one level below where the production code
 
 A test fixture that does not own a thin helper layer over the stdlib should add one before adding more patches.
 
+**The same shape recurs one level up: a fake/mock that re-implements the code-under-test's own logic is structurally blind to bugs in that logic.** Connector tests whose fake transport rebuilt the client's own URL-path templates could only ever reproduce a bug in that templating, never catch one — a Confluence v2 `/wiki` double-prefix 404 shipped because every test drove such a fake and none exercised the real client's URL-building. When a bug slips a suite, check whether the test exercises the real construction seam or a parallel reimplementation of it; a fake that shares the author's assumptions is no more independent than mocking the boundary one level too deep.
+
 ## 11. Smoke Fixtures Must Clear the Agent's Pre-Flight Gates
 
 When the rule under test is downstream of a pre-flight gate (size threshold, schema validator, format check), the smoke fixture must satisfy the gate. Otherwise the smoke validates the gate's rejection path, not the rule.
@@ -226,6 +250,8 @@ A test cluster that runs green in isolation is not green for shipping. Sibling-t
 
 This composes with §8 — a contract change can pass per-WS targeted tests and fail the cumulative sweep when an unrelated module imports the changed contract.
 
+**Isolation is a failure mode, not a virtue, and it recurs across unrelated failure shapes.** Six failures in one session shared a single signature: a real check, running in conditions that quietly excluded the failure it existed to catch — tmp-dir isolation that made both the correct and reverted relpath direction return the same value; a regression test that passed alone and broke collection in the real suite; a discriminator filter that dropped every record and rendered a valid-looking empty section; an assertion satisfied by boilerplate; a schema loader that advertised a two-entry vocabulary instead of erroring on zero; a reviewer agent that could not scaffold and so returned no findings, indistinguishable from clean code. Before trusting green, ask what the check could NOT have observed — run it in the configuration it will actually face (both file orders, both relpath directions, the real PATH), and prefer a loud failure to a plausible degraded result.
+
 ## 15. Sibling-Surface Parity Tests Catch Capability Divergence at Design Time
 
 When a system has parallel surfaces — sibling MCP tools, sibling CLI subcommands, sibling API endpoints, sibling handler classes — capability divergence between them is a predictable bug class. One sibling gains a flag, validation rule, or output field; the others drift behind silently. Manual audits catch it eventually; parity tests catch it at design time.
@@ -249,6 +275,8 @@ A test named `test_handler_rejects_invalid_payload` whose docstring says "this v
 **Rule:** a test's name and docstring must agree on what is verified. If a test only confirms input shape (typecheck, schema-fit, parse-success), name it `test_handler_accepts_payload_shape`, not `test_handler_rejects_invalid_payload`. EM-side recipe during code review: grep for tests whose docstring contains "shape only", "does not exercise", "stops short of", "structure not behavior" — the docstring is admitting a gap; the name probably isn't. Either rename or write the missing behavior assertion.
 
 This composes with §1 (spike pass-conditions must match the wire path) and §11 (smoke fixtures must clear pre-flight gates) — all three are failure modes where a green test does not exercise the claimed behavior.
+
+**The name/body version of the same gap: a test whose NAME correctly enumerates every input shape a spec requires, but whose BODY only constructs a subset of them, reads as coverage it does not provide.** A test named for three shapes built the first, then passed it through a helper that wrapped it in an envelope before calling the function under test — so the test exercised the second shape twice and the third never, while the implementation's parameter was typed to accept only the wrapped shape. Both the implementing and test-authoring executor reported that acceptance criterion PASS; neither lied, because each checked the artifact visible to them and the test name asserted coverage the test body did not provide. A drifted test name is worse than absent coverage because it is counted as evidence — catch it by re-reading the AC's own enumeration against what the test body actually constructs and what the function signature actually accepts, not by trusting the name.
 
 ## 18. Test Data Degeneracy Is Not a Checker Bug
 
@@ -318,6 +346,8 @@ A hookimpl that silently swallows `ImportError` at registration time masks packa
 
 Fail-soft `ImportError` catches in hookimpl bodies are the common vector. When auditing a plugin registry, grep for `except ImportError: pass` or `except ImportError: return` patterns in hookimpl entry points.
 
+**Shipped-in-code does not equal enabled, and the live host is the only validator that proves the difference.** An integration or plugin can pass every unit test and still be silently non-functional in the real host — a `.lsp.json`/`.mcp.json` validator can reject a shape the unit tests happily accepted, because the unit tests never round-trip the artifact through the host's own loader. For any agent-facing integration deliverable, the closing acceptance MUST exercise the real host surface (reload/restart the host, then observe) in addition to unit tests, not instead of the exact-ID-set check above — a passing set-equality assertion and a functioning plugin are two different claims, and only the second is proven by driving the actual host.
+
 ## 24. Heavy-Boot CLIs Warrant Unit-Shape Integration Tests, Not Subprocess Shape
 
 When a CLI has a heavy collaborator that dominates startup time (database initialization, model loading, MCP server bootstrap), subprocess-based integration tests are slow, flaky, and environment-sensitive — they also fail to isolate which component caused a failure.
@@ -337,7 +367,7 @@ A test marked `@pytest.mark.xfail` will show as `xfail` (expected failure, green
 
 Corollary: `xfail(strict=True)` is safer — it becomes `xpass` (unexpected pass, red) when the test starts succeeding, forcing re-evaluation. Plain `xfail` stays silent on both "still broken as expected" and "broken for wrong reason."
 
-*See also: `cross-platform-ci-discipline.md` — marker conventions for the CI-measurement layer: `cross_repo_fix_locus` deselection, hardware-gated skip-with-explanation, and the macOS-lane matrix gate. §25's named-marker-over-xfail rationale is the portability anchor for that wiki's test-marking primitives.*
+*See also: `cross-platform-ci-discipline.md` — marker conventions for local cross-platform validation: `cross_repo_fix_locus` deselection and hardware-gated skip-with-explanation. §25's named-marker-over-xfail rationale is the portability anchor for that wiki's test-marking primitives.*
 
 ## 26. "Pre-Existing Failure" Framing Is Provisional When a Recent Gate Could Have Created It
 
@@ -495,6 +525,8 @@ When a source module is migrated (moved, renamed, restructured) without co-migra
 
 **Rule.** Co-migrate the regression net in the same commit as the source migration. Verify with `pytest --collect-only` before and after — a count drop signals import failures, not test removals. Never declare "module migrated" when the test's collected count dropped relative to the pre-migration baseline. Composes with §43 (collection errors mask large failing-test populations). See also `cleanup-sweep-hazards.md` §21 (producer-rename sweep bucket 1).
 
+**When a plan itself splits behavior chunks from a downstream test-authoring chunk, the test chunk's brief must NAME the full set of existing test files the behavior chunks invalidate, not just require new tests.** A test-authoring chunk that only authors new coverage while a sibling behavior chunk quietly breaks existing test files leaves those files stale exactly the way an unmigrated import does — one session updated 2 of ~5 affected files, and a partial mock hid a suite-load break that masked 4 more failures until the EM's end-gate. Co-migration is a planning obligation as much as an authoring one: enumerate the broken tests at plan time, and the test chunk owns updating every one of them, not just the ones its own diff touched.
+
 ## 66. Enumerate ALL Mock-Patch Shapes Before Moving a Symbol Whose Consumers Move
 
 When a module-extraction refactor moves a symbol AND its consumers, every test that patches that symbol points at a target string that just became stale — and a stale `mock.patch` target fails **silent-green**: the patch resolves a path that still imports cleanly, so it never raises, but it monkeypatches the *old* binding while production now calls through the *new* one. The test passes while testing nothing.
@@ -512,6 +544,8 @@ Update every site to the symbol's new home, then confirm at the targeted (Tier-T
 A test written to guard against drift in a constant or configuration value (`assert TIMEOUT == 30`) re-types the value the guard is supposed to track. When the source-of-truth changes and the constant is updated, the test must be updated separately — and if it isn't, the guard stays green while the constant drifts. Worse: a test that asserts a literal can be "made green" by changing the literal in the test, defeating the guard.
 
 **Rule.** A drift-guard test must READ the artifact it guards: `assert TIMEOUT == parse_config("timeout_seconds")`, or `assert SCHEMA_VERSION == read_version_file()`, or `assert FIELD_LIST == introspect_schema().column_names`. The test must fail if and only if the source-of-truth and the derived constant diverge — not if someone edits the test's own expected value. The source-of-truth artifact is the single point of truth; the test reads it.
+
+**The same failure recurs one layer up: a size/parity guard that reads a stale publish duplicate instead of the SSOT.** A `docs.md` line-ceiling test passed because it read the stale `plugin/` copy while the authoritative package copy was already over ceiling — the guard was reading *a* copy, just not the one that mattered. Point every guard at the artifact that is actually shipped, not a duplicate that happens to satisfy its file-path pattern; treat a guard that only starts firing after a repoint as evidence it was silently not-guarding, not as a new regression the repoint introduced.
 
 ## 58. `bash -n` Failure Does NOT Prove a Shipped Script Is Broken
 
@@ -539,6 +573,8 @@ A test added alongside a behavior change that is only ever observed *passing* pr
 
 **Rule.** When landing a behavior change with its regression net, run the new test against the tree *without* the change (stash the change, or check out the parent) and confirm it goes **red for the right reason**, then apply the change and confirm green. A net never seen red is a hypothesis, not evidence — it can be vacuously passing (§31), targeting the wrong wire path (§1), or already-green-without-the-fix. Composes with §41 (a test that passes because of the bug), §47 (stash-recompile-rerun for attribution), and §60 (hand-traced equivalence is a hypothesis — run the suite).
 
+**A guard commissioned as the fix for a defect class can ship carrying that class's own signature — nothing about a green test distinguishes "the bug is absent" from "the input that would expose it was never constructed."** One session produced three such checks-that-cannot-fail: a closure guard's net swept only four of the keys that actually gate judgment points, missing the one axis with a real non-empty case; a DOTALL regex shifted every table row's verdict onto the next row without erroring; a wait-condition keyed to a file the harness creates at spawn, so it fired instantly regardless of the awaited condition. All three passed and all three were never seen red. Before trusting a new guard, deliberately construct the input it exists to catch and confirm the guard fires on it — a guard whose own docstring claims it "catches the next one" has not earned that claim until it has been watched failing on a real instance of the class.
+
 ## 62. Guard the Destructive Primitive on a Shared Singleton, Not the One Offending Test
 
 When a test suite shares a process-level singleton (a host daemon, a global connection pool, a module-level cache, a long-lived editor session), a single test that calls the singleton's **destructive primitive** (`shutdown()`, `reset()`, `kill()`, `close()`) tears it down for every sibling test that runs after it. The symptom reads as "the shared host died mid-run" or "sibling tests fail nondeterministically by collection order"; the cause is one test killing the thing everyone shares. Silencing or reordering the offending test is whack-a-mole — the next test that calls the same primitive re-opens the wound.
@@ -551,6 +587,8 @@ A flat scratch repo (`mktemp -d` with files at top level) does not exercise a co
 
 **Rule.** A test scratch fixture must reproduce **both** the production substrate's directory/layout shape (nesting depth, subdir structure, sibling files) **and** the production caller's invocation mode (subprocess vs. in-process, CLI args vs. kwargs, cwd-relative vs. absolute). A flat fixture for a nested-path consumer, or an in-process call for a subprocess-spawning consumer, is a vacuous-pass shape: green proves the easy layout works, not the one prod hits. Composes with §9 (anchor path inputs outside cwd), §51 (run against the REAL shared artifact), and §63's sibling in `python-subprocess-patterns.md` (conftest spawn-flag monkeypatch doesn't reach production child-spawn sites).
 
+**"Survives a rebuild" and other integration tests must exercise the production WIRE path, not a direct handle to the same store.** A survives-a-rebuild test that wrote durable rows via a direct `openDurableStore()` handle passed green while the real `/api/info/*` route (an ATTACH bridge) silently corrupted the same rows — the direct handle had no cross-DB name ambiguity, the wire path did. When a bug lives in HOW the production path opens or threads its connection, only a test driven through that exact path (the route, the bridge, the CLI helper) catches it; default integration tests to the wire path and reserve direct-handle tests for pure unit logic.
+
 ## 64. Source-Location-Assertion Tests Are a Distinct Regression Class From Deleted-Path Failures
 
 A runtime parity gate ("both arms behave identically", "the refactored call returns the same value") does **not** cover tests that assert on *source location* — `inspect.getsource()` substring checks, `fn.__module__` assertions, `spec_from_file_location` path checks, golden file-path manifests (§27). A symbol that moves modules can pass every runtime-parity test while every source-location-assertion test over it goes red — and that red looks identical to a deleted-path `ImportError` even though the symbol still exists and works.
@@ -562,6 +600,8 @@ A runtime parity gate ("both arms behave identically", "the refactored call retu
 An A/B experiment that toggles behavior via an environment variable assumes the lever is **re-read per run**. When the code under test is adopted into a long-lived daemon that reads the env once at boot and caches it, both "arms" of the experiment run the *same* frozen configuration — the daemon never re-reads the toggle. The measurement then reports a clean null result ("A and B are identical, no effect") that is actually a false null: the experiment never varied anything.
 
 **Rule.** Before trusting a null/no-effect A/B result, confirm the lever actually varied across the two arms — **zero variance between arms is a false-null tell, not evidence of no effect.** For env-lever experiments against daemonized code, verify the daemon re-reads the env per run (or restart it between arms), and assert non-zero variance on the lever's observed value as a precondition of trusting the delta. Composes with §12 (regression gates on degenerate baselines), §59 (paired deltas vs. absolute thresholds), and §40 (assert the scan's own width before asserting over its contents).
+
+**The same false-null shape shows up inside a single regression net, not just across A/B arms: a test net whose every case clamps to a floor (e.g. every worker-count case computed against a 4-core floor) does not discriminate the invariant it claims to guard, because a reverted implementation passes identically.** Discrimination in an in-test re-derivation of the arithmetic proves nothing either — the case still has to bind the SUT's actual return value. Add cases where the varied axis genuinely moves the output; a regression test that cannot fail under a reverted implementation is exercising the same zero-variance trap as a frozen A/B lever (the Staff Engineer: regression tests must vary something the SUT actually responds to).
 
 ## 67. Module-Identity Pollution Is Not Value-Cache Pollution — Autouse Resets Cannot Fix Identity
 
@@ -587,11 +627,15 @@ A test that passes in isolation but fails in the full suite (§14) has two struc
 
 A pytest autouse fixture like `_isolate_test_home` that redirects `HOME` (or its Windows equivalent) in the test process will be inherited by any subprocess spawned via `subprocess.run` / `Popen` — and if that subprocess calls `os.environ.copy()`, it picks up the hijacked directory. The test appears to pass (the in-process path is correct) while the subprocess silently uses a wrong root. Defense: add a `@pytest.mark.real_home` escape-hatch marker and skip the fixture for tests whose subject path explicitly spans a subprocess boundary. See the module-import-time capture corollary and the `monkeypatch.setattr` fix pattern: `test-environment-discipline.md` §4.
 
+**Belt-and-suspenders for any test exercising code that resolves+writes a home/config dir: `monkeypatch.setenv` the underlying env vars (`HOME`/`USERPROFILE`/the app's own root var) in addition to patching the resolver function.** An unpatched code path under `xdist` concurrency can bypass the function patch entirely and reach the real dotfile dir — the resolver patch covers the call the author had in mind, the env-var patch covers every other caller that reads the var directly. A test that writes to a real dotfile dir at all, under any patching strategy, is the smell worth chasing down.
+
 ## 33. Fixture-Substitution Masking Production Drift
 
  When a test fixture substitutes a real implementation for a stub "at test time" to make the test green, the on-disk artifact under test IS the stub — not the real impl. The test is green because the fixture swaps in the thing the stub was supposed to be; production uses the stub and is broken. Fix: the on-disk artifact must BE the real implementation; the fixture must not substitute it. If substitution is genuinely needed (e.g. costly external), the test contract must degrade gracefully without asserting on the real code path. 
 **Prefer a real-data subset over a synthetic minimal fixture for at least one test case per chunker.** Synthetic fixtures pass by construction — they exercise the code path the author intended, not the shapes production data actually produces (encoding edge cases, oversized rows, schema-drifted historical data). Keep synthetics for boundary cases (empty, oversized); use real-data subsets where the file format is stable. 
 **A fixture's defaults must be self-consistent across its own fields, not faithful to an illustrative memo example.** A contract memo's example can pair fields in a combination that never occurs in real data; copying it verbatim as a fixture default embeds the inconsistency. Assert internal consistency at authoring time: `path ↔ mount_root ↔ mount_class` must agree; if the memo example is a didactic sketch, don't inherit its contrived combinations. Sibling to the cross-repo-contract-is-hypothesis rule (`cross-repo-communication.md`). 
+**A stub whose signature accepts a discriminator it does not branch on is not isolation, it is a global disable.** A regression test meant to prove that dependency X resolves only via a new env-var ladder stubbed a shared sibling resolver as `lambda name: None` — the stub ignores `name`, so it blanks resolution for EVERY dependency, not just X. An unrelated dependency Y then fell through to a co-located default that happened to exist on the author's machine, and the test passed for a reason with nothing to do with the ladder under test — it would have raised in CI on Y's leg instead. Scope the stub to the slug under test and delegate everything else to the real implementation, and neutralize any ambient config root (search-roots/autodiscovery files) the resolver consults, not just the env vars.
+
 ## 34. Never Mark a Guard or Contract Test `@pytest.mark.slow`
 
  A guard test, tripwire test, or contract test marked `pytest.mark.slow` is deselected from the default `-m "not slow"` run. The guard is invisible to CI while the bug it guards against ships. Rule: guard tests, tripwire tests, and cross-contract tests are NEVER marked `slow` regardless of actual runtime. If runtime genuinely must be gated, extract the slow work to a helper and keep the guard assertion in an un-marked test that drives the entrypoint at minimal cost. 
@@ -640,12 +684,14 @@ for item in captured:
 
 Without the width assertion, capture-shape drift makes the tripwire silently no-op while reading green. This is the wide-surface variant of §31's vacuous-pass standard and §39's positive control.
 
-**Parse-failure variant — an extraction that can't parse an in-repo surface must FAIL, not SKIP.** When a guard's assertion is driven by extracting a set from an in-repo surface via a *form-specific* regex, a benign change to that surface's form silently voids the guard. The wsc wire-contract test extracted the SKILL's D-5 jq key set via regex; when the SKILL was corrected from jq object-shorthand (`{sid,...}`) to the explicit form (`{sid:$sid,...}`), the regex stopped matching, the assertion emitted SKIP, and ~11 assertions silently stopped running while the test still exited 0 (`12 passed, 1 skipped`). **A guard that stops guarding without failing reads as green coverage.** SKIP is the correct disposition ONLY for a legitimately-absent *external* dep (a claude-klabauter seam not present — the substrate-reachability-skip of §39); an in-repo surface that is *present but unparseable* is a TEST DEFECT and must FAIL loud. The assertion-count floor above is the mechanism: assert `len(extracted) >= EXPECTED_MIN` so silent degradation trips the exit condition instead of masquerading as a skip. 
+**Parse-failure variant — an extraction that can't parse an in-repo surface must FAIL, not SKIP.** When a guard's assertion is driven by extracting a set from an in-repo surface via a *form-specific* regex, a benign change to that surface's form silently voids the guard. The wsc wire-contract test extracted the SKILL's D-5 jq key set via regex; when the SKILL was corrected from jq object-shorthand (`{sid,...}`) to the explicit form (`{sid:$sid,...}`), the regex stopped matching, the assertion emitted SKIP, and ~11 assertions silently stopped running while the test still exited 0 (`12 passed, 1 skipped`). **A guard that stops guarding without failing reads as green coverage.** SKIP is the correct disposition ONLY for a legitimately-absent *external* dep (an engine-repo seam not present — the substrate-reachability-skip of §39); an in-repo surface that is *present but unparseable* is a TEST DEFECT and must FAIL loud. The assertion-count floor above is the mechanism: assert `len(extracted) >= EXPECTED_MIN` so silent degradation trips the exit condition instead of masquerading as a skip. 
 ## 41. A Test That Passes Because of the Bug Will Fail When the Bug Is Fixed — That Failure Is Signal
 
 A test written against buggy behavior locks the bug in as the contract. When the bug is fixed, the test goes red — and the reflex to `xfail`/revert/"adjust the assertion to match" re-buries the fix. The red is the fix succeeding, not a regression.
 
 **Rule.** When a test fails immediately after a fix lands, **read the cited code and the test's original intent before reverting or `xfail`-ing**. Ask: "did this test pass *because of* the condition I just fixed?" If yes, the test was encoding the bug — rewrite the assertion to the correct contract, don't suppress the failure. Migration seams are the recurring locus: a shipped migration leaves consumer-side bugs at the seam (runtime ContextVar shape, symbol-port shape) that the old test silently tolerated.
+
+**The sharper failure mode is a test that asserts the implementation back to ITSELF — it pins the defect in place rather than merely tolerating it.** Three shapes in one session: a sidecar fixture carried a field commented `# deliberately never read`, making an AC-mandated omission read as considered; a spine test asserted a stability gate is never called and no sidecar written on an extraction-floor failure — the exact inverted-conditioning defect under fix; two pipeline wiring tests mocked opposite halves of the one interaction that crashed, so neither could see it. The tell is a test whose expected value was derived from reading the implementation rather than the spec. Ask of any passing test: would this fail if the code were wrong in the way the spec forbids? Mocking both sides of an interaction tests neither.
 
 Composes with §8 (contract change → grep all assertions over the contract) and §26 ("pre-existing failure" framing is provisional when a recent gate could have created it).
 
@@ -995,13 +1041,13 @@ When a test fails by **crashing the process** (not by an assertion), or hangs, o
 
 - **Subprocess-launched install/setup tests must close child stdin.** A setup script that keys interactivity off `IsInputRedirected` (or `sys.stdin.isatty()`) alone will HANG a non-interactive caller that spawned it with an inherited console — the child sees a console attached and blocks waiting for input that never comes. The test harness must close or `DEVNULL` the child's stdin (`subprocess.run(..., stdin=subprocess.DEVNULL)`), and the script's interactivity gate should require BOTH a tty AND non-redirected stdin. Composes with §67 (multiprocessing-spawn workers) and §44 (bound every run — a stdin-hang is a hang).
 
-## 94. Local-Green ≠ CI-Green: Module Renames Sweep `.github/workflows`, and CI Scripts Never Hardcode Layout
+## 94. Local-Green ≠ Green-Everywhere: Module Renames Sweep `.github/workflows`, and Validation Scripts Never Hardcode Layout
 
-A green local fast-tier is not a green CI run — the CI environment exercises paths the local run never touches (workflow YAML, publish-repo layout, fresh checkout).
+A green local fast-tier is not green everywhere — another OS, the publish-repo layout, or a fresh checkout exercises paths the run on this box never touches. The fleet runs no CI; the PM's own Windows/Mac/Linux boxes are the cross-platform check.
 
-- **Module-rename / restructure sweeps must include `.github/workflows/`.** A workflow file that names the old module path (`pytest path/old_module`, a coverage include, an entrypoint import) stays red after a rename even when every local test is green. Grep `.github/workflows/` (and any CI config: `.gitlab-ci.yml`, `azure-pipelines.yml`) for the renamed symbol/path in the same sweep that renames it. Composes with §56 (source-migrate without test-migrate leaves an import wall).
+- **Module-rename / restructure sweeps must include `.github/workflows/`.** A workflow file that names the old module path (`pytest path/old_module`, a coverage include, an entrypoint import) goes stale after a rename even when every local test is green — such files persist in repos this fleet does not own. Grep `.github/workflows/` (and any CI config: `.gitlab-ci.yml`, `azure-pipelines.yml`) for the renamed symbol/path in the same sweep that renames it. Composes with §56 (source-migrate without test-migrate leaves an import wall).
 
-- **CI scripts in publish repos must not hardcode layout paths.** A CI script that assumes a meta-repo directory layout (`plugins/<name>/…`, a sibling-repo relative path) breaks when run inside the flattened publish repo where that layout doesn't exist. Resolve paths from a marker (git root, a sentinel file) or accept them as args — never bake the source-tree layout into a script that also runs in a percolated/published tree. Composes with the round-trip rule and "Build For Someone Else's Machine" (path resolution order) in coordinator CLAUDE.md.
+- **Validation scripts in publish repos must not hardcode layout paths.** A validation script that assumes a meta-repo directory layout (`plugins/<name>/…`, a sibling-repo relative path) breaks when run inside the flattened publish repo where that layout doesn't exist. Resolve paths from a marker (git root, a sentinel file) or accept them as args — never bake the source-tree layout into a script that also runs in a percolated/published tree. Composes with the round-trip rule and "Build For Someone Else's Machine" (path resolution order) in coordinator CLAUDE.md.
 
 ## 95. Test Oracles Must Invoke the Real Surface and Read Live Output — Not a Reimplementation or an Inferred Shape
 
@@ -1088,6 +1134,8 @@ After an intentional behavior change lands, the full suite is the only honest ga
 
 **Rule.** Run the FULL suite at integration (EM-side, after the wave) whenever any chunk changed a surface a sibling test asserts — never trust per-chunk green. Executors are Tier-T only (§ Posture: Proportional Test-Running); this full-suite integration run is Tier U and belongs to the EM alone — an executor reports its per-chunk stash-verify and stops there, it does not fire the suite to manufacture an integration verdict itself. A stash-verify of an executor's own edits is an attribution tool for *that executor's* change (§47), never a suite-health verdict — the break it can't see is the one an earlier committed chunk introduced. Composes with §14 (cumulative-sweep validation), §8 (contract change → grep all assertions over the contract), §41 (a test that fails after a fix may be the fix succeeding), and §61 (a behavior-change net must be observed red before green).
 
+**A sibling shape of the same failure: two executors each internally green can make incompatible assumptions across a shared constant or topology seam.** One chunk named a registry pillar `example-pillar-a` while a sibling chunk hardcoded `platform-tooling`, and the sibling's own enumeration walked one pillar's descendants instead of the collapse-correct traversal — so the real default returned an empty result, invisible because unit tests on both sides injected fixtures that masked the mismatch. For any plan where chunk B consumes chunk A's data via a shared constant or topology, the EM's end-gate must run a real functional probe against the DEFAULT configuration, not fixtures, in addition to the stash-verify above — per-chunk unit-test green proves neither side's assumption, only that each side is internally consistent with itself.
+
 ## 102. Host/Producer-Derived Values: Normalize at the Consumer Boundary, and Make Contract Tests Control the Host Probe
 
 Two symmetric failures around values a program reads from the host or an external producer (a `whoami`/vendor string, a `shutil.which` result, `platform.*` detection): the production code fails to normalize the value, and the test fails to control the probe. Plan-time tests built on a hand-picked literal pass; the real host supplies a different-cased or differently-shaped value and the truth surfaces only in production or host-dependently in CI.
@@ -1130,8 +1178,7 @@ A test that validates a file by shelling a CLI whose real input channel is **std
 
 ## 108. Bash-Suite Retirement: Classify the ASSERTION, Not the FILE — Tautology Deletes With Its Subject, Only Behavior Ports
 
-When a bash suite is retired alongside the bash it tests (a broader shell-to-native migration), the migration-cost illusion is that every bash test "needs" a pytest (or equivalent) port to preserve coverage. That cost is manufactured by the thing being migrated: a large share of bash test suites assert that bash-authored constructs are *bash-shaped*, not that they *behave correctly*. A test whose entire assertion is "this bash function exists after sourcing this file" has no meaning once the bash subject is gone — porting it would port a no-op, since the target language's own import-time collection already fails loudly on a missing symbol.
-
+When a bash suite is retired alongside the bash it tests (a broader shell-to-native migration), the migration-cost illusion is that every bash test "needs" a pytest (or equivalent) port to preserve coverage. That cost is manufactured by the thing being migrated: a large share of bash test suites assert that bash-authored constructs are *bash-shaped*, not that they *behave correctly*. A test whose entire assertion is "this bash function exists after sourcing this file" has no meaning once the bash subject is gone — porting it would port a no-op, since the target language's own import-time collection already fails loudly on a missing symbol. Such a test is bash-tax, not coverage: it manufactures the very migration cost that makes retiring the bash subject look expensive.
 **The classification unit is the ASSERTION, not the FILE.** A single test file routinely mixes tautological and behavioral assertions. Classify each assertion, then let the file's disposition follow: a file whose surviving assertions are all behavioral ports (dropping the tautological ones); a file with zero surviving assertions after tautologies are stripped is deleted outright; an all-behavioral file ports whole. Do NOT classify by skimming file length or title — a large file "looks" expensive to port when the actual porting unit is a handful of assertions that already exist as one-line `bash -c "source ... && fn"` invocations translating near-verbatim into parametrized test cases.
 
 **3-way classification table:**
@@ -1181,6 +1228,8 @@ Fixtures spelled in the grammar the matcher already understands cannot fail in t
 
 The grammar case of §69 (same-author encoders and synthetic fixtures co-confabulate the wrong wire format) — the fixture and the code share one mind. Composes with §41: a differential added while a predicate is still single-grammar is expected red, and that red is the coverage signal.
 
+**The same grammar-blindness shows up in a fixture keyed against a production stopped using.** A dedup keyed on `session_id` was tested against an archived ledger grammar that carries a full UUID, and passed — while every live handoff uses the current one-line-append grammar, which carries only a 4-12 hex abbreviation the comparison could never match, so the fix was inert exactly where it shipped. When a parser accepts more than one grammar, pick the fixture by what production WRITES today, not by whichever shape is easiest to hand-author; if both grammars are live, the test owes a case per grammar. The tell is a passing test for a fix whose defect you can still reproduce by hand.
+
 ## 111. Hook and Git-Fixture Tests Are In-Process by Default; a Subprocess Needs a Physics Justification
 
 
@@ -1195,3 +1244,425 @@ That result holds only as long as the practice below is the default, not a one-t
 - **A subprocess inside a test needs a physics justification: the process boundary IS the thing under test.** Never convenience, never "it's simpler to shell out here." Volume is never physics either — spawning once per parametrized case where one spawn per *behaviour* would do is exactly the pattern that produced the incident this section documents.
 
 Composes with §44 (bound every test run; never run a surface containing a known-hang "to verify") and §30 (slow tests masquerading as unit tests blow up default suites) — an unbounded subprocess count is a slow-suite defect with a machine-wide blast radius, not just a per-test one.
+
+## 112. Frozen-Snapshot Assertions Rot Into False Coverage — Derive Expectations Live
+
+Three independent instances surfaced in one day: a coverage gate reported COVERED from a frozen trail record spanning commits no reviewer could actually read; a cross-platform invocability gate checked only a frozen 120-file manifest snapshot, so 25 entrypoints added later were silently never checked; a test asserted a hardcoded 45-consumer count captured at write time, drifted to 31, and sat red-unnoticed. The common shape: an assertion pinned to a point-in-time enumeration reads as coverage while checking nothing current.
+
+**Rule.** Gates and tests must derive their expectation set live — glob, sentinel-grep, structural properties — or cross-check the snapshot against a live derivation. A hand-frozen list, count, or range is acceptable only when the freeze itself IS the assertion (a migration-cohort pin, say), and that must say so in a comment. See §117 for the complementary case, where a frozen allowlist is the deliberate carve-out rather than the rot.
+
+## 113. Golden/Fixture Hazards Invisible to Name-Based Sweeps — Corpus Location and Skip-Vacuous-Green
+
+A filename sweep for `golden`/`fixture`/`snapshot` cannot see two failure shapes in the corpus itself. First: a suite parametrized over a corpus living in an untracked or machine-local location (a live repo's own `.git/`, say) is green-forever on the author's box and collects zero tests on a fresh clone or CI — the hazard is where the corpus **lives**, not what the fixture is named. Cheap residual check: `grep -l '\.git/'` over the test tree, then confirm each hit is a `mktemp`/`git init` sandbox rather than a live-repo dependency. Second: a fully-populated corpus can still pass vacuously when every entry skips or early-continues internally — count-of-entries-**reaching-a-real-assertion** is the stricter pin than count-of-entries.
+
+**Rule.** When auditing a test corpus, don't stop at confirming the fixture files exist and are named right — confirm where they live (tracked vs. machine-local) and confirm the count of entries that actually execute an assertion, not just the count of entries enumerated. Composes with §112 (pin a term that does not derive from the corpus under change) and §14 (cumulative-sweep validation).
+
+## 114. Exempt Test Data by Verified Non-Executability, Never by Directory Name
+
+A bash-exclusion gate's `/fixtures/` substring marker silently exempted executable runner scripts that merely sat under a directory named `fixtures/` — a location-based data exemption rots into a blind spot the moment something executable lands in that directory. The fix keeps only content-verified rules: a `.expected` suffix, or a shebang contract verified at test time.
+
+**Rule.** An exemption from a test-data or content gate must assert a **property of the file** — a verified suffix, a verified shebang, a verified non-executable bit — never the file's address (a directory name, a path substring). A location-based exemption is exactly as trustworthy as the assumption that nothing executable will ever be placed at that location, which nothing enforces.
+
+## 115. A Case the Corpus Structurally Cannot Exercise Is Not Coverage — Label the Probe Synthetic
+
+A parity sweep needed a case addressed to a repo this hub cannot structurally address inward — every real artifact here is addressed inward, so no such case can exist in the live corpus. The case was exercised against a synthetic file written outside the working tree and graded PASS — correctly, but only because the report said "synthetic-only" instead of folding it into the coverage count.
+
+**Rule.** When a corpus cannot produce a case by construction, say so next to the grade. An unlabelled synthetic pass reads as real-world coverage the corpus never had; label the probe synthetic at the point it is reported, not just in a comment upstream of the report.
+
+## 116. Green Unit Tests on Functions the Integration Never Calls Are False Confidence
+
+An assembler passed 43 unit tests, but its `brief()` entrypoint never called the `compute_*` functions those tests exercised — dead code shipped green. The unit tests were correct about the functions in isolation; they said nothing about whether the integration wires those functions in at all.
+
+**Rule.** Unit-test the WIRING (the end-to-end entrypoint's actual output), not just the leaf functions it is supposed to call. A dogfood or integration pass is the only net that catches unwired-but-tested code — a green leaf-function suite cannot distinguish "correctly called" from "never called." This is the general form of §20/§21 (a swappable-sink indirection needs a wire-up integration test): the sink case is one instance of a broader pattern, and any set of leaf functions an entrypoint is *supposed* to call needs the same wire-up check, sink or not.
+
+## 117. A Deliberately-Frozen Allowlist Has Two Write Targets
+
+An OSS publish allowlist was guarded by a frozenset asserted equal to two wiki rows — a deliberate freeze added after the seed silently drifted from 8 to 200 files. A reviewed, PM-stamped plan named three allowlist rows as its write targets and omitted the guard, so the chunk as specified would have landed red; it was caught only by grepping the config's git history at execute-time reconcile.
+
+**Rule.** This is the complement of §112 (frozen-snapshot assertions rot): where the freeze IS the assertion — a deliberate carve-out, not rot — the freeze itself becomes a second write target that plan-authoring must enumerate. When a plan's write target is a config file, grep that file's recent history for a paired guard before pinning the chunk's write-files; an intentional freeze does not announce itself from the config side.
+
+## 118. Make Two Co-Authored Surfaces Assert Against Each Other, in Both Directions
+
+A wiki write-owner table and a JSON schema were authored by two concurrent chunks in the same wave. One chunk added a schema field the other's table had no row for — the classic silent divergence that surfaces months later as a reader's confusion. It failed loudly the same minute instead, because a third chunk asserted a both-directions setdiff between the table's field column and the schema's properties.
+
+**Rule.** When two chunks jointly define one contract across two files, spend a third chunk on an assertion that the two agree — it converts a coordination hazard into a red test that pays out on its first run rather than someday. Prefer a setdiff in **both** directions; one-way coverage misses the extra-row case.
+
+## 119. A Gate That Cries Wolf Fails the Same Way as a Gate That Lies
+
+Three coverage-gate defects split evenly: two reported false COVERED (unreviewed code behind a green signal), one reported false UNCOVERED on every spinoff. The second reads as safely conservative and is not — a permanently amber gate gets overridden by reflex, and an override habit protects nothing.
+
+**Rule.** When fixing or reviewing a gate, state both failure directions in the brief. A reviewer told only "do not let it pass bad input" will happily make the gate unusable in the other direction, and a gate nobody trusts is functionally the same as a gate that lies.
+
+## 120. An Acceptance Oracle That Varies One Axis Cannot See the Other Axis Move
+
+A differential oracle loaded an evaluator at two commits and diffed per-baton verdicts across five repos, returning a clean PASS — zero unattributable deltas — while a live over-clearing defect existed in the same corpus. The reason is structural, not a bug in the oracle: it varied the EVALUATOR against a FIXED corpus, and the defect came from the CORPUS moving under a fixed evaluator — a migration rewrote prose gates out of the field the evaluator keys dominance on and into a field documented as inert. No number of evaluator commits could have surfaced that.
+
+**Rule.** When building any differential or A/B oracle, enumerate what is held fixed and ask what happens if THAT moves. If the pinned thing can change in production — a corpus, a config, a schema, a fixture set — it needs its own axis, or the report must state the blind spot in the verdict so a reader cannot mistake a scoped PASS for an unscoped one. A differential check silently defines its blind spot as whatever it holds fixed.
+
+## 121. An End-to-End Test Can Pass Through a Different Code Path Than the One It Names
+
+A test that drives a whole pipeline and asserts only the final verdict cannot tell you WHICH branch produced that verdict. A commit-reality evaluator routed to an ordinary candidate-matching path whenever the ship commit's subject shared enough derived tokens with the handoff's scope — silently bypassing the explicit-ship-claim function the test was meant to cover. The test would have passed with that function's fix entirely reverted: a false green in the regression net, not merely a weak test.
+
+**Rule.** When an end-to-end test exists to pin ONE branch of a multi-signal function, assert something only that branch emits — an evidence string, a marker constant — in addition to the outcome. Verify by spying on the target function or by mutation: if the test still passes with the fix reverted, it is not testing the fix. Telling future authors to choose non-colliding vocabulary is not a remedy — it is discharged by the author remembering, and it takes only two authors in one session to demonstrate how well that works. Composes with §1 (spike pass-conditions must match the actual wire path).
+
+## 122. Semantic-Assertion Tests Cannot Catch Serialization-Fidelity Loss — Assert on Raw Text
+
+A writer that parses a structured block, mutates a field, and re-serializes the whole block will silently destroy comments, block-scalar formatting, and quoting. Tests that re-parse the written file and assert on field VALUES pass under that defect by construction — the values are exactly what survives. A round-trip destroyed hundreds of lines of a real document and auto-pushed it, exit 0, with every writer test green, because every one re-parsed and checked disposition fields; a sibling test asserted only dump-to-dump stability, which also passes under the bug by construction.
+
+**Rule.** Where a round-trip is a design risk, the regression net must be textual — line counts, verbatim comment survival, block-scalar markers still present — not values re-derived from a re-parse. A stability test (dump→dump byte-identical) is not a substitute for a fidelity test (source→dump). When reviewing or authoring any writer that reads a fenced/structured block and writes the file back, ask what the test asserts ON; if every assertion routes through a re-parse, the fidelity net is missing regardless of test count.
+
+## 123. Two Components Each Correct by Their Own Spec Can Be Jointly Break-Class
+
+A corpus migration moved human prose gates out of one field and into another, exactly as its own translation rules required. A downstream resolver keyed prose-dominance on the first field only and documented the second as "inert by construction" — also exactly as specified. Each component passed its own tests. Together they cleared a baton whose only gate was a real, unresolved blocker. No fixture caught it because no fixture spans two components' specs, and a differential oracle covering the same corpus missed it because the defect lived in the seam rather than in either side. It was found only by reading two independent reports against each other and refusing to accept that one's PASS explained the other's red-flag number.
+
+**Rule.** When two artifacts change in one session and one writes a field the other reads, stop and ask what the reader does with the writer's new output — do not infer safety from both sides being green. Treat contradictory signals from two reports as a finding to reconcile, never as one report explaining the other away; the reconciliation is where seam defects surface. A seam defect between two individually-correct, individually-tested components needs a fixture that spans both specs, or a cross-check of independent reports against each other — neither side's own green carries any information about the seam.
+
+## 124. A Guard That Measures a Reconstruction of the Payload Reports Safety It Never Checked
+
+A budget test summed raw source content and read green while the real emitted JSON envelope was already over the limit. The guard measured a re-derivation of what it assumed the payload would contain, not the artifact that actually crosses the channel.
+
+**Rule.** Assert on the ACTUAL artifact that crosses the channel — invoke the thing and measure its output — never on a re-derivation of what you think it will contain. A vacuously-passing budget or size guard is worse than no guard, because it reports safety it never checked.
+
+## 125. Put the Preservation Audit in Different Hands From the Deletion, and Check Distinctness Not Count
+
+A restructure deleted a provenance comment outright; the raw grep count still read the same total because another comment had been duplicated into two files, backfilling the vacated slot. A count-only gate passed it. An independent auditor — a different agent from the one that did the deleting — caught both the loss and the masking.
+
+**Rule.** Assert DISTINCT items against a pre-extraction inventory, never a count against one. And never let the agent that removed content certify that nothing was lost — the preservation audit belongs in different hands from the deletion, or a duplicated item can silently backfill a deleted one's slot under a count-only check.
+
+## 126. Verify a Gate Actually Enforces Before Speccing a Fix to It
+
+A gate that prints HALT is not necessarily a gate that halts. A review-coverage gate computed a mechanically-trustworthy verdict and then relied entirely on an EM reading the word HALT and choosing to stop — no op, hook, write guard, or dependency edge consumed its nonzero exit. A spinoff handoff spent over a hundred lines on solution shapes for the gate's permanent UNCOVERED tail before anyone asked whether the thing being fixed was load-bearing at all; it was not.
+
+**Rule.** Before speccing a fix to any gate, guard, hook, or check, spend one command establishing whether it structurally enforces — grep for a consumer of its exit code, a dependency edge from the gated action, a hook registration, or a write guard. Trace the exit code to a consumer, or find there is none, before enumerating solution shapes. An advisory oracle and a hard gate have different failure modes and deserve different fixes: an oracle's defect is signal quality, a lock's defect is blast radius.
+
+## 127. A Test That Constructs Its Own Input Cannot Detect That the Real Producer Is Broken
+
+A hand-built fixture validates the SHAPE of a record; it says nothing about whether anything on the real path ever produces that shape. Observed twice in one session across two unrelated subsystems: a contract entity gained a required field, with a test asserting a dict missing that field fails validation — the test passed, but the real producer that builds those records was in a different module, was never touched, and never set the key, so every real emission was schema-non-compliant while the test proving the field was required was the same test that made it look covered. Separately, a citation checker's exclusion set was tested by calling the exclusion predicate directly on untruncated literal strings — every exclusion test passed, but the extractor that feeds the predicate truncated its input first, so end-to-end the exclusions did not apply at all. Both were caught by a reviewer reading code, not by a suite.
+
+**Rule.** When adding a REQUIRED field to a record, or a filter that another component feeds, the acceptance test must run the real producer end-to-end and validate its actual output — not construct the record itself. For a contract field, assert that a record built by the production collector round-trips through validation; for a predicate, assert through the extractor that feeds it, in the real input format, not by calling the predicate directly. Keep the unit tests too — they localize the failure — but never let a hand-built fixture be the ONLY coverage of a seam, and never cite a green fixture-based suite as evidence a field is emitted; check the producer. This is distinct from §86 (a test invoking a local reimplementation instead of the real function): here the function under test is real, the gap is that nothing verifies the *producer feeding it* actually constructs the shape the fixture assumes.
+
+**The gap is sharpest when the SAME author writes the code and the test in one pass, for a boundary the author does not control.** A suite authored beside its implementation cannot witness a wrong assumption about an external contract — it inherits the assumption and reports green, with real assertions and real coverage of the fabricated shape, and zero coverage of whether that shape is what the runtime actually delivers. The tell is a test that BUILDS the input it asserts on for a hook payload, a webhook body, a tool-call envelope, or an API response fixture — coverage of a fabricated shape is worth nothing at that seam. The discharge is one live probe, not more unit cases: drive the real surface with a real payload and assert the observable side effect. Concrete instance: a hook latch read `tool_input["command"]` for the Skill tool, whose real input schema is `{skill, args}` — `"command"` belongs to a different tool entirely — and the mechanism was inert in production while its author-matched tests stayed green throughout; only executing the hook with a real `{"skill": ...}` payload surfaced that it never latched.
+
+## 128. A Version Bump Can Silently Disarm the Boundary Test That Guards It
+
+A test whose fixture hardcodes "one past the current version" as its out-of-range value stops testing anything the moment the real version reaches that number. Bumping a schema's major version can make a sibling repo's hardcoded "newer than the schema major" fixture equal to the schema's own new major, so the gate it named goes unexercised — and it still passes, because a no-op assertion passes. Nothing fails loudly; the test just quietly stops being a test.
+
+**Rule.** Boundary tests that encode an absolute version rather than a relative offset decay into no-ops on the exact change they exist to guard. When bumping a version that any gate compares against, grep the test corpus for the literal new version string before landing. A hit inside a fixture that means "out of range" is a disarmed test — re-anchor it (bump the fixture, or derive it from the schema at runtime) in the same commit as the bump.
+
+## 129. Probe a Guard Against the READ Side's Matching Semantics, Not the Guard's Own Spelling
+
+A sentinel-gated guard has two halves that must agree on what counts as the same file: the write guard that refuses to create the sentinel, and the read check that decides the sentinel is present. Probing only the write guard, using the exact name the guard's own source spells, confirms the case the author already had in mind and nothing else. Two bypasses survived exactly that probe set: case variance round-tripped into a live override because the write guard compared basenames case-sensitively while the read side used a case-insensitive filesystem check; a symlinked write reached the real sentinel because one hook resolved its target and its sibling did not, though both called the same shared helper. Both were found by a reviewer enumerating evasions against the read side, not by the probes, and not by 46 passing tests.
+
+**Rule.** Before trusting a sentinel-gated guard, read the code that consults the sentinel's presence and enumerate what IT treats as the same path — case folding, symlink resolution, normalization, filesystem behaviour — then probe each of those forms against the write guard. The read side is where the actual grant happens, so its matching semantics define the real attack surface; a guard and its reader that disagree about identity is a hole that no test of either half alone will show. Where two guards share a helper, verify each call site actually inherits the hardening rather than assuming the factoring delivered it.
+
+## 130. A Case-Collision Fixture Written Through the Filesystem Silently Collapses on macOS/Windows — Build Through the Git Index
+
+A red-case fixture for a case-collision detector created `Readme.md` then `readme.md` via ordinary file writes; the authoring host's case-insensitive filesystem collapsed them into one file. The fixture could never fail, so the detector it was meant to prove was never actually tested — green, with zero real coverage.
+
+**Rule.** Build the fixture through the git INDEX rather than the filesystem: `git hash-object -w` to create the blobs, then `git update-index --add --cacheinfo <mode>,<sha>,<path>` for each casing. The index has no case-folding, so both entries exist regardless of host filesystem semantics, and a detector enumerating via `git ls-files` sees exactly what it would see on a case-sensitive CI box. This generalizes past case-collisions to any fixture whose subject is a filesystem property the authoring host does not share — symlinks, the exec bit, reserved device names, over-MAX_PATH paths — where the filesystem refuses or silently normalizes what the fixture needs. Any fixture asserting a filesystem-level property must first assert the fixture MATERIALIZED (count the entries, check the mode) before asserting the detector's verdict on it; if the property cannot exist on the authoring host, construct it in the git index instead of on disk.
+
+## 131. A Conjunct on an Undeclared Field Makes a Gate Unreachable, Not Wrong
+
+A governance predicate was implemented as "has-approval-block AND schema-version-at-or-above-floor," reading the version from the artifact's own frontmatter. Measured against the live corpus, zero of the repo's plans carried that field at all, and the schema that actually matched those plans didn't declare the property. The predicate returned false for every artifact in the repo, including ones that should have been governed — the write-guard's deny never fired, the check no-opped, and the mechanism it existed to replace kept running unchallenged. Worse than shipping no gate: a reader cannot distinguish "governed and passing" from "governance never turned on." Neither repo's suite could see it, because every fixture on both sides set the version explicitly, so the conjunct was satisfiable in test and unsatisfiable in life. The same shape recurred as a mutual-exclusivity test over a guard pair that passes when NEITHER sibling fires — a new corpus payload for a new branch proves nothing on its own, and an unwired branch goes green.
+
+**Rule.** When a gate's predicate conjoins a condition on a field, measure how many artifacts in the LIVE CORPUS carry that field before trusting any test result about the gate — a passing suite proves the branch works when reached, never that it is reachable. Prefer a single-bit discriminator and treat an added required conjunct as a reachability risk to be justified, not free safety. Pair any "at most one of N handlers fires" assertion with a positive assertion that the specific handler DOES fire, or a dead branch is indistinguishable from a correct one.
+
+**The same unreachability shows up one layer earlier, gating on OPTIONAL input rather than an undeclared field.** A gate guarded on an optional/nullable parameter self-skips in production the moment no real caller happens to supply that input — "the gate exists and its function is unit-tested" is false comfort, because an optional-input guard converts "gate present" into "gate dormant" the instant wiring is incomplete. For any gate guarded on optional or nullable input, add a test that exercises the END-TO-END CLI/production invocation path, not just the gate function with the input hand-supplied, and grep every real caller to confirm at least one actually passes it.
+
+## 132. A Gate Can Report Green Without Ever Implementing the Criterion That Made It the Gate
+
+A plan folded eight hook processes into two, gated by a golden differential harness driving a payload corpus through both the legacy scripts and the new engine and asserting they agree. The plan named one property as the gate's whole point: the legacy path can emit a deny AND coexisting advisories for one payload, while the folded engine emits at most one envelope, so the harness had to MEASURE which advisory gets dropped per payload rather than assume the loss away. The harness ran green at 34 passing, correctly refused a retirement while guards still diverged, and the registrations were retired on its authority. Partitioned review later found the named property had never been implemented: every row drove exactly one legacy script against the full engine, a shape that can never construct the SET a real multi-process dispatch emits, so no row could have measured a collapse. The harness was a real differential and a real gate — it tested a different, easier property than the one its own spec named, and "34 passed" could not distinguish the two. A second instance in the same session: when the cutover deleted the legacy scripts, the harness lost its comparison leg and degraded to skipping most of its rows, still exiting green.
+
+**Rule.** A passing suite answers "did the assertions I wrote hold," never "are the assertions I wrote the ones I promised." Where an acceptance criterion is stated as a specific property (a SET comparison, an exact count, a named behavior), verify mechanically that the harness's own rows exercise that property — count what each row actually invokes or measures — rather than trusting the harness's designation as "the gate." A harness that has demonstrably blocked something once reads as trustworthy in general; that inference does not hold for the specific criterion nobody checked.
+
+## 133. When Optimizing a Safety Mechanism, the Benchmark Must Assert the Deny Still Fires
+
+Profiling a bash-guard hook turned up an apparently excellent win — skipping Python's `site` import cut a large fraction of the call's latency, reproducible and stable. It was a silent fail-open: with the site directory unreachable, a dependency failed to import, the guard engine raised, and the hook's deliberate fail-open exception handler returned ALLOW instead of the correct DENY. The timing number was real — the hook genuinely ran faster, because it had stopped doing anything — and every repeated measurement would have kept confirming the "improvement."
+
+**Rule.** A performance benchmark measures how long something took and nothing else; for a guard, hook, validator, or any check whose success case is silence, that is exactly backwards — the fastest possible implementation is the one that does nothing, and it is indistinguishable from a well-optimized one on the only axis being measured. Pair every latency measurement of a safety mechanism with a verdict-parity check (run the must-deny set and confirm it still denies), not the timing method alone. A slower number prompts investigation; a faster number is accepted and shipped, and the optimizer is actively looking for the largest delta available — which disabling the mechanism produces.
+
+## 134. An Unrun Guard Hides Its Own Defects, and the First Run Is a Bug-Finding Event
+
+Several tripwire guards were provisioned into a tests directory that the repo's configured fast-tier runner does not collect — files present, listable, invoked by nothing. An audit would have found well-written tripwires and concluded the class was covered. Relocating them into the directory the runner actually collects made them run for the first time, and the first run immediately failed: an unbounded drive-letter pattern had no boundary before the letter, so it matched the "s" in `https://` as a one-letter Windows drive and every tracked URL in the repo reported as a foreign-platform path. The same unbounded pattern was live in a deny hook that deliberately advertises no override — so it would have denied any legitimate write carrying an `https://` endpoint, with no in-harness recovery.
+
+**Rule.** Provisioning and registration are separate acts, and only the first is visible — a guard copied into place has a filename, a docstring, and passing tests when run by hand, so the gap between existing and running is invisible to any review that doesn't specifically check which runner collects it. Provision a guard where the configured runner already collects it rather than adding a registration step that can drift. Where no existing runner can reach the location, add a meta-check that reads the runner's own configuration and fails if a guard tree sits outside the collected scope, and verify that meta-check bites by planting a misplaced file. Treat the first real run of any newly-wired guard as a bug hunt, not a formality — and test every deny-guard on its passing side too, asserting it stays silent on legitimate input that resembles what it blocks, since the untested half is the one that wedges people.
+
+## 135. Green Tests After a Scripted Test-File Edit Can Mean the Assertions Were Deleted
+
+A test file is the one place where a passing suite is not evidence the edit was correct — removing coverage always makes the suite greener, never redder. A scripted edit that locates its endpoint structurally (slicing from a start marker to the next blank line) can silently swallow assertions that happen to sit inside the guessed span; the suite stays green throughout, because a deleted assertion cannot fail. Diffing catches this; running the suite does not.
+
+**Rule.** After any scripted or multi-line edit to a test file, read the diff for REMOVED lines before trusting a green run — `git diff -- <file> | grep '^-'` is the cheap check. Prefer anchored replacement of an exact known string over slicing to a structurally-guessed endpoint; if a span-to-endpoint edit is unavoidable, assert the expected line-count delta as part of the edit.
+
+## 136. A Red Test May Be Red on Purpose — Read the Marker Before the Number
+
+A failing assertion carries a number and a marker, and the number is the half that looks like
+evidence. Three non-defects were each reported as a blocker before the marker was checked:
+`@pytest.mark.designed_red` on a brightline-ceiling test ("601ms against a 500ms ceiling") was
+reported as a budget breach — the test is decorated `designed_red`, its own class docstring says
+the AC is unmet as specified, the failure output IS the worklist, and it goes green only when the
+shape changes, not when someone tunes it; it had been red on purpose for days. A git-call scaling
+test failed once and passed on the very next run under `pytest-randomly` — a single run was reported
+as "a per-row git spawn that crept in" before a second run showed it was noise. A table of rows a
+sibling repo's move had left behind was called stale residue driving nothing — the rows were live,
+applied to every target the store publishes, and kept a private repo name out of an OSS mirror;
+deleting them would have leaked it.
+
+**Rule.** The number answers "what was measured." The marker answers "is this failure news." Only
+the second licenses a report. In a corpus that deliberately keeps standing-red evidence
+(`designed_red`, `xfail`, shrink-only baselines, `known_red_count`), a red test is not prima facie a
+regression. Read the decorator and the class docstring before the assertion line; run a suspect
+failure twice before calling it a regression; and for anything a publish transform or a relocation
+touched, verify the current wiring rather than the historical fact you remember.
+
+## 137. A Test Asserting Only That a Producer Accumulated Something Cannot See a Missing Branch
+
+A test can prove a change was made and still go green for the bug's whole life, because it asserts
+about **the change** — a thing was generated, a clause was added — and never about the **resulting
+behaviour**: what the corpus now contains, what the message now says. One instance proved a
+doctrine-surface generator deterministic and round-tripping against a *synthesized fixture*; every
+assertion was about the generator, none read the committed corpus, so a committed index could drift
+arbitrarily far from the body files beside it with the whole suite green — six tripwires were on
+disk and absent from the index agents read. A second instance: an advisory that *appends* a
+checkpoint clause to existing text was tested only for the appended clause being **present**, so it
+stayed green through the entire life of a defect where the pre-existing recommendation it was
+appending to was never removed, and the message urged two contradictory things at once.
+
+**The trap lives wherever a code path builds text incrementally rather than choosing between
+texts** — any producer that *accumulates* rather than *selects*: a generated index that gains rows,
+an advisory that gains clauses, a payload that gains keys. The addition is visible to the test and
+the stale remainder is not. Message composition is exactly where "assert the clause is present"
+feels sufficient and isn't, because nothing about appending prompts you to ask what you appended it
+to. This is worse than no test: absent coverage invites someone to check by hand; present-and-green
+coverage is a standing claim that checking is unnecessary, so the defect survives exactly as long as
+anyone trusts the suite — indefinitely, because trusting it is what the suite is for.
+
+**Rule.** For any accumulating producer, assert absence in one direction and presence in the other —
+a single-direction test returns the same verdict for a working branch and a missing one, which is
+precisely why it stays green through the bug's whole life. For a generator, read the real committed
+output, not a synthesized fixture — a fixture-based suite can stay green over an unindexed entry for
+weeks that a same-day read of the live corpus catches on its first run. Sweep other producers by the
+same shape — anything that composes a message from conditions, or a cache/index that only ever
+grows — and check whether their suites assert presence alone.
+
+## 138. An Enumerated Test Registry Is Blind by Construction — Pair It With a Coverage-of-the-Coverage Gate
+
+A fast-tier or full-tier registry that names tests by an explicit list (module basenames, `(path,
+runner)` pairs, a hardcoded suite manifest) can only ever be wrong in the direction of the list —
+it has no way to notice a test-shaped file that was never added to it, because absence from an
+enumerated list produces no signal at all. The registry's own "registered path still exists" check
+(§108) catches a stale entry pointing at a deleted file; it does nothing for the mirror-image
+failure, a new or surviving test file that nothing enumerates. This same gap surfaced twice, two
+days apart, on the identical mechanism — the second occurrence with no intervening fix is itself
+evidence that naming the registry's stale-entry check once is not enough to close it.
+
+**Rule.** An enumerated registry needs a second, independent gate that walks the actual test tree
+(glob, not the registry's own list) and asserts every test-shaped file is named by one tier or the
+other — the "coverage of the coverage" check. A registry that only validates its own entries can be
+100% internally consistent and still blind to everything it never learned about. Pair enumeration
+with this gate at registration time, not as an afterthought once a real omission is found in
+production.
+
+Composes with §108 (deletion and porting are two-surface operations against the same registries) —
+this is the complementary direction: additions the registry never learned about, not deletions it
+failed to drop.
+
+## 139. A Retirement Can Silently Repoint a Git-Forensic Test at the Wrong Commit
+
+A test can depend on its subject via git history, invisibly to any grep for sourcing. Deleting a
+file adds a SECOND commit matching any `git log -S<symbol>` pickaxe search — the introduction
+commit and the deletion commit both touch the symbol. Because `git log` is newest-first, an
+unordered first-match silently flips from the INTRODUCTION commit (what the test meant to pin) to
+the DELETION commit (an unrelated fact) — and the test stays green throughout, asserting the wrong
+thing.
+
+**Rule.** Any test that resolves a commit via `git log -S`/`-G` pickaxe search must pin ordering
+explicitly — `--reverse` plus capture-then-slice — rather than a `head -1` pipe over default
+newest-first output. A retirement (deleting or moving the pinned subject) is exactly the event that
+introduces the second match, so treat any deletion of a git-forensically-tested symbol as a trigger
+to re-verify the pickaxe test still resolves the commit it was written to resolve.
+
+## 140. A Wiring Test Must Exercise Resolution, Not Grep the Source For It
+
+A test asserting that a require/import string APPEARS in source is a textual-presence tautology —
+the same shape §108 retires at test-suite-retirement time, one level up, here caught live rather
+than at deletion. Such a test stays green over a genuinely broken wire, because a string match
+proves nothing about whether the resolution it names actually succeeds. A dead `require(...)` call
+sat unexercised for weeks under exactly this test shape.
+
+**Rule.** Exercise the require/import and assert the exported symbol is callable — or better, assert
+the end-to-end side effect the wiring exists to produce. Corollary: a bare `catch`/`except` around a
+best-effort require must distinguish "module absent by design" from "wrong path or broken export,"
+and emit a diagnostic for the latter — a silent catch turns the one signal that would have caught
+this into nothing. Composes with §20/§21 (a swappable-sink shape test must be paired with a wire-up
+integration test) and §108 (a test whose entire assertion is that a construct exists earns no
+survival at retirement).
+
+## 141. Module-Pinned Tests Do Not Travel With Re-Implemented Logic, and a Parity Harness Frozen Before a Late Fix Is Blind to It
+
+A regression test can be correctly written, pass, and still fail to prevent the regression it was
+written for — if the logic it exercises is later re-implemented under a new module or function name
+rather than edited in place. The original test keeps asserting against the ORIGINAL module, which
+still behaves correctly; it says nothing about the replacement, so a re-port can silently revert the
+exact decision the test was written to pin, and CI stays green throughout. Concrete instance: a
+commit fixed a ceremony gate to be advisory-only on a concurrent-EM shared branch and added a test
+pinning that behavior in the original module. Ten days later a separate commit re-implemented the
+same gate as a native port in a NEW module, this time BLOCKING on the identical condition, with no
+test asserting the advisory-only behavior in the new module and no citation of the fix it silently
+reverted — and a sibling session hit the exact incident a second time via the new code path.
+
+**The companion failure: a parity harness reconstructed from a frozen oracle only covers what that
+oracle asserted AT FREEZE TIME.** When a parity suite is built by reconstructing a deleted or frozen
+oracle's golden assertions, any fix landed on the porting source AFTER the oracle was frozen but
+BEFORE the reconstruction executes falls in a blind interval the mechanism has no way to know about,
+by construction, not by oversight. In the same incident chain, a Python-only fix to the gate's
+blocking behavior landed on the source module AFTER the bash oracle it was later ported from had
+already been frozen as a behavior reference — so the fix was never part of the golden set the parity
+harness reconstructs, and the harness passing gave false confidence that class of regression was
+covered.
+
+**Rule.** A porting or re-implementation checklist must ask "what does the SOURCE module's test suite
+assert" as a first-class input, not just "what does the source module's code do" — a behavior-only
+port is precisely the shape where this gap opens, because it deliberately does not carry the old
+module's tests forward with it. When a parity harness is built by reconstructing a frozen artifact's
+assertions, explicitly diff the porting source's OWN fix/commit history for anything landed after the
+freeze date and before port time — those fixes are structurally invisible to the reconstruction and
+must be added as new assertions, never assumed covered. Composes with §56 (source-migrate without
+test-migrate leaves an import wall) and §64 (source-location-assertion tests are a distinct
+regression class from deleted-path failures) — both are shapes of "the old test doesn't know the
+subject moved," this is the shape where it doesn't know the subject was rebuilt.
+
+## 142. A Test That Asserts a Field Exists Cannot See That It Holds the Wrong Shape
+
+Presence assertions are the weakest form of coverage and are systematically blind to format,
+encoding, and truncation divergence. A repair verb shipped with 13 passing tests and a format
+defect: it stored a caller-supplied sha verbatim instead of truncating to the field's 8-char
+contract, because none of its 13 tests asserted the stored value's LENGTH — only that the field was
+present. This is the identical shape to any `assert "field:" in content` substring-only assertion —
+the pattern that let a 40-vs-8-char divergence go undetected long enough to mis-stamp roughly 30% of
+a corpus the repair verb was built to fix.
+
+**A length check alone is also insufficient.** Eight characters of the WRONG commit passes a length
+check exactly as easily as eight characters of the right one — repairing this exact defect required
+verifying both the stored value's length AND that `git rev-parse <stored>` resolved to the intended
+full sha, not either check alone.
+
+**Rule.** When writing a test for a field with a format contract, assert the shape (length, encoding,
+pattern) explicitly — and when the field is a reference into another system (a sha, an id, a path),
+assert it RESOLVES to the intended target, not merely that it is well-formed. A presence-only or
+shape-only assertion is a lesser standard almost indistinguishable from no test at all.
+
+## 143. A `tmp_path` Fixture Only Ever Builds Absolute Paths, So the Input Form Callers Actually Type Goes Untested
+
+A test fixture that constructs inputs in one canonical form cannot see the input forms real callers
+use. pytest's `tmp_path` yields absolute, fully-resolved paths — so a suite built on it exercises
+exactly one shape of the input space, no matter how many cases it enumerates. This bites hardest on
+code that normalizes or resolves its input before acting — guards, validators, path handlers, URL
+parsers, anything with an expansion or canonicalization step — because the normalization is
+precisely what the fixture has already done for you, so the tests enter downstream of the step most
+likely to be wrong. The tell is a verification claim that outruns its fixture: "verified end to end"
+asserted on a suite whose inputs were all machine-constructed.
+
+**Concrete failure.** A destructive-`rm` guard shipped with 11 green regression tests and an explicit
+end-to-end verification claim, while `rm -rf ~/.claude` — the literal command that had destroyed a
+live install — was still ALLOWED through the real hook. Every test built its target via `tmp_path`,
+which yields only absolute paths, so the guard's target loop was never exercised with a
+home-relative token; `os.path.exists("~/.claude")` is `False`, and the loop skipped before any guard
+leg ran.
+
+**Rule.** For any function taking user- or agent-authored input, pin at least one case per input
+SPELLING, not just per behavior — for paths that means a raw tilde, a shell variable, a relative
+segment, and a trailing slash, expressed as literal strings rather than fixture output. Reproduce
+through the real entrypoint (the actual hook payload, the actual CLI argv) at least once, because
+that is the only path that carries the input in the form a caller supplies it. When a test suite and
+a real invocation disagree, the fixture is the first suspect.
+
+## 144. A Green Suite Proves the Fixture, Not the Caller — Assert the Shape the Real Caller Supplies
+
+A test suite goes green over a production path that cannot work whenever the test asserts against a
+fixture shape the real caller never supplies. Four instances in one session shared it: a hook op
+joined its state dir onto a `repo_root` that the IPC layer supplies as the `.git` dir, while eleven
+tests handed it a worktree-root-shaped `tmp_path`; an executor called a private commit helper
+directly, so a compare-and-swap guard living one level up never fired on the new path and no test
+asserted it fires FOR THAT BRANCH; a red test's stray final assertion referenced out-of-scope names
+and passed only because an earlier `TypeError` short-circuited before reaching it. The one caught in
+seconds was the one whose test asserted the operator-visible string the caller actually reads.
+
+**Rule.** For seam-crossing code (a dispatch seam, a hook payload, CLI argv, an IPC boundary), at
+least one test must construct its input the way the real caller does, and a guard that must fire on
+a specific branch must be asserted firing ON THAT BRANCH, not merely existing. Distinct from §33
+(fixture substitutes the implementation) and §63 (fixture mismatches layout or caller mode): here the
+wiring and the mode are both right and the payload SHAPE is the author guessing the caller.
+
+## 145. Hoisting a Call Out of a Per-Item Loop Deletes the Loop's Implicit Empty-Collection Guard
+
+A per-peer scoring call made inside a `for target_items in items` loop was hoisted to one batched
+call above the loop — correct, and verified live. What it silently removed was the guard nobody
+wrote down: a `for` body does not execute when the collection is empty, so the old shape never
+called the scoring function on the reconcile-only path (`items=[]`, `config=None`). Hoisted, it
+always calls it — and the callee dereferenced `config.targets` eagerly, so the only
+operator-reachable path gained a new `AttributeError`. The new tests added for the hoist passed a
+real config object, never the `None` the CLI actually sends, so they could not have caught it.
+
+**Rule.** When moving a call out of a loop, the empty-input case is a NEW code path that did not
+exist before, and it must be tested with the production arguments — including whatever falsy or
+`None` value the real caller sends on the path that previously short-circuited via the empty loop.
+
+## 146. Type-Unsound Test Code Passes at Runtime and Hides a Permanently-Dead Field
+
+Type-unsound constructs in test code pass pytest while hiding defects a type checker would catch
+instantly. Observed shapes in one session: `getattr(obj, "field", None)` reaching a field absent
+from a FROZEN dataclass — returns `None` unconditionally, forever, so the feature was inert and no
+test could catch it; `SimpleNamespace` standing in for the typed object under test, accepting
+whatever attributes the test happens to set regardless of the real class's shape; and chained
+subscripts through `Optional` at two levels (`envelope.payload.extra_metadata` where both are
+`Optional`), silently tolerating a `None` at either hop. Every one passed pytest.
+
+**Rule.** Test fixtures for typed objects should construct the real typed class, not a
+`SimpleNamespace` stand-in, and a `getattr(..., default)` against a frozen/typed object is a smell —
+if the attribute is real, access it directly and let `AttributeError` surface a genuinely-missing
+field instead of silently defaulting. Run a type checker over test code, not just production code,
+where the project has one; it catches exactly this class of dead-field defect that pytest's dynamic
+typing lets through clean.
+
+## 147. A Test Can Pass Without Ever Exercising the Guard It Names — Mutation-Check the Guard, Don't Read the Test
+
+Four separate tests in one session named a guard, passed, and proved nothing about it. (a) A
+missing-credentials test asserted `excinfo.value is not None` — true of every exception ever raised,
+so the arm it named was never distinguished from any other failure. (b) An absent-dependency test
+asserted the `ImportError` path, and flipped verdict the moment the package was actually installed in
+the interpreter — it had been testing the environment, not the guard. (c) An expired-auth test
+constructed a transport error carrying a `provider_code`, a shape only one of the client's three call
+paths actually produces; the other two wrap in a blanket `except Exception ... from e` that sets no
+code, so the guard was green while a session expiring mid-run told the operator to check something
+unrelated instead of the actual remedy. (d) Four loud-path `TypeError` guards were covered by a
+single test that passed via Python's own "argument of type X is not iterable" — all four guards
+could have been deleted with the suite still green. In every case the test's name, docstring, and
+assertion all referred to the guard; only the mechanism did not.
+
+**Rule.** Don't trust a test's name or docstring as evidence the guard fires — mutation-check it:
+comment out or invert the guard under test and confirm the test goes red for that reason. A test that
+stays green with the guard deleted was never testing the guard.
+
+## 148. A Test That Keeps Breaking for Boring Reasons Wants Strengthening, Not Retuning
+
+When a test keeps failing for boring reasons, the reflex is to update the number it asserts. That is
+the wrong move, and it is how a control quietly becomes a rubber stamp: each update teaches you the
+failure is noise, and the version that finally catches something real gets its number bumped too, by
+a tired person at the end of a long change.
+
+The right move is to ask what the test was *for*, and rewrite it as an invariant that cannot break
+for the boring reason. A literal count breaks whenever the corpus grows. An invariant over a
+predicate — every landed record satisfies the rule the manifest claims — does not, and it fails only
+when something is genuinely wrong.
+
+**Worked example.** A census test asserted a hardcoded count and broke on three routine pulls. It was
+rewritten into an invariant to stop the noise. Hours later a retention predicate changed under
+records that had ALREADY landed, and the invariant caught it — a class of defect no reading pass had
+found and that the count version could never have detected, because the count was still right. That
+was a property of the shape chosen, not foresight about what it would catch.
+
+**Rule.** "This test keeps breaking for boring reasons" is a signal to strengthen it, not to retune
+it. The strengthened version costs one rewrite and buys a detector for defects nobody predicted. The
+retuned version costs nothing today and quietly stops being a control. Related to §55 (fossilized
+count assertions hide drift): a test whose number you keep updating is on its way to becoming exactly
+that — present, passing, and unable to fail for the reason it exists.

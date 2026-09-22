@@ -45,16 +45,16 @@ and no team forms; this default is ratified to stay on.
 Parse `--mode`; if absent, apply auto-detect. Extract remaining arguments for the driver. For
 `--mode=structured`, check for a leading `create` and run Create Mode (driver Step 0) first.
 
-## Step 0: Run Identity
+## Step 2: Run Identity
 
-Runs after Step 1 despite the number — a universal pre-flight before mode-specific routing.
+A universal pre-flight before mode-specific routing.
 
 1. Generate run ID `YYYY-MM-DD-HHhMM` and a topic slug from the parsed topic/subject (repo mode:
    basename of `<repo-path>`; structured mode: `<subject-key>`).
 2. Create the shared run workdir `docs/research/{run-id}-{topic-slug}-workdir`; bind it as
    `{scratch-dir}` and forward it to the driver (its Step 1 accept-if-passed clause uses it).
 
-## Step 0.5: Prior-Art Pre-Flight
+## Step 3: Prior-Art Pre-Flight
 
 Always-on, all modes. Advisory/report-only — never blocking. Dispatch `prior-art-checker` as a
 non-teammate `Agent` in research mode (`mode: research`, `research_question`, `scratch_dir`,
@@ -62,9 +62,9 @@ optional `peer_repos`) before fan-out. Read the sidecar it writes at
 `{scratch-dir}/prior-art-check.md` (path per `coordinator/agents/prior-art-checker.md` § Sidecar
 path (research mode)). If the "Existing corpus" bucket is non-empty, surface it to the operator
 before spawning the team — options: read it and refine, proceed fresh, or abort. Sidecar absent,
-or `prior-art-checker` unresolvable: log a one-liner and proceed to Step 2 — never abort.
+or `prior-art-checker` unresolvable: log a one-liner and proceed to Step 4 — never abort.
 
-## Step 2: Route to Driver
+## Step 4: Route to Driver
 
 Read and follow the driver file for the parsed mode, passing through remaining arguments:
 

@@ -525,7 +525,7 @@ def _emit_test_red_record(ft_rc: int, ft_content: str, classify_rc: int) -> None
                 runner=runner,
                 failing=failing,
             )
-            # Review: coordinator:code-reviewer — this recomputes the same
+            # This recomputes the same
             # `state/test-red/<machine>.yaml` path `write_test_red_record`
             # (coordinator_core/ops/test_red_record.py) just wrote, because
             # that function doesn't return the path it wrote. The two

@@ -9,6 +9,12 @@ plugin's `templates/bin/`, at most once a day per machine. The mechanics, the
 refresh-only negative-spec, and the baked-`__PYTHON_BIN__` exemption live in
 `_bin_impl_drift.py`; this file is the SessionStart entrypoint and nothing else.
 
+What `check_and_refresh` prints is not just a refresh banner: it can also carry
+an ATTENTION block for drift it found but could not repair — an entry the
+installer recorded writing into `bin/` that has gone missing, or an execute bit
+it could not restore — with either or both, or neither, present. This
+entrypoint prints whatever it gets and adds no formatting of its own.
+
 Fails open, always: a session must never fail to start because a freshness sweep
 could not run. Every failure path returns 0 with no output.
 """

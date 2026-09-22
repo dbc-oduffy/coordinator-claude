@@ -12,7 +12,8 @@ argument-hint: "[<baton-id> ...] [--roadmap-id <id>] [--waves <n>] [--dry-run] [
 Consumes a roadmap that already exists and produces plans for it, N batons per wave instead of one
 per session. Rationale and the measured case behind every rule below: fleet doctrine wiki under
 this skill's own name — read when a rule looks wrong, never to decide whether to follow one. The
-tripwires are the greppable entry points.
+tripwires are the greppable entry points. The waves fire from the top-level EM only — a dispatched
+agent cannot fan out (`A-SKILL-PHASE-NAMES-ITS-ACTOR`).
 
 ---
 
@@ -131,7 +132,7 @@ Verdict meanings in full: wiki, § Trimmed rationale. Tripwire:
         --gate-report <trail-dir>/wave-N.gate-report.json
 
 It reads the frozen report, derives every per-baton field from it, splits the wave into fires at the
-cap, binds each fire's args into a standalone `.mjs` through claude-klabauter's `workflow.bind_args`, and
+cap, binds each fire's args into a standalone `.mjs` through the engine's `workflow.bind_args`, and
 prints one `Workflow({ scriptPath })` line per fire — with no `args` at all, since they are bound
 into the file. Fire each printed line. Pass `--plugin-agents-available true` where `coordinator:*`
 types resolve. `workflows/plan-blitz.mjs`'s args contract is the source of truth for a field: read
@@ -176,7 +177,7 @@ Tripwire: `A-SIDECAR-THE-DISPOSITION-OP-REFUSES-LOSES-ONLY-THE-RECORD`.
 **A box with no install is Rung N, not a broken resolution** — every launcher rung fails
 command-not-found and reads as "this CLI does not exist", while the engine source is on disk
 regardless, so pass `--engine-root`. Where the only checkout carrying `workflow.bind_args` is
-Claude-klabauter's unstamped authoring tree, add `--live-engine-tree`: it takes the engine's live-tree path for
+the engine repo's unstamped authoring tree, add `--live-engine-tree`: it takes the engine's live-tree path for
 the BIND CALL alone and refuses a root that carries a build stamp. Tripwire:
 `A-PUBLISHED-MIRROR-OLDER-THAN-AN-OP-REFUSES-AS-A-MISSING-ENGINE`.
 
@@ -185,9 +186,9 @@ dispatches only when its gate is open; a baton missing the field dispatches noth
 a candidate every later wave. `emit-wave-fire.py` derives it and refuses rather than defaults.
 
 **Resolve `${CLAUDE_PLUGIN_ROOT}`; never pass a repo-relative path.** The plugin root differs by
-tree — under the DoE source repo it is the `coordinator/` subdirectory, in an installed or mirrored
+tree — under the doctrine source repo it is the `coordinator/` subdirectory, in an installed or mirrored
 plugin it IS the root. A path written `coordinator/workflows/...` resolves only where the cwd happens
-to be DoE and elsewhere fails as a MISSING FILE, which reads as "the vehicle does not exist" rather
+to be the doctrine repo and elsewhere fails as a MISSING FILE, which reads as "the vehicle does not exist" rather
 than "the path was not resolved" — the more expensive of the two wrong conclusions.
 
 Then wait. **Do not read the trail to decide anything** — the wave needs no input between fire and
@@ -378,7 +379,7 @@ first if you edited the plan. Do not hand-stamp `approved`.
 ## Test Surface
 
 No runtime test for this skill body — prose doctrine, not code. The executable surface is
-in claude-klabauter (`coordinator_core/roadmap/tests/test_plan_gate.py`,
+in the engine repo (`coordinator_core/roadmap/tests/test_plan_gate.py`,
 `coordinator_core/ops/tests/test_roadmap_plan_gate.py`) and this repo's
 `coordinator/tests/test_plan_blitz_contract.py`. Per-token thresholds: fleet doctrine wiki, §
 Greppability thresholds.

@@ -51,7 +51,7 @@ never produced that file still flips its entries. See `skills/merging-to-main/SK
 ## Schema reference
 
 Schema lives at `coordinator/schemas/completion-entry.schema.json` and is validated by
-Claude-klabauter `coordinator/bin/lib/schema.js` (same `loadSchemas()` loader as `handoff.yaml`).
+ (same `loadSchemas()` loader as `handoff.yaml`).
 
 ### Required fields
 
@@ -153,7 +153,7 @@ The `--format markdown-list` display for type `completion` renders as:
 ```
 
 Phase 3 will extend the filter vocabulary (e.g. `--where "loe.tshirt=L"`).
-See claude-klabauter `coordinator/bin/query-records.js` `TYPE_TO_GLOB` and `TYPE_DISPLAY` for the full
+See  for the full
 implementation shape.
 
 ---
@@ -352,7 +352,7 @@ The `tshirt` field is the primary consumer signal. Raw counts are forensic.
 **Design: body, not frontmatter.** The Session Ledger lives in the handoff body under a `## Session Ledger` H2 heading — NOT as a frontmatter field. This is a deliberate design choice:
 
 - Frontmatter fields are schema-typed and validator-enforced. Ledger entries are per-handoff accumulations written by multiple sessions; adding them to the schema would require a variable-length list type that handoff.yaml does not model.
-- Body text is append-friendly. Each picking-up session appends one line to the ledger block without touching frontmatter keys or risking validator rejections.
+- Body text is append-friendly. Each picking-up session appends one line per closing ceremony to the ledger block without touching frontmatter keys or risking validator rejections — a session that runs two closing ceremonies against the same baton appends two rows, not one (see `coordinator/docs/wiki/baton-bookkeeping.md` § The `## Session Ledger` carve-out).
 - The schema comment in `coordinator/schemas/handoff.schema.json` documents the body convention without making it a frontmatter field.
 
 **Session Ledger body format** (within the handoff body):
@@ -360,16 +360,18 @@ The `tshirt` field is the primary consumer signal. Raw counts are forensic.
 ```markdown
 ## Session Ledger
 
-<!-- Phase 2 LoE accumulator. Each session that picks up this handoff appends one line. -->
+<!-- Phase 2 LoE accumulator. Each session appends one line per closing ceremony. -->
 <!-- Format: YYYY-MM-DD | <sid6> | <tshirt> | <agent_dispatches>d / <opus_dispatches>o | <one-line summary> -->
 
 2026-05-19 | abc123 | M | 8d / 2o | Implemented query-completions + schema slot
 2026-05-20 | def456 | S | 3d / 0o | Docs update + minor fix
+2026-05-21 | 7bffa2 | XS | 0d / 0o | Reconciled the pending list (pickup-reconciliation close)
+2026-05-21 | 7bffa2 | L | 26d / 4o | Executed plan + mandatory four-slice partitioned review (workstream-complete close)
 ```
 
 **Multi-ledger handling:** a handoff chain may span multiple handoff files (each `/pickup` consumes one; `/handoff` authors the next). The Session Ledger in each handoff body accumulates only the sessions that picked up THAT handoff. Chain-terminal aggregation (see below) walks the full chain to sum across ledger blocks.
 
-**`query-records --type handoff-ledger`:** Phase 2 registers `handoff-ledger` as a query type in claude-klabauter `coordinator/bin/query-records.js TYPE_TO_GLOB` (Chunk 5), globs `state/handoffs/*.md` and `archive/handoffs/*.md`, and parses `## Session Ledger` blocks. Filter: `--where "tshirt=XL"`. This is the consumer path for workweek-complete's LoE high-water check.
+**`query-records --type handoff-ledger`:** Phase 2 registers `handoff-ledger` as a query type in  (Chunk 5), globs `state/handoffs/*.md` and `archive/handoffs/*.md`, and parses `## Session Ledger` blocks. Filter: `--where "tshirt=XL"`. This is the consumer path for workweek-complete's LoE high-water check.
 
 ---
 
@@ -600,7 +602,7 @@ with YAML-list blocks inside HTML comment sentinels — it is not a top-level YA
 and `yq` is not in the coreutils dependency surface.
 
 The registry carries no `path:` field — on-disk paths are machine-local-derived and
-resolved per `shortname` via claude-klabauter `coordinator/bin/resolve-repo-path.py`. Extract each entry's
+resolved per `shortname` via . Extract each entry's
 `shortname:` from the registry, then resolve it to a path:
 ```bash
 _cc_claude_klabauter="${REPO_CLAUDE_KLABAUTER:-${COORDINATOR_ENGINE_ROOT:-}}"

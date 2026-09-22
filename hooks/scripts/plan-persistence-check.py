@@ -107,7 +107,7 @@ def _parse_input(raw: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# claude-klabauter root resolution — ladder: explicit env -> <settings-home>/machine-local/
+# engine-repo root resolution — ladder: explicit env -> <settings-home>/machine-local/
 # .claude-klabauter-root pointer file (A-F5, added to match the retired bash oracle's Rung 1.5,
 # checked BEFORE the registry) -> <settings-home>/machine-local/registry.local.toml
 # (checked before the tracked registry.toml baseline) -> registry.toml ->

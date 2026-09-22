@@ -125,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
     repo_root = Path(args.repo_root).resolve()
     basis_refs = tuple(args.basis_ref)
 
-    # Review: code-reviewer (Finding 8, 2026-07-12) — validate ALL candidate paths
+    # Validate ALL candidate paths
     # up front, before running any guard. Previously a bad path at position k>1
     # discarded already-computed results for candidates 1..k-1 (the function
     # returned before reaching json.dump). Validating up front means one typo'd

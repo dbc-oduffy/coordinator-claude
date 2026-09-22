@@ -308,8 +308,13 @@ batch carries the identical dependency shape: it writes `corpus-currency-last-ru
 `corpus_currency_banner()` is the only thing that reads it at boot. Drop or reorder either
 sentinel run and its boot line doesn't go quiet — it degrades to `stale-unknown` past the 24h
 refresh window.
-`<ENGINE-CURRENCY-PROBE-PLACEHOLDER>`: engine leg, added here once C6's contract with
-Claude-klabauter-em lands; not yet in this batch.
+`<ENGINE-CURRENCY-PROBE-PLACEHOLDER>`: engine leg, still not in this batch. C6's cross-plane
+contract with claude-klabauter-em converged
+(`coordinator/docs/wiki/release-cadence-and-currency-notification.md` § Engine anchor — converged contract:
+`version.txt` source SHA + `track_ref`/channel field) — but the engine-side probe (P-20, a sibling
+to P-19 pointed at that surface) is the engine repo's to implement on the engine repo's own surface,
+not yet shipped. Add the real invocation here once it ships; do not invent one now, that surface is
+engine-owned.
 
 **1.10.5** MCP registration: per `~/.claude.json mcpServers` entry, skip disabled/off-project,
 count `mcp__<server>__` matches; 0 → `### MCP Tool Registration` line + `/<server>:doctor`.

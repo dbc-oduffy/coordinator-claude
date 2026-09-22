@@ -77,11 +77,12 @@ landing or an archive repair is owed, or candidacy could not be checked), 2 on a
 precondition failure.
 
 Arrived from DoE-claude coordinator/skills/plan-blitz/recycle-check.py
-(docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W3-C7). Path resolution: none needed — the
-module carries no `Path(__file__)`-derived path and no engine or plugin-root import; every path
-it reads (`--repo-root`, `--trail-root`, `--archive-root`, `--gate-report`) is caller-supplied and
+(docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W3-C7). Path resolution: every path it
+reads (`--repo-root`, `--trail-root`, `--archive-root`, `--gate-report`) is caller-supplied and
 resolved against `--repo-root`, already the "session repo" class (§ Path resolution) with no seam
-to retarget.
+to retarget. `_slot_order` (review: coordinator:overengineering-reviewer, finding 5) now imports
+`coordinator_core.ops.dispatch_emit.slot_order` through the standard `require_colocated_engine_on_path`
+bootstrap, lazily inside the function -- the only engine import this module makes.
 """
 
 from __future__ import annotations
@@ -215,18 +216,25 @@ def _disposition(text: str) -> tuple[str, str]:
 
 
 def _slot_order(run_dir: Path, rec: Path):
-    """Chronological order of two records of one baton WITHIN one run. `sidecarFor` writes each
-    fire's records into `<run>/wave-<index>-<fireId>/`, so a baton planned in wave 0 and re-planned
-    in wave 2 has two records in one run, and LATEST RECORD WINS has to order them. Lexical order
-    does not: `wave-10-…` sorts before `wave-2-…`, which would report a ten-wave run's oldest
-    verdict as current. A record flat at the run root predates the slot and is earliest; a
-    `repair-…` slot carries no wave index and is written after the waves it re-dispositions."""
-    parts = rec.relative_to(run_dir).parts
-    slot = parts[0] if len(parts) > 1 else ""
-    if not slot:
-        return (0, 0, "")
-    m = re.match(r"wave-(\d+)-", slot)
-    return (1, int(m.group(1)), slot) if m else (2, 0, slot)
+    """`coordinator_core.ops.dispatch_emit.slot_order.slot_order`, imported rather than
+    re-derived.
+
+    This function used to be the
+    sole definition, loaded by `emit-wave-fire.py::_slot_order_fn` via a by-path
+    `importlib.util` sibling load. It now lives in `coordinator_core` and both files import it
+    from there; this wrapper stays so every existing call site in this module keeps working
+    unchanged.
+
+    Engine import happens here, inside a function, never at module scope -- keeps this module's
+    body pure so `serve_classifier` still classifies this file warm-servable.
+    """
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
+    require_colocated_engine_on_path(__file__)
+    from coordinator_core.ops.dispatch_emit.slot_order import slot_order
+
+    return slot_order(run_dir, rec)
 
 
 def scan(repo_root: Path, baton_ids, trail_root: str, exclude_run: str | None, live=None):

@@ -8,7 +8,7 @@ per edit on Windows (each bash.exe spawn costs 200-500ms; this is the whole
 point).
 
 The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
-the claude-klabauter engine, hand it the mapped params, relay its stdout. Claude-klabauter owns the
+the engine repo, hand it the mapped params, relay its stdout. The engine repo owns the
 bookkeeping LOGIC (coordinator_core.hooks.track_touched_files, registered under
 the JSON-RPC method "hooks.track_touched_files"). The engine is imported and run
 IN-PROCESS via coordinator_core.ipc.dispatch_from_hook (DR-175 -- the named
@@ -29,7 +29,7 @@ see coordinator_core/ipc.py _OP_KEY_SCOPE["hooks.track_touched_files"] ==
 "common_dir". coordinator_core/hooks/track_touched_files.py's handler reads
 session_id / tool_name / file_path / agent_id via _payload.field(), and its
 repo_root arg (derived by dispatch_message from the "_origin_worktree" envelope
-field) via git_common_dir(repo_root) -- the claude-klabauter engine itself resolves the
+field) via git_common_dir(repo_root) -- the engine repo itself resolves the
 git-common-dir from ANY path inside the repo (git rev-parse --git-common-dir
 with cwd=repo_root), so this stub does NOT need to run its own `git rev-parse
 --show-toplevel` the way the bash original did; it hands the raw stdin `cwd`
@@ -56,7 +56,7 @@ resolve it -- zero subprocess spawns in this stub's own code):
                                                  to the canonical EM-side id itself
                                                  -- this stub does NOT replicate
                                                  resolve_subagent_identity(), that
-                                                 logic lives in the claude-klabauter handler)
+                                                 logic lives in the engine repo's handler)
     _origin_worktree <- stdin["cwd"]          (JSON-RPC envelope field, NOT an op
                                                  param -- required because this op's
                                                  _OP_KEY_SCOPE is "common_dir")
@@ -68,8 +68,8 @@ INVALID_PARAMS error response -> this stub's own fail-open path (result is None)
 `GIT_ROOT=$(git rev-parse --show-toplevel) || exit 0` early-out, just via a
 different failure seam (op-side key-resolution instead of a stub-side git call).
 
-Graceful degradation -- REQUIRED: any failure to resolve/import/run the claude-klabauter
-engine, or to parse stdin, falls through to fail-open (exit 0, no stdout, no
+Graceful degradation -- REQUIRED: any failure to resolve/import/run the engine
+repo, or to parse stdin, falls through to fail-open (exit 0, no stdout, no
 touched.txt mutation). A missing sibling engine must NEVER brick an edit --
 identical philosophy to preuse-write-dispatch.py._resolve_claude_klabauter_root (kept in
 lockstep deliberately; see W2-stub-contract.md).
@@ -79,7 +79,7 @@ this dispatcher briefly co-registered. Both firing concurrently was a real
 double-write risk for this MUTATING op (unlike the advisory ops, where
 duplicate emission is harmless) -- that risk was accepted for the duration of
 the transition window because
-_dedup_append/_dedup_append_locked on the claude-klabauter side and cs_atomic_dedup_append
+_dedup_append/_dedup_append_locked on the engine-repo side and cs_atomic_dedup_append
 on the bash side are BOTH dedup-on-write, so a concurrent double-fire produces
 at most a redundant no-op append, never a duplicate line in touched.txt.
 """
@@ -134,7 +134,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open -- claude-klabauter unresolvable on this machine
+        return 0  # fail-open -- engine repo unresolvable on this machine
 
     if root not in sys.path:
         sys.path.insert(0, root)

@@ -11,7 +11,7 @@ Negative-spec: CLAUDE_HOME is the home-substitute, not the .claude-substitute.
   CLAUDE_HOME=/tmp/x  →  /tmp/x/settings.json            (WRONG — recurring footgun)
 """
 
-# Review: code-reviewer F4 — PEP 563 lazy annotations (PEP 585 list[str] fails at
+# 563 lazy annotations (PEP 585 list[str] fails at
 # def-time on Python 3.8; __future__ annotation makes all annotations strings, valid 3.7+)
 from __future__ import annotations
 
@@ -99,7 +99,7 @@ def main(argv: "list[str] | None" = None) -> int:
         "--with-deep-research",
         action="store_true",
         help="Seed the deep-research bundled-skill override (suppresses the Claude Code built-in /deep-research in favour of /coordinator:research).",
-        # Review: code-reviewer — F13: stale help text post-C4 merge; deep-research is always bundled, this suppresses the CC built-in
+        # Stale help text post-C4 merge; deep-research is always bundled, this suppresses the CC built-in
     )
     parser.add_argument(
         "--check-only",
@@ -125,7 +125,7 @@ def main(argv: "list[str] | None" = None) -> int:
 
     if args.check_only:
         would_seed = [n for n in names if n not in overrides]
-        # Review: code-reviewer F5 — consistent status-line family: (check-only) suffix
+        # Consistent status-line family: (check-only) suffix
         # distinguishes check-only from real writes; no "/ ready" ambiguity.
         if would_seed:
             print(f"skill_overrides: would seed {', '.join(would_seed)} (check-only)")
@@ -141,12 +141,12 @@ def main(argv: "list[str] | None" = None) -> int:
             overrides[name] = "off"
             newly_added.append(name)
 
-    # Review: code-reviewer F2 — skip write on fully-idempotent re-run (avoids mtime
+    # Skip write on fully-idempotent re-run (avoids mtime
     # churn, watcher noise, and needless reformatting of a hand-edited settings.json).
     if newly_added:
         _atomic_write(settings_path, s)
 
-    # Review: code-reviewer F5 — consistent status-line family (no "/ already-present"
+    # Consistent status-line family (no "/ already-present"
     # suffix on the seeded branch, which was semantically confusing).
     if newly_added:
         print(f"skill_overrides: seeded {', '.join(newly_added)}")

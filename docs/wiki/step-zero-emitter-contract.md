@@ -14,7 +14,7 @@ created: 2026-06-22
 
 The Step Zero probe surface emits one compact JSON line per probe — a single-emitter, single-consumer NDJSON stream. The contract below is **ratified and stable**. Each sibling repo that ships probes emits against this same shape; drift from it is caught by running the conformance fixture against the repo's own emitter before shipping.
 
-The contract was ratified via a cross-repo reply memo. The reference implementation (ported from the original bash) lives at claude-klabauter `coordinator_core/install/step_zero_emit.py`. The **fixture bytes** (`tests/fixtures/step-zero-conformance.json`) are the single normative authority — non-bash consumers conform against the fixture, not against bash `printf` formatting quirks.
+The contract was ratified via a cross-repo reply memo. The reference implementation (ported from the original bash) lives at the engine repo's `coordinator_core/install/step_zero_emit.py`. The **fixture bytes** (`tests/fixtures/step-zero-conformance.json`) are the single normative authority — non-bash consumers conform against the fixture, not against bash `printf` formatting quirks.
 
 ---
 
@@ -97,7 +97,7 @@ String values are escaped by the emitter before embedding in the JSON line. The 
 
 **What is NOT escaped:** All other C0 control characters (U+0000–U+001F except the five above), NUL, and non-ASCII bytes (including multi-byte UTF-8) pass through raw. This boundary is intentional — the five-escape set covers the characters that break NDJSON line framing and JSON string validity in practice. Consumers must not assume additional escaping.
 
-The bash reference (claude-klabauter `coordinator_core/install/step_zero_emit.py`, function `_co_pp_json_escape`) implements exactly this five-step sequence. Read the source to confirm — the source is authoritative on what the bash emitter does; the fixture is authoritative on what every conformant emitter must produce.
+The bash reference (the engine repo's `coordinator_core/install/step_zero_emit.py`, function `_co_pp_json_escape`) implements exactly this five-step sequence. Read the source to confirm — the source is authoritative on what the bash emitter does; the fixture is authoritative on what every conformant emitter must produce.
 
 ---
 
@@ -105,7 +105,7 @@ The bash reference (claude-klabauter `coordinator_core/install/step_zero_emit.py
 
 ### Fixture as normative authority
 
-`tests/fixtures/step-zero-conformance.json` is the **single normative authority** for the contract. The bash reference (claude-klabauter `coordinator_core/install/step_zero_emit.py`) is the worked example for bash consumers — illustrative, not normative. Non-bash consumers (node, Python, PowerShell) conform against the fixture bytes, not against bash `printf` formatting.
+`tests/fixtures/step-zero-conformance.json` is the **single normative authority** for the contract. The bash reference (the engine repo's `coordinator_core/install/step_zero_emit.py`) is the worked example for bash consumers — illustrative, not normative. Non-bash consumers (node, Python, PowerShell) conform against the fixture bytes, not against bash `printf` formatting.
 
 The fixture root carries `"contract_version": "1.1"` (v1.1 adds `semi-hard` to the `severity` enum; v1.0 was the first release with the full five-escape set). Versioning policy:
 
@@ -121,7 +121,7 @@ Re-implementer consumers should pin the contract version they were validated aga
 | Vendor-mode | What you ship | Conformance oracle |
 |---|---|---|
 | **Re-implementer** | Your own emitter in your own language (PowerShell, Python, node) — no bash SSOT in your tree | The **fixture bytes**. You have no SSOT blob to match, so the fixture is your independent oracle. |
-| **Verbatim-vendor** | A byte-for-byte copy of the bash SSOT (claude-klabauter `coordinator_core/install/step_zero_emit.py`) vendored into your tree | The **SSOT blob at a pinned SHA**. Conformance is transitive (see below). Do **not** re-vendor the fixture. |
+| **Verbatim-vendor** | A byte-for-byte copy of the bash SSOT (the engine repo's `coordinator_core/install/step_zero_emit.py`) vendored into your tree | The **SSOT blob at a pinned SHA**. Conformance is transitive (see below). Do **not** re-vendor the fixture. |
 
 #### Re-implementer — conform against the fixture
 
@@ -144,14 +144,14 @@ The escaping cases in the fixture (backslash, double-quote, CR, LF, TAB, CRLF in
 
 #### Verbatim-vendor — pin the SHA, skip the fixture
 
-If you vendor the bash SSOT (claude-klabauter `coordinator_core/install/step_zero_emit.py`) **verbatim**, running the fixture is redundant *and* strictly weaker than a byte-identity pin. Prove conformance this way instead:
+If you vendor the bash SSOT (the engine repo's `coordinator_core/install/step_zero_emit.py`) **verbatim**, running the fixture is redundant *and* strictly weaker than a byte-identity pin. Prove conformance this way instead:
 
 1. **Pin the source SHA.** Record the coordinator commit your vendored copy was taken from.
 2. **Byte-identity hard gate.** Assert your vendored emitter body is byte-identical to the coordinator blob *at the pinned SHA*. This byte-identity test **is** your conformance test.
 3. **Freshness advisory leg.** Assert the pinned SHA == coordinator HEAD as an advisory (xfail / warn, not red) re-vendor-due nudge. Coordinator is `source_is_live`, so HEAD is the conformance-validated SSOT.
 4. **Do NOT vendor the fixture, the `.gitattributes` `eol=lf` pin, or a `contract_version` pin.** They add no safety over the SHA-pin and re-import the unpinned-`eol=lf` drift hazard that the re-implementer recipe has to guard against.
 
-**Why this is sound (transitive conformance):** copy == SSOT (your byte-identity gate) ∧ SSOT ⊨ fixture (claude-klabauter's own `coordinator_core/tests/test_step_zero_emit.py`) ⇒ copy ⊨ fixture. The verbatim vendor never needs to run the fixture itself.
+**Why this is sound (transitive conformance):** copy == SSOT (your byte-identity gate) ∧ SSOT ⊨ fixture (the engine repo's own `coordinator_core/tests/test_step_zero_emit.py`) ⇒ copy ⊨ fixture. The verbatim vendor never needs to run the fixture itself.
 
 **Why byte-identity is *stronger* than fixture conformance:** it catches drift the fixture cannot — whitespace, comment text, and crucially **escape-order** (the five-escape ordering is normative; a re-ordered-but-still-conformant emitter would pass the fixture yet differ from the SSOT). A verbatim vendor that ran only the fixture would hold a *weaker* guarantee than one that pins the SHA.
 
@@ -161,7 +161,7 @@ Reference implementation of this mode: `project-rag-ue-addon` vendors the 3-file
 
 ## Polyglot Emitters — Consumer Responsibility
 
-Coordinator ships the bash reference (claude-klabauter `coordinator_core/install/step_zero_emit.py`) and the conformance fixture. It does **not** ship PowerShell, node, or Python reference emitters. Each consumer repo owns its emitter in its own language; the fixture is the polyglot surface that makes all of them comparable. YAGNI on multi-language emitters until a consumer asks.
+Coordinator ships the bash reference (the engine repo's `coordinator_core/install/step_zero_emit.py`) and the conformance fixture. It does **not** ship PowerShell, node, or Python reference emitters. Each consumer repo owns its emitter in its own language; the fixture is the polyglot surface that makes all of them comparable. YAGNI on multi-language emitters until a consumer asks.
 
 **bash-reference sourcing caveat.** `step_zero_emit.sh` calls `exit 78` (not `return`) when sourced under bash < 4 — intentional for coordinator's own call sites (a bash<4 environment can't run the consumers either). A sibling that sources the bash reference inside a function, subshell, or test harness must be aware it will **exit the containing process** (code 78) on a bash-version mismatch rather than returning an error. If you need return-not-exit semantics, wrap the source in a subshell you can branch on, or port the contract to your own language against the fixture rather than sourcing the bash reference directly.
 
@@ -169,9 +169,9 @@ Coordinator ships the bash reference (claude-klabauter `coordinator_core/install
 
 ## Related
 
-- claude-klabauter `coordinator_core/install/step_zero_emit.py` — bash reference implementation (illustrative, not normative).
+- the engine repo's `coordinator_core/install/step_zero_emit.py` — bash reference implementation (illustrative, not normative).
 - `tests/fixtures/step-zero-conformance.json` — normative fixture (v1.1).
-- claude-klabauter `coordinator_core/tests/test_step_zero_emit.py` — conformance runner for the reference implementation (ships in the coordinator source tree; sibling consumers wire their own runner against the vendored fixture).
+- the engine repo's `coordinator_core/tests/test_step_zero_emit.py` — conformance runner for the reference implementation (ships in the coordinator source tree; sibling consumers wire their own runner against the vendored fixture).
 - `docs/wiki/doctor-probe-design.md` § `inconclusive` Is a First-Class Probe Status — the rationale for the `inconclusive` vocabulary rule and the broader fidelity doctrine for probes.
 - `docs/wiki/cross-repo-contract-test-discipline.md` — skip-if-prerequisite-absent gates and cross-repo fixture sync patterns.
 - `docs/wiki/cross-repo-contract-parity.md` — producer/consumer contract-field parity across repos.

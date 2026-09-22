@@ -158,6 +158,7 @@ _BOOTSTRAPPED_NAMES = (
     "_push_held_lock",
     "_lock_busy_message",
     "_publish_contention_wait_secs",
+    "_reconcile_dest_before_push",
 )
 _BOOTSTRAP_DONE = False
 
@@ -181,11 +182,15 @@ def _bootstrap_engine() -> None:
         lock_busy_message as _lock_busy_message,
         publish_contention_wait_secs as _publish_contention_wait_secs,
     )
+    from percolate.dest_refresh import (  # type: ignore[import-not-found]
+        reconcile_dest_before_push as _reconcile_dest_before_push,
+    )
 
     globals()["_PushLockTimeout"] = _PushLockTimeout
     globals()["_push_held_lock"] = _push_held_lock
     globals()["_lock_busy_message"] = _lock_busy_message
     globals()["_publish_contention_wait_secs"] = _publish_contention_wait_secs
+    globals()["_reconcile_dest_before_push"] = _reconcile_dest_before_push
     _BOOTSTRAP_DONE = True
 
 
@@ -317,7 +322,7 @@ def _check_dest_state(dest: str) -> Tuple[Optional[str], bool, Optional[str]]:
         elif ln.startswith("# branch.ab "):
             for token in ln.split():
                 if token.startswith("+"):
-                    # Review: coordinator:code-reviewer — a `# branch.ab`
+                    # A `# branch.ab`
                     # line that fails to parse must refuse, not silently
                     # downgrade to "0 commits ahead" (a false success).
                     try:
@@ -331,7 +336,7 @@ def _check_dest_state(dest: str) -> Tuple[Optional[str], bool, Optional[str]]:
                             branch_head,
                         )
     if not has_upstream:
-        # Review: coordinator:code-reviewer — detached HEAD has no "current
+        # Detached HEAD has no "current
         # branch", so the upstream-refusal text (and its `git push -u
         # <remote> <branch>` remediation) is misleading there.
         if branch_head == "(detached)":
@@ -446,7 +451,7 @@ def _resolve_remote_host(dest: str) -> Tuple[Optional[str], Optional[str]]:
     print first. Returns `(host, refusal_message)`; exactly one is
     non-`None`.
 
-    Review: coordinator:code-reviewer — a multi-host or multi-account `gh`
+    A multi-host or multi-account `gh`
     login prints one `Token scopes:` line per account section;
     unscoped, `_parse_gh_token_scopes` could read an unrelated account's
     scopes. Refuses loudly rather than guessing when the remote URL can't
@@ -656,6 +661,23 @@ def _cmd_push(args: argparse.Namespace) -> int:
                 return _EXIT_OK
 
             if has_commits_to_push:
+                # A peer box can land on this dest's upstream any time between
+                # `percolate-round`'s pre-round refresh and this push, which
+                # can be minutes to days later on a separate invocation — the
+                # window `percolate.dest_refresh.refresh_dest_from_origin`
+                # cannot close because it runs before the round, not before
+                # the push. `reconcile_dest_before_push` closes it here: it
+                # fetches, merges a divergent upstream deterministically (both
+                # sides are the same published surface from different
+                # sources), and aborts + refuses on a real conflict rather
+                # than picking a side. A non-fast-forward `git push` below
+                # would otherwise strand a finished, committed round in the
+                # mirror with no in-band way to resolve it.
+                _reconcile = _reconcile_dest_before_push(Path(dest), out=sys.stdout, err=sys.stderr)
+                if not _reconcile.ok:
+                    print(f"percolate-push: {_reconcile.reason}", file=sys.stderr)
+                    return _EXIT_FAIL
+
                 # Captured, never inherited: `_run` forces CREATE_NO_WINDOW,
                 # and on Windows an inherited-stdio child under that flag
                 # writes into a suppressed console, so a

@@ -6,7 +6,7 @@
 > repo has four version namespaces; without this doc the cut ceremony guessed,
 > and the surfaces drifted to plugin.json 2.7.1 / marketplace.json 2.1.1 /
 > CHANGELOG 2.8.1 / git tag v2.7.0 by 2026-06-22. This doc names the SSOT and the
-> invariant; claude-klabauter `coordinator/bin/check-version-consistency.py`
+> invariant; the engine repo's `coordinator/bin/check-version-consistency.py`
 > mechanically enforces it.
 
 ## The SSOT
@@ -48,7 +48,7 @@ Step 10) stamps all of 1–3 and then runs the gate before proceeding to merge.
 
 ## Enforcement
 
-Claude-klabauter `coordinator/bin/check-version-consistency.py` asserts the invariant, fail-loud, in both the
+The engine repo's `coordinator/bin/check-version-consistency.py` asserts the invariant, fail-loud, in both the
 meta-repo source layout and the flat OSS publish layout (paths resolved relative
 to `marketplace.json`). It is wired in two places so drift cannot ship:
 
@@ -58,7 +58,7 @@ to `marketplace.json`). It is wired in two places so drift cannot ship:
   `check_marketplace_version_regression` non-regression gate in
   `setup/lib/percolate-gate.sh`).
 
-Run it manually any time (claude-klabauter): `python3 coordinator/bin/check-version-consistency.py [--check-tag]`.
+Run it manually any time (from the engine repo): `python3 coordinator/bin/check-version-consistency.py [--check-tag]`.
 
 ## Why marketplace.json tracks the plugin version
 

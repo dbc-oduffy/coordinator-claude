@@ -21,7 +21,7 @@ These are the only two contact points. `/handoff` does not reconcile (mid-flight
 set is not final). `/merging-to-main` and `/workday-complete` do not reconcile (downstream of the
 seam that already reconciled at workstream-complete).
 
-**Status-stamp note:** Step 2.4 now also stamps `status:` → `implemented` on the governing plan via `archive-stamp-cli stamp-plan-implemented <plan_path>` (claude-klabauter `coordinator_core/archive_stamp.py::cs_stamp_plan_implemented`) — guarded (only non-terminal source statuses flip; no-op otherwise). This is a header-agreement stamp, not a distinct reconciliation mechanism — see `docs/wiki/coordinator-tripwires.md § STAMP-PLAN-STATUS-ON-SHIP`.
+**Status-stamp note:** Step 2.4 now also stamps `status:` → `implemented` on the governing plan via `archive-stamp-cli stamp-plan-implemented <plan_path>` () — guarded (only non-terminal source statuses flip; no-op otherwise). This is a header-agreement stamp, not a distinct reconciliation mechanism — see `docs/wiki/coordinator-tripwires.md § STAMP-PLAN-STATUS-ON-SHIP`.
 
 ---
 
@@ -200,7 +200,7 @@ deviated (see § Proportionality above — do not manufacture corrections).
 Repairing a stale reference or handoff axis during reconciliation can surface a genuine design
 collision with a ratified decision record, not just a mechanical pointer fix. One instance: repair
 of an `abandoned-to-closed` handoff axis surfaced that the axis, if repaired as originally
-proposed, would drive claude-klabauter into re-divergence from the lifecycle vocabulary. The resolution was not to force the
+proposed, would drive the engine repo into re-divergence from the lifecycle vocabulary. The resolution was not to force the
 original repair through — the axis was narrowed to the plan/initiative/goal axes only, and the
 narrowed scope was verified isolated from the vocabulary collision before landing.
 
@@ -248,6 +248,35 @@ moving substrate.
 trusting a COMPLETE status, especially when substrate (files, rows, artifacts) could have moved
 since the verdict was recorded. A plan claiming completeness is itself a forecast subject to the
 same reconcile-against-shipped-reality discipline as any other ALLOWLIST section.
+
+## The Highest-Yield Check Is Reading the Whole Plan, Not Another Gate
+
+A reconciliation pass against one large, carefully-evidenced live plan found fourteen defects in a
+day, and **none of them needed new information** — every one was a claim someone had already
+written down, still true when written. A recorded fact has no expiry, no owner, and no mechanism
+that re-checks it, so a plan accumulates confidently-stated history that reads exactly like current
+state. Ranked by what actually found each defect, highest yield first:
+
+1. **Reading the plan end to end** — highest yield by a wide margin (nine of fourteen defects in
+   the specimen). Nobody had done this since the plan grew past its original size; every session
+   arrived, read only its own chunk, and left. The recurring shape this surfaces: the narrative
+   prose and the plan's own machine-readable spine (its chunk/AC records) drift apart, always in the
+   same direction — the narrative gets updated, the spine does not — so an AC can read DISCHARGED in
+   prose while its owning chunk's structured status still reads open, or a chunk can carry a "this
+   is a trade" framing after the finding that established it as a pure gain.
+2. **Running the thing instead of reading its table.** A quoted pass-rate or coverage figure can be
+   a day stale and simply wrong when re-run; re-running is cheaper than trusting the quoted number.
+3. **Checking the artifact the code actually writes** — a live outage was invisible in every test
+   and obvious in one look at the log file the affected code writes; nothing had looked at it.
+4. **Mapping every AC to its owning chunk's live disposition** — the plan's own recommended check,
+   never taken up on, which finds orphaned ACs whose owning chunk shipped, stalled, or was dropped
+   without the AC's status ever being touched.
+
+**Rule.** The cheapest intervention when a plan has been live long enough to accumulate this kind of
+rot is not another gate — it is periodically reading a live plan whole and checking its load-bearing
+claims against the system, in that yield order. This is not claimed to scale to every plan in a
+large corpus; it is claimed to be the highest-yield single pass available on a plan that has grown
+complex enough that no one has read all of it in one sitting.
 
 ## Companion Doctrine
 

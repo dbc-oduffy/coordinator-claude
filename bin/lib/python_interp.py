@@ -38,10 +38,10 @@ def is_console_python_basename(path: str) -> bool:
     avoid a console flash is exactly the context where `sys.executable`
     would be `pythonw.exe` -- do not "simplify" this back to a bare
     `startswith("python")`.
-    # Review: code-reviewer P2 — pythonw.exe/pythonw3.exe silently accepted.
+    # pythonw.exe/pythonw3.exe silently accepted.
     """
     stem = os.path.splitext(os.path.basename(path))[0].lower()
-    # Review: code-reviewer — nit: `startswith("python")` would also accept a
+    # nit: `startswith("python")` would also accept a
     # hypothetical non-python `pythonstub.exe` on PATH with no further
     # validation here. Defended in depth by each caller's own liveness probe
     # (e.g. a `--help` subprocess check gating the value before it is ever

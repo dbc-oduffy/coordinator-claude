@@ -6,8 +6,8 @@ constraint that governs `session-init.py`/`project-orientation.py`'s
 Claude-klabauter-root resolution (recipe § 4).
 
 The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out):
-resolve the claude-klabauter engine, hand it the raw stdin payload, let it write the
-two bridge files. Claude-klabauter owns the port LOGIC
+resolve the engine repo, hand it the raw stdin payload, let it write the
+two bridge files. The engine repo owns the port LOGIC
 (`coordinator_core.hooks.context_pressure_precompact.run`). The engine is
 imported and run IN-PROCESS — no bash, no `python3 -m` subprocess re-spawn —
 mirroring `preuse-write-dispatch.py`'s
@@ -31,7 +31,7 @@ Contract:
             state-snapshot side-effect, or a silent no-op.
 
 Graceful degradation — REQUIRED: any failure to resolve/import/run the
-Claude-klabauter engine falls through to fail-open silent no-op (exit 0, no stdout, no
+engine repo falls through to fail-open silent no-op (exit 0, no stdout, no
 files written). A missing sibling engine must NEVER brick a compaction event
 — identical philosophy to `preuse-write-dispatch.py`.
 """
@@ -64,7 +64,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open: claude-klabauter unresolvable on this machine
+        return 0  # fail-open: engine repo unresolvable on this machine
 
     if root not in sys.path:
         sys.path.insert(0, root)

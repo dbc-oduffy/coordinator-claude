@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 coordinator-prepare-commit-msg (extensionless twin) — thin in-process delegate
 to ``coordinator-prepare-commit-msg.py``, this file's own sibling in this

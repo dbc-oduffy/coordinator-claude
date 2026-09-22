@@ -140,8 +140,16 @@ which prints `peer-contention` or `infra-error` and always exits 1. If `peer-con
 and never strip the `[ref]` qualifier (names are reassignable; refs are durable). Whether to send
 now or hold for a memo: needs BOTH gates — the shared contract is genuinely unknown and needs
 round-trips (GATE 1), and this is cheaper for the receiver now than later (GATE 2). Default to memo
-when either is unclear; reconcile before dispatching either way, never race. If `infra-error`,
+when either is unclear; reconcile before dispatching either way, never race. A `competing_claim[]`
+entry whose holder is live but relinquished — relinquishment evidence present, not mere liveness —
+is not a reconcile case: `take_over_claim` is the named next move, fail-loud without evidence
+. If `infra-error`,
 surface the raw message and stop — do not mis-report it as a phantom peer.
+
+**Anti-scope.** `workstream-complete/SKILL.md`'s `peer-contention` residual-reason class is not a
+third consumer of the takeover verb: it names a reason for routing a discovered execution residual
+elsewhere, not a claim-blocking event with a `competing_claim[]` entry to read evidence from — no
+edit owed there.
 
 `claim-plan` trampolines into `coordinator_core.session.claims.claim_plan` (wraps
 `claim_artifact("plan", ...)`, full claim machinery: dead-PID reaper, inline stale-takeover, TOCTOU
@@ -300,9 +308,20 @@ non-deferred task count, and MUST exceed it whenever expansion fires on any entr
 ## Per-chunk run-report sidecars
 
 Same universal sidecar every subagent is eligible for, addressed flat and deterministically:
-`provision_key = <plan-slug>.<chunk-id>` (single `.`-joined segment, never a path). The EM passes it
-to `provision_report` at dispatch time; the engine resolves it to
-`state/subagent-share/<session-id>/<provision_key>.md`, re-opening idempotently on re-dispatch.
+`provision_key = <plan-slug>.<chunk-id>` (single `.`-joined segment, never a path). `<plan-slug>`
+is the plan basename with a leading `YYYY-MM-DD-` and trailing `.md` stripped — the form
+`fold_execution_record` reads by, so future keys converge on it. A reader also still accepts the
+legacy `dated` (full dated stem) and frontmatter-`slug:` forms found in the existing corpus, and
+reports which one matched (`plan-completeness-ledger.md` § The chunk-to-sidecar join and its
+tie-break names all three candidate forms). The EM passes `provision_key` to `provision_report` at
+dispatch time; the engine resolves it under the current share root,
+`.coordinator-local/subagent-share/<session-id>/<provision_key>.md`
+(`coordinator_core/session/machinery_paths.py :: share_dir`), re-opening idempotently on
+re-dispatch — idempotent re-open holds only WITHIN a session, so a cross-session repeat is
+resolved by the reader's own tie-break (newest `spawned_at` wins), not by a second re-open. The
+legacy leg, `state/subagent-share/<session-id>/<provision_key>.md`, is still read (never written)
+— a reader walks every root `machinery_paths.share_roots()` returns, current root and legacy leg
+alike.
 `fan-out-dispatch.py --plan <path>` computes each row's key, provisions it, and injects
 `report_sidecar:` into each brief as an unconditional deliverable — filling it is expected, not
 optional. Executor lifecycle: `dispatched` → `in_flight` on first action (write `started_at`) →

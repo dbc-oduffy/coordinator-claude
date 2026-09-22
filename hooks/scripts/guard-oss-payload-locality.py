@@ -13,7 +13,7 @@ Why this exists
 Files under this tree's OSS payload (see `_oss_payload.py`) percolate
 outward to a publish-only mirror an OSS reader installs with none of this
 fleet's private sibling-repo checkouts on disk. A private sibling-repo name
-(today: `claude-klabauter`) appearing as ATTRIBUTION PROSE in that payload — a
+(e.g. the engine repo's checkout name) appearing as ATTRIBUTION PROSE in that payload — a
 mention, not a load-bearing wire value — costs that reader something: the
 name means nothing to them and the reference is dead on arrival. A
 drive-rooted Windows path hardcodes a machine-specific value into shipped

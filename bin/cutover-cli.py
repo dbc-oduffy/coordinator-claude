@@ -91,7 +91,7 @@ def _repo_root_for(record_path: str) -> str:
     """
     abs_record = os.path.abspath(record_path)
     start_dir = os.path.dirname(abs_record) if os.path.isfile(abs_record) else abs_record
-    # Review: code-reviewer (P2) -- pre-conversion this whole resolution was
+    # pre-conversion this whole resolution was
     # wrapped in `try/except (subprocess.CalledProcessError, OSError): return
     # os.getcwd()`. The conversion dropped the wrapper, leaving only the
     # trailing `or os.getcwd()` to catch `show_toplevel()` returning `None`

@@ -87,10 +87,11 @@ def _fm_field(path: str, key: str) -> str:
     except OSError:
         return ""
 
-    # serializeYamlScalar (coordinator/bin/lib/schema.js) single-quotes
-    # all-digit values (e.g. a synthetic all-digit session id); strip one
-    # matched pair of surrounding quotes so an unstripped quoted value
-    # doesn't fail a downstream equality/liveness comparison.
+    # The retired Node writer's serializeYamlScalar single-quoted all-digit
+    # values (e.g. a synthetic all-digit session id), and the records it wrote
+    # are still on disk; strip one matched pair of surrounding quotes so an
+    # unstripped quoted value doesn't fail a downstream equality/liveness
+    # comparison.
     if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
         val = val[1:-1]
     return val

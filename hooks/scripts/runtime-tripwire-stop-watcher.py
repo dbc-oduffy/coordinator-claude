@@ -11,8 +11,8 @@ registration is restored. Restore procedure: stop-dispatch.py. Re-registering
 is a PM call, not an engineering one.
 
 Ported from the former bash Stop-hook watcher. Self-contained
-(no claude-klabauter op exists for this hook as of this port -- grepped
-Claude-klabauter/coordinator_core/hooks + ops, no stop-watcher/asyncRewake match).
+(no engine-repo op exists for this hook as of this port -- grepped
+the engine repo's coordinator_core/hooks + ops, no stop-watcher/asyncRewake match).
 The doctrine plane owns the full logic directly; there is no thin-stub/engine split here.
 
 Purpose: Registered on the Stop hook event with asyncRewake: true. Fires at

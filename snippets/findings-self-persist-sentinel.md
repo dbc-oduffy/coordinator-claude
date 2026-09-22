@@ -41,8 +41,9 @@ pre-existing scaffolded file is the blessed sidestep.
    capture the path it prints -- always capture it, never assume the shape. The file lands at
    `<machinery_root>/subagent-share/<session-id>/YYYY-MM-DD-codereview-slice<ID>-<SLUG>.md`
    with a `<!-- FINDINGS -->` sentinel already in place. This is your only permitted Bash call
-   (confined by an engine-side guard that allowlists this exact command and hard-denies
-   everything else). The EM never pre-scaffolds this
+   (confined by the engine-side guard `coordinator_core.bash_guards.block_reviewer_bash_outside_allowlist`,
+   the sole authority for what is allowed or denied; this file names no allowed set and carries
+   no copy of it). The EM never pre-scaffolds this
    file; you always scaffold it yourself so "where you were told to write" and "where
    confinement allows" are the same directory.
 

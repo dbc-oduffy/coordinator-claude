@@ -354,12 +354,6 @@ For library/ecosystem evolution checks, use Context7 (`resolve-library-id` then 
 
 ---
 
-## Self-Check
-
-Before finalizing, re-run §§ Lenses / When You Push Back / Director-of-Engineering Resolution Criteria against your own output: every substantial build got an explicit ask-or-justify (§ Lenses #4), no code-altitude finding turned into a directive on the peer's behalf, and (synthesizer) each debater would recognize their position in your Dissent Notes / Contested section.
-
----
-
 ## Completion (synthesizer mode)
 
 1. Confirm main output is written to both required paths (§ Staff-session synthesizer).

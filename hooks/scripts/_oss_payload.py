@@ -23,7 +23,7 @@ COMPOSITION, in order:
      top-level entries (`bin`, `lib`, `hooks`, `skills`, ..., specific
      `docs/wiki/*.md` seed pages, specific `templates/*` paths, ...).
   2. Field 8 (`source_map`) reroutes SOME of those entries (today: `bin`,
-     `lib`) to resolve against a SIBLING repo's tree (`claude-klabauter`)
+     `lib`) to resolve against a SIBLING repo's tree (the engine repo)
      instead of this repo's — those two directories are tracked as 0 files
      in this clone BY DESIGN (the executable surface migrated out on
      2026-07-22); resolving them here would silently under-count by roughly
@@ -70,7 +70,7 @@ repo's hook is never invoked. That gap is real and permanent, not a bug to
 "fix" by trying to reach into a sibling tree's write path from here.
 
 FAIL-LOUD vs FAIL-OPEN, and the line between them:
-  - The ENGINE LEG (claude-klabauter) fails OPEN — skips cleanly and reports
+  - The ENGINE LEG (the engine repo) fails OPEN — skips cleanly and reports
     why — when the sibling repo itself can't be resolved (fresh clone, OSS
     install, a machine with no sibling checkout). A ratchet that cannot go
     green without a sibling checkout is a ratchet the next frustrated
@@ -123,7 +123,7 @@ class MirrorRow:
 
     `allowlist` — every admitted top-level entry from field 7, in file order.
     `source_map` — field 8, parsed: sibling-repo source-root TOKEN (e.g.
-    `"plugin-source:claude-klabauter/coordinator"`) -> the allowlist entries it
+    `"plugin-source:<sibling>/coordinator"`) -> the allowlist entries it
     serves (e.g. `("bin", "lib")`). Entries named in ANY `source_map` value
     resolve against the mapped sibling root, never against this clone.
     `exclusions` — field 7's `!`-prefixed entries, sigil stripped, in file
@@ -407,7 +407,7 @@ def toplevel_wiki_payload_files() -> tuple:
 
 
 def _parse_source_map_token(token: str) -> tuple:
-    """`"plugin-source:claude-klabauter/coordinator"` -> `("claude-klabauter",
+    """`"plugin-source:<sibling>/coordinator"` -> `("<sibling>",
     "coordinator")`. Raises on any other shape, INCLUDING a repo name other
     than `_ENGINE_REPO_NAME` — an unmodeled `source_map` token is a
     data-shape change this module's engine leg has not been taught, not a
@@ -464,7 +464,7 @@ def engine_repo_available() -> tuple:
 
 
 def engine_payload_files() -> tuple:
-    """Repo-relative (to the resolved `claude-klabauter` root) tracked paths
+    """Repo-relative (to the resolved engine-repo root) tracked paths
     the ENGINE repo contributes to the OSS mirror payload, via the
     `source_map`-routed allowlist entries (today: `bin`, `lib`).
 
@@ -515,7 +515,7 @@ def payload_files() -> tuple:
     (repo-relative to `REPO_ROOT`), the dedicated
     `coordinator-claude-toplevel-wiki` seed pages (also repo-relative to
     `REPO_ROOT`), and `coordinator-claude|mirror` engine entries
-    (repo-relative to the resolved `claude-klabauter` root, `()` when
+    (repo-relative to the resolved engine-repo root, `()` when
     unresolvable). The local and engine parts are relative to DIFFERENT repo
     roots — this is a reporting aggregate, not a single filesystem
     namespace."""

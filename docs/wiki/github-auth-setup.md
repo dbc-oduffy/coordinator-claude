@@ -61,10 +61,19 @@ of the *identical* design:
 
 The gh token (scope `repo`) already in the keyring/keychain serves the push; no new PAT is needed if
 `gh auth status` shows a `repo`-scoped token. Reverse with `git remote set-url origin
-git@github.com:<owner>/<repo>.git`. Validate **live on both platforms** (both-platform
-discipline) — a `git ls-remote origin` + a real push must authenticate with the SSH agent
-unreachable. Fleet note: other `work/*` repos hitting the same idle-lock symptom flip identically;
-the engine (`coordinator_core/hooks/auto_push.py`) is protocol-agnostic and needs no change.
+git@github.com:<owner>/<repo>.git`.
+
+**Exception — a repo whose branches touch `.github/workflows/`.** A `gh`-issued OAuth token
+typically lacks `workflow` scope, and GitHub then rejects any HTTPS push touching a workflow file
+whole-branch, not per-file (`refusing to allow an OAuth App to create or update workflow ...
+without workflow scope`) — silently blocking every session sharing that branch. Such a repo keeps
+`origin` on SSH (OAuth-app-independent) instead of this cure, or runs `gh auth refresh -s workflow`
+first (needs an interactive browser — surface it to the human, don't attempt it unattended).
+
+Validate **live on both platforms** (both-platform discipline) — a `git ls-remote origin` + a real
+push must authenticate with the SSH agent unreachable. Fleet note: other `work/*` repos hitting
+the same idle-lock symptom flip identically **unless they carry `.github/workflows/`**; the engine
+(`coordinator_core/hooks/auto_push.py`) is protocol-agnostic and needs no change.
 
 ## Tier 1 — 1Password SSH agent (interactive machines)
 
@@ -157,7 +166,7 @@ apply to both auth and signing — see `claude-code-platform-gotchas.md` for the
 
 ## Relationship to the `clone_auth` preflight probe
 
-`coordinator_core.install.prereq_probe.probe_clone_auth` (native Python port, claude-klabauter; run by install Step Zero) is the read-only
+`coordinator_core.install.prereq_probe.probe_clone_auth` (native Python port, the engine repo; run by install Step Zero) is the read-only
 **detector** — it asserts *some* non-interactive GitHub auth path exists (gh → SSH → credential
 helper) and WARNs advisory if none do. This doc + the setup script are the **fixer** for the
 Tier-1 case. The probe stays auth-method-agnostic; the 1Password path is one way to make it pass.

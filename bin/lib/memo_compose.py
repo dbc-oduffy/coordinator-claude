@@ -34,9 +34,11 @@ from __future__ import annotations
 
 import datetime
 
-# Maximum summary length — mirrors the ≤120-char rule in bin/lib/schema.js
-# CROSS_FIELD_RULES.cross_repo_memo summary validation. If schema.js bumps the
-# cap, update this constant too. Both sides must stay in sync.
+# Maximum summary length — mirrors
+# `coordinator_core.ops.fleet._memo_summary._SUMMARY_MAX_CHARS`, which the
+# receiver-side cross-field rule (`schema_validate._memo_cf_summary_length_cap`)
+# and the emitted memo schema both read. If that constant moves, update this
+# one too. Both sides must stay in sync.
 _SUMMARY_MAX_CHARS = 120
 
 
@@ -73,7 +75,7 @@ def _derive_summary(body: str) -> str:
     """Derive a summary from the first non-empty line of the memo body.
 
     Truncates to _SUMMARY_MAX_CHARS with a '…' suffix so the composed memo
-    never violates the schema.js ≤120-char cross-field rule.
+    never violates the ≤120-char summary cross-field rule.
     """
     for line in body.splitlines():
         stripped = line.strip()
@@ -134,7 +136,8 @@ def compose_frontmatter(
         supersedes: Optional; set on a re-issued memo to chain the supersession.
         summary: Explicit one-line tl;dr (≤120 chars); derived from first
                  non-empty body line when None. Truncated at _SUMMARY_MAX_CHARS.
-        kind:    Optional sender-declared shape: ask | consult | fyi | proposal.
+        kind:    Optional sender-declared shape; see
+                 `coordinator_core.ops.fleet.memo_kinds.VALID_KINDS`.
                  When None, NO kind: line is emitted (absence is meaningful —
                  readers apply an 'ask' default for unlabelled memos).
         scoped_to: Optional nested {artifact, version|sha, seam} mapping —

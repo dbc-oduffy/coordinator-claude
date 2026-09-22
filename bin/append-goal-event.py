@@ -266,7 +266,7 @@ def _cc_invoke_bare(op: str, params: dict[str, object], repo_root: str) -> dict[
                 **no_console_creationflags(),
             )
         except subprocess.TimeoutExpired as exc:
-            # Review: coordinator:code-reviewer P3 (2026-08-08) — was a third, divergent
+            # Was a third, divergent
             # hand-built "engine timeout after Ns" message with no ceiling derivation
             # (same defect class AC7 targets, minus the install-blame text). Routed
             # through cc_invoke.py's shared _timeout_exceeded_message instead of

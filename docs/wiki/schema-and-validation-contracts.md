@@ -1,7 +1,7 @@
 # Schema and Validation Contracts
 
 
-> Purpose: how DoE-claude's tracked-record schemas (YAML frontmatter) are declared, validated, and evolved — and who is authoritative for which validator.
+> Purpose: how this repo's tracked-record schemas (YAML frontmatter) are declared, validated, and evolved — and who is authoritative for which validator.
 
 ## Overview
 
@@ -96,14 +96,14 @@ similarly scoped.
 ### Schema SSOT ownership split (boundary sub-decision)
 
 Per the contract-vs-engine boundary, ownership of schema *tooling* (not the
-schema *contract*) has been split by ratified sequencing: claude-klabauter takes over (A)
-becoming the `.schema.json` emitter — retiring the DoE-vendored, drift-checked
+schema *contract*) has been split by ratified sequencing: the engine repo takes over (A)
+becoming the `.schema.json` emitter — retiring this repo's vendored, drift-checked
 copy — and (B) retiring `schema-cli.js` in favor of native enum-introspection.
-DoE retains the contract/governance layer (the schema files themselves and the
-rules in this guide). The cutover is sequenced behind DoE's 8-schema
+This repo retains the contract/governance layer (the schema files themselves and the
+rules in this guide). The cutover is sequenced behind this repo's 8-schema
 landing-commit and spans all four shell-out call sites: `queue_append
 --describe/--validate`, `queue_promote`, `plan_tasks_mutate`, `schema_validate.py`.
-**DoE's deletion signal is an explicit cutover-clear memo from claude-klabauter** — do not
+**This repo's deletion signal is an explicit cutover-clear memo from the engine repo** — do not
 delete the vendored emitter or `schema-cli.js` preemptively.
 
 ## Validator Landscape
@@ -174,9 +174,9 @@ and whether the validator is wired live or stubbed permissive.
 
 | Concern | Owner / Location |
 |---|---|
-| Schema contract (schema file authorship, field semantics) | DoE (this repo) |
-| `.schema.json` emitter | claude-klabauter (post-boundary sub-decision) |
-| `schema-cli.js` | Retiring → claude-klabauter native enum-introspection (memo08-009) |
+| Schema contract (schema file authorship, field semantics) | This repo |
+| `.schema.json` emitter | the engine repo (post-boundary sub-decision) |
+| `schema-cli.js` | Retiring → engine-native enum-introspection (memo08-009) |
 | Production validator for queue records | `schema_loader.validate()` (Python), via `coordinator-queue-append` |
 | `schema.js` | Non-production for queue records; list-of-map `validateField` support still missing |
 | `lint-frontmatter.py` | Skips `*.yaml`/`*.json` — not a schema validator |

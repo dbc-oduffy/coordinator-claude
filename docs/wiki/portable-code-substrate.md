@@ -95,7 +95,7 @@ Production traffic is unaffected (env var arrives unset from outside); the failu
 - **Absolute-path callers** — health-check probes that call an installer-authored `~/.claude/bin/<tool>` path explicitly are always correct, for whichever plugin still mints a forwarder there. Coordinator mints none (see below): a probe should not reference `~/.claude/bin/machine-local` — no forwarder exists at that path.
 - **Persistence across reinstalls** — the directory is stable user-space; installer-authored files there survive plugin upgrades.
 
-**Coordinator's own `coordinator/bin/` is not a worked example of this pattern — it tracks zero files** (verify: `git ls-files coordinator/bin | wc -l` → `0`). The harness still injects that directory; it is simply empty, so bare-name resolution for coordinator's own scripts, and for the settings-home CLI family (`~/.coordinator-claude-settings/bin/`, 300+ generated forwarders including `machine-local`/`cross-repo-memo`), is broken on POSIX — that directory is not harness-injected and not on PATH on macOS/Linux. A fix generalizing the installer's login-profile PATH block to also cover settings-home/bin has been requested from claude-klabauter by memo and has not yet landed. Until it lands, invoke the settings-home CLI family per the precedence ladder in `coordinator/snippets/resolve-coordinator-bin.md` — rung 0 / Shape W on a PowerShell host, the explicit `${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/<cli>` path on a POSIX host — this remains correct regardless of the underlying fix's status.
+**Coordinator's own `coordinator/bin/` is not a worked example of this pattern — it tracks zero files** (verify: `git ls-files coordinator/bin | wc -l` → `0`). The harness still injects that directory; it is simply empty, so bare-name resolution for coordinator's own scripts, and for the settings-home CLI family (`~/.coordinator-claude-settings/bin/`, 300+ generated forwarders including `machine-local`/`cross-repo-memo`), is broken on POSIX — that directory is not harness-injected and not on PATH on macOS/Linux. A fix generalizing the installer's login-profile PATH block to also cover settings-home/bin has been requested from the engine repo by memo and has not yet landed. Until it lands, invoke the settings-home CLI family per the precedence ladder in `coordinator/snippets/resolve-coordinator-bin.md` — rung 0 / Shape W on a PowerShell host, the explicit `${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/<cli>` path on a POSIX host — this remains correct regardless of the underlying fix's status.
 
 **Distinct from where the resolver family lives.** The PATH-injection claims above are about *bare-name invocability* on POSIX shells — a separate concern from *where the three helpers are installed*. Per DR-072, the `claude_machine_local.py` / `claude-machine-local.sh` / `claude-machine-local.ps1` resolver family's canonical home is `<settings-home>/bin/`, not `~/.claude/bin/`; see `machine-local-registry.md § 4e` for the settings-home ladder. Don't conflate "is this on PATH" with "where does the resolver family live" — a caller with the absolute `<settings-home>/bin/…` path works everywhere regardless of PATH.
 
@@ -117,7 +117,6 @@ Empirically: `%APPDATA%\npm` is NOT on PATH for Git Bash or PowerShell on Window
 
 The contract is a one-paragraph wiki addition for the consuming plugin; the producer is the install-phase function. Cross-repo doctrine — applies to every plugin authoring a cross-shell CLI shim. (case: example-game-repo)
 
-<!-- DoE resolved: 2026-06-15 — tenancy contract memo `cross-repo/inbox/2026-06-09-example-game-repo-bin-tenancy-contract.md` actioned 2026-06-09 (status: actioned, fyi-nil); namespaced `example-game-repo-control{,.cmd}`, no coordinator-side conflicts. -->
 
 ## Invoke workspace tooling from its package dir — `npx <tool>` from the wrong cwd resolves a decoy
 
@@ -135,7 +134,14 @@ All three helpers live at two locations:
 - Live install: `<settings-home>/bin/{claude_machine_local.py,claude-machine-local.sh,claude-machine-local.ps1}`
 - Template mirrors: `coordinator/templates/bin/` (byte-identical)
 
-The byte-identity gate between them is engine-subject — `coordinator_core/ops/verify_templates_bin_sync.py`, in `claude-klabauter`, not this repo. It resolves the live side through `<settings-home>/bin/`, with `~/.claude/bin/` retained only as a migration-window fallback taken when the settings-home bin directory doesn't exist as a directory at all. Any change to the helpers ships to both locations.
+The byte-identity gate between them is engine-subject — `coordinator_core/ops/verify_templates_bin_sync.py`, in the engine repo, not this repo. It resolves the live side through `<settings-home>/bin/`, with `~/.claude/bin/` retained only as a migration-window fallback taken when the settings-home bin directory doesn't exist as a directory at all. Any change to the helpers ships to both locations.
+
+The daily SessionStart sweep owns template-to-live drift — content, exec bit, and the attention
+report — for every installed `<settings-home>/bin/` entry; the engine repo's `verify_templates_bin_sync`
+op remains the narrower install-surface byte-identity gate and does not own the exec bit.
+`bin-templates-manifest.py` is the sole authority for which entries need `exec_bit=True`: the
+sweep reads it directly rather than carrying a second copy or inferring the bit locally. See
+`coordinator-tripwires/a-template-that-installed-once-can-rot-in-place.md`.
 
 ## The Meta-Ask Preamble — Making Registry-Correct the Easy Path
 
@@ -171,7 +177,7 @@ The following hardcoded-path patterns are *not* `repos.*` problems and were expl
 | Hardcoded branch name in `run-phase5-rebisect-inline.ps1` | Branch-name bug, not path bug | `$env:BISECT_BASE_BRANCH ?? "main"` |
 | `api_registry_names.json` UE 5.7 install path | Runtime-data file | Resolve via `whoami`-discovered UE root |
 | `build-plugin.yml` hardcoded MSVC | GitHub Actions config | Parameterize via workflow input |
-| `server.json` placeholder naming a user home (`C:/<YourName>`) | Template placeholder | Substitute at install time or move to `.example` <!-- foreign-path-ok: template placeholder text, not an asserted location --> |
+| `server.json` placeholder naming a drive-rooted user home | Template placeholder | Substitute at install time or move to `.example` |
 | `integration.yml` sibling-checkout | CI workflow | Configurable checkout step or cross-OS CI matrix |
 
 The discriminator: if the wrong thing is a path to a *sibling repo root*, machine-local is the fix. If it is a configuration value, branch name, build parameter, or template placeholder — that is a different problem category.
@@ -195,7 +201,7 @@ durable-location literals resolve *this install's own config/identity/contract h
    PowerShell host) — never a frozen absolute literal duplicated per site.
 2. **Docs / contracts** describe the RESOLUTION RULE, not a frozen path. A contract that mandates
    a specific literal is itself a migration site — and one a reads-only census cannot even see
-   (the claude-klabauter visited-set gap was exactly a contract-mandated literal invisible to the audit).
+   (the engine repo's visited-set gap was exactly a contract-mandated literal invisible to the audit).
 3. **A lint/guard** treats a NEW hardcoded durable-path literal as the defect and **offers** the
    seam (design-as-offers — see § The Meta-Ask Preamble above and `eager-agent-calibration.md`,
    not a bare nag).

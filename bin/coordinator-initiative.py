@@ -156,7 +156,7 @@ def _resolve_initiatives_dir() -> str | None:
 def _yaml_dquote(val: str) -> str:
     val = val.replace("\\", "\\\\")  # escape backslashes
     val = val.replace('"', '\\"')  # escape double-quotes
-    # Review: code-reviewer — F11 (nit): escape control characters so a newline or carriage
+    # Escape control characters so a newline or carriage
     # return in --label/--id (e.g. from a value containing a literal newline) produces valid
     # YAML \n/\r, not a literal newline inside the double-quoted string (which is invalid YAML).
     val = val.replace("\n", "\\n")  # escape newlines
@@ -247,7 +247,7 @@ def _cmd_create(args: list[str]) -> int:
         print("coordinator-initiative create: --id is required.", file=sys.stderr)
         return 1
 
-    # Review: code-reviewer — F2 (P1): parse-time slug validation to prevent path-traversal writes.
+    # parse-time slug validation to prevent path-traversal writes.
     # Accept only ^[a-z0-9][a-z0-9-]*$ — reject any id containing /, \, .., or a leading dot.
     if not _ID_RE.match(id_):
         print(f"coordinator-initiative create: invalid --id '{id_}'", file=sys.stderr)
@@ -339,7 +339,7 @@ def _attach_one(artifact_path: str, initiative_id: str, initiatives_dir: str) ->
         content = f.read()
     original_lines = content.splitlines(keepends=True)
 
-    # Review: code-reviewer — F3 (P1): fail-loud if artifact has no YAML frontmatter block.
+    # fail-loud if artifact has no YAML frontmatter block.
     # The awk strategy silently no-ops (copies file unchanged, exits 0) when no opening --- exists,
     # producing a false-success signal. Guard at the boundary before the rewrite runs.
     first_line = original_lines[0].rstrip("\r\n") if original_lines else ""
@@ -377,7 +377,7 @@ def _attach_one(artifact_path: str, initiative_id: str, initiatives_dir: str) ->
 
     new_content = "".join(out_lines)
 
-    # Review: code-reviewer — F3 (P1): detect unterminated-frontmatter / not-found case to
+    # Detect unterminated-frontmatter / not-found case to
     # prevent false success. Verify the FK line was actually written to the new content.
     if not re.search(rf"^initiative: {re.escape(initiative_id)}", new_content, re.MULTILINE):
         return False, [], [

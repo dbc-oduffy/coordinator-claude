@@ -56,7 +56,7 @@ audience you are shapes which flags and flows are operative.
 a percolation cycle that updates plugin content. ("Personal coordinator tree" describes
 `~/.claude` as this audience's live install, re-run after each percolation cycle — not as
 an authoring surface; see § 8's post-cutover statement, where "Central" names the
-DoE-claude source clone, not `~/.claude`.)
+doctrine repo's source clone, not `~/.claude`.)
 
 **Operative constraints:**
 - Operator identity is already captured (`~/.claude/coordinator-identity.yaml` exists).
@@ -236,15 +236,15 @@ Three components, three roles — never conflated:
 
 | Component | Role | Mutation |
 |---|---|---|
-| `coordinator_core.install.prereq_probe` (native Python port, claude-klabauter) | SSOT functional probe lib — executes minimal runtime checks for the prereq set; `probe_all()` emits NDJSON; `inconclusive` is first-class | **Never mutates** |
-| `scripts/normalize-env` | Sole writer for fixable env conditions; consent/backup/restore shape; blast-radius-last ordering — Python trampoline over claude-klabauter `coordinator_core.ops.normalize_env` | **Sole mutation surface** |
+| `coordinator_core.install.prereq_probe` (native Python port, the engine repo) | SSOT functional probe lib — executes minimal runtime checks for the prereq set; `probe_all()` emits NDJSON; `inconclusive` is first-class | **Never mutates** |
+| `scripts/normalize-env` | Sole writer for fixable env conditions; consent/backup/restore shape; blast-radius-last ordering — Python trampoline over the engine repo's `coordinator_core.ops.normalize_env` | **Sole mutation surface** |
 | `scripts/setup.py --preflight` | Gate — reads probe lib, tables results, exits non-zero on hard failures only (Python) | **Never mutates** |
 
 Separating probe from fixer from gate is load-bearing: a probe that mutates state is a vacuous-pass hazard (it fixes the condition it was testing, then reports clean). See `install-surface-completeness.md § Step Zero Preflight and Env-Normalization Shape § FB-2 rule`.
 
 ### normalize-env — a Python trampoline over a Python probe SSOT
 
-`normalize-env` is a Python trampoline whose actual mutation logic lives in claude-klabauter's
+`normalize-env` is a Python trampoline whose actual mutation logic lives in the engine repo's
 `coordinator_core/ops/normalize_env.py`, invoked in-process (template-variant #1, no
 `register_op`). The bash-3.2-parseability constraint that governed the retired `.sh` oracle no
 longer applies anywhere in this surface: the former in-process bash-source bridge to
@@ -252,9 +252,10 @@ longer applies anywhere in this surface: the former in-process bash-source bridg
 2026-07-21 de-bash cutover — probe logic now runs in-process via the native
 `coordinator_core.install.prereq_probe` port. `scripts/lib/prereq_probe.sh` itself is **not**
 deleted — per the de-bash contract it remains on disk as the byte-stable vendor SSOT that
-project-rag-ue-addon and deep-research vendor-and-source; only DoE's own bridge to it was
-retired ("MIGRATE, not PORT" — claude-klabauter owns the port, DoE + the vendored consumers migrate to
-the seam). Cross-ref: `cross-platform-shell-portability.md` § support matrix.
+project-rag-ue-addon and deep-research vendor-and-source; only the doctrine repo's own bridge to
+it was retired ("MIGRATE, not PORT" — the engine repo owns the port, the doctrine repo + the
+vendored consumers migrate to the seam). Cross-ref: `cross-platform-shell-portability.md` §
+support matrix.
 
 ### Windows platform — cross-platform Python env-probe layer (post-cutover)
 
@@ -360,8 +361,8 @@ Full schema wiki: `docs/wiki/coordinator-installer-status-schema.md`.
 
 ## 8. Central vs publish-target separation
 
-<!-- Review: code-reviewer — "Central meta-repo" throughout this section refers to the DoE-claude clone (as of the 2026-07 cutover); the table column and header retain the legacy label for brevity. -->
-The Central meta-repo (the DoE-claude clone as of the 2026-07 cutover) and the OSS publish-target are deliberately asymmetric. Expected diffs:
+<!-- Review: code-reviewer — "Central meta-repo" throughout this section refers to the doctrine repo's clone (as of the 2026-07 cutover); the table column and header retain the legacy label for brevity. -->
+The Central meta-repo (the doctrine repo's clone as of the 2026-07 cutover) and the OSS publish-target are deliberately asymmetric. Expected diffs:
 
 > **Flat-layout / CLI-primary install.** The OSS publish-target is a flat Claude Code marketplace
 > (top-level `coordinator/ deep-research/ web-dev/ data-science/` +
@@ -374,12 +375,12 @@ The Central meta-repo (the DoE-claude clone as of the 2026-07 cutover) and the O
 | `setup/install.sh` | Absent | **Not shipped** (legacy/sandboxed manual fallback only — replaced by the `claude plugin` CLI + `/coordinator:install`) |
 | `setup/publish_sync.py` | Present | Absent (Central meta-repo sync tool) |
 | `setup/publish-targets.sh` | Present (machine-local, gitignored) | Absent |
-| `machine-local`, `bin/_machine_local.py` | claude-klabauter `coordinator/bin/` (migrated, not Central) | Absent |
+| `machine-local`, `bin/_machine_local.py` | the engine repo's `coordinator/bin/` (migrated, not Central) | Absent |
 | `coordinator/docs/wiki/coordinator-doctor.md` | **Absent in both** | **Absent in both** (deliberate gap — no dedicated coordinator doctor entry point) |
 
 Structural divergence beyond path substitutions (`coordinator-claude/coordinator/` → `coordinator/`) and persona depersonalization is a drift signal worth investigating.
 
-**Publish-repo content (setup scripts, top-level docs) is authored in the DoE-claude source clone only.** Direct edits to the published `coordinator-claude` mirror's `setup/install.sh` or similar bypass the planning/review/doctrine pipeline and drift silently. The canonical source is `coordinator/dist/publish-repo-{setup,toplevel}/` in the DoE-claude clone; `setup/publish_sync.py` propagates outward to the `~/.claude/plugins/coordinator-claude` published mirror.
+**Publish-repo content (setup scripts, top-level docs) is authored in the doctrine repo's source clone only.** Direct edits to the published `coordinator-claude` mirror's `setup/install.sh` or similar bypass the planning/review/doctrine pipeline and drift silently. The canonical source is `coordinator/dist/publish-repo-{setup,toplevel}/` in the doctrine repo's clone; `setup/publish_sync.py` propagates outward to the `~/.claude/plugins/coordinator-claude` published mirror.
 
 ---
 
@@ -431,7 +432,7 @@ All other coordinator-owned `~/.claude` content (harness-owned `settings.json`, 
 
 **`~/.claude/machine-local` symlink** — a realpath-symlink to `<settings-home>/machine-local/`. Consumer direct reads (e.g. `registry.local.toml`) resolve through the symlink unchanged. This one remains gated open; its own phase-2 tail is separate and still pending.
 
-**`~/.claude/bin/`** is not written by any installer path. The `bin/` resolver family's compat mirror (the installer's Step 3c-compat producer, plus its `compat_bin_dst` mkdir) is deleted (Gate 6): a fresh install writes forwarders to settings-home only, minting nothing into `~/.claude/bin`. `~/.claude/bin/machine-local` is not functional on a fresh install. All 5 consumers (example-game-repo, project-rag, project-rag-ue-addon, cockpit, claude-klabauter) confirmed migrated off the legacy `~/.claude/bin` surface before this producer was deleted, including `project-rag-ue-addon`'s absolute-path probe.
+**`~/.claude/bin/`** is not written by any installer path. The `bin/` resolver family's compat mirror (the installer's Step 3c-compat producer, plus its `compat_bin_dst` mkdir) is deleted (Gate 6): a fresh install writes forwarders to settings-home only, minting nothing into `~/.claude/bin`. `~/.claude/bin/machine-local` is not functional on a fresh install. All 5 consumers (example-game-repo, project-rag, project-rag-ue-addon, cockpit, the engine repo) confirmed migrated off the legacy `~/.claude/bin` surface before this producer was deleted, including `project-rag-ue-addon`'s absolute-path probe.
 
 ### Uninstall / teardown symmetry
 
@@ -450,7 +451,7 @@ Pre-existing installs may still carry real files under `~/.claude/bin` from befo
 
 ### project-rag:doctor hardcodes a machine-specific drive letter
 
-`project-rag:doctor` Step 1 hardcodes `"C:/project-rag"`. Violates "build for someone else's machine." Fix: `$(machine-local get repos.project_rag --default "")`. <!-- foreign-path-ok: the hardcoded path IS the anti-pattern being critiqued -->
+`project-rag:doctor` Step 1 hardcodes `"<drive>:/project-rag"`. Violates "build for someone else's machine." Fix: `$(machine-local get repos.project_rag --default "")`. <!-- foreign-path-ok: the hardcoded path IS the anti-pattern being critiqued -->
 
 ### workstream-start --red-only is vacuous-pass eligible on fresh installs
 

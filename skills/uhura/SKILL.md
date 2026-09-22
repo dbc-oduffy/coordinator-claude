@@ -18,7 +18,7 @@ with `group-em` and `staff-session`; no hook enforces it.
 
 `<plugin-root>/bin/uhura-mode.py enter --repo <root> --session-id <this-session> --name <peer-name>`
 
-Resolve per `snippets/resolve-coordinator-bin.md`. Entry never refuses: last writer wins, exactly
+Resolve per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`. Entry never refuses: last writer wins, exactly
 as the Group EM does, because a stale record outliving its session must not become a lock needing a
 human. `who` reports the holder; `stand-down` releases it and is **scoped to the caller** — you
 cannot stand another session down, since a fleet believing there is no channel while a live session
@@ -40,7 +40,11 @@ An EM arriving at you directly is **deflected to the Group EM, unread on the mer
 triage it, do not form a view, do not helpfully forward it onward — routing it yourself recreates
 the second intake this arrangement closes, and does it invisibly, because the Group EM never learns
 the item existed. Name where you sent it and stop. Same for anything arriving from a peer plane, a
-memo, or a hook. **One door in, one door out.**
+memo, or a hook. **One door in, one door out — one door per screened population, not one door
+absolutely.** The PM can widen the intake set (naming an additional sender or channel as
+screened); when they have, that named population is the door, and honoring it is not a second
+intake — it is the same recommended property applied to a set the PM chose. Absent that widening,
+the Group EM is the population, unchanged.
 
 ## The reserved channel
 
@@ -68,7 +72,9 @@ dispatch, commits, refactor mechanics, which test to write, whether to fix a def
 or integrity defect is fix-by-default and does not become PM-weight by being phrased as a question:
 *"want me to fix this broken thing?"* bounces as *"yes, and you did not need to ask."* The Group EM
 screens for this before you see it, so rung 1 firing is a signal about **their** screen — say so
-plainly rather than absorbing it.
+plainly rather than absorbing it. **This altitude guard applies to what you relay, not only to what
+you originate** — an off-altitude ask does not clear rung 1 by having passed through the Group EM
+first; check every relayed item against it the same as your own.
 
 **Rung 2 — NOT DECISION-READY.** A real question in an unusable shape. Bounce it naming what is
 missing: the options, the tradeoff, the recommendation, what follows from each. For a plan or an
@@ -82,6 +88,12 @@ burned-down roadmap needing fresh priorities.
 
 **Batch, do not stream.** Three carried items in an hour is one notification with three decisions.
 The second push in an hour is what teaches the PM to ignore the first.
+
+**Shape what you carry.** Offer a "do less" option alongside the full ask — a PM choosing between
+one full-scope option and silence is choosing less often than one choosing among sizes. Cite a
+live board by SHA, not by path — a path drifts under the PM's eyes; a SHA is the state you
+actually carried. Pitch acceptance criteria at the reader who checks them, not the one who wrote
+them — state what a PM verifies, not what an engineer already knows.
 
 ## Downward — a relay is a pointer, never an authority
 
@@ -115,6 +127,10 @@ baton. Tripwire: `A-RELAYED-DECISION-IS-A-POINTER-NOT-AN-AUTHORITY`.
   it as unmade.
 - **Does not chase.** Anything the PM has not answered stays held; never re-push. Silence from the
   PM is an answer about priority.
-- **Does not persist anything but the holder record.** No triage log, no escalation queue, no peer
-  facts — `/group-em`'s no-registry rule applies here unchanged, and the one-line holder record is
-  the same legibility carve-out the Group EM already won.
+- **The apparatus persists nothing but the holder record — the rulings it carries are a different
+  matter.** No triage log, no escalation queue, no peer facts — `/group-em`'s no-registry rule
+  applies to the apparatus unchanged, and the one-line holder record is the same legibility
+  carve-out the Group EM already won. That is not a bar on committing a PM ruling itself: per
+  "Downward" above, a ruling becomes actionable only as a record, and the record commits the
+  ruling's **bounds**, not only its verdict — a verdict without its bounds is re-litigated on
+  first contact.

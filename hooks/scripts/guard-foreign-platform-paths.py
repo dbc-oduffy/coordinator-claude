@@ -20,7 +20,7 @@ Contract:
   stdout  — the guard's banner text (raw, becomes additionalContext), or
             NOTHING when clean/healthy/absent/unparsable.
   exit 0  — ALWAYS. SessionStart hooks must never block session start; a
-            missing/unimportable claude-klabauter engine fails OPEN (silent, exit 0).
+            missing/unimportable engine repo fails OPEN (silent, exit 0).
 
 Residual gap (AC-3, stated plainly rather than papered over): on this repo's
 actual dev topology, native `--plugin-dir` hook-delivery is dead (upstream
@@ -34,7 +34,7 @@ guard.md` claims is solved by "living in the plugin, not settings.json" — that
 claim is accurate for a native `--plugin-dir` install and STALE for this
 machine's settings.json-baked delivery mechanism. The independent second leg
 that closes this gap is a native git `pre-commit` hook
-(`coordinator-precommit-foreign-platform-check`, claude-klabauter, installed via
+(`coordinator-precommit-foreign-platform-check`, the engine repo, installed via
 `install_meta_repo_precommit_hook.py`'s Gate 3) — it fires via git itself, not
 via any Claude Code hook, so it survives a session where every Claude Code
 hook is already dead. See that script's own docstring for what it still can't
@@ -78,7 +78,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open — claude-klabauter unresolvable on this machine
+        return 0  # fail-open — engine repo unresolvable on this machine
 
     if root not in sys.path:
         sys.path.insert(0, root)

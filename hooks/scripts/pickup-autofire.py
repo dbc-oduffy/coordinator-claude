@@ -441,6 +441,58 @@ def decode_decision_payload(stdout: str) -> list[dict]:
 # --- Decision-object predicates (AC9b) ---------------------------------------
 
 
+def _stdout_is_well_formed(stdout: str) -> bool:
+    """True iff `stdout` decodes to a JSON object or array (empty or not) --
+    the same "well-formed shape" `decode_decision_payload` already accepts
+    (DEC-2), computed independently so a caller can tell "the CLI answered,
+    with nothing claimable in it" apart from "the CLI could not be reached,
+    or answered garbage" (AC-C50). A bare scalar (e.g. `"42"`, `'"str"'`) is
+    NOT well-formed here even though `json.loads` parses it cleanly --
+    `decode_decision_payload` already treats that shape as unusable, and this
+    predicate must agree with it byte-for-byte or the two functions could
+    disagree about whether a given stdout blob was "answered".
+    """
+    try:
+        obj = json.loads(stdout)
+    except (json.JSONDecodeError, TypeError):
+        return False
+    return isinstance(obj, (dict, list))
+
+
+def _baton_grab_summary(decisions: list, spool_open_count: int, subagent: bool) -> str:
+    """AC-C50 (coordinator-claude#50): the ONE line a baton-grab invocation
+    (`mise-en-place`/`warp-speed-execute`) always renders once
+    `pickup-assemble brief` has actually answered -- whether it claimed
+    anything or not. An empty `batons_claimed` list and a hook that never
+    fired are the same nothing to an amnesiac session unless the KEY itself
+    is unconditionally present; this line is what makes its ABSENCE (never
+    its emptiness) the signal that something upstream did not run. A
+    65-baton spool that considered every one of them and legitimately
+    claimed zero must read as exactly that, not as silence indistinguishable
+    from a hook that never fired at all.
+
+    `spool_open_count` is the number of baton paths THIS invocation actually
+    handed to `pickup-assemble brief` (the AND-joined `extract_baton_paths`
+    tokens) -- not merely those claimed, so "65 open, 0 claimable" is never
+    collapsed into "0 open".
+
+    Never called on a genuine transport failure (unresolvable CLI, spawn
+    failure, timeout, or unparseable/garbage stdout) -- that case stays a
+    true silent fail-open (AC9c), and remaining silent there is exactly what
+    lets the missing key mean "this did not run" with no ambiguity.
+    """
+    claimed: list[str] = []
+    if not subagent:
+        for decision in decisions:
+            if not isinstance(decision, dict) or not should_apply(decision):
+                continue
+            artifact = decision.get("artifact")
+            path = artifact.get("path") if isinstance(artifact, dict) else None
+            if isinstance(path, str) and path:
+                claimed.append(path)
+    return f"batons_claimed={claimed!r}, spool_open_count={spool_open_count}"
+
+
 def coast_verdict(decision: dict) -> str | None:
     """The `gates.coast.verdict` string, or None when absent/malformed.
 
@@ -1292,11 +1344,24 @@ def compute_context(stdin_text: str) -> str | None:
     except _TransportFailure:
         return None  # AC9c
 
-    decisions = decode_decision_payload(result.stdout)
-    if not decisions:
-        return None  # AC9c -- unparseable/empty output is a transport failure too
-
     subagent = inv.agent_id is not None
+    decisions = decode_decision_payload(result.stdout)
+
+    # AC-C50: a baton-grab run (never `/pickup`) that got a well-formed
+    # answer out of `pickup-assemble brief` always renders the explicit
+    # batons_claimed/spool_open_count line below, even when `decisions` came
+    # back empty -- see `_baton_grab_summary`'s docstring. Computed off
+    # `path_string` (the tokens actually handed to `brief`), not `decisions`,
+    # so the open count survives a partially-malformed reply.
+    baton_grab_summary = None
+    if is_baton_grab and _stdout_is_well_formed(result.stdout):
+        spool_open_count = len([tok for tok in path_string.split(" AND ") if tok])
+        baton_grab_summary = _baton_grab_summary(decisions, spool_open_count, subagent)
+
+    if not decisions:
+        if baton_grab_summary is not None:
+            return baton_grab_summary[:_CONTEXT_BUDGET_CHARS]
+        return None  # AC9c -- unparseable/empty output is a transport failure too
 
     # DEC-3: apply keys UNIFORMLY off each decision's own resolved
     # `artifact.path`, never the raw `command_args`/`path_string` -- for
@@ -1322,10 +1387,19 @@ def compute_context(stdin_text: str) -> str | None:
     additional_context = render_additional_context(
         decisions, pointer_paths, prose, subagent_guard=subagent
     )
+    if baton_grab_summary is not None:
+        # AC-C50: the explicit batons_claimed/spool_open_count line is
+        # unconditional for a baton-grab run once the CLI answered -- never
+        # folded away just because the rest of the render was non-empty.
+        additional_context = (
+            f"{baton_grab_summary}\n\n{additional_context}"
+            if additional_context
+            else baton_grab_summary
+        )
     if not additional_context:
         return None
 
-    return additional_context
+    return additional_context[:_CONTEXT_BUDGET_CHARS]
 
 
 def main(stdin_text: str | None = None) -> int:

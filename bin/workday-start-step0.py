@@ -480,8 +480,35 @@ def _rename_across_midnight(old: str, new: str) -> int:
     return _exec_reconcile()
 
 
+_USAGE = (
+    "usage: workday-start-step0.py [-h|--help] "
+    "[--self-heal-machine-slug|--self-heal-contributor-slug]\n\n"
+    "Deterministic Step 0 (Branch Setup) for /workday-start. Run with no\n"
+    "arguments, this performs the live ceremony (may rename/push the shared\n"
+    "branch) -- see the module docstring. --help/-h prints this and exits 0\n"
+    "before any ceremony work runs."
+)
+
+
 def main(argv: list[str]) -> int:
     global wc
+
+    # Argv-parse-first: --help/-h must short-circuit before ANY ceremony
+    # work (including _bootstrap_engine's sys.path mutation's downstream
+    # imports) runs, and unrecognised argv must refuse rather than fall
+    # through into the live ceremony. state/bug-backlog/2026-08-26-workday-
+    # start-step0-py-has-no-help-no-op-b5e4827810e4.yaml: a probe with
+    # --help previously ran the full live ceremony (branch rename + push)
+    # because no argv was consulted before ceremony work started.
+    if "-h" in argv or "--help" in argv:
+        _out(_USAGE)
+        return 0
+    _KNOWN_SEAM_FLAGS = ("--self-heal-machine-slug", "--self-heal-contributor-slug")
+    if argv and argv[0] not in _KNOWN_SEAM_FLAGS:
+        _err(f"ERROR: unrecognised argument '{argv[0]}'")
+        _err(_USAGE)
+        return 1
+
     _bootstrap_engine()
 
     # Bootstrap-and-bind, relocated verbatim from the former module-level

@@ -4,12 +4,12 @@ the C7 admission predicate AND a soft post-edit size warning.
 
 Claude Code emits a load-time performance warning at 40KB on auto-loaded
 CLAUDE.md files. This hook simulates the pending edit, then applies the
-Claude-klabauter-owned SSOT thresholds (`coordinator_core.claude_md_budget`):
+engine-repo-owned SSOT thresholds (`coordinator_core.claude_md_budget`):
   - > SOFT_LIMIT_BYTES → exit 1 (advisory, stderr shown to user)
   - otherwise          → exit 0
 
 The HARD_LIMIT_BYTES (exit 2, BLOCK) leg of this same budget has been
-ported to the claude-klabauter engine as `coordinator_core.write_guards.
+ported to the engine repo as `coordinator_core.write_guards.
 check_claude_md_size` (2026-07-29, `docs/plans/2026-07-29-hook-fan-in-
 write-path.md` § C8) and no longer runs here — this hook now only ever
 soft-warns (exit 1) on size, never hard-blocks on it. It still hard-blocks
@@ -25,7 +25,7 @@ any sibling repo's) is a project file, not fleet-loaded, and must not share
 this budget; see `coordinator/docs/wiki/claude-md-surfaces.md`. All other
 paths, and any path that fails the governed-surface check, fast-exit 0.
 Simulation failures fail open (exit 0) — never block on a parse error in the
-gate itself. If the claude-klabauter engine (thresholds + discriminant SSOT) cannot be
+gate itself. If the engine repo (thresholds + discriminant SSOT) cannot be
 resolved/imported on this machine, this hook falls back to its own local
 copy of the prior thresholds/basename-match behaviour rather than going
 fully silent — see `_fallback_is_governed`/`_HARD_FALLBACK`/`_SOFT_FALLBACK`
@@ -127,7 +127,7 @@ from _guard_runner_contract import (  # noqa: E402
 #: resolve that surface's own per-surface classification ledger.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
-# Fallback thresholds/discriminant used ONLY when the claude-klabauter engine (the
+# Fallback thresholds/discriminant used ONLY when the engine repo (the
 # actual SSOT, `coordinator_core.claude_md_budget`) cannot be resolved or
 # imported on this machine — degrade to a conservative local approximation
 # rather than fail fully open (a missing sibling engine should narrow this
@@ -139,10 +139,10 @@ _SOFT_FALLBACK = 38000
 
 
 def _fallback_is_governed(file_path: str) -> bool:
-    """Basename-only approximation used only when the claude-klabauter SSOT is
+    """Basename-only approximation used only when the engine-repo SSOT is
     unresolvable. Deliberately narrower than a bare basename match where
     cheaply possible: still excludes anything not literally named
-    CLAUDE.md, but — unlike the claude-klabauter-owned discriminant — cannot
+    CLAUDE.md, but — unlike the engine-repo-owned discriminant — cannot
     distinguish a repo-scoped CLAUDE.md from a governed one without the
     dev-repo-sentinel logic that lives in `coordinator_core.claude_md_budget`.
     """
@@ -150,7 +150,7 @@ def _fallback_is_governed(file_path: str) -> bool:
 
 
 def _load_budget():
-    """Resolve the claude-klabauter-owned SSOT module, or None on any failure."""
+    """Resolve the engine-repo-owned SSOT module, or None on any failure."""
     root = _resolve_claude_klabauter_root()
     if not root:
         return None
@@ -167,7 +167,7 @@ def _load_budget():
 
 
 def _estimate_tokens(text):
-    """Best-effort token estimate via the claude-klabauter token oracle
+    """Best-effort token estimate via the engine repo's token oracle
     (`coordinator_core.ops.measure_token_envelope.estimate_tokens`), or None
     if the engine is unresolvable/unimportable. Reported alongside bytes in
     the block/warning messages so this hook's output covers BOTH units

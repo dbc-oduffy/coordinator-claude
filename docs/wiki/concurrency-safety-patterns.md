@@ -39,6 +39,15 @@ fail-loud on first collision, because its caller is designed to retry (a differe
 slug and resubmits). The discriminator is the caller's own retry contract, not the artifact type: same
 `O_EXCL` primitive, opposite failure posture, because the calling contexts differ.
 
+**Under an append-only contract, prefer creation-exclusivity over replace-atomicity to close a
+check-then-write race.** A lockfile, or a hardened temp-file + `os.replace` path, is the wrong
+instinct when the target contract is append-only: `os.replace` SUCCEEDS on collision, which is
+exactly what makes the race silent — nothing built on top of a successful replace can detect that
+it silently clobbered a concurrent writer. `O_CREAT|O_EXCL` makes the collision loud instead of
+silent: the `FileExistsError` IS the collision detection. Reach for creation-exclusivity first
+whenever the artifact is append-only; reserve replace-atomicity for genuine singleton-overwrite
+semantics where the last writer is supposed to win.
+
 
 ## Pattern: singleton-to-session-shard conversion for high-concurrency multi-writer artifacts
 
@@ -97,3 +106,35 @@ Before concluding regression-vs-flaky on any concurrency/timing test:
 The asymmetry to internalize: a passing small sample proves nothing about a timing test; a
 captured failure signature across a wider sample is what discriminates. (case: 2026-07-05 —
 a T20/T22 pre-existing flake nearly mis-attributed to an unrelated change on a 3-run sample.)
+
+## Pattern: a failed batch operation is not proof it did nothing
+
+Error-handling code often encodes an unstated assumption that a failed batch operation was
+atomic — that an operation returning non-zero left nothing behind. Treat that as a claim to
+test, not to reason about: `git add` on a mixed batch can partially stage some paths and then
+error on a later one, so a rollback scoped to the failure handler's own "acted" list silently
+does nothing when that list reports empty on ANY failure — residue exists on disk while the
+bookkeeping says none does.
+
+The general shape: when a failure branch reports "nothing happened," ask what would prove it. If
+the answer is a test nobody has written, the branch is a hypothesis wearing the costume of a
+fact — and it bites hardest where the residue is invisible to the very bookkeeping meant to clean
+it up. A review finding phrased as "this rests on an unverified assumption" is worth converting
+into a cheap empirical check rather than leaving as a comment; the ambiguity usually collapses in
+one direction the first time someone runs it. (Case: a commit pipeline's rollback, scoped to a
+stage helper's reported acted-set, had nothing to undo after a real `git add` partial-failure —
+fixed by reconciling post-failure index state directly rather than trusting the acted-list.)
+
+## Pattern: a fire-once sentinel needs atomic claim, not read-then-write
+
+A per-session "only once" cap implemented as `isfile()`-check-then-`touch()` silently fires twice
+when the same guard is registered on two delivery surfaces that both run concurrently: both
+copies observe "not yet fired" before either writes the sentinel, and both emit. Read-then-write
+is not atomic across two independent processes, however unlikely the double-registration looks.
+
+Claim the sentinel atomically instead — `O_CREAT|O_EXCL` — and have the loser of the race
+suppress its own emission. Keep non-`EEXIST` write failures emitting (an unwritable sentinel
+should degrade toward over-warning, not toward permanent silence). This is the same
+creation-exclusivity discipline as the pattern above, applied to a fire-once guard rather than an
+append-only artifact — land the fix as a wiki pattern here; it does not authorize editing any
+specific hook script from this record alone.

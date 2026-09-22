@@ -44,7 +44,7 @@ linkage that the `.agents/<aid>/em-session-id.txt` back-pointer reconstructs the
 hard way. Per-session and unclobberable by a sibling session's SessionStart.
 
 Resolution precedence the helpers now use (`coordinator-safe-commit`,
-Claude-klabauter `coordinator-write-review-trail.py`, `coordinator-session-loe`,
+the engine repo's `coordinator-write-review-trail.py`, `coordinator-session-loe`,
 `cs_claim_handoff`):
 
 1. `CLAUDE_SESSION_ID` — explicit override (manual / test harness).
@@ -72,11 +72,11 @@ on 2.1.150 (env var present in EM + subagent, identical value).
 
 On Windows, `.git/HEAD` can store a mixed-case ref name (`work/<MACHINE>/2026-05-07`) while the on-disk canonical ref is lowercase (`work/<machine>/2026-05-07`). `git branch --show-current` returns HEAD's stored case (uppercase). `git push origin <uppercase>` fails with "cannot be resolved to branch" because the remote resolves against the on-disk canonical.
 
-**Root cause:** claude-klabauter `coordinator_core/daily_branch.py` normalizes input to lowercase before the allow-list check (`cs_is_allowed_branch`), silently accepting non-canonical mixed-case branch creation.
+**Root cause:** the engine repo's `coordinator_core/daily_branch.py` normalizes input to lowercase before the allow-list check (`cs_is_allowed_branch`), silently accepting non-canonical mixed-case branch creation.
 
 **Defense-in-depth** (see `daily-branch-discipline.md` § Enforcement surfaces for the
 authoritative current state; do not restate the situation here beyond this pointer):
-1. Runtime fix: claude-klabauter `coordinator/bin/coordinator-auto-push` is case-agnostic in branch ref handling.
+1. Runtime fix: the engine repo's `coordinator/bin/coordinator-auto-push` is case-agnostic in branch ref handling.
 2. Creation-time tripwire: **not live.** No creation-time PreToolUse hook polices mixed-case
    `work/*` creation.
 3. Migration helper: `migrate-branch-canonical-case.py` (idempotent rename: local + remote) — available for cleanup after the fact.
@@ -86,7 +86,7 @@ authoritative current state; do not restate the situation here beyond this point
 
 `git push` from a post-commit hook subprocess may fail to reach the Windows Credential Manager that the interactive session has populated. HTTPS remotes take the `git push` direct path in the same bash subprocess executing the hook. Failure is silent unless `.git/push-failures.log` is monitored.
 
-**Workaround:** claude-klabauter `coordinator/bin/coordinator-auto-push` routes through `powershell.exe -NonInteractive -NoProfile` for SSH remotes (where 1Password-agent is inaccessible from Git Bash OpenSSH). For HTTPS remotes, the same routing provides credential access via Windows OpenSSH.
+**Workaround:** the engine repo's `coordinator/bin/coordinator-auto-push` routes through `powershell.exe -NonInteractive -NoProfile` for SSH remotes (where 1Password-agent is inaccessible from Git Bash OpenSSH). For HTTPS remotes, the same routing provides credential access via Windows OpenSSH.
 
 
 ### PreToolUse deny: use JSON output, not exit 2
@@ -103,11 +103,11 @@ The exit-1-vs-2 distinction is a footgun (exit 1 is non-blocking; only exit 2 bl
 
 A SessionStart hook that wants to inject context into the session must write it to **plain stdout**. A SessionStart hook emitting the `{"hookSpecificOutput": {"additionalContext": …}}` envelope gets nothing surfaced; design SessionStart hook output as raw stdout text. (Source: claude-central.)
 
-The envelope itself is **not** PreToolUse-only. It is honored on `UserPromptSubmit`, `UserPromptExpansion`, `PostToolUse`, and `PreToolUse` — this repo's own `pickup-autofire.py`, `mise-autofire.py`, `handoff-segment-inject.py`, and `postuse-advisory-dispatch.py` depend on it. Nesting is load-bearing: `additionalContext` at the **top level** of the response body is ignored, honored only under `hookSpecificOutput` (measured on UserPromptSubmit over http against `claude.exe` 2.1.245 — claude-klabauter `docs/research/spike-verdicts/2026-08-25-does-the-harness-read-additionalcontext-over-http.md`). A hook emitting it top-level fails silently behind a 200.
+The envelope itself is **not** PreToolUse-only. It is honored on `UserPromptSubmit`, `UserPromptExpansion`, `PostToolUse`, and `PreToolUse` — this repo's own `pickup-autofire.py`, `mise-autofire.py`, `handoff-segment-inject.py`, and `postuse-advisory-dispatch.py` depend on it. Nesting is load-bearing: `additionalContext` at the **top level** of the response body is ignored, honored only under `hookSpecificOutput` (measured on UserPromptSubmit over http against `claude.exe` 2.1.245 — ). A hook emitting it top-level fails silently behind a 200.
 
 ### A `Stop` hook can fire many times per run
 
-One trivial `-p` run produced **nine** `Stop` deliveries to a single registration (measured by claude-klabauter over http, `claude.exe` 2.1.245; cause not investigated). Any `Stop` hook must be idempotent and self-throttled — never assume once-per-run, and never make it do per-fire work that costs a spawn.
+One trivial `-p` run produced **nine** `Stop` deliveries to a single registration (measured over http, `claude.exe` 2.1.245; cause not investigated). Any `Stop` hook must be idempotent and self-throttled — never assume once-per-run, and never make it do per-fire work that costs a spawn.
 
 ### hooks.json `command` runs via `sh` on Unix, PowerShell on Windows — `pwsh X.ps1` is noise on macOS; no clean portable single-line guard exists
 
@@ -116,7 +116,7 @@ One trivial `-p` run produced **nine** `Stop` deliveries to a single registratio
 Claude Code runs a `hooks.json` `command` string via `sh -c` on Unix but via PowerShell on Windows. A bare `pwsh -File X.ps1` entry logs `sh: pwsh: command not found` on every macOS session. Fixes that seem obvious do NOT port:
 
 - `command -v pwsh >/dev/null 2>&1 && … || true` — valid in `sh`, but `command` is not a PowerShell builtin; the guard is a PowerShell syntax error.
-- `2>/dev/null` — suppresses in `sh`, but on Windows PowerShell `/dev/null` is treated as a real path (`C:\dev\null`) and errors. <!-- foreign-path-ok: illustrates PowerShell's literal-path interpretation of /dev/null, not a checkout location -->
+- `2>/dev/null` — suppresses in `sh`, but on Windows PowerShell `/dev/null` is treated as a real relative path (resolving under the current working directory, e.g. `.\dev\null`) and errors. <!-- foreign-path-ok: illustrates PowerShell's literal-path interpretation of /dev/null, not a checkout location -->
 - `2>$null` — suppresses in PowerShell, but is silently wrong in `sh`.
 
 The same command string is parsed by two different shells, so any inline guard must be valid in both — and there is no clean single-line POSIX-and-PowerShell construct.
@@ -162,7 +162,7 @@ when adopting plugin-managed MCPs.
 
 ### Source-path MCP registrations make "install vN" a near-no-op
 
-When a consumer's MCP entry in `~/.claude.json` points at a source tree (`C:/<your-rag-indexer>/mcp/server.py`) rather than a pip-installed wheel, the source tree's current HEAD is what executes — `pip show <pkg>` reports a separate, possibly stale wheel. Installer re-runs refresh registration + editable wheel, but the version that *actually runs* is whichever branch is checked out. <!-- foreign-path-ok: generic placeholder path illustrating a source-vs-wheel registration shape, not a real location -->
+When a consumer's MCP entry in `~/.claude.json` points at a source tree (`/path/to/<your-rag-indexer>/mcp/server.py`) rather than a pip-installed wheel, the source tree's current HEAD is what executes — `pip show <pkg>` reports a separate, possibly stale wheel. Installer re-runs refresh registration + editable wheel, but the version that *actually runs* is whichever branch is checked out. <!-- foreign-path-ok: generic placeholder path illustrating a source-vs-wheel registration shape, not a real location -->
 
 Before running an installer for "version N" against a consumer, inspect whether the MCP entry is source-path or wheel-import. If source-path, surface that the actual version gate is the checked-out branch — don't conflate `pip show` output with what the MCP harness boots.
 
@@ -187,7 +187,7 @@ On a Windows working tree with `git config core.autocrlf=true`, `bash -n` false-
 
 ### Microsoft Store Python is sandboxed — the retired `resolve-python.sh` used to actively reject it
 
-On Windows, `%LOCALAPPDATA%\Microsoft\WindowsApps\python*.exe` are symlinks into `C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.*\` — the Microsoft Store install. It's sandboxed: filesystem and registry writes are redirected to per-package virtualized locations, `pip --user` lands in a hidden tree, package permissions are inconsistent. Always prefer the python.org installer at `%LOCALAPPDATA%\Programs\Python\Python3*\` (per-user) or `C:\Program Files\Python3*\` (system). <!-- foreign-path-ok: fixed Windows system paths, identical on every Windows machine -->
+On Windows, `%LOCALAPPDATA%\Microsoft\WindowsApps\python*.exe` are symlinks into `%ProgramFiles%\WindowsApps\PythonSoftwareFoundation.Python.3.*\` — the Microsoft Store install. It's sandboxed: filesystem and registry writes are redirected to per-package virtualized locations, `pip --user` lands in a hidden tree, package permissions are inconsistent. Always prefer the python.org installer at `%LOCALAPPDATA%\Programs\Python\Python3*\` (per-user) or `%ProgramFiles%\Python3*\` (system). <!-- foreign-path-ok: fixed Windows system paths, identical on every Windows machine -->
 
 `coordinator/lib/resolve-python.sh` used to handle this for any code that sourced it, before the bash-kill campaign retired the FLOOR shim in favor of a plain resolution contract (`COORDINATOR_PYTHON` env → `machine-local get coordinator.python` → PATH fallback — see `machine-local-registry.md § coordinator.python resolution contract`):
 1. Directly probed python.org install dirs first, windowless variant preferred (no PATH dependency).
@@ -195,11 +195,11 @@ On Windows, `%LOCALAPPDATA%\Microsoft\WindowsApps\python*.exe` are symlinks into
 3. Fell back to the `py`/`pyw` launcher with `-3` (the launcher reads PEP 514 registry, which prefers python.org).
 4. Seeded PATH with the resolved interpreter's directory so child processes that re-resolve by bare name (`subprocess.run(["python3"])`, `uv`, `pip`, venv shims) found the same install.
 
-<!-- DEAD-FENCE(2026-07-22): the Store-Python-rejection + PATH-seeding algorithm above has no confirmed successor entrypoint in this repo's scope; needs entrypoint relink against wherever it landed in claude-klabauter's naked-Python resolution path before the numbered steps above can be cited as current. -->
+<!-- DEAD-FENCE(2026-07-22): the Store-Python-rejection + PATH-seeding algorithm above has no confirmed successor entrypoint in this repo's scope; needs entrypoint relink against wherever it landed in the engine repo's naked-Python resolution path before the numbered steps above can be cited as current. -->
 
 **Historical symptom when the resolver wasn't used:** an agent shell whose ad-hoc script calls bare `python3` triggers Windows' `"Select an app to open 'python3'"` file-association dialog (popup with Figma/Firefox/Notepad/etc.). This happens when the agent's PATH doesn't contain a working Python directory and Windows falls through to ShellExecute. The fix-at-source is now the `COORDINATOR_PYTHON`/registry/PATH contract above rather than sourcing a lib.
 
-**Known gap — on-demand `bin/` tools that self-resolve.** Several claude-klabauter `coordinator/bin/` scripts define their own `PYTHON_BIN="$(command -v python3 || command -v python || true)"` inline rather than using the resolution contract above. These callers bypass Store Python rejection and PATH seeding. The consolidated Python successor `verify-snippet-sync` has no inline `PYTHON_BIN` at all, resolving via the sh/python polyglot trampoline shape instead. `verify-subagent-sandbox-preamble-sync.py` is also not in this gap list — it resolves via a sh/python polyglot trampoline over `coordinator_core.ops.verify_subagent_sandbox_preamble_sync`, with no inline `PYTHON_BIN`.
+**Known gap — on-demand `bin/` tools that self-resolve.** Several of the engine repo's `coordinator/bin/` scripts define their own `PYTHON_BIN="$(command -v python3 || command -v python || true)"` inline rather than using the resolution contract above. These callers bypass Store Python rejection and PATH seeding. The consolidated Python successor `verify-snippet-sync` has no inline `PYTHON_BIN` at all, resolving via the sh/python polyglot trampoline shape instead. `verify-subagent-sandbox-preamble-sync.py` is also not in this gap list — it resolves via a sh/python polyglot trampoline over `coordinator_core.ops.verify_subagent_sandbox_preamble_sync`, with no inline `PYTHON_BIN`.
 
 ### `python3` may not be on PATH on Windows hosts
 
@@ -254,20 +254,20 @@ host where WindowsApps precedes it, bare `python3` still hits the Store alias.
 ### Coordinator scripts are on PATH — `bin/X` and bare `X` are both PATH-namespace, never cwd-relative
 
 > **STALE for coordinator entrypoints.** `coordinator/bin`, `coordinator/lib`, `coordinator/scripts`
-> live in claude-klabauter, not this repo. The invariant below is still true
+> live in the engine repo, not this repo. The invariant below is still true
 > **as a statement about a plugin's own `bin/`** — but coordinator entrypoints do not live in
 > a plugin's `bin/`, so the harness's `plugins/*/bin` PATH injection does not apply to them:
-> claude-klabauter is not the plugin and receives no such injection. Verified: `command -v
+> the engine repo is not the plugin and receives no such injection. Verified: `command -v
 > archive-stamp-cli` does not resolve. **A bare coordinator script name does NOT resolve.**
 > The replacement citation form for these scripts is an open question, not yet ratified — do not
 > assume bare-name or any other specific form until it is.
 
-The Claude Code harness prepends every installed plugin's `bin/` dir to PATH for tool/hook execution (verify: `echo "$PATH" | tr ':' '\n' | grep -i claude` shows each `plugins/*/bin` — that is the harness-provided guarantee). Note: `~/.claude/bin` is NOT harness-injected and is PATH-registered on no platform — the installer registers `<settings-home>/bin` on the Windows user PATH, never `~/.claude/bin`, so it will not appear in that grep on any host. The harness `plugins/*/bin` injection is cross-platform — so it reproduces on every machine running the plugin, for whatever a plugin actually ships in its own `bin/`. **This does NOT reach coordinator's own scripts** — see the STALE box above: they live outside any plugin's `bin/`, in claude-klabauter, so the injection this paragraph describes does not apply to them, and bare-name resolution for `fan-out-dispatch.py`/`coordinator-safe-commit`/`check-shipped-on-main.py`/etc. does not work today. Nor does it reach the settings-home CLI family (`~/.coordinator-claude-settings/bin/`, 300+ generated forwarders, e.g. `machine-local`, `cross-repo-memo`) — that directory is a separate, non-harness-injected location, off PATH on macOS/Linux; those tools need the explicit `${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/<cli>` path (POSIX-host form; a PowerShell host uses rung 0 / Shape W — see `coordinator/snippets/resolve-coordinator-bin.md`). A fix generalizing the installer's login-profile PATH block to also cover settings-home/bin has been requested from claude-klabauter by memo and has not yet landed.
+The Claude Code harness prepends every installed plugin's `bin/` dir to PATH for tool/hook execution (verify: `echo "$PATH" | tr ':' '\n' | grep -i claude` shows each `plugins/*/bin` — that is the harness-provided guarantee). Note: `~/.claude/bin` is NOT harness-injected and is PATH-registered on no platform — the installer registers `<settings-home>/bin` on the Windows user PATH, never `~/.claude/bin`, so it will not appear in that grep on any host. The harness `plugins/*/bin` injection is cross-platform — so it reproduces on every machine running the plugin, for whatever a plugin actually ships in its own `bin/`. **This does NOT reach coordinator's own scripts** — see the STALE box above: they live outside any plugin's `bin/`, in the engine repo, so the injection this paragraph describes does not apply to them, and bare-name resolution for `fan-out-dispatch.py`/`coordinator-safe-commit`/`check-shipped-on-main.py`/etc. does not work today. Nor does it reach the settings-home CLI family (`~/.coordinator-claude-settings/bin/`, 300+ generated forwarders, e.g. `machine-local`, `cross-repo-memo`) — that directory is a separate, non-harness-injected location, off PATH on macOS/Linux; those tools need the explicit `${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/<cli>` path (POSIX-host form; a PowerShell host uses rung 0 / Shape W — see `coordinator/snippets/resolve-coordinator-bin.md`). A fix generalizing the installer's login-profile PATH block to also cover settings-home/bin has been requested from the engine repo by memo and has not yet landed.
 
-**The core invariant:** both `bin/X` and bare `X` are **PATH-namespace** references — they name "the coordinator bin tool X", which resolves the same from any cwd in any repo. Neither is cwd-relative. The failure to avoid is resolving `bin/X` against the *current repo's* `./bin/` — an EM standing in a consumer repo (`C:\project-rag`) that looks for `./bin/X`, finds nothing, and wrongly concludes the script "isn't mirrored here." <!-- foreign-path-ok: illustrative example of the cwd-relative failure mode, not a location claim -->
+**The core invariant:** both `bin/X` and bare `X` are **PATH-namespace** references — they name "the coordinator bin tool X", which resolves the same from any cwd in any repo. Neither is cwd-relative. The failure to avoid is resolving `bin/X` against the *current repo's* `./bin/` — an EM standing in a consumer repo checkout (`project-rag`, wherever it's cloned) that looks for `./bin/X`, finds nothing, and wrongly concludes the script "isn't mirrored here." <!-- foreign-path-ok: illustrative example of the cwd-relative failure mode, not a location claim -->
 
 **Citation rule for doctrine prose (CLAUDE.md, wikis, skills, commands):**
-- **Invokable scripts** — executable `.sh` and extensionless-executable commands (`fan-out-dispatch.py`, `check-plugin-drift.py`, `machine-local`, `cross-repo-memo`) → **cite by the explicit settings-home forwarder path, never bare name.** (Bare-name citations were originally correct on the strength of the plugin `bin/` PATH injection; the executable-surface migration retired that premise — see the STALE box above. None of these resolve bare today: the coordinator entrypoints moved out of any plugin's `bin/` into claude-klabauter, and the settings-home forwarder family (`machine-local`, `cross-repo-memo`, etc.) was never harness-PATH-injected on macOS/Linux to begin with.) The current citation form in a runnable block follows the precedence ladder in
+- **Invokable scripts** — executable `.sh` and extensionless-executable commands (`fan-out-dispatch.py`, `check-plugin-drift.py`, `machine-local`, `cross-repo-memo`) → **cite by the explicit settings-home forwarder path, never bare name.** (Bare-name citations were originally correct on the strength of the plugin `bin/` PATH injection; the executable-surface migration retired that premise — see the STALE box above. None of these resolve bare today: the coordinator entrypoints moved out of any plugin's `bin/` into the engine repo, and the settings-home forwarder family (`machine-local`, `cross-repo-memo`, etc.) was never harness-PATH-injected on macOS/Linux to begin with.) The current citation form in a runnable block follows the precedence ladder in
 `coordinator/snippets/resolve-coordinator-bin.md`: rung 0 / Shape W on a PowerShell host,
 `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/<cli>"` on a POSIX host
 (matching `coordinator/docs/wiki/coordinator-tripwires.md § NO-MULTI-LINE-SHELL-FENCE`); in a
@@ -481,9 +481,9 @@ The trap: the same space-joined-list symptom *also* matches an unquoted-shell-ar
 
 **True suppression** requires setting `CREATE_NO_WINDOW` (Win32 `dwCreationFlags=0x08000000`) at the spawning parent's `CreateProcess` call.  From a shell (bash/mintty) context this bit cannot be set — only a native Win32 parent (a compiled shim, or a Node/Python parent using `windowsHide:true` / `creationflags=CREATE_NO_WINDOW` on its own child-spawning call) can set it.
 
-Any `powershell.exe` or `pwsh` call that fires on every hook event (e.g. Claude-klabauter `coordinator/bin/coordinator-auto-push` on every PostToolUse commit, or `hooks.json` SessionStart on every boot/compact) must still include `-WindowStyle Hidden` as the required baseline.
+Any `powershell.exe` or `pwsh` call that fires on every hook event (e.g. the engine repo's `coordinator/bin/coordinator-auto-push` on every PostToolUse commit, or `hooks.json` SessionStart on every boot/compact) must still include `-WindowStyle Hidden` as the required baseline.
 
-**Launcher for python/node spawns we own:** claude-klabauter `coordinator/lib/spawn-hidden.sh`.  For python spawns where stdin is caller-controlled (heredoc, /dev/null), it resolves to `pythonw.exe` (SUBSYSTEM:WINDOWS) — that IS genuine suppression.  For node and for harness-piped-stdin python, it passes through transparently and documents the gap.  See that file's header for the full mechanism breakdown; the `--stdin-mode=safe|pipe` distinction lives in `spawn-hidden.sh` itself, not `coordinator/lib/resolve-python.sh` (see `no-new-bash-surfaces.md § Windows console-flash`).
+**Launcher for python/node spawns we own:** the engine repo's `coordinator/lib/spawn-hidden.sh`.  For python spawns where stdin is caller-controlled (heredoc, /dev/null), it resolves to `pythonw.exe` (SUBSYSTEM:WINDOWS) — that IS genuine suppression.  For node and for harness-piped-stdin python, it passes through transparently and documents the gap.  See that file's header for the full mechanism breakdown; the `--stdin-mode=safe|pipe` distinction lives in `spawn-hidden.sh` itself, not `coordinator/lib/resolve-python.sh` (see `no-new-bash-surfaces.md § Windows console-flash`).
 
 **The dominant blue `powershell.exe` flash is the PowerShell *tool* backing process — fixed by an explicit settings flag, NOT by removing an env var.** Claude Code stands up a persistent Windows PowerShell 5.1 backing process whenever the **PowerShell tool** is enabled — that process (re)spawning is the recurring blue flash. The default-on condition is narrower than a blanket Windows default: per the live `env-vars` docs, a Windows install **without** Git Bash gets the tool on by default, a Windows install **with** Git Bash has it rolling out progressively and opt-in via `1`, and changelog `2.1.143` additionally defaults it on for Bedrock/Vertex/Foundry auth backends. On a Windows-with-Git-Bash, first-party-auth box, "absent" is therefore **indeterminate**, not reliably off — and "rolling out progressively" means that indeterminate value can silently flip on a Claude Code update with no local change to explain it. **Correct fix: set `"CLAUDE_CODE_USE_POWERSHELL_TOOL": "0"` explicitly in `settings.json` → `env` (session restart required — the tool roster is fixed at startup).** Asserting the value removes the silent-flip exposure regardless of which way you'd otherwise want it set — that argument holds independent of the value chosen. The flash persists even when the agent only ever calls the Bash tool, because the *tool being enabled* is what stands up the backing process — preferring bash does not disable it. `"0"` costs nothing **while the Bash tool remains available on Windows** — if the Bash tool is ever denied there, this inverts: the PowerShell tool becomes the only shell of last resort and the value must flip to `"1"` in the same change that denies Bash, not before (a bare `"1"` ahead of that trigger buys little, since the fork-reduction case for `1` was never measured and the agent keeps using Bash for as long as it's present).
 
@@ -491,7 +491,7 @@ Any `powershell.exe` or `pwsh` call that fires on every hook event (e.g. Claude-
 
 **node/python PreToolUse hook flashes (separate from the blue tool flash):** spawned by Claude Code's harness on Write/Edit/MultiEdit, not by our scripts. We cannot set `CREATE_NO_WINDOW` on them from a shell. The only real suppression levers are (a) a compiled no-window launcher shim, or (b) eliminating the console-interpreter spawn (reimplement the hook in the already-running shell). Whether these *visibly* flash — distinct from the now-fixed blue tool flash — was never empirically confirmed (the measuring spike was the abandoned ConPTY belt). Verify by direct observation after the settings fix lands before investing in a shim.
 
-**Child-of-a-child flashes (the class the shell-script grep can't see):** the loudest, hardest-to-diagnose source is a console exe (`powershell.exe`, `git.exe`, `nvidia-smi.exe`, `uv.exe`, `node.exe`) spawned by `subprocess.run`/`Popen` *inside a `.py` module* that itself runs as a child of a console-less parent (an MCP server, a scheduled task, a GUI Claude Code host).  A conftest/main-process monkeypatch that ORs `CREATE_NO_WINDOW` into `subprocess` only patches the process it runs in — a freshly-imported child gets a clean `subprocess` module and flashes.  project-rag chased this for weeks before isolating it.  `verify-no-console-flash.py` greps shell scripts and claude-klabauter `coordinator/bin/coordinator-auto-push` and is structurally blind to this class.  Coordinator's fix: every spawn in a production `.py` module splats a module-local `_NO_CONSOLE_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}`, enforced by `tests/test_no_console_window_guard.py` (tripwire `CONSOLE-FLASH-GUARD-PY`).  Confirmation method when a popup persists: spawn a child `-c` snippet that prints `GetConsoleWindow()` / `IsWindowVisible()` — `HWND=0` means that link in the chain is clean; keep walking outward.
+**Child-of-a-child flashes (the class the shell-script grep can't see):** the loudest, hardest-to-diagnose source is a console exe (`powershell.exe`, `git.exe`, `nvidia-smi.exe`, `uv.exe`, `node.exe`) spawned by `subprocess.run`/`Popen` *inside a `.py` module* that itself runs as a child of a console-less parent (an MCP server, a scheduled task, a GUI Claude Code host).  A conftest/main-process monkeypatch that ORs `CREATE_NO_WINDOW` into `subprocess` only patches the process it runs in — a freshly-imported child gets a clean `subprocess` module and flashes.  project-rag chased this for weeks before isolating it.  `verify-no-console-flash.py` greps shell scripts and the engine repo's `coordinator/bin/coordinator-auto-push` and is structurally blind to this class.  Coordinator's fix: every spawn in a production `.py` module splats a module-local `_NO_CONSOLE_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}`, enforced by `tests/test_no_console_window_guard.py` (tripwire `CONSOLE-FLASH-GUARD-PY`).  Confirmation method when a popup persists: spawn a child `-c` snippet that prints `GetConsoleWindow()` / `IsWindowVisible()` — `HWND=0` means that link in the chain is clean; keep walking outward.
 
 **Rule:** `-NonInteractive -NoProfile -WindowStyle Hidden` remains the required preamble for all coordinator `powershell`/`pwsh` invocations on Windows.  The tripwire `verify-no-powershell-flash.py` greps shell scripts (shim delegates to `verify-no-console-flash.py`) to catch bare invocations in coordinator and sibling plugins. `hooks.json` `command`-field spawns are architecturally exempt as of 2026-06-14 — Claude Code is the CreateProcess parent there; shell-level suppression is impossible. Tracked upstream at `anthropics/claude-code#61051`.
 
@@ -501,7 +501,7 @@ Any `powershell.exe` or `pwsh` call that fires on every hook event (e.g. Claude-
 
 The agent lives on the Windows-only pipe `\\.\pipe\openssh-ssh-agent`; Git Bash's bundled OpenSSH cannot read it, so `git push` to SSH remotes fails with "Permission denied (publickey)" from Claude Code's Bash tool — even when the same key works in PowerShell.
 
-**Workaround:** route SSH pushes through `powershell.exe -NonInteractive -NoProfile -WindowStyle Hidden -Command "git ... push ..."`. HTTPS remotes are unaffected (Windows Credential Manager works in either shell). Canonical helper: claude-klabauter `coordinator/bin/coordinator-auto-push`.
+**Workaround:** route SSH pushes through `powershell.exe -NonInteractive -NoProfile -WindowStyle Hidden -Command "git ... push ..."`. HTTPS remotes are unaffected (Windows Credential Manager works in either shell). Canonical helper: the engine repo's `coordinator/bin/coordinator-auto-push`.
 
 ## Bash Tool
 
@@ -584,7 +584,7 @@ Alternatively, switch to the Bash tool for the call and use a POSIX heredoc. (So
 
 ### MSYS/Git-Bash auto-translates POSIX-looking paths in argv
 
-When a Bash script passes `/foo/bar` as an argument to a non-MSYS binary (e.g. `node`, `python`, `claude`), MSYS/Git-Bash silently rewrites it to a Windows path (`C:\Program Files\Git\foo\bar`) — sometimes prepending the Git install dir. Defense: prefix with `//` (`//foo/bar`) to disable translation, or set `MSYS_NO_PATHCONV=1` for the invocation. Symptom: a flag whose value is a literal POSIX-shaped string (URL paths, JSON pointers, regex patterns) arrives mangled at the receiving binary. <!-- foreign-path-ok: illustrates MSYS argv path-rewrite mechanism, not a checkout location -->
+When a Bash script passes `/foo/bar` as an argument to a non-MSYS binary (e.g. `node`, `python`, `claude`), MSYS/Git-Bash silently rewrites it to a Windows path (`%ProgramFiles%\Git\foo\bar`) — sometimes prepending the Git install dir. Defense: prefix with `//` (`//foo/bar`) to disable translation, or set `MSYS_NO_PATHCONV=1` for the invocation. Symptom: a flag whose value is a literal POSIX-shaped string (URL paths, JSON pointers, regex patterns) arrives mangled at the receiving binary. <!-- foreign-path-ok: illustrates MSYS argv path-rewrite mechanism, not a checkout location -->
 
 ### Stale `node` / `python` / TS-build processes survive session boundaries
 
@@ -726,7 +726,7 @@ Either emit with `\n` line endings from the Python side (open stdout in binary o
 
 *example-game-workbench-repo.* A peer session reported the Game Dev Reviewer (`game-dev:staff-game-dev`) getting zero project-rag tools as a subagent ("banner present, tools absent"), even for validly-granted `project_semantic_search`. Hypotheses ranged over allowlist-vs-wildcard and platform/Agent-Teams plumbing. Real root: the **live install** carried a stale `example-game-repo-docs`-era definition with the retired `mcp__example_game_repo-docs__*` (dead server) in its allowlist; the **source** was already clean. A dead MCP server in a subagent allowlist breaks resolution of every MCP tool in that session.
 
-**How to apply:** when a subagent can't see MCP tools its source frontmatter grants, FIRST diff the live install (`~/.claude/plugins/.../agents/<agent>.md`) against source and check for dead/retired `mcp__<server>__*` entries — don't reach for platform/dispatch-mode hypotheses until the live copy is confirmed in-sync. Claude-klabauter `coordinator/bin/refresh-plugin-live-install.py` (clears the dead ref + stale plugin cache) is the fix. This is source↔install drift; the forward-SHA drift check (`version.txt`) + refresh discipline is the prevention.
+**How to apply:** when a subagent can't see MCP tools its source frontmatter grants, FIRST diff the live install (`~/.claude/plugins/.../agents/<agent>.md`) against source and check for dead/retired `mcp__<server>__*` entries — don't reach for platform/dispatch-mode hypotheses until the live copy is confirmed in-sync. the engine repo's `coordinator/bin/refresh-plugin-live-install.py` (clears the dead ref + stale plugin cache) is the fix. This is source↔install drift; the forward-SHA drift check (`version.txt`) + refresh discipline is the prevention.
 
 ### Self-inflicted regressions hide behind "platform problem" framing — bisect your own config history first
 
@@ -784,7 +784,7 @@ Any Stop hook that wants to inspect what the model just said should read this fi
 
 **A runaway blocking hook is capped, not infinite.** After `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` consecutive turn-ending blocks (default **8**), the harness overrides and ends the turn with a warning naming the `stop_hook_active` contract. That is a backstop, not a licence: a Stop hook that blocks must still honour `stop_hook_active` and carry its own fire-once discipline, or it burns the user's turns up to the cap before the platform intervenes.
 
-**Cost envelope, measured:** a Python Stop hook doing claude-klabauter resolution, module import, and a full scan of a 6.8 MB transcript completes in ~0.07 s warm on macOS/arm64 — comfortably inside a 5 s hook timeout even after Windows' heavier interpreter cold start. Transcript size is not the thing to worry about; process spawn is.
+**Cost envelope, measured:** a Python Stop hook doing engine-root resolution, module import, and a full scan of a 6.8 MB transcript completes in ~0.07 s warm on macOS/arm64 — comfortably inside a 5 s hook timeout even after Windows' heavier interpreter cold start. Transcript size is not the thing to worry about; process spawn is.
 
 ## Safety and Monitoring Guards
 

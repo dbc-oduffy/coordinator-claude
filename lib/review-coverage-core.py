@@ -101,7 +101,7 @@ def main() -> None:
     try:
         op_main = _import_main()
     except RuntimeError as exc:
-        # Review: code-reviewer — was exit 1 (shared with business failures below,
+        # Was exit 1 (shared with business failures below,
         # diverging from sibling workweek-trail-scope.py's dedicated transport
         # code); now exit 2 per porter-brief-addendum rule 3b, matching the sibling.
         print(f"review-coverage-core.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)

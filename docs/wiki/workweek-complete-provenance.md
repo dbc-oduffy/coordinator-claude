@@ -6,7 +6,7 @@
 > its `<!-- spec-backlink: ... -->` provenance here instead of inline. If a cited plan/memo has since archived, check
 > `archive/` before treating the pointer as dead — spec backlinks outlive their spec.
 >
-> The backlink table itself is fleet-internal: it lives in the DoE-claude source repo and does
+> The backlink table itself is fleet-internal: it lives in the doctrine repo's source tree and does
 > not ship, so its absence from an installed or mirrored tree is expected, not a missing section.
 
 

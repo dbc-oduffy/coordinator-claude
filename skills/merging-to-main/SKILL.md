@@ -1,6 +1,6 @@
 ---
 name: merging-to-main
-description: "Keyword-gated by name. Merges a ready branch to main: PR, CI, cleanup."
+description: "Keyword-gated by name. Merges a ready branch to main: PR, local validation, cleanup."
 argument-hint: "[--force] [--force-merge-active-branch]"
 version: 2.0.0
 allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
@@ -10,7 +10,8 @@ allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskU
 
 ## Overview
 
-Merge a work or feature branch to main via PR with CI gating. `merge-assemble` computes the node
+Merge a work or feature branch to main via PR, gated by local validation — GitHub Actions is not in
+the loop. `merge-assemble` computes the node
 ceremony hard-gate, tag-prefix resolution, release-tag cut, coverage gate, PR body, portability
 sweep, illegal-path scan, completion-log flip, and orphan-branch sweep. What follows is what it
 cannot precompute: your judgment calls, plus the steps depending on live PR/merge state (branch
@@ -19,7 +20,7 @@ recovery, PR creation, the merge, local cleanup).
 **Announce at start:** "I'm using the coordinator:merging-to-main skill to merge this branch to main."
 
 On a PowerShell host, invoke the `.exe` launcher by absolute path through the call operator
-(Shape W) — ladder and shapes: `snippets/resolve-coordinator-bin.md`.
+(Shape W) — ladder and shapes: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 Compute and apply are one verb — `brief` was removed (K-114): `merge-assemble apply [--session-id <id>] [--force] [--decisions-file <path>]`, resolved per that ladder. Resolve every `judgment_points[]` entry it returns, via `--decisions-file`, before its gated directive(s) proceed. `--force` bypasses only the node ceremony hard-gate (`d0`).
 
 **First Officer Doctrine:** EM may refuse to merge and alert the PM on a branch with known issues.
@@ -106,7 +107,7 @@ Otherwise skip. Full table: wiki. UBT gate and reverse-drift gate have live prod
 customer-facing-install-path touches still need eyeball diff-path classification — no producer yet
 <!-- engine-gap: field=merge.touched_path_classes producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->.
 - **Plugin version matrix** — detection: touches under `control/plugin/**`. Action: verify the
-  5-version CI matrix is green.
+  5-version plugin matrix passes locally.
 - **Customer-facing install path** — detection: touches under `scripts/install-*.{sh,ps1}`.
   Action: verify doc parity and replay `tests/install/`.
 
@@ -130,11 +131,12 @@ bump: patch ({old} → {new}) — confirm before tagging."_
 
 ---
 
-## Step 6: Wait for CI
+## Step 6: Local Validation Confirmation
 
-`gh pr checks --watch`. `ci_failure_interpretation`: "no checks reported" (exit 1) is a pass; a real
-failure blocks merge — _"CI failed on {check}. Fix and re-run `/merging-to-main`, or investigate via
-`coordinator:systematic-debugging`."_ A flaky-retry re-runs CI instead of blocking.
+No remote checks exist; the PR carries none. Step 1's local run is the gate — confirm it passed on
+the exact head being merged (re-run `/validate` if commits landed since). Cross-platform validation
+is the PM's own Windows/Mac/Linux boxes, not a runner. A failure blocks merge — _"Validation failed
+on {test}. Fix and re-run `/merging-to-main`, or investigate via `coordinator:systematic-debugging`."_
 
 ---
 
@@ -147,7 +149,7 @@ Merge via `gh pr merge` with `--delete-branch`, merge commit (never squash). Rec
 "base branch policy prohibits" and "head not up to date": wiki. **Merge conflicts** — do not force
 through; offer the PM merge-main-in-and-resolve (recommended) or rebase; stop and wait.
 
-CI is advisory; the PR requirement (0 approvals) is the primary gate.
+The PR requirement (0 approvals) and Step 1's local validation are the gates.
 
 **IF `d2` CUT A RELEASE TAG, VERIFY IT CONTAINS THE RELEASE — HERE, BEFORE ANYTHING ELSE:**
 

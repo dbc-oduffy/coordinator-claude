@@ -51,16 +51,16 @@ The unifying finding behind the manifest rebuild: two separate PM intuitions ("a
 `~/.claude/memory/*.md` entries do **not** satisfy an "already-captured" or "extraction-artifact-present" check. Memory is a lossy recall index for session continuity, not a system-of-record. Durable capture means in-repo only: `docs/decisions/`, `docs/wiki/`, `state/cross-repo-commitments/`, or a canonical plan/spec. Delete-guards must exclude memory as a captured-evidence source, and should carry a mechanical downgrade-to-RETAIN check when memory is the only "capture" found. (Finding #12 of the distill dogfood-improvements review; adopted.)
 
 <!-- src: memo02-001 -->
-### Triage ceremony lives in claude-klabauter, not in the skill body
+### Triage ceremony lives in the engine repo, not in the skill body
 
-The deterministic `memo.triage` partition (classifying memos for disposition) lives in claude-klabauter as a `COMPUTE_ONLY` op — a sibling of `records.query` / `deliverable.rollup` — invoked by `/distill` through the standard `coordinator_core` dispatch surface, which emits triage JSON for the skill to consume. It is explicitly **not** inline classification logic embedded in the `/distill` skill body. This is Decision-0 under the cross-repo-op-ownership discriminator: mechanical/deterministic compute belongs in the engine (claude-klabauter), not hand-authored in skill prose.
+The deterministic `memo.triage` partition (classifying memos for disposition) lives in the engine repo as a `COMPUTE_ONLY` op — a sibling of `records.query` / `deliverable.rollup` — invoked by `/distill` through the standard `coordinator_core` dispatch surface, which emits triage JSON for the skill to consume. It is explicitly **not** inline classification logic embedded in the `/distill` skill body. This is Decision-0 under the cross-repo-op-ownership discriminator: mechanical/deterministic compute belongs in the engine, not hand-authored in skill prose.
 
 <!-- src: memo02-002, memo02-003, memo02-011 -->
 ### Disposal safety and immutability rules
 
 - **Disposal gates on scan success-rate, not coverage-% alone.** A mass-throttle or partial-failure harvest run must not be allowed to dispose artifacts on an empty/failed scan. This re-derives terminal status from disk rather than trusting a coverage percentage that could be computed against a broken run (finding #8, re-deriving `cleanup-sweep-hazards.md` §38/§44 mandate).
 - **No-rewrite classes are explicit.** `/distill` §5d must never rewrite: historical logs (`state/week-changelog/*`, `wsc/*.json` receipts, `review-trail/findings/*`), inbox-path provenance, or bare `source_memo:` basenames. Active-ref scope deliberately stops at `docs/`, `tasks/`, `archive/` — it does not reach into point-in-time state records. This mirrors `cleanup-sweep-hazards.md` #45's "point-in-time state record → LEAVE" class.
-- **§7 disposition-mapping covers all 7 live-log action types**, verified against claude-klabauter's real 392-row corpus and captured as a decision record: `distill-harvest → DISTILLED` (keyed on `belongs_to_spec`), `DELETE → EPHEMERAL` (explicit enum), and `DELETE-GROUP` plus run-event rows skip with an explicit reason (these are spec-disposition-only log intent, not harvestable content).
+- **§7 disposition-mapping covers all 7 live-log action types**, verified against the engine repo's real 392-row corpus and captured as a decision record: `distill-harvest → DISTILLED` (keyed on `belongs_to_spec`), `DELETE → EPHEMERAL` (explicit enum), and `DELETE-GROUP` plus run-event rows skip with an explicit reason (these are spec-disposition-only log intent, not harvestable content).
 
 <!-- distilled: run 2026-08-06-14h38; sources: c2-026, c2-027 -->
 ### Artifact identity — mint seam and derived lifecycle state
@@ -84,6 +84,41 @@ was silently dropping archived records. The general lesson: tightening a schema 
 class is itself a good moment to re-run everything that reads that class end-to-end — schema
 enforcement surfaces pre-existing silent-drop bugs in downstream consumers, not just malformed
 new writes.
+
+## Consolidation Pass Between Clustering and Synth
+
+Any scan→cluster→synth fan-out that clusters LLM-emitted free-form tags by exact string key (e.g.
+`system_tag||topic`) fragments catastrophically at scale, because agents invent hyper-granular
+tags and exact-key clustering has no consolidation pressure. A pre-built tag-keyed inventory map
+cannot help — the tags are emitted by the scan and are unknown at build time, so targeting must
+resolve from disk at synth time, not from a pre-guessed map.
+
+**Measured:** a `/distill` full-drain over 405 artifacts produced ~570 clusters / ~394 singletons
+against a healthy target of roughly 8 guides — a shrapnel result rather than a knowledge base, and
+one that four sibling-repo EMs converged on independently the same day.
+
+**Required consolidation pass**, between clustering and synth:
+
+1. Resolve each cluster against existing output targets from disk reality, not a pre-guessed
+   tag-keyed map built before the scan has emitted anything.
+2. Coarsen fine keys by shared prefix and re-home the coarse key against existing parents.
+3. Cap new-file creation.
+4. Feed the existing output-slug list into the scan brief so the LLM reuses real slugs instead of
+   inventing new ones — this reduces sprawl at the source, before clustering ever runs.
+
+Keep the consolidation function pure and count-conserving so it is unit-testable, and unit-test
+the cap plus conservation property against synthetic all-distinct-singleton input.
+
+**One step of the original remedy is superseded for `/distill` specifically, not universally.**
+"Fold sub-threshold singletons into a single misc bucket" was ruled out by the PM: no misc bucket,
+ever — "either it deserves a home or it doesn't," and a single-nugget topic folded into a bucket is
+"just an archive of random in a different spot." The replacement for `/distill` is deterministic
+tag curation *upstream* of clustering (in the engine repo), so a tag that does not deserve a file
+is dropped before a cluster ever exists for it, rather than minted and then folded into a bucket
+after the fact. The diagnosis above — string-keyed clustering fragments at scale, consolidation
+pressure is mandatory — stands universally; only the fold-into-misc-bucket half of the remedy is
+superseded, and only where an upstream deterministic curation gate exists to replace it. A sibling
+pipeline without one still needs the original fold-to-misc remedy, cap included.
 
 ## Patterns
 
@@ -124,7 +159,7 @@ will false-positive on every run.
 <!-- src: c8-009 -->
 ### Candidate-restatement generator — pre-computed slot, not a grep the acting agent remembers
 
-`claude-klabauter` pre-computes, ahead of dispatch, a candidate-restatement check for each Wave-2
+The engine repo pre-computes, ahead of dispatch, a candidate-restatement check for each Wave-2
 synthesis target: given the target wiki file and the incoming nugget text, it finds lines in the
 existing file that already state an adjacent/overlapping claim. The result ships as a filled
 `candidate_restatements` slot on the routing record/brief handed to the acting agent, rather than
@@ -162,7 +197,7 @@ drift on run one is doing its job, not miscalibrated.
 | Phase 0 filename-stem overlap check | `/distill` | Near-duplicate wiki guides | Surfaced at Phase 4 PM gate |
 | Atlas drift gate | `/distill` Phase 4 | Deleting content atlas hasn't re-mapped | Non-blocking advisory |
 | Ripeness predicate | plan-delivery-audit skill | Harvesting non-ripe/partial plans | Blocking (oracle) |
-| `memo.triage` op | claude-klabauter (`COMPUTE_ONLY`) | Inline classification drift in skill prose | N/A (dispatch surface) |
+| `memo.triage` op | the engine repo (`COMPUTE_ONLY`) | Inline classification drift in skill prose | N/A (dispatch surface) |
 | Disposal success-rate gate | `/distill` disposal manifest | Mass-throttle disposing on empty scan | Blocking |
 | Opus fidelity check | Phase 3b (contradiction-escalation) | Semantic drift on nugget replacement | Blocking |
 | Phase 2 ID set-diff | Phase 3b (synthesis) | Mechanical coverage gaps nugget→delta | Blocking |

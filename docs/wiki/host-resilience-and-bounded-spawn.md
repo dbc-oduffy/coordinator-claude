@@ -146,6 +146,52 @@ For any helper genuinely vendored across repos (`core/host_resilience.py` is aut
 2. **Vendor-with-mechanical-SHA-pin beats doc-only policy.** "Keep in sync" in a CLAUDE.md has no enforcement; a test reading the SHA from the file header and checking it against the upstream git log catches drift automatically.
 
 
+## An unconditional mechanism's blast radius is not greppable
+
+Grep finds textual mentions of a symbol being retired; it does not find dependents of a *side
+effect* an unconditional mechanism happened to guarantee. When a mechanism runs on every call with
+no negative case, nothing downstream ever had to handle its absence — every consumer is silently
+written against "this always happens," with no searchable token naming the dependency. Removing an
+unconditional leg turns a universally-true precondition into a sometimes-false one everywhere at
+once, and the write-list built from a symbol search alone will miss every one of those call sites.
+Before retiring or relocating any always-on mechanism (a hook leg, a spawn guard, a default branch),
+name what it guaranteed incidentally — not just what it is called — and run the affected suites
+against the change before committing a plan's `writes:` list to a file search.
+
+## Improvised agent fan-out bash is a fourth, unwired spawn surface
+
+Hook-spawn migration and boot-path fixes cover the surfaces nobody improvises on. They do not touch
+the surface an agent invents fresh each session: ad hoc fan-out Bash loops (`find / -iname ...`
+retried after a sleep, `find -exec sh -c ... over hundreds of files, root-anchored `find` on a slow
+filesystem) reached for because a needed helper was not resolvable by bare name, or because the
+harness itself nudges toward Bash for reads/searches/edits under bypass-permissions mode. This
+surface cannot be migrated because nothing in the repo contains it — it is generated per session,
+and doctrine inheritance alone is not enough (a dispatched agent complied with the ban only when its
+own brief said "NEVER the Bash tool" outright). The ban is on **shapes**, never a blanket tool ban:
+a single `cat` of a known file is not the defect, a loop over forty files is; classify by shape
+through the existing tokenizer classifier rather than re-deriving the poison predicates by hand, and
+always name the viable single-process alternative in the deny message. Delegating a full-suite or
+fan-out run to a subagent does not clear a spawn gate either — the spawns land on the same machine,
+so delegation moves the load without removing it.
+
+## Score any proposed spawn-cost fix on spawn-count delta first
+
+On a fresh "the box is slow" diagnosis, the three obvious fixes are already spent and each looks
+locally plausible only because the number quoted for it was measured through an indirection layer
+rather than natively: **swapping the interpreter** looks like it should help (a Git-Bash-measured
+`bash -c` vs `python3` gap of ~30x collapses to single-digit milliseconds when both are measured
+natively via PowerShell/CreateProcess); **excluding the toolchain from the antivirus scanner** is
+frequently already done, and the filter still attaches even to a Dev Drive under performance mode,
+so moving the toolchain does not help either; **adding a fallback interpreter rung** (a bash shim, a
+`.cmd` wrapper, a launcher) is pure indirection cost (~120–170ms per rung) that exists only to
+survive a missing or wrong interpreter — fixing the install guarantee (so the right interpreter is
+always present) makes the rung deletable rather than something to keep hardening. What is actually
+left after all three are spent is **spawn count times indirection layers**: N short-lived processes
+per hook event, each carrying its own layers. Score any newly proposed fix on whether it reduces
+spawn **count** — if it does not, it is an interpreter swap wearing a new name, and re-deriving one
+of the three spent fixes costs a session (and, for the antivirus case, the reviewer's patience).
+Measure natively, never through an intermediary shell, before quoting any of these numbers again.
+
 ## Cross-references
 
 ## startup-only guard does not cover mid-life resource failure

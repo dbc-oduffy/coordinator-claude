@@ -114,7 +114,7 @@ conditionals that Wave 2b executors grep to find all gate sites.
 
 Engine-only mode lets the daemon serve engine-RAG tools (`project_engine_examples`,
 `engine_domain_status`, `project_rag_blended_query`) against a non-UE project root
-— for example, when `--project-root` points at `C:/project-rag` itself (a Python <!-- foreign-path-ok: illustrative example value for --project-root -->
+— for example, when `--project-root` points at  itself (a Python <!-- foreign-path-ok: illustrative example value for --project-root -->
 codebase with no `.uproject`).
 
 **Activation:** pass `--require-uproject=false` (or let `--require-uproject=auto`

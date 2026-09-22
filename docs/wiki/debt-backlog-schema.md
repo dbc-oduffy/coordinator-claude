@@ -12,6 +12,10 @@ system: debt-triage
 <!-- Spec backlink: docs/plans/2026-06-25-example-initiative-tc-2-queues-lessons-consolidation.md § D1 (unified base+extension shape) -->
 
 
+> Legacy single-file prose-form debt-backlog queues still exist in some sibling repos. Every
+> reader globs `*.yaml`, so nothing reads them. `fleet.migrate_prose_queue` converts them,
+> and no new entry is ever written into one.
+
 The debt backlog is a per-entry YAML store at `state/debt-backlog/<date>-<slug>.yaml` inside the
 repo — the **parked tier** of the Queue Terminus Doctrine (`docs/wiki/queue-terminus-doctrine.md`).
 Since the queue-triage terminus rework
@@ -24,7 +28,7 @@ existing PM gate, or when the EM writes one directly via `coordinator-queue-appe
 debt-backlog` for an architectural debt item identified outside any queue triage (e.g. a
 daily/weekly review, or `architecture-audit`'s own D5 carve-out for items "explicitly chosen to
 defer with a reason"). The `/debt-triage` skill reads the directory and writes queries via
-Claude-klabauter `coordinator/bin/query-records.js --type debt`. The tier is also age-pinged and
+the engine repo's `coordinator/bin/query-records.js --type debt`. The tier is also age-pinged and
 drawn from on demand at triage time — see § Status enum below and
 `docs/wiki/backlog-prune-discipline.md § Age-Ping — Parked-Tier Aging Discipline`. Closure moves
 an entry to `archive/debt-backlog/<YYYY-MM>/` via `git mv` — see § Closure contract. The filename
@@ -89,7 +93,7 @@ base required-set is only `{created, title, body, status}`).
 | `risk` | string | **required-in-domain** | Why this matters — the consequence of leaving the debt unaddressed. Answers "so what?". The only first-class "consequence" field in the queue family. | `"Wrong interface pin causes divergent executor outputs that are expensive to reconcile."` |
 | `source` | string | **required-in-domain** | The originating review or observation that produced this entry. Mirrors the old table column: `daily-review/staff-eng/<date>`, `workday-complete/step4/sonnet-observer/<date>`. Kept as a distinct required field — NOT folded into the generic optional `evidence` — to preserve debt's provenance audit discipline. | `"daily-review/staff-eng/2026-06-15"` |
 | `severity` | enum (string) | optional | Priority classification. Default `P2` when omitted. See § Severity enum. Most existing entries do not carry severity; omitting is valid. | `"P1"` |
-| `why_blocked` | string | **required-in-domain when `status: deferred`** | The named park reason — why this item is being held in the parked tier rather than dispatched, batoned, or closed. Mandatory for every parked-tier entry (Queue Terminus Doctrine outcome class 4); the PM authorization otherwise required for `deferred` is exempted here because the triaging ceremony's own PM gate already covers the park decision. See § Status enum. | `"Waiting on claude-klabauter's category-default op (C9) to land before this can scaffold cleanly."` |
+| `why_blocked` | string | **required-in-domain when `status: deferred`** | The named park reason — why this item is being held in the parked tier rather than dispatched, batoned, or closed. Mandatory for every parked-tier entry (Queue Terminus Doctrine outcome class 4); the PM authorization otherwise required for `deferred` is exempted here because the triaging ceremony's own PM gate already covers the park decision. See § Status enum. | `"Waiting on the engine repo's category-default op (C9) to land before this can scaffold cleanly."` |
 
 ---
 

@@ -14,7 +14,7 @@ caller classes are covered simultaneously:
 |---|---|---|---|
 | **bash-side** | `bash` scripts doing `command -v python3` / PATH lookup | `COORDINATOR_PYTHON`/registry/PATH resolution contract (successor to the retired `lib/resolve-python.sh` — see `machine-local-registry.md § coordinator.python resolution contract`; WindowsApps-stub exclusion needs re-verification against the successor, see `claude-code-platform-gotchas.md`) | applied directly by callers, no lib to source |
 | **cmd.exe-side** | `cmd.exe` / PowerShell `ShellExecute` fallback, PATHEXT-aware lookup | the same `python3.exe` PE as the CreateProcess-side row below — a real `.exe` satisfies a PATHEXT-aware lookup too | see CreateProcess-side row |
-| **CreateProcess-side** | Python `subprocess.run(["python3", …])` (list form) / any Win32 `CreateProcess` caller, including `hooks.json` exec-form registrations | a real `python3.exe` PE (hardlink/copy of the python.org `python.exe`), placed ahead of `%LOCALAPPDATA%\Microsoft\WindowsApps` on PATH | claude-klabauter `coordinator_core/ops/ensure_python3_exe_shim.py`, picked up by the `coordinator/bin/install-health-run.py` drop-in orchestrator (Phase 3 Step 1b) |
+| **CreateProcess-side** | Python `subprocess.run(["python3", …])` (list form) / any Win32 `CreateProcess` caller, including `hooks.json` exec-form registrations | a real `python3.exe` PE (hardlink/copy of the python.org `python.exe`), placed ahead of `%LOCALAPPDATA%\Microsoft\WindowsApps` on PATH | the engine repo's `coordinator_core/ops/ensure_python3_exe_shim.py`, picked up by the `coordinator/bin/install-health-run.py` drop-in orchestrator (Phase 3 Step 1b) |
 
 `python3.cmd` is retired — it is not the cmd.exe-side fix any more. A reader who does not know
 that will restore it to fix the `CreateProcess`/`PATHEXT` problem, which is real; the correct
@@ -35,8 +35,8 @@ CreateProcess-side rows. It does not help a bash `command -v python3` lookup, wh
 own resolution contract. See
 `docs/research/2026-07-14-windows-first-class-coordinator/09-python3-shim-fix-recipe.md` Q3 for
 the original wiring confirmation and Q1/Q2 for how
-the ensure-python3-exe-shim logic (now claude-klabauter `coordinator_core/ops/ensure_python3_exe_shim.py`)
-is wired into install, run by the claude-klabauter `coordinator/bin/install-health-run.py` orchestrator
+the ensure-python3-exe-shim logic (now living in the engine repo's `coordinator_core/ops/ensure_python3_exe_shim.py`)
+is wired into install, run by the engine repo's `coordinator/bin/install-health-run.py` orchestrator
 — no direct call site needed or added.
 
 **Measured cost of each path** (this machine, native `CreateProcess` launch from PowerShell — see
@@ -103,7 +103,7 @@ shape; hand-authored shims in the same wave mirror its contract by hand.
 modeled on the retired `python3.cmd`'s fast-path rationale — see "What the shim does" above):
 
 1. **`__PYTHON_BIN__`** — an absolute interpreter path baked in at install time by
-   **claude-klabauter**'s `coordinator/lib/install-substrate.py` (engine plane — it is not in this
+   **the engine repo**'s `coordinator/lib/install-substrate.py` (engine plane — it is not in this
    repo, and a search here for the bare filename finds nothing), or the empty string on a
    no-Python install. The literal token is
    guarded against surviving un-substituted (`if "%_py%"=="__PYTHON_BIN__" set "_py="` / the
@@ -127,7 +127,7 @@ modeled on the retired `python3.cmd`'s fast-path rationale — see "What the shi
 **Shims converted to this shape (Wave 0):** `claude-home.cmd`/`.ps1` (generator-produced),
 `coordinator-lesson-add.cmd`, `coordinator-doc-new.cmd`, `mint-deliverable-id.cmd`,
 `coordinator-queue-append.cmd`, `cross-repo-memo.cmd` (all seven now share the same 3-tier ladder;
-twin filenames never carry the target's language extension — claude-klabauter erratum — the installed forwarder twin in the settings-home `bin/` dir is `mint-deliverable-id.sh.cmd`,
+twin filenames never carry the target's language extension — — the installed forwarder twin in the settings-home `bin/` dir is `mint-deliverable-id.sh.cmd`,
 keeping `.sh` in the installed name for caller-path stability, a known parked PATHEXT quirk).
 `templates/bin/machine-local.cmd` also converted — its bash target's only value was locating
 `_machine_local.py` via the settings-home seam and picking an interpreter, so that path-resolution
@@ -139,15 +139,15 @@ operational-failure contract) rather than adopting this shape's usual `127`.
 **Bare-name resolution prefers `.ps1` over `.cmd`.** For any command name with both a `.cmd` and a
 `.ps1` sibling on PATH (the shape this section's Wave 0 conversions produced), PowerShell resolves
 the bare name to the `.ps1` twin ahead of the `.cmd` twin — on both pwsh 7 and Windows PowerShell
-5.1, despite `.PS1` being absent from `PATHEXT`. This is **observed and pinned by a claude-klabauter
-regression test, not a documented Microsoft guarantee** — treat it as empirical behavior to keep
+5.1, despite `.PS1` being absent from `PATHEXT`. This is **observed and pinned by a
+regression test in the engine repo, not a documented Microsoft guarantee** — treat it as empirical behavior to keep
 verifying, not settled vendor contract. Verified on pwsh 7.6.4 and Windows PowerShell
 
 **An execution-policy-blocked `.ps1` hard-fails rather than falling back to its `.cmd` sibling** —
 PowerShell refuses to run a `.ps1` under a `Restricted`-class policy, and nothing downstream
 recovers the call once that refusal fires; bare-name resolution having already picked `.ps1` (see
 above) means the `.cmd` twin is never tried. This hazard is now closed at install time:
-Claude-klabauter's fail-closed policy gate (`coordinator_core/install/policy_gate.py`, wired into
+the engine repo's fail-closed policy gate (`coordinator_core/install/policy_gate.py`, wired into
 `substrate.py`'s `.ps1`-emission path) probes both PowerShell hosts before
 emitting `.ps1` launchers and skips `.ps1` emission entirely on a RED verdict, leaving only the
 `.cmd` twin installed — so a `Restricted`-policy host never receives a `.ps1` it can't run. The
@@ -155,7 +155,7 @@ residual: execution policy is mutable *after* install (the gate's own AC10), so 
 `Restricted` post-install can still hit the hard-fail until the next install pass re-runs the gate.
 
 **No `.cmd` in either tree still bash-routes.** `coordinator-initiative.cmd` and
-`coordinator-safe-commit.cmd` (claude-klabauter `coordinator/bin/`) and `resolve-coordinator-clone.cmd`
+`coordinator-safe-commit.cmd` (the engine repo's `coordinator/bin/`) and `resolve-coordinator-clone.cmd`
 (`templates/bin/`) were the last BLOCKED-class holdouts; their targets are now Python and all three
 are `gen-launcher-shim.py` output carrying a "NO bash re-exec" header. The blocker that held them —
 a pure-bash target `python <target>` could not run — is discharged.
@@ -270,7 +270,7 @@ The shim is the universal structural fix; per-repo code that names `python3` or 
 
 - Shell scripts: source `scripts/lib/select-python.sh` (project-rag) or, for the coordinator itself, apply the `COORDINATOR_PYTHON`/registry/PATH resolution contract directly (`coordinator/lib/resolve-python.sh` is retired, not a lib to source — see `machine-local-registry.md § coordinator.python resolution contract`) and use the resolved interpreter, not bare `python3`. Apply WindowsApps exclusion if the resolution path does not already.
 - CreateProcess-side (Python `subprocess`/Win32 launch) callers: rely on the native `python3.exe`
-  created by claude-klabauter `coordinator_core/ops/ensure_python3_exe_shim.py` (see "The three
+  created by the engine repo's `coordinator_core/ops/ensure_python3_exe_shim.py` (see "The three
   `python3`-resolution paths" above) — do not add a bash or `.cmd` workaround for this caller
   class, neither is reachable from `CreateProcess`.
 - Python callers: invoke `[bash, str(reader)]` rather than `[str(reader)]` for extensionless bash scripts. **For `.cmd`/`.exe`/`.bat`/`.com` targets, use bare invocation (natively executable). For everything else (extensionless, `.sh`, `.ps1`), prepend `bash`.** This whitelist-natively-executable inversion is fail-closed vs. the fail-open `suffix == ""` check.
@@ -325,6 +325,32 @@ Any PowerShell script matching this pattern should be audited.
 
 `Start-Process -WindowStyle Hidden` combined with `-RedirectStandardOutput`/`-RedirectStandardError` on a console-subsystem `python.exe` does NOT reliably hide the window — it allocates a persistent console. The distinction is `SW_HIDE` (hides after creation) vs. `CREATE_NO_WINDOW` (never creates). For reliable headless spawning, use `pythonw.exe` (GUI subsystem) or pass `creationflags=CREATE_NO_WINDOW` (0x08000000) in Python's `subprocess.Popen`. Defense-in-depth audit: grep for `Start-Process.*-WindowStyle Hidden` across all scripts — second occurrence (project-rag-L42): found 10+ sites in the example-game-repo/project-rag install surface.
 
+## Read-only verification cannot settle cmd.exe and PowerShell exit-code semantics
+
+A confined executor that cannot execute a shell template it writes can only read its branch
+logic — and for `cmd.exe` and PowerShell exit-code/error-propagation semantics, reading is not a
+verification method. Three defects survived a careful, honest read of a ~20-line launcher diff
+whose whole purpose was propagating a child's exit code:
+
+- `for /f "usebackq" ... in (`cmd`)` discards the child's exit code: `%ERRORLEVEL%` after the loop
+  reads 0 even when the child died non-zero.
+- `(& cmd).Trim()` throws on null whenever the child writes no stdout — exactly the failure case —
+  and under `$ErrorActionPreference = 'Stop'` that throw kills the script before any exit-code
+  branch can run.
+- `Write-Error` under `'Stop'` is a terminating error, so a following `exit 1` is unreachable and
+  the branch never owns its own exit code.
+
+The executor flagged the gap honestly ("not verified by a forced-failure run — the confined Bash
+allowlist has no path to render or execute the templates"), and that flag was correct and
+load-bearing — it is what prompted the EM to run the cases.
+
+**Rule.** When a chunk's subject IS process-exit/error-propagation semantics in `cmd.exe` or
+PowerShell, the EM runs the cases — stub the child, exercise child-fails / child-succeeds /
+child-returns-empty against the real template body, and confirm no temp file leaks. Do not accept
+a read-only verdict, from an agent or from yourself. A brief for such a chunk should state up
+front that the executor is expected to return an unverified diff plus the case list, rather than
+asking for a verification it structurally cannot perform.
+
 ## console-popup triage — lifecycle scripts dominate, not tests
 
 Console-popup complaints on Windows usually originate in session-lifecycle scripts (startup, health-check, install runners), not the test runner itself. Triage heuristic: audit parallel-launch lifecycle scripts (e.g., session-init hooks, `coordinator-auto-push`, MCP start scripts) before chasing pytest internals. Apply: reproduce by running the lifecycle script path in isolation before adding `CREATE_NO_WINDOW` flags inside tests.
@@ -332,6 +358,26 @@ Console-popup complaints on Windows usually originate in session-lifecycle scrip
 ## PowerShell 5.1 ConvertTo-Json empty array serializes as null
 
 PowerShell 5.1 `ConvertTo-Json` serializes an empty `@()` value inside a hashtable as `null`, not `[]`. This breaks any downstream consumer that distinguishes null from empty array. Fix: use `@(,@())` for a forced-array or `[System.Collections.Generic.List[object]]::new()`, then pipe through `ConvertTo-Json`; or post-process with `-replace '"value": null', '"value": []'` where field semantics are known. Audit: any PS5.1 script serializing potentially-empty arrays to JSON needs this guard.
+
+## cmd.exe closes a parenthesized block at the first literal `)`, before variable expansion
+
+`cmd.exe` closes a `(...)` block — an `if (...)`, a `for (...)` — at the first literal `)` it scans,
+**before** variable expansion runs. So `%ProgramFiles(x86)%` or an `echo (some text)` sitting inside
+an `if (...)` block breaks it, because the `)` inside the variable name or the echoed text closes
+the block early. Two failure modes follow: a parse abort (`%\Git was unexpected at this time.`), or
+— far nastier — an early close that promotes whatever follows into an **unconditional** statement.
+If the line after the early-closed block is `exit /b 1`, that `exit` now fires regardless of the
+block's actual condition, so a guard denies (or a launcher aborts) on every invocation, not just the
+one it was written to catch. This broke `claude-doe.cmd` — the `claude` alias target — completely,
+and no test caught it, because no test executed the *generated* launcher; a `cmd /c` smoke test of
+the rendered file would have.
+
+**Rule.** Hoist any paren-bearing variable or literal text (`%ProgramFiles(x86)%`, a parenthesized
+comment) outside a parenthesized block; where it must stay inside, escape the parens as `^( ^)`.
+Diagnose under `@echo on`, because an isolated copy of the block, tested outside its surrounding
+`if`/`for`, passes — the defect only shows inside the actual nesting. Any `.cmd` file this repo
+generates needs a smoke test that runs the **rendered output** under `cmd /c`, not just a static
+read of the template.
 
 ## Why we can't have integration tests for picker-fire
 

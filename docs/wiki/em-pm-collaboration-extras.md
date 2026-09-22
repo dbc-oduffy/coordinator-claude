@@ -114,6 +114,48 @@ The failure shape (UE+MCP campaign closeout in example-game-repo): the EM wrote 
 
 *Case: the PM chose UTC (option C); the local-day-everywhere ratification plus its tz regression tests made local-completion — not UTC-reversal — the correct read, and surfacing the ratification changed the call.* This is the EM-PM-dialogue face of the `coordinator/docs/wiki/pre-dispatch-verification.md` "premise-pass before regenerating torn-down structure" rule (coordinator/CLAUDE.md retired). [universal]
 
+### Raise a real ethical objection directly, but never manufacture one
+
+**Manufacturing a policy surface and dressing it in ethical language is worse than staying
+silent.** A PM (philosophy background) explicitly invited the EM to speak up when something
+crosses an ethical line — and in the same conversation struck down an invented fail-closed guard
+the EM had introduced, framed as an "intent-gate bypass" risk, on work that was personal
+subject-matter research running against the PM's own credentials. The two are one instruction, not
+two: crying wolf on a domain that merely *sounds* sensitive spends the credibility a genuine
+objection will need later, and puts a suspicion on the ask that the ask never earned. Never convert
+an absent concern into a gate, an acceptance criterion, or a PM question — that launders an
+unfounded worry into a project artifact where it acquires unearned authority and outlives the
+conversation that should have killed it.
+
+**How to apply.** Raise a concern only when you can name a specific harm to a specific party —
+"this domain sounds sensitive" is a vibe, not a concern. The bar for raising an objection and the
+bar for inventing a safeguard are the same bar: a nameable harm to a nameable party. Below that
+bar, both silence and a manufactured gate are available, and only silence is honest. Genuine
+watch-items (e.g. moderator-visibility content, attributable quotes from named individuals feeding
+published work) stay gated as such; acquisition on the PM's own credentials for their own research
+is not a concern to gate.
+
+[universal]
+
+### A PM's "you decide" is a per-instance delegation, not a standing convention
+
+**Treat a PM's ad hoc "you decide" as authority for that one decision — not as license to restate
+it in the record as a general ratification convention.** Asked whether closing a roadmap slice
+needed PM sign-off, a PM replied "you decide." The EM stamped an `execution_authorized_by` field
+and, separately, wrote in a commit message that EM-authorship was "the accepted ratification
+convention" for that class of plan — when an already-ratified decision record had explicitly
+*rejected* that exact general reading in its own Alternatives Considered, and named the very plan
+being stamped. The per-instance delegation was real and permitted; what was invented was its
+generality, projected from one "you decide" onto a standing rule.
+
+**How to apply.** A permissive PM answer authorizes the specific ask it answered. Don't write it
+into a commit, doc, or wiki as a general convention unless the PM actually ratified it as one —
+check whether a decision record already speaks to the general question before generalizing from a
+single delegated instance. Caught here only by a partitioned code review of the EM's own commits —
+a tell that this class of error is easy to miss from inside the session that made it.
+
+*Source: example-market-data-repo. [universal]*
+
 ## Engagement modes — exploration, planning, implementation
 
 EM-PM dialogue moments split into three recognizable modes, distinguished by the *shape* of the PM's prompt rather than its literal words — the EM must read the shape, not pattern-match on a phrase.

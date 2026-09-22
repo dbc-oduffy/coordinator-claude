@@ -17,7 +17,7 @@ had just read. Every failure mode that example carries is a copying failure:
 This module makes the fire a QUERY over the frozen report rather than an assembly step.
 It derives every per-baton field from the engine's own answer, splits the wave into
 fires at the documented cap, and emits one standalone `.mjs` per fire — bound through
-Claude-klabauter's `workflow.bind_args`, never composed here. The EM's remaining act is one
+the engine's `workflow.bind_args`, never composed here. The EM's remaining act is one
 `Workflow({scriptPath})` per emitted file, with NO args.
 
 WHAT IT DOES NOT DO. It does not read `blocked_by`, derive a wave, decide candidacy, or
@@ -599,7 +599,7 @@ def _bind(
     args: dict,
     live_engine_tree: bool = False,
 ) -> str:
-    """Compose the standalone script through claude-klabauter's `workflow.bind_args`.
+    """Compose the standalone script through the engine's `workflow.bind_args`.
 
     Delegated, never reimplemented: the binding rule (where the literal goes, which
     sources are refused) is engine-owned, and a second composer here is how the two
@@ -681,8 +681,8 @@ def _bind(
         message = str((reply["error"] or {}).get("message") or reply["error"])
         if "Method not found" in message and "bind_args" in message:
             # The engine ANSWERED and does not carry the op. That is a publish lag, not a
-            # broken resolution: `workflow.bind_args` is authored in claude-klabauter and
-            # reaches a box through the claude-klabauter mirror, so a mirror published
+            # broken resolution: `workflow.bind_args` is authored in the engine repo and
+            # reaches a box through its published mirror, so a mirror published
             # before the op landed refuses every emit with a message that reads like a
             # missing or misresolved engine — the more expensive of the two conclusions.
             raise ValueError(
@@ -740,7 +740,7 @@ def _engine_env_prefix(engine_root: Path) -> str:
 
 
 #: The two layouts a published/mirrored plugin ships the registry manifest in. The private
-#: DoE tree keeps it under `coordinator/`; the OSS publish row ships it flat at plugin root.
+#: doctrine-repo tree keeps it under `coordinator/`; the OSS publish row ships it flat at plugin root.
 #: `coordinator_registry._mp_candidate_manifest_path` probes exactly this pair, so exporting
 #: a root that satisfies neither is exporting a value its consumer cannot use.
 _MANIFEST_RELPATHS = (
@@ -841,22 +841,51 @@ def _plugin_agents_available(plugin_root: Path | None, explicit: str) -> tuple[b
     return True, f"{agents_dir} defines every agent this wave dispatches"
 
 
-def _default_spine_check_cli(plugin_root: Path | None) -> str | None:
-    """`plan-spine-check`, resolved off the PLUGIN root — rung 3's plugin-local case.
+def _default_spine_check_cli(
+    engine_root: Path | None, plugin_root: Path | None = None
+) -> str | None:
+    """`plan-spine-check`, resolved caller-side on the same ladder `_default_sidecar_cli` uses.
 
-    It ships in the coordinator plugin's own `bin/`, never in the repo being planned, so
-    the brief's `<repoRoot>/coordinator/bin/plan-spine-check.py` resolves to nothing
-    everywhere except the plugin's own source tree. The planner then runs a check the
-    brief calls "runnable, not advice", gets "No such file or directory", and returns a
-    plan whose spine was never checked — silently, because a missing file reads as a
-    tooling hiccup rather than a skipped gate.
+    It used to resolve straight to the plugin-local `bin/plan-spine-check.py` copy — rung
+    3's plugin-local case, and the ONLY rung tried. On a published mirror that copy cannot
+    self-resolve its own schema, so the check the brief calls "runnable, not advice" ran
+    and failed internally rather than being skipped outright, and two plans that in fact
+    validated were downgraded ready-to-pulled on a spine check that never really ran. The
+    fix is the sibling's shape: try the settings-home launcher first (a stock install's own
+    resolved copy, schema included), and fall back to the engine checkout's copy — never
+    the plugin-local one alone.
     """
-    if plugin_root is None:
-        return None
-    candidate = plugin_root / "bin" / "plan-spine-check.py"
-    if not candidate.is_file():
-        return None
-    return f"{shlex.quote(sys.executable)} {shlex.quote(str(candidate))}"
+    return _settings_home_bin("plan-spine-check") or _engine_bin(
+        engine_root, "plan-spine-check", plugin_root
+    )
+
+
+def _warn_if_resolved_cli_unrunnable(label: str, cli: str | None) -> None:
+    """Emit-time check: a resolved CLI literal that exists but will not run.
+
+    `_settings_home_bin` accepts a settings-home candidate on `is_file()` alone —
+    proof the path exists, not that the shell can invoke it. `is_file()` checks
+    presence and infers runnability; a launcher shipped without its executable bit
+    resolves cleanly through that check and then fails downstream in whatever brief
+    baked the literal in, with nothing at emit time pointing back at the missing `+x`.
+    A python-interpreter-prefixed invocation (the `_engine_bin` shape) is exempt: the
+    interpreter reads the script, so its own executable bit is irrelevant.
+    """
+    if not cli:
+        return
+    parts = shlex.split(cli)
+    if not parts:
+        return
+    target = parts[0]
+    if target == sys.executable:
+        return
+    path = Path(target)
+    if path.is_file() and not os.access(path, os.X_OK):
+        print(
+            f"  WARNING: resolved {label} CLI {target} exists but is not executable "
+            "(missing +x) — downstream invocation will fail",
+            file=sys.stderr,
+        )
 
 
 
@@ -1019,7 +1048,8 @@ def _emit_repair(args, repo_root: Path, trail_dir: Path, plugin_root: Path, engi
     dispositions = args.dispositions_cli or _default_dispositions_cli(engine_root, plugin_root)
     if dispositions:
         repair_args["dispositionsCli"] = dispositions
-    spine_check_cli = args.spine_check_cli or _default_spine_check_cli(plugin_root)
+    spine_check_cli = args.spine_check_cli or _default_spine_check_cli(engine_root, plugin_root)
+    _warn_if_resolved_cli_unrunnable("spine-check", spine_check_cli)
     if spine_check_cli:
         repair_args["spineCheckCli"] = spine_check_cli
     try:
@@ -1393,7 +1423,8 @@ def main(argv=None) -> int:
     sidecar_cli = args.provision_sidecar_cli or _default_sidecar_cli(
         engine_root, plugin_root
     )
-    spine_check_cli = args.spine_check_cli or _default_spine_check_cli(plugin_root)
+    spine_check_cli = args.spine_check_cli or _default_spine_check_cli(engine_root, plugin_root)
+    _warn_if_resolved_cli_unrunnable("spine-check", spine_check_cli)
     arming_check_cli = _default_arming_check_cli(plugin_root)
 
     per = max(1, args.batons_per_fire)

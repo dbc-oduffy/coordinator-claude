@@ -6,7 +6,7 @@ registrations with ONE `python3` hook entry — zero Git-Bash cold-starts per ed
 (each bash.exe spawn costs 200-500ms on Windows; this is the whole point).
 
 The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
-the claude-klabauter engine, hand it the raw payload, relay its stdout. Claude-klabauter owns the
+the engine, hand it the raw payload, relay its stdout. The engine repo owns the
 guard LOGIC (`coordinator_core.write_guards`, which also reuses
 `coordinator_core.subagent_sandbox`). The engine is imported and run IN-PROCESS —
 no bash, no `python3 -m` subprocess re-spawn — so a whole edit pays exactly one
@@ -17,8 +17,8 @@ Contract (mirrors the bash hooks it replaces):
   stdout  — one hookSpecificOutput JSON envelope on deny/advisory; NOTHING on allow
   exit 0  — always (ALLOW/DENY conveyed via stdout, never exit code)
 
-Graceful degradation — REQUIRED: any failure to resolve/import/run the claude-klabauter
-engine falls through to fail-open ALLOW (exit 0, no stdout). A missing sibling
+Graceful degradation — REQUIRED: any failure to resolve/import/run the engine
+falls through to fail-open ALLOW (exit 0, no stdout). A missing sibling
 engine must NEVER brick every edit — identical philosophy to the bash sandbox
 shim it supersedes.
 
@@ -120,7 +120,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open ALLOW — claude-klabauter unresolvable on this machine
+        return 0  # fail-open ALLOW — engine unresolvable on this machine
 
     # Contract clause 8 (SYS.PATH ORDERING, `_guard_runner_contract.py`):
     # the engine root is APPENDED, never inserted at index 0 -- the hooks

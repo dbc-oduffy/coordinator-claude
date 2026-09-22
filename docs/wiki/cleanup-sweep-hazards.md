@@ -59,7 +59,7 @@ A commit titled `path-sweep + grep gate + allowlist` silently reverted a prior s
 
 ## 6. Hardcoded Developer-Machine Paths Hurt Every External Consumer
 
-A SessionStart hook had a hardcoded fallback `$KnownRoots = @("C:\<project-1>", "C:\dev\ue\Keep_Blank")` for graph.db location when env vars were unset. Worked silently on the author's machine. Would have emitted nothing useful (or worse, misleading freshness reports about the wrong codebase) on every external consumer with a different drive layout. <!-- foreign-path-ok: the hardcoded path IS the anti-pattern being critiqued -->
+A SessionStart hook had a hardcoded fallback `$KnownRoots = @("<drive>:\<project-1>", "<drive>:\<project-2>")` for graph.db location when env vars were unset. Worked silently on the author's machine. Would have emitted nothing useful (or worse, misleading freshness reports about the wrong codebase) on every external consumer with a different drive layout. <!-- foreign-path-ok: the hardcoded path IS the anti-pattern being critiqued -->
 
 **Defense pattern** for any path-resolution fallback in shipped tooling:
 
@@ -77,9 +77,9 @@ Edit-tool success return value is NOT proof the change landed — concurrent wri
 
 Any bulk find/replace tool that defines its own substitution vocabulary in-file (or in a sibling script) will rewrite *itself* unless its scan path explicitly excludes those vocabulary-carrying files. The tool's identifier strings, replacement templates, and pattern tables become substitution targets — the first run corrupts the table, the second run runs against the corrupted table, and recovery requires `git checkout` against the tool source.
 
-**Concrete failure:** 2026-05-09 publish-sanitization dogfood ran `publish-time-transform-py --fix` (claude-klabauter `coordinator/bin/publish-time-transform-py`) over the publish-repo checkout. The publish-repo's `check-persona-names.py` mirrors the same `PERSONA_NAMES` vocabulary; the bulk-fix rewrote the literal table entries inside that checker, breaking persona detection on the publish side. Recovery via `git checkout` was clean, but the failure mode is silent — exit code 0, files rewritten, only a content audit catches it.
+**Concrete failure:** 2026-05-09 publish-sanitization dogfood ran `publish-time-transform-py --fix` (the engine repo's `coordinator/bin/publish-time-transform-py`) over the publish-repo checkout. The publish-repo's `check-persona-names.py` mirrors the same `PERSONA_NAMES` vocabulary; the bulk-fix rewrote the literal table entries inside that checker, breaking persona detection on the publish side. Recovery via `git checkout` was clean, but the failure mode is silent — exit code 0, files rewritten, only a content audit catches it.
 
-**Defense:** every bulk-substitution tool carries an `EXCLUDED_BASENAMES` (or equivalent) guard listing its own filename AND any sibling file that mirrors its vocabulary. See claude-klabauter `coordinator/bin/publish-time-transform-py` `EXCLUDED_BASENAMES` + basename-pattern guards for the canonical shape. The guard runs ahead of subtree-prefix exclusion (a file under `bin/` shouldn't be skipped wholesale, only the vocabulary-bearing ones).
+**Defense:** every bulk-substitution tool carries an `EXCLUDED_BASENAMES` (or equivalent) guard listing its own filename AND any sibling file that mirrors its vocabulary. See the engine repo's `coordinator/bin/publish-time-transform-py` `EXCLUDED_BASENAMES` + basename-pattern guards for the canonical shape. The guard runs ahead of subtree-prefix exclusion (a file under `bin/` shouldn't be skipped wholesale, only the vocabulary-bearing ones).
 
 ## 9. Narrow Dependent Surfaces When User-Facing Surface Narrows
 
@@ -475,9 +475,8 @@ The canonical sizing guideline: the cap must exceed the longest plausible legiti
 
 ## 44. Terminal-Stamp → Immediately-Sweepable Window
 
-*DoE-claude.*
 
-A plan becomes archival-eligible the instant its frontmatter is stamped a terminal status (`implemented` / `superseded` / `abandoned`) — not at the next commit, not at the end of the ceremony that stamped it. Claude-klabauter `coordinator/bin/sweep-terminal-plans.py` fires asynchronously from session-init on *every* session start, and it only reads the plan's on-disk `status:` field; it has no notion of "mid-ceremony" or "close-out review still pending."
+A plan becomes archival-eligible the instant its frontmatter is stamped a terminal status (`implemented` / `superseded` / `abandoned`) — not at the next commit, not at the end of the ceremony that stamped it. The engine repo's `coordinator/bin/sweep-terminal-plans.py` fires asynchronously from session-init on *every* session start, and it only reads the plan's on-disk `status:` field; it has no notion of "mid-ceremony" or "close-out review still pending."
 
 **Concrete failure:** `/workstream-complete` stamped a plan `implemented`, its close-out code-review produced findings, and while the review-integrator's plan edits were still sitting uncommitted in the working tree, a concurrent session's session-init fired the sweep and `git mv`'d the plan from `docs/plans/` to `archive/specs/` out from under the in-flight edits. The `wsc_commit` stage then looked for the plan at its pre-sweep path, found nothing, and silently skipped it — the edits survived only because `git mv` happens to carry working-tree content along with the path move, not because anything caught the race.
 
@@ -485,13 +484,14 @@ A plan becomes archival-eligible the instant its frontmatter is stamped a termin
 
 1. Any post-stamp edit window — most notably `/workstream-complete` close-out review-integration, which runs *after* the terminal stamp lands — is vulnerable to the async sweep until those edits are committed. Commit promptly; don't leave a stamped-but-uncommitted plan sitting across a session boundary.
 2. The sweep's working-tree-dirty guard (added as a DoE-side backstop) is exactly that — a backstop, not a license to leave post-stamp edits dirty. Treat "the guard will catch it" the same as treating a snapshot test as a substitute for correct sequencing: it narrows the blast radius, it doesn't remove the race.
-3. Downstream effect to watch for: `wsc_commit`'s staging step may report a mid-ceremony-archived plan as `missing:<path>` when the sweep has already relocated it. This is a known silent-skip failure mode — a cross-repo memo to claude-klabauter is open tracking a fix on that stage's path-resolution. Don't assume `missing:<path>` means the edits were lost; check `archive/specs/` for the plan before treating the skip as data loss.
+3. Downstream effect to watch for: `wsc_commit`'s staging step may report a mid-ceremony-archived plan as `missing:<path>` when the sweep has already relocated it. This is a known silent-skip failure mode — a cross-repo memo to the engine repo is open tracking a fix on that stage's path-resolution. Don't assume `missing:<path>` means the edits were lost; check `archive/specs/` for the plan before treating the skip as data loss.
 
 Composes with §38 (re-derive terminal status from disk before deletion) — same underlying fact, opposite direction: §38 is about trusting stale terminal-status labels for a *deletion* decision; this entry is about a *stamp-then-edit* window racing an automated consumer of that same status field.
 
+**Additive consequence: same-session backlinks to `docs/plans/` go stale the moment the ceremony closes.** Chunk executors routinely write spec backlinks (`docs/plans/<slug>.md`) into module docstrings during execution — correct per rag-bait conventions at the time they're written. But at `/workstream-complete` the plan is stamped `implemented`, and `sweep-terminal-plans.sh` archives it to `archive/specs/YYYY-MM/` on the very next session-init that fires — leaving every backlink authored during execution pointing at a path that no longer exists. One observed case left 11 files (7 source, a decision record, and a spinoff handoff a peer had already claimed) with dangling references. **Rule:** when a ceremony stamps a plan terminal, sweep the repo for references to its `docs/plans/` path and repoint them to `archive/specs/` in the same commit — cheapest detection is one `grep -rl 'docs/plans/<slug>'` across `src/ docs/ state/` immediately after the stamp, before the close-out commit. Watch for references sitting inside an artifact another session has already claimed — those aren't yours to edit; surface them instead.
+
 ## 45. Cross-Repo/Fleet Identity Rename: Classify Every Hit by SHAPE Before Editing
 
-*DoE-claude — provenance: `docs/plans/2026-07-11-example-store-repo-rename-surgery.md` (archived).*
 
 A fleet-wide identity rename (e.g. `delphi-cockpit` → `example-store-repo`) is not a single-shape sed-sweep problem — the same literal token recurs across at least six structurally distinct shapes, and each shape carries an *independent* fix-vs-leave disposition:
 
@@ -508,7 +508,6 @@ This composes with, but is broader than, the rename-blast-radius miss captured i
 
 ## 46. Premise-Check Dead-vs-Fallback Before Bulk-Deleting "Dead" Scripts
 
-*DoE-claude.*
 
 A handoff "delete N dead X" item is a hypothesis, not a verdict — several classes of script read as "dead" to a shallow grep yet are load-bearing:
 
@@ -518,6 +517,14 @@ A handoff "delete N dead X" item is a hypothesis, not a verdict — several clas
 
 **Rule.** Before deleting anything a handoff labels "dead" — especially a fail-closed security/parity guard — run a read-only dead-vs-fallback verification: trace the live path, grep every sourcer/caller (tests included), and map any fallback wiring (State-1 / engine-absent branches). Deletion may correctly fold into a larger coupled unit rather than being isolable. Composes with §1/§22 (active-reference grep) and §38 (re-derive status from disk) — same family: a "dead" label is a classifier inference the disk can contradict.
 
+**A handoff step-list ("delete dir X") routinely undercounts the blast radius, too — not just whether X is dead.** Even where deletion is genuinely warranted, a step-list rarely enumerates every runtime resolver, build-time tool, and parity test that still resolves paths into the target. Before any destructive op, dispatch a read-only blast-radius investigation that classifies each reference it finds: runtime-resolver / build-time / parity-test / docstring / incidental. A blind `rm` breaks runtime even when the underlying data was already "re-homed" elsewhere — re-homing the data and repointing the code that resolves its old location are two separate steps, and a copy-step that does only the first is half-done. Concrete case: data files were copied into a new package directory, but `doctor_manifest.py` plus roughly 25 tests still resolved the *old* location — deletion of the old location would have broken the live doctor despite the data already existing at the new path.
+
+## 47. A REMOVE_WHEN Token's Premise Can Be Voided Before Its Trigger Fires
+
+A transitional shim gated on a future condition (e.g. `REMOVE_WHEN: addon_protocol>=36` — "once the addon stamps X natively") is written against a premise: that the awaited party will eventually satisfy the trigger. That premise can be **voided by new information before the trigger condition is ever met** — e.g. the awaited party confirms it will never stamp X natively. When that happens, removing the shim early is not jumping the gate; it is executing the token's own intent once its stated premise stops holding.
+
+**Rule.** Re-evaluate a `REMOVE_WHEN` token's premise whenever new information lands about the awaited party's plans — don't treat the literal trigger condition as the only thing that can retire the shim. A voided premise is itself a removal trigger.
+
 ## Skill Checklist Reference
 
-`/distill` and `/update-docs` should reference items 1, 2, and 3 in their dispatch prompts so the agent enforces these checks during sweep operations, not just the EM after the fact. `/bug-blitz` consumers reference item 19 for backlog-currency verification. `/coordinator:plan` Branch B references item 20 when the plan body flips a doctrine value-class. `/coordinator:plan` and `/bug-sweep` reference items 27–30 when the work is a class-scoped sweep — enumerate the construct class, build a class-catching lint (not a site list), and test the guard against an unseen class member. Items 33–34 apply to any cross-repo excision or directory-rename plan — add consumer-grep and variable-indirection grep to the done-criteria. Items 39–40 apply to any shell pipeline using `grep -q` on large inputs or any fleet-wide EOL sweep. Item 41 applies to any sweep that produces downstream-consumer artifacts (memos, doctrine seeds, plan amendments) — keep scratch through PM follow-on opportunity, not just through the commit. Item 42 applies to any `/percolate` / claude-klabauter `coordinator/bin/publish.py` flow and any cleanup that discards changes via `git checkout HEAD --` while a stash is in play — source publishes from a committed ref, never the live worktree.
+`/distill` and `/update-docs` should reference items 1, 2, and 3 in their dispatch prompts so the agent enforces these checks during sweep operations, not just the EM after the fact. `/bug-blitz` consumers reference item 19 for backlog-currency verification. `/coordinator:plan` Branch B references item 20 when the plan body flips a doctrine value-class. `/coordinator:plan` and `/bug-sweep` reference items 27–30 when the work is a class-scoped sweep — enumerate the construct class, build a class-catching lint (not a site list), and test the guard against an unseen class member. Items 33–34 apply to any cross-repo excision or directory-rename plan — add consumer-grep and variable-indirection grep to the done-criteria. Items 39–40 apply to any shell pipeline using `grep -q` on large inputs or any fleet-wide EOL sweep. Item 41 applies to any sweep that produces downstream-consumer artifacts (memos, doctrine seeds, plan amendments) — keep scratch through PM follow-on opportunity, not just through the commit. Item 42 applies to any `/percolate` / the engine repo's `coordinator/bin/publish.py` flow and any cleanup that discards changes via `git checkout HEAD --` while a stash is in play — source publishes from a committed ref, never the live worktree.

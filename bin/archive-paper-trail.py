@@ -166,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(json.dumps(result, indent=2, sort_keys=True))
 
-    # Review: code-reviewer F3 — apply the isinstance guard symmetrically; both
+    # Apply the isinstance guard symmetrically; both
     # reads of `result` share the same dict-or-raise invariant from cc_invoke.route.
     failed = result.get("failed") if isinstance(result, dict) else None
     archived = result.get("archived") if isinstance(result, dict) else None

@@ -368,7 +368,27 @@ def _unused_report_path(today: str, bucket_name: str) -> str:
     stamp = datetime.datetime.now().strftime("%H%M%S")
     return f"{base}-{stamp}.md"
 
-def _build_dispatches(buckets: list, supersessions: list) -> tuple[list, int]:
+def _memo_bytes_total(repo_root: str, memo_paths: list) -> int:
+    """Sum each memo's on-disk byte size, relative to `repo_root`.
+
+    Best-effort and never raises: a memo the op named but that is no longer
+    on disk (archived mid-run, a stale candidate) contributes 0 rather than
+    crashing the assembler, which promises "Always exit 0". This is the
+    pre-dispatch overrun signal state/bug-backlog/2026-08-20-inbox-blitz-
+    assembler-emits-briefs-excee-84e18c928f57.yaml names as the minimum
+    fix: the assembler emits no byte/size total anywhere, so neither it nor
+    the dispatching EM can see a bucket exceeding an agent's read budget
+    before agents are spawned."""
+    total = 0
+    for memo_path in memo_paths:
+        try:
+            total += os.path.getsize(os.path.join(repo_root, memo_path))
+        except OSError:
+            continue
+    return total
+
+
+def _build_dispatches(buckets: list, supersessions: list, repo_root: str) -> tuple[list, int]:
     """One paired {triage, verify} dispatch per NON-EMPTY bucket, each triage
     dispatch carrying its own finished brief and an assembler-assigned
     `report_path` its paired verify dispatch shares.
@@ -431,7 +451,7 @@ def _build_dispatches(buckets: list, supersessions: list) -> tuple[list, int]:
                 if newer in memo_ids or older in memo_ids:
                     relevant.append(s)
             if relevant:
-                # Review: code-reviewer F2 — fold `advisory` into the rendered
+                # Fold `advisory` into the rendered
                 # basis label so AC4's demotion of `same-sender-same-locus` is
                 # observable to the ceremony reading this brief, not merely
                 # structurally present in the candidate's own shape.
@@ -452,6 +472,7 @@ def _build_dispatches(buckets: list, supersessions: list) -> tuple[list, int]:
                     "in-body self-declaration prose, and a thread can still "
                     "supersede itself in a shape none of those three see."
                 )
+        memo_paths = [m["path"] for m in memos]
         dispatches.append({
             "stage": "triage",
             "id": f"triage-{bucket_name}",
@@ -459,7 +480,8 @@ def _build_dispatches(buckets: list, supersessions: list) -> tuple[list, int]:
             "bucket": bucket_name,
             "label": label,
             "count": len(memos),
-            "memos": [m["path"] for m in memos],
+            "memos": memo_paths,
+            "memo_bytes": _memo_bytes_total(repo_root, memo_paths),
             "brief": brief,
         })
         dispatches.append({
@@ -537,7 +559,7 @@ def main(argv: "list[str] | None" = None) -> int:
         }))
         return 0
 
-    dispatches, skipped_candidates = _build_dispatches(buckets, supersessions)
+    dispatches, skipped_candidates = _build_dispatches(buckets, supersessions, repo_root)
     payload = {
         "state": "escalate",
         "trigger": trigger,

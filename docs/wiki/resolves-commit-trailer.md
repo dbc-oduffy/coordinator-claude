@@ -5,13 +5,13 @@
 
 **This trailer now has a live producer.** From lvv-01/C4 onward, this
 convention, its parser (`parse_resolves_trailer.py`), and its oracle (`rollup_derive.py`) all
-shipped — but **nothing ever wrote the trailer**: zero commits in claude-klabauter's history carried
-it, and it was absent from claude-klabauter's `coordinator_core/contract/
+shipped — but **nothing ever wrote the trailer**: zero commits in the engine repo's history carried
+it, and it was absent from the engine repo's `coordinator_core/contract/
 commit-trailer-producer-contract.md`. `rollup_derive` therefore returned `no-resolving-commits`
-for every deliverable claude-klabauter has ever shipped, stranding every roadmap baton `in_flight`
+for every deliverable the engine has ever shipped, stranding every roadmap baton `in_flight`
 regardless of actual completion.
 
-The producer is claude-klabauter's `commit.anchors` op
+The producer is the engine repo's `commit.anchors` op
 (`coordinator_core/ops/commit_anchors.py`), registered in
 `coordinator_core/contract/commit-trailer-producer-contract.md` § 1.1/§ 1.2b as an eighth
 trailer key. It stamps `Resolves: <dlv-id>` **only at the workstream-complete / ship-handoff
@@ -57,10 +57,10 @@ lands on whoever committed last (§ AMEND-ON-SHARED-BRANCH in
 This is git-native: trailers live in the commit message body, survive
 rebase/cherry-pick/archival, and are queryable with stock git tooling —
 `git log --grep='^Resolves: <id>$'` or the structured `%(trailers:...)`
-pretty-format (see claude-klabauter `coordinator/bin/parse-resolves-trailer.py`
+pretty-format (see the engine repo's `coordinator/bin/parse-resolves-trailer.py`
 below). No new schema field, no external index, no stored liveness/roll-up
 state — the set of resolving commits for a given artifact-id is *derived* by
-querying commit history on demand (claude-klabauter
+querying commit history on demand (the engine repo's
 `coordinator/bin/rollup-derive.py`, C5).
 
 ## Sibling precedent — `Session-Id:` trailer
@@ -90,7 +90,7 @@ hard-fail.** The `Session-Id:` doctrine states it explicitly:
 The `Resolves:` trailer inherits this exactly: an artifact with **zero**
 resolving commits (the normal pre-adoption state — no commit has referenced
 it yet, or its lifecycle hasn't reached a resolving commit) is a vacuous pass,
-not an error. Claude-klabauter `coordinator/bin/rollup-derive.py` (C5) surfaces this as its own
+not an error. The engine repo's `coordinator/bin/rollup-derive.py` (C5) surfaces this as its own
 explicit `no-resolving-commits` token — never collapsed into a `not-shipped`
 verdict, for the identical reason the `Session-Id:` gate never collapses
 zero-match into "gate failed": treating "no commits reference this yet" as
@@ -101,7 +101,7 @@ zero-match into "gate failed": treating "no commits reference this yet" as
 The vacuous-pass rule above governs a closer that resolved its inputs fine and then found no
 resolving commits. It never governed a closer that could not resolve its inputs at all — that case
 was reported as success too, which is what let one defect be rediscovered by hand by four separate
-EMs on four separate days. Claude-klabauter's closers now separate the two:
+EMs on four separate days. The engine repo's closers now separate the two:
 
 - **Join resolved, zero resolving commits** — unchanged. Vacuous pass, `no-resolving-commits`,
   exit 0. The Session-Id reasoning above is untouched.
@@ -137,7 +137,7 @@ git log --format='%(trailers:key=Resolves,valueonly)' <commit>
 ```
 
 This requires git ≥ ~2.15 (the release that added the `%(trailers:...)`
-pretty-format token). See claude-klabauter `coordinator/bin/parse-resolves-trailer.py`
+pretty-format token). See the engine repo's `coordinator/bin/parse-resolves-trailer.py`
 for the canonical parser, which pins this version floor and documents the fallback
 path (`git interpret-trailers --parse`) for the same commit range.
 
@@ -181,7 +181,7 @@ name:
 - **`Deliverable-Id:`** marks *workstream membership* — which deliverable
   (`dlv-...`) this commit belongs to, independent of which session typed it.
 
-`Deliverable-Id:` is produced by claude-klabauter
+`Deliverable-Id:` is produced by the engine repo's
 `coordinator/bin/coordinator-prepare-commit-msg`, which reads
 `<git-dir>/coordinator-sessions/<sid>/session-shape.json` and stamps
 `pickup.deliverable_id` (written at claim time by
@@ -229,16 +229,16 @@ corrective the fix exists to make, not an edge case of it.
 
 ## Cross-references
 
-- claude-klabauter `coordinator_core/ops/commit_anchors.py` — the producer: stamps
+- the engine repo's `coordinator_core/ops/commit_anchors.py` — the producer: stamps
   `Resolves: <dlv-id>` at the completion event, gated on a staged `archive/completed/*.md` entry.
-- claude-klabauter `coordinator_core/contract/commit-trailer-producer-contract.md` § 1.1/§ 1.2b —
+- the engine repo's `coordinator_core/contract/commit-trailer-producer-contract.md` § 1.1/§ 1.2b —
   the registry entry for this key, alongside `Deliverable-Id:`'s membership-grain sibling row.
 - `coordinator/docs/wiki/workstream-complete-review.md` — sibling
   `Session-Id:` trailer convention and its zero-match semantics (cited
   above).
-- claude-klabauter `coordinator/bin/parse-resolves-trailer.py` — the parser this
+- the engine repo's `coordinator/bin/parse-resolves-trailer.py` — the parser this
   convention specifies.
-- claude-klabauter `coordinator/bin/rollup-derive.py` — the roll-up-derivation primitive that
+- the engine repo's `coordinator/bin/rollup-derive.py` — the roll-up-derivation primitive that
   consumes the parser's output alongside `check-shipped-on-main.py` (C5).
 - `coordinator/docs/wiki/canonical-artifact-shapes.md` § lvv-01 — the
   stable-ID table (`hnd-`/`cmp-`/`pln-`/`dlv-` prefixes and their mint seam)
@@ -248,7 +248,7 @@ corrective the fix exists to make, not an edge case of it.
 - `coordinator/schemas/session-shape.schema.json` — `pickup.deliverable_id` /
   `pickup_history[].deliverable_id`, the source field the `Deliverable-Id:`
   trailer is stamped from.
-- claude-klabauter `coordinator/bin/coordinator-prepare-commit-msg` — the
+- the engine repo's `coordinator/bin/coordinator-prepare-commit-msg` — the
   producer of both `Session-Id:` and `Deliverable-Id:`.
-- claude-klabauter `coordinator_core/coverage.py`'s `_derive_dag_chain_set` —
+- the engine repo's `coordinator_core/coverage.py`'s `_derive_dag_chain_set` —
   the consumer of `Deliverable-Id:` for DAG-mode segment attribution.

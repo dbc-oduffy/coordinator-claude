@@ -85,7 +85,7 @@ def _is_cross_cutting(path: str) -> bool:
             "*DR-207*",
             "*dr-207*",
             "*fleet-spine*emitter*",
-            # Review: code-reviewer F8 — standalone *emitter-binding* covers any
+            # Standalone *emitter-binding* covers any
             # artifact whose name signals a spine/emit straddle that doesn't
             # carry the fleet-spine prefix (e.g. a future
             # cockpit-emitter-binding plan). The fleet-spine pattern above
@@ -116,7 +116,7 @@ def _is_engine(path: str) -> bool:
             "*claude-klabauter*install*",
             "*claude-klabauter-install*",
             # MCP server / resident-service research (engine-plane infra).
-            # Review: code-reviewer F1 — *mcp-server* was too broad:
+            # *mcp-server* was too broad:
             # coordinator doctrine paths (e.g.
             # docs/wiki/mcp-server-configuration.md) would misclassify as
             # engine. Pattern narrowed to research/ and plans/ dirs only;
@@ -171,7 +171,7 @@ def coordinator_artifact_subject(path: str) -> Tuple[str, str, int]:
     # that happen to contain "install", "mcp-server", etc. do not accidentally
     # match engine patterns.
     #
-    # Review: code-reviewer F1 — coordinator-plugin and wiki mcp-server paths
+    # coordinator-plugin and wiki mcp-server paths
     # are pre-empted here so the narrowed engine MCP pattern in _is_engine
     # (scoped to docs/research and docs/plans) never fires for coordinator
     # doctrine surfaces.

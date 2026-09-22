@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """PreToolUse(AskUserQuestion) naked-Python advisory nudge.
 
-Port of nudge-autonomous-askuserquestion.sh -- self-contained (no claude-klabauter op
-exists for this logic; grepped /x/claude-klabauter/coordinator_core/hooks and
+Port of nudge-autonomous-askuserquestion.sh -- self-contained (no engine-repo op
+exists for this logic; grepped the engine repo's coordinator_core/hooks and
 coordinator_core/ops, no match). Zero Git-Bash cold-start per AskUserQuestion
 call on Windows (each bash.exe spawn costs 200-500ms; this is the whole
 point).

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """frontmatter-parse-check — does every record's frontmatter actually parse?
 
 WHY THIS EXISTS. Nothing in this fleet checked that a record's frontmatter is

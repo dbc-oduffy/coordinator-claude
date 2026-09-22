@@ -24,7 +24,7 @@ Before invoking `parallel-code-review`, the EM computes the narrowed **code-sema
 
 ### Trail helper contract
 
-`"$PYTHON_BIN" "${PYTHON_ARGS[@]}" "$_cc_claude_klabauter/coordinator/lib/workweek-trail-scope.py"` (naked-Python trampoline over `coordinator_core.ops.workweek_trail_scope`, renamed to its native `.py` extension in the 2026-07-21/22 bash-clean-slate residual migration, now claude-klabauter resident trusted-root resolve; see CLAUDE-PLUGIN-ROOT-SOURCE-GUARD, `coordinator/docs/wiki/coordinator-tripwires/draft-plan-aging.md`) — fail-loud; reads `HEADER.md` under `state/week-changelog/`, globs `state/review-trail/*.json`, writes a session-keyed `state/review-trail/.weekly-reviewer-scopes-<TIMESTAMP>-<SID_SHORT>.json` shard.
+`"$PYTHON_BIN" "${PYTHON_ARGS[@]}" "$_cc_claude_klabauter/coordinator/lib/workweek-trail-scope.py"` (naked-Python trampoline over `coordinator_core.ops.workweek_trail_scope`, renamed to its native `.py` extension in the 2026-07-21/22 bash-clean-slate residual migration, now engine-repo resident trusted-root resolve; see CLAUDE-PLUGIN-ROOT-SOURCE-GUARD, `coordinator/docs/wiki/coordinator-tripwires/draft-plan-aging.md`) — fail-loud; reads `HEADER.md` under `state/week-changelog/`, globs `state/review-trail/*.json`, writes a session-keyed `state/review-trail/.weekly-reviewer-scopes-<TIMESTAMP>-<SID_SHORT>.json` shard.
 
 The helper parses `Week starting:` from HEADER.md, filters trail records to the current week by filename date-prefix, then computes:
 
@@ -33,15 +33,15 @@ The helper parses `Week starting:` from HEADER.md, filters trail records to the 
 - `cross_segment_seams` — file paths touched by ≥2 distinct trail segments (pairwise intersection)
 - `staff_eng_scope` — `unreviewed_set ∪ seam_SHAs`
 
-Output JSON shape: `{ "staff_eng": [sha...], "staff_eng_seam_files": [path...], "mechanical_workers": "full" }`. Fail-loud on missing HEADER.md, unparseable `Week starting:` date, missing `sha_range`, or any git subprocess error. Implementation: claude-klabauter `coordinator/lib/workweek-trail-scope.py`.
+Output JSON shape: `{ "staff_eng": [sha...], "staff_eng_seam_files": [path...], "mechanical_workers": "full" }`. Fail-loud on missing HEADER.md, unparseable `Week starting:` date, missing `sha_range`, or any git subprocess error. Implementation: the engine repo's `coordinator/lib/workweek-trail-scope.py`.
 
 ### Coverage-gate batching hazard — single-commit trail records get under-credited
 
-*DoE-claude. [universal]*
+*The doctrine repo. [universal]*
 
 The review-coverage-gate DAG mode delegates to `coordinator_core` `build_reviewed_set` (`coverage.py`), which **batches all trail `sha_range`s into one** `git rev-list A^..A B^..B …` call. With multiple *single-commit* ranges drawn from interleaved history, git's combined positive/negative refs exclude every commit but the newest — the batched result reads 1 where the per-record union is 6. The correct per-record fallback only fires on batch `rc != 0`, so a clean-but-wrong batch silently under-credits coverage and the gate reports `UNCOVERED` against work that was in fact reviewed.
 
-**Workaround (chain-terminal cap only):** after writing per-commit trail records, if the gate reports `UNCOVERED`, verify the per-record union actually covers the chain, then set `COORDINATOR_OVERRIDE_COVERAGE_GATE=1` and report to claude-klabauter. **Real fix (engine-tier):** `coverage.py` must union per-record, not batch — a claude-klabauter-owned `coordinator_core` bug (`CLAUDE.md` § Subject-matter routing — engine-tier bugs route to claude-klabauter Python reimplementation), not a DoE bash patch.
+**Workaround (chain-terminal cap only):** after writing per-commit trail records, if the gate reports `UNCOVERED`, verify the per-record union actually covers the chain, then set `COORDINATOR_OVERRIDE_COVERAGE_GATE=1` and report to the engine repo. **Real fix (engine-tier):** `coverage.py` must union per-record, not batch — an engine-repo-owned `coordinator_core` bug (`CLAUDE.md` § Subject-matter routing — engine-tier bugs route to the engine repo's Python reimplementation), not a doctrine-repo bash patch.
 
 ### Gate structure
 
@@ -125,3 +125,17 @@ Audit only the systems the week's diff actually touched (read diff-touched paths
 ### Disposition
 
 The folded audit **never edits code** — it packages findings as spinoff candidates down the disposition ladder (immediate executor for trivial+non-structural / bundled spinoff candidate / standalone-or-plan for large) and writes only the `Last targeted audit` clock + atlas metadata. Surface its spinoff candidates to the PM **alongside the Staff Engineer's Step 7.5 candidates and the release-notes draft (Step 9)** — a single architecture-candidate read-out. The fold does NOT block merge.
+
+## Gate-adding chunks need a real-writer oracle test
+
+When a plan chunk adds a gate to this pipeline that claims to check "counts/values emitted to
+manifest as the oracle," a hand-built-dict round-trip test does not actually verify the oracle —
+it only proves the gate can read back a dict it constructed itself. Require a test that drives
+the actual writer end-to-end and reads the gate's oracle from the artifact the real pipeline
+produces, not a stand-in.
+
+Also watch for a chunk that adds a `skip_<newgate>=True` escape to the pipeline test closest to
+the real pipeline shape, purely to keep that test green under the new gate — that silently opts
+the highest-fidelity test out of the gate it was just asked to enforce. Running
+`test-evidence-parser` (one of the Step 7 mechanical workers) after any gate/publish chunk lands
+catches both shapes: the hand-built oracle and the self-exempted near-real test.

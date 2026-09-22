@@ -205,6 +205,10 @@ report_type_map:
   # dispositions. Mapped for this key's coverage invariant only; absent from
   # report_sidecar:, so no provisioning is implied.
   coordinator:workflow-maker: run-report
+  # run-report, not review-findings: it relays one op invocation's exit code and JSON
+  # verbatim, no dispositions of its own. Mapped for the coverage invariant only;
+  # absent from report_sidecar: (see dispatch_tier: below — no Write/Edit, clause (1)).
+  coordinator:queue-grind-op-runner: run-report
 
 # dispatch_tier:  dict[str, str] — subagent_type -> "exploration" | "review-execution".
 # Additive on top of report_sidecar: / report_type_map: / contract_blocks: — does not
@@ -359,6 +363,10 @@ dispatch_tier:
   # message text. Absent from report_sidecar: accordingly.
   coordinator:falsifier-integrity-reviewer: exploration
   coordinator:subtractive-adjudicator: exploration
+  # Bash+PowerShell only — clause (1) forces exploration, same as atlassian-worker/
+  # drive-worker. It relays one op's exit code and JSON verbatim as final message
+  # text. Absent from report_sidecar: accordingly.
+  coordinator:queue-grind-op-runner: exploration
   # Both hold Write and so pass clause (1), but clause (2) does not: each writes its
   # deliverable to a path the dispatching Workflow addressed for it — the trail slot's
   # size review, the plan body and its planning report — and returns a structured value,
@@ -885,8 +893,7 @@ contract_blocks:
 # DECLARED KEYS ARE LOAD-BEARING; DECLARED RULESETS ARE NOT. Editing a
 # ruleset under a row here changes no enforced ALLOW/DENY. The engine
 # resolves a confined type's allowed Bash surface entirely in Python:
-# `_resolve_ruleset` in claude-klabauter
-# `coordinator_core/bash_guards/block_reviewer_bash_outside_allowlist.py`
+# `coordinator_core.bash_guards.block_reviewer_bash_outside_allowlist._resolve_ruleset`
 # terminates unconditionally in `_default_ruleset(effective_type)` +
 # `_DEFAULT_RULESET_TYPE_OVERRIDES` and does not read this table at all
 # (Divergence 14) — a confined reviewer holds an unconfined `Edit` that

@@ -130,7 +130,7 @@ def main(argv: list[str]) -> int:
             peer_cwd = verdict[2]
             print(f"live-elsewhere: {peer_cwd}" if peer_cwd else "live-elsewhere")
             return _EXIT_LIVE_ELSEWHERE
-        # Review: staff-eng-review Finding 1 — gate on the flag, not merely
+        # Gate on the flag, not merely
         # on presence. The two-read window between session_live() and
         # session_verdict() (a session dir created, or Layer-2 recency
         # crossing the threshold, in between) can leave `live` False while

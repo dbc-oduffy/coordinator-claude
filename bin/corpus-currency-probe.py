@@ -214,7 +214,6 @@ def _probe_band(
 ) -> dict[str, Any]:
     local_manifest = _read_local_manifest(repo_root, band)
     local_triple = _triple_from_manifest(local_manifest) if local_manifest else None
-    # Review: code-reviewer (finding 2, held for Kira's enum audit, applied per EM ruling) —
     # `_landed_bands` found this band's manifest file, but `_read_local_manifest` can still
     # return `None` on a corrupt/unreadable manifest. That is a distinct actionable state from
     # staleness and must not render `behind` with a fabricated `<repo-slug>` remount command.
@@ -294,7 +293,7 @@ def run_probe(
 
 def _write_sentinel(sentinel_path: Path, sentinel: dict[str, Any]) -> None:
     sentinel_path.parent.mkdir(parents=True, exist_ok=True)
-    sentinel_path.write_text(json.dumps(sentinel, indent=2) + "\n", encoding="utf-8")
+    sentinel_path.write_text(json.dumps(sentinel, indent=2) + "\n", encoding="utf-8", newline="\n")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -327,7 +326,7 @@ def main(argv: list[str]) -> int:
         print(f"corpus-currency-probe: could not write sentinel: {exc}", file=sys.stderr)
         return 0
 
-    # Review: overengineering-reviewer (Kira, finding 3) — the sentinel file keeps every band
+    # The sentinel file keeps every band
     # (weight); `/workday-start`'s batched-probes contract (workday-start.md Step 1.10) wants
     # stdout silent unless there is something to act on (volume). Print nothing when every band
     # is clean; otherwise one short line per actionable band.

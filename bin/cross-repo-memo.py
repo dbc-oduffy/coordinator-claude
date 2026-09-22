@@ -140,7 +140,7 @@ GENERATES = []  # writes ONE dirty memo into the RECEIVER's (sibling) repo tree 
 # module scope — each function below that needs one does its own local
 # import, so this file carries no module-scope non-stdlib import.
 
-# Review: staff-eng (Finding 1) — cross-repo-memo.py is a member of both
+# cross-repo-memo.py is a member of both
 # gen-launcher-shim.py's _RAW_CMDLINE_ENTRYPOINTS and substrate.py's
 # _RAW_CMDLINE_TARGETS (added alongside scoped-git-commit per
 # cross-repo/inbox/2026-08-07-doe-claude-em-cmd-forwarder-drops-everything-
@@ -269,7 +269,7 @@ def _record_unsound_raw_cmdline_transport(
 
     ledger_path = _raw_cmdline_ledger_path()
     classification = (str(exc).split(":", 1)[0].strip()) or "UNKNOWN"
-    # Review: coordinator:code-reviewer (9245562b, P2) -- persist only the
+    # Persist only the
     # spawn-shape prefix, never the raw payload; see docstring above.
     spawn_shape = spawn_shape_prefix(raw_capture or "")
     print(
@@ -354,38 +354,9 @@ def _is_central_receiver(receiver_em_id: str) -> bool:
     return receiver_em_id.strip().lower() in _CENTRAL_RECEIVER_IDS
 
 
-# ---------------------------------------------------------------------------
-# Publish-target ownership — schema-derived (C4; 2026-06-30)
-#
-# Spec backlinks: docs/plans/2026-05-23-cross-repo-inbox-archive-restructure.md § H (D6);
-#                 docs/wiki/cross-repo-communication.md § Publish-target mirrors have an owner;
-#                 docs/plans/2026-06-30-registry-publish-vs-working-targets.md § C4 (D1, F3)
-#
-# Publish-target repos (OSS distribution mirrors) are NOT EM working trees.
-# They are outward publish.sh destinations — a memo dropped there is invisible
-# to EMs and gets clobbered on the next publish run. D6 still holds, unchanged.
-#
-# Schema-derived (C4): the ownership map is now built lazily from
-# machine-local's publish.mirrors.* namespace instead of a hardcoded dict.
-# For each mirror key (e.g. deep_research_claude), two aliases are mechanically
-# derivable (deep-research-claude, deep-research-claude-em); non-derivable legacy
-# short-forms are stored in the optional publish.mirrors.<key>.aliases field
-# (e.g. deep-research, deep-research-em for deep_research_claude).
-#
-# The example-game-repo carve-out from the former hardcoded dict is still honoured by
-# architecture: example-game-repo publishes INTO a subdirectory of the example-game-repo EM working
-# tree (not an independent OSS mirror), so it NEVER appears in publish.mirrors.*
-# and never becomes a publish-target rejection. Example-game-repo-em remains a valid
-# memo receiver. Do NOT add example-game-repo to publish.mirrors.* without a new plan.
-#
-# Retired hardcoded _PUBLISH_TARGET_OWNERS dict (2026-06-30):
-# The former 6-alias dict ("coordinator-claude-em", "coordinator-claude",
-# "deep-research-claude-em", "deep-research-claude", "deep-research-em",
-# "deep-research") is now fully covered by schema + aliases. The dict is gone;
-# the schema is the single source of truth.
-# ---------------------------------------------------------------------------
-
-_PUBLISH_TARGET_OWNERS_CACHE: dict[str, str] | None = None
+# Publish mirrors and redirect aliases are rerouted to their owner by claude-klabauter's
+# `_memo_resolver.resolve_receiver_inbox` (`reroute_owner`), so draft, send, cc
+# and list agree; this CLI no longer classifies them itself.
 
 
 # ---------------------------------------------------------------------------
@@ -407,8 +378,7 @@ _PUBLISH_TARGET_OWNERS_CACHE: dict[str, str] | None = None
 # preference.
 #
 # Originally (R1, 2026-07-15) this was a hardcoded Python constant, deliberately
-# NOT folded into the schema-derived publish.mirrors.* map (_get_publish_target_owners,
-# above) because THAT map is gated on machine-local config (publish.mirrors.
+# NOT folded into the schema-derived publish.mirrors.* map because THAT map is gated on machine-local config (publish.mirrors.
 # coordinator_claude.owner) being SET — on a fresh clone with no machine-local
 # mirrors configured, the schema-derived guard would be silently inactive.
 #
@@ -427,304 +397,10 @@ _PUBLISH_TARGET_OWNERS_CACHE: dict[str, str] | None = None
 # ---------------------------------------------------------------------------
 
 # _DOE_CANONICAL_REDIRECT_OWNER was a module-load-time `_central_canonical_id()`
-# call; now computed on demand (see `_publish_target_owner` / `_render_receiver_listing`,
-# which call `_central_canonical_id()` directly) since no non-stdlib import may
+# call; now computed on demand (see `_render_receiver_listing`,
+# which calls `_central_canonical_id()` directly) since no non-stdlib import may
 # run at module scope. _DOE_CANONICAL_REDIRECT_ALIASES is bound locally by each
 # function that needs it (see coordinator_registry.REDIRECT_ALIASES).
-
-
-def _machine_local_mirror_keys() -> "list[str] | None":
-    """Enumerate publish.mirrors.* mirror keys from the machine-local registry.
-
-    Filters 'machine-local keys' output for keys matching publish.mirrors.<name>.owner,
-    returning the middle <name> segment.
-
-    The .owner key is the canonical sentinel — every mirror table MUST have it,
-    so filtering on *.owner gives the definitive mirror-key list without false
-    positives from *.path or *.aliases keys.
-
-    Returns [] (empty list) when machine-local succeeds but no mirrors are configured
-    (valid empty — "no mirrors" is a legitimate state on a fresh machine).
-
-    Returns None on registry call failure (returncode≠0 or OSError) — callers MUST
-    distinguish this from the valid-empty case: a cached {} from a transient failure
-    permanently deactivates the publish-target guard for the process lifetime.
-
-    Review: code-reviewer (F4) — previously conflated "no mirrors" and "registry failed",
-    both silently returning []. Now returns None on failure so _get_publish_target_owners
-    can avoid caching an authoritative-looking empty map.
-
-    Spec backlink: docs/plans/2026-06-30-registry-publish-vs-working-targets.md § C4
-    """
-    dump = _machine_local_dump()
-    if dump is not None:
-        # `dump --include-unset` emits every DECLARED key (unresolvable ones as
-        # null), so its key set is `keys`'s key set — the enumeration this
-        # function needs — without a second interpreter start.
-        return _mirror_keys_from(dump.keys())
-
-    impl = _machine_local_impl()
-    python = _resolve_python()
-    if impl.endswith(".py") or impl.endswith(".py3"):
-        cmd = [python, impl, "keys"]
-    else:
-        cmd = [impl, "keys"]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
-    except OSError as exc:
-        print(
-            f"cross-repo-memo: WARNING: could not enumerate publish mirrors "
-            f"(OSError: {exc}); publish-target guard may be inactive.",
-            file=sys.stderr,
-        )
-        return None
-    if result.returncode != 0:
-        print(
-            f"cross-repo-memo: WARNING: could not enumerate publish mirrors "
-            f"(machine-local keys exited {result.returncode}); publish-target guard may be inactive.",
-            file=sys.stderr,
-        )
-        return None
-    # 2026-08-07 incident fix: `.owner` alone used to be the sole sentinel — a
-    # mirror table declared with `.path` but no `.owner` (claude_klabauter:
-    # `.path` set, `.owner` never set) was invisible here, so
-    # `_is_publish_target_em` never fired and `resolve_receiver_inbox`'s
-    # ordinary `repos.*` match delivered the memo straight into a published
-    # OSS mirror. `.path` is now ALSO a sentinel — a mirror declared by
-    # EITHER field is enough to guard; `_get_publish_target_owners` below
-    # substitutes a placeholder owner string when `.owner` is genuinely unset
-    # so the guard still fires (with an actionable message) rather than
-    # silently trusting an incomplete registration.
-    return _mirror_keys_from(line.strip() for line in result.stdout.splitlines())
-
-
-def _mirror_keys_from(raw_keys) -> "list[str]":
-    """Extract publish mirror names from an iterable of raw registry keys.
-
-    The `.owner`/`.path` sentinel filter, shared by the batch-read path and the
-    `machine-local keys` fallback in `_machine_local_mirror_keys` so the two
-    cannot diverge on which registrations the publish-target guard sees.
-    """
-    mirror_keys = set()
-    for key in raw_keys:
-        for suffix in (".owner", ".path"):
-            if key.startswith("publish.mirrors.") and key.endswith(suffix):
-                middle = key[len("publish.mirrors."):-len(suffix)]
-                if middle and "." not in middle:
-                    mirror_keys.add(middle)
-    return sorted(mirror_keys)
-
-
-def _mirror_key_to_hyphenated(mirror_key: str) -> str:
-    """Convert a mirror registry key (e.g. deep_research_claude) to its hyphenated form."""
-    return mirror_key.replace("_", "-")
-
-
-def _derive_mirror_alias_set(mirror_key: str) -> frozenset[str]:
-    """Compute all receiver-EM aliases for a publish mirror registry key.
-
-    Standard pair (mechanically derivable from the key):
-      <hyphenated-key>     (e.g. coordinator-claude)
-      <hyphenated-key>-em  (e.g. coordinator-claude-em)
-
-    Plus any explicit aliases stored in publish.mirrors.<key>.aliases
-    (newline-separated by machine-local get — used for legacy short-forms that
-    are NOT derivable from the key name, e.g. deep-research, deep-research-em).
-
-    Spec backlink: docs/plans/2026-06-30-registry-publish-vs-working-targets.md § C4 F3
-    """
-    # Review: code-reviewer (F7) — lowercase the standard pair and any explicit aliases
-    # within this function. The sole caller (_get_publish_target_owners) also lowercases
-    # on insert, but the docstring implies the returned set is canonical (normalised).
-    # Lowercasing here matches the contract the docstring describes.
-    hyphenated = _mirror_key_to_hyphenated(mirror_key)
-    aliases: set[str] = {hyphenated.lower(), f"{hyphenated.lower()}-em"}
-
-    # Read optional aliases field (newline-joined list from machine-local get).
-    aliases_val = _machine_local_get(f"publish.mirrors.{mirror_key}.aliases")
-    if aliases_val:
-        for alias in aliases_val.splitlines():
-            alias = alias.strip().lower()
-            if alias:
-                aliases.add(alias)
-
-    return frozenset(aliases)
-
-
-def _get_publish_target_owners() -> dict[str, str]:
-    """Build (lazily cached) map of all publish-mirror aliases → owning-EM identity.
-
-    Schema-derived from machine-local's publish.mirrors.* namespace:
-      - Enumerates mirror keys via publish.mirrors.<key>.owner sentinel pattern.
-      - For each key, derives the standard alias pair + any explicit .aliases.
-      - Maps every alias (normalised to lowercase) to the declared owner.
-
-    On valid-empty (no mirrors configured): caches and returns {}.
-    On registry call failure: returns {} WITHOUT caching — a transient failure must not
-    permanently deactivate the guard for the process lifetime. The WARNING is emitted by
-    _machine_local_mirror_keys() on the failure path.
-
-    Lazily populated on first call; the cache persists for the process lifetime.
-    Per-invocation recaching would add multiple machine-local subproc calls on
-    every --to check — unnecessary given the map is static for a single CLI run.
-
-    Spec backlink: docs/plans/2026-06-30-registry-publish-vs-working-targets.md § C4
-    """
-    global _PUBLISH_TARGET_OWNERS_CACHE
-    if _PUBLISH_TARGET_OWNERS_CACHE is not None:
-        return _PUBLISH_TARGET_OWNERS_CACHE
-
-    mirror_keys = _machine_local_mirror_keys()
-    if mirror_keys is None:
-        # Review: code-reviewer (F4) — registry call failed; warning already printed.
-        # Return {} without caching so a transient failure doesn't freeze the guard off.
-        return {}
-
-    owners: dict[str, str] = {}
-    for mirror_key in mirror_keys:
-        owner = _machine_local_get(f"publish.mirrors.{mirror_key}.owner")
-        if not owner:
-            # 2026-08-07 incident fix: a mirror declared via `.path` alone (no
-            # `.owner` set) MUST still classify as a publish target — an
-            # incomplete registration is a registry-data defect, not a
-            # license to treat the repo as an ordinary receiver. Placeholder
-            # owner keeps `_is_publish_target_em` True and gives the
-            # rejection message something actionable to print instead of
-            # silently falling through to `resolve_receiver_inbox`.
-            owner = (
-                f"<owner unset — run: machine-local set "
-                f"publish.mirrors.{mirror_key}.owner <em-id>>"
-            )
-        for alias in _derive_mirror_alias_set(mirror_key):
-            owners[alias.lower()] = owner
-
-    _PUBLISH_TARGET_OWNERS_CACHE = owners
-    return owners
-
-
-def _normalize_receiver_id(receiver_em_id: str) -> str:
-    """Canonical form for receiver-id comparison: stripped + lowercased.
-
-    Single source of normalisation shared by `_is_publish_target_em` and
-    `_publish_target_owner` — the non-None guarantee at the owner call sites
-    (an `_is_publish_target_em` True-guard implies `_publish_target_owner` non-None)
-    holds because BOTH route through this one function. Do not inline `.strip().lower()`
-    at either site — that re-creates the divergence risk this collapses. (slice-A F1.)
-    """
-    return receiver_em_id.strip().lower()
-
-
-def _is_publish_target_em(receiver_em_id: str) -> bool:
-    """True when receiver_em_id (case/whitespace-normalised) names a publish-target
-    repo, OR a code-pinned DoE-canonical home/mirror alias (R1).
-
-    Publish targets are outward distribution mirrors, not EM working trees.
-    Memos sent there are invisible and get clobbered on next publish.
-
-    Schema-derived (C4): consults _get_publish_target_owners() — the lazily-built
-    map from publish.mirrors.* in the machine-local registry — rather than the
-    retired hardcoded _PUBLISH_TARGET_OWNERS dict.
-
-    R1 (2026-07-15): ALSO true for `_DOE_CANONICAL_REDIRECT_ALIASES` — this is
-    invariant of machine-local config (see the constant's comment above), so a
-    fresh clone with no publish.mirrors.* configured still rejects these ids.
-    """
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from coordinator_registry import REDIRECT_ALIASES as _DOE_CANONICAL_REDIRECT_ALIASES
-
-    normalized = _normalize_receiver_id(receiver_em_id)
-    return (
-        normalized in _DOE_CANONICAL_REDIRECT_ALIASES
-        or normalized in _get_publish_target_owners()
-    )
-
-
-def _publish_target_owner(receiver_em_id: str) -> str | None:
-    """Return the owning-EM identity for a publish-target mirror (or DoE-canonical
-    home/mirror alias), or None.
-
-    The owner is the EM working tree that authors and stewards the mirror — the
-    correct --to for any concern about the mirrored plugin. None when the id is
-    not a publish-target (callers should not be asking in that case). Shares
-    `_normalize_receiver_id` with `_is_publish_target_em` so a guarded call site
-    is structurally guaranteed non-None.
-
-    R1 (2026-07-15): the code-pinned constant takes precedence over the
-    schema-derived map — `_DOE_CANONICAL_REDIRECT_ALIASES` always resolves to
-    `_DOE_CANONICAL_REDIRECT_OWNER` regardless of what machine-local says.
-
-    Schema-derived (C4): falls back to _get_publish_target_owners() — same source
-    as _is_publish_target_em so the is-guarded-then-owner-call pattern is safe.
-    """
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from coordinator_registry import (
-        REDIRECT_ALIASES as _DOE_CANONICAL_REDIRECT_ALIASES,
-        _central_canonical_id,
-    )
-
-    normalized = _normalize_receiver_id(receiver_em_id)
-    if normalized in _DOE_CANONICAL_REDIRECT_ALIASES:
-        return _central_canonical_id()
-    return _get_publish_target_owners().get(normalized)
-
-
-def _redirect_kind(receiver_em_id: str) -> str | None:
-    """Classify which flavour of _is_publish_target_em rejection applies.
-
-    Returns "home" when the normalised id is one of the code-pinned DoE-canonical
-    home/mirror aliases (`_DOE_CANONICAL_REDIRECT_ALIASES`) — takes precedence
-    over "publish" so a receiver that happened to appear in both would still get
-    the accurate ~/.claude-is-not-a-mirror wording, not the OSS-mirror wording.
-    Returns "publish" when it's a schema-derived publish.mirrors.* alias.
-    Returns None when neither (callers should not be asking in that case).
-    """
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from coordinator_registry import REDIRECT_ALIASES as _DOE_CANONICAL_REDIRECT_ALIASES
-
-    normalized = _normalize_receiver_id(receiver_em_id)
-    if normalized in _DOE_CANONICAL_REDIRECT_ALIASES:
-        return "home"
-    if normalized in _get_publish_target_owners():
-        return "publish"
-    return None
-
-
-def _publish_target_rejection_msg(receiver_em_id: str, owner: str, hint: str = "") -> str:
-    """Shared rejection text for a publish-target --to.
-
-    Single source so the legacy `main()` path and the `_cmd_send` path can never
-    drift in wording. (slice-A F8.) Displays the stripped receiver id (slice-A F4)
-    so padded input doesn't print with stray whitespace; `owner` is the resolved
-    `_publish_target_owner` value.
-    """
-    return (
-        f"cross-repo-memo: cannot deliver to '{receiver_em_id.strip()}': it is a "
-        f"publish-target OSS distribution mirror owned by `{owner}`, not an EM working "
-        f"repo — a memo dropped there is invisible to EMs and clobbered on next publish. "
-        f"Route this concern to its owner: `--to {owner}`.{hint}"
-    )
-
-
-def _home_redirect_rejection_msg(receiver_em_id: str, owner: str, hint: str = "") -> str:
-    """Rejection text for a DoE-canonical home/mirror alias --to (R1).
-
-    Sibling to `_publish_target_rejection_msg`, split out because that message's
-    "publish-target OSS distribution mirror" wording is FALSE for `.claude-em` /
-    `claude-home` / `coordinator-claude` / `coordinator-claude-em` — those are not
-    outward distribution mirrors, they're the same central surface as `owner`
-    under a different name. Single source so the legacy `main()` path and the
-    `_cmd_send` path can never drift in wording (mirrors _publish_target_rejection_msg's
-    slice-A F8 rationale). Displays the stripped receiver id; `owner` is the
-    resolved `_publish_target_owner` value (always `_DOE_CANONICAL_REDIRECT_OWNER`
-    for this kind, but callers pass the resolved value rather than the literal so
-    the message tracks the constant if it ever changes).
-    """
-    return (
-        f"cross-repo-memo: cannot deliver to '{receiver_em_id.strip()}': on a "
-        f"coordinator doctrine repo system, ~/.claude and coordinator-claude are the same central "
-        f"surface (we don't do active work in ~/.claude), owned by `{owner}`, not a "
-        f"separate EM working tree. Route this concern to its owner: `--to {owner}`.{hint}"
-    )
 
 
 def _receiver_repo_key(receiver_em_id: str) -> str:
@@ -752,11 +428,9 @@ def _receiver_repo_key(receiver_em_id: str) -> str:
 def _print_receiver_unresolved_error(to: str) -> int:
     """Shared 'receiver unresolved' diagnostic for both --dry-run and a real send.
 
-    Review: code-reviewer (Finding 3) — extracted so the --dry-run preview
+    Extracted so the --dry-run preview
     branch and the real-send branch can never drift in wording, mirroring
-    the _publish_target_rejection_msg / _home_redirect_rejection_msg
-    extraction rationale above (single source, both call sites `return` its
-    result). Prints either the central-registry-absent message or the
+    single source, both call sites `return` its result. Prints either the central-registry-absent message or the
     sibling-not-registered message to stderr and returns 1.
     """
     if _is_central_receiver(to):
@@ -1062,8 +736,7 @@ def _machine_local_get_status(key: str) -> "tuple[str | None, bool]":
     specifically on invocation failure.
 
     Spec backlink: docs/plans/2026-06-30-registry-publish-vs-working-targets.md § C4
-    (mirrors the None-vs-[] contract established there for
-    `_machine_local_mirror_keys` / `_machine_local_repos_keys`).
+    (mirrors `_machine_local_repos_keys`'s None-vs-[] contract).
     """
     value, invocation_ok, _stderr = _machine_local_get_detail(key)
     return value, invocation_ok
@@ -1105,8 +778,6 @@ def _machine_local_repos_keys() -> "list[str] | None":
     iterating None directly raises; the correct handling is a loud warning
     (see `_format_receiver_listing`) or a distinct classification (see
     `_classify_receiver`'s "registry-error" branch), never silent central-only.
-
-    Mirrors `_machine_local_mirror_keys`'s None-vs-[] contract (F4).
 
     Spec backlink: docs/plans/2026-06-30-registry-publish-vs-working-targets.md § C4
     """
@@ -1157,7 +828,7 @@ def _known_receiver_ids() -> list[str]:
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from coordinator_registry import _central_canonical_id, repo_key_to_em_id
 
-    # Review: code-reviewer — F3: filter repos.doe_claude from sibling scan; post-flip
+    # Filter repos.doe_claude from sibling scan; post-flip
     # repo_key_to_em_id("repos.doe_claude") → the canonical central id (via _central_canonical_id()), already prepended.
     repo_keys = _machine_local_repos_keys()
     if repo_keys is None:
@@ -1174,6 +845,63 @@ def _known_receiver_ids() -> list[str]:
         if k != "repos.doe_claude"
     )
     return [_central_canonical_id()] + sibling_ids
+
+
+def _normalize_repo_path_for_compare(path_str: str) -> str:
+    """Fold a repo path to a comparable key: case/separator-insensitive,
+    `.`/`..`-normalized. Mirrors `memo_list._normalize_registry_path`'s own
+    comparison authority (not re-derived independently) so "is this
+    discovered repo the same one already registered" agrees with the
+    receiver/mirror-path-collision check the engine op itself applies.
+    """
+    return os.path.normcase(os.path.normpath(path_str))
+
+
+def _checked_out_unaddressable_repos(receivers: list, mirrors: list) -> list[str]:
+    """Repos checked out on THIS box that have no addressable `--to` key.
+
+    klabauter#40 fix (the second, CLI-local half — registry provisioning
+    itself is out of scope here): `--list-receivers` previously rendered
+    only the registered `repos.*`/`publish.mirrors.*` entries, which reads as
+    the complete fleet even when a checked-out repo has no key at all
+    (claude-klabauter, example-cockpit-repo in the reported case) — the gap was
+    invisible unless the reader already knew what was missing. This adds the
+    third state a reader can act on: present-on-disk, no key.
+
+    Sourced from `coordinator_core.ops.discover_working_repos.
+    discover_repo_paths()` — the SAME three-tier discovery `/setup` Phase 2
+    Step 4 already uses to find working repos, not a second scanner with its
+    own drift. Best-effort like that module's own contract: an unresolvable
+    engine seam or discovery failure degrades to an empty list (no section
+    rendered) rather than turning `--list-receivers` into a hard failure —
+    this is a discovery-only display enrichment, never a gate.
+    """
+    try:
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        import cc_invoke
+
+        cc_invoke.ensure_engine_on_path(__file__)
+        from coordinator_core.ops.discover_working_repos import discover_repo_paths
+
+        discovered = discover_repo_paths()
+    except Exception:
+        return []
+
+    addressable_keys = {
+        _normalize_repo_path_for_compare(r.get("repo_path"))
+        for r in receivers
+        if r.get("repo_path")
+    }
+    addressable_keys |= {
+        _normalize_repo_path_for_compare(m.get("path"))
+        for m in mirrors
+        if m.get("path")
+    }
+
+    return sorted(
+        p for p in discovered
+        if _normalize_repo_path_for_compare(p) not in addressable_keys
+    )
 
 
 def _render_receiver_listing(candidates: list) -> str:
@@ -1260,6 +988,20 @@ def _render_receiver_listing(candidates: list) -> str:
                 f"    {m.get('em_id')}   → owned by {m.get('owner')}  "
                 f"(OSS distribution mirror — address the owner, not the mirror)"
             )
+
+    unaddressable = _checked_out_unaddressable_repos(receivers, mirrors)
+    if unaddressable:
+        lines.append("")
+        lines.append(
+            "  Checked out on this box, no addressable key "
+            "(not in repos.* or publish.mirrors.*):"
+        )
+        for path in unaddressable:
+            lines.append(f"    {path}")
+        lines.append(
+            "    machine-local set repos.<name> <one-of-the-paths-above> to "
+            "add one."
+        )
 
     # DoE-canonical home/mirror aliases (R1) — sourced from the op's
     # `identity.redirectAliases` enumeration (empty today, not an error, until
@@ -1390,7 +1132,7 @@ def _resolve_receiver_path(receiver_em_id: str) -> tuple[str | None, bool]:
         if fallback_status == "ambiguous":
             _print_fallback_ambiguous_warning(receiver_em_id, candidates)
         elif fallback_status == "none":
-            # Review: code-review F2 — without this, a genuine machine-local
+            # Without this, a genuine machine-local
             # registry-read failure at send time was indistinguishable from a
             # clean "receiver never registered" absence once this function
             # returns None; the caller's generic not-registered message then
@@ -1407,7 +1149,7 @@ def _resolve_receiver_path(receiver_em_id: str) -> tuple[str | None, bool]:
 # memo.send's own resolution authority (`_classify_receiver_for_draft`
 # engine-side) instead of this CLI-local classifier. Confirmed zero remaining
 # callers via `grep -n "_classify_receiver("` before deletion — the send/
-# self-receipt paths use `_resolve_receiver_path`/`_is_publish_target_em`
+# self-receipt paths use `_resolve_receiver_path`
 # directly, never this function. Its own dedicated registry-error helper,
 # `_classify_receiver_registry_error`, was deleted alongside it for the same
 # reason (its only two call sites were inside this function's body).
@@ -1562,12 +1304,12 @@ def _looks_like_coordinator_receiver(path: str) -> bool:
     marker — `<inbox-root>` is `_receiver_inbox_root(path)`, per-receiver
     resolved rather than a fixed `cross-repo/` literal (see that function).
     """
-    # Review: code-review F5 — use os.path.exists rather than os.path.isdir:
+    # Use os.path.exists rather than os.path.isdir:
     # in a git-worktree sibling, .git is a FILE (gitdir: pointer), not a
     # directory. isdir would wrongly reject a legitimate worktree receiver.
     if not os.path.exists(os.path.join(path, ".git")):
         return False
-    # Review: overengineering-reviewer — `root_isdir` reuses the isdir
+    # `root_isdir` reuses the isdir
     # result `_receiver_inbox_root` already computed rather than re-probing
     # it here (the re-probe was tautologically True whenever the probe had
     # selected the new root).
@@ -1611,7 +1353,7 @@ def _resolve_receiver_via_parent_scan(receiver_em_id: str) -> "tuple[str | None,
         return None, "none", []
     parent = os.path.dirname(sender_root)
     shortname = receiver_em_id[:-3] if receiver_em_id.strip().endswith("-em") else receiver_em_id
-    # Review: code-review F1 — resolve RECEIVER_EM_ALIASES before normalizing,
+    # Resolve RECEIVER_EM_ALIASES before normalizing,
     # mirroring _receiver_repo_key (line ~523), so the scan searches for the
     # same on-disk shortname the primary machine-local path would have used
     # (e.g. 'example-game-repo' -> 'example_game_workbench_repo'). Without this, the fallback
@@ -1706,7 +1448,7 @@ def _print_ambiguous_slug_diagnostic(receiver_em_id: str, machine_local_stderr: 
 
 
 def _print_registry_error_diagnostic(receiver_em_id: str) -> None:
-    """Review: code-review F2 — send-time (`_resolve_receiver_path`) companion
+    """send-time (`_resolve_receiver_path`) companion
     to the draft-time "registry-error" message: printed as a side effect
     ALONGSIDE (not instead of) the caller's existing not-registered message,
     the same "print diagnostic, then fall through to the existing message"
@@ -1845,7 +1587,7 @@ def _warn_if_unregistered_sender() -> None:
 # ---------------------------------------------------------------------------
 # Shared pre-dispatch steps (--to and --campaign-to)
 # ---------------------------------------------------------------------------
-# Review: code-reviewer (Finding 2) — main()'s --campaign-to block was a
+# main()'s --campaign-to block was a
 # hand-duplicated near-copy of these four pre-dispatch steps from the
 # ordinary --to path (exactly the drift risk that produced Finding 1: the
 # --to path's --dry-run handling never got ported to --campaign-to because
@@ -1887,7 +1629,7 @@ def _build_and_validate_scoped_to(
     Assembles the nested scoped_to dict from the --scoped-to-* flags and
     validates it against `_scoped_to_errors` (the same presence-triggered
     completeness rule enforced on the outbox/self-receipt paths — see
-    _scoped_to_errors docstring / schema.js:2290). `error_prefix` carries
+    _scoped_to_errors docstring). `error_prefix` carries
     the only wording difference between call sites (e.g. "refusing send" vs
     "refusing --campaign-to send").
 
@@ -1994,7 +1736,7 @@ def _print_premise_check_advisory(
         return
     if not receiver_path:
         return
-    # Review: code-reviewer — F3: absolutize to match the adjacent "Hand the
+    # Absolutize to match the adjacent "Hand the
     # PM this path for relay" line's os.path.abspath normalization, so both
     # paths in the same stdout block are consistently absolute.
     abs_receiver_path = os.path.abspath(receiver_path)
@@ -2248,7 +1990,7 @@ def _run_scoped_premise_checks(
 
     if artifact:
         artifact_path, line_pin = _split_artifact_line_pin(artifact)
-        # Review: coordinator:code-reviewer 9266869a finding 2 — same defect
+        # Same defect
         # class as _verify_delivery_landed's HEAD: revspec bug (this commit's
         # fix target), arriving via a different route: `artifact` is
         # author-typed, not os.path.relpath output, so a Windows author who
@@ -2316,11 +2058,21 @@ def _run_scoped_premise_checks(
 
 _OUTBOX_REQUIRED_FIELDS = ("title", "from", "to", "created", "status", "delivery_mode", "summary")
 
-# Mirrors the canonical `kind` enum in coordinator/bin/lib/schema.js:2131
-# (validKinds) — the receiver-side cross-field rule. Checked here too so a
-# malformed kind fails loud on the SENDER side, before delivery, instead of
-# jamming the receiver's lifecycle wrappers at stamp time.
-_VALID_KINDS = ("ask", "consult", "fyi", "proposal", "bug")
+# Mirrors `coordinator_core.ops.fleet.memo_kinds.VALID_KINDS`, the single home
+# of the memo-kind enum. That module is also what the receiver-side cross-field
+# rule (`schema_validate._memo_cf_kind_enum`) reads, so sender and receiver
+# cannot disagree. Checked here too so a malformed kind fails loud on the
+# SENDER side, before delivery, instead of jamming the receiver's lifecycle
+# wrappers at stamp time.
+#
+# There is no third, peer-owned leg. The Node oracle this comment previously
+# named as authoritative (`coordinator/bin/lib/schema.js`, `validKinds`) was
+# retired in the 2026-07-24 de-node cutover (480ad8f867 / 90de9c3083) and no
+# sibling repo validates `kind` on arrival — DoE-claude's vendored
+# `cross-repo-memo.schema.json` declares it as a bare string with no enum.
+# `notice` (klabauter#46/#40, 2026-09-19) therefore round-trips today; nothing
+# is owed by a peer. Confirmed against DoE-claude's tree 2026-09-20.
+_VALID_KINDS = ("ask", "consult", "fyi", "proposal", "bug", "notice")
 
 # The kinds that assert a premise about the RECEIVER's tree state, and so earn
 # the premise-check advisory. `fyi`/`consult` are deliberately excluded: they
@@ -2342,21 +2094,22 @@ _PREMISE_BEARING_KINDS = frozenset({"ask", "proposal"})
 # `_parse_outbox_file` accepts BOTH the flat `scoped_to_artifact: "..."`
 # top-level-key shape (hand-edited drafts, this CLI's own pre-2026-07-21
 # emission) AND claude-klabauter's `memo.draft` op's nested `scoped_to:` mapping shape
-# (schema.js's shape), normalizing either into these same flat keys on read —
+# (the `memo.draft` nested shape), normalizing either into these same flat keys on read —
 # see `_parse_outbox_file`'s docstring for the round-trip fix (2026-07-21).
 # The --scoped-to-* CLI flags emit/consume this flattened shape too.
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
 
-# CANONICAL SOURCE OF TRUTH: coordinator/bin/lib/schema.js:2290 (the
-# scoped_to presence-triggered-completeness check) and claude-klabauter's
-# coordinator_core/ops/fleet/memo_send.py. All three implementations must
-# stay legibly identical — this function mirrors the other two CLI-side, same
+# CANONICAL SOURCE OF TRUTH: `coordinator_core/ops/fleet/memo_send.py`'s
+# scoped_to presence-triggered-completeness check. Both implementations must
+# stay legibly identical — this function mirrors it CLI-side, same
 # direction/idiom as the _VALID_KINDS mirror above, so a malformed scoped_to
 # fails loud on the SENDER side, before delivery, instead of only surfacing
-# when the receiver validates the inbox copy. schema.js is authoritative;
-# this is the copy — keep all three in sync on any future change to the
-# scoped_to shape.
+# when the receiver validates the inbox copy. memo_send.py is authoritative;
+# this is the copy — keep both in sync on any future change to the scoped_to
+# shape. (A third leg, the Node oracle `bin/lib/schema.js`, was named here
+# until the 2026-07-24 de-node cutover deleted it; it is gone, not merely
+# unreferenced.)
 def _scoped_to_errors(kind: str | None, scoped_to: dict[str, str | None] | None) -> list[str]:
     """Validate scoped_to under presence-triggered completeness.
 
@@ -2367,7 +2120,7 @@ def _scoped_to_errors(kind: str | None, scoped_to: dict[str, str | None] | None)
     triple is required regardless of kind: 'artifact' (non-empty str),
     exactly one of 'version' (non-empty str) or 'sha' (7-40 hex str), and
     'seam' (non-empty str) — else fail loud. This mirrors claude-klabauter's
-    memo_send.py and DoE's schema.js:2290 exactly; do not reintroduce a
+    memo_send.py exactly; do not reintroduce a
     kind-based gate here — the old "required when kind=ask/proposal" rule
     was the actual source of sender friction being fixed (see
     cross-repo/inbox/2026-07-21-claude-klabauter-em-scoped-to-engine-fixed-gate-is-yours.md).
@@ -2496,6 +2249,68 @@ def _print_route_mutation_failure_reasons(exc: BaseException) -> None:
         op_stderr_stripped = op_stderr.strip() if isinstance(op_stderr, str) else ""
         if op_stderr_stripped and op_stderr_stripped not in str(exc):
             print(f"  op stderr: {op_stderr_stripped}", file=sys.stderr)
+    _print_stale_engine_kind_diagnosis(exc)
+
+
+def _print_stale_engine_kind_diagnosis(exc: BaseException) -> None:
+    """Name publish lag when the engine refuses a `kind` this CLI accepts.
+
+    The failure this exists for: `--kind notice` passes argparse here (it is in
+    `_VALID_KINDS`, and `coordinator_core/ops/fleet/memo_kinds.py` carries it
+    too), then the op refuses with "kind 'notice' is not a valid enum value
+    (must be one of: ask, consult, fyi, proposal, bug)". Every source file the
+    author can reach says the kind is legal, so the refusal reads as a bug in
+    the enum rather than what it is.
+
+    What it actually is: this CLI runs from the working tree, but the op it
+    dispatches to is served by the PUBLISHED engine, and the two are different
+    checkouts. A kind added to source but not yet published is accepted here
+    and refused there, with nothing in either message naming the split.
+    `coordinator/bin/tests/test_memo_kind_enum_mirrors.py` cannot catch it --
+    it pins the CLI tuples to the IN-TREE engine, which is exactly the
+    comparison that agrees.
+
+    Deliberately pins no sha. The observed instance (`notice`, 2026-09-20) was
+    republished out of existence within the hour, which is the normal life of
+    a publish-lag defect and the reason this diagnoses a CONDITION rather than
+    citing a state. Do not re-add a "<engine> carries N kinds" citation here;
+    it is stale by the time anyone reads it.
+
+    How to check whether the mirror is actually behind, when this fires:
+    `coordinator_core.warm.skew.publish_lag(engine_clone, source_root)`, which
+    reads the engine stamp and counts commits. NOT a recursive file diff
+    between the two trees -- a source repo and its published mirror differ by
+    thousands of files by construction (different content sets, not lag), so a
+    `diff -rq` count answers a different question and reads as catastrophic
+    staleness when the stamp says minutes.
+
+    Negative-spec:
+      <!-- Review: coordinator-code-reviewer -- stale/self-contradicting clause dropped: the body is a regex over exc/op_stderr, there is no "engine-root resolution" here to justify. -->
+      - Error path only. Never called on a successful draft/send, so it adds
+        nothing to the happy path -- it needs `op_stderr` off the raised
+        exception, which is only available at this call site.
+      - Diagnoses only the enum-disagreement case: a kind this CLI's own tuple
+        accepts and the engine's refusal text omits. Any other refusal prints
+        nothing, because any other refusal is not evidence of publish lag.
+      - Never raises, and never re-classifies the refusal. The op's verdict
+        stands; this only names a likely cause.
+    """
+    text = f"{exc}\n{getattr(exc, 'op_stderr', '') or ''}"
+    m = re.search(r"kind '([^']+)' is not a valid enum value.*?must be one of: ([^)]+)", text, re.S)
+    if not m:
+        return
+    kind, served = m.group(1), {k.strip() for k in m.group(2).split(",")}
+    if kind not in _VALID_KINDS or kind in served:
+        return
+    missing = sorted(set(_VALID_KINDS) - served)
+    print(
+        f"  diagnosis: this CLI accepts {kind!r} but the engine serving the op does not.\n"
+        f"  That is a PUBLISH LAG, not an invalid kind: the CLI runs from this working\n"
+        f"  tree while the op is served by the published engine, and they are different\n"
+        f"  checkouts. Kind(s) present here and absent there: {', '.join(missing)}.\n"
+        f"  Publish the engine, or pick a kind the served engine already carries.",
+        file=sys.stderr,
+    )
 
 
 #: Exit codes for a `draft` that ended indeterminate. Deliberately distinct
@@ -2870,7 +2685,7 @@ def _unquote_yaml_scalar(v: str) -> str:
             elif nc == 'n':
                 chars.append('\n')
             elif nc == 'r':
-                # Review: code-reviewer — _yaml_quote emits \r but parser did not handle it
+                # _yaml_quote emits \r but parser did not handle it
                 chars.append('\r')
             elif nc == 't':
                 chars.append('\t')
@@ -2890,7 +2705,7 @@ def _unquote_yaml_scalar(v: str) -> str:
 # (_scoped_to_errors, _validate_outbox_frontmatter, the send params) needs no
 # change; see _parse_outbox_file's docstring for the two accepted shapes.
 #
-# Review: overengineering-reviewer — a nested `supersedes:` YAML-sequence
+# A nested `supersedes:` YAML-sequence
 # reader (in_supersedes_list state, supersedes_list accumulator, the
 # dict[str, str | list[str]] return-type widening) was removed here. No CLI
 # consumer read fm["supersedes"]: the two call sites of this function's
@@ -3021,7 +2836,7 @@ def _format_age(seconds: float) -> str:
 
     Spec backlink: docs/plans/2026-06-15-cross-repo-memo-draft-lifecycle.md § C3
     """
-    # Review: code-reviewer — avoid "0m" for brand-new files; "<1m" is clearer
+    # Avoid "0m" for brand-new files; "<1m" is clearer
     if seconds < 60:
         return "<1m"
     if seconds < 3600:
@@ -3278,7 +3093,7 @@ def _cmd_discard(args: argparse.Namespace) -> int:
     """
     topic = args.topic
 
-    # Review: code-reviewer — validate topic slug before path construction to prevent
+    # Validate topic slug before path construction to prevent
     # path traversal. Mirrors _cmd_draft and _cmd_send validation.
     if not _TOPIC_SLUG_RE.fullmatch(topic):
         print(
@@ -3503,7 +3318,7 @@ def _cmd_compose(args: argparse.Namespace) -> int:
     topic = args.topic
     open_flag = getattr(args, "open", False)
 
-    # Review: code-reviewer — validate topic slug before path construction to prevent
+    # Validate topic slug before path construction to prevent
     # path traversal. Mirrors _cmd_draft and _cmd_send validation.
     if not _TOPIC_SLUG_RE.fullmatch(topic):
         print(
@@ -3802,7 +3617,7 @@ def _build_combined_parser(for_help: bool = False) -> argparse.ArgumentParser:
     # REQUIRED, matching `send`'s own gate on the same field: a kindless
     # draft is an artifact this CLI's own send verb refuses. See
     # memo_draft.py::_validate_draft_params for the full note.
-    draft_p.add_argument("--kind", choices=list(_VALID_KINDS), required=True, help="REQUIRED. Memo kind (ask | consult | fyi | proposal | bug)")
+    draft_p.add_argument("--kind", choices=list(_VALID_KINDS), required=True, help="REQUIRED. Memo kind (" + " | ".join(_VALID_KINDS) + ")")
     draft_p.add_argument(
         "--in-reply-to", metavar="MEMO", default=None,
         help="OPTIONAL. Basename (or path — normalized to basename) of the "
@@ -3816,7 +3631,7 @@ def _build_combined_parser(for_help: bool = False) -> argparse.ArgumentParser:
     # regardless of --kind. Supply ANY one of the four and the complete
     # triple (artifact + exactly one of version/sha + seam) is required at
     # send time, else the send fails loud. Mirrors
-    # coordinator/bin/lib/schema.js:2290 — see _scoped_to_errors.
+    # coordinator_core/ops/fleet/memo_send.py — see _scoped_to_errors.
     draft_p.add_argument("--scoped-to-artifact", metavar="ARTIFACT", default=None, help="scoped_to.artifact — the file/contract/schema/subsystem this decision governs")
     draft_p.add_argument("--scoped-to-version", metavar="VERSION", default=None, help="scoped_to.version — point-in-time pin (mutually exclusive with --scoped-to-sha); use this arm when the artifact is only reachable via a publish mirror, since it is never sha-verified against the receiver's clone")
     draft_p.add_argument("--scoped-to-sha", metavar="SHA", default=None, help="scoped_to.sha — 7-40 hex chars, point-in-time pin (mutually exclusive with --scoped-to-version)")
@@ -4048,7 +3863,7 @@ def main(argv: list[str] | None = None) -> int:
         _build_combined_parser(for_help=True).print_help()
         return 0
 
-    # Review: code-reviewer — detect likely typo verbs before falling through to legacy
+    # Detect likely typo verbs before falling through to legacy
     # parser, which would emit a confusing argparse error about unrecognised flags.
     # A non-flag non-verb token (no leading '--') that isn't in _SUBCOMMAND_VERBS is
     # almost certainly a typo (e.g. "sned", "lst"). Emit a friendly hint and exit 2.
@@ -4083,15 +3898,15 @@ def main(argv: list[str] | None = None) -> int:
     # addressee guard (M-addr) to detect a session actioning a memo addressed
     # to a different repo's EM.
     #
-    # Review: the comparison MUST be path-based (realpath of the resolved
-    # repo roots), NOT a string compare on the ids — _normalize_receiver_id
+    # the comparison MUST be path-based (realpath of the resolved
+    # repo roots), NOT a string compare on the ids — a normalised id
     # is only .strip().lower() and does not resolve aliases. "central" /
     # "central-em" no longer resolve at all (DoE retired them from
     # `identity.centralReceiverIds`; see the module comment above), so a
     # naive id string compare would false-fire on neither resolving, not on
     # an aliased `to:` value resolving to the wrong repo.
     if args.check_addressee is not None:
-        # Review: mirror --to's `not val` empty-string handling — an explicit
+        # mirror --to's `not val` empty-string handling — an explicit
         # empty string already fails safe via _resolve_receiver_path("")
         # returning None (exit 4), but give a clearer diagnostic than
         # "receiver '' does not resolve..." for what is a malformed invocation.
@@ -4106,7 +3921,7 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 1
-        # Review: self_em is best-effort/display-only (human-facing verdict
+        # self_em is best-effort/display-only (human-facing verdict
         # lines only) — the exit code below is purely the engine's path-based
         # verdict and does not depend on self_em's accuracy.
         self_em = _sender_em_id()

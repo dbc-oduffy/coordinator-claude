@@ -132,6 +132,11 @@ def _read_full(path: str) -> str:
 
 
 def main(argv: list[str]) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path (same
+    # bootstrap _query_terminal_paths() already performs, needed here too since
+    # this function later imports cc_invoke-adjacent / lib-dependent modules
+    # such as handoff_lifecycle regardless of whether --root was passed)
+
     root = ""
     i = 0
     while i < len(argv):
@@ -142,7 +147,6 @@ def main(argv: list[str]) -> int:
             i += 1
 
     if not root:
-        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
         from cc_invoke import ensure_engine_on_path  # noqa: E402  (sys.path-dependent)
 
         ensure_engine_on_path(__file__)

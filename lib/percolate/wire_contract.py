@@ -4,7 +4,7 @@ contracts shared between `coordinator/bin/percolate-round.py` (writer) and
 this module carries no risk of a cycle or a heavy transitive import into
 either bin script.
 
-Review: code-reviewer nit — `_INHERITED_LOCK_ROOTS_ENV` was previously
+`_INHERITED_LOCK_ROOTS_ENV` was previously
 defined byte-for-byte in both modules with only a comment keeping them in
 sync; a future edit to one literal without the other would silently drop
 back to always-locking (the safe direction) with no test catching the

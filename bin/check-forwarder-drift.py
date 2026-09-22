@@ -125,9 +125,9 @@ def _content_axis_source_dir(dispatch_root: str) -> Path:
     are the source of truth, not the engine that happens to be executing. Those
     are different trees on any DR-326 box, and `_import_module` hands back the
     DISPATCH answer — measured 2026-08-20 on this machine, dispatch resolves to
-    X:/claude-klabauter, so this function was reading the published mirror's
-    copies and comparing installed bytes against them instead of against the
-    live checkout. A drift checker pointed at the wrong tree reports PASS by
+    the published mirror checkout, so this function was reading the published
+    mirror's copies and comparing installed bytes against them instead of
+    against the live checkout. A drift checker pointed at the wrong tree reports PASS by
     looking at the wrong thing, which is worse than reporting nothing.
 
     The accessor answers from COORDINATOR_ENGINE_SOURCE_ROOT when it is set,
@@ -248,7 +248,7 @@ def _check_content_axis(fd_module, claude_klabauter_root: str) -> "tuple[list, b
             "docstring's CITED-VS-UNCITED SPLIT)."
         )
     elif unresolved:
-        # Review: code-reviewer 2026-08-12 (nit): a file that could not be
+        # code-reviewer 2026-08-12 (nit): a file that could not be
         # checked (missing source-of-truth or unreadable) must not be folded
         # into "0 drifted" as if it were cleared — say so explicitly instead
         # of letting the summary line imply full coverage.

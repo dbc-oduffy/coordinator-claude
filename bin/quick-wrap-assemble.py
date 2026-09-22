@@ -16,8 +16,13 @@
 #     gates.close_gate carries the five DoE-named fields (pickup_kind,
 #     governing_plan, diff, terminal_sizings, fold_sidecars) and
 #     gates.entry_test carries the four-condition verdict plus its route.
-#     READ-ONLY — mutates nothing; every mutation is returned as a
-#     directives[] entry naming an existing atomic CLI.
+#     READ-ONLY except for C5 (docs/plans/2026-08-20-the-close-ceremony-commits-what-the-
+#     session-wrote.md): this CLI invocation is the one caller that opts into
+#     quick_wrap_assemble.brief(commit=True), committing this session's own claimed
+#     dirty paths in-process before returning. Every OTHER mutation is still returned
+#     as a directives[] entry naming an existing atomic CLI. A direct in-process
+#     brief() call (no CLI) defaults to commit=False and stays genuinely read-only —
+#     see module docstring "CALLER-OPT-IN, NOT A GLOBAL CARVE-OUT".
 #
 # Exit codes (locally scoped to this CLI, NOT inherited):
 #   0 — OK, a decision object was computed and returned. This INCLUDES an

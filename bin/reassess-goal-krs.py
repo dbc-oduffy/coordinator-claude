@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-# Review: code-reviewer P1 — the polyglot trampoline's exec probe line (line 2)
+# The polyglot trampoline's exec probe line (line 2)
 # is itself the first bare string-literal statement in the module, so CPython
 # assigns __doc__ from THAT text, not from the usage text below (which is a
 # second, inert string expression — same shape cross-repo-memo documents at

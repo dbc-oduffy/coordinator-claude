@@ -126,7 +126,7 @@ otherwise.
 #     still wrapped by `except RuntimeError`, so bash-oracle failure-mode
 #     parity is unaffected.
 #
-# Review: code-reviewer — Finding 6 (pre-port bash oracle): DR-218 is a
+# DR-218 is a
 # claude-klabauter-tree citation, not a DoE-relative path; qualified above per
 # cross-repo-citation-conventions.md.
 # Portability (DR-148): pure Python + subprocess git calls; no shell-only

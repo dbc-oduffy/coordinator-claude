@@ -117,6 +117,6 @@ The doctrine emerged from a three-EM consult (example-game-repo EM, project-rag 
 
 - **example-game-repo EM** identified the separable-shape question (receipt vs status panel) and the "stale = signal" property of the receipt sentinel that would dilute under overload.
 - **Project-rag host EM** found the sharp articulation of the writer-boundary ("doctor writes, scanner reads, MCP answers live") and the inversion failure mode that makes it load-bearing — a fresh MCP restart silently overwriting a doctor RED with a green-on-paper "I just started up". This argument is what moved the decision from "defer until incident" to "defer on principle".
-- **Coordinator DoE** framed the underlying decay-discipline principle that ties the three legs together (persistent = receipt semantics, live = truth semantics, scanner = no-side-effects bridge) and reframed the deferral rationale around live-source-availability rather than incident-absence.
+- **Coordinator Director of Engineering** framed the underlying decay-discipline principle that ties the three legs together (persistent = receipt semantics, live = truth semantics, scanner = no-side-effects bridge) and reframed the deferral rationale around live-source-availability rather than incident-absence.
 
 Treating this as decided. Don't re-litigate without naming an incident the existing three-surface layout would have failed to catch.

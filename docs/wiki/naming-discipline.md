@@ -28,7 +28,7 @@ Two checks at field-add time:
 
 ## Flipping an identity's resolution is not renaming the identity
 
-When you migrate what an identity *resolves to* — e.g. `claude-central-em: ~/.claude` → the DoE-claude repo — the identity NAME stays valid. Doctrine and examples that merely USE the name (`to: claude-central-em`) are NOT stale and must be left untouched; only ASSERTIONS about where the identity lives or resolves (`central = ~/.claude`) need editing.
+When you migrate what an identity *resolves to* — e.g. `claude-central-em: ~/.claude` → the doctrine repo — the identity NAME stays valid. Doctrine and examples that merely USE the name (`to: claude-central-em`) are NOT stale and must be left untouched; only ASSERTIONS about where the identity lives or resolves (`central = ~/.claude`) need editing.
 
 Grep for the **assertion, not the token**. Editing every occurrence of the name is over-inclusive churn that risks "fixing" correct lines — the same speculative-blast-radius trap as an anticipatory rename, in reverse. Discriminate the two reference classes before you touch anything: a use of the name is load-bearing-as-is; only a claim about its home moves.
 
@@ -53,9 +53,9 @@ A bare `DR-###` is ambiguous in this repo: four namespaces mint ids of that shap
 collide on number. A bare id means `docs/decisions/` — that is the default and needs no
 qualifier. Every other namespace is cited in a form that names it:
 
-- a `claude-klabauter` record → repo-qualified, never a bare id that reads as ours. Two shapes
-  are both correct, chosen by purpose: `` `claude-klabauter DR-NNN` `` (repo name + bare id) to
-  cite a decision in prose; `` `claude-klabauter/docs/decisions/DR-###-<slug>.md` `` (full path)
+- a sibling-repo record → repo-qualified, never a bare id that reads as ours. Two shapes
+  are both correct, chosen by purpose: `` `<sibling-repo> DR-NNN` `` (repo name + bare id) to
+  cite a decision in prose; `` `<sibling-repo>/docs/decisions/DR-###-<slug>.md` `` (full path)
   when the reader is being sent to open the record.
 - a plan-local single-digit `DR-<n>` → cited only inside the plan that mints it, never from outside
 - a PREFIXED or document-local scheme (`SC-DR-###` in `scoped-safety-commits.md`, `DBT-DR-0##`

@@ -1,6 +1,6 @@
 # Convention — `CONTEXT.md` Domain Glossary
 
-> **Source:** Adopted from mattpocock's `CONTEXT.md` pattern (audit: `docs/wiki/opensource/2026-04-29-mattpocock-skills-audit.md` § High-value borrows #1). Adapted for the coordinator-claude system with the producer/consumer split as load-bearing doctrine.
+> **Source:** Adopted from mattpocock's `CONTEXT.md` pattern (audit doc formerly at `docs/wiki/opensource/2026-04-29-mattpocock-skills-audit.md` § High-value borrows #1 — vanished substrate, see § Reference below). Adapted for the coordinator-claude system with the producer/consumer split as load-bearing doctrine.
 
 ---
 
@@ -126,6 +126,6 @@ This variant is documented here so a future session has a paved path. No skill c
 ## Reference
 
 - Proof-of-concept: this repo's own root `CONTEXT.md` (the coordinator-claude repo's own glossary — the store of record; `~/.claude/CONTEXT.md` is a superseded fossil, not a live copy)
-- Coordinator doctrine: `CLAUDE.md` § Key Files & Directories (this repo's root file — `coordinator/CLAUDE.md` § Documentation and Knowledge System is retired; no single successor section restates the full list, this is the closest live table)
-- Inspiration audit: `docs/wiki/opensource/2026-04-29-mattpocock-skills-audit.md` § High-value borrows #1
+- Coordinator doctrine: `DIRECTORY.md` (this repo's directory-level map, one row per top-level dir — `coordinator/CLAUDE.md` § Documentation and Knowledge System is retired and no single successor section restates the full key-files list; `DIRECTORY.md` does not fully replace what was lost, only the directory layer of it)
+- Inspiration audit: originally cited as `docs/wiki/opensource/2026-04-29-mattpocock-skills-audit.md` § High-value borrows #1 — that file does not exist under `docs/wiki/` or `coordinator/docs/wiki/`, or anywhere else in this repo; the audit is vanished substrate with no live successor, not a path typo
 - Producer skills: `coordinator:brainstorming`, `coordinator:plan`

@@ -68,7 +68,7 @@ explicit override list.
 
 **Resolve the roster via the CLI, not a hand-maintained table:**
 
-Shape W (rung 0) — ladder and shapes: `snippets/resolve-coordinator-bin.md`.
+Shape W (rung 0) — ladder and shapes: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
     `& "$env:COORDINATOR_SETTINGS_HOME\bin\staff-session-assemble.exe" --session-mode <plan|review> (--domain-signal "<category>" | --slug <slug> [--slug <slug> ...]) --json`
 
 Returns `{personas: [{slug, agent_file, subagent_type}, ...], narration, source}`. Fails loud
@@ -134,10 +134,13 @@ self-governs via `team-protocol.md`.
    present.
 3. Check for advisory: `test -f {scratch-dir}/advisory.md`; read if present.
 4. Commit the output artifact (scoped): `git add -- {output-path}` then `git commit -m
-   "staff-session: {mode} — {topic-slug}" -- {output-path}`. Then commit the paper trail, same
-   scoped form: `git add -- {scratch-dir}` then `git commit -m "staff-session: paper trail —
-   {topic-slug}" -- {scratch-dir}` — the archive op in item 5 cannot archive an untracked workdir;
-   detail: wiki.
+   "staff-session: {mode} — {topic-slug}" -- {output-path}`. Then commit the paper trail as an
+   explicit file list, not the whole workdir: `git add -- {scratch-dir}/scope.md
+   {scratch-dir}/*-position.md {scratch-dir}/synthesis.md {scratch-dir}/advisory.md` then
+   `git commit -m "staff-session: paper trail — {topic-slug}" -- {scratch-dir}/scope.md
+   {scratch-dir}/*-position.md {scratch-dir}/synthesis.md {scratch-dir}/advisory.md` (omit
+   `advisory.md` from both commands when the synthesizer wrote none) — the archive op in item 5
+   cannot archive an untracked workdir; detail: wiki.
 5. Archive-and-cleanup: invoke `fleet.archive_paper_trail` with `run_id={run-id}`,
    `topic_slug={topic-slug}`, `dry_run=false`. Moves `{scratch-dir}` to
    `docs/research/archive/YYYY-MM-DD-{topic-slug}/`, lands one scoped commit, removes the source

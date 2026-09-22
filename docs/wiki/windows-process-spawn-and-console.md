@@ -125,8 +125,8 @@ is live is disabling the shim, which leaves every session on the box running van
 with no coordinator plugin at all. One bad launch shape strips the whole operating system from
 every session.
 
-**Scope.** The `--doe-root` seam exists only in the dogfood shape (a DoE-claude clone plus a
-Claude-klabauter clone, with the `claude` shim reading the `.doe-root` pointer). OSS
+**Scope.** The `--doe-root` seam exists only in the dogfood shape (a doctrine-repo clone plus an
+engine-repo clone, with the `claude` shim reading the `.doe-root` pointer). OSS
 coordinator-claude and claude-klabauter installs never take this path, so the OSS install contract
 cannot see this defect — coverage belongs on the surface that validates *our* shape.
 
@@ -135,3 +135,102 @@ cannot see this defect — coverage belongs on the surface that validates *our* 
 `coordinator/tests/test_claude_doe_launcher_native_exec.py`. Rendered-install guard plus the
 process-tree probe: `coordinator/tests/test_dogfood_launch_shape.py`. Tripwire:
 `docs/wiki/coordinator-tripwires/tripwire-registry/windows-interactive-launch-must-be-a-direct-child.md`.
+
+## 5. Resolver asymmetry — the checker and the executor use different resolvers
+
+A Windows exec path can pass every check and still not run, because the surface that **verifies**
+the call and the surface that **makes** the call resolve differently — the guard passes and the
+execution fails, often silently:
+
+- **`shutil.which()` honours `PATHEXT`; `CreateProcess` does not.** `CreateProcess` cannot run a
+  shebang script (`WinError 193: %1 is not a valid Win32 application`) and does not consult
+  `PATHEXT` (`WinError 2`), so a delivered `.cmd` is invisible to it — while a `which()`-style guard
+  passes on a name that cannot actually be exec'd. The same asymmetry recurs outside Python:
+  `.cmd`/`.ps1` resolve via `PATHEXT`/`ShellExecute` and so are invisible to any list-form caller
+  (`subprocess.run(["python3", …])`, `hooks.json` exec-form) regardless of speed.
+- **The bundled git shipped with GitHub Desktop has no `bash.exe`.** It bundles MinGit shipping
+  `usr/bin/sh.exe` and `usr/bin/env.exe` but no `bash.exe`, and Git for Windows' own `usr\bin` is
+  deliberately kept off the persisted PATH — so `env` cannot find bash either. A hook with
+  `#!/usr/bin/env bash` or `#!/bin/bash` fails **every** GitHub Desktop commit. The fix costs
+  nothing: that `sh.exe` *is* bash 5.2+ — arrays, `[[ ]]`, herestrings and `pipefail` all work under
+  a `/bin/sh` shebang. Where a hook shells out to a bash script, invoke it as `sh <script>` and
+  leave that script's own shebang alone; a git hook or hook generator on this fleet should never be
+  authored with a bash shebang — `/bin/sh` is the only portable one.
+- **Path separator and case defeat textual prefix matches.** Some values are written forward-slashed
+  while others (e.g. `CLAUDE_PLUGIN_ROOT`) arrive backslashed, so a textual `startswith` prefix
+  match never fires. The same asymmetry is a real security bypass in a traversal guard checking only
+  `"/.." in path` — it misses `\..`. Normalize before any prefix or traversal comparison.
+
+Test the exec path with the **executor**, not with a resolver: `cmd /c` the generated launcher, run
+the hook under the bundled `sh.exe` directly, run the subprocess under the exact flags production
+uses.
+
+## 6. `CREATE_NO_WINDOW` silent-kills a child that still holds inherited console handles
+
+`CREATE_NO_WINDOW` plus **inherited** stdio kills the child outright — return code 1, no output —
+rather than merely hiding its window: the flag detaches the child from the console while it still
+holds console handles it cannot use anymore. Safe only when stdio is explicitly redirected. Isolate
+the three cases before assuming a logic bug: bare run → exit 0; `+creationflags=CREATE_NO_WINDOW`
+with inherited stdio → exit 1; `+creationflags=CREATE_NO_WINDOW` with `capture_output` → exit 0.
+Because the non-capturing call fails with no diagnostic output at all, it masquerades as a logic bug
+in the caller rather than a stdio-handle conflict — redirect stdio wherever `CREATE_NO_WINDOW` is
+set.
+
+**Why local testing and review never catch this.** `getattr(subprocess, "CREATE_NO_WINDOW", 0)`
+resolves to `0` on macOS/Linux, so the flag is a literal no-op on the machine doing the authoring
+and the reviewing — the code is genuinely correct there. One case: a repo's dev-tooling entrypoint
+passed `CREATE_NO_WINDOW` to every subprocess it spawned, including its own **foreground** runner
+calls (test, run, extract, schema, plus the pip install inside its install step) whose output the
+operator is meant to see. The first-ever Windows execution ran the test target for over two
+minutes — the suite genuinely executed — and emitted zero output before exiting 1, versus hundreds
+of log lines for the same suite on Linux. A green local suite, several adversarial review passes,
+and a scout sweep specifically hunting POSIX assumptions all missed it, because it is invisible
+until executed on Windows and its symptom there is silence, not an error.
+
+**The fix is surgical, not a blanket removal.** The flag only breaks a call whose stdio is
+*inherited*; a call already passing `capture_output=True` or redirecting to `DEVNULL` is
+unaffected, because its output already goes to a pipe the parent owns (the three-way isolation
+above). So the rule is not "never use `CREATE_NO_WINDOW`" — it is "never set it on a call whose
+output the operator is meant to see inherited." Strip it from foreground/streaming calls
+(interactive-tool entrypoints, streaming install steps) while retaining it on every
+capture/`DEVNULL` call.
+
+**Generalization.** A platform-conditional no-op (any `getattr(module, "WINDOWS_ONLY_ATTR", 0)`
+guard) is the most dangerous shape a cross-platform defect can take, because the platform that
+would reveal it is precisely the one nobody authoring or reviewing the change is running on. Treat
+any such guarded platform flag as untested-by-default rather than as safe-because-it-degrades.
+
+## 7. A fix at the diagnosed line can reopen the same hazard one stack frame up
+
+A careful, correctly-understood fix can still leave the bug live if the hazard is restated only at
+the line the finding named, rather than as an invariant the whole call chain must honour. Two
+independent cases surfaced the same shape in one review pass, both authored by people who
+understood the bug they were fixing:
+
+- A TOCTOU was correctly closed at its diagnosed site — one `read_bytes()`, hash those bytes — but
+  the *same commit's* cross-check one frame up added an independent second read of the same file
+  (`json.loads(path.read_text())`), so the file was still read twice per call and the cross-check
+  could validate one version while a different version was hashed. That second read also dropped
+  `encoding=`, silently reintroducing the classic **cp1252-vs-UTF-8-on-Windows** read bug the fix
+  had just removed — in a repo whose reason for existing is Windows correctness.
+- A reviewer finding that a field carried no join key was "fixed" by threading an id from the
+  nearest-to-hand row — moving the field from honestly-null to confidently-wrong. A referential
+  validator certified it, because a wrong-lane id still resolves; it was not a one-to-one join, so
+  no correct id existed to thread and null had been the right answer.
+
+**Why it recurs.** A fix is scoped to the line the finding names, and the finding names a
+*symptom location*, not the invariant. The author holds the invariant in their head while editing
+that line and does not re-apply it to code added alongside it in the same commit — and a reviewer
+reading the diff sees a correct fix, because it is one.
+
+**Rules.**
+1. State a resource-access invariant as a **signature**, not a comment: have one function own the
+   read (with its explicit `encoding=`) and hand the decoded bytes/text down, so a second read
+   anywhere downstream is a signature change, not a quiet addition — "be careful here" is not a
+   control.
+2. Re-audit a fix that *adds* code against the very invariant it is restoring, including code
+   added in the same commit.
+3. Filling a previously-null field is not automatically an improvement: honestly-null beats
+   confidently-wrong, and a validator that only checks resolvability will certify a wrong value.
+   Verify the join is one-to-one before threading an identifier.
+4. Reviewers: read what a fix commit *adds*, not only what it changes.

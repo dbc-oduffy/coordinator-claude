@@ -530,7 +530,7 @@ def _import_claude_klabauter_percolate() -> ClaudeKlabauterPercolate:
         )
         from coordinator_core.percolate.store import load_store as _load_store
         from coordinator_core.percolate.store import resolve_target as _resolve_target
-        # Review: staff-eng (MAJOR-2, slice-D-drift-store.md) -- the output
+        # The output
         # functional-identifier drift detector had no production caller;
         # bundled here so `dispatch_end_of_run_functional_identifier_output_
         # drift_check` can wire it into the same end-of-run gate sequence
@@ -896,7 +896,7 @@ def dispatch_percolate_post_rsync(
 
     `dest_prefix` (§ `_dest_prefix_for`, § engine.py `_repo_relative_path`) is now
     ALWAYS computed from `target.dest_dir` and forwarded to the wire call --
-    Review: code-reviewer (Finding 1, P1). Previously omitted entirely, so every
+    code-reviewer (Finding 1, P1). Previously omitted entirely, so every
     non-toplevel row's content-transform sweep composed attribution-surface
     checks against the wrong (target_root-relative, not repo-root-relative) path.
 
@@ -1117,7 +1117,7 @@ def _materialize_inject_srcs(
                 shadow_root if resolved_src_path.is_dir() else shadow_root / src_path.name
             )
             if not shadow_path.exists():
-                # Review: code-reviewer Finding 3 — the file-case shadow
+                # The file-case shadow
                 # path is only real when `src` was committed at the
                 # materialized ref; a staged/untracked/dirty-tree file
                 # produces a dangling path here that would otherwise
@@ -1574,7 +1574,7 @@ def dispatch_percolate_pre_ci(
         # number existed and stayed unprinted
         # (state/audits/2026-08-16-percolate-round-first-measured-cost-distribution.md).
         if identity_result["ran"]:
-            # Review: skipped is always False on this branch (run_identity_check's
+            # skipped is always False on this branch (run_identity_check's
             # two return shapes are mutually exclusive) — exit_code varies instead.
             print(
                 f"  [timing] {target.name}: identity check: exit_code={identity_result['exit_code']}: "
@@ -1860,7 +1860,7 @@ def _function_gate_in_scope_seed_entries(rel_root: str) -> "List[tuple[str, str]
     if not rel_root:
         return list(_FUNCTION_GATE_SEED_MODULES)
     prefix = f"{rel_root.rstrip('/')}/"
-    # Review: code-reviewer — bare str.startswith relies on an invariant this
+    # Bare str.startswith relies on an invariant this
     # function does not enforce: _FUNCTION_GATE_SEED_MODULES is a fixed
     # 3-entry tuple with no accidental rel_path prefix-stem overlap. A future
     # 4th seed entry sharing a rel_root prefix stem with a sibling directory
@@ -1961,19 +1961,12 @@ def _function_gate_modules_and_search_paths_for_repo_root(
     path is what is actually probed for presence and searched for import
     under `repo_root`.
 
-    `module_name` is adjusted the SAME way for a DOTTED entry whose name is
-    itself the dotted form of `rel_path` (`coordinator_core.data_root`,
-    resolved against `repo_root` as a genuine package root via the `""`
-    search path) — the same `rel_root` prefix, dotted, is stripped from
-    the module name so the STAGED import target matches the STAGED file
-    location (`coordinator_core.data_root` -> `data_root` when `rel_root`
-    is `coordinator_core`, since the staged tree has no `coordinator_core/`
-    directory of its own to import through). A BARE entry
-    (`coordinator_registry`, `coordinator_data_root` — resolved via their
-    own containing directory on `PYTHONPATH`, never dotted against the
-    root) is untouched either way: its own `search_dir` is already
-    computed from the staged `rel_path`, so no name rewrite is needed for
-    it to keep resolving correctly.
+    `module_name` is never rewritten: a DOTTED entry keeps its package-
+    qualified name (`coordinator_core.data_root`), and the pre-swap caller
+    binds the staged tree AS that package (`run_function_gate`'s
+    `package_roots`), so the payload's absolute self-imports resolve against
+    the staged files. A BARE entry (`coordinator_registry`,
+    `coordinator_data_root`) resolves via its own staged `search_dir`.
 
     `search_paths` always includes `""` (resolves to `repo_root` itself in
     `run_function_gate`, § that function's `prepend` derivation) so a
@@ -1991,21 +1984,11 @@ def _function_gate_modules_and_search_paths_for_repo_root(
     search_paths: "set[str]" = {""}
     resolved_rel_paths: "set[str]" = set()
     prefix = f"{rel_root.rstrip('/')}/" if rel_root else ""
-    dotted_prefix = f"{rel_root.rstrip('/').replace('/', '.')}." if rel_root else ""
     for rel_path, module_name in _function_gate_in_scope_seed_entries(rel_root):
         staged_rel_path = rel_path[len(prefix):] if prefix else rel_path
         if not (repo_root / staged_rel_path).is_file():
             continue
-        # Review: code-reviewer — same fixed-3-entry invariant as
-        # _function_gate_in_scope_seed_entries's rel_path prefix check above:
-        # bare str.startswith on dotted_prefix relies on no accidental
-        # module-name stem overlap across the hardcoded seed set.
-        staged_module_name = (
-            module_name[len(dotted_prefix):]
-            if dotted_prefix and module_name.startswith(dotted_prefix)
-            else module_name
-        )
-        modules.append(staged_module_name)
+        modules.append(module_name)
         resolved_rel_paths.add(rel_path)
         search_dir = str(PurePosixPath(staged_rel_path).parent)
         search_paths.add("" if search_dir == "." else search_dir)
@@ -2282,7 +2265,7 @@ def dispatch_end_of_run_function_gate(
         # regardless of whether the seed-module import check below has
         # anything to gate on for this repo root.
         #
-        # Review: staff-eng (MINOR-4) -- wrapped in try/except so an
+        # Wrapped in try/except so an
         # unguarded `root.rglob("*")` walk raising (Windows MAX_PATH,
         # junction loop, permission-denied directory) cannot escape this
         # function as a bare traceback, contradicting `run_parse_sweep`'s
@@ -2316,7 +2299,7 @@ def dispatch_end_of_run_function_gate(
             continue
 
         try:
-            # Review: staff-eng (BLOCKER-2) -- bare `oss_shaped_subprocess_
+            # Bare `oss_shaped_subprocess_
             # env()` carries HOME/USERPROFILE/CLAUDE_HOME through from the
             # real environment, so this gate evaluated the payload against
             # the PUBLISHING BOX'S OWN coordinator-claude install rather
@@ -2489,6 +2472,12 @@ def dispatch_preswap_function_gate(
     if not modules:
         return True
 
+    # A staging dir holding a package's own contents (`coordinator_core`'s) is
+    # imported under that package's real name, so the payload's absolute
+    # self-imports resolve against the staged files.
+    package = rel_root.strip("/")
+    package_roots = {package: ""} if package.isidentifier() else {}
+
     try:
         with _synthetic_registry_manifest_overrides() as manifest_overrides:
             with engine_claude_klabauter.hermetic_gate_env(overrides=manifest_overrides) as env:
@@ -2497,6 +2486,7 @@ def dispatch_preswap_function_gate(
                     modules,
                     env=env,
                     search_paths=search_paths,
+                    package_roots=package_roots,
                 )
     except Exception as exc:  # noqa: BLE001 - AC15 fail-closed path, same as end-of-run leg
         print(
@@ -2599,7 +2589,7 @@ def _update_token_index_from_delta(
     index = load_index(index_path)
     tokens_by_file: "dict[str, frozenset[str]]" = {}
     stamps: "dict[str, Any]" = {}
-    # Review: coordinator:code-reviewer -- filter to `.py`, matching
+    # Filter to `.py`, matching
     # `_iter_py_files_sorted`'s own scope, so an incremental fold can never
     # diverge from what a cold build over the same tree would ever produce.
     for dest_path in changed:
@@ -2640,6 +2630,7 @@ def dispatch_preswap_payload_parity_gate(
     changed_files: "frozenset[str]",
     *,
     token_index_path: "Optional[Path]" = None,
+    totals: "Optional[RunTotals]" = None,
     out: IO[str] = sys.stdout,
 ) -> bool:
     """PRE-SWAP PAYLOAD-PARITY gate (chunk C2, state/dispatch-briefs/2026-08-
@@ -2682,7 +2673,19 @@ def dispatch_preswap_payload_parity_gate(
     never produced.
 
     Never raises -- fail-closed reporting only, same contract as
-    `dispatch_preswap_function_gate`."""
+    `dispatch_preswap_function_gate`.
+
+    `totals` (§ `RunTotals`, `warn()`'s own counter): an abstain-floor
+    warning below used to print to stderr only, so a 100%-abstained row and
+    a 26%-abstained row both landed on a run summary reading `Warnings: 0`
+    -- the printed warning was real but never counted, making the summary
+    itself the thing that could not distinguish "this run proved less" from
+    "this run proved everything" (state/bug-backlog/2026-08-28-the-payload-
+    parity-gate-passes-loudest-when-it-has-checked-nothing.yaml). Passing a
+    `RunTotals` here folds this gate's own warning into the same tally
+    every other `warn()` call site already feeds, so it surfaces in the
+    end-of-run `Warnings:` count like any other. `None` (unthreaded
+    caller) skips the increment and preserves prior behavior exactly."""
     _bootstrap_engine()
     rel_root = _dest_prefix_for(target.dest_dir)
     token_index_root = _dest_repo_root(target.dest_dir)
@@ -2708,6 +2711,8 @@ def dispatch_preswap_payload_parity_gate(
             "run proves less than usual.",
             file=sys.stderr,
         )
+        if totals is not None:
+            totals.warnings += 1
 
     if not report.ok:
         for finding in report.violations:
@@ -5690,6 +5695,7 @@ def check_version_consistency(
     result = subprocess.run(
         [sys.executable, str(vc_gate), "--root", str(source_dir), "--quiet"],
         check=False,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     if result.returncode != 0:
         if override:
@@ -6887,7 +6893,7 @@ def foreign_dir_names_for_row(
     set would make a sibling's claim invisible and turn this into an
     orphan-deleting false negative (see this function's own caller in
     `main()`, resolved once per run, never per row)."""
-    # Review: coordinator:code-reviewer — resolve once per call (not per
+    # Resolve once per call (not per
     # iteration) so two differently-spelled but on-disk-identical dest paths
     # still compare equal; every other dest-containment check in this file
     # resolves both sides.
@@ -6914,7 +6920,7 @@ def _module_accepts_foreign_dir_names(publish_sync_module) -> bool:
     cannot land the parameter atomically — a copy that lags would raise
     `TypeError` mid-publish if the kwarg were passed unconditionally.
 
-    Review: coordinator:code-reviewer — this is a by-name check
+    This is a by-name check
     (`"foreign_dir_names" in sig.parameters`), not "would the call succeed."
     A `sync_mirror(..., **kwargs)` signature would happily swallow the kwarg
     without raising, but this probe reports `False` for it and the call site
@@ -7567,6 +7573,7 @@ def _git_rev_parse_detailed(path: Path, *args: str) -> _GitRevParseResult:
             capture_output=True,
             text=True,
             check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except OSError as exc:
         return _GitRevParseResult(stdout=None, returncode=None, stderr="", oserror=str(exc))
@@ -7586,6 +7593,7 @@ def _git_capture(path: Path, *args: str) -> Optional[str]:
             capture_output=True,
             text=True,
             check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except OSError:
         return None
@@ -7954,6 +7962,7 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
                     capture_output=True,
                     text=True,
                     check=False,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
             finally:
                 print(
@@ -7977,7 +7986,7 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
                     file=sys.stdout,
                 )
         except Exception:
-            # Review: code-reviewer Finding 1 — shadow_dir is created via
+            # shadow_dir is created via
             # mkdtemp above, before either failure mode below can occur. On
             # a non-zero `git archive` or a tarfile raise (corrupt archive,
             # disk full), shadow_dir was never returned to any caller, so it
@@ -8195,7 +8204,7 @@ def _git_materialize_ref(root: Path, ref: str = "HEAD") -> Path:
     cache_key = (str(toplevel), sha)
     shadow_toplevel = _MATERIALIZED_REF_CACHE.get(cache_key)
     if shadow_toplevel is None:
-        # Review: a single post-extraction line carries the same MISS signal as
+        # a single post-extraction line carries the same MISS signal as
         # the removed pre-extraction print, without reading as two separate events.
         _materialize_start = time.perf_counter()
         shadow_toplevel = _extract_git_archive(toplevel, sha)
@@ -8272,6 +8281,7 @@ def _git_is_clean(path: Path) -> Optional[bool]:
             capture_output=True,
             text=True,
             check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except OSError:
         return None
@@ -8524,7 +8534,7 @@ def _dest_prefix_for(dest_dir: Path) -> str:
     identity check has its own separate fail-closed handling for that case;
     this helper degrades to the pre-existing `""` default rather than raising).
 
-    Review: code-reviewer (Finding 1, P1) -- this is the piece that was never
+    This is the piece that was never
     computed at all: every real caller of `run_percolate`/`run_inject_for_section`
     omitted `dest_prefix`, so it silently defaulted to `""` on every publish,
     including the five of six klabauter rows whose dest IS a subdir.
@@ -8764,8 +8774,9 @@ def _dirty_paths_under(repo_root: Path, scope_dirs: Sequence[Path]) -> Optional[
 
 
 def _normalize_dest_exec_bits(repo_root: Path, scope_dirs: Sequence[Path]) -> "List[str]":
-    """Re-mode every file tracked under `scope_dirs` whose blob starts with
-    `#!` but whose INDEX mode is `100644`, returning the paths it fixed.
+    """Converge the INDEX mode of every file tracked under `scope_dirs` onto
+    the shebang predicate, returning the paths it fixed: a blob opening `#!`
+    is promoted to `100755`, and one that does not is demoted to `100644`.
 
     WHY THIS EXISTS. Both this repo and the mirror run `core.fileMode=false`
     (Windows), so git never reads an exec bit off disk: a dest entry's mode is
@@ -8786,12 +8797,36 @@ def _normalize_dest_exec_bits(repo_root: Path, scope_dirs: Sequence[Path]) -> "L
     `coordinator/bin/statusline.py` are shebanged and `100644` in claude-klabauter's own
     index today, so a source-mode copy would faithfully propagate the defect.
 
-    Converges, and is cheap once converged: an entry already at `100755` stays
-    there across later `git add`s under `core.fileMode=false`, so steady state
-    is two git calls that find nothing.
+    BIDIRECTIONAL, and it must be. The promote-only version deadlocked the
+    pipeline wherever `core.fileMode` is actually TRUE -- which is the case on
+    macOS, and was the case on both repos on the box where this was found,
+    despite the premise above. There, git reads the disk bit: the sync's
+    `shutil.copy2` faithfully writes the source's `644` onto a dest entry the
+    index still records as `100755`, and nothing demoted it. That mode-only
+    delta is invisible to `publish_sync.py::_needs_copy` (a content compare,
+    by design), so no later round can clear it, while `percolate-push` refuses
+    on ANY uncommitted path and offers no override. The mirror-write guard
+    (`bump-foreign-repo-write`) then blocks both hand remedies, by design --
+    leaving a closed loop with no operator remedy, which is what this demote
+    arm ends. 30 paths were stuck in exactly that state.
 
-    Batched by construction — one `ls-files`, one `cat-file --batch`, one
-    `update-index` over every offender — never a call per path
+    Demoting is safe against the gate this function is written to satisfy:
+    `check-exec-bit.py` fails ONLY a shebanged entry at `100644` and asserts
+    nothing about non-shebanged entries, so the demote arm cannot turn a green
+    run red.
+
+    Aligns the DISK bit to the index too, which is a second instance of the
+    same loop rather than tidiness: a dest file whose bytes already match is
+    never re-copied (`_needs_copy` is a content compare), so it keeps a stale
+    disk mode indefinitely, and under `core.fileMode=true` that reads as
+    permanent dirt no round can clear and no operator may clear by hand.
+
+    Converges, and is cheap once converged: an entry already at the mode its
+    blob implies stays there across later `git add`s, so steady state is two
+    git calls that find nothing.
+
+    Batched by construction — one `ls-files`, one `cat-file --batch`, and at
+    most one `update-index` PER DIRECTION — never a call per path
     (`coordinator_core/tests/test_no_unbatched_per_item_git_spawn.py`).
 
     SCOPED TO `scope_dirs`, never the whole index, for the same reason
@@ -8809,6 +8844,7 @@ def _normalize_dest_exec_bits(repo_root: Path, scope_dirs: Sequence[Path]) -> "L
     if staged is None:
         return []
     by_blob: "dict[str, List[str]]" = {}
+    mode_of: "dict[str, str]" = {}
     for line in staged.splitlines():
         meta, _, path = line.partition("\t")
         if not path:
@@ -8816,32 +8852,75 @@ def _normalize_dest_exec_bits(repo_root: Path, scope_dirs: Sequence[Path]) -> "L
         fields = meta.split()
         # `<mode> SP <object> SP <stage> TAB <path>`. Stage != 0 means a merge
         # conflict; leave a conflicted entry entirely alone.
-        if len(fields) != 3 or fields[0] != "100644" or fields[2] != "0":
+        if len(fields) != 3 or fields[2] != "0" or fields[0] not in ("100644", "100755"):
             continue
         by_blob.setdefault(fields[1], []).append(path)
+        mode_of[path] = fields[0]
     if not by_blob:
         return []
 
     from coordinator_core.ops.ceremony import git_native  # noqa: PLC0415 - lazy, see module header
 
     blobs = git_native.cat_file_batch_objects(repo_root, sorted(by_blob))
-    offenders = sorted(
-        path
-        for blob, paths in by_blob.items()
-        if (blobs.get(blob) or "").startswith("#!")
-        for path in paths
-    )
-    if not offenders:
-        return []
-    if _git_capture(repo_root, "update-index", "--chmod=+x", "--", *offenders) is None:
-        print(
-            f"publish.py: could not re-mode {len(offenders)} shebanged path(s) in "
-            f"'{repo_root}' — the mirror's release CI will reject them "
-            "(.github/scripts/check-exec-bit.py).",
-            file=sys.stderr,
-        )
-        return []
-    return offenders
+    promote: "List[str]" = []
+    demote: "List[str]" = []
+    for blob, paths in by_blob.items():
+        shebanged = (blobs.get(blob) or "").startswith("#!")
+        for path in paths:
+            if shebanged and mode_of[path] == "100644":
+                promote.append(path)
+            elif not shebanged and mode_of[path] == "100755":
+                demote.append(path)
+    promote.sort()
+    demote.sort()
+
+    fixed: "List[str]" = []
+    for flag, group, why in (
+        ("--chmod=+x", promote, "shebanged"),
+        ("--chmod=-x", demote, "non-shebanged"),
+    ):
+        if not group:
+            continue
+        if _git_capture(repo_root, "update-index", flag, "--", *group) is None:
+            print(
+                f"publish.py: could not re-mode {len(group)} {why} path(s) in "
+                f"'{repo_root}' — the mirror's release CI will reject them "
+                "(.github/scripts/check-exec-bit.py).",
+                file=sys.stderr,
+            )
+            continue
+        fixed.extend(group)
+        for path in group:
+            mode_of[path] = "100755" if flag == "--chmod=+x" else "100644"
+
+    # Then the DISK side, which is a second instance of the same closed loop.
+    # `publish_sync.py::_needs_copy` is a content compare, so a dest file whose
+    # bytes already match is never re-copied and keeps whatever mode it has had
+    # since whenever. Where `core.fileMode` is true git reads that bit, so a
+    # disk/index disagreement is reported dirty forever: no round can clear it
+    # (nothing re-copies), `percolate-push` refuses on any dirty path, and the
+    # mirror-write guard blocks clearing it by hand. Two `.cmd` files sat at
+    # 755 on disk against a 100644 index in exactly that state.
+    #
+    # In-process `stat`/`chmod` per path, never a process per path — the
+    # amplification gate counts SPAWNS, and this adds none.
+    for path, mode in mode_of.items():
+        target = repo_root / path
+        try:
+            current = os.stat(target).st_mode
+        except OSError:
+            continue  # deleted under us, or unreadable; the commit step reports it
+        want_exec = mode == "100755"
+        has_exec = bool(current & 0o111)
+        if want_exec == has_exec:
+            continue
+        try:
+            os.chmod(target, (current | 0o111) if want_exec else (current & ~0o111))
+        except OSError:
+            continue
+        if path not in fixed:
+            fixed.append(path)
+    return sorted(fixed)
 
 
 def _commit_published_dests(
@@ -8937,7 +9016,7 @@ def _commit_published_dests(
         remoded = _normalize_dest_exec_bits(repo_root, sorted(scope_dirs))
         if remoded:
             print(
-                f"  {repo_root}: re-moded {len(remoded)} shebanged path(s) to 100755 "
+                f"  {repo_root}: re-moded {len(remoded)} path(s) onto the shebang predicate "
                 f"({', '.join(remoded[:5])}{', …' if len(remoded) > 5 else ''})."
             )
             paths = sorted(set(paths) | set(remoded))
@@ -9652,7 +9731,7 @@ def report_candidate_divergence(repo_root: Path, *, out: IO[str] = sys.stdout) -
                 last_promotion_date = last_promotion_date.replace(tzinfo=timezone.utc)
             days_since = max(0, (datetime.now(timezone.utc) - last_promotion_date).days)
 
-        # Review: E-divergence-report — the days-only trigger is gated on
+        # E-divergence-report — the days-only trigger is gated on
         # commits_ahead > 0 so a stationary candidate (0 commits ahead, just a
         # stale merge-base date) never fires a "recommend promoting ... drops
         # the delta from 0 to 0" advisory -- there is nothing to promote.
@@ -10913,7 +10992,7 @@ def _report_rename_manifest(
     Spec backlink: pln-the-publish-round-commits-the-fa5df4
     § Tasks C1, Acceptance Criteria AC1.
 
-    Review: coordinator:code-reviewer — the kind tag is printed as a
+    The kind tag is printed as a
     `RENAME[directory]:` PREFIX, not a trailing ` [directory]` suffix on
     the path, because a suffix is a position a real `new_path` can occupy
     (a path literally ending in ` [directory]` would be misparsed as
@@ -11215,7 +11294,7 @@ def process_target(
             # `publish_sync_module` is resolved ONCE in `main()` (§ AC15,
             # chunk C11) and threaded through here — never re-imported per
             # target.
-            # Review: code-reviewer Finding 5 — explicit raise, not a bare
+            # Explicit raise, not a bare
             # `assert` (strippable under `python -O`).
             if publish_sync_module is None:
                 raise ProcessTargetCallerContractError(
@@ -11335,7 +11414,7 @@ def process_target(
                         rewrite_basename_module.DirectoryRenamePairShapeError,
                     ):
                         pass
-                # Review: coordinator:code-reviewer -- narrowed from a bare `except
+                # Narrowed from a bare `except
                 # Exception` (which silently swallowed a REAL-run failure, contrary to
                 # the plan's AC3 byte-identity requirement). The catch set is deliberate,
                 # not incidental, derived from what each of the calls in THIS outer try
@@ -11439,7 +11518,7 @@ def process_target(
             # that degrades to "no sibling claims known" rather than raising,
             # matching every other exemption set's fail-safe default in this
             # function.
-            # Review: overengineering-reviewer (Kira) — gate only on `all_rows
+            # Gate only on `all_rows
             # is not None` here; `dispatch_mirror_like`'s own descriptor
             # branch is the single decision point for the
             # `accepts_foreign_dir_names` flag. A flat-mirror row now always
@@ -11680,7 +11759,7 @@ def process_target(
             # gate is not merely "otherwise identical" to the one C2
             # shipped: this diff also adds degrade-to-full-scan semantics on
             # a `None`, unreadable, or unbuilt index, which C2 never had.
-            # Review: coordinator:code-reviewer (slice C, P2) -- the two
+            # The two
             # lazy imports below used to sit ahead of any try/except, so an
             # ImportError here (packaging/OSS-shaped subprocess missing this
             # module -- the same hermetic-import concern
@@ -11713,6 +11792,7 @@ def process_target(
                     staging_dir,
                     row_changed_files,
                     token_index_path=_row_token_index_path,
+                    totals=totals,
                     out=out,
                 )
             if not preswap_parity_ok:
@@ -11873,7 +11953,7 @@ def process_target(
         # `dispatch_percolate_pre_ci` — so every reader for this target's
         # iteration is guaranteed done with it here, win or lose.
         #
-        # Review: code-reviewer Finding 3 — this used to call
+        # This used to call
         # _cleanup_shadow_roots(gate_result.shadow_roots) directly, evicting
         # the (toplevel, sha) cache entry at the end of EVERY target's
         # iteration. The 5 klabauter rows in setup/publish-targets.portable
@@ -12005,7 +12085,7 @@ def _modes_in_run_from_rows(rows: Sequence[str]) -> Optional[frozenset[str]]:
     `load_targets` validates the vocabulary downstream and fails loud on a
     genuinely bad mode; this parse only decides how wide the gate is.
 
-    Review: coordinator:code-reviewer — a zero-pipe row was previously
+    A zero-pipe row was previously
     silently dropped from the set-builder instead of collapsing the result
     to `None`, diverging from this very docstring's stated "unrecognised
     row -> check the whole table" contract. Unparseable rows are now
@@ -12275,7 +12355,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     _round_wall_start = time.perf_counter()
     round_timings: "List[tuple[str, str, float]]" = []
 
-    # Review: code-reviewer P2 — consume (pop, not just read) the inherited-
+    # Consume (pop, not just read) the inherited-
     # lock-roots token here, once, at the very top of `main()`, so it cannot
     # survive `os.environ` into any nested or second-order invocation this
     # process spawns (e.g. a future `publish.py` calling `publish.py`). The
@@ -12283,7 +12363,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # `_inherited_roots_token`; PID-binding/verification happens there.
     _inherited_roots_token = os.environ.pop(_INHERITED_LOCK_ROOTS_ENV, "")
 
-    # Review: code-reviewer Finding 2 — capture the rung that actually
+    # Capture the rung that actually
     # resolved `percolate_root`/`setup_dir` here, once, and thread it into
     # every AC15 FATAL message below instead of re-deriving a fresh (and
     # potentially different) answer at each call site.
@@ -12314,7 +12394,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # remain row-scoped internally — but this CLI's single-bare-name entry
     # point always means "this row's whole mirror."
     mirror_expansion: "Optional[tuple[str, str, List[str]]]" = None  # (mirror_key, requested_name, sibling_names)
-    # Review: coordinator:code-reviewer -- a stray leading/trailing comma
+    # A stray leading/trailing comma
     # (`"foo,"`, `",foo"`) is still an EXPLICIT comma-syntax request, not a
     # bare name, even though filtering empty segments collapses it to one
     # element -- `explicit_comma_syntax` preserves that signal so it is
@@ -12478,7 +12558,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 "the FATAL.",
                 file=sys.stderr,
             )
-    # Review: code-reviewer Finding 6 — on a DURABLE host main() still only
+    # On a DURABLE host main() still only
     # reaches this line after check_identity_file_present +
     # check_identity_file_safe both succeed, so this is True there, exactly as
     # Finding 6 described. The populated-PERSONAL_REVIEW_PATTERNS gate above
@@ -12575,7 +12655,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     elif delta_active:
         delta_signature = compute_delta_invalidation_signature(percolate_store_path, engine_ctx)
 
-    # Review: code-reviewer Finding 3 — the run-wide shadow-tree accumulator
+    # The run-wide shadow-tree accumulator
     # `process_target` feeds via `shadow_roots_sink` instead of reclaiming
     # its own target's shadow trees immediately. Swept ONCE below, after the
     # loop, over the deduplicated union of every target's shadow roots —
@@ -12710,7 +12790,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # a real lock for it would let a --dry-run block a real, mutating
     # publish, which is the wrong direction of contention.
     #
-    # Review: code-reviewer P3 — locks are acquired up front for the WHOLE
+    # Locks are acquired up front for the WHOLE
     # declared row set, including rows `--delta` will later whole-row-skip
     # (see the `continue` below). A concurrent unrelated writer to a root
     # this run ends up delta-skipping is still blocked against that root for
@@ -12729,7 +12809,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         publish_contention_wait_secs as _publish_lock_wait_secs,
     )
 
-    # Review: code-reviewer P3 — parse each row exactly once and reuse the
+    # Parse each row exactly once and reuse the
     # result in the main loop below, rather than parsing it again there.
     # Previously `parse_target_row` ran once here and a second time per-row
     # in the main loop, which cost nothing correctness-wise (a malformed row
@@ -12779,7 +12859,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             root = _dest_repo_root(candidate.dest_dir) or candidate.dest_dir
             if root not in lock_repo_roots:
                 lock_repo_roots.append(root)
-        # Review: code-reviewer P2 — sort by realpath so every invocation
+        # Sort by realpath so every invocation
         # acquires locks in one canonical global order. Without this, two
         # legitimately non-overlapping-row-order concurrent publishes (e.g.
         # run A over [repoX, repoY], run B over [repoY, repoX]) can each grab
@@ -12814,7 +12894,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # inherited entry is skipped — every other root in `lock_repo_roots`
     # (e.g. a sibling row's destination this same run also touches) is
     # still acquired below, same as before this fix.
-    # Review: code-reviewer P2 — the skip is only honoured when the entry's
+    # The skip is only honoured when the entry's
     # PID matches this process's TRUE parent (`os.getppid()`); a malformed
     # entry (no `=`, non-integer PID) or a PID mismatch (stray exported
     # value, a nested/second-order invocation) is fail-closed — that root is
@@ -12840,7 +12920,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     publish_lock_stack = ExitStack()
     for _lock_root in lock_repo_roots:
         if os.path.realpath(str(_lock_root)) in _inherited_lock_realpaths:
-            # Review: code-reviewer P2 -- a stray env var (e.g. left exported in a
+            # A stray env var (e.g. left exported in a
             # debugging shell) would silently skip this root's lock with no signal.
             print(
                 f"[publish.py] skipping lock for {_lock_root}: inherited from parent per-invocation env",
@@ -13152,6 +13232,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             succeeded_paren_parts.append(f"{len(skipped_row_names)} skipped, unchanged")
         succeeded_paren = f" ({'; '.join(succeeded_paren_parts)})" if succeeded_paren_parts else ""
         print(f"  Rows succeeded: {len(succeeded_row_names)}/{len(expected_rows)}{succeeded_paren}")
+        if args.dry_run and succeeded_row_names:
+            print(
+                "    (dry-run: post_rsync/inject/pre_ci engine-phase guards were "
+                "not evaluated for these rows — a real run can still fail one.)"
+            )
         if failed_row_names:
             _print_row_failure_detail(
                 failed_row_names,
@@ -13482,7 +13567,6 @@ def main(argv: Optional[List[str]] = None) -> int:
                 changed_files_by_repo_root=end_of_run_changed_files_by_repo_root,
                 changed_only=bool(args.changed_only) and not bool(args.full_sweep),
             )
-        # Review: staff-eng (MAJOR-2, slice-D-drift-store.md) wired the output
         # functional-identifier drift detector into this sequence, because
         # nothing called it and a scrub that renamed a wire identifier shipped
         # unnoticed.

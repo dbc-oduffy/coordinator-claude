@@ -8,7 +8,7 @@ plugin carrying a non-empty reverse_drift_cmd. Consumed by
 command as a blocking merge gate. Supports --scope-repo so a consumer
 repo's release never gates on a sibling plugin's live-install drift.
 """
-# bin/list-reverse-drift-cmds.py — CLI trampoline over claude-klabauter
+# bin/list-reverse-drift-cmds.py — CLI trampoline over this repo's
 # coordinator_core.ops.list_reverse_drift_cmds.
 #
 # Purpose: read plugin.mirrors from the machine-local registry and emit one
@@ -24,9 +24,9 @@ repo's release never gates on a sibling plugin's live-install drift.
 #   preserved for direct callers and tests). Step 4g always passes its repo
 #   root so a CONSUMER repo's release never gates on a SIBLING plugin's
 #   live-install drift. The meta-repo (${HOME}/.claude) is the explicit
-#   check-all case. Paths are normalized before comparison (Windows X:/ vs
-#   MSYS /x/ vs $HOME /c/) so the meta-repo and source_path matches survive
-#   cross-platform path forms.
+#   check-all case. Paths are normalized before comparison (Windows
+#   `<drive>:/` vs MSYS `/<drive>/` vs $HOME) so the meta-repo and source_path
+#   matches survive cross-platform path forms.
 #   Spec backlink: cross-repo/inbox/2026-06-01-reverse-drift-gate-per-repo-scoping.md
 #
 # Business exit codes (unchanged from the bash oracle — encode the difference

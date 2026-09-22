@@ -9,7 +9,7 @@ Purpose: Fires in the EM session. Emits an awareness additionalContext for
          excised entirely -- see the SUBAGENT-ARRIVAL-CHECK note below.
 
 This is a SELF-CONTAINED naked-Python hook, not a claude-klabauter-op stub: no
-Claude-klabauter op exists for this EM-side disk-bookkeeping check (grepped
+engine-repo op exists for this EM-side disk-bookkeeping check (grepped
 coordinator_core/hooks + coordinator_core/ops for "dispatched-agents.txt",
 "em-check", "wrap-requested" — only track_dispatched_agents.py [the WRITER
 of dispatched-agents.txt] and postuse_advisory_dispatch.py [the AGENT-side
@@ -17,7 +17,7 @@ port of the former bash advisory hook, an entirely different script that fires
 INSIDE the subagent and keeps in-memory-only bark-once state] came back;
 neither implements this EM-side disk-sentinel + fire-log + wrap-requested.txt
 artifact scan). Per the W5 straggler-port contract: port the logic directly
-into a self-contained hook rather than inventing a new claude-klabauter op.
+into a self-contained hook rather than inventing a new engine-repo op.
 
 Spec backlink: docs/plans/2026-06-08-runtime-tripwire-background-executors.md § C3b
 Wiki: docs/wiki/runtime-tripwire.md
@@ -48,14 +48,14 @@ Contract (mirrors the former bash oracle):
 
 Simplification vs the bash oracle (documented, non-decisional): the fire-log
 target directory uses an INLINE mirror of coordinator_state_root's Rule 5
-(meta-repo check via realpath(git_root) == realpath(<claude-home>) -> claude-klabauter
+(meta-repo check via realpath(git_root) == realpath(<claude-home>) -> the engine repo's
 root /state, else GIT_ROOT/state) rather than shelling out to the full
 claude-home/coordinator-claude-klabauter-root resolver chain. This affects only WHERE
 the best-effort calibration fire-log TSV row lands, never WHETHER/WHAT a
 nudge fires -- the advisory/deny decision surface is byte-faithful.
 resolve_subagent_identity is similarly reimplemented as a local pure
 function (mirrors the retired bash identity-resolution logic byte-for-byte,
-and is IDENTICAL to the one already ported into claude-klabauter's
+and is IDENTICAL to the one already ported into the engine repo's
 postuse_advisory_dispatch.py::_resolve_subagent_identity) instead of
 shelling out -- pure function, no filesystem I/O, so no fidelity loss.
 
@@ -121,7 +121,7 @@ Cost ceiling, stated the same explicit way `_check_push_failures()` states
 its own: the steady-state (nothing-unsurfaced) path is one small
 cursor-file read, then one `os.path.getsize` stat call against Stage 1's
 own durable store JSONL -- both unconditional on every `UserPromptSubmit`
-fire -- with the claude-klabauter round-trip (no `coordinator_core` import, no
+fire -- with the engine-repo round-trip (no `coordinator_core` import, no
 `dispatch_message` call) gated on that comparison's result: only if the
 stat shows growth past this session's own surfaced-cursor does anything
 past the two cheap local reads run. This matters because the registered timeout
@@ -280,7 +280,7 @@ def _read_stdin(timeout: float = 2.0) -> str:
 
 # ---------------------------------------------------------------------------
 # resolve_subagent_identity -- pure function, byte-faithful port of the
-# retired bash identity-resolution logic / claude-klabauter's
+# retired bash identity-resolution logic / the engine repo's
 # postuse_advisory_dispatch.py::_resolve_subagent_identity.
 # ---------------------------------------------------------------------------
 def _resolve_subagent_identity(agent_id: str, session_id: str) -> str:
@@ -1044,7 +1044,7 @@ def _check_push_failures(git_root: str, session_id: str):
     expensive ref-comparison approach -- see the plan report's rejected
     designs for the reasoning and a debounced ref-file-diff sketch that could
     close this residual gap without a subprocess. This is no longer
-    hypothetical: claude-klabauter's cadence-decline admission predicate
+    hypothetical: the engine repo's cadence-decline admission predicate
     (`docs/plans/2026-08-31-the-cadence-declines-the-push-it-cannot-finish.md`)
     declines a push before any process spawns for a repo whose recent cost
     exceeds its budget, and a decline deliberately writes no `PUSH FAILED`
@@ -1053,7 +1053,7 @@ def _check_push_failures(git_root: str, session_id: str):
     only sees `.git/push-failures.log` under THIS session's own `git_root`
     (via `_resolve_git_common_dir`), so it covers exactly the repos this hook
     is registered in and says nothing about a sibling repo's push health. The
-    now-steady-state silent-decline class above is covered on claude-klabauter's own
+    now-steady-state silent-decline class above is covered on the engine repo's own
     side instead (`coordinator_core/orientation/regenerate_cache.py ::
     emit_auto_push_health`'s declined-repo class), per that team's own memo
     -- this function is deliberately NOT being widened to compensate.
@@ -1339,7 +1339,7 @@ def _zero_tool_use_local_evidence(store_path: str, cursor: dict) -> int | None:
     """Cheap stat-only precondition (ordered-body step 1/2 of the pinned
     contract). Returns the store's current size when it has grown past this
     session's own recorded cursor `size`, else None -- callers must skip
-    straight to contributing nothing on None, without resolving claude-klabauter at
+    straight to contributing nothing on None, without resolving the engine repo at
     all.
 
     Deliberately NOT the `_check_push_failures` baseline-on-first-call
@@ -1479,7 +1479,7 @@ def _check_zero_tool_use_surface(
     except Exception:
         store_size = None
     if store_size is None:
-        # Cheap precondition, hard requirement: no claude-klabauter resolve, no
+        # Cheap precondition, hard requirement: no engine-repo resolve, no
         # coordinator_core import, no dispatch_message round-trip when
         # there is no local evidence of anything unsurfaced.
         return None, None

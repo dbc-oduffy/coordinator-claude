@@ -108,7 +108,8 @@ same verb.
 `bin/` (the agent-helper forwarders plus the `SETTINGS_HOME_BIN` PATH block), `machine-local/`
 (the registry substrate), and `.coordinator-venv/` (the coordinator venv). This is a required
 post-condition of installing this repo, in **both** delivery shapes — the DoE-maximalist path
-(`coordinator/scripts/install-maximalist.py`) and the plugin-layered OSS path
+(`coordinator/scripts/install-maximalist.py`, which exists only in `claude-klabauter`, not in this
+repo — see § Two entries, two roles below) and the plugin-layered OSS path
 (`/coordinator:install` Phase 3, `coordinator/lib/install-substrate.py` in the engine root).
 
 **The post-condition is outcome-conditional, not "running it installs."** claude-klabauter's ruling
@@ -135,8 +136,8 @@ not by running a fresh install on this (shared, multi-session) machine.** `/coor
 Phase 3 invokes `coordinator/lib/install-substrate.py` with no flags, which imports and calls
 `coordinator_core.install.substrate.main()` → `run(setup_only=False, check_only=...)`.
 `coordinator_core/install/maximalist.py` calls the same `substrate.run(setup_only=False, ...)`
-(directly, or via the `coordinator/scripts/install-maximalist.py` trampoline that imports it).
-Both therefore run
+(directly, or via the `coordinator/scripts/install-maximalist.py` trampoline that imports it —
+that trampoline exists only in `claude-klabauter`, not in this repo). Both therefore run
 the unconditional `bin/` + PATH-guard-block step (`substrate.py`'s step 3e-bin, which calls
 `write_path_entry_guard_blocks` unconditionally whenever `check_only` is false) and the
 `machine-local/`/venv steps identically — `setup_only=True` is the only branch that would skip

@@ -161,7 +161,7 @@ def main(argv: list[str]) -> int:
 
         cc_invoke.ensure_engine_on_path(__file__)
     except ImportError as exc:
-        # Review: distinct message from the resolver guard below — this one
+        # distinct message from the resolver guard below — this one
         # names the bin/lib sibling (cc_invoke/win_argv), not the resolver.
         print(
             f"[coordinator-ceremony-hook] WARN: bin/lib module unavailable "
@@ -224,13 +224,43 @@ def main(argv: list[str]) -> int:
     rvc._metachar_warn(cmd, f"ceremony-hook:{ceremony}", caller="coordinator-ceremony-hook")
     redacted = rvc.redact_for_diag(cmd)
 
+    # W1 pre-exec routing (coordinator_core.ceremony_config.argv_only): a
+    # `VAR=value` first-token prefix parses cleanly under shlex (it is not a
+    # ValueError, see the try/except below) and used to reach the exec
+    # attempt, where it fails with ENOENT and only THEN explains itself in
+    # the launch-failure WARN's trailing clause — the confusing primary
+    # signal (`No such file or directory: 'VAR=value'`) ran ahead of the
+    # precise diagnosis. `check_argv_only` classifies this case before any
+    # exec is attempted, so a W1 command routes straight to its own
+    # diagnostic instead of arriving there by way of a failed launch. See
+    # `argv_only.py`'s module docstring, "CORRECTION" section, for the
+    # sequencing defect this closes.
+    try:
+        from coordinator_core.ceremony_config.argv_only import check_argv_only
+    except ImportError as exc:
+        print(
+            f"[coordinator-ceremony-hook] WARN: argv_only module unavailable "
+            f"({exc}) — skipping W1 pre-exec diagnostic",
+            file=sys.stderr,
+        )
+    else:
+        verdict = check_argv_only(cmd)
+        if not verdict.conformant and verdict.rule == "W1-assignment-prefix":
+            print(
+                f"[coordinator-ceremony-hook] WARN: {ceremony} post-command "
+                f"('{key}') is not argv-only conformant: {verdict.detail} "
+                "Skipping.",
+                file=sys.stderr,
+            )
+            return 0
+
     # Argv-only contract (PM-ruled 2026-08-06, breaking change): no shell=True,
     # no compatibility path. win_argv.win_safe_shlex_split failure (e.g. an
     # unterminated quote) is a hard, clearly-diagnosed skip — not a crash,
     # not a silent no-op, and NOT a fallback to shell execution.
-    # Review: renamed from `argv` (shadowed the function parameter of the same
+    # renamed from `argv` (shadowed the function parameter of the same
     # name, a readability trap for anyone tracing argv through this function).
-    # Review: switched from bare `shlex.split` to `win_argv.win_safe_shlex_split`
+    # switched from bare `shlex.split` to `win_argv.win_safe_shlex_split`
     # — the former silently stripped backslashes from a Windows-authored path,
     # then echoed the mangled result back in this hook's own diagnostics.
     try:
@@ -284,7 +314,7 @@ def main(argv: list[str]) -> int:
         )
         rc = proc.returncode
     except ImportError as exc:
-        # Review: widened alongside the bin/lib and resolver guards above —
+        # widened alongside the bin/lib and resolver guards above —
         # an unimportable coordinator_core (partial live-install mirror) is
         # the identical failure mode; it must degrade to WARN+0, not escape
         # main()'s ALWAYS-0 contract.

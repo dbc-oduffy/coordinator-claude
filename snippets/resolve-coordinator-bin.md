@@ -63,11 +63,12 @@ package:
 **`PYTHONSAFEPATH=1` is load-bearing, not hygiene: without it `PYTHONPATH` does not decide which
 engine runs — the current directory does.** `python3 -m` puts cwd at the FRONT of `sys.path`, ahead
 of `PYTHONPATH`, so in any tree that carries its own `coordinator_core/` the import resolves THAT
-copy and `<engine-root>` is silently ignored. `claude-klabauter` and `claude-klabauter` are both such
-trees, and they are the two you are most likely to be standing in when running an engine op. The
-failure does not look like a path problem: the engine reports the clone it actually loaded from, so
-standing in claude-klabauter yields *"this clone carries no engine build stamp … Resolved engine root:
-…/claude-klabauter"* — a stamp refusal naming the tree you did not choose, which reads as a broken
+copy and `<engine-root>` is silently ignored. The engine's live-development tree and its published
+mirror are both such trees, and they are the two you are most likely to be standing in when running
+an engine op. The failure does not look like a path problem: the engine reports the clone it
+actually loaded from, so standing in the live-development tree yields *"this clone carries no
+engine build stamp … Resolved engine root: …/<live-development-tree>"* — a stamp refusal naming
+the tree you did not choose, which reads as a broken
 engine rather than a shadowed import. `PYTHONSAFEPATH=1` drops cwd from `sys.path` and makes
 `PYTHONPATH` authoritative.
 
@@ -84,8 +85,9 @@ distinguishable by eye. Prefix the command, never the shell.
 
 **The published mirror is the default engine; the live tree is a deliberate choice, never an
 accident of cwd.** `claude-klabauter` is what `engine.target: main` names and what a healthy
-resolution answers (`(<klabauter>, 'resolved-engine', 'published-target')`). Running claude-klabauter's tree
-instead is selecting the CANDIDATE channel over main — legitimate, and reached by declaring it
+resolution answers (`(<klabauter>, 'resolved-engine', 'published-target')`). Running the
+live-development tree instead is selecting the CANDIDATE channel over main — legitimate, and
+reached by declaring it
 (`engine.target`, or the explicit live-tree env override), never by which directory a shell
 happened to be in. A cwd-shadowed import is that choice made silently and unrecorded, which is why
 the guard above is a requirement rather than a suggestion.
@@ -286,7 +288,8 @@ empty `$LASTEXITCODE`. Present-but-silent, not absent — so on a PowerShell hos
 `machine-local` form above through Shape W, not the forwarder.
 
 > Portability: **resolve the interpreter, never spell it literally in a POSIX fence** —
-> `_py=$(command -v python3 || command -v python)`. macOS ships `python3` with no `python`; a
+> resolve `_py` from `command -v python3`, falling back to `command -v python` — the guarded
+> form is spelled out in § Plugin-local `coordinator/bin/` above. macOS ships `python3` with no `python`; a
 > Windows POSIX shell ships `python` with no `python3` alias, so either literal is
 > command-not-found on some supported box. PowerShell fences (Shape W) spell `python` bare —
 > that host has no other name. Test-runner commands in `coordinator.local.md` are exempt: the

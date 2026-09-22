@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """emit-dispatch-workflow.py — thin door-served CLI over
 `coordinator_core.ops.dispatch_emit.cli`.
 

@@ -308,6 +308,21 @@ spike-result record is *one* valid way to generate that evidence, never *the* re
 discharge mechanism; citing a prior test run, a REPL session, or any other concretely-executed
 check is equally valid, as long as `evidence` names it.
 
+**`executed` names the input it ran against, not only the result — the wrong input is not a
+discharge.** `provenance: executed` is scored as the strong case, but it covers a gap neither
+`executed` nor `read` names: an execution against an input the rule under test does not actually
+describe. That reads green and is wrong, and it is worse than an unproven premise — a `read`
+provenance is visibly incomplete and routes to a spike, while a wrong-input `executed` closes the
+question, carries a green stamp into a design fork, and nothing downstream re-opens it.
+*Canonical:* a sizing recorded `executed` after driving a policy-overlay resolution path three
+ways, but every overlay exercised was a *complete* policy restating all required keys, while the
+convention the evidence was gathered for specifically described a *partial* overlay restating one
+key. Nobody had run that case; a sibling repo did, and found pre-merge grammar validation
+fail-closed the partial overlay entirely, refuting the conclusion the `executed` premise had been
+used to reach. Before writing `executed`, ask which input the rule under test actually describes —
+the partial, degenerate, absent, or malformed case, most often — and whether that is the one that
+ran. Executing only the happy path is not a discharge; it is a `read` wearing a green stamp.
+
 **The threshold and the advisory nature.** The engine emits a `premise_unproven` detent when
 provenance is `read` **and** the RESIZED t-shirt (after the symmetric-resize step, not the raw
 gut-read) is in `_PREMISE_DETENT_TSHIRTS` — **M, L, XL, XXL; M fires it.** That constant is
@@ -578,7 +593,12 @@ the collision **without weakening that rule**:
   still required. What changes is the **destination it gates into**: the verb routes into the
   sizing lobby, carrying no appetite — there is none at that point in the flow to carry — and
   `sizing_assemble.route()` resolves the room from the estimate (dispatch / spec-dispatch / shape /
-  plan / roadmap / pm-decision), rather than the verb invoking the named ceremony directly.
+  plan / roadmap / pm-decision), rather than the verb invoking the named ceremony directly. **This
+  strikes the ratified problem-set's Problem 4/6 framing that the keyword "gates entry to the
+  lobby with a preset appetite" — a second, deliberate supersession of that ratified doc, not an
+  incidental wiki edit** (`docs/problems/2026-07-24-sizing-as-the-fleet-routing-lobby.md`): the
+  keyword still redirects into the lobby, but carries no appetite, because there is none at that
+  point in the flow to carry.
 - **This is a destination redirect, not a relaxed gate.** Eventual-intent prose ("we should plan
   this out") still is NOT invocation of anything — not the ceremony, and not the lobby. Only the
   literal word admits entry, to *either* destination. Paraphrase-is-not-authorization survives
@@ -755,6 +775,22 @@ one. Every notch carries the same mandatory review spend regardless (`quick-wrap
 `spec-dispatch`'s terminal at S, `workstream-complete` at M+) — no notch skips review, only where
 the EM's judgment gets spent varies.
 
+**Breadth and a phantom migration both inflate a read the same way, and both are checkable in one
+line each.** First, touchpoint count is not depth: four row classes to handle, a consumed contract
+to renegotiate, and a notified sibling all count as *surfaces*, none of them counts as a
+*mechanism*. An ask sized M on exactly that basis was corrected to S by the PM ("it's breadth, not
+depth") — the real depth was one path-identity computation at one emission seam, shipped as a
+single chunk with a single executor. Second, and less obvious: a stated migration leg may not
+exist at all. "Normalise the existing corpus" can be carried into a sizing intent without anyone
+asking whether a corpus exists to normalise — when the store in question is instead derived on
+demand from source data, changing the emitter changes every row on the next call, and a derived or
+regenerated store has no back-fill, no compatibility window, and usually no migration; that
+phantom leg alone was most of an inflated read in one case. Before accepting a size, write down the
+number of distinct mechanisms that must get right; if it's one, breadth across cases doesn't raise
+it. Then ask what stored state actually has to change — for derived data the honest answer is often
+none. Related trap on a resize: don't also feed a `collapse` probe-signal when re-sizing downward —
+it double-counts against evidence already stated.
+
 ## `appetite` — a two-sense collision, and the guards that keep it from bending the estimate
 
 Coordinator doctrine already uses "appetite" pejoratively (global doctrine: *"OOS framing must be
@@ -778,13 +814,14 @@ against.
 the sibling's half counts in full, sized on its merits, never excluded from the read. What is
 excluded is the boundary *ceremony*: the memo, the cross-repo assent gate, the notification duty,
 the relay, the wait — those are scheduling around the work, belonging in `blocked_by`/
-`awaiting_gate`, never in the t-shirt. Discriminator: a *memo* (one ask, the sibling implements it
-on their own surface) does not move the notch; *negotiated co-design* (the shared contract itself
-is the unknown, and it takes round-trips to converge) is genuine complexity and is ours as much as
-theirs — size the co-design, never the dependency. `--boundary-in-notch yes|no` is how this becomes
-checkable: the engine cannot apply the memo-vs-co-design discriminator from a two-valued flag, so a
-`yes` fires `boundary_counted_in_notch` and hands the call back to the EM at the point the notch is
-committed — collapse it, or record the co-design justification in `detent_discharges`.
+`awaiting_gate`, never in the t-shirt. **Joint design is process, not size.** Negotiated co-design —
+the shared contract is itself the unknown and takes round-trips to converge — is still ceremony: it
+adds a gate and a send, not engineering complexity. Neither a memo nor co-design moves the notch;
+size the code each side writes, never the conversation that settles the contract.
+`--boundary-in-notch` is always answered `no`. A `yes` fires `boundary_counted_in_notch`, and the
+only discharge is collapsing the estimate. Worked case: a queue-grind workflow was sized L on an
+unconverged seam with the engine-plane sibling. The seam converged in two messages, and the PM
+resized it to M: the joint design was process.
 
 A live, same-machine, registry-visible peer EM session is a direct channel for negotiated co-design,
 gated on both: the shared contract is genuinely the unknown (not just "worth telling them"), and
@@ -847,6 +884,27 @@ itself grew is recorded and falsifiable rather than the free, unmarked answer. M
 a `raise` probe's four `scout_evidence` items all described a mirror's health (orphaned tests, a
 stray allowlist row, an uncommitted backlog) and none described the ask, which remained "commit and
 push" — a `substrate-condition` raise, correctly suppressed.
+
+## Feed the assembler the gut-read and the probe signal separately — never the already-collapsed size
+
+The Step 3 assembler applies the probe-signal collapse itself. Passing the post-probe size as
+`--tshirt` double-counts the collapse: an L that already absorbed a collapse signal, resolved
+again through the assembler's own collapse logic, resolves too far down. This fired for real —
+one ask sized L+collapse resolved to M and routed correctly to `plan`, while a separately
+pre-collapsed M+collapse resolved to S and routed to `spec-dispatch`, crossing a route boundary by
+input error rather than by evidence. **Feed the assembler the raw gut-read plus the probe signal
+as two separate inputs; never pre-collapse the size yourself and pass the result as the size.**
+
+## Size the route you will take, not the route a warning was aimed at
+
+A t-shirt sized against a warning's stated blast radius can size the wrong route entirely, when
+the ask itself has already ruled that route out. One case: an ask sized L against a warning's
+stated blast radius, then re-sized S once probed against the route actually being taken — even
+though the probe *raised* the mechanical count on the disqualified route (4 live schema copies
+found, not the assumed 2). Those extra copies sat on the road not taken, so they never bore on the
+size of the road actually taken. **A higher mechanical count discovered on a route the ask has
+already ruled out does not raise the size of the route the ask will actually follow** — size the
+route you will take, not the route you were warned off.
 
 ## Partial-completion crash — reaper hand-back and audit credit
 

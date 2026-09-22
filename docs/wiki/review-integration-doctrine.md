@@ -83,6 +83,18 @@ Spec authority is the PM's, not a reviewer's. A mid-workstream edit that honors 
 
 **A `system-reminder` reporting a file the user or a linter just modified is ground-truth signal — stop additive cleanup and roll back to match.** When the harness injects a `<system-reminder>` noting that the user (or a formatter/linter running on save) has just changed a file mid-session, that is the strongest available signal of the *desired* shape — stronger than any in-flight reviewer recommendation. The correct response is to **stop additive cleanup on that surface and roll back partial sibling edits to match** the reported state, not to continue applying the reviewer's frame over the top of what the user just chose. The user's live edit outranks the reviewer's snapshot.
 
+## Verify a code-reviewer's absence claims against disk before honoring a BLOCKED built on them
+
+`coordinator:code-reviewer` runs with Bash confined to the sidecar-scaffold command — it cannot run `find`/`git`/`ls` to enumerate the tree. Its "no tests exist" / "file absent" findings are guesses at plausible paths, and false-positive the moment the real file has a different name. A doctor-elevation slice was once returned BLOCKED partly on "no unit tests found" when the covering test file existed and passed. Independently confirm any absence-based finding on disk before treating a BLOCKED verdict built on it as real; if the absence claim doesn't hold, dismiss-with-rationale in the integrator brief rather than propagating the BLOCKED. Same discriminator as `docs/wiki/scout-and-dispatch-discipline.md`'s confined-dispatch tell — a reviewer with no enumeration tool sincerely reports an absence it has no instrument to see.
+
+## An observable-outcome acceptance criterion is never satisfied by a tested pure function alone
+
+An AC phrased as an observable outcome — "the wire carries X," "the endpoint returns Y," "the report includes Z" — is satisfied only by a test that drives the real production entry point and would fail if the call site were deleted. A fully-tested projection/builder function with zero non-test callers is the tell: the pydantic carrier can be correct, the validation gate can be correct, and every unit test can be green, while the value it builds is never wired into the thing that ships. This recurs because tests that live in isolation from the pipeline are structurally blind to the gap, and "unit-green plus an import smoke-check" cannot distinguish "built" from "reachable." What catches it is chain-terminal review tracing the actual production construction site rather than reading the diff in isolation. When a chunk's `scope:` and its prose disagree about which file owns the wiring, the scope is wrong, not the prose — a well-scoped executor cannot deliver an AC whose call site its scope excludes. Wave-map check: any new value that must reach an external surface needs one chunk whose write-surface includes the production call site, and one test verified (not assumed) to fail on reverting the wiring.
+
+## Ordering domain-expert-then-generalist review can delete a load-bearing assertion the correctness pass alone would have kept
+
+Close ceremonies run the overengineering/proportionality pass before the correctness pass deliberately — reviewing a shape about to be condemned wastes the correctness reviewer's attention. But the ordering has a blind seam: a proportionality cut can remove an assertion that reads as doing no work in isolation while actually carrying the only call into the code under test, and the correctness pass never sees the pre-cut version to notice what the removed assertion was covering. Neither reviewer is wrong individually — proportionality cannot see which assertion carries coverage, correctness never saw the version before the cut. Only the dispatching EM stands in both passes; that seam is the EM's to watch, not either reviewer's.
+
 ## Chain-end review and plan-time review catch different defect classes
 
 Plan-time review (the Staff Engineer on the stub, prior-art-checker on the plan) checks substrate and approach: are the paths real, is the schema correct, does this contradict prior doctrine, is the architecture coherent? These checks work against the plan artifact before any code is written.
@@ -145,7 +157,7 @@ variant — there is one reviewer, and it always writes its findings to disk.
 
 **How it works.** The reviewer writes to its pre-provisioned sidecar —
 `state/subagent-share/<session>/<provision_key>.md` — pre-provisioned by the dispatching EM in the
-common case (claude-klabauter's `provision_report` engine creates it at spawn), or self-scaffolded into that
+common case (the engine repo's `provision_report` engine creates it at spawn), or self-scaffolded into that
 same home via `coordinator-doc-new --type review-findings` (the Bash allowlist permits this one
 command) only when no path arrived pre-provisioned. Either way, the reviewer edits the
 `<!-- FINDINGS -->` sentinel with its findings and returns only a pointer+verdict line:
@@ -160,7 +172,7 @@ The EM reads the returned path and passes it to `coordinator:review-integrator`.
 **Personas (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering)** are dual-use (advisory OR sidecar-review).
 When dispatched for a review that feeds an integrator, the invoking skill injects the
 pre-provisioned `state/subagent-share/<session>/<provision_key>.md` path into the dispatch brief —
-Claude-klabauter's `provision_report` engine has already created the sidecar at spawn — and the persona
+the engine repo's `provision_report` engine has already created the sidecar at spawn — and the persona
 writes its findings into that path and returns the pointer line. No sentinel-append self-scaffold,
 no EM pre-scaffold, no claim marker. Same zero-ceremony pattern as `code-reviewer`. The
 review-integrator intake fails loud (BLOCKED) if the returned sidecar is a trivial/unfilled
@@ -184,6 +196,8 @@ slip: a Workflow `schema:` return IS an inline-return mechanism — correct for 
 workflow-authoring carve-out that closes the pit lives in `workflow-orchestration.md` § Notes on the
 shape (review/verify stages dispatch `agentType: 'coordinator:code-reviewer'`, or instruct a bare
 `agent()` to self-persist and return the path — never a findings array).
+
+**Empirical scale.** A 36-slice partitioned close dispatched nine review-integrators with findings rendered inline into the prompt; five hard-stopped on exactly this intake precondition, two of them sitting on real defects (one a sixth un-updated mirror of an enum). The refusal was correct and the dispatch was wrong — an integrator handed prose cannot tell a reviewer's verdict from its dispatcher's paraphrase, which is the whole reason the sidecar exists. The tell is an integrator returning `applied=[]` with a long note where a short one belongs: read the note, do not re-dispatch.
 
 → `agents/code-reviewer.md` — the one self-persisting reviewer
 → `workflow-orchestration.md` § Notes on the shape — the workflow review-stage carve-out
@@ -613,7 +627,7 @@ The worked example is above, under § How to write the block. The shape it must 
 
 Five buckets always render, `[]` included. `verified-no-action` renders only when non-empty, and
 last — `DISPOSITION-BUCKET-SIXTH-RENDERS-ONLY-WHEN-USED`, whose contact points include
-`claude-klabauter:coordinator_core/ops/append_integrator_dispositions.py` `BUCKET_ORDER`. Matching the
+the engine repo's `coordinator_core/ops/append_integrator_dispositions.py` `BUCKET_ORDER`. Matching the
 CLI's byte-for-byte output is the whole point of the shape spec: a hand-authored block that renders
 a sixth empty bucket, or orders them differently, diverges from every block the CLI wrote.
 

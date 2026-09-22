@@ -22,7 +22,7 @@ Run from an **elevated PowerShell** — non-elevated cdb opens the file but `!an
 Set the symbol path before the first run:
 
 ```powershell
-$env:_NT_SYMBOL_PATH = "srv*C:\symbols*https://msdl.microsoft.com/download/symbols"  <!-- foreign-path-ok: fixed Windows symbol-cache path, part of a runnable PowerShell example -->
+$env:_NT_SYMBOL_PATH = "srv*$env:LOCALAPPDATA\symbols*https://msdl.microsoft.com/download/symbols"  <!-- foreign-path-ok: fixed Windows symbol-cache path, part of a runnable PowerShell example -->
 ```
 
 ## 2. Run `!analyze -v` Before Trusting Event-Log Driver Attribution
@@ -36,7 +36,7 @@ Event Viewer "disorderly shutdown" entries name a driver from the kernel call st
 ## 3. Minimum Forensic Toolchain (Install Once Per Dev Box)
 
 - **WinDbg from Microsoft Store** — provides `cdb.exe` under the Windows Kits directory
-- **Symbol path env var:** `_NT_SYMBOL_PATH=srv*C:\symbols*https://msdl.microsoft.com/download/symbols` <!-- foreign-path-ok: fixed Windows symbol-cache path, identical on every Windows machine -->
+- **Symbol path env var:** `_NT_SYMBOL_PATH=srv*$env:LOCALAPPDATA\symbols*https://msdl.microsoft.com/download/symbols` <!-- foreign-path-ok: fixed Windows symbol-cache path, identical on every Windows machine -->
 - **Elevated PowerShell shortcut** pinned to taskbar for crash-triage sessions
 
 Default `cdb.exe` location after WinDbg install:
@@ -65,7 +65,7 @@ Kernel minidumps require elevation to read. If `cdb.exe` opens without error but
 
 ```powershell
 # Run from elevated PowerShell
-$env:_NT_SYMBOL_PATH = "srv*C:\symbols*https://msdl.microsoft.com/download/symbols"  <!-- foreign-path-ok: fixed Windows symbol-cache path, part of a runnable PowerShell example -->
+$env:_NT_SYMBOL_PATH = "srv*$env:LOCALAPPDATA\symbols*https://msdl.microsoft.com/download/symbols"  <!-- foreign-path-ok: fixed Windows symbol-cache path, part of a runnable PowerShell example -->
 
 $dmp = Get-ChildItem C:\Windows\Minidump\*.dmp | <!-- foreign-path-ok: fixed Windows kernel-dump directory, part of a runnable PowerShell example -->
     Sort-Object LastWriteTime -Descending |

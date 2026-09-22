@@ -17,7 +17,7 @@ WHY THIS IS A SEPARATE MODULE FROM `_prompt_surface_citations.py`
 THE HARD PART IS NOT THE EXISTENCE CHECK
     `coordinator/bin/` and `coordinator/lib/` are tracked as 0 and 2 files
     respectively IN THIS CLONE — the executable surface migrated wholesale to
-    the `claude-klabauter` engine repo on 2026-07-22 (see `_oss_payload.py`'s
+    the engine repo on 2026-07-22 (see `_oss_payload.py`'s
     module docstring). A citation of `coordinator/bin/archive-session-scope.py`
     is CORRECT: it resolves for a reader with the plugin installed, because that
     tree ships via `_oss_payload.py`'s `source_map` routing even though it is

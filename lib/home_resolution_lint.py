@@ -69,7 +69,7 @@ import sys
 from pathlib import Path
 from typing import Iterable, Sequence
 
-ENGINE_VERSION = "2026-08-08.3"
+ENGINE_VERSION = "2026-09-19.1"
 
 DEFAULT_EXCLUDED_PARTS: frozenset[str] = frozenset(
     {
@@ -201,6 +201,57 @@ def _shebang_names_python(path: Path) -> bool:
     if not first_line.startswith(b"#!"):
         return False
     return b"python" in first_line
+
+
+def _collect_path_alias_names(tree: ast.AST) -> frozenset[str]:
+    """C1 -- every name this tree binds to `pathlib.Path`, at any scope
+    (module-level or function-local `from pathlib import Path as X`),
+    always including the literal `"Path"` itself so an un-aliased receiver
+    keeps matching exactly as before this rule existed. Computed once per
+    parsed tree and threaded down to every walker `_is_path_home_call`
+    receiver-checks for (`_contains_path_home_call`, `_extract_rungs`,
+    `_classify_rung`) -- no module-global state, no re-parse."""
+    names = {"Path"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "pathlib":
+            for alias in node.names:
+                if alias.name == "Path":
+                    names.add(alias.asname or alias.name)
+    return frozenset(names)
+
+
+def _build_parent_map(tree: ast.AST) -> dict[int, ast.AST]:
+    """`id(child) -> parent` for every node in `tree`, built once per parsed
+    tree so a pass can ask what a node sits inside without re-walking."""
+    parent_map: dict[int, ast.AST] = {}
+    for parent in ast.walk(tree):
+        for child in ast.iter_child_nodes(parent):
+            parent_map[id(child)] = parent
+    return parent_map
+
+
+def _is_print_message_fstring_site(node: ast.AST, parent_map: dict[int, ast.AST]) -> bool:
+    """C5 (example-game-repo site 8) -- True when `node` sits as a `FormattedValue`'s
+    `value` inside a `JoinedStr` (an f-string) that is itself a direct
+    positional argument of a `print(...)` call. A `print(f"...{os.environ.get(
+    'CLAUDE_HOME', '')}...", file=sys.stderr)`-shaped env read is interpolated
+    only into a diagnostic message -- it is not a home-resolution ladder
+    site, even though the shape-4 default-arg pass otherwise treats any
+    `environ.get(...)` call carrying two args as a (possibly single-rung)
+    ladder. No other sink kind is recognised here by design (overengineering-
+    reviewer, R5 applied) -- every other f-string is scored as before."""
+    parent = parent_map.get(id(node))
+    if not isinstance(parent, ast.FormattedValue):
+        return False
+    joined = parent_map.get(id(parent))
+    if not isinstance(joined, ast.JoinedStr):
+        return False
+    call = parent_map.get(id(joined))
+    if not isinstance(call, ast.Call):
+        return False
+    if not (isinstance(call.func, ast.Name) and call.func.id == "print"):
+        return False
+    return joined in call.args
 
 
 def _attr_or_name(node) -> str | None:
@@ -540,19 +591,26 @@ class HomeResolutionLintEngine:
         return isinstance(arg0, ast.Constant) and arg0.value in ("CLAUDE_HOME", "HOME")
 
     @staticmethod
-    def _is_path_home_call(node: ast.AST) -> bool:
+    def _is_path_home_call(
+        node: ast.AST, path_names: frozenset[str] = frozenset({"Path"})
+    ) -> bool:
         """True only for a genuine no-arg `Path.home()` call -- an
-        `Attribute(attr="home")` whose receiver dotted-names to `Path`.
+        `Attribute(attr="home")` whose receiver dotted-names to a name this
+        tree binds to `pathlib.Path` (`path_names`, C1 -- see
+        `_collect_path_alias_names`; the literal `"Path"` always matches, so
+        an un-aliased receiver behaves exactly as before this rule existed).
         Structural, not textual: does not match `Path(home)` (a `Call`, not
         an `Attribute`) even though both contain the tokens `"Path"` and
         `"home"`."""
         if not isinstance(node, ast.Call) or node.args or node.keywords:
             return False
         func = node.func
-        return isinstance(func, ast.Attribute) and func.attr == "home" and _attr_or_name(func.value) == "Path"
+        return isinstance(func, ast.Attribute) and func.attr == "home" and _attr_or_name(func.value) in path_names
 
     @staticmethod
-    def _contains_path_home_call(node: ast.AST) -> bool:
+    def _contains_path_home_call(
+        node: ast.AST, path_names: frozenset[str] = frozenset({"Path"})
+    ) -> bool:
         """Structurally walks `node` for a genuine `Path.home()` call,
         recognising it reached through a wrapping call (`str(Path.home())`),
         a ternary (`Path(claude_home) if claude_home else Path.home()`), a
@@ -575,22 +633,24 @@ class HomeResolutionLintEngine:
         or arbitrary `ast.walk` -- only the specific wrapping shapes above,
         so a `Path.home()` mentioned merely somewhere inside an unrelated
         sibling subexpression is not mistaken for a terminal rung."""
-        if HomeResolutionLintEngine._is_path_home_call(node):
+        if HomeResolutionLintEngine._is_path_home_call(node, path_names):
             return True
         if isinstance(node, ast.Call):
-            if HomeResolutionLintEngine._contains_path_home_call(node.func):
+            if HomeResolutionLintEngine._contains_path_home_call(node.func, path_names):
                 return True
-            return any(HomeResolutionLintEngine._contains_path_home_call(arg) for arg in node.args)
+            return any(
+                HomeResolutionLintEngine._contains_path_home_call(arg, path_names) for arg in node.args
+            )
         if isinstance(node, ast.Attribute):
-            return HomeResolutionLintEngine._contains_path_home_call(node.value)
+            return HomeResolutionLintEngine._contains_path_home_call(node.value, path_names)
         if isinstance(node, ast.BinOp):
             return HomeResolutionLintEngine._contains_path_home_call(
-                node.left
-            ) or HomeResolutionLintEngine._contains_path_home_call(node.right)
+                node.left, path_names
+            ) or HomeResolutionLintEngine._contains_path_home_call(node.right, path_names)
         if isinstance(node, ast.IfExp):
             return HomeResolutionLintEngine._contains_path_home_call(
-                node.body
-            ) or HomeResolutionLintEngine._contains_path_home_call(node.orelse)
+                node.body, path_names
+            ) or HomeResolutionLintEngine._contains_path_home_call(node.orelse, path_names)
         return False
 
     @staticmethod
@@ -647,6 +707,130 @@ class HomeResolutionLintEngine:
         return False
 
     @staticmethod
+    def _contains_delegation_to(node: ast.AST, complete_names: set[str]) -> bool:
+        """C4 -- structurally walks `node` for a delegation to a same-module
+        function named in `complete_names`: a call to that name
+        (`resolve_home_base()`), an attribute/subscript-free chain on top of
+        such a call (`resolve_claude_home().parent`), a path-join `BinOp`
+        (`resolve_claude_home() / "plugins"`, either operand), a ternary, or
+        the function named as a bare argument to another call (the
+        `_memoised(key, fn)` form -- `fn` itself, unresolved further, is the
+        delegation). Same Call/Attribute/BinOp/IfExp arms as
+        `_contains_path_home_call`, generalised to a name-set base case
+        instead of a fixed `Path.home` shape (staff-eng F2). A `Name` that
+        resolves to an import is never IN `complete_names` (that set is
+        built only from same-module top-level `FunctionDef`s -- see
+        `_compute_resolution_complete`), so an imported name's call never
+        matches here, by construction rather than a special case."""
+        if isinstance(node, ast.Name):
+            return node.id in complete_names
+        if isinstance(node, ast.Call):
+            if HomeResolutionLintEngine._contains_delegation_to(node.func, complete_names):
+                return True
+            return any(
+                HomeResolutionLintEngine._contains_delegation_to(arg, complete_names)
+                for arg in node.args
+            )
+        if isinstance(node, ast.Attribute):
+            return HomeResolutionLintEngine._contains_delegation_to(node.value, complete_names)
+        if isinstance(node, ast.BinOp):
+            return HomeResolutionLintEngine._contains_delegation_to(
+                node.left, complete_names
+            ) or HomeResolutionLintEngine._contains_delegation_to(node.right, complete_names)
+        if isinstance(node, ast.IfExp):
+            return HomeResolutionLintEngine._contains_delegation_to(
+                node.body, complete_names
+            ) or HomeResolutionLintEngine._contains_delegation_to(node.orelse, complete_names)
+        return False
+
+    @staticmethod
+    def _iter_own_return_values(func: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.expr]:
+        """C4 -- every valued `return`'s expression reachable from `func`'s
+        OWN body, at any nesting depth (an `if`/`for`/`with`/`try` body
+        included), but never crossing into a nested `def`/`async def`/
+        `lambda` -- a nested function's own `return` belongs to ITS scope,
+        not `func`'s. Feeds `_compute_resolution_complete`, which is defined
+        over return expressions rather than over ladder-site shape (staff-eng
+        F3), so `def _home(): return str(Path.home())` -- no `if`/guard at
+        all -- still counts."""
+        values: list[ast.expr] = []
+
+        def walk(node: ast.AST) -> None:
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                    continue
+                if isinstance(child, ast.Return) and child.value is not None:
+                    values.append(child.value)
+                walk(child)
+
+        walk(func)
+        return values
+
+    @staticmethod
+    def _flatten_or_operands(node: ast.expr) -> list[ast.expr]:
+        """C4 -- a return expression that is itself a `BoolOp(Or, ...)`
+        (`os.environ.get('USERPROFILE') or Path.home()`) is decomposed into
+        its individual operands, recursively (an explicitly-nested
+        `a or (b or c)` included), so each operand is checked against
+        `_contains_path_home_call`/`_contains_userprofile_rung`/
+        `_contains_delegation_to` on its own -- those three walkers have no
+        `BoolOp` arm by design (mirrors `_contains_path_home_call`'s own
+        documented arm list), so an unflattened `... or Path.home()` return
+        would otherwise never classify as resolution-complete at all."""
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
+            flattened: list[ast.expr] = []
+            for value in node.values:
+                flattened.extend(HomeResolutionLintEngine._flatten_or_operands(value))
+            return flattened
+        return [node]
+
+    @staticmethod
+    def _compute_resolution_complete(
+        tree: ast.AST, path_names: frozenset[str]
+    ) -> frozenset[str]:
+        """C4 -- per-parsed-module map of top-level `FunctionDef`/
+        `AsyncFunctionDef` names that are resolution-complete: a function
+        whose own return expressions (`_iter_own_return_values`) yield a
+        rung satisfying `_contains_path_home_call` or
+        `_contains_userprofile_rung`, OR that delegates
+        (`_contains_delegation_to`) to another resolution-complete
+        same-module function. Computed as a cycle-safe FIXPOINT -- the
+        `complete` set only ever grows, so a mutual-recursion pair (`f`
+        delegates to `g`, `g` delegates to `f`, neither independently
+        resolution-complete) simply reaches a fixed point with neither name
+        added, rather than infinite-looping; only same-module top-level
+        functions are candidates (an imported name is never a key here), so
+        delegation to an import can never resolve regardless of iteration
+        count."""
+        functions: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {
+            node.name: node
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        complete: set[str] = set()
+        changed = True
+        while changed:
+            changed = False
+            for name, func in functions.items():
+                if name in complete:
+                    continue
+                returns = HomeResolutionLintEngine._iter_own_return_values(func)
+                rungs = [
+                    rung
+                    for value in returns
+                    for rung in HomeResolutionLintEngine._flatten_or_operands(value)
+                ]
+                if any(
+                    HomeResolutionLintEngine._contains_path_home_call(rung, path_names)
+                    or HomeResolutionLintEngine._contains_userprofile_rung(rung)
+                    or HomeResolutionLintEngine._contains_delegation_to(rung, complete)
+                    for rung in rungs
+                ):
+                    complete.add(name)
+                    changed = True
+        return frozenset(complete)
+
+    @staticmethod
     def _is_environ_get_call(node: ast.AST) -> bool:
         """Any `<name>.environ.get(...)` call regardless of key -- used only
         to walk the NESTED default-arg rung of the shape-4 ladder
@@ -663,13 +847,36 @@ class HomeResolutionLintEngine:
         return _attr_or_name(func.value) == "environ"
 
     @staticmethod
-    def _extract_guard_ladder(func: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.expr] | None:
+    def _extract_guard_ladder(
+        func: ast.FunctionDef | ast.AsyncFunctionDef,
+        path_names: frozenset[str] = frozenset({"Path"}),
+    ) -> tuple[list[ast.expr], ast.expr | None] | None:
         """Shape 2 -- the `if`/`return` guard ladder, per the spike the
         DOMINANT shape in this fleet. Scans `func`'s OWN top-level body
-        statements (not nested blocks) for `if <test>: return <value>`
-        guards (no `elif`/`else`) and any plain `return <value>` statement,
-        collecting each guard's `test` and return value, plus a bare
-        return's value, as rung candidates in source order.
+        statements (not nested blocks) for `if <test>: ... return <value>`
+        guards (no `elif`/`else`, no `orelse`; the guard's body may hold any
+        number of leading statements as long as the LAST one is a valued
+        `return` -- a guard body ending in `raise` is not this shape) and
+        any plain `return <value>` statement, collecting each guard's `test`
+        and return value, plus a bare return's value, as rung candidates in
+        source order.
+
+        **Probe-then-guard (C3 -- example-game-repo form 2).** A top-level
+        single-level home probe `n = environ.get(<CLAUDE_HOME|HOME>,
+        <default>)` followed by `if n: ... return <value>` (any body
+        length) is this same shape -- the guard test is a bare `Name`
+        resolving, via `bindings`, back to the probe call. When it is
+        SPECIFICALLY this relaxed (body-length > 1) form that qualifies the
+        function -- not the narrower body-length-1 shape that already
+        qualified before this widening -- the second return value of this
+        method carries the probe's `environ.get(...)` Call node as the
+        REPRESENTATIVE for the site, in place of the `FunctionDef` itself,
+        so a still-flagged site keeps its `(path, text)` key stable in
+        every consuming repo's ledger (the probe line, not a line inside
+        the function body, was already the shape-4 default-arg pass's
+        reporting line for this same site before the guard was recognised
+        at all). `None` means "use the `FunctionDef`", unchanged from
+        before this widening.
 
         Requires at least one `if`/`return` guard to qualify -- a bare
         `def f(): return X` with no guard at all is not ladder-shaped and is
@@ -716,37 +923,53 @@ class HomeResolutionLintEngine:
         (different keys, different order) is untouched."""
         bindings: dict[str, ast.expr] = {}
         expanded: set[str] = set()
+        probe_calls: dict[str, ast.expr] = {}
 
         rungs: list[ast.expr] = []
         saw_guard = False
+        representative: ast.expr | None = None
         for stmt in func.body:
             if (
                 isinstance(stmt, ast.Assign)
                 and len(stmt.targets) == 1
                 and isinstance(stmt.targets[0], ast.Name)
             ):
-                bindings[stmt.targets[0].id] = stmt.value
+                name = stmt.targets[0].id
+                bindings[name] = stmt.value
+                if HomeResolutionLintEngine._is_environ_get_home(stmt.value):
+                    probe_calls[name] = stmt.value
                 continue
             if (
                 isinstance(stmt, ast.If)
                 and not stmt.orelse
-                and len(stmt.body) == 1
-                and isinstance(stmt.body[0], ast.Return)
-                and stmt.body[0].value is not None
+                and stmt.body
+                and isinstance(stmt.body[-1], ast.Return)
+                and stmt.body[-1].value is not None
             ):
-                rungs.extend(HomeResolutionLintEngine._extract_rungs(stmt.test, bindings, expanded=expanded))
+                relaxed = len(stmt.body) != 1
                 rungs.extend(
                     HomeResolutionLintEngine._extract_rungs(
-                        stmt.body[0].value, bindings, expanded=expanded
+                        stmt.test, bindings, expanded=expanded, path_names=path_names
                     )
                 )
+                rungs.extend(
+                    HomeResolutionLintEngine._extract_rungs(
+                        stmt.body[-1].value, bindings, expanded=expanded, path_names=path_names
+                    )
+                )
+                if relaxed and isinstance(stmt.test, ast.Name) and stmt.test.id in probe_calls:
+                    representative = probe_calls[stmt.test.id]
                 saw_guard = True
                 continue
             if isinstance(stmt, ast.Return) and stmt.value is not None:
-                rungs.extend(HomeResolutionLintEngine._extract_rungs(stmt.value, bindings, expanded=expanded))
+                rungs.extend(
+                    HomeResolutionLintEngine._extract_rungs(
+                        stmt.value, bindings, expanded=expanded, path_names=path_names
+                    )
+                )
         if not saw_guard:
             return None
-        return HomeResolutionLintEngine._collapse_adjacent_duplicates(rungs)
+        return HomeResolutionLintEngine._collapse_adjacent_duplicates(rungs), representative
 
     @staticmethod
     def _extract_rungs(
@@ -754,6 +977,7 @@ class HomeResolutionLintEngine:
         bindings: dict[str, ast.expr],
         _seen: frozenset[str] = frozenset(),
         expanded: set[str] | None = None,
+        path_names: frozenset[str] = frozenset({"Path"}),
     ) -> list[ast.expr]:
         """Resolves `node` against `bindings` (a bare `Name`, anywhere in
         the expression -- including nested inside a `Call`'s arguments, not
@@ -810,20 +1034,20 @@ class HomeResolutionLintEngine:
                     return []
                 expanded.add(node.id)
             return HomeResolutionLintEngine._extract_rungs(
-                bindings[node.id], bindings, _seen | {node.id}, expanded
+                bindings[node.id], bindings, _seen | {node.id}, expanded, path_names
             )
         if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
             rungs: list[ast.expr] = []
             for value in node.values:
                 rungs.extend(
-                    HomeResolutionLintEngine._extract_rungs(value, bindings, _seen, expanded)
+                    HomeResolutionLintEngine._extract_rungs(value, bindings, _seen, expanded, path_names)
                 )
             return rungs
         if isinstance(node, ast.Call):
             if (
                 HomeResolutionLintEngine._is_environ_get_home(node)
                 or HomeResolutionLintEngine._is_environ_get_userprofile(node)
-                or HomeResolutionLintEngine._is_path_home_call(node)
+                or HomeResolutionLintEngine._is_path_home_call(node, path_names)
             ):
                 return [node]
             func = node.func
@@ -832,9 +1056,21 @@ class HomeResolutionLintEngine:
             wrapped: list[ast.expr] = []
             for arg in node.args:
                 wrapped.extend(
-                    HomeResolutionLintEngine._extract_rungs(arg, bindings, _seen, expanded)
+                    HomeResolutionLintEngine._extract_rungs(arg, bindings, _seen, expanded, path_names)
                 )
             return wrapped or [node]
+        if isinstance(node, ast.BinOp):
+            # C3: a path-join BinOp (`Path(home) / ".claude"`) is a
+            # transparent wrapper, same as an unrecognised Call -- either
+            # operand may carry the resolvable rung (a bound `Name`, a
+            # nested `or`-chain, ...); both are extracted and concatenated,
+            # left-to-right, rather than the whole BinOp staying one opaque
+            # leaf.
+            return HomeResolutionLintEngine._extract_rungs(
+                node.left, bindings, _seen, expanded, path_names
+            ) + HomeResolutionLintEngine._extract_rungs(
+                node.right, bindings, _seen, expanded, path_names
+            )
         return [node]
 
     @staticmethod
@@ -877,7 +1113,32 @@ class HomeResolutionLintEngine:
         rungs.append(current)
         return rungs
 
-    def _iter_ladder_sites(self, tree: ast.AST) -> list[tuple[ast.AST, list[ast.expr]]]:
+    @staticmethod
+    def _flatten_boolop_or_operand(value: ast.expr) -> list[ast.expr]:
+        """C2 -- the BoolOp `or`-chain pass's per-operand flattening step.
+        An operand stays a single leaf UNLESS it is a `Call` and one of its
+        OWN `args` is itself an `or` `BoolOp`, in which case that arg is
+        replaced by its operands, each expanded the same way, recursively.
+        Every other `Call` -- in particular one with no `or`-BoolOp argument
+        at all -- stays an opaque leaf, so an unrelated env read such as
+        `os.environ.get("XDG_X", "~")` is never decomposed into a spurious
+        TILDE rung. This is deliberately narrower than `_extract_rungs`,
+        which treats every unrecognised Call as transparent -- that
+        broader rule is wrong here (see `_iter_ladder_sites`'s C2 note)."""
+        if not isinstance(value, ast.Call):
+            return [value]
+        flattened: list[ast.expr] = []
+        replaced = False
+        for arg in value.args:
+            if isinstance(arg, ast.BoolOp) and isinstance(arg.op, ast.Or):
+                replaced = True
+                for operand in arg.values:
+                    flattened.extend(HomeResolutionLintEngine._flatten_boolop_or_operand(operand))
+        return flattened if replaced else [value]
+
+    def _iter_ladder_sites(
+        self, tree: ast.AST, path_names: frozenset[str] | None = None
+    ) -> list[tuple[ast.AST, list[ast.expr]]]:
         """The single ladder-extraction seam: one `(representative_node,
         rungs)` pair per distinct home-resolution ladder site in `tree`,
         covering all four shapes (BoolOp `or`-chain, `if`/`return`
@@ -907,6 +1168,10 @@ class HomeResolutionLintEngine:
         name bindings, only the literal test/body/orelse it is built from.
         The guard-ladder pass has the same limit for the same reason (see
         `_extract_guard_ladder`'s own docstring)."""
+        if path_names is None:
+            path_names = _collect_path_alias_names(tree)
+        parent_map = _build_parent_map(tree)
+
         covered: set[int] = set()
         sites: list[tuple[ast.AST, list[ast.expr]]] = []
 
@@ -917,16 +1182,24 @@ class HomeResolutionLintEngine:
         for node in ast.walk(tree):
             if id(node) in covered or not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
-            rungs = self._extract_guard_ladder(node)
-            if rungs is not None:
-                sites.append((node, rungs))
+            result = self._extract_guard_ladder(node, path_names)
+            if result is not None:
+                rungs, representative = result
+                sites.append((representative if representative is not None else node, rungs))
                 claim(node)
 
         for node in ast.walk(tree):
             if id(node) in covered:
                 continue
             if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
-                sites.append((node, list(node.values)))
+                # C2: a `Call` operand's own `args` are flattened into the
+                # site's rungs only when the arg is itself an `or` BoolOp
+                # (recursively) -- see `_flatten_boolop_or_operand`. Every
+                # other Call stays a leaf, unchanged from before C2.
+                rungs: list[ast.expr] = []
+                for value in node.values:
+                    rungs.extend(self._flatten_boolop_or_operand(value))
+                sites.append((node, rungs))
                 claim(node)
 
         for node in ast.walk(tree):
@@ -938,6 +1211,8 @@ class HomeResolutionLintEngine:
 
         for node in ast.walk(tree):
             if id(node) in covered:
+                continue
+            if _is_print_message_fstring_site(node, parent_map):
                 continue
             rungs = self._default_arg_ladder_rungs(node)
             if rungs is not None:
@@ -964,18 +1239,33 @@ class HomeResolutionLintEngine:
         a rung that IS the ladder's own expression does. `expanduser` is
         not exempting either way: an unguarded `os.path.expanduser` call is
         the vulnerable site itself, not evidence the chain already guards
-        against it."""
+        against it.
+
+        **C4 -- delegation to a resolution-complete same-module function.**
+        A qualifying site is ALSO exempt when one of its OWN rungs
+        structurally delegates (`_contains_delegation_to`) to a top-level
+        same-module function this module's own `_compute_resolution_complete`
+        fixpoint judges resolution-complete -- a helper that itself already
+        resolves through `Path.home()`/`USERPROFILE`, directly or through
+        its own same-module delegation chain. A delegation to an imported
+        name, or to a same-module function that is not resolution-complete
+        (e.g. its own ladder is a bare CLAUDE_HOME/HOME-or-'' with no
+        Windows rung), is NOT exempting -- it still reports."""
         findings: list[Finding] = []
         for path in self.iter_py_files():
             tree, lines = _parse(path)
             if tree is None:
                 continue
-            for node, rungs in self._iter_ladder_sites(tree):
+            path_names = _collect_path_alias_names(tree)
+            complete_names = self._compute_resolution_complete(tree, path_names)
+            for node, rungs in self._iter_ladder_sites(tree, path_names):
                 if not any(self._is_environ_get_home(rung) for rung in rungs):
                     continue
-                if any(self._contains_path_home_call(rung) for rung in rungs):
+                if any(self._contains_path_home_call(rung, path_names) for rung in rungs):
                     continue
                 if any(self._contains_userprofile_rung(rung) for rung in rungs):
+                    continue
+                if any(self._contains_delegation_to(rung, complete_names) for rung in rungs):
                     continue
                 findings.append(
                     Finding(_relpath(self.repo_root, path), node.lineno, _line_text(lines, node.lineno))
@@ -1036,7 +1326,9 @@ class HomeResolutionLintEngine:
         return False
 
     @classmethod
-    def _classify_rung(cls, node: ast.expr) -> str | None:
+    def _classify_rung(
+        cls, node: ast.expr, path_names: frozenset[str] = frozenset({"Path"})
+    ) -> str | None:
         """Classifies one ladder rung expression into a master-order key
         (`"CLAUDE_HOME"` / `"HOME"` / `"USERPROFILE"` / `"PATH_HOME"`), or
         one of the two non-order terminal-shape violations (`"TILDE"` for a
@@ -1073,7 +1365,7 @@ class HomeResolutionLintEngine:
         key = cls._contains_environ_get_key(node)
         if key is not None:
             return key if key in cls._RUNG_ORDER else None
-        if cls._contains_path_home_call(node):
+        if cls._contains_path_home_call(node, path_names):
             return "PATH_HOME"
         if isinstance(node, ast.Constant) and node.value == "~":
             return "TILDE"
@@ -1093,10 +1385,11 @@ class HomeResolutionLintEngine:
             tree, _lines = _parse(path)
             if tree is None:
                 continue
-            for node, rungs in self._iter_ladder_sites(tree):
+            path_names = _collect_path_alias_names(tree)
+            for node, rungs in self._iter_ladder_sites(tree, path_names):
                 if not any(self._is_environ_get_home(rung) for rung in rungs):
                     continue
-                yield path, node, [self._classify_rung(rung) for rung in rungs]
+                yield path, node, [self._classify_rung(rung, path_names) for rung in rungs]
 
     @classmethod
     def _rung_order_is_violation(cls, kinds: list[str | None]) -> bool:

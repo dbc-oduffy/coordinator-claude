@@ -34,8 +34,15 @@ judgment about the work itself.
 
 The whole authoring surface is:
 
-```
+Emit (or re-emit) a plan's script:
+
+```bash
 python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/emit-dispatch-workflow.py" --plan <plan-path> [--out <script>] [--fire]
+```
+
+Re-stamp an already-emitted script:
+
+```bash
 python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/emit-dispatch-workflow.py" --restamp <script>
 ```
 

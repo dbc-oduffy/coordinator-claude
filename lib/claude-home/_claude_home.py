@@ -105,7 +105,7 @@ from typing import Any
 # One-time warning helpers for legacy machine-local homes
 # ---------------------------------------------------------------------------
 
-# Review: code-reviewer (F2) — split into two independent once-guards so that a divergence
+# Split into two independent once-guards so that a divergence
 # warning from _check_machine_local_divergence() cannot consume the once-guard for the
 # legacy-fallback DEPRECATED warning emitted by machine_local_dir(). The two warning types
 # have distinct semantics and must suppress independently.
@@ -167,7 +167,7 @@ def home_dir() -> Path:
     """
     claude_home = os.environ.get("CLAUDE_HOME")
     if claude_home is not None:
-        # Review: code-reviewer — empty-string CLAUDE_HOME (e.g. from `CLAUDE_HOME=` in CI)
+        # empty-string CLAUDE_HOME (e.g. from `CLAUDE_HOME=` in CI)
         # is set-but-malformed; treat as config error, not silent fallthrough.
         if not claude_home:
             raise ValueError(
@@ -175,7 +175,7 @@ def home_dir() -> Path:
             )
         p = Path(claude_home)
         if not p.is_absolute():
-            # Review: code-reviewer — drive-relative paths (e.g. "C:foo") are not
+            # drive-relative paths (e.g. "C:foo") are not
             # absolute on Windows; mention explicitly for operator clarity.
             raise ValueError(
                 f"CLAUDE_HOME must be an absolute path; got {claude_home!r}. "
@@ -547,7 +547,7 @@ def _main(argv: list[str]) -> int:
         return 0
     if cmd == "machine-local":
         # Delegate to the settings-home seam with divergence guard.
-        # Review: code-reviewer (F1) — updated to reflect post-softening behavior.
+        # Updated to reflect post-softening behavior.
         # Warns loud and continues if both homes exist with different realpaths; deterministically prefers new.
         _check_machine_local_divergence()
         print(machine_local_dir())

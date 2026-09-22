@@ -104,7 +104,7 @@ python3 "$_cc_claude_klabauter/coordinator/bin/render-template.py" \
   PROJECT_TYPE_BLOCK="<concatenated-blocks-or-empty>"
 ```
 
-The helper substitutes all `{{KEY}}` placeholders, exits non-zero if any remain (template/key drift guard). The render helper and template resolve from the coordinator plugin root (`$_cc_root`, settings-resolved via `CLAUDE_PLUGIN_ROOT`/`.doe-root`, trust-guarded above) and the claude-klabauter root (`$_cc_claude_klabauter`, settings-resolved via `REPO_CLAUDE_KLABAUTER`/`CLAUDE_KLABAUTER_ROOT`/`_engine_root.py`) — relative paths are wrong because they resolve against the project root, not the plugin directory, but the fix is these resolved variables, never a hardcoded `$HOME`-anchored literal. Leave `<!-- Fill in -->` comments as-is; they are prompts for the PM.
+The helper substitutes all `{{KEY}}` placeholders, exits non-zero if any remain (template/key drift guard). The render helper and template resolve from the coordinator plugin root (`$_cc_root`, settings-resolved via `CLAUDE_PLUGIN_ROOT`/`.doe-root`, trust-guarded above) and the engine root (`$_cc_claude_klabauter`, settings-resolved via `REPO_CLAUDE_KLABAUTER`/`CLAUDE_KLABAUTER_ROOT`/`_engine_root.py`) — relative paths are wrong because they resolve against the project root, not the plugin directory, but the fix is these resolved variables, never a hardcoded `$HOME`-anchored literal. Leave `<!-- Fill in -->` comments as-is; they are prompts for the PM.
 
 ## 4. Runtime Conventions Section
 

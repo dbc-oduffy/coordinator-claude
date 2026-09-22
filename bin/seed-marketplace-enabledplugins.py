@@ -193,7 +193,7 @@ def _bootstrap_engine() -> None:
 
         _write_surface = _WriteSurfaceDeclaration(
             writer_id="seed-marketplace-enabledplugins",
-            # Review: coordinator:code-reviewer — bare filename, not a fake dotted
+            # Bare filename, not a fake dotted
             # path: `write_surface_discovery._dotted_module_path` returns None for
             # any hyphenated segment and falls back to file-location loading, so
             # this is never a real importable path; matches the sibling convention
@@ -749,7 +749,7 @@ def _run(
             )
         return 0
 
-    # Review: code-reviewer — both payloads share one atomic write to local_path; the outer
+    # Both payloads share one atomic write to local_path; the outer
     # `if` gates whether a write happens at all, not two independently-gateable writes.
     if keys_to_seed or extra_marketplaces_to_seed:
         if keys_to_seed:

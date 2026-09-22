@@ -19,8 +19,9 @@ user-invocable: true
 3. **Conform intake from a sizing-object** — `coordinator:sizing` hands an optional
    `state/sizings/<id>.yaml` entry contract ahead of Step 1, on three arrival shapes
    (`route: pm-decision`+`xl_exit: roadmap`, legacy `route: roadmap`, or direct-routed
-   `route: goal-setting` XXL). No sizing-object present means Step 1 runs exactly as today — see
-   wiki for the full field-crossing table.
+   `route: goal-setting` XXL). This is receive-and-use-if-present, never a wall: no sizing-object
+   present means Step 1 runs exactly as today, and the sizing lobby never gates or refuses a
+   `goal-setting` invocation absent one — see wiki for the full field-crossing table.
 
 **What this skill produces:** a ratified OKR (one Objective + ≤5 Key Results, weekly-perceptible)
 via `coordinator-doc-new --type goal`; `kind: roadmap-seed` stubs pre-tagged to the goal, one per
@@ -110,7 +111,7 @@ proposes a revised shape, and asks the PM to confirm.
 ### Step 4 — Scaffold the goal artifact
 
 **On a PowerShell host, invoke the `.exe` launcher by absolute path through the call operator**
-(Shape W) for every invocation in Steps 4-5. Ladder and shapes: `snippets/resolve-coordinator-bin.md`.
+(Shape W) for every invocation in Steps 4-5. Ladder and shapes: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
 `coordinator-doc-new --type goal --title "<objective-slug>"`, resolved per that ladder.
 
@@ -129,7 +130,7 @@ invocation, one coherent capability arc; when in doubt, fewer/larger — the PM 
 pickup):
 
 `coordinator-doc-new --type roadmap-seed --goals "<goal-id>" --title "<roadmap-topic>"`,
-resolved per `snippets/resolve-coordinator-bin.md`.
+resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
 Each stub carries `kind: roadmap-seed`, `origin_goal_id:` FK (via `--goals`), `deployment_state:
 awaiting_gate`, a one-line title naming the capability arc.
@@ -138,7 +139,7 @@ awaiting_gate`, a one-line title naming the capability arc.
 rather than rewritten:
 
 `coordinator-doc-new --type goal-seed --title "<deferred-vision-slice>"`,
-resolved per `snippets/resolve-coordinator-bin.md`.
+resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
 Each stub carries `kind: goal-seed`, `deployment_state: awaiting_gate`, and a brief body
 capturing the vision-slice verbatim — raw over polished. These feed the pickup-from-goal-seed

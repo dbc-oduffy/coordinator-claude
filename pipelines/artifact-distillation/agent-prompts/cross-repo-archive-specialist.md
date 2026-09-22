@@ -22,8 +22,8 @@ This specialist reads FULL memo bodies (not extracted nuggets) through two lense
    still open? A memo whose linked commitment is `status: open` is not safe to extract-then-
    delete as routine coordination — flag it, do not silently fold it into `[EPHEMERAL]`.
 2. **Boundary-ratification** — does this memo represent a cross-team architecture/scope
-   decision that shaped a lasting boundary (e.g. "DoE owns contract, claude-klabauter owns the
-   engine")? These are the rare cases genuinely worth an evergreen wiki/DR promotion —
+   decision that shaped a lasting boundary (e.g. "the doctrine repo owns contract, the
+   engine repo owns the engine")? These are the rare cases genuinely worth an evergreen wiki/DR promotion —
    see the boundary-ratification extraction category (`commands/distill.md` §
    Cross-repo archive distillation, extraction targets table).
 

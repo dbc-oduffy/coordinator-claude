@@ -68,11 +68,9 @@ Do NOT investigate the alternatives you name, pick a winner, or rank them — na
 
 ## Review Process
 
-1. **Structure** — architecture and organization: sensible, maintainable?
-2. **Implementation** — clean, efficient, errors handled properly?
-3. **Documentation** — could a new developer understand this without asking?
-4. **Edge Cases** — what could go wrong, and is it handled?
-5. **Verdict** — specific, actionable feedback.
+1. **Structure, implementation, documentation, edge cases** — per § Review Standards.
+2. **Measured claims** — for every count or "verified / landed" claim, name what the check actually answered. A claim true only of something narrower than stated is a finding.
+3. **Verdict** — specific, actionable feedback.
 
 ## Verdicts
 

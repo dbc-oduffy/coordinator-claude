@@ -38,13 +38,23 @@ Any time the EM dispatches a scout or subagent — Tier-4 investigation, fan-out
 
 Per-agent git worktrees are structurally banned fleet-wide — they degrade badly on Windows (the primary machine and audience) and don't scale to a concurrent agentic fleet. The default scout/dispatch path never creates a worktree, so the caveats below apply only inside the rare override that requires explicit PM permission via the EM; they are not something to plan around for ordinary dispatch.
 
-- **Worktree-isolated subagents honor literal absolute Write paths.** A scout dispatched with worktree isolation that writes to an absolute path (e.g. `C:/<user-home>/scratch/result.json`) lands the file in the main project tree, not the worktree. <!-- foreign-path-ok: illustrative example path shape, not an asserted location --> Either pass relative paths or expect main-tree writes; verify with `ls` post-completion. Polling the worktree dir for a file the scout wrote to an absolute path is a deadlock waiting to happen.
+- **Worktree-isolated subagents honor literal absolute Write paths.** A scout dispatched with worktree isolation that writes to an absolute path (e.g. ) lands the file in the main project tree, not the worktree. <!-- foreign-path-ok: illustrative example path shape, not an asserted location --> Either pass relative paths or expect main-tree writes; verify with `ls` post-completion. Polling the worktree dir for a file the scout wrote to an absolute path is a deadlock waiting to happen.
 
 - **Resumed worktree agents can re-fire post-completion with hallucinated TEXT-ONLY runs.** Disk-first verification is load-bearing — a "DONE" reply from a resumed worktree agent does NOT mean the file was written this run. Always `ls -la`/size before accepting `DONE` on a resumed run. The hallucination signature is identical to the cold TEXT-ONLY case but appears in agents that wrote successfully on a prior run before being resumed.
 
 - **Bound scout briefs by target output size, not just record count.** Sonnet scouts producing dense per-entry inline content can hit the 32k output cap before the final `Write`, leaving an empty file and a `DONE` reply. Specify the expected output shape in token-size terms — e.g. "≤30 records, one-line summaries, target ~5KB total" — and verify file size, not just existence, on the EM side. The failure mode is silent: scout reports `DONE`, disk has the path, file is empty or truncated.
 
 - **Sonnet/Haiku scouts on bounded-enumeration tasks hallucinate IDs not in the input list** — distinct from TEXT-ONLY hallucination. When the brief is "verify each of items [A, B, C, D]" the scout may report on items [A, B, X, Y] where X/Y were not in the input. EM-direct crossover threshold for verifier tasks may be N>50 rather than the usual N>10 — the cost of post-hoc audit against the original list exceeds the dispatch savings below that bound. Mitigation: brief MUST quote the input list verbatim in a `## Items to verify` block and instruct the scout to copy each ID from that block into its output, not regenerate from memory. (project-rag-ue-addon.)
+
+### A confined dispatch cannot see directory-scoped invariants, and will sincerely report their absence
+
+A dispatched agent's test invocations are confined to file/node-id precision — it may not pass a directory argument. That confinement is correct, but it has a consequence worth naming: an executor structurally cannot observe any invariant that only a directory-scoped run evaluates — a pinned registry manifest, a cross-module parity test, a collection-time conftest assertion. Its green result is real but narrower than it sounds.
+
+This is not executor-specific. In one session it fired four times across three roles: an executor reported no pinned allowlist existed when one did, two code-reviewers with no Bash execution hand-traced a P1 rather than running it, and a review-integrator inherited the gap. Every one of them correctly disclosed the substitution — the failure shape is not a careless agent, it is a sincere, well-evidenced report of an absence the reporter had no instrument to detect.
+
+**Practice.** When a dispatched agent's AC names a directory-breadth test command and the agent substitutes a file-scoped one (it will say so — the guard instructs the substitution), the EM runs the directory-scoped form before committing. Treat a reviewer's hand-traced finding the same way: reproduce it before acting on it or reporting it upward as fact. Do not close the AC on the executor's narrower run, and do not use a human-only override key to widen the executor's own scope — the confinement is doing its job.
+
+**Corollary for briefs.** Naming the directory-scoped command in an AC does not make the executor able to run it. If an invariant matters, either verify it EM-side or give the executor the specific node-id that pins it.
 
 ### Agent fit — tool surface beats description prose
 
@@ -74,7 +84,7 @@ Per-agent git worktrees are structurally banned fleet-wide — they degrade badl
 
 ### Windows path translation in dispatch context
 
-- **Native Windows executables called from MSYS / Git Bash need path translation.** Use `C:\path` form, not `/c/path`. <!-- foreign-path-ok: illustrating the native-vs-MSYS path shape distinction, not an asserted location --> The MSYS shell will translate `/c/...` arguments for some calls and silently pass-through for others, depending on argument position and tool — the failure mode is `file not found` against a path that exists. Fix: use `cygpath -w "$path"` to convert before the call, or set `MSYS_NO_PATHCONV=1` for the affected invocation. Dispatches that hand a path to a scout running a native exe (e.g. UE-Cmd, MSBuild, native git on Windows) carry this hazard. [E115]
+- **Native Windows executables called from MSYS / Git Bash need path translation.** Use a  form, not `/c/path`. <!-- foreign-path-ok: illustrating the native-vs-MSYS path shape distinction, not an asserted location --> The MSYS shell will translate `/c/...` arguments for some calls and silently pass-through for others, depending on argument position and tool — the failure mode is `file not found` against a path that exists. Fix: use `cygpath -w "$path"` to convert before the call, or set `MSYS_NO_PATHCONV=1` for the affected invocation. Dispatches that hand a path to a scout running a native exe (e.g. UE-Cmd, MSBuild, native git on Windows) carry this hazard. [E115]
 
 ## Related
 
@@ -84,7 +94,7 @@ For find-and-patch waves, separate fact-finding from fix-application — do not 
 
 ### Executor write-surface and plan-body discipline
 
-- **Dispatch briefs to subagents must NOT instruct the executor to write to the plan body — the executor's write surface is the sidecar, not the plan.** If the deliverable is plan-body content (a finding block, a substrate amendment, a ledger entry), have the executor return the text in its DONE reply and the EM Edit-appends it. Instructing an executor to write to the plan body triggers `coordinator/hooks/scripts/preuse-write-dispatch.py` (PreToolUse hook; dispatches to claude-klabauter's `block_subagent_plan_body_write.py` write-guard); an executor that works around the hook (e.g. by writing a Python helper that performs the insert) leaves a transient rogue artifact and still violates doctrine. The hook is the rule, not an obstacle.
+- **Dispatch briefs to subagents must NOT instruct the executor to write to the plan body — the executor's write surface is the sidecar, not the plan.** If the deliverable is plan-body content (a finding block, a substrate amendment, a ledger entry), have the executor return the text in its DONE reply and the EM Edit-appends it. Instructing an executor to write to the plan body triggers `coordinator/hooks/scripts/preuse-write-dispatch.py` (PreToolUse hook; dispatches to  write-guard); an executor that works around the hook (e.g. by writing a Python helper that performs the insert) leaves a transient rogue artifact and still violates doctrine. The hook is the rule, not an obstacle.
 
   **Empirical basis (deep-research-workdir C0).** Brief told the read-only investigation executor to "append `## C0 finding` block to the plan body." The hook correctly blocked it; the executor worked around via a Python helper, leaving a transient `c0_insert.py` in the flight dir. Correct shape: executor returns the `## C0 finding` block in its DONE reply; EM Edit-appends.
 

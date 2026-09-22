@@ -60,7 +60,7 @@ python3 "$REPO_CLAUDE_KLABAUTER/coordinator/bin/coordinator-setup-state.py" \
     check setup_concluded && echo "ready to chain"
 ```
 
-(`coordinator-setup-state.py` migrated to claude-klabauter's `coordinator/bin/` —
+(`coordinator-setup-state.py` migrated to the engine repo's `coordinator/bin/` —
 resolve `$REPO_CLAUDE_KLABAUTER` per `percolate-setup.md` § PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT.)
 
 `status` prints the whole receipt (exit non-zero if absent, or if seeded but no milestone is recorded yet).
@@ -73,7 +73,7 @@ The gitignore entry is in the meta-repo's own `.gitignore`. For OSS operators, `
 
 ## Sibling-repo wiring is a separate relay
 
-Documenting this contract here is doctrine seeding (DoE altitude). Making a specific sibling repo's setup/orientation *consume* the gate is that repo's EM's work — relay the reader idiom above via the PM per the cross-repo communication doctrine; do not edit sibling repos directly.
+Documenting this contract here is doctrine seeding (Director-of-Engineering altitude). Making a specific sibling repo's setup/orientation *consume* the gate is that repo's EM's work — relay the reader idiom above via the PM per the cross-repo communication doctrine; do not edit sibling repos directly.
 
 ## Cross-references
 

@@ -17,8 +17,8 @@ Contract:
   exit 2  — nudge fires (blocks the stop; stderr is shown to Claude)
   exit 0  — every other path, including every failure path
 
-Graceful degradation — REQUIRED: any failure to resolve/import/run the claude-klabauter
-engine falls through to exit 0. An unresolvable sibling engine must never wedge
+Graceful degradation — REQUIRED: any failure to resolve/import/run the engine
+repo falls through to exit 0. An unresolvable sibling engine must never wedge
 a session's ability to end its turn, so there is no failure mode here that exits
 non-zero. The op is additionally self-limiting (once per session, honours
 `stop_hook_active`, `COORDINATOR_HARNESS_DIRECTIVE_NUDGE_OFF=1`).

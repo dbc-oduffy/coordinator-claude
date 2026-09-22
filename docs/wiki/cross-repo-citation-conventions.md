@@ -12,9 +12,9 @@ Cross-repo line citations use a repo qualifier:
 
 Examples:
 - `project-rag:mcp/graph/extractor.py:2980`
-- `claude-klabauter:coordinator/bin/verify-coverage:142` (executable surface migrated from DoE-claude- `example-game-repo-control:src/tools/manage_blueprint.py:51`
+- `addon-repo:coordinator/bin/verify-coverage:142` (executable surface migrated from the upstream doctrine repo- `example-game-repo-control:src/tools/manage_blueprint.py:51`
 
-**Foreign spec-backlink id form.** A spec-backlink citing a peer repo's plan or deliverable uses the minted id, repo-qualified: `<repo>:pln-<slug>-<hash>` / `<repo>:dlv-<slug>-<hash>` — e.g. `claude-klabauter:pln-claude-klabauter-deliverable-spine-fact-a1b2c3`. This composes with the `<repo>:<path>:<line>` form above without ambiguity: no repo-relative path begins `pln-`/`dlv-`, so the segment after the colon disambiguates itself. It is **not** the `<repo>@<sha>` vendor-pin form below (§ Vendor / submodule SHA pins) — that form is scoped to build-consumed SHAs, a different convention entirely. `pln-` is preferred over `dlv-` at authoring time (`dlv-` is group-stamped across plan/handoff/completion-entry and can be ambiguous; `plan_id` is plan-scoped) — see `rag-bait-conventions.md § 3` for the full rule.
+**Foreign spec-backlink id form.** A spec-backlink citing a peer repo's plan or deliverable uses the minted id, repo-qualified: `<repo>:pln-<slug>-<hash>` / `<repo>:dlv-<slug>-<hash>` — e.g. `engine-repo:pln-deliverable-spine-fact-a1b2c3`. This composes with the `<repo>:<path>:<line>` form above without ambiguity: no repo-relative path begins `pln-`/`dlv-`, so the segment after the colon disambiguates itself. It is **not** the `<repo>@<sha>` vendor-pin form below (§ Vendor / submodule SHA pins) — that form is scoped to build-consumed SHAs, a different convention entirely. `pln-` is preferred over `dlv-` at authoring time (`dlv-` is group-stamped across plan/handoff/completion-entry and can be ambiguous; `plan_id` is plan-scoped) — see `rag-bait-conventions.md § 3` for the full rule.
 
 **What the id form does NOT cover.** Only plans and deliverables mint an id. A spec-backlink citing
 a wiki page, memo, roadmap `OVERVIEW.md`, or sidecar stays in path form, pointed where the file
@@ -37,13 +37,36 @@ The repo qualifier fixes this. Grep then targets the right repo.
 
 **Cross-repo citations** (handoffs, lessons, plans, decision records that may be read from a different repo) — ALWAYS qualify with `<repo>:<path>:<line>`. The qualifier is for human disambiguation across the install chain; no automated rewrite covers this case.
 
-**Intra-coordinator citations** in wiki/skill/command/agent prose under `plugins/coordinator/` may use the dev-tree-rooted path (`plugins/coordinator/<...>`) directly. The publish-time hook (the `depersonalize` percolation-store hook, run via claude-klabauter's `coordinator_core.percolate.engine` from `setup/percolate-hooks/coordinator-claude/post-rsync/`) normalizes these to the publish-tree form (`plugins/coordinator/<...>` or `plugins/<plugin>/<...>`) idempotently. Authors do not qualify these — the rewrite is the contract. (Note: this means dev-form paths inside fenced code blocks in this wiki also get rewritten. To preserve a literal dev-form path for documentation purposes, use prose framing — `the plugins/coordinator-claude/... form` — rather than a fenced code block.)
+**Intra-coordinator citations** in wiki/skill/command/agent prose under `plugins/coordinator/` may use the dev-tree-rooted path (`plugins/coordinator/<...>`) directly. The publish-time hook (the `depersonalize` percolation-store hook, run via the engine's `coordinator_core.percolate.engine` from `setup/percolate-hooks/coordinator-claude/post-rsync/`) normalizes these to the publish-tree form (`plugins/coordinator/<...>` or `plugins/<plugin>/<...>`) idempotently. Authors do not qualify these — the rewrite is the contract. (Note: this means dev-form paths inside fenced code blocks in this wiki also get rewritten. To preserve a literal dev-form path for documentation purposes, use prose framing — `the plugins/coordinator-claude/... form` — rather than a fenced code block.)
 
 Additional qualifications:
-- **Doctrine-path citations MUST be DoE-repo-qualified** — `DoE-claude coordinator/docs/wiki/<name>.md`, never bare `coordinator/docs/wiki/<name>.md`. The receiver's `~/.claude` live-install does not carry `docs/wiki/` (source-only in the DoE clone — see `state-placement-law.md § Taxonomy — What Goes Where`), so a bare citation greps clean against an empty result and reads as premise-false doctrine — one step from a wrong stand-down. The naming collision is the trap: `~/.claude/plugins/coordinator-claude` and the DoE-claude source repo share the string "coordinator-claude" but are not the same tree.
+- **Doctrine-path citations MUST be upstream-repo-qualified** — `upstream-doctrine coordinator/docs/wiki/<name>.md`, never bare `coordinator/docs/wiki/<name>.md`. The receiver's `~/.claude` live-install does not carry `docs/wiki/` (source-only in the upstream doctrine repo — see `state-placement-law.md § Taxonomy — What Goes Where`), so a bare citation greps clean against an empty result and reads as premise-false doctrine — one step from a wrong stand-down. The naming collision is the trap: `~/.claude/plugins/coordinator-claude` and the upstream doctrine source repo share the string "coordinator-claude" but are not the same tree.
 - Optional in commit messages within a single repo (context is implicit).
-- ALWAYS qualify in the central structured queue in claude-klabauter at `$(python3 <claude-klabauter>/coordinator/lib/coordinator-state-root.py --central)/improvement-queue/` (cross-repo by construction; entries tagged `queue_scope: central` — see `state-placement-law.md`).
+- ALWAYS qualify in the central structured queue in the engine repo at `$(python3 <engine-repo-root>/coordinator/lib/coordinator-state-root.py --central)/improvement-queue/` (cross-repo by construction; entries tagged `queue_scope: central` — see `state-placement-law.md`).
 - Coordinator **script** citations (an invocation, not a `file:line` location) follow a separate rule — see `claude-code-platform-gotchas.md` § "Coordinator scripts are on PATH". In short: invokable extensionless commands are cited by **bare name** (`fan-out-dispatch`, not `bin/fan-out-dispatch.py`); `bin/X` survives only for launcher-run interpreter scripts and data files. Both forms are PATH-namespace — never resolve them against the current repo's `./bin/`.
+
+## Decision-record ids do not belong in percolating snippet/skill prose
+
+**This is narrower than doctrine-path qualification above: it is about citing a *decision record*
+id, not a wiki path, from inside a surface that ships past this repo's own readers.** Anything
+under `coordinator/snippets/` or `coordinator/skills/` percolates one-way to the public OSS mirror
+and runs unmodified in every fleet-sibling repo; `coordinator/docs/decisions/` does not percolate —
+it stays local to this repo. A bare decision-record id embedded in percolating prose (`DR-082`,
+`SC-DR-015`) points an OSS user or a fleet-sibling reader at a document that structurally cannot
+exist in their tree: the reader either hits a dead reference, or worse, a citation that looks
+resolvable and silently fails.
+
+This is a percolation defect, not a style nit — it is authoring for this repo's own local context
+and shipping it to readers who cannot have that context. Before landing a `DR-NNN`/`SC-DR-NNN`
+citation inside `coordinator/snippets/` or `coordinator/skills/` prose, ask whether that surface
+percolates (both directories always do). If it does:
+
+- State the rationale in the author's own words, on the percolating surface itself, instead of
+  pointing at the id.
+- Keep the id only in an HTML-comment provenance note (the `` wrapper elsewhere in this wiki is the same pattern:
+  content the percolation pipeline strips before it reaches a reader who cannot resolve it), or
+  move the justification to a non-percolating surface (`docs/`, `state/`, `archive/`,
+  `cross-repo/`) and cite that instead.
 
 ## Plugin-wiki vs publish-native-wiki authoring — a third rule pair
 
@@ -121,7 +144,7 @@ reason. Tripwire: `A-REAPED-ARTIFACT-AND-A-NEVER-WRITTEN-ONE-LOOK-IDENTICAL`.
 
 ## Coordination memo BEFORE shipping cross-repo changes
 
-If a change in repo A will land before/with consumers in peers B and C, write a one-line coordination memo in the central structured queue (claude-klabauter — `$(python3 <claude-klabauter>/coordinator/lib/coordinator-state-root.py --central)/improvement-queue/`, via `coordinator-queue-append --schema improvement-queue --queue-scope central` — see `state-placement-law.md`) or the active handoff *before* the producing commit — not after. The memo names the producer SHA (once landed), the consumer repos, and the migration order.
+If a change in repo A will land before/with consumers in peers B and C, write a one-line coordination memo in the central structured queue (the engine repo — `$(python3 <engine-repo-root>/coordinator/lib/coordinator-state-root.py --central)/improvement-queue/`, via `coordinator-queue-append --schema improvement-queue --queue-scope central` — see `state-placement-law.md`) or the active handoff *before* the producing commit — not after. The memo names the producer SHA (once landed), the consumer repos, and the migration order.
 
 This is the same shape as the consumer-audit-before-deletion rule above, but for additive changes: schema bumps, manifest field additions, output format changes. Producer-first shipping without the memo creates a window where peer repos read against the old contract and don't know it.
 
@@ -143,7 +166,7 @@ Zero-hit claims are not dependencies; they're hypotheses. Mark as such or drop.
 
 ## Cross-repo property claims need a spec-backlink, not just a citation
 
-**Any DoE prose asserting an internal property of a peer repo's op — locking behaviour,
+**Any doctrine-repo prose asserting an internal property of a peer repo's op — locking behaviour,
 ordering, atomicity, gating, timing, or any other "runs under X" / "is guarded by Y" claim —
 must carry a spec-backlink to the peer source that governs the claim.** This is stricter than
 § When to qualify above: a bare `<repo>:<path>:<line>` citation locates the file, but a property
@@ -152,11 +175,11 @@ is what the next ratified change to that op invalidates.
 
 **Motivating incident:** `coordinator/skills/workstream-complete/SKILL.md` asserted (in two
 places) that `post_commit_stamp_and_ship` runs "under the same `ceremony_lock` the commit itself
-holds." The claim was stale the day it was written — claude-klabauter's DEC-3 removed the lock
+holds." The claim was stale the day it was written — the engine repo's DEC-3 removed the lock
 from that path the same day, and nothing linked the prose to the governing source, so it rotted
 silently. A second, uncited copy of the same false claim was found only by an independent sweep.
-Governing source: `claude-klabauter coordinator_core/ops/ceremony/wsc_tail.py:217-220`, ratified in
-`claude-klabauter docs/plans/<plan>.md § DEC-1/DEC-3/C3`.
+Governing source: `engine-repo coordinator_core/ops/ceremony/wsc_tail.py:217-220`, ratified in
+`engine-repo docs/plans/<plan>.md § DEC-1/DEC-3/C3`.
 
 **Compliant form:**
 ```
@@ -176,20 +199,19 @@ Required fields, all four — omitting any one degrades the backlink to an un-re
   model.
 
 **Relationship to other backlink conventions.** This is a cross-repo sibling of the in-tree
-"Spec Backlink" convention in `rag-bait-conventions.md § 3` (which points source-code comments at
-a minted `pln-`/`dlv-` id in the *same* repo). The id form is heal-independent by construction:
+"Spec Backlink" convention in `rag-bait-conventions.md § 3` (which cites a minted `pln-` id in the
+*same* repo, in the commit message rather than source). The id form is heal-independent by construction:
 an id does not change when the plan file moves, so there is nothing for a path-rewrite pass to
-rewrite. It is deliberately **not** the "Cross-repo provenance backlinks in source comments"
-anti-pattern in `rag-bait-conventions.md § Anti-Patterns` — that anti-pattern is about *port*
-provenance (`// port of <peer-repo>:<sha>`) in source code, which has no heal pass and belongs in
-the commit message instead. A property-claim spec-backlink is different in kind: it grounds a
+rewrite. It is deliberately **not** port provenance
+(`// port of <peer-repo>:<sha>`) in source code, which `rag-bait-conventions.md § Anti-Patterns`
+sends to the commit message. A property-claim spec-backlink is different in kind: it grounds a
 *standing doctrine assertion* about another repo's behavior, in doctrine prose (SKILL.md, wiki),
 not source code — there is no commit message to carry it, and unlike a port-provenance comment it
 is expected to be re-verified, not merely historical.
 
 ## Manifest paths: grep the repo, not the installed tree
 
-When verifying a manifest field (skill path, agent path, hook script) lives where the manifest claims, grep the **source repo's working tree**, not the installed `~/.claude/plugins/` copy. The installed copy is downstream of the publish pipeline (claude-klabauter `coordinator/bin/publish.py`) and may lag the repo by days; the manifest contract is against repo paths.
+When verifying a manifest field (skill path, agent path, hook script) lives where the manifest claims, grep the **source repo's working tree**, not the installed `~/.claude/plugins/` copy. The installed copy is downstream of the publish pipeline (the engine repo's `coordinator/bin/publish.py`) and may lag the repo by days; the manifest contract is against repo paths.
 
 ```bash
 # Right — verifying skill manifest against source
@@ -203,9 +225,9 @@ Installed-tree verification masks pre-publish drift: a manifest that's wrong in 
 
 ## Sweeping `~/.claude/plugins` refs: classify source-claim vs runtime-install-home per reference
 
-In a coordinator→DoE cutover sweep, the same literal path — `~/.claude/plugins/coordinator-claude` — serves **two roles**, and a sweep that treats them uniformly deletes live behavior:
+In a coordinator→upstream cutover sweep, the same literal path — `~/.claude/plugins/coordinator-claude` — serves **two roles**, and a sweep that treats them uniformly deletes live behavior:
 
-- **Stale SOURCE / authoring claim** — text asserting that the coordinator source *lives* under `~/.claude/plugins/`. This is the naming-collision trap (see § When to qualify): the source is the DoE-claude clone, not the live-install. **Reword** to name the DoE-claude clone.
+- **Stale SOURCE / authoring claim** — text asserting that the coordinator source *lives* under `~/.claude/plugins/`. This is the naming-collision trap (see § When to qualify): the source is the upstream doctrine repo, not the live-install. **Reword** to name the upstream doctrine repo.
 - **Legitimate OSS / marketplace RUNTIME install-home** — a path that genuinely resolves against the installed plugin tree at runtime (e.g. an OSS auto-push-hook fallback that reads its own installed copy). **Preserve verbatim**, exactly like a `platform-localize`/`AGENT.md` runtime reference.
 
 Apply the discriminator **per reference**, not per file — a single chunk can mix both roles. The tell for a runtime-home is that some live code path reads the installed copy through that literal; the tell for a source-claim is that the sentence is *describing where the source is authored*. The Director of Engineering caught a cutover chunk that would have deleted the OSS auto-push hook fallback by rewriting a runtime-home as if it were a stale source ref. Classify before rewording or removing.
@@ -256,14 +278,14 @@ Without inline preconditions, sentinel blocks become orphan auto-generated regio
 
 > **Runtime `repos.*` discovery.** The MUST-use-sibling-layout contract codified below is the **port-time cleanup discipline** (absolute-path sweep at extraction) — unchanged. At runtime, `repos.<slug>` discovery is governed by the 4-rung ladder in `machine-local-registry.md` §4c (SSOT: `project-rag/docs/wiki/cross-machine-path-resolution-contract.md`); the blind sibling-relative walk is **not a runtime rung**. Marker-autodiscovery (§4c rung 2) satisfies the original "no forced cutover" intent without requiring sibling-layout compliance or operator seeding. See `machine-local-registry.md` and `plugin-extraction-and-distribution.md § 11`. The `EXAMPLE_GAME_REPO_ROOT` → `MACHINE_LOCAL_<KEY>` note remains accurate.
 
-**Incomplete migrations leak absolute paths into vendored code; `../sibling/...` is the contract for sibling repos.** When a repo is split into peer/sibling repos that live in the same parent directory (e.g. `<drive>:/project-rag/` and `<drive>:/project-rag-ue-addon/` — `C:/` and any other drive letter are equally illustrative; substitute the host's actual root prefix), any cross-repo reference in vendored code, scripts, or docs MUST use a `../<sibling-repo-name>/...` relative path — never an absolute path like `<drive>:/...` or `$HOME/...`. <!-- abs-path-ok: enumerating illustrative drive-letter literals, not a claim about any real checkout -->
+**Incomplete migrations leak absolute paths into vendored code; `../sibling/...` is the contract for sibling repos.** When a repo is split into peer/sibling repos that live in the same parent directory (e.g. `<drive>:/project-rag/` and `<drive>:/project-rag-ue-addon/` — `<drive>:/` and any other drive letter are equally illustrative; substitute the host's actual root prefix), any cross-repo reference in vendored code, scripts, or docs MUST use a `../<sibling-repo-name>/...` relative path — never an absolute path like `<drive>:/...` or `$HOME/...`. <!-- abs-path-ok: enumerating illustrative drive-letter literals, not a claim about any real checkout -->
 
 Two reasons:
 
 - (a) Absolute paths break for any developer with a different layout (CI, peer machines, anyone else picking up the repo).
 - (b) Absolute paths fail the depersonalize/sanitize hooks at publish time even when those hooks know about the substring keys.
 
-**Port-time discipline:** at every repo split, grep the vendored tree for absolute repo prefixes (`<drive>:/`, `/c/`, `$HOME/`, `/home/` — substitute the host's actual root prefix so e.g. `C:/` and every other drive letter are covered) and rewrite to `../sibling/...`. The sibling-layout convention is the contract — document it in the source repo's README so consumers don't fight it. <!-- abs-path-ok: enumerating illustrative drive-letter literals, not a claim about any real checkout -->
+**Port-time discipline:** at every repo split, grep the vendored tree for absolute repo prefixes (`<drive>:/`, `/c/`, `$HOME/`, `/home/` — substitute the host's actual root prefix so e.g. `<drive>:/` and every other drive letter are covered) and rewrite to `../sibling/...`. The sibling-layout convention is the contract — document it in the source repo's README so consumers don't fight it. <!-- abs-path-ok: enumerating illustrative drive-letter literals, not a claim about any real checkout -->
 
 Source: `project-rag-ue-addon:state/lessons.md:121`.
 
@@ -288,9 +310,9 @@ So a link that is green at author time ships broken to every `copy_install` cons
 
 ## Peerless installs — env-var opt-in for peer-repo paths
 
-Most installs place `~/.claude`, the publish target (`C:/coordinator-claude`), and peer dev repos (`C:/dev/example-game-workbench-repo`, etc.) such that sibling-relative paths (`$PLUGIN_ROOT/../../example-game-workbench-repo/...`) resolve correctly. Sync scripts default to this layout. <!-- foreign-path-ok: illustrating a real-world Windows install layout, the subject of this section -->
+Most installs place `~/.claude`, the publish target (`<drive>:/coordinator-claude`), and peer dev repos (`<drive>:/dev/example-game-workbench-repo`, etc.) such that sibling-relative paths (`$PLUGIN_ROOT/../../example-game-workbench-repo/...`) resolve correctly. Sync scripts default to this layout. <!-- foreign-path-ok: illustrating a real-world Windows install layout, the subject of this section -->
 
-The `~/.claude/` install on a Windows user-profile root (`C:\Users\<name>\.claude\`) is structurally peerless: there is no sibling-capable parent, and no companion dev folder lives next to it. Sync scripts that assume a sibling peer silently skip verification on this install (skip-if-absent guard — looks fine, never actually checks the peer copy). <!-- foreign-path-ok: illustrating the real Windows profile-root path shape, the subject of this section -->
+The `~/.claude/` install on a Windows user-profile root (`<drive>:\Users\<name>\.claude\`) is structurally peerless: there is no sibling-capable parent, and no companion dev folder lives next to it. Sync scripts that assume a sibling peer silently skip verification on this install (skip-if-absent guard — looks fine, never actually checks the peer copy). <!-- foreign-path-ok: illustrating the real Windows profile-root path shape, the subject of this section -->
 
 **Rule:** keep sibling-relative as the default in scripts (matches every normal-layout deployment). Deviant installs opt in via an explicit env var:
 
@@ -298,11 +320,11 @@ The `~/.claude/` install on a Windows user-profile root (`C:\Users\<name>\.claud
 # Default: sibling-relative (correct for most installs)
 EXAMPLE_GAME_REPO_ROOT="${EXAMPLE_GAME_REPO_ROOT:-../example-game-workbench-repo}"
 
-# Override for peerless installs (e.g. C:/-rooted ~/.claude): <!-- foreign-path-ok: illustrative Windows-root example, the subject of this snippet -->
+# Override for peerless installs (e.g. <drive>:/-rooted ~/.claude): <!-- foreign-path-ok: illustrative Windows-root example, the subject of this snippet -->
 # export EXAMPLE_GAME_REPO_ROOT=/c/example-game-workbench-repo
 ```
 
-**Do NOT rewrite the sibling default in scripts that ship to normal-layout deployments** — fixing the `C:/` edge case by hardcoding an absolute path breaks what already works everywhere else. <!-- abs-path-ok: naming the historical drive-letter literal this sentence critiques, not a claim about any real checkout -->
+**Do NOT rewrite the sibling default in scripts that ship to normal-layout deployments** — fixing the `<drive>:/` edge case by hardcoding an absolute path breaks what already works everywhere else. <!-- abs-path-ok: naming the historical drive-letter literal this sentence critiques, not a claim about any real checkout -->
 
-Source: `state/lessons/` § "C:/-rooted `~/.claude` is structurally peerless" (claude-coordinator). <!-- foreign-path-ok: quoting the lesson's own section title, which names the Windows path shape it documents -->
+Source: `state/lessons/` § "<drive>:/-rooted `~/.claude` is structurally peerless" (claude-coordinator). <!-- foreign-path-ok: quoting the lesson's own section title, which names the Windows path shape it documents -->
 

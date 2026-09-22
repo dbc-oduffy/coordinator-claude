@@ -6,7 +6,7 @@ engine.
 repo and installs no coordinator, so `<settings-home>` carries no machine-local
 registry at all. `_engine_root.py`'s ladder then falls past its published-engine
 rung (nothing registered) to rung 3's sibling walk and answers the LIVE
-`claude-klabauter` working tree — which on such a box was never built and carries
+engine-repo working tree — which on such a box was never built and carries
 no `coordinator_core/_engine_stamp`. The engine's dispatch stamp gate refuses
 every op against it with "not a published engine", naming a remedy binary that
 the same missing install means is not on the box either. The operator meets an

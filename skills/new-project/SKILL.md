@@ -39,7 +39,7 @@ target dir, `mkdir`s, `git init`s (`main` default branch), renders the template
 minimal `README.md`, and for `next-app` runs the boot smoke (`pnpm install` + `pnpm typecheck` +
 `pnpm test`):
 
-Shape W (rung 0) — ladder and shapes: `snippets/resolve-coordinator-bin.md`.
+Shape W (rung 0) — ladder and shapes: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
     `& "$env:COORDINATOR_SETTINGS_HOME\bin\new-project-scaffold.exe" --name "<name>" --parent "<parent>" --template "<template>"`
 

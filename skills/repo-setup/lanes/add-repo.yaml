@@ -52,12 +52,6 @@ round_trip_directives:
     rationale: Declared for AC2 completeness only; see p15.ratification-ask above.
     resolves: []
 
-  - step_id: tw.ci-inference-prompt
-    engine_judgment_point_id: null
-    value: "not reached (classification (b) halts before the tripwire-installs phase)"
-    rationale: Declared for AC2 completeness only; see p15.ratification-ask above.
-    resolves: []
-
 # --- Nine agent-work steps: named, not pre-answered. None reachable under this lane's own
 # classification answer; named for the same completeness reason as the round_trip rows above.
 second_phase_deferred:
@@ -104,10 +98,6 @@ terminal_offer_defaults:
       registration is not yet a fully addressable fleet peer.
 
   - step_id: tw.windows-console-offer
-    value: "not reached"
-    rationale: Phase 3 (tripwire-installs) does not run under this lane's classification answer.
-
-  - step_id: tw.ci-offer
     value: "not reached"
     rationale: Phase 3 (tripwire-installs) does not run under this lane's classification answer.
 

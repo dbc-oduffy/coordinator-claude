@@ -194,7 +194,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"prune-closed-bugs.py: {len(ids)} closed bug(s) selected for prune")
 
-    # Review: code-reviewer (Finding 1) -- route() + manual exit_code inspection, NOT
+    # route() + manual exit_code inspection, NOT
     # route_mutation(), on the ACT call. fleet.prune_closed_bugs's act response is a
     # DETERMINATE-PARTIAL shape (build_act_result): exit_code=2 means some candidates
     # failed, but acted[] still lists the ones that succeeded -- and those were already

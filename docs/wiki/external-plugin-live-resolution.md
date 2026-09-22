@@ -1,7 +1,7 @@
 # External-directory live plugin resolution (Claude Code)
 
-> Durable record of the DoE "maximalist" spike: can the coordinator plugin's **source** live in an
-> external repo (DoE-claude) and resolve **live** (in-place editable), letting `~/.claude` become a
+> Durable record of the doctrine repo's "maximalist" spike: can the coordinator plugin's **source** live in an
+> external doctrine repo and resolve **live** (in-place editable), letting `~/.claude` become a
 > thin pointer? Spinoff `2026-07-04_143347_doe-maximalist-external-plugin-resolution-retry`,
 > retrying after W0 FAILed the directory-marketplace path.
 
@@ -40,7 +40,7 @@
   (Consistent with the global doctrine that coordinator-claude is `source_is_live` and
   `refresh-plugin-live-install.py` is a no-op for it. **Pre-cutover snapshot:** `source_is_live` was
   over `~/.claude/plugins/coordinator-claude/`. **Post-cutover (Phase 1, this session):** `source_is_live`
-  is over the DoE clone `<DoE>/coordinator/`, resolved live via `--plugin-dir`; registry
+  is over the doctrine-repo clone `<DoE>/coordinator/`, resolved live via `--plugin-dir`; registry
   `plugin.mirrors.coordinator-claude` `source_path`/`live_path` both point there — see
   § Adoption — W4.2 cutover below.)
 
@@ -50,7 +50,7 @@
 |---|-----------|----------------|--------------------------|-----------------|
 | 1 | **Symlink** into `~/.claude/plugins/` | ❌ documented dead end | — | Outside-plugin symlinks are **skipped for security** (plugins-reference). Do not test. |
 | 2 | **Directory-source marketplace** | ❌ byte-copies to cache | ✅ | Also has a broken refresh (#72616: cached marketplace.json not re-copied on update). This is the W0 path. |
-| 3 | **Git-URL marketplace** at DoE-claude | ❌ byte-copies to cache | ✅ | Moves source-of-record out of `~/.claude` but keeps a publish→push→`marketplace update`→reinstall loop. Per the Director of Engineering F9, relocates the round-trip; does not deliver live in-place edit. |
+| 3 | **Git-URL marketplace** at the doctrine repo | ❌ byte-copies to cache | ✅ | Moves source-of-record out of `~/.claude` but keeps a publish→push→`marketplace update`→reinstall loop. Per the Director of Engineering F9, relocates the round-trip; does not deliver live in-place edit. |
 | 4 | **`--plugin-dir <external-repo>`** | ✅ **official** | ⚠️ per-launch flag | The documented dev/editable install. `CLAUDE_PLUGIN_ROOT` = the external dir. `/reload-plugins` hot-reloads skills/agents/hooks/MCP without restart — **including plugin-declared hook registrations, measured, not hedged** (§ Hook REGISTRATION staleness, 2026-08-02/03, Claude Code 2.1.220). An already-running session that does *not* reload keeps the roster it booted with. Local `--plugin-dir` plugin takes precedence over a same-named marketplace plugin. |
 | 5 | **`@skills-dir`** (`~/.claude/skills/<name>/`) | ✅ in-place | ✅ auto-loads | Skills-only, discovered in place (not copied); SKILL.md edits immediate. Path must be under `~/.claude/skills/` (local, not an external repo checkout) → doesn't satisfy "source lives in external repo". |
 | 6 | **Direct `enabledPlugins` path in settings.json** | ❌ not supported | — | `enabledPlugins` accepts only `name@marketplace`; no arbitrary-directory registration. |
@@ -108,7 +108,7 @@ the W4/W5 adoption decision (launch-flag vs registry), not a separate spike.
 **The logic half is refuted, permanently, and must not be re-investigated.** A sibling repo's
 theory that dispatched agents run against stale guard binaries is wrong: the `PreToolUse:Bash`
 hook spawns a fresh interpreter per call and resolves guard code live from
-`claude-klabauter/coordinator_core/bash_guards/` via `_engine_root.py`; the machine-local registry
+the engine repo's `coordinator_core/bash_guards/` via `_engine_root.py`; the machine-local registry
 pins coordinator `propagation_mode = source_is_live` (`source_path == live_path`), no vendored
 copy exists, and every `.pyc` is timestamp-invalidated. The full resolution chain is in the origin
 plan's `## Problem`. **Registration staleness is the one real vector that survived that
@@ -204,7 +204,7 @@ is **runtime-proven at boot**, not just same-session:
 
 - **Mechanism: hooks registered in `~/.claude/settings.json` with an EXTERNAL absolute-path command.**
   Not plugin-declared, not env-var-interpolated — a baked absolute path (e.g.
-  `bash coordinator/hooks/foo.sh`). Scripts live external in DoE-claude,
+  `bash coordinator/hooks/foo.sh`). Scripts live external in the doctrine repo,
   live-editable; they self-resolve their libs via `BASH_SOURCE` first, so `CLAUDE_PLUGIN_ROOT` being
   unset does not matter.
 - **Runtime matrix (throwaway probe rig, 4 registrations across settings.json + settings.local.json,
@@ -226,7 +226,7 @@ is **runtime-proven at boot**, not just same-session:
   3. **`settings.json` hot-reloads hooks** (mid-session edit takes effect without restart).
 - **Adoption shape (still PM-gated, W4/W5/W6.4):** a GENERATOR emits settings.json's hook block from
   coordinator's `hooks/hooks.json`, rewriting `${CLAUDE_PLUGIN_ROOT}` → registry-resolved absolute
-  path into DoE-claude; a LAUNCH WRAPPER regenerates-then-`exec claude --plugin-dir` (double duty:
+  path into the doctrine repo; a LAUNCH WRAPPER regenerates-then-`exec claude --plugin-dir` (double duty:
   self-heals settings.json clobber #22659/#28966/#28847, and restores the `--plugin-dir` property).
 - **The named blocker in § Disposition does not apply:** `--plugin-dir`'s hook FAIL is not a
   hard stop — hooks are delivered via settings.json external-abs-path, skills/agents via
@@ -245,7 +245,7 @@ is **runtime-proven at boot**, not just same-session:
 ## Adoption — W4.2 cutover (additive phase)
 
 > **Use `coordinator/commands/uninstall.md` /
-> claude-klabauter `coordinator/bin/coordinator-uninstall.py` instead of hand-running the runbooks below.** The
+> the engine repo's `coordinator/bin/coordinator-uninstall.py` instead of hand-running the runbooks below.** The
 > runbooks in this section were the only reverse available at cutover time — hand-run, one-machine,
 > one-window, and dependent on a dated snapshot tarball that expires. `coordinator-uninstall.py` is
 > the tested, first-class, snapshot-independent replacement: it reconstructs the full reverse (all
@@ -256,28 +256,28 @@ is **runtime-proven at boot**, not just same-session:
 > hand-run them for a rollback going forward; invoke `coordinator-uninstall.py` (or
 > `/coordinator:uninstall`) instead.
 The maximalist cutover was fired in two phases to keep the live daily-driver reversible until a fresh
-boot proves DoE resolution. **Phase 1 (this record) is additive** — the running session's substrate is
+boot proves doctrine-repo resolution. **Phase 1 (this record) is additive** — the running session's substrate is
 never removed; the destructive removal is Phase 2, deferred to the post-relaunch session.
 
-**Boundary decision (PM): doctrine → DoE; machine-critical infra stays in `~/.claude`.**
+**Boundary decision (PM): doctrine → the doctrine repo; machine-critical infra stays in `~/.claude`.**
 `~/.claude` is the only guaranteed-to-exist repo and Anthropic's write-guards protect it, so
 session-identity/machine-state infra is deliberately NOT moved:
 
 | Surface | Home | Rationale |
 |---|---|---|
-| Live-editable doctrine (`bin/ lib/ hooks/ skills/ agents/ commands/ docs/`) | DoE clone `coordinator/` | The point of maximalist — live in-place edit via `--plugin-dir`. |
+| Live-editable doctrine (`bin/ lib/ hooks/ skills/ agents/ commands/ docs/`) | doctrine-repo clone `coordinator/` | The point of maximalist — live in-place edit via `--plugin-dir`. |
 | `registry.local.toml` (machine-local state) | `~/.claude/machine-local/` | Inherently per-machine; never moved. |
 | `.coordinator-venv` (Python interpreter running whoami) | `~/.claude/.coordinator-venv/` | Registry-pinned (`coordinator.python`); path-sensitive. |
-| Host-GPU probe (`coordinator/bin/host-gpu-probe.py`) | DoE clone `coordinator/bin/` | Plain script, not doctrine; invoked by absolute path, never imported (see `coordinator-doctor.md` § Machine info). |
+| Host-GPU probe (`coordinator/bin/host-gpu-probe.py`) | doctrine-repo clone `coordinator/bin/` | Plain script, not doctrine; invoked by absolute path, never imported (see `coordinator-doctor.md` § Machine info). |
 
 **Phase 1 actions taken (additive, committed on `work/machine-b/2026-07-04`):**
-2. Relocated git-tracked coordinator source (1482 files, `git archive HEAD:<subdir>` prefix-stripped, +3 untracked bin scripts carried) → `<DoE>/coordinator/`, EXCLUDING `whoami/`. Built artifacts (`.venv`, `node_modules`, `dist`, `__pycache__`) NOT copied — they self-heal at DoE (claude-klabauter's `coordinator_core.install.ensure_venv` for the venv; npm for cockpit-contract).
-3. Registry: `plugin.mirrors.coordinator-claude` = `source_is_live`, `source_path`/`live_path` → `<DoE>/coordinator` (no-op drift/refresh semantics, recognized by `check-plugin-drift.py`/claude-klabauter `coordinator/bin/refresh-plugin-live-install.py`).
-4. `settings.json` hooks regenerated via claude-klabauter `coordinator/bin/gen-settings-hooks.py` → 32 coordinator hooks now DoE-absolute; 2 harness-native hooks preserved; non-hook keys byte-identical; idempotent.
-5. `~/.claude/plugins/coordinator-claude/` tree LEFT IN PLACE (removal is Phase 2). `--plugin-dir` takes precedence over the vestigial marketplace entry, so a relaunched `claude-doe` cleanly resolves from DoE.
+2. Relocated git-tracked coordinator source (1482 files, `git archive HEAD:<subdir>` prefix-stripped, +3 untracked bin scripts carried) → `<DoE>/coordinator/`, EXCLUDING `whoami/`. Built artifacts (`.venv`, `node_modules`, `dist`, `__pycache__`) NOT copied — they self-heal at the doctrine repo (the engine repo's `coordinator_core.install.ensure_venv` for the venv; npm for cockpit-contract).
+3. Registry: `plugin.mirrors.coordinator-claude` = `source_is_live`, `source_path`/`live_path` → `<DoE>/coordinator` (no-op drift/refresh semantics, recognized by `check-plugin-drift.py`/the engine repo's `coordinator/bin/refresh-plugin-live-install.py`).
+4. `settings.json` hooks regenerated via the engine repo's `coordinator/bin/gen-settings-hooks.py` → 32 coordinator hooks now doctrine-repo-absolute; 2 harness-native hooks preserved; non-hook keys byte-identical; idempotent.
+5. `~/.claude/plugins/coordinator-claude/` tree LEFT IN PLACE (removal is Phase 2). `--plugin-dir` takes precedence over the vestigial marketplace entry, so a relaunched `claude-doe` cleanly resolves from the doctrine repo.
 
 **Rollback runbook (Phase 1 — before relaunch, trivial since nothing destructive ran):**
-2. `rm -rf <DoE>/coordinator` + drop the DoE commit.
+2. `rm -rf <DoE>/coordinator` + drop the doctrine-repo commit.
 3. Remove the registry keys: `machine-local` unset `plugin.mirrors.coordinator-claude.*`.
 4. Launch stays bare `claude` (Phase 1 never changed the launch command).
 
@@ -298,13 +298,13 @@ items have since resolved independently — see per-item disposition below, not 
    registry-seam-with-fallback resolution this item asked someone to write already exists natively as
    `_resolve_whoami_pkg` in `coordinator_core/install/ensure_venv.py` (claude-klabauter-resident) — `ensure-coordinator-venv.sh`,
    the artifact this item named, was deleted. Regression coverage:
-   claude-klabauter `coordinator/tests/test_install_substrate.sh` (test 4a, test 5b).
+   the engine repo's `coordinator/tests/test_install_substrate.sh` (test 4a, test 5b).
 2. **Still open — superseded by a dedicated owning artifact.** `git rm` the
    `~/.claude/plugins/coordinator-claude` tree + remove the marketplace / `enabledPlugins` entry, to
    achieve the W4.1s singularity end-state (`~/.claude/plugins/coordinator-claude` absent), now belongs
    to a dedicated phase-2 flat-tree-removal plan (`status: draft`, AC2/AC3/AC4/AC7 pending, two
    hard gates outstanding), which cites this wiki block as its source runbook. Track it there, not here.
-3. **Contingent on item 2, not yet asserted either way.** "W5 (percolation DoE→OSS) and W6.4
+3. **Contingent on item 2, not yet asserted either way.** "W5 (percolation upstream→OSS) and W6.4
    (placement-law spots) unblock" was a consequence clause, not an action — no artifact declares either
    unblocked as of this writing.
 
@@ -327,8 +327,8 @@ skill/command markdown file, or any surface where `machine-local` is unavailable
 > **Why COLD-read must be zero-tool-dependency:** a cold terminal (opened outside a
 > coordinator session) starts with zero coordinator bins on PATH — Claude Code injects coordinator bin
 > dirs onto PATH at plugin-load time, not via shell profile. This creates a chicken-and-egg trap
-> post-cutover: the launch shim cannot call `machine-local` to resolve the DoE root, because
-> `machine-local` itself now lives inside the DoE clone it would need to locate. This is why the install
+> post-cutover: the launch shim cannot call `machine-local` to resolve the doctrine-repo root, because
+> `machine-local` itself now lives inside the doctrine-repo clone it would need to locate. This is why the install
 > step must project the registry value into a cold-readable bootstrap artifact (the `.doe-root` pointer
 > file) rather than relying on any tool-mediated resolution for the first cold read.
 
@@ -369,19 +369,19 @@ _coordinator_root="${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}"
 ### WARM-generated / warm-run artifacts
 
 **Context:** git hooks generated at install or session-init time (where `machine-local` is on PATH);
-Claude-klabauter `coordinator/lib/resolve-coordinator-clone.py` consumers running inside a coordinator session (this
+the engine repo's `coordinator/lib/resolve-coordinator-clone.py` consumers running inside a coordinator session (this
 is a path swap only — the consumers described here always ran inside an active session and invoked whichever
 resolver was current, bash then Python).
 
 **Resolution mechanism:** read the registry directly via `machine-local get repos.doe_claude`. The
 hook generators (`coordinator-ensure-post-commit-hook`, `coordinator-ensure-prepare-commit-msg-hook`,
-Claude-klabauter `coordinator/bin/gen-settings-hooks.py`) bake the registry-resolved path into the hook body at generate-time — the
+the engine repo's `coordinator/bin/gen-settings-hooks.py`) bake the registry-resolved path into the hook body at generate-time — the
 **warm half** of the coherent split. See the commit "hooks: installers resolve coordinator bin from
 registry — fixes stale-path clobber post-cutover" for the canonical warm-surface implementation.
 
 ### The pointer is a projection of the registry — coherence assertion
 
-`gen-doe-root-pointer.py` writes `<settings-home>/machine-local/.doe-root` = the DoE repo root
+`gen-doe-root-pointer.py` writes `<settings-home>/machine-local/.doe-root` = the doctrine repo's root
 (projected from `repos.doe_claude`), beside its sibling `.claude-klabauter-root`. It writes only the
 settings-home copy — never the git-tracked `~/.claude/.doe-root`, because that path syncs between
 machines, so each machine would commit its own absolute clone path over the last one's and the
@@ -397,7 +397,7 @@ fail-louding on pointer-miss.
 
 ## Resolution seam: `resolve-coordinator-clone.py` pointer tier
 
-Claude-klabauter `coordinator/lib/resolve-coordinator-clone.py` is the **sanctioned resolution seam** for the
+the engine repo's `coordinator/lib/resolve-coordinator-clone.py` is the **sanctioned resolution seam** for the
 coordinator root — downstream repos (project-rag, example-game-repo, deep-research) bind it instead of
 inlining their own fallback. Its header precedence docblock enumerates every tier in order.
 
@@ -452,15 +452,15 @@ candidate coexisting with the OSS install.
 The maximalist install and the coordinator-uninstall spinoff share a surface list that must be kept in
 lockstep. If you add an out-of-repo surface to the install, update the uninstall in the same commit.
 
-**Install surface — `coordinator/commands/install.md` (DoE repo):**
+**Install surface — `coordinator/commands/install.md` (the doctrine repo):**
 Steps 3.5a–3.5c and the Phase 7 status table enumerate every out-of-repo surface the installer
 writes: registry keys (`repos.doe_claude`), the `.doe-root` pointer
 (`<settings-home>/machine-local/.doe-root`), the owned shim file
 (`~/.claude/shell/claude-doe-shim.sh`), the one marked `source` line in the interactive rc,
-settings.json hook block, and the DoE clone itself. The installer is the canonical listing of what
+settings.json hook block, and the doctrine-repo clone itself. The installer is the canonical listing of what
 exists out-of-repo; the uninstall is its inverse.
 
-**Uninstall surface — `coordinator/commands/uninstall.md` + claude-klabauter `coordinator/bin/coordinator-uninstall.py`:**
+**Uninstall surface — `coordinator/commands/uninstall.md` + the engine repo's `coordinator/bin/coordinator-uninstall.py`:**
 The "What gets reversed" surface list reverses the install. Surface #6 (`.doe-root` pointer) and the
 reshaped surface #4 (owned shim file + marked rc source line + legacy `~/.bashrc` block) were added
 in lockstep by C4 of the maximalist-install plan. The uninstall also strips the legacy
@@ -473,12 +473,12 @@ uninstall must receive the same override to strip the correct file.
 
 ## Gotchas — Concurrent-EM hazard: second-copy mis-hook-load
 
-Post-cutover, `~/.claude/plugins/coordinator-claude/` (loaded by a plain `claude` launch) and the DoE
+Post-cutover, `~/.claude/plugins/coordinator-claude/` (loaded by a plain `claude` launch) and the doctrine-repo
 clone (loaded via `--plugin-dir`) are **byte-independent copies**. A fix landed in one is invisible to
 a session running the other — there is no shared-state assumption between them once they diverge.
 
 Concretely observed: a 12-hook `mcp_tool`→command revert landed in the `~/.claude` copy,
-but running sessions were loading DoE via `--plugin-dir` (confirmed via `ps -eo` showing the actual
+but running sessions were loading the doctrine repo via `--plugin-dir` (confirmed via `ps -eo` showing the actual
 launch args), so the fix appeared to have no effect — the noise it was meant to suppress kept firing
 because the *running* session never read the patched copy.
 

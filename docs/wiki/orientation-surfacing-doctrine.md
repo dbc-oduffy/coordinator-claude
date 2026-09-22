@@ -98,6 +98,12 @@ These rules operate within the boot-time orientation budget. Surfacing extra sub
 
 `/workday-start` week-priorities carry shipped items indefinitely when the week-priorities section is re-stamped without re-deriving against current state. A "(carried N weeks)" item may have shipped last week and should be removed from the surface. Apply: before re-stamping any priority with a new generation timestamp, grep the git log and decisions dir for the priority's key term; if it shipped, remove it from the surface rather than carrying it forward.
 
+## Anti-Pattern: Session-Start Orientation Ages Out — Re-Verify Before a Late-Session Forward Recommendation
+
+The read an EM takes at session start is a snapshot, and it ages as the session runs — a later recommendation built on it can be stale even though nothing about the *recommendation logic* was wrong. Recommending a "next lever" spinoff as still-pending, late in a session, when it had in fact already shipped and been reconciled hours earlier, was caught only by the PM.
+
+**Apply:** before recommending a next pickup or flagging a lever late in a session, re-grep the handoff status and git log with the same reconcile discipline `/pickup` Step 3 already applies — don't trust the session-start read for a recommendation made hours after that read was taken. This is a session-duration instance of the same class as § Anti-Pattern: Carried-Forward Priorities above (a `/workday-start` week-boundary instance); both are the same underlying rule — a status claim decays the moment it stops being re-checked against disk, whatever the time window.
+
 ## Related
 
 - → `docs/wiki/tiered-context-loading.md` (boot-time orientation budget and tier discipline)

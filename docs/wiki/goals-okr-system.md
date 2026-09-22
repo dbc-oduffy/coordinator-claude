@@ -223,6 +223,14 @@ ethos: lead with the better path, not the violation.
    yet exist on disk; the converged shape is written into the artifact at scaffold
    time (not via review-integrator machinery, because the artifact doesn't exist
    yet).
+
+   **A reviewer's framing is a shaping input, not a PM ruling — never let it harden into
+   pre-decided scope.** When the VP-Product Reviewer's critique includes a phrase like "X is deferred" or "Y is
+   out of scope," that phrasing is one voice in the ceremony, not a settled decision. Importing
+   it as an established premise and baking it into an `AskUserQuestion` option's text pre-decides
+   a scope call that belongs to the PM. Bring scope to the PM as an open question — surface the
+   candidate framing, name who proposed it, and let the PM rule — rather than presenting a
+   reviewer's wording as already-decided.
 4. **Scaffold goal artifact(s)** via `coordinator-doc-new --type goal`.
 5. **Spawn `spinoff-roadmap-creator` stubs** pre-tagged to the goal (one per
    roadmap-worth-of-work the goal implies).

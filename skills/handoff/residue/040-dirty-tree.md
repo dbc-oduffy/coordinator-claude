@@ -8,7 +8,7 @@ order: 40
 ## Dirty-Tree Case-(c) Disposition
 
 The assembler's `j-dirty-tree-case-c` judgment point surfaces the fact (uncommitted paths) — computed by `coordinator_core.ops.dirty_tree_gate` (`dirty-tree-gate.py`), runnable directly before the terminating commit via (Shape W,
-`snippets/resolve-coordinator-bin.md`) `& "$env:COORDINATOR_SETTINGS_HOME\bin\dirty-tree-gate.exe" --terminator handoff`; attribution is yours. Classify every dirty path as (a) yours, (b) a named concurrent owner's, or (c) unattributable — and never terminate with a case-(c) path still dirty and unnamed. For a genuine (c):
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`) `& "$env:COORDINATOR_SETTINGS_HOME\bin\dirty-tree-gate.exe" --terminator handoff`; attribution is yours. Classify every dirty path as (a) yours, (b) a named concurrent owner's, or (c) unattributable — and never terminate with a case-(c) path still dirty and unnamed. For a genuine (c):
 
 1. **Commit with provenance** if the change is coherent and you can attribute it.
 2. **Stash with provenance** if it is incoherent or risky to commit — name the stash so the next session can find and adjudicate it.
@@ -20,7 +20,7 @@ Orphan `.tmp.<pid>.<nanos>` files are a special case (Edit-tool atomic-write cra
 
 ## Safe-Commit Auto-Commit
 
-Before hand-classifying the dirty tree above, run the auto-commit mechanism — it does the (a)/(b) attribution AND the commit+push mechanically, leaving only genuine case-(c) paths for your judgment. Run (Shape W, `snippets/resolve-coordinator-bin.md` § The door) `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" session.safe_commit_offer '{"cwd":"<repo-root>","session_id":"<this session's id>"}'` — it computes this session's safe pathspec (this session's own touch-list claims, minus anything a live peer session's touch list also claims) and commits+pushes it, then echoes the op's `rendered` field: what landed and why. 
+Before hand-classifying the dirty tree above, run the auto-commit mechanism — it does the (a)/(b) attribution AND the commit+push mechanically, leaving only genuine case-(c) paths for your judgment. Run (Shape W, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` § The door) `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" session.safe_commit_offer '{"cwd":"<repo-root>","session_id":"<this session's id>"}'` — it computes this session's safe pathspec (this session's own touch-list claims, minus anything a live peer session's touch list also claims) and commits+pushes it, then echoes the op's `rendered` field: what landed and why. 
 
 **Pass `session_id` explicitly — the op refuses without it.** Scope is "none", so identity is never taken from the environment, and `cwd` does not supply it either: `cwd` selects which tree is scanned, nothing more. With no explicit `params.session_id` and no carried identity on the wire, the op returns `caller identity could not be established` rather than falling back to the engine process's own environment — that environment belongs to whoever spawned the warm server, so the fallback would commit one session's paths under another's claim. Both params are required in practice: `cwd` for the tree, `session_id` for the identity.
 

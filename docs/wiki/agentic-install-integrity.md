@@ -5,8 +5,8 @@ author: coordinator-em
 status: active
 kind: wiki
 related:
-  - claude-klabauter coordinator/bin/check-install-divergence.py
-  - claude-klabauter coordinator/bin/install-sentinel-write
+  - engine repo coordinator/bin/check-install-divergence.py
+  - engine repo coordinator/bin/install-sentinel-write
   - setup/tests/contract/install_divergence_contract.json
   - docs/wiki/live-install-drift-audit.md
   - docs/wiki/install-surface-completeness.md
@@ -36,13 +36,13 @@ triggers for the three extensions that are parked pending real instances.
 ## What the Byte-Divergence Classifier Solves
 
 The coordinator's live-install propagation model is intentionally manual: plugins are authored in
-the meta-repo and published outward via claude-klabauter `coordinator/bin/publish.py`; per-machine installs are separate
+the meta-repo and published outward via the engine repo's `coordinator/bin/publish.py`; per-machine installs are separate
 checkpoints that an operator explicitly refreshes. In this model, a consumer can accumulate local
 edits to skills, docs, or config before noticing a newer published version. When a
 refresh runs, the naive approach — `rm -rf` then copy — silently destroys those edits. The
 byte-divergence classifier is the gate that prevents this.
 
-Claude-klabauter `coordinator/bin/check-install-divergence.py` performs a **three-way blob-SHA diff** across
+The engine repo's `coordinator/bin/check-install-divergence.py` performs a **three-way blob-SHA diff** across
 three states: (1) the baseline — the source tree at the SHA recorded in `<install-root>/version.txt`
 (what the consumer received when they last installed); (2) the live install — what the consumer's
 disk looks like now (which may include hand-edits); (3) the incoming source — the source tree at
@@ -53,11 +53,11 @@ per-file diff so the consumer can decide. Files changed only in the incoming sou
 **forward-safe**: the consumer has not touched them and a reinstall can proceed without loss.
 This is the same classification logic as a three-way git merge applied to an install tree.
 
-The tool ships at claude-klabauter `coordinator/bin/check-install-divergence.py` (lifted from
+The tool ships at the engine repo's `coordinator/bin/check-install-divergence.py` (lifted from
 `project-rag/project_rag_scripts/lib/check_install_divergence.py`, verbatim-on-contract per the
 plan). The machine-readable contract — exit codes, JSON stdout schema, CLI flags — is pinned at
 `setup/tests/contract/install_divergence_contract.json`. The sentinel writer that produces the
-baseline anchor is at claude-klabauter `coordinator/bin/install-sentinel-write`. For the full picture of how
+baseline anchor is at the engine repo's `coordinator/bin/install-sentinel-write`. For the full picture of how
 copy_install drift is detected and remediated in the drift-audit primitives, see
 `live-install-drift-audit.md`.
 
@@ -85,7 +85,7 @@ tools that write UTF-16 or Windows-BOM-UTF-8 by default.
 single-line data file: cross-platform tools that validate the sentinel use `strip()` before
 regex check, but the writer-of-record (`install-sentinel-write`) writes LF unconditionally.
 
-**Writer-of-record.** claude-klabauter `coordinator/bin/install-sentinel-write` is the canonical writer.
+**Writer-of-record.** The engine repo's `coordinator/bin/install-sentinel-write` is the canonical writer.
 Other writers are welcome if they meet the format. The format is simple enough that any
 caller can produce it correctly without importing the writer:
 
@@ -166,7 +166,7 @@ the classifier's contract.
 **What byte-divergence misses.** The coordinator's skills actively write to the consumer's disk
 during normal operation: `tasks/`, `state/handoffs/`, `docs/plans/`, `state/lessons/`, memory
 entries under `projects/`, fragments added to `settings.json`. None of this surface is tracked in
-the byte-divergence baseline — none of it comes from claude-klabauter `coordinator/bin/publish.py`. A reinstall that
+the byte-divergence baseline — none of it comes from the engine repo's `coordinator/bin/publish.py`. A reinstall that
 "cleanly wipes and replaces" the source tree poses no threat to these paths. But a hypothetical
 installer that is less careful — or a future plugin install ceremony that incorrectly scopes its
 copy target — could walk into these paths and clobber session-continuity surface. Today we rely
@@ -220,7 +220,7 @@ realized as a PM-invoked verb. The *automatic boot-time nudge* described here (a
 probe that surfaces staleness without being asked) remains the deferred form; `/coordinator-update`
 is pull (the PM invokes it), not push (boot surfacing).
 
-**Note on `post-sync-hook-doctrine.md`.** The C3 sentinel-write hook in claude-klabauter `coordinator/bin/publish.py` is
+**Note on `post-sync-hook-doctrine.md`.** The C3 sentinel-write hook in the engine repo's `coordinator/bin/publish.py` is
 a root-level new-file mutation (writing `version.txt` into the destination tree after sync), NOT
 a per-file synced-content rewrite. The touched-list constraint in `post-sync-hook-doctrine.md`
 applies to the per-file synced-content case; it does not apply here.
@@ -230,16 +230,13 @@ applies to the per-file synced-content case; it does not apply here.
 ## Settings-Home Shim Content Drift
 
 A shared library copied verbatim into the settings home (e.g.
-`$COORDINATOR_SETTINGS_HOME/bin/_resolve_claude_klabauter.py`, snapshotted from claude-klabauter
+`$COORDINATOR_SETTINGS_HOME/bin/_resolve_claude_klabauter.py`, snapshotted from the engine repo's
 `coordinator/lib/resolve-claude-klabauter/_resolve_claude_klabauter.py`) has no freshness check. Adjacent, uncovered:
 `coordinator_core.plugin_health.forwarder_drift` detects name-set drift (a CLI with no installed
 forwarder), not shared-file content drift, and surfaces only inside a live Claude session at
 `/workday-start` — unreachable in the failure mode this class produces (Claude cannot start).
 
-Incident: claude-klabauter renamed `coordinator/bin/` entrypoints extensionless -> `.py`; the source
-resolver gained a matching probe; the installed snapshot had not, so the forwarder exited 127
-naming a Claude skill as remediation — unreachable, since the failure precedes any session to run
-it in. The remedy for this class belongs on the claude-klabauter plane: a `doctor.py` layer blob-SHA
+ The remedy for this class belongs on the engine plane: a `doctor.py` layer blob-SHA
 comparing the settings-home copy against source, auto-repairable under `--fix` — a one-way copy
 from a single authoritative source clears doctor's own repair-safety bar, which bars only
 bidirectionally-synced files. That is detect-and-repair, not class-retirement; the structural
@@ -249,7 +246,7 @@ a technical verdict.
 
 ## Cross-Tool Discipline
 
-Claude-klabauter `coordinator/bin/check-install-divergence.py` and `coordinator/bin/check-plugin-drift.py` share
+The engine repo's `coordinator/bin/check-install-divergence.py` and `coordinator/bin/check-plugin-drift.py` share
 the same core idiom for blob-SHA computation:
 
 ```bash
@@ -402,13 +399,13 @@ Adoption status: pending (memo just sent; receiver disposition open).
 
 ## Writer Location: Who Calls `install-sentinel-write`
 
-The claude-klabauter `coordinator/bin/install-sentinel-write` CLI is a shared primitive. Invocation is the
+The engine repo's `coordinator/bin/install-sentinel-write` CLI is a shared primitive. Invocation is the
 responsibility of whoever owns the write surface. Two writer locations exist with different
 semantics, and both are legitimate:
 
-### Publish-Side (C3 wire-in in claude-klabauter `coordinator/bin/publish.py`)
+### Publish-Side (C3 wire-in in the engine repo's `coordinator/bin/publish.py`)
 
-Claude-klabauter `coordinator/bin/publish.py` invokes `install-sentinel-write` after every successful real (non-dry-run)
+The engine repo's `coordinator/bin/publish.py` invokes `install-sentinel-write` after every successful real (non-dry-run)
 sync. The semantic is: **"this OSS publish-repo received content from source meta-repo at SHA X,
 at publish time."**
 

@@ -1,14 +1,11 @@
-# portability-allowlist: provenance-citation — module-top docstring below
-# carries an X:/ literal as documented provenance (Lifted verbatim-on-contract)
-# per the `provenance_citations` allowlist category (see portability-guard wiki).
 """coordinator/bin/check-install-divergence.py
 
 Three-way blob-SHA install-divergence classifier. Shared primitive for
 agentic install integrity — see docs/wiki/agentic-install-integrity.md
 for the doctrine, deferred extensions, and `version.txt` sentinel format.
 
-Lifted verbatim-on-contract 2026-05-28 from:
-  X:/project-rag/project_rag_scripts/lib/check_install_divergence.py
+Lifted verbatim-on-contract 2026-05-28 from the project-rag repo's
+project_rag_scripts/lib/check_install_divergence.py
 
 PUBLIC CONTRACT (pinned — downstream consumers bind to these surfaces):
 

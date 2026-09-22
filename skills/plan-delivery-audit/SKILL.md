@@ -46,7 +46,7 @@ artifacts, Oracle 2(a) is unverifiable — treat the plan conservatively (see ti
 > step names; it dissolves no gate this skill's own body names.
 
 (b) *Project test suite* — not on the implicit-grant ceremony list; gate via (shape per
-`snippets/resolve-coordinator-bin.md`; PowerShell shown)
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`; PowerShell shown)
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\tier-u-grant-cli.exe" check`
 the way `coordinator:validate` does. Granted: run the project's `fast_test_cmd` at HEAD once for
 the whole batch — a failing suite is independent falsifying evidence even when artifacts check
@@ -68,7 +68,7 @@ commit = COVERED. No covering record = UNCOVERED only if delivery predates the
 trail's freeze; after it, Oracle 3 is `UNAVAILABLE`.
 
 **The corpus is frozen; absence stopped meaning anything.** `review_trail.write` is retired with
-no live writer left (claude-klabauter `ace670d8c`); DoE's newest record is `2026-08-26-211749`. Reviews land
+no live writer left (retired in the engine repo); this repo's newest record is `2026-08-26-211749`. Reviews land
 in the reviewer sidecar's `## Integrator Dispositions` receipt, which this oracle cannot read
 -- so a post-freeze plan returns UNCOVERED whether or not it was reviewed. Read the sidecar before
 reporting a review missing. If delivery commits aren't named in frontmatter or execution

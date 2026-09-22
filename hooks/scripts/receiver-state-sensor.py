@@ -68,8 +68,10 @@ file.
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -116,21 +118,51 @@ def _transcript_for(payload: dict) -> str:
     return value if isinstance(value, str) else ""
 
 
+def _log_degradation(
+    payload: dict, token: str, exc: Exception | None = None, session_id: str = ""
+) -> None:
+    """Append one reason token for whichever of the five silent degrade
+    branches fired, so "the sensor never ran" and "the sensor ran and
+    degraded" stop being indistinguishable on disk.
+
+    Resolved the way `sessionend-archive-session.py:118` resolves its own
+    diagnostics log dir: walk up from `cwd` to the nearest `.git`, ask git
+    for the common dir, log under `<git-common-dir>/coordinator-sessions/
+    logs/`. Every failure here is swallowed -- a log that cannot be written
+    must not change the exit, per this file's producer contract.
+    """
+    try:
+        cwd = payload.get("cwd") if isinstance(payload, dict) else None
+        probe = Path(cwd).resolve() if isinstance(cwd, str) and cwd else Path.cwd()
+        for candidate in (probe, *probe.parents):
+            if (candidate / ".git").exists():
+                out = subprocess.run(
+                    ["git", "-C", str(candidate), "rev-parse",
+                     "--path-format=absolute", "--git-common-dir"],
+                    capture_output=True, text=True, timeout=5, check=False,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                if out.returncode != 0 or not out.stdout.strip():
+                    return
+                log_dir = Path(out.stdout.strip()) / "coordinator-sessions" / "logs"
+                log_dir.mkdir(parents=True, exist_ok=True)
+                stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                parts = [f"[{stamp}] {token}"]
+                if session_id:
+                    parts.append(f"session_id={session_id}")
+                if exc is not None:
+                    parts.append(f"{type(exc).__name__}: {exc}")
+                with (log_dir / "receiver-state-sensor-diagnostics.log").open(
+                    "a", encoding="utf-8"
+                ) as fh:
+                    fh.write(" ".join(parts) + "\n")
+                return
+    except Exception:
+        return
+
+
 def main() -> int:
     raw = _read_stdin()
-
-    root = _resolve_engine_root()
-    if not root:
-        return 0  # fail-open -- the engine is unresolvable on this machine
-
-    if root not in sys.path:
-        sys.path.insert(0, root)
-
-    try:
-        import coordinator_core.hooks.receiver_state_sensor  # noqa: F401
-        from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
-    except Exception:
-        return 0  # engine unimportable -> fail-open
 
     try:
         payload = json.loads(raw)
@@ -139,11 +171,27 @@ def main() -> int:
     except Exception:
         payload = {}
 
+    root = _resolve_engine_root()
+    if not root:
+        _log_degradation(payload, "engine-unresolvable")
+        return 0  # fail-open -- the engine is unresolvable on this machine
+
+    if root not in sys.path:
+        sys.path.insert(0, root)
+
+    try:
+        import coordinator_core.hooks.receiver_state_sensor  # noqa: F401
+        from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
+    except Exception as exc:
+        _log_degradation(payload, "engine-unimportable", exc)
+        return 0  # engine unimportable -> fail-open
+
     session_id = payload.get("session_id") or ""
     transcript_path = _transcript_for(payload)
     if not session_id or not transcript_path:
         # The op treats both as required; a missing either is a silent no-op
         # engine-side anyway, so spend no dispatch on it.
+        _log_degradation(payload, "payload-incomplete", session_id=session_id)
         return 0
 
     params = {
@@ -158,9 +206,11 @@ def main() -> int:
             params,
             origin_worktree=payload.get("cwd", ""),
         )
-    except HookDispatchError:
+    except HookDispatchError as exc:
+        _log_degradation(payload, "dispatch-error", exc, session_id=session_id)
         return 0  # any engine failure -> fail-open (never block a Stop)
-    except Exception:
+    except Exception as exc:
+        _log_degradation(payload, "unexpected-error", exc, session_id=session_id)
         return 0
 
     # The op always returns no_advisory(); this shim emits nothing, ever.

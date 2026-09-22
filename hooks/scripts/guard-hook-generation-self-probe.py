@@ -9,8 +9,8 @@ nowhere hides its own defects. This stub is the wiring.
 
 The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out, same
 split guard-settings-integrity.py and guard-foreign-platform-paths.py already
-use): resolve the claude-klabauter engine, call its guard function IN-PROCESS, relay its
-returned text. Claude-klabauter owns the guard LOGIC.
+use): resolve the engine repo, call its guard function IN-PROCESS, relay its
+returned text. The engine repo owns the guard LOGIC.
 
 Shape choice (in-process direct import, NOT a sweep-boot.py-style subprocess
 exec): `run_self_probe`'s OWN module docstring states it mirrors "the fail-open
@@ -30,7 +30,7 @@ stub reaches the plain importable function directly instead, exactly as
 guard-settings-integrity.py reaches its three sibling functions.
 
 Fail-open on exit code, matching the SessionStart hook's own contract (session
-start must never wedge) — EVERY failure path below (claude-klabauter root unresolved,
+start must never wedge) — EVERY failure path below (engine root unresolved,
 op module unimportable, op call raises, op call times out, op returns a
 non-string/malformed value) exits 0 and emits nothing to stdout (no banner),
 never propagating the failure into additionalContext.
@@ -41,7 +41,7 @@ genuinely-dead probe byte-indistinguishable from a healthy/silent one). Each
 failure path below best-effort appends a `CHILD FAILED` record to the shared
 `<repo>/state/housekeeping-failures.log` via
 `coordinator_core.ops.ceremony.detached_spawn.record_child_failure` once a
-Claude-klabauter root is resolved; the one failure path where no claude-klabauter root is
+engine root is resolved; the one failure path where no engine root is
 resolved (so `coordinator_core` cannot be imported at all) hand-rolls a
 format-matched fallback line, mirroring sweep-boot.py's own
 `_write_raw_failure_record`.
@@ -76,7 +76,7 @@ not something this trampoline adds, duplicates, or short-circuits.
 Source (equivalent shim pair): coordinator/hooks/scripts/guard-settings-integrity.py,
     coordinator/hooks/scripts/guard-foreign-platform-paths.py
 Engine: coordinator_core.ops.session.guard_hook_generation_self_probe.run_self_probe
-    (claude-klabauter)
+    (the engine repo)
 Spec backlink: doctrine-repo dispatch state/subagent-share/
     992e179e-735d-49f2-825f-7151aad850ea/coordinatorexecutor-1f3e8af6.md
     (2026-07-29) — wires the previously-inert self-probe guard into
@@ -121,7 +121,7 @@ _SELF_PROBE_TIMEOUT_SECS = 5
 
 def _resolve_this_repo_root() -> str | None:
     """Resolve the repo THIS hook is running in (cwd-based) — the destination
-    for the housekeeping-failures log, NOT the claude-klabauter root. Mirrors
+    for the housekeeping-failures log, NOT the engine root. Mirrors
     sweep-boot.py's own `_resolve_this_repo_root` exactly (same rationale:
     `__file__` lives under the doctrine-plane source tree regardless of which
     consumer repo's session invoked it via live `--plugin-dir` resolution, so
@@ -158,7 +158,7 @@ def _write_raw_failure_record(repo_root: str, detail: str) -> None:
     `coordinator_core.ops.ceremony.detached_spawn.record_child_failure`'s own
     ``CHILD FAILED script=<path> :: <detail>`` line shape. Used only on the
     one failure path where that real writer is structurally unreachable: an
-    unresolved claude-klabauter root means there is no known `coordinator_core` to
+    unresolved engine root means there is no known `coordinator_core` to
     import in the first place."""
     from datetime import datetime, timezone
 
@@ -212,7 +212,7 @@ def main() -> int:
     root = _resolve_claude_klabauter_root()
     if not root:
         _record_failure(None, "claude-klabauter root unresolved — skipping self-probe")
-        return 0  # fail-open — claude-klabauter unresolvable on this machine
+        return 0  # fail-open — engine repo unresolvable on this machine
 
     if root not in sys.path:
         sys.path.insert(0, root)

@@ -34,8 +34,8 @@ import time
 from pathlib import Path, PureWindowsPath
 from typing import Optional
 
-#: Queue leaf under `state/subagent-share/<session_id>/`, sibling of the
-#: telemetry `*.jsonl` rows already written there.
+#: Queue leaf under `.coordinator-local/subagent-share/<session_id>/`, sibling
+#: of the telemetry `*.jsonl` rows already written there.
 QUEUE_LEAF = "plan-path-queue.jsonl"
 
 #: Rows older than this are ignored on read -- a PreToolUse fire whose spawn
@@ -132,7 +132,7 @@ def _queue_path(session_id: str, cwd: Optional[str]) -> Optional[Path]:
     # rather than letting a crafted value escape subagent-share/.
     if not re.fullmatch(r"[A-Za-z0-9._-]+", session_id) or session_id in {".", ".."}:
         return None
-    return root / "state" / "subagent-share" / session_id / QUEUE_LEAF
+    return root / ".coordinator-local" / "subagent-share" / session_id / QUEUE_LEAF
 
 
 def record_plan_path(

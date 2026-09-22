@@ -30,7 +30,7 @@ leg, unlike most other guards in this tree. A dispatched subagent can set
 an env var on itself before a tool call — an env-var override is
 self-defeating for a guard that must bind subagents exactly as it binds
 the main session. Precedent: `coordinator_core.bash_guards.
-block_subagent_destructive_action` (claude-klabauter) deliberately withholds
+block_subagent_destructive_action` (the engine repo) deliberately withholds
 an env-var override for the identical reason.
 
 Deny message discipline — the sentinel name is NEVER printed

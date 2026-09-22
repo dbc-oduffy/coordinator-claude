@@ -151,9 +151,23 @@ def _registry_machine_local_get(key: str) -> str | None:
     a separate, deliberately deferred cross-site change (all 6 sites
     together), not a local patch.
     """
-    _in_process = _mlir_registry_get(key)
-    if _in_process:
-        return _in_process
+    # MACHINE_LOCAL_IMPL, when explicitly set, governs this function ENTIRELY
+    # — the in-process rung is skipped, not merely ranked below the spawn.
+    # The var names the machine-local implementation to use; a fast path that
+    # reads the real registry.local.toml before consulting it does not honour
+    # that name, and silently answers from the real box while a test believes
+    # it has substituted a stub. Measured 2026-09-20: a suite that set the
+    # stub to a fixture path still resolved `repos.doe_claude` to the live
+    # DoE-claude tree, which is how "neutralize every doe_root() rung" stopped
+    # being achievable for the lessons-outbox leg at all.
+    #
+    # Negative-spec: unset is the production case and is NOT affected — the
+    # in-process rung keeps its precedence there, which is the whole point of
+    # it (a spawn per registry read is over the process budget).
+    if not (os.environ.get(_REGISTRY_MACHINE_LOCAL_IMPL_ENV) or "").strip():
+        _in_process = _mlir_registry_get(key)
+        if _in_process:
+            return _in_process
     impl = _registry_machine_local_impl()
     cmd = [sys.executable, impl, "get", key]
     try:
@@ -165,7 +179,7 @@ def _registry_machine_local_get(key: str) -> str | None:
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.TimeoutExpired):
-        # Review: staff-eng MAJOR-5 — this function is reachable from the
+        # This function is reachable from the
         # module-level import bootstrap (rung 5) on any box where rungs 1-4
         # miss, and this repo's own load norm (50-70 concurrent LLM sessions,
         # CLAUDE.md § Load norm) makes a slow machine-local spawn the
@@ -281,7 +295,7 @@ def _mp_repo_root_from_plugin_root_candidate(candidate: str, *, allow_unchanged_
     silently win over an operator's explicit override just because
     os.path.isdir() happens to be true.
 
-    Review: staff-eng MINOR-8 — normalizes via os.path.normpath before
+    Normalizes via os.path.normpath before
     stripping trailing separators (a bare rstrip strips a trailing separator
     off a bare drive-letter root, leaving a form Windows resolves as
     CWD-relative rather than the drive root) and casefolds the "coordinator"
@@ -344,7 +358,7 @@ def _mp_marketplace_cache_rung() -> str:
     `_mp_flat_layout_probe_rung()` above; this module's manifest bootstrap
     runs at IMPORT time and must stay filesystem-and-env only.
 
-    Review: staff-eng BLOCKER-1(a) — `_mp_flat_layout_probe_rung()`'s
+    `_mp_flat_layout_probe_rung()`'s
     candidate is not where Claude Code installs a marketplace plugin; this
     is. Without this rung, a direct-CLI invocation on a real OSS install (no
     `.doe-root` pointer, no CLAUDE_PLUGIN_ROOT, no machine-local registry)
@@ -361,7 +375,7 @@ def _mp_marketplace_cache_rung() -> str:
     if not os.path.isdir(_cache_parent):
         return ""
     _best = ""
-    _best_key = (-1, -1, -1)
+    _best_key: tuple[int, int, int] | None = None
     try:
         _entries = os.listdir(_cache_parent)
     except OSError:
@@ -370,18 +384,12 @@ def _mp_marketplace_cache_rung() -> str:
         _child = os.path.join(_cache_parent, _name)
         if not os.path.isdir(_child):
             continue
-        _parts = (_name.split(".") + ["0", "0", "0"])[:3]
-        _nums: list[int] = []
-        for _part in _parts:
-            _digits = ""
-            for _ch in _part:
-                if _ch.isdigit():
-                    _digits += _ch
-                else:
-                    break
-            _nums.append(int(_digits) if _digits else 0)
+        _parts = _name.split(".")
+        if len(_parts) > 3 or any(not _part.isdigit() for _part in _parts):
+            continue
+        _nums = [int(_part) for _part in _parts] + [0] * (3 - len(_parts))
         _key = (_nums[0], _nums[1], _nums[2])
-        if _key > _best_key:
+        if _best_key is None or _key > _best_key:
             _best_key = _key
             _best = _child
     return _best
@@ -400,7 +408,7 @@ if not os.path.exists(_MANIFEST_PATH):
     # leave the split-repo import path resolving to the wrong root exactly the
     # way doe_root() used to.
     #
-    # Review: this rung ordering (registry before codename-free) previously ran
+    # this rung ordering (registry before codename-free) previously ran
     # AFTER the codename-free ladder below — the same DR-071 precedence defect
     # `coordinator_core/ops/coordinator_doe_root.py` fixed per finding B2
     # (state/review-findings/2026-08-08-codename-free-partitioned/slice-B-doe-root.md),
@@ -540,7 +548,7 @@ except KeyError as _e:
 
 # REPO_ALIASES: registryKey → shortname — matches the Python _REPO_KEY_ALIASES convention
 # in coordinator-doc-new and coordinator-queue-append.
-# Review: coordinator-code-reviewer Finding 3 — sibling reader:
+# Sibling reader:
 # coordinator_core/machine_resolver.py's _identity_repo_aliases() (lazy,
 # DR-047-forced second projection). Keep both in sync by hand on any
 # manifest-shape change.
@@ -551,7 +559,7 @@ CENTRAL_RECEIVER_IDS: frozenset[str] = frozenset(_central_receiver_ids_raw)
 
 
 def _central_canonical_id() -> str:
-    # Review: coordinator-code-reviewer Finding 3 — sibling reader:
+    # Sibling reader:
     # coordinator_core/machine_resolver.py's _identity_central_canonical_id().
     # Keep both in sync by hand on any manifest-shape change.
     """The single canonical central-EM identity string.
@@ -850,7 +858,7 @@ def doe_root() -> str:
           unchanged let an unrelated repo win over an explicit correct
           override). Also gated on `<cand>/state` being a directory.
       8.  machine-local `plugin.mirrors.coordinator-claude.live_path` —
-          Review: staff-eng MAJOR-3 — this is the SAME class of value as
+          This is the SAME class of value as
           CLAUDE_PLUGIN_ROOT (a content root in the private/dev layout,
           `<repo_root>/coordinator`) and is now routed through the same
           normalizer + state/ gate rather than trusted as a repo root

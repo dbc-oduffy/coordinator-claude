@@ -108,6 +108,24 @@ _PUBLISH_MIRROR_DEST = "publish-mirror:coordinator_claude"
 _SOURCE_SIGIL_COORDINATOR_CLAUDE = "plugin-source:coordinator-claude"
 _SOURCE_SIGIL_CLAUDE_KLABAUTER = "plugin-source:claude-klabauter"
 
+#: The two scripts `/mise-en-place`'s only sanctioned dispatch route needs on a
+#: published install -- `emit-dispatch-workflow.py` is the one
+#: `block-workflow-foreign-emission.py`'s remediation composes an invocation of
+#: (`_emitter_invocation`, that module), `mise-prep-gate.py` is the companion prep-bar
+#: check the same route runs before firing. Both are `bin`-allowlist-entry members
+#: routed to the engine repo's `plugin-source:` sigil by this row's `source_map` (§ module
+#: docstring ROW MODEL), dest-relative verbatim since `coordinator-claude|mirror`'s
+#: `dest_subdir` is empty. Carried here as an explicit, checked requirement so a sync
+#: that silently drops either from the walk is caught as a `ProjectionIssue` --
+#: pinned by `coordinator/tests/test_prepublish_projection_citations.py::
+#: test_projection_is_nonempty_and_plausible`'s existing `not projection.issues`
+#: assertion -- rather than discovered later as a 404 from a live install.
+_REQUIRED_DISPATCH_ROUTE_SCRIPTS = (
+    "bin/emit-dispatch-workflow.py",
+    "bin/mise-prep-gate.py",
+)
+_DISPATCH_ROUTE_SCRIPTS_ROW = "coordinator-claude"
+
 
 class ProjectionUnavailableError(RuntimeError):
     """Raised when a required sibling module (the engine-plane sibling repo's engine, this repo's own
@@ -606,6 +624,23 @@ def project_publish_paths() -> Projection:
             row_paths.add(dest_relpath)
             projection.files.append(ProjectedFile(row=row.name, dest_relpath=dest_relpath, source_path=source_path))
         projection.rows[row.name] = frozenset(row_paths)
+
+        if row.name == _DISPATCH_ROUTE_SCRIPTS_ROW:
+            for script in _REQUIRED_DISPATCH_ROUTE_SCRIPTS:
+                if script not in row_paths:
+                    projection.issues.append(
+                        ProjectionIssue(
+                            row=row.name,
+                            entry=script,
+                            reason=(
+                                f"{script} is required by /mise-en-place's sanctioned "
+                                "dispatch route (block-workflow-foreign-emission.py's "
+                                "remediation invokes it) but is absent from this row's "
+                                "projected file set -- a publish from here would 404 the "
+                                "dispatch route on a fresh install"
+                            ),
+                        )
+                    )
 
     return projection
 

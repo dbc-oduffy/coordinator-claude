@@ -87,7 +87,7 @@ op-driven write always eventually is (that is the entire mechanism by which
 it becomes durable and travels).
 
 WHY THIS RIDES *THIS* SCRIPT rather than a new, separate pre-commit gate:
-the actual `.git/hooks/pre-commit` dispatch is wired by claude-klabauter's
+the actual `.git/hooks/pre-commit` dispatch is wired by the engine repo's
 `coordinator_core.ops.install_doe_claude_precommit_hook._GATE_REGISTRY` (see
 `coordinator/tests/test_doe_precommit_installer_registration.py`), a
 cross-repo file this repo cannot add an entry to unilaterally. A brand-new

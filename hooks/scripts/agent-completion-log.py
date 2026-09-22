@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """PostToolUse(Agent) naked-Python bookkeeping dispatcher.
 
-Replaces the claude-klabauter-advisory half of the former bash agent-completion-log.sh
+Replaces the engine-repo-advisory half of the former bash agent-completion-log.sh
 PostToolUse registration (the fire-and-forget `advisory_call
 "hooks.agent_completion_log"` block at the bottom of that script) with ONE
 `python3` hook entry -- zero Git-Bash cold-start per Agent-tool completion on
 Windows (each bash.exe spawn costs 200-500ms; this is the whole point).
 
 The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out):
-resolve the claude-klabauter engine, hand it the mapped params, relay its stdout.
-Claude-klabauter owns the write LOGIC (coordinator_core.hooks.agent_completion_log,
+resolve the engine repo, hand it the mapped params, relay its stdout.
+The engine repo owns the write LOGIC (coordinator_core.hooks.agent_completion_log,
 registered under the JSON-RPC method "hooks.agent_completion_log") -- the
 actual jsonl append to .git/coordinator-sessions/logs/agent-audit.jsonl. The
 engine is imported and run IN-PROCESS via coordinator_core.ipc.dispatch_from_hook
@@ -17,7 +17,7 @@ engine is imported and run IN-PROCESS via coordinator_core.ipc.dispatch_from_hoo
 wrapper) -- no bash, no `python3 -m` subprocess re-spawn -- so a whole
 Agent-tool completion pays exactly one Python interpreter start.
 
-Contract (mirrors the claude-klabauter-advisory half of the bash hook it replaces --
+Contract (mirrors the engine-repo-advisory half of the bash hook it replaces --
 agent-completion-log.sh's `advisory_call "hooks.agent_completion_log"` block;
 the LOCAL bash jq append to agent-audit.jsonl in that same script is a
 SEPARATE, still-live write path this stub does NOT touch or supersede --
@@ -40,7 +40,7 @@ the target op's field() calls actually read"). The bash oracle
 (agent-completion-log.sh's advisory_call block) builds its _PARAMS from
 NESTED tool_input/tool_response fields via jq, not flat top-level stdin keys
 -- this stub does the equivalent flattening in Python before building params,
-since the claude-klabauter handler expects flat scalars (see the handler's own R-1
+since the engine repo's handler expects flat scalars (see the handler's own R-1
 docstring: "inputs are flat scalars extracted by the mcp_tool manifest shim"
 -- this stub IS that flattening shim, standing in for mcp_tool):
     session_id                <- stdin["session_id"]
@@ -67,7 +67,7 @@ legacy bash's unconditional jq append, but the LOCAL bash write path stays
 live during the transition window, see "Open risks").
 
 Graceful degradation -- REQUIRED: any failure to resolve/import/run the
-Claude-klabauter engine, or to parse stdin, falls through to fail-open (exit 0, no
+engine repo, or to parse stdin, falls through to fail-open (exit 0, no
 stdout). A missing sibling engine, or a missing/unresolvable cwd, must NEVER
 brick an Agent-tool completion -- identical philosophy to
 preuse-write-dispatch.py._resolve_claude_klabauter_root (kept in lockstep deliberately;
@@ -124,7 +124,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open -- claude-klabauter unresolvable on this machine
+        return 0  # fail-open -- engine repo unresolvable on this machine
 
     if root not in sys.path:
         sys.path.insert(0, root)

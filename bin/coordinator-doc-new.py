@@ -1,6 +1,6 @@
 """
 coordinator-doc-new — scaffold a conformant coordinator document (handoff, spinoff, memo, plan, decision, audit-record, completion, sidecar, run-report [alias: flight-recorder], research-synthesis, review-findings) or delegate to a typed writer for queue/lesson/workflow types.
-# Review: code-reviewer slice-B F7 — module docstring updated to list all supported types.
+# Module docstring updated to list all supported types.
 
 Spec backlink: docs/plans/2026-06-25-example-initiative-tc-0-canonical-baton-shape.md § C4 (D3)
 Spec backlink (A4): docs/plans/2026-06-25-example-initiative-tc-4-fleet-machinery-contract-emit.md § A4
@@ -172,7 +172,7 @@ def _ensure_engine_on_path() -> str | None:
     if _CLAUDE_KLABAUTER_ROOT_RESOLVED is not None:
         return _CLAUDE_KLABAUTER_ROOT_RESOLVED
     try:
-        # Review: code-reviewer dccd9967 F3 — the resolution CALL, not just the
+        # The resolution CALL, not just the
         # import, must sit inside this guard: ensure_engine_on_path's internal
         # path-walk (Path.resolve()/.parents/.is_dir()) can raise OSError/
         # PermissionError on a broken junction or symlink loop, which its own
@@ -283,7 +283,7 @@ def _bootstrap_engine() -> None:
         _ensure_bin_lib_bootstrapped()
         from python_interp import resolve_console_python as _resolve_console_python  # noqa: E402
         from memo_compose import (  # noqa: E402
-            compose_memo as _memo_compose,  # Review: code-reviewer S3-F3 — use compose_memo (full-doc composer) instead of compose_frontmatter + manual concat
+            compose_memo as _memo_compose,  # Use compose_memo (full-doc composer) instead of compose_frontmatter + manual concat
             _today,
             _yaml_quote,
             _SUMMARY_MAX_CHARS,
@@ -307,7 +307,7 @@ def _bootstrap_engine() -> None:
         # sidecar, ...), only the six ledger-owing scaffolders that actually need this
         # constant — those fail loudly at the point of use instead (see
         # _require_session_ledger_block below).
-        # Review: code-reviewer 49e8b242 P1 — bare module-level import broke --help and
+        # Bare module-level import broke --help and
         # every non-ledger-owing doc type on an unresolvable engine; this restores the
         # file's own fail-open convention while keeping the six ledger-owing scaffolders
         # loud on the same failure.
@@ -359,7 +359,7 @@ def _bootstrap_engine() -> None:
             QUEUE_TYPES as _QUEUE_TYPES,
             REPO_ALIASES as _REPO_KEY_ALIASES,
             em_id_for_root as _em_id_for_root,      # C2b — shared resolver; no home param
-        )  # Review: code-reviewer — F2: removed dead import repo_key_to_em_id; only _em_id_for_root is called here
+        )  # Removed dead import repo_key_to_em_id; only _em_id_for_root is called here
 
         # --type run-report — LOCAL shim, not yet manifest-registered.
         #
@@ -495,7 +495,7 @@ _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]*$")
 #: That test exists because this tuple sat one value stale (`bug` landed in the
 #: engine and in cross-repo-memo, not here) and the scaffolder refused a kind
 #: the sender accepted.
-_MEMO_KINDS = ("ask", "consult", "fyi", "proposal", "bug")
+_MEMO_KINDS = ("ask", "consult", "fyi", "proposal", "bug", "notice")
 
 # Slice ID regex — allows uppercase because slice IDs like "Z", "A", "B1" are common in wave-maps.
 _SLICE_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9\-]*$")
@@ -528,7 +528,7 @@ def _slug_from_scope(scope: str) -> str:
 # rather than imported: this CLI is invoked from an arbitrary consumer repo's cwd (the
 # reviewer's own confined Bash call), and must keep working even when claude-klabauter's own
 # package tree is not importable from there — see _resolve_session_id's docstring.
-_SESSION_SEGMENT_WHITELIST_RE = re.compile(r"[^A-Za-z0-9._@-]+")  # Review: code-reviewer -- was missing '@', diverging from provision_report._sanitize_segment despite the "exactly" claim above
+_SESSION_SEGMENT_WHITELIST_RE = re.compile(r"[^A-Za-z0-9._@-]+")  # Was missing '@', diverging from provision_report._sanitize_segment despite the "exactly" claim above
 _REJECTED_SESSION_SEGMENTS = {"", ".", ".."}
 
 
@@ -689,7 +689,7 @@ def _machine_local_impl() -> str:
     raw executable), so the stub convention cross-repo-memo uses (run-as-executable
     if path doesn't end in .py) does not apply here. Tests that override
     MACHINE_LOCAL_IMPL must provide a .py file.
-    # Review: code-reviewer S3-F5 — documents that the resolved interpreter is always
+    # Documents that the resolved interpreter is always
     # prepended; mirrors the constraint instead of silently differing from
     # cross-repo-memo's ext check.
 
@@ -794,7 +794,7 @@ def _machine_local_repos_keys() -> list[str]:
 
 
 # _same_path deleted (C2b) — not needed in this CLI. _em_id_for_root imported from coordinator_registry above.
-# Review: code-reviewer — F2: removed stale _repo_key_to_em_id reference; import was unused
+# Removed stale _repo_key_to_em_id reference; import was unused
 
 
 def _current_repo_root() -> str | None:
@@ -986,7 +986,7 @@ def _assert_scaffold_content_valid(content: str, out_path: str, repo_root: str |
 
     kind = frontmatter.get("kind") if isinstance(frontmatter, dict) else None
     if kind in _LEDGER_OWING_KINDS:
-        # Review: code-reviewer 49e8b242 P2/P3 — was _compile_heading_re("Session Ledger")
+        # Was _compile_heading_re("Session Ledger")
         # over the full frontmatter+body `content` (near-missed the parser's grammar,
         # and a frontmatter field literal-matching the heading text could spuriously
         # satisfy it); now the canonical parser-shared regex, scoped to `body` only.
@@ -1705,7 +1705,7 @@ def _resolve_explicit_predecessor_edge_tier(
     artifact's `deliverable_id` regardless of its `kind`, via
     `deliverable_carry.resolve_explicit_predecessor_edge_deliverable_id`.
 
-    Review: coordinator:code-reviewer (be51a7b7) P1/P3 — EM ruling:
+    EM ruling:
     parameterise rather than collapse, since the two call sites' fail-soft
     postures are deliberately different and must survive byte-for-byte:
 
@@ -1865,7 +1865,7 @@ def _write_deliverable_carry_degradation(
 def _mint_artifact_id_from_title(prefix: str, title: str, doc_type: str, field: str) -> str | None:
     """Title-derived artifact-id mint (hnd-/cmp-), refusing on a placeholder title.
 
-    Review: coordinator:code-reviewer (913d6318) F2 — the hnd-/cmp- guard was
+    The hnd-/cmp- guard was
     previously two inline if/else blocks in main(), untested independently of the
     shared `_is_placeholder_title` predicate. Wrapping unifies the hnd-/cmp- call
     sites with the same shape as `_mint_deliverable_id_from_title`, so all four id
@@ -1891,7 +1891,7 @@ def _plan_slug_from_path(plan_path: str) -> str:
     basename "2026-06-30-.md"), the function returns the original basename as-is. This edge
     case cannot occur with a valid plan file (date-only names are not valid plan stems);
     fan-out-dispatch.sh exits 2 in this case while this function returns the raw basename.
-    # Review: code-reviewer item-5 F7 — documents the empty-after-strip edge case and the parity gap with fan-out-dispatch.sh
+    # Documents the empty-after-strip edge case and the parity gap with fan-out-dispatch.sh
     """
     basename = os.path.basename(plan_path)
     # Strip leading YYYY-MM-DD- prefix (8 digits + dash), mirroring fan-out-dispatch.sh:
@@ -1936,7 +1936,7 @@ def _argv_without_type() -> list[str]:
     --schema is also stripped so that a caller-supplied --schema cannot override the
     delegation's intended --schema <doc_type> (argparse last-wins would otherwise
     cause the delegate to write to the WRONG queue with exit 0).
-    # Review: code-reviewer CORRECTNESS — strip --schema pairs so delegated --schema wins.
+    # Strip --schema pairs so delegated --schema wins.
     """
     result = []
     args = sys.argv[1:]
@@ -2375,7 +2375,7 @@ def _scaffold_handoff(
             file=sys.stderr,
         )
         sys.exit(1)
-    # Review: coordinator-code-reviewer — an empty/whitespace-only entry is the
+    # An empty/whitespace-only entry is the
     # same class of caller bug as a duplicate or a primary-collision (a fan-in
     # leg silently dropped), so it is refused fail-loud rather than filtered
     # out, matching this function's stated posture everywhere else here.
@@ -2965,7 +2965,7 @@ def _scaffold_spinoff(
     lines.extend([
         "---",
         "",
-        # Review: code-reviewer S4-F2 — expanded to canonical spinoff section grammar per
+        # Expanded to canonical spinoff section grammar per
         # skills/spinoff/SKILL.md; replaced orphan ## Context with the full addressable-section set.
         "## What this covers",
         "",
@@ -3132,7 +3132,7 @@ def _scaffold_roadmap_baton(
 
     Spec backlink: docs/plans/2026-06-29-cli-scaffold-deterministic-docs.md § C3c
     Spec backlink: pln-fleet-deliverable-spine-identity-and-facets-2b331c § D1, D2, C3b
-    Spec backlink (handoff_id): docs/plans/2026-08-01-baton-spine-information-integrity.md § A5 (AC13)
+    Spec backlink (handoff_id): DoE-claude docs/plans/2026-08-01-baton-spine-information-integrity.md § A5 (AC13)
 
     category (--category) is validated against _HANDOFF_CATEGORY_ENUM before the
     frontmatter is written — defaults to 'roadmap' unchanged when not supplied.
@@ -3160,7 +3160,7 @@ def _scaffold_roadmap_baton(
         # Narrowing from the wiki's general "one-line description" to a directory path — roadmap-specific.
         # See skills/roadmap-planning/SKILL.md § Step 2.1, authoring_session field semantics.
         f"authoring_session: {_yaml_quote(f'state/roadmap/{roadmap_id}/')}  # path-shaped; /pickup reads origin context here",
-        # Review: code-reviewer — F6: _yaml_quote applied to authoring_session interpolation (matches adjacent quoted fields)
+        # _yaml_quote applied to authoring_session interpolation (matches adjacent quoted fields)
         "workstream: PLACEHOLDER  # replace with roadmap short prefix slug",
         "sprint: 1  # fill from roadmap-number-stubs topo output (Step 2.1.5)",
         "wave: 1    # fill from roadmap-number-stubs topo output (Step 2.1.5)",
@@ -3269,7 +3269,9 @@ def _scaffold_goal_seed(
     (coordinator:goal-setting SKILL.md § Step 5b, "pickup-from-goal-seed" entry
     point). Like spinoff/roadmap-seed, this is a PM-directive fork with
     no baton branch-point: predecessor: none, no forked_from (CROSS_FIELD_RULES
-    Rule A3a-3, Negative-spec at bin/lib/schema.js:1404).
+    Rule A3a-3 — the live negative-spec is in
+    `coordinator_core/frontmatter/schema_validate.py`'s spinoff-kind rules; the
+    `bin/lib/schema.js` oracle this once cited was deleted 2026-07-24).
 
     goals (origin_goal_id in the emitted frontmatter — schema field name, NOT the
     SKILL's colloquial "goals:") is OPTIONAL for goal-seed: a deferred
@@ -3427,7 +3429,9 @@ def _scaffold_roadmap_seed(
     is the PM-gated baton that FIRES a future coordinator:roadmap-planning
     invocation; it does NOT carry the roadmap's graph-primitive fields (sprint,
     wave, blocks, blocked_by) — CROSS_FIELD_RULES rejects graph primitives on
-    roadmap-seed (bin/lib/schema.js:1102-1105, negative-spec).
+    roadmap-seed (negative-spec; live in
+    `coordinator_core/frontmatter/schema_validate.py`'s spinoff-kind rules, not
+    in the `bin/lib/schema.js` oracle deleted 2026-07-24).
 
     Like spinoff/goal-seed, this is a PM-directive fork with no baton
     branch-point: predecessor: none, no forked_from (Rule A3a-3).
@@ -3598,7 +3602,7 @@ def _scaffold_memo(title: str, to: str, topic: str, from_id: str, kind: str) -> 
     # compose_memo derives summary from the first non-empty body line when summary=None.
     # The placeholder body starts with an HTML comment (stripped → empty by derive_summary).
     # Provide an explicit summary so the frontmatter is non-empty and validator-clean.
-    # Review: code-reviewer S3-F3 — body= was previously dead when summary is set (compose_frontmatter
+    # body= was previously dead when summary is set (compose_frontmatter
     # only calls _derive_summary when summary=None); switching to compose_memo (full-doc composer)
     # removes the manual frontmatter+body concat and eliminates the dead parameter entirely.
     explicit_summary = title[:_SUMMARY_MAX_CHARS]
@@ -3994,7 +3998,7 @@ alone), and describes exactly this moment: a plan now exists for the route
 this sizing chose.
 """
 
-# Review: staff-eng — Finding 6: the terminal-status guard's own vocabulary.
+# The terminal-status guard's own vocabulary.
 # Kept as this file's local mirror of
 # `coordinator_core.ops.deliverable_cascade._SIZING_TERMINAL_STATUS` — not
 # imported directly because that module self-registers
@@ -4066,7 +4070,7 @@ def _mutate_sizing_reverse_edge(
     idempotent, not a clobber (re-running the same scaffold) and never
     reaches this branch at all.
 
-    Review: staff-eng — Findings 2/3: this used to hand-roll its own
+    2/3: this used to hand-roll its own
     `re.search`/`re.sub` line surgery instead of composing
     `coordinator_core.frontmatter.primitives` — the exact defect class that
     module's own docstring names ("three hand-copies ... each independently
@@ -4087,7 +4091,7 @@ def _mutate_sizing_reverse_edge(
     (`insert_fm_field_raw`) take the pre-quoted `_plan_raw` value, so neither
     branch can diverge from the other's quoting.
 
-    Review: coordinator:code-reviewer — the insert branch used to call
+    The insert branch used to call
     `insert_fm_field` with the raw unquoted path, which serializes via
     `serialize_yaml_scalar`'s bare-unless-structural rule and left a
     first-time scaffold's `plan:` unquoted while a re-run (replace branch)
@@ -4121,7 +4125,7 @@ def _mutate_sizing_reverse_edge(
                 "same sizing on purpose), re-run with --fan-out."
             )
 
-    # Review: staff-eng — Finding 6: refuse (rather than silently un-ship)
+    # Refuse (rather than silently un-ship)
     # when the sizing's own status is already terminal.
     _existing_status_value = read_fm_field_unquoted(old_text, "status")
     if _existing_status_value in _SIZING_TERMINAL_STATUSES:
@@ -4143,13 +4147,14 @@ def _mutate_sizing_reverse_edge(
         else:
             new_text = insert_fm_field_raw(new_text, "plan", _plan_raw, "status")
 
-    # Review: staff-eng — Finding 10: validate the mutated document against
+    # Validate the mutated document against
     # the vendored sizing schema before returning, rather than trusting the
     # text surgery blind — a `plan:` value the schema's
     # `^docs/plans/.+\.md$` pattern rejects must abort here, not land on
     # disk and be discovered by a later reader.
     import yaml as _yaml  # noqa: PLC0415
     from pathlib import Path as _ValidatePath  # noqa: PLC0415
+    import coordinator_core.frontmatter as _frontmatter_pkg  # noqa: PLC0415
     from coordinator_core.frontmatter.schema_validate import (  # noqa: PLC0415
         format_validation_errors as _format_validation_errors,
         validate_frontmatter as _validate_frontmatter,
@@ -4159,9 +4164,11 @@ def _mutate_sizing_reverse_edge(
         _parsed = _yaml.safe_load(new_text) or {}
     except Exception as _exc:  # noqa: BLE001
         raise _MutateAbort(f"sizing reverse edge: post-mutation YAML parse failed: {_exc}") from _exc
+    # Located off the imported package, never off `__file__`: this CLI is published
+    # one directory shallower than it is authored (claude-klabauter#30).
     _schema_path = (
-        _ValidatePath(__file__).resolve().parent.parent.parent
-        / "coordinator_core" / "frontmatter" / "schemas" / "sizing-object.schema.json"
+        _ValidatePath(_frontmatter_pkg.__file__).resolve().parent
+        / "schemas" / "sizing-object.schema.json"
     )
     _errors = _validate_frontmatter(_parsed, _schema_path)
     if _errors:
@@ -4525,7 +4532,7 @@ def _scaffold_completion(
         f"created: {today}",
         f"nature: {nature}  # one of: roadmap|bugfix|tech-debt|infra",
         "nature_inferred: false  # true when auto-inferred by workstream-complete Step 3 Sonnet dispatch; false when explicitly set (--nature arg or COMPLETION_NATURE env var)",
-        # Review: code-reviewer — F7: clarified nature_inferred comment to cover --nature arg path
+        # Clarified nature_inferred comment to cover --nature arg path
     ]
     if completion_id:
         lines.append(f"completion_id: {_yaml_quote(completion_id)}")
@@ -4652,7 +4659,7 @@ def _scaffold_goal(title: str) -> str:
     goal_id = f"goal-{slug}"
     lines = [
         "schema: goal",
-        f"id: {_yaml_quote(goal_id)}",  # Review: code-reviewer — use _yaml_quote for consistency with other emitted fields (F13)
+        f"id: {_yaml_quote(goal_id)}",  # Use _yaml_quote for consistency with other emitted fields (F13)
         f"title: {_yaml_quote(title)}",
         "status: active",
         "objective: \"PLACEHOLDER — replace with one-sentence statement of what this goal achieves\"",
@@ -4916,7 +4923,8 @@ def _scaffold_run_report(
 
     divergence is emitted in BLOCK style (key on its own line, nested `diverged:`
     indented below), NOT flow style (`divergence: {diverged: false}`) — this
-    repo's minimal YAML parser (bin/lib/schema.js parseYaml) does not support
+    repo's minimal YAML parser (`schema_validate.parse_yaml`, the native port
+    of the deleted oracle's parseYaml) does not support
     flow-style mappings and would parse a flow-style value as a raw string,
     failing the object-shaped schema check (divergence: type object, required
     [diverged], additionalProperties: false). Block style is the only shape
@@ -4947,8 +4955,8 @@ def _scaffold_run_report(
         "---",
         f"plan: {_yaml_quote(plan_path)}",
         f"chunk: {_yaml_quote(chunk_id)}",
-        f"dispatched_at: {_yaml_quote(dispatched_at)}",  # Review: code-reviewer item-5 F2 — YAML 1.1 coerces bare ISO timestamps to datetime; schema declares string
-        f"dispatched_by: {_yaml_quote(dispatched_by)}",  # Review: code-reviewer item-5 F2 — session ids may contain special chars; guard with _yaml_quote
+        f"dispatched_at: {_yaml_quote(dispatched_at)}",  # YAML 1.1 coerces bare ISO timestamps to datetime; schema declares string
+        f"dispatched_by: {_yaml_quote(dispatched_by)}",  # Session ids may contain special chars; guard with _yaml_quote
         "status: dispatched",
         f"agent_type: {_yaml_quote(_agent_type)}",
         f"spawned_at: {_yaml_quote(dispatched_at)}",  # universal field mirrors dispatched_at at scaffold time
@@ -5194,7 +5202,7 @@ def _scaffold_sidecar(doc_type: str, plan_stem: str) -> str:
             "staff-game-dev-review, staff-data-sci-review, senior-front-end-review, "
             "code-review, plan-review, review"
         )
-        # Review: code-reviewer slice-B F1 — _yaml_quote applied to plan_path to prevent
+        # _yaml_quote applied to plan_path to prevent
         # YAML injection if an unvalidated stem ever reaches here (defense-in-depth).
         fm_lines = [
             "---",
@@ -5280,7 +5288,7 @@ def _scaffold_sidecar(doc_type: str, plan_stem: str) -> str:
         # matching the actual sidecar skeleton in agents/plan-coverage-checker.md lines ~194-206.
         # The plan describes "5 buckets" conceptually but Weak-OOS and Hedges share one heading
         # there — do NOT split into 5 here.
-        # Review: code-reviewer — F5: document-only; 4-heading output matches agents/plan-coverage-checker.md
+        # document-only; 4-heading output matches agents/plan-coverage-checker.md
         body_lines = [
             "",
             "## Plan Coverage Verification",
@@ -5529,7 +5537,7 @@ def _default_output_path(
         prefix = dr_id or "DR-XXX"  # dr_id always set by main() before this call; fallback is defensive only
         return os.path.join("docs", "decisions", f"{prefix}-{slug}.md")
     elif doc_type == "audit-record":
-        # Review: code-reviewer F7 — `or "SYSTEM"` fallback was dead; args.system is guaranteed
+        # `or "SYSTEM"` fallback was dead; args.system is guaranteed
         # non-None for audit-record by the validation block in main() that exits 1 if absent.
         sys_slug = system
         return os.path.join("docs", "architecture", "audit-records", f"{today}-{sys_slug}.md")
@@ -5579,7 +5587,7 @@ def _default_output_path(
             f"{today}-codereview-slice{sid}-{scope_slug}.md",
         )
     # Unknown type guarded upstream; unreachable.
-    # Review: code-reviewer — F4: raise AssertionError matches main()/_scaffold_sidecar pattern; silent wrong-path fallback was a hazard.
+    # Raise AssertionError matches main()/_scaffold_sidecar pattern; silent wrong-path fallback was a hazard.
     raise AssertionError(f"unreachable doc_type in _default_output_path: {doc_type!r}")
 
 
@@ -5659,9 +5667,9 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
             "state/handoffs/YYYY-MM-DD-<slug>.md (handoff/spinoff), "
             "YYYY-MM-DD-<topic>.md (memo), docs/plans/YYYY-MM-DD-<slug>.md (plan), "
             "docs/decisions/DR-NNN-<slug>.md (decision, DR-NNN allocated + collision-checked), "
-            "docs/architecture/audit-records/YYYY-MM-DD-<system>.md (audit-record), "  # Review: code-reviewer F8 — added missing audit-record default path
+            "docs/architecture/audit-records/YYYY-MM-DD-<system>.md (audit-record), "  # Added missing audit-record default path
             "docs/plans/<stem>.<suffix>.md (sidecar types), "
-            "docs/research/YYYY-MM-DD-<slug>.md (research-synthesis), "  # Review: code-reviewer Slice-B F5 — research-synthesis default path
+            "docs/research/YYYY-MM-DD-<slug>.md (research-synthesis), "  # research-synthesis default path
             ".coordinator-local/subagent-share/<session-id>/YYYY-MM-DD-codereview-sliceID-SLUG.md (review-findings), "
             "state/strategic/self-description.yaml (strategic-self-description — single canonical per-repo path, not date/slug-derived). "
             "run-report (and its flight-recorder alias) has NO default — --out is REQUIRED."
@@ -6053,7 +6061,7 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
             "(recovery) Crashed session id being reconstructed (recovers_session: "
             "frontmatter field). Optional — omit to fill in later via Edit once the "
             "crashed session id is known. "
-            # Review: code-reviewer — parity with --deliverable-id/--initiative/--roadmap-id;
+            # Parity with --deliverable-id/--initiative/--roadmap-id;
             # every other fill-after-scaffold optional field has a CLI override (Finding 1).
         ),
     )
@@ -6503,7 +6511,7 @@ def main(argv: "list[str] | None" = None) -> int:
                 file=sys.stderr,
             )
             return 1
-        # Review: code-reviewer slice-B F1 — parse-time allowlist guard: reject stems containing
+        # parse-time allowlist guard: reject stems containing
         # path separators, dots, colons, newlines or any char outside [a-z0-9-].
         # Prevents path traversal (../../evil) and YAML-breaking values (:, newline).
         # _SLUG_RE (^[a-z0-9][a-z0-9-]*$) matches the canonical date-prefixed plan stem
@@ -6526,7 +6534,7 @@ def main(argv: "list[str] | None" = None) -> int:
         if not args.chunk:
             print("error: --chunk <id> is required for --type run-report.", file=sys.stderr)
             return 1
-        # Review: code-reviewer item-5 F1 — parse-time slug guard on --chunk mirrors the --plan guard for
+        # parse-time slug guard on --chunk mirrors the --plan guard for
         # sidecar types. Closes path-injection: without this, `--chunk ../../../x` reaches
         # os.path.join("tasks", plan_slug, "flight", f"{cid}.md") carrying the raw traversal.
         # _SLUG_RE (^[a-z0-9][a-z0-9-]*$) matches canonical chunk ids (e.g. "c1-executor-prompt").
@@ -6604,7 +6612,7 @@ def main(argv: "list[str] | None" = None) -> int:
                 file=sys.stderr,
             )
             return 1
-        # Review: code-reviewer — F3: --chain is YAML-interpolated; guard with _SLUG_RE like other slug args.
+        # Chain is YAML-interpolated; guard with _SLUG_RE like other slug args.
         if args.chain and not _SLUG_RE.match(args.chain):
             print(
                 f"error: --chain '{args.chain}' is not a valid slug. "
@@ -6708,7 +6716,7 @@ def main(argv: "list[str] | None" = None) -> int:
     branch = args.branch if args.branch else _current_branch()
 
     # Resolve from_id (for memo).
-    from_id: str = ""  # Review: code-reviewer S3-F6 — narrowed from str|None; only assigned under doc_type=="memo" and _scaffold_memo requires str
+    from_id: str = ""  # Narrowed from str|None; only assigned under doc_type=="memo" and _scaffold_memo requires str
     if doc_type == "memo":
         from_id = args.from_repo if args.from_repo else _resolve_from_repo()
 
@@ -7026,6 +7034,24 @@ def main(argv: "list[str] | None" = None) -> int:
             _resolved_deliverable_id = _mint_deliverable_id_from_title(
                 title, doc_type, _current_repo_root()
             )
+            if not _resolved_deliverable_id:
+                # A null deliverable_id here forks the spine (2026-08-26
+                # bug record `sizing-scaffold-emits-a-null-deliverable-id`)
+                # — this arm has no carry tier to retry against
+                # (`_mint_deliverable_id_from_title` already tried session-
+                # chain discovery ahead of the placeholder refusal), so the
+                # only remaining move is to leave a durable trace at the
+                # emit site rather than let the `null` render silently.
+                # Reuses the handoff/AC9 arm's own degradation record
+                # rather than authoring a second copy.
+                _write_deliverable_carry_degradation(
+                    _current_repo_root(), doc_type,
+                    RuntimeError(
+                        "sizing-object deliverable_id mint refused or "
+                        "failed — see the note above, if any, for why"
+                    ),
+                    _resolved_deliverable_id, title,
+                )
         else:
             # AC2/AC9 fallthrough — the carry cascade is the DEFAULT for
             # every OTHER spine-bearing doc_type. Today that is `spinoff`,
@@ -7047,7 +7073,7 @@ def main(argv: "list[str] | None" = None) -> int:
             )
 
         # plan_id — always minted fresh for plan type (D3); never null.
-        # Review: coordinator:code-reviewer (913d6318) F1 — pln- was never in the
+        # pln- was never in the
         # false-clear blast radius (gate_eval._HANDOFF_ID_PATTERN matches hnd- only),
         # so the placeholder-title guard bought nothing here and cost the D3
         # "always present, never null" contract baton_assemble's is_plan_input
@@ -7344,7 +7370,7 @@ def main(argv: "list[str] | None" = None) -> int:
         content = _scaffold_sidecar(doc_type=doc_type, plan_stem=args.plan)
     elif doc_type == "run-report":
         # dispatched_at: current UTC time in ISO 8601 format (matches fan-out-dispatch.sh: date -u +%Y-%m-%dT%H:%M:%SZ).
-        dispatched_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")  # Review: code-reviewer item-5 F4 — utcnow() deprecated Python 3.12+; now(tz) is identical output
+        dispatched_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")  # utcnow() deprecated Python 3.12+; now(tz) is identical output
         # dispatched_by: warm-safe -- see _resolve_session_id's docstring.
         dispatched_by = _resolve_session_id()
         content = _scaffold_run_report(
@@ -7389,7 +7415,7 @@ def main(argv: "list[str] | None" = None) -> int:
         #       only "excluded from the generic offer surface", not "unscaffoldable").
         #       Keep the loud AssertionError so it crashes visibly and the
         #       known-types<->emitter parity test catches it.
-        # Review: code-reviewer Finding 1 — `offerable: false` conflated "never
+        # `offerable: false` conflated "never
         # manually scaffoldable" with "excluded from the generic offer surface
         # only"; the narrower `neverManuallyScaffoldable` field fixes the
         # discrimination so a deleted branch on the latter population still hits
@@ -7483,7 +7509,7 @@ def main(argv: "list[str] | None" = None) -> int:
 
     # Security: containment check — resolve symlinks + '..' and verify the output
     # path falls within an allowed write root before creating any directories or files.
-    # Review: code-reviewer — _assert_output_safe → _safe_output_roots() calls
+    # _assert_output_safe → _safe_output_roots() calls
     # _current_repo_root() again, so default-path invocations resolve the repo root
     # twice (once above for anchoring, once here for containment). The double subprocess
     # spawn is an accepted minor cost for this one-shot scaffolding CLI: threading the

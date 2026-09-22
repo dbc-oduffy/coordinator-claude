@@ -2,8 +2,8 @@
 """SessionStart(startup|clear|compact) naked-Python port of coordinator-reminder.sh.
 
 This doctrine-plane repo owns only this thin PLUMBING stub (same DR-047 transport-seam carve-out as
-`preuse-write-dispatch.py`): resolve the claude-klabauter engine, call its reminder-render
-function IN-PROCESS, relay stdout. Claude-klabauter owns the content-rendering LOGIC
+`preuse-write-dispatch.py`): resolve the engine repo, call its reminder-render
+function IN-PROCESS, relay stdout. The engine repo owns the content-rendering LOGIC
 (`coordinator_core.hooks.coordinator_reminder.render_reminder`). No bash, no
 `python3 -m` subprocess re-spawn.
 
@@ -25,8 +25,8 @@ Contract (mirrors the bash hook it replaces):
             was already non-fatal to the session -- the Python port preserves
             that same fail-open posture)
 
-Graceful degradation -- REQUIRED: any failure to resolve/import/run the claude-klabauter
-engine falls through to fail-open silent exit 0 (no stdout). A missing sibling
+Graceful degradation -- REQUIRED: any failure to resolve/import/run the engine
+repo falls through to fail-open silent exit 0 (no stdout). A missing sibling
 engine must never brick session start -- identical philosophy to
 `preuse-write-dispatch.py`.
 
@@ -57,7 +57,7 @@ except Exception:
 def main() -> int:
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open silent exit -- claude-klabauter unresolvable on this machine
+        return 0  # fail-open silent exit -- engine repo unresolvable on this machine
 
     if root not in sys.path:
         sys.path.insert(0, root)

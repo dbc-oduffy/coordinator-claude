@@ -177,7 +177,7 @@ def parse_ledger(ledger_path: Path) -> List[LedgerRow]:
         if num == "#" or set(num) <= {"-"}:
             # header row or separator row
             continue
-        heading_match = re.match(r"^`(#{2,3}\s+.+?)`$", heading_cell)
+        heading_match = re.match(r"^(``?)(#{2,3}\s+.+?)\1$", heading_cell)
         if not heading_match:
             raise LedgerError(
                 f"Admission ledger at {ledger_path} has an unparseable heading "
@@ -185,7 +185,7 @@ def parse_ledger(ledger_path: Path) -> List[LedgerRow]:
                 f"quoted `##`/`###` heading. Remediation: fix the row by hand; "
                 f"this parser will not guess."
             )
-        heading = heading_match.group(1)
+        heading = heading_match.group(2).strip()
         try:
             byte_count: Optional[int] = int(bytes_cell)
         except ValueError:

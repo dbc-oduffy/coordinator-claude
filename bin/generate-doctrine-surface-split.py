@@ -69,7 +69,9 @@ from __future__ import annotations
 
 import difflib
 import re
-import subprocess
+import subprocess  # noqa: F401 -- test_arrival_generate_doctrine_surface_split.py monkeypatches
+# generator.subprocess.run to fake git calls (git_native's own subprocess.run call is the same
+# stdlib module object, so the patch still reaches it); no direct call site in this module anymore.
 import sys
 from pathlib import Path, PurePosixPath
 
@@ -278,7 +280,7 @@ def build_split(stem: str, source_text: str, split_dir_relpath: str | None = Non
         used_slugs[base_slug] = count + 1
         slug = base_slug if count == 0 else f"{base_slug}-{count + 1}"
         filename = f"{slug}.md"
-        # Review: coordinator:code-reviewer (Finding 3) — disambiguation
+        # Disambiguation
         # above only tracks collisions in `base_slug` space, not in the
         # actual `filename` space it produces. A second `## Foo` disambiguates
         # to `foo-2.md`, but a distinct `## Foo 2` heading slugifies to that
@@ -378,7 +380,7 @@ def _index_order_from_readme(readme_text: str) -> list[str]:
     unrelated entries just because directory listing order differs from
     authoring order.
 
-    Review: coordinator:code-reviewer (Finding 1) — scoped to the text
+    Scoped to the text
     FOLLOWING `GENERATED_MARKER` only, not the whole README. A
     hand-maintained preamble (relocated frontmatter, `_preamble.md` prose)
     can legitimately contain markdown-link-shaped bullet lines cross-
@@ -530,23 +532,20 @@ def dirty_bodies(split_dir: Path) -> list[tuple[str, str]]:
     Fails OPEN: no git, not a repository, or any git error returns empty. This is an
     ergonomic guard over a shared tree, not a correctness gate, and a consumer outside a
     checkout must still be able to regenerate.
+
+    Routes through
+    `coordinator_core.ops.ceremony.git_native._git` instead of a hand-rolled
+    `subprocess.run` with its own creationflags handling.
     """
-    try:
-        proc = subprocess.run(
-            ["git", "status", "--porcelain", "--", str(split_dir)],
-            capture_output=True,
-            text=True,
-            cwd=str(split_dir),
-            timeout=15,
-            **_no_console_creationflags(),
-        )
-    except (OSError, subprocess.SubprocessError):
+    from coordinator_core.ops.ceremony.git_native import _git as _git_native
+
+    result = _git_native(["status", "--porcelain", "--", str(split_dir)], cwd=split_dir, timeout=15)
+    if not result.ok:
         return []
-    if proc.returncode != 0:
-        return []
+    proc_stdout = result.stdout
 
     dirty: list[tuple[str, str]] = []
-    for line in proc.stdout.splitlines():
+    for line in proc_stdout.splitlines():
         if len(line) < 4:
             continue
         code, path = line[:2], line[3:].strip().strip(chr(34))
@@ -611,7 +610,7 @@ def regenerate_split_dir(
         return 2
 
     stem = split_dir.name
-    # Review: coordinator:code-reviewer (Finding 2) — `build_split_from_dir`
+    # `build_split_from_dir`
     # raises FileNotFoundError when `split_dir` is a real directory that
     # isn't actually a split (no `_preamble.md`). Every other CLI failure
     # mode here prints a clean stderr message and returns 2; let this one

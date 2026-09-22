@@ -151,7 +151,7 @@ def main(argv: "list[str] | None" = None) -> int:
         print(f"verify-orientation-cache-sync: no cache file at {cache_file} — nothing to verify")
         return 0
 
-    # Review: code-reviewer P3 — _resolve_repo_root() re-resolves the engine root
+    # _resolve_repo_root() re-resolves the engine root
     # unguarded; safe today only because _resolve_state_root() above already
     # proved resolution succeeds, but the redundant call sat outside any
     # try/except, inconsistent with this file's own established pattern of

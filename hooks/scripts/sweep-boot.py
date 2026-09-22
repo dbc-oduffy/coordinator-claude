@@ -1,33 +1,33 @@
 #!/usr/bin/env python3
 """sweep-boot.py — doctrine-plane-resident trampoline over the control-plane engine's sweep-boot.py.
 
-Purpose: `coordinator/bin/` (incl. `sweep-boot.py`) migrated to claude-klabauter
+Purpose: `coordinator/bin/` (incl. `sweep-boot.py`) migrated to the engine repo
 on 2026-07-22 (commit b644d5a9). `hooks.json`'s SessionStart entry invokes a
 doctrine-plane-resident path via `${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sweep-boot.py` — a
 literal JSON string that cannot carry a resolution ladder (env → registry →
 sibling walk). This trampoline lives at the JSON-referenced location instead,
-resolves claude-klabauter via the shared `_engine_root` seam, and execs the
+resolves the engine repo via the shared `_engine_root` seam, and execs the
 migrated copy, forwarding argv and the child's exit code/stdout untouched.
 
 Fail-open on exit code, matching the SessionStart hook's own contract
-(session start must never wedge): an unresolved claude-klabauter root, a missing/
-incomplete claude-klabauter clone, a spawn failure, and a nonzero child exit each print
+(session start must never wedge): an unresolved engine root, a missing/
+incomplete engine clone, a spawn failure, and a nonzero child exit each print
 one stderr diagnostic line and print "0" on stdout (byte-parity with
 sweep-boot.py's own transport-failure contract), then return 0 — never
 raise, never block boot. That process-exit contract is unchanged.
 
 Fail-LOUD to the housekeeping-failures log (2026-07-23, mirroring
-Claude-klabauter's own C20): stdout/exit-code alone made a genuinely-dead
+the engine repo's own C20): stdout/exit-code alone made a genuinely-dead
 sweep byte-indistinguishable from a clean one — every failure path here
 printed "0" and exited 0, identically to "nothing to archive", and
 `async: true` discards stdout regardless. Each of the four failure paths
 below now ALSO best-effort appends a `CHILD FAILED` record to the shared
-`<repo>/state/housekeeping-failures.log` (the same log claude-klabauter's own
+`<repo>/state/housekeeping-failures.log` (the same log the engine repo's own
 migrated `sweep-boot.py` already writes to via
 `coordinator_core.ops.ceremony.detached_spawn.record_child_failure`, which
 `coordinator_core.orientation.regenerate_cache` surfaces via the orientation
 cache's `## Housekeeping` section at the next session start) — three of the
-four paths reuse that exact writer (a claude-klabauter root is already resolved by
+four paths reuse that exact writer (an engine root is already resolved by
 that point); the fourth (root itself unresolved) hand-rolls a
 format-matched fallback line, since an unresolved root leaves no
 `coordinator_core` to import in the first place. The failure-recording path
@@ -35,10 +35,10 @@ is itself defensive: a write failure is swallowed and never escalates past
 this trampoline's own already-best-effort, fail-open contract.
 
 Spec backlink: cross-repo unbreak pass following b644d5a9 (coordinator
-bin/lib migration to claude-klabauter), verify-sweep survivor B.1.
+bin/lib migration to the engine repo), verify-sweep survivor B.1.
 Spec backlink: cross-repo/inbox/2026-07-23-claude-klabauter-em-wsc-tail-doe-ask-list.md
   § "Ready now" item 4 — the doctrine-plane-side half of the fail-loud fix.
-Spec backlink: claude-klabauter commit 0822ea47 ("C20: make the boot-sweep
+Spec backlink: the engine repo's commit 0822ea47 ("C20: make the boot-sweep
   transport fail loud instead of fail silent") — the child-side half this
   trampoline-level half is compatible with, not a second competing surface.
 
@@ -246,9 +246,9 @@ _LOCK_CONTENTION_NOTE = (
 
 def _resolve_this_repo_root() -> str | None:
     """Resolve the repo THIS hook is running in (cwd-based) — the destination for the
-    housekeeping-failures log, NOT the claude-klabauter root.
+    housekeeping-failures log, NOT the engine root.
 
-    Mirrors claude-klabauter's own `sweep-boot.py::_resolve_repo_root` fallback rung
+    Mirrors the engine repo's own `sweep-boot.py::_resolve_repo_root` fallback rung
     exactly (`git rev-parse --show-toplevel`) so a trampoline-level failure record lands
     in the SAME per-repo log the migrated child's own `record_child_failure` calls
     already write to — confirmed empirically: this repo's own
@@ -286,7 +286,7 @@ def _resolve_this_repo_root() -> str | None:
 
 def _import_record_child_failure(claude_klabauter_root: str | None):
     """Best-effort import of the shared `record_child_failure` writer
-    (`coordinator_core.ops.ceremony.detached_spawn`) from an already-resolved claude-klabauter
+    (`coordinator_core.ops.ceremony.detached_spawn`) from an already-resolved engine
     root. Returns None on any resolution/import failure — reused across three of the
     four failure paths below rather than each hand-rolling its own log-append.
     """
@@ -307,8 +307,8 @@ def _write_raw_failure_record(repo_root: str, detail: str) -> None:
     ``CHILD FAILED script=<path> :: <detail>`` line shape.
 
     Used ONLY on the one failure path where the sibling's writer is structurally
-    unreachable: an unresolved claude-klabauter root means there is no known `coordinator_core` to
-    import in the first place. Every other failure path below resolves a claude-klabauter root
+    unreachable: an unresolved engine root means there is no known `coordinator_core` to
+    import in the first place. Every other failure path below resolves an engine root
     successfully and calls the real `record_child_failure` instead — this is the
     documented one-off, not a second competing log format. Swallows every failure of its
     own; a broken observability path must never wedge boot.
@@ -660,7 +660,7 @@ def _selfheal_orientation_cache(claude_klabauter_root: Optional[str]) -> None:
 
 def _run_boot_sweep(root: Optional[str]) -> None:
     """The original single-job body of this trampoline (module docstring, pre-2026-07-29):
-    resolve claude-klabauter, exec its `sweep-boot.py`, fail-open + fail-loud-to-log on every leg.
+    resolve the engine, exec its `sweep-boot.py`, fail-open + fail-loud-to-log on every leg.
     Extracted verbatim out of `main()` so the orientation self-heal leg below can run
     unconditionally afterward — the two jobs are independent (module docstring's
     "Orientation-cache self-heal" section) and neither leg's early-return may skip the

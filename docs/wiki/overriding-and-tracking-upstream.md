@@ -7,8 +7,7 @@ related:
   - coordinator/CLAUDE.md (retired, file deleted; § Working Relationship & Engagement
     has no direct successor heading — closest surviving list is global-doctrine/CLAUDE.md
     § Posture, invariant safety core)
-  - claude-klabauter coordinator/lib/resolve-coordinator-clone.py  (§ _resolve_source_mode)
-  - coordinator/docs/wiki/DIRECTORY_GUIDE.md
+  -   - coordinator/docs/wiki/DIRECTORY_GUIDE.md
 ---
 
 <!-- RAG-bait: personal CLAUDE.md layer composition, --plugin-dir auto-load, floor-invariance guarantee, dev-repo vs installed coordinator-claude, additive top layer, override without forking, track-upstream pattern -->
@@ -20,7 +19,7 @@ related:
 > `--plugin-dir`. That is false — see
 > `coordinator/docs/wiki/claude-md-delivery-topology.md`. `--plugin-dir` genuinely delivers
 > `skills/`, `agents/`, `hooks/`, `commands/`, and `lib/` live from the resolved tree; it does **not**
-> deliver `coordinator/CLAUDE.md`. That file reached only DoE-claude sessions, only after a
+> deliver `coordinator/CLAUDE.md`. That file reached only the doctrine repo's own sessions, only after a
 > `coordinator/`-rooted Read, and did not survive `/compact`. It never reached a sibling-repo
 > session at all. The corrections below replace every place this page previously leaned on the false
 > mechanism. **Addendum.** `coordinator/CLAUDE.md` was subsequently
@@ -41,11 +40,11 @@ Every session loads two kinds of surface:
 
 1. **The coordinator plugin's live-resolved surface** — `skills/`, `agents/`, `hooks/`, `commands/`,
    and `lib/` — resolved live via `--plugin-dir`. Which concrete tree that points at — your working
-   DoE clone during dev-loop iteration, or an installed `coordinator-claude` package otherwise — is
+   working doctrine-repo clone during dev-loop iteration, or an installed `coordinator-claude` package otherwise — is
    decided by the source-mode selector: the `.coordinator-dev-repo` marker plus
    `_resolve_source_mode` (dev-repo-present → working clone; else → installed package; ambiguous → fail
    loud). This page does not re-document that selector's resolution rungs — see
-   claude-klabauter `coordinator/lib/resolve-coordinator-clone.py` for the implementation.
+    for the implementation.
    **`coordinator/CLAUDE.md` is not part of this delivery** — see the correction banner above.
 2. **Your personal `~/.claude/CLAUDE.md`**, the one always-on fleet-wide doctrine prose surface, loaded
    at boot and again after every compaction, in every session and every dispatched subagent (except
@@ -93,7 +92,7 @@ citing it as settled.
 ## Tracking upstream
 
 Because your personal layer is a separate file from the resolved plugin surface, upstream updates to
-that surface (a plugin update, a new installed `coordinator-claude` version, or your own DoE clone
+that surface (a plugin update, a new installed `coordinator-claude` version, or your own doctrine-repo clone
 advancing) never clobber your personal prose — there's nothing to merge, because the two never occupied
 the same file. Your override survives every upstream refresh because the seam between the two layers
 runs in both directions — this part of the mechanism is unaffected by the `coordinator/CLAUDE.md`
@@ -102,7 +101,7 @@ correction above, since it was never about doctrine-prose delivery, only about f
 ## Negative-spec
 
 - This page does not document `_resolve_source_mode` or the `.coordinator-dev-repo` marker's
-  resolution rungs — that is claude-klabauter `coordinator/lib/resolve-coordinator-clone.py`'s remit (built in v3split-06).
+  resolution rungs — that is .
   This page only documents how the personal layer composes with whichever tree that selector resolves.
 - This page does not cover hook/enforcement-substrate editing — that is the fork side of the
   Mirror-Universe boundary in `adapting-your-doctrine.md`, out of scope here as there.
@@ -124,5 +123,5 @@ correction above, since it was never about doctrine-prose delivery, only about f
   § Posture, invariant safety core) — the floor invariants list this page's floor-invariance
   discussion cites (prose text; delivery to a given session was never guaranteed by `--plugin-dir`
   even before deletion — see the correction banner above).
-- claude-klabauter `coordinator/lib/resolve-coordinator-clone.py` § `_resolve_source_mode` — the dev-repo-vs-installed
+-  — the dev-repo-vs-installed
   selector this page references but does not re-document.

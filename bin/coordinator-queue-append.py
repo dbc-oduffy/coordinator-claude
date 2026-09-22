@@ -557,13 +557,13 @@ def _slug_from_title(title: str) -> str:
     slug = title.lower()
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
     slug = slug.strip("-")
-    # Review: code-reviewer — F3: strip("-") before truncation, but truncation can
+    # strip("-") before truncation, but truncation can
     # leave a trailing hyphen (e.g. "foo-bar-" at char 40). rstrip("-") after
     # truncation, matching migrate-queues-to-base.py:292.
     return slug[:_SLUG_MAX_CHARS].rstrip("-")
 
 
-# Review: code-reviewer — F1 (P1): --workstream-id / --workstream / --session are
+# workstream-id / --workstream / --session are
 # interpolated into filenames with zero validation, and os.path.join does not
 # neutralize ".." or a leading "/" in its second argument. Enforce an allowlist
 # regex at ingestion time (parser.error, fail loud) before any of these reach
@@ -582,7 +582,7 @@ def _validate_workstream_identifier(name: str, value: str, parser: argparse.Argu
     dots via a conservative allowlist charset — fails loud via parser.error
     rather than silently sanitizing.
     """
-    # Review: coordinator:code-reviewer — .match() against a `$`-anchored
+    # .match() against a `$`-anchored
     # pattern lets a trailing "\n" through (Python's `$` is satisfied before a
     # single trailing newline); .fullmatch() requires the whole string consumed.
     if not value or not _WORKSTREAM_IDENTIFIER_RE.fullmatch(value):
@@ -592,7 +592,7 @@ def _validate_workstream_identifier(name: str, value: str, parser: argparse.Argu
         )
 
 
-# Review: code-reviewer (parity pass) — F1-class hole also present in --created on the
+# Hole also present in --created on the
 # workstream-event branch: `filename_override = f"{created}-{args.workstream}-{args.session}.yaml"`
 # (see main()) interpolates --created into a filename exactly like --workstream/--session
 # above, but --created was never routed through ANY validation, allowing
@@ -605,7 +605,7 @@ def _validate_workstream_identifier(name: str, value: str, parser: argparse.Argu
 # not a declared property of workstream-event.schema.json, and that schema has no
 # top-level `additionalProperties: false`, so schema.validate raises nothing for a
 # path-traversal-shaped --created value; this CLI-level check is the only gate.
-# Review: code-reviewer (Finding 1/2) — `\d` matches any Unicode Nd digit (not just
+# `\d` matches any Unicode Nd digit (not just
 # [0-9]), and `.match()` against a `$`-terminated pattern accepts one trailing "\n".
 # [0-9] is chosen over re.ASCII as more obviously scoped at this call site; paired
 # with .fullmatch() below to close the trailing-newline gap.
@@ -624,7 +624,7 @@ def _validate_created_date(value: str, parser: argparse.ArgumentParser) -> None:
     the default-to-today behaviour (a value _today_iso() already produces in this
     exact shape) must not be routed through this check.
 
-    Review: review-integrator (Finding 6) — validates DATE SHAPE only; does not
+    Validates DATE SHAPE only; does not
     confirm the value is a real calendar date (e.g. "9999-99-99" passes).
     """
     if not _CREATED_DATE_RE.fullmatch(value):
@@ -715,11 +715,11 @@ def _output_path(
             sys.exit(1)
         base = os.path.join(override_root, output_dir)
     elif queue_scope == "central":
-        # Review: code-reviewer — F2: defensive invariant — only improvement-queue supports
+        # Defensive invariant — only improvement-queue supports
         # central scope. If this check fires, a new code path reached central-write
         # without going through the schema guard in main(). Fail loud rather than silently
         # writing to the wrong directory.
-        # Review: code-reviewer Slice-B — (B-F4) replaced assert with explicit RuntimeError
+        # Replaced assert with explicit RuntimeError
         # so the guard survives python -O (assert evaporates under optimised bytecode).
         if schema_name not in ("improvement-queue", "lessons"):
             raise RuntimeError(
@@ -804,7 +804,7 @@ def _write_out_path_overwrite(out_path: str, content: str) -> str:
     low-contention assumption documented in workstream.schema.json's own
     description field.
 
-    Review: code-reviewer — Finding 1 (P1). `_write_out_path_excl` was wired
+    `_write_out_path_excl` was wired
     to the `workstream` (definition) schema in error — that primitive is
     create-only and forks a new file on any second write to an existing
     workstream_id, contradicting the schema's own "rewritten atomically"
@@ -862,7 +862,7 @@ def _yaml_quote_string(value: str) -> str:
     gate: its `^` branch already covers a leading `#` and `\\s` covers space- and
     tab-preceded ones, so `#` is intentionally absent from the start-chars set.
 
-    Review: code-reviewer — reserved-scalar + all-digit quoting added so a value
+    reserved-scalar + all-digit quoting added so a value
     like --evidence "true" or --title "123" round-trips as a string instead of
     being silently reparsed as bool/int (parity with coordinator-lesson-promote
     ._yaml_str's reserved-scalar check; all-digit quoting is a further hardening
@@ -897,7 +897,7 @@ def _yaml_block_scalar(value: str) -> str:
     """Format a multi-line string as a YAML literal block scalar (body: |-)."""
     lines = value.splitlines()
     indented = "\n".join("  " + line if line else "" for line in lines)
-    # Review: code-reviewer — F2: clip chomping (|) adds a trailing newline on
+    # Clip chomping (|) adds a trailing newline on
     # round-trip, so 'line1\nline2' parses back as 'line1\nline2\n'. Use strip
     # chomping (|-) to match migrate-queues-to-base.py:317 and preserve exact
     # byte-fidelity for the tc-4 contract.
@@ -1052,7 +1052,7 @@ def _build_yaml(schema_name: str, fields: dict) -> str:
         elif key == "deliverables" and isinstance(value, list):
             # workstream.schema.json requires block-map items ({text: "..."}) —
             # distinct from specs/dependency_annotations, which stay plain strings.
-            # Review: code-reviewer (Finding 3) — the op's parallel copy dropped the
+            # The op's parallel copy dropped the
             # `value and isinstance(value[0], dict)` truthiness gate so an explicit
             # empty list routes into _emit_block_map_list_field's own "if not items:
             # return f'{key}: []'" shortcut instead of falling through to
@@ -1334,6 +1334,13 @@ Examples:
       --proposed-action "setup/publish.sh (REVIEW_PATTERNS array)" \\
       --change-kind script-edit \\
       --status open
+
+Caller-quoting contract: any argument value containing shell metacharacters
+(parentheses, an embedded "--"-looking token, etc.) MUST be quoted by
+the caller, same as any ordinary CLI. Left unquoted, argparse tokenizes
+the value by whitespace and the trailing fragment is reported as an
+"unrecognized arguments" error — a caller-side composition mistake, not
+a parser defect.
 
 Spec backlink: docs/plans/2026-06-25-example-initiative-tc-2-queues-lessons-consolidation.md § C1
 """,
@@ -1813,7 +1820,7 @@ def main(argv: "list[str] | None" = None) -> int:
             _print_schema_help(_schema_arg)
 
     parser = _build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     from coordinator_core.argv_fidelity import (
         ArgvFidelityError,
@@ -1912,10 +1919,10 @@ def main(argv: "list[str] | None" = None) -> int:
             ]
             if missing:
                 parser.error(f"the following arguments are required for --schema workstream: {', '.join(missing)}")
-            # Review: code-reviewer — F1 (P1): validate at ingestion time, before
+            # Validate at ingestion time, before
             # this value ever reaches _output_path's filename_override join.
             _validate_workstream_identifier("workstream-id", args.workstream_id, parser)
-            # Review: review-integrator (Finding 7) — --created is not a filename
+            # --created is not a filename
             # component for `workstream` (no traversal exposure), but was otherwise
             # left asymmetrically unvalidated next to workstream-event's discipline
             # below; validated here too for validation-coverage symmetry
@@ -1941,7 +1948,7 @@ def main(argv: "list[str] | None" = None) -> int:
             ]
             if missing:
                 parser.error(f"the following arguments are required for --schema workstream-event: {', '.join(missing)}")
-            # Review: code-reviewer — F1 (P1): --workstream and --session are also
+            # Workstream and --session are also
             # interpolated into the workstream-event filename (see legacy_fn's
             # filename_override branch) — validate both, not just --workstream-id.
             _validate_workstream_identifier("workstream", args.workstream, parser)
@@ -2004,10 +2011,10 @@ def main(argv: "list[str] | None" = None) -> int:
         )
         return 1
 
-    # Review: code-reviewer — F1: schema guard for --queue-scope; only improvement-queue supports it.
+    # Schema guard for --queue-scope; only improvement-queue supports it.
     # --queue-scope central on debt-backlog or bug-backlog would silently redirect those entries
     # into <claude-klabauter-root>/state/<schema>/ which is semantically wrong and undocumented.
-    # Review: code-reviewer — B-F2 (nit): cross-repo-commitment is deliberately excluded
+    # cross-repo-commitment is deliberately excluded
     # too — it has no central/project distinction (always a sibling-owed watch-ledger
     # written to the current repo), not merely an oversight from the C3b addition.
     if queue_scope is not None and schema_name not in ("improvement-queue", "lessons"):
@@ -2018,7 +2025,7 @@ def main(argv: "list[str] | None" = None) -> int:
         )
         return 1
 
-    # Review: code-reviewer — (F3-parity hoist) _current_repo_root() spawns a
+    # hoist) _current_repo_root() spawns a
     # `git rev-parse`; hoist once here and reuse below (coordinator_root_path,
     # repo_root) instead of re-spawning, mirroring coordinator-lesson-promote's
     # documented F3 hoist.
@@ -2095,7 +2102,7 @@ def main(argv: "list[str] | None" = None) -> int:
                     file=sys.stderr,
                 )
                 return 1
-            # Review: code-reviewer — F4 (nit): int("-5") parses successfully with
+            # int("-5") parses successfully with
             # no range check. The schema docstring/help text says sequence starts
             # at 1 and increments — reject non-positive values consistent with
             # that contract (does not cross-check against on-disk events; see F3).
@@ -2234,7 +2241,7 @@ def main(argv: "list[str] | None" = None) -> int:
             # for all pre-existing schemas.
             # Spec backlink: pln-stop-the-rot-claude-klabauter-state-home-placement-4cc787 § AC13
             #
-            # Review: code-reviewer — F5 (P2): for the workstream-store schemas (C2)
+            # For the workstream-store schemas (C2)
             # specifically, a silent WARN + exit-0 no-op defeats the whole store's
             # collision-safety/fold-correctness contract — this store is explicitly
             # the meta-repo's own tracker use case, so callers must be able to trust
@@ -2269,7 +2276,7 @@ def main(argv: "list[str] | None" = None) -> int:
             return  # exits 0 via normal return from legacy_fn()
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
-        # Review: code-reviewer Slice-A — (A-F1) atomic write via temp+os.replace prevents partial-read
+        # Atomic write via temp+os.replace prevents partial-read
         # clobber when two concurrent writes target the same slug on the same calendar day.
         #
         # Collision guard (C1, legacy-fallback silent-overwrite fix): os.replace(tmp_path, out_path)
@@ -2284,7 +2291,7 @@ def main(argv: "list[str] | None" = None) -> int:
         # the correct shape for this call site, not the memo's fail-loud shape.
         # Spec backlink: docs/plans (chunk C1) F1/F2 legacy-fallback silent-overwrite collision guard.
         #
-        # Review: code-reviewer — Finding 1 (P1). `workstream` DEFINITION writes must
+        # `workstream` DEFINITION writes must
         # OVERWRITE the existing <workstream_id>.yaml (genuine rewrite, per the schema's
         # own "rewritten atomically" doc-comment) rather than fork a `-2.yaml` sibling on
         # a second write to the same workstream_id. `workstream-event` (append-safe, both
@@ -2317,7 +2324,7 @@ def main(argv: "list[str] | None" = None) -> int:
         why this is usually a no-op degrade. Both legacy_fn call sites below
         route through this instead of calling legacy_fn directly.
 
-        Review: coordinator:code-reviewer — the QUEUE_APPEND_OUTPUT_ROOT
+        The QUEUE_APPEND_OUTPUT_ROOT
         test-isolation gate is not a rare edge case: it is exactly the shape
         this repo's own test suite invokes, with coordinator_core genuinely
         importable, so `recording_declared_writes`/`declare_write` fire for
@@ -2363,7 +2370,7 @@ def main(argv: "list[str] | None" = None) -> int:
             continue
         if _v is not None:
             _op_params[_k] = _v
-    # Review: code-reviewer — Finding 1 (P1): cross-repo-commitment's negative-spec
+    # cross-repo-commitment's negative-spec
     # ("this record must never carry from_repo") is enforced field-by-field on the
     # legacy path (_build_yaml filters by schema required/optional lists) but the
     # native op-params loop above has no such filter — strip explicitly here rather
@@ -2382,7 +2389,7 @@ def main(argv: "list[str] | None" = None) -> int:
     if session_id:
         _op_params["session_id"] = session_id
 
-    # Review: code-reviewer — F3: wrap route() call in try/except so a State-2 transport
+    # Wrap route() call in try/except so a State-2 transport
     # RuntimeError (timeout, ImportError, bad JSON-RPC envelope) surfaces as a clean
     # 'error:' line, consistent with every other failure path in this CLI that uses
     # print("error: ...", file=sys.stderr); sys.exit(1). Non-zero exit already correct;
@@ -2426,7 +2433,7 @@ def main(argv: "list[str] | None" = None) -> int:
         return
 
     # Native success: print the written path (stdout parity with legacy print(out_path) — AC2/AC5).
-    # Review: code-reviewer — F1: guard against a malformed success envelope. A bare KeyError
+    # Guard against a malformed success envelope. A bare KeyError
     # gives an uninformative traceback; a contract violation (success envelope with neither
     # out_path nor skipped) should raise RuntimeError with diagnostics so the failure is
     # attributable without reading a traceback.

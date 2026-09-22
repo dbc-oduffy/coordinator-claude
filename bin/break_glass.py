@@ -1,19 +1,20 @@
 """break_glass.py — Tier 1 operator-recovery diagnose-then-repair sweep for a
 wedged coordinator install.
 
-Design: DoE-claude `docs/research/2026-07-28-break-glass-recovery-design.md`.
+Design: the doctrine repo's
+`docs/research/2026-07-28-break-glass-recovery-design.md`.
 Repo-placement note (deviation from that design doc's file table, judgment
 call made at build time — see this module's own build dispatch report, not
 repeated here as a changelog entry): the design doc's component table names
-`coordinator/bin/break_glass.py` as a DoE-claude file. DoE-claude tracks ZERO
-files under `coordinator/bin/` (`git ls-files coordinator/bin | wc -l` -> 0)
-— DoE-claude's own CLAUDE.md states plainly that the executable bin surface
-is claude-klabauter-resident, not DoE-claude-resident. This module therefore
-lives in claude-klabauter, alongside `setup-verify.py` (one of the tools it
-calls) and the `gen_settings_hooks` / `guard_foreign_platform_paths` /
-`machine_resolver` modules it reuses — all of which are ALREADY claude-klabauter-side,
+`coordinator/bin/break_glass.py` as a doctrine-repo file. The doctrine repo
+tracks ZERO files under `coordinator/bin/` (`git ls-files coordinator/bin |
+wc -l` -> 0) — its own CLAUDE.md states plainly that the executable bin
+surface is engine-repo-resident, not doctrine-repo-resident. This module
+therefore lives in the engine repo, alongside `setup-verify.py` (one of the
+tools it calls) and the `gen_settings_hooks` / `guard_foreign_platform_paths`
+/ `machine_resolver` modules it reuses — all of which are ALREADY engine-side,
 so placing Tier 1 here is following the evidence, not inventing a new split.
-A thin `break-glass.cmd` mirror still lives at the DoE-claude repo root (per
+A thin `break-glass.cmd` mirror still lives at the doctrine repo root (per
 AC-2, "whichever repo the operator opens first") and delegates to this file.
 
 Purpose: run the 8-layer diagnose pass (AC-3) and peer-safe repair (AC-4),
@@ -45,7 +46,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional
 
-GENERATES = []  # writes only ~/.claude/settings.json, its .settings-last-good.*.json backups, and machine-local registry.local.toml — all outside claude-klabauter's own tracked tree
+GENERATES = []  # writes only ~/.claude/settings.json, its .settings-last-good.*.json backups, and machine-local registry.local.toml — all outside this repo's own tracked tree
 
 _BIN_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _BIN_DIR.parent.parent  # coordinator/bin -> coordinator -> repo root
@@ -179,10 +180,10 @@ def check_settings_json(
 ) -> Finding:
     """Layer 1 (AC-3 #1). Missing -> BROKEN. Invalid JSON -> BROKEN with the
     parse error. Valid -> classify every `command` string's hook paths via
-    `guard_foreign_platform_paths.detect_foreign_platform_paths` (claude-klabauter's
-    own module — no DoE-side import needed; this check's classifier is
-    already resident in this repo, confirming the build-sequence step 1
-    reusability check the design doc calls for).
+    `guard_foreign_platform_paths.detect_foreign_platform_paths` (this
+    repo's own module — no upstream import needed; this check's classifier is
+    already resident here, confirming the build-sequence step 1 reusability
+    check the design doc calls for).
 
     `host_is_windows` (default: `detect_foreign_platform_paths`'s own
     `os.name == "nt"` ambient detection) exists purely for AC-6 testability
@@ -417,7 +418,8 @@ _POSIX_ABS_RE = re.compile(r"^/[^/]")
 
 def _looks_absolute(value: str) -> bool:
     """True for a POSIX-absolute path (`Path.is_absolute()`, or explicitly a
-    leading `/segment`) OR a Windows drive-absolute path (`C:\\...`/`C:/...`).
+    leading `/segment`) OR a Windows drive-absolute path (`<drive>:\\...` or
+    `<drive>:/...`).
     `Path.is_absolute()` alone is platform-dependent — a Windows-shaped
     string is NOT absolute under a POSIX-flavoured `Path`, and a POSIX-shaped
     string is NOT absolute under a Windows-flavoured `Path` (no drive

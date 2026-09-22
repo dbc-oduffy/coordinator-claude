@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Measure what a widened amplification discriminator actually silences, before it lands.
 
 Every suppressor in `coordinator_core/tests/test_no_unbatched_per_item_git_spawn.py` ships
@@ -43,7 +42,7 @@ _BASELINE = _REPO_ROOT / "tasks" / "amp-discriminator-baseline.json"
 _GATE_MODULE = "coordinator_core.tests.test_no_unbatched_per_item_git_spawn"
 
 
-def _raw_violation_keys() -> set[tuple[str, str, str]]:
+def _raw_violation_keys() -> set[tuple[str, str, str, int]]:
     """Collector output with BOTH suppression registers emptied.
 
     Emptying them is what makes the two runs comparable: with the registers live, retiring a key
@@ -61,17 +60,37 @@ def _raw_violation_keys() -> set[tuple[str, str, str]]:
     return {site.key for site in gate.find_unbatched_per_item_spawns(roots)}
 
 
-def _fmt(key: tuple[str, str, str]) -> str:
-    return "::".join(key)
+def _fmt(key: tuple[str, str, str, int]) -> str:
+    """AC8: `relpath::enclosing::callee::ordinal` -- the 4-tuple `AmpSite.key` shape, round-
+    tripped through `_parse` below. `ordinal` is always the LAST field, never interpolated among
+    the first three, so a `::`-bearing path/enclosing/callee (none exist today, but the split
+    below does not assume it) still parses left-to-right unambiguously against a trailing int."""
+    path, enclosing, callee, ordinal = key
+    return "::".join((path, enclosing, callee, str(ordinal)))
 
 
-def _parse(raw: str) -> tuple[str, str, str]:
+def _parse(raw: str) -> tuple[str, str, str, int]:
     parts = raw.split("::")
-    if len(parts) != 3:
+    if len(parts) != 4:
         raise argparse.ArgumentTypeError(
-            f"expected relpath::enclosing::callee, got {raw!r} ({len(parts)} fields)"
+            f"expected relpath::enclosing::callee::ordinal, got {raw!r} ({len(parts)} fields)"
         )
-    return (parts[0], parts[1], parts[2])
+    path, enclosing, callee, ordinal_raw = parts
+    try:
+        ordinal = int(ordinal_raw)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"expected an integer ordinal as the last field, got {ordinal_raw!r} in {raw!r}"
+        ) from None
+    return (path, enclosing, callee, ordinal)
+
+
+def _project_3tuple(keys: set[tuple[str, str, str, int]]) -> set[tuple[str, str, str]]:
+    """AC7: the honest baseline/delta invariant is on the 3-tuple `(path, enclosing, callee)`
+    projection, not the 4-tuple key -- a baseline taken under the pre-AC8 3-tuple CLI cannot be
+    diffed against post-migration 4-tuple keys without this projection first (see AC7's own
+    sequencing note: baseline pre-migration/pre-AC8, comparison on the projection)."""
+    return {(path, enclosing, callee) for path, enclosing, callee, _ordinal in keys}
 
 
 def _cmd_baseline() -> int:
@@ -85,7 +104,17 @@ def _cmd_baseline() -> int:
     return 0
 
 
-def _cmd_delta(intended: list[tuple[str, str, str]]) -> int:
+def _cmd_delta(
+    intended: list[tuple[str, str, str, int]],
+    intended_new: list[tuple[str, str, str, int]],
+) -> int:
+    """AC7: compared on the 3-tuple `(path, enclosing, callee)` projection of the post-migration
+    4-tuple keys -- a baseline recorded pre-migration (under the pre-AC8 3-tuple CLI) has no
+    `ordinal` field to diff a 4-tuple key against directly. `before` is read as a 3-tuple
+    regardless of whether the stored baseline file predates or postdates AC8 (`k.split("::")[:3]`
+    drops a trailing ordinal field if present, a no-op if not). `--intended-new` is the AC3-split
+    allowlist: keys this migration deliberately, correctly surfaces (never `--intended`, which
+    means "this edit RETIRES this key" -- the opposite claim)."""
     if not _BASELINE.exists():
         print(
             f"no baseline at {_BASELINE.relative_to(_REPO_ROOT)} -- run `baseline` BEFORE editing "
@@ -94,29 +123,35 @@ def _cmd_delta(intended: list[tuple[str, str, str]]) -> int:
         )
         return 2
 
-    before = {_parse(k) for k in json.loads(_BASELINE.read_text(encoding="utf-8"))["keys"]}
-    after = _raw_violation_keys()
+    before = {
+        tuple(k.split("::")[:3])
+        for k in json.loads(_BASELINE.read_text(encoding="utf-8"))["keys"]
+    }
+    after = _project_3tuple(_raw_violation_keys())
 
     retired = before - after
     appeared = after - before
-    intended_set = set(intended)
+    intended_set = _project_3tuple(set(intended))
+    intended_new_set = _project_3tuple(set(intended_new))
 
     collateral = retired - intended_set
     missed = intended_set - retired
+    unintended_appearances = appeared - intended_new_set
 
-    print(f"raw keys: {len(before)} -> {len(after)}  (retired {len(retired)})")
+    print(f"3-tuple keys: {len(before)} -> {len(after)}  (retired {len(retired)})")
     for label, keys in (
         ("RETIRED AS INTENDED", sorted(retired & intended_set)),
         ("COLLATERAL -- silenced outside the register", sorted(collateral)),
         ("NOT RETIRED -- intended but still firing", sorted(missed)),
-        ("APPEARED -- newly flagged by this edit", sorted(appeared)),
+        ("APPEARED AS INTENDED (--intended-new)", sorted(appeared & intended_new_set)),
+        ("APPEARED -- newly flagged, not in --intended-new", sorted(unintended_appearances)),
     ):
         if keys:
             print(f"\n{label} ({len(keys)}):")
             for key in keys:
-                print(f"  {_fmt(key)}")
+                print(f"  {'::'.join(key)}")
 
-    if collateral or missed or appeared:
+    if collateral or missed or unintended_appearances:
         return 1
     print("\nclean: exactly the intended keys, zero collateral")
     return 0
@@ -132,13 +167,22 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         default=[],
         type=_parse,
-        metavar="relpath::enclosing::callee",
+        metavar="relpath::enclosing::callee::ordinal",
         help="a key this edit is meant to retire; repeat per key",
+    )
+    delta.add_argument(
+        "--intended-new",
+        action="append",
+        default=[],
+        type=_parse,
+        metavar="relpath::enclosing::callee::ordinal",
+        help="a key this edit deliberately, correctly NEWLY surfaces (AC3-class split); "
+        "repeat per key",
     )
     args = parser.parse_args(argv)
     if args.command == "baseline":
         return _cmd_baseline()
-    return _cmd_delta(args.intended)
+    return _cmd_delta(args.intended, args.intended_new)
 
 
 if __name__ == "__main__":

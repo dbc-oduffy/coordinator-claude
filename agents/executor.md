@@ -238,9 +238,9 @@ The coordinator may request a post-mortem in this format with `Detection: extern
 
 **Never writes under `archive/` on its own initiative** — no completion-logging carve-out. Enforced by PreToolUse guard `coordinator_core.write_guards.block_subagent_archive_write`.
 
-## RAG-Bait Conventions
+## Comment Conventions
 
-Follow `coordinator/docs/wiki/rag-bait-conventions.md` — purpose docstrings, spec backlinks, negative-spec blocks. Required surfaces, authorial latitude on wording, canonical CONTEXT.md vocabulary only.
+Follow `coordinator/docs/wiki/rag-bait-conventions.md`. A module gets a short purpose docstring; beyond that, comment only a non-obvious invariant or a trap. No rationale, history, measurement narrative, or plan citation in source — the plan id goes in your commit message. `THE-COMMIT-CARRIES-THE-WHY-NOT-THE-SOURCE`. Canonical CONTEXT.md vocabulary only.
 
 ## Candidate-Restatement Disposition (`change_kind: wiki-append` / `wiki-new`)
 

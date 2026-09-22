@@ -7,7 +7,7 @@ first-class runtime — was a **coordinator-INTERNAL** migration: it is how the 
 hooks and scripts moved off bash. Nothing propagated the *rule* downward, so every consumer repo
 independently
 (1) hit a real local problem a `.sh` would solve, (2) wrote the bash wrapper, (3) mandated it
-in its own CLAUDE.md, and (4) then paid the claude-klabauter subagent-indirection guard's collateral tax
+in its own CLAUDE.md, and (4) then paid the engine's subagent-indirection guard's collateral tax
 on **every** subagent in that repo, forever, until someone noticed. This wiki is the
 consumer-facing directive that stops the independent-reinvention loop. It is the downstream
 half of `cross-platform-shell-portability.md`, which owns the coordinator's own runtime-syntax
@@ -15,7 +15,7 @@ portability.
 
 **Audience.** Every repo that installs / consumes the coordinator plugin (project-rag, example-game-repo,
 project-rag-ue-addon, example-sim-repo, example-repo, cockpit, example-os-repo, …). Not the coordinator's own
-internal surfaces — those are already on the claude-klabauter Python track (`cross-platform-shell-portability.md`).
+internal surfaces — those are already on the engine's Python track (`cross-platform-shell-portability.md`).
 
 ## The directive
 
@@ -27,12 +27,12 @@ internal surfaces — those are already on the claude-klabauter Python track (`c
    *mandate* in your CLAUDE.md.
 
 2. **Existing bash migrates** off the shell interpreter and onto your repo's first-class
-   runtime — on the claude-klabauter track that means python-native, the same engine-ification
+   runtime — on the engine track that means python-native, the same engine-ification
    pattern the coordinator used on its own hooks. Sequence real bootstrap/pre-Python bash
-   (settings-home helpers, install scripts, doctor probes) as a plan against the claude-klabauter track
+   (settings-home helpers, install scripts, doctor probes) as a plan against the engine track
    rather than blind-porting in a direction you will re-port.
 
-3. **Rationale consumers can see.** The claude-klabauter subagent-indirection guard
+3. **Rationale consumers can see.** The engine's subagent-indirection guard
    (`coordinator_core/bash_guards/block_subagent_destructive_action.py`) denies
    `<interpreter> <file>` for subagents, but only for a specific, deliberately narrow interpreter
    set: `_SHELL_FILE_INTERPRETERS` (line 406) is `{bash, sh, zsh}`,
@@ -54,9 +54,9 @@ internal surfaces — those are already on the claude-klabauter Python track (`c
    python-you-cannot-yet-run. Your migration taxonomy needs FLOOR as a real bucket alongside
    PORT / DELETE+REPOINT / WINDOWS-GATE — do not bucket FLOOR files as PORT, and don't try to
    port them; you'll be re-porting forever. The coordinator system keeps exactly **one** FLOOR
-   bash file — `lib/spawn-hidden.sh` (now claude-klabauter `coordinator/lib/spawn-hidden.sh`, not
+   bash file — `lib/spawn-hidden.sh` (now the engine repo's `coordinator/lib/spawn-hidden.sh`, not
    this repo's own `coordinator/lib/`) — plus one pure-python launcher *generator*
-   (claude-klabauter `coordinator/bin/gen-launcher-shim.py`). Interpreter resolution itself no
+   (the engine repo's `coordinator/bin/gen-launcher-shim.py`). Interpreter resolution itself no
    longer needs a FLOOR shim at all: it went the other direction, from bash FLOOR to a plain
    resolution contract (`COORDINATOR_PYTHON` env → `machine-local get coordinator.python` →
    PATH fallback — see `machine-local-registry.md § coordinator.python resolution contract`).
@@ -102,7 +102,7 @@ and audience, where every bash process spawn also pays a brutal fork/exec tax (`
 The coordinator built console-flash suppression machinery — `lib/spawn-hidden.sh`, a `pythonw`
 preference that formerly lived in the now-retired `resolve-python.sh` FLOOR shim (interpreter
 resolution has since moved off bash entirely — see the FLOOR note above), and the
-`bin/verify-no-console-flash.py` merge-gate linter (now claude-klabauter
+`bin/verify-no-console-flash.py` merge-gate linter (now the engine repo's
 `coordinator/lib/spawn-hidden.sh`, `coordinator/bin/verify-no-console-flash.py`). **PM ruling, 2026-07-21: in practice the guard caused about as many
 problems as it solved.** Console popups were a genuine annoyance, but the bash bloat retained
 to justify the guard was the worse problem.
@@ -117,7 +117,7 @@ reads a **live stdin pipe** (e.g. a PreToolUse hook receiving tool-call JSON) th
 A console-less parent can hand it a null stdin handle; a bare `except` around the stdin read
 then swallows the error and exits 0 — **silently disabling the gate**. `pythonw` is safe only
 where the caller controls stdin (heredoc / `/dev/null` / args-only). This is the
-`--stdin-mode=safe|pipe` distinction in `spawn-hidden.sh` (now claude-klabauter
+`--stdin-mode=safe|pipe` distinction in `spawn-hidden.sh` (now the engine repo's
 `coordinator/lib/spawn-hidden.sh`).
 
 Reference, not mandate: true suppression requires the `CREATE_NO_WINDOW` flag (`0x08000000`) at
@@ -159,8 +159,8 @@ Worked examples from a single sweep, useful as a bucketing template for future d
   ported wholesale.
 - **Not orphaned — a real gap closed:** the pre-CI leak guard's `.sh`-only AC2b
   (extensionless-shebang sniff) had been deferred from the declarative port, not dropped
-  deliberately. It was ported to a new `extensionless-shebang-absent` guard-kind in the claude-klabauter
-  engine for full parity (no more defer) before the dual bash/declarative path was deleted —
+  deliberately. It was ported to a new `extensionless-shebang-absent` guard-kind in the engine
+  for full parity (no more defer) before the dual bash/declarative path was deleted —
   a reminder to check "deferred" vs "orphaned" before deleting a dual-path bash surface, since a
   narrower-than-intended port can hide as an apparent orphan.
 

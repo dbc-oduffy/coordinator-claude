@@ -62,7 +62,7 @@ _BIN_DIR = Path(__file__).resolve().parent
 
 
 def _import_rel_id():
-    # Review: code-reviewer Finding 2 — the same coordinator/bin/*.py ->
+    # The same coordinator/bin/*.py ->
     # lib/cc_invoke.py -> coordinator_core bootstrap this diff already pays
     # for in misc-session-and-guards.py; routes this CLI's git-pathspec
     # construction through the single sanctioned wire_paths.rel_id helper
@@ -346,6 +346,7 @@ def perform_archive_files(
     released_date: str,
     week_only: bool = False,
     move_priorities: bool = False,
+    clean_shards: bool = False,
     session_id: str = "",
     relocate_fn=None,
     relocate_cwd: str | None = None,
@@ -362,7 +363,13 @@ def perform_archive_files(
     `HEADER.priorities.*.md` fragment move independently: under
     `week_only`, only the fragment-owning week's caller should pass True;
     when `week_only` is False this parameter is ignored (fragments always
-    move, matching prior behaviour).
+    move, matching prior behaviour). `clean_shards` gates transient
+    `.weekly-reviewer-scopes-*.json` shard cleanup the same way under
+    `week_only`: default False leaves shards untouched (a `week_only` run
+    generally cannot attribute a shard to a specific week), and a caller
+    closing the live week at a real week boundary passes True to reach
+    byte-parity with the unscoped (`week_only=False`) path, which always
+    deletes them. Ignored when `week_only` is False.
 
     `session_id` / `relocate_fn`: every real content-file move below (daily
     changelogs, priorities fragments, review-trail records) is routed
@@ -430,10 +437,12 @@ def perform_archive_files(
             if not f.is_file() or f.name == ".gitkeep":
                 continue
             if f.name.startswith(".weekly-reviewer-scopes-") and f.name.endswith(".json"):
-                # Under week_only, transient shards are left untouched
-                # entirely — they may belong to the live in-flight week and
+                # Under week_only, transient shards are left untouched by
+                # default — they may belong to the live in-flight week and
                 # this leg has no way to attribute them to a specific week.
-                if week_only:
+                # clean_shards opts back in for the caller closing the live
+                # week, mirroring move_priorities's gate above.
+                if week_only and not clean_shards:
                     continue
                 f.unlink()
                 actions.append(f"deleted transient shard {f}")
@@ -484,6 +493,19 @@ def perform_archive_files(
         touched.append(header_path)
 
     return actions
+
+
+def _has_pathspec_content(path: Path) -> bool:
+    """False for a directory holding no files (tracked or not) or a
+    nonexistent path — `git add` on either exits 1, so including one
+    unconditionally fails the whole archive commit. A directory with at
+    least one file under it (any depth) is content; an empty directory
+    contributes nothing to a commit regardless."""
+    if path.is_file():
+        return True
+    if not path.is_dir():
+        return False
+    return any(p.is_file() for p in path.rglob("*"))
 
 
 def _resolve_branch(repo_root: Path, branch_script: str) -> str:
@@ -543,7 +565,7 @@ def _cmd_archive(args: argparse.Namespace) -> int:
     released_date = args.released_date or date.today().isoformat()
 
     if args.move_priorities and not args.week_only:
-        # Review: code-reviewer Finding 2 -- --move-priorities is a no-op
+        # --move-priorities is a no-op
         # without --week-only (fragments already move unconditionally on
         # the default sweep-everything path). Printed note only, never a
         # parser error or behaviour change -- a caller who genuinely wants
@@ -567,6 +589,7 @@ def _cmd_archive(args: argparse.Namespace) -> int:
         released_date,
         week_only=args.week_only,
         move_priorities=args.move_priorities,
+        clean_shards=args.clean_shards,
         session_id=_resolve_session_id_for_relocate(),
         relocate_fn=_import_relocate_touched_path(),
         relocate_cwd=str(repo_root),
@@ -605,11 +628,22 @@ def _cmd_archive(args: argparse.Namespace) -> int:
                 seen.add(rel)
                 paths.append(rel)
     else:
+        # A directory holding no files (e.g. state/review-trail/ once its
+        # only writer surface was gravestoned by DR-372/DR-374) makes `git
+        # add` exit 1 and fail the whole commit even though the moves it
+        # would have staged already landed correctly. Filtering to non-empty
+        # paths is not a scope change — an empty directory contributes
+        # nothing to a commit either way — it just expresses the same commit
+        # in a pathspec git will accept. Reported 2026-09-06 (all three
+        # v0.6.0 --week-only close weeks required a hand commit).
+        candidate_paths = [
+            week_changelog_dir,
+            archive_week_root / week_starting,
+            review_trail_dir,
+            review_trail_archive_root / week_starting,
+        ]
         paths = [
-            rel_id(week_changelog_dir, repo_root),
-            rel_id(archive_week_root / week_starting, repo_root),
-            rel_id(review_trail_dir, repo_root),
-            rel_id(review_trail_archive_root / week_starting, repo_root),
+            rel_id(p, repo_root) for p in candidate_paths if _has_pathspec_content(p)
         ]
     if not paths:
         print("archive: nothing touched — no commit made", file=sys.stderr)
@@ -666,6 +700,14 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Under --week-only, also move HEADER.priorities.*.md fragments (only the "
         "fragment-owning week's caller should pass this). Ignored when --week-only is not set.",
+    )
+    p_archive.add_argument(
+        "--clean-shards",
+        action="store_true",
+        help="Under --week-only, also delete transient .weekly-reviewer-scopes-*.json "
+        "shards (only the caller closing the live week at a real week boundary should "
+        "pass this, to reach parity with the unscoped path). Ignored when --week-only "
+        "is not set.",
     )
     p_archive.set_defaults(func=_cmd_archive)
 

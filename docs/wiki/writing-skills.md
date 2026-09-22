@@ -53,6 +53,75 @@ conventions (use CLAUDE.md), mechanical constraints enforceable with regex/valid
 
 ---
 
+## The Reader-Altitude Test — What a Skill Legitimately Carries
+
+The governing question for what stays in a skill is not "is this mechanical?" — that framing
+invites argument and has no terminating answer. It is a question about the reader: does an Opus
+need this? The residue a skill legitimately carries is context the model cannot have — this
+repo's policy, this ceremony's ordering constraint, this gate's existence. It never carries
+procedure the model already has.
+
+**Test:** strip the step to its bare intent ("commit the atlas", "wrap this up"). Does an Opus
+need the rest? If no, the remainder is engine work or it is nothing at all. Legitimate judgment
+sounds like "I want to wrap this up, so I invoke this CLI"; it never sounds like "I want to
+commit, but how exactly do I run a commit again?" — a skill written in the second voice is
+babying an Opus. A placeholder the EM must resolve (`[first run|refresh]`, `[N] systems mapped`)
+is a reliable *symptom* of the failure, because a placeholder is a mechanical discriminator
+handed to the wrong reader — but the reader-altitude cut is the diagnosis, and it catches
+tutorial prose the placeholder tell misses entirely.
+
+Running the test yields three dispositions, not two: **extract** (the remainder is a mechanical
+computation over disk/git/frontmatter — push it behind a named CLI and leave a bare invocation),
+**relocate** (the remainder is accreted archaeology — dated rulings, provenance, migration
+epitaphs — move it to a wiki with a spec-backlink), or **delete outright** (the remainder is
+tutorial prose explaining a procedure the model has known since pretraining — nothing replaces
+it). A baton-holder offered only extract/relocate has no instruction to simply cut tutorial
+prose.
+
+**Caveat on the cut, load-bearing:** tutorial prose routinely has a policy fragment embedded in
+it. A commit step that is otherwise pure tutorial except for one line stating repo policy (e.g.
+"never `git add -A`") must extract that fragment into the op *before* the tutorial prose around
+it is cut — never a clean delete, or the load-bearing line goes with it.
+
+The test also governs agent dispatch briefs, not just skills: file scope, repo policy, and
+out-of-scope boundaries are context a subagent cannot have, so restating a reviewer's own job
+description back to that reviewer is tutorial prose by the same test. Apply it at brief-authoring
+time, since a mechanical brief-regeneration pass propagates the same tutorial residue to every
+brief it touches.
+
+## Length Is Not the Bar for a Skill Conversion Verdict
+
+Judgment residue is meant to survive skill conversion as prose, so a line-count or fence-count
+heuristic can flag a conversion *candidate* but can never render the *verdict*. Classifying a
+converted surface as "unconverted" on length alone is wrong whenever the surface has a live
+assembler call wired — "still long" is not evidence of unconverted. Before calling any surface
+unconverted, read the governing plan's acceptance criteria for that surface and grep for the
+assembler call actually wired into it.
+
+## A Skill Description Must Name Triggers, Never Assert Precedence
+
+A description is not documentation — it is the entire selection surface, and it competes against
+every sibling skill for the same prompt. Ordering claims ("invoke this first", "before X") are
+invisible to that competition: nothing enforces sequence between skills, so a precedence claim is
+a rule with no artifact discharging it. Worse, the failure is silent and self-concealing — an
+unreachable skill produces no error, it just gets routed around while its authors believe it is
+live.
+
+**Concrete case:** a sizing lobby described itself as "the EM's first move on any ask, before
+plan/shape/dispatch" — precedence-first framing, staked on the system's own vocabulary. Skill
+selection scores similarity against the user's actual prompt, and "any ask" resembles nothing in
+particular, while a competing skill's description enumerated the concrete features a real ask
+has (multi-file, abstraction, cross-system). That competitor outscored the precedence claim on
+every single ask, and the lobby never once fired — not under-used, structurally unreachable.
+
+**Write a description as the trigger surface, not the summary:** enumerate the literal phrasings
+a user would type, in their vocabulary, not the system's. If a skill is genuinely meant to run
+before another, a description cannot carry that ordering — install the reflex somewhere
+always-loaded instead, and add a catch at the point the wrong route is actually taken (the
+sibling skill notices and offers, proceeding either way; an offer, never a gate, where an
+anti-scope forbids walls). Diagnostic tell: if a skill's description would not match any sentence
+a user has ever actually typed, it will never fire regardless of how correct its body is.
+
 ## SKILL.md Structure
 
 ### Directory Layout
@@ -468,10 +537,10 @@ restructure. Long reference files need a table of contents at the top.
 Anthropic documents a pattern where a skill directory bundles its own executable code
 (`scripts/*.py`, `bin/*.sh`) for Claude to invoke via bash. **Coordinator does not use it, and a
 coordinator skill that appears to be "missing" its script is not a gap to fill.** Ops live in the
-Claude-klabauter engine and are named by the skill, never embedded beside it — the boundary stated
+engine repo and are named by the skill, never embedded beside it — the boundary stated
 by `coordinator/docs/wiki/coordinator-tripwires.md § NO-MULTI-LINE-SHELL-FENCE /
 SKILLS-CARRY-NO-CODE` ("a `.md` file is an instruction document, not executable bash... a
-multi-command payload moves to a named claude-klabauter CLI and the skill names it instead of pasting it")
+multi-command payload moves to a named engine CLI and the skill names it instead of pasting it")
 and by the unit-of-extraction decision under `docs/decisions/` ("A skill states
 intent and names an op; it never narrates the steps of an operation"). Those two surfaces are the
 citation; do not reconstruct the rule from this paragraph.
@@ -498,7 +567,7 @@ When the skill ships a script (`scripts/*.py`, `bin/*.sh`):
 
 ### Anti-Patterns to Avoid
 
-- **Windows-style paths** (`C:\foo\bar`) in cross-platform skills. Use forward-slash relative <!-- foreign-path-ok: illustrating the anti-pattern shape itself, not asserting a location -->
+- **Windows-style absolute drive paths** in cross-platform skills. Use forward-slash relative
   paths or POSIX `~/` shorthand.
 - **Offering too many options** — a skill with 8 modes and a decision tree at the top is a skill
   no one will use correctly. Pick a default; expose alternatives via a subskill or follow-up file.
@@ -551,7 +620,7 @@ allowed-tools:
   - Write
 ```
 
-**`access-mode` is runtime-inert and CI-live — a common misconception says otherwise, and it's
+**`access-mode` is runtime-inert and lint-live — a common misconception says otherwise, and it's
 wrong.** The misconception: that `access-mode: read-only` silently overrides the `tools:` list at
 runtime, so an agent with `Write` in `tools:` but `access-mode: read-only` "cannot write — the
 deliverable disappears." **This is false.** The Claude Code platform reads `access-mode` nowhere.
@@ -560,9 +629,9 @@ disk-verified under both `bypassPermissions` and `acceptEdits` permission modes,
 inline `--agents` JSON and file-based `.claude/agents/*.md` frontmatter. `access-mode` is absent
 from Anthropic's authoritative 16-field subagent frontmatter list.
 
-What DOES read `access-mode` is a CI lint —
+What DOES read `access-mode` is a local lint —
 the publish repo's `.github/scripts/validate-agent-tools.py`, run by
-`.github/workflows/validate-plugins.yml:47-48` on the OSS publish mirror. Its actual semantics:
+`.github/scripts/run-all-checks.py` on the OSS publish mirror. Its actual semantics:
 `read-only` implies no `{Write, Edit, Bash}` in `tools:` AND `Read` present; `read-write` is
 unrestricted; a non-empty LIST-form `tools:` with no `access-mode` key is itself an error; a
 scalar-string `tools:` is skipped entirely.
@@ -658,7 +727,7 @@ at that latitude — don't defer to a distant doctrine page.
 
 When authoring a skill/command step whose body is more than one shell line — three or more commands, a loop, or conditional branching — **extract it to `bin/<verb-noun>.sh` and invoke it from the skill**. The skill step names what is happening; the script does it. Inline blocks are reserved for genuine one-liners.
 
-**Why.** An 18-line `ls + per-file enumeration + HEADER grep` block inlined into `commands/workweek-complete.md` Step 1a gives the EM a copy-paste-shaped artifact instead of an invokable tool. This creates two failure modes: (1) the EM pastes a stale version rather than running the current one, and (2) the script drifts out of sync with the surrounding step prose. PM correction (week-changelog substrate guard): "any agentic-instruction-set script should be immediately invokable as a top-class idempotent Unix-friendly script, not written out for the EM to copy and paste." The fix was extracting the block into `bin/list-week-changelog.py` (now claude-klabauter `coordinator/bin/list-week-changelog.py`) and replacing the inline block with `python …/list-week-changelog.py`.
+**Why.** An 18-line `ls + per-file enumeration + HEADER grep` block inlined into `commands/workweek-complete.md` Step 1a gives the EM a copy-paste-shaped artifact instead of an invokable tool. This creates two failure modes: (1) the EM pastes a stale version rather than running the current one, and (2) the script drifts out of sync with the surrounding step prose. PM correction (week-changelog substrate guard): "any agentic-instruction-set script should be immediately invokable as a top-class idempotent Unix-friendly script, not written out for the EM to copy and paste." The fix was extracting the block into `bin/list-week-changelog.py` (now the engine repo's `coordinator/bin/list-week-changelog.py`) and replacing the inline block with `python …/list-week-changelog.py`.
 
 Naming convention: match existing `bin/list-*.sh` / `bin/check-*.sh` / `bin/refresh-*.sh` siblings. The script must be read-only, exit 0 on empty, and accept an optional repo-root arg.
 
@@ -669,6 +738,28 @@ When authoring CLI doctrine — wiki lines, skill steps, agent prompts — **do 
 **Why.** A wiki line *"For a multi-line body, write the body to a temp file and pass `--body-file <path>`"* produced exactly this: EMs staged memo bodies in `%TEMP%` and ad-hoc `tasks/<feature>/` locations — temp-file cruft the PM had to sweep mid-session (machine-a cross-repo-memo-draft-lifecycle). The fix was not discipline on the EM's part — it was removing the temp-file step by giving the CLI a lifecycle subcommand surface (`draft / compose / send / list / discard`).
 
 **Audit test.** When writing CLI doctrine, grep for "write to a temp file" / "stage in a path of your choosing" / "put it somewhere." If the CLI's surface doesn't own the buffer, the doctrine teaches the agent to invent one. Either give the CLI a lifecycle subcommand surface (draft/send/discard) OR pipe via stdin — never instruct ad-hoc filesystem staging. This is the doctrine-authoring instance of the design-as-offers principle (`docs/wiki/eager-agent-calibration.md`): the instruction surface shapes the agent's reflex; if the instruction names a path pattern, the agent follows it everywhere.
+
+### Rule: authored doctrine prose gets no bash snippets — describe the check, not the incantation
+
+Do not paste `ls | sed | cut` or `grep -E` one-liners into `commands/*.md` or `skills/*/SKILL.md`
+as operator instructions. The fence gate refuses a bare command fence mechanically; this rule
+carries the what-to-write-instead half, which the gate does not. State the precondition as a
+comparison in prose instead — "compare the block dates against `**Week starting:**` in
+`HEADER.md`" — rather than pasting the shell substitute. If a check genuinely must be mechanical,
+that is the signal it belongs in the engine as a named driver or probe; name that as the real
+discharge instead of inlining a snippet. The standing multi-OS-is-P0 ruling that structural bash
+is a portability defect governs authored doctrine too, not only implementation: a snippet in a
+command or skill file is a bash instruction the fleet runs on every host, propagates to OSS
+readers, and teaches the pattern to every agent reading that surface.
+
+### Rule: check an agent's tools grant before writing an instruction that invokes a CLI
+
+Before writing any prompt line that runs a command, read the target agent's `tools:` frontmatter.
+An agent whose `tools:` deliberately withholds `Bash` cannot execute an instruction that calls a
+CLI — the instruction ships as dead prose that no test catches, because writing a prompt line
+does not verify the surface it names is reachable. If `Bash` is absent, the caller must be the
+EM-side driver, not the agent; route the invocation there instead of writing it into the agent's
+own prompt.
 
 ### Rule: when readers keep misreading a sub-step boundary, rename the boundary — don't add a clarifying banner
 

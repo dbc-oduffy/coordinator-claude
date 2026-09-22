@@ -4,7 +4,7 @@
 
 # Initiative Govern Discipline
 
-> How DoE owns the assignment discipline for the initiative entity: the conservative cut-bar
+> How the doctrine repo owns the assignment discipline for the initiative entity: the conservative cut-bar
 > that controls when a cluster earns a named initiative, the surface-and-confirm graduation
 > rule that keeps humans as the authoring gate, and the prioritization discipline that
 > govern-orders open-ended (burn-down) and dated (completion) initiatives. Complements the
@@ -91,7 +91,7 @@ later, by a human, to evidence the triage passes happened to accumulate.
 **When the value is written — graduation only, never a bulk pass.** An `initiative` value is
 written on member rows **only** when a detected cluster graduates to a themed baton at a
 triage terminus — never as a bulk backfill, and never over the ~340 `queue_scope: central`
-entries (those resolve to the sibling `claude-klabauter` central state root and are out of
+entries (those resolve to the sibling engine repo's central state root and are out of
 this discipline's remit — see the queue-terminus doctrine's substrate-verification note).
 The clustering op's output is a proposal the EM disposes of, not an authoritative grouping to
 accept wholesale (`queue-terminus-doctrine.md` DEC-3/Anti-scope) — the same
@@ -168,7 +168,7 @@ mechanism.
 
 ## Prioritization Discipline
 
-**How DoE govern-orders open-ended and dated initiatives.**
+**How the doctrine repo govern-orders open-ended and dated initiatives.**
 
 The initiative schema encodes shape via a single nullable field: `target_date` (`null` ⇒
 burn-down / ongoing; ISO date string ⇒ completion / time-bounded). No dedicated `shape` or
@@ -235,7 +235,7 @@ Triage). It does NOT run at:
 - `workday-complete` — too frequent; daily triage is for queue closure, not initiative cuts.
 - `workstream-start` — forward-looking orientation; initiative govern is backward-looking
   accumulation review.
-- `workweek-start` — the engine-side decision suggested this placement, but DoE ratified `workweek-complete`
+- `workweek-start` — the engine repo's decision suggested this placement, but the doctrine repo ratified `workweek-complete`
   (predecessor handoff Key Decision #6): a backward-looking cadence fits the initiative sweep
   better than a forward-looking orientation, and queue-triage teeth already live at complete.
 
@@ -249,14 +249,14 @@ Step 4.
 
 - **Initiative entity schema:** `coordinator/schemas/initiative.schema.json` — `id`, `label`,
   `owner`, `status` (`active|paused|shipped|abandoned`), `target_date`.
-- **CLI:** claude-klabauter `coordinator/bin/coordinator-initiative` — `create` (fail-loud on
+- **CLI:** the engine repo's `coordinator/bin/coordinator-initiative` — `create` (fail-loud on
   collision), `attach` (FK-write to artifact frontmatter), `list-unattached` (thin wrapper over
   `query-records --unattached`).
-- **Unattached lens:** claude-klabauter `coordinator/bin/query-records.js` `--unattached`
+- **Unattached lens:** the engine repo's `coordinator/bin/query-records.js` `--unattached`
   predicate — returns every indexed record with `initiative == null` across debt/bug/improvement
   queues, roadmap spinoff-stubs, handoffs, and plans. Set-difference over existing stores; no new
   bucket.
-- **Graduation-gate detector:** claude-klabauter `coordinator/bin/detect-initiative-candidates` —
+- **Graduation-gate detector:** the engine repo's `coordinator/bin/detect-initiative-candidates` —
   read-only, clusters unattached items, enforces ≥3-item floor, emits candidates only.
 - **Weekly ritual:** `coordinator/commands/workweek-complete.md` § Step 4: Improvement-Queue
   Triage — initiative-govern sub-step (run lens + detector, surface candidates, prompt human

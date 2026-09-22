@@ -231,7 +231,7 @@ def _cdr_repo_root_from_plugin_root_candidate(candidate: str) -> str:
     here stays safe — see that module's BLOCKER-2 fix for why its call site
     needed a stricter `allow_unchanged_fallback=False`).
 
-    Review: staff-eng MINOR-8 — normalizes via os.path.normpath before
+    Normalizes via os.path.normpath before
     stripping trailing separators (a bare rstrip strips a trailing separator
     off a bare drive-letter root, leaving a form Windows resolves as
     CWD-relative rather than the drive root) and casefolds the "coordinator"
@@ -282,7 +282,7 @@ def _cdr_marketplace_cache_rung() -> str:
     `<claude_home>/plugins/cache/coordinator-claude/coordinator/<version>/`,
     newest version wins (numeric compare, DR-148-safe). Ported from
     `coordinator_registry.py::_mp_marketplace_cache_rung()` (same
-    Review: staff-eng BLOCKER-1(a) fix — `_cdr_flat_layout_probe_rung()`'s
+    `_cdr_flat_layout_probe_rung()`'s
     candidate is not where a marketplace clone actually installs; this is).
     Resolves to the repo root directly, gated by `_cdr_manifest_present`
     like every other candidate in this ladder — no normalization needed
@@ -299,7 +299,7 @@ def _cdr_marketplace_cache_rung() -> str:
     if not os.path.isdir(cache_parent):
         return ""
     best = ""
-    best_key = (-1, -1, -1)
+    best_key: tuple[int, int, int] | None = None
     try:
         entries = os.listdir(cache_parent)
     except OSError:
@@ -308,18 +308,12 @@ def _cdr_marketplace_cache_rung() -> str:
         child = os.path.join(cache_parent, name)
         if not os.path.isdir(child):
             continue
-        parts = (name.split(".") + ["0", "0", "0"])[:3]
-        nums: list[int] = []
-        for part in parts:
-            digits = ""
-            for ch in part:
-                if ch.isdigit():
-                    digits += ch
-                else:
-                    break
-            nums.append(int(digits) if digits else 0)
+        parts = name.split(".")
+        if len(parts) > 3 or any(not part.isdigit() for part in parts):
+            continue
+        nums = [int(part) for part in parts] + [0] * (3 - len(parts))
         key = (nums[0], nums[1], nums[2])
-        if key > best_key:
+        if best_key is None or key > best_key:
             best_key = key
             best = child
     return best
@@ -475,7 +469,7 @@ def content_root_for(doe_root) -> Path | None:
     if isinstance(doe_root, Path):
         base = doe_root
     else:
-        # Review: code-reviewer S1/F1 -- rstrip("/\\") alone collapses "/" or
+        # rstrip("/\\") alone collapses "/" or
         # "//" to "", and Path("") resolves to the process cwd, silently
         # probing cwd instead of failing closed on a degenerate root. Fall
         # back to the un-stripped string when stripping empties it, so an
@@ -494,7 +488,7 @@ def content_root_for(doe_root) -> Path | None:
 def content_root_or_private(doe_root) -> str:
     """`content_root_for`, falling back to the private-shape join.
 
-    Review: overengineering-reviewer finding 2 — the shape every bin/ CLI that
+    The shape every bin/ CLI that
     needs "content root, or the private-shape join to keep naming a path when
     neither layout resolves" actually needed was previously re-derived by hand
     at each call site. Promoted here as the one public spelling, mirroring

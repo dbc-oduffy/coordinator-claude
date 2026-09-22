@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """platform-localize.py — INSTALL-TIME (NOT a live SessionStart hook, despite
 some historical comment framing elsewhere) localizer for per-machine Claude
-Code settings. Trampoline over claude-klabauter coordinator_core.hooks.platform_localize.
+Code settings. Trampoline over the engine's coordinator_core.hooks.platform_localize.
 
 Deployment topology note (load-bearing for the resolution strategy below):
 unlike coordinator-auto-push / install-substrate.sh (which run FROM the
@@ -22,7 +22,7 @@ caller), falling back to a __file__-relative sibling only as a last resort
 
 Callers (as of this port): first-run.sh (Step 4c, fail-loud), coordinator/
 commands/install.md (Step 9, fail-loud), dist/publish-repo-setup/install.sh
-(delivers the copy; does not itself execute it), and claude-klabauter's
+(delivers the copy; does not itself execute it), and the engine repo's
 coordinator_core/install/uninstall_legs.py:680 (CHECK 5 tri-file regen on
 `revert-to-marketplace` uninstall — that subprocess call site is a
 cross-repo consumer NOT repointed by this port; it already tolerates a
@@ -40,7 +40,7 @@ documented posture):
   3 — DEDICATED transport-failure code (PORTER-BRIEF-ADDENDUM § 3b): the
       coordinator-root / COORDINATOR_ENGINE_ROOT resolution failed, or
       coordinator_core.hooks.platform_localize was not importable. Distinct
-      from 1 (a business-logic failure) so a caller can tell "claude-klabauter link is
+      from 1 (a business-logic failure) so a caller can tell "engine link is
       down" apart from "localization itself found something wrong" — never
       silently degrades to 0, unlike the never-block posture used for hot-
       path hooks (coordinator-auto-push).
@@ -50,7 +50,7 @@ Prior filename: platform-localize.sh (renamed off .sh 2026-07-22 as part of
 the repo-wide de-bash sweep — see state/audits/2026-07-20-sh-suffixed-
 python-trampolines.md; the file's body has been pure Python since
 28a7b868 "de-polyglot"). Every known in-repo caller has been repointed in
-the same commit; the sole cross-repo caller (claude-klabauter's uninstall_legs.py) is
+the same commit; the sole cross-repo caller (the engine repo's uninstall_legs.py) is
 out of reach from here and is accepted-broken per the de-bash campaign's
 "we fix tomorrow" posture.
 """

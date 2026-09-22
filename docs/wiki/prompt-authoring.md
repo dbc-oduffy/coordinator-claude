@@ -226,7 +226,8 @@ concrete failure modes seen in the agent-prompt corpus and its cousins, not abst
   say why: "3 retries, because most intermittent failures resolve by the second" is authorable;
   "RETRIES = 3" alone is not (Anthropic's own skill-authoring guide calls this "voodoo constants,"
   Ousterhout's law).
-- **Absolute or Windows-style paths.** No absolute macOS/Linux home paths, no `C:\...`, no backslash path separators <!-- foreign-path-ok: illustrating the forbidden shape itself, not asserting a location -->
+- **Absolute or Windows-style paths.** No absolute macOS/Linux home paths, no drive-letter-rooted
+  paths (a drive letter, colon, then a backslash), no backslash path separators
   anywhere in an agent prompt body. This fleet runs cross-platform by design (Windows is the
   primary machine); a hardcoded path in a durable, every-dispatch-loaded file is exactly the
   install-surface-completeness failure this repo's own doctrine already names for code — the same

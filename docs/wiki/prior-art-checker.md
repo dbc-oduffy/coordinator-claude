@@ -31,6 +31,16 @@ Two kinds, both equally in scope:
 
 Both are equally important. A plan can be doctrinally fine and still violate a project-specific decision; a plan can be project-fine and still violate doctrine. The agent checks both corpora every run.
 
+## Live-read a cited corpus's unverified paths before a design binds to them
+
+When a research corpus flags a claim as inferred or unread — "no specialist read this file," or a
+cited path that turns out not to exist — that unread file is exactly the one a design must not
+bind to on faith. Cloning the reference repo and live-reading it can turn an "assumption to
+validate" into a decisive, verified fact that hardens the whole design (e.g. confirming a live/MCP
+path is a projected subset of the file rather than something else). This is cheap and belongs
+before review, not after — treat an unread cited path surfaced during prior-art review as a
+mandatory live-read, not an acceptable gap to carry forward.
+
 ## Role in the review pipeline
 
 **The prior-art-checker is a recall pre-flight, not a reviewer.** It does not participate in the sequential-review HARD RULE — it runs once before any reviewer is dispatched and its output is consumed by all downstream reviewers. Running it does not satisfy the "sequential" requirement; it sits upstream of the reviewer sequence entirely.
@@ -207,6 +217,12 @@ The Sibling-Spinoff gate above catches *peer-repo* substrate that already exists
 
 - **Cross-ref concurrently-executing plans on the same file scope.** *[universal]* When roadmap-planning turns an audit's findings into spinoff stubs, grep in-flight and recently-landed plans touching the same file scope FIRST, so already-delivered items are not re-packaged as pending work. *Canonical:* a stub was packaged from a prep-audit defect slate, but a parallel plan had already executed the entire slate before the stub was authored — pickup reconcile found every acceptance criterion delivered on disk. Liveness is git + disk, never a sibling plan's frontmatter `status`.
 
+- **[universal] Disk-check the build target before planning to build it.** A plan to build X must verify X does not already exist on disk before scoping build chunks — a pre-flight combining prior-art-checker with a plain disk read. *Canonical:* pre-flight found a certification probe and an example-env file both already existed, collapsing planned build chunks into mere references (a 7-chunk plan fell to 5).
+
+- **Reconcile-time, this cuts the other way too: verify a roadmap's real build-state, not the baton's "none executed" claim.** A reconcile baton reporting a target roadmap as "authored, none executed / 0 stubs built" can be flatly wrong — disk can show the roadmap substantially shipped, with stubs already laddered stub → plan → code and review-trail findings on file. "Stubs never picked up as stubs" reads as "nothing built" but is not the same claim. Before scoping additions to an existing roadmap, check `docs/plans/`, git log, and code-on-disk for the target stubs — the same git-and-disk-not-frontmatter discipline as the concurrent-plans bullet above, applied to a roadmap's own self-report.
+
+- **A late cluster/stub append to an already-final-approved roadmap needs its reverse edges backfilled, not just its forward ones.** *[universal]* A stub appended post-approval carrying only its own `blocked_by` is under-propagated: the reverse `blocks` arrays on every dependency stub, and the OVERVIEW's per-cluster "Feeds:" mirrors, both go stale — breaking the bidirectional-mirror invariant the roadmap advertises, so reverse-traversal schedulers under-schedule the new arrival. A late append can also widen a first-landing seam-owner's enumerated consumer surface (e.g. an adapter that freezes its contract before pickup) — omitting that widening forces exactly the late-ripple the seam exists to prevent. Sweep all three mirror sites on a late append, not just the new stub's own frontmatter.
+
 ## Cost target
 
 Aim for under 10K tokens per plan check. The corpus is bounded (project wikis across all `docs/wiki/` subdirectories — currently ~57 files including `codebase-judgment/` entries — plus global wikis, lessons, and queue). RAG-over-wikis is a phase-2 optimization; for now, full-text reads of relevant entries is the contract.
@@ -233,8 +249,7 @@ equivalent capability as a host surface across multiple transports for
 months. The consumer is now mid-cutover onto the sibling's store, with every
 loader mapped 1:1 onto the sibling's API. A plan-time capability lens would
 have surfaced "consume the sibling's workstate store" before the parallel
-stack was ever built.
-
+stack was ever built. 
 ### Constraint 1 — offer-shape, never a bare violation flag
 
 Every emitted entry LEADS with the alternative: `"<host_repo> offers
@@ -242,10 +257,14 @@ Every emitted entry LEADS with the alternative: `"<host_repo> offers
 duplicating X." This is the same offers-not-nags discipline that governs all
 agent-facing tooling design (global `CLAUDE.md § Implementation Standards —
 Extensions`, where `superpowers` is named the canonical anti-pattern of
-mistrust-shape tooling that nags without offering the better path). Because
-the substrate is an authored manifest (see below), `consume_seam` is always a
-real, structured seam the offering repo vouches for — never a degraded
-"consume via (unconfirmed)."
+mistrust-shape tooling that nags without offering the better path). Cite
+`eager-agent-calibration.md` for the offer-shape lineage: the same
+eager-to-satisfy framing that redirects an executor toward the portable path
+rather than nagging it away from the shortest one applies here — the bucket
+offers the sibling's seam as the faster route, it does not flag the
+duplication and stop. Because the substrate is an authored manifest (see
+below), `consume_seam` is always a real, structured seam the offering repo
+vouches for — never a degraded "consume via (unconfirmed)."
 
 ### Constraint 2 — mechanical polarity, `host_repo == plan_repo` suppression
 
@@ -312,6 +331,14 @@ is stale, absent, or lost, it is rebuildable from the always-authoritative
 per-repo manifests — no repo's visibility depends on being co-located with
 it, and no per-repo declaration is destroyed by the index's loss.
 
+Cite `state-placement-law.md` § Fleet Producer Contract — Per-Repo Emission,
+Live-Remote Horizon, Tier A/B Observation for the "no single consolidation
+point" rule this substrate honors: "there is no single consolidation point
+[...] a consolidation point makes one producer a fleet-wide single point of
+failure." That section governs cross-repo work-state emission to the
+fleet-wide observation surface; this substrate applies the identical
+per-repo-emits/engine-derives split to capability declarations.
+
 ### Why Tier-2 authored, not Tier-1 heuristic extraction
 
 An earlier draft of this mechanism had the engine *heuristically extract*
@@ -347,9 +374,12 @@ as `live`. A capability whose seam has never been self-verified reachable is
 The bucket's action is REPORT-only, never a cross-repo write of its own: the
 sidecar directs the EM to route a `cross-repo-memo` and hand the PM the
 receiver path for relay — the same draft-then-surface-to-PM discipline every
-cross-repo ask in this system follows. Any engine op reading a sibling's
-authored manifest is read-only against that sibling's tree — "ship
-what makes sense for OUR install surface; teach how OTHERS handle theirs —
-never code both sides from our repo"). The lens itself never auto-blocks and
-never mutates the plan — inheriting the checker's existing report-only
-invariant verbatim.
+cross-repo ask in this system follows (`cross-repo-communication.md`: "hand
+the PM the receiver path for relay" is part of "fix everything," alongside
+acting the inbound and sending the outbound memo). Any engine op reading a
+sibling's authored manifest is read-only against that sibling's tree — the
+same invariant `cross-repo-communication.md` § When lifting a cross-repo
+primitive states as "ship what makes sense for OUR install surface; teach
+how OTHERS should handle theirs in a wiki — never code both sides from our
+repo." The lens itself never auto-blocks and never mutates the plan —
+inheriting the checker's existing report-only invariant verbatim.

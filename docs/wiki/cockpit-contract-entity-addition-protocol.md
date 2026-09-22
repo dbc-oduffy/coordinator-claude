@@ -34,15 +34,15 @@ spec_backlink: the cockpit-contract standing-owner record under docs/decisions/
 > for the field-addition pattern, provenance `ref` ref-conditional convention, and v2.4.0
 > example row: `2026-07-03-fleet-deliverable-spine-identity-and-facets.md` under `docs/plans/`.
 >
-> **Producer-identity note (claude-klabauter's producer-identity rulings):** claude-klabauter's Python `artifact.emit`
+> **Producer-identity note (the engine repo's producer-identity rulings):** the engine repo's Python `artifact.emit`
 > is the **sole production cockpit emitter**. `coordinator/bin/emit-cockpit-snapshot.sh`
-> is a fail-loud facade stub — its body lives in claude-klabauter now and is not
+> is a fail-loud facade stub — its body lives in the engine repo now and is not
 > present at the line numbers this doc cites below (SECTION templates, sentinel-guard
 > lines, `FINAL_JSON` wiring, etc.). Those citations describe the **pre-port bash
 > procedure** and are retained for historical/structural reference only — treat any
 > `emit-cockpit-snapshot.sh:NNN` line citation below as **stale** pending a follow-up
 > rewrite of Step (e) against the Python port (`coordinator_core/ops/emit/`, per
-> `cross-repo/archive/` claude-klabauter producer-identity ratification). Out of scope for this repoint pass
+> `cross-repo/archive/` the engine repo's producer-identity ratification). Out of scope for this repoint pass
 > (`2026-07-08-retire-js-cockpit-emitter-lockstep.md` under `docs/plans/` § C7) — flagged, not
 > rewritten, here.
 
@@ -76,6 +76,27 @@ proximity — always use D9 unless the field's contract explicitly requires key-
 **Derived fields (emit-computed)** follow D9 naturally: `last_meaningful_activity`,
 `deliverable_status`, `shipped_sha`, `workstream_type` are computed-or-null at emit time;
 the key is always present, carrying `null` when the derivation cannot produce a value.
+
+**A type annotation does not predict the wire shape — diff the emitted schema files, not the
+source that produced them.** An identical Zod declaration — `field: T.nullable()`, or the Python
+equivalent `field: T | None = None` — can emit `anyOf:[T,null]` on one entity and bare
+`{"type": T}` with no null branch on another, because the porter applies house style **per
+entity**, not per declaration shape. A field proposed and documented everywhere as "optional,
+nullable" can still fail validation on an explicit `null` if the emitted schema for that specific
+entity has no null branch — and the mismatch is invisible from the declaration, the changelog
+note, and the entity's own docstring, because all three describe the *intended* nullability, not
+the *emitted* one. This is one turn past "verify a relayed claim by opening the source" — here the
+source file is the thing that produced the wrong description, so opening it again does not catch
+the drift.
+
+**Rule.** For any generated artifact — this schema, a `.cmd` shim, a rendered doctrine file — the
+generator's input is a *hypothesis* about its output, never evidence of it. Read the emitted
+bytes. Concretely: diff the newly-emitted schema JSON files against the previously-committed
+bundle before committing a version bump, the same diff the release flow already requires to
+confirm no unexpected shape movement rode along — this is exactly the check that catches a D9
+mismatch, because it reads what was actually emitted rather than what the declaration implies.
+"Optional" alone never tells a consumer whether `null` is legal for a given field on a given
+entity; only the emitted schema for that entity does.
 
 ---
 
@@ -131,10 +152,10 @@ identifier. <!-- src: plan24-008 -->
 The **cockpit-contract surface** is a standing single owner of record (codified in a
 standing-owner decision under `docs/decisions/`). The surface comprises:
 
-- claude-klabauter's Python `artifact.emit` — the records-spine → `cockpit-emission.json`
-  projection step (sole production emitter as of claude-klabauter's producer-identity rulings).
+- the engine repo's Python `artifact.emit` — the records-spine → `cockpit-emission.json`
+  projection step (sole production emitter as of the engine repo's producer-identity rulings).
   `plugins/coordinator/bin/emit-cockpit-snapshot.sh` remains on disk
-  as a fail-loud facade stub (zero caller repoints, claude-klabauter producer-identity ruling AC8) but is not an independent
+  as a fail-loud facade stub (zero caller repoints, the engine repo's producer-identity ruling AC8) but is not an independent
   producer — see producer-identity note above.
 - `plugins/coordinator/cockpit-contract/` — the entity definitions,
   schema bundle, and TypeScript contract package.
@@ -448,7 +469,7 @@ The ccos tc-8 spine entities introduced the pattern for JSON objects and JSONL l
 | SECTION | Entity type | Source glob | Collection shape |
 |---|---|---|---|
 | 8.13 | `session-hierarchy` | `state/session-hierarchy.*.json` | One JSON object or array per file; entries flattened |
-| 8.14 | `file-attribution` | on-demand Python derivation over `~/.claude/projects/<project>/*.jsonl` | Derived at query time via claude-klabauter `coordinator/bin/derive-file-attribution.py`; aggregated per (session, file) |
+| 8.14 | `file-attribution` | on-demand Python derivation over `~/.claude/projects/<project>/*.jsonl` | Derived at query time via the engine repo's `coordinator/bin/derive-file-attribution.py`; aggregated per (session, file) |
 
 **Per-type transforms worth flagging for future spine adds.**
 
@@ -608,7 +629,7 @@ Only after all consumers confirm:
 
 1. Remove the sentinel file (`state/cockpit-revendor-pending-<version>`).
 2. Merge the owner branch to main.
-3. Run the production emit (claude-klabauter `artifact.emit` — default path) — this is the first
+3. Run the production emit (the engine repo's `artifact.emit` — default path) — this is the first
    live snapshot with the new schema version; all consumers' ingest now accepts it.
 
 **v2.1.0 example:** The confirmation memo (`2026-06-27-cockpit-contract-v210-revendor-confirmed.md`)
@@ -665,7 +686,7 @@ sequence call; contributors notify the owner when their entity shape is ready.
 | Envelope wiring | `cockpit-contract/src/entities/snapshot-envelope.ts` |
 | `CONTRACT_VERSION` source | `cockpit-contract/src/index.ts` |
 | Schema bundle (computed) | `cockpit-contract/schema/cockpit-contract.schema.json` |
-| Emitter | claude-klabauter Python `artifact.emit` (sole producer; `bin/emit-cockpit-snapshot.sh` is a fail-loud facade stub, claude-klabauter producer-identity rulings) |
+| Emitter | the engine repo's Python `artifact.emit` (sole producer; `bin/emit-cockpit-snapshot.sh` is a fail-loud facade stub, per the engine repo's producer-identity rulings) |
 | Sentinel pattern | `state/cockpit-revendor-pending-<version>` |
 | Outbox memo landing zone | `state/memo-outbox/` |
 | Provenance envelope + ref-conditional | `cockpit-contract/src/provenance.ts` |
@@ -682,7 +703,7 @@ sequence call; contributors notify the owner when their entity shape is ready.
 | 2.2.0 | New entity: decision-guide-summary | C1 entity → C4 envelope+codegen → C2/Cn/C3 bump → C5 emitter-wire → C6 sentinel + memo | — |
 | 2.3.0 (ccos-8) | New entities: session-hierarchy, file-attribution + session-events-summary spine types; new `required[]` entity arrays on envelope | Widen-reader-first + sentinel handshake; baseline for 2.4.0 | No outstanding sentinel — clean baseline |
 | 2.4.0 (spine) | New entity: initiative-summary; deliverable-spine fields (D9 `.nullable()`) on HandoffSummary/PlanSummary/RoadmapSummary; shared enum module `deliverable-spine.ts`; emit projections for identity + facets + `workstream_type` + `shipped_sha` + derived `deliverable_status` | C1 entities + C3 authoring threading + C4 emit projection; reader-first gated behind `cockpit-revendor-pending-v2.4.0` sentinel (C0) | Cockpit re-vendor confirmation required before C6 flips `CONTRACT_VERSION` |
-| (in-flight) | `handoff_phase` field on execution-scoped handoff entities, feeding cockpit's `executionHandoffs` fleet-state category (`{fireable, gated, other}`) | `query_fleet_state` reader already lands and degrades gracefully empty/sparse until the field is populated | Two-part closure explicitly named: DoE-side cockpit-contract widening (cockpit's vendored v2.1.0 does not yet carry `handoff_phase`) + claude-klabauter's emit-side stamping leg — a worked example of a reader shipping ahead of the producer under the graceful-degradation contract |
+| (in-flight) | `handoff_phase` field on execution-scoped handoff entities, feeding cockpit's `executionHandoffs` fleet-state category (`{fireable, gated, other}`) | `query_fleet_state` reader already lands and degrades gracefully empty/sparse until the field is populated | Two-part closure explicitly named: doctrine-repo-side cockpit-contract widening (cockpit's vendored v2.1.0 does not yet carry `handoff_phase`) + the engine repo's emit-side stamping leg — a worked example of a reader shipping ahead of the producer under the graceful-degradation contract |
 
 ---
 

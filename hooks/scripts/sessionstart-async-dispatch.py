@@ -146,6 +146,12 @@ REGISTRY: Tuple[StartGuard, ...] = (
     StartGuard("session_start_write_plugin_root_breadcrumb",
                "session-start-write-plugin-root-breadcrumb.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
+    # PRE-COMMIT GATE CHAIN SELF-HEAL -- see `session-start-ensure-precommit-hook.py`.
+    # All five sources: `.git/hooks` is a property of the clone, so the session
+    # that finds it missing is whichever one starts next.
+    StartGuard("session_start_ensure_precommit_hook",
+               "session-start-ensure-precommit-hook.py",
+               frozenset({"startup", "resume", "clear", "compact", "fork"})),
 )
 
 

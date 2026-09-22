@@ -61,6 +61,27 @@ Apply this unchanged as the class-3-vs-class-1/2 discriminator for every queue: 
 non-structural (touches no module boundary). Anything else — however small — becomes a baton
 (solo or themed), never an in-triage edit.
 
+## Emitted-workflow triage — the run hands back, the EM authors
+
+When triage runs in an emitted grind, the operative copy of this doctrine's classes and
+discriminator is each queue's profile triage policy under `coordinator/queue-profiles/` — this
+wiki keeps the definitions and the rationale, not the enforced values. Class 3 fixes and
+refute-confirmed closes land inside the run itself. Batons hand back typed `baton`, and the
+command mints them after the run; firing is their authorization. Park, won't-do, and other
+PM-gated dispositions hand back to the PM. Clustering's degrade order (§ Clustering) runs after
+the run, over the `baton` hand-back, never over the whole queue.
+
+**A row closed outside the grind's committer leaves its ledger behind.** The committer deletes a
+row's `state/queue-grind/<profile>/<row-id>.jsonl` ledger (and `_handback` mark) in the settling
+commit; a hand closure — the post-run `git mv` of a `baton`, promote or PM-gated row — and a
+`commit-failed` hand-back never reach that step. After any hand closure, and in place of ever
+committing a ledger the grind left, run
+`backlog-grind-assemble grind-row sweep --profile-dir D --profile P --queue Q [--queue Q ...] --repo-root R`
+and commit its deletions. Name every queue dir the profile reads: a dir left out reads as closed and
+its live ledgers settle. An engine without `sweep` answers unknown-subcommand; settle each orphan with
+`grind-row settle --profile P --row-id R --repo-root R` instead. Tripwire:
+`A-HAND-CLOSED-GRIND-ROW-ORPHANS-ITS-LEDGER`.
+
 ## Ratified ancestor — this generalizes an existing PM ruling, it does not invent one
 
 This is not a new posture. `architecture-audit/SKILL.md` already runs this exact shape for one
@@ -107,7 +128,7 @@ but is actually starved of actionable work.
 <!-- Spec backlink: cross-repo/archive/2026-07-23-example-cockpit-repo-em-queue-terminus-corpus-and-contract-axis.md § 4 -->
 
 **A handoff's `category` field is emitted into the cockpit contract under a different name:
-`workstream_type`. Same axis, two names, a 1:1 passthrough** — `claude-klabauter`
+`workstream_type`. Same axis, two names, a 1:1 passthrough** — the engine repo's
 `coordinator_core/ops/emit/sections/handoffs.py:401`:
 
 ```python
@@ -141,7 +162,7 @@ file but not in the wire format is not yet fleet-visible.
 two-sided widening is a discipline, not an enforced gate.*
 
 So the checklist for adding any `category` value is two-sided: widen the enum here, **and** memo
-Claude-klabauter to widen the `WorkstreamType` Literal. The second half is the load-bearing one.
+the engine repo to widen the `WorkstreamType` Literal. The second half is the load-bearing one.
 
 **Sharp edge worth knowing — `null` and `"uncategorized"` are different states.** A normalized
 handoff has `category` backfilled (`handoff_normalize.py`'s `_match_category` defaults an
@@ -152,7 +173,7 @@ arrive by different paths. Treat them as one bucket unless you have a specific r
 
 *Established by tracing the emission path, prompted by `example-cockpit-repo-em` asking
 whether the two were one axis or two. The identity was previously recorded only in a docstring in
-Claude-klabauter; it is written here because DoE governs the contract and the question cost two sessions an
+the engine repo; it is written here because the doctrine repo governs the contract and the question cost two sessions an
 investigation each.*
 
 ## The readiness bar a baton owes — `/pickup`-able, NOT `/mise`-autonomous
@@ -214,7 +235,7 @@ The terminus prefers, in order:
 1. A **registered engine op** wrapping the clustering leg (queue-family-generic, per DEC-4) —
    the target state once the claude-klabauter-side op work lands.
 2. **Degraded but still mechanical:** the shipped `detect-initiative-candidates` CLI in
-   `claude-klabauter`, invoked directly. This CLI already ships title-keyword (and other) clustering
+   the engine repo, invoked directly. This CLI already ships title-keyword (and other) clustering
    generic over queue family (`UNATTACHED_TYPES` spans bug/debt/improvement/roadmap/handoff/plan)
    — a terminus that finds the registered op absent falls back to calling this CLI directly rather
    than either blocking or reinventing the clustering algorithm inline.

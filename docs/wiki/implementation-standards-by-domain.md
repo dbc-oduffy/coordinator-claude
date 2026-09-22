@@ -33,7 +33,7 @@ provenance: extracted from coordinator/CLAUDE.md § Implementation Standards Clu
 Coordinator `CLAUDE.md` is **not** read at every session start — see
 `coordinator/docs/wiki/claude-md-surfaces.md` § Trap A and
 `coordinator/docs/wiki/claude-md-delivery-topology.md` for the fuller account. It loads only in a session whose cwd is
-DoE-claude, and only after that session Reads some file under `coordinator/` (ordinary nested-
+the doctrine repo, and only after that session Reads some file under `coordinator/` (ordinary nested-
 `CLAUDE.md` lazy loading, unrelated to `--plugin-dir`); it reaches no sibling-repo session at all,
 and can evaporate again on `/compact`. Whatever the parent file's load timing turns out to be, the
 extraction argument doesn't rest on "always loaded" — it rests on **shared-load economics**:
@@ -320,7 +320,7 @@ If an older deploy emitted the shim and its format/content has since changed ups
 
 `coordinator/hooks/scripts/bootstrap-substrate.py` does not exist — it was the last live instance of this exact anti-pattern before it was deleted as orphaned dead code (PM-authorized delete-vs-keep ruling: the SessionStart hook was orphaned by the full-kill directive and nothing invoked it). The freshness-inventory audit confirms the `coordinator/{bin,lib,hooks,skills}` tree carries **no live presence-only hazard instances**. Whether this hazard class warrants a shared runtime primitive (vs. staying a per-site review lens) is ratified — per-site, not a runtime primitive.
 
-**Reference implementation (gate done right) — claude-klabauter `coordinator/bin/sync-cockpit-contract.py` (formerly `.sh`, lines ~90–113 of the pre-port script).** Vendor-sync staleness check between the canonical `cockpit-contract.schema.json` and a consumer's vendored copy:
+**Reference implementation (gate done right) — the engine repo's `coordinator/bin/sync-cockpit-contract.py` (formerly `.sh`, lines ~90–113 of the pre-port script).** Vendor-sync staleness check between the canonical `cockpit-contract.schema.json` and a consumer's vendored copy:
 ```bash
 if [[ ! -f "$VENDORED" ]]; then
     echo "DRIFT: vendored schema not found at: $VENDORED" >&2
@@ -337,13 +337,17 @@ fi
 ```
 The freshness signal here is a **version pin**, not an mtime comparison — and the contrast with the anti-pattern above is the pedagogical point of the pairing: a *missing* vendored copy is treated as `DRIFT` / exit 1, the same hard-fail path as a version mismatch, never a silent skip. Presence alone is never deemed sufficient; the exact inverse of `bootstrap-substrate.py`'s presence-satisfies-everything guard.
 
-**Other live examples showing the range of valid freshness signals** — the mechanism varies, the invariant (some signal checked, mismatch/absence fails loud) doesn't: claude-klabauter `coordinator/bin/check-install-divergence.py:178–196` compares git blob SHAs via `git hash-object --path <relpath>` (content hash, not mtime); claude-klabauter `coordinator/bin/migrate-bug-backlog.py:380–386` compares a dry-run artifact's `os.path.getmtime()` against a `--stale-hours` threshold (classic mtime gate). A third pattern designs the hazard out entirely rather than gating it: claude-klabauter `coordinator/bin/repomap/generate-repomap.py:1209` keys its parse cache as `f"{rel}:{content_hash}"` (`generate-repomap.py:1459`) — staleness is structurally impossible because a changed file simply misses the cache under its old key, no comparison step required.
+**Other live examples showing the range of valid freshness signals** — the mechanism varies, the invariant (some signal checked, mismatch/absence fails loud) doesn't: the engine repo's `coordinator/bin/check-install-divergence.py:178–196` compares git blob SHAs via `git hash-object --path <relpath>` (content hash, not mtime); the engine repo's `coordinator/bin/migrate-bug-backlog.py:380–386` compares a dry-run artifact's `os.path.getmtime()` against a `--stale-hours` threshold (classic mtime gate). A third pattern designs the hazard out entirely rather than gating it: the engine repo's `coordinator/bin/repomap/generate-repomap.py:1209` keys its parse cache as `f"{rel}:{content_hash}"` (`generate-repomap.py:1459`) — staleness is structurally impossible because a changed file simply misses the cache under its old key, no comparison step required.
 
 **How to apply:** (1) identify the freshness signal available for the artifact in question — mtime-vs-source, content hash, or a version/contract-version field are all valid, pick whichever the artifact already carries or can cheaply carry; (2) treat a missing artifact and a stale/mismatched artifact as the same failure class (both fail loud with the regeneration command), never let "present" alone short-circuit past a staleness check; (3) wherever a presence-only idempotency guard stands in for a freshness check, that guard is exactly the anti-pattern this section warns about.
 
 **`bin/lib/validate-cockpit-record.mjs` does not exist** — formerly cited here as a live existence-but-not-freshness gap, it was removed along with the whole cockpit-contract TS/node/Zod toolchain it validated against.
 
 **`bin/emit-cockpit-snapshot.sh` does not exist** — formerly cited here as the reference implementation (the `find src -newer dist` mtime-gate pattern), it was removed along with its cockpit-contract Node/TS toolchain; its Python replacement carries no equivalent freshness gate. Superseded above by `sync-cockpit-contract.sh` as the reference implementation, using a version-pin signal instead of mtime.
+
+## Retiring a script must account for load-bearing side-effects unrelated to the retirement target
+
+Before deleting or retiring a script or phase, grep its body for side-effects that are NOT the thing being retired. A script bundling marketplace-registration logic silently carried a load-bearing LSP `clangd`-disable step alongside it; retiring the registration script required extracting the disable into a standalone script first, or the disable would have been lost with the retirement. Any script slated for removal earns one pass asking what else it does before it goes.
 
 ## Related
 

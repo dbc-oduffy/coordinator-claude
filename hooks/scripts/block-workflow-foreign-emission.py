@@ -65,6 +65,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shlex
 import sys
 from pathlib import Path
 
@@ -92,8 +93,13 @@ def _session_id(payload: dict) -> "str | None":
     )
 
 
-def _emitter_invocation() -> str:
-    """A COPY-PASTEABLE `python3 <emitter>` prefix, absolute wherever possible.
+def _emitter_invocation() -> tuple[str, str]:
+    """A COPY-PASTEABLE `python3 <emitter>` prefix, absolute wherever possible,
+    plus the shell family it will be pasted into (`"posix"`, `"cmd"`, or
+    `"ps1"`) -- `_reemit_command` needs that to quote its trailing argv in a
+    syntax the target shell actually parses (Review: coordinator-code-reviewer
+    2026-09-22 -- `shlex.quote`'s POSIX single-quotes are not quoting syntax
+    to cmd.exe at all).
 
     This hook fires in whatever repo the session is standing in, which is very often not the
     doctrine repo the emitter lives in. A repo-relative `coordinator/bin/...` in the refusal text
@@ -103,15 +109,71 @@ def _emitter_invocation() -> str:
     the session actually resolved, so it names the emitter that will actually run.
     """
     for root in _emitter_root_candidates():
-        candidate = Path(root) / "bin" / "emit-dispatch-workflow.py"
-        if candidate.is_file():
-            return 'python3 "' + str(candidate) + '"'
+        base = Path(root) / "bin" / "emit-dispatch-workflow"
+        py_candidate = base.with_suffix(".py")
+        if py_candidate.is_file():
+            return 'python3 "' + str(py_candidate) + '"', "posix"
+        # A published install may carry only the platform wrapper -- the projection
+        # that governs what a publish carries (_prepublish_projection.py) can drop the
+        # bare .py while the .cmd/.ps1 twins still ship (both self-invoke; neither
+        # needs a "python3" prefix). Naming a wrapper that IS on disk keeps this
+        # remediation runnable instead of prescribing a repair that cannot resolve.
+        cmd_candidate = base.with_suffix(".cmd")
+        if cmd_candidate.is_file():
+            return '"' + str(cmd_candidate) + '"', "cmd"
+        ps1_candidate = base.with_suffix(".ps1")
+        if ps1_candidate.is_file():
+            return 'pwsh "' + str(ps1_candidate) + '"', "ps1"
     # Nothing on disk: say so rather than print a path resolving against the reader's cwd,
     # or an absolute one that does not exist.
     return (
         "python3 <doe-claude-root>/coordinator/bin/emit-dispatch-workflow.py  "
         "# not resolvable here; substitute the absolute path"
-    )
+    ), "posix"
+
+
+def _quote_arg_for_shell(arg: str, shell: str) -> str:
+    """Quote one argv element for the shell family `_emitter_invocation`
+    resolved (Review: coordinator-code-reviewer 2026-09-22).
+
+    `shlex.quote` (POSIX single-quoting) is correct for the `posix` and `ps1`
+    cases -- PowerShell tolerates single-quoted strings -- but is not quoting
+    syntax to cmd.exe at all: a `'...'`-wrapped argv element containing a
+    space is not paste-runnable there. cmd.exe quotes with a doubled-up
+    double-quote (`""`) for an embedded double-quote; there is no escape for
+    a literal trailing backslash immediately before the closing quote, which
+    is why the check below refuses to fabricate one rather than emit a
+    silently-wrong command.
+    """
+    if shell != "cmd":
+        return shlex.quote(arg)
+    if not arg or any(ch.isspace() for ch in arg) or '"' in arg:
+        if arg.endswith("\\"):
+            # cmd.exe has no way to close a "..." literal ending in a bare
+            # backslash without it escaping the closing quote -- naming the
+            # gap beats printing a command that would misparse.
+            return f'"{arg}"  # unquotable for cmd.exe: trailing backslash'
+        return '"' + arg.replace('"', '""') + '"'
+    return arg
+
+
+def _reemit_command(receipt: dict) -> str:
+    """The copy-pasteable command that re-derives this exact script.
+
+    A queue-emitted receipt (`--queue`, DR-404) carries its own `reemit` argv
+    -- the argument list for `emit-dispatch-workflow.py` (no program name,
+    always including `--profile-dir`). `--plan <plan-path>` is wrong advice
+    there: a queue-emitted script has no plan to name. A receipt that predates
+    the `reemit` key -- every one the plan route ever wrote -- still gets the
+    `--plan` line; those receipts are real artifacts on disk, not a fallback
+    over a missing contract.
+    """
+    invocation, shell = _emitter_invocation()
+    reemit = receipt.get("reemit")
+    if isinstance(reemit, list) and reemit:
+        args = " ".join(_quote_arg_for_shell(str(arg), shell) for arg in reemit)
+        return f"{invocation} {args}"
+    return f"{invocation} --plan <plan-path>"
 
 
 def _emitter_root_candidates() -> list[str]:
@@ -193,13 +255,13 @@ def main() -> int:
             "If YOU edited it -- the documented recovery from a halted run is to "
             "edit the halting phase's agent step, and an unedited resume replays "
             "the cached refusal -- re-stamp the receipt over your own edit:\n"
-            f"  {_emitter_invocation()} --restamp "
+            f"  {_emitter_invocation()[0]} --restamp "
             f'"{script}"\n'
             "It prints the phase spine it is authorizing, and refuses unless the "
             "receipt names this session, so a peer's emission cannot be laundered "
             "through it.\n\n"
             "If you did NOT edit it, re-emit before firing --\n"
-            f"  {_emitter_invocation()} --plan <plan-path>\n"
+            f"  {_reemit_command(receipt)}\n"
             "then read the wave map it produces. Rows that changed may carry "
             "dispositions this run was never authorized for. A re-emit against a "
             "plan whose early chunks have landed narrows the script silently "
@@ -219,7 +281,7 @@ def main() -> int:
             "run THEIR wave map under your handle, and nothing in the handle would "
             "say so.\n\n"
             "Fix: re-emit before firing --\n"
-            f"  {_emitter_invocation()} --plan <plan-path>\n"
+            f"  {_reemit_command(receipt)}\n"
             "The emitter refuses to overwrite a differing emission, so a refusal "
             "there means coordinate with that session rather than --force past it."
         )

@@ -387,7 +387,7 @@ def _resolve_coordinator_root():
     addition to, the pre-existing COORDINATOR_ROOT-vs-cwd-toplevel warning
     below.
 
-    Review: code-reviewer (P1) — COORDINATOR_ROOT read BEFORE the identity
+    COORDINATOR_ROOT read BEFORE the identity
     gate runs, and the gate is skipped entirely when the override is set.
     An explicitly-supplied root is caller intent that never touched cwd
     (AC3) -- routing it through `resolve_checked_repo_root` as
@@ -471,7 +471,7 @@ def _get_branch(coordinator_root):
             if out:
                 return out
     except (OSError, subprocess.TimeoutExpired, RuntimeError):
-        # Review: code-reviewer — subprocess.run(timeout=...) raises
+        # subprocess.run(timeout=...) raises
         # TimeoutExpired (a SubprocessError, not an OSError); the bare
         # OSError clause left a hang uncaught and crashed the ceremony.
         # RuntimeError added (P3) — _resolve_claude_klabauter_root() inside the

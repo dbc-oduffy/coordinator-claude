@@ -159,7 +159,7 @@ _PYTEST_ENV_SCRUB = (
     "PYTEST_XDIST_WORKER_COUNT",
     "PYTEST_XDIST_TESTRUNUID",
 )
-# Review: overengineering-reviewer — this module already spawns pytest as a
+# This module already spawns pytest as a
 # nested subprocess and needs the outer run's own pytest env vars scrubbed
 # out of that child's environment: a peer's `PYTEST_ADDOPTS` or xdist worker
 # identity would turn a genuine collection into one this gate misreads as a
@@ -263,7 +263,7 @@ class MirrorCollectionResult:
     passed: bool
     collected_count: int
     errored: bool
-    # Review: coordinator:code-reviewer (finding 8) — `errored=True` alone
+    # `errored=True` alone
     # does NOT mean "a content verdict was reached and the tree is bad": it
     # is now also set for an unrecognised/empty summary, a signal-killed
     # child, and a spawn OSError, none of which reached a verdict at all.

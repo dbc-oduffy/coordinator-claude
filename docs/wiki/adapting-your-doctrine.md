@@ -6,8 +6,7 @@ related:
   - .claude/em-context.md  (per-repo, § Posture)
   - coordinator/templates/postures/{precision,default,substrate-free}.md
   - coordinator/docs/wiki/posture-anchors.md  (the anchors' full text)
-  - claude-klabauter coordinator/bin/render-posture-overlay.py
-  - coordinator/docs/wiki/getting-started.md  (Movement 2)
+  -   - coordinator/docs/wiki/getting-started.md  (Movement 2)
   - coordinator/docs/wiki/eager-agent-calibration.md
 ---
 
@@ -85,7 +84,7 @@ below).
 line past it, and it's worth naming honestly rather than leaving you to discover it the hard way.
 
 Editing **hooks**, the **enforcement scripts** that back them, or a skill's **step-logic/mechanics** is
-a different act entirely — call it *building your own Claude-Klabauter*. That's not tuning a posture; it's
+a different act entirely — call it *building your own engine*. That's not tuning a posture; it's
 rebuilding the substrate the postures sit on top of. Once you're rewriting `PreToolUse` matchers,
 hand-editing a `bin/` script's control flow, or restructuring how a skill's steps gate on each other,
 you've crossed from "configuring the ship's systems from the bridge" to "reopening the warp core" — and
@@ -149,7 +148,7 @@ no ceremony required, just an edit and a commit like any other change to a file 
 - `coordinator/docs/wiki/posture-anchors.md` — the anchors' full text and the reasoning behind each
   clause. This is where to read before choosing or adapting one; the seed files carry only the gist,
   because a reader choosing a posture can follow a link and a booting EM cannot.
-- claude-klabauter `coordinator/bin/render-posture-overlay.py` — the mechanism that materializes a chosen posture into
+-  — the mechanism that materializes a chosen posture into
   `.claude/em-context.md`, in the repo you install from, as a managed, swappable section (re-run to
   change anchors; hand-edit the markers' contents any time in between).
 - `coordinator/docs/wiki/getting-started.md` Movement 2 — the conversational, EM-facilitated path to the

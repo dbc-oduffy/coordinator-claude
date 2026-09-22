@@ -47,7 +47,7 @@ see § Two entries, two roles below — this is NOT a sub-object on `standalone_
 `configurable_locations[]` — follow the same no-bump precedent as the orient-leg amendment (above)
 and the `provider_capabilities` field (§ below, `:230-244`). `agent_install_contract_version`
 stays enum `[1,2,3]`, literal `3`. These fields are read by exactly two
-consumers: **DoE's own `validate-install-contract.py`** (a repo-local, opt-in-scoped compliance gate —
+consumers: **the doctrine repo's own `validate-install-contract.py`** (a repo-local, opt-in-scoped compliance gate —
 never a fleet-wide hook) and **the example-os-repo external driver** (not a manifest reader in the chain-walk
 sense at all — a packaging tool that reads the JSON sidecar to drive its own GUI install flow). No peer
 chain-walk manifest reader enforces any of these fields, so a bump is not needed to protect the
@@ -112,11 +112,11 @@ Two distinct authorities meet inside the contract; the field-level split keeps t
 
 
 **Conformance expectation (PM-ratified):** a packageable consumer repo **declares no
-subagent-hostile bash wrappers.** A `.sh` surface a subagent invokes is denied by the claude-klabauter
+subagent-hostile bash wrappers.** A `.sh` surface a subagent invokes is denied by the engine's
 subagent-indirection guard (`_evaluate_wrapper_indirection`) and taxes every subagent in the
-repo; the packageable shape is a python-native / claude-klabauter-compliant surface. This is the
+repo; the packageable shape is a python-native / engine-compliant surface. This is the
 downstream, consumer-facing half of de-bash — the coordinator's own surfaces already moved to
-the claude-klabauter Python track. Full directive + rationale: `no-new-bash-surfaces.md`.
+the engine's Python track. Full directive + rationale: `no-new-bash-surfaces.md`.
 
 **Bar today: doctrine, not a wired validator field.** This is a stated conformance expectation
 that adopters carry in their own CLAUDE.md and enforce via `code-reviewer` (a new `.sh` wrapper
@@ -136,7 +136,7 @@ note). Stated here so the contract is the greppable home; the teeth land when th
 |---|---|---|---|
 | `agent_install_contract_version` | `integer` | yes | Contract version. Readers MUST accept any version in the known range (currently `{1,2,3}`) and reject anything outside. Enables coordinated schema bumps across repos via reader-widen-first sequencing. |
 | `repo_id` | `string` | yes | Canonical repo identifier — matches the GitHub repository name. Used as the visited-set entry key during chain-walk. |
-| `setup_skill` | `string` | no (optional when `standalone_setup_script` is present) | The slash-command a human types to invoke the agentic setup flow (informational — not the agent dispatch primitive; see §Skill chain-walker). **Optional** for a script-only install node: a repo that ships working `standalone_setup_script.{posix,windows}` and no agentic setup skill (e.g. Claude-klabauter, which has retired its plugin surface) omits this field rather than naming a non-existent or unrelated skill. The chain-walker never reads `setup_skill` (the real dispatch target is `standalone_setup_script` — see §512), so its absence changes no behavior. This mirrors `doctor_skill`'s optionality directly below. |
+| `setup_skill` | `string` | no (optional when `standalone_setup_script` is present) | The slash-command a human types to invoke the agentic setup flow (informational — not the agent dispatch primitive; see §Skill chain-walker). **Optional** for a script-only install node: a repo that ships working `standalone_setup_script.{posix,windows}` and no agentic setup skill (e.g. the engine repo, which has retired its plugin surface) omits this field rather than naming a non-existent or unrelated skill. The chain-walker never reads `setup_skill` (the real dispatch target is `standalone_setup_script` — see §512), so its absence changes no behavior. This mirrors `doctor_skill`'s optionality directly below. |
 | `doctor_skill` | `string` | no (optional) | The slash-command a human types to invoke a doctor/health-check flow (informational; unread by the chain-walker). **Omitted entirely** by repos with no health-check flow — not every conforming repo warrants one (e.g. deep-research, a research-pipeline plugin, declares none). Requiring it previously forced a do-nothing stub skill whose bare name collided with Claude Code's native `/doctor`; the field is now optional. When a repo DOES declare one, avoid the bare name `doctor`/`/doctor` (native-command collision) — name it distinctly (e.g. `/coordinator:code-health`). |
 | `standalone_setup_script.posix` | `string` | yes | Relative path to the POSIX (bash) standalone setup script, resolved against the declaring repo's own root in the general case. A repo whose actual entrypoint files live in a dependency's tree instead of its own is an exception to that general case, not a different field meaning — coordinator-claude is the reference instance : its value resolves against whichever engine root `_engine_root.py` returns (the live `repos.claude_klabauter` checkout or the declared `claude-klabauter` dependency), never against this repo's own tree; see `coordinator/docs/install/agent-install-manifest.json`. This is the actual agent dispatch target. |
 | `standalone_setup_script.windows` | `string` | yes | Relative path to the Windows standalone setup entrypoint — a `.cmd`/`.bat` launcher or a `.ps1` script, per the declaring repo; not assumed to be PowerShell. Resolved the same way as `standalone_setup_script.posix` above, including that row's dependency-tree exception. For coordinator-claude this is `scripts/setup.cmd`, a launcher that forwards argv to `setup.py` — not a `.ps1`. |
@@ -282,7 +282,7 @@ functional checks, each independently testable and each exiting 0 on success:
 |---|---|---|
 | `_co_probe_python` | Delegates to `_co_find_python` — one floor-version constant, defined in one place, not duplicated per probe. | Hard (sole hard gate on the post-consumer chain-walk path; see § Chain-walk prereq-gate posture above). |
 | `_co_probe_uv` | Runs `uv --version`. | Advisory WARN (new gate — promote to hard only after fleet-wide verification). |
-| `_co_probe_pwsh` | pwsh 7+ passes; 5.1 does not — it is not a supported host. | Advisory WARN today; promotion to semi-hard on Windows is memo'd to claude-klabauter. |
+| `_co_probe_pwsh` | pwsh 7+ passes; 5.1 does not — it is not a supported host. | Advisory WARN today; promotion to semi-hard on Windows is memo'd to the engine repo. |
 | `_co_probe_ue` | Unreal Editor presence, honoring `EXAMPLE_GAME_REPO_UE_ROOT` when set. | WARN-only — coordinator itself does not require UE. |
 | `_co_probe_clone_auth` | Checks `gh`, SSH, or Git Credential Manager auth against a private clone URL. | Semi-hard under `--preflight` (warn loudly, offer remediation, continue only with confirmation); advisory-WARN on the post-consumer chain-walk path. |
 | `_co_probe_longpaths` | Windows-only: verifies `git config core.longpaths == true`. | Advisory WARN (new gate). |
@@ -502,7 +502,7 @@ The verbatim warning text (including the ~25% figure) must not be paraphrased by
 | 94 | `preflight-git-auth-unverified` | A semi-hard probe (clone_auth) emitted a warn/fail row without `--accept-no-git-auth` being supplied. Chain-walker should surface remediation and halt the walk (**actionable-stop**). |
 
 **Not this table's codespace.** Exit `96` (`entry_point_contract.refusal_exit_code` in
-Claude-klabauter's manifest) is their reserved designed-refusal code for a PEP-668-guarded
+the engine repo's manifest) is their reserved designed-refusal code for a PEP-668-guarded
 interpreter — not a coordinator-claude code. See `docs/install/AGENT.md` § Settings-home
 provisioning.
 
@@ -607,7 +607,7 @@ The relocation above did not move the entire `~/.claude/<repo-id>/` directory �
 > doctrine-seeding under PM direction (project-rag-em's inbound proposal, PM-accepted).
 > Per [`cross-repo-communication.md`](./cross-repo-communication.md) § Doctrine seeding vs.
 > code/install-surface change (lines 562-574), this is a legitimate direct wiki edit: it shapes *how*
-> sibling repos understand a shared contract surface, authored from DoE altitude on PM direction, not
+> sibling repos understand a shared contract surface, authored from doctrine-repo altitude on PM direction, not
 > a code/install-surface change to any sibling's own tree. The receiving repo's EM (project-rag-em) may
 > amend on receipt.
 
@@ -704,7 +704,7 @@ read paths:
 - project-rag (the owner's own tree — confirm no other internal reader was missed)
 - project-rag-ue-addon (ue-addon) — **verb-mediated consumer, NOT a direct reader** (struck); a `setup-state.json` grep here returns only the path-agnostic `record_setup_state.py check-oriented ue_addon` CLI call, never a direct read path
 - example-game-workbench-repo (example-game-repo)
-- claude-klabauter (claude-klabauter)
+- the engine repo (engine)
 - example-cockpit-repo (cockpit)
 - the project-rag-hosted co-tenant cockpit addon (`addons/coordinator-cockpit-addon/_seam.py`)
 
@@ -738,7 +738,7 @@ related but distinct relocation. It shares the same `<settings-home>` root prefi
 above but is NOT scoped under `<settings-home>/<repo-id>/` — it is machine-shared, not per-repo-id, and
 lives at `$(coordinator-settings-home)/state/handoffs/`. Ledger/visited-set (this section) and the
 rendezvous (§ The rendezvous) are both "per-machine install substrate," a plane distinct from
-`$GIT_ROOT/state/` (per-repo work state) and from claude-klabauter's central meta-repo session state — see
+`$GIT_ROOT/state/` (per-repo work state) and from the engine's central meta-repo session state — see
 `state-placement-law.md` § Taxonomy for the full breakdown and the row that ratifies this rendezvous.
 
 ### Uninstall boundary
@@ -756,7 +756,7 @@ coordinator deletes only what it wrote/named, exactly as it relocates only what 
 
 **The coordinator-authored allowlist.** Uninstall removes ONLY the following five items,
 derived by grepping every writer of `<settings-home>` (`$sh`) — this same enumeration is the one
-implemented in `coordinator_core.install.uninstall_legs` (claude-klabauter)'s provenance-scoped teardown; the authored text here
+implemented in `coordinator_core.install.uninstall_legs` (the engine repo)'s provenance-scoped teardown; the authored text here
 and the implemented code there are SET-EQUAL by construction, not merely similar in shape. **The
 five are gated in two tiers, not one:** four are full-remove-only; one is removed unconditionally
 in BOTH end-states.
@@ -774,7 +774,7 @@ in BOTH end-states.
 whether `setup/` is settings-home substrate (`machine-local-registry.md` §11's Namespace table lists it
 as settings-home namespace; `state-placement-law.md`'s Relocated-surfaces table lists it as relocated to
 `<settings-home>/setup/`), but the migration script's own execution-time behavior is the authoritative
-signal, not the wiki tables: claude-klabauter `coordinator_core/install/substrate_migrate.py`'s header comment states `setup/` is
+signal, not the wiki tables: the engine repo's `coordinator_core/install/substrate_migrate.py`'s header comment states `setup/` is
 "intentionally NOT migrated: nothing reads setup/ from settings-home at runtime (coordinator continues
 to read `~/.claude/setup/`)," and `install-substrate.py` writes `SETUP_DEST` to
 `${_install_base}/.claude/setup/`, not to settings-home. Code that runs beats a stale wiki inventory —
@@ -884,7 +884,7 @@ arrives only as the spinoff that repo seeds.
 > from the rendezvous/handoffs folder. Treating deep-research as coordinator's "one downstream by
 > name" with a seeded install-leg baton discovered via the Step-0 sweep is a **vestige of the
 > deprecated separate-repo model** and is affirmatively false. For a genuine install-leg baton, the
-> reference shape is `coordinator/templates/handoffs/install-claude-klabauter.md` (claude-klabauter is a real
+> reference shape is  (the engine repo is a real
 > coordinator-seeded install leg).
 
 ### Authorization — the pre-restart question is the spinoff gate
@@ -949,7 +949,7 @@ schema): `title`, `created`, `kind: spinoff`, `status: active`, `predecessor: no
 `authoring_session:` (the audit trail back to origin that replaces the predecessor link — for an
 install leg, name the install + the operator's opt-in), `workstream:`, plus `deployment_state:
 ready_to_fire`, `pickup_ready: true`, `scope:`. See
-`coordinator/templates/handoffs/install-claude-klabauter.md` for the reference shape (claude-klabauter is a
+ for the reference shape (the engine repo is a
 genuine coordinator-seeded install leg; deep-research is NOT — it is folded into the coordinator
 bundle, see § the deep-research callout above).
 
@@ -983,8 +983,8 @@ crash", "spine orientation rework") from being falsely swept into the operator's
   above), so the durable session sees the whole chain at once. Idempotent
   (overwrite-on-reseed). Seed via `cp`/`sed`, **not the Write tool** — a Write into `state/handoffs/`
   without an active authoring skill trips the unauthorized-handoff nudge; `cp` does not.
-  `claude-klabauter` seeds its own spinoff from a shipped template
-  (`templates/handoffs/install-claude-klabauter.md`) via coordinator's onboarding flow — a coordinator-seed
+  The engine repo seeds its own spinoff from a shipped template
+  () via coordinator's onboarding flow — a coordinator-seed
   rather than a self-seed (a design choice, not a structural necessity — see § Which model a new
   node adopts below). (deep-research is NOT a leg — it is folded into the coordinator bundle for
   everyone and seeds no baton; see § the deep-research callout above.)
@@ -996,13 +996,13 @@ crash", "spine orientation rework") from being falsely swept into the operator's
   present, asserting no fixed set. Because coordinator is the DAG root (`direct_deps: []`), its
   `--phase seed-install-spinoff` is a deliberate no-op: it confirms it is the spine, prints a one-line
   explanation, and exits 0 without writing any install-status or baton state — the only
-  coordinator-seeded baton is `claude-klabauter`'s (from `templates/handoffs/install-claude-klabauter.md`), seeded
+  coordinator-seeded baton is the engine repo's (from ), seeded
   by coordinator's own onboarding flow, not by the leaf-walk phase.
 
 **Which model a new node adopts — the discriminator.** A generic downstream leaf node **self-seeds**
 (§ Guidance for conforming (downstream) repos, step 1): its own installer drops its `kind: spinoff`
 baton into the rendezvous handoffs folder. Coordinator-seed is the alternative model — used today for
-`claude-klabauter` by continuity convention, not because any repo is structurally barred from
+the engine repo by continuity convention, not because any repo is structurally barred from
 self-seeding. **Seeding-ownership is ratified "both":** at a per-machine settings-home, no repo hosts
 the rendezvous folder itself, so self-seed and coordinator-seed are uniformly valid for any repo —
 either model reaches the identical drop target. Being a hard *upstream dependency* of other repos (e.g.
@@ -1010,7 +1010,7 @@ either model reaches the identical drop target. Being a hard *upstream dependenc
 coordinator-*bundled* capability such as deep-research is not seeded at all: it ships inside the
 plugin for everyone and is never an install leg — see § the deep-research callout above.) If you are
 adding a new leaf node: **self-seed** is the default; use coordinator-seed only if you have a specific
-continuity reason, as claude-klabauter does.
+continuity reason, as the engine repo does.
 
 ### The spine is cold-start-only — downstream runbooks route post-restart to `/workday-start`
 
@@ -1424,11 +1424,11 @@ For consumers and upstreams adopting v3, the per-repo mechanical steps are:
 This contract's ecosystem-wide canonical home is `coordinator-claude` (the chain root), migrated
 from its original `example-game-workbench-repo` (chain leaf) home, bilaterally co-developed with
 `project-rag-ue-addon`.
-- This file in the DoE-claude clone (`coordinator/docs/wiki/agent-install-contract.md`) is the single canonical source; `~/.claude/plugins/coordinator/docs/wiki/agent-install-contract.md` is its published mirror (propagated outward via claude-klabauter `coordinator/bin/publish.py` to consumer projects).
+- This file in the upstream doctrine repo (`coordinator/docs/wiki/agent-install-contract.md`) is the single canonical source; `~/.claude/plugins/coordinator/docs/wiki/agent-install-contract.md` is its published mirror (propagated outward via the engine repo's `coordinator/bin/publish.py` to consumer projects).
 - `example-game-workbench-repo/docs/wiki/agent-install-contract.md` becomes a one-line pointer redirect to this file.
 - `project-rag-ue-addon` and other consumers (`project-rag`, `deep-research-claude`) cite this file rather than mirroring it.
 - Per-repo `docs/install/agent-install-manifest.schema.json` files **stay in each repo** — the schema is the per-repo implementation of this contract; this doc is the contract spec. Moving schemas would change every `$id` URL and is deferred until a third consumer makes the duplication pressure obvious (current state: example-game-repo + addon are the only two repos with schemas).
-- Doctrine for cross-repo doc moves of this shape: `coordinator/docs/wiki/cross-repo-communication.md` in the DoE-claude clone § Doctrine seeding vs. code/install-surface change.
+- Doctrine for cross-repo doc moves of this shape: `coordinator/docs/wiki/cross-repo-communication.md` in the upstream doctrine repo § Doctrine seeding vs. code/install-surface change.
 
 ---
 
@@ -1485,7 +1485,7 @@ Example-os-repo packages the assembled fleet into a native `.exe`/`.app` a "just
 installs like ordinary software. That distribution target is only reachable if every portable-core
 repo in the fleet exposes — and *keeps* — an install surface example-os-repo can drive headlessly, with no
 agent in the loop. `example-os-repo-em` sent an inbound ask naming six such properties; the PM ratified
-accepting it and homing it here as **standing fleet-wide DoE doctrine** — the bar every repo, present
+accepting it and homing it here as **standing fleet-wide upstream doctrine** — the bar every repo, present
 and future, inherits by virtue of being in the fleet, not a per-repo goodwill target.
 
 This section is the **doctrine layer**. The **schema layer** (optional-additive `agent-install-manifest.schema.json`
@@ -1496,10 +1496,10 @@ for the full six-chunk delivery.
 
 <!-- src: memo05-011 -->
 **Enforcement-layer reachability.** `validate-install-contract.py` ships to the flat
-OSS sibling `coordinator-claude/bin/` (not just the private DoE-claude clone) so a downstream
+OSS sibling `coordinator-claude/bin/` (not just the private upstream doctrine repo) so a downstream
 consumer repo can actually invoke it. It accepts `--manifest-path` to point at any
 repo's `agent-install-manifest.json`. The plugin-mirror copy is satisfied-by-design under
-`source_is_live` (coordinator's plugin source resolves live from the DoE-claude clone via
+`source_is_live` (coordinator's plugin source resolves live from the upstream doctrine repo via
 `--plugin-dir`) — vendoring a second copy into consumer repos was rejected.
 
 **Cross-links.** Two existing wikis frame the two halves of "packageable": `install-surface-completeness.md`
@@ -1588,7 +1588,7 @@ here as **closed**; do not re-litigate it in a future pass without new contrary 
   ships with an explicit `--posture <precision|default|substrate-free>` flag honored under
   `--non-interactive` (`coordinator/commands/install.md:669`), a persisted per-machine value in
   `~/.claude/coordinator-identity.yaml`, a per-repo override in `coordinator.local.md`, and the
-  idempotent managed-merge renderer claude-klabauter `coordinator/bin/render-posture-overlay.py`. Framing carries
+  idempotent managed-merge renderer, the engine repo's `coordinator/bin/render-posture-overlay.py`. Framing carries
   forward unchanged: posture changes **engagement**, never **strictness** — the floor (Verification
   Before Done, Plan-First, etc., now enumerated at `global-doctrine/CLAUDE.md` § Posture, with the
   plan-first mechanics at `coordinator/snippets/em-operating-doctrine.md` § How to Plan and Hand Off)
@@ -1709,7 +1709,7 @@ C1 confinement dogfood (confinement-dogfood outcome, one record per dogfood run)
 manifest-declared entry point, so neither backs a `tested_platforms` claim.
 
 **Downstream consumer.** `tested_platforms` has exactly two readers (§ Contract-amendment note
-above): DoE's own `validate-install-contract.py`, and **example-os-repo**, the external packaging
+above): the doctrine repo's own `validate-install-contract.py`, and **example-os-repo**, the external packaging
 driver. Example-os-repo reads `tested_platforms` to decide what it may package and ship as
 platform-supported — a platform this repo has not actually run its entry point on and verified
 MUST NOT be presented to an end user as supported.

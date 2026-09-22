@@ -1,6 +1,7 @@
 ---
 name: spike
 description: "Bounded spike — fuse web research with local study to a verdict."
+version: 1.0.0
 triggers:
   - /spike
   - spike <mechanism>

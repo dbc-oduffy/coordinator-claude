@@ -279,7 +279,7 @@ When a daemon/socket transport is retired — its entrypoint becomes an exit-1 s
 
 ## 16. Wiring a Test Gate Over Relocated Code Surfaces Latent Reds — Quarantine + Spinoff, Not Silent Fix
 
-*Source: W4.2 coordinator→DoE relocation. [universal]*
+*Source: W4.2 coordinator→doctrine-repo relocation. [universal]*
 
 When a code relocation carries source but leaves its test-gate wiring behind, the orphaned suites accumulate invisible committed-vs-source drift. Wiring them into a `fast_test_cmd` gate surfaces N pre-existing reds, not the 1 the plan assumed (this incident: 1 assumed → 5 actual). This is the gate-creation cousin of §10 (a large red residual is usually landed-refactor stale-debt, not the active session's work) — but the disposition differs because you are *introducing* the gate, not triaging an existing residual.
 

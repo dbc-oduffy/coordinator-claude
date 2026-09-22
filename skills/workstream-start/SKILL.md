@@ -30,7 +30,7 @@ Single-shot; race window and lifecycle: wiki.
 
 The session-cadence orient spine (health, staleness, handoff triage, branch checks, ...) is
 computed for you. PowerShell hosts (Shape W,
-`snippets/resolve-coordinator-bin.md`):
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\orient-assemble.exe" brief --cadence session`. Read the JSON. Every `directives[]` entry names a CLI to run when not
 `already_satisfied`; every `judgment_points[]` entry is an open branch to resolve yourself —
 present each with its `dispositions[]`, pick, don't drop any. Don't hand-run what these compute.
@@ -55,7 +55,7 @@ unanswered. Every other fork is `/pickup`'s.
 ### Session residue not covered above
 
 Bin paths below relative to the coordinator settings-home `bin/` directory — resolve per rung 0 /
-Shape W in `snippets/resolve-coordinator-bin.md` (PowerShell hosts) or rung 2 (POSIX hosts).
+Shape W in `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (PowerShell hosts) or rung 2 (POSIX hosts).
 
 **One shell call** for the three independent, non-gating probes below (order doesn't matter among
 them — none reads another's output):

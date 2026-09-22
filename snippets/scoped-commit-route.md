@@ -48,8 +48,10 @@ UNSTAGED hunks in a file you both hold — a narrow pathspec does not save you w
 inside the same file. Stage your own hunks and name that path in `prefer_staged`.
 
 Parameters: `paths` (repo-relative, list), `message`, `deleted_paths` (list), `prefer_staged`
-(list), `repo` (the repo root — **not** `repo_root`; that keyword raises `TypeError`). At least
-one of `paths` / `deleted_paths` is required. Always pass `blob_fallback=partial(
+(list). The target repo is keyed from the calling worktree, so dispatch from the repo you are
+committing to. `repo` is refused outright (it once committed against the caller's own tree while
+naming another). `repo_root` is only a consistency assertion. At least one of `paths` /
+`deleted_paths` is required. Always pass `blob_fallback=partial(
 hash_worktree_blobs_via_spawn, cwd=<repo root>)` — without it, a path carrying CR bytes under a
 `text`/`text=auto`/`eol=` attribute (also LFS clean-filter paths, unresolved `[attr]` macros)
 raises `FilterUnsupported` and nothing lands. Which files those are is a property of the repo's

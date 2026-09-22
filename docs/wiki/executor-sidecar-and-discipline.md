@@ -24,18 +24,18 @@ The flight-recorder sidecar was **subsumed**, not left to coexist alongside a ne
 - **Injection framing is unconditional, not an offer**: DEC-4 governs whether a sidecar gets provisioned at all — only `report_sidecar`-eligible types get one prescaffolded, so ineligible types aren't over-provisioned with empty docs. It never licensed treating a sidecar that WAS provisioned as optional to fill. The typed-sidecar contract made that explicit: the sidecar is prescaffolded before the agent's first tool call and its required fields (`divergence`, etc.) are a deliverable. The injected notice text reads "fill it in as part of this dispatch... completing it is expected, not optional" rather than "if you need it" — a live dogfood run found an executor read the old offer-shaped wording as license to leave its sidecar at scaffold.
 - **Eligibility (`report_sidecar` policy key)**: a distinct write-capable/multi-step allowlist drawn across both confined *and* exempt agent categories — not a subset of confined alone. A miss fails open to ineligible. `coordinator:executor` is included (DEC-5).
 - **Deterministic `provision_key` for chunk executors**: pre-flattened as `<plan-slug>.<chunk-id>` — a single dotted segment (e.g. `2026-07-13-subagent-run-report-subsume.C5`). The dot survives sanitization because it's on the character whitelist, which is what prevents a `<plan-slug>/<chunk-id>` nested form from colliding (DEC-6).
-- **Migration then retirement**: the flight-recorder producer chain — claude-klabauter `coordinator/bin/fan-out-dispatch.py`, `coordinator-doc-new`, `execute-plan`, `workstream-complete`'s `d-fold-execution-observations` directive, `coordinator-fold-execution-record` — migrates onto the run-report shape first; only then does the flight-recorder schema and the `tasks/*/flight/` path get retired (DEC-7).
-- **Carve-out enforcement lives in a different hook family than expected**: the `tasks/<slug>/flight/` write carve-out is enforced inside the plan-body-immutability hook chain (`coordinator/hooks/scripts/preuse-write-dispatch.py`, dispatching to claude-klabauter's `block_subagent_plan_body_write.py` write-guard), not the sandbox/archive-write hook. Don't look for it under the sandbox confinement family.
+- **Migration then retirement**: the flight-recorder producer chain — the engine repo's `coordinator/bin/fan-out-dispatch.py`, `coordinator-doc-new`, `execute-plan`, `workstream-complete`'s `d-fold-execution-observations` directive, `coordinator-fold-execution-record` — migrates onto the run-report shape first; only then does the flight-recorder schema and the `tasks/*/flight/` path get retired (DEC-7).
+- **Carve-out enforcement lives in a different hook family than expected**: the `tasks/<slug>/flight/` write carve-out is enforced inside the plan-body-immutability hook chain (`coordinator/hooks/scripts/preuse-write-dispatch.py`, dispatching to the engine repo's `block_subagent_plan_body_write.py` write-guard), not the sandbox/archive-write hook. Don't look for it under the sandbox confinement family.
 
 ### Plan-body immutability
 <!-- src: plan17-012 -->
 
-Executors do NOT edit the plan markdown body they're executing — no touching `Status:`, chunk sections, the ledger, or acceptance criteria. `coordinator/hooks/scripts/preuse-write-dispatch.py` (PreToolUse hook; dispatches to claude-klabauter's `block_subagent_plan_body_write.py` write-guard) denies these writes structurally. The dispatch brief must explicitly name the plan doc as out-of-scope, so the executor doesn't burn context attempting (and getting blocked on) a write it was never going to be allowed to make.
+Executors do NOT edit the plan markdown body they're executing — no touching `Status:`, chunk sections, the ledger, or acceptance criteria. `coordinator/hooks/scripts/preuse-write-dispatch.py` (PreToolUse hook; dispatches to the engine repo's `block_subagent_plan_body_write.py` write-guard) denies these writes structurally. The dispatch brief must explicitly name the plan doc as out-of-scope, so the executor doesn't burn context attempting (and getting blocked on) a write it was never going to be allowed to make.
 
 ### Archive-write confinement, with one sanctioned exception
 <!-- src: plan11-039 plan11-040 plan11-041 plan11-042 plan11-043 plan11-044 -->
 
-Project-claude-klabauter's `coordinator_core/write_guards/block_subagent_archive_write.py` is a PreToolUse deny hook: it emits `hookSpecificOutput.permissionDecision` to stdout and exits 0. This is the **correct** deny protocol — do not use `{"decision":"block"}` to stderr with exit 1, which is a non-blocking failure mode that silently lets the write through.
+The engine repo's `coordinator_core/write_guards/block_subagent_archive_write.py` is a PreToolUse deny hook: it emits `hookSpecificOutput.permissionDecision` to stdout and exits 0. This is the **correct** deny protocol — do not use `{"decision":"block"}` to stderr with exit 1, which is a non-blocking failure mode that silently lets the write through.
 
 The hook exempts, by path shape, the executor's one authorized fallback write: a completion-log entry at `archive/completed/YYYY-MM/<entry>.md`, per `executor.md § Archive Fallback`. This is explicitly sanctioned behavior, not a gap — the hook must not block it.
 
@@ -54,7 +54,7 @@ Scope tracking uses **`agent_id` linkage**, not `parent_session_id`. Two mechani
 <!-- src: plan17-014 plan17-015 plan17-016 plan17-017 -->
 
 Per the PM's commit-model ruling (AC6, the subagent commit model), the executor does not commit
-at all — it writes/edits and reports back, the EM commits. Claude-Klabauter's M4 PreToolUse guard
+at all — it writes/edits and reports back, the EM commits. The engine's M4 PreToolUse guard
 (`coordinator_core/bash_guards/`) denies any `git commit` (plain or via `coordinator-safe-commit`)
 that resolves to a Sonnet/Haiku subagent context; there is no authorized executor commit path. See
 `scoped-safety-commits.md § 8` and SC-DR-006/SC-DR-008 for the parallel gate there.
@@ -135,7 +135,7 @@ A residual discovered mid-execution — a defect, gap, or follow-up noticed whil
 | Mechanism | Enforcement | Bypass surface |
 |---|---|---|
 | Sidecar / run-report | `enforce-agent-dispatch-mode.py` injection + `report_sidecar` policy key | N/A — provisioned unconditionally for eligible types; filling it is a deliverable, not optional |
-| Plan-body immutability | `preuse-write-dispatch.py` (PreToolUse deny; dispatches to claude-klabauter's `block_subagent_plan_body_write.py`) | none (hard block) |
-| Archive-write confinement | claude-klabauter `block_subagent_archive_write.py` (PreToolUse deny, path-shape exempt) | sanctioned `archive/completed/YYYY-MM/<entry>.md` path only |
+| Plan-body immutability | `preuse-write-dispatch.py` (PreToolUse deny; dispatches to the engine repo's `block_subagent_plan_body_write.py`) | none (hard block) |
+| Archive-write confinement | the engine repo's `block_subagent_archive_write.py` (PreToolUse deny, path-shape exempt) | sanctioned `archive/completed/YYYY-MM/<entry>.md` path only |
 | Touched-files scope | `track-dispatched-agents.py` + `track-touched-files.py` (agent_id linkage) | `--scope-from` + `--allow-out-of-scope-dirty` |
-| Self-commit gate | Claude-Klabauter's `coordinator_core/bash_guards/` PreToolUse guard denies every subagent-context `git commit` (plain or via `coordinator-safe-commit`), non-cooperatively | none — see PM's commit-model ruling |
+| Self-commit gate | The engine's `coordinator_core/bash_guards/` PreToolUse guard denies every subagent-context `git commit` (plain or via `coordinator-safe-commit`), non-cooperatively | none — see PM's commit-model ruling |

@@ -8,7 +8,7 @@ consumer is confirmed* — as an engine-derived gate rather than operator memory
 
 <!-- spec-backlink: run 2026-08-06-14h38, nugget c7-028 -->
 
-Shipped: the schema, two claude-klabauter ops (`cutover.gate`, `cutover.advance`), the
+Shipped: the schema, two engine ops (`cutover.gate`, `cutover.advance`), the
 hard-deny hand-edit guard, a `cutover-cli` forwarder, this wiki, and eight
 cutover records. The gate derives its consumer set from the record's
 executable `gate_source` at call time — never from a stored claim — and
@@ -29,7 +29,7 @@ record (`coordinator/schemas/cutover.schema.json`):
 | `retired` | The old form is fully removed. Gated: requires `gate_source` — the derivation that proved no consumer still needs it. |
 
 Advance between phases is performable ONLY through `cutover.advance`
-(claude-klabauter `coordinator_core/ops/cutover_advance.py`), which calls
+(the engine repo's `coordinator_core/ops/cutover_advance.py`), which calls
 `cutover.gate` internally and refuses on non-coverage. A hand-edit of `phase`
 is intercepted by the `block_cutover_phase_hand_edit` write guard (below) —
 there is no path from operator keystroke to phase change that skips the gate.
@@ -56,7 +56,7 @@ windows, and this worked instance — and prose is precisely what
 kept failing. The cutover primitive exists to make the rule discharge
 mechanically instead of by recollection.
 
-Concretely, `cutover.gate` (`claude-klabauter coordinator_core/ops/cutover_gate.py`)
+Concretely, `cutover.gate` (the engine repo's `coordinator_core/ops/cutover_gate.py`)
 runs a **two-way agreement test**, not a one-way subset check — subset
 containment is vacuously satisfied by the empty set, so a bare
 `derive(gate_source) ⊄ confirmed_consumers` predicate passes clean whenever the
@@ -80,8 +80,8 @@ Closing a handoff into this vocabulary's `closed` + `closed_reason:`
 is one write short of done when the handoff's own deliverable was a
 cross-repo memo to a named receiver: send that receiver a stand-down notice
 before treating the close as terminal, so their side doesn't keep watching
-for a baton that already landed. This is the DoE→sibling direction
-(claude-klabauter named as the receiver), not a fleet-wide broadcast — one receiver,
+for a baton that already landed. This is the upstream→sibling direction
+(the engine repo named as the receiver), not a fleet-wide broadcast — one receiver,
 the one the deliverable was addressed to. The close itself still writes
 `closed_reason:` exactly as the vocabulary defines it; the notice is the one
 additional step, not a replacement for it.
@@ -115,7 +115,7 @@ Two independently necessary layers, neither sufficient alone:
 
 - **The sanctioned advance is a registered op** (`cutover.gate` /
   `cutover.advance`) — the discharge path. `cutover.gate`
-  (`@register_op("cutover.gate")`, `claude-klabauter coordinator_core/ops/cutover_gate.py`)
+  (`@register_op("cutover.gate")`, the engine repo's `coordinator_core/ops/cutover_gate.py`)
   is a pure, COMPUTE_ONLY, read-only derivation-and-verdict op: it re-derives
   `gate_source` at call time (never trusts the stored list), evaluates the
   two-way agreement test above, re-verifies every `confirmed_consumers[].verified_by`
@@ -133,7 +133,7 @@ Two independently necessary layers, neither sufficient alone:
   gated on `COORDINATOR_SCHEMA_STRICT=1`; even in strict mode, hand-flipping
   `phase` alone on a record whose `confirmed_consumers` is already non-empty
   violates no `allOf` coupling. The actual discharge is
-  `claude-klabauter coordinator_core/write_guards/block_cutover_phase_hand_edit.py`
+  the engine repo's `coordinator_core/write_guards/block_cutover_phase_hand_edit.py`
   — a hard-deny PreToolUse guard on `Write`/`Edit`/`MultiEdit` against a
   cutover record's `phase` field, modelled on `block_consumed_handoff_edit.py`,
   naming `cutover-cli advance` as the route rather than issuing a bare denial.
@@ -164,7 +164,7 @@ vocabulary cutover.
 
 Signal 2's re-verification is only as durable as the paths inside the refs, and
 those paths point into a repo whose EM owes this record nothing. On 2026-07-25,
-Claude-klabauter renamed 63 `coordinator/bin/*.test.py` files to
+a sibling repo's renamed 63 `coordinator/bin/*.test.py` files to
 pytest-collectable names — a good change, correctly scoped to their own tree —
 and in doing so invalidated **nine** `verified_by` refs held by a single DoE-side
 cutover record (`closed-reason-terminal`). Nothing on either side noticed. It
@@ -178,7 +178,7 @@ the gate can check and reject:** a REFUSE is a demand for work, an INDETERMINATE
 is an absence of signal wearing a verdict's clothing. Note the asymmetry that
 makes it invisible from both sides — a sibling's own test suite fails loudly when
 a path in its `_CONSUMERS` list stops existing, but there is no equivalent
-tripwire for a DoE record's ref naming one of that sibling's files.
+tripwire for an upstream record's ref naming one of that sibling's files.
 
 Two operator consequences:
 
@@ -197,7 +197,7 @@ Two operator consequences:
 
 `gate_source.repos[]` names every repo the derivation's `paths[]` span, each
 annotated `foreign: true` when the local engine cannot scan it (anything
-outside DoE-claude + claude-klabauter `coordinator/bin/`). The derivation itself only
+outside the doctrine repo + the engine repo's `coordinator/bin/`). The derivation itself only
 reports which repos it scanned versus which are unscanned and foreign — it
 does not decide PASS/REFUSE. `cutover.gate` does: a `foreign: true` repo with
 no sibling-sourced confirmation is a REFUSE with `exit_code 2`
@@ -234,7 +234,7 @@ parallel ways to record the same sibling obligation:
 
 `cutover.schema.json`'s `applies_to: state/roadmap/**/cutovers/*.md` uses a
 double-star between `state/roadmap/` and `cutovers/*.md`, not a single `*`.
-This is a lint-enumeration concern, not a style choice: claude-klabauter's
+This is a lint-enumeration concern, not a style choice: the engine's
 `_lint_collect_files_for_glob` (`schema_validate.py:3211-3247`) only recurses
 past the glob's fixed non-wildcard prefix when it contains `**` — the narrower
 `state/roadmap/*/cutovers/*.md` form makes the batch lint sweep enumerate
@@ -287,7 +287,7 @@ instead. `close-handoff --reason` closes that specific hole.
 A proposal to build a dedicated symbol-caller-census tool was declined during
 the stale-bin plan repair sweep: re-deriving live consumers by hand found
 **1** live caller, not the 5 assumed when the tool was proposed — too small a
-surface to justify a new standalone primitive. Claude-Klabauter's `repo-census.py` is
+surface to justify a new standalone primitive. The engine's `repo-census.py` is
 adjacent prior art already covering similar ground. The underlying
 requirement (know who currently calls a symbol before acting on it) was
 folded into the cutover-state-machine's own derivation primitive
@@ -342,7 +342,7 @@ cutover.
    paths + repos), and any already-migrated `confirmed_consumers` with typed
    `verified_by` evidence.
 2. As consumers migrate, add `confirmed_consumers` entries via
-   `cutover-cli confirm-consumer` (claude-klabauter `coordinator/bin/cutover-cli`)
+   `cutover-cli confirm-consumer` (the engine repo's `coordinator/bin/cutover-cli`)
    rather than a hand-edit of the array — the record stays a claim under test,
    never a source of truth.
 3. `cutover-cli show <record>` to inspect current phase and derivation

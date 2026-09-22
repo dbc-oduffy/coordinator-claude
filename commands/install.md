@@ -156,6 +156,12 @@ Never-clobber is the `--guard-sentinel` flag's own contract (exit 3 = hand-autho
 
 ```bash
 mkdir -p "${CLAUDE_HOME:-$HOME}/.claude/agents"
+```
+
+Then render the role into it — `render-template` never creates the parent, so this
+second call is the one that fails on a fresh box if the first is skipped:
+
+```bash
 "${COORDINATOR_SETTINGS_HOME:?COORDINATOR_SETTINGS_HOME unset — run the POSIX preamble above first}/bin/render-template" "${CLAUDE_PLUGIN_ROOT}/templates/agents/navi.md" -o "${CLAUDE_HOME:-$HOME}/.claude/agents/navi.md" --guard-sentinel "coordinator:navi-role:v1"
 ```
 

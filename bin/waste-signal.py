@@ -1364,7 +1364,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 def _emit(text: str, out: Optional[str]) -> None:
     if out is not None:
-        with open(out, "w", encoding="utf-8") as fh:
+        with open(out, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(text)
     else:
         print(text)

@@ -549,8 +549,8 @@ def _collapse_git_worktree_duplicates(distinct: list[str]) -> list[str]:
     Spec backlink: project-rag/docs/wiki/cross-machine-path-resolution-contract.md
                    § The 4-Rung Resolution Ladder
     Negative-spec: a linked worktree living inside a search-root previously caused
-    AmbiguousRepoMatch for its parent repo's slug (e.g. Claude-klabauter-baseline-afc9f129,
-    a linked worktree of claude-klabauter, both carrying name: "claude-klabauter"
+    AmbiguousRepoMatch for its parent repo's slug (e.g. a linked worktree of the
+    engine repo, both it and its parent carrying the same repo name
     under ~/X) — this function is the fix for that incident.
     """
     groups: dict[str, list[str]] = {}

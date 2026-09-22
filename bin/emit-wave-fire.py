@@ -62,7 +62,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib.util
 import json
 import os
 import re
@@ -111,18 +110,26 @@ _POINTER_SUFFIX = "-pointer.md"
 
 
 def _slot_order_fn():
-    """`recycle-check.py :: _slot_order`, imported rather than re-derived.
+    """`coordinator_core.ops.dispatch_emit.slot_order.slot_order`, imported rather than
+    re-derived.
 
     Both readers order the same slots for the same reason, and the ordering is subtle enough to get
     wrong twice in the same way: `wave-10-…` sorts before `wave-2-…` as text, so a lexical sort
-    reports a ten-wave run's oldest records as its newest. The skill body names that one function as
-    the ordering; a copy here would be a second answer to it.
+    reports a ten-wave run's oldest records as its newest.
+
+    Both files now import the one
+    `coordinator_core` definition directly instead of this file loading `recycle-check.py` by
+    file path via `importlib.util`. Engine import happens here, inside a function, never at
+    module scope -- keeps this module's body pure so `serve_classifier` still classifies this
+    file warm-servable.
     """
-    src = Path(__file__).resolve().parent / "recycle-check.py"
-    spec = importlib.util.spec_from_file_location("_recycle_check_for_repair", src)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod._slot_order
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
+    require_colocated_engine_on_path(__file__)
+    from coordinator_core.ops.dispatch_emit.slot_order import slot_order
+
+    return slot_order
 
 
 def _latest_wave_slot(trail_dir: Path, baton_id: str) -> Path | None:
@@ -278,19 +285,29 @@ def _live_writer_paths(repo_root: Path, rel_paths: list[str]) -> set[str] | None
     `pickup_ready` before its commit, or a peer is mid-edit on its gate fields. The gate
     reads the working tree and cannot tell, and by contract spawns no git, so the driver
     holds these the way it holds its own in-flight batons. None when git could not answer.
+
+    Routes through
+    `coordinator_core.ops.ceremony.git_native._git` instead of a hand-rolled
+    `subprocess.run`. NOT `git_native.dirty_relpaths_from_porcelain`: that helper fails
+    CLOSED (treats every candidate as dirty on a git failure), while this caller's own
+    contract fails OPEN on purpose -- "none were held" plus a printed warning -- so the
+    `None` sentinel below is preserved rather than folded into that helper's opposite
+    failure policy.
     """
     if not rel_paths:
         return set()
-    try:
-        proc = subprocess.run(
-            ["git", "-C", str(repo_root), "status", "--porcelain", "--untracked-files=all",
-             "--", *rel_paths],
-            capture_output=True, text=True, timeout=60,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    return _parse_porcelain(proc.stdout) if proc.returncode == 0 else None
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
+    require_colocated_engine_on_path(__file__)
+    from coordinator_core.ops.ceremony.git_native import _git as _git_native
+
+    result = _git_native(
+        ["status", "--porcelain", "--untracked-files=all", "--", *rel_paths],
+        cwd=repo_root,
+        timeout=60,
+    )
+    return _parse_porcelain(result.stdout) if result.ok else None
 
 
 def _plans_edited_since(repo_root: Path, report_path: Path, plans: list[str]) -> list[str]:
@@ -519,22 +536,38 @@ def _engine_ref(repo_root: Path, script_source: Path) -> dict:
         ref["reason"] = f"workflow bytes unreadable ({exc})"
         return ref
     try:
-        run = subprocess.run(
-            ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
-            capture_output=True, text=True, timeout=15,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        # One
+        # `git status --porcelain=v2 --branch -- <path>` call returns both the HEAD oid
+        # (the `# branch.oid` header line) and this path's dirtiness (any entry line at
+        # all), replacing the prior `rev-parse HEAD` + `status --porcelain` pair. Routed
+        # through `coordinator_core.ops.ceremony.git_native._git` rather than a
+        # hand-rolled `subprocess.run`.
+        import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+        from cc_invoke import require_colocated_engine_on_path
+
+        require_colocated_engine_on_path(__file__)
+        from coordinator_core.ops.ceremony.git_native import _git as _git_native
+
+        result = _git_native(
+            ["status", "--porcelain=v2", "--branch", "--", str(script_source)],
+            cwd=repo_root,
+            timeout=15,
         )
-        if run.returncode == 0:
-            ref["head"] = run.stdout.strip()
-        else:
-            ref["reason"] = "git rev-parse HEAD failed"
+        if not result.ok:
+            ref["reason"] = "git status --porcelain=v2 --branch failed"
             return ref
-        status = subprocess.run(
-            ["git", "-C", str(repo_root), "status", "--porcelain", "--", str(script_source)],
-            capture_output=True, text=True, timeout=15,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        ref["dirty"] = bool(status.returncode == 0 and status.stdout.strip())
+        head = None
+        dirty = False
+        for line in result.stdout.splitlines():
+            if line.startswith("# branch.oid "):
+                head = line[len("# branch.oid ") :].strip()
+            elif line and not line.startswith("#"):
+                dirty = True
+        if head is None or head == "(initial)":
+            ref["reason"] = "git status --porcelain=v2 --branch reported no HEAD oid"
+            return ref
+        ref["head"] = head
+        ref["dirty"] = dirty
     except (OSError, subprocess.SubprocessError) as exc:
         ref["reason"] = f"git unavailable ({exc})"
     return ref

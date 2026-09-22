@@ -79,7 +79,7 @@ def main(argv: "list[str] | None" = None) -> int:
     try:
         run_op_main = _import_runner()
     except RuntimeError as exc:
-        # Review: code-reviewer (F2) — rc=3 is a dedicated transport-failure code,
+        # rc=3 is a dedicated transport-failure code,
         # distinct from the module's own business codes (0/1/2), per A3b.
         print(
             f"workday-complete-step2_5-dirty-tree.py: engine-root resolution failed: {exc}",
@@ -87,7 +87,7 @@ def main(argv: "list[str] | None" = None) -> int:
         )
         return 3
     except ImportError as exc:
-        # Review: code-reviewer (F2) — same dedicated transport-failure code as above.
+        # Same dedicated transport-failure code as above.
         print(
             "workday-complete-step2_5-dirty-tree.py: "
             f"coordinator_core.cli_entry not importable: {exc}",

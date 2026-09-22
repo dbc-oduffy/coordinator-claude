@@ -1,59 +1,37 @@
 ---
 name: bug-blitz
-description: "Grind the bug backlog and tests; fix small, surface big items to PM."
+description: "Emit and fire a canonical bug-backlog queue grind; dispatch, don't defer."
 allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]
-argument-hint: "[--dry-run | --max=N]"
+argument-hint: "[--appetite=hunt|standard|sweep] [--max=N] [--budget-tokens=N]"
 ---
 
 # Bug Blitz — Grind the Bug Backlog and the Test Suite
 
 Two work sources, one pass: `state/bug-backlog/` and the full test suite (Tier-U authorized,
 Phase 0.6). No separate triage step — failing tests mint `TF-*` items that ride the same
-triage → wave → fix → verify path as backlog bugs. Green suite is part of done once Tier-U is
-granted; declined runs the backlog leg only. Empty/absent backlog never halts the run; suite leg
-still fires. `backlog-grind-assemble brief bug-blitz` emits `j-bug-blitz-commit-readiness`
-(resolve before the first commit), `executor-dispatch-prompt-template`, and
-`spinoff-handoff-template` — read them, don't hand-narrate them. Rationale, worked examples, and
-full phase mechanics: wiki.
+triage → fix → verify path as backlog bugs, through the emitted grind. Green suite is part of
+done once Tier-U is granted; declined runs the backlog leg only. Empty/absent backlog never
+halts the run; suite leg still fires. `backlog-grind-assemble brief bug-blitz` emits
+`j-bug-blitz-commit-readiness` (resolve it before the emitted grind's first commit),
+`executor-dispatch-prompt-template`, and `spinoff-handoff-template` — read them, don't
+hand-narrate them. Rationale, worked examples, and full phase mechanics: wiki.
 
 **Announce:** "Running `/bug-blitz` — one authorization ask for the full test suite (baseline +
-confirm-green), then aggressive autonomous waves through every fixable item. Default is
-dispatch-and-spot-check; defer needs named evidence. Big items surface for your authorization."
+confirm-green), then an emitted grind through every fixable item. Default is dispatch, not
+defer; defer needs named evidence."
 
 ## Default Stance
 
-Dispatch, don't defer. Defer ONLY with cited evidence: `already-fixed` (ran it), `file-removed`,
-`big` (≥3 files / new module / schema change / new fixtures — "I'd need to think about it" isn't
-`big`), `plan-substrate-collision` (named file collision with an actively-rewriting plan).
-**NOT valid defer reasons — dispatch signals instead:** "summary-form"/"lacks standalone entry"
-(expand inline, don't skip), "P2/judgment-call/refactor-flavor" (P2 ≠ skip if mechanical and
-footprint-bounded), "intersects active plan" with no named file collision, "would take careful
-thought" (that's what the executor+verifier+spot-check chain is for). Rationale/examples: wiki.
-
-## Severity
-
-P2: no triage, direct dispatch. P1: bulk-verify chunks of ~20, then dispatch. P0: careful
-verify+read chunks of ~5, EM spot-checks every verdict. `TF-*` arrive pre-tagged (crash-shape P0,
-else P1) but never skip triage — no pre-declared footprint to skip to. Rationale: wiki.
-
-## Spinoff Gate
-
-Before any `big`/themed item reaches the PM list: re-verify it's not a phantom (pattern gone on
-HEAD), not mis-sized (reclassify `small` if ≤2 files/<50 lines), not already covered by a live
-handoff/plan. Checklist and calibration: wiki.
-
-## Queue Terminus
-
-Four outcomes: dispatch (`small`), solo spinoff (`big`, PM-authorized), close
-(already-fixed/file-removed/wontfix), themed baton (N `small` items sharing a thesis, clustered
-via `detect-initiative-candidates`, authored as one multi-item handoff). Themed batons ride the
-same PM-authorization gate as `big` regardless of size; footprint governs wave dispatch, theme
-governs authorship only. Mechanics: wiki.
+Dispatch, don't defer — defer needs named evidence, never a hunch. The operative triage policy
+(what counts as evidence, what is NOT a valid defer reason, severity classification) lives only
+in `coordinator/queue-profiles/bug.yaml` § `triage_policy`; this command cites it, it does not
+restate it.
 
 ## Arguments
 
-`--dry-run`: Phases 0-2 only, no Tier-U ask, no dispatch. `--max=N`: cap fixed items
-(severity-then-ID order; `TF-*` sorts ahead of P2). Combine for a capped plan with no dispatch.
+`--appetite=hunt|standard|sweep` (default `standard`) — passed through to the emitter; its
+meaning is the profile's `appetite` block, not restated here. `--max=N` → `--limit N` on the
+emit call. `--budget-tokens=N` — passed through to the emit call unchanged.
 
 ## Out of Scope
 
@@ -66,14 +44,14 @@ Note backlog presence/count; confirm `git branch --show-current` is
 `work/{machine}/{date-or-span}` (fail-closed, no override) and capture as `BLITZ_BRANCH`; mint run
 ID; scratch `state/scratch/bug-blitz/{run-id}/`. Mechanics: wiki.
 
-## Phase 0.6 — Tier-U Authorization (skipped under `--dry-run`)
+## Phase 0.6 — Tier-U Authorization
 
 Ask once, before Phase 0.7: *"This run needs the full test suite — once now to baseline, once
 after fixes to confirm green. Authorize the full-suite tier for this run?"* Only an explicit
 affirmative naming its subject (or a terse "yes" in direct reply) qualifies — general blitz
 approval doesn't. Granted → `tier-u-grant-cli grant pm <note>`, proceed; the same session-scoped
-token covers Phase 4's re-run (`tier-u-grant-cli check`, no second ask). Declined → write nothing,
-backlog-only leg, note the decline in the report.
+token covers the confirm-green re-run (`tier-u-grant-cli check`, no second ask). Declined → write
+nothing, backlog-only leg, note the decline in the report.
 
 ## Phase 0.7 — Suite Baseline (no-op unless granted)
 
@@ -85,59 +63,65 @@ output. Each `real` failure mints `TF-{run-id}-{n}`; `flake`/`env`/`timeout`/`kn
 dispatched. Mechanics: wiki.
 
 **Empty-backlog-and-green-suite short-circuit:** absent/empty backlog AND fully green resolved
-suite → skip to a one-line all-clear, no commit. Not reachable under decline/`--dry-run`.
+suite → skip to a one-line all-clear, no commit. Not reachable under decline.
 
-## Phase 0.5 — Severity Split
+## Phase 1 — Emit and Fire the Grind
 
-Tag untagged entries (P2 default; crash/data-loss/security/silent-corruption → P0;
-wrong-behavior/breaking-flow → P1), route by tier, emit counts.
+After Phase 0.7, emit through C4's queue route and fire it interactively:
 
-## Phase 1 — Verify + Triage
+```
+python3 coordinator/bin/emit-dispatch-workflow.py --queue state/bug-backlog --profile bug \
+  --appetite <a> --limit <N> --budget-tokens <N> \
+  --out state/scratch/bug-blitz/{run-id}/blitz.workflow.mjs
+```
 
-P1/P0 only; P2 skips to Phase 3. Per item: verify still-applies against HEAD
-(`still-open`/`already-fixed`/`pattern-changed`/`file-removed`; `already-fixed` carries
-`evidence: ran|inspected` — the run's split count sums these), size-classify if open
-(`small` default / `big` / `needs-investigation` as a non-terminal flag), declare footprint,
-fan out summary-form rows. Never weaken a test assertion to green without evidence it was
-wrong — `BLOCKED: assertion-weakening-without-evidence`.
+Resolve `j-bug-blitz-commit-readiness` before firing — firing IS the emitted grind's first
+commit. Fire with `Workflow({scriptPath: ...})`; firing is interactive, never `--fire` — the
+wrapper docstring (`coordinator/bin/emit-dispatch-workflow.py`) says why. Firing this Workflow is
+the PM's standing approval for every safe fix, refute-confirmed close and plan-weight baton the
+run produces — no further per-item ask.
 
-**Pattern-shifted is a dispatch signal, not a defer reason** — a missing symbol at the cited line
-is usually the same bug with the symbol renamed or code reshuffled nearby, not a moved/resolved
-bug; re-grep the recommended-fix's central noun-phrase before treating it as deferral-eligible.
-Evidence bar: `file-removed` needs `ls` confirming absence; `already-fixed` needs the failing case
-**run against HEAD** — a sha attests a write, never that this defect stopped reproducing. Where the
-artifact resolves through a published mirror, run what the resolver returns
-(`[[actioned-means-routed-not-fixed]]`). Tag each closure `ran` or `inspected` (pattern absent plus
-a sha) and report the counts separately — both close, but one number hides the weak ones. Neither
-closes on "can't find it" alone. Output schema, worked examples: wiki.
+**Cost reporting.** Read the engine's run-cost record, `state/queue-grind/bug/runs/<run-id>.json`,
+beside the hand-back, and report its spend next to the hand-back counts. This command makes no
+pre-run cost estimate.
 
-## Phase 2 — Plan Waves + Auto-Spinoffs
+## Spinoff Gate — Mint Themed Batons from the Baton Hand-Back After the Run
 
-Resolve every `needs-investigation` row by reading the code (2.0). Spinoffs need explicit PM
-authorization per item (2.1) — unauthorized items revert to `needs-investigation`. Drop
-already-fixed from active tables (2.2). Group `small` items into file-disjoint waves (2.3);
-`--max=N` caps by severity-then-ID. Cluster themed-baton candidates into the same 2.1
-authorization message (2.15). One flight-recorder goal task + per-wave tasks (2.4). Announce the
-plan, fire Phase 3 immediately — no wait (2.5); `--dry-run` stops here. Full mechanics: wiki.
+Cluster the hand-back's `baton` rows with `detect-initiative-candidates`, author to
+`coordinator/docs/wiki/baton-authoring-bar.md`'s bar. The only mint-time check that remains here
+is "not already covered by a live handoff or plan" — phantom and mis-size checks are triage
+policy already applied inside the grind, per the profile. No PM authorization message: the fire
+already discharged it.
 
-## Phase 3 — Execute Waves
+Only `park`, `wont-do`, `yagni`, `unclear-direction` and `needs-judgment` rows go to the PM list.
+`plan-substrate-collision` is not on that list: fold the row into the colliding plan as a
+committed annotation, per the memo-to-plan write-through discipline, and close the row citing
+that plan; if the colliding plan is terminal, the row becomes a baton instead. The universal
+engine types (`budget-exhausted`, `verify-failed`, and the rest) are reported, with the re-emit
+command from the receipt.
 
-**Single committer, no exceptions.** Executors edit-and-report only, never stage or commit. EM
-commits at the wave gate via `backlog-grind-assemble apply bug-blitz --wave-path <path>...
---granularity per-item --message <single-line msg> --decisions
-'{"j-bug-blitz-commit-readiness": {"disposition": "ready-to-commit"}}'` — one commit per item,
-never collapsed to `per-wave`. **The judgment point is not optional and its value is an OBJECT.**
-Omit `--decisions` and the commit directive stays gated; pass the bare string
-`"ready-to-commit"` and older engines read it as a WITHHELD authorization and gate silently,
-reporting only `unresolved_judgment_points` with no shape complaint. Current engines widen the
-bare string, but write the object form — it is the one shape every version reads as authorized.
-Dispatch executors via the `executor-dispatch-prompt-template` directive; verify each DONE with a
-Haiku diff-reader (`PASS`/`PATTERN-STILL-PRESENT`/`FOOTPRINT-VIOLATION`/`REGRESSION`); commit PASS
-items in deterministic ID order after re-polling `$BLITZ_BRANCH`; `git checkout --` to revert
-non-PASS and leave in backlog with an updated `why_blocked`. Full mechanics: wiki.
+## Queue Terminus
+
+The four outcome classes of `coordinator/docs/wiki/queue-terminus-doctrine.md` — cite, don't
+restate: dispatch (`small`/`fix`), solo spinoff (`big`, PM-authorized), close
+(already-fixed/file-removed/wontfix), themed baton (N `small` items sharing a thesis, clustered
+via `detect-initiative-candidates`, authored to `coordinator/docs/wiki/baton-authoring-bar.md`'s
+bar as one multi-item handoff). Firing the emitted grind is the run-authority act: it stands in
+for the PM-authorization gate a themed baton or a `big` item would otherwise need, per the Spinoff
+Gate above. Bug-specific dispositions — severity, repro, the `wontfix` status value — are
+preserved; the four classes are the terminus, not a replacement for bug triage's own semantics.
+Mechanics: wiki.
+
+## Phase 4 — Archive and Report
+
+Archive only the rows this command disposes after the run: baton-minted rows, closed with
+`closed_by: spun-off-<path>`, via a plain rename plus `--declared-revert`. The in-run committer
+closes every other row. The EM commits each minted baton together with the archival of the rows
+it absorbs, as one scoped commit per baton via the committer route, with `--declared-revert` for
+the removed rows.
 <!-- engine-gap: field=directives[build_verifier_dispatch].dispatch_entry producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
 
-## Phase 4 — Green-Suite Gate + Report
+**Per-item cadence.** One commit per verified fix, never collapsed per batch.
 
 Re-run the suite (mandatory if any fix dispatched, only if Tier-U was granted). All clear → PASS.
 **Disposition splits on whether the failure was already red at baseline:** a pre-existing failure
@@ -147,11 +131,8 @@ non-working fix commit — then surface it as a spinoff candidate; a NEW failure
 baseline is a self-inflicted regression and its revert is **mandatory, not optional**: `git revert
 <introducing-sha>` (never `git reset` — branch is pushed), confirm green, name it in the report.
 **Loop bound: one corrective wave only, then the forced terminal state above — never a second
-corrective wave, in either branch.** Never report green with a known-red suite. Archive every
-closed backlog entry via `git mv` to
-`archive/bug-backlog/<YYYY-MM>/`, `closed_by:` = commit SHA / prior SHA / `spun-off-<path>`;
-commit the moves naming every closed ID. If nothing closed, skip that commit and announce the
-no-op. Clean scratch after the backlog commit succeeds. Full mechanics: wiki.
+corrective wave, in either branch.** Never report green with a known-red suite. Clean scratch
+after the archive commit succeeds. Full mechanics: wiki.
 
 **Report by exception** — two lines always, rest only when not clean:
 
@@ -170,8 +151,8 @@ already-fixed line, or a clean `Suite gate: PASS` line — their absence already
 
 ## Failure Modes, Stop-Early, Relationship to Other Commands
 
-Full tables: wiki. The load-bearing invariants that stay here: never rollback completed waves on
+Full tables: wiki. The load-bearing invariants that stay here: never rollback completed work on
 early stop; never fabricate a test command; never weaken an assertion; `git revert` (never `git
 reset`) for a self-inflicted regression on a pushed branch.
 
-`/workstream-start` advocates this command on backlog depth and, independently of it, on a **red-suite predicate** — a non-empty delta in `state/test-red/<machine>.yaml` against the acknowledged baseline, never bare redness. Both arrive here as the same triage → wave → fix path.
+`/workstream-start` advocates this command on backlog depth and, independently of it, on a **red-suite predicate** — a non-empty delta in `state/test-red/<machine>.yaml` against the acknowledged baseline, never bare redness. Both arrive here as the same emitted grind.

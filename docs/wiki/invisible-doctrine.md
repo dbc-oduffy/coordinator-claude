@@ -305,7 +305,7 @@ of the third point: the reader never sees the full menu, only the segment set th
 resolved to.
 
 **The gap is real and it is the PM's own example.** `plan-outline-maker.py` does not exist in
-either this repo or `claude-klabauter` — `coordinator/skills/plan/SKILL.md` still instructs the EM
+either this repo or the engine repo — `coordinator/skills/plan/SKILL.md` still instructs the EM
 to type the scaffolder rather than having it minted for them. The stamp-and-close family is the
 same shape: `coordinator/skills/execute-plan/SKILL.md`'s `close-out-and-stamp` and
 `coordinator/skills/workstream-complete/SKILL.md`'s `workstream-complete-assemble` are both
@@ -439,6 +439,21 @@ rewrite will make it work.
 Reach for the shape instead: an intake that takes a path cannot receive pasted content, and the
 failure lands as a usage error at the boundary rather than a judgment call in the middle.
 
+**A tripwire entry is the same failure in doctrine form: it narrates a rule, it does not discharge
+it.** It cannot fire at the moment someone edits the wrong file, and a peer EM in another repo has
+no reason to read this repo's tripwire corpus at all. A prohibition written as prose sits inert
+until a reader who already went looking finds it — a guard that fails loud, names the correct
+artifact in its own assertion message, and forces a violator to delete a test that states what it
+protects is what actually stops the edit. One fleet case: a tripwire stating a config file was
+fleet-scoped and must never be the artifact that arms anything sat unread for ten days before a
+sibling repo's EM walked straight into that exact edit, having reasoned carefully about everything
+except which artifact they were touching — what stopped it was the guard, not the tripwire. When a
+doctrine surface states a prohibition about a specific artifact, ask what fails when someone
+violates it; if the answer is "a reader would have known better," write the guard, and keep the
+tripwire for the reasoning behind it, not as the enforcement. A guard over a multi-lever config
+must pin every lever it covers, not only the one in scope when it was written — a guard that pins
+one of two levers leaves the other one standing on prose alone.
+
 ### Carve-out — irreversible harm stays a block
 
 Ergonomics is the rule for friction, not for data loss. The floor guards against destructive
@@ -542,3 +557,18 @@ When scoping any surface, in order:
    can do nothing about (concurrency on a shared tree, a peer holding an unrelated baton) — surface
    only what genuinely gates this item and what genuinely needs judgment. What survives as prose is
    the irreducible non-branching action core and the genuine universals, nothing more.
+
+## A plan AC must name a tier the executing session can actually discharge
+
+An acceptance criterion is unreachable, not merely strict, when it demands authority the executing
+session does not hold — "full test suite green" on a repo where the full suite is grant-gated is
+this shape exactly. It cannot be satisfied by the session executing the plan; it can only be
+converted into a PM interrupt, and because the plan already ran, that interrupt lands at the worst
+possible moment: after every chunk has landed, not before the work began. It also over-claims
+scope — a plan answers for the surfaces it changed, not the health of every unrelated test in the
+repo, so a red test elsewhere would wrongly block a plan that did not cause it. Write ACs against
+the scoped tier, naming the specific test files covering the changed surfaces; reserve whole-repo
+evidence for a ceremony gate where the PM is already present, never for a plan AC. An already-
+ratified plan carrying this shape gets the AC struck on the record with the ruling, not skipped
+silently and not marked met on scoped evidence it was never written to accept. Tell: an AC whose
+verb is "run" rather than "is true of the thing this plan changed."

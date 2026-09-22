@@ -55,7 +55,7 @@ a finding about the *area's* condition, or a uniform touchpoint count, is not a 
 mechanism.
 
 **3. Compute the route — never hand-derive the table.**
-Invoke `sizing-assemble` per the ladder in `snippets/resolve-coordinator-bin.md` — rung 0 (Shape W,
+Invoke `sizing-assemble` per the ladder in `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` — rung 0 (Shape W,
 the `.exe` launcher through the call operator) on a PowerShell host:
 
     `& "$env:COORDINATOR_SETTINGS_HOME\bin\sizing-assemble.exe" --tshirt <XS|S|M|L|XL|XXL>`
@@ -89,10 +89,12 @@ Do not read `acted`: it belongs to a different op and is empty either way. Tripw
 **4b. Open the flight recorder on the resolved route — every route, before anything downstream.**
 `TaskCreate`: one session-goal task naming the ask and the sizing-object path, then **one task per
 remaining stage of the chain the route implies, through its terminal**. The chain is the route's,
-not your judgment: `dispatch` → the work → `quick-wrap`. `spec-dispatch` → light plan → executor
-dispatch → scoped `code-reviewer` + `review-integrator` → `quick-wrap`. `plan` → plan → plan review
+not your judgment: `dispatch` → the work → `quick-wrap`. `spec-dispatch` → light plan → `/execute-plan` (claims the
+plan) → scoped `code-reviewer` + `review-integrator` → `quick-wrap`. `plan` → plan → plan review
 → `execute-plan` → `/workstream-complete`. `shape`/`roadmap`/`pm-decision` → the named room owns
-its own chain; record the entry task and stop. **Terminal by size, not by feel: XS/S close at
+its own chain; record the entry task and stop. Direct executor dispatch on a `spec-dispatch` plan
+skips the plan claim only `/execute-plan` makes, so the plan is never stamped done -- route through
+`/execute-plan` even for a light plan. **Terminal by size, not by feel: XS/S close at
 `quick-wrap`, M and above at `/workstream-complete`.** Where the harness tool is absent, the
 `coordinator-tasks-mirror` fallback carries it.
 
@@ -106,7 +108,9 @@ second session-goal task means one of them re-created a recorder that was alread
 X — go with that, split it, cut it, what's up?"* Never a closed fork. Record the answer in
 `pm_resolution` (and `fork` when cut/raise-shaped). Expires at plan ratification.
 
-**5b. `route: pm-decision` bundles into the same ask.** `xl_exit` stays `null` (open, never
+**5b. `route: pm-decision` bundles into the same ask** — the M+ prompt and the XL exit question
+are ONE combined PM ask when both fire, mirroring the engine's existing combined-`next_move`
+precedence. `xl_exit` stays `null` (open, never
 "accept") until the PM actually picks one, by test: `shape` (JTBD not stated, or the EM can't
 falsifiably restate the problem in the PM's words), `roadmap` (spans ≥2 named workstreams, or
 carries/needs an initiative FK — `split` is retired into this exit), or `accept_multi_session`
@@ -128,9 +132,8 @@ incidents: wiki § `appetite`, § The newer guard flags.
 
 - **A volunteered appetite never moves the estimate.** Size from the work alone.
 - **A cross-team dependency is a gate, not a size.** The boundary *ceremony* goes in
-  `blocked_by`/`awaiting_gate`, never the t-shirt. A memo doesn't move the notch; negotiated
-  co-design (the shared contract is itself the unknown) does — answer `--boundary-in-notch`
-  accordingly.
+  `blocked_by`/`awaiting_gate`, never the t-shirt. Joint design is process, not size — neither a
+  memo nor negotiated co-design moves the notch. Answer `--boundary-in-notch no`.
 - **A touchpoint count is not a depth read** (`--probe-raise-basis breadth`, § Step 2).
 
 ## Shape is a conditional room, not a second lobby

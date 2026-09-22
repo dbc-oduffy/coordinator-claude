@@ -36,7 +36,7 @@ is a fact, never a reason to assume success. Run `<plugin-root>/bin/group-em-ent
 --session-id <your sid>` and find out why. **`--session-id` is not optional** — it defaults to
 `$CLAUDE_SESSION_ID`, unset in many shells; without it the op refuses (exit 2). (Every
 `<plugin-root>/bin/` CLI here is plugin-local with no settings-home launcher — resolve per
-`snippets/resolve-coordinator-bin.md`, never cwd-relative.)
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`, never cwd-relative.)
 
 The op shims the engine's `groupem.enter`. An unreachable engine refuses (exit 7) rather than
 assembling in-tree; `--local` picks in-tree assembly explicitly (`DRIFT UNKNOWN` is an unknown,
@@ -55,6 +55,12 @@ refuses over an incumbent and there is no override flag. Re-entry by the holder 
 `displaced_holder_live` arrive in the entry context; live means that session still believes it
 holds the role. Not live means nobody to tell.
 
+**The owed message also tells the displaced session that its watch is no longer the crown's and
+must be stopped:** TaskStop the Monitor, then confirm the subprocess is gone, because the
+trampoline's `python.exe` child is observed to outlive TaskStop. It must not re-arm under the lost
+role. A displaced watch that keeps running goes quiet for the entrant's ~23-minute entry lease and
+then retakes the record, after which the new crown's arm is refused.
+
 **INTRODUCE YOURSELF TO EVERY LIVE PEER, ONCE.** The roster is the population; skip only a
 `PAUSED:away` peer, and re-resolve each addressee immediately before sending (§ Send pass step 4).
 Full rationale for all five constraints below: `coordinator/docs/wiki/group-em-standing.md` §
@@ -63,15 +69,29 @@ Owed introductions.
 1. **Say four things and stop:** who you are (name and session id); that you hold the Group EM
    standing for this repo; what to route to you; and **that no reply is wanted**, stated
    explicitly.
-2. **Never ask peers to route their PM reports through you.** A session the PM is typing into has
-   a direct channel; relaying its report adds a hop and puts its words in your mouth.
+2. **Never ask peers to route their PM reports through you.** "The PM is typing into that session"
+   is unobservable from here — every session reads itself as the attended one. Key it instead to
+   something CHECKABLE: **a session answering a question just asked in this exchange** has a
+   direct channel; relaying its report adds a hop and puts its words in your mouth.
 3. **It is an introduction, not a nudge, and the difference is enforced by content: it asks
    nothing.** No question mark anywhere.
 4. **It arms no cooldown and is not an offer.** Only `build_send_digest` emitting an entry arms a
    peer's throttle.
 5. **Once per PEER, not once per tick**, and **tracked by SESSION ID, never by name** (§ Send pass
    step 4). Measured case: `coordinator/docs/wiki/group-em-standing.md` § A name is not an
-   identity.
+   identity. **Neither key is independently reliable**: a session id has been observed to change
+   under a stable name, so a name match alone cannot confirm "already introduced" and a session id
+   match alone cannot confirm "same peer as before." On ambiguity between the two, re-introduce —
+   a redundant introduction costs nothing the once-per-peer rule protects against; a skipped one
+   leaves a peer that never got the four things in step 1.
+
+   **The introduced set is durable, not session-memory.** It has no store of its own — recording an
+   introduction is a `send_pass.build_send_digest`-shaped append to the EXISTING send log
+   (`state/subagent-share/<this-session-id>/group-em-send-log.jsonl`, § No registration ceremony,
+   no persistence) as a **cooldown-ignored row type**: it participates in "was this peer already
+   introduced," never in `_cooldown_remaining`'s throttle window. No new datastore. The writer is
+   `coordinator/skills/group-em/send_pass.py` — DoE-owned (same plane as this skill, not the
+   engine) — so this is a local contract on that file, not a cross-repo relay.
 
 ## What this skill does and does not do
 
@@ -107,10 +127,16 @@ re-runs it, and a roster read is stale within a minute. In this order, as your f
 
        $COORDINATOR_SETTINGS_HOME/bin/group-em-watch --repo-root <root> --group-em-session-id <your sid>
 
-   `persistent: true`. **`--group-em-session-id` is passed explicitly, never defaulted** — a
+   `persistent: true`: DETACH it. A watch armed inside a subagent's Bash dies with the task while
+   `--status` still reads ALIVE. **`--group-em-session-id` is passed explicitly, never defaulted** — a
    separate id from `--caller-session-id`. It emits one line per peer entering a parked state,
    derives parked from `read_pass.classify_peer`, stays silent while that peer's cooldown is
-   armed, and never disarms. `--status` answers "is a watch alive here?" (0 alive, 1 not running, 2
+   armed. **It carries a documented re-arm duty, not "never disarms"** — a subprocess is observed
+   dying ~60 minutes after arming, so the ~23-minute cron tick reads `last_tick_at` age (a
+   sanctioned instrument, § Liveness instruments) and re-arms when the record is stale. On a
+   re-arm refusal, read the record: if it names this session or its delegate, wait until its
+   `next_expected_by` passes and retry once. Never hand-edit the record. No lifetime number is
+   asserted here, because the cause is engine-owned. `--status` answers "is a watch alive here?" (0 alive, 1 not running, 2
    unknown — unknown is never green); `--once` fires a single tick.
 
 2. **A `CronCreate` tick**, ~23 minutes, off the :00/:30 marks. It audits the watch rather than
@@ -134,7 +160,7 @@ cannot be asked anything.** Keep its session id for the record.
 | Rule | The tell |
 |---|---|
 | Prefer the trampoline; confirm the subprocess started rather than trusting its silence. | The bare module needs an engine-rooted cwd; a watcher whose subprocess never started presents as `idle`. |
-| **Arming can REFUSE, and a refusal is not a quiet result.** On `WatchAlreadyHeldError` verify with `--status`. | *"a watch is already armed"* leaves the fleet unwatched if read as "already covered." |
+| **Arming can REFUSE, and a refusal is not a quiet result.** On `WatchAlreadyHeldError` verify with `--status`. A refusal naming the session you displaced is that retaking watch — tell it to stop. Do not wait it out, because it restamps every poll. Arm within the entry lease: an entry that never arms is a crown with no watch, and the displaced watch fills the gap. | *"a watch is already armed"* leaves the fleet unwatched if read as "already covered." |
 | **`--status` saying ALIVE is not verification** — check `subscribed_peers`. | An ALIVE holder that armed nothing renders identically to a real watch. |
 | **Read `holder_session_id` from `state/group-em-watch.json`** before arming beside a fresh holder. | A holder from another repo ran the command once; the record ages out on its own. |
 | **The engine must be importable**, which it is not from the repo you are Group EM for — use `$COORDINATOR_SETTINGS_HOME/bin/group-em-watch` (`.exe` on Windows; on PowerShell, `&` + forward slashes). | A bare-module run from a doctrine repo raises `ModuleNotFoundError` before doing anything. |
@@ -181,8 +207,10 @@ liveness, reachability, or claim verdict.** `idle` means unknown, never quiet. M
 **Sanctioned, exhaustively: the oracle's verdict, and `last_tick_at` age in
 `state/group-em-watch.json`**, compared against the record's own `next_expected_by` rather than a
 fixed threshold. Do not shape this as a process-table check — `pgrep -f` cannot read Windows
-process command lines, and the watch runs under two different command lines besides. Full
-rationale: `coordinator/docs/wiki/group-em-assistant-remit.md` § Liveness.
+process command lines, and the watch runs under two different command lines besides. **Resource-usage
+proxies (CPU, memory, I/O) are banned for the same reason `busy`/`idle` is** — "progress toward a
+known end" is what a liveness verdict certifies, and a process burning CPU is not a process making
+progress. Full rationale: `coordinator/docs/wiki/group-em-assistant-remit.md` § Liveness.
 
 **When a PM reports the watcher is dead, do not confirm it from the session list.** `idle` is
 `group-em-assistant`'s normal state between polls. Answer from `last_tick_at` age and name the
@@ -200,7 +228,7 @@ different function from this skill's own `watch_heartbeat.py :: stamp`, which `_
 `group-em-enter.py` calls for the `entry` tick. Copy the ENGINE copy's order: `declinations` is the
 THIRD positional and `interval_seconds` the fourth and required. `writer_session_id` is a keyword,
 **optional in the signature and required at runtime** — it is YOUR session id, not
-`holder_session_id` when a delegate arm stamps on the crown's behalf. `tick_source` is `cron` or
+`holder_session_id` when a delegate arm stamps on the standing holder's behalf. `tick_source` is `cron` or
 `monitor`, a KEYWORD, never positional. `declinations` is THIS tick's rows only, `[]` if none.
 `subscribed_peers` is the count your `Monitor` arm is *still* subscribed to right now.
 
@@ -344,7 +372,9 @@ paragraph.
 **When a session says it has something for the PM, it is wrong about 19 times in 20** — the PM's
 own measured prior. Treat "this needs the PM" as a claim to test, never routing already done.
 
-- **"Next: review."** The next step in a procedure the session owns. Push it.
+- **"Next: review."** The next step in a procedure the session owns. Push it — unless the plan is
+  small enough that review is not a step at that size, in which case name the actual next step
+  instead. Mirror anti-pattern: do not grant a permission the session already holds.
 - **"Variable `x` or `xy`?"** Engineering, decided by whoever holds the file. Push it — do not
   answer it either.
 - **"Do I execute?"** The one with a real question, answerable by you — below.

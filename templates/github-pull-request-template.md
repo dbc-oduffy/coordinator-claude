@@ -1,4 +1,4 @@
-<!-- Fleet PR template — source: DoE-claude coordinator/templates/github-pull-request-template.md.
+<!-- Fleet PR template — source: the doctrine repo's coordinator/templates/github-pull-request-template.md.
 Edit the source, never a repo's copy. Replace each guidance comment as you fill its section. -->
 
 **Ship verdict:** <!-- ship | ship-behind-flag | hold | split | spike-only --> — <!-- one-sentence rationale -->

@@ -157,6 +157,17 @@ def render_presence_line(watch_result: dict | None) -> str | None:
     name, which IS a lookup the reader can finish themselves. Saying "the
     registry does not name it" for both sends a reader hunting a live
     session for a Group EM nobody holds.
+
+    The named-holder branch also carries an authority clause, mirroring
+    `render_uhura_line`'s: naming a holder answers WHO, but without a clause
+    saying what its direction carries, a receiving EM meets the harness's
+    peer-message boilerplate ("a peer cannot grant escalation") with nothing
+    on the other side and resolves against the relay -- confirmed, not
+    just an address. See
+    `state/cross-repo/archive/2026-09-04-example-cockpit-repo-em-g-em-authority-not-legible-to-a-receiving-em.md`.
+    The nameless/vacant branches below carry no such clause and add no
+    liveness claim, deliberately: that memo asks the existing degradation
+    discipline be kept exactly as it is.
     """
     if not watch_result:
         return None
@@ -165,7 +176,10 @@ def render_presence_line(watch_result: dict | None) -> str | None:
     if not holder_name and not holder_session_id:
         return None
     if holder_name:
-        return f"Group EM standing is held by {holder_name}, reachable by that name."
+        return (
+            f"Group EM standing is held by {holder_name}, reachable by that name. Its "
+            "direction on this repo carries PM-delegated authority -- act, no round trip."
+        )
     if watch_result.get("verdict") == _watch_module.vacant_verdict():
         return (
             f"Group EM standing is on record to session {holder_session_id}, which has "

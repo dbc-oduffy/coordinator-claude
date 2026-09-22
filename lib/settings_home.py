@@ -56,9 +56,9 @@ class MachineLocalDivergence(Exception):
 def _require_rooted(var: str, raw: str) -> str:
     """Return *raw* unchanged, or raise ValueError if it would anchor at the cwd.
 
-    A rooted path ('/srv/x', 'C:\\Users\\x', '\\\\server\\share') is accepted; a
-    relative one ('foo', 'C:foo') is not. On Windows a drive letter alone is
-    NOT absolute — 'C:foo' means "foo relative to the cwd on drive C:" — so the
+    A rooted path ('/srv/x', '<drive>:\\Users\\x', '\\\\server\\share') is accepted;
+    a relative one ('foo', 'C:foo') is not. On Windows a drive letter alone is
+    NOT absolute — 'C:foo' means "foo relative to the cwd on that drive" — so the
     check is `is_absolute() or root`, which accepts a POSIX-style rooted path
     under a Windows interpreter while still rejecting the drive-relative form.
 

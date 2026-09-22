@@ -92,7 +92,7 @@ def _bootstrap_engine() -> None:
     of this file, a process global ~50 warm-server sessions share. Only the
     trigger moved -- the sequence and order are byte-for-byte the same.
 
-    Review: staff-eng 2026-08-16 C8 Finding 7 — `coordinator_core` is only
+    `coordinator_core` is only
     importable below because it happens to be reachable from an ambient site
     entry on this box -- verified false in general (a foreign cwd, or an exec
     through `_resolve_claude_klabauter.exec_cli` into a published mirror, would not
@@ -217,7 +217,7 @@ def _branch_exists_on_remote(tree: str, branch: str) -> bool:
 
 
 def _is_publish_mirror(tree: str) -> bool:
-    # Review: staff-eng 2026-08-16 C8 Finding 9 — in-process, matching the doctor
+    # in-process, matching the doctor
     # probe added in this same chunk -- Finding 7's sys.path insert makes
     # coordinator_core importable, so the CLI shell-out this replaced was
     # an added process spawn for no reason (machine load norm:
@@ -274,7 +274,7 @@ def _cmd_report(args: argparse.Namespace) -> int:
     if actual == declared:
         print(f"klabauter-channel: agrees — the box is on {declared!r}.")
     else:
-        # Review: staff-eng 2026-08-16 C8 Finding 4 — fold Finding 3's narrowed
+        # Fold Finding 3's narrowed
         # predicate into the recommendation too. On a publish mirror,
         # `--set <declared>` is only permitted when it agrees with
         # `track_ref` -- recommend it only then; otherwise name the
@@ -319,7 +319,7 @@ def _cmd_set(args: argparse.Namespace) -> int:
     if dirty_refusal:
         return _refuse(_EXIT_DIRTY_TREE, dirty_refusal)
 
-    # Review: staff-eng 2026-08-16 C8 Finding 3 — narrowed from tree-IDENTITY to
+    # Narrowed from tree-IDENTITY to
     # intent-CONFLICT. On a normal claude-klabauter developer box the discovered
     # `repos.claude_klabauter` IS the publish mirror, so a blanket refusal
     # here had zero mutating capability on the only box class that can

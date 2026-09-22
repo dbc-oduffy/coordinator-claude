@@ -255,7 +255,7 @@ def main(argv: list[str]) -> int:
             )
             current_branch = cb.stdout.strip() if cb.returncode == 0 else ""
         except (OSError, subprocess.TimeoutExpired):
-            # Review: code-reviewer — parity with step9's _get_branch fail-open
+            # Parity with step9's _get_branch fail-open
             # guard; falls through to the existing git-show-current fallback below.
             current_branch = ""
     if not current_branch:

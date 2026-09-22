@@ -274,3 +274,21 @@ Mixing a recursive/`--include` mode with explicit file-path arguments in the sam
 ## Duplicate-Detection Requires Body Comparison, Not Metadata
 
 Deciding two files (or two records) are duplicates on filename, size, or frontmatter alone is unsound — matching metadata is consistent with genuinely different content, and non-matching metadata is consistent with a near-identical body under a renamed field. Confirm duplication by comparing bodies before merging, deleting, or treating one as canonical over the other.
+
+## Pre-Flight Symbol-Collision Scans Must Extend to `src/`, Not Just `docs/plans/`
+
+A plan's cross-plan/prior-art scan that greps only `docs/plans/` misses a symbol the plan introduces that already exists in source. A duplicate `FirebaseError`/`getFirebaseErrorMessage` taxonomy went uncaught until review — the plan's own collision scan never checked `src/`, only prior plan docs, and planned to author a second copy of the same symbols under a new path.
+
+**How to apply.** When a plan introduces a named export/type/class, grep `src/` for that symbol too, not just prior plan documents, and resolve a hit to a single source of truth (re-export) rather than shipping a divergent duplicate.
+
+## A Guard Gated on a Marker Inherits Every Writer That Can Clear That Marker
+
+When a protection (pre-commit guard, commit-time check) fires only conditionally on some state — a marker file, env var, feature flag, sentinel — every writer of that state is part of the protection's trusted base and must be audited with it, not just the guard's own read of it. A guard can look correct in isolation and pass its own tests while a *different*, uncoupled script silently renders it inert by clearing the marker it depends on (observed case: a staleness probe deleted an overlay marker on a hardcoded, incomplete file list, clearing it exactly when the commit-time guard needed it present).
+
+**How to apply.** Enumerate every writer of the gating state, not just the guard's own consumption of it — especially where the writer lives in a different script or language from the guard. Prefer deriving the list at runtime over hand-syncing it across a language boundary; where hand-syncing is unavoidable, name the source of truth and expected count in a comment so drift is loud.
+
+## "The Input Is Always Already-Canonical" Is a Structural Claim — Enumerate Every Producer, Not Just the Common One
+
+Dismissing a downstream throw/guard risk with "the input can't be malformed, it's always already-canonical by construction" is sound only if *every* producer of that value is structural, not incidental. A render-path throw risk was dismissed with "the value comes from the store, already canonicalized" — but the store had a second producer (an RAG-backed row source) that could synthesize a non-canonical, multi-segment value, so the no-throw guarantee did not actually hold.
+
+**How to apply.** Before arguing a value can't hit a guard/throw because it's "always X," enumerate every producer of that value (every row source, ingest path, fallback), not just the one in mind — and prefer the non-throwing wrapper on any render/read path regardless of the structural argument.

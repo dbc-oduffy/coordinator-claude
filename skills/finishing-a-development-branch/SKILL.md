@@ -22,7 +22,7 @@ Guide completion of development work by presenting clear options and handling ch
 **Before presenting options, check whether test evidence already covers this branch.** If this session already has fast-tier or targeted-test evidence for the current diff, report it as-is and move to Step 2 — this step is not a cadence gate that reruns tests on every branch finish.
 
 If no such evidence exists, a scoped run beats a broad one: prefer targeted tests covering the touched files over the fast tier. Reaching for the fast tier at all means reaching for the grant first — this skill is not on the implicit-grant ceremony list (`/workday-complete`, `/workweek-complete`, `/merging-to-main`), so before invoking a resolved Tier F command, check (POSIX-host form below; on a PowerShell host
-use the `.exe` launcher through the call operator — Shape W, `snippets/resolve-coordinator-bin.md`)
+use the `.exe` launcher through the call operator — Shape W, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`)
 `tier-u-grant-cli check` (the same session-scoped token Tier U consumes). Exit 0 = granted, resolve and run via `coordinator-resolve-validation-cmd --fast` (rc 0 = resolved, run the result and capture its exit code; rc 2 = no `fast_test_cmd` configured — skipped, not failed). Exit 1 (ungranted) halts before invoking it: ask the PM for a session grant, run under a ceremony that already holds the implicit grant, or defer and report `Validation: skipped` for this invocation. Either way, a full-suite gate belongs to the merge ceremony downstream (Option 1 chains into `merging-to-main`, which runs its own CI-gated checks) — this step never substitutes for that gate. Interim caveat: a chained `fast_test_cmd` (`a && b`, `a; b`, a pipe) is denied by the invocation guard today — don't reshape the command to dodge it; configure `fast_test_cmd` as a single command, with multi-step logic in a wrapper script instead.
 
 **If tests fail:**
@@ -70,7 +70,7 @@ during Step 5 below, that's debris to remove, not state to preserve.
 
 #### Option 1: Merge to main via PR (Recommended)
 
-Invoke the `merging-to-main` skill. This creates a PR, waits for CI checks, and merges
+Invoke the `merging-to-main` skill. This creates a PR, confirms local validation, and merges
 on success. Branch is deleted after merge.
 
 #### Option 2: Create a Pull Request (manual merge later)
@@ -125,7 +125,7 @@ If yes, remove it (`git worktree remove <worktree-path>`) — regardless of whic
 
 | Option | PR | Merge | Cleanup Branch |
 |--------|-----|-------|---------------|
-| 1. Merge via PR | ✓ | ✓ (CI-gated) | ✓ |
+| 1. Merge via PR | ✓ | ✓ (validation-gated) | ✓ |
 | 2. PR only | ✓ | - | - |
 | 3. Keep as-is | - | - | - |
 

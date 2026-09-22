@@ -149,9 +149,10 @@ def _find_switch_end(raw: str) -> int | None:
     Anchors structurally, not lexically — does NOT search for the literal
     substring ``cmd.exe /c``, since ``/d``, ``/s``, an overridden
     ``COMSPEC``, or a quoted comspec token all vary the text ahead of the
-    switch (e.g. ``cmd.exe /d /s /c "..."`` or ``"C:\\...\\cmd.exe" /c
-    "..."`` — neither contains that substring). Skips a quoted comspec
-    token, if present, and any unrecognised unquoted leading token.
+    switch (e.g. ``cmd.exe /d /s /c "..."`` or
+    ``"<drive>:\\...\\cmd.exe" /c "..."`` — neither contains that substring).
+    Skips a quoted comspec token, if present, and any unrecognised unquoted
+    leading token.
 
     This deliberately scans past ANY leading token, not only a `/`-prefixed
     one -- the plan body's prose ("scan the leading tokens for a
@@ -268,7 +269,6 @@ def _consume_raw_capture() -> str:
     naming, say, a test's own tmp_path (measured: this module's own
     caret-recovery test constructs `raw_file` directly under tmp_path) would
     silently delete a directory this mechanism never made.
-    Review: staff-eng (Finding 3).
     """
     raw_file = os.environ.get(RAW_CMDLINE_FILE_ENV)
     if not raw_file:

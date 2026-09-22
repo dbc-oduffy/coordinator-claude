@@ -334,7 +334,7 @@ All findings-producing reviewers persist to the `state/subagent-share/<session>/
 
 - **Sonnet `code-reviewer`** (the one reviewer — no `-selfpersist` variant): writes to itsprovisioned sidecar — pre-provisioned by the dispatching EM in the common case, self-scaffolded into that same home via `coordinator-doc-new --type review-findings` only when no path arrived pre-provisioned — edits the `<!-- FINDINGS -->` sentinel with its findings, and returns: `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N> | executed: <yes|no>`. The EM reads the returned path.
 
-- **Persona reviewers** (the Staff Engineer, the Director of Engineering, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Game Dev Reviewer): are dual-use (advisory OR sidecar-review). When dispatched for a review that feeds an integrator, the invoking skill injects the provisioned `state/subagent-share/<session>/<provision_key>.md` path into the dispatch brief — claude-klabauter's `provision_report` engine has already created the sidecar at spawn — and the persona writes its findings into that path and returns the same pointer line. No sentinel-append self-scaffold, no EM pre-scaffold, no claim marker. The review-integrator intake fails loud (BLOCKED) if the returned sidecar is a trivial/unfilled scaffold — the intake fill-guard, not a per-dispatch-site check.
+- **Persona reviewers** (the Staff Engineer, the Director of Engineering, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Game Dev Reviewer): are dual-use (advisory OR sidecar-review). When dispatched for a review that feeds an integrator, the invoking skill injects the provisioned `state/subagent-share/<session>/<provision_key>.md` path into the dispatch brief — the engine's `provision_report` step has already created the sidecar at spawn — and the persona writes its findings into that path and returns the same pointer line. No sentinel-append self-scaffold, no EM pre-scaffold, no claim marker. The review-integrator intake fails loud (BLOCKED) if the returned sidecar is a trivial/unfilled scaffold — the intake fill-guard, not a per-dispatch-site check.
 
 **No inline return is a valid reviewer mode.** An EM walking Phases 3.5 and 3.7 never hands the integrator an inline finding list — the on-disk sidecar is the integrator's intake contract (`agents/review-integrator.md § Intake precondition`). If a reviewer returns inline, re-dispatch it — do not transcribe.
 
@@ -377,7 +377,7 @@ When effort level is Medium:
 - Backstop invocation is at the reviewer's (or EM's) discretion
 - No verification needed
 
-**When the Director of Engineering ran as standalone primary, skip Phase 4 entirely.** the Director of Engineering standalone is a peer-to-the Staff Engineer review with cross-team authority — there is no further backstop above the DoE chair. The Director of Engineering is the terminal backstop in the system; nothing wraps it.
+**When the Director of Engineering ran as standalone primary, skip Phase 4 entirely.** the Director of Engineering standalone is a peer-to-the Staff Engineer review with cross-team authority — there is no further backstop above the Director-of-Engineering chair. The Director of Engineering is the terminal backstop in the system; nothing wraps it.
 
 ---
 
@@ -578,11 +578,11 @@ plan-time reviews do not substitute for.
 
 ## Reviewer Elevation Past Charter
 
-*project-rag.* The PM may elevate a reviewer past their default charter for a specific dispatch — e.g. invoking the Director of Engineering not as ambition-backstop (their default) but as standalone DoE for an architectural call; invoking the Staff Engineer with cross-repo authority they do not carry by default. Elevation must be **verbatim in the brief** — the reviewer's default charter is what they pattern-match against without explicit elevation, and pattern-match will silently win over implicit elevation.
+*project-rag.* The PM may elevate a reviewer past their default charter for a specific dispatch — e.g. invoking the Director of Engineering not as ambition-backstop (their default) but as standalone Director-of-Engineering for an architectural call; invoking the Staff Engineer with cross-repo authority they do not carry by default. Elevation must be **verbatim in the brief** — the reviewer's default charter is what they pattern-match against without explicit elevation, and pattern-match will silently win over implicit elevation.
 
 **Required form:**
 
-> *"You are dispatched in elevated mode: [DoE / cross-repo authority / prior-art-override / other]. This dispatch grants [specific authority]. Your default charter ([brief restatement]) does NOT apply for this artifact."*
+> *"You are dispatched in elevated mode: [Director-of-Engineering / cross-repo authority / prior-art-override / other]. This dispatch grants [specific authority]. Your default charter ([brief restatement]) does NOT apply for this artifact."*
 
 Without the verbatim elevation, the reviewer falls back to default charter — even if the dispatching EM verbally framed the dispatch as elevated. The brief is the contract; chat context is not.
 
@@ -654,7 +654,7 @@ high-confidence band; anything below routes to ASK / EM disposition rather than 
 "be more ambitious" nudge — it's a named tension: *"We have AI capacity to do this properly.
 Should we?"* — refactor-vs-patch, seize-the-moment-vs-defer. Elevating the Director of Engineering past ambition-backstop
 (see § Reviewer Elevation Past Charter above) is asking them to hold that tension as primary
-DoE judgment rather than as a counter-voice to the Staff Engineer. <!-- src: plan01-004 -->
+Director-of-Engineering judgment rather than as a counter-voice to the Staff Engineer. <!-- src: plan01-004 -->
 
 **No new persona names.** The roster is closed at six (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering).
 Proposals to add named personas for narrower judgment surfaces are rejected by default — workers

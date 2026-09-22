@@ -7,7 +7,7 @@ hook entry -- zero Git-Bash cold-start per tool call on Windows (each bash.exe
 spawn costs 200-500ms; this is the whole point).
 
 This doctrine-plane repo owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
-the claude-klabauter engine, hand it the mapped params, relay its stdout. Claude-klabauter owns the
+the engine repo, hand it the mapped params, relay its stdout. The engine repo owns the
 advisory LOGIC (coordinator_core.hooks.postuse_advisory_dispatch, registered
 under the JSON-RPC method "hooks.postuse_advisory_dispatch"). The engine is
 imported and run IN-PROCESS via coordinator_core.ipc.dispatch_ops_from_hook
@@ -97,8 +97,8 @@ see coordinator_core/ipc.py _OP_KEY_SCOPE["hooks.track_touched_files"]):
                                           param -- required because this
                                           op's _OP_KEY_SCOPE is "common_dir")
 
-Graceful degradation -- REQUIRED: any failure to resolve/import/run the claude-klabauter
-engine, or to parse stdin, falls through to fail-open (exit 0, no stdout). A
+Graceful degradation -- REQUIRED: any failure to resolve/import/run the engine
+repo, or to parse stdin, falls through to fail-open (exit 0, no stdout). A
 missing sibling engine must NEVER brick a tool call -- identical philosophy to
 preuse-write-dispatch.py._resolve_claude_klabauter_root (kept in lockstep deliberately;
 see W2-stub-contract.md).
@@ -196,7 +196,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open -- claude-klabauter unresolvable on this machine
+        return 0  # fail-open -- engine repo unresolvable on this machine
 
     if root not in sys.path:
         sys.path.insert(0, root)

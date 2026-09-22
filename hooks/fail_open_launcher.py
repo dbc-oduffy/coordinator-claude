@@ -104,6 +104,33 @@ def is_wrapped(command) -> bool:
     return _MARKER in command
 
 
+#: The native-door entrypoint a door registration runs, and the op namespace it accepts.
+NATIVE_DOOR_ENTRYPOINT = "/bin/hook-run"
+NATIVE_DOOR_OP_PREFIX = "hooks."
+
+
+def is_native_door(hook) -> bool:
+    """True when ``hook`` is a native-door registration: shell form, pinned to bash, running
+    ``<settings-bin>/hook-run hooks.<op>``.
+
+    A door registration is fail-open by a different route than ``wrap_command_exec``, and is
+    NOT a bypass of it. There is no script to wrap -- the door is a compiled binary and the op
+    runs in the resident engine -- and the property this module exists for (an unresolvable
+    target never removes the tools needed to repair it) holds because the harness only has to
+    resolve ``bash``. A missing ``hook-run`` is bash's exit 127, which the harness treats as a
+    non-blocking error. Exec form would lose that: the harness itself would have to resolve the
+    binary before any of our code, or bash, runs.
+    """
+    if not isinstance(hook, dict) or hook.get("type") != "command" or hook.get("args"):
+        return False
+    command = hook.get("command") or ""
+    return (
+        hook.get("shell") == "bash"
+        and NATIVE_DOOR_ENTRYPOINT in command
+        and f" {NATIVE_DOOR_OP_PREFIX}" in command
+    )
+
+
 def _split_python3_command(command: str):
     """Shared parse for both emitters: ``python3 <script> [args...]`` -> ``(script, args)``.
     Raises ``ValueError`` on any other shape."""

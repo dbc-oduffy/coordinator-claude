@@ -1,7 +1,7 @@
 # The idle-report contract
 
-> What `coordinator_core.group_em.idle_report` must emit for `agents/fleet-watch.md` to run a
-> whole tick without opening a file. **DoE owns this contract; claude-klabauter owns the implementation.**
+> What `coordinator_core.group_em.idle_report` must emit for `coordinator:group-em-assistant` to run a
+> whole tick without opening a file. **The doctrine repo owns this contract; the engine repo owns the implementation.**
 > Rule: the watcher acts on the report and nothing else — a fact the report does not carry is a
 > defect in the report, never a licence to go and look.
 
@@ -30,7 +30,7 @@ already been answered. A `--json` arm carries the same fields.
 **`--group-em-session-id` needs an engine at or past the published mirror's current tip.** The
 pre-2026-09-01 spelling was `--crown-session-id`, retained engine-side as a suppressed alias, so
 old text runs on a new engine — but not the reverse: this page's spelling on an engine older than
-that commit is an argparse hard-error in every dispatched fleet-watch agent. A box whose mirror is
+that commit is an argparse hard-error in every dispatched `group-em-assistant` agent. A box whose mirror is
 behind pins the whole tick, not one field. Verify against the engine, never against this page.
 
 ## The verdict vocabulary is closed
@@ -166,9 +166,10 @@ lands on a *wrong send* rather than on absent information:
   and it teaches the fleet to filter the watcher.
 
 So a cut enrichment returns its affected peers as `UNKNOWN` with a reason key naming what is
-missing — `out-of-work-undetected`, `suppression-unavailable`. `UNKNOWN` routes to *report it*,
-which is the correct behaviour under partial information and keeps omission impossible. A degraded
-report stays honest; a degraded report that sends is worse than no report at all.
+missing — `out-of-work-undetected`, `suppression-unavailable`, or (not a downgrade key — see
+below) `rate-limited`. `UNKNOWN` routes to *report it*, which is the correct behaviour under
+partial information and keeps omission impossible. A degraded report stays honest; a degraded
+report that sends is worse than no report at all.
 
 `rate-limited` is a distinct case from those two downgrade keys: `out-of-work-undetected` and
 `suppression-unavailable` mean the **oracle** could not enrich the row — an enrichment step was

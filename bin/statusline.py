@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 statusline.py — pass-through statusline that writes the context-usage
 sidecar and preserves any user-configured inner statusline.

@@ -664,7 +664,7 @@ def _cmd_scan_secrets(args: argparse.Namespace) -> int:
         args.target or "",
     )
     if args.target and not getattr(args, "percolate_root", None):
-        # Review: code-reviewer — --target without --percolate-root silently
+        # --target without --percolate-root silently
         # skips the transform-coverage split with no signal; state it once.
         print(
             "  NOTE: --percolate-root not passed — transform-coverage split "
@@ -1274,27 +1274,20 @@ def _cmd_list_targets(args: argparse.Namespace) -> int:
 # publish-readiness — the one preflight that reports EVERY blocker at once
 # ---------------------------------------------------------------------------
 
-#: Bound for this subcommand's git spawns. The fetch leg is a remote round trip
-#: and gets its own, larger ceiling.
-_READINESS_LOCAL_TIMEOUT_S = 30
+#: Bound for this subcommand's non-git remote probes (the GitHub REST/`gh`
+#: calls below) -- the git spawns themselves are bounded by
+#: `coordinator_core.git.run.run_git`'s own local/remote ceilings, never a
+#: module-private number.
 _READINESS_REMOTE_TIMEOUT_S = 120
 
 _PASS, _WARN, _FAIL = "PASS", "WARN", "FAIL"
 
 
 def _readiness_git(repo: str, args: "List[str]", *, remote: bool = False):
-    import subprocess
+    _bootstrap_engine()
+    from coordinator_core.git.run import run_git
 
-    try:
-        return subprocess.run(
-            ["git", "-C", repo, "--no-optional-locks", *args],
-            capture_output=True,
-            text=True,
-            timeout=_READINESS_REMOTE_TIMEOUT_S if remote else _READINESS_LOCAL_TIMEOUT_S,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except Exception:  # noqa: BLE001 -- a probe that cannot run reports, never raises
-        return None
+    return run_git(["-C", repo, "--no-optional-locks", *args], remote=remote)
 
 
 def _check_engine_root(findings: "List[tuple]") -> Optional[str]:

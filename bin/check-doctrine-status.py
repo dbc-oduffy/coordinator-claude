@@ -110,7 +110,7 @@ def main(argv: "list[str] | None" = None) -> int:
         try:
             finding = ds.check_page(page, vocabulary)
         except UnicodeDecodeError as exc:
-            # Review: code-reviewer — an unreadable page must not collide
+            # An unreadable page must not collide
             # with exit 1 (unlisted status value); loud exit 2 naming the
             # file beats silently skipping a page the lint cannot check.
             try:

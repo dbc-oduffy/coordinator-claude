@@ -361,7 +361,7 @@ def main_generate(args) -> int:
     kept, counts, bytes_kept = derive_keep_set(args.handoff_recency_days, args.drop_terminal_plans)
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     header = build_header(kept, bytes_kept, generated_at, git_head(), p_index_sha())
-    Path(args.out).write_text("\n".join(header + kept) + "\n", encoding="utf-8")
+    Path(args.out).write_text("\n".join(header + kept) + "\n", encoding="utf-8", newline="\n")
 
     print(f"claudemeta manifest regenerated: {len(kept)} files")
 

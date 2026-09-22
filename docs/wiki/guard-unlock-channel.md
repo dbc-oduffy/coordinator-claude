@@ -164,6 +164,26 @@ you have read the deny's own reason and judged this instance a genuine exception
 tool as a reflex — if you find yourself granting the same guard repeatedly, the guard's scope or
 the workflow hitting it is the actual defect, and the durable fix belongs there.
 
+## A Guard Naming Two Exits May Offer Neither {#two-exits-may-offer-neither}
+
+A HALT that names two remedies — this channel plus one other — is not guaranteed to reach either one
+for your case. The originating instance: `review-brightline-gate` HALTs a chain close on uncovered
+predecessor commits and names "a PM vouch waiver, or `/handoff`." Both can be dead ends, and the
+discriminator is the `Session-Id` git trailer on the commit in question:
+
+- **Trailer names another session** → the vouch works, and per-commit trail writes succeed.
+- **No trailer** → a different refusal branch fires ("genuinely ambiguous") that the vouch does not
+  reach at all. Measured: same grant, two trailered SHAs wrote clean, seven untrailered SHAs
+  refused.
+
+`/handoff` is no exit either in that case, because a trailer is immutable history — a fresh session
+inherits the same missing trailer and refuses forever. Before spending a PM grant (or, on this
+channel, a guard-unlock sentinel) on an offered exit, verify the exit actually applies to your case
+— here, check the discriminating field the guard's own logic keys on, not just the two names it
+prints. If the review genuinely already ran, prefer the guard's own coverage-verdict override
+(recording the honest coverage ratio) over discarding a review that exists, and over granting an
+exit that was never going to clear your case.
+
 ## Related {#related}
 
 - [`guard-message-concision.md`](guard-message-concision.md) — what a guard message is for, and

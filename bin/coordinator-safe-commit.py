@@ -315,6 +315,7 @@ class Args:
         self.body_file: str = ""
         self.body: str = ""
         self.paths: List[str] = []
+        self.declared_reverts: List[str] = []
 
 
 def usage() -> None:
@@ -332,6 +333,10 @@ Optional flags (combinable):
                                     when dirty files exist outside declared scope
   --include-orphans <pathspec>...   Claim hook/install-script-touched files for
                                     this commit. Variadic until next flag or --.
+  --declared-revert <path>          A path this commit intentionally restores
+                                    to an older state. Repeat per path. Without
+                                    it, commit_v2's staged-rollback gate refuses
+                                    the commit and names this parameter.
   --body-file <path>                Commit BODY (second paragraph) read from a
                                     file — avoids shell-quoting hazards for
                                     multi-paragraph messages. <subject> is
@@ -363,7 +368,7 @@ def parse_args(argv: Sequence[str]) -> Args:
     n = len(argv)
     positionals: List[str] = []
     saw_pathspec_separator = False
-    # Review: code-reviewer — Finding 3 (fixed 2026-07-22): args.mode was
+    # args.mode was
     # previously a single last-writer-wins field, so parse order determined
     # which of --scope-from / --dry-run "won" — either silently dropped the
     # declared scope, or (worse) silently fired a real commit despite an
@@ -391,6 +396,23 @@ def parse_args(argv: Sequence[str]) -> Args:
             if i + 1 >= n:
                 raise UsageError("--body-file requires a path argument.")
             args.body_file = argv[i + 1]
+            i += 2
+        elif tok == "--declared-revert":
+            # Repeatable single-value, NOT variadic. This flag is combinable
+            # with the `-- <paths>` form, where the subject is the token
+            # immediately before the separator rather than the last token
+            # overall -- a variadic sweep consumes it as a path.
+            #
+            # The value is rejected when it is `--` or flag-shaped rather than
+            # consumed blindly. An omitted path (`--declared-revert -- a.py
+            # "subject"`) would otherwise take `--` as the value and advance
+            # past the real separator, so the pathspec branch never fires and
+            # the paths are misread as positionals -- a wrong-scope commit or a
+            # baffling positional-count error, in place of the one-line usage
+            # message the operator needed.
+            if i + 1 >= n or argv[i + 1] == "--" or argv[i + 1].startswith("-"):
+                raise UsageError("--declared-revert requires a path argument.")
+            args.declared_reverts.append(argv[i + 1])
             i += 2
         elif tok == "--include-orphans":
             i += 1
@@ -440,6 +462,23 @@ def parse_args(argv: Sequence[str]) -> Args:
     args.subject = positionals[0]
     if not args.subject:
         raise UsageError("Commit subject cannot be empty.")
+    # Refuses a degenerate subject BEFORE any mode dispatch, mirroring the
+    # existing directory-shaped `writes:` refusal's own door (state/bug-
+    # backlog/2026-08-28-an-engine-commit-path-landed-152-lines-under-the-
+    # subject-x.yaml). A one-character subject on a 152-line commit to the
+    # merge-gate file defeated every downstream reader that indexes a change
+    # by its subject (`git log --oneline`, blame, bisect) -- the requirement
+    # is a refusal at the door, not doctrine telling a caller to write
+    # better messages, which carried correct prose for a month while
+    # enforcing nothing (K-063). Threshold (<=3 stripped chars) covers both
+    # measured incidents (`x`, `bu`) without narrowing legitimate short
+    # subjects like a scoped rename.
+    if len(args.subject.strip()) <= 3:
+        raise UsageError(
+            f"Commit subject {args.subject!r} is too short "
+            f"({len(args.subject.strip())} chars) to be legible in git log/blame/"
+            "bisect output -- write a subject that names the change."
+        )
 
     if saw_pathspec_separator and not args.paths:
         raise UsageError("`--` requires at least one path argument after it.")
@@ -589,6 +628,13 @@ def do_pathspec(args: "Args") -> None:
         "deleted_paths": deleted_paths,
         "message": message,
     }
+    # Only sent when non-empty. `commit_v2` treats the key's absence and an
+    # empty list identically, but an always-present key would put a
+    # rollback-declaring field in the payload of every ordinary commit, where
+    # the reader of a ledger row could not tell "declared nothing" from
+    # "never considered it".
+    if args.declared_reverts:
+        params["declared_reverts"] = args.declared_reverts
     try:
         result = cc_invoke("ceremony.commit_v2", params, worktree_root)
     except BrokenPipeError as exc:
@@ -636,6 +682,13 @@ def do_pathspec(args: "Args") -> None:
     print(f"committed sha={result.get('sha')}", file=sys.stderr)
 
 
+#: Appended to a rendered holder whose liveness rests on a `stable_pid` also
+#: carried by another session on this box -- see `_holder_context`'s and
+#: `_refuse_contested_pathspec`'s docstrings for why that verdict cannot
+#: support a promise that the holder will ever commit or release.
+SHARED_GHOST_MARKER = "(shared-ancestor pid -- may be an unreachable ghost)"
+
+
 def _holder_context(
     worktree_root: str, sid: str, path: str, registry_snapshot: Optional[dict] = None
 ) -> str:
@@ -679,6 +732,18 @@ def _holder_context(
     failure via `sys.exit(3)`, which is `SystemExit`, not a subclass of
     `Exception`, so it would pass straight through the `except Exception`
     below and kill the whole invocation instead of degrading to the bare sid.
+
+    A THIRD fact, layered onto the two above rather than replacing either:
+    `holder_evidence.liveness_basis` names WHICH evidence concluded this sid
+    live. Most bases are unremarkable and stay silent here -- they are why
+    the branch this runs in fired at all. `"stable-pid-shared"` is the one
+    that is not: it means the `stable_pid` that vouched for this sid is also
+    carried by another session on this box, so the verdict proves only that
+    SOMETHING under that shared ancestor is alive, not that THIS sid is. A
+    caller told to "coordinate with the holder" or wait for it to "commit or
+    release" cannot do either to a process that may not exist. Marked here,
+    inline with the sid, so the fact travels with the identity it qualifies
+    rather than needing a second lookup.
     """
     bits: List[str] = []
     try:
@@ -694,6 +759,13 @@ def _holder_context(
         bits.append(f"{name} [{sid[:8]}]")
     else:
         bits.append(f"{sid[:8]} (live, no name in the harness registry)")
+    try:
+        from coordinator_core.session import holder_evidence  # noqa: PLC0415
+
+        if holder_evidence.liveness_basis(sid, worktree_root) == "stable-pid-shared":
+            bits.append(SHARED_GHOST_MARKER)
+    except Exception:
+        pass
     sessions_dir = os.path.join(worktree_root, ".git", "coordinator-sessions", sid)
     try:
         import json  # noqa: PLC0415
@@ -735,7 +807,7 @@ def _norm(path: object) -> str:
     and `_refuse_contested_pathspec` compare a git-porcelain path against a
     caller-supplied one.
 
-    Review: overengineering-reviewer (finding #6, nitpick, accepted) -- this
+    This
     normalisation used to be spelled out three times (building `wanted`, per
     porcelain entry, and again filtering `contested`); one drifting from the
     other two would have quietly stopped `clean`/`contested` from matching.
@@ -786,7 +858,6 @@ def _paths_with_no_uncommitted_content(
     if not wanted:
         return set()
     try:
-        # Review: coordinator:code-reviewer af0c0865daafdd73a, Finding P1 --
         # the subprocess argv MUST carry the same normalized form `wanted`
         # already is, not raw `paths`. A backslash-bearing contested path
         # (this is a Windows-first repo) can fail git's pathspec matching as
@@ -801,7 +872,6 @@ def _paths_with_no_uncommitted_content(
             cwd=worktree_root,
             capture_output=True,
             text=True,
-            # Review: coordinator:code-reviewer af0c0865daafdd73a, Finding P2
             # -- was 10s, 20x this repo's 500ms brightline for a call on
             # every explicit-pathspec commit's hot path. Fails closed to the
             # empty (refuse-everything) set on timeout, never a corruption
@@ -878,6 +948,16 @@ def _refuse_contested_pathspec(paths: Sequence[str], worktree_root: str) -> None
     hunk already sitting in a file this session then edits is invisible to
     it. Live-peer CLAIMS are the signal that was available and unread.
 
+    READ claims never reach this refusal. `contested_by_live_peers` drops
+    them (see its own docstring for the incident: this gate named two
+    holders for one file when only one had written it, and sent the
+    operator to coordinate with a session that had never touched the
+    bytes). What remains is a WRITE claim or a claim predating the
+    read/write axis, which block identically and take the same remedy --
+    which is why the per-holder kind is not threaded down here: it would
+    cost a second sink read or a return-shape change to print a word that
+    changes nothing the reader should do.
+
     REFUSES rather than warning: a warning on stderr competes with
     `ceremony.commit_v2`'s own warnings beside a `committed sha=` line for a
     commit that has already landed, and what has landed on a shared branch
@@ -890,6 +970,12 @@ def _refuse_contested_pathspec(paths: Sequence[str], worktree_root: str) -> None
     the ring here. ~62ms process time when nothing is contested (the common
     case), ~140ms when something is; both inside the 500ms brightline this
     route already spends a `cc_invoke` round trip against.
+
+    A read failure still commits -- fail-open is unchanged -- but it is no
+    longer silent: `contested_by_live_peers` returns `None` rather than `{}`
+    when it could not establish a contest at all, and that case prints one
+    line to stderr before returning, so the trace no longer reads identical
+    to a pathspec nobody was touching.
     """
     try:
         cs_core, _cs_liveness, cs_scope, _cs_claims = _import_session()
@@ -905,6 +991,12 @@ def _refuse_contested_pathspec(paths: Sequence[str], worktree_root: str) -> None
             list(paths), session_id, worktree_root
         )
     except Exception:
+        return
+    if contested is None:
+        print(
+            "peer-contest check could not complete; committing without it",
+            file=sys.stderr,
+        )
         return
     if not contested:
         return
@@ -924,7 +1016,7 @@ def _refuse_contested_pathspec(paths: Sequence[str], worktree_root: str) -> None
         if not contested:
             return
 
-    # Review: coordinatorcode-reviewer.a075e39a58642def2, Finding 4 -- one
+    # One
     # registry read for the whole refusal instead of one per (path, holder)
     # pair; `_holder_context` still degrades to its own read if this is None.
     try:
@@ -933,25 +1025,47 @@ def _refuse_contested_pathspec(paths: Sequence[str], worktree_root: str) -> None
         registry_snapshot = harness_registry.snapshot()
     except Exception:
         registry_snapshot = None
+    any_shared_ghost = False
     for path in sorted(contested):
-        owners = "; ".join(
+        rendered = [
             _holder_context(worktree_root, o, path, registry_snapshot)
             for o in contested[path]
-        )
+        ]
+        if any(SHARED_GHOST_MARKER in r for r in rendered):
+            any_shared_ghost = True
+        owners = "; ".join(rendered)
         print(
-            f"BLOCKED: {path} is also held by live session(s) {owners} -- "
-            "committing it lands their uncommitted work under your message.",
+            f"BLOCKED: {path} is held by live session(s) {owners} under a WRITE "
+            "or pre-2026-09-20 claim -- committing it lands their uncommitted "
+            "work under your message.",
             file=sys.stderr,
         )
-    print(
-        "Drop the named path(s) from the pathspec, or coordinate with the "
-        "holder(s) first BY NAME -- a session id re-points, a name does not. "
-        "A holder releases a path it no longer needs with "
-        "`session-claim-cli release-artifact artifact <path>`; "
-        "`session-claim-cli who-claims-path <path>` lists every holder. "
+    # A holder marked `SHARED_GHOST_MARKER` above is live only in the sense
+    # that SOMETHING under its shared ancestor process is -- see
+    # `holder_evidence.liveness_basis`'s `"stable-pid-shared"` entry. Such a
+    # holder may never commit or release: promising that it will, the way the
+    # unqualified sentence below still does for every ordinary unnamed
+    # holder, sends the caller to wait on an event that cannot occur.
+    unnamed_remedy = (
         "A holder shown without a name is live but not addressable from "
         "here: drop that path and commit the rest -- it frees when that "
-        "session commits or releases.",
+        "session commits or releases; a holder marked "
+        f"{SHARED_GHOST_MARKER} above may never do either -- verify with "
+        "`session-claim-cli is-session-live <sid>` before waiting on it."
+        if any_shared_ghost
+        else "A holder shown without a name is live but not addressable from "
+        "here: drop that path and commit the rest -- it frees when that "
+        "session commits or releases."
+    )
+    print(
+        "Drop the named path(s) from the pathspec, or coordinate with the "
+        "holder(s) BY NAME -- a session id re-points, a name does not. "
+        "READ claims are not listed here and never block. "
+        "A holder releases its own claim with `session-claim-cli "
+        "release-artifact artifact <path>` -- landed or still in flight, "
+        "its own claims only, never a peer's. "
+        "`session-claim-cli who-claims-path <path>` lists every holder and "
+        "each one's kind. " + unnamed_remedy,
         file=sys.stderr,
     )
     sys.exit(1)
@@ -1262,11 +1376,30 @@ def _reconcile_after_indeterminate(
 
 
 #: How long the AC8 reconcile keeps re-probing for its Attempt-Id after a
-#: client-side timeout, and how often. The engine may still be inside its own
-#: ceremony budget when the client gives up, so a single probe reads a race as
-#: a determinate negative. Sized above the 2.0s ceremony ceiling so a commit
-#: still landing when the client bailed is normally observed rather than
-#: reported unknown.
+#: client-side timeout, and how often. The engine may still be writing when the
+#: client gives up, so a single probe reads a race as a determinate negative.
+#:
+#: NOT derived from `CEREMONY_BUDGET_SECS`, and must not be re-derived from it.
+#: That constant is a PERFORMANCE bar; this is a TRANSPORT window. How long the
+#: client waits for an answer at all is `ipc.mutation_read_deadline_for`, and
+#: that is where a too-short wait gets fixed -- not here.
+#:
+#: 3.0 AND NOT WIDER, on purpose. This was briefly 10.0, sized against samples
+#: of a client that gave up after `2.0s + settle`. That 2.0s term no longer
+#: exists: the ceremony clamp on the mutation read deadline WAS the defect, and
+#: with it gone a merely-slow commit is answered on the wire instead of arriving
+#: here. The widening was a workaround for a cause since fixed, and its
+#: measurements do not reproduce against the current transport.
+#:
+#: The mechanism is NOT dead -- do not delete it. A genuine non-answer past the
+#: read deadline, a broken pipe after delivery, and a refusal that never reaches
+#: the client all still land here. The window is small because what reaches it
+#: is no longer "a commit that is merely slow".
+#:
+#: Negative spec: the width does NOT weaken the absence rule below. Absence
+#: after the window is still UNKNOWN and still never reads as "safe to re-run";
+#: a longer look could only make the reconcile determinate more often, never
+#: turn an absence into a permission.
 _RECONCILE_SETTLE_SECS = 3.0
 _RECONCILE_POLL_SECS = 0.25
 
@@ -1819,7 +1952,7 @@ def resolve_session_id(cs_core, cs_liveness) -> str:
         _print_no_live_session_error()
         return ""
 
-    # Review: code-reviewer — Finding 2: this is a fail-closed safety gate —
+    # This is a fail-closed safety gate —
     # an exception here must not silently degrade to "0 live sessions"
     # (which reads as the safe case and can misresolve session identity from
     # data the probe was just unable to produce). Abort instead of guessing,
@@ -1901,7 +2034,7 @@ def _blanket_invoking_command_allowed() -> bool:
         except OSError:
             ppid_cmd = ""
     else:
-        # Review: code-reviewer — Finding 4: `ps` reliably existed under the
+        # `ps` reliably existed under the
         # prior bash-under-git-bash implementation (MSYS ships its own
         # ps.exe); now that this runs as native Python, `ps` may not be on
         # PATH on native Windows. Try psutil first (already a stated
@@ -2132,7 +2265,7 @@ def do_blanket(session_id: str, args: "Args", cs_core, cs_liveness, cs_claims) -
 
         sibling_set: Set[str] = set()
         if base and os.path.isdir(base):
-            # Review: code-reviewer — Finding 2: this feeds the F0/F1
+            # This feeds the F0/F1
             # foreign-path subtract, the only correction preventing a
             # blanket sweep from absorbing a concurrent sibling EM's
             # in-flight files. An exception here must not silently degrade
@@ -2154,7 +2287,6 @@ def do_blanket(session_id: str, args: "Args", cs_core, cs_liveness, cs_claims) -
             # argument, mirroring `compute_scope` Step 3's own construction
             # — a legacy/fail-safe T (unknown time) carries no evidence of
             # post-dating anything and is excluded.
-            # Review: code-reviewer Finding 1 (sidecar
             # coordinatorcode-reviewer-5c643f30.md) — this scan is now the
             # shared `cs_scope._challenger_t_events` helper, rather than a
             # third independent rewrite of the same derivation.
@@ -2213,7 +2345,7 @@ def do_blanket(session_id: str, args: "Args", cs_core, cs_liveness, cs_claims) -
         _git_reset_unstage_many(excluded_paths)
 
         if subtracted_count > 0 and not session_id:
-            # Review: code-reviewer — Finding 1 (P2): own_set is empty here
+            # own_set is empty here
             # specifically because session_id is absent, so the "own wins"
             # check above could never have protected any of these paths. A
             # path this session genuinely owns that also appears in a live
@@ -2425,7 +2557,7 @@ def do_scoped(
     # already handled identity resolution and the handoff-scope overlap
     # gate, so concurrent sessions are expected and safe at this point.
     if not combined_mode:
-        # Review: code-reviewer — Finding 2: this is a fail-closed safety
+        # This is a fail-closed safety
         # gate; an exception here must not silently degrade to "0 live
         # sessions" (which reads as the safe case and lets an unsafe
         # concurrent commit proceed). Abort instead of guessing.
@@ -2466,7 +2598,15 @@ def do_scoped(
 
     base = cs_core.sessions_dir()
 
-    # Read my touched.txt for post-filtering (mtime-only orphan exclusion).
+    # Read my own touch record for post-filtering (mtime-only orphan
+    # exclusion). Routed through the same union seam `compute_scope`'s own
+    # Step 1 reads (`cs_scope._read_touch_record_as_legacy_lines`) rather
+    # than a raw `touched.txt` open — that legacy sink has had no writer
+    # since the touch-record.jsonl repoint (docs/plans/2026-08-25-the-
+    # legacy-touch-record-is-retired-by-repointing-its-writers.md), so a
+    # direct read here always found nothing for a real session and this
+    # post-filter silently reclassified every genuine self-scope candidate
+    # as an mtime orphan instead of staging it.
     my_touched: List[str] = []
     # Own-session paths whose LAST event is R (committed-and-released) —
     # tracked separately from `my_touched` purely for Case B's diagnostic
@@ -2475,28 +2615,23 @@ def do_scoped(
     # ERROR doesn't read as if THIS session's own work went unclaimed.
     released_paths: List[str] = []
     if base and session_id:
-        touched_path = os.path.join(base, session_id, "touched.txt")
-        if os.path.isfile(touched_path):
-            try:
-                lines = Path(touched_path).read_text(encoding="utf-8").splitlines()
-            except OSError:
-                lines = []
-            # LC_ALL=C sort -u dedup on read (bash: Phase 3a). SELF-facing
-            # projection (P3): a path last RELEASED (R) must not re-enter
-            # my_touched — `project_self_scope` never applies the
-            # peer-facing mtime re-claim (that arm must not widen
-            # `my_scope`).
-            my_touched.extend(sorted(cs_scope.project_self_scope(lines)))
-            # Review: code-reviewer Finding 1 (sidecar
-            # coordinatorcode-reviewer-5c643f30.md) — shares the
-            # last-event-per-path scan with `project_self_scope` via
-            # `cs_scope._last_verb_map`, rather than re-deriving it here.
-            last_verb: Dict[str, str] = cs_scope._last_verb_map(lines)
-            released_paths = sorted(path for path, verb in last_verb.items() if verb == "R")
+        touched_path = os.path.join(base, session_id, cs_scope._TOUCH_RECORD_FILENAME)
+        lines, _degraded = cs_scope._read_touch_record_as_legacy_lines(touched_path)
+        # LC_ALL=C sort -u dedup on read (bash: Phase 3a). SELF-facing
+        # projection (P3): a path last RELEASED (R) must not re-enter
+        # my_touched — `project_self_scope` never applies the
+        # peer-facing mtime re-claim (that arm must not widen
+        # `my_scope`).
+        my_touched.extend(sorted(cs_scope.project_self_scope(lines)))
+        # coordinatorcode-reviewer-5c643f30.md) — shares the
+        # last-event-per-path scan with `project_self_scope` via
+        # `cs_scope._last_verb_map`, rather than re-deriving it here.
+        last_verb: Dict[str, str] = cs_scope._last_verb_map(lines)
+        released_paths = sorted(path for path, verb in last_verb.items() if verb == "R")
 
     # Union dispatched-agent touched files (broadened mode: recovers the
     # EM's own fan-out output on old Claude Code sentinel-pollution).
-    # Review: code-reviewer — Finding 2: surface a swallowed exception here
+    # Surface a swallowed exception here
     # rather than silently narrowing my_touched (a diagnostic, not a
     # safety-gate reversal — dropping to empty only makes scope narrower).
     try:
@@ -2771,7 +2906,13 @@ def do_scoped(
         try:
             with os.fdopen(msg_fd, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(message)
-            commit_result = git_native.commit_scoped(commit_paths, msg_path, cwd=os.getcwd())
+            commit_result = git_native.commit_scoped(
+                commit_paths,
+                msg_path,
+                cwd=os.getcwd(),
+                detect_rollback=True,
+                declared_reverts=args.declared_reverts,
+            )
         finally:
             try:
                 os.remove(msg_path)
@@ -2791,6 +2932,9 @@ def do_scoped(
                 file=sys.stderr,
             )
             sys.exit(2)
+
+        if commit_result.stderr.strip():
+            print(commit_result.stderr.strip(), file=sys.stderr)
 
         # Success-path cleanup: remove active-scope.txt so peer sessions do
         # not false-positive on the overlap gate. Runs for both pure
@@ -2997,7 +3141,13 @@ def do_scope_from(args: "Args", session_id: str, cs_core, cs_liveness, cs_scope,
         try:
             with os.fdopen(msg_fd, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(message)
-            commit_result = git_native.commit_scoped(my_scope, msg_path, cwd=os.getcwd())
+            commit_result = git_native.commit_scoped(
+                my_scope,
+                msg_path,
+                cwd=os.getcwd(),
+                detect_rollback=True,
+                declared_reverts=args.declared_reverts,
+            )
         finally:
             try:
                 os.remove(msg_path)
@@ -3017,6 +3167,9 @@ def do_scope_from(args: "Args", session_id: str, cs_core, cs_liveness, cs_scope,
                 file=sys.stderr,
             )
             sys.exit(2)
+
+        if commit_result.stderr.strip():
+            print(commit_result.stderr.strip(), file=sys.stderr)
 
         # Declared scope is no longer active after a successful commit —
         # without this, peer sessions read stale entries and false-positive
@@ -3100,7 +3253,7 @@ def main(argv: Sequence[str]) -> None:
     # Self-heal orphaned git locks before any git operation. Best-effort:
     # non-zero rc is not fatal — git itself surfaces a real collision.
     # See docs/wiki/concurrent-em-hazards.md § H21.
-    # Review: code-reviewer — Finding 1: invoke via the shared resolver's
+    # Invoke via the shared resolver's
     # console interpreter, not the bare extensionless path, so this self-heal
     # is Windows-invocable (CreateProcess has no shebang support; the old
     # bare-path form raised FileNotFoundError there and was silently
