@@ -141,7 +141,7 @@ wiki.
 
 ## Related
 
-wiki (full reference) · `coordinator/queue-profiles/lessons.yaml`,
+wiki (full reference) · `${CLAUDE_PLUGIN_ROOT}/queue-profiles/lessons.yaml`,
 `lessons-central-route.yaml`, `lessons-central-apply.yaml`, `lessons-strip.yaml` ·
 `${CLAUDE_PLUGIN_ROOT}/snippets/em-operating-doctrine.md § How to Plan and Hand
 Off, "Improvement Queue"`

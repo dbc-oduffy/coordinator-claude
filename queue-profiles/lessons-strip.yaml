@@ -1,0 +1,115 @@
+# coordinator/queue-profiles/lessons-strip.yaml — the lessons strip grind
+# profile, validated by coordinator/schemas/queue-grind-profile.schema.json
+# and by that schema's test_every_queue_profile_validates, and pushed
+# through the engine's own load_profile/validate_graph/resolve_appetite
+# seam by coordinator/tests/test_lessons_queue_profile.py.
+#
+# The strip run is launched from a repository's own root (a sibling, or DoE
+# for its own promoted rows) with --queue state/lessons and this profile
+# from DoE's coordinator/queue-profiles/, after the central apply run. It
+# writes only that repository. It closes a local row only once the row's
+# promoted_to outbox record has settled centrally -- no fix node, since a
+# strip run never edits a row's body, only its closure.
+#
+# Spec backlink: docs/plans/2026-09-21-canonical-learn-lessons-emitted-workflow.md
+# Tasks section C6.
+
+row_id_key: "@stem"
+
+batch_key: [promoted_to]
+
+priority:
+  field: created
+  order: asc
+
+verdicts:
+  - promoted
+  - drifted
+  - not-applied
+
+# A drifted or not-applied row hands back under its own named type rather
+# than a universal one -- the strip triage record names which repo/outbox
+# record it checked.
+hand_back_types:
+  - strip-drift
+  - strip-pending
+
+graph:
+  triage:
+    kind: triage
+    edges:
+      promoted: refute-close
+      drifted: strip-drift
+      not-applied: strip-pending
+    on_fail: needs-judgment
+
+  refute-close:
+    kind: refute-close
+    edges:
+      confirmed: commit
+    # A refuted promoted claim hands back rather than closing on an
+    # unconfirmed claim. A back-edge to triage would close a loop through
+    # this on_fail, which validate_graph refuses.
+    on_fail: needs-judgment
+
+  commit:
+    kind: commit
+    edges: {}
+    on_fail: commit-failed
+
+closure:
+  status_field: status
+  closed_values:
+    refute-close: applied
+  stamp_fields: [closed_at, closed_by]
+
+triage_policy: |
+  A row closes only when its promoted_to outbox record sits in DoE's
+  state/lessons-outbox/drained/ with a closing commit, and the row's body
+  still matches the promoted body.
+
+  promoted:
+    - "promoted: the promoted_to outbox record has settled (drained, with a closing commit) and the row's body still matches what was promoted. refute-close checks both by reading DoE; it writes nothing there."
+
+  drifted:
+    - "drifted: the row's body has changed since promotion. Hands back strip-drift naming the divergence -- never silently re-promoted or force-closed."
+
+  not_applied:
+    - "not-applied: the promoted_to outbox record has not yet settled (not drained, or drained without a closing commit). Hands back strip-pending -- the age-sweep backstop retries later."
+
+  never_fabricate_a_routing_id:
+    - "Every record cites a manifest row id."
+
+  every_row_ends_in_exactly_one_verdict: true
+
+appetite:
+  hunt:
+    where: [[["promoted_to", "present"]]]
+    concurrency: 4
+    extra_verification: true
+    batch_size: {default: 4}
+    triage_depth: standard
+    window: 1
+    max_agent_calls: 20
+
+  standard:
+    where: [[["promoted_to", "present"]]]
+    concurrency: 6
+    extra_verification: false
+    batch_size: {default: 4}
+    triage_depth: standard
+    window: 2
+    max_agent_calls: 40
+
+  sweep:
+    where: [[["promoted_to", "present"]]]
+    concurrency: 8
+    extra_verification: true
+    batch_size: {default: 4}
+    triage_depth: shallow
+    window: 4
+    max_agent_calls: 200
+
+archive_path: "archive/lessons/"
+
+schema: lesson-entry.schema.json

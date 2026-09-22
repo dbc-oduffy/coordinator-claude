@@ -4497,6 +4497,7 @@
             "executing",
             "landed",
             "implemented",
+            "closed_partial",
             "deferred",
             "abandoned",
             "superseded"
@@ -15539,6 +15540,7 @@
                   "executing",
                   "landed",
                   "implemented",
+                  "closed_partial",
                   "deferred",
                   "abandoned",
                   "superseded"

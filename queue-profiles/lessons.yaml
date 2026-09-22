@@ -1,0 +1,246 @@
+# coordinator/queue-profiles/lessons.yaml — the lessons local-mode grind
+# profile, validated by coordinator/schemas/queue-grind-profile.schema.json
+# and by that schema's test_every_queue_profile_validates, and pushed
+# through the engine's own load_profile/validate_graph/resolve_appetite
+# seam by coordinator/tests/test_lessons_queue_profile.py.
+#
+# /learn-lessons's local run emits and fires this profile through
+# emit-dispatch-workflow.py --queue state/lessons --profile lessons
+# --appetite <a>, replacing EM-driven waves. Every executable step below
+# is a named engine op or agent verify -- no field accepts a command line
+# (DR-queue-grinds-run-on-shared-primitives Negative spec). The operative
+# triage policy lives ONLY here, inline as data.
+#
+# Spec backlink: docs/plans/2026-09-21-canonical-learn-lessons-emitted-workflow.md
+# Tasks section C4.
+
+# Lesson rows carry no reliable id field (1 of 62 rows at census carries a
+# stray id) -- the file stem is the row's identity, and it survives the
+# archive rename.
+row_id_key: "@stem"
+
+# No `source`. The queue's own YAML files are the rows and the only thing a
+# close can write back to. The engine would add lessons.extract's records to
+# the same manifest as separate `@source-*` rows, which duplicates every
+# lesson and yields rows no close can reach.
+
+# Coalesce [proposed_target, target_wiki] -- the first present, non-sentinel
+# value wins; a row with neither batches under @unkeyed.
+batch_key: [proposed_target, target_wiki]
+
+absent_sentinels:
+  target_wiki: [unknown]
+
+priority:
+  field: created
+  order: asc
+
+verdicts:
+  - discard
+  - wiki-append
+  - wiki-new
+  - dedupe
+  - agent-prompt-edit
+  - hook-edit
+  - script-edit
+  - snippet-sync-update
+  - project-structural
+  - universal
+  - doe-escalation
+  - direction-call
+  - malformed
+
+# Hand-back types this profile adds to the universal set (DR-404 § 3):
+# universal rows route to central promotion, and doe-escalation/
+# direction-call reach the PM under their own name.
+hand_back_types:
+  - route-to-central
+  - doe-escalation
+  - direction-call
+
+graph:
+  # Triage runs once. Each verdict family then passes its own agent routing
+  # verify before its stage or hand-back; with no source op there is no
+  # extraction manifest for lessons.verify_extraction to ground against. A
+  # verify node's outcomes are only pass/fail, so it cannot fan out by
+  # verdict, and a second triage node to re-fan would be a second model call
+  # that can disagree with the first.
+  triage:
+    kind: triage
+    edges:
+      discard: verify-routing-discard
+      wiki-append: verify-routing-fix
+      wiki-new: verify-routing-fix
+      dedupe: verify-routing-fix
+      agent-prompt-edit: verify-routing-fix
+      hook-edit: verify-routing-fix
+      script-edit: verify-routing-fix
+      snippet-sync-update: verify-routing-fix
+      project-structural: verify-routing-fix
+      universal: verify-routing-universal
+      doe-escalation: verify-routing-doe-escalation
+      direction-call: verify-routing-direction-call
+      malformed: verify-routing-malformed
+    on_fail: needs-judgment
+
+  # A failed routing verify hands back verify-failed: a back-edge to triage
+  # would close a loop through this on_fail, which validate_graph refuses.
+  verify-routing-discard:
+    kind: verify
+    verify:
+      default: agent
+    edges:
+      pass: refute-close
+    on_fail: verify-failed
+
+  verify-routing-fix:
+    kind: verify
+    verify:
+      default: agent
+    edges:
+      pass: fix
+    on_fail: verify-failed
+
+  verify-routing-universal:
+    kind: verify
+    verify:
+      default: agent
+    edges:
+      pass: route-to-central
+    on_fail: verify-failed
+
+  verify-routing-doe-escalation:
+    kind: verify
+    verify:
+      default: agent
+    edges:
+      pass: doe-escalation
+    on_fail: verify-failed
+
+  verify-routing-direction-call:
+    kind: verify
+    verify:
+      default: agent
+    edges:
+      pass: direction-call
+    on_fail: verify-failed
+
+  verify-routing-malformed:
+    kind: verify
+    verify:
+      default: agent
+    edges:
+      pass: needs-judgment
+    on_fail: verify-failed
+
+  refute-close:
+    kind: refute-close
+    edges:
+      confirmed: commit
+    # A refuted discard hands back rather than closing on an unconfirmed
+    # claim. A back-edge to triage would close a loop through this
+    # on_fail, which validate_graph refuses as a second on_fail traversal.
+    on_fail: needs-judgment
+
+  fix:
+    kind: fix
+    edges:
+      done: verify
+    on_fail: baton
+
+  verify:
+    kind: verify
+    edges:
+      pass: commit
+    # A failed verify hands back rather than closing. A back-edge to fix
+    # would close a loop through this on_fail, which validate_graph refuses.
+    on_fail: verify-failed
+    verify:
+      default: agent
+
+  commit:
+    kind: commit
+    edges: {}
+    on_fail: commit-failed
+
+closure:
+  status_field: status
+  closed_values:
+    fix: applied
+    refute-close: discarded
+  stamp_fields: [closed_at, closed_by]
+
+triage_policy: |
+  Wikis are the default destination. Never emit doctrine-edit or
+  memory-pointer. Route to wiki-append/wiki-new with verdict doe-escalation
+  when a doctrine-plane change is warranted.
+
+  mechanical_contract_evidence:
+    - "A mechanical-contract lesson (an env-var value, a path rule, an API signature, an exit code) needs an executable witness: a passing test, live tool behaviour, or official docs."
+    - "With none, or with a witness that contradicts it, the verdict is discard. Narrative confidence never outweighs converging authorities."
+
+  reachable_target:
+    - "A wiki-append/wiki-new target must be reachable from a surface an agent traverses (a wiki index, a skill step, a dispatch preamble)."
+    - "An orphaned target is linked from its index in the same fix, or the row is rerouted to a linked wiki."
+
+  scope_routing:
+    - "scope: universal or fleet with a central-wiki target is universal."
+    - "A domain-looking universal is routed locally, and its fix writes scope: project."
+
+  dedupe:
+    - "dedupe: the row restates an open row or a wiki rule in other words. The fix appends a recurrence note to the survivor and closes this row."
+
+  never_fabricate_a_routing_id:
+    - "Every record cites a manifest row id."
+
+  malformed:
+    - "A row missing a schema-required field (status, scope, from_repo) is malformed and hands back needs-judgment. It is never backfilled."
+    - "A row missing only its target (proposed_target, target_wiki) is not malformed: triage names the target."
+
+  tradeoff_free_fix_in_run:
+    - "A tradeoff-free row below plan weight of kind agent-prompt-edit, hook-edit, script-edit, snippet-sync-update or project-structural is fixed in-run, like any safe fix; triage names the tests its verify runs."
+
+  direction_call:
+    - "direction-call: the default is fix, not escalate. A row is a direction call only when triage can name at least two acceptable outcomes that differ in user-visible behavior or doctrine meaning; that row goes to the PM."
+    - "A hook, script or prompt edit that fixes a named defect is never a taste call merely because it touches operator-facing surface -- a single correct answer given the evidence is a fix, not a direction call."
+
+  verify_map:
+    default:
+      - agent
+      - coordinator/tests/test_doctrine_surfaces_are_not_changelogs.py
+      - coordinator/tests/test_doctrine_surface_weight.py
+      - coordinator/tests/test_doctrine_surface_split_index_matches_corpus.py
+      - "the tests triage names for the row (required for a structural-kind fix)"
+
+  every_row_ends_in_exactly_one_verdict: true
+
+appetite:
+  hunt:
+    where: [[["proposed_target", "present"], ["scope", "==", "project"]], [["target_wiki", "present"], ["scope", "==", "project"]]]
+    concurrency: 4
+    extra_verification: true
+    batch_size: {default: 4}
+    triage_depth: standard
+    window: 1
+    max_agent_calls: 40
+
+  standard:
+    where: [[["scope", "==", "project"]], [["scope", "absent"]]]
+    concurrency: 6
+    extra_verification: false
+    batch_size: {default: 4}
+    triage_depth: standard
+    window: 2
+    max_agent_calls: 40
+
+  sweep:
+    concurrency: 8
+    extra_verification: true
+    batch_size: {default: 4}
+    triage_depth: shallow
+    window: 4
+    max_agent_calls: 200
+
+archive_path: "archive/lessons/"
+
+schema: lesson-entry.schema.json

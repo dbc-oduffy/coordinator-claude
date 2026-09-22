@@ -1,0 +1,154 @@
+# coordinator/queue-profiles/lessons-central-route.yaml — the lessons
+# central-mode route grind profile, validated by
+# coordinator/schemas/queue-grind-profile.schema.json and by that schema's
+# test_every_queue_profile_validates, and pushed through the engine's own
+# load_profile/validate_graph/resolve_appetite seam by
+# coordinator/tests/test_lessons_queue_profile.py.
+#
+# /learn-lessons's central route run emits and fires this profile through
+# emit-dispatch-workflow.py --queue state/lessons-outbox --profile
+# lessons-central-route --appetite <a>, over rows coordinator-lesson-promote
+# already wrote -- nothing here is extracted, so the profile carries no
+# source block.
+#
+# Spec backlink: docs/plans/2026-09-21-canonical-learn-lessons-emitted-workflow.md
+# Tasks section C5.
+
+row_id_key: "@stem"
+
+# proposed_target is dropped from C4's coalesce: lessons-outbox.schema.json
+# has no such property, only target_wiki, so that coalesce term would be
+# dead here.
+batch_key: [target_wiki]
+
+absent_sentinels:
+  target_wiki: [unknown]
+
+priority:
+  field: created
+  order: asc
+
+verdicts:
+  - route
+  - duplicate
+  - unknown-target
+
+# Every row's triage record carries the proposed destination and
+# change_kind, so the PM rules on a concrete record. `route` and
+# `unknown-target` both hand back pm-decision -- the triage record's own
+# reason field, not the graph, distinguishes a missing target.
+hand_back_types:
+  - pm-decision
+
+graph:
+  # Triage runs once; each verdict family passes its own agent routing
+  # verify (outbox rows carry no extraction manifest, so
+  # lessons.verify_extraction cannot ground them). A verify node's outcomes
+  # are only pass/fail, so it cannot fan out by verdict, and a second triage
+  # node would be a second model call that can disagree with the first.
+  triage:
+    kind: triage
+    edges:
+      route: verify-routing-pm
+      duplicate: verify-routing-duplicate
+      unknown-target: verify-routing-pm
+    on_fail: needs-judgment
+
+  # A failed routing verify hands back verify-failed: a back-edge to triage
+  # would close a loop through this on_fail, which validate_graph refuses.
+  verify-routing-pm:
+    kind: verify
+    verify:
+      default: agent
+    edges:
+      pass: pm-decision
+    on_fail: verify-failed
+
+  verify-routing-duplicate:
+    kind: verify
+    verify:
+      default: agent
+    edges:
+      pass: refute-close
+    on_fail: verify-failed
+
+  refute-close:
+    kind: refute-close
+    edges:
+      confirmed: commit
+    # A refuted duplicate hands back rather than closing on an unconfirmed
+    # claim. A back-edge to triage would close a loop through
+    # this on_fail, which validate_graph refuses.
+    on_fail: needs-judgment
+
+  commit:
+    kind: commit
+    edges: {}
+    on_fail: commit-failed
+
+closure:
+  status_field: status
+  closed_values:
+    refute-close: discarded
+  stamp_fields: [closed_at, closed_by]
+
+triage_policy: |
+  Wikis are the default destination. Never emit doctrine-edit or
+  memory-pointer. Route to wiki-append/wiki-new with verdict doe-escalation
+  when a doctrine-plane change is warranted (this profile's own verdict
+  vocabulary carries no doe-escalation/direction-call member -- an outbox
+  row that needs one is a route hand-back naming the reason, per C4's
+  malformed-row precedent restated below).
+
+  mechanical_contract_evidence:
+    - "A mechanical-contract lesson (an env-var value, a path rule, an API signature, an exit code) needs an executable witness: a passing test, live tool behaviour, or official docs."
+    - "With none, or with a witness that contradicts it, the row does not route -- it hands back pm-decision naming the missing witness."
+
+  reachable_target:
+    - "A wiki-append/wiki-new target must be reachable from a surface an agent traverses (a wiki index, a skill step, a dispatch preamble)."
+    - "An orphaned target is linked from its index in the same fix, or the row is rerouted to a linked wiki."
+
+  duplicate:
+    - "duplicate: the row restates an open outbox row or a wiki rule in other words. refute-close confirms it before it closes discarded."
+    - "Dedupe also across from_repo: several sources naming one rule are a convergence signal, not independent rows -- route once and name every source in the triage record."
+
+  never_fabricate_a_routing_id:
+    - "Every record cites a manifest row id."
+
+  unknown_target:
+    - "unknown-target: the row's target_wiki is the unknown sentinel or names no reachable surface. The triage record names what target it could not resolve."
+
+  every_row_ends_in_exactly_one_verdict: true
+
+appetite:
+  hunt:
+    where: [[["target_wiki", "present"], ["pm_decision", "absent"]]]
+    concurrency: 4
+    extra_verification: true
+    batch_size: {default: 4}
+    triage_depth: standard
+    window: 1
+    max_agent_calls: 20
+
+  standard:
+    where: [[["pm_decision", "absent"]]]
+    limit: 150
+    concurrency: 6
+    extra_verification: false
+    batch_size: {default: 4}
+    triage_depth: standard
+    window: 2
+    max_agent_calls: 40
+
+  sweep:
+    where: [[["pm_decision", "absent"]]]
+    concurrency: 8
+    extra_verification: true
+    batch_size: {default: 4}
+    triage_depth: shallow
+    window: 4
+    max_agent_calls: 200
+
+archive_path: "state/lessons-outbox/drained/"
+
+schema: lessons-outbox.schema.json

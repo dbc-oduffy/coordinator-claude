@@ -128,7 +128,7 @@ _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
-from cc_invoke import require_engine_on_path  # noqa: E402
+from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 
 # The engine root must be on sys.path before the coordinator_core import
 # below: this file is also published into the claude-klabauter mirror, where
@@ -137,7 +137,13 @@ from cc_invoke import require_engine_on_path  # noqa: E402
 # repo-agnostic — resolved off this file's own location, never off cwd or
 # the calling repo). Same bootstrap as coordinator/bin/coordinator-lesson-add
 # (9b979ee5f).
-require_engine_on_path(__file__)
+#
+# COLOCATED, never the env-first `require_engine_on_path`: what this imports is
+# the engine's OWN test helper, so the right copy is the one belonging to the
+# checkout this file lives in. See with-tier-t-slot's note at the same seam for
+# what env-first did to a run whose COORDINATOR_ENGINE_ROOT named a mirror
+# pinned behind the checkout.
+require_colocated_engine_on_path(__file__)
 
 from coordinator_core.testing import suite_mutex  # noqa: E402
 

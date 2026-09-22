@@ -573,6 +573,17 @@ def main(argv: list[str]) -> int:
     today = local_day()
     current = wc.git_out("branch", "--show-current")
 
+    # Designated-day-branch short-circuit (PM ruling 2026-09-22): a
+    # `coordinator.dayBranch` designation (cloud pre-boot's record of the
+    # harness-designated branch) IS the day branch, whatever its shape. When
+    # the tree already sits on it, the invariant holds — no rename, no cut.
+    from daily_branch import read_configured_day_branch
+
+    configured_day_branch = read_configured_day_branch(wc.root)
+    if configured_day_branch and current == configured_day_branch:
+        _out(f"IN-SPAN branch={current}")
+        return 0
+
     # Step 0.2a / 0.2b — slug self-heal + drift
     machine_slug_self_heal()
     contributor_slug_self_heal()

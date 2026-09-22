@@ -1,0 +1,222 @@
+# coordinator/queue-profiles/improvement.yaml — the improvement-queue grind
+# profile, validated by coordinator/schemas/queue-grind-profile.schema.json
+# and by that schema's test_every_queue_profile_validates.
+#
+# /debt-triage's improvement leg emits and fires this profile through
+# emit-dispatch-workflow.py --queue state/improvement-queue --profile
+# improvement, replacing EM classification, Haiku relevance waves and
+# in-session class-3 dispatch. Every executable step below is a named
+# engine op or agent verify — no field accepts a command line
+# (DR-queue-grinds-run-on-shared-primitives § Negative spec).
+#
+# Spec backlink:
+# docs/plans/2026-09-21-canonical-improvement-grind-emitted-workflow.md
+# Tasks § C1.
+
+# Row identity is the queue file's own stem (DR-404 § 5) — it survives the
+# archive rename, unlike the `id` field carried by only 9 of 479 open rows
+# at census.
+row_id_key: "@stem"
+
+# Coalesce list [change_kind] (DR-404 § 5): a single field, and a row
+# missing it is bucketed by the engine's own "@unkeyed" reserved key — no
+# profile-side fallback needed.
+batch_key: [change_kind]
+
+# `created`, ascending — present on all 479 rows at census.
+priority:
+  field: created
+  order: asc
+
+verdicts:
+  - stale
+  - fix
+  - structural
+  - needs-judgment
+  - universal
+  - park
+  - wont-do
+  - yagni
+  - unclear-direction
+
+# Profile hand-back types, added to the universal set (DR-404 § 3). Each
+# ends a row's path and reaches the PM in the run's hand-back;
+# route-to-learn-lessons carries a universal row to the lessons pipeline.
+hand_back_types:
+  - park
+  - wont-do
+  - yagni
+  - unclear-direction
+  - route-to-learn-lessons
+
+graph:
+  triage:
+    kind: triage
+    edges:
+      stale: refute-close
+      fix: fix
+      structural: baton
+      universal: route-to-learn-lessons
+      needs-judgment: needs-judgment
+      park: park
+      wont-do: wont-do
+      yagni: yagni
+      unclear-direction: unclear-direction
+    # Triage itself failing to reach a verdict is a needs-judgment
+    # hand-back, never a silent drop.
+    on_fail: needs-judgment
+
+  refute-close:
+    kind: refute-close
+    edges:
+      confirmed: commit
+    # A refuted stale claim hands back rather than closing on an unconfirmed
+    # claim. Retriaging would close a loop through this on_fail, which
+    # validate_graph refuses; going straight to fix would skip triage's
+    # structural and tradeoff tests.
+    on_fail: needs-judgment
+
+  fix:
+    kind: fix
+    edges:
+      done: verify
+    on_fail: baton
+
+  verify:
+    kind: verify
+    edges:
+      pass: commit
+    # A failed verify hands back rather than closing. A back-edge to fix
+    # would close a loop through this on_fail, which validate_graph refuses.
+    on_fail: verify-failed
+    verify:
+      default: agent
+
+  commit:
+    kind: commit
+    edges: {}
+    on_fail: commit-failed
+
+closure:
+  status_field: status
+  closed_values:
+    fix: closed
+    refute-close: closed
+  stamp_fields: [closed_at, closed_by]
+
+# No `absent_sentinels` — improvement-queue rows use YAML key absence
+# itself as the absence signal; nothing here needs a stand-in value.
+
+triage_policy: |
+    # DR-404 § 5's routing key test. `queue_scope` is evidence toward a
+    # verdict, never the verdict itself, and an unset scope is a decision
+    # triage makes, not a default.
+    scope:
+      - 'Apply the routing key test: "if a different project type used the coordinator pipeline, would this rule apply?" A yes is universal. A no goes to terminal triage.'
+      - "queue_scope is evidence, never the answer. An unset scope is a decision triage makes."
+
+    # Class 3 (the `fix` verdict) needs both legs to hold.
+    class_3_fix:
+      - "fix applies only when the fix is tradeoff-free (no judgment call embedded) AND non-structural (touches no module boundary, interface or cross-system surface)."
+      - "A row that fails only the structural leg is structural, not fix."
+      - "A row with an embedded tradeoff is needs-judgment, not fix."
+
+    presumed_plan_weight:
+      - "A row proposing a new capability, rather than correcting existing behaviour, is a feature request. Size it M or larger unless the digging shows otherwise, with evidence either way."
+
+    stale:
+      - "stale applies when the cited problem no longer reproduces at HEAD, or the row is already applied. refute-close must confirm it before commit."
+
+    park:
+      - "park needs a named reason. It is never a sink for a row triage could not finish -- that row is unclear-direction."
+
+    queue_termini:
+      - "classes 1 and 2 -> baton (solo or themed is decided after the run, by clustering)"
+      - "class 3 -> fix"
+      - "class 4 -> stale in-run, or wont-do / park to the PM"
+      - "Every row ends in exactly one verdict, with no fallthrough."
+
+    # Verify map keyed by change_kind (DR-404 § 5). The engine has no
+    # doctrine-ratchets op, so `wiki-append`/`wiki-new` are agent-verified
+    # against the named DoE doctrine ratchet tests, not an engine verify op.
+    verify_map:
+      wiki-append:
+        - agent
+        - coordinator/tests/test_doctrine_surface_split.py
+        - coordinator/tests/test_doctrine_surface_split_index_matches_corpus.py
+        - coordinator/tests/test_doctrine_surfaces_are_not_changelogs.py
+        - coordinator/tests/test_doctrine_surface_weight.py
+      wiki-new:
+        - agent
+        - coordinator/tests/test_doctrine_surface_split.py
+        - coordinator/tests/test_doctrine_surface_split_index_matches_corpus.py
+        - coordinator/tests/test_doctrine_surfaces_are_not_changelogs.py
+        - coordinator/tests/test_doctrine_surface_weight.py
+      skill-edit:
+        - agent
+        - "the tests triage names for the row"
+      script-edit:
+        - agent
+        - "the tests triage names for the row"
+      hook-edit:
+        - agent
+        - "the tests triage names for the row"
+      code-edit:
+        - agent
+        - "the tests triage names for the row"
+      agent-prompt-edit:
+        - agent
+        - "the tests triage names for the row"
+      test-edit:
+        - agent
+        - "the tests triage names for the row"
+      config-edit:
+        - agent
+        - "the tests triage names for the row"
+      # Default spec: doc-edit, verification, off-enum values and unkeyed rows.
+      default:
+        - agent
+
+appetite:
+  # 102 rows at 68100a02a (census row 4). concurrency/extra_verification are
+  # the profile's own named values; the rest are the scaled-down defaults
+  # (concurrency 2 in the plan's own scaling note does not apply here since
+  # this preset already names its own concurrency). where: queue_scope ==
+  # project AND severity present (a single AND clause -- the engine's where
+  # grammar is a JSON DNF: a list of OR clauses, each a list of AND terms).
+  hunt:
+    where: [[["queue_scope", "==", "project"], ["severity", "present"]]]
+    concurrency: 4
+    extra_verification: true
+    batch_size: {default: 4}
+    triage_depth: {default: standard}
+    window: 1
+    max_agent_calls: 20
+
+  # 180 rows at 74f38fe0c (census row 4). C2's amendment (DR-404 § 1, c8's
+  # `absent` operator landed): queue_scope == project, OR queue_scope
+  # absent, OR severity present -- three OR clauses, each a single term.
+  # limit/concurrency are the profile's own named values; the rest mirror
+  # the engine fixture's `standard` preset.
+  standard:
+    where: [[["queue_scope", "==", "project"]], [["queue_scope", "absent"]], [["severity", "present"]]]
+    limit: 150
+    concurrency: 8
+    extra_verification: false
+    batch_size: {default: 4}
+    triage_depth: {default: standard}
+    window: 2
+    max_agent_calls: 40
+
+  # No `where`, no cap; knobs mirror the engine fixture's `sweep` preset.
+  sweep:
+    concurrency: 16
+    extra_verification: true
+    batch_size: {P0: 2, P1: 6, P2: 10, P3: 12}
+    triage_depth: {P0: deep, P1: standard, P2: standard, P3: shallow}
+    window: 4
+    max_agent_calls: 200
+
+archive_path: "archive/improvement-queue/"
+
+schema: improvement-queue.schema.json
