@@ -34,7 +34,7 @@ ops and prints that op's own result object verbatim as JSON.
   change. `--key` is optional -- omitted, it lists every persisted handle in the repo.
 
   Invoke through the `.exe` launcher by absolute path via the PowerShell call operator (Shape W).
-  Ladder and shapes: `snippets/resolve-coordinator-bin.md`.
+  Ladder and shapes: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
   `& "$env:COORDINATOR_SETTINGS_HOME\bin\app-session.exe" census --key <target>`
 

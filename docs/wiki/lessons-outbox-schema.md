@@ -11,12 +11,12 @@ system: learn-lessons
 
 
 The lessons outbox is a per-entry YAML store at `state/lessons-outbox/<ISO-ts>-<slug>.yaml`
-inside each peer repo. Each file represents one lesson ready for DoE-side drain. Entries are
-produced mechanically by the claude-klabauter `coordinator/bin/coordinator-lesson-promote` CLI (invoked from
+inside each peer repo. Each file represents one lesson ready for central-side drain. Entries are
+produced mechanically by the engine repo's `coordinator/bin/coordinator-lesson-promote` CLI (invoked from
 `/learn-lessons` local-mode when a `[universal]` entry has a resolved central-wiki target).
-The DoE session consumes the outbox during `/learn-lessons --central` drain and moves drained
+The central session consumes the outbox during `/learn-lessons --central` drain and moves drained
 entries to `state/lessons-outbox/drained/` as the writeback step. Every peer repo manages its
-own outbox; the DoE machine reads across all registered peers via
+own outbox; the central machine reads across all registered peers via
 `~/.claude/machine-local/registry.local.toml`.
 
 ---
@@ -29,18 +29,22 @@ own outbox; the DoE machine reads across all registered peers via
 | `created` | string (ISO 8601 UTC) | required | Timestamp of entry creation. Produced by the CLI; never set manually. Format: `YYYY-MM-DDTHH:MM:SSZ`. | `"2026-06-15T14:32:07Z"` |
 | `from_repo` | string | required | Registry shortname of the originating repo, resolved from `machine-local/registry.local.toml` `[repos]` table using the cwd git-root match. Not a URL or filesystem path — the short identifier as registered (e.g. `example-repo`, `example-sim-repo`). | `"example-repo"` |
 | `title` | string | required | Human-readable lesson title. Same text as the `title:` field on the source `state/lessons/<slug>.yaml` entry. Brief, noun-phrase form. | `"Drain-branch must cut from peer main, not active workstream"` |
-| `body` | string | required | Prose explanation of the lesson. Multi-line allowed. "Just enough structure" — a paragraph or two; not a wiki article. The DoE apply step uses this as the raw content for the wiki patch. | `"When the DoE drain step creates a branch on a peer repo, it must cut from the peer's main rather than the current workstream branch. Cutting from the workstream silently entangles unrelated work into the drain commit."` |
+| `body` | string | required | Prose explanation of the lesson. Multi-line allowed. "Just enough structure" — a paragraph or two; not a wiki article. The central apply step uses this as the raw content for the wiki patch. | `"When the central drain step creates a branch on a peer repo, it must cut from the peer's main rather than the current workstream branch. Cutting from the workstream silently entangles unrelated work into the drain commit."` |
 | `change_kind` | enum (string) | required | Classification of the target change. Drives apply dispatch in `/learn-lessons --central`. **See § Change-kind enum — this field's closed enum is defined there.** | `"wiki-append"` |
-| `target_wiki` | string | required | Named central wiki path under `~/.claude/docs/wiki/<name>.md`, or the literal string `unknown` when the classifier could not resolve a target. The DoE apply step rejects `unknown` entries and queues them for manual triage. | `"docs/wiki/learn-lessons-routing.md"` or `"unknown"` |
+| `target_wiki` | string | required | Named central wiki path under `~/.claude/docs/wiki/<name>.md`, or the literal string `unknown` when the classifier could not resolve a target. The central apply step rejects `unknown` entries and queues them for manual triage. | `"docs/wiki/learn-lessons-routing.md"` or `"unknown"` |
 | `scope_tags` | list of strings | optional | Free-form tags for filtering and priority. Convention: repo shortname, system name, or symptom label. | `["drain", "cross-repo", "state"]` |
-| `evidence` | string or list of strings | optional | Commit SHA, plan path, or lesson-source reference — the per-entry `state/lessons/<slug>.yaml` filename for post-migration captures, or a legacy `state/lessons.md:<N>` line reference on pre-migration entries — that motivated this entry. Used by the DoE apply step for provenance annotation. | `"76130204"` or `["76130204", "docs/plans/<date>-universal-lesson-routing-mechanical-capture.md"]` |
+| `evidence` | string or list of strings | optional | Commit SHA, plan path, or lesson-source reference — the per-entry `state/lessons/<slug>.yaml` filename for post-migration captures, or a legacy `state/lessons.md:<N>` line reference on pre-migration entries — that motivated this entry. Used by the central apply step for provenance annotation. | `"76130204"` or `["76130204", "docs/plans/<date>-universal-lesson-routing-mechanical-capture.md"]` |
 | `trigger` | string | optional | The precondition or symptom under which the lesson fires. Author-supplied at capture only — see § Structured facets (anti-fabrication). | `"drain step invoked from a non-main branch"` |
 | `why` | string | optional | The rationale behind the lesson. Author-supplied at capture only. | `"cutting from workstream entangles unrelated work into the drain commit"` |
 | `how_to_apply` | string | optional | The corrective action. Author-supplied at capture only. | `"cut the drain branch from peer main, never from the active workstream branch"` |
+| `pm_decision` | enum (string) | optional | The PM's ruling on this row, written by the EM after the central route run. May be ruled per-record or per-cluster: a cluster ruling (approve, defer, or reject every row sharing a triage cluster id in one utterance) writes the same `pm_decision` value to every row in that cluster, and the EM records the cluster id ruled on. The apply run selects rows where `pm_decision == apply`. One of `apply`, `defer`, `reject`. | `"apply"` |
+| `status` | string | optional | Closure status, written by the engine closer when this outbox row is applied. | `"closed"` |
+| `closed_at` | string (ISO 8601 UTC) | optional | Timestamp the engine closer closed this outbox row. Written by the engine closer; never set manually. | `"2026-09-21T10:00:00Z"` |
+| `closed_by` | string | optional | Identifier of the engine closer (or session) that closed this outbox row. Written by the engine closer; never set manually. | `"coordinator-lesson-apply"` |
 
 > **Forward-seam note (post-migration capture):** When a lesson captured post-migration is promoted here, the `evidence` value naturally evolves from a `state/lessons.md:<N>` line reference to the per-entry filename (`state/lessons/<slug>.yaml`).
 
-> **Metadata honesty.** `created` and `from_repo` are emitted as real, non-null values at capture time — not placeholders. If a downstream consumer (e.g. Cockpit date-bounded queries) needs to exclude entries on a promotion-state basis to dodge a null-`created` case, that is a signal the emitter regressed; re-verify against claude-klabauter `coordinator-queue-append` before adding query-side workarounds. <!-- src: plan31-007 -->
+> **Metadata honesty.** `created` and `from_repo` are emitted as real, non-null values at capture time — not placeholders. If a downstream consumer (e.g. Cockpit date-bounded queries) needs to exclude entries on a promotion-state basis to dodge a null-`created` case, that is a signal the emitter regressed; re-verify against the engine repo's `coordinator-queue-append` before adding query-side workarounds. <!-- src: plan31-007 -->
 
 ### Example entry (complete)
 
@@ -68,7 +72,7 @@ evidence: "76130204"
 
 The three optional facet fields (`trigger`, `why`, `how_to_apply` — see § Schema above) are
 **author-supplied at capture only**. They are populated via explicit `--trigger`/`--why`/
-`--how-to-apply` flags on claude-klabauter `coordinator-queue-append` at the moment a lesson is first written to
+`--how-to-apply` flags on the engine repo's `coordinator-queue-append` at the moment a lesson is first written to
 `state/lessons/<slug>.yaml` (the per-entry capture surface upstream of this outbox), not
 retrofitted onto the outbox entry during promotion.
 
@@ -87,7 +91,7 @@ serves `state/lessons/`, `state/lessons-outbox/`, and the improvement/debt/bug q
 ## Change-kind enum
 
 <!-- This section is the SINGLE AUTHORITATIVE DEFINITION of the change_kind enum.
-     The CLI (claude-klabauter coordinator/bin/coordinator-lesson-promote) and learn-lessons-routing.md § Change-Kind Taxonomy
+     The CLI (the engine repo's coordinator/bin/coordinator-lesson-promote) and learn-lessons-routing.md § Change-Kind Taxonomy
      both REFERENCE this section rather than defining the enum inline.
      Do NOT duplicate the enum values in those files — point here instead. -->
 
@@ -102,10 +106,10 @@ for the enum-implementation tokens.
 
 | Value | Semantics | Example |
 |---|---|---|
-| `doctrine-edit` | A CLAUDE.md body change or a doctrine-altitude wiki change that elevates to CLAUDE.md. Applies when the lesson represents a cross-cutting operating rule, not domain-specific guidance. | Adding the "drain-branch-from-main" rule to coordinator CLAUDE.md § DoE drain. |
+| `doctrine-edit` | A CLAUDE.md body change or a doctrine-altitude wiki change that elevates to CLAUDE.md. Applies when the lesson represents a cross-cutting operating rule, not domain-specific guidance. | Adding the "drain-branch-from-main" rule to coordinator CLAUDE.md § central drain. |
 | `agent-prompt-edit` | A change to an agent prompt body (files under `agents/`). Applies when the lesson refines how a named agent reasons or what it checks. | Adding a portability-lens row to `agents/code-reviewer.md`. |
 | `hook-edit` | A change to a hook script — any `.sh`, `.py`, or `.ps1` file under `hooks/`. Applies when the lesson identifies a missing guard, wrong trigger, or silent failure in a hook. | Adding a `[doe-state-drain]` commit-prefix guard to `hooks/pre-commit`. |
-| `script-edit` | A change to a `bin/` utility script that is not a hook. Applies when the lesson identifies a bug, missing flag, or wrong default in a CLI tool. | Fixing claude-klabauter `coordinator/bin/coordinator-lesson-promote` to reject `from_repo: unknown`. |
+| `script-edit` | A change to a `bin/` utility script that is not a hook. Applies when the lesson identifies a bug, missing flag, or wrong default in a CLI tool. | Fixing the engine repo's `coordinator/bin/coordinator-lesson-promote` to reject `from_repo: unknown`. |
 | `snippet-sync-update` | A snippet body change that requires `bin/verify-<name>-sync.sh --fix` after editing. Applies when the lesson identifies a stale or incorrect snippet that propagates into prompts via sync. | Updating `snippets/drain-preamble.md` and re-running `bin/verify-snippet-sync drain-preamble --fix`. |
 | `wiki-new` | A new wiki file under `docs/wiki/`. Applies when the lesson introduces a concept or subsystem that has no existing wiki home. | Creating `docs/wiki/lessons-outbox-schema.md` (this file). |
 | `wiki-append` | An append to an existing wiki section. The most common value — use this when the lesson adds a row, paragraph, or named exception to an existing wiki. | Appending a drain-writeback note to `docs/wiki/learn-lessons-routing.md § Change-Kind Taxonomy`. |
@@ -132,27 +136,30 @@ for the enum-implementation tokens.
 
 ## Lifecycle
 
-1. **Writer (CLI):** claude-klabauter `coordinator/bin/coordinator-lesson-promote` writes one YAML file per entry to
+1. **Writer (CLI):** the engine repo's `coordinator/bin/coordinator-lesson-promote` writes one YAML file per entry to
    `state/lessons-outbox/<ISO-ts>-<slug>.yaml`. The directory is created on first invocation
    (`mkdir -p`). No two entries share a file — each invocation appends a new timestamped file.
 
 2. **Location:** `state/lessons-outbox/` in each peer repo. This path is under `state/`, which
    is never archived by `/distill` or `/update-docs` — see § Sweep-exclusion contract.
 
-3. **Drainer (DoE central run):** `/learn-lessons --central` reads all peer outboxes via
-   `~/.claude/machine-local/registry.local.toml`. See § DoE-side consumer notes and plan § C4
+3. **Drainer (central run):** `/learn-lessons --central` reads all peer outboxes via
+   `~/.claude/machine-local/registry.local.toml`. See § Central-side consumer notes and plan § C4
    for the full drain procedure.
 
-4. **Archival (peer-side writeback):** After the DoE apply step, drained entries are moved from
-   `state/lessons-outbox/` to `state/lessons-outbox/drained/` on the peer repo via `git mv` on
-   a `drain/<YYYY-MM-DD>-doe-pull` branch. The branch is created locally on the DoE machine;
-   the peer EM pulls and merges on their own schedule.
+4. **Archival (peer-side writeback):** After the central apply step, an applied outbox row (one
+   whose `pm_decision` resolved to `apply`) moves from `state/lessons-outbox/` to
+   `state/lessons-outbox/drained/<YYYY-MM>/` on the peer repo via `git mv` on
+   a `drain/<YYYY-MM-DD>-doe-pull` branch. The branch is created locally on the central machine;
+   the peer EM pulls and merges on their own schedule. `lessons-outbox-drain read` globs only the
+   top level of `state/lessons-outbox/`, so the `<YYYY-MM>` month subdirectory under `drained/`
+   stays out of its reads.
 
 ---
 
-## DoE-side consumer notes
+## Central-side consumer notes
 
-The DoE drain (`/learn-lessons --central`) enumerates peer repos via the `[repos]` table in
+The central drain (`/learn-lessons --central`) enumerates peer repos via the `[repos]` table in
 `~/.claude/machine-local/registry.local.toml`. For each registered peer repo that is on disk
 on the current machine, the drain:
 
@@ -166,7 +173,7 @@ on the current machine, the drain:
    (per `skills/learn-lessons/SKILL.md` Phase 2 central-mode).
 5. Writes back drained entries to each peer's `drained/` subdirectory (see § Lifecycle step 4).
 
-Peers not on disk on the current machine are skipped with a warning. The DoE drain is designed
+Peers not on disk on the current machine are skipped with a warning. The central drain is designed
 to run from a machine with all peer repos checked out (typically Machine-a).
 
 ---
@@ -197,7 +204,7 @@ above never does.
 
 <!-- src: plan31-016, plan31-017, plan31-019, plan31-028, plan31-029, plan31-030, plan31-031 -->
 
-Separate from the DoE-side drain (§ DoE-side consumer notes), the cockpit contract exposes a
+Separate from the central-side drain (§ Central-side consumer notes), the cockpit contract exposes a
 read-only `LessonSummary` view over this same outbox for dashboard consumption.
 
 **Capture surface is lightweight, not cockpit-shaped, by design.** `state/lessons/` is a
@@ -216,8 +223,8 @@ Cockpit view) to read `state/lessons/` directly — it reads the structured outb
 3. **Promote** — a `[universal]` lesson with a resolved central-wiki target invokes
    `coordinator-lesson-promote`, which writes the structured YAML this schema defines to
    `state/lessons-outbox/`.
-4. **Drain** (DoE central run) → reads `state/lessons-outbox/*.yaml`, dedupes on
-   `(title, change_kind, target_wiki)` (see § DoE-side consumer notes), routes through apply,
+4. **Drain** (central run) → reads `state/lessons-outbox/*.yaml`, dedupes on
+   `(title, change_kind, target_wiki)` (see § Central-side consumer notes), routes through apply,
    then `git mv`s the entry to `drained/`.
 
 **`LessonSummary` proposed field set (Option B — reads the outbox as the typed artifact
@@ -273,7 +280,7 @@ field-by-field mapping is: `YYYY-MM-DD` → `created`; `<source-repo>` → `from
   one dir (simplest — cockpit already handles it) or (b) keep a distinct
   `state/central-improvement-queue/` glob for clarity (requires a new `TYPE_TO_GLOB` entry +
   emitter wiring). Note: per the coordinator CLAUDE.md `state/ vs tasks/` doctrine, central
-  state has since moved to claude-klabauter (`$(python3 coordinator/lib/coordinator-state-root.py --central)/`) — re-verify this
+  state has since moved to the engine repo (`$(python3 coordinator/lib/coordinator-state-root.py --central)/`) — re-verify this
   open question against that migration before acting on it.
 - **Drained-inclusion default.** Whether `LessonSummary` reads only the live outbox (pending
   promotions) or also `drained/` (promotion history) was recommended as "both, with
@@ -294,7 +301,7 @@ field-by-field mapping is: `YYYY-MM-DD` → `created`; `<source-repo>` → `from
 <!-- Required per plan § C2 and AC8.2 — defines the dry-run output used by
      migrate-improvement-queue-universals.py --apply as its guard input. -->
 
-Claude-klabauter `coordinator/bin/migrate-improvement-queue-universals.py --dry-run` writes its classification output to:
+the engine repo's `coordinator/bin/migrate-improvement-queue-universals.py --dry-run` writes its classification output to:
 
 ```
 state/migrate-universals-dryrun-<ISO-date>.json
@@ -367,5 +374,5 @@ coordinator CLAUDE.md § "state/ vs tasks/", `state/` is **never archived** by `
 `/update-docs`. These paths are explicitly named here for greppability — any future sweep or
 archive script that encounters `lessons-outbox` must confirm this exclusion before acting.
 
-The `drained/` subdirectory is an archival surface managed by the DoE drain procedure; it is
+The `drained/` subdirectory is an archival surface managed by the central drain procedure; it is
 not a `/distill` target and must not be treated as ephemera.

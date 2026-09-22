@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """check-gitignore-template-drift — flag `~/.claude/.gitignore` rules missing from the template.
 
 WHY THIS EXISTS. `/coordinator:install` Phase 4 derives its `~/.claude/.gitignore` propagation
@@ -7,14 +6,15 @@ someone runs a full install. Nothing else ever fires it, so a template rule adde
 propagates to zero already-installed machines until the next full run. Measured on the box that
 AUTHORS the template: nine rules behind on 2026-08-26, fourteen behind on 2026-08-28 — roughly 7
 rules/48h on an active box. This gate is the recurring check that beats that drift rate instead of
-waiting for the next install. See DoE-claude `state/2026-08-28-machine-b-install-dogfood-friction-log.md` F9.
+waiting for the next install. See `state/2026-08-28-machine-b-install-dogfood-friction-log.md` F9
+(DoE-claude).
 
 REPORT-ONLY BY DEFAULT. This runs at a cadence, unattended, against the operator's tracked
 meta-repo. Without `--apply` it only prints and sets its exit code — it never touches
 `~/.claude/.gitignore`. `--apply` appends missing rules (verbatim from the template) and is the
 only mutating path; it still never runs `git rm --cached` for you — an ignore rule added for an
 already-tracked path is inert until untracked, and deciding to untrack a path is not this script's
-call to make unattended. See DoE-claude `docs/wiki/claude-home-tracking-policy.md`.
+call to make unattended. See `docs/wiki/claude-home-tracking-policy.md` (DoE-claude).
 
 TWO ENTRIES ARE REPLACE, NOT APPEND — carried over from Phase 4's own text, because a template-
 derived line diff gets both wrong by construction:
@@ -32,18 +32,17 @@ derived line diff gets both wrong by construction:
 Zero-spawn: this runs on a machine carrying a dozen-plus concurrent EM sessions, at a cadence
 meant to be cheap enough to run often. No subprocess, stdlib only.
 
-TEMPLATE RESOLUTION — DOCTRINE-ASSET CLASS. `templates/dotgitignore.tmpl` stays in DoE-claude and
-is published through the plugin root — it is not `Path(__file__)`-relative any more, because this
-script now lives in the engine, not beside the template
-(`docs/plans/2026-09-18-doe-holds-no-scripts.md` § Path resolution). Resolution order: `--template`
-override, then `CLAUDE_PLUGIN_ROOT`/the ambient plugin-root probe
-(`coordinator_core.warm.caller_context.resolve_caller_context`, falling back to
-`coordinator_core.subagent_sandbox.provision_report.resolve_plugin_root`), joined with
-`templates/dotgitignore.tmpl`.
+TEMPLATE RESOLUTION. `templates/dotgitignore.tmpl` is a doctrine asset: it stays in DoE-claude and
+is published, so it is never at a fixed offset from this file's own location once this CLI lands
+here in claude-klabauter (docs/plans/2026-09-18-doe-holds-no-scripts.md § Path resolution). The default
+template path resolves through the plugin root
+(`coordinator_core.subagent_sandbox.provision_report.resolve_plugin_root`), never from
+`Path(__file__)`. `--template` always overrides it explicitly, for a caller that already knows
+where the template lives (e.g. a test fixture).
 
 Exit codes: 0 = no drift, or SKIP (`~/.claude` is not a git repo — nothing to propagate into).
 1 = drift found (rules the template ships that the live file lacks). 2 = usage/environment error
-(template unreadable, or the plugin root cannot be resolved and `--template` was not given).
+(template unreadable, or the plugin root could not be resolved and `--template` was not given).
 
 Spec backlink: docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W2-C5.
 """
@@ -64,36 +63,26 @@ _AUTO_MEMORY_CHAIN = [
 ]
 
 
-def _plugin_root() -> "Path | None":
-    """The plugin content root the published `templates/dotgitignore.tmpl` lives under.
+def _default_template_path() -> "Path | None":
+    """Resolve `templates/dotgitignore.tmpl` through the coordinator-claude plugin root.
 
-    Engine imports happen here, inside a function, never at module scope — keeps the module
-    body pure so `serve_classifier` still classifies this file warm-servable.
+    Never `Path(__file__)`-derived: this CLI's own directory (coordinator/bin, in claude-klabauter) no
+    longer has any `templates/` sibling — that content stays in DoE-claude and reaches an
+    install through the publish pipeline. See module docstring § TEMPLATE RESOLUTION.
+
+    Returns None when the plugin root cannot be resolved; the caller reports that as a usage
+    error (exit 2) rather than silently treating "no template found" as "no drift".
     """
-    try:
-        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-        import cc_invoke
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
 
-        cc_invoke.require_engine_on_path(__file__)
-        from coordinator_core.warm.caller_context import resolve_caller_context
+    require_dispatch_engine_on_path()
+    from coordinator_core.subagent_sandbox.provision_report import resolve_plugin_root
 
-        ctx = resolve_caller_context()
-        if ctx.plugin_root:
-            return Path(ctx.plugin_root)
-    except Exception:
-        pass
-    try:
-        from coordinator_core.subagent_sandbox.provision_report import resolve_plugin_root
-
-        root = resolve_plugin_root()
-        return Path(root) if root else None
-    except Exception:
+    root = resolve_plugin_root()
+    if root is None:
         return None
-
-
-def _own_template_path() -> "Path | None":
-    root = _plugin_root()
-    return (root / _TEMPLATE_REL) if root is not None else None
+    return Path(root) / _TEMPLATE_REL
 
 
 def _default_live_gitignore() -> Path:
@@ -135,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
         "--template",
         type=Path,
         default=None,
-        help="template path (default: resolved through the plugin root)",
+        help="template path (default: resolved through the coordinator-claude plugin root)",
     )
     parser.add_argument(
         "--live",
@@ -151,11 +140,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--quiet", action="store_true", help="suppress the no-drift line")
     args = parser.parse_args(argv)
 
-    template_path = args.template or _own_template_path()
+    template_path = args.template or _default_template_path()
     if template_path is None:
         print(
-            "check-gitignore-template-drift: cannot resolve templates/dotgitignore.tmpl — "
-            "the plugin root did not resolve and --template was not given",
+            "check-gitignore-template-drift: cannot resolve the coordinator-claude plugin root "
+            "to find templates/dotgitignore.tmpl — pass --template explicitly",
             file=sys.stderr,
         )
         return 2
@@ -186,9 +175,13 @@ def main(argv: list[str] | None = None) -> int:
     template_rules = _rule_lines(template_text)
     # newline="" preserves the file's original line-ending convention (no universal-newline
     # translation) so _apply can detect and round-trip CRLF rather than silently flattening it.
-    live_text = (
-        live_path.read_text(encoding="utf-8", newline="") if live_path.is_file() else ""
-    )
+    # `Path.read_text(newline=...)` is a 3.13+ signature; this repo's floor is 3.11
+    # (pyproject.toml `requires-python`), so the newline-preserving read goes through `open()`.
+    if live_path.is_file():
+        with open(live_path, "r", encoding="utf-8", newline="") as fh:
+            live_text = fh.read()
+    else:
+        live_text = ""
     live_lines = set(_rule_lines(live_text))
 
     missing = [rule for rule in template_rules if rule not in live_lines]
@@ -274,7 +267,9 @@ def _apply(live_path: Path, live_text: str, live_lines: set[str], missing: list[
         text += eol.join(to_append) + eol
 
     live_path.parent.mkdir(parents=True, exist_ok=True)
-    live_path.write_text(text, encoding="utf-8", newline="")
+    # `Path.write_text(newline=...)` is likewise a 3.13+ signature — see the read-side note above.
+    with open(live_path, "w", encoding="utf-8", newline="") as fh:
+        fh.write(text)
 
 
 if __name__ == "__main__":

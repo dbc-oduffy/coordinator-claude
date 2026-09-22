@@ -7,9 +7,9 @@ not a shortcut... there is no warning, no gate, and no retry." This hook
 is the gate.
 
 Originally ported naked-Python (W5 straggler port from a now-retired bash
-oracle) -- no reusable claude-klabauter op exists for this hook's per-call-site
+oracle) -- no reusable engine-repo op exists for this hook's per-call-site
 agent()/model: string-aware parse, so this is a SELF-CONTAINED hook, not a
-thin claude-klabauter stub -- zero Git-Bash cold-start per Workflow launch on Windows).
+thin engine-repo stub -- zero Git-Bash cold-start per Workflow launch on Windows).
 
 Danger condition (deliberately narrow -- an offer, not a nag): the EM's main
 loop is running on an OPUS-tier model AND launches an inline-script

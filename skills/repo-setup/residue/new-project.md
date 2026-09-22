@@ -21,8 +21,7 @@ parameters, not questions.
 
 **Terminal offers** default per `lanes/new-project.yaml` `terminal_offer_defaults[]` — notably: the
 Windows console-subprocess tripwire installs by default (establish the bash-free convention from
-day one rather than waiting for a `*.sh` signal to accrete), and the CI reference defers until a
-runnable test suite exists.
+day one rather than waiting for a `*.sh` signal to accrete).
 
 **Roster.** Two ordered slots: `coordinator:goal-setting` (immediate — the name+goal statement this
 lane collects is the ceremony's own input), then the roadmap ceremony as it stands at execution

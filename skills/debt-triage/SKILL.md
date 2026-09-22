@@ -17,15 +17,15 @@ have resolved several. Rationale, clustering detail, structural-probe calibratio
 
 **On a PowerShell host, every CLI below takes its `.exe` launcher through the call operator**
 (Shape W), never the `${...}` POSIX-shell form shown. Ladder and shapes:
-`snippets/resolve-coordinator-bin.md`.
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
 Run
-`backlog-grind-assemble brief debt-triage` (per `snippets/resolve-coordinator-bin.md`)
+`backlog-grind-assemble brief debt-triage` (per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`)
 before Step 1 — it returns, over `state/debt-backlog/`, `state/bug-backlog/`,
 and `state/improvement-queue/`: open items with severity breakdown, `bug-backlog`
 cross-reference (exact `surface`-field match), improvement-queue entries with clustering
-evidence, and a batched PM-gate. Steps 2, 3, 6, and 6b below stay EM-performed until the
-debt-backlog terminus op ships.
+evidence, and a batched PM-gate. The improvement leg is emitted (Step 1); the debt-backlog
+steps (2, 3, 6, and 6b's debt-backlog governance) stay EM-performed.
 
 ## Step 0: Surface prior rejections
 
@@ -39,20 +39,22 @@ Take the `brief` output as-is. Broader file-path/description-similarity overlap 
 `surface`-field match stays an EM judgment pass over the same evidence, applied before
 presenting overlaps to the PM for a dedup decision (populate `evidence:` on both entries).
 
-**Improvement-queue classification** (also from `brief`) is EM judgment, not a disk predicate:
-- **Universal** — would apply to any coordinator-pipeline project → flag for `/learn-lessons`
-  local-run routing; do NOT pull into the triage path.
-- **Project-specific** — flows into the standard triage path, terminating in a Step 6b baton
-  (never a migration into `state/debt-backlog/` — that disposition is retired).
-
-Present: *"Improvement queue: N entries — M universal (flagged for lessons-outbox), K
-project-specific (flowing into triage)."* Doctrine ref: `CLAUDE.md § Improvement Queue`.
+**Improvement-queue triage is emitted, not EM classification.** Pick an appetite (`hunt`,
+`standard` or `sweep` — values in `coordinator/queue-profiles/improvement.yaml`). Emit with
+`emit-dispatch-workflow.py --queue state/improvement-queue --profile improvement --appetite <a>
+--out state/scratch/debt-triage/{run-id}/improvement.workflow.mjs`, per
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`. There is no commit-readiness gate
+to resolve for this leg. Fire with `Workflow({scriptPath})`, never `--fire` — firing authorizes
+the in-run fixes and closes and the post-run hand-back (`coordinator/docs/wiki/queue-terminus-doctrine.md`
+§ Emitted-workflow triage). The run's triage is the only triage — the EM works Steps 2–4 on the
+debt backlog while it runs. An emit refusal is reported, not routed around.
 
 ## Step 2: Verify relevance (Haiku agents)
 
 > **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
 > step names; it dissolves no gate this skill's own body names.
 
+Debt-backlog rows only (the improvement leg's triage runs inside Step 1's emitted grind).
 Dispatch Haiku agents, grouped by system, to mechanically re-confirm each open item against
 current code: history since the finding's `created` date, the cited `file:line` still shows the
 issue. Verdict per item — `still-open` / `already-fixed` / `partially-addressed`.
@@ -67,7 +69,7 @@ deprioritize to P2. >30 days with no activity → flag for PM attention.
 
 Query historical `nature: tech-debt` completions
 (`query-completions --where "nature=tech-debt" --since "90d" --sort "-loe.agent_dispatches" --format markdown-list`,
-per `snippets/resolve-coordinator-bin.md`)
+per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`)
 before grouping: high-LoE areas in the last 90d indicate festering complexity — escalate open
 items there.
 
@@ -95,9 +97,10 @@ case: `(no tech-debt completions logged in last 90d — hot-zone analysis unavai
 
 Ask for: (1) approval to close no-longer-applicable items; (2) YAGNI/scope calls; (3)
 prioritization of immediate-action items; (4) agreement on deferral reasoning; (5) disposition of
-every surviving project-specific improvement-queue entry (Step 1) under the four Step 6b classes
-— present the candidate list (class, clusters per the `brief`'s clustering evidence) here; Step
-6b writes only after this authorization and does not gate a second time.
+the improvement leg's PM-bound hand-back types (`park`, `wont-do`, `yagni`,
+`unclear-direction`, `needs-judgment`) — Step 6b consumes them after this authorization and does
+not gate a second time. Engine-originated hand-back types (`budget-exhausted`, `verify-failed`,
+and the rest) are reported by count; their rows stay open and are not presented here.
 
 ## Step 6: Update backlog
 
@@ -124,46 +127,41 @@ After PM decisions:
 5. Commit scoped, explicit-path: `git commit -m "debt-triage: reviewed N items, closed M, N
    remain open" -- <every touched path>`.
 
-## Step 6b: Terminate surviving improvement-queue entries
+## Step 6b: Consume the improvement leg's hand-back
 
-A surviving project-specific entry (not closed, not YAGNI'd) lands in exactly one of four
-classes — never a fifth, never a fallthrough; an unclear entry means Step 5's classification
-isn't finished, return there. This step performs the write Step 5 item 5 already authorized —
-it is not a second gate.
+Runs over the improvement leg's PM-gated hand-back (Step 5 item 5), after the run. This does not
+touch Step 2's `Dispatch Haiku agents` text, a different step that stays unedited. Items 1-2 below
+do not govern debt-backlog rows today (debt-backlog stays on the current 6b, unedited); if 6b is
+ever applied to debt-backlog rows, that governance still applies.
 
-The `brief`'s clustering (`MIN_CLUSTER_SIZE=3`, `directory` signal suppressed) degrades to EM
-judgment as a last resort only. Expect roughly half the proposed clusters to be noise —
-split/merge/discard by judgment before Step 5. Degrade-order detail: wiki.
+- `baton`: cluster per `coordinator/docs/wiki/queue-terminus-doctrine.md` § Clustering, then mint
+  solo or themed batons to `coordinator/docs/wiki/baton-authoring-bar.md`'s bar, carrying
+  triage's sizing evidence. There is no second gate. Close each source row.
+- `route-to-learn-lessons`: run `coordinator-lesson-promote` once per row with `--title-file` and
+  `--body-file` (the row's title and body), `--change-kind` (the row's), `--target-wiki unknown`
+  (no row carries a target), and `--evidence` naming the archive destination path the closing
+  rename lands at (or the row stem), never the pre-rename row path, which goes stale the instant
+  the row is archived. Then close the source row with `closed_by` set to the settling commit sha
+  (the outbox path goes in the commit message, not `closed_by`).
+  - The step promotes only rows that later runs hand back. The `reconcile-343` plan promotes the
+    existing central backlog once, via its C1 classification (ratified) and C4 execution, which
+    produces the per-row disposition (including which rows already promoted to
+    `state/lessons-outbox/`).
+    This step's promote gates on that classification's output or its landed C4 — never on the
+    `queue_scope: central` tag, which is evidence, not the disposition. Until reconcile-343's
+    classification or C4 has landed, a `route-to-learn-lessons` hand-back is left open, untouched
+    and unpromoted — no central-tagged row is promoted here, full stop — and Step 5's run summary
+    reports it by count as "awaiting reconcile-343," never closed or presented to the PM.
+  - A row whose change_kind the outbox enum refuses (exit 2) is left open and reported. It is
+    never coerced.
+- Park, won't-do and YAGNI keep their current rules and stamps, after Step 5.
+- Source-row closure is an edit plus a plain rename to `archive/improvement-queue/<YYYY-MM>/`,
+  with the committer staging both paths (A-PLAIN-MV-IS-THE-INTENDED-ROUTE-NOT-A-FALLBACK). The
+  row-removal `--declared-revert` follows doe-claude-47's `/bug-blitz` post-run wording, so the
+  two termini read the same.
 
-1. **Solo baton** — large enough to stand alone. Scaffold via `coordinator-doc-new`,
-   `category: queue-derived-baton`, body authored from the source entry's own context. Close
-   and archive the source entry (`git mv`, as Step 6).
-2. **Themed baton** — N entries sharing a genuine thesis (not a shared keyword). Author the
-   shared thesis, why they belong together, the picker-up's first move, every constituent
-   id/path. ≤30 authoring-lines/item. Write `initiative` on the baton and every constituent row,
-   bidirectionally, only on graduation. Close/archive constituents as class 1.
-3. **Immediate dispatch** — resolvable now, in-session. Eligible only if the fix is BOTH
-   tradeoff-free AND non-structural (touches no module boundary); anything else is a baton
-   (class 1/2) regardless of size. Fire a Sonnet executor now; close the source entry with
-   `closed_by` referencing the fix commit.
-4. **Close, or explicit park** — won't-do closes as Step 6. A deliberate park to
-   `state/debt-backlog/` is a distinct disposition (never a default sink for triage-didn't-reach
-   entries): `status: deferred` with a mandatory `why_blocked` field (never `open`), via
-   `coordinator-queue-append --schema debt-backlog` (per `snippets/resolve-coordinator-bin.md`).
-   **Stamp the grant this step already holds** — `pm_approved: true` (this ceremony asserting the
-   Step 5 gate fired, not a second approval act), `deferred_by: /debt-triage <session-id>`,
-   `deferred_until: <ISO date>`, and `case_against` (the argument that lost, so a later triager
-   reads both sides). A park without an expiry is how a record drifts unread; a sibling deny
-   refuses an ungranted `deferred` write. Those four and `why_blocked` above are the exact five
-   `debt-backlog.schema.json`'s `status: deferred` branch requires — omit one and the ceremony
-   writes a row that fails our own schema.
-
-Universal entries (Step 1) are not part of this disposition — they stay in
-`state/improvement-queue/` until routed via `/learn-lessons`.
-
-**Commit shape:** commit class-1/2 baton writes, class-3 fixes, and class-4 closures/parks
-separately from Step 6's closure commit. Mirror Step 6's archive mechanics for each source entry
-(`archive/improvement-queue/<YYYY-MM>/`, `git mv`, never `rmdir`), explicit-path `git add --
-<archived-path> <baton-or-park-path>`, naming the source id and outcome class in the message.
+**Commit shape:** batons, promotes and PM-gated closures are separate commits, each naming the
+source ids. The run committed its own fixes and closes. Every hand closure here is followed by
+`grind-row sweep` (`coordinator/docs/wiki/queue-terminus-doctrine.md` § Emitted-workflow triage).
 
 Skip this step entirely if no project-specific entries survived Step 5.

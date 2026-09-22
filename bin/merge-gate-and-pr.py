@@ -45,12 +45,34 @@ Subcommands (argv[1] selects):
   coverage-gate [--commit-range <range>]
       Invokes `gate.validate_invocable`'s "review" dimension over the changed
       files in `--commit-range` (default "main..HEAD") and refuses (exit 1)
-      when that dimension reports FAIL (an uncovered commit), relaying its
-      detail string (which names an example uncovered sha) verbatim. An
-      UNAVAILABLE/ERROR review verdict (tooling/corpus unreadable) does not
-      refuse — this call site is fast feedback only; it does not enforce at
-      the git-push layer, and its refusal message says so rather than
-      implying otherwise (see docs/wiki/guard-messaging.md § Register).
+      on anything short of an earned PASS — the same whitelist
+      `post_coverage_status.compute_status` applies (C4,
+      docs/plans/2026-09-11-the-merge-gate-proves-receipt-coverage.md § C4,
+      AC1): FAIL (an uncovered commit), UNAVAILABLE/ERROR, an absent review
+      dimension, or an empty changed-file set (`_changed_files` cannot tell
+      that apart from a `git diff` failure, since it folds the rc into empty
+      stdout). Relays the review dimension's detail verbatim on FAIL, which
+      names an example uncovered sha and groups the rest by authoring
+      Session-Id, plus one line naming each named session live or ended (see
+      `gate_dimension_review`'s AC7 docstring note) and the "review coverage
+      is checked at merge, not at session close" proximity. This call site
+      is fast feedback only; it does not enforce at the git-push layer, and
+      its refusal message says so rather than implying otherwise (see
+      docs/wiki/guard-messaging.md § Register).
+
+  coverage-gate --post-status --sha <sha> [--owner O --repo R] [--commit-range <range>]
+      The PR-route gap (C5, docs/plans/2026-09-11-the-merge-gate-proves-
+      receipt-coverage.md § C5): `post_coverage_status`'s only production
+      caller is push.py's GH013 recovery, so a `gh pr merge` under the
+      ruleset finds no status and is refused regardless of coverage. This
+      delegates to `coordinator_core.ops.post_coverage_status.post_coverage_status`,
+      which computes the verdict itself (nothing is computed twice), and
+      prints the `PostResult` JSON. Exits 0 ONLY when `posted` and
+      `state == "success"`. `--owner`/`--repo` are optional; when omitted
+      they are resolved from the origin remote via
+      `coordinator_core.ops.ceremony.push._resolve_github_owner_repo`. No
+      token resolving, or no resolvable owner/repo, fails closed: posts
+      nothing, exits 1, and names the alternative (env var or flag).
 
 Spec backlink: docs/plans/2026-07-21-doe-skill-bash-to-claude-klabauter-python-port.md [DEAD-CITATION: plan file never committed to this repo]
   (M3 chunk MTM-2 — merging-to-main review-coverage gate / PR body / active-
@@ -63,8 +85,17 @@ Exit codes:
   pr-body               — 0 on success, 2 on usage error
   active-branch-guard   — 0 (settled or forced), 1 (too young / gh failure),
                           2 on usage error
-  coverage-gate         — 0 (covered, empty range, or dimension unavailable),
-                          1 (uncovered commit found), 2 on usage error
+  coverage-gate         — 0 ONLY on an earned review-dimension PASS; 1 on
+                          FAIL, UNAVAILABLE/ERROR, an absent review
+                          dimension, or an empty changed-file set; 2 on
+                          usage error (C4, AC1 — no production caller relied
+                          on the old fail-open exits, so this is a straight
+                          tightening, not a compat break)
+  coverage-gate
+    --post-status         — 0 ONLY when the status POSTed with
+                             state=="success"; 1 on any unpostable case (no
+                             token, no resolvable owner/repo) or a posted
+                             non-success state; 2 on usage error (C5)
 """
 from __future__ import annotations
 
@@ -175,7 +206,8 @@ def _changed_files(commit_range: str) -> list[str]:
     """Batched, single-spawn changed-file listing for `commit_range` — the
     ONLY git call this subcommand issues itself. Per-commit review coverage
     is computed downstream by `gate_dimension_review`'s already-batched
-    `coverage.build_reviewed_set`; this function must never be extended to
+    reads of `review_trail.reviewed_set.read_reviewed_set` plus
+    `review_trail.receipt_credit`; this function must never be extended to
     walk commits one at a time."""
     proc = subprocess.run(
         ["git", "diff", "--name-only", commit_range],
@@ -208,16 +240,89 @@ def _run_gate_validate_invocable(
     )
 
 
+def _sessions_named_in_detail(detail: str) -> list[str]:
+    """Pulls the Session-Id tokens `gate_dimension_review`'s FAIL detail
+    grouped uncovered SHAs under (AC7) back out of the rendered string, so
+    this CLI can mark each live/ended without a second coverage computation.
+    The `  <token>: ` line shape (two leading spaces, then the token, then
+    `: `) is the parse this depends on — see that module's
+    `_uncovered_by_session_detail` docstring, which owns the shape.
+    `_NO_SESSION_ID_LABEL` is skipped: it names no real session to check
+    liveness for."""
+    from coordinator_core.ops import gate_dimension_review
+
+    sessions: list[str] = []
+    for line in detail.splitlines():
+        if not line.startswith("  "):
+            continue
+        token, sep, _rest = line[2:].partition(": ")
+        if not sep or token == gate_dimension_review._NO_SESSION_ID_LABEL:
+            continue
+        sessions.append(token)
+    return sessions
+
+
+def _resolve_owner_repo_for_post_status(
+    args: argparse.Namespace, repo_root: str
+) -> tuple[str, str] | None:
+    """Returns `(owner, repo)` or None (never guesses). Explicit
+    `--owner`/`--repo` win; otherwise resolved from the origin remote via
+    `push._resolve_github_owner_repo`, in-process, no subprocess beyond the
+    one git call that function already makes."""
+    if args.owner and args.repo:
+        return args.owner, args.repo
+
+    from pathlib import Path
+
+    from coordinator_core.ops.ceremony import push
+
+    return push._resolve_github_owner_repo(Path(repo_root))
+
+
+def _cmd_coverage_gate_post_status(args: argparse.Namespace, repo_root: str) -> int:
+    """`coverage-gate --post-status`: posts the review-dimension verdict as a
+    commit status on `args.sha`. Delegates the verdict computation entirely
+    to `post_coverage_status.post_coverage_status` — this function computes
+    nothing itself, per C5's "nothing is computed twice" constraint."""
+    import json
+
+    from coordinator_core.ops import post_coverage_status
+
+    owner_repo = _resolve_owner_repo_for_post_status(args, repo_root)
+    if owner_repo is None:
+        print(
+            "merge-gate-and-pr coverage-gate --post-status: could not resolve "
+            "owner/repo from the origin remote — pass --owner/--repo",
+            file=sys.stderr,
+        )
+        return 1
+    owner, repo = owner_repo
+
+    if getattr(sys.modules.get("__main__"), "__file__", None) == os.path.abspath(__file__):
+        post_coverage_status._merge_gate_mod = sys.modules["__main__"]
+
+    result = post_coverage_status.post_coverage_status(
+        owner, repo, args.sha, args.commit_range, repo_root=repo_root
+    )
+    print(json.dumps(result.to_json()))
+    return 0 if (result.posted and result.state == "success") else 1
+
+
 def cmd_coverage_gate(args: argparse.Namespace) -> int:
+    repo_root = os.getcwd()
+    if args.post_status:
+        return _cmd_coverage_gate_post_status(args, repo_root)
     changed_files = _changed_files(args.commit_range)
     if not changed_files:
         print(
             "merge-gate-and-pr coverage-gate: no changed files in "
-            f"{args.commit_range!r}; nothing to check."
+            f"{args.commit_range!r} — indistinguishable here from a `git diff` "
+            "failure, refusing rather than assuming covered.",
+            file=sys.stderr,
         )
-        return 0
+        return 1
 
-    result = _run_gate_validate_invocable(changed_files, args.commit_range, os.getcwd())
+    result = _run_gate_validate_invocable(changed_files, args.commit_range, repo_root)
     dimensions = {d["dimension"]: d for d in result.get("dimensions", [])}
     review = dimensions.get("review")
     if review is None:
@@ -226,15 +331,38 @@ def cmd_coverage_gate(args: argparse.Namespace) -> int:
             "gate.validate_invocable result.",
             file=sys.stderr,
         )
-        return 0
-
-    if review["verdict"] == "FAIL":
-        print(f"merge-gate-and-pr coverage-gate: {review['detail']}", file=sys.stderr)
-        print(f"merge-gate-and-pr coverage-gate: {_COVERAGE_GATE_ADVISORY_NOTE}", file=sys.stderr)
         return 1
 
-    print(f"merge-gate-and-pr coverage-gate: {review['detail']}")
-    return 0
+    if review["verdict"] == "PASS":
+        print(f"merge-gate-and-pr coverage-gate: {review['detail']}")
+        return 0
+
+    print(f"merge-gate-and-pr coverage-gate: {review['detail']}", file=sys.stderr)
+    if review["verdict"] == "FAIL":
+        print(f"merge-gate-and-pr coverage-gate: {_COVERAGE_GATE_ADVISORY_NOTE}", file=sys.stderr)
+        print(
+            "merge-gate-and-pr coverage-gate: review coverage is checked at "
+            "merge, not at session close, and these sessions closed with no "
+            "reviewer receipt covering the commits listed.",
+            file=sys.stderr,
+        )
+        from coordinator_core.session.liveness import session_live
+
+        for session_id in _sessions_named_in_detail(review["detail"]):
+            if session_live(session_id, cwd=repo_root):
+                print(
+                    f"merge-gate-and-pr coverage-gate: session {session_id} is "
+                    "live — dispatch a reviewer from it.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"merge-gate-and-pr coverage-gate: session {session_id} has "
+                    "ended — no remediation route exists yet; the ruleset must "
+                    "stay off for that commit.",
+                    file=sys.stderr,
+                )
+    return 1
 
 
 # ---------------------------------------------------------------------------
@@ -324,6 +452,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_cov = sub.add_parser("coverage-gate")
     p_cov.add_argument("--commit-range", default="main..HEAD")
+    p_cov.add_argument("--post-status", action="store_true")
+    p_cov.add_argument("--sha", default=None)
+    p_cov.add_argument("--owner", default=None)
+    p_cov.add_argument("--repo", default=None)
     p_cov.set_defaults(func=cmd_coverage_gate)
 
     return parser
@@ -332,6 +464,8 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str]) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if getattr(args, "post_status", False) and not args.sha:
+        parser.error("coverage-gate --post-status requires --sha")
     return args.func(args)
 
 

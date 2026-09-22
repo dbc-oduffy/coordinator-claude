@@ -8,7 +8,7 @@
 
 A leg blocked on a sibling repo may not be parked on the word "blocked". It rests only on an
 **addressed, answered exchange**. The three conjuncts below are the whole operative rule. Full
-definition, adversarial cases, and the carrier decision live in the DoE-claude source repo at
+definition, adversarial cases, and the carrier decision live in the doctrine source repo at
 `coordinator/docs/wiki/cross-repo-block-exchange-predicate.md`, which is fleet-internal and does
 not ship — its absence from an installed or mirrored tree is expected, not a missing page.
 

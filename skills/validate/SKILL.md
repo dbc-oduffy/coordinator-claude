@@ -5,7 +5,7 @@ version: 2.0.0
 allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---
 
-# Local CI Validation
+# Local Validation
 
 Resolve and run the project's fast-tier validation command at cadence gates — merging, closing a
 workday or workweek, or an explicit "does everything pass?" ask.
@@ -14,12 +14,12 @@ workday or workweek, or an explicit "does everything pass?" ask.
 
 On a PowerShell host, invoke the `.exe` launcher through the call operator (Shape W) for every
 invocation on this page, never the `${...}` POSIX-shell form shown below. Ladder and shapes:
-`snippets/resolve-coordinator-bin.md`.
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
 ```
 validate-fast-and-packageability fast
 ```
-(resolved per `snippets/resolve-coordinator-bin.md`: Shape A/B on POSIX hosts, Shape W on PowerShell)
+(resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`: Shape A/B on POSIX hosts, Shape W on PowerShell)
 
 Resolves the command (env var → `coordinator.local.md` `fast_test_cmd:` → skip-with-notice, no
 conventional fallback), executes it, prints exactly one `Validation: <value>` line. Run via Bash
@@ -50,7 +50,7 @@ any repo that hasn't opted in), never a fleet-wide gate:
 ```
 validate-fast-and-packageability packageability
 ```
-(resolved per `snippets/resolve-coordinator-bin.md`: Shape A/B on POSIX hosts, Shape W on PowerShell)
+(resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`: Shape A/B on POSIX hosts, Shape W on PowerShell)
 
 Prints its own `Packageability: <exit-code>` line, separate from `Validation:` above. Do not wire
 this into any cross-repo/fleet-shared hook.
@@ -64,7 +64,7 @@ time, with no standing exemption** — checked via:
 ```
 tier-u-grant-cli check
 ```
-(resolved per `snippets/resolve-coordinator-bin.md`: Shape A/B on POSIX hosts, Shape W on PowerShell)
+(resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`: Shape A/B on POSIX hosts, Shape W on PowerShell)
 
 Exit 0 = granted, proceed. Exit 1 (or an absent/malformed token) = ungranted, fail-closed — halt
 before invoking. This skill never writes a grant itself. On a halt, or when a command's shape is

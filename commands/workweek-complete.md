@@ -23,13 +23,13 @@ without halting.
 
 **Vendored-schema drift is advisory, and its absence from the set above is a ruling.** The
 `schema-drift-gate` verdict covers `coordinator_core/frontmatter/schemas/` — the ENGINE's
-vendored set, which only claude-klabauter can re-vendor. A consuming repo cannot discharge it at
+vendored set, which only the engine repo can re-vendor. A consuming repo cannot discharge it at
 any effort, so blocking its release on that verdict halts it on another team's queue with no
 sanctioned way past. Surface DRIFT with the owning repo named and proceed. A gate the running
 repo cannot discharge is not a gate.
 
 **UBT pending-record merge is NOT in that set, and its absence is a ruling.** This ceremony never
-<!-- guard-allow: directive-ids-are-engine-current d_step4c_ubt_pending_merge_gate is named here as history: claude-klabauter drained it at f88ae3bddf and this text exists to say the gate is dead. -->
+<!-- guard-allow: directive-ids-are-engine-current d_step4c_ubt_pending_merge_gate is named here as history: the engine repo drained it at f88ae3bddf and this text exists to say the gate is dead. -->
 gated UBT compile-freshness in fact: `d_step4c_ubt_pending_merge_gate` read `state/review-trail/`,
 which is empty in the one repo class the check was built for (example-game-repo) — that repo's writer,
 `bin/check_ubt_build_fresh.py`, puts its markers under `.coordinator-local/review-trail/` instead.
@@ -40,7 +40,7 @@ Example-game-repo's requirement, discharged by example-game-repo's own ceremonie
 re-add compensating EM prose for it — a manual compensation for a requirement this ceremony does
 not own is worse than the gap it patches.
 
-**Interim, until the engine drain publishes.** claude-klabauter removed the directive, its CLI
+**Interim, until the engine drain publishes.** The engine repo removed the directive, its CLI
 subcommand and its two contract tests (`f88ae3bddf`), but that drain reaches sessions only when it
 lands on the `claude-klabauter` mirror. Until then the mirror still emits `4c` and it exits 1 with
 `ModuleNotFoundError: No module named 'coordinator_core.ops.scan_unresolved_ubt_records'`. That
@@ -123,7 +123,10 @@ Resolve from the spine's directives in one pass; advisory rows never block:
   a repo that has adopted the standard reads as stale, not as opt-out. **Negative-spec:** a
   disposition of "skip" is recorded with a reason on the spine — never silently dropped, and
   never folded back into the advisory bucket, where a fleet-wide drift went undetected for
-  seven weeks.
+  seven weeks. Schema, provenance model, and the curated-vs-generated partition this line
+  schedules a gate for: `coordinator/docs/wiki/strategic-self-description-standard.md`. Onboarding
+  a new repo onto the standard is `coordinator/skills/repo-setup/SKILL.md`'s concern, not this
+  ceremony's — this line is the recheck cadence for a repo already on it.
 - **Sidecar reap (hand-run):** `reap-stale-subagent-sidecars`; non-zero → surface.
 - **wsc inline-budget:** `WARN: ... exceeds baseline` → mechanism inlined not extracted.
 - **Weekly KR re-assessment:** `& "$env:COORDINATOR_SETTINGS_HOME\bin\reassess-goal-krs.exe"`
@@ -264,7 +267,10 @@ in any `Decisions:` field; Minor = new feature/command; Patch = fixes/docs/refac
 `.version`, `marketplace.json` `.metadata.version`, and the CHANGELOG's latest `## [X.Y.Z]`
 section, the only anchors that exist today. EM proposes the level; PM confirms — the gate below
 IS that confirmation, because a release surface is a product call. The engine is deliberately not
-an anchor here: it bumps per-publish, on claude-klabauter-em's cadence.
+an anchor here: its converged contract (`coordinator/docs/wiki/release-cadence-and-currency-notification.md`
+§ Engine anchor — converged contract) is a per-publish `version.txt` source SHA + `track_ref`
+field, not a release-shaped anchor, so it bumps per-publish, on claude-klabauter-em's own cadence,
+never on this weekly clock.
 
 **PM gate:** propose vX.Y.Z with one-line rationale; update release-notes filename and
 HEADER.md `Prior week released:`.

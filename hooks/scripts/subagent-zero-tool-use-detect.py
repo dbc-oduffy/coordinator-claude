@@ -3,7 +3,7 @@
 
 This doctrine-plane repo owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): parse
 the raw SubagentStop payload, gate on agent_type and this-session ownership,
-map the payload to the pinned IPC params, and relay to the claude-klabauter engine op
+map the payload to the pinned IPC params, and relay to the engine-repo op
 `hooks.subagent_zero_tool_use` (module `coordinator_core.hooks.
 subagent_zero_tool_use`, NOT built here). The engine owns the decision LOGIC:
 opening `agent_transcript_path`, counting `tool_use` blocks, and resolving
@@ -316,7 +316,7 @@ def main() -> int:
     except Exception:
         root = None
     if not root:
-        return 0  # fail-open -- claude-klabauter unresolvable on this machine
+        return 0  # fail-open -- engine repo unresolvable on this machine
 
     if root not in sys.path:
         sys.path.insert(0, root)

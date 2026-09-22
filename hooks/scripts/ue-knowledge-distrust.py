@@ -8,12 +8,12 @@ naked-Python DIRECT PORT.
 
 The doctrine plane owns only this thin PLUMBING stub (same DR-047 transport-seam carve-out as
 `preuse-write-dispatch.py` / `coordinator-reminder.py` / `project-rag-detect.py`):
-resolve the claude-klabauter engine, call its detect+gate+banner function IN-PROCESS,
-relay stdout/stderr. Claude-klabauter owns the LOGIC
+resolve the engine repo, call its detect+gate+banner function IN-PROCESS,
+relay stdout/stderr. The engine repo owns the LOGIC
 (`coordinator_core.hooks.ue_knowledge_distrust.run`) -- the bounded
 `.uproject` search, the per-project plugin-gating settings.json read/decide,
 and the UE PROJECT DETECTED banner text. No bash, no `python3 -m` subprocess
-re-spawn for THIS hook's own logic -- the claude-klabauter op's own bootstrap write/merge
+re-spawn for THIS hook's own logic -- the engine-repo op's own bootstrap write/merge
 logic (`_run_bootstrap`) is a native-Python port of `claude-ue-bootstrap.py`'s
 write/merge logic (C5: retired the prior `["bash", script, cwd]` subprocess
 spawn this hook used to make on the session-hot-path); `claude-ue-bootstrap.py`
@@ -35,7 +35,7 @@ Contract (mirrors the bash hook it replaces):
              philosophy to preuse-write-dispatch.py's fail-open ALLOW)
 
 Graceful degradation -- REQUIRED: any failure to resolve/import/run the
-Claude-klabauter engine falls through to fail-open silent exit 0 (no stdout, no
+engine repo falls through to fail-open silent exit 0 (no stdout, no
 stderr). A missing sibling engine must never brick session start on a UE
 repo -- identical philosophy to every other Shape-P1 stub in this cohort.
 
@@ -79,7 +79,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open silent exit -- claude-klabauter unresolvable on this machine
+        return 0  # fail-open silent exit -- engine repo unresolvable on this machine
 
     if root not in sys.path:
         sys.path.insert(0, root)
@@ -91,8 +91,8 @@ def main() -> int:
 
     # PLUGIN_ROOT: the bash oracle derived this from
     # `${BASH_SOURCE[0]}/../..` (hooks/scripts -> plugin root). Historically
-    # passed to the claude-klabauter op so it could locate the retired bash bootstrap script;
-    # claude-klabauter's `_run_bootstrap` (C5) now natively ports that write/merge logic
+    # passed to the engine-repo op so it could locate the retired bash bootstrap script;
+    # the engine repo's `_run_bootstrap` (C5) now natively ports that write/merge logic
     # in-process and keeps this parameter only for call-site compatibility
     # (unused). Kept here too, mirroring coordinator-reminder.py's
     # capability-catalog.md path convention.

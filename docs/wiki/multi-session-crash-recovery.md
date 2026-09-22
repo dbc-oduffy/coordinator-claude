@@ -44,7 +44,7 @@ trips on timezone):
 ls -l --time-style=full-iso "$d"/*.jsonl | grep -E '<YYYY-MM-DD> 12:02:(4[0-9]|5[0-9])|<YYYY-MM-DD> 12:03:0'
 ```
 
-- Encoded-cwd dir naming: `C:\project-rag` → `C--project-rag`; `C:\home\<user>\.claude` → `C--home-<user>--claude`. <!-- foreign-path-ok: illustrating the harness's own path-encoding scheme, the subject of this bullet -->
+- Encoded-cwd dir naming: a drive-rooted cwd (drive letter + colon + `\project-rag`) encodes to `C--project-rag`; (drive letter + colon + `\home\<user>\.claude`) encodes to `C--home-<user>--claude`. This illustrates the harness's own path-encoding scheme, the subject of this bullet.
   (Historic `-Users-example-operator-X-…` forms also exist; prefer the current `X--` / `C--` scheme.)
 - Sessions written *after* the cluster are restarts/new sessions — exclude them (the recovery session itself is one).
 - Tiny transcripts (a few KB) in the cluster are usually near-empty `/clear` shells — classify fast, low priority.
@@ -136,7 +136,7 @@ see `concurrent-em-hazards.md`.
 ### Dirty-tree disposition (own repo)
 
 The crash leaves attributable uncommitted work in the shared tree. Preserve it with **scoped safety-commits**
-via `ceremony.commit_v2` (claude-klabauter) — explicit paths, never `git add -A` — so a repeat
+via `ceremony.commit_v2` (the engine repo) — explicit paths, never `git add -A` — so a repeat
 crash can't re-lose it and commits auto-push as insurance. The op selects the safe mechanism whether or
 not the crash-recovery scan left partial hunks staged, so there's no TOCTOU shape to reason about here
 (→ `scoped-safety-commits.md § SC-DR-015`). A safety
@@ -153,6 +153,21 @@ Before authoring a recovery handoff (or re-doing the in-flight work) for a crash
 - **Co-consumed by a peer** — a concurrent session independently `/pickup`'d the SAME baton (skipping the claim-lock is what let it), and its work turned out *complementary*, not duplicated — the peer even credited this session's SHAs in its memo action.
 
 So the reconcile step is: `git log --all` for peer commits touching the handoff's surfaces, **and read the peer's successor handoff**, before assuming either duplication or lost work. Re-doing work a peer already shipped (or authoring a recovery handoff for a slate that drifted closed) is the failure this check prevents.
+
+### `cs` claim liveness is recency-only and false-positives for up to 30 minutes after a hard crash
+
+A hard-crashed session's claim still reads LIVE via `cs_claim_holder_live` for up to 30 minutes —
+Layer-2 liveness there is recency-only (last-touched timestamp), not a real process check, so a
+dead session's claim looks indistinguishable from a live one inside that window. On a
+PM-confirmed crash, `cs_clear_claim_if_dead` will REFUSE to clear it, because it trusts the
+registry's own recency signal rather than the PM's ground truth.
+
+Takeover in that case is a deliberate manual step, not a bug workaround: `rm` the claim
+directories by hand and re-claim via `cs_claim_*`, justified by (a) PM-confirmed crash as
+ground truth and (b) independently verified staleness of the registration — idle mtime, a gone
+PID, no partial writes from any dispatched executor. Document the discrepancy between what the
+PM knows and what the tool reports in the recovery runbook/handoff, rather than treating the
+tool's answer as authoritative over the PM's.
 
 ### the Game Dev Reviewer rotation across a crash/compaction breaks wsc auto-resolution
 
@@ -193,7 +208,7 @@ orphaned work and got a baton, the other honestly needed none. Manufacturing a b
 dispatch is the opposite failure — say "no baton needed" and why.
 
 **A peer's blanket `safety` commit will land before you finish.** Expect a bare, undifferentiated sweep
-of the whole crash-dirty tree — 69 files in one claude-klabauter commit, 485 in ue-addon's — landing days later
+of the whole crash-dirty tree — 69 files in one sibling repo's commit, 485 in another's — landing days later
 with no per-session attribution. The work is preserved, not lost, so every baton must say which of its
 own work sits inside that commit. A baton that says "re-do this" against work already on disk is worse
 than no baton.

@@ -7,7 +7,7 @@ Replaces `guard-settings-integrity.sh` — zero Git-Bash cold-start per boot
 (each bash.exe spawn costs 200-500ms on Windows; this is the whole point).
 
 This doctrine-plane repo owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
-the claude-klabauter engine, hand it the config dir, relay its stdout text. Claude-klabauter owns
+the engine repo, hand it the config dir, relay its stdout text. The engine repo owns
 the guard LOGIC (`coordinator_core.ops.session.guard_settings_integrity`, direct
 Python port of the bash oracle — W4a-sessionstart-recipe.md § 2.3). All three
 engine functions below are imported and called IN-PROCESS — no bash, no
@@ -45,7 +45,7 @@ Contract (mirrors the bash hook it replaces):
   stdout  — the composed banner text (raw, becomes additionalContext), or
             NOTHING when all three checks are healthy/silent.
   exit 0  — ALWAYS. SessionStart hooks must never block session start; a
-            missing/unimportable claude-klabauter engine, OR any INDIVIDUAL check
+            missing/unimportable engine repo, OR any INDIVIDUAL check
             raising, fails OPEN for that check only (silent for that check,
             exit 0) — the other checks still run and still emit. Identical
             philosophy to preuse-write-dispatch.py's fail-open, extended to
@@ -53,7 +53,7 @@ Contract (mirrors the bash hook it replaces):
 
 NOTE: `CLAUDE_CONFIG_DIR` (falling back to `$HOME/.claude`) is read here (not
 inside the engine call) so the stub's own env-resolution matches the bash
-oracle's `${CLAUDE_CONFIG_DIR:-$HOME/.claude}` precedent — the claude-klabauter op
+oracle's `${CLAUDE_CONFIG_DIR:-$HOME/.claude}` precedent — the engine repo's op
 functions accept an explicit `config_dir` and do their OWN independent env
 read when None is passed, so passing it explicitly here is redundant-but-safe
 belt-and-suspenders, not a behavior fork.
@@ -62,7 +62,7 @@ Source: coordinator/hooks/scripts/guard-settings-integrity.sh
 Spec: scratch/subagent-sandbox/bash-to-python-migration/W4a-sessionstart-recipe.md § 2.3
 Spec (duplication + kill-switch checks): doctrine-repo dispatch
   state/subagent-share/78b683cd-1b62-4a25-904d-954cb3c69412/
-  coordinatorexecutor-d531b05a.md (2026-07-29) — wires claude-klabauter
+  coordinatorexecutor-d531b05a.md (2026-07-29) — wires the engine repo's
   `evaluate_hook_delivery_duplication` (82c1918c) and
   `evaluate_hooks_kill_switch_announcement` (f88b409c) into this live path.
 """
@@ -102,7 +102,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open — claude-klabauter unresolvable on this machine
+        return 0  # fail-open — engine repo unresolvable on this machine
 
     if root not in sys.path:
         sys.path.insert(0, root)

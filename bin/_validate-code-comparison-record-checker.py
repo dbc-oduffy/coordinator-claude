@@ -15,7 +15,7 @@ Arrived from DoE-claude coordinator/pipelines/deep-research/fixtures/.validate-c
 (docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W3-C7). Pure stdlib + PyYAML, no
 DoE-relative path derived from `__file__` — nothing to fix under § Path resolution.
 """
-# Review: code-reviewer (C-F7) — softened "the discoverable entry point for a
+# Softened "the discoverable entry point for a
 # run-all-checks / make-test sweep" (present-tense fact) to "designed to be
 # discovered... invoke directly for now" (intended/future) — no such sweep
 # exists in-tree as of this review.
@@ -50,7 +50,7 @@ def check_record(record, label: str = "") -> list[str]:
         if not condition:
             violations.append(prefix + message)
 
-    # Review: code-reviewer (C-F1) — a non-mapping record node (empty file -> None,
+    # A non-mapping record node (empty file -> None,
     # or a scalar) must fail as a clean VIOLATION, not an uncaught TypeError from
     # `field in record` on a non-mapping.
     if not isinstance(record, dict):
@@ -73,7 +73,7 @@ def check_record(record, label: str = "") -> list[str]:
         require("state" in side_obj, f"observation.{side}.state missing")
         require("evidence" in side_obj, f"observation.{side}.evidence missing")
         evidence = side_obj.get("evidence", []) or []
-        # Review: code-reviewer (C-F6) — evidence must be a list before len()/iteration;
+        # Evidence must be a list before len()/iteration;
         # a scalar string (len()>=1 true) would otherwise iterate over characters and
         # crash with AttributeError on ref.get(...) below.
         require(isinstance(evidence, list), f"observation.{side}.evidence must be a list")
@@ -148,7 +148,7 @@ def check_record(record, label: str = "") -> list[str]:
     for side in ("peer", "subject"):
         side_obj = observation.get(side, {}) or {}
         side_evidence = side_obj.get("evidence", []) or []
-        # Review: code-reviewer (C-F6, mirrored) — guard evidence shape here too,
+        # Guard evidence shape here too,
         # since this loop re-derives `evidence` independently of the presence-check
         # loop above.
         if not isinstance(side_evidence, list):
@@ -157,13 +157,13 @@ def check_record(record, label: str = "") -> list[str]:
             if not isinstance(ref, dict):
                 continue
             url = ref.get("url", "")
-            # Review: code-reviewer (C-F3) — url must be a string before regex
+            # Url must be a string before regex
             # search; a schema-shaped-but-wrong-typed value (int/list) would
             # otherwise raise TypeError instead of a clean VIOLATION.
             require(isinstance(url, str), f"observation.{side}.evidence[{i}].url must be a string")
             if not isinstance(url, str):
                 continue
-            # Review: code-reviewer (C-F5) — strip trailing whitespace before
+            # Strip trailing whitespace before
             # matching so a copy-paste artifact reports as a distinguishable
             # violation rather than a generic shape mismatch.
             stripped_url = url.strip()
@@ -203,7 +203,7 @@ def check_record(record, label: str = "") -> list[str]:
         r"\bneeds? to\b",
     ]
     analysis_text = record.get("analysis", "") or ""
-    # Review: code-reviewer (C-F2) — analysis must be a string before the
+    # Analysis must be a string before the
     # token-search loop, mirroring the `derivation` isinstance guard above;
     # a non-string truthy value (YAML list/dict) would otherwise raise
     # TypeError from re.search instead of a clean VIOLATION.

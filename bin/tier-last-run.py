@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """tier-last-run — record and read the durable last-run sentinel for a declared ceremony tier.
 
 WHY THIS EXISTS. `coordinator.local.md`'s `ceremony_test_cmds` entries have no recorded last-run
@@ -49,7 +48,6 @@ _STATE_RELATIVE = Path("state") / "tier-last-run.json"
 _LOCAL_DOCTRINE_RELATIVE = Path("coordinator.local.md")
 _ISO_FORMAT = "%Y-%m-%dT%H:%M:%S.%f%z"
 
-
 def _repo_root(explicit: Optional[str]) -> Path:
     return Path(explicit).resolve() if explicit else Path.cwd()
 
@@ -65,11 +63,6 @@ def _load_local_doctrine(repo_root: Path) -> dict[str, Any]:
     frontmatter delimiters, or a YAML document that is not a mapping — every caller here treats
     that as a hard failure, never a silent empty-config fallback.
     """
-    try:
-        import yaml
-    except ImportError:  # pragma: no cover - environment defect, not a code path under test
-        yaml = None
-
     path = repo_root / _LOCAL_DOCTRINE_RELATIVE
     try:
         text = path.read_text(encoding="utf-8")
@@ -82,7 +75,9 @@ def _load_local_doctrine(repo_root: Path) -> dict[str, Any]:
     if len(parts) < 3:
         raise ValueError(f"{path} frontmatter is not closed with a second '---'")
 
-    if yaml is None:
+    try:
+        import yaml
+    except ImportError:  # pragma: no cover - environment defect, not a code path under test
         raise ValueError("PyYAML is not installed; cannot parse coordinator.local.md frontmatter")
 
     try:
@@ -187,7 +182,7 @@ def _write_state(state_path: Path, state: dict[str, Any]) -> None:
     """
     state_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = state_path.with_name(f"{state_path.name}.tmp-{os.getpid()}")
-    tmp_path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp_path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
     os.replace(tmp_path, state_path)
 
 

@@ -301,7 +301,7 @@ def _archive_result(result: dict) -> Path | None:
     verdicts therefore existed only inside a tool call, and that is not a
     cosmetic gap: `roadmap.blitz_land` takes the wave result verbatim, so a
     landing cannot be re-run once the session holding it ends. Measured on
-    claude-klabauter, run 20260910T000000Z: two XS batons finished, their landing
+    the engine repo, run 20260910T000000Z: two XS batons finished, their landing
     never stamped them, `recycle-check.py` correctly named them RECYCLED — and
     the documented repair ("re-run the landing with the SHA") was unreachable,
     because the trail held hand-written baton arrays and no fire result. The

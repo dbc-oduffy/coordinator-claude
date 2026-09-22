@@ -123,7 +123,7 @@ entry in `hooks.json` — they were written, tested, and never invoked. All thre
 pre-commit gates (`coordinator-precommit-exec-bit-check`,
 `coordinator-precommit-foreign-platform-check`, `coordinator-precommit-settings-tracking-check`)
 resolved against a `coordinator/bin/` path that stopped existing once the executable surface
-migrated to `claude-klabauter` — every invocation hit a missing file.
+migrated to the engine repo — every invocation hit a missing file.
 
 Every one of the five shared the same shape: `if [ -f "$script" ]; then ... fi` (or the Python
 equivalent). A missing script skips silently and the hook still exits 0. Passing unit tests on a

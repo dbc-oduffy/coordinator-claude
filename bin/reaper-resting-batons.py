@@ -102,7 +102,7 @@ def _bootstrap_engine_root() -> None:
 
 
 def _no_console_creationflags() -> dict:
-    # Review: coordinator:code-reviewer — `no_console_creationflags` is
+    # `no_console_creationflags` is
     # always importable (POSIX and Windows alike; see
     # coordinator_core/win_portability.py's own docstring), so an import
     # failure here is never a legitimate "absent on non-Windows installs"
@@ -132,7 +132,7 @@ def _resolve_repo_root(explicit: str | None) -> str | None:
 
 
 def _import_read_meta():
-    # Review: coordinator:code-reviewer — was its own ad hoc partial
+    # Was its own ad hoc partial
     # bootstrap (the older private `cc_invoke._resolve_claude_klabauter_root`,
     # exception-swallowed on resolution only), now the same
     # `resolve_engine_root` idiom `_no_console_creationflags` and the

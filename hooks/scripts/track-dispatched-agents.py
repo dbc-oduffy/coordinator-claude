@@ -48,8 +48,8 @@ Windows (each bash.exe spawn costs 200-500ms; this is the whole point).
 
 The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): parse
 the raw PostToolUse payload, extract the same flat scalars the legacy bash
-cascade computed, resolve the claude-klabauter engine, hand it the mapped params, relay
-its stdout. Claude-klabauter owns the write LOGIC (coordinator_core.hooks.
+cascade computed, resolve the engine repo, hand it the mapped params, relay
+its stdout. The engine repo owns the write LOGIC (coordinator_core.hooks.
 track_dispatched_agents, registered under "hooks.track_dispatched_agents") --
 the dedup/collision-rewrite/append to dispatched-agents.txt and the atomic
 em-session-id.txt back-pointer. The engine is imported and run IN-PROCESS via
@@ -101,7 +101,7 @@ On SubagentStart (create call, see `_build_subagent_start_params`):
                                     enrich branch, stranding model -- see Finding 3 in the review
                                     trail for the accepted regression this causes)
 
-Handler-side validation NOT replicated here (belongs to claude-klabauter, not this
+Handler-side validation NOT replicated here (belongs to the engine repo, not this
 stub): agent-id format guard (bare-hex >=12 / teammate canonical id), the
 session_id/agent_id required-field early-outs, and the model/subagent_type
 "" -> "unknown" fallback -- all already implemented in
@@ -136,7 +136,7 @@ in registered use (this script is only ever invoked as SubagentStart or
 PostToolUse) and falls through to fail-open.
 
 Graceful degradation -- REQUIRED: any failure to resolve/import/run the
-Claude-klabauter engine, or to parse stdin, falls through to fail-open (exit 0, no
+engine repo, or to parse stdin, falls through to fail-open (exit 0, no
 stdout). A missing sibling engine must NEVER brick an Agent-tool return --
 identical philosophy to preuse-write-dispatch.py._resolve_claude_klabauter_root (kept
 in lockstep deliberately; see W2-stub-contract.md).
@@ -297,6 +297,18 @@ def _build_subagent_start_params(payload: dict) -> dict[str, str] | None:
         "dispatched_model": _SUBAGENT_START_PLACEHOLDER_TYPE,
         "subagent_type": agent_type,
     }
+
+
+def _subagent_start_record_key(payload: dict) -> str:
+    """Key for the SubagentStart start-timestamp record.
+
+    Same read, same fallback, as `SubagentStop`'s detector
+    (`subagent-zero-tool-use-detect.py:284-286`): `payload.get("agent_id")`
+    when that value is a `str`, else `""`. Do not normalise, prefix, or
+    re-key it -- the two records join on this value verbatim (#25).
+    """
+    agent_id = payload.get("agent_id")
+    return agent_id if isinstance(agent_id, str) else ""
 
 
 def _resolve_git_root_for_backpointer(cwd: Any) -> str | None:
@@ -607,6 +619,74 @@ def _write_posttooluse_agent_canary(raw: str) -> None:
         return
 
 
+def _write_subagent_start_record(payload: dict) -> None:
+    """Record a start timestamp for #25, keyed by `_subagent_start_record_key`.
+
+    Doctrine-plane-local write, beside but never inside
+    `posttooluse-agent-canary.log` (that file is removable scaffolding, see
+    module docstring's `_write_posttooluse_agent_canary` note -- this record
+    is not). Reuses the local-write shape already proven in
+    `_write_posttooluse_agent_canary`: git common-dir anchored, a UTC
+    `%Y-%m-%dT%H:%M:%SZ` stamp, append, fail-open. Does NOT reuse that
+    function's `agent_id` read (it reads `tool_response`, absent on a
+    SubagentStart payload) -- uses `_subagent_start_record_key` instead.
+
+    Why local and not the engine's store: see C7 body,
+    docs/plans/2026-09-11-register-unit-b-adopt-the-six-hook-events.md. The
+    stop-side record is the engine op's own durable write; a read-time join
+    on the same `agent_id` satisfies the acceptance criterion with no
+    engine-repo change.
+    """
+    try:
+        cwd = payload.get("cwd") or None
+        agent_id = _subagent_start_record_key(payload)
+
+        probe = Path(cwd).resolve() if isinstance(cwd, str) and cwd else Path.cwd()
+        git_dir = None
+        for candidate in (probe, *probe.parents):
+            marker = candidate / ".git"
+            if marker.is_dir():
+                git_dir = marker
+                break
+            if marker.is_file():
+                raw_pointer = marker.read_text(encoding="utf-8", errors="replace")
+                if not raw_pointer.startswith("gitdir:"):
+                    return
+                pointer = raw_pointer[len("gitdir:"):].strip()
+                if not pointer:
+                    return
+                pointer_path = Path(pointer)
+                if not pointer_path.is_absolute():
+                    pointer_path = (candidate / pointer_path).resolve()
+                git_dir = pointer_path
+                break
+        if git_dir is None:
+            return
+
+        commondir_file = git_dir / "commondir"
+        if commondir_file.is_file():
+            raw_common = commondir_file.read_text(encoding="utf-8", errors="replace").strip()
+            if not raw_common:
+                return
+            common_path = Path(raw_common)
+            if not common_path.is_absolute():
+                common_path = (git_dir / common_path).resolve()
+            common_dir = common_path
+        else:
+            common_dir = git_dir
+
+        log_dir = common_dir / "coordinator-sessions" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        line = f"{stamp}\t{agent_id}\n"
+        with (log_dir / "subagent-start-timestamps.log").open(
+            "a", encoding="utf-8"
+        ) as fh:
+            fh.write(line)
+    except Exception:
+        return
+
+
 def main() -> int:
     raw = _read_stdin()
     _write_posttooluse_agent_canary(raw)
@@ -621,6 +701,7 @@ def main() -> int:
     event = payload.get("hook_event_name")
 
     if event == "SubagentStart":
+        _write_subagent_start_record(payload)
         fields = _build_subagent_start_params(payload)
         if fields is None:
             return 0  # fail-open -- missing identity field, nothing to write

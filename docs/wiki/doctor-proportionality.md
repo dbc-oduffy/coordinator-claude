@@ -27,9 +27,9 @@ Both anti-patterns share a root: treating "has a `/doctor`" as a maturity signal
 | **Wiki-form doctor** | Shared substrate other components cite; a runnable probe catalog + citation contract, but not an interactive flow. | **coordinator-claude** — `coordinator-doctor.md` (machine-local substrate, cited by downstream doctors). |
 | **Skill-form doctor** | Genuine aggregate surface: multiple planes, live bindings (MCP), fleet-consumer contract drift — an operator must *triage across* many independent failure modes. | **cockpit** — multiple planes, live MCP bindings, fleet-consumer contract drift. Warrants a real branching skill; should lean in. |
 | **Scripts + one host probe** | Thin component: few failure modes, each caught by its own setup script's post-condition. | **example-market-data-repo** — thin producer addon: fail-loud scripts + one failure-catalog probe (`MI-F-1`) contributed to the host. Deliberately **no** doctor skill. |
-| **Collapse candidate** | A skill that on inspection is delegation bloat or probe theater — collapse to scripts + host probe. | **claude-klabauter** — collapsed: retired its `/claude-klabauter:doctor` plugin skill to scripts + host probe (`bin/claude-klabauter-doctor-probe.py`)|
+| **Collapse candidate** | A skill that on inspection is delegation bloat or probe theater — collapse to scripts + host probe. | **the engine repo** — collapsed: retired its  plugin skill to scripts + host probe (`bin/claude-klabauter-doctor-probe.py`)|
 
-*(The cockpit/claude-klabauter/example-market-data-repo classifications are illustrative of the rule; the actual collapse/invest decisions belong to those repos' EMs responding to their own copies of the originating memo — this wiki authors only the central citable principle.)*
+*(The cockpit/engine-repo/example-market-data-repo classifications are illustrative of the rule; the actual collapse/invest decisions belong to those repos' EMs responding to their own copies of the originating memo — this wiki authors only the central citable principle.)*
 
 ## Decision procedure
 
@@ -66,4 +66,4 @@ This doctrine was not planned top-down — it was **seeded from a proven impleme
 - [`guard-proportionality.md`](guard-proportionality.md) — the sibling rule on the refusal side: how much blocking machinery a fact earns (necessity / duration / outlet), and the standing-guard antipattern it names.
 - Single-Entry-Point consolidation + selective addressability (coordinator `CLAUDE.md` § Implementation Standards) — the same discipline one altitude down: one health surface AND aimable.
 
-<!-- seeded 2026-07-08 from example-market-data-repo-em doctor-proportionality-doctrine-candidate memo; ratified at DoE altitude -->
+<!-- seeded 2026-07-08 from example-market-data-repo-em doctor-proportionality-doctrine-candidate memo; ratified at Director-of-Engineering altitude -->

@@ -40,7 +40,7 @@
 #     the artifact/path-touch plane), a target that cannot be found is
 #     self-diagnosing rather than silent. Before dispatching, the CLI
 #     resolves the SAME claim directory claims.clear_claim_if_dead itself
-#     resolves (core.sessions_dir — the identical public path-arithmetic,
+#     resolves (claims.claim_dir_for — the identical public path-arithmetic,
 #     never a second parser) and, if absent, emits a stderr note naming the
 #     class/basename/path looked up and stating plainly this is NOT a
 #     refusal, plus a hint when basename ends in ".md" (the claim key
@@ -78,8 +78,8 @@
 #       "liveness_basis:<value>", where <value> is holder_evidence.
 #       liveness_basis()'s vocabulary ("harness-registry" | "stable-pid" |
 #       "stable-pid-shared" | "recency-window" | "recency-window-mtime" |
-#       "harness-registry-elsewhere" | "unknown") — additive output
-#       (AC7/AC8), never emitted
+#       "no-record" | "harness-registry-elsewhere" | "unknown") — additive
+#       output (AC7/AC8), never emitted
 #       on the malformed-SID or transport-failure paths since those carry no
 #       decided verdict to attach a basis to. A basis-derivation failure
 #       degrades to "unknown" on this line; it never changes the line-1
@@ -116,7 +116,22 @@
 #     gate, since deleted `40ff424f5`, 2026-08-13) and no CLI, so an EM hit
 #     by that gate's refusal had no way to ask "who touched this path, and
 #     are they live?" without reading touched.txt files by hand.
-#     stdout: one line per claimant, TAB-delimited "<sid>\t<live|dead>\t<name>".
+#     stdout: one line per claimant, TAB-delimited
+#     "<sid>\t<live|dead>\t<name>\t<write|read|unknown-kind>".
+#     The FOURTH column (2026-09-20) says whether that claimant MUTATED the
+#     path or merely observed it, and is appended rather than inserted so a
+#     consumer splitting on TAB and reading columns 1-3 is unaffected. It
+#     exists because this CLI is what the safe-commit refusal sends an
+#     operator to, and until the touch record carried the distinction that
+#     refusal named readers as holders: the filed incident
+#     (state/bug-queue/2026-09-20-the-touch-record-cannot-distinguish-a-read-
+#     touch-from-a-write-touch.yaml) had an operator message two sessions by
+#     name over a file only one of them had written. "unknown-kind" is a
+#     line predating the axis -- NOT a synonym for read; see
+#     touch_record.kind_blocks_a_peer_commit for why it still blocks.
+#     Reads never block a peer commit, but they ARE listed here: this is the
+#     inspection instrument, and "nobody is reading this" and "somebody is
+#     reading this and it does not block you" are different answers.
 #     The third column (C2, docs/plans/2026-09-01-the-claim-record-carries-
 #     the-name.md) is PROVENANCE, not an address ready for SendMessage --
 #     see _render_claimant_name's docstring for the three-rung resolution
@@ -227,10 +242,9 @@ def _dispatch_import(dotted_name: str):
     import path" remedy) instead of a raw one.
 
     Not every bare import in this file routes through here.
-    ``_import_core_module``, ``_import_harness_registry_module``, and
-    ``_import_holder_evidence_module`` stay on the plain
-    ``_bootstrap_engine`` + bare-import shape deliberately: each of their
-    call sites already wraps the call in a broad ``except Exception`` that
+    ``_import_harness_registry_module`` and ``_import_holder_evidence_module``
+    stay on the plain ``_bootstrap_engine`` + bare-import shape deliberately:
+    each of their call sites already wraps the call in a broad ``except Exception`` that
     degrades to ``None``/``"unknown"``/a marker (best-effort diagnostics,
     never a verdict), so an ``ImportError`` there was never a raw traceback
     to begin with — there is nothing for the diagnosis to improve, and
@@ -254,19 +268,6 @@ def _import_stale_claims_module():
     """Separate seam from ``_import_module`` (claims) so
     ``list-stale-claim-handoffs`` tests can stub the enumerator in isolation."""
     return _dispatch_import("coordinator_core.session.stale_claims")
-
-
-def _import_core_module():
-    """Separate seam from ``_import_module`` (claims) so
-    ``clear-claim-if-dead``'s not-found precheck (AC5) can be stubbed
-    independently in tests, mirroring the per-functional-area seam split
-    above. Only reads ``core.sessions_dir`` — the SAME public path-arithmetic
-    ``claims.clear_claim_if_dead`` itself calls, never a second liveness
-    parser."""
-    claude_klabauter_root = _bootstrap_engine()
-    import coordinator_core.session.core as _mod
-
-    return _mod
 
 
 def _import_claim_index_module():
@@ -341,8 +342,42 @@ def _format_claim_age(seconds: float) -> str:
     return f"held {max(seconds, 0.0) / 60.0:.0f}m"
 
 
+#: Rendered spellings for the kind column. Words, not the record's own single
+#: letters: this column is read by an operator deciding whether to go and talk
+#: to someone, and `w`/`r` beside a session id and a name is three tokens of
+#: cryptic and one of plain.
+_KIND_LABELS = {"w": "write", "r": "read"}
+
+#: A claimant whose line predates the kind axis, or whose channel could not
+#: tell. Deliberately NOT "read" and deliberately not blank: blank reads as a
+#: missing column to a TAB-splitting consumer, and "read" would be a claim
+#: this record cannot support. It blocks a peer commit exactly as "write"
+#: does -- see `touch_record.kind_blocks_a_peer_commit`.
+_UNKNOWN_KIND_MARKER = "unknown-kind"
+
+
+def _render_claimant_kind(sid: str, path: str, lookup_result) -> str:
+    """Whether this claimant WROTE the path or merely READ it.
+
+    One rung, not three (contrast `_render_claimant_name`): the kind is a
+    property of the recorded event and there is nothing live to fall back
+    to. Either the claim states it or it does not, and "does not" is
+    reported as such rather than guessed -- the guess would be invisible and
+    the unknown is not.
+
+    Best-effort, same posture as its name sibling: this column is additive
+    display output and must never take down the row's sid/live|dead columns.
+    """
+    try:
+        recorded = getattr(lookup_result, "recorded_kind", None) or {}
+        kind = (recorded.get(path) or {}).get(sid)
+    except Exception:  # noqa: BLE001 -- an additive column never fails a row
+        return _UNKNOWN_KIND_MARKER
+    return _KIND_LABELS.get(kind, _UNKNOWN_KIND_MARKER)
+
+
 def _render_claimant_name(sid: str, path: str, lookup_result) -> str:
-    # Review: overengineering-reviewer -- dropped unused `cwd` param, carried
+    # Dropped unused `cwd` param, carried
     # only because the neighbouring `_liveness_basis_for` takes one.
     """The three-rung resolution ladder (C2, docs/plans/2026-09-01-the-claim-
     record-carries-the-name.md): (1) the name RECORDED on the claim at write
@@ -530,19 +565,32 @@ def _bool_to_exit(result: bool) -> int:
 
 # AC5 — clear-claim-if-dead's classed forms (mkdir-based claim-record store,
 # NOT the artifact/path-touch plane, which is a different lookup entirely).
-_CLASSED_CLAIM_CLASSES = ("handoff", "memo", "plan", "artifact")
+#
+# "artifact" WAS listed here, contradicting the line above it. The two arms
+# this set gates (`release-artifact`, `clear-claim-if-dead`) then resolved a
+# `<base>/artifact-claims/<path>` directory that no code path consults for
+# this class -- `release_artifact` routes `artifact` to
+# `_release_path_claim_artifact` before any classed lookup runs -- and, on
+# finding it absent as it always is, printed "no claim at ..." over a
+# release that was in fact about to succeed. Measured 2026-09-20 releasing a
+# real live touch claim: the note fired, the release landed, and the two
+# disagreed. That is the worst possible moment for a false negative, since
+# this is the route the safe-commit refusal now sends a blocked holder to.
+_CLASSED_CLAIM_CLASSES = ("handoff", "memo", "plan")
 
 
-def _claim_lookup_dir(class_: str, basename: str, baton_repo_root: str):
+def _claim_lookup_dir(mod, class_: str, basename: str, baton_repo_root: str):
     """Best-effort resolution of the SAME claim directory
     ``claims.clear_claim_if_dead`` / ``claims.release_artifact`` will inspect,
     so the CLI can tell a caller what was looked up and under which key BEFORE
-    the call, when that directory turns out not to exist (AC5). Mirrors
-    ``clear_claim_if_dead``'s
-    own base resolution byte for byte — ``core.sessions_dir`` is the SAME
-    public path-arithmetic function that module already calls, so this is
-    not a second parser of anything liveness-shaped, just the identical
-    directory-join claims.py performs.
+    the call, when that directory turns out not to exist (AC5). Delegates to
+    ``claims.claim_dir_for`` — the same base+claim_dir arithmetic
+    ``clear_claim_if_dead`` itself calls — rather than re-deriving it here, so
+    this precheck and the library's own resolution cannot drift apart.
+
+    ``mod`` is the already-imported ``claims`` module (the CLI's own
+    ``_import_module`` seam) — passed in rather than re-imported so this stays
+    a plain arithmetic lookup, not a second import chokepoint.
 
     Returns ``None`` on ANY resolution failure (bad/absent baton root,
     unresolvable sessions dir, transport failure) — callers MUST treat
@@ -551,15 +599,7 @@ def _claim_lookup_dir(class_: str, basename: str, baton_repo_root: str):
     actual outcome.
     """
     try:
-        if baton_repo_root:
-            if not (Path(baton_repo_root) / ".git").is_dir():
-                return None
-            base = str(Path(baton_repo_root) / ".git" / "coordinator-sessions")
-        else:
-            base = _import_core_module().sessions_dir(None)
-        if not base:
-            return None
-        return Path(base) / f"{class_}-claims" / basename
+        return mod.claim_dir_for(class_, basename, baton_repo_root)
     except Exception:  # noqa: BLE001 - best-effort diagnostic only, see docstring
         return None
 
@@ -694,7 +734,7 @@ def _dispatch(argv: list[str]) -> int:
         class_, basename = rest[0], rest[1]
         baton_repo_root = rest[2] if len(rest) > 2 else ""
         if class_ in _CLASSED_CLAIM_CLASSES:
-            claim_dir = _claim_lookup_dir(class_, basename, baton_repo_root)
+            claim_dir = _claim_lookup_dir(mod, class_, basename, baton_repo_root)
             if claim_dir is not None and not claim_dir.is_dir():
                 _emit_claim_not_found_note("release-artifact", class_, basename, claim_dir)
         return _call_claim_bool("release-artifact", mod.release_artifact, class_, basename, baton_repo_root)
@@ -708,7 +748,7 @@ def _dispatch(argv: list[str]) -> int:
         class_, basename = rest[0], rest[1]
         baton_repo_root = rest[2] if len(rest) > 2 else ""
         if class_ in _CLASSED_CLAIM_CLASSES:
-            claim_dir = _claim_lookup_dir(class_, basename, baton_repo_root)
+            claim_dir = _claim_lookup_dir(mod, class_, basename, baton_repo_root)
             if claim_dir is not None and not claim_dir.is_dir():
                 _emit_claim_not_found_note("clear-claim-if-dead", class_, basename, claim_dir)
         return _call_claim_bool("clear-claim-if-dead", mod.clear_claim_if_dead, class_, basename, baton_repo_root)
@@ -776,7 +816,7 @@ def _dispatch(argv: list[str]) -> int:
             )
             return _TRANSPORT_FAIL
         basis = _liveness_basis_for(sid, cwd)
-        # Review: staff-eng-review — a live-elsewhere peer has no session
+        # A live-elsewhere peer has no session
         # dir in this repo, so `live` is False here (AC1, session_live's
         # boolean is untouched); printing "dead" over that basis reproduces
         # this plan's own Problem statement in this sibling CLI. "dead" is
@@ -823,7 +863,7 @@ def _dispatch(argv: list[str]) -> int:
                 file=sys.stderr,
             )
             return _TRANSPORT_FAIL
-        # Review: staff-eng slice-A P1 #1 — this lookup sits on the same arm
+        # This lookup sits on the same arm
         # the commit hardened for session_live below; an unguarded raise here
         # (OSError on the claim store, a JSON/parse error, a partially-
         # importable module) would escape main() and exit 1 via a raw
@@ -856,7 +896,7 @@ def _dispatch(argv: list[str]) -> int:
             )
             print(f"session-claim-cli: who-claims-path: abort cause: {abort_cause}", file=sys.stderr)
             return 1
-        # Review: staff-eng slice-A P1 #2 — collect every claimant's verdict
+        # Collect every claimant's verdict
         # before printing any of them. Printing per-claimant inside the loop
         # meant a raise on claimant k emitted k-1 well-formed "sid\tstate"
         # rows followed by a bare TAB-less "indeterminate" line — a TAB-
@@ -878,7 +918,8 @@ def _dispatch(argv: list[str]) -> int:
                 )
                 return _TRANSPORT_FAIL
             name_col = _render_claimant_name(sid, path, lookup_result)
-            rows.append(f"{sid}\t{'live' if live else 'dead'}\t{name_col}")
+            kind_col = _render_claimant_kind(sid, path, lookup_result)
+            rows.append(f"{sid}\t{'live' if live else 'dead'}\t{name_col}\t{kind_col}")
         for row in rows:
             print(row)
         return 0

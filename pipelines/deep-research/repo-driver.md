@@ -33,7 +33,7 @@ Agent Teams flow below (Steps 1-7.5) — skip straight to a single-agent dispatc
    `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/code-comparison-agent-prompt-template.md`.
 2. Fill in the bracketed fields (subject repo, peer target, axis list). **`[OUTPUT_PATH]` is
    bound, not an EM fill-in:** `<repo-root>/state/emissions/code-comparison/{run-id}.yaml`, where
-   `<repo-root>` resolves via the running repo's own tree-root pointer (DoE's is `.doe-root`;
+   `<repo-root>` resolves via the running repo's own tree-root pointer (this repo's is `.doe-root`;
    never `${CLAUDE_PLUGIN_ROOT}`, which names the plugin source tree, not `state/`'s parent) and
    `{run-id}` is generated fresh (`YYYY-MM-DD-HHhMM`, current timestamp) — Mode Dispatch skips
    Step 1, so this mode generates its own run-id rather than reusing one. Each repo writes its
@@ -493,8 +493,10 @@ When you receive a notification that the synthesis task is complete:
    default, so this confirms the default fired rather than deciding whether to ask for it:
 
    ```bash
-   grep -q '^## Fleet-Readable Competitor Row' {output-path} || echo "MISSING: competitor row"
+   grep -n '^## Fleet-Readable Competitor Row' {output-path}
    ```
+
+   It prints the heading's line number, or nothing at all — nothing is the missing case.
 
    If it is missing, append it yourself from § Fleet-Readable Competitor Row of
    `repo-synthesizer-prompt-template.md` — do not re-dispatch the synthesizer for one table.
@@ -507,11 +509,13 @@ When you receive a notification that the synthesis task is complete:
    **`--ran-at` is measured off disk, never quoted from the agent.** The synthesizer has no shell and no clock; the merge moment is the mtime of `merged-claims.json`. Read it:
    
       ```bash
-      RAN_AT=$(python -c "import datetime,os,sys; print(datetime.datetime.fromtimestamp(os.path.getmtime(sys.argv[1]), datetime.timezone.utc).isoformat())" {scratch-dir}/merged-claims.json)
+      python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/pipelines/deep-research/merged-claims-ran-at.py" {scratch-dir}/merged-claims.json
       ```
       ```powershell
-      $RanAt = (Get-Item "{scratch-dir}/merged-claims.json").LastWriteTimeUtc.ToString("yyyy-MM-ddTHH:mm:ssZ")
+      python "$env:CLAUDE_PLUGIN_ROOT\pipelines\deep-research\merged-claims-ran-at.py" {scratch-dir}\merged-claims.json
       ```
+      It prints one RFC3339 stamp; pass that verbatim as `--ran-at`. It exits 1 rather
+      than inventing a stamp for a path it cannot stat.
       A timestamp offered in a completion message is an estimate — `claims-emit` validates RFC3339 *shape*, so a confident guess lands in the durable sidecar indistinguishable from a measured value. Take the pipeline token from the completion message; take the clock from the file.
    ```bash
    "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/claims-emit" \

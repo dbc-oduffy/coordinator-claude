@@ -199,7 +199,7 @@ Negative-spec:
       this one.
 """
 
-# Review: code-reviewer — Finding 3 (P2, sliceverify-publish-targets-portable-sync):
+# sliceverify-publish-targets-portable-sync):
 # moved below the module docstring so the docstring binds to __doc__ (a future-import
 # preceding the docstring makes it an inert discarded expression statement instead).
 from __future__ import annotations
@@ -336,7 +336,7 @@ def _resolve_live_targets_path() -> Optional[Path]:
     the same "not applicable on this machine" outcome from this check's
     perspective — see Negative-spec above.
     """
-    # Review: code-reviewer — Finding 1 (P1, sliceverify-publish-targets-portable-sync):
+    # sliceverify-publish-targets-portable-sync):
     # _resolve_claude_klabauter_root() previously raised RuntimeError OUTSIDE this try block, so an
     # unresolvable claude-klabauter checkout propagated to main()'s sibling `except RuntimeError`
     # and hard-failed with exit 1 — indistinguishable from a genuine row divergence, and
@@ -379,7 +379,7 @@ def _parse_rows(text: str) -> dict[str, str]:
         fields = line.split("|")
         name = fields[0].strip()
         if not name:
-            # Review: code-reviewer — Finding 4 (nit): non-fatal warning so a
+            # non-fatal warning so a
             # malformed blank-name row doesn't silently drop out of the comparison.
             print(
                 f"verify-publish-targets-portable-sync.py: WARNING — skipping "
@@ -388,7 +388,7 @@ def _parse_rows(text: str) -> dict[str, str]:
             )
             continue
         if name in rows:
-            # Review: code-reviewer — Finding 4 (nit): non-fatal warning so a
+            # non-fatal warning so a
             # duplicated target name doesn't silently overwrite the earlier row.
             print(
                 f"verify-publish-targets-portable-sync.py: WARNING — duplicate "
@@ -531,7 +531,7 @@ def _resolve_row_source_root(source_subdir: str, checkout_root: Path) -> Optiona
         key, _, subpath = ref.partition("/")
         if not key:
             return None
-        # Review: code-reviewer — mirrors _resolve_source_sigil's ".." rejection
+        # Mirrors _resolve_source_sigil's ".." rejection
         # on ps_subpath (resolve_target.py:423-427); without it this read-only
         # probe would silently .exists()-check outside the intended root
         # instead of raising, an undocumented second divergence from the

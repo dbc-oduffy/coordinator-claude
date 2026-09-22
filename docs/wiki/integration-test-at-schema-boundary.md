@@ -93,6 +93,40 @@ for "the keyword's value is in scope."
 
 *Source: coordinator handoff/spinoff continuity hardening.*
 
+## When Both Halves Are Correct and Separately Tested, the Suite Certifies a Join That Does Not Exist
+
+A sharper version of the registration-vs-handler split: two defects in one producer/consumer
+pipeline where the producer was correct, the consumer was correct, **both had passing unit
+tests**, and the data still never crossed — because nothing tested the join field itself, and
+the join was exactly where the two sides disagreed.
+
+Case 1: a coverage-manifest constructor was a pure function with its own green unit tests; the
+production call site simply never passed it the tokens those tests assumed. Function green, call
+site wrong, nothing between them under test. Case 2: a producer wrote entity-first claims with
+`repo=""` exactly as its governing decision record specified; the consumer's reader filtered on
+`project_refs` membership exactly as its own docstring specified. Both were right about their own
+contract, but they didn't share a join field — every claim the producer wrote was structurally
+unreadable by the consumer, and the read came back empty.
+
+**Why the suite can't see it:** a unit test constructs its own inputs, which is the point of a
+unit test — but it makes the test and the real production caller two independent callers of the
+same function, and only one of them is under test. Green proves the function honors the contract
+its *own tests* assume; it proves nothing about whether the real caller assumes the same
+contract. Both sides can be individually, provably correct while disagreeing, and the more
+thoroughly each half is tested in isolation, the more confident the green looks.
+
+**The tell is a loud one:** the run reports success in the operator's own terms — exit 0, a
+per-leg summary claiming full coverage — because every component that could have objected was,
+individually, working. Nothing anywhere asserts that the numbers actually reached the far end.
+
+**Rule:** for any capability crossing a producer/consumer seam, the acceptance evidence is the
+artifact read off disk (or off the wire) at the *far* end — never a passing suite, and never a
+green log line at the near end. Name the field the two sides actually join on and ask whether
+either side has ever seen the other's real value for it, not a value its own test constructed.
+This is distinct from a check that is merely weak (aimed at a cheaper property than the one it's
+credited with) — here every instrument on both sides is strong and correct, and none of them is
+pointed at the gap between the two.
+
 ## Cross-References
 
 - [`round-trip-contract-tests`](./round-trip-contract-tests.md) — sister rule for producer → on-disk-artifact → consumer pipelines. The schema-boundary rule is the RPC/tool analogue of the on-disk contract test.

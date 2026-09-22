@@ -15,12 +15,12 @@ Canonical reference for the percolation setup procedure — registering a publis
 
 ## Fresh-install path
 
-Earlier readers of this wiki could assume `~/.claude/setup/publish.sh` already existed (the Claude-Prime-clone case). The bash engine that file named is retired — the percolate entrypoint is now `coordinator/bin/publish.py`, migrated to claude-klabauter wholesale rather than copied into `~/.claude/setup/`. What still arrives via the coordinator-claude install path on any consumer machine — operator-local files do too:
+Earlier readers of this wiki could assume `~/.claude/setup/publish.sh` already existed (the Claude-Prime-clone case). The bash engine that file named is retired — the percolate entrypoint is now `coordinator/bin/publish.py`, migrated to the engine repo wholesale rather than copied into `~/.claude/setup/`. What still arrives via the coordinator-claude install path on any consumer machine — operator-local files do too:
 
-- `setup/install.sh` (publish-repo fresh-install entry point) AND `/coordinator:install` Phase 3 (ongoing maintenance, via `install-substrate.py`) install `publish_sync.py` and `.percolate-identity.example` into `~/.claude/setup/` (single source of truth for this file list: claude-klabauter's `coordinator/lib/setup-templates-manifest.py`). `publish.py` itself is NOT among them — it is invoked from `$REPO_CLAUDE_KLABAUTER` (see § PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT below), never copied. `publish-targets.example.sh` and `test-publish-allowlist-builder.sh` are absent from this list — the legacy-fallback `TARGETS=( ... )` shape is documented next to claude-klabauter's `coordinator/lib/percolate/targets.py`'s `_parse_legacy_targets_array`.
+- `setup/install.sh` (publish-repo fresh-install entry point) AND `/coordinator:install` Phase 3 (ongoing maintenance, via `install-substrate.py`) install `publish_sync.py` and `.percolate-identity.example` into `~/.claude/setup/` (single source of truth for this file list: the engine repo's `coordinator/lib/setup-templates-manifest.py`). `publish.py` itself is NOT among them — it is invoked from `$REPO_CLAUDE_KLABAUTER` (see § PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT below), never copied. `publish-targets.example.sh` and `test-publish-allowlist-builder.sh` are absent from this list — the legacy-fallback `TARGETS=( ... )` shape is documented next to the engine repo's `coordinator/lib/percolate/targets.py`'s `_parse_legacy_targets_array`.
 - Operator then registers targets (see Step 1a/1b/1c below — the tracked `setup/publish-targets.portable` topology is preferred, machine-local registry is a per-machine supplement, and `publish-targets.sh` is a deprecated legacy fallback).
 - Operator authors `~/.claude/setup/.percolate-identity` from `.percolate-identity.example` with their own identity tokens.
-- If org-slug rewrites are needed, operator copies claude-klabauter's `coordinator/bin/depersonalize-identity.example.yaml` to `depersonalize-identity.yaml` and edits it.
+- If org-slug rewrites are needed, operator copies the engine repo's `coordinator/bin/depersonalize-identity.example.yaml` to `depersonalize-identity.yaml` and edits it.
 
 Spec backlinks:
 - `2026-05-21-plugin-source-live-mirror-doctrine.md § Chunk 5` under `docs/plans/` — `source_is_live` propagation model.
@@ -37,7 +37,7 @@ Spec backlinks:
 
 **Canonical env-var naming** — ratified in the `repo`/`repo-id` env-override-family decision under `docs/decisions/`:
 `REPO_CLAUDE_KLABAUTER` (registry key `repos.claude_klabauter`) is the ratified canonical name for
-the claude-klabauter root override — new prose and invocations in this doc and elsewhere should
+the engine-repo root override — new prose and invocations in this doc and elsewhere should
 teach `REPO_CLAUDE_KLABAUTER` first. `CLAUDE_KLABAUTER_ROOT` is retained forever as a readable legacy alias
 (that decision's ruling 2 —
 documentation-only, no rename, no removal schedule) and
@@ -47,14 +47,14 @@ as the primary idiom.
 
 **Percolate resolves two roots, never a single chain a caller re-derives by hand.**
 `coordinator/bin/publish.py` and `coordinator/lib/percolate/*` (`targets.py`, `resolve_target.py`,
-`ignore.py`, `allowlist.py`, `phase4_audit.py`) live in **claude-klabauter**; `setup/`
+`ignore.py`, `allowlist.py`, `phase4_audit.py`) live in **the engine repo**; `setup/`
 (`publish-targets.portable`, `percolate-hooks/`, `.percolate-identity`, `percolate-state/`) lives
-in **DoE-claude** — see `CLAUDE.md`.
+in **the doctrine repo** — see `CLAUDE.md`.
 
 - **`PERCOLATE_ROOT`** — the percolate root of the invoking repo (`setup/...` paths are
   `"$PERCOLATE_ROOT/setup/..."`). Resolved by the engine's own ladder,
   `coordinator_core.percolate.runtime_root.coordinator_percolate_runtime_root()`
-  (`claude-klabauter/coordinator_core/percolate/runtime_root.py`), reached through the seam every
+  (the engine repo's `coordinator_core/percolate/runtime_root.py`), reached through the seam every
   caller uses, per the precedence ladder in `coordinator/snippets/resolve-coordinator-bin.md`
   (rung 0 / Shape W on a PowerShell host; Shape A resolving `percolate-gate resolve-root` on a
   POSIX host). Callers never re-derive this ladder or read a pointer file directly — they call
@@ -67,7 +67,7 @@ in **DoE-claude** — see `CLAUDE.md`.
      pointer file), accepted only if it contains the marker.
   4. `${CLAUDE_HOME:-$HOME}/.claude`, if it contains the marker.
   On no rung resolving, the seam fails loud with the same remediation text `coordinator_percolate_runtime_root()` raises.
-- **`CLAUDE_KLABAUTER_ROOT`** (called `$_cc_claude_klabauter` in the shell idiom below) — the claude-klabauter clone
+- **`CLAUDE_KLABAUTER_ROOT`** (called `$_cc_claude_klabauter` in the shell idiom below) — the engine repo's clone
   root. `coordinator/bin/...` / `coordinator/lib/...` paths (`publish.py`, `percolate.targets`)
   are `"$CLAUDE_KLABAUTER_ROOT/coordinator/bin|lib/..."`. Resolves from `$CLAUDE_KLABAUTER_ROOT`/`$REPO_CLAUDE_KLABAUTER`
   env, falling back to `coordinator/hooks/scripts/_engine_root.py` (a probe over the coordinator
@@ -87,20 +87,20 @@ relative to its own location, not its own root.
 Both the live-install tree (`~/.claude/plugins/coordinator-claude/`) and this source repo's
 plugin tree are called "coordinator-claude" — same name, different depth. In the live install,
 `~/.claude` itself is `PERCOLATE_ROOT` and `bin/machine-local` sits one level below it. In
-DoE-claude, the plugin root is the `coordinator/` **subdirectory** of the repo, so the equivalent
+the doctrine repo, the plugin root is the `coordinator/` **subdirectory** of the repo, so the equivalent
 CLI is at `coordinator/bin/machine-local` — one level further down than the shared-install case.
 
 The Python port centralizes this instead of re-deriving it at each call site: every percolate
 consumer that needs the machine-local CLI calls `resolve_machine_local_bin(root)`
-(claude-klabauter's `coordinator/lib/percolate/resolve_target.py`), which tries in order:
+(the engine repo's `coordinator/lib/percolate/resolve_target.py`), which tries in order:
 
 1. `$MACHINE_LOCAL_BIN` (env override; SECURITY-validated absolute-path, no `..` traversal —
    raises rather than silently falling through on a failed check)
 2. `<root>/bin/machine-local` — the shared-install (`~/.claude`) shape
-3. `<root>/coordinator/bin/machine-local` — the DoE-claude repo-root shape
+3. `<root>/coordinator/bin/machine-local` — the doctrine-repo repo-root shape
 4. `machine-local` resolved from `PATH`
 
-Project-claude-klabauter's `coordinator/lib/percolate/targets.py`'s `load_targets()` is the primary caller — it uses this
+The engine repo's `coordinator/lib/percolate/targets.py`'s `load_targets()` is the primary caller — it uses this
 resolution both to check for a supplemental `publish.targets` registry key and (on `MACHINE_LOCAL_BIN`
 SECURITY failure) to abort target resolution outright. When adding a new percolate call site that
 needs the machine-local CLI, import and call `resolve_machine_local_bin` rather than hardcoding
@@ -128,11 +128,11 @@ interpreter and the missing-gate-file path now fail closed by default (opt out o
 `.percolate-identity` (real machine codenames, used to build `PERSONAL_REVIEW_PATTERNS` for the
 Phase 4 machine-slug audit) is per-operator and gitignored — it is never committed to any tracked
 `setup/` tree. `publish.py` reads it from `setup_dir / ".percolate-identity"`
-(`claude-klabauter/coordinator/bin/publish.py:1765`), where `setup_dir` is whatever its own
+(the engine repo's `coordinator/bin/publish.py:1765`), where `setup_dir` is whatever its own
 `resolve_percolate_root()` resolved — per § PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT above, that self-resolution
 is presently unreliable, so the file it actually reads on a given machine tracks
 whatever `setup_dir` that section's hazard describes, not a guaranteed constant. In the working
-model this doc otherwise assumes (`PERCOLATE_ROOT` = the DoE-claude clone root), provision it at
+model this doc otherwise assumes (`PERCOLATE_ROOT` = the doctrine-repo clone root), provision it at
 **`setup/.percolate-identity` at this repo's root** — copying
 `coordinator/templates/setup/.percolate-identity.example` and populating
 `PERSONAL_REVIEW_PATTERNS` with this machine's real codenames. This is a manual, per-operator step;
@@ -172,7 +172,7 @@ The two surfaces divide labour: this procedure catches structural categories **o
 
 ## Codename Genericization at Publish Time
 
-Internal sibling-repo codenames (`example-game-repo`, `example-sim-repo`, `example-cockpit-repo`, etc.) appear in coordinator wikis and skills as provenance or incident case-citations. Without remediation they leak private repo names to any OSS user who reads the publish tree. The content-transform sweep runs via claude-klabauter's `coordinator_core.percolate.engine` `depersonalize` hook — no operator action required.
+Internal sibling-repo codenames (`example-game-repo`, `example-sim-repo`, `example-cockpit-repo`, etc.) appear in coordinator wikis and skills as provenance or incident case-citations. Without remediation they leak private repo names to any OSS user who reads the publish tree. The content-transform sweep runs via the engine repo's `coordinator_core.percolate.engine` `depersonalize` hook — no operator action required.
 
 ### Built-in codename seed
 
@@ -181,12 +181,12 @@ Internal sibling-repo codenames (`example-game-repo`, `example-sim-repo`, `examp
 The seed's content is:
 
 - A `CODENAME_TO_PLACEHOLDER` assoc array and a `CODENAME_ORDERED_KEYS` indexed array seeded with coordinator-author private-repo codenames → `example-*-repo` placeholders (longest-match-first, case variants enumerated as separate keys per the `Dónal O'Duffy`/`Donal O'Duffy` committed precedent in the transform).
-- Consumed by the **optional-sibling guard** (identical pattern to `depersonalize-identity.yaml`): `if [[ -f "$_SEED" ]]; then source "$_SEED"; fi`. The content-transform sweep runs via claude-klabauter's `coordinator_core.percolate.engine` `depersonalize` hook.
+- Consumed by the **optional-sibling guard** (identical pattern to `depersonalize-identity.yaml`): `if [[ -f "$_SEED" ]]; then source "$_SEED"; fi`. The content-transform sweep runs via the engine repo's `coordinator_core.percolate.engine` `depersonalize` hook.
 - **Does NOT ship to the OSS mirror.** Listed in `plugins/coordinator-claude/.percolate-ignore` (same entry form as `coordinator/bin/depersonalize-identity.yaml`). An OSS consumer who sources an absent file gets a silent no-op — identical to a fresh operator with no `depersonalize-identity.yaml`.
 
-The seed is the home for **coordinator-authored repo codenames** (names that appear in coordinator wikis/skills as provenance) — NOT for an individual operator's own private project names, which belong in the per-operator gitignored `depersonalize-identity.yaml` (Class-2 slot). See `DoE-claude coordinator/docs/wiki/depersonalize-doctrine.md` § Codename Provenance for the vocabulary-vs-attribution classification that governs which surface owns what.
+The seed is the home for **coordinator-authored repo codenames** (names that appear in coordinator wikis/skills as provenance) — NOT for an individual operator's own private project names, which belong in the per-operator gitignored `depersonalize-identity.yaml` (Class-2 slot). See `coordinator/docs/wiki/depersonalize-doctrine.md` in the doctrine repo § Codename Provenance for the vocabulary-vs-attribution classification that governs which surface owns what.
 
-**Keep-set — not genericized.** `project-rag` (live MCP server namespace, accepted-exposure PM decision) and shipped plugin names (`deep-research`, `game-dev`, `web-dev`, `data-science`, `coordinator`) are intentionally absent from the seed map. Rewriting them would corrupt functional identifiers in agent definitions and skill routing tables. See `DoE-claude coordinator/docs/wiki/depersonalize-doctrine.md` § Codename Provenance for the keep-set rationale.
+**Keep-set — not genericized.** `project-rag` (live MCP server namespace, accepted-exposure PM decision) and shipped plugin names (`deep-research`, `game-dev`, `web-dev`, `data-science`, `coordinator`) are intentionally absent from the seed map. Rewriting them would corrupt functional identifiers in agent definitions and skill routing tables. See `coordinator/docs/wiki/depersonalize-doctrine.md` in the doctrine repo § Codename Provenance for the keep-set rationale.
 
 ### Scan/Substitution Division of Labor
 
@@ -194,7 +194,7 @@ Two distinct gates defend against codename leaks — one for the expected case (
 
 **Expected case — `--check` residual gate (mapped codenames only).** The `coordinator_core.percolate.engine` `depersonalize` hook's check mode greps the publish tree for the `PATTERN` built from `ORDERED_KEYS`. Once codenames appear in `CODENAME_ORDERED_KEYS`, any residual occurrence post-`--fix` fails loud. **Scope limit:** `--check` detects only codenames already in `ORDERED_KEYS`. A genuinely-new private repo cited in a new wiki entry passes `--check` clean — `PATTERN` is built from the existing map keys, not from the full registry. The novel-leak guard below closes this gap.
 
-**Unexpected case — registry-derived novel-leak guard.** `coordinator_core.ops.check_registry_codename_leak` is the coverage for the `coordinator-claude` and `deep-research-claude` targets, resolved into the round through the store's guard rows (`setup/percolate-hooks/percolate-store.yaml`, `claude-klabauter`). It:
+**Unexpected case — registry-derived novel-leak guard.** `coordinator_core.ops.check_registry_codename_leak` is the coverage for the `coordinator-claude` and `deep-research-claude` targets, resolved into the round through the store's guard rows (`setup/percolate-hooks/percolate-store.yaml`, engine-resident). It:
 
 1. Reads every `repos.*` key from the machine-local registry (`machine-local keys | grep '^repos\.'`).
 2. Subtracts the keep-set (`project-rag`, `deep-research`, `game-dev`, `web-dev`, `data-science`, `coordinator`).
@@ -423,7 +423,7 @@ If `.percolate-ignore` already exists, ALSO show:
 
 **Pattern subset reminder:** `**/` is NOT supported. Multi-depth matches need explicit listing. Directory patterns (trailing `/`) are already recursive — they match the directory at any depth in the source tree.
 
-**Coordinate-system reminder (mirror mode, multi-plugin source roots):** in `publish_sync.py::sync_mirror`, patterns are matched against the **SOURCE_DIR-relative (plugin-qualified) path** — e.g. `coordinator/bin/tests/`, `data/` — NOT the sub-plugin-relative path. Author patterns with the sub-plugin name prefix when the source root contains multiple plugins (`coordinator/`, `data/`, `web-dev/`…). A pattern at the wrong root (`bin/tests/` when you meant `coordinator/bin/tests/`, or vice-versa) is a **silent no-op** — the exclusion never fires and the files leak. The 2026-05-30 leak of operator-identity + runtime-state files onto the public OSS repo was exactly this class. Claude-klabauter's `coordinator/tests/test_percolate_allowlist_ignore_propagation.py` regression test now fails loud on a dead pattern; the Step 3d pre-write matcher walk is the author-time guard.
+**Coordinate-system reminder (mirror mode, multi-plugin source roots):** in `publish_sync.py::sync_mirror`, patterns are matched against the **SOURCE_DIR-relative (plugin-qualified) path** — e.g. `coordinator/bin/tests/`, `data/` — NOT the sub-plugin-relative path. Author patterns with the sub-plugin name prefix when the source root contains multiple plugins (`coordinator/`, `data/`, `web-dev/`…). A pattern at the wrong root (`bin/tests/` when you meant `coordinator/bin/tests/`, or vice-versa) is a **silent no-op** — the exclusion never fires and the files leak. The 2026-05-30 leak of operator-identity + runtime-state files onto the public OSS repo was exactly this class. The engine repo's `coordinator/tests/test_percolate_allowlist_ignore_propagation.py` regression test now fails loud on a dead pattern; the Step 3d pre-write matcher walk is the author-time guard.
 
 Compose the file with comment-grouped sections so future readers (and the next re-run at Branch 0 / `/setup`) can see the reasoning:
 
@@ -555,7 +555,7 @@ If any step was skipped due to an existing artifact, note it explicitly so the P
 
 *Source: meta-repo `state/lessons/`.*
 
-**Fail-closed publish allowlist silently strips new top-level dirs.** Re-homing a package into DoE is NOT sufficient to make percolate ship it — the coordinator-claude mirror row carries a fail-closed allowlist (`bin,lib,hooks,skills,agents,commands,docs/wiki,.claude-plugin` — `docs/wiki` here is illustrative of the *shape*; it is narrowed to a curated seed, see below), and a new top-level dir absent from that allowlist is silently dropped. The re-home *looks* done but the mirror won't carry it. Detection: always run `python3 "$CLAUDE_KLABAUTER_ROOT/coordinator/bin/publish.py" --dry-run` and grep the write-set to confirm the new dir appears before declaring the re-home complete. Fix: add the dir to the allowlist in `~/.claude/setup/publish-targets.portable`. (This is the allowlist twin of the `.percolate-ignore` denylist hazards above — one gate ships what's listed, the other blocks what's listed; both fail silently when a path is mis-classed.)
+**Fail-closed publish allowlist silently strips new top-level dirs.** Re-homing a package into the doctrine repo is NOT sufficient to make percolate ship it — the coordinator-claude mirror row carries a fail-closed allowlist (`bin,lib,hooks,skills,agents,commands,docs/wiki,.claude-plugin` — `docs/wiki` here is illustrative of the *shape*; it is narrowed to a curated seed, see below), and a new top-level dir absent from that allowlist is silently dropped. The re-home *looks* done but the mirror won't carry it. Detection: always run `python3 "$CLAUDE_KLABAUTER_ROOT/coordinator/bin/publish.py" --dry-run` and grep the write-set to confirm the new dir appears before declaring the re-home complete. Fix: add the dir to the allowlist in `~/.claude/setup/publish-targets.portable`. (This is the allowlist twin of the `.percolate-ignore` denylist hazards above — one gate ships what's listed, the other blocks what's listed; both fail silently when a path is mis-classed.)
 
 **The OSS mirror ships a curated wiki SEED, not the whole `docs/wiki/` tree — a bare `docs/wiki` allowlist entry is the drift, not a fix** (PM ruling, recorded under `docs/decisions/`). Left unchecked, the public `coordinator-claude` mirror's deliberate curated seed silently drifts toward publishing every wiki, because nobody re-narrows the allowlist as new wikis are authored — the admission bar quietly goes from "curated" to "everything by default." Read this before ever widening a wiki allowlist entry back to a bare `docs/wiki`:
 
@@ -564,21 +564,21 @@ If any step was skipped due to an existing artifact, note it explicitly so the P
 - **Verify against the round's own published set, never by reading the config.** Reading the allowlist and confirming it "looks narrow" does not prove the mirror agrees — the second row is invisible unless you check the actual write-set. Diff the round's wiki entries against the seed before declaring a narrowing complete.
 - **Allowlist entries are exact-path, per-entry — not a prefix match or a glob.** File-level entries (`docs/wiki/rag-bait-conventions.md`) work standalone; there is no shorthand for "this directory except these files."
 - **An allowlist entry naming a file that does not exist is silently skipped** — publishing nothing for that entry, with no error. A typo'd seed filename drops a wiki from the mirror with zero signal.
-- **`task-tier-guidance.md` is publish-native, not source-tracked** — authored mirror-side, absent from this DoE source tree, restored by the post-rsync hook allowlist (`setup/percolate-hooks/coordinator-claude-toplevel-wiki/post-rsync/publish-native-allowlist.txt`), not by either publish-target allowlist. Do not add it to a publish-target allowlist as a "fix" for its apparent absence — that changes nothing; the published-wiki total is 8, the two publish-target allowlists carry 7.
+- **`task-tier-guidance.md` is publish-native, not source-tracked** — authored mirror-side, absent from this doctrine-repo source tree, restored by the post-rsync hook allowlist (`setup/percolate-hooks/coordinator-claude-toplevel-wiki/post-rsync/publish-native-allowlist.txt`), not by either publish-target allowlist. Do not add it to a publish-target allowlist as a "fix" for its apparent absence — that changes nothing; the published-wiki total is 8, the two publish-target allowlists carry 7.
 - **A second, untracked copy of the allowlist file can silently govern the real publish.** `setup/publish-targets.portable` is tracked in *this* repo, but `publish.py` actually reads whichever copy sits beside it at `$PERCOLATE_ROOT/setup/`, and per § PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT above, rung 4 (`${CLAUDE_HOME:-$HOME}/.claude`) is the usual winner on both macOS and Windows when no repo-local clone or DoE-root pointer resolves first — a live-install copy, not this DoE-source one. Narrowing the seed here changes nothing on a typical publish run unless that live copy is narrowed too; see the residual gap noted in that decision's §Consequences.
 
 **One-way mirror percolate silently reverts direct edits in publish repo** (self). The mirror step overwrites publish-repo content from source without checking whether the publish repo has received direct edits (e.g., a hotfix applied while the source repo was out of reach). Any commit in the publish repo that post-dates the last percolate run is silently deleted by the next mirror pass. Detection step: before running the mirror, run `git log --since=<last-percolate-sha> -- <synced-paths>` in the publish repo; if non-empty, surface to PM before proceeding. Implementation: add this check to `/percolate` before the mirror/rsync step fires.
 
 **An empty-but-present restricted-source top-level dir does not trip the orphan sweep — the per-file delete loop still walks it and destroys real mirror content.** `sync_mirror`'s top-level orphan-plugin-dir sweep only fires when a dir is *absent* from the restricted source; when the dir exists but is *empty*, the sweep is silent and phase-2's per-file delete loop takes over — it walks every file already present under that dir in the mirror and deletes each one as unmatched-against-source, because the restricted source has nothing to match it against. This is a general bug class in `sync_mirror`, not specific to `bin`/`lib` — any top-level dir that goes hollow at the source while the mirror still carries content from before the migration is exposed to it.
 
-**Concrete instance, mitigated.** `coordinator/bin/` and `coordinator/lib/` are present-but-empty in this repo — zero tracked files, `.percolate-ignore` preserves nothing under either. The `coordinator-claude|mirror` row carries a `source_map` composing `bin`/`lib` from claude-klabauter's `coordinator/` alongside everything else from this repo's `coordinator/`, so those dirs are populated in the composed restricted source and the per-file delete loop does not treat them as empty.
+**Concrete instance, mitigated.** `coordinator/bin/` and `coordinator/lib/` are present-but-empty in this repo — zero tracked files, `.percolate-ignore` preserves nothing under either. The `coordinator-claude|mirror` row carries a `source_map` composing `bin`/`lib` from the engine repo's `coordinator/` alongside everything else from this repo's `coordinator/`, so those dirs are populated in the composed restricted source and the per-file delete loop does not treat them as empty.
 
 - **Detection — the dry-run write-set diff, not the config.** Run `python3 "$CLAUDE_KLABAUTER_ROOT/coordinator/bin/publish.py" --dry-run coordinator-claude` (or the skill's Step 2 `percolate-gate`/`percolate-parse-dryrun` path) and grep the write-set for `DELETE` entries under `bin/` or `lib/`. A non-empty hit list under either path now indicates a `source_map` misconfiguration or a fresh instance of this bug class on a different dir, not a normal drift signal — cross-check the composed write-set against `git ls-files coordinator/bin coordinator/lib | wc -l` in this repo (currently `0`, expected, now that those dirs are claude-klabauter-sourced) before trusting any dry-run read.
 - **The general lesson still applies to any newly-hollowed top-level dir.** The natural instinct on seeing a mirror that looks behind is to re-run `/percolate` and let it catch up — for a dir that has gone hollow at the source without a compensating `source_map` entry, that is precisely the action that fires the phase-2 delete loop. A stale-looking dir in the mirror is not evidence the publish is behind; check whether the source went hollow before republishing.
 - **The naive two-row split (one DoE-sourced row minus bin/lib, one claude-klabauter-sourced row with only bin/lib, same mirror destination) is UNSAFE, not merely incomplete** — verified by tracing `sync_mirror`'s orphan-dir sweep against the actual row/allowlist arithmetic. Two mirror-mode rows sharing one destination root evaluate "orphan" per-row, with no cross-row awareness of a sibling row publishing into the same dest; whichever row's restricted source lacks a given top-level dir treats it as orphaned and `shutil.rmtree`s it, and neither ordering of the two rows escapes this (percentage math against the mass-deletion guard threshold puts a bin/lib-added-back row's own dirs safely under the 50% guard, so it fires with no protection). Do not reach for this shape as a self-service fix.
-- **Real fix's shape.** `build_allowlisted_source` (`claude-klabauter/coordinator/lib/percolate/allowlist.py`) is multi-source-aware: it composes per-root `.percolate-ignore` files, applies copy-time ignore filtering per contributing root, runs an entry-collision preflight before any copy, and `assert_allowlist_applied` takes a root set rather than a single root — so one publish row pulls `bin/`+`lib/` from claude-klabauter's `coordinator/` while pulling everything else from this repo's `coordinator/`, in a single `sync_mirror` call with one coherent orphan-sweep view. A pre-rsync staging-merge alternative is rejected as a shape: it would re-implement the fail-closed source-construction gate a second time, and break `assert_allowlist_applied`'s post-condition. The `coordinator-claude|mirror` row in `setup/publish-targets.portable` carries a `source_map` field routing `bin,lib` to `plugin-source:claude-klabauter/coordinator` (see that file's header for the field's semantics and why `plugin-source:` rather than `repo:` was chosen). The `source_map` field is live, not a fallback to `real_src`. The regression gate `coordinator/tests/test_publish_allowlist_source_populated.py` is `source_map`-aware — it resolves each allowlist entry against its actual contributing root rather than assuming everything lives under this repo's `coordinator/`. A fail-loud top-level-presence guard against the destructive delete path lives in `DoE-claude/setup/publish_sync.py` (and its `coordinator/templates/setup/` parity copy): it fires on ANY non-empty orphan set, reuses `COORDINATOR_OVERRIDE_ORPHAN_SWEEP=1` as its override, and preserves dry-run-never-aborts. **Before any real publish under this engine: `--dry-run`, read the diff, and treat the OSS mirror commit as staged for human review before push** — a first-of-kind run against a stale mirror can delete and add hundreds of files in one shot, which is not a diff anyone should push unreviewed.
+- **Real fix's shape.** `build_allowlisted_source` (the engine repo's `coordinator/lib/percolate/allowlist.py`) is multi-source-aware: it composes per-root `.percolate-ignore` files, applies copy-time ignore filtering per contributing root, runs an entry-collision preflight before any copy, and `assert_allowlist_applied` takes a root set rather than a single root — so one publish row pulls `bin/`+`lib/` from the engine repo's `coordinator/` while pulling everything else from this repo's `coordinator/`, in a single `sync_mirror` call with one coherent orphan-sweep view. A pre-rsync staging-merge alternative is rejected as a shape: it would re-implement the fail-closed source-construction gate a second time, and break `assert_allowlist_applied`'s post-condition. The `coordinator-claude|mirror` row in `setup/publish-targets.portable` carries a `source_map` field routing `bin,lib` to `plugin-source:` the engine repo's `coordinator` (see that file's header for the field's semantics and why `plugin-source:` rather than `repo:` was chosen). The `source_map` field is live, not a fallback to `real_src`. The regression gate `coordinator/tests/test_publish_allowlist_source_populated.py` is `source_map`-aware — it resolves each allowlist entry against its actual contributing root rather than assuming everything lives under this repo's `coordinator/`. A fail-loud top-level-presence guard against the destructive delete path lives in the doctrine repo's `setup/publish_sync.py` (and its `coordinator/templates/setup/` parity copy): it fires on ANY non-empty orphan set, reuses `COORDINATOR_OVERRIDE_ORPHAN_SWEEP=1` as its override, and preserves dry-run-never-aborts. **Before any real publish under this engine: `--dry-run`, read the diff, and treat the OSS mirror commit as staged for human review before push** — a first-of-kind run against a stale mirror can delete and add hundreds of files in one shot, which is not a diff anyone should push unreviewed.
 
-**Multi-source composition — per-root `.percolate-ignore`, and a failure mode this introduces.** Once a row's `source_map` names ≥2 distinct contributing roots, single-source's tolerant "absent `.percolate-ignore` is fine" behaviour does not apply to that row. Each contributing root must carry its own `.percolate-ignore`; a root with none aborts the build rather than publishing unfiltered (this is deliberate — see `coordinator/.percolate-ignore`'s block, which points bin/lib exclusion authorship at `claude-klabauter/coordinator/.percolate-ignore` rather than this file). A composed ignore file is written at the restricted-source root for the destination-side orphan/delete-skip logic, built by keeping each root's rules for its own entries plus any root-agnostic basename/glob pattern; a rule from one root naming a path the other root doesn't contribute must never be allowed to shadow that path in the other root's tree. Single-source rows (no `source_map`, or every value equal) are byte-for-byte unaffected — this paragraph does not change behaviour for any row except the multi-source ones.
+**Multi-source composition — per-root `.percolate-ignore`, and a failure mode this introduces.** Once a row's `source_map` names ≥2 distinct contributing roots, single-source's tolerant "absent `.percolate-ignore` is fine" behaviour does not apply to that row. Each contributing root must carry its own `.percolate-ignore`; a root with none aborts the build rather than publishing unfiltered (this is deliberate — see `coordinator/.percolate-ignore`'s block, which points bin/lib exclusion authorship at the engine repo's `coordinator/.percolate-ignore` rather than this file). A composed ignore file is written at the restricted-source root for the destination-side orphan/delete-skip logic, built by keeping each root's rules for its own entries plus any root-agnostic basename/glob pattern; a rule from one root naming a path the other root doesn't contribute must never be allowed to shadow that path in the other root's tree. Single-source rows (no `source_map`, or every value equal) are byte-for-byte unaffected — this paragraph does not change behaviour for any row except the multi-source ones.
 
 **Top-level presence invariant — restated for multi-source rows specifically.** The general invariant (below) already governs every mirror row: a top-level dir present at the destination and absent from the restricted source is deleted by the orphan sweep regardless of `.percolate-ignore`, because the sweep never consults it. Multi-source rows do not get a pass on this — the restricted-source tree the sweep evaluates is the *composed* tree after all contributing roots have copied in, so a top-level dir is safe only if *some* contributing root actually populates it. An entry-collision preflight (no two source_map entries may resolve to the same or a nesting restricted-tree path across roots) runs before any copy, so a same-name collision between two roots aborts loudly rather than one root silently shadowing the other.
 

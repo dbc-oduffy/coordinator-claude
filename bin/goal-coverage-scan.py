@@ -243,7 +243,7 @@ def _parse_args(argv):
     be the exact wrong-answer-quiet failure shape this tool exists to flag
     (see module docstring negative-spec), so it fails loud instead.
 
-    Review: code-reviewer -- Finding 6, 2026-07-22. --format is hard-error
+    2026-07-22. --format is hard-error
     validated the same way (same exit code, same stderr-then-exit shape) as
     --root/--output: a missing value (--format as the last argv token) or an
     unrecognized value (--format quux) previously fell through silently to

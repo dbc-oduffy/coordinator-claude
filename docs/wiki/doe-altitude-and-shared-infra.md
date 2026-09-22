@@ -102,6 +102,24 @@ As the contract/doctrine host in a multi-repo fleet, a sibling EM's plan is **su
 
 **How to apply:** when you host a shared contract (enum, schema, interface, sentinel format), read each consuming sibling's plan for the demand it places on the host surface — the widen, the new field, the version bump they're blocked on — not just its status frontmatter. Status answers "did they finish?"; content answers "what are they waiting on me for?" Only the latter unblocks the fleet. *(Case: an OwnerNamespace enum-widen the siblings needed from the host went unaddressed because their plans were read as settle-checkboxes.)* [universal]
 
+## "Nothing to do on this side" is the divorce boundary test
+
+A delegated cross-repo authority (a standing commit grant, a shared-surface mandate) is
+**permission to act on a joint surface, never an obligation to claim work just because the grant
+would cover it.** Before planning any cross-repo item under such a grant, ask: does this item
+contain at least one edit on *this* side? If yes, it is a genuine joint surface — the grant
+applies, plan and act on both sides. If no — every fix locus sits entirely inside the sibling's
+own tree — that absence of a this-side edit **is itself the signal** the item is over-the-fence
+and belongs to the sibling, not evidence that nothing needs doing.
+
+Claiming a purely engine-subject item because a grant happens to permit it inverts the grant's
+purpose: it quietly re-merges the two repos' scope at exactly the seam a boundary exists to keep
+separate, and makes the grant load-bearing for work it was never scoped to cover. Discovering a
+defect on a sibling's side does not confer ownership of it. The amicable move is handing a
+fully-attributed finding across the fence — full measurement, full provenance — and marking the
+item closed-not-ours on this side's own surfaces so a later session doesn't pick it back up; the
+shirking move is sizing it here because "we found it first, and we're allowed to."
+
 ## What NOT to do
 
 - **Don't escalate within-project decisions to DoE.** If the question doesn't have radius to ≥2 repos, the project-EM owns it. DoE involvement on tactical project work is altitude-violation in the other direction.
@@ -114,6 +132,21 @@ As the contract/doctrine host in a multi-repo fleet, a sibling EM's plan is **su
 When a plan touches shared infrastructure (sentinel files, MCP tools consumed across plugins, hookimpl chains, cross-repo schemas), the prior-art-checker should surface this wiki as **Compatible-but-relevant** — not because the plan will conflict, but because the methodology for *how to decide* such questions is the prior art, even when the specific decision is new.
 
 Trigger keywords for cross-reference: shared infra, plugin-local data dir, sentinel file, MCP writer boundary, cross-plugin scanner, decay model, receipt-vs-status, host-vs-addon ownership, writer set, who-writes-what.
+
+## Memo Dispatch Is EM-Autonomous — Ask-Before-External-Action's Memo-Send Trip Is Retired
+
+Sending a cross-repo memo tripping ask-before-external-action is overkill, not a reasoned safety
+invariant — a young-system throttle against frivolous memos rather than a defensible read of the
+guard's own threat model. **PM ruling: memo dispatch stays EM-autonomous**, leaving the
+per-session commit-assent gate untouched.
+
+The discriminator that keeps this from re-merging with the commit-assent case: a memo is
+additive, addressed, revertible, and left to receiver discretion — the receiving EM decides
+whether to act on it, and nothing about sending it mutates the receiver's tree or tests. A
+cross-repo **commit** is none of those — it mutates a sibling's tree directly, is not left to the
+receiver's discretion, and is exactly what the per-session assent gate exists to hold.
+Restate this discriminator wherever the guard's threat model is documented, rather than treating
+"external action" as a single undifferentiated class that both cases fall into.
 
 ## Evidence base and revisit cadence
 

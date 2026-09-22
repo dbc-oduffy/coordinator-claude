@@ -51,6 +51,25 @@ missing session_id (no id to dedupe on -> offering unconditionally would
 spam rather than nudge, so this degrades to silent, not to firing every
 time). No exception anywhere in this module may reach stderr as a
 traceback -- a wedged dispatch is worse than a missed offer.
+
+DISPOSITION (C6c, docs/plans/2026-08-06-hook-spawn-fan-in-finish-and-extend.md
+§ C6c -- the C1 test applied up front): explicitly no-subprocess by design,
+no `coordinator_core` reference. The only read/write beyond the in-process
+git-root walk is the once-per-session `exploration-tier-dispatch-offered`
+marker file it creates itself under `<git_common_dir>/coordinator-sessions/
+<session_id>/` -- generic per-session dedupe bookkeeping, never a read of
+this repo's own doctrine working-data (docs/plans, state/*, agents/*.md, etc.). Same
+"common_dir" scope shape `coordinator_core.hooks.track_touched_files`
+already carries as an engine-repo op, not the "resolves the doctrine repo root
+to read doctrine working-data" shape the plan's Anti-scope forbids porting.
+Verdict: CANDIDATE for a net-new `common_dir`-scoped engine-repo op,
+tracked under C6b's DR-127 gate -- not a doctrine-repo-runner fold (contrast
+`guard-review-integrator-sidecar-intake.py`, which reads a genuine
+doctrine-repo-authored sidecar file and therefore stays doctrine-repo-resident on
+`preuse-agent-dispatch.py`'s runner). Actual porting is out of C6c's scope
+per that row's own body ("Porting any of them means writing new engine
+logic, not attaching existing logic"); this hook remains un-registered in
+`hooks.json` pending that future engine-side work.
 """
 
 from __future__ import annotations

@@ -15,7 +15,7 @@ status: active
 
 ## Problem Statement
 
-The coordinator uses a publisher-mirroring model: plugins are authored in `~/.claude/` and published outward to OSS sibling repos (e.g. `coordinator-claude`) via claude-klabauter `coordinator/bin/publish.py`. Per-machine live installs are separate git checkouts managed independently.
+The coordinator uses a publisher-mirroring model: plugins are authored in `~/.claude/` and published outward to OSS sibling repos (e.g. `coordinator-claude`) via the engine repo's `coordinator/bin/publish.py`. Per-machine live installs are separate git checkouts managed independently.
 
 The 2026-ban on publish-repo → live-install clobber (per `feedback_no_publish_sh_overwrites_live_install.md`) means propagation is **never automatic**. An operator must explicitly run a refresh after publishing. Three failure modes emerge from this design:
 
@@ -35,7 +35,7 @@ This is the refresh-managed analogue of coordinator's own *source-is-live* rule 
 
 The provided verbs vary by plugin — e.g. `machine-local set <key> <val>` for registry keys; a plugin's `setup` / `wire` command for env knobs and per-project MCP wiring. Each plugin documents its own configuration-surface table; the universal rule is that hand-editing the refresh-managed checkout is the anti-pattern. Genuine per-project live files (sentinels, `coordinator.local.md` `project_type`) are the documented exceptions — editing those in place IS the correct verb.
 
-<!-- Cross-team origin: project-rag-em cross-repo consult (configure-not-edit framing); folded into coordinator doctrine by DoE. -->
+<!-- Cross-team origin: project-rag-em cross-repo consult (configure-not-edit framing); folded into coordinator doctrine by the doctrine repo. -->
 
 **Per-project plugin gating.** When two plugins expose overlapping domain routing (e.g. `game-dev@coordinator-claude` and `example-game-repo-control@example-game-workbench-repo`), enable only one per project via per-project `enabledPlugins`. See `docs/wiki/plugin-extraction-and-distribution.md § Competing Plugins in Overlapping Domains` and `docs/wiki/per-project-plugin-gating.md` for the gating mechanism.
 
@@ -85,7 +85,7 @@ sentinel); the exit code stays 0 so a corrupt sentinel on one plugin doesn't mas
 for others. `[info]` (no sentinel) and `[warn]` (malformed sentinel) are both "can't compare yet,
 here's why" states — distinct from `[drift]` ("compared, and live is behind").
 
-### `refresh-plugin-live-install.py <plugin>` (claude-klabauter `coordinator/bin/`)
+### `refresh-plugin-live-install.py <plugin>` (the engine repo's `coordinator/bin/`)
 
 **Default (git-checkout-managed) mode:** Atomic two-leg refresh:
 
@@ -185,7 +185,7 @@ sidesteps all of it.
 
 The forward probe above catches live *behind* source. The inverse — live *ahead* of source — is the more dangerous failure on an outward-only publisher-mirror, because it is silent until a fresh checkout ships **without** the live-only changes.
 
-**The anti-pattern: editing a live-installed copy of a source-controlled file.** A dogfood found that the LIVE `~/.claude/setup/publish.sh` carried two fail-closed security controls — the DoE→OSS working-data leak allowlist and the personal-data scrub-canary — that were never committed to the repo template (`git log --all -S`: empty). Both carried code-reviewer F-markers, so they were reviewed *when authored live* — but the author edited the live install instead of `template + reinstall`, so source never received them. Consequence: any publish from a clean checkout (or after `~/.claude/setup` is overwritten) runs with **no** leak/PII protection. **Rule:** `publish.sh` is outward-only — live must never lead source; edit the template and reinstall, never the live copy. (This is the runtime face of the global-CLAUDE.md `publish→live clobber is banned` rule — same doctrine, opposite direction of the ban.)
+**The anti-pattern: editing a live-installed copy of a source-controlled file.** A dogfood found that the LIVE `~/.claude/setup/publish.sh` carried two fail-closed security controls — the doctrine-repo-to-OSS working-data leak allowlist and the personal-data scrub-canary — that were never committed to the repo template (`git log --all -S`: empty). Both carried code-reviewer F-markers, so they were reviewed *when authored live* — but the author edited the live install instead of `template + reinstall`, so source never received them. Consequence: any publish from a clean checkout (or after `~/.claude/setup` is overwritten) runs with **no** leak/PII protection. **Rule:** `publish.sh` is outward-only — live must never lead source; edit the template and reinstall, never the live copy. (This is the runtime face of the global-CLAUDE.md `publish→live clobber is banned` rule — same doctrine, opposite direction of the ban.)
 
 **Corollary for migrations/relocations.** A migration that copies a live surface into a new home must `diff` live-vs-committed-source **first** and fail loud on drift, because the live copy may carry uncommitted authoritative changes a blind copy would silently canonicalize or lose. (The 2026-07 engine migration's dead `setup/` copy nearly overwrote exactly this surface.)
 

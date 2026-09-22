@@ -73,6 +73,26 @@ and always cheaper in the long run than the inventory — go do the work, then r
 split. Reaching for the inventory instead is not a safer default; it is the failure mode this page
 names, and it costs the same tokens the work would have, with nothing to show for it.
 
+## A residual attributed to an already-shipped plan has no owner
+
+Deferring a residual to another plan is only a durable home while that plan is still open. A plan
+at `status: implemented` has no mechanism left to surface anything — its spine is resolved, its
+ceremony has run, and nobody re-reads it. So "this stays that plan's own deferred item" silently
+becomes "nobody owns this," and the only trace left is a code comment plus an Out-of-scope line in
+the deferring plan — neither a queue, a bug row, nor a dispatch.
+
+**The check is one grep, and it belongs at the moment of deferral, not at close-out:** read the
+target plan's status and confirm it still carries an open spine row naming the residual. If it
+doesn't, the residual needs its own durable home — a bug/debt/improvement-queue row — before the
+deferring plan is written. Writing that row is cheap; letting the residual go dark is not.
+
+Worth stating plainly, because the failure is invisible from inside the deferring session: the
+Out-of-scope line reads as responsible scoping, cites a real sibling plan, and passes every
+review. It looks exactly like discharge. What makes it not-discharge is a property of the *other*
+artifact — its status — which nothing in the authoring path reads. One instance turned up two live
+defects on inspection once the attribution was actually checked, both filed and fixed the same
+day.
+
 ## Related doctrine
 
 - `coordinator/snippets/em-operating-doctrine.md` § How to Decide — the ask-vs-act taxonomy this

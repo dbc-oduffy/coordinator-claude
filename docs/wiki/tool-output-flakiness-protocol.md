@@ -74,14 +74,14 @@ harness bug. The earlier shapes teach "distrust the output"; this one teaches th
 *governor* (solo, once) and that a non-returning call is not an output-trust question at all.
 
 **Enforcement (trigger 1 only).** The `cd <path> && git …` stall is caught at the tool boundary by
-PreToolUse(Bash) hook `offer-git-c-over-cd.sh` (folded into claude-klabauter `coordinator_core.bash_guards`
-via `preuse-bash-dispatch.py`; DoE `.sh` removed) (token `OFFER-GIT-C-OVER-CD`,
+PreToolUse(Bash) hook `offer-git-c-over-cd.sh` (folded into the engine repo's `coordinator_core.bash_guards`
+via `preuse-bash-dispatch.py`; the doctrine repo's `.sh` removed) (token `OFFER-GIT-C-OVER-CD`,
 `coordinator/docs/wiki/coordinator-tripwires/`): it transparently auto-rewrites to the prompt-free `git -C <path> …`
 form before the command issues (clean 2-segment case and redundant-cd case), or offers the rewrite
 as a deny-with-suggestion when a non-redundant `cd` is followed by cwd-dependent commands. Either
 way the stall never happens. It is *offer-shaped*, not a destructive guard. Trigger 2 (the probe-spray itself) is caught by PreToolUse(Bash) hook
-`nudge-probe-spray.sh` (folded into claude-klabauter `coordinator_core.bash_guards` via
-`preuse-bash-dispatch.py`; DoE `.sh` removed) (token `NUDGE-PROBE-SPRAY`): the "a per-call hook cannot see the batch"
+`nudge-probe-spray.sh` (folded into the engine repo's `coordinator_core.bash_guards` via
+`preuse-bash-dispatch.py`; the doctrine repo's `.sh` removed) (token `NUDGE-PROBE-SPRAY`): the "a per-call hook cannot see the batch"
 objection is defeated by disk state — a session-keyed rolling window counts probe-shaped commands
 (`echo`/`printf`/`sleep`/exact-repeat) and nudges (warn, never block) once ≥3 land within 90s, with
 any real command resetting the streak. The doctrine it backs still holds and is the thing the nudge
@@ -183,7 +183,7 @@ Tool-output prose (MCP tool descriptions, doctor summary paragraphs, installer s
 
 **When the user's per-window API quota is hit mid-dispatch, sub-agents return content matching service-level error strings ("session limit", "rate limit", "quota", "resets HH:MM") with zero real findings — and the runtime hook reports the task status as `completed`. Treat any sub-dispatch whose body matches those patterns as a failed-dispatch-needing-re-dispatch, not as a clean review.** Empirical: 2 of 3 partitioned `code-reviewer` slices during a `/workstream-complete` PARTITION-MANDATORY pass returned the literal "You've hit your session limit · resets HH:MM" string while one slice returned a real WARN with 4 actionable findings; the review trail would have written the empty slices as `verdict ok` had the EM not pattern-matched. Discipline: before accepting any partitioned-review slice as authoritative, grep the body for service-level error patterns; on match, wait for quota reset or escalate to PM with the partial-coverage situation — never write a trail record marking quota-exhausted slices as verdict-ok. The "agent returned" signal is distinct from "agent succeeded against its brief"; the runtime task-notification layer conflates them. (case: example-game-repo)
 
-<!-- DoE resolved: 2026-06-15 — see snippets/quota-self-detect-preamble.md and coordinator-tripwires.md § QUOTA-SELF-DETECT-AND-EM-SCAN. Hook altitude originally proposed (v1) was rejected post-C0 substrate verification (PostToolUse-Agent is dispatch-time-only on async); shipped as two-layer detection (subagent self-detect + EM-side body scan). -->
+<!-- Resolved in the doctrine repo: 2026-06-15 — see snippets/quota-self-detect-preamble.md and coordinator-tripwires.md § QUOTA-SELF-DETECT-AND-EM-SCAN. Hook altitude originally proposed (v1) was rejected post-C0 substrate verification (PostToolUse-Agent is dispatch-time-only on async); shipped as two-layer detection (subagent self-detect + EM-side body scan). -->
 
 ## Tool-channel lag — git is the only oracle; dispatch delicate edits through subagents
 
@@ -226,6 +226,25 @@ A transcript, quoted command output, or copy-pasted log the PM hands you is a **
 3. **Legacy pid-only false-dead:** a claim dir with no `session_id` file (pre-upgrade or upgrade-era) routes `_cs_claim_holder_live` to the ephemeral-pid test, which reads "structurally always dead in-harness" regardless of whether the session is live. A legacy pid-only claim whose holder is LIVE will be classified dead and cleared — a false-dead stomp via a different door. The human stand-down (shape 2) still matters for these dirs: even when the automated path classifies the claim dead, the EM should note whether `session_id` is absent before accepting that verdict.
 
 **2026-06-30 near-miss (project-rag) as the canonical instance of shape 2.** A fresh session read `01:1xZ` as "yesterday afternoon" when `date -u` was `01:19Z` the same night. `cs_claim_holder_live` would have returned live. The claim was stomped, mislabeled "(crashed)", and only caught downstream by a `source_memo:` collision check. Running `date -u` before eyeballing the timestamp would have prevented it.
+
+## A Stop Is Verified Against The Process Table, Never Against The Stopping Tool's Return Value
+
+**When a tool call is meant to stop a process — `TaskStop`, a chained exit-code check, a
+`Monitor` teardown — its own success return is not evidence the process is gone.** Three
+first-hand-reproduced shapes: `TaskStop` reported success while the child kept running; a chained
+exit code masked a crash underneath it; a `Monitor` process outlived the agent that armed it. In
+each, the tool's return channel said "done" while the process table said otherwise — the same
+trust-the-channel trap the shapes above describe, applied to termination rather than to a read.
+
+**Rule:** after issuing any stop, re-check the **process table** (`pgrep`/`ps`/`Get-Process` or
+the platform equivalent) for the PID(s) in question before treating the stop as real. Do not
+infer "stopped" from a clean return code alone — the return value is the same suspect channel
+shape-1/shape-3 already cover, now on the write path instead of the read path.
+
+The `Monitor`-outlives-its-owner case is the concrete instance of this in the wild:
+`a-monitor-armed-by-a-teammate-wakes-nobody.md` documents a monitor subprocess staying alive and
+writing events after the agent that armed it went idle — read that page for the dispatch-shape
+mechanics; this entry is the general verification rule it's an instance of.
 
 ## Red CI Is Not Always Red Code — Triage By Run-Duration First
 

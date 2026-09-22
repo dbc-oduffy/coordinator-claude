@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Generate AC15's allowlist: every live file still carrying the literal ``CLAUDE_KLABAUTER_ROOT``,
 classified by WHY it survives the rename.
 
@@ -112,7 +111,7 @@ def examined_paths(repo: Path) -> set[str]:
     ``body``, or ``disposition`` prose was never reviewed under the guarantee AC15
     checks for -- only an explicit ``writes:`` entry means a slice examined it.
 
-    # Review: code-reviewer P2 -- whole-object-tree harvest let prose mentions launder
+    # whole-object-tree harvest let prose mentions launder
     # a never-reviewed file into the examined set; narrowed to declared writes.
     """
     found: set[str] = set()
@@ -132,7 +131,7 @@ def examined_paths(repo: Path) -> set[str]:
 
 
 def classify(text: str, hits: list[str], path: str, examined: set[str]) -> str:
-    # Review: code-reviewer P1 -- whole-file `NEW_TOKEN in text` laundered every
+    # whole-file `NEW_TOKEN in text` laundered every
     # CLAUDE_KLABAUTER_ROOT hit in a file into dual-read-site merely because the file mentioned
     # COORDINATOR_ENGINE_ROOT anywhere (an unrelated docstring, a changelog line).
     # Decided at hit-line granularity instead, so an unrelated co-occurrence can no

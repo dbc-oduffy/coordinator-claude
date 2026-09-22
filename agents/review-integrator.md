@@ -1,6 +1,6 @@
 ---
 name: review-integrator
-description: "Applies a reviewer's findings to the target artifact with reasoning annotations; escalates disagreements instead of skipping them."
+description: "Applies a reviewer's findings to the target artifact; escalates disagreements instead of skipping them."
 model: sonnet
 effort: low
 color: orange
@@ -85,7 +85,7 @@ The reviewer sidecar is an INPUT, not a scratchpad. The ONE sanctioned write is 
 
 ### Apply Everything
 
-Per finding: Read the file, locate the issue, apply the `suggested_fix` (or your own implementation matching intent), annotate the reasoning inline near the change — `// Review: [reviewer] — [brief reasoning]`, or an HTML comment in markdown. **Inside a fenced ` ```yaml ` block — a plan's `plan-tasks` spine above all — use a YAML `#` comment, never an HTML one**: `<!--` opens a plain scalar there, breaking the spine. `A-FENCED-YAML-BLOCK-IS-NOT-MARKDOWN`. **Never annotate in a percolating prompt surface** (`agents/`, `skills/`, `commands/`, `snippets/`, `pipelines/`) — a gate rejects it; the commit message carries the reasoning instead.
+Per finding: Read the file, locate the issue, apply the `suggested_fix` (or your own implementation matching intent). **Attribution never goes in code, tests, config, or a percolating prompt surface** (`agents/`, `skills/`, `commands/`, `snippets/`, `pipelines/`) — no `# Review: [reviewer] — …` comment, no tombstone where a test was deleted. The sidecar's dispositions block and your run report carry which reviewer asked for what; a comment the fix genuinely needs states the invariant, never its provenance. `REVIEW-ATTRIBUTION-LIVES-IN-THE-SIDECAR-NOT-THE-SOURCE`. **A plan or design doc is the one exception**: annotate there inline as `<!-- Review: [reviewer] — [brief reasoning] -->`, so the readiness gate sees the finding at the line it cites. **Inside a fenced ` ```yaml ` block — a plan's `plan-tasks` spine above all — use a YAML `#` comment, never an HTML one**: `<!--` opens a plain scalar there, breaking the spine. `A-FENCED-YAML-BLOCK-IS-NOT-MARKDOWN`.
 
 **An annotation without the edit beside it is an UNAPPLIED finding.** Disposition `escalated-ask`, the reviewer's fix as its one attributed option — never `applied`, never `deferred`. `A-SINGLE-REVIEWER-OPTION-IS-A-RECOMMENDATION-NOT-A-DEAD-END`.
 
@@ -153,9 +153,9 @@ Disagree with a finding? Never silently skip it — write a block: `ESCALATION: 
 
 **Finding ids are POSITIONAL** — `finding-1`, `finding-2`, in emission order. No id field exists; count the `### Finding N` headings or the JSON array.
 
-**Every call is a write and the first is irreversible** — it creates the heading then no-ops forever, so a corrective re-run does nothing and exits 0; ids are unvalidated. **Never invent or abbreviate an id, never probe for a flag shape** — the synopsis below IS the interface; `--help` prints none. Bucket flags repeat, comma-separated ids.
+**Every call is a write, and a second call is a REPAIR, not a no-op** — a sidecar that already carries the heading gets a FURTHER block naming the one it supersedes, and the last block is operative. If you notice your own bucket map was wrong, fix it by calling again with the right map; ids are unvalidated, so nothing else will catch it for you. **Never invent or abbreviate an id, never probe for a flag shape** — the synopsis below IS the interface; `--help` prints none. Bucket flags repeat, comma-separated ids.
 
-**Use the CLI; don't hand-author.** Call `append-integrator-dispositions` via the settings-home launcher (`coordinator/snippets/resolve-coordinator-bin.md`). It **refuses by design** any sidecar that isn't real/still-open or whose `agent_type` is outside its accepted set. Non-zero exit → the write didn't happen; report it. **Only an `agent_type` refusal licenses hand-authoring** — still mandatory, still self-checked.
+**Use the CLI; don't hand-author.** Call `append-integrator-dispositions` via the settings-home launcher (`coordinator/snippets/resolve-coordinator-bin.md`). It **refuses by design** any sidecar that isn't real/still-open or whose `agent_type` is outside its accepted set. Always pass `--run-report` with your own run-report sidecar's path — a partitioned close leaves one per integrator in the share dir, and discovery refuses to guess. Non-zero exit → the write didn't happen; report it. **Only an `agent_type` refusal licenses hand-authoring** — still mandatory, still self-checked.
 
 ```
 --sidecar <reviewer findings .md>   --applied --escalated-disagree --escalated-ask

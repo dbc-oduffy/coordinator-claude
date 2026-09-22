@@ -24,7 +24,7 @@ inherit it — the bug never manifests there.
 
 Both were tried empirically and break xdist worker reaping:
 
-1. **`pythonw.exe` controller** — claude-klabauter `coordinator/lib/spawn-hidden.sh`'s `/SUBSYSTEM:WINDOWS`
+1. **`pythonw.exe` controller** — the engine repo's `coordinator/lib/spawn-hidden.sh`'s `/SUBSYSTEM:WINDOWS`
    approach works for standalone scripts but is **incompatible with xdist**. execnet spawns
    workers via `sys.executable` (now `pythonw`); a `pythonw` worker cannot read its
    stdin-pipe bootstrap line → the run **DEADLOCKS**. The controller also hits
@@ -138,7 +138,7 @@ wrong. `taskkill //F //IM python.exe` to clean up orphans before re-trying.
 
 ## Integration with the pythonw quiet-wrapper
 
-The `/SUBSYSTEM:WINDOWS` pythonw wrapper for standalone scripts (claude-klabauter
+The `/SUBSYSTEM:WINDOWS` pythonw wrapper for standalone scripts (the engine repo's
 `coordinator/lib/spawn-hidden.sh`) and this pattern serve **different contexts**:
 
 | Context | Correct tool |

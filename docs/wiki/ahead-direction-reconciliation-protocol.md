@@ -7,10 +7,6 @@
 
 ## The vocabulary already exists; the protocol didn't
 
-Claude-klabauter's `coordinator_core/frontmatter/schema_drift_watch.py` and
-`check_schema_drift_advisory` compute a **DIRECTION** for any detected drift between DoE's
-current schema and claude-klabauter's vendored pin: `DIRECTION_WE_AHEAD` / `DIRECTION_WE_BEHIND` /
-`DIRECTION_BOTH` (constants at claude-klabauter's `coordinator_core/frontmatter/schema_validate.py:2150-2152`).
 That machinery answers "has the producer moved?" It has never answered the three questions that
 actually govern what to do about it: what does AHEAD oblige, how long may it stand, who closes
 it. Nobody had written that down; the answer is below.
@@ -28,9 +24,9 @@ the way it does: every clause below exists to make running ahead *safe*, not to 
 The producer's entire duty at bump time is to **declare** the bump and its CLASS. That duty is
 already shipped, not aspirational: a standing entry under `state/cross-repo-commitments/`
 records the standing commitment, and `coordinator/tests/test_vendored_schema_version_parity.py`
-is the commit-time gate that enforces it mechanically (parameterized over every claude-klabauter-vendored
-DoE schema, consuming claude-klabauter's own drift-watch direction verdict rather than re-deriving parity
-DoE-side).
+is the commit-time gate that enforces it mechanically (parameterized over every schema vendored
+downstream by the engine, consuming the engine's own drift-watch direction verdict rather than
+re-deriving parity on this repo's side).
 
 The producer does **not** wait for the consumer to re-vendor, does not block its own bump on
 consumer acknowledgment, and does not chase the consumer to confirm receipt. Declaration
@@ -79,14 +75,6 @@ move.
 An **undeclared** AHEAD state is the actual failure mode. The AHEAD state itself is not a problem
 — running silently ahead of a consumer's knowledge that it's happening is.
 
-**The empirical instance that proves it:** DoE's `coordinator/schemas/handoff.schema.json`
-reached `2.1.0` with a new `carried_items` block while claude-klabauter's vendored copy sat at `2.0.0`
-without it. Claude-klabauter found the drift **by looking** — its own drift-watch machinery caught it —
-**not by being told.** No memo preceded the discovery; the declaration duty in § 2 above post-dates
-this instance and exists specifically because of it. A protocol that let AHEAD stand
-undeclared-and-undiscoverable would have let that drift persist indefinitely; a protocol that
-makes AHEAD visible (declared by the producer, detectable by the consumer's own drift-watch as a
-backstop) converts the same drift into bounded, tracked debt instead.
 
 ## 6. Escape hatch — an unclosable AHEAD state escalates to the PM
 
@@ -97,8 +85,8 @@ Surface it rather than let it age out unbounded.
 
 ## Where the mechanism runs — noted, not settled here
 
-Claude-klabauter offered to host any mechanical stand-down/notice **emitter** for this protocol inside its
-own engine, under its own decision record. DoE's position: that is very likely the right home for the mechanism —
+The engine repo offered to host any mechanical stand-down/notice **emitter** for this protocol inside its
+own engine, under its own decision record. This repo's position: that is very likely the right home for the mechanism —
 the emitter is engine-shaped work (an op that reads state and fires a notice), and the engine's
 own decision series is where mechanism-hosting decisions like this belong. But the **protocol** — the six sections above
 — had to be authored first, on the producer side that was asked for it; where the mechanism

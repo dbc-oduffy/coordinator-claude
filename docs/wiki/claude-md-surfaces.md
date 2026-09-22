@@ -21,7 +21,7 @@ keywords:
 
 # CLAUDE.md Surfaces — Which File Is the Global One?
 
-> Disambiguation wiki for the CLAUDE.md-class files a DoE session can have live at once, and
+> Disambiguation wiki for the CLAUDE.md-class files a session in this repo can have live at once, and
 > the structural traps that make it easy to mix them up. Written after both the PM and the EM
 > independently formed a wrong model of "the global file" on 2026-07-22 — no tooling caught
 > either error, only reading the files did.
@@ -41,9 +41,9 @@ keywords:
 |---|---|---|---|---|
 | `~/.claude/CLAUDE.md` | 28,331 | **Global** — every session on the machine, regardless of cwd | Harness auto-load | Operator, hand-maintained |
 | `the (now-removed) meta-repo local-doctrine file` | 10,219 | Global, private (fleet sibling map lives here) | Harness auto-load | Operator, hand-maintained |
-| `<repo>/CLAUDE.md` (e.g. `DoE-claude/CLAUDE.md`) | 32,144 | That repo only | Project auto-load, cwd-gated | Repo |
-| `<repo>/the (now-removed) meta-repo local-doctrine file` (e.g. `claude-klabauter/the (now-removed) meta-repo local-doctrine file`) | varies | That repo only, private | Project auto-load, cwd-gated | Repo |
-| `DoE-claude/coordinator/CLAUDE.md` | **DELETED** | DoE-claude only, and only after a `coordinator/` file is Read — reached no sibling-repo session at all | nested-`CLAUDE.md` lazy load (ordinary ancestor-chain walk on Read, unrelated to `--plugin-dir`) | Retired; content split to `global-doctrine/CLAUDE.md` + `coordinator/snippets/em-operating-doctrine.md` |
+| `<repo>/CLAUDE.md` | 32,144 | That repo only | Project auto-load, cwd-gated | Repo |
+| `<repo>/the (now-removed) meta-repo local-doctrine file` | varies | That repo only, private | Project auto-load, cwd-gated | Repo |
+| `this repo's coordinator/CLAUDE.md` | **DELETED** | This repo only, and only after a `coordinator/` file is Read — reached no sibling-repo session at all | nested-`CLAUDE.md` lazy load (ordinary ancestor-chain walk on Read, unrelated to `--plugin-dir`) | Retired; content split to `global-doctrine/CLAUDE.md` + `coordinator/snippets/em-operating-doctrine.md` |
 
 > **Figures drift — re-measure before citing.** Every byte count in this table has already gone
 > stale twice (2026-07-22 → 2026-07-27, across two different rows, from routine edits by other
@@ -52,24 +52,24 @@ keywords:
 > paths before relying on a figure for anything load-bearing (e.g. a context-budget argument) —
 > don't trust this table's cache.
 
-> **DoE-claude's own the (now-removed) `the (now-removed) meta-repo local-doctrine file` does not exist.** The generic
+> **This repo's own the (now-removed) `the (now-removed) meta-repo local-doctrine file` does not exist.** The generic
 > `<repo>/the (now-removed) meta-repo local-doctrine file` row above still describes a real, live surface CLASS — most sibling
-> repos (`claude-klabauter` included) still split their operating posture into a separate
-> the (now-removed) `the (now-removed) meta-repo local-doctrine file` alongside `CLAUDE.md`. DoE-claude itself is the exception: its content is
-> merged into `DoE-claude/CLAUDE.md`, so a stale citation of `DoE-claude/the (now-removed) meta-repo local-doctrine file
-> § <heading>` resolves against a section of `DoE-claude/CLAUDE.md` instead. This has no bearing on
+> repos still split their operating posture into a separate
+> the (now-removed) `the (now-removed) meta-repo local-doctrine file` alongside `CLAUDE.md`. This repo itself is the exception: its content is
+> merged into this repo's `CLAUDE.md`, so a stale citation of this repo's `the (now-removed) meta-repo local-doctrine file
+> § <heading>` resolves against a section of this repo's `CLAUDE.md` instead. This has no bearing on
 > `the (now-removed) meta-repo local-doctrine file` (global, still live) or on any other
 > repo's the (now-removed) `the (now-removed) meta-repo local-doctrine file` — both rows in the table above are otherwise unaffected.
 
-`DoE-claude/CLAUDE.md` is the same *class* of document as `claude-klabauter/CLAUDE.md` — a **project**
-file, not a global candidate, despite DoE-claude being the coordinator doctrine-authoring repo.
-**Never copy `DoE-claude/CLAUDE.md` over `~/.claude/CLAUDE.md`** — different classes; if the idea
+This repo's `CLAUDE.md` is the same *class* of document as any other repo's `CLAUDE.md` — a **project**
+file, not a global candidate, despite this repo being the coordinator doctrine-authoring repo.
+**Never copy this repo's `CLAUDE.md` over `~/.claude/CLAUDE.md`** — different classes; if the idea
 looks attractive, diff them first. Copying would delete `~/.claude/CLAUDE.md`'s § Owner, §
-Communication Style, and First Officer Doctrine — none of which exist in the project file. (Engagement
+Communication Style, and Starfleet Officer Doctrine — none of which exist in the project file. (Engagement
 posture is deliberately absent from `~/.claude/CLAUDE.md` on either side of this comparison — it
 renders per-repo into `.claude/em-context.md` instead; see § Known gap below.)
 
-## Trap A — `coordinator/CLAUDE.md` is not plugin-delivered at all; it's nested-`CLAUDE.md` lazy load, DoE-only
+## Trap A — `coordinator/CLAUDE.md` is not plugin-delivered at all; it's nested-`CLAUDE.md` lazy load, this-repo-only
 
 <!-- spec backlink: docs/research/spike-verdicts/2026-07-27-plugin-claude-md-delivery.md -->
 
@@ -90,35 +90,35 @@ that applies to any subdirectory `CLAUDE.md` in any project, with zero plugin in
   somewhere under `coordinator/`** — not at session boot, not on Grep, not for an untouched
   sibling directory. Reading pulls in the *whole ancestor chain* of `CLAUDE.md` files above the
   read file, of which `coordinator/CLAUDE.md` happens to be one link.
-- **Scope:** this only fires in a session whose **cwd is DoE-claude**. There is no path by which
+- **Scope:** this only fires in a session whose **cwd is this repo**. There is no path by which
   reading a file under `coordinator/` from a *different repo's* working tree would pull this file
   in — the ancestor chain a nested-load walks is rooted at the session's own cwd, not at
   wherever `--plugin-dir` happens to point.
 - **Consequence — the one that matters most:** `coordinator/CLAUDE.md` reaches **no sibling-repo
-  session, ever.** Verified live: a `claude-klabauter` session, launched via the real `claude-doe`
+  session, ever.** Verified live: a sibling-repo session, launched via the real `claude-doe`
   invocation with the coordinator plugin confirmed loaded (its slash command available), returned
   NOT-PRESENT on a verbatim-recall probe for a sentence that exists only in
   `coordinator/CLAUDE.md`. The plugin loading is real and confirmed; the doctrine text riding
   along with it is not — those are two independent facts this trap used to collapse into one.
 - **Durability:** per the harness docs, a nested `CLAUDE.md` does not survive `/compact` the way
-  a project-root `CLAUDE.md` does. So even inside DoE-claude, after the first `coordinator/` Read
+  a project-root `CLAUDE.md` does. So even inside this repo, after the first `coordinator/` Read
   has pulled it in, it can silently evaporate on the next compaction — "loaded once" is not
   "loaded for the session."
 
 **Why the old model was believable.** `--plugin-dir` genuinely *does* deliver `skills/`,
 `agents/`, `commands/`, `hooks/`, and `lib/` fleet-wide live from this repo (see
 `external-plugin-live-resolution.md` — that mechanism is correctly described there and needs no
-correction). Every DoE-claude session also happens to Read a `coordinator/`-rooted file almost
+correction). Every session in this repo also happens to Read a `coordinator/`-rooted file almost
 immediately (a skill, an agent prompt), so the nested-load fires early enough to look
-indistinguishable from a boot-time plugin injection — from inside DoE-claude, the two mechanisms
+indistinguishable from a boot-time plugin injection — from inside this repo, the two mechanisms
 produce the same *symptom* (doctrine present) by two entirely different *causes* (one fleet-wide
 and mechanical, one repo-scoped and read-triggered). The `claude-doe` exec chain itself is
 correctly described elsewhere in this wiki and is not in question: `~/.local/bin/claude-doe`
 does end in `exec claude --plugin-dir "$DOE_COORDINATOR" …`, and that flag is what delivers the
 five surfaces named above — it is simply not what delivers this one.
 
-**Consequence for the fleet, not just for DoE-claude:** sibling-repo EMs (`claude-klabauter`,
-`project-rag`, and any other repo running the coordinator plugin) have been operating this whole
+**Consequence for the fleet, not just for this repo:** sibling-repo EMs (any repo running the
+coordinator plugin) have been operating this whole
 time with the coordinator operating doctrine **absent from their context**, regardless of how
 long the plugin has been loaded for them. Whatever behavioural consistency the fleet has actually
 shown came from each repo's own `CLAUDE.md` and the global `~/.claude/CLAUDE.md`, not from this
@@ -142,7 +142,7 @@ independent layers**, and only one of them decides wiki/file *admission*:
 
 `CLAUDE.md` is absent from that field → **`coordinator/CLAUDE.md` does NOT reach the OSS mirror**,
 despite being the doctrine every coordinator session runs on. Corollary: this wiki you're reading
-is also not on that allowlist, so it does not publish OSS either — it stays DoE-internal doctrine
+is also not on that allowlist, so it does not publish OSS either — it stays upstream-internal doctrine
 until someone deliberately adds it.
 
 ## The regression of record — cold-install clobber
@@ -156,6 +156,22 @@ only because an out-of-band `.example-doctrine-mirror-repo` backup happened to e
 **This wiki documents the trap; it does not fix the installer.** The installer-side fix (making a
 cold install non-destructive to hand-evolved global doctrine) is Piece 3 of the spinoff this wiki
 was authored under — out of scope here.
+
+## Why the byte counts in the surfaces table matter — cost is per-byte times the fleet
+
+The table at the top of this wiki tracks byte counts for a reason beyond drift-tracking: every one
+of those surfaces is loaded into **every session that boots against it**, so a byte added there is
+not paid once — it is paid on every boot of every EM and every dispatched subagent across the
+fleet that loads it. A doctrine surface's cost is per-byte times that fan-out, and nothing at
+edit time shows the multiplier: an addition reads as merely helpful in the file you're looking at,
+while its real cost is invisible until you multiply by every session that will load it.
+
+**Anything authored into an always-loaded surface — a local `CLAUDE.md`, this global-surfaces
+class, a skill, standing doctrine — should be written at least 50% shorter than the default length
+it wants to be.** The correction that produced this rule was a three-line entry where two lines did
+the job. This is the operative reading of the global file's own rule that past ~2KB, content is
+reference and operative rules front-load — apply it while writing, not just as a retrospective
+trim.
 
 ## Known gap — operator identity is not reproduced by any install path
 
@@ -174,14 +190,14 @@ is not fixed here.
 *"Which file is the global one?"* → `~/.claude/CLAUDE.md` (and its the (now-removed) `the (now-removed) meta-repo local-doctrine file` sibling).
 machine-global and never fleet-wide. `coordinator/CLAUDE.md` in particular is narrower than it
 machine-global and never fleet-wide. `coordinator/CLAUDE.md` in particular is narrower than it
-looks: it isn't even reliably DoE-wide (nested-load only fires after a `coordinator/` Read, and
+looks: it isn't even reliably repo-wide (nested-load only fires after a `coordinator/` Read, and
 can evaporate on `/compact`), and it is structurally unreachable from any repo that isn't
-DoE-claude — see Trap A above.
+this one — see Trap A above.
 
 ## Global doctrine mirror — Piece 2 of the topology spinoff
 
-A sixth surface exists alongside the five above: `DoE-claude/global-doctrine/CLAUDE.md` and
-`DoE-claude/global-doctrine/the (now-removed) meta-repo local-doctrine file`, a tracked, byte-identical in-repo mirror of
+A sixth surface exists alongside the five above: this repo's `global-doctrine/CLAUDE.md` and
+`global-doctrine/the (now-removed) meta-repo local-doctrine file`, a tracked, byte-identical in-repo mirror of
 `~/.claude/CLAUDE.md` and `the (now-removed) meta-repo local-doctrine file`. It is **not** a sixth CLAUDE.md-class
 source of instructions — it does not auto-load, it is not `--plugin-dir`'d, no session reads it
 as doctrine. It is a passive backup, and it exists for one specific reason: `~/.claude` cannot be
@@ -206,9 +222,9 @@ a git repo with a remote, so a mirror elsewhere is redundancy, not the primary b
 The conclusion this drives: a mirror is only worth building if it can **survive a re-initialization
 of `~/.claude` itself** — a scenario that already happened once. That rules out anywhere under
 `~/.claude`, and it rules out relying on `~/.claude`'s own git remote. It requires a **different
-repo with an independent git history**, which is exactly what `DoE-claude/global-doctrine/` is:
+repo with an independent git history**, which is exactly what this repo's `global-doctrine/` is:
 even if `~/.claude` is deleted, force-pushed over, or cold-re-installed tomorrow, the mirror's
-history in DoE-claude is untouched.
+history in this repo is untouched.
 
 **Direction of truth (load-bearing, do not invert).** `global-doctrine/CLAUDE.md` is
 authoritative — it is the **authoring** surface. `~/.claude/CLAUDE.md` is the **derived** live copy
@@ -248,11 +264,11 @@ ALLOWLIST (field 7) enumerates only paths relative to `coordinator/` (the declar
 `bin,lib,hooks,skills,agents,commands,docs/wiki/<enumerated-list>,.claude-plugin,
 Cockpit-contract/schema`. A repo-root `global-doctrine/` directory sits structurally outside that
 SOURCE_DIR and so cannot be matched by any allowlist entry, publish invocation, or
-`.percolate-ignore` pattern rooted there — DoE-claude being a private repo, tracking this content
+`.percolate-ignore` pattern rooted there — this repo being private, tracking this content
 at the repo root is safe; the OSS mirror is the only real exposure risk, and it is structurally
 unreachable.
 
-**Drift probe.** claude-klabauter `coordinator/bin/check-global-doctrine-mirror.py` byte-compares
+**Drift probe.**  `coordinator/bin/check-global-doctrine-mirror.py` byte-compares
 each mirrored file against its `~/.claude` counterpart, wired into `/workday-start` Step
 1.10.63. Silent no-op (exit 0) when `global-doctrine/` does not exist — this probe ships under
 `coordinator/bin/` (on the OSS publish allowlist), so it reaches every OSS install, and absence

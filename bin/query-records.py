@@ -276,7 +276,6 @@ def main(argv: list[str] | None = None) -> int:
         # Trailing newline is deliberate here (unlike lib/records_query.py's
         # `--format json`, which writes json.dumps() verbatim with no
         # trailing newline) — harmless for any JSON-parsing consumer.
-        # Review: code-reviewer — Finding 5.
         records_json = result.get("records", []) if isinstance(result, dict) else []
         sys.stdout.write(json.dumps(records_json))
         sys.stdout.write("\n")

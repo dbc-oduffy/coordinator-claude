@@ -1,11 +1,11 @@
 {
   "x-effective-delivery": {
     "version": 1,
-    "generated_from_sha": "02c82eab1077aeec4b9a3ae94978ca2480dec6e8",
-    "generated_at": "2026-09-11T17:51:42Z",
+    "generated_from_sha": "deed78a87fdf1335f91adf5ebadad2112996ccef",
+    "generated_at": "2026-09-21T16:42:46Z",
     "generated_from_dirty_tree": true,
-    "engine_source_sha": "283472f7891cd67adb4340c8fe68e81b60578a37",
-    "engine_source_dirty_tree": false,
+    "engine_source_sha": "a50e06c6a7e7293678dd4d7a589c84fc17d53a66",
+    "engine_source_dirty_tree": true,
     "engine_source_resolution": "resolved-engine/published-target",
     "carriers": {
       "scripts/preuse-write-dispatch.py": {
@@ -422,6 +422,15 @@
             ]
           },
           {
+            "id": "nudge_dangling_sizing_citation",
+            "script": "write_guards/nudge_dangling_sizing_citation.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
             "id": "nudge_em_code_dispatch",
             "script": "write_guards/nudge_em_code_dispatch.py",
             "tool_names": [
@@ -576,6 +585,16 @@
             ]
           },
           {
+            "id": "p4_checkout_before_edit",
+            "script": "write_guards/p4_checkout_before_edit.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
             "id": "validate_frontmatter_schema_advisory",
             "script": "write_guards/validate_frontmatter_schema_advisory.py",
             "tool_names": [
@@ -587,6 +606,15 @@
           {
             "id": "validate_frontmatter_schema_deny",
             "script": "write_guards/validate_frontmatter_schema_deny.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "wiki_changelog_prose_advisory",
+            "script": "write_guards/wiki_changelog_prose_advisory.py",
             "tool_names": [
               "Write",
               "Edit",
@@ -637,8 +665,8 @@
           }
         ]
       },
-      "http:http://127.0.0.1:47623/hook": {
-        "script": "http:http://127.0.0.1:47623/hook",
+      "door:hooks.preuse_bash_dispatch": {
+        "script": "door:hooks.preuse_bash_dispatch",
         "matcher": "Bash|PowerShell",
         "guards": [
           {
@@ -659,6 +687,14 @@
           },
           {
             "id": "destructive-rm",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "stale-write",
             "script": "bash_guards/dispatch_checks.py",
             "tool_names": [
               "Bash",
@@ -699,6 +735,14 @@
           {
             "id": "block-worktree-creation",
             "script": "bash_guards/block_worktree_creation.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "p4-verb-fence",
+            "script": "bash_guards/p4_verb_fence.py",
             "tool_names": [
               "Bash",
               "PowerShell"
@@ -911,14 +955,6 @@
             ]
           },
           {
-            "id": "probe-spray",
-            "script": "bash_guards/dispatch_checks.py",
-            "tool_names": [
-              "Bash",
-              "PowerShell"
-            ]
-          },
-          {
             "id": "block-illegal-filename",
             "script": "bash_guards/block_illegal_filename.py",
             "tool_names": [
@@ -1004,22 +1040,6 @@
             "script": "bash_guards/guard_powershell_via_bash.py",
             "tool_names": [
               "Bash"
-            ]
-          },
-          {
-            "id": "branch-set-precedence",
-            "script": "bash_guards/guard_branch_set_precedence.py",
-            "tool_names": [
-              "Bash",
-              "PowerShell"
-            ]
-          },
-          {
-            "id": "longlived-branch-naming",
-            "script": "bash_guards/guard_longlived_branch_naming.py",
-            "tool_names": [
-              "Bash",
-              "PowerShell"
             ]
           },
           {
@@ -1142,6 +1162,11 @@
             "id": "sessionstart_ensure_http_forwarder",
             "script": "scripts/sessionstart-ensure-http-forwarder.py",
             "tool_names": []
+          },
+          {
+            "id": "session_start_write_plugin_root_breadcrumb",
+            "script": "scripts/session-start-write-plugin-root-breadcrumb.py",
+            "tool_names": []
           }
         ]
       },
@@ -1225,6 +1250,13 @@
     },
     "direct": [
       {
+        "id": "allow-emitted-workflow-fire.py",
+        "script": "scripts/allow-emitted-workflow-fire.py",
+        "tool_names": [
+          "Workflow"
+        ]
+      },
+      {
         "id": "assert-em-role.py",
         "script": "scripts/assert-em-role.py",
         "tool_names": [
@@ -1275,6 +1307,11 @@
         "tool_names": []
       },
       {
+        "id": "guard-config-change-hookstack-selfdefence.py",
+        "script": "scripts/guard-config-change-hookstack-selfdefence.py",
+        "tool_names": []
+      },
+      {
         "id": "handoff-segment-inject.py",
         "script": "scripts/handoff-segment-inject.py",
         "tool_names": []
@@ -1289,6 +1326,18 @@
         "script": "scripts/nudge-autonomous-askuserquestion.py",
         "tool_names": [
           "AskUserQuestion"
+        ]
+      },
+      {
+        "id": "nudge-cross-repo-cwd-boundary.py",
+        "script": "scripts/nudge-cross-repo-cwd-boundary.py",
+        "tool_names": []
+      },
+      {
+        "id": "nudge-named-agent-report-delivery.py",
+        "script": "scripts/nudge-named-agent-report-delivery.py",
+        "tool_names": [
+          "Agent"
         ]
       },
       {
@@ -1316,6 +1365,11 @@
         "tool_names": [
           "Agent"
         ]
+      },
+      {
+        "id": "postusefailure-cross-repo-memo-remediate.py",
+        "script": "scripts/postusefailure-cross-repo-memo-remediate.py",
+        "tool_names": []
       },
       {
         "id": "preuse-skill-dispatch.py",

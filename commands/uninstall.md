@@ -108,8 +108,12 @@ set: `REVERSE`, `DELIBERATELY-NOT-REVERSED`, `CANNOT-REVERSE-SAFELY`. Rationale 
     it; fail loud on a hand-modified block.
 17. **Operator `~/.claude` git-hook gate regions** — REVERSE, across `pre-commit`, `post-merge`,
     `post-checkout`.
-18. **`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` env key** — CANNOT-REVERSE-SAFELY. Manual, only if
-    certain nothing else needs it: delete the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` entry from
+18. **Manifest-required env keys (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`,
+    `CLAUDE_CODE_ENABLE_TODO_TOOLS`)** — CANNOT-REVERSE-SAFELY. `bin/check-settings-env.py
+    --apply` (install.md's Settings env values step) is the writer of both all-machines rows;
+    it never removes a key, only repairs a wrong/missing value, so there is nothing for this
+    script itself to reverse. Manual, only if certain nothing else needs them: delete the
+    `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` and/or `CLAUDE_CODE_ENABLE_TODO_TOOLS` entries from
     `~/.claude/settings.json`'s `env` block.
 19. **`settings.local.json` sibling-plugin seeds** — DELIBERATELY-NOT-REVERSED. Manual per key: set
     the specific `<plugin>@<marketplace>` entry to `false` under `~/.claude/settings.local.json`'s

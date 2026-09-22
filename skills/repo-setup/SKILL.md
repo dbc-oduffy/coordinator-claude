@@ -15,7 +15,7 @@ allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskU
 - **Marketplace first-run** — new coordinator plugin user setting up their first project
 - **Creating a NEW repo from scratch** (not onboarding an existing folder)? → use `coordinator:new-project`, which creates + scaffolds a stack + delegates the onboarding half back to this skill.
 
-**`claude-klabauter` is a hard prerequisite** — resolved via `CLAUDE_KLABAUTER_ROOT` / the machine-local
+**The engine repo is a hard prerequisite** — resolved via `CLAUDE_KLABAUTER_ROOT` / the machine-local
 `repos.claude_klabauter` registry entry — for coordinator-claude itself, so it must already
 resolve before this skill's own fences will run (private until its OSS release; the maintainer
 grants access on request, as for `project-rag`).
@@ -48,7 +48,7 @@ the engine op lands, the caller's own answer to `p1.repo-classification-ask`) na
 
 ## Procedure
 
-**1. Resolve `$_TARGET_ROOT`** (run before everything else). (shape per `snippets/resolve-coordinator-bin.md`; PowerShell shown) `& "$env:COORDINATOR_SETTINGS_HOME\bin\repo-setup-args-and-register.exe" resolve-target-root`. It validates the resolved path is an existing directory inside a git repo, printing the absolute path to stdout on success or a fail-loud `ERROR: ...` line on stderr with exit 1 on failure — mirror that idiom, never silently fall back to cwd. When an explicit `--root`/`--target` was passed, change the shell's working directory to `$_TARGET_ROOT` as the first action, so every downstream cwd-relative step targets the sibling repo. Absent, `$_TARGET_ROOT` resolves to `$(pwd)`.
+**1. Resolve `$_TARGET_ROOT`** (run before everything else). (shape per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`; PowerShell shown) `& "$env:COORDINATOR_SETTINGS_HOME\bin\repo-setup-args-and-register.exe" resolve-target-root`. It validates the resolved path is an existing directory inside a git repo, printing the absolute path to stdout on success or a fail-loud `ERROR: ...` line on stderr with exit 1 on failure — mirror that idiom, never silently fall back to cwd. When an explicit `--root`/`--target` was passed, change the shell's working directory to `$_TARGET_ROOT` as the first action, so every downstream cwd-relative step targets the sibling repo. Absent, `$_TARGET_ROOT` resolves to `$(pwd)`.
 
 **2. Load the firing lane's directives.** Read `lanes/<lane>.yaml` in full: `round_trip_directives[]` supplies every value the procedure below would otherwise prompt for, `terminal_offer_defaults[]` the policy default for every terminal offer, `second_phase_deferred[]` the agent-work steps left unresolved for a later phase. Load once, apply throughout — this skill does not re-derive or select among any of these values.
 
@@ -64,11 +64,15 @@ the engine op lands, the caller's own answer to `p1.repo-classification-ask`) na
 
 Install steps are mechanical and lane-independent — see `residue/mechanics.md` § Optional tripwire
 installs — mechanical half. Whether an offer fires is a value the firing lane's
-`terminal_offer_defaults[]` already carries (`tw.windows-console-offer`, `tw.ci-offer`); this skill
+`terminal_offer_defaults[]` already carries (`tw.windows-console-offer`); this skill
 does not decide it inline. A Perforce workspace registers per `contract/p4-provider-fragment.md` § Registration.
 
 ## Notes
 
+- **Embedding-class check.** Where this skill's flow touches project-rag indexing setup for a
+  repo, ask: "does this corpus need `text`-class embedding?" — project-rag silently defaults prose
+  corpora to a code-embedding model otherwise. One question, not a policy section; project-rag
+  owns the mechanism, this skill states the question only.
 - Any onboarding bug fix needs all three layers to not recur: prevention (fix the install script), reactive repair (`doctor`-style recovery for users who already hit it), searchable docs (a troubleshooting row keyed on the literal error text). Rationale: wiki.
 - Extended-substrate seeds and the CLAUDE.md template architecture: wiki.
 - Peer-repo citations belong to the workstream record: a peer-repo `file:line` citation lands in

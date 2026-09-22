@@ -179,6 +179,24 @@ def dedup_entries(entries: list[dict]) -> tuple[list[dict], list[dict]]:
 # assert-empty — verify the one-root invariant (detector, not drainer)
 # ---------------------------------------------------------------------------
 
+# Module-level seam for the real peer-root enumerator. Left `None` until first
+# resolved (the real import needs `require_colocated_engine_on_path` bootstrapped
+# first — see `_resolve_roots` below) OR pre-set by a caller/test that wants to
+# substitute a fixture list. `_resolve_roots()` MUST call `resolve_roots()` through
+# this module-level name (never re-import-and-call a locally-scoped name) — an
+# earlier revision imported `resolve_roots` inside `_resolve_roots()`'s own local
+# scope, which shadowed any `drain.resolve_roots = ...` substitution: assert-empty
+# then silently enumerated ZERO of the substituted peers (falling through to the
+# real, unrelated machine registry, or to whatever that resolved) while `non_empty`
+# stayed empty by construction, so it reported PASS over a set of peers it never
+# actually looked at — the exact "reports PASS while a whole plane is invisible to
+# it" defect this subcommand exists to prevent. Routing through the module-level
+# name closes that: any caller (production or test) that needs a different
+# enumeration must substitute `resolve_roots` itself, and `_resolve_roots()` always
+# honors whatever that name currently points to.
+resolve_roots = None
+
+
 def _resolve_roots():
     """`assert-empty` reuses the SAME peer-root enumeration `learn-lessons-roots.py`
     uses, imported directly rather than re-derived — hand-rolling a second
@@ -186,12 +204,20 @@ def _resolve_roots():
     quietly diverging) this detector exists to catch. Resolved via the
     colocated-checkout ladder (this script lives inside the claude-klabauter tree
     itself), same pattern as the distill-*.py CLIs. May raise `RuntimeError`
-    if the engine root cannot be resolved — the caller (main()) handles that."""
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from cc_invoke import require_colocated_engine_on_path
+    if the engine root cannot be resolved — the caller (main()) handles that.
 
-    require_colocated_engine_on_path(__file__)
-    from coordinator_core.ops.learn_lessons_roots import resolve_roots
+    Always calls through the MODULE-LEVEL `resolve_roots` name (see its docstring
+    above) — resolves the real implementation into that name on first use, unless
+    a caller has already substituted it."""
+    global resolve_roots
+    if resolve_roots is None:
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        from cc_invoke import require_colocated_engine_on_path
+
+        require_colocated_engine_on_path(__file__)
+        from coordinator_core.ops.learn_lessons_roots import resolve_roots as _real_resolve_roots
+
+        resolve_roots = _real_resolve_roots
 
     return resolve_roots()
 

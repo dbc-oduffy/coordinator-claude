@@ -88,7 +88,7 @@ cadence checkpoint below, not part of this call:
 
 <!-- VERBATIM -->
 On a PowerShell host, invoke the `coordinator-invoke.exe` door by absolute path through the call
-operator (Shape W, `snippets/resolve-coordinator-bin.md` § The door):
+operator (Shape W, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` § The door):
 
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" session.safe_commit_offer '{"cwd":"<repo-root>","session_id":"<this session's id>"}'`
 

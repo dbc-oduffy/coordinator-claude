@@ -34,6 +34,13 @@
 #     # already carry it.
 #   release-memo-revert <memo_path>
 #   stamp-plan-implemented <plan_path>
+#   stamp-plan-superseded <plan_path> --by <successor>
+#     (plan_status_transition verb stamp-superseded, via
+#     coordinator_core.archive_stamp.cs_stamp_plan_superseded — the same
+#     native in-process route cs_stamp_plan_implemented takes. --by is
+#     REQUIRED: a missing --by is a usage error at this CLI layer, and the
+#     op's own refusal (an already-terminal-at-a-different-status plan)
+#     remains the authoritative gate.)
 #   gate-recheck-handoff <handoff_path> <at> [--cleared]
 #   close-handoff <handoff_path> --reason <cancelled|displaced|stale>
 #   repark-handoff <handoff_path>
@@ -112,7 +119,7 @@ def _import_module():
 _SUBCOMMANDS = (
     "subcommands: stamp-shipped-in | ship-handoff | claim-handoff | "
     "claim-memo-stamp | action-memo | resolve-memo | release-memo-revert | "
-    "stamp-plan-implemented | gate-recheck-handoff | close-handoff | "
+    "stamp-plan-implemented | stamp-plan-superseded | gate-recheck-handoff | close-handoff | "
     "repark-handoff | unclaim-handoff | chain-archive-handoff | "
     "supersede-archive-handoff | repair-archived-shipped-in | "
     "repair-archived-deployment-state | correct-handoff-body\n"
@@ -194,10 +201,22 @@ _SUBCOMMAND_USAGE = {
     ),
     "resolve-memo": (
         "archive-stamp-cli resolve-memo <memo_path> [disposition-flags...]\n"
-        "  NOTE — same prose file siblings as action-memo."
+        "  NOTE — same prose file siblings as action-memo.\n"
+        "  disposition-flags (engine's, coordinator_core/archive_stamp.py ::\n"
+        "  _DISPOSITION_FLAGS/_DISPOSITION_BOOL_FLAGS): --decision <value>,\n"
+        "  --decision-note <text>, --realized-by <value>, --actioned-note <text>,\n"
+        "  --distill-fate <value>, --in-repo-capture <value>,\n"
+        "  --superseded-by <memo_path>, --supersede-note <text>,\n"
+        "  --supersede-realized-by <value>, --supersede-at <ISO-date>,\n"
+        "  --correct-realization (no value). --superseded-by is mutually exclusive\n"
+        "  with --decision/--actioned-note — alternative terminal shapes, not\n"
+        "  combinable."
     ),
     "release-memo-revert": "archive-stamp-cli release-memo-revert <memo_path>",
     "stamp-plan-implemented": "archive-stamp-cli stamp-plan-implemented <plan_path>",
+    "stamp-plan-superseded": (
+        "archive-stamp-cli stamp-plan-superseded <plan_path> --by <successor>"
+    ),
     "gate-recheck-handoff": (
         "archive-stamp-cli gate-recheck-handoff <handoff_path> <at> [--cleared]"
     ),
@@ -633,7 +652,7 @@ def main(argv: list[str]) -> int:
     if subcmd == "stamp-shipped-in":
         if not rest:
             return _usage_line(_SUBCOMMAND_USAGE["stamp-shipped-in"])
-        # Review: code-reviewer — scan for --allow-branch-tip-fallback the same way
+        # Scan for --allow-branch-tip-fallback the same way
         # --sha is scanned below (order-independent), rather than matching only the
         # fixed 2nd positional slot. The prior positional-only match silently dropped
         # the fallback flag when --sha preceded it (`stamp-shipped-in <path> --sha
@@ -695,7 +714,7 @@ def main(argv: list[str]) -> int:
                     file=sys.stderr,
                 )
                 return _usage_line(_SUBCOMMAND_USAGE["stamp-shipped-in"])
-        # Review: code-reviewer (P0) — chunk C0 changed stamp_shipped_in's
+        # Chunk C0 changed stamp_shipped_in's
         # return type from a bare int to a StampOutcome envelope; returning
         # the envelope itself here meant sys.exit(main(...)) received a
         # non-int and exited 1 unconditionally. `.exit_code` mirrors the
@@ -725,7 +744,7 @@ def main(argv: list[str]) -> int:
         # guard) — cs_ship_handoff composes handoff.archive_transition so the
         # guard stays intact.
         #
-        # Review: code-reviewer (incident 2026-07-22) — the prior parser took
+        # The prior parser took
         # ONLY `rest[1:2] == ["--archive"]` and had NO sha-forwarding path at
         # all: a caller passing a positional sha (`ship-handoff <path> <sha>`)
         # or `--sha <sha>` had it silently swallowed, even though
@@ -835,6 +854,20 @@ def main(argv: list[str]) -> int:
             return _usage("archive-stamp-cli stamp-plan-implemented <plan_path>")
         return mod.cs_stamp_plan_implemented(rest[0])
 
+    if subcmd == "stamp-plan-superseded":
+        if not rest:
+            return _usage_line(_SUBCOMMAND_USAGE["stamp-plan-superseded"])
+        plan_path, tail = rest[0], rest[1:]
+        by = _scan_flag_value(tail, "--by")
+        if not by:
+            print(
+                "archive-stamp-cli: stamp-plan-superseded: --by <successor> "
+                "is required",
+                file=sys.stderr,
+            )
+            return 2
+        return mod.cs_stamp_plan_superseded(plan_path, by)
+
     if subcmd == "gate-recheck-handoff":
         if len(rest) < 2:
             return _usage("archive-stamp-cli gate-recheck-handoff <handoff_path> <at> [--cleared]")
@@ -887,7 +920,7 @@ def main(argv: list[str]) -> int:
                 )
             reaped_from = tail[idx + 1]
             tail = tail[:idx] + tail[idx + 2 :]
-            # Review: code-reviewer — a repeated --reaped-from left the second
+            # A repeated --reaped-from left the second
             # occurrence in `tail` after the first was stripped, so `note`
             # silently became the literal string "--reaped-from" and the
             # second sid was dropped with no error at all. Hard-reject a

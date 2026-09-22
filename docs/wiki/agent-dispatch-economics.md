@@ -184,6 +184,28 @@ Three facets of the same discipline: the wall-clock budget for a dispatched run,
 2. **Warm-cache splits** — run the expensive setup phase once (priming the cache), then the EM's repeated verification runs hit warm cache and fit the budget. Right when the cost is front-loaded setup, not the assertion.
 3. **Passive sibling verification** — a sibling process (daemon, watcher, already-running server) does the long work; the EM polls its status artifact rather than blocking on it. Right when the long work is someone else's to own (see `dispatching-parallel-agents.md` § Long-Running Dispatched Process for the status-file/heartbeat protocol).
 
+## Mechanical templating of a known structure beats fan-out
+
+When N sibling artifacts share one known, deterministic structure — the same shape repeated with only per-item substitutions changing — emit them via one deterministic Python driver, not an N-agent fan-out. The fan-out-is-default rule (§ When to Dispatch, § The Economics) governs work that decomposes into chunks each requiring judgment; it does not extend to work that decomposes into chunks each requiring only templating. An agent dispatched to fill in a known template pays the full dispatch-bootstrap cost per item for zero judgment value — the same "judgment value is zero; overhead is not" test that licenses EM-inline for small mechanical fixes licenses a single scripted driver here, at N-item scale. The decision boundary is judgment-bearing authoring (fan out) vs. mechanical templating of a known structure (one driver, no agents).
+
+## Mechanical-and-Disjoint Is Not a Self-Execute Carve-Out
+
+"Mechanical (same edit shape across N files) AND disjoint (no cross-file coupling)" is not, by itself, a reason to type the work inline instead of dispatching — even when the loci are already loaded in EM context and typing feels faster. The § When to EM-Inline checklist governs: loci-loaded is necessary but not sufficient, and the real carve-out criteria are tight cross-file coherence on a small surface (≤3 files), heavy reasoning that doesn't decompose, or a mid-edit hazard — not "mechanical and parallel." Mechanical-and-disjoint across more than a handful of files is exactly the fan-out shape (§ Mechanical templating of a known structure beats fan-out covers the zero-judgment case with a scripted driver; where each edit needs a scrap of judgment, it's a Sonnet fan-out, not EM-inline).
+
+The failure mode is the EM rationalizing the carve-out because typing feels faster than dispatching — and it recurs inside a single session if not caught: the same "loci loaded, mechanical, fast" reasoning that licenses self-executing N disjoint edits also licenses manually integrating a reviewer's findings instead of dispatching `review-integrator` (see coordinator CLAUDE.md § Review Sequencing — "after every review, dispatch the review-integrator, do not integrate manually"). Both are the EM convincing itself inline is cheaper than dispatch; catch either shape as the same rule.
+
+## Do Not Reconstruct a Delegate's Deliverable Out of Impatience — Re-Query, Never Overwrite Unread
+
+When a dispatched agent goes idle without its report reaching the EM (a lost/delayed handback), the pull is to start reconstructing the deliverable inline rather than wait. Idle-without-report is not the same as no-report — the deliverable may already be on disk, written moments before the EM gave up waiting. Check the delegate's output path before re-deriving anything.
+
+**Never `Write` over a path you have not just read**, especially one a concurrent agent owns — the read-before-write guard is the only thing standing between impatience and silently destroying a superior artifact. In the case this generalizes from, the EM's own inline reconstruction of a leak-scan triage was about to overwrite a delegate's report that had landed seconds earlier and was substantially better — it found a large absolute-path disclosure and an owner-identifying UI string the EM's reconstruction had missed entirely. The deliverable being cheaper to produce inline is not evidence it is better.
+
+## Give the Reviewer the Sizing Object's Scout Evidence
+
+A sizing object's scout evidence — collected to justify its route — also answers the two questions a reviewer otherwise burns a round trip on: why does the diff touch this file, and why was a claim verified structurally rather than reproduced. It is written before the work and costs nothing extra at review time.
+
+**How to apply.** When dispatching a reviewer on work that went through `coordinator:sizing`, name the sizing object in the brief or inline its scout evidence — this doesn't tell the reviewer what to conclude, it spares it re-deriving context the EM already paid for. This matters most where a diff's scope looks wider than its subject line, which is exactly the shape that draws a spurious scope-creep finding. The same reasoning extends to carrying forward a prior reviewer's verification notes, so a second reviewer does not re-trace hazards already traced.
+
 ## Related
 
 - → `docs/wiki/dispatching-parallel-agents.md` — when parallel-shape is appropriate; Coupling Rules Out Concurrency; Peer-Scope Prohibition

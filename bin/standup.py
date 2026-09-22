@@ -31,7 +31,7 @@ import subprocess
 import sys
 from datetime import date, datetime, time
 
-# Review: code-reviewer — F1 (P1): standup.py had regressed behind its own bash
+# standup.py had regressed behind its own bash
 # oracle, reintroducing a `bash <seam>.sh` shell-out the oracle had already
 # removed (raises uncaught FileNotFoundError on a bash-less Windows box — the
 # exact audience this campaign exists for). Replaced with the improved oracle's

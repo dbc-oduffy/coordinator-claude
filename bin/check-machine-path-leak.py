@@ -10,14 +10,16 @@ the shared tracked tree.
 Severity contract:
     settings.json  — HARD block. Any machine-absolute-path leaf value → exit 1.
     working-repos.yaml — SOFT warn. Current-machine $HOME-rooted paths → stderr WARN,
-                         exit 0. Foreign machine paths (X:\\, E:\\, /Users/other/) are
-                         intentional catalog content and are NOT flagged.
+                         exit 0. Paths belonging to another machine — a catalog
+                         drive root, or another operator's home — are intentional
+                         catalog content and are NOT flagged.
 
 Negative-spec (hard-won):
     - Does NOT grep raw file text — structural JSON/YAML parsing only. Text-grep
       false-positives on fixtures, commit-message args, and comment blocks.
-    - Does NOT flag X:\\, E:\\, or /Users/<other>/ paths in working-repos.yaml — those
-      are documented cross-machine catalog content and must stay in the file.
+    - Does NOT flag catalog drive roots or another operator's home directory in
+      working-repos.yaml — those are documented cross-machine catalog content and
+      must stay in the file.
     - Only flags paths rooted at the CURRENT machine's $HOME in working-repos.yaml.
     - settings.json is always a hard block regardless of path origin.
 
@@ -60,13 +62,10 @@ import subprocess
 import sys
 
 # ---------------------------------------------------------------------------
-# Machine-absolute-path patterns for the settings.json HARD block.
-#
-#   ^/Users/<name>/    macOS home
-#   ^/home/<name>/     Linux home
-#   ^C:[/\]Users[/\]   Windows C:\Users\
-#   ^X:[/\]            cross-machine catalog X:\ drive
-#   ^E:[/\]            cross-machine catalog E:\ dev drive
+# Machine-absolute-path patterns for the settings.json HARD block: the macOS
+# and Linux home roots, the Windows user-profile root, and the two catalog
+# drive roots this fleet mounts cross-machine. Each predicate keys on what
+# FOLLOWS the separator; the drive letter is never the discriminator.
 # ---------------------------------------------------------------------------
 
 _SETTINGS_PATTERNS = [
@@ -173,9 +172,10 @@ def _check_settings_json(file, state):
 # ---------------------------------------------------------------------------
 # YAML structural scan — collect leaf string values rooted at CURRENT_HOME only.
 #
-# X:\, E:\, and /Users/<other>/ are intentional cross-machine catalog content and
-# must NOT be flagged here. When PyYAML is unavailable, fall back to a conservative
-# line-scan that only flags a leaf VALUE starting with $HOME.
+# Catalog drive roots and another operator's home directory are intentional
+# cross-machine catalog content and must NOT be flagged here. When PyYAML is
+# unavailable, fall back to a conservative line-scan that only flags a leaf
+# VALUE starting with $HOME.
 # ---------------------------------------------------------------------------
 
 def _walk_yaml(obj, current_home, path=""):
@@ -232,8 +232,8 @@ def _check_working_repos_yaml(file, current_home):
 def _check_working_repos_yaml_linescan(file, content, current_home):
     """Fallback conservative line-scan when PyYAML is absent.
 
-    Only flags lines whose VALUE portion starts with $CURRENT_HOME. Foreign-machine
-    paths (X:\\, /Users/other/) are skipped — intentional cross-machine catalog.
+    Only flags lines whose VALUE portion starts with $CURRENT_HOME. Paths belonging
+    to another machine are skipped — intentional cross-machine catalog.
     Limitation: multiline/next-line YAML values are missed by this scan.
     """
     if not current_home:
@@ -320,7 +320,7 @@ def main(argv):
     for sf in settings_files:
         _check_settings_json(sf, state)
 
-    # Review: code-reviewer — F4: $HOME is POSIX-only; stock Windows (cmd.exe/
+    # $HOME is POSIX-only; stock Windows (cmd.exe/
     # PowerShell without Git Bash/WSL) doesn't set it — falls back to os.path.expanduser
     # (which honors USERPROFILE on Windows) instead of silently no-oping the soft-warn.
     current_home = os.environ.get("HOME") or os.path.expanduser("~")

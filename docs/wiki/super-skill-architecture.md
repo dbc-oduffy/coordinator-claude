@@ -149,7 +149,7 @@ Alternative exits are switch-gears (fundamental wrong-shape) or a PM stop. "Budg
 
 The decision-tree shape above is **Generation 2** of the coordinator skill lineage. A further
 generation exists for skills whose branching is dense enough, and frequent enough, that walking
-a prose tree by hand is itself the bottleneck: **computed skill**, where a claude-klabauter assembler CLI
+a prose tree by hand is itself the bottleneck: **computed skill**, where an engine-repo assembler CLI
 computes the routing and the EM resolves only whatever judgment residue the assembler cannot
 decide. See `CONTEXT.md § computed skill` for the term's full definition and the four-generation
 lineage table (Narrative → Decision-tree super-skill → ASIC helper-extraction → Computed skill).
@@ -195,7 +195,7 @@ until that cross-reference lands, this section is the canonical discovery surfac
 
 <!-- src: plan07-005, plan07-006 -->
 
-Not every skill-surface reduction is a decision-tree conversion; some prior-generation skills collapse entirely because they were never doing independent work. Four skills folded: `daily-review` → `/workday-complete` Step 4, `generate-repomap` → `bin/generate-repomap.py` (now claude-klabauter `coordinator/bin/generate-repomap.py`), `review-dispatch` → `docs/wiki/reviewer-pipeline.md` + inlined into `/review`/`/review-code`, `setup-percolate` → `/percolate` Branch 0.
+Not every skill-surface reduction is a decision-tree conversion; some prior-generation skills collapse entirely because they were never doing independent work. Four skills folded: `daily-review` → `/workday-complete` Step 4, `generate-repomap` → `bin/generate-repomap.py` (now the engine repo's `coordinator/bin/generate-repomap.py`), `review-dispatch` → `docs/wiki/reviewer-pipeline.md` + inlined into `/review`/`/review-code`, `setup-percolate` → `/percolate` Branch 0.
 
 **The generalizable rule:** when a skill is a thin engine called only by user-facing surfaces (empirically: `review-dispatch` had 2 callers, `generate-repomap` had 4), fold it into them — keep one tier, not three. A middle layer earns its keep only by adding *judgment*; a pure pass-through engine adds none. This is the negative case for the super-skill pattern above: not every skill needs to become a decision tree — some need to disappear into their callers instead. Net effect of the consolidation pass: 30→26 skills, -4 user-facing surfaces, no functional regression.
 

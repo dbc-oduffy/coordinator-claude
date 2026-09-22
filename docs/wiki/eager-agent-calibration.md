@@ -5,7 +5,7 @@ type: doctrine
 related:
   - plugins/coordinator/agents/executor.md
   - plugins/coordinator/snippets/meta-ask-preamble.md
-  - ~/.claude/CLAUDE.md  (§ Implementation Standards — Extensions, § First Officer Doctrine ¶ Engagement Modes)
+  - ~/.claude/CLAUDE.md  (§ Implementation Standards — Extensions, § Starfleet Officer Doctrine — Engagement Modes content cut in the 2026-07-30 boot-doctrine rewrite, no confirmed successor located)
   - state/lessons.md  (friction-as-warning, 2026-05-17)
 ---
 
@@ -17,11 +17,11 @@ This wiki is the doctrine reference for three coordinated surfaces that together
 
 ## PM Reframe — Eager, Not Lazy
 
-The trigger for this doctrine (plan trigger memo): code-writing Claudes are not lazy — they are **eager to satisfy**. When a faster route to "code works" exists, the agent takes it. Hardcoded `C:/...` paths and single-machine artifacts are not carelessness; they are eagerness misdirected by two compounding failures: the meta-ask was never spoken, and the wrong shape was shorter to type. <!-- foreign-path-ok: naming the anti-pattern this doctrine exists to prevent -->
+The trigger for this doctrine (plan trigger memo): code-writing Claudes are not lazy — they are **eager to satisfy**. When a faster route to "code works" exists, the agent takes it. Hardcoded machine-specific absolute paths (a Windows drive path is the classic instance) and single-machine artifacts are not carelessness; they are eagerness misdirected by two compounding failures: the meta-ask was never spoken, and the wrong shape was shorter to type.
 
 The correct intervention is **redirection, not friction**. Change what "done" looks like. Make the right path the easy path. The ethos the PM named explicitly: engagement, enjoyment, opportunity — not mistrust, not control. The `superpowers` guardrail system is the explicit anti-pattern: built on mistrust, felt adversarial, routed agents around it.
 
-The analogous doctrine for EM-PM dialogue (how the EM engages the PM) landed in `~/.claude/CLAUDE.md` § First Officer Doctrine ¶ Engagement Modes. This wiki captures the same ethos for EM-executor and executor-substrate interaction.
+The analogous doctrine for EM-PM dialogue (how the EM engages the PM) lives in `~/.claude/CLAUDE.md` § First Officer Doctrine, now filed under `§ Starfleet Officer Doctrine`; no "Engagement Modes" sub-content exists there and no successor location is confirmed — historical pointer only. This wiki captures the same ethos for EM-executor and executor-substrate interaction.
 
 ## The Three Surfaces
 
@@ -31,7 +31,7 @@ The analogous doctrine for EM-PM dialogue (how the EM engages the PM) landed in 
 
 **What it transmits.** The meta-ask that CLAUDE.md cannot transmit (subagents do not see CLAUDE.md): "working" means working on every machine the code will run on; the registry-correct shape for sibling-repo paths is shorter than the hardcoded shape after the import; `from claude_machine_local import repos` and `source claude-machine-local.sh` are the right tools.
 
-**Why it works.** The executor is eager and willing — it just needs the goal stated. Once the meta-ask is in context, an executor that would otherwise type `"C:/project-rag/foo"` instead reaches for `repos.project_rag / "foo"`. <!-- foreign-path-ok: naming the anti-pattern this preamble redirects away from --> The preamble is calibration prose, not a checklist; it shapes the executor's model of what "done" means before the first tool call.
+**Why it works.** The executor is eager and willing — it just needs the goal stated. Once the meta-ask is in context, an executor that would otherwise type a hardcoded absolute path instead reaches for `repos.project_rag / "foo"`. The preamble is calibration prose, not a checklist; it shapes the executor's model of what "done" means before the first tool call.
 
 **Sync verifier.** `verify-snippet-sync meta-ask-preamble --check` confirms the block in `executor.md` matches the canonical snippet byte-for-byte. Registered in `coordinator/docs/wiki/coordinator-tripwires/`.
 
@@ -43,11 +43,11 @@ The analogous doctrine for EM-PM dialogue (how the EM engages the PM) landed in 
 - Shell (bash/zsh): `<settings-home>/bin/claude-machine-local.sh` — source-once helper that exports `$REPO_PROJECT_RAG`, `$REPO_COORDINATOR_CLAUDE`, etc. for every declared registry key.
 - Shell (PowerShell): `<settings-home>/bin/claude-machine-local.ps1` — dot-source helper exporting `$env:REPO_*`.
 
-**Why it solves the substrate problem.** Without this surface, telling an executor "use the registry" is telling it to do more typing for the same result. With this surface, `repos.project_rag / "foo"` is comparable in length to `"C:/project-rag/foo"` and works on every machine. <!-- foreign-path-ok: naming the anti-pattern this substrate makes comparably short --> The right way becomes the easy way — the definition of offer-shape tooling.
+**Why it solves the substrate problem.** Without this surface, telling an executor "use the registry" is telling it to do more typing for the same result. With this surface, `repos.project_rag / "foo"` is comparable in length to a hardcoded absolute path and works on every machine. The right way becomes the easy way — the definition of offer-shape tooling.
 
 **Calibration test.** The right-way form must read cleaner than the hardcoded literal — this is a qualitative design heuristic for future ergonomic-substrate decisions, not a numeric ratio. If adding a helper makes the right way measurably harder to read or type than the wrong way, the helper has failed the calibration test regardless of its semantic correctness. (This is the spirit of the dropped AC6 from the plan, folded here per the Staff Engineer's recommendation.)
 
-**Template mirrors.** All three helpers are mirrored in `coordinator/templates/bin/` so `setup/publish_sync.py` ships them to consumer projects. The byte-identity gate is engine-subject — `coordinator_core/ops/verify_templates_bin_sync.py`, in `claude-klabauter` — and enforces byte-identity between `<settings-home>/bin/` and the template counterparts (see `docs/wiki/portable-code-substrate.md § Template Mirrors`).
+**Template mirrors.** All three helpers are mirrored in `coordinator/templates/bin/` so `setup/publish_sync.py` ships them to consumer projects. The byte-identity gate is engine-subject — `coordinator_core/ops/verify_templates_bin_sync.py`, in the engine repo — and enforces byte-identity between `<settings-home>/bin/` and the template counterparts (see `docs/wiki/portable-code-substrate.md § Template Mirrors`).
 
 **Foundation.** This surface wraps `<settings-home>/bin/_machine_local.py`. It does not extend the registry schema or reader — it is a thin attribute-access wrapper.
 
@@ -68,15 +68,15 @@ The analogous doctrine for EM-PM dialogue (how the EM engages the PM) landed in 
 
 Nothing. This is a net-new doctrine surface. There was no prior doctrine for executor-calibration or ergonomic-substrate design on this stack.
 
-This doctrine complements but is **distinct from** the just-landed Engagement Modes doctrine (`~/.claude/CLAUDE.md` § First Officer Doctrine ¶ Engagement Modes). Engagement Modes governs how the EM and PM communicate with each other — dialogue altitude, when to ask vs. act, how to frame escalations. Eager-agent calibration governs how the EM designs tooling that executors encounter — substrate ergonomics, preamble transmission, offer-shape vs. nag-shape. The shared word is "engagement" as an ethos; the scopes are non-overlapping.
+This doctrine complements but is **distinct from** the First Officer Doctrine (`~/.claude/CLAUDE.md` § First Officer Doctrine, now filed under `§ Starfleet Officer Doctrine`; no "Engagement Modes" sub-content exists there, and no successor location is confirmed). Engagement Modes governs how the EM and PM communicate with each other — dialogue altitude, when to ask vs. act, how to frame escalations. Eager-agent calibration governs how the EM designs tooling that executors encounter — substrate ergonomics, preamble transmission, offer-shape vs. nag-shape. The shared word is "engagement" as an ethos; the scopes are non-overlapping.
 
 ## Known Limits — Calibration vs. Enforcement
 
-**Dogfood result.** AC10(a) PASS — the preamble is transmitted correctly to every executor dispatch via `verify-snippet-sync meta-ask-preamble`. AC10(b) FAIL on both test runs — the executor still hardcoded `C:/project-rag/CLAUDE.md` literals despite the preamble being present. <!-- foreign-path-ok: dogfood-test evidence quoting the observed anti-pattern output -->
+**Dogfood result.** AC10(a) PASS — the preamble is transmitted correctly to every executor dispatch via `verify-snippet-sync meta-ask-preamble`. AC10(b) FAIL on both test runs — the executor still hardcoded absolute-path literals despite the preamble being present.
 
 Two hypotheses explain the failure, and both point at the same architectural conclusion:
 
-1. **Soft framing.** The preamble is offer-shape by design: "If you find yourself about to type C:/... in code, reach for the helpers." <!-- foreign-path-ok: quoting the preamble's own anti-pattern example --> An executor optimizing for "small one-off scratch utility" judged the import overhead unnecessary. This is the cost of offer-shape: it tilts behavior, it does not guarantee it.
+1. **Soft framing.** The preamble is offer-shape by design: "If you find yourself about to type a hardcoded absolute path in code, reach for the helpers." An executor optimizing for "small one-off scratch utility" judged the import overhead unnecessary. This is the cost of offer-shape: it tilts behavior, it does not guarantee it.
 2. **No in-context examples.** The executor had abstract instruction but no observed usage of `repos.project_rag` in the current session. First-time preamble exposure produces weaker uptake than sessions where the correct shape appears in prior tool calls.
 
 **Conclusion: preamble + substrate together are calibration, not enforcement.** They change the prior toward the right shape; they do not assert invariants. This validates the portability-guard spinoff (warn-at-edit or block-on-merge) as a necessary complement, not an over-engineering. Calibration first; enforcement layer added after dogfood confirms the shape — this sequencing is intentional and correct.
@@ -87,7 +87,7 @@ Two hypotheses explain the failure, and both point at the same architectural con
 
 **1. Meta-ask invisible to the executor.** CLAUDE.md is not loaded into subagent context (per `coordinator/agents/executor.md`, "Subagents see only their dispatch prompt — project and global CLAUDE.md are invisible to them"). Without Surface 1, every executor operates with no knowledge of the multi-machine, multi-OS, sustainable-code goal. The preamble closes this gap by template — the meta-ask travels with the dispatch, not the CLAUDE.md.
 
-**2. Right-way longer than wrong-way.** Without Surface 2, a compliant executor that understands the meta-ask still faces a substrate that selects against portability: `"C:/project-rag/foo"` (20 chars) vs. the correct form (~80+ chars before the substrate helpers). <!-- foreign-path-ok: naming the anti-pattern being measured against --> Ergonomic APIs flip this — the correct form becomes the comparable or shorter form. An eager agent picks the path of least resistance; Surface 2 makes that path the right one.
+**2. Right-way longer than wrong-way.** Without Surface 2, a compliant executor that understands the meta-ask still faces a substrate that selects against portability: a hardcoded absolute path (~20 chars) vs. the correct form (~80+ chars before the substrate helpers). Ergonomic APIs flip this — the correct form becomes the comparable or shorter form. An eager agent picks the path of least resistance; Surface 2 makes that path the right one.
 
 **3. Control-shape over offer-shape.** Without Surface 3, future EM-authored tools (hooks, doctors, validators) default to warn/block/nag because that pattern feels protective. The design-as-offers heuristic names the failure mode before it recurs and provides the correct framing at the design decision point, not after.
 

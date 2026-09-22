@@ -49,14 +49,6 @@ round_trip_directives:
     rationale: Feeds the orientation-cache seed. No commit history or README exists to derive from instead.
     resolves: [p3h.orientation-cache-seed]
 
-  - step_id: tw.ci-inference-prompt
-    engine_judgment_point_id: null
-    value: "no"
-    rationale: >
-      cross_platform stays false until a caller declares otherwise -- a from-scratch repo has no
-      code yet for either named inference signal to fire on. Never auto-write true.
-    resolves: [tw.ci-eligibility-resolve]
-
 # --- Nine agent-work steps: named, not pre-answered. See CONTRACT.md.
 second_phase_deferred:
   - p15.substrate-read
@@ -102,10 +94,6 @@ terminal_offer_defaults:
     rationale: >
       Install by default on a from-scratch repo to establish the bash-free convention from day
       one, rather than waiting for a *.sh signal to accrete first.
-
-  - step_id: tw.ci-offer
-    value: "not now"
-    rationale: Defer until the project has a runnable test suite for CI to reference.
 
 # --- AC5: ROSTER SLOTS. Ordered ready_to_fire baton slots; see CONTRACT.md § Roster slots for
 # the ordering convention. This lane writes no baton -- slots are data naming the primitive.

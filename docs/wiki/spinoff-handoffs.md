@@ -75,7 +75,7 @@ The gate is not eroded:
 
 ### Restart / onboarding prose must point cwd at the baton's repo
 
-`/workday-start` and a bare-relative `/pickup` resolve handoffs against the **cwd's git root**. Any leg / restart / onboarding prose that precedes one of these commands must therefore either say `cd <repo>` first or hand an absolute baton path — otherwise the command resolves against whatever repo the operator happens to be sitting in and either finds nothing or picks up the wrong repo's batons. Handing an absolute `/pickup <path>` removes the coupling entirely: the lifecycle bookkeeping (claim, frontmatter mutation, archival) then routes through the baton's own repo regardless of cwd. This matters most in install-chain and multi-repo restart flows, where the operator's cwd after a Claude Code restart is not guaranteed to be the repo whose baton is next.
+`/workday-start` and a bare-relative `/pickup` resolve handoffs against the **cwd's git root**. Any leg / restart / onboarding prose that precedes one of these commands must therefore either say `cd <repo>` first or hand an absolute baton path — otherwise the command resolves against whatever repo the operator happens to be sitting in and either finds nothing or picks up the wrong repo's batons. Handing an absolute `/pickup <path>` removes the coupling entirely: the lifecycle bookkeeping (claim, frontmatter mutation, archival) then routes through the baton's own repo regardless of cwd. This matters most in install-chain and multi-repo restart flows, where the operator's cwd after a Claude Code restart is not guaranteed to be the repo whose baton is next. This generalizes past install/onboarding prose to any leg/restart script preceding a bare-relative `/workday-start` or `/pickup`.
 
 ## Mint mechanics
 
@@ -607,6 +607,10 @@ cp "$src" "$dest"
 The guard is idempotent: a not-yet-seeded baton passes through normally; a re-seeded baton whose destination file exists with a terminal status is skipped. The `authoring_session:` and `created:` fields in the source template do NOT override the lifecycle state of an already-consumed/claimed destination baton — the destination's frontmatter is the authority, not the template's.
 
 *Pairs with § Frontmatter format drift (`created:` normalization) and the `consumed_by:`/`claimed_by:` claim-gate (§ Concurrent-pickup interaction) — both depend on frontmatter staying accurate after seeding.*
+
+## A spinoff is a baton for a separate session — don't dispatch a subagent to execute it in-session
+
+`/spinoff` produces a workstream the authoring session does NOT intend to execute — a pickup-able baton for a future or separate session. Dispatching a subagent to execute it right after writing it is a category error: it contradicts what a spinoff is (a deferral, not a task), and it hands exploratory or spike-shaped design work to a cheap grinder role instead of a real session that can reconsider approach. The correct pattern is write → commit → surface, then return to the current session's own work; let a future `/pickup` run it, in a session actually equipped to own it. If the PM wants the work done now, in this session, that is an inline task or a plan chunk — not a spinoff. Tell: reaching for a subagent dispatch immediately after `/spinoff` returns.
 
 ## See also
 

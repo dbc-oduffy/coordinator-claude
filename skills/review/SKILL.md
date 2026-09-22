@@ -53,7 +53,7 @@ Reviewer selection (routing-table match, tier precedence, effort) is a signal-lo
 
 ### A.3 — Sequencing
 
-**Reviews are sequential, never parallel** — integrate finding-set 1 before dispatching reviewer 2. One exception: the merge-gate carve-out at `/workweek-complete` Step 7 — frozen weekly diff, orthogonal lenses, no-rewrite synthesizer. Never mid-session, at `/merging-to-main`, at `/workday-complete`, or on plan reviews (never parallelized).
+**Reviews are sequential, never parallel over the same lens** — integrate finding-set 1 before dispatching reviewer 2. The real invariant is LENSES OVER ONE ARTIFACT: two reviewers reading the same diff must not race. Two carve-outs read distinct artifacts, not the same one, so they are not "parallel" in the sense this rule forbids: the merge-gate carve-out at `/workweek-complete` Step 7 — frozen weekly diff, orthogonal lenses, no-rewrite synthesizer — and the partitioned close's per-slice fan-out (`coordinator/skills/workstream-complete/SKILL.md` § Genuine EM actions, "Review-partition dispatch": one `code-reviewer` per slice, each its own diff, each its own 1:1 `review-integrator`, never a union-integrator). Never mid-session, at `/merging-to-main`, at `/workday-complete`, or on plan reviews (never parallelized).
 
 **Pre-flight sidecars are consumed alongside the plan**, never inserted into that chain; two Sonnet pre-flights gate before an Opus reviewer, and `plan-coverage-checker` has no EM opt-out.
 

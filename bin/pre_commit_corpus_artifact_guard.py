@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """coordinator/bin/pre_commit_corpus_artifact_guard.py — refuse a commit that stages a
 project-rag corpus artifact, or any oversized real blob.
 
@@ -26,6 +25,11 @@ fleet's standing ruling that structural bash is a defect (claude-klabauter CLAUD
 Runtime conventions). Not a translation — the path leg is new, and the LFS-pointer
 reasoning is dropped because git-LFS is ruled out for this artifact class on the merits,
 so an over-threshold staged blob here has no legitimate pointer form to be confused with.
+
+No DoE-relative paths: every path this guard touches is staged-index state in the caller's
+own repo, read via `git` subprocess calls -- nothing here is `Path(__file__)`-derived, so no
+adaptation was needed for its move from DoE-claude into claude-klabauter
+(docs/plans/2026-09-18-doe-holds-no-scripts.md § Path resolution).
 
 Windows-first: no shell, no bash, no ``find``. Every git call goes through
 ``subprocess.run`` with a list argv, so a path containing a space or a drive letter
@@ -55,6 +59,7 @@ Spec backlink: docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W2-C5.
 
 from __future__ import annotations
 
+import argparse
 import os
 import subprocess
 import sys
@@ -125,6 +130,16 @@ def _max_bytes() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # The warm door hands `main` the caller's argv (including argv[0]); this CLI
+    # takes no flags or positional arguments (bypass/threshold are env-only, per
+    # the module docstring), so argparse's sole job here is to reject anything
+    # unexpected rather than silently ignoring it.
+    parser = argparse.ArgumentParser(
+        prog="pre_commit_corpus_artifact_guard.py",
+        description="Refuse a commit that stages a project-rag corpus artifact or an oversized blob.",
+    )
+    parser.parse_args(argv[1:] if argv is not None else None)
+
     if os.environ.get(_BYPASS_ENV) == "1":
         print(f"[corpus-artifact-guard] bypassed via {_BYPASS_ENV}=1", file=sys.stderr)
         return 0

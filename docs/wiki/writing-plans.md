@@ -99,6 +99,10 @@ If two or more checkboxes can't be filled honestly, the plan isn't ready. Surfac
 
 **Plan over brainstorm when the PM has set the architectural axiom.** Once the axiom is PM-set, remaining ambiguity is classification-with-rationale work that belongs in plan Decision blocks for PM ratification — not open-ended brainstorm dialogue. Heuristic: if (a) axiom is set, (b) scouts have produced an evidence base, and (c) ambiguous calls are classification-shaped (not architecture-shaped), skip directly to plan. The review pipeline (prior-art-checker → named reviewer → integrator) catches real substrate failures and scope refinements that brainstorming wouldn't surface any faster.
 
+**Handoff prose is a sketch; an acceptance criterion is a contract — re-derive an inherited phrase against disk before promoting it into an AC.** A handoff, memo, or prior plan is written at speed by a session under context pressure, describing a DIRECTION — its phrasing is evocative, not tested. When the next session lifts that phrasing near-verbatim into an AC, the phrase silently changes status from a gesture at what is wanted to a checkable contract an executor will optimize against, and nobody re-reads the artifact the phrase governs — especially when that artifact is good and draws no attention. Two concrete failure shapes: an inherited prohibition can be unsatisfiable for the very artifact it governs (a rule saying "no fail-open ladder" can outlaw a degrade path that exists precisely because the thing it fails open for may be unreachable), and a negatively-phrased rule invites an executor to delete whatever isn't on an explicit permit list, where a positively-phrased rule ("the artifact MAY contain…") does not. Practice: before promoting an inherited phrase into an AC, write a line-by-line conformance walkthrough of the artifact it will govern; if the shipped, already-reviewed artifact cannot be shown to conform, the *phrase* is wrong, not the artifact — and the walkthrough at authoring time is how you find that out before ratification instead of after. State rules positively where possible, and place a corrective doctrine edit in the surface its actual audience reads, not merely a surface that mentions the topic.
+
+**A correction recorded only where you found it is not propagated — fix it in the artifact that carries the error, not only in the brief that inherits the fix.** When a wrong fact (a class name, a field, a citation) is discovered while reading artifact A in service of task B, recording the correction in B's brief and leaving A unedited means the next reader who arrives at A has no knowledge that B, or the correction, ever existed. A row can end up self-contradicting — the wrong value in its open-state body, the right value in a closure note appended later — because finding-and-recording felt like fixing but wasn't. Fix the source artifact at the moment the error is found, not only the artifact you were working toward.
+
 ## Pre-dispatch confidence checklist
 
 Before dispatching a build-task agent or entering plan mode for a non-trivial feature, walk through these seven gates. Any "no" demands more investigation, not bigger agent dispatch. NOT a numeric score — the checklist is the gate.
@@ -212,6 +216,8 @@ Before committing to a prescribed shape, run a negative search to surface prior 
 
 **Vocabulary substitution instructions must be verified against the authoritative project glossary before mass-rename dispatch.** When a brief instructs X → Y vocabulary substitution, grep the project's `CONTEXT.md` (or canonical glossary document) first. The glossary may already reserve Y for a different concept, making the substitution a collision; or it may list X as a deprecated alias that maps to a different canonical term than Y. A mass-rename dispatched against an unverified substitution ships the collision into every occurrence. Require a glossary-diff step in the plan before any rename wave.
 
+**Grep-absence ACs must target the specific marker, not a broad substring.** An AC asserting something is GONE (`sh:! grep -qi <phrase> <file>`) must match the literal retired marker, not a substring that legitimately survives elsewhere in the file. A broad substring false-positives on an unrelated pre-existing line that happens to contain the same words (e.g. `! grep -qi transitional <file>` tripping on a pre-existing "Accepted transitional cost" comment) and would fail a correct deliverable. Write the grep against the exact retired heading or sentinel text, not a word that recurs in legitimate prose.
+
 **Vacuous-true is not an AC pass.** When an acceptance criterion turns out vacuous at close-out time — the seam it was designed to exercise has moved, or the criterion reduces to a trivially-satisfied structural check — either re-anchor it to the moved seam or surface it as a stub-quality finding. A criterion that passes because nothing is checked is not evidence of correctness; it is evidence of an unverified requirement. The plan-coverage-checker's "vacuous-pass" bucket is the mechanical signal; the resolution is always re-anchor or open-finding, never mark-closed.
 
 ## Fix-locus discrimination
@@ -262,6 +268,8 @@ This structure informs task decomposition — each task should produce self-cont
 This is the **plan-time twin** of the dispatch-time "promote shared-API to a predecessor wave" rule (`dispatching-parallel-agents.md` § Shared-API Gap). That promotion is only *drawable* if the plan didn't already bury the interface inside a consumer — by dispatch time, the fat chunk has already collapsed the fan-out. Catch it here, at chunk-drawing time.
 
 **Test:** if extracting one chunk's shared-surface work would unblock *two or more* other chunks to run concurrently, that surface belongs in its own chunk. Empirically (self): `C1` was drawn as "extract `host_probes` + rewire one consumer + add the kwarg + land the regression net" — the shared interface (`host_probes` + kwarg) welded to one consumer (the rewire). Every other consumer then read as "depends on C1" wholesale; the trivial `C0`-then-fan-out shape was never surfaced.
+
+**A chunk's `writes:` list is a concurrency declaration, not bookkeeping.** The wave-builder derives write-overlap serialization directly from each chunk's declared `writes:` — an undercounted list is a latent concurrency hazard, not a tidiness gap. A chunk whose `writes:` omitted a file it actually had to edit to satisfy its own acceptance criteria is understating its own write surface, and the wave-builder has no way to know the surface is wider than declared; the miss is caught only when a companion test happens to enumerate the real surface. Treat an executor's discovered need to touch an undeclared file as a spine defect to report back to the EM, not a scope call the executor makes quietly and folds in — a silent expansion is exactly the case the wave-builder cannot see.
 
 ## Bite-Sized Task Granularity
 
@@ -357,6 +365,8 @@ The `Status:` field is **EM-owned** and is part of the write-ahead protocol — 
 **Cross-references:** `agents/executor.md § Flight-Recorder Sidecar`, `ARCHITECTURE.md § The Write-Ahead Status Protocol`.
 
 **Do not author a `## Deviations` audit table.** Forecast-vs-shipped reconciliation happens entirely via `(was: <plan-forecast>)` ALLOWLIST annotations in the Decisions Made / API Contracts sections (the load-bearing surface for `/distill` Phase 1 `[SUPERSEDED]` classification). `/workstream-complete`'s `plan-vs-reality-reconcile` judgment point corrects ALLOWLIST sections in place. A plan carrying a `## Deviations` table is handled by `/distill`, which drops it as `[EPHEMERAL]`.
+
+**A revised plan chunk body is a palimpsest: status markers govern, position does not.** A chunk body that has accumulated several stratified, honestly-labelled revisions can end up with its live decision sitting in the middle of the block rather than at the end — an executor reading top-to-bottom picked a block explicitly marked `SUPERSEDED` and produced competent reasoning from a refuted premise, which then had to be discarded and re-run. Status markers (`SUPERSEDED`, `CURRENT`, etc.) are local claims about one block; recency is a global fact about the document, and reading position is the only ordering signal a plain document actually gives — it lies the moment a revision is inserted anywhere but the end. **Once a chunk body has been revised more than twice, hoist the live decision to the top and demote every retained block below an explicit boundary** (e.g. a `--- superseded below ---` marker), rather than trusting a reader to weigh markers correctly against position.
 
 ## Prime Exit Criterion
 
@@ -509,9 +519,9 @@ Each row is `{brightline, statement, met}`, plus an optional `evidence`:
   `prime_exit_criterion.statement`, scoped to one brightline instead of the whole plan.
 - **`met`** starts `false` and is flipped only by the session writing `exit_criterion_met`.
   Refusing the stamp on an unmet row is the house shape already: every `GOAL_REFUSAL_*` arm in
-  `claude-klabauter`'s `close_out_and_stamp` (`_evaluate_goal_falsifier_gate`,
+  the engine repo's `close_out_and_stamp` (`_evaluate_goal_falsifier_gate`,
   `_read_status_override`) refuses with a single escape — a *current*
-  `status_override_by`/`_reason`/`_at` attestation bound to the plan-body hash. DoE's forward
+  `status_override_by`/`_reason`/`_at` attestation bound to the plan-body hash. The doctrine repo's forward
   election for a per-brightline escape is that same trio, not a bespoke exemption key: the arm
   family already has one precedent for a per-criterion exemption
   (`prime_exit_criterion.falsifier_exemption`, honoured ahead of the override), and this repo is
@@ -757,6 +767,8 @@ field and stays valid. Do not read the field's presence in the schema as evidenc
 already filling it.
 
 ### Malformed-row disposition
+
+**Keep the fence immediately under the `## Tasks` heading — only blank lines are tolerated between them.** The parser-locate rule (§ Machine-Parseable Task Spine above) permits ONLY blank lines between the `## Tasks` heading and the ` ```yaml plan-tasks ` fence; any non-blank content there — including an HTML review comment — makes the locator return nothing, which the harvest CLI reads as "no spine yet" and silently skips (never a loud failure). Put review/chunking comments AFTER the fence, or inside a chunk body, never between the heading and the fence.
 
 A row missing a required field, or a block that fails `yaml.safe_load` entirely, is:
 
@@ -1219,6 +1231,12 @@ step 3. See `coordinator/docs/wiki/plan-execute-session-split.md` for the full r
 
 When a plan ports logic from a reference implementation (another repo, upstream project, earlier version), the executor inherits env-specific tokens: command names, flag names, path shapes, import aliases, and routing-table entries that were valid in the SOURCE environment but may be wrong or absent in the TARGET. Before dispatching: enumerate all env-specific tokens in the ported block and verify each against the target repo's live state (file tree, routing table, `pyproject.toml`, `package.json`, etc.). A porting plan that doesn't name this verification step is incomplete.
 
+## Consumer Enumeration Before Deleting or Retiring a Shared Artifact
+
+**Trust the grep, not the plan's own enumerated consumer list, before finalizing a delete-chunk's file scope.** A plan chunk that deletes a shared artifact (a JSON/data file, a generated module, a retired code path) must independently grep every importer before finalizing scope — the plan's own stated consumer list is a hypothesis, not an oracle. Empirically, a chunk planned to delete a shared JSON data file listing only one panel as consumer; a second module also imported it and would have broken the build had the import grep not caught it before the delete landed.
+
+**The import grep must cover dynamic imports and test files, not just static imports of the source path.** A static-import grep (`import X from`) misses `await import(...)` / dynamic-import consumers, and misses tests that reach the retired path indirectly (an un-injected pipeline test that exercised the real path only once it stopped being mocked). Before any cutover/deletion plan's consumer-repoint chunks are considered complete, enumerate: (a) every dynamic-import consumer a static grep misses, and (b) every TEST file that reaches the real path being retired — not just the source callers.
+
 ## Re-Export Shim Blast Radius Before Deleting a Vendored Constant
 
 Deleting a constant (or any symbol) from a module requires grepping not just direct importers but ALSO any re-export shim sites — lines with `# noqa: F401` or `__all__` entries that back-compat-re-export the symbol from a transitional shim module. These lines do not show up as "uses" in a naive grep for the symbol name; they show up only when you grep the shim file's body for the constant name. Miss a shim, and consuming code that imports via the shim breaks silently at runtime.
@@ -1444,6 +1462,15 @@ Sister to "broken-today claims need HEAD verification" and "verified-at-plan-wri
 
 **Sister rules:** `Detect-then-silently-pick is a footgun`, `Premise-pass before regenerating torn-down structure` — all three are "the symptom isn't the locus" failures. The writers-of-the-file enumeration rule above covers multi-writer tension on config files; this rule covers the mirror: code that *reads* a default that has been flipped in writer code.
 
+### Widening a shared type/interface obligates every producer, consumer, and fixture — not just the one you came for
+
+**Rule:** when a plan widens a shared contract type, row interface, or DTO (adds required fields, changes a field's shape), the widening chunk's scope is every producer that declares or populates that type, every consumer that reads it, and every test fixture that encodes its old shape — not only the caller the plan was written to serve. Two failure shapes recur:
+
+- **Sibling producers of the same declared type go stale silently.** A "do NOT touch the sibling loader" scope instruction, written to prevent scope creep, is the wrong instruction when the sibling declares the SAME interface being widened — a type-level generic (e.g. a SQL driver's `.prepare<Params, Row>()`) is a pure compile-time assertion with no runtime validation, so the untouched sibling keeps returning rows statically typed to the old shape while actually undefined at runtime, and neither `tsc` nor tests exercising only the widened loader catch it. Before writing a "do not touch sibling X" constraint, grep whether X declares the interface being changed; if it does, the constraint manufactures a latent type-lie.
+- **The widen chunk ships without a consumer/fixture-sweep chunk or producer-population wiring.** Chunking only "widen the type" leaves every downstream consumer, test fixture, and — critically — the code that actually POPULATES the new fields unaddressed; execution goes red at the AC gate with typecheck errors plus a runtime verify failure, needing an unplanned fixup wave. A contract-widen chunk implies, in the same plan: (a) a dedicated consumer/fixture-sweep chunk, and (b) explicit producer-population wiring for the new fields.
+
+**How to apply:** grep the interface/type name for every DECLARING producer (not just call sites) before finalizing chunk scope, and draw the consumer-sweep + producer-wiring chunks alongside the widen chunk rather than treating them as later discoveries.
+
 ### Peer-port Branch-B substrate scan — grep action names, not directory names
 
 **Rule:** when planning a peer-port from a reference implementation, the Branch B substrate scan's first grep is the ACTION-NAME set across `**/*.{cpp,h,ts,py}` — NOT a directory enumeration. A `find -type d -iname "*<Domain>*"` returns "no module named X → greenfield" even when a flat handler file implementing all target verbs already exists inside an existing module under a different naming convention.
@@ -1494,6 +1521,16 @@ Sister to "broken-today claims need HEAD verification" and "verified-at-plan-wri
 
 This is a mandatory Branch B item for any plan whose implementation requires matching against a runtime tool-output field, event envelope, or jq path that has not been observed from a real invocation. Hypothesis-based field paths produce broken hooks that silently no-op or crash at first use.
 
+## Dormant/Forward-Compat Branches Need Their Test-Injection Seam in the Same Chunk
+
+**Rule:** when a plan authors a dormant or forward-compatible branch that an AC requires to be "live-tested even while dormant" (a gate that always returns false in v1, a synthesis path that needs crafted inputs never produced in normal operation), the SAME chunk must ship an env/fixture injection seam — not just the branch. Without the seam, the AC is unsatisfiable as written: there is no way to reach the dormant code from a test.
+
+**Why:** two chunks in one plan authored dormant logic (a strategic-drift gate; a sentinel-synthesis path) with no way to reach either from a test. The AC requiring "tested while dormant" was unsatisfiable until the EM added an env-var simulation read-path and a fixture-injection point post-hoc — work that belonged in the original chunks. Brief executors explicitly: when the chunk body says "tested while dormant," the injection seam is part of that chunk's deliverable, not a follow-up.
+
+## Store → Route → Client Features Need the Connecting Route as Its Own Named Chunk
+
+**Rule:** a plan that names a store/state layer and a client consumer but not the API route between them ships the feature inert. Naming only the store-layer chunk and the client chunk leaves nothing owning the connecting route — the feature has no live wiring until an unplanned follow-on chunk fills the gap. When a feature's data flow is store → route → client, name the route as its own chunk or explicit sub-scope of an existing chunk, not an implied connector between two named chunks.
+
 ## Doctrine-Prose Change AC Pattern
 
 **Rule:** for a plan whose deliverable is a doctrine change (a wiki section, a CLAUDE.md rule, a skill-body amendment) with no executable harness, anchor ACs to the specific text invariants the doctrine ships — the doctrine text IS the deliverable. Do not author behavior-fixture AC criteria for a change that ships no executable surface.
@@ -1506,3 +1543,13 @@ For any real I/O side-effect the doctrine change triggers (e.g., a foldering mig
 - Criteria for the specific text invariants the doctrine ships (verifiable by grep)
 - Criteria for concrete filesystem side-effects the change introduces (verifiable by script)
 - Reviewer-judgment criteria for runtime behavior or semantic quality assessments
+
+## Growing an enumerated set means updating the cardinality word
+
+**When an edit adds an item to a set the prose enumerates, grep the count-word across the whole
+section — heading, list, and the closing or summary sentence — not just the list.** A doc-editing
+executor updated a heading and added the fifth item while leaving "The four surfaces compose" in
+the closing paragraph, an internal contradiction that survived to code review.
+
+The list is the surface an editor looks at; the cardinality word hides in the prose around it.
+Put the grep in any doc-edit executor brief whose change grows a set.

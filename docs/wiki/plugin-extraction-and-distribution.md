@@ -68,7 +68,7 @@ Agents at runtime read from `~/.claude/plugins/<name>/` (the installed copy), NO
 
   Canonical propagation primitive: `refresh-plugin-live-install.py <plugin>` — executes both legs atomically, with pre-flight (clean working tree check) and post-flight (drift probe). Both legs must close together; advancing git HEAD without re-running `uv pip install -e .` leaves the venv leg stale and can cause silent `ImportError`.
 
-- **Live install IS the canonical source:** there is no source → live propagation step because source and live point at the same directory. These plugins carry `propagation_mode = "source_is_live"` in `~/.claude/machine-local/registry.local.toml::plugin.mirrors`, where both `source_path` and `live_path` resolve to that directory. The drift probe treats them as structural no-ops; the refresh script skips them. **Coordinator-specific note (post-2026-07-04 cutover):** the coordinator plugin's `source_is_live` directory is now the DoE clone (`<DoE>/coordinator/`), resolved live via `--plugin-dir` — NOT `~/.claude/plugins/coordinator-claude/`. The OSS distribution (`coordinator-claude`) is a separate snapshot repo that receives publishes; it is not the live source. Pre-cutover, `~/.claude/plugins/coordinator-claude/` was the `source_is_live` path.
+- **Live install IS the canonical source:** there is no source → live propagation step because source and live point at the same directory. These plugins carry `propagation_mode = "source_is_live"` in `~/.claude/machine-local/registry.local.toml::plugin.mirrors`, where both `source_path` and `live_path` resolve to that directory. The drift probe treats them as structural no-ops; the refresh script skips them. **Coordinator-specific note (post-2026-07-04 cutover):** the coordinator plugin's `source_is_live` directory is now the doctrine-repo clone (`<DoE>/coordinator/`), resolved live via `--plugin-dir` — NOT `~/.claude/plugins/coordinator-claude/`. The OSS distribution (`coordinator-claude`) is a separate snapshot repo that receives publishes; it is not the live source. Pre-cutover, `~/.claude/plugins/coordinator-claude/` was the `source_is_live` path.
 
   **`source_is_live` rename mechanic.** When renaming a file or directory inside a `source_is_live` plugin (i.e. a plugin where `source_path` and `live_path` both point at the same directory — the canonical source), the git index at both the canonical side and the consumer side must be updated together. The correct sequence:
 
@@ -105,7 +105,7 @@ Agents at runtime read from `~/.claude/plugins/<name>/` (the installed copy), NO
 | Re-install command | `uv pip install -e <source_path> --python <live_path/.venv python>` | Installs the *addon source* into the *host venv* |
 | MCP restart sentinel | `live_path/data/doctor-last-run.json` | Keyed on the host (the running MCP server), not the addon |
 
-**`track_ref` contract divergence — omitting is a footgun.** The default-mode behaviour (`track_ref` absent → parsers default to `"origin/main"`) does NOT apply safely here. `refresh-plugin-live-install.py`'s `_read_registry` calls `entry.get("track_ref", "origin/main")`, so an absent `track_ref` resolves to the literal string `"origin/main"`. In `editable_sibling_venv` mode this would trigger the git-state leg and run `git fetch && checkout origin/main` against the addon's working tree — clobbering in-flight branch work on a dev machine. (`bin/lib/read_mirrors.py` — the naked-Python port of the former `bin/lib/read-mirrors.sh` — preserves the same default for any future direct caller, but as of 2026-07-21 has zero live callers; both parsers this paragraph originally cited have migrated to claude-klabauter's `coordinator_core.plugin_health.drift` / `coordinator_core.ops.list_reverse_drift_cmds`, neither of which sources this file.)
+**`track_ref` contract divergence — omitting is a footgun.** The default-mode behaviour (`track_ref` absent → parsers default to `"origin/main"`) does NOT apply safely here. `refresh-plugin-live-install.py`'s `_read_registry` calls `entry.get("track_ref", "origin/main")`, so an absent `track_ref` resolves to the literal string `"origin/main"`. In `editable_sibling_venv` mode this would trigger the git-state leg and run `git fetch && checkout origin/main` against the addon's working tree — clobbering in-flight branch work on a dev machine. (`bin/lib/read_mirrors.py` — the naked-Python port of the former `bin/lib/read-mirrors.sh` — preserves the same default for any future direct caller, but as of 2026-07-21 has zero live callers; both parsers this paragraph originally cited have migrated to the engine repo's `coordinator_core.plugin_health.drift` / `coordinator_core.ops.list_reverse_drift_cmds`, neither of which sources this file.)
 
 - **Dev posture:** `track_ref = "live"` — explicit sentinel meaning "addon source is a live working tree; skip the git leg; run venv-state only."
 - **Consumer posture:** `track_ref = "origin/main"` — full two-leg (git-state advances the addon checkout, venv-state repairs the editable install).
@@ -119,13 +119,13 @@ Dev posture (venv-only refresh; git-state is the live working tree):
 ```toml
 [plugin.mirrors.project-rag-ue-addon]
 # editable_sibling_venv: addon source (own git repo) editable-installed into the
-# project-rag HOST venv. On this dev machine the addon source C:/project-rag-ue-addon  <!-- foreign-path-ok: illustrative worked-example registry-config comment, not a live path assertion -->
+# project-rag HOST venv. On this dev machine the addon source <drive-letter>:/project-rag-ue-addon
 # is a live working tree — do NOT run the git leg against it.
 # track_ref = "live" is the EXPLICIT sentinel — do NOT omit it.
 # Both parsers default an absent track_ref to "origin/main", which would trigger
 # git fetch && checkout origin/main and clobber the dev working tree.
 propagation_mode = "editable_sibling_venv"
-source_path = "C:/project-rag-ue-addon"  # foreign-path-ok: illustrative worked-example registry-config value, not a live path assertion
+source_path = "<drive-letter>:/project-rag-ue-addon"  # foreign-path-ok: illustrative worked-example registry-config value, not a live path assertion
 live_path = "$HOME/.claude/plugins/project-rag"  # $HOME expands to the operator's home directory
 dist_name = "project_rag_ue_addon"
 track_ref = "live"
@@ -150,7 +150,7 @@ Note on `dist_name`: use `"project_rag_ue_addon"` (underscore, not hyphen). Whil
 
 **Fresh-machine bootstrap — complete step sequence.**
 
-> Before any `machine-local set` command can succeed, the `machine-local/` directory must exist. Neither `setup/install.sh` nor claude-klabauter `coordinator/bin/publish.py` creates it. This is a known coordinator-side gap — see `install-surface-completeness.md` § Bootstrap gap. **A fresh-machine bootstrap MUST include the directory-creation step.**
+> Before any `machine-local set` command can succeed, the `machine-local/` directory must exist. Neither `setup/install.sh` nor the engine repo's `coordinator/bin/publish.py` creates it. This is a known coordinator-side gap — see `install-surface-completeness.md` § Bootstrap gap. **A fresh-machine bootstrap MUST include the directory-creation step.**
 
 Full sequence for a dev machine (venv-only posture):
 
@@ -160,7 +160,7 @@ mkdir -p ~/.claude/machine-local/
 
 # Step 2 — register the addon entry (dev posture — track_ref=live skips the git leg)
 machine-local set plugin.mirrors.project-rag-ue-addon.propagation_mode editable_sibling_venv
-machine-local set plugin.mirrors.project-rag-ue-addon.source_path "C:/project-rag-ue-addon"  # foreign-path-ok: illustrative worked-example registry-config value, not a live path assertion
+machine-local set plugin.mirrors.project-rag-ue-addon.source_path "<drive-letter>:/project-rag-ue-addon"  # foreign-path-ok: illustrative worked-example registry-config value, not a live path assertion
 machine-local set plugin.mirrors.project-rag-ue-addon.live_path "$HOME/.claude/plugins/project-rag"
 machine-local set plugin.mirrors.project-rag-ue-addon.dist_name project_rag_ue_addon
 machine-local set plugin.mirrors.project-rag-ue-addon.track_ref live
@@ -172,7 +172,7 @@ cat >> ~/.claude/machine-local/registry.local.toml << 'EOF'
 
 [plugin.mirrors.project-rag-ue-addon]
 propagation_mode = "editable_sibling_venv"
-source_path = "C:/project-rag-ue-addon"  # foreign-path-ok: illustrative worked-example registry-config value, not a live path assertion
+source_path = "<drive-letter>:/project-rag-ue-addon"  # foreign-path-ok: illustrative worked-example registry-config value, not a live path assertion
 live_path = "$HOME/.claude/plugins/project-rag"
 dist_name = "project_rag_ue_addon"
 track_ref = "live"
@@ -222,7 +222,7 @@ Port-time cleanup (the topic of this section) and runtime discovery are **differ
 **The four failure modes of sibling-layout at runtime:**
 
 1. **It dictates operator filesystem layout.** Every sibling repo must live under one common parent folder. Operators with established conventions (separate drives for engine source vs. tooling, network shares, multi-machine sync setups) cannot comply without restructuring their environment to match the convention.
-2. **It cannot represent deterministic locations.** Some things — vendored binaries, large indices, GPU sidecars — genuinely need a fixed absolute path on a specific drive. Sibling-relatives have no way to express "this lives at `C:/UE-content/` regardless of where the repo is cloned." <!-- foreign-path-ok: illustrative example of a deterministic-location need, not an asserted install location -->
+2. **It cannot represent deterministic locations.** Some things — vendored binaries, large indices, GPU sidecars — genuinely need a fixed absolute path on a specific drive. Sibling-relatives have no way to express "this lives at `<drive-letter>:/UE-content/` regardless of where the repo is cloned." <!-- foreign-path-ok: illustrative example of a deterministic-location need, not an asserted install location -->
 3. **It silently breaks discovery for downstream consumers.** A repo that uses `../sibling-repo/x` works when cloned into the expected parent, fails opaquely when cloned anywhere else. The failure mode is "file not found" with no remediation hint that the convention was violated.
 4. **It does not compose with triangular dependency graphs.** A sibling-relative inside `example-game-workbench-repo` pointing at `../project-rag-ue-addon/x` assumes both repos share a parent. The moment one triangle vertex moves to a different drive or directory, every sibling-relative pointing at it breaks — not just the path that was moved.
 
@@ -255,7 +255,7 @@ After that, `publish.py` reads the topology from `setup/publish-targets.portable
 
 ### 11a. Publish-time content transforms ride the publish-time-transform surface — extend, don't sibling
 
-When a new class of publish-time content transformation is needed (a new persona-name mapping, a new path-rewrite rule, a new identity-token substitution), **extend the existing `publish-time-transform-py` substitution table — do not author a sibling transform tool.** (The bash `publish-time-transform.sh` this surface was ported from is retired; `publish-time-transform-py` in claude-klabauter `coordinator/bin/` is the current CLI.) The publish-time-transform hook is already the registered `post-rsync` transform surface for every publish target; a second sibling tool means two surfaces that must both fire in the right order, two places to register, and a silent gap when one is updated and the other isn't. The substitution table is table-driven precisely so new transforms are table edits, not new tools. (Scan-vs-substitute is the one legitimate two-tool split — see § Scan/Substitution Division of Labor — because detection and correction are genuinely different jobs; a *second corrector* is not.) The script was renamed from a path-decay-mismatched name (see `2026-05-28-publish-surface-hygiene.md` under `docs/plans/`); its job had already grown beyond depersonalization, and the rename reflects that.
+When a new class of publish-time content transformation is needed (a new persona-name mapping, a new path-rewrite rule, a new identity-token substitution), **extend the existing `publish-time-transform-py` substitution table — do not author a sibling transform tool.** (The bash `publish-time-transform.sh` this surface was ported from is retired; `publish-time-transform-py` in the engine repo's `coordinator/bin/` is the current CLI.) The publish-time-transform hook is already the registered `post-rsync` transform surface for every publish target; a second sibling tool means two surfaces that must both fire in the right order, two places to register, and a silent gap when one is updated and the other isn't. The substitution table is table-driven precisely so new transforms are table edits, not new tools. (Scan-vs-substitute is the one legitimate two-tool split — see § Scan/Substitution Division of Labor — because detection and correction are genuinely different jobs; a *second corrector* is not.) The script was renamed from a path-decay-mismatched name (see `2026-05-28-publish-surface-hygiene.md` under `docs/plans/`); its job had already grown beyond depersonalization, and the rename reflects that.
 
 ### 12. Cross-repo port: prefer registration-seam over parallel-surface
 
@@ -338,15 +338,15 @@ Two paired tools enforce the boundary:
 
 - **Publish-repo CI gate.** `.github/scripts/check-persona-names.py` runs as a tracked-files scan auto-discovered by `run-all-checks.py`. Hard-fails any commit/PR where canonical-layer files (`*.md`, `*.sh`, `*.py`; excludes `archive/`, `tasks/`, `experiments/`, `evals/`, `docs/{plans,research,decisions,specs}/`) contain bare persona display names. Suppression: `# noqa: persona-names` inline, or `.github/.persona-names-allowlist` file-based (`filepath:line_number` per line).
 
-- **Meta-repo registered hook.** `setup/percolate-hooks/<target>/post-rsync/10-transform.sh` is a thin wrapper around `publish-time-transform-py` (the naked-Python successor to the retired `publish-time-transform.sh`) in claude-klabauter `coordinator/bin/`. The depersonalize CLI itself supports `--check` (exit 1 on hits) or `--fix` (in-place rewrite to role labels, with `.bak` backups). The hook receives the destination path as `$1` and the synced-files list via stdin (newline-delimited), then `--fix`es each `*.md`/`*.sh`/`*.py` file. Registered for `coordinator-claude` and `deep-research-claude` (open-source publish targets); deliberately NOT registered for `example-game-repo` (keeps persona names natively). Only the hook lives meta-repo-local; the CLI it calls is shipped with the coordinator plugin and percolates with it. The `--fix` mode handles the common "the X" / "The X" article cases including the "the X" double-article it would otherwise produce.
+- **Meta-repo registered hook.** `setup/percolate-hooks/<target>/post-rsync/10-transform.sh` is a thin wrapper around `publish-time-transform-py` (the naked-Python successor to the retired `publish-time-transform.sh`) in the engine repo's `coordinator/bin/`. The depersonalize CLI itself supports `--check` (exit 1 on hits) or `--fix` (in-place rewrite to role labels, with `.bak` backups). The hook receives the destination path as `$1` and the synced-files list via stdin (newline-delimited), then `--fix`es each `*.md`/`*.sh`/`*.py` file. Registered for `coordinator-claude` and `deep-research-claude` (open-source publish targets); deliberately NOT registered for `example-game-repo` (keeps persona names natively). Only the hook lives meta-repo-local; the CLI it calls is shipped with the coordinator plugin and percolates with it. The `--fix` mode handles the common "the X" / "The X" article cases including the "the X" double-article it would otherwise produce.
 
-**`publish.py` is the authority for percolation — manual `cp` is wrong.** Percolating to `coordinator-claude` (or any registered publish target) means running `python3 coordinator/bin/publish.py <target>` (claude-klabauter `coordinator/bin/publish.py`), not copying files by hand. Manual `cp` bypasses the depersonalize pipeline, the content-leakage scan, and the `.percolate-ignore` filter — the resulting publish repo may contain persona names, local paths, or excluded files the author didn't intend to ship. The publish-targets list at `setup/publish-targets.portable` is the authority; if a target is missing from it, register it there rather than working around it with ad-hoc copies.
+**`publish.py` is the authority for percolation — manual `cp` is wrong.** Percolating to `coordinator-claude` (or any registered publish target) means running `python3 coordinator/bin/publish.py <target>` (the engine repo's `coordinator/bin/publish.py`), not copying files by hand. Manual `cp` bypasses the depersonalize pipeline, the content-leakage scan, and the `.percolate-ignore` filter — the resulting publish repo may contain persona names, local paths, or excluded files the author didn't intend to ship. The publish-targets list at `setup/publish-targets.portable` is the authority; if a target is missing from it, register it there rather than working around it with ad-hoc copies.
 
-> **Double-prefix trap — source layout ≠ target layout; never re-append the plugin subpath.** The recurring failure behind hand-built paths is conflating the *source-side* layout with the *target-side* layout. Source side, the coordinator plugin lives at `~/.claude/plugins/coordinator/...`; publish side, it lives at `C:/coordinator-claude/plugins/coordinator/...` — **`plugins/coordinator/`, not `plugins/coordinator/`.** A hand-built `cp` that takes the publish-repo root `C:/coordinator-claude` and appends the *source* relative path produces the doubled `C:/coordinator-claude/plugins/coordinator/...` (stale entries of exactly this shape were found frozen in `.claude/settings.local.json` and removed). <!-- foreign-path-ok: worked example of the double-prefix bug shape, not an asserted install location --> The same trap bites runtime tooling: the `coordinator-claude` registry mirror's `live_path` (`~/.claude/plugins/coordinator-claude/coordinator`) is **already the full coordinator root** under `propagation_mode = "source_is_live"` — any consumer that treats it as `~/.claude` and re-appends `plugins/coordinator-claude/coordinator` doubles it (symptom: `Get-ChildItem ...coordinator\plugins\coordinator-claude\coordinator` cannot-find-path). Rule: `live_path` is the root, not a base to join onto; and the only correct way to reach a target path is to let `publish.py` map source→target — never hand-construct it.
+> **Double-prefix trap — source layout ≠ target layout; never re-append the plugin subpath.** The recurring failure behind hand-built paths is conflating the *source-side* layout with the *target-side* layout. Source side, the coordinator plugin lives at `~/.claude/plugins/coordinator/...`; publish side, it lives at `<drive-letter>:/coordinator-claude/plugins/coordinator/...` — **`plugins/coordinator/`, not `plugins/coordinator/`.** A hand-built `cp` that takes the publish-repo root `<drive-letter>:/coordinator-claude` and appends the *source* relative path produces the doubled `<drive-letter>:/coordinator-claude/plugins/coordinator/...` (stale entries of exactly this shape were found frozen in `.claude/settings.local.json` and removed). <!-- foreign-path-ok: worked example of the double-prefix bug shape, not an asserted install location --> The same trap bites runtime tooling: the `coordinator-claude` registry mirror's `live_path` (`~/.claude/plugins/coordinator-claude/coordinator`) is **already the full coordinator root** under `propagation_mode = "source_is_live"` — any consumer that treats it as `~/.claude` and re-appends `plugins/coordinator-claude/coordinator` doubles it (symptom: `Get-ChildItem ...coordinator\plugins\coordinator-claude\coordinator` cannot-find-path). Rule: `live_path` is the root, not a base to join onto; and the only correct way to reach a target path is to let `publish.py` map source→target — never hand-construct it.
 
 Workflow during percolation:
 
-1. Run `python3 "$CLAUDE_KLABAUTER_ROOT/coordinator/bin/publish.py" <target>` (a.k.a. percolate / push-to-publish-repo — `publish.py` migrated to claude-klabauter) — or `/percolate <target>` for the dry-run-confirm-real-run skill wrapper.
+1. Run `python3 "$CLAUDE_KLABAUTER_ROOT/coordinator/bin/publish.py" <target>` (a.k.a. percolate / push-to-publish-repo — `publish.py` migrated to the engine repo) — or `/percolate <target>` for the dry-run-confirm-real-run skill wrapper.
 2. `publish.py` discovers and runs every executable script in `setup/percolate-hooks/<target>/{pre-rsync,post-rsync,pre-ci}/*.sh` in lexical order at the corresponding boundary. The depersonalize hook fires automatically at `post-rsync` for any target with one registered. Failure-semantics: non-zero hook exit aborts the publish; post-rsync abort = destination partially mutated, recovery is to fix the hook and re-run (`--check`/`--fix` is idempotent).
 3. CI on the publish repo re-runs `python .github/scripts/check-persona-names.py` on push as the safety net — even if a hook is mis-registered, the gate catches regressions.
 
@@ -397,7 +397,7 @@ The skill does NOT call `publish-time-transform-py` directly, does NOT modify `p
 
 **Cygwin/fork-exhaustion note:** `publish.py` is a single Python process and does not fork per-line, so a fork-heavy grep/sed driver's Cygwin-shell wedge failure mode (`"fork: retry: Resource temporarily unavailable"` on large dry-run output) does not apply to it.
 
-> **`the Director of Engineering → the Director of Engineering` is the canonical role-label mapping.** The publish repo's `docs/customization.md` "Reviewer Roles" table, any `check-persona-names.py` allow-list, and any personalizer script that maps role labels back to user-chosen names must match it. Personalizers should let the new user pick any name for the DoE role; the title carries the rank, the name is cosmetic.
+> **`the Director of Engineering → the Director of Engineering` is the canonical role-label mapping.** The publish repo's `docs/customization.md` "Reviewer Roles" table, any `check-persona-names.py` allow-list, and any personalizer script that maps role labels back to user-chosen names must match it. Personalizers should let the new user pick any name for the Director of Engineering role; the title carries the rank, the name is cosmetic.
 
 ## Auxiliary Sync — Publish-Repo Top-Level `docs/wiki/`
 
@@ -416,7 +416,7 @@ A further authoring source (in addition to those listed in `### Publish-Repo Con
 
 ### Publish-Repo Content Authoring (setup scripts and top-level docs)
 
-**The publish repo is a percolation target, not a source of truth.** All publish-repo content is authored in Claude Central (`~/.claude/`) and percolated outward via `python3 coordinator/bin/publish.py` (claude-klabauter `coordinator/bin/publish.py`). Editing the publish repo directly is always wrong — it bypasses the planning, review, and doctrine pipeline that governs the rest of the coordinator system.
+**The publish repo is a percolation target, not a source of truth.** All publish-repo content is authored in Claude Central (`~/.claude/`) and percolated outward via `python3 coordinator/bin/publish.py` (the engine repo's `coordinator/bin/publish.py`). Editing the publish repo directly is always wrong — it bypasses the planning, review, and doctrine pipeline that governs the rest of the coordinator system.
 
 The four authoring flows:
 
@@ -461,7 +461,7 @@ When `publish.py` mirrors source-to-dest (via `rsync --delete` semantics reimple
 
 **Post-percolate verification gate.** After `--fix`, `10-transform.sh` greps for residual `plugins/coordinator-claude` in `.md` files under the publish tree (excluding `archive/`, `tasks/`, `docs/plans/`, `docs/research/`, `docs/decisions/`, `docs/specs/`). Any hit → exit non-zero.
 
-**The live CLI is `publish-time-transform-py`** (claude-klabauter `coordinator/bin/`), carrying forward the substitution-table contract described below. Hook callers use the `N-transform.sh` naming convention. **Each hook hardcodes the consumer-script name ~10× across fallback resolution paths, error messages, and SYNC-WITH comments — it is not single-seam.** Any future rename of the consumer script requires a full grep-and-substitute per hook, not a one-line edit.
+**The live CLI is `publish-time-transform-py`** (the engine repo's `coordinator/bin/`), carrying forward the substitution-table contract described below. Hook callers use the `N-transform.sh` naming convention. **Each hook hardcodes the consumer-script name ~10× across fallback resolution paths, error messages, and SYNC-WITH comments — it is not single-seam.** Any future rename of the consumer script requires a full grep-and-substitute per hook, not a one-line edit.
 
 ## Path-Rewrite Mechanics at Percolate Time
 
@@ -481,12 +481,23 @@ The substitution pass in `publish-time-transform-py --fix` handles more than per
 
 The `publish-time-transform-py` hook and the percolate Step 2c content scan are **safety nets for inherited content**, not authoring licenses. When writing any doc, skill, or agent file that will be percolated, never hardcode local working-tree paths — even as "doctrine source" citations. Use abstract repo references instead:
 
-- Wrong: `C:/coordinator-claude/docs/wiki/foo.md` <!-- foreign-path-ok: the hardcoded path IS the anti-pattern being critiqued -->
+- Wrong: `<drive-letter>:/coordinator-claude/docs/wiki/foo.md` — the hardcoded path IS the anti-pattern being critiqued
 - Right: `docs/wiki/foo.md` (relative to plugin root) or `plugins/coordinator/docs/wiki/foo.md` (from meta-repo root)
 
 Local path leaks survive substitution-table updates (new paths not yet in the regex) and require hand-edits at percolation time. The drift is silent until the per-publish scan catches it. Authoring discipline prevents the class entirely; the hook is the last line of defense, not the first.
 
-Local working-tree paths (`C:/dev/<name>/...`, `/home/<name>/...`) in authored content (skills, agents, wikis) are an authoring-discipline failure, not a depersonalize-substitution failure. <!-- foreign-path-ok: the hardcoded path IS the anti-pattern being critiqued --> The depersonalize hook is defense-in-depth; the primary discipline is: don't write your local path into shared content in the first place. Use `~/.claude/...` or relative paths.
+Local working-tree paths (`<drive-letter>:/dev/<name>/...`, `/home/<name>/...`) in authored content (skills, agents, wikis) are an authoring-discipline failure, not a depersonalize-substitution failure. <!-- foreign-path-ok: the hardcoded path IS the anti-pattern being critiqued --> The depersonalize hook is defense-in-depth; the primary discipline is: don't write your local path into shared content in the first place. Use `~/.claude/...` or relative paths.
+
+## A Prose "No Internal-Name Literals" Constraint Needs a Grep Gate at Chunk Close
+
+The authoring-discipline point above (write clean, don't rely on the hook) applies just as much
+to an executor **dispatch brief** as to a wiki page. A brief instruction like "no `<internal
+project name>` literals" is not self-verifying: one executor left the internal name inside
+**docstrings** — not executable code, so nothing downstream that scans code paths caught it —
+and it surfaced only at code review. Any "no X literals" / publish-split constraint stated to an
+executor must be paired with a `grep -rin` gate the EM runs when the chunk returns, before
+commit. A prose constraint with no verification gate leaks; the executor believed it was
+compliant and had no way to self-check against a scan it doesn't run.
 
 ## Versioning Extraction Churn
 
@@ -504,7 +515,7 @@ Plugin doctrine wikis live ONLY at `<plugin>/docs/wiki/<name>.md` — the bundle
 
 `sync-plugin-wiki.py` semantics: if `~/.claude/docs/wiki/<name>.md` EXISTS → exit 5 (dev-side mirror of plugin-doctrine wiki — delete to restore single-tree invariant). If only bundled exists: OK. If neither exists: WARN.
 
-The `PreToolUse` guard (claude-klabauter `write_guards/block_dev_side_mirror_wiki.py`) blocks Write/Edit/NotebookEdit to `~/.claude/docs/wiki/<name>.md` when `~/.claude/plugins/*/docs/wiki/<name>.md` exists — the DoE-side `block-dev-side-mirror-wiki.sh` shell equivalent was dead/unwired and removed (engine-tier port already superseded it). Override: `COORDINATOR_OVERRIDE_WIKI_MIRROR=1`.
+The `PreToolUse` guard (the engine repo's `write_guards/block_dev_side_mirror_wiki.py`) blocks Write/Edit/NotebookEdit to `~/.claude/docs/wiki/<name>.md` when `~/.claude/plugins/*/docs/wiki/<name>.md` exists — the doctrine-repo-side `block-dev-side-mirror-wiki.sh` shell equivalent was dead/unwired and removed (engine-tier port already superseded it). Override: `COORDINATOR_OVERRIDE_WIKI_MIRROR=1`.
 
 ## Plugin-Bundled Wiki Reference Convention
 
@@ -530,7 +541,7 @@ Five resource-loading axes must be audited at extraction time:
 2. **CWD-relative reads.** Any `open("data/...")`, `Path("config.json").read_text()` is a bug — drop or convert to `__file__`-relative.
 3. **Env-var-rooted reads.** `${CLAUDE_PLUGIN_ROOT}` is the supported anchor; anything else (`${EXAMPLE_GAME_REPO_HOME}`, `${PROJECT_RAG_ROOT}`) is a leak.
 4. **Sibling-repo reads.** A pre-extraction plugin often peeked at `../<other-plugin>/data/*`. Post-extraction the sibling tree is on a different filesystem path or absent entirely. Grep `..` in path joins.
-5. **Hardcoded absolute reads.** `$HOME/<name>/...`, `C:\Users\<name>\...`, `C:\<vendor>\...` — never survive consumer install. The depersonalize hook does NOT cover these; authoring discipline does. <!-- foreign-path-ok: the hardcoded path IS the anti-pattern being critiqued -->
+5. **Hardcoded absolute reads.** `$HOME/<name>/...`, `<drive-letter>:\Users\<name>\...`, `<drive-letter>:\<vendor>\...` — never survive consumer install. The depersonalize hook does NOT cover these; authoring discipline does.
 
 The grep pass is mechanical: `rg -n '__file__|os\.path\.dirname|Path\(__file__\)|CLAUDE_PLUGIN_ROOT|\.\./|\$HOME/|C:[\\/]Users'` across the extracted plugin. Each hit needs a one-line audit before merge.
 
@@ -540,7 +551,7 @@ A plugin's release manifest (or percolate `.percolate-ignore`) typically does a 
 
 ## Marketplace Source-Path Registrations
 
-When a marketplace entry's `source` field points at a local development tree (`file:///C:/coordinator-claude` or `git+file://...`) rather than a published URL/tag, every consumer install pulls whatever HEAD that tree happens to be at — not a versioned artifact. <!-- foreign-path-ok: illustrative example of a misconfigured source field, not an asserted install location --> The marketplace JSON looks correct, `claude plugin install` succeeds, but version-pinning is structurally impossible. Audit `~/.claude/plugins/known_marketplaces.json` and any `marketplace.json` for `file://` / source-tree `source` fields before shipping. For real distribution, the `source` must resolve to a published location (GitHub release, tagged ref, or wheel URL) consumers cannot mutate locally.
+When a marketplace entry's `source` field points at a local development tree (`file:///<drive-letter>:/coordinator-claude` or `git+file://...`) rather than a published URL/tag, every consumer install pulls whatever HEAD that tree happens to be at — not a versioned artifact. <!-- foreign-path-ok: illustrative example of a misconfigured source field, not an asserted install location --> The marketplace JSON looks correct, `claude plugin install` succeeds, but version-pinning is structurally impossible. Audit `~/.claude/plugins/known_marketplaces.json` and any `marketplace.json` for `file://` / source-tree `source` fields before shipping. For real distribution, the `source` must resolve to a published location (GitHub release, tagged ref, or wheel URL) consumers cannot mutate locally.
 
 ## LSP-Style Plugins Without `plugin.json`
 
@@ -777,7 +788,7 @@ only as provenance for the earlier review round. -->
 `coordinator-installer-shape.md`, not `~/.claude/bin/` (no installer mints content there — Gate 6,
 `2026-07-24-coordinator-owns-zero-claude-bin.md` under `docs/plans/`). The fixed path below reflects that
 home; the section's deeper mechanism detail (the exact anchor rung and the SessionStart-hook
-trigger) describes `install-substrate.py` — engine-subject, claude-klabauter — and is left
+trigger) describes `install-substrate.py` — engine-subject, engine-resident — and is left
 unverified from here rather than guessed.
 
 The retired `BASH_SOURCE`-relative pattern above worked only for a caller **inside the

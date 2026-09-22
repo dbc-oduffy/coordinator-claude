@@ -48,7 +48,7 @@ self-authored. Tripwire: `A-SESSION-IS-NEVER-STANDALONE`.
 The mechanical spine — deliverable/initiative id inheritance, frontmatter scaffolding,
 `handoff_phase` stamping, tracker refresh, and (on a clean chain) predecessor archival — is
 computed by `baton-assemble brief handoff <artifact-path>`, resolved per
-`snippets/resolve-coordinator-bin.md` (Shape W on a PowerShell host). What follows is what it
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape W on a PowerShell host). What follows is what it
 cannot decide for you.
 
 **`<artifact-path>` is the artifact this handoff is written FROM — on the plan→execute trigger that
@@ -69,7 +69,7 @@ through.
 
 **`apply` is the single route out — never hand-execute the directive list.**
 `baton-assemble apply handoff <artifact-path> --decisions-file <path>`, resolved per
-`snippets/resolve-coordinator-bin.md` (Shape W on PowerShell hosts) — same `<artifact-path>` as
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape W on PowerShell hosts) — same `<artifact-path>` as
 `brief`.
 
 Procedure detail — body authoring, `d5` release, next-steps durability,

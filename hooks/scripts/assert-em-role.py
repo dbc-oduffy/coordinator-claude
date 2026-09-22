@@ -417,7 +417,7 @@ def _group_em_clause(repo_root, timeout: float = 0.3) -> str:
 
 
 def _gem_display_name(repo_root, session_id: str, nominated_name) -> str:
-    """The crown holder's name for the boot banner, across TWO records.
+    """The standing holder's name for the boot banner, across TWO records.
 
     The nomination record's `peer_name` is optional and frequently null -- an
     advisory snapshot, never a join key. The watch heartbeat record carries
@@ -427,14 +427,14 @@ def _gem_display_name(repo_root, session_id: str, nominated_name) -> str:
     Negative spec: never render a null name as "unnamed". That word asserts the
     session HAS no name, while the SessionStart banner prints that name on the
     very next line -- so a reader who knows names and session ids are different
-    fields concludes two sessions hold the crown and that they were displaced.
-    Under last-writer-wins standing, a crown that stands down on a phantom
+    fields concludes two sessions hold standing and that they were displaced.
+    Under last-writer-wins standing, a holder that stands down on a phantom
     displacement leaves the repo unwatched, and the stand-down looks correct
     from every surface. "name unrecorded" names the empty field and claims
     nothing else.
 
     The watch record is consulted only when its `holder_session_id` matches the
-    nomination's -- two records disagreeing about who holds the crown is a real
+    nomination's -- two records disagreeing about who holds standing is a real
     condition, and borrowing a name across that disagreement would hide it.
     """
     name = str(nominated_name or "").strip()

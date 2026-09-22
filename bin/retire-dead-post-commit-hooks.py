@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Remove the retired `coordinator-auto-push` post-commit hook from every
 registered repo on this machine.
 

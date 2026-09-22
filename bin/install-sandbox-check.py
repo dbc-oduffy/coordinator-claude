@@ -140,7 +140,7 @@ def main(argv: "list[str] | None" = None) -> int:
     # the tree that owns templates/. An explicit --coordinator-root on argv
     # still wins verbatim and skips this resolution entirely.
     argv = list((sys.argv[1:] if argv is None else argv))
-    # Review: code-reviewer (nit, Finding 8) — startswith("--coordinator-root")
+    # startswith("--coordinator-root")
     # also matched an unrelated future flag such as --coordinator-root-verbose
     # or --coordinator-rootfoo, wrongly treating it as an already-supplied
     # --coordinator-root and skipping default resolution. Tightened to an

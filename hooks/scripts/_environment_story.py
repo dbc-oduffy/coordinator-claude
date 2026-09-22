@@ -123,7 +123,7 @@ STRICTEST_STORY_NAME = "strictest"
 #   that is not an omission: on a managed-remote host the write-confinement
 #   guards stand down from blocking to an after-the-fact warning, and the
 #   reviewer is served instead by the warning, the scoped pathspec, and one
-#   repo's work per commit stream. The reasoning is recorded in DoE-claude's
+#   repo's work per commit stream. The reasoning is recorded in the doctrine repo's
 #   own decision record for the managed-remote stand-down; that path is cited
 #   by name nowhere here because `docs/decisions/` is outside every publish
 #   row's source, so a reader of the published mirror would chase a directory

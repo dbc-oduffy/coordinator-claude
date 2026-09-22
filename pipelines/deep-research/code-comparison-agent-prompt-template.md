@@ -7,9 +7,9 @@
 >
 > The agent emits **structured comparison records**, not prose — one record per
 > `(subject, competitor, axis)`, conforming to
-> `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/code-comparison-record-schema.md`. DoE's output is a
+> `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/code-comparison-record-schema.md`. This pipeline's output is a
 > **neutral intermediate**; a downstream producer (market-intel) resolves `peer_ref` → `competitor_uid`
-> and computes the CONFIRMED/UPDATED/NEW/REFUTED merge classification. DoE does neither.
+> and computes the CONFIRMED/UPDATED/NEW/REFUTED merge classification. This pipeline does neither.
 
 ## Template
 

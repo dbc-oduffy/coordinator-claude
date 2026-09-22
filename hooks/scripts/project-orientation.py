@@ -6,21 +6,21 @@ port recipe (scratch/subagent-sandbox/bash-to-python-migration/
 W4a-sessionstart-recipe.md § 2.2). Convention-based discovery — reads what
 exists, skips what doesn't.
 
-Disposition (recipe § 2.2): naked-Python direct port. **No claude-klabauter op is
+Disposition (recipe § 2.2): naked-Python direct port. **No engine-repo op is
 authored or called by this hook** — the boot-time `session.boot_sweep` /
-`session.reap` claude-klabauter ops are NOT invoked here (this hook's zero-subprocess
-boot mandate below forbids a cc_invoke claude-klabauter spawn on the boot path). Those
+`session.reap` engine-repo ops are NOT invoked here (this hook's zero-subprocess
+boot mandate below forbids a cc_invoke engine-repo spawn on the boot path). Those
 ops were historically driven by the separate `session-init.py` SessionStart
 hook (deleted in the 2026-07-15 full-kill); `session.boot_sweep` is now
 carried by its own async `bin/sweep-boot.py` SessionStart hook
 (`hooks/hooks.json`, matcher `startup|compact`), whose archival side effect
 imposes zero first-token latency because async SessionStart stdout is
 discarded rather than injected. The bash predecessor of this hook never routed
-through a claude-klabauter op on disk (confirmed:
+through an engine-repo op on disk (confirmed:
 no `session.orientation`-shaped op exists in `coordinator_core/ops/` on either
-repo as of this port). Its only nexus to claude-klabauter at all is the rare case where
+repo as of this port). Its only nexus to the engine repo at all is the rare case where
 the current repo IS the coordinator meta-repo (`~/.claude`) — state-root then
-redirects to claude-klabauter's `state/` dir, resolved via the fast local `.claude-klabauter-root`
+redirects to the engine repo's `state/` dir, resolved via the fast local `.claude-klabauter-root`
 pointer-FILE read only (AC8, recipe § 4), mirroring `session-init.py`'s
 `_resolve_claude_klabauter_root_fast()` shape and `preuse-write-dispatch.py`'s
 `_resolve_claude_klabauter_root()` "no bash, no probe chain" philosophy — no
@@ -60,7 +60,7 @@ port, THREE things moved off the boot path:
      cache becomes FRESH, not just flagged).
   3. `resolve_state_root()`'s rare meta-repo (`~/.claude`) fail-safe
      bash spawn into the former shell `coordinator-state-root` resolver
-     (now `claude-klabauter coordinator/lib/coordinator-state-root.py`) — skipped on
+     (now the engine repo's `coordinator/lib/coordinator-state-root.py`) — skipped on
      `boot=True` (see that function's docstring); non-boot callers keep it.
   4. `lightweight_branch()`'s cache-ABSENT fallback banner also dropped its
      `git rev-parse --abbrev-ref HEAD` call, reading `.git/HEAD` directly
@@ -235,7 +235,7 @@ def _settings_home() -> Path:
 
 
 def _resolve_claude_klabauter_root_native() -> Optional[str]:
-    """Resolve the claude-klabauter repo root WITHOUT spawning bash/subprocess — mirrors
+    """Resolve the engine repo root WITHOUT spawning bash/subprocess — mirrors
     `preuse-write-dispatch.py::_resolve_claude_klabauter_root()` (the Rung-1.5 pattern
     `cc_invoke.py` already establishes). Delegates to the shared
     `_engine_root.resolve_claude_klabauter_root()` seam (explicit env → machine-local
@@ -374,7 +374,7 @@ def resolve_state_root(repo_root: Optional[str], boot: bool = False) -> str:
     `boot=True` this rare-branch fail-safe is skipped entirely; the fallback
     degrades to the plain `<repo_root>/state` join below instead of calling
     the native resolver. This only changes behavior in the doubly-rare case
-    of (a) current repo root IS `~/.claude` AND (b) the claude-klabauter pointer-file
+    of (a) current repo root IS `~/.claude` AND (b) the engine-repo pointer-file
     fast read came up empty — non-boot callers (full/legacy mode) still get
     the native-resolver fail-safe.
     """
@@ -461,7 +461,7 @@ def _resolve_generator(name: str, repo_root: Optional[str]) -> Optional[str]:
 
     Negative-spec: does NOT hardcode an absolute sibling path — rung 4 delegates
     entirely to `_resolve_claude_klabauter_root_native()`'s env/registry/marker ladder, so
-    this degrades gracefully (returns None) on a machine with no claude-klabauter
+    this degrades gracefully (returns None) on a machine with no engine-repo
     checkout, rather than crashing.
     """
     candidate = _BIN_DIR / name

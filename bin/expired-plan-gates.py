@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """expired-plan-gates — list gated chunk rows on plans that are still live.
 
 WHY THIS EXISTS. `/workday-start` Step 1.2 sweeps `awaiting_gate` off *handoff* frontmatter and
@@ -160,7 +159,7 @@ def main(argv: list[str]) -> int:
             # UnicodeDecodeError is a ValueError, NOT an OSError — catching only the latter lets
             # one non-UTF-8 plan crash the whole sweep with a traceback, which is exactly the
             # non-zero exit this module's contract promises never to produce.
-            # Review: coordinator:code-reviewer — under-reporting is the failure that matters;
+            # under-reporting is the failure that matters;
             # a genuinely live gate on an undecodable plan must leave a trace, not vanish silently.
             print(f"  skipped: {plan} ({exc.__class__.__name__})", file=sys.stderr)
             continue

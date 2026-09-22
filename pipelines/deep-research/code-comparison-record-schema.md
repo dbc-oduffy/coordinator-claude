@@ -1,21 +1,21 @@
 # Code-Comparison Record Schema
 
-Neutral intermediate record schema for the deep-research **code-comparison emission mode** — a single self-contained agent (fan-out shape, not the phased scout→specialist→synthesizer orchestrator of Pipelines A/B/C) that compares a subject repo against a peer/competitor code target and emits structured comparison records. DoE emits an **observed, entity-agnostic** record; market-intel's downstream producer resolves entities (`peer_ref` → `competitor_uid`) and computes merge classification. This doc defines the record shape only — dispatch mechanics for the comparison agent live in a sibling doc.
+Neutral intermediate record schema for the deep-research **code-comparison emission mode** — a single self-contained agent (fan-out shape, not the phased scout→specialist→synthesizer orchestrator of Pipelines A/B/C) that compares a subject repo against a peer/competitor code target and emits structured comparison records. The comparison agent emits an **observed, entity-agnostic** record; market-intel's downstream producer resolves entities (`peer_ref` → `competitor_uid`) and computes merge classification. This doc defines the record shape only — dispatch mechanics for the comparison agent live in a sibling doc.
 
 ---
 
 ## Purpose
 
-Code-comparison mode answers "how does `subject_repo` compare to `peer_repo` on axis X?" for a caller-supplied list of axes, and emits one record per `(repo, axis)` pair. The record is **neutral**: it carries DoE's raw observation (what the agent saw, on which axis, with what evidence) and explicitly omits any resolved-entity or classification data that depends on downstream state the agent does not have visibility into.
+Code-comparison mode answers "how does `subject_repo` compare to `peer_repo` on axis X?" for a caller-supplied list of axes, and emits one record per `(repo, axis)` pair. The record is **neutral**: it carries the agent's raw observation (what the agent saw, on which axis, with what evidence) and explicitly omits any resolved-entity or classification data that depends on downstream state the agent does not have visibility into.
 
 ---
 
-## Design principle — DoE observes, the producer resolves
+## Design principle — the emitter observes, the producer resolves
 
 DoE-deep-research has no visibility into market-intel's `competitors[]` table or prior-merge history. The record format reflects that boundary:
 
-- DoE emits `peer_ref` — the raw, unresolved peer handle it observed (a repo coordinate, else a strong-id coordinate). It does **not** emit `competitor_uid`.
-- DoE emits `observation.verdict` — a raw peer-relative-to-subject comparison. It does **not** emit CONFIRMED/UPDATED/NEW/REFUTED — that classification requires comparing against existing intelligence state, which only the producer has.
+- The agent emits `peer_ref` — the raw, unresolved peer handle it observed (a repo coordinate, else a strong-id coordinate). It does **not** emit `competitor_uid`.
+- The agent emits `observation.verdict` — a raw peer-relative-to-subject comparison. It does **not** emit CONFIRMED/UPDATED/NEW/REFUTED — that classification requires comparing against existing intelligence state, which only the producer has.
 
 See `## Negative Specs` below for the two hard omissions this implies.
 
@@ -201,14 +201,14 @@ The human-readable axis label, carried verbatim from the invoker-supplied axis l
 
 ### `peer_ref`
 
-The raw, unresolved peer entity handle DoE observed. Its vocabulary has two arms, in preference order:
+The raw, unresolved peer entity handle the agent observed. Its vocabulary has two arms, in preference order:
 
 1. **Repo coordinate** — an owner-qualified peer/repo slug (`"peer-org/peer-repo"`) or a clone URL. This is the same identity already present as the permalink target inside `observation.peer.evidence[].url`; it is duplicated here as a first-class field so a downstream consumer can resolve identity without parsing evidence payloads.
 2. **Strong-id coordinate** — a Wikidata QID, else the peer's registrant domain. Used when **no repo coordinate exists**, which is the normal case for an `artifact_forensic` peer: there is no repository, so there is no permalink to ground arm 1 on, and a free string of unspecified shape is not a substitute. See § `evidence_tier` below.
 
 **Negative spec — peer identity is one field, never two.** Both arms live in `peer_ref`; there is no sibling `peer_coordinate`. One identity field keeps one producer-side resolution path: market-intel's `resolve_peer_ref` falls through a `NON_GITHUB_STRONG_ID_LADDER = ("qid", "cik", "domain")` reading `peer_ref` itself. A second field would strand that ladder and fork the natural-key join on which field to read.
 
-**Negative spec 1 — DoE does not emit `competitor_uid`.** The record omits it entirely. Resolving `peer_ref` → `competitor_uid` is a stateful join against market-intel's `competitors[]` table, which is producer-side state DoE has no access to. DoE emits observed identity; the producer resolves entities.
+**Negative spec 1 — the agent does not emit `competitor_uid`.** The record omits it entirely. Resolving `peer_ref` → `competitor_uid` is a stateful join against market-intel's `competitors[]` table, which is producer-side state the agent has no access to. The agent emits observed identity; the producer resolves entities.
 
 ### `observation.peer` / `observation.subject`
 
@@ -252,7 +252,7 @@ properly-tiered one, which is the laundering this field exists to prevent, so th
 the guess.
 
 **Mixed provenance takes the weakest tier on that side.** Any single `artifact_forensic` citation
-makes the whole side `artifact_forensic`, even alongside `source_read` citations. **This is DoE's
+makes the whole side `artifact_forensic`, even alongside `source_read` citations. **This is the agent's
 obligation as the producer, not something a consumer can compute** — `SourceRef` carries no
 per-citation tier, so nothing downstream can recover the mix. The agent resolves it deliberately;
 it never takes the first citation's tier as the side's.
@@ -326,12 +326,12 @@ honest alternative to forcing a directional verdict you cannot support — prefe
 `LOW`-confidence directional guess when you genuinely cannot call the direction; do not fabricate
 a `MEETS`/`LAGS`/`BEATS` verdict just to avoid it.
 
-This is DoE's raw observed comparison. It is not a merge/change-type classification — see § Merge classification below for the distinct, downstream-only taxonomy.
+This is the agent's raw observed comparison. It is not a merge/change-type classification — see § Merge classification below for the distinct, downstream-only taxonomy.
 
 ### `confidence`
 
 One of `HIGH`, `MEDIUM`, `LOW` — the agent's confidence in the observation backing this record.
-**DoE emits the enum only; DoE is the SSOT for confidence.** DoE does not compute or emit a float.
+**The agent emits the enum only; the agent is the SSOT for confidence.** The agent does not compute or emit a float.
 Whether a downstream consumer preserves the ordinal verbatim or projects it onto its own scale is
 that consumer's choice, not asserted here (market-intel, as one such consumer, preserves it
 verbatim — `confidence=None` in its claims ledger, no float projection).
@@ -346,7 +346,7 @@ The rubric is evidence-strength / locatability based, not axis-coverage based:
 
 Free-text annotation elaborating on the observation — context, nuance, caveats.
 
-**Negative spec — `analysis` is never a recommendation.** It documents what was observed and why it matters as a comparison signal; it does not prescribe what the subject repo should do about it. Recommendation authorship, if any, is a downstream/producer or human-consumer concern, not a DoE emission.
+**Negative spec — `analysis` is never a recommendation.** It documents what was observed and why it matters as a comparison signal; it does not prescribe what the subject repo should do about it. Recommendation authorship, if any, is a downstream/producer or human-consumer concern, not an emission from this stage.
 
 ### `observed_at`
 
@@ -369,25 +369,25 @@ The producer's natural key for merging a code-comparison record into its `code_c
 (repo, competitor_uid, signal_id)
 ```
 
-`competitor_uid` is **stamped downstream** by the producer resolving `peer_ref` against its `competitors[]` table — it is never present in the DoE-emitted record. The DoE record carries `repo` + `signal_id` + `peer_ref`, which together give the producer everything it needs to resolve `competitor_uid` and complete the natural key. See § `peer_ref` negative spec above.
+`competitor_uid` is **stamped downstream** by the producer resolving `peer_ref` against its `competitors[]` table — it is never present in the emitted record. The record carries `repo` + `signal_id` + `peer_ref`, which together give the producer everything it needs to resolve `competitor_uid` and complete the natural key. See § `peer_ref` negative spec above.
 
 ---
 
-## Merge classification (applied downstream by market-intel's producer at merge time — DoE does NOT compute this)
+## Merge classification (applied downstream by market-intel's producer at merge time — the comparison agent does NOT compute this)
 
-The CONFIRMED/UPDATED/NEW/REFUTED change-type taxonomy documented in `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/spec-format.md` § Change Type Taxonomy is **shared vocabulary** — the same four labels and definitions apply — but the **actor differs**: in spec-format.md the taxonomy is applied by Pipeline C's own Phase 2/3 verification and synthesis agents against DoE's own prior structured output. Here, it is applied by **market-intel's producer**, at merge time, comparing an incoming code-comparison record's `observation.verdict` against the existing `intelligence[]` entry it resolves to via the natural key above.
+The CONFIRMED/UPDATED/NEW/REFUTED change-type taxonomy documented in `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/spec-format.md` § Change Type Taxonomy is **shared vocabulary** — the same four labels and definitions apply — but the **actor differs**: in spec-format.md the taxonomy is applied by Pipeline C's own Phase 2/3 verification and synthesis agents against this pipeline's own prior structured output. Here, it is applied by **market-intel's producer**, at merge time, comparing an incoming code-comparison record's `observation.verdict` against the existing `intelligence[]` entry it resolves to via the natural key above.
 
-**Negative spec 2 — DoE does not compute CONFIRMED/UPDATED/NEW/REFUTED for code-comparison records.** The comparison agent emits `observation.verdict` (MEETS/LAGS/BEATS) only. Whether that verdict is a `NEW` signal, an `UPDATE` to a prior verdict, a `CONFIRMED` restatement, or a `REFUTED` contradiction is determined entirely downstream, because only the producer has the prior `intelligence[]` state to compare against.
+**Negative spec 2 — the comparison agent does not compute CONFIRMED/UPDATED/NEW/REFUTED for code-comparison records.** The comparison agent emits `observation.verdict` (MEETS/LAGS/BEATS) only. Whether that verdict is a `NEW` signal, an `UPDATE` to a prior verdict, a `CONFIRMED` restatement, or a `REFUTED` contradiction is determined entirely downstream, because only the producer has the prior `intelligence[]` state to compare against.
 
 ---
 
 ## Negative Specs — Summary
 
-1. **No `competitor_uid` in the DoE record.** `peer_ref` is emitted raw; entity resolution is producer-side.
-2. **No merge classification in the DoE record.** `observation.verdict` is emitted raw; CONFIRMED/UPDATED/NEW/REFUTED is producer-side, computed against prior `intelligence[]` state DoE cannot see.
+1. **No `competitor_uid` in the emitted record.** `peer_ref` is emitted raw; entity resolution is producer-side.
+2. **No merge classification in the emitted record.** `observation.verdict` is emitted raw; CONFIRMED/UPDATED/NEW/REFUTED is producer-side, computed against prior `intelligence[]` state the agent cannot see.
 3. **No agent-coined axes.** The axis list (and thus the `signal_id` slugs derived from it) is invoker-supplied input, never agent-invented.
 4. **`analysis` is never a recommendation.** It annotates the observation; it does not prescribe subject-repo action.
-5. **`confidence` is an enum, never a float.** DoE is the SSOT for confidence and never computes or emits a float; whether a downstream consumer preserves the ordinal verbatim or projects it is that consumer's choice, not DoE's concern.
+5. **`confidence` is an enum, never a float.** The emitting agent is the SSOT for confidence and never computes or emits a float; whether a downstream consumer preserves the ordinal verbatim or projects it is that consumer's choice, not the emitter's concern.
 6. **Peer identity is one field.** Both `peer_ref` arms live in `peer_ref`; there is no sibling `peer_coordinate`.
 7. **`evidence_tier` has two members and no third.** `behavioral` — a target's self-report about its own capabilities — is excluded, and tier is carried per-side, never per-record.
 
@@ -420,12 +420,12 @@ path (e.g. a bare `~/.claude/...` or absolute-machine path). The seam is stable 
 stub-to-live transition, so live-emit wiring does not migrate the path a second time.
 
 **The bound path is `<repo-root>/state/emissions/code-comparison/`** — `<repo-root>` is the root
-of the repo running the comparison, resolved via that repo's own tree-root pointer (for DoE, the
+of the repo running the comparison, resolved via that repo's own tree-root pointer (for this repo, the
 `.doe-root` pointer; never `${CLAUDE_PLUGIN_ROOT}`, which names the plugin source tree under
 `<repo-root>/coordinator/`, not the repo root that `state/` sits under). Each repo binds its own
 code-comparison agent's output path to this directory, relative to its own root, plus a
 run-scoped filename; `state/emissions/code-comparison/README.md` states the arrival contract for
-DoE's own copy of this directory.
+this repo's own copy of this directory.
 
 ### Emit file format and filename
 
@@ -454,7 +454,7 @@ contract if either stops holding:
   `origin/main` — queries across repos' handoff directories and projects results into
   `code_comparisons[]`. No repo emits into a void.
 - **The DEC-1 boundary is ratified on both sides.** DEC-1 is the boundary this whole schema
-  expresses: DoE emits a neutral, entity-agnostic intermediate record, and the producer resolves
+  expresses: the comparison agent emits a neutral, entity-agnostic intermediate record, and the producer resolves
   entities and classifies merges. Both repos carry the same wire vocabulary, market-intel's at
   `EMISSION_SCHEMA_VERSION = "3.6.0"`.
 
@@ -469,7 +469,7 @@ at both tiers — see § `evidence_tier`.
 ### What is wired
 
 The code-comparison agent's output path is bound to `<repo-root>/state/emissions/code-comparison/`
-(§ Path resolution above) — the driver no longer leaves it an EM fill-in. DoE's own copy of the
+(§ Path resolution above) — the driver no longer leaves it an EM fill-in. This repo's own copy of the
 directory exists on disk, tracked, and empty: landing this wiring authorizes no comparison run on
 its own, and the local-only fence in `code-comparison-agent-prompt-template.md` is unchanged. No
 repo writes into `intelligence[]` or any producer envelope — that projection stays market-intel's,

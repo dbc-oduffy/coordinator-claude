@@ -140,6 +140,33 @@ Which agents sit in which band is the registry's business, not this page's. None
 **Hold effort constant per agent rather than varying it per dispatch.** An effort change
 invalidates the prompt-cache prefix, so churning the value costs cache re-creation on every flip.
 
+## The model axis — measured 2026-09-19
+
+This page states the *effort* axis in full; the sibling *model* axis (`model: opus` on the
+`persona` and `orchestrator` bands) went unmeasured until this pass. Full method, arms, and
+per-row reasons: `docs/research/2026-09-11-opus-model-tier-measurement.md`.
+
+**`orchestrator` band — measured, STAYS on `opus`.** All three rows
+(`research-synthesizer`, `structured-synthesizer`, `research-sweep`) share one band-level
+result: `opus/low` (production config) beats both `sonnet` arms at matched effort on a real
+reconciliation task, `opus/medium` is the ceiling, and blind judging ranks `opus/medium`
+unanimous #1 on both surfaces measured. No `sonnet` arm is competitive at any effort tested.
+This is a measured STAY, not an unexamined default.
+
+**`persona` band — measured, STAYS on `opus`, and the stay is not this plan's to move
+regardless of direction.** The persona-surface measurement (real code review, ten persona
+contracts run as one surface) also reads STAY: both `opus` arms clear both `sonnet` arms on
+recall and blind ranking, a narrower gap than the orchestrator surface but the same direction.
+Independent of what the evidence found, every persona row's `description:` carries a literal
+`Personas are Opus-only.` clause, pinned by
+`coordinator/tests/test_boot_description_envelope.py :: test_persona_clause_within_first_1024_chars`
+and restated by eight further doctrine surfaces — any model-tier move on this band needs that
+clause and doctrine addressed first, which this page and this measurement do not do. 
+**What the model-axis measurement does not cover:** every run was tools-denied, so nothing here
+describes `ReportFindings`-mediated behaviour; and both real surfaces sampled are narrower than
+each band's full remit. See the research record's "What this does not establish" section for the
+full list, including the absent dollar-cost figure.
+
 ## Negative spec
 
 This wiki does **not** cover context-pressure estimation or the 40/47 bands — see

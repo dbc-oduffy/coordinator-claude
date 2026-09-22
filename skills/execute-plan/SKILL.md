@@ -106,11 +106,19 @@ calls its code. Read it, never derive it —
 that is the correct state. Tripwire: `A-PLANNING-GATE-IS-NOT-AN-EXECUTION-GATE`.
 
 Claim the plan (`session-claim-cli claim-plan <slug> --for-execution`) before any gate-graph work
-— a live peer holding it means reconcile with them first, never race. **`--for-execution` is not
+— a live peer holding it means reconcile with them first, never race. A live holder that has
+formally handed off — relinquishment evidence present, not mere liveness — is not "reconcile with
+them"; `take_over_claim` is the named next move, fail-loud without evidence and never a bare retry
+of `claim-plan` (`docs/decisions/DR-205-claim-relinquishment-is-not-liveness.md`). **`--for-execution` is not
 optional here.** It is what flips the plan to `status: executing`, and this step is its only
 caller fleet-wide; a bare `claim-plan` takes the lock and leaves the plan reading `draft` through
 its entire execution. The flag is scripted into this step, not typed by the EM — the rung stays
 invisible, per `coordinator-tripwires/plan-status-ladder.md`.
+
+Immediately after that claim, run `plan-completeness generate "$ARGUMENTS"`. This is a BASELINE
+SNAPSHOT of the plan at execution start, nothing more — nothing reads it to steer dispatch, and
+the wave-map does not consume it. Its value is the diff against the Phase 4 run: it is honest
+about being a snapshot of a recompute-on-read projection, not a live signal.
 
 **Plan prose does not pick the vehicle.** An Anti-scope or body sentence forbidding fan-out, or
 prescribing EM-sequenced chunk-at-a-time execution, is overridden here: the vehicle follows from
@@ -152,7 +160,7 @@ hand-authored wave map, or a chat emission of a wave table.
 
 **Emit and dispatch are ONE action, and the dispatch leg is not optional.** In an interactive
 session the EM runs `python <plugin-root>/bin/emit-dispatch-workflow.py --plan <plan-path>`
-(plugin-local, no settings-home launcher — resolve per `snippets/resolve-coordinator-bin.md`
+(plugin-local, no settings-home launcher — resolve per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`
 § CLIs with no launcher; never cwd-relative), then
 calls `Workflow({scriptPath: "<emitted path>"})` in this session. The emitter's output is already a
 valid `scriptPath` input — no flag, no re-authoring. That call carries the same imperative force as
@@ -296,9 +304,39 @@ no queue id/spine row/commit behind it is not a routed item.
 
 ## Phase 4: Finalize and Report
 
-**Precondition:** every wave-map chunk has landed, confirmed via the recovery triple.
-Unconfirmed chunks → return to Phase 3. Leg 1 (chunk-id subject match) yields candidates, never a
-verdict — corroborate against leg 2 or leg 3.
+**Precondition:** every wave-map chunk has landed, confirmed via the recovery triple. Unconfirmed
+chunks → return to Phase 3. Leg 1 alone yields candidates, never a verdict — corroborate against
+leg 2 or leg 3.
+
+1. **Leg 1 — `chunk-commits <plan-path> <chunk-id>`**, the engine op purpose-built for this read
+   (`ceremony.chunk_commits`): it resolves the plan's own add-commit, range-scopes to
+   `<add-sha>..HEAD`, and filters on the commit SUBJECT (never `--grep`, which false-positives on
+   body-line matches). Its own negative-spec is the reason: it never accepts a pathspec-scoped
+   query — a doctrine-conforming chunk commit is forbidden from touching the plan document
+   (`snippets/plan-doc-oos-block.md`), which is exactly what Phase 4's own scoped-commit mandate
+   above requires — so a pathspec-scoped join returns empty on every conforming plan and reports
+   every chunk missing, at exit 0. Meeting a `no_join_candidates`-shaped result is this
+   contradiction, not a sign the chunks didn't ship; the subject-prefix join `chunk-commits` does
+   internally is the only one that works. It is also never a bare repo-wide/all-branches grep:
+   chunk ids restart at C1 per plan, so an unscoped grep can match a different plan's
+   same-numbered chunk and report this plan's precondition satisfied when it was never
+   dispatched — `chunk-commits`' fixed `<add-sha>..HEAD` anchor is not caller-overridable, so
+   this failure mode is unreachable through it.
+2. **Leg 2 — the Workflow's own resumable script**, persisted and resumable via
+   `resumeFromRunId` (Phase 1 above).
+3. **Leg 3 — the Task-list flight recorder** (Phase 2 above), persists through compaction by
+   design.
+
+The engine-side half of this same join defect is the engine repo's, tracked at the engine repo's
+`state/sizings/2026-08-08-close-out-and-stamp-no-join-candidates-s.yaml` — one contradiction, not
+two independent bugs.
+
+This defect has been found three times independently and credited zero:
+`state/lessons/2026-07-27-the-chunk-shipped-recovery-signal-keys-o-4eb89c9a1830.yaml` ("corroborate
+against the other two legs of the triple ... plus a git log by chunk-id subject unscoped by path")
+and `state/lessons/2026-07-31-a-closure-detector-keyed-on-the-plan-pat-83ecabed9809.yaml` ("key the
+detector on something the permitted writer produces (the chunk-id commit subject anywhere in
+range, not filtered by path)").
 
 **`close-out-and-stamp` reads no commit message at all.** The commit-subject/`Deliverable-Id`-trailer
 join was deleted — not narrowed — on measured low recall; its absence is a
@@ -332,6 +370,11 @@ commit:**
    actually landed: `disposition_ref` is hand-written and the anti-self-attestation gate cannot
    catch a row pointing at a peer's commit, since that commit is an ancestor of `HEAD` too — a
    spine can be fully green and fully misattributed.
+2.5. Run `plan-completeness status "$ARGUMENTS"` against the plan. `status` never writes, so the
+   Phase 1.5/1.6 baseline sidecar survives untouched. Paste its raw rollup line into
+   `exit_criterion_met.prose`, beside the baseline's own rollup line — the diff between the two is
+   the ledger's value here, not either line alone. Any `CONTRADICTION: ` line in the output carries
+   verbatim into the close-out report; never stamp over it silently.
 3. Re-run `prime_exit_criterion.falsifier.how` against `HEAD`, paste its raw output into
    `exit_criterion_met.falsifier_output`, and judge it against
    `prime_exit_criterion.falsifier.expected_when_true` — never against `baseline_output`. Record
@@ -401,7 +444,10 @@ wanting to check in. Record `Tried:/Failed:` in the plan doc and the task's
 ## Relationship to Other Commands
 
 Default upstream entry is `/handoff` + `/pickup`: review can stamp `execution_authorized_at` as
-supporting evidence and writes an execution handoff. `/enrich-and-review` runs before
-dispatch when the plan isn't chunk-ready; `/review-code` is an optional post-execution pass. `coordinator:workstream-complete`
+supporting evidence and writes an execution handoff. Enrichment appropriate to the plan's size
+has already happened upstream — for L/XL plans, via the size-keyed lane dispatch of
+`coordinator:enricher` directly over the plan body (see the plan's residue segments), not via
+`/enrich-and-review`, which remains a separate chunk-directory/stub pipeline this skill does not
+route through. `/review-code` is an optional post-execution pass. `coordinator:workstream-complete`
 is offered, never auto-invoked, in Phase 4; `coordinator:finishing-a-development-branch` is not
 chained here — reached separately via `/merging-to-main`. Full failure-mode table: wiki.

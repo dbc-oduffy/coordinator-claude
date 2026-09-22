@@ -1136,8 +1136,8 @@ targets:
         - "hooks"
         - "lib"
         - "skills"
-    # The mirror's own CI harness (33 files: run-all-checks.py and the checkers it
-    # drives, allowlists, issue/PR templates, workflows). Homed at
+    # The mirror's own local validation harness (run-all-checks.py and the checkers it
+    # drives, allowlists, issue/PR templates; no workflows). Homed at
     # dist/mirror-native/coordinator-claude/.github/ after a clean-slate mirror
     # rebuild (2026-08-05) found it existing ONLY in the publish repo, authored
     # nowhere in source -- the mirror could not be reconstructed from this tree,

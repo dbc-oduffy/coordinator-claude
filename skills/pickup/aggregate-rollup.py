@@ -360,10 +360,10 @@ def _default_repo_root() -> Path:
     that repo from every repo on the box and would be the wrong default.
     """
     # Review: overengineering-reviewer — the cwd-upward `.git` walk is shared via
-    # hooks/scripts/repo_root.py (also used by mise-prep-gate.py) rather than a seventh copy.
+    # hooks/scripts/_repo_root.py (also used by mise-prep-gate.py) rather than a seventh copy.
     if str(_HOOKS_SCRIPTS_DIR) not in sys.path:
         sys.path.insert(0, str(_HOOKS_SCRIPTS_DIR))
-    from repo_root import repo_root
+    from _repo_root import repo_root
 
     return repo_root(Path(__file__).resolve().parents[3])
 

@@ -20,7 +20,7 @@ This ceremony is computed end to end — session-shape, plan reconciliation, les
 ## Compute the ceremony
 
 Shown in Shape W (PowerShell, rung 0). POSIX hosts take Shape A/B — ladder/shapes:
-`snippets/resolve-coordinator-bin.md`.
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\workstream-complete-assemble.exe" brief [--decisions-file <path>]`
 **Prefer `--decisions-file` on both subcommands; `--decisions '<json>'` is the short-payload
@@ -36,10 +36,10 @@ Returns `artifact`/`preflight`/`gates`/`directives`/`judgment_points`/`decisions
 
 **Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 
-- **Review-partition dispatch**: freeze each slice's diff first; one `code-reviewer` per slice, `run_in_background: true`; one 1:1 `review-integrator` per slice, never a union-integrator. Unconditional on verdict — an `OK` slice with findings is still a slice with findings; a reviewer's self-disposition closes nothing. Tripwire: `REVIEWER-SELF-DISPOSITION-IS-NOT-CLOSURE`. **Exception:** `rebuild_recommended: true` (`agents/overengineering-reviewer.md` § Rebuild Verdict) never enters this integrator path — take the next bullet.
+- **Review-partition dispatch**: freeze each slice's diff first; one `code-reviewer` per slice, `run_in_background: true`; one 1:1 `review-integrator` per slice, never a union-integrator. Unconditional on verdict — an `OK` slice with findings is still a slice with findings; a reviewer's self-disposition closes nothing. Tripwire: `REVIEWER-SELF-DISPOSITION-IS-NOT-CLOSURE`. **Exception:** `rebuild_recommended: true` (`agents/overengineering-reviewer.md` § Rebuild Verdict) never enters this integrator path — take the next bullet. This is the partitioned-close carve-out `coordinator/skills/review/SKILL.md` § A.3 names: each slice is its own diff, its own lens, so fanning them out is not the same-artifact race that rule forbids.
 - **Rebuild-verdict routing**: on `rebuild_recommended: true`, do NOT dispatch `review-integrator` for that slice. Dispatch one `coordinator:executor` with an explicit refactor remit: brief body = `rebuild_rationale`, `writes:` scope = the file/module boundary named in `rebuild_scope` (never wider), brief states plainly this is a rebuild, not a findings pass. Ordinary findings travel in the same brief as context — one slice, one route, never both. Record the dispatch (target, verdict, outcome) in the closing session's run-report sidecar. Tripwire: `A-REBUILD-VERDICT-IS-NOT-A-FINDINGS-LIST`.
 - **Doc-fragile domain lens**: `compute_doc_fragile_gate` match → dispatch `coordinator:docs-checker` alongside `code-reviewer`, same diff.
-- **Execution-observations fold**: read each sidecar's `divergence` as quoted narrative, never EM-authored prose; surface a crashed-executor marker before deleting it.
+- **Execution-observations fold**: read each sidecar's `divergence` as quoted narrative, never EM-authored prose; surface a crashed-executor marker before deleting it. For a plan carrying a `## Tasks` spine, cite `plan-completeness status <plan-path>`'s divergence rollup — including its non-conformant count — rather than re-reading N per-chunk sidecars one at a time; a plan predating the spine still reads sidecars directly.
 - **Memo-resolution / self-clean disposition**: no signal for which memos resolved, or which scratch files to keep — ask/decide once, plain prose; evidence is surfaced, never picked.
 - **Session Ledger row append** (predecessor-consumed only): one row to the consumed handoff's `## Session Ledger` — the sole edit `/pickup`'s frozen-body rule carves out. Append via the `handoff.append_session_ledger` engine op, never a hand-typed row.
 - **Prime exit criterion assertion**: a plan this session executed whose `exit_criterion_met` is absent blocks the close — no directive computes it. `asserted: false` is a legitimate, first-class outcome and does not block: it routes to `/handoff` or a Phase-5 halt.
@@ -52,10 +52,11 @@ Returns `artifact`/`preflight`/`gates`/`directives`/`judgment_points`/`decisions
      `sweep-terminal-handoffs`. Idempotent, sub-second no-op when there is nothing to move; also
      drains other sessions' terminal residue.
   3. **Check the close condition: `state/handoffs/` holds no record carrying a terminal
-     `deployment_state`** (`shipped`/`continued`/`closed`, plus legacy `abandoned` —
+     `deployment_state`** (`shipped`/`continued`/`closed` —
      `HANDOFF_TERMINAL_DEPLOYMENT`; `declined`/`superseded` are sizing-object and retired-handoff
      `status` values, never `deployment_state`) **when this ceremony reports complete.** Never
      defer the drain to the next ceremony.
+     <!-- enum-prose: schema=handoff field=deployment_state omit=awaiting_gate,ready_to_fire,in_flight -->
 
   `[[terminal-batons-are-swept-at-close-not-left-to-the-next-ceremony]]`
 - **Kira-routing enforcement is mechanical, not prose**: checked by
@@ -68,7 +69,22 @@ Returns `artifact`/`preflight`/`gates`/`directives`/`judgment_points`/`decisions
 
 ## Resolve judgment points
 
-**3 classes.** 1 = CLI-computable (not listed here). 2 = interpretation, but not *this EM's* — closed enum, a differing answer demonstrably wrong; demote when possible. 3 = judgment/taste/tradeoff. A re-test names a class per item it **keeps**, not only those it demotes.
+**The discriminator: a judgment point earns its place only if a different competent EM, with the
+same artifacts on disk, could reasonably answer it differently.** `A-FACT-WITH-A-CLOSED-ENUM-IS-NOT-A-JUDGMENT-POINT`.
+
+**3 classes.** 1 = CLI-computable (not listed here). 2 = interpretation, but not *this EM's* — the
+passage raising it already specifies the inputs and closes the output enum, so a differing answer
+is demonstrably wrong, not merely differently defensible; demote off the EM's plate when a
+demotion path exists, and when none does it is carried as a judgment point **by necessity**, named
+as such. 3 = judgment/taste/tradeoff — two competent EMs can disagree and both be right. **Do not
+author a fact as a judgment point when the same passage specifies its inputs and output enum** —
+that is class 2, not class 3. Calibration: `completion-nature-classification` (four inputs, closed
+output enum off the diff — a differing classification is demonstrably wrong) is class 2;
+`review-partition-strategy` and `finding-tradeoff-escalation-check` (below) take a diff and a
+review posture but close on no enumerable output — two competent EMs partition or weigh a tradeoff
+differently and both are defensible, so they stay class 3. A re-test names a class per item it
+**keeps**, not only those it demotes — a keep with no stated class is the tell the test was not
+applied.
 
 **A shipped `recommendation` is applied by default and shown, not asked** — carry it into the decisions map and report what was filed as a receipt (`completion-nature-classification`/`jp-coverage-verdict` both ship one). A null earns attention only when genuine: `jp-session-shape` always, `jp-review-scale` while unresolved, tail-blocking scaffold/commit-subject/consumed-handoff whenever they fire. Blocked computation or a missing producer is a break-class engine defect — resolve cheaply or memo, once confirmed absent.
 
@@ -108,13 +124,16 @@ computation to answer it.
 
 `scan_dispatch_output(text) -> bool` checks every completed Agent dispatch's return body before any verdict-ok record (`QUOTA-EXHAUSTED-DISPATCH:` is sufficient alone). Trivial (row 1/2) sessions write no trail record; PM-waived logs `--reviewer waived --verdict waived`; `em-verified` is a review you ran yourself, never `waived` — both need ≥20-char justification.
 
+**A dispatch that went idle without returning is a DELIVERY failure, not an execution one — recover the report before reaching for `em-verified`.** The agent's final text is on disk at `~/.claude/projects/<project-slug>/<session-id>/subagents/agent-<name>-<hash>.jsonl`; the report is the last assistant message's `text` block, and `stop_reason: end_turn` on it confirms a clean finish. Writing `em-verified` over a verdict you never read replaces an independent reviewer's finding with your own and still writes a green trail. Tripwire: `AN-IDLE-SUBAGENT-HAS-NOT-NECESSARILY-FAILED`.
+
 **The review record is the RECEIPT on the reviewer's sidecar, not a trail record you write.** A dispatched `code-reviewer`/`review-integrator` stamps `review_receipt:` (session id, agent id, agent type, `stamped_at`) into its own sidecar frontmatter as it finishes; `gates.review_receipt` reads it, `jp-review-receipt-block-stamp` gates the terminal stamp on it. **Dispatching the reviewer records the review; the reviewer returning discharges it** — you write nothing.
 
-- The engine splices that receipt at spawn, so a crashed or still-running reviewer carries one identical to a finished reviewer's; confirm the return (`scan_dispatch_output`) before reading the gate as green. Tripwire: `A-RECEIPT-SPLICED-AT-SPAWN-ATTESTS-DISPATCH-NOT-COMPLETION`.
-- `blocks: false` on that gate is the close's review record. A `detail` reading `no integrator receipt (review ran, findings not recorded as applied)` means the EM folded the findings in — legitimate for a `code-reviewer` slice (say so at close), **never legitimate for a Kira verdict carrying findings** (`guard-kira-verdict-routed` hard-stops otherwise). Already applied them yourself? Dispatch the integrator over your own application.
-- **`decisions["review"]` keys go nested under `"review"`, never flat `review_*`** — flat keys silently skip `d-attest-review-verified` while exiting 0.
+- The engine splices that receipt at spawn, so a crashed/still-running reviewer carries one identical to a finished reviewer's; confirm the return (`scan_dispatch_output`) before reading the gate as green. Tripwire: `A-RECEIPT-SPLICED-AT-SPAWN-ATTESTS-DISPATCH-NOT-COMPLETION`.
+- `blocks: false` on that gate is the close's review record only when a reviewer this close dispatched has returned; per-wave receipts never discharge it. `detail: no integrator receipt (review ran, findings not recorded as applied)` means the EM folded findings in — legitimate for a `code-reviewer` slice, **never for a Kira verdict carrying findings** (`guard-kira-verdict-routed` hard-stops otherwise). Applied them yourself? Dispatch the integrator over your own application. Per-wave sidecars are integration inputs only: `workstream-complete-review.md` § Per-wave sidecars are integration inputs, never the close's review record — NO-AUTO-INTEGRATE, an emitted Workflow never gains integrator-dispatch authority.
+- **`decisions["review"]` keys nest under `"review"`, never flat `review_*`** — flat keys silently skip `d-attest-review-verified` while exiting 0.
 - **`decisions["review"]` itself is dict-XOR-list, never both.** Single-slice close → flat dict under `"review"`; partitioned close → a list, one dict per slice, in slice order.
-- **Never hand-roll a per-commit trail write.** `review_trail.write` and its CLIs are a K-060 gravestone whose successor is this receipt; a refusal from them is the dead surface answering, not a signal about your close. Tripwire: `A-SUSPENDED-OP-IS-NOT-A-MECHANISM-TO-WAIT-OUT`.
+- **Never hand-roll a per-commit trail write.** `review_trail.write` and its CLIs are a K-060 gravestone whose successor is this receipt; a refusal from them is the dead surface answering, not a signal about your close. An unrecordable real review is a named-cause open gap — naming it *is* the discharge; narrowing the range, dropping a slice, or lowering scale until something writes is forbidden here for the same reason it's forbidden with no review at all. Tripwire: `A-SUSPENDED-OP-IS-NOT-A-MECHANISM-TO-WAIT-OUT`.
+- **On total refusal — no trail record can be written at all — `decisions["review"]` still resolves, never left empty.** `verdict: blocked` with no trail write is legal: `apply` never writes a trail record regardless of outcome (`review_trail.write` is the K-060 gravestone with no returning successor; the reviewer's own sidecar receipt is the only artifact). `reviewer_evidence` names the gap and its cause in place of a resolvable path or receipt — the same ≥20-char justification `em-verified`/`waived` require — never a narrowed range or lowered scale standing in for it.
 
 **`sha_range` must contain only this session's own commits** — a foreign-session guard refuses a range carrying another session's `Session-Id` trailer (normal on a shared branch); write one per-slice record per commit instead (`<sha>~1..<sha>`). **Slice; never narrow** (`SLICE_NEVER_NARROW`) — narrowing the range or lowering scale until something writes is forbidden even when the review ran; a legitimate exclusion states itself and its LOC.
 
@@ -157,9 +176,9 @@ engine derives and defaults none. **No fallback arm**: no commit touched the del
 `shipped` — routes to `closed` (with `closed_reason`) or `continued`, never a placeholder or
 nearest sha.
 
-**An entry is silently dropped unless four preconditions hold**: an object (never a bare string); this session holds the claim; the record is still active under `state/handoffs/` at invocation; `decisions` also carries a `subject`. Miss one and `apply` drops the entry with no error.
+**An entry is silently dropped unless three preconditions hold**: an object (never a bare string); this session holds the claim; the record is still active under `state/handoffs/` at `apply` invocation (not a later commit-tail moment). Miss one and `apply` drops the entry with no error — a silent skip, not a raised error. **Separately, reachability**: the whole disposition leg runs only when `decisions` also carries a `subject` — a payload emitted on a close with no `subject` is read by nothing.
 
-**Two reachable states get no entry at all — deliberate omission, not the drop above.** (1) The deliverable is carried only by the close's own commit: no `shipped_in` sha exists yet, no `closed_reason` is honest, `continued` is refused. (2) The record was already archived by `/handoff`'s supersession route. Both hand the terminal stamp to the residual hand route (§ Genuine EM actions). **Nothing wider** — a `closed`/`abandoned`/`continued` baton outside those two states is always emitted.
+**Two reachable states get no entry at all — deliberate omission, a narrow named carve-out, never the memo's blanket exclude-by-omission rule (which told this repo to omit every non-`shipped` baton and starved the disposal leg).** (1) The deliverable is carried only by the close's own commit: no `shipped_in` sha exists yet, no `closed_reason` is honest, `continued` is refused. **Payload: omit the baton**, and the terminal stamp is owed to the residual hand route (§ Genuine EM actions). (2) The record was already archived — typically by `/handoff`'s supersession route, the only writer of `deployment_state: continued`, which archives the predecessor in the same move on a clean chain. **Payload: omit the baton.** **Nothing wider** — a `closed`/`abandoned`/`continued` baton outside these two named states is always emitted.
 
 **The payload implies a ceremony order — transition, dispose, archive — not optional.** `continued` is refused unless `deployment_state` already reads `continued` (transition before disposal); disposition is refused once the record has left `state/handoffs/` (disposal before archival, never after). A successful disposal releases this session's claim; `closed`/`abandoned` alike land the record at `deployment_state: closed`.
 

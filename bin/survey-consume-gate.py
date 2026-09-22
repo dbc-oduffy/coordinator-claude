@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """coordinator/bin/survey-consume-gate.py — EM-side Phase-0.5 consume-gate,
 in-process.
 
@@ -138,6 +137,20 @@ def _invoke_op(claude_klabauter_root: str, op: str, params: dict[str, Any]) -> t
 
     if proc.returncode != 0:
         raw = proc.stdout or proc.stderr or ""
+        # The envelope this docstring promises on a non-zero exit carries the
+        # JSON-RPC error CODE, and it is the ONLY place the code appears for a
+        # killed op: `cartography.churn` exits 1, so the exit-0 capture below
+        # never sees it and the killed-op discriminator downstream reads the
+        # break as a routine decline. Same bug, one layer up, as the one
+        # `_LAST_OP_ERROR_CODE` exists to close.
+        try:
+            envelope = json.loads(raw)
+        except Exception:
+            envelope = None
+        if isinstance(envelope, dict):
+            err = envelope.get("error")
+            if isinstance(err, dict) and isinstance(err.get("code"), int):
+                _LAST_OP_ERROR_CODE[op] = err["code"]
         return proc.returncode, None, raw
 
     try:
@@ -557,6 +570,13 @@ def run_gate(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """`argv` is unused: this CLI's whole config arrives over stdin (module
+    docstring's I/O contract), never as positional/flag arguments. The
+    parameter exists only so `serve_classifier.py` classifies this name as
+    warm-servable (`main(argv)` arity, not `main()`); the door still hands
+    the caller's argv here on both the cold and warm paths, and this
+    function simply does not read it.
+    """
     try:
         raw = sys.stdin.read()
     except Exception as exc:

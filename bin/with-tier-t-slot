@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+"""with-tier-t-slot — acquiring wrapper for one slot of the machine-wide
+Tier-T semaphore (coordinator_core.testing.tier_t_slots).
+
+WHY THIS EXISTS: `check_test_suite_invocation`'s Tier-T legs can only ALLOW or
+DENY at the instant a command is submitted. A resource bound needs a third
+answer — "not yet, go ahead in a moment" — and a PreToolUse guard has no way to
+express it, because it is never told when a command it allowed has finished.
+This wrapper is where that answer lives: it blocks until a slot frees, runs the
+command, and releases on the way out. The guard's job reduces to requiring the
+wrapper; the counting happens here, where the command's lifetime is known.
+
+WAITING, NOT REFUSING, is the whole design. A dispatched agent denied for load
+has no good move: it retries, or it reports a failure that is really a queue.
+A fan-out of 876 scoped runs should COMPLETE, taking K at a time, and that is
+what this produces — the bound stops being something a caller can violate and
+becomes something it cannot perceive except as latency.
+
+Usage:
+    with-tier-t-slot [--owner-label LABEL] [--wait SECS] -- <command> [args...]
+
+    with-tier-t-slot -- python3 -m pytest path/test_x.py::test_case
+
+Every flag MUST appear before the `--` separator; nothing after it is
+interpreted, matching with-suite-mutex's and scoped-git-commit's hard split.
+
+Negative spec:
+  - Does NOT parse, validate, or rewrite the wrapped command. It is not
+    runner-aware and must not become so; whether the command deserves a slot is
+    the guard's question, not this wrapper's.
+  - Does NOT impose a wall-clock ceiling on the child. `with-suite-mutex` needs
+    one because a wedged suite holds a fleet-wide mutex that nothing else can
+    break; here a wedged run's SLOT is reclaimed by `SLOT_STALE_TTL_SECS`
+    without touching the process, so the box keeps its K and the operator keeps
+    their runaway to debug. Killing a scoped test run is not this tool's call.
+  - On acquisition timeout it runs the command ANYWAY (fail OPEN) rather than
+    refusing, matching `suite_mutex`'s take-side posture. A semaphore that turns
+    into an outage when the box is busy is worse than one that occasionally
+    admits K+1.
+  - Exit code is the child's, unmodified.
+"""
+
+from __future__ import annotations
+
+import os
+import signal
+import subprocess
+import sys
+from typing import List, Optional, Tuple
+
+
+def _wants_help(argv: List[str]) -> bool:
+    """True for `--help`/`-h` among this wrapper's own flags. Tokens after `--`
+    belong to the child: `with-tier-t-slot -- pytest -h` runs pytest's help."""
+    flags = argv[: argv.index("--")] if "--" in argv else argv
+    return "--help" in flags or "-h" in flags
+
+
+# `--help` exits 0 with usage on stdout, rather than joining
+# `percolate.engine._USAGE_NONZERO_ENTRYPOINTS`. That list exists for CLIs
+# whose `--help` reaches their own parser and exits non-zero, and its own
+# comment block records the cost of membership: the gate classifies ANY
+# non-zero exit from a listed entry as a usage hit, so a regression that
+# turns the CLI into one that crashes on startup is silently reported as a
+# PASS. Answering `--help` honestly keeps this entrypoint genuinely gated
+# instead of permanently excused.
+#
+# Answered BEFORE the engine bootstrap below: the entrypoint gate runs
+# `--help` with no machine-local registry, where `require_engine_on_path`
+# raises. Help text must not depend on an engine it does not use.
+if __name__ == "__main__" and _wants_help(sys.argv[1:]):
+    print(__doc__.strip())
+    sys.exit(0)
+
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+
+from cc_invoke import require_engine_on_path  # noqa: E402
+
+# Same bootstrap as with-suite-mutex: this file is also published into the
+# claude-klabauter mirror, where coordinator_core is not pip-installed and
+# sys.path[0] is this bin/ directory rather than a checkout root.
+require_engine_on_path(__file__)
+
+from coordinator_core.testing import tier_t_slots  # noqa: E402
+
+_DEFAULT_OWNER_PREFIX = "with-tier-t-slot"
+
+#: How long to wait for a slot before proceeding unserialized. Generous: the
+#: runs this bounds are short by construction, so a caller that waits this long
+#: is behind a genuinely full box rather than a wedged one, and the alternative
+#: to waiting is making the box worse.
+_DEFAULT_WAIT_SECS = 300.0
+
+_USAGE = (
+    "Usage: with-tier-t-slot [--owner-label LABEL] [--wait SECS] -- <command> [args...]"
+)
+
+
+def _install_signal_handlers() -> None:
+    """Route SIGTERM/SIGBREAK through KeyboardInterrupt so the slot is released
+    on every interrupt style, not only a literal Ctrl-C. Best-effort: a signal
+    absent on this platform is a silent no-op, never a startup failure.
+    """
+
+    def _handler(signum, frame):  # noqa: ANN001 - stdlib signal handler shape
+        raise KeyboardInterrupt()
+
+    for name in ("SIGTERM", "SIGBREAK"):
+        sig = getattr(signal, name, None)
+        if sig is None:
+            continue
+        try:
+            signal.signal(sig, _handler)
+        except (ValueError, OSError):
+            pass
+
+
+def _parse_args(argv: List[str]) -> Tuple[Optional[str], float, List[str]]:
+    """Parse argv into (owner_label, wait_secs, command).
+
+    Returns (None, 0.0, []) with an error already printed on a malformed
+    invocation — no `--`, a `--` with nothing after it, or an unknown flag.
+    """
+    if "--" not in argv:
+        print(
+            "with-tier-t-slot: missing required `--` separator before the command.\n" + _USAGE,
+            file=sys.stderr,
+        )
+        return None, 0.0, []
+
+    sep = argv.index("--")
+    flags, command = argv[:sep], argv[sep + 1:]
+
+    if not command:
+        print(
+            "with-tier-t-slot: `--` must be followed by at least one command token.\n" + _USAGE,
+            file=sys.stderr,
+        )
+        return None, 0.0, []
+
+    owner_label: Optional[str] = None
+    wait = _DEFAULT_WAIT_SECS
+
+    def _parse_wait(raw: str) -> Optional[float]:
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            print(f"with-tier-t-slot: --wait needs a number of seconds, got {raw!r}.", file=sys.stderr)
+            return None
+        if value < 0:
+            print("with-tier-t-slot: --wait cannot be negative.", file=sys.stderr)
+            return None
+        return value
+
+    i = 0
+    while i < len(flags):
+        flag = flags[i]
+        if flag == "--owner-label":
+            if i + 1 >= len(flags):
+                print("with-tier-t-slot: --owner-label requires a value.", file=sys.stderr)
+                return None, 0.0, []
+            owner_label, i = flags[i + 1], i + 2
+            continue
+        if flag.startswith("--owner-label="):
+            owner_label, i = flag.split("=", 1)[1], i + 1
+            continue
+        if flag == "--wait":
+            if i + 1 >= len(flags):
+                print("with-tier-t-slot: --wait requires a value.", file=sys.stderr)
+                return None, 0.0, []
+            parsed = _parse_wait(flags[i + 1])
+            if parsed is None:
+                return None, 0.0, []
+            wait, i = parsed, i + 2
+            continue
+        if flag.startswith("--wait="):
+            parsed = _parse_wait(flag.split("=", 1)[1])
+            if parsed is None:
+                return None, 0.0, []
+            wait, i = parsed, i + 1
+            continue
+        print(f"with-tier-t-slot: unrecognized flag {flag!r}.\n{_USAGE}", file=sys.stderr)
+        return None, 0.0, []
+
+    return owner_label, wait, command
+
+
+def main(argv: List[str]) -> int:
+    owner_label, wait, command = _parse_args(argv)
+    if not command:
+        return 2
+
+    _install_signal_handlers()
+    owner = tier_t_slots.owner_id() if owner_label is None else owner_label
+    cmd_text = " ".join(command)
+
+    # Acquired around the child rather than inside it: the slot must be held
+    # for the child's whole lifetime, and `pid=` is handed the CHILD's pid so a
+    # slot is judged live against the process actually doing the work — the
+    # PID-LIVENESS contract in suite_mutex's module docstring, which this
+    # wrapper would otherwise violate by recording its own short-lived pid.
+    proc: Optional[subprocess.Popen] = None
+    slot = None
+    try:
+        proc = subprocess.Popen(command)
+        slot = tier_t_slots.acquire_slot(owner, cmd_text, wait, pid=proc.pid)
+        if slot is None:
+            taken, cap, _ = tier_t_slots.occupancy()
+            print(
+                f"with-tier-t-slot: no slot free after {wait:.0f}s ({taken}/{cap} taken) — "
+                "running unserialized rather than refusing.",
+                file=sys.stderr,
+            )
+        return proc.wait()
+    except KeyboardInterrupt:
+        if proc is not None:
+            try:
+                proc.terminate()
+                proc.wait(timeout=10)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        return 130
+    finally:
+        if slot is not None:
+            tier_t_slots.release_slot(slot)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

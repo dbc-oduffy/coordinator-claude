@@ -228,6 +228,21 @@ When a bug resists analysis-first attack (read code, form hypotheses, propose fi
 
 Not every bug needs a complete root-cause story before the fix lands. When (a) the symptom is bounded (specific path, specific input class, specific environment), (b) the fix is narrow and reversible, and (c) the cost of continued investigation exceeds the cost of shipping with a partial-cause note — ship the fix, note the residual mystery in the commit/PR body, and move on. The Iron Law applies to *guess-and-check fix chains*, not to bounded-scope fixes with documented residuals. Don't conflate "no full root cause" with "no understanding."
 
+### Stop before resume, on a systematic bug found mid-run
+
+When a systematic bug surfaces mid-run — mid-blitz, mid-sweep, mid-fix-loop — stop and fix it before resuming, rather than continuing the run and circling back later. Compounded waste (every subsequent item re-hitting the same root cause) exceeds the fix cost, almost always. This is the same "STOP and re-plan when something goes sideways" posture the rest of this page states for a single bug, restated for the run-in-progress case; a separate repo (example-stats-repo) independently codified the identical rule, which is convergence evidence for the underlying posture, not a new rule to track separately.
+<!-- Source: example-stats-repo architecture-decisions corpus, independent convergence -->
+
+### A test that models external-tool behavior must pin the model to the tool's real semantics, not an assumption
+
+A test modeled clangd's `PathMatch` with an unanchored `re.search`, but clangd actually fully anchors `PathMatch` as `^(...)$` — so the test passed green while the `.clangd` config it validated suppressed nothing in production. When a test stands in for a real external tool's matching/parsing/validation behavior, pin the model to that tool's source or empirically observed behavior, never to an assumption of how it "should" work; a green test proves nothing about production if the model it encodes is wrong.
+<!-- Source: project-rag-ue-addon, clangd ConfigCompile.cpp -->
+
+### Stash and run the full gate on a clean baseline before attributing a red to your diff
+
+When dispatched executors report green on fix-loop path-*subsets* but the full test gate shows more failures than expected, stash your changes and run the full gate against the clean baseline, then diff the two failed-test sets. This cleanly separates pre-existing/environmental reds from regressions your own work introduced. Path-subset test selection misses cross-surface parity and invariant guards that only fire once a new token or symbol lands anywhere in the tree — a subset-green result does not imply a full-gate-green result, and the gap is exactly the class of failure this check catches.
+<!-- Source: project-rag-ue-addon -->
+
 ---
 
 ## Supporting Techniques

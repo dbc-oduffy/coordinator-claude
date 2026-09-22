@@ -1,12 +1,11 @@
-#!/usr/bin/env python3
 """check-watch-state-gitignore-fleet — box-local state must be ignored in EVERY fleet repo.
 
 WHY THIS EXISTS. `state/group-em-watch.json`, `state/group-em-watch-parked.json` and
 `state/group-em-watch-spool.jsonl` are per-machine runtime state written by a live poller and by
-every session's own `Stop` hook. DoE-claude's `/coordinator:repo-setup` already prescribes them in
-its canonical `.gitignore` block (`skills/repo-setup/residue/mechanics.md`) -- but that block is
-laid down once, at setup, and a repo onboarded before the trio existed never receives it. Nothing
-else checks.
+every session's own `Stop` hook. `/coordinator:repo-setup` already prescribes them in its canonical
+`.gitignore` block (`skills/repo-setup/residue/mechanics.md`, DoE-claude) -- but that block is laid
+down once, at setup, and a repo onboarded before the trio existed never receives it. Nothing else
+checks.
 
 That gap is not theoretical: `claude-klabauter` was found on 2026-09-02 with the spool TRACKED, i.e.
 one machine's park records syncing to every other machine through git. The failure is silent in
@@ -30,6 +29,12 @@ barred by its own module contract. A repo key that resolves to a path that is no
 SKIPPED, not failed: the registry declares intent, never live state, and a fleet map naming a repo
 this machine has not cloned is normal.
 
+_checked_paths()/BOX_LOCAL_STATE_GROUPS name paths only, never touch a doctrine asset at runtime --
+the residue block their spelling is pinned against (`skills/repo-setup/residue/mechanics.md`)
+stays in DoE-claude and is a test-time concern only (see
+coordinator/tests/test_arrival_check_watch_state_gitignore_fleet.py), so this CLI itself needs no
+plugin-root resolution (docs/plans/2026-09-18-doe-holds-no-scripts.md § Path resolution).
+
 Exit codes: 0 = every resolvable repo is clean, or nothing resolved. 1 = at least one repo is
 missing a rule or is tracking one of the trio. 2 = usage/environment error (no `machine-local`).
 
@@ -46,9 +51,9 @@ import sys
 from pathlib import Path
 
 # Every path here is box-local: written by a live poller or a hook on THIS machine, read by
-# nothing in any other clone. Spelled exactly as DoE-claude's skills/repo-setup/residue/mechanics.md
-# prescribes them; DoE-claude's test_watch_state_gitignore_fleet.py pins the two spellings together
-# so the instrument and the prose that documents it cannot drift apart.
+# nothing in any other clone. Spelled exactly as skills/repo-setup/residue/mechanics.md (DoE-claude)
+# prescribes them; test_arrival_check_watch_state_gitignore_fleet.py pins the two spellings
+# together so the instrument and the prose that documents it cannot drift apart.
 #
 # The script keeps its watch-state name because a rename would strand the memos, handoffs and the
 # tripwire-registry entry that cite it by path. The remit is wider than the name: each group below
@@ -70,7 +75,18 @@ BOX_LOCAL_STATE_GROUPS = (
     ),
 )
 
-CHECKED_PATHS = WATCH_STATE_PATHS + ENGINE_PROVENANCE_PATHS
+def _checked_paths() -> tuple:
+    """Every box-local path this audit checks, flattened out of
+    `BOX_LOCAL_STATE_GROUPS`.
+
+    Computed in a function rather than at module scope: the warm door serves
+    this CLI by importing it, and `serve_classifier` reads a module-scope
+    comprehension as a process mutation -- so the module-level form made this
+    name unservable warm. Cheap enough to recompute per call (a flatten over
+    two literal tuples); no cache, so there is nothing to invalidate if the
+    groups above ever gain a member.
+    """
+    return tuple(rel for _header, group in BOX_LOCAL_STATE_GROUPS for rel in group)
 
 
 def _settings_home() -> Path:
@@ -115,22 +131,31 @@ def _run(argv: list[str]) -> str | None:
 def _repo_paths() -> dict[str, Path]:
     """Every `repos.*` registry key that resolves to a real git worktree on this machine.
 
-    One `machine-local dump` resolves every key in a single process; `keys` plus a `get` per key
-    cost 1+N processes for the same file read."""
-    dumped = _run(_machine_local() + ["dump"])
-    if dumped is None:
+    One batched `dump --prefix repos --format json` call, resolving every `repos.*` key in a
+    single machine-local process -- the same primitive `check_machine_local_regeneratability.py`
+    (`_ladder_snapshot`) and `coordinator/bin/lib/cli_shared.py::machine_local_dump_repos` already
+    use in place of the `keys` + one `get` per key ladder this replaces. `dump` shares
+    `resolve_one` with `get`, so a batched value is byte-identical to what a per-key `get` would
+    print for that key.
+    """
+    ml = _machine_local()
+    dumped = _run(ml + ["dump", "--prefix", "repos", "--format", "json"])
+    if not dumped:
         return {}
     try:
-        registry = json.loads(dumped)
+        values = json.loads(dumped)
     except ValueError:
         return {}
+    if not isinstance(values, dict):
+        return {}
     resolved: dict[str, Path] = {}
-    for key, value in registry.items():
-        if not key.startswith("repos.") or not isinstance(value, str) or not value.strip():
+    for key, value in values.items():
+        if not key.startswith("repos.") or not isinstance(value, str) or not value:
             continue
         path = Path(value.strip())
-        if (path / ".git").exists():
-            resolved[key[len("repos.") :]] = path
+        if not (path / ".git").exists():
+            continue
+        resolved[key[len("repos.") :]] = path
     return resolved
 
 
@@ -161,21 +186,27 @@ def audit_repo(repo: Path) -> tuple[list[str], list[str]]:
     which is exactly the shape this sweep exists to find -- so the misread lands on precisely the
     repos that matter. The two questions are independent and both are asked: is the RULE present
     (`--no-index`), and is the path in the INDEX (`ls-files`).
+
+    ONE CALL PER QUESTION, NOT ONE PER PATH: each of the three git verbs here natively accepts
+    every `_checked_paths()` pathspec in a single invocation, so the whole audit is three calls
+    regardless of how many box-local paths are tracked -- not three per path. `check-ignore` is
+    read without `-q` so a batched call still reports WHICH of the given paths matched (one
+    printed line per ignored pathname); `ls-files`/`ls-tree --name-only` already print one line
+    per pathspec they resolve, `--error-unmatch` was only ever needed to turn a single-path miss
+    into a nonzero exit and buys nothing once membership is read from the batched output instead.
     """
-    paths = list(CHECKED_PATHS)
-    ignored = set(
-        _git(repo, "check-ignore", "--no-index", "--", *paths).stdout.splitlines()
-    )
-    in_index = _git(repo, "ls-files", "--", *paths).stdout.splitlines()
-    in_head = _git(repo, "ls-tree", "-r", "HEAD", "--name-only", "--", *paths).stdout.splitlines()
-    present = set(in_index) | set(in_head)
-
-    def _carried(rel: str) -> bool:
-        prefix = rel.rstrip("/") + "/"
-        return rel in present or any(p.startswith(prefix) for p in present)
-
-    unignored = [rel for rel in paths if rel not in ignored]
-    tracked = [rel for rel in paths if _carried(rel)]
+    unignored, tracked = [], []
+    ignore_out = _git(repo, "check-ignore", "--no-index", "--", *_checked_paths())
+    ignored_paths = {line.strip() for line in ignore_out.stdout.splitlines() if line.strip()}
+    index_out = _git(repo, "ls-files", "--", *_checked_paths())
+    in_index_paths = {line.strip() for line in index_out.stdout.splitlines() if line.strip()}
+    head_out = _git(repo, "ls-tree", "HEAD", "--name-only", "--", *_checked_paths())
+    in_head_paths = {line.strip() for line in head_out.stdout.splitlines() if line.strip()}
+    for rel in _checked_paths():
+        if rel not in ignored_paths:
+            unignored.append(rel)
+        if rel in in_index_paths or rel in in_head_paths:
+            tracked.append(rel)
     return unignored, tracked
 
 
@@ -259,7 +290,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if findings == 0:
         print(
-            f"clean: {len(repos)} repo(s), all {len(CHECKED_PATHS)} box-local paths "
+            f"clean: {len(repos)} repo(s), all {len(_checked_paths())} box-local paths "
             "ignored and untracked"
         )
         return 0

@@ -135,8 +135,16 @@ frontmatter and call `notebook_delete` for each; log deletions and any failures.
 mention preserved notebook names/IDs to the PM for future reference.
 
 **6d — Archive, commit.** Same op and contract as `coordinator/skills/staff-session/SKILL.md`
-Step 8: commit the workdir first (`git add -- docs/research/{run-id}-workdir` then
-`git commit -- docs/research/{run-id}-workdir`), then invoke `fleet.archive_paper_trail` with
+Step 8: commit the workdir first — an explicit file list per the Data Contract
+(team-protocol.md § Data Contract), not the whole workdir (`git add --
+docs/research/{run-id}-workdir/strategy.md docs/research/{run-id}-workdir/sources.md
+docs/research/{run-id}-workdir/*-claims.json docs/research/{run-id}-workdir/*-summary.md
+docs/research/{run-id}-workdir/merged-claims.json docs/research/{run-id}-workdir/advisory.md`
+then `git commit -- docs/research/{run-id}-workdir/strategy.md
+docs/research/{run-id}-workdir/sources.md docs/research/{run-id}-workdir/*-claims.json
+docs/research/{run-id}-workdir/*-summary.md docs/research/{run-id}-workdir/merged-claims.json
+docs/research/{run-id}-workdir/advisory.md` — omit `advisory.md` from both commands when the
+sweep wrote none), then invoke `fleet.archive_paper_trail` with
 `run_id={run-id}`, `topic_slug={topic-slug}`, `dry_run=false`. Commit the output file and
 coverage-audit sidecar.
 

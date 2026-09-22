@@ -107,7 +107,22 @@ import sys
 import time
 from typing import List, Optional, Tuple
 
-import psutil
+
+def _wants_help(argv: List[str]) -> bool:
+    """True for `--help`/`-h` among this wrapper's own flags. Tokens after `--`
+    belong to the child: `with-suite-mutex -- pytest -h` runs pytest's help."""
+    flags = argv[: argv.index("--")] if "--" in argv else argv
+    return "--help" in flags or "-h" in flags
+
+
+# Answered before psutil and the engine bootstrap: the percolate entrypoint
+# gate runs `--help` with no machine-local registry, where
+# `require_engine_on_path` raises. Help text must not depend on either.
+if __name__ == "__main__" and _wants_help(sys.argv[1:]):
+    print(__doc__.strip())
+    sys.exit(0)
+
+import psutil  # noqa: E402
 
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:

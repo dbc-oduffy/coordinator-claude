@@ -261,7 +261,7 @@ The plugin ships **46** commands. Listed below are the 45 that are useful in a c
 | `/plan-delivery-audit` | Triangulate plan claims against code and reviews for delivery status |
 | `/architecture-audit` | Rotational arch audit — score systems, audit the top, package spinoffs. Never edits code |
 | `/architecture-survey` | Build or refresh the architecture atlas via scout, analyst, synth |
-| `/merging-to-main` | Merges a ready branch to main — release notes, PR, CI wait, cleanup |
+| `/merging-to-main` | Merges a ready branch to main — release notes, PR, local validation, cleanup |
 | `/finishing-a-development-branch` | Presents merge, PR, or cleanup options once tests pass |
 | `/consolidate-git` | Cleans up branch sprawl — consolidates and prunes stale branches |
 | `/validate` | Run the project's fast test command at a cadence gate |
@@ -378,7 +378,7 @@ coordinator-claude/                 # flat Claude Code marketplace — single pl
 ├── snippets/                       # shared prompt fragments consumed by skills/agents/commands
 ├── cockpit-contract/schema/        # published slice of the artifact-shape contract
 ├── schemas/                        # goal/spike/registry JSON Schemas for the tracked artifact types
-├── templates/                      # scaffolds: CLAUDE.md, .gitignore, machine-local registry, CI snippet
+├── templates/                      # scaffolds: CLAUDE.md, .gitignore, machine-local registry
 └── docs/
     ├── install/                    # install manifest + playbook internals
     ├── wiki/                       # curated doctrine pages, including manifesto.md

@@ -35,7 +35,7 @@ bootstrap-orchestrate.py.
 # below) is a DEDICATED exit code 5, distinct from the op's business codes
 # 0-4 — a caller checking rc==1 for "usage error / git not available" must
 # not conflate that with "the claude-klabauter link is down and nothing ran at all."
-# Review: code-reviewer F1 — 0-4 are all business codes; reusing 1 for
+# 0-4 are all business codes; reusing 1 for
 # transport failure violates the porter addendum's A3/A3b exit-code-collision
 # rule. Matches the sibling trampolines' (verify-no-console-flash.py,
 # migrate-state-to-claude-klabauter.sh, parse-completeness-item.py) dedicated-code

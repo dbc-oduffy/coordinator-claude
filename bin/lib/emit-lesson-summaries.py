@@ -99,7 +99,7 @@ def _parse_outbox_yaml(path: Path) -> dict:
     def _flush_block() -> None:
         nonlocal current_key, is_block, block_lines, block_indent
         if current_key and is_block:
-            # Review: code-reviewer — trailing blank lines within the collected block_lines
+            # Trailing blank lines within the collected block_lines
             # are absorbed (they satisfy the indentation check) and stripped at flush via
             # .strip(). This is intentional: YAML block scalars end at the next non-indented
             # line, so trailing blanks before such a line are part of the block and stripped
@@ -146,7 +146,7 @@ def _parse_outbox_yaml(path: Path) -> dict:
                 else:
                     block_indent = 2
             elif val.startswith('"') and val.endswith('"') and len(val) >= 2:
-                # Review: code-reviewer (F10) — escape sequences inside double-quoted strings
+                # Escape sequences inside double-quoted strings
                 # (e.g. `\"`) are NOT decoded; only the outer delimiters are stripped.
                 # Limitation: a scope_tags value like `"universal\"s"` would be stored with
                 # the literal backslash-quote rather than a real `"`. The outbox corpus does
@@ -159,7 +159,7 @@ def _parse_outbox_yaml(path: Path) -> dict:
                 result[key] = val[1:-1]
                 current_key = None
             elif val.strip().lower() == "null":
-                # Review: code-reviewer — bare `null` YAML literal was previously absorbed by
+                # Bare `null` YAML literal was previously absorbed by
                 # the truthy `elif val:` branch and stored as the string "null". Intercept it
                 # here and map to Python None, matching YAML semantics.
                 result[key] = None
@@ -168,7 +168,7 @@ def _parse_outbox_yaml(path: Path) -> dict:
                 result[key] = val
                 current_key = None
             else:
-                # Review: code-reviewer (F1) — do NOT clear current_key on empty value.
+                # Do NOT clear current_key on empty value.
                 # A block-list-form field like `scope_tags:\n  - universal` has an empty
                 # value on the key line; the list items on the next lines need current_key
                 # to be live so the list-item branch (`re.match r"^\s{2,}-"`) can fire.
@@ -177,7 +177,7 @@ def _parse_outbox_yaml(path: Path) -> dict:
                 result[key] = None
                 # current_key intentionally NOT cleared here
         elif re.match(r"^\s{2,}- ", line) and current_key and not is_block:
-            # Review: code-reviewer — broadened from literal "  - " (2-space) to any indent ≥2
+            # Broadened from literal "  - " (2-space) to any indent ≥2
             # so 4-space-indented list items (valid YAML) are also matched.
             # List item (e.g. scope_tags)
             existing = result.get(current_key)
@@ -275,7 +275,7 @@ def _load_outbox_dir(dirpath: Path) -> dict[str, dict]:
             continue
         title = rec.get("title") or ""
         if not title:
-            # Review: code-reviewer (F8) — degrade-but-count, not silent-drop (C-F2/AC7).
+            # degrade-but-count, not silent-drop (C-F2/AC7).
             # Key off the filename so the join produces an [unparseable-...] sentinel with
             # parse_status=partial rather than silently omitting the file from the output.
             key = _lesson_key(str(yaml_file))
@@ -283,7 +283,7 @@ def _load_outbox_dir(dirpath: Path) -> dict[str, dict]:
         else:
             key = _lesson_key(title)
         rec["_source_path"] = str(yaml_file)
-        # Review: code-reviewer — silent last-writer-wins on duplicate lesson_key; warn now
+        # Silent last-writer-wins on duplicate lesson_key; warn now
         if key in out:
             sys.stderr.write(
                 f"[emit-lesson-summaries] duplicate lesson_key {key!r} in outbox dir"
@@ -299,7 +299,7 @@ def _load_outbox_dir(dirpath: Path) -> dict[str, dict]:
 # ---------------------------------------------------------------------------
 
 def _scope_from_outbox(rec: dict) -> str:
-    # Review: code-reviewer — removed body-scan fallback for [universal]; it caused false
+    # Removed body-scan fallback for [universal]; it caused false
     # positives when prose content mentioned "[universal]". Scope is determined solely from
     # scope_tags; default is "project" when scope_tags do not indicate universal.
     tags = rec.get("scope_tags") or []
@@ -344,7 +344,7 @@ def _normalize_created(val: str | None) -> str | None:
     if s == _SENTINEL_DATE:
         return None
     if "T" in s:
-        # Review: code-reviewer (F3) — regex-guard ISO shape to catch malformed datetimes
+        # regex-guard ISO shape to catch malformed datetimes
         # like "2026-01-01T" or non-Z offsets that slip through silently. Warn on mismatch
         # but still pass through so schema validation downstream can flag the value.
         if not re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", s):
@@ -389,7 +389,7 @@ def _relativize_prov_path(prov_path: str, repo_root: Path) -> str:
     if not (p.is_absolute() or prov_path.startswith(("/", "\\"))):
         # Already relative (e.g. the "state/lessons" fallback strings) — POSIX-normalize only.
         return p.as_posix()
-    # Review: code-reviewer (Finding 3) — the two-iteration relative_to loop is dead defensive
+    # The two-iteration relative_to loop is dead defensive
     # code now that repo_root is resolved once at build_lesson_summaries entry (Finding 1):
     # every p is constructed by joining onto that same resolved repo_root, so a single
     # relative_to attempt covers the real case; the ValueError fallback below is purely
@@ -401,7 +401,7 @@ def _relativize_prov_path(prov_path: str, repo_root: Path) -> str:
     # Absolute but outside repo_root (should not happen by construction now that repo_root is
     # resolved at entry — Finding 1) — fall back to a relative path so we never emit the raw
     # absolute operator-home path.
-    # Review: code-reviewer (Finding 2) — os.path.relpath raises ValueError on Windows
+    # os.path.relpath raises ValueError on Windows
     # cross-drive paths (repo is Windows-primary); never let this "should not happen" branch
     # crash the emitter — degrade to the raw POSIX-normalized absolute-turned-string path with
     # a stderr warning, matching the file's existing degrade-and-emit convention.
@@ -492,14 +492,14 @@ def build_lesson_summaries(
     An entry ONLY in drained/ (not in lessons.md) IS emitted — full outer join,
     not left-join. This is the load-bearing correctness property (AC6).
     """
-    # Review: code-reviewer (Finding 1) — resolve repo_root ONCE here, before it is used to
+    # Resolve repo_root ONCE here, before it is used to
     # derive outbox_dir/drained_dir or passed to _load_lessons_yaml_dir, so every downstream
     # _source_path is built on an absolute+resolved basis. This closes the "relative repo_root
     # leaks a caller-relative prefix" gap at the root instead of guarding it defensively inside
     # _relativize_prov_path. Transparent to callers below — they only ever join onto repo_root
     # to build Paths.
     repo_root = repo_root.resolve()
-    # Review: code-reviewer Slice-B — (B-F4) renamed lessons_md_map → lessons_yaml_map;
+    # Renamed lessons_md_map → lessons_yaml_map;
     # the source is the per-entry YAML dir state/lessons/, not the legacy lessons.md.
     lessons_yaml_map = _load_lessons_yaml_dir(repo_root)
     outbox_dir = repo_root / "state" / "lessons-outbox"
@@ -573,7 +573,7 @@ def build_lesson_summaries(
             parse_status = "partial"
 
         # Overlay promotion metadata from outbox/drained record.
-        # Review: code-reviewer (F14) — body is intentionally NOT overlaid from the outbox
+        # Body is intentionally NOT overlaid from the outbox
         # record here. The per-entry YAML in state/lessons/*.yaml is the canonical body spine
         # (lessons.md→per-entry-YAML migration): when the lesson exists in the YAML dir,
         # body was already set from md_rec above; for outbox/drained-only entries (full outer
@@ -585,14 +585,14 @@ def build_lesson_summaries(
             if not title:
                 title = outbox_rec.get("title") or ""
             change_kind = outbox_rec.get("change_kind") or None
-            # Review: code-reviewer (F1) — fall back to captured value when outbox lacks the
+            # Fall back to captured value when outbox lacks the
             # field, mirroring the created guard. Without this, an outbox record missing
             # from_repo/target_wiki/evidence would wipe born-attributable values already set
             # from the per-entry YAML in the `if in_md:` block above.
             target_wiki = outbox_rec.get("target_wiki") or target_wiki
             from_repo = outbox_rec.get("from_repo") or from_repo
             evidence = outbox_rec.get("evidence") or evidence
-            # Review: code-reviewer (F2) — normalize outbox created via _normalize_created to
+            # Normalize outbox created via _normalize_created to
             # handle date-only and "0000-00-00" sentinel values in hand-crafted/legacy drained
             # records. Fall back to the captured value when outbox lacks a created field.
             created = _normalize_created(outbox_rec.get("created")) or created
@@ -635,7 +635,7 @@ def main() -> None:
     Prints a JSON array of LessonSummary records to stdout.
     """
     argv = sys.argv[1:]
-    # Review: code-reviewer — repo_name had a hardcoded author-identity default; now required arg
+    # repo_name had a hardcoded author-identity default; now required arg
     if len(argv) <= 1:
         sys.stderr.write(
             "Usage: emit-lesson-summaries.py <repo_root> <repo_name>"
@@ -684,7 +684,7 @@ def _git_sha(repo_root: Path) -> str:
 
 
 def _now_iso() -> str:
-    # Review: code-reviewer — moved import to module top; replaced deprecated utcnow() with
+    # Moved import to module top; replaced deprecated utcnow() with
     # timezone-aware now(timezone.utc) per Python 3.12+ deprecation path.
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 

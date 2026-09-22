@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — load-bearing, not decoration. Unlike its peers in this
 # directory, this file is installed by BYTE COPY (shutil.copyfile via
 # coordinator_core.install.wrapper_onto_path) as an extension-less, exec-bit
@@ -226,7 +225,7 @@ def _resolve_claude_bin() -> str | None:
     shapes, matching POSIX PATH-search semantics instead of Windows'
     extension-only default.
 
-    Review: code-reviewer (Finding 1) — this is the SAME PATH/PATHEXT walk as
+    This is the SAME PATH/PATHEXT walk as
     `coordinator_core.launchable.which_path_ordered` (used by
     `coordinator_core.ops.coordinator_complete_entry._which_render_rollup_shim`
     for the identical CPython gap). Not delegated to that shared helper here
@@ -302,7 +301,7 @@ def _resolve_home_for_clone_shim() -> str | None:
     so it returns None rather than raising when nothing resolves — the
     caller then skips rung 3 and falls through to rung 4's fail-loud.
 
-    Review: code-reviewer P1, 2026-07-28 — the prior
+    The prior
     ``os.environ.get("CLAUDE_HOME") or os.environ.get("HOME") or ""`` had no
     USERPROFILE rung (unreachable rung 3 on a native cmd.exe/PowerShell
     session with no HOME set) AND defaulted the no-match case to "", which
@@ -543,7 +542,7 @@ def _resolve_doe_clone(cli_doe_root: str = "") -> str | None:
     # then PATH — no co-located-sibling guess, since machine-local is installed as
     # its own persistent PATH artifact by install/substrate.py, independent of
     # wherever this wrapper happens to live.
-    # Review: code-reviewer F5 — CLAUDE_DOE_MACHINE_LOCAL_BIN bypasses the PATH
+    # CLAUDE_DOE_MACHINE_LOCAL_BIN bypasses the PATH
     # lookup so tests can inject a mock or absent binary deterministically.
     ml_bin_override = os.environ.get("CLAUDE_DOE_MACHINE_LOCAL_BIN", "")
     if ml_bin_override:
@@ -748,7 +747,7 @@ def main(argv: list[str]) -> int:
         elif arg == "--print-plugin-dir":
             print_plugin_dir = True
         elif arg == "--doe-root":
-            # Review: code-reviewer F1/F2 — reject a missing value, an
+            # Reject a missing value, an
             # explicitly-empty value, and a following token that itself looks
             # like a flag (a typo'd "--doe-root --dry-run" would otherwise
             # silently swallow --dry-run as the path value). All three fail
@@ -763,7 +762,7 @@ def main(argv: list[str]) -> int:
         elif arg.startswith("--doe-root="):
             value = arg[len("--doe-root="):]
             if not value:
-                # Review: code-reviewer F1 — explicit empty equals-form value
+                # Explicit empty equals-form value
                 # (--doe-root=) must fail loud rather than silently falling
                 # through to REPO_DOE_CLAUDE/registry via Python truthiness.
                 sys.stderr.write("claude-doe: --doe-root requires a path argument\n")
@@ -814,7 +813,7 @@ def main(argv: list[str]) -> int:
 
     if dry_run:
         # Print the resolved exec line for human inspection; do not exec.
-        # Review: code-reviewer F1/F6 — args are space-joined (not shell-quoted); display only, not eval.
+        # Args are space-joined (not shell-quoted); display only, not eval.
         # Security: single %s so passthrough args containing % are never treated as format specifiers.
         suffix = f" {' '.join(passthrough_args)}" if passthrough_args else ""
         print(f"exec claude --plugin-dir {doe_coordinator}{suffix}")

@@ -51,25 +51,22 @@ EXIT_UNSTABLE = 2
 def _git(*args: str) -> str | None:
     """Read-only git query. Never mutates; returns None (never '') on any failure.
 
-    Review: coordinator:code-reviewer -- a failed git call (not on PATH, run outside a
+    A failed git call (not on PATH, run outside a
     repo, non-zero exit) must never collapse to the same value an empty-but-successful
     result would produce. `_corpus_fingerprint` folding "git could not be asked" into
     "git said nothing" is exactly the false-confidence failure mode this whole tool
     exists to prevent.
+
+    # Routes through
+    # coordinator_core.ops.ceremony.git_native._git instead of hand-rolling a
+    # second subprocess.run wrapper with its own creationflags/failure mapping.
     """
-    try:
-        proc = subprocess.run(
-            ["git", *args],
-            capture_output=True,
-            text=True,
-            check=False,
-            creationflags=_NO_WINDOW,
-        )
-    except OSError:
+    from coordinator_core.ops.ceremony.git_native import _git as _git_native
+
+    result = _git_native(list(args), cwd=".")
+    if not result.ok:
         return None
-    if proc.returncode != 0:
-        return None
-    return proc.stdout.strip()
+    return result.stdout.strip()
 
 
 def _corpus_fingerprint() -> tuple[str | None, str | None]:
@@ -81,8 +78,27 @@ def _corpus_fingerprint() -> tuple[str | None, str | None]:
 
     Either element being None means "could not fingerprint," never "empty." The caller
     must treat that as UNSTABLE, not as a trivially-equal pair of successful reads.
+
+    One
+    `git status --porcelain=v2 --branch --untracked-files=no` call returns both
+    the HEAD oid (the `# branch.oid` header line) and the tracked-file dirty set
+    (the entry lines) in a single spawn, replacing the prior `rev-parse` +
+    `diff --name-only` pair. Untracked paths are excluded via
+    `--untracked-files=no`, preserving the original's scratch-output exclusion.
     """
-    return _git("rev-parse", "HEAD"), _git("diff", "--name-only", "HEAD")
+    raw = _git("--no-optional-locks", "status", "--porcelain=v2", "--branch", "--untracked-files=no")
+    if raw is None:
+        return None, None
+    head_sha: str | None = None
+    dirty_lines: list[str] = []
+    for line in raw.splitlines():
+        if line.startswith("# branch.oid "):
+            head_sha = line[len("# branch.oid ") :].strip()
+        elif line and not line.startswith("#"):
+            dirty_lines.append(line)
+    if head_sha is None or head_sha == "(initial)":
+        return None, None
+    return head_sha, "\n".join(dirty_lines)
 
 
 def _failing_node_ids(command: list[str]) -> list[str]:
@@ -97,7 +113,7 @@ def _failing_node_ids(command: list[str]) -> list[str]:
         check=False,
         creationflags=_NO_WINDOW,
     )
-    # Review: coordinator:code-reviewer Finding 3 -- pytest's own short summary section
+    # pytest's own short summary section
     # (`short test summary info`) is the only place `FAILED ` lines are structurally
     # trustworthy; scanning raw combined stdout+stderr picks up a test's own captured
     # output if it happens to print a line starting with "FAILED ". Restricting the scan
@@ -127,7 +143,7 @@ def _failing_node_ids(command: list[str]) -> list[str]:
 def _pytest_base(command: list[str]) -> list[str]:
     """Strip the original test-path/selector args from `command`, leaving the bare runner.
 
-    Review: coordinator:code-reviewer Finding 4 -- the prior filter matched only args
+    The prior filter matched only args
     literally starting with the forward-slash string "coordinator/tests", which silently
     passed through on a Windows-native path (`coordinator\\tests\\...`), an absolute path,
     or a `-k` selector -- leaving the original scope concatenated with the newly-appended
@@ -183,7 +199,7 @@ def _triage_isolation(command: list[str]) -> None:
     (shared temp markers, registries, cwd), not in the test's own subject. It is a different
     bug with a different owner, not the absence of one.
     """
-    # Review: coordinator:code-reviewer Finding 2 -- `_failing_node_ids` re-runs the whole
+    # `_failing_node_ids` re-runs the whole
     # suite a second time from scratch, and that second run was previously unbracketed: if
     # a peer commits between the caller's already-certified-stable run and this one, the
     # triage below is computed against a different corpus than the one just certified, with
@@ -268,12 +284,12 @@ def main(argv: list[str] | None = None) -> int:
 
     for attempt in range(1, max(1, args.attempts) + 1):
         head_before, dirty_before = _corpus_fingerprint()
-        # Review: coordinator:code-reviewer Finding 6 (nit) -- consistent with `_git` and
+        # Consistent with `_git` and
         # the triage sub-runs, so a wrapped console-mode test runner doesn't pop a window.
         completed = subprocess.run(command, check=False, creationflags=_NO_WINDOW)
         head_after, dirty_after = _corpus_fingerprint()
 
-        # Review: coordinator:code-reviewer Finding 1 -- a None on either side means git
+        # A None on either side means git
         # could not be queried at all, which is NOT the same as "held still." Treat it as
         # UNSTABLE (a distinct reason, not folded into the moved-HEAD/moved-files cases
         # below) rather than letting None == None report a false PASS/FAIL.

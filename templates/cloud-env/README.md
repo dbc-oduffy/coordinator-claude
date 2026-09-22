@@ -92,7 +92,7 @@ copy, not a link. Re-paste it into the dialog to pick up any change here.
 candidates it finds: the working repo's own `global-doctrine/`, a sibling checkout's, or the
 published copy inside the plugin clone. **The third does not exist yet.** `git ls-tree
 HEAD:templates` on `dbc-oduffy/coordinator-claude` has no `global-doctrine` entry — verified
-2026-09-06 against a fresh clone of the mirror. The copy is committed on DoE `main` (`4f8a396db`)
+2026-09-06 against a fresh clone of the mirror. The copy is committed on the doctrine repo's `main` (`4f8a396db`)
 and is waiting on a percolate publish.
 
 Until that publish lands, a cloud session on a repo that does not itself carry `global-doctrine/`

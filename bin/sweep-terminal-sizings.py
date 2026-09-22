@@ -132,20 +132,27 @@ def _print_planned_moves(candidates: "list[dict]") -> None:
         print(f"  {cand.get('id')}")
 
 
-def _print_refusal_census(skipped: "list[dict]") -> None:
-    """Print every id the act call refused, grouped by reason FAMILY.
+def _print_refusal_census(scan_skipped: "list[dict]", act_skipped: "list[dict]") -> None:
+    """Print every id refused at T1 scan time and every id refused at T3 act
+    time, grouped by reason FAMILY.
 
-    Mirrors `sweep-terminal-handoffs.py :: _print_refusal_census`'s "terminal
-    but not moved" half — this op's T1 preview carries no skip list at all
-    (`build_dry_run_result` hardcodes `skipped: []`; a non-terminal/AC6-held
-    record is simply not enumerated as a candidate), so there is no scan-skip
-    half to print here the way the handoffs sweep prints one.
+    Mirrors `sweep-terminal-handoffs.py :: _print_refusal_census`'s two-half
+    shape. This op's T1 preview WIRE envelope still carries no skip list
+    (`build_dry_run_result` hardcodes `skipped: []` — see
+    `archive_sizings._handle_preview`'s own docstring); `scan_skipped` here
+    is fed by that function's own out-param instead, so a run where every
+    terminal sizing is excluded at T1 (leaving `candidates` empty, and the
+    T3 act call never firing) still surfaces WHY, rather than printing only
+    "no terminal sizings archived".
     """
-    if not skipped:
-        return
-    print(f"terminal but not moved -- {len(skipped)} record(s):")
-    for item in skipped:
-        print(f"  {item.get('id')} -- {item.get('reason')}")
+    if scan_skipped:
+        print(f"scan refused {len(scan_skipped)} record(s):")
+        for item in scan_skipped:
+            print(f"  {item.get('id')} -- {item.get('reason')}")
+    if act_skipped:
+        print(f"terminal but not moved -- {len(act_skipped)} record(s):")
+        for item in act_skipped:
+            print(f"  {item.get('id')} -- {item.get('reason')}")
 
 
 def main(argv: "list[str] | None" = None) -> int:
@@ -190,9 +197,12 @@ def main(argv: "list[str] | None" = None) -> int:
 
     import asyncio
 
+    scan_skipped: "list[dict]" = []
+
     async def _preview() -> dict:
         return await _archive_terminal_sizings(
             {"mode": _MODE, "dry_run": True}, repo_root=common_dir,
+            scan_skipped=scan_skipped,
         )
 
     try:
@@ -213,6 +223,7 @@ def main(argv: "list[str] | None" = None) -> int:
             )
             return 1
         _print_planned_moves(candidates)
+        _print_refusal_census(scan_skipped, [])
         return 0
 
     if preview_exit_code != 0:
@@ -260,7 +271,7 @@ def main(argv: "list[str] | None" = None) -> int:
     else:
         print(f"{archived} terminal sizings archived")
 
-    _print_refusal_census(act_result.get("skipped", []))
+    _print_refusal_census(scan_skipped, act_result.get("skipped", []))
 
     _stamp_archive_sweeps_liveness(repo_root)
     if dispatch_failed:

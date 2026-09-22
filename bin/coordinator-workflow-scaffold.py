@@ -17,7 +17,7 @@ implement the skeleton-stamper engine itself — thin transport veneer only.
 # workflow-skeleton-stamper engine itself — it is a thin transport veneer, same idiom
 # as handoff-has-live-children.py's cc_invoke round-trip.
 #
-# Review: code-reviewer (P1) — this script used to carry a private hand-rolled
+# This script used to carry a private hand-rolled
 # _cc_invoke() that spawned `coordinator_core.invoke workflow.scaffold --bare
 # --params-file <tmp> --repo <repo>` unconditionally. workflow.scaffold is a
 # "none"-scoped op (coordinator_core/op_scopes.py), so DR-279's engine-side refusal

@@ -99,6 +99,7 @@ against the frozen-body guard. Chain LoE sums those rows
 
 **The window closes when the baton goes terminal, and it does not reopen.** Append as you close,
 while the record is still pre-terminal. Once `deployment_state` is `shipped`/`continued`/`closed`,
+<!-- enum-prose: schema=handoff field=deployment_state omit=awaiting_gate,ready_to_fire,in_flight -->
 `handoff.append_session_ledger` refuses — it delegates to `handoff.correct_body`, which will not
 correct a terminal archived baton — and no other route is open: a subagent `Edit` under `archive/`
 is hard-denied, and a hand-typed row is barred above. So a row missed before the flip can never be
@@ -173,6 +174,21 @@ spike-worthy gates ahead of plan-worthy; below that — no plan in play — disp
 
 Decide from the `kind`-disposition judgment point's own options and guidance. Read the full memo
 before summarizing, acting, or editing any field — acting on a paraphrase is the root failure.
+
+**Stamp `distill_fate` at the terminal disposition, not after.** Map the disposition you already
+formed to a fate: fyi-ack / routine coordination -> `ephemeral`; an accept/partial that opens a
+`realized_by` loop -> `commitment`; a memo that settles ownership or a seam permanently ->
+`ratification` (+ REQUIRE `in_repo_capture`). This is the "stamp fate at the source" move —
+you hold the context this session; a later classifier pass over the memo body cannot recover it.
+
+**Ordering precondition for `ratification` — promote before you stamp, never stamp-then-promote.**
+`in_repo_capture` must point at an in-repo home (`docs/decisions/`, `docs/wiki/`,
+`state/cross-repo-commitments/`, or a canonical plan/spec) that already **exists** at write time:
+`memo-transition.js` self-verifies and fails hard (exit 1) on the schema's cross-field rule if
+`in_repo_capture` is absent or invalid, wedging the transition mid-flow. Sequence is: promote the
+decision into its in-repo home -> take that path as `in_repo_capture` -> single atomic
+`cs_action_memo` call carrying `--distill-fate` and `--in-repo-capture` together with
+status/decision/`realized_by`. `ephemeral` and `commitment` carry no such precondition.
 
 **Verify your response as hard as their premise.** The fired guidance points adversarially at the
 sender, never at your own fix. Visibility isn't resolution — easy item fixed and hard ones surfaced
@@ -249,7 +265,7 @@ supersede flip, and archive-fallback resolution are engine-computed bookkeeping.
 - "Key Decisions Made" is context to internalize, not to re-litigate absent evidence it was wrong.
 
 **Recovery only — no brief arrived with your prompt.** Run `pickup-assemble brief
-<artifact-path>`, resolved per `snippets/resolve-coordinator-bin.md` (Shape W, the `.exe`
+<artifact-path>`, resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape W, the `.exe`
 launcher by absolute path through the call operator, on a PowerShell host), then proceed as
 above. Never run it
 to check work already done for you.

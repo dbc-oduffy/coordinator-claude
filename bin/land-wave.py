@@ -320,7 +320,7 @@ def _archive_result(result: dict) -> Path | None:
     try:
         target.mkdir(parents=True, exist_ok=True)
         out = target / "wave-result.json"
-        out.write_text(json.dumps(result, indent=1), encoding="utf-8")
+        out.write_text(json.dumps(result, indent=1), encoding="utf-8", newline="\n")
         return out
     except OSError as exc:
         print(f"land-wave: could not archive the fire result under {target}: {exc}",

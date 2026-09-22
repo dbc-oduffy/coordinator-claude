@@ -170,7 +170,7 @@ The return body reaches the EM via `<task-notification><result>...</result></tas
 ## §9 — Sibling post-hoc observer: dispatch-shape classifier
 
 
-Claude-klabauter `coordinator/bin/classify-dispatch-shape.py` is a **post-hoc, read-only observer** that fires as `/workstream-complete`'s `d-classify-dispatch-shape` directive. It is NOT a runtime hook — it reads the on-disk record (the plan's `## Tasks` spine non-deferred rows / fan-out TSV row count + `dispatched-agents.txt`) after the session is complete. No live process instrumentation.
+the engine repo `coordinator/bin/classify-dispatch-shape.py` is a **post-hoc, read-only observer** that fires as `/workstream-complete`'s `d-classify-dispatch-shape` directive. It is NOT a runtime hook — it reads the on-disk record (the plan's `## Tasks` spine non-deferred rows / fan-out TSV row count + `dispatched-agents.txt`) after the session is complete. No live process instrumentation.
 
 **Signal:** the plan declares N > 1 parallel-permitted chunks in a gate-group (`runs: parallel`, `gate-kind ∈ {none, output-consumption-content, contract-change}`) but only 1 distinct executor-class agentId is attributable to the session → possible serial-grind. Emits a question-framed offer to stderr; exits 0 always.
 
@@ -179,6 +179,48 @@ Claude-klabauter `coordinator/bin/classify-dispatch-shape.py` is a **post-hoc, r
 **Relationship to this tripwire:** whereas the runtime tripwire actuates on wall-clock overrun of live executor dispatches (§1), the dispatch-shape classifier actuates on post-hoc ledger analysis. Both are offer-shaped (nudge, never kill or block). Neither instrument live process state directly.
 
 **Registration:** see `coordinator/docs/wiki/coordinator-tripwires/` for the static-grep tripwire registry entry (if added). The classifier is a post-hoc observer, not a PreToolUse/PostToolUse hook, and does not block the commit gate.
+
+## Degrading to zero is not graceful — a metric that reads clean on measurement failure is worse than no metric
+
+A measurement wrapped in a broad try/except that sets its count to 0 on failure makes "scanned,
+found nothing" and "could not scan at all" indistinguishable — and the summary reads cleanest
+exactly when the underlying store is most broken. A `log.warning` alongside the zero does not fix
+this: the structured result and the operator-facing line both still say zero, and nothing
+downstream reads the log line before trusting the number. When a measurement can fail, its
+failure needs its own representation — `None`/absent plus a reason — never a value that a good
+result could also have produced.
+
+## A green test can assert a property nothing holds — check what escapes the test's boundary
+
+A test can stay green while the property it names and the property it actually protects have
+come apart, because state crossed the test's boundary without anything going red. Three recurring
+shapes, all caught in the same sweep of one test suite:
+
+1. **A teardown that doesn't undo its setup.** A fixture that sets an env var on setup and
+   doesn't unset it on teardown leaves that var process-wide for every later test in the run.
+   Downstream tests then take a different code branch than the one they mean to exercise —
+   not failing on the property under test, but dying on an unrelated fixture-miss several layers
+   removed from the actual cause. Order-dependence is the tell: green alone, red in a selection.
+2. **A default argument that resolves to production.** An optional parameter whose default falls
+   back to a real, tracked, in-repo data directory means a test that omits it is reading and
+   writing the real artifact, not a fixture. The test stays green until something else collides
+   with what it wrote — at which point the failure surfaces at the collision site, several layers
+   from the actual cause, and reads as an unrelated bug. An optional argument whose default is
+   production is not optional.
+3. **An assertion the sole production caller already destroys.** A test can correctly assert that
+   an untyped exception propagates, while the only real caller wraps that call in a bare
+   `except Exception` one frame up — so the exception is absorbed regardless of what the test
+   proves, and absorbed silently. The test documents an intention the code doesn't honor, and
+   stays green for as long as it exists.
+
+**The common tell: a mechanism whose failure state is indistinguishable from its working state,
+here disguised as a passing test.** Catching this is not more assertions — it's two questions,
+asked once per fixture and once per assertion: what does this test write that outlives it (an
+env var, a file, a module global, a tracked artifact)? And does the production caller preserve
+the property being asserted, or does it already undo it? The fix is usually to move the point of
+truth closer to where the property is actually consumed — e.g. reversing a silent-swallow one
+frame in, to where the caller's identity is known and it can report failure with a reason,
+rather than trying to pin the property further from where it's actually enforced.
 
 ## See also
 

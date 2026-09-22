@@ -49,14 +49,6 @@ round_trip_directives:
     rationale: Ratification accepts the 1-3 proposed workstreams without a second ask.
     resolves: [p3h.orientation-cache-seed]
 
-  - step_id: tw.ci-inference-prompt
-    engine_judgment_point_id: null
-    value: "yes if tw.ci-eligibility-resolve's _CROSS_PLATFORM_INFERRED signal fired, else no"
-    rationale: >
-      Accept the inferred cross-platform signal without a human confirmation round-trip. Never
-      auto-write true absent a fired signal.
-    resolves: [tw.ci-eligibility-resolve]
-
 # --- Nine agent-work steps: named, not pre-answered. See CONTRACT.md.
 second_phase_deferred:
   - p15.substrate-read
@@ -108,10 +100,6 @@ terminal_offer_defaults:
   - step_id: tw.windows-console-offer
     value: "install if tw.windows-console-signal-detect fires, else skip"
     rationale: The census's own stated default; evaluated without a confirmation round-trip.
-
-  - step_id: tw.ci-offer
-    value: "install if tw.ci-eligibility-resolve is true, else skip"
-    rationale: Evaluated without a confirmation round-trip.
 
 # --- AC5: ROSTER SLOTS. Ordered ready_to_fire baton slots; see CONTRACT.md § Roster slots for
 # the ordering convention. This lane writes no baton -- slots are data naming the primitive.

@@ -204,7 +204,7 @@ because it's the higher-quality path, not because tools are hidden"*
 ## Turning servers back on — what it actually costs
 
 Deferral is the harness's default posture and it is **not size-gated**. Observed directly in a
-DoE-claude session on 2026-07-27 with six MCP servers connected — Asana (~37 tools), Gmail (16),
+live EM session on 2026-07-27 with six MCP servers connected — Asana (~37 tools), Gmail (16),
 Google Calendar (9), Google Drive (8), Cockpit (4), context7 (2) — **every one of them registered
 name-only**, schemas withheld until `ToolSearch`. A 2-tool server defers exactly like example-game-repo's
 170-tool one. Built-in tools (`WebFetch`, `WebSearch`, `Task*`, `Cron*`, `Monitor`) defer on the
@@ -238,7 +238,7 @@ Two consequences that are easy to get backwards:
 
 ### The measured answer — 397k held off the wire
 
-A DoE-claude session on 2026-07-27, measured with `/context` before and after enabling ten MCP
+A live EM session on 2026-07-27, measured with `/context` before and after enabling ten MCP
 servers mid-session (~292 tools):
 
 | Category | context7 only | all servers |
@@ -272,7 +272,7 @@ connected, comparing system-prompt size.
 ### Reading `/context` — the deferred rows are NOT in the total
 
 This is the part that misleads on first read. `/context` reports deferred tools on their own rows
-(`MCP tools`, `System tools (deferred)`) with what look like alarming numbers — a DoE-claude
+(`MCP tools`, `System tools (deferred)`) with what look like alarming numbers — a live EM
 session on 2026-07-27 showed **1.4k for two context7 tools** (523 + 892), i.e. ~700 tokens each.
 Read naively that says deferral costs ~700 tokens per tool and the whole doctrine collapses.
 

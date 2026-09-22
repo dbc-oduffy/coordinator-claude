@@ -139,7 +139,6 @@ import json
 import os
 import platform
 import statistics
-import subprocess
 import sys
 import threading
 import time
@@ -532,16 +531,25 @@ def _engine_commits(engine_root: Path, since: datetime, until: datetime) -> list
     part of the measurement, not a nicety: an outage with a deploy behind it and an outage from
     natural churn are different findings that a duration alone cannot tell apart.
     """
+    # Routes through
+    # coordinator_core.ops.ceremony.git_native._git instead of a hand-rolled
+    # subprocess.run (which also lacked the Windows-safe creationflags/stdin
+    # handling every other git call site in this codebase carries).
     try:
-        out = subprocess.run(
-            ["git", "log", "--format=%H%x1f%cI%x1f%s",
+        from coordinator_core.ops.ceremony.git_native import _git as _git_native  # noqa: PLC0415
+
+        result = _git_native(
+            ["log", "--format=%H%x1f%cI%x1f%s",
              f"--since={since.isoformat()}", f"--until={until.isoformat()}"],
-            cwd=str(engine_root), capture_output=True, text=True, timeout=60,
+            cwd=engine_root,
+            timeout=60,
         )
     except Exception:  # noqa: BLE001 -- attribution is best-effort; never fail the report
         return []
+    if not result.ok:
+        return []
     rows = []
-    for line in (out.stdout or "").splitlines():
+    for line in (result.stdout or "").splitlines():
         parts = line.split("")
         if len(parts) != 3:
             continue

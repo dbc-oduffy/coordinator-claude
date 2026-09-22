@@ -60,7 +60,13 @@ from typing import List, Optional
 
 SELF_NAME = "reap-orphaned-in-flight-handoffs"
 
-_BOOTSTRAP_NAMES = ("resolve_checked_repo_root", "survey", "apply_dispositions")
+_BOOTSTRAP_NAMES = (
+    "resolve_checked_repo_root",
+    "survey",
+    "apply_dispositions",
+    "recording_declared_writes",
+    "declare_write",
+)
 
 
 def __getattr__(name: str):
@@ -119,11 +125,15 @@ def _bootstrap_imports() -> None:
         apply_dispositions as _apply_dispositions,
         survey as _survey,
     )
+    from coordinator_core.cli_entry import recording_declared_writes
+    from coordinator_core.session.declared_writes import declare_write
 
     for _name, _value in (
         ("resolve_checked_repo_root", _rccr),
         ("survey", _survey),
         ("apply_dispositions", _apply_dispositions),
+        ("recording_declared_writes", recording_declared_writes),
+        ("declare_write", declare_write),
     ):
         globals().setdefault(_name, _value)
 
@@ -217,7 +227,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     if cfg["dry_run"]:
         return 0
 
-    _applied, failed = apply_dispositions(result.dispositions)
+    # DR-276: `apply_dispositions` calls `archive_stamp`'s `cs_unclaim_handoff`/
+    # `_cs_ship_handoff_core` in-process, neither of which calls `declare_write`
+    # itself, so the handoff paths they mutate carry no session scope-touch claim
+    # unless this call site declares them — the same seam
+    # `workday-complete-step9-append-changelog.py` uses around its own
+    # `changelog_ops.append_day` call, applied here via the returned `applied`
+    # list rather than a callee-side declaration. A reclaim-shipped row the
+    # live-children guard retained comes back in `_retained`, not `_applied` —
+    # nothing was written there, so it must not be declared as a touch.
+    with recording_declared_writes(cwd=repo_root):
+        _applied, _retained, failed = apply_dispositions(result.dispositions)
+        for _path in _applied:
+            declare_write(_path)
     if failed:
         for detail in failed:
             sys.stderr.write(f"{SELF_NAME}: {detail}\n")

@@ -1,12 +1,12 @@
-"""Read the engine plane's guard-enforcement join and answer, for one DoE
-doctrine rule id, whether a guard enforces it.
+"""Read the engine plane's guard-enforcement join and answer, for one doctrine-repo
+rule id, whether a guard enforces it.
 
 WHAT THIS IS FOR
     `DR-an-omission-is-ratified-by-the-plane-that-enforces-the-rule` makes
     omission authority follow enforcement, and names three exhaustive cases.
-    Case 1 -- no guard enforces the rule -- is DoE's to decide alone and is
+    Case 1 -- no guard enforces the rule -- is this repo's to decide alone and is
     "the large majority". Deciding it needs one fact this repo cannot produce:
-    which of `claude-klabauter`'s registered guards enforce which of this
+    which of the engine repo's registered guards enforce which of this
     repo's `rcr-<hash>` rule ids. That fact is the join, and until it exists
     every case-1 rule is indistinguishable from a case-3 rule and stays
     present. This module reads the join once it has been delivered.
@@ -38,7 +38,7 @@ THE ASYMMETRY IS DELIBERATE: A NEGATIVE NEEDS COMPLETENESS, A POSITIVE DOES NOT
 
 WHY THIS REPO HOLDS A COPY RATHER THAN READING THE SIBLING
     `coordinator/bin/emit-omission-register.py` must run against a checkout
-    of this repo alone -- it reads `claude-klabauter` for nothing, and a
+    of this repo alone -- it reads the engine repo for nothing, and a
     resolver that imported the sibling's tree would make this repo's ledger
     unbuildable wherever that tree is absent, which includes every cloud
     session and every OSS mirror. The join is therefore DELIVERED: the engine

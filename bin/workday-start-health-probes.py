@@ -833,7 +833,7 @@ def _resolve_gitdir(repo_root: Path) -> Path | None:
 def _strip_inline_comment(line: str) -> str:
     """Strip a trailing `#`/`;` comment from a config line.
 
-    # Review: coordinator:overengineering-reviewer -- dropped a
+    # Dropped a
     # quote-tracking state machine that treated `#`/`;` inside double quotes
     # as data, not a comment start. Unreachable for the one key this parser
     # reads (`core.untrackedCache`, whose value space is git's boolean
@@ -957,7 +957,7 @@ def cmd_git_perf_currency(argv: list[str]) -> int:
         )
         return 1
 
-    # Review: coordinator:overengineering-reviewer -- was a second,
+    # Was a second,
     # hand-derived registry walk here (same helpers lookup, roots handling,
     # sorted iteration, classify, mirror-skip, missing-line wording as
     # apply_fleet's own, with nothing enforcing the two stayed in sync).

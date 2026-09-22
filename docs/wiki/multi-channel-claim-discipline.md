@@ -32,7 +32,7 @@ At fix-time, enumerate the channels for any cross-cutting infrastructure claim. 
 
 | Symptom | Channels |
 |---|---|
-| Console popup on Windows | Python subprocess (`CREATE_NO_WINDOW`); TS / Node (`windowsHide`); shell-spawn (claude-klabauter `coordinator/lib/spawn-hidden.sh` / `start /b`) |
+| Console popup on Windows | Python subprocess (`CREATE_NO_WINDOW`); TS / Node (`windowsHide`); shell-spawn (the engine repo's `coordinator/lib/spawn-hidden.sh` / `start /b`) |
 | CRLF normalization | `.gitattributes` rule; existing-tree `git add --renormalize`; editor config; CI checkout flag |
 | Path resolution for sibling repos | Python helper; shell `$REPO_*` env vars; PowerShell `$env:REPO_*` |
 | "All hooks fail-loud on missing dep" | PostToolUse hooks; PreToolUse hooks; SessionStart hooks; pipeline hooks |
@@ -85,6 +85,32 @@ The rule above splits claims on one axis (positive vs. absence). There is a seco
 - MSYS `ssh.exe` absence — a sibling repo claimed "no MSYS `ssh.exe` on this machine" after checking one directory; five exist (`bash-on-windows-gotchas.md` § Superseded claim).
 - Guard-regex "doesn't hold up" — the EM tested a regex in one guard file, found no match, and told the PM a subagent's bug report "doesn't hold up"; wrong file, the report was correct.
 - "You've de-bashed" — the EM verified two files were Python and told a sibling repo "you've de-bashed"; 516 `.sh` files were tracked at HEAD, 29 touched that same day.
+
+## A delegated absence-claim is still yours
+
+§ Generalization binds an absence claim to the space **you** searched — but the rule does not obviously fire when someone else did the searching. A dispatched agent reports "X exists nowhere in the fleet" and the dispatcher treats that conclusion as inherited fact rather than as a bounded finding it now owns, because from where it sits the searching already happened. A subagent's *positive* claims get checked as a matter of course — a cited `file:line` either says what was claimed or it does not — but an absence claim presents no such surface: there is nothing to open, so nothing prompts the check.
+
+Before a subagent's absence claim is used to correct a citation, close an item, retract a record, or assert anything to a peer repo: re-run the search yourself and widen it by one axis the agent plausibly missed — sibling directories (inbox vs. archive vs. sent), the peer tree as well as this one, git history as well as the working tree, alternate names for the same capability. A subagent's search that misses `cross-repo/archive/` versus `cross-repo/inbox/` can replace a correct citation with an unrelated memo's filename — and the same gap can produce a second false absence claim to a peer repo shortly after the first is caught, because catching one instance does not by itself widen the search habit.
+
+## Your own tree needs the same discipline
+
+The fourth-quadrant rule above is well-drilled for absence claims about the **receiver's** tree — read their disk, name the scope searched. There is no equivalent reflex for an absence claim about **your own** tree, and in a multi-session repo your own tree is exactly as unread as theirs: a concurrent session ships code you never see. Before writing "we have not built X" about your own repo, grep for X rather than trusting the plan or your own last read of it.
+
+## "Verified green" names the command that produced it
+
+A plan or commit claiming verification is only as trustworthy as the command a reader can re-run. "Verified green" as prose, with no command named, is unfalsifiable — one case evaluated a fix's declared semantics against two roots in a throwaway snippet, recorded it as PASS in an audit table, and never ran the repo's own suite; the suite would have caught a pinned-path test the fix left red, and a second implementation of the same check elsewhere in the codebase that the manifest-only fix never touched. Each of the false assertions would have fallen to one command. Name the exact command and its result ("`python3 dev.py test tests` — 2884 passed, 9 skipped") so a reader can re-run it and a reviewer can see instantly what was **not** run. A declaration-only change to a config/manifest is not green until the code paths that independently reimplement that declaration have been grepped — a field and the code reading it are two sites, not one.
+
+## Verify peer-consumer behaviour in the peer's tree, not in our docs about the peer
+
+Docs describing what a downstream consumer does with our output go stale silently, because the peer changes their code without touching our description of it. One case: a staff-eng review raised a CRITICAL finding sourced from this repo's own docs describing a peer's ingest behaviour, noting the peer's actual source "was not on disk" — it was, checked out alongside this repo, and the peer had landed more lenient behaviour the day before that made the finding moot. A second case the same fleet, same week: three separate claims about a different sibling's behaviour — all taken from our documentation about them, all wrong, all settled in under two minutes once their actual source was read. Treat any claim about peer-consumer behaviour — including a staff reviewer's — as a hypothesis until read in the peer's source, not in our notes about it.
+
+## A peer's own number is still a claim
+
+The rule above (verify in the peer's tree) has a sharper corollary: a figure a peer reports about **their own** repo is not exempt from verification, and a count derived from diffing generated files is the shape most likely to be inflated. One case: a peer reported that all 30 shared schemas differed between two versions of a vendored contract; carried into a plan as a committed premise without measuring, it was false — 26 of 31 files were byte-identical once a per-release version stamp was normalized out, and only 5 genuinely differed. The wrong number was load-bearing: it is what made both repos treat a small crossing as an unscoped major change. Any generated-file diff count reported by a peer (or produced locally) needs the release-stamp / timestamp / build-id fields normalized out before the count is trusted.
+
+## An empty section is rendering, not absence
+
+A tool that prints its section headings unconditionally — with or without rows under them — makes an empty section look identical to a genuine absence finding. One case: a CLI's `--list-receivers` output always prints its section heading even with zero rows; an empty section under it was read as "this peer is not addressable," asserted to the PM, and a memo shipped to the wrong destination carrying that claim in its routing note. A single `--dry-run` on the actual target showed it resolving fine. This is the tool-output variant of the absence-claim rule above: an absence claim is the one that most needs a positive probe, because its evidence is the *lack* of a signal — and a lack of signal is exactly what a rendering quirk, a permission boundary, or a stale registry also produces.
 
 ## When to invoke
 

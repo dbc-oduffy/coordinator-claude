@@ -158,7 +158,7 @@ def cruft_sweep_last_run(log_path: Path) -> Optional[str]:
     """Parse the timestamp column of the last row of a pipe-delimited
     `cruft-sweep-log.md`.
 
-    Review: code-reviewer — Slice C F5 (carried from the bash oracle,
+    Slice C F5 (carried from the bash oracle,
     workweek-complete.md:1037-1041): the log is pipe-delimited
     (`<class> | <timestamp> | ...`), so a naive `awk '{print $1}'` split on
     whitespace returns the literal `"|"` separator, not the timestamp. This

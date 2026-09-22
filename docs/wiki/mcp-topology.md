@@ -74,7 +74,7 @@ A 3-proxy "collapse" (example-game-repo's `execute_domain_tool` / `manage_<domai
 
 `mcp-topology.yaml` is **not** a `schemas/` entry. This distinction is load-bearing.
 
-All 26 files under `schemas/` are **record-collection frontmatter validators**: each declares `applies_to:` and `kind:` values that claude-klabauter `coordinator/bin/query-records.js` uses to route queries across a collection of many same-kind YAML records (handoffs, plans, lessons, improvement-queue entries). `bin/verify-schema-registry-sync.py` line 129 makes this contract explicit — schemas without an `applies_to:` key are skipped entirely, because without it they cannot participate in the `query-records.js` dispatch surface.
+All 26 files under `schemas/` are **record-collection frontmatter validators**: each declares `applies_to:` and `kind:` values that the engine repo's `coordinator/bin/query-records.js` uses to route queries across a collection of many same-kind YAML records (handoffs, plans, lessons, improvement-queue entries). `bin/verify-schema-registry-sync.py` line 129 makes this contract explicit — schemas without an `applies_to:` key are skipped entirely, because without it they cannot participate in the `query-records.js` dispatch surface.
 
 `mcp-topology.yaml` is categorically different: it is a **body-shape spec for a single declaration file** — there is only ever one topology file, not a collection. It describes the structure of its own body, not the frontmatter of a record set. Adding it to `schemas/` would misuse the schemas/ machinery (which is keyed by collection cardinality and `applies_to:/kind:` routing) for an object of an entirely different kind.
 
@@ -154,7 +154,7 @@ This distinction matters when an agent needs to understand what to disable: for 
 
 `~/.claude.json` holds one `oauthAccount`/`userID` plus one top-level `mcpServers` block, and that block is **scoped to the active login**. Hot-swapping accounts on one machine therefore drops all *locally-installed* MCP registrations — the new login sees an empty (or different) `mcpServers`. Server-side claude.ai MCPs are immune (they ride the account, not the local file); only the locally-registered `.mcp.json`-class servers vanish.
 
-**Heal at the DoE/host layer, never per-consumer.** The fix is a host-owned `ensure-local-mcps` SessionStart hook that reconciles the active `mcpServers` block against a `machine-local/always-on-mcps.json` manifest — re-registering anything the account swap dropped. Do NOT patch this per-project or by hand-editing `settings.json`. SessionStart hooks wire via `coordinator/hooks/hooks.json` → `gen-settings-hooks.py` regeneration, not by editing the generated `settings.json` directly.
+**Heal at the doctrine-repo/host layer, never per-consumer.** The fix is a host-owned `ensure-local-mcps` SessionStart hook that reconciles the active `mcpServers` block against a `machine-local/always-on-mcps.json` manifest — re-registering anything the account swap dropped. Do NOT patch this per-project or by hand-editing `settings.json`. SessionStart hooks wire via `coordinator/hooks/hooks.json` → `gen-settings-hooks.py` regeneration, not by editing the generated `settings.json` directly.
 
 This is orthogonal to `loadPolicy` (§ 3): load-policy governs *when* a declared server loads; identity-scoping governs whether the registration *survives an account swap* at all. A `deferred` server that was correctly registered still disappears from `mcpServers` on login change — the host-layer heal is what restores it.
 

@@ -54,9 +54,9 @@ against it.
 ## Canonical Frontmatter Grammar — Batons
 
 > Spec backlink: `schemas/handoff.schema.json` (10.9 KB; the canonical reference with
-> cross-field rules in claude-klabauter `coordinator/bin/lib/schema.js`) and `schemas/cross-repo-memo.schema.json` (the
+> cross-field rules in the engine repo's `coordinator/bin/lib/schema.js`) and `schemas/cross-repo-memo.schema.json` (the
 > live implementation; the originating spec `2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md` under `docs/plans/`
-> has been distilled/archived — the live CLI (claude-klabauter `coordinator/bin/cross-repo-memo`) `_compose_frontmatter`
+> has been distilled/archived — the live CLI (the engine repo's `coordinator/bin/cross-repo-memo`) `_compose_frontmatter`
 > l.615 + `_compose_memo` l.655 is the operative reference).
 
 The batons share a set of core frontmatter keys with common semantics. The table below
@@ -69,7 +69,7 @@ enumerates every shared and type-specific key in the canonical grammar.
 | `title` | required | required | Human-readable artifact name; consistent quoting not enforced but `title: string` is schema `required` on both |
 | `created` | required (iso-date) | required (iso-date) | Canonical timestamp key; consolidates any historical `date:` redundancy — the only fleet-wide temporal key recognized by `query-records --since` / `--older-than` |
 | `status` | required | required | Lifecycle record axis — **TYPE-SCOPED enum** (see §§ below; the same key name carries different value-spaces per type, NOT a cross-type predicate) |
-| `summary` | optional (≤120 chars, post-cutoff cross-field enforced) | optional (≤120 chars, cross-field enforced) | One-line description; length enforced in claude-klabauter `coordinator/bin/lib/schema.js` cross-field rules |
+| `summary` | optional (≤120 chars, post-cutoff cross-field enforced) | optional (≤120 chars, cross-field enforced) | One-line description; length enforced in the engine repo's `coordinator/bin/lib/schema.js` cross-field rules |
 
 **Critical negative-spec: `kind` and `status` are TYPE-SCOPED enums, not cross-type predicates.** A handoff `status: active` and a memo `status: open` are NOT the same thing and share only the key name. A fleet query on `status` cannot treat the values as cross-type comparable without the liveness predicate layer (§ "The Cross-Type Liveness Predicate" below).
 
@@ -97,7 +97,7 @@ The author and lineage/predecessor concepts exist in both types but are spelled 
 | `superseded_by` | optional | Set by receiver when a newer memo supersedes this one |
 
 **Load-bearing divergences — deliberately kept:**
-- Memo `from`/`to` encode receiver-routing semantics that handoff `machine`/`authoring_session` do not. These fields are the delivery address; consolidating them with handoff author fields would break the single-surface delivery mechanism in claude-klabauter `coordinator/bin/cross-repo-memo`. They are explicitly marked as `deliberate-keep-with-architectural-reason` in `schemas/cross-repo-memo.schema.json`.
+- Memo `from`/`to` encode receiver-routing semantics that handoff `machine`/`authoring_session` do not. These fields are the delivery address; consolidating them with handoff author fields would break the single-surface delivery mechanism in the engine repo's `coordinator/bin/cross-repo-memo`. They are explicitly marked as `deliberate-keep-with-architectural-reason` in `schemas/cross-repo-memo.schema.json`.
 - Handoff `predecessor` (ancestry) vs memo `supersedes`/`superseded_by` (supersession chain): same concept, but memos express the chain bidirectionally because the receiver may re-issue under a different memo ID. The handoff does not need bidirectional pointers because it uses `consumed_by`/`claimed_by` + `shipped_in` to record the lifecycle transition in place.
 
 ### Type-Specific Keys
@@ -130,7 +130,7 @@ The author and lineage/predecessor concepts exist in both types but are spelled 
 ## The Cross-Type Liveness Predicate (KEYSTONE)
 
 > Spec backlink: `docs/plans/2026-06-25-example-initiative-tc-0-canonical-baton-shape.md § The cross-type liveness predicate`
-> Implementation: claude-klabauter `coordinator/bin/query-records.js` `liveness(fm, type)` resolver (tc-0 C3).
+> Implementation: the engine repo's `coordinator/bin/query-records.js` `liveness(fm, type)` resolver (tc-0 C3).
 
 The sharpest finding from the fleet inventory is that **`status` is a false friend** — one
 key name carrying three incompatible enums across batons, plus more across the queue and
@@ -166,7 +166,7 @@ field carries this derived state.
   backlog item).
 - **DONE** — terminal; the artifact's lifecycle is complete (shipped, consumed, actioned,
   abandoned, wontfix). No further action expected. For handoffs specifically: DONE when
-  `status == consumed` OR `deployment_state ∈ HANDOFF_TERMINAL_DEPLOYMENT` (claude-klabauter
+  `status == consumed` OR `deployment_state ∈ HANDOFF_TERMINAL_DEPLOYMENT` (the engine repo's
   `coordinator_core.lifecycle_constants.HANDOFF_TERMINAL_DEPLOYMENT`: `shipped`,
   `abandoned`, `continued`, `closed`). The `superseded` status is not written on new handoffs.
 
@@ -191,18 +191,18 @@ record axis says `active` — the readiness axis takes precedence for terminal d
 `deployment_state` ONLY — never `status`/`consumed`/`claimed`/`in_flight`/`code-complete`.
 
 Necessary condition: `deployment_state ∈ HANDOFF_TERMINAL_DEPLOYMENT` — the single source
-(claude-klabauter `coordinator_core.lifecycle_constants.HANDOFF_TERMINAL_DEPLOYMENT`:
+(the engine repo's `coordinator_core.lifecycle_constants.HANDOFF_TERMINAL_DEPLOYMENT`:
 `shipped`, `abandoned`, `continued`, `closed`). Named by reference here, not inline-redeclared,
 so this stays correct as that set evolves.
 
-Not sufficient alone: the enforced checks (claude-klabauter
+Not sufficient alone: the enforced checks (the engine repo's
 `coordinator_core/ops/fleet/archive_terminal_handoffs.py`'s `_scan_terminal`, dispatched to by the
 candidate-selecting `coordinator/bin/sweep-terminal-handoffs.py`) also require the record be
 childless, hold no live session claim, and — for the `shipped` subclass — carry a resolvable
 `shipped_in` commit SHA.
 
 **Never manufacture a resolution to make a record archive-safe.** The crash-orphan reaper
-(claude-klabauter `coordinator/bin/reap-orphaned-in-flight-handoffs.py`) releasing a dead holder's
+(the engine repo's `coordinator/bin/reap-orphaned-in-flight-handoffs.py`) releasing a dead holder's
 claim, or upgrading a genuinely-shipped orphan to `shipped` on resolvable ship evidence, is the
 sanctioned resolution path, not a violation — it acts on real evidence, never a fabrication.
 
@@ -210,7 +210,7 @@ sanctioned resolution path, not a violation — it acts on real evidence, never 
 
 The table below enumerates every inventoried fleet artifact kind and every status/lifecycle
 enum value. Rows marked `implemented this session` are backed by `liveness(fm, type)` in
-Claude-klabauter `coordinator/bin/query-records.js` (tc-0 C3). Rows marked `design-only` prove the predicate generalizes
+the engine repo's `coordinator/bin/query-records.js` (tc-0 C3). Rows marked `design-only` prove the predicate generalizes
 before tc-1/tc-2 inherit the doctrine.
 
 | Type | Enum key | Value | Canonical liveness | Implemented this session? |
@@ -286,14 +286,14 @@ before tc-1/tc-2 inherit the doctrine.
 > Forward seam target: tc-4 (fleet aggregator + versioned emit), tc-5 (project-rag store, tc-5 memo + PM-relay, out-of-scope for this session).
 
 The liveness mapping table defined above is **first-class contract data**, not a local
-implementation detail of claude-klabauter `coordinator/bin/query-records.js`. It travels with the tc-4 versioned emit
+implementation detail of the engine repo's `coordinator/bin/query-records.js`. It travels with the tc-4 versioned emit
 artifact — the same Zod-source → emitted-versioned-JSON artifact pattern proven in-tree
 by the cockpit-contract owner-enum seam (`2026-06-25-cockpit-contract-owner-enum-seam.md` under `docs/plans/`,
 cited here as the in-tree proof; this wiki does NOT extend that plan's scope).
 
 **Implication for tc-5 (project-rag store):** project-rag derives its LIVE/BLOCKED/DONE
 derivation FROM the published mapping in the tc-4 emit artifact, not by re-reading or
-re-implementing claude-klabauter `coordinator/bin/query-records.js` in another language. project-rag MAY materialize
+re-implementing the engine repo's `coordinator/bin/query-records.js` in another language. project-rag MAY materialize
 liveness as a computed column at ingest, but the derivation logic is the published mapping,
 not an independent implementation. This prevents the predicate from diverging between the
 query layer (`query-records`) and the store layer (project-rag) — a silent divergence that
@@ -608,6 +608,10 @@ encodes for the altitude it actually drives.
 #### CONTRACT_VERSION bump rule
 
 A `CONTRACT_VERSION` bump is warranted when a change alters the **schema** (adds/removes/renames a field or type), **enum values** (widening or narrowing a value set), or **`schema_count`** (schemas added or removed from the registry). An emitted-annotation-only correction — fixing the _values_ emitted into existing fields with no schema, enum, field, or count delta — does NOT warrant a bump; notify consumers and let them re-vendor at leisure instead.
+
+**A narrowed enum and the producers that emit it are one change — landing only the schema edit is worse than not editing it, because the declared vocabulary and the emitted vocabulary now disagree and nothing says so.** Narrowing a schema enum (e.g. moving a `reviewer` field from persona names to role slugs) splits into three edits that feel independent and are not: the enum definition itself, every producer that emits into that field, and the version stamp consumers gate their re-vendor on. A green test suite does not catch the gap on its own — an enum is typically documentation the tests don't validate against, so producers can keep emitting the old vocabulary for hours after the schema "moved," invisibly to CI. Before narrowing a wire vocabulary: grep the **field name** (not the old enum values, since the old values are exactly what the stale producers still emit) to enumerate every producer, and land the producer updates in the same commit as the enum edit.
+
+**Distinguish a first-landing narrow from a catch-up regen when deciding whether the bump applies.** "This is an enum-only shape change with no `schema_count` delta, so no bump" is a real precedent for a *catch-up* regen of an already-bumped-at-source change — it is not a license to skip the bump on an enum narrow's *first* landing. Check which case you're in before citing precedent by resemblance; a bump owed in a sibling/vendoring repo is a real dependency and does not dissolve because a local test is green.
 
 ---
 

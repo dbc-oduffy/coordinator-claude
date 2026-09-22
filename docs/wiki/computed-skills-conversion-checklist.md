@@ -32,7 +32,7 @@ defect (procedure invisible to every existing gate), not a preference.
 - [ ] **Zero command fences.** No fenced multi-line shell/python payload survives. Cross-ref
       `coordinator-tripwires.md § NO-MULTI-LINE-SHELL-FENCE`: a shell fence is allowed only as
       exactly one metachar-free command line; a multi-command payload belongs in a named
-      claude-klabauter CLI, not pasted prose.
+      engine-repo CLI, not pasted prose.
 - [ ] **Inline-mechanism budget gate run and clean (AC-11).** Run
       `check-surface-inline-budget <converted-surface-path> <baseline-path>`, resolved per
       `coordinator/snippets/resolve-coordinator-bin.md` (rung 0 / Shape W on a PowerShell host),

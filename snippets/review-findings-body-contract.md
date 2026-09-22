@@ -70,7 +70,7 @@ denied something you would otherwise have run, name the command and the guard.>
 Severity definitions for the **Severity** field:
 - **P0** — diff is broken (doesn't compile, doesn't run, breaks an existing test, ships a security hole)
 - **P1** — diff has a correctness bug or violates an architectural contract that will surface as a defect downstream
-- **P2** — diff has a substantive structural problem (weak test, dead code, dubious abstraction, missing docstring at a structural boundary per project rag-bait conventions)
+- **P2** — diff has a substantive structural problem (weak test, dead code, dubious abstraction, missing module purpose docstring per project rag-bait conventions)
 - **nit** — style, naming, formatting, comment phrasing, ordering, anything cosmetic
 
 A diff with five P2s is not the same as a diff with five nits — make sure your severities are calibrated. Use **nit** liberally; that is what the obsessive framing is for.

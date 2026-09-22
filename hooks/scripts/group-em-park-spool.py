@@ -29,7 +29,7 @@ NEGATIVE SPEC -- the whole contract, and every line of it is load-bearing:
   That predicate belongs to the drain, and one copy of it is the point.
 - **It never advances the parked map.** The map is
   `state/group-em-watch-parked.json` and belongs to the drain. A producer that
-  advanced it would CONSUME the transition -- the crown's next wake would see
+  advanced it would CONSUME the transition -- the standing holder's next wake would see
   steady state, stay silent, and the finding would die in a process whose
   stdout nobody reads. That failure is silent and makes coverage worse than
   having no wake at all; it is the reason this is a producer/consumer split

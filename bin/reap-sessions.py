@@ -7,7 +7,7 @@ coordinator_core session op (`session.reap`) via cc_invoke.route() — no
 shell, no legacy fallback (the bash oracle itself dispatched session.reap
 unconditionally-native with no legacy_fn; this port matches that posture).
 
-Review: code-reviewer / the Staff Engineer — the legacy cs_reap_stale / cs_reap_agents /
+The legacy cs_reap_stale / cs_reap_agents /
 cs_reap_stale_claims trio (formerly coordinator/lib/coordinator-session.sh,
 coordinator/lib/session/scope.sh) was SUPERSEDED here before being deleted
 (session-family-repoint C4a, 2026-07-22): session.reap is the single op that

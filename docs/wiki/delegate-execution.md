@@ -460,13 +460,13 @@ Sidecars are mandatory only for fan-out dispatches where `bin/fan-out-dispatch.p
 
 **Executor reports fabricate "already done" file states — verify edits via `git diff`, not the report.** Executors hallucinate prior state and downstream success, especially when a fix "feels" present — they report a flag that doesn't exist, cite a score from a test that errored, and assert the change landed when the source is unmodified.
 
-Chat is hypothesis; the diff is ground truth (→ `docs/wiki/dispatching-parallel-agents.md` § Executor commit-fidelity and ground-truth verification). Small well-diagnosed fixes are often faster to apply EM-direct than to re-dispatch over a confused executor.
+Chat is hypothesis; the diff is ground truth (→ `docs/wiki/dispatching-parallel-agents.md` § Executor commit-fidelity and ground-truth verification). Small well-diagnosed fixes are often faster to apply EM-direct than to re-dispatch over a confused executor. The same holds for a "green/verified" claim on the whole workflow, not just a file edit: a dispatched fix agent reported a tsconfig fix present and typecheck verified green, but a fresh `git status` + typecheck showed the fix absent and the repo red — its own revert had broken the build. A subagent's success narrative is a hypothesis; re-run the actual gate or inspect git state directly before consuming it.
 
 ## 'Pre-Existing' and 'Already Fixed' Claims — Verify Against Merge-Base
 
 **An executor's "pre-existing failure" / "already on branch" claim checks only ITS dispatch baseline — verify against merge-base + source.** An executor's pre-edit tree is its own baseline, not the workstream's; and executors systematically under-report remaining work as already-done, especially on P1 findings.
 
-**How to apply:** verify "pre-existing"/"already-fixed" claims against `git merge-base origin/main HEAD` AND by grepping the cited lines — never trust a P1 "already fixed" report without confirming on disk. A file introduced by Chunk 2 in the same workstream is NOT "pre-existing" to a Chunk 6 executor even though it appears in its baseline.
+**How to apply:** verify "pre-existing"/"already-fixed" claims against `git merge-base origin/main HEAD` AND by grepping the cited lines — never trust a P1 "already fixed" report without confirming on disk. A file introduced by Chunk 2 in the same workstream is NOT "pre-existing" to a Chunk 6 executor even though it appears in its baseline. The same trap applies one level up, at a workflow gate rather than an executor: a gate calling a typecheck error "pre-existing / out-of-scope" is itself a claim to verify, not accept. Check whether the errored symbol is one YOUR change just added or required — an added required field on a shared type breaks a pre-built consumer's mocks, which looks pre-existing (the file itself is untouched by you) but is a regression you caused. Verify by `git blame` on the error site plus whether the errored symbol is yours, the same discipline as the executor case above, applied to the gate's own verdict.
 
 ## Stronger enforcement, not stronger wording — executor no-commit needs a structural guard
 
@@ -475,6 +475,16 @@ Chat is hypothesis; the diff is ground truth (→ `docs/wiki/dispatching-paralle
 Until a structural seam lands, treat "executor committed" as a known-recurring risk and recover any missed scope in an explicit follow-up commit before the next dispatch. Pair with the existing `--expected-branch` discipline and prefer dispatch surfaces that withhold commit/push permission outright over briefs that ask politely.
 
 This is exactly the failure mode a structural EM-only commit gate (see § No-commit briefs need structural enforcement above) closes for good — once the commit itself is denied at the tool layer for subagent context, "executor committed anyway" stops being a residual risk to hand-audit for.
+
+## Verify claimed deletions left the tree — `git ls-files`, not just a clean import-grep
+
+After a chunk that deletes a file, confirm `git ls-files <path>` returns empty — a clean
+grep-for-imports is not sufficient on its own. An executor's stash-based recovery (or a partial
+`rm` vs `git rm`) can silently restore or retain the file as tracked while every importer of it
+is correctly removed, so the import-grep passes clean while the file the chunk claims to delete
+survives the commit. Caught live: a chunk removed a generator module and every one of its
+imports, but left a generated JSON artifact tracked; only `git ls-files` at close surfaced it,
+and it took a follow-up fix to actually remove it from the tree.
 
 ## coordinator-auto-push — SSH Routing on Windows
 

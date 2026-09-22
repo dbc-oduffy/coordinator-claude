@@ -668,7 +668,7 @@ def _compose_percolate_ignore(
     without doubling stderr volume for no new information. Composition
     itself never aborts on a drop (no fail-closed/abort mode).
 
-    Review: code-reviewer — the summary previously re-printed every
+    The summary previously re-printed every
     dropped pattern verbatim, duplicating the per-pattern line above it
     with no cap on the loop; aggregating to counts keeps AC4's
     scroll-survivability intent without the duplication.

@@ -155,7 +155,7 @@ denied something you would otherwise have run, name the command and the guard.>
 |---|---|
 | **P0** | Diff is broken — doesn't compile/run, breaks an existing test, ships a security hole |
 | **P1** | Correctness bug, or violates an architectural contract that surfaces as a defect downstream |
-| **P2** | Substantive structural problem — weak test, dead code, dubious abstraction, missing docstring at a structural boundary per rag-bait conventions |
+| **P2** | Substantive structural problem — weak test, dead code, dubious abstraction, missing module purpose docstring per rag-bait conventions |
 | **nit** | Style, naming, formatting, comment phrasing, ordering — anything cosmetic |
 
 Calibrate: five P2s ≠ five nits. Use **nit** liberally — that's what the obsessive framing is for.

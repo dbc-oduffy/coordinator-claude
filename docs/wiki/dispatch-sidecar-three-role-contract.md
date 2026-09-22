@@ -15,10 +15,10 @@ related:
 <!--
 Purpose: document the flight recorder's extended THREE-role contract (R1 "dispatch sidecar")
 introduced by the 2026-07-09 dispatch-sidecar-executor-confinement plan — lifecycle (existing),
-dispatch_feed (new, claude-klabauter/pcli-04-filled), divergence (new, executor-authored). Names the
+dispatch_feed (new, engine/pcli-04-filled), divergence (new, executor-authored). Names the
 write-owner-per-field split, the versioned-schema-is-ground-truth stance, the drift-gate
 obligation, and the writes:/reads: spine cross-plan dependency.
-Negative-spec: this page does NOT define the claude-klabauter emitter (pcli-04/C3) or the plan-tasks
+Negative-spec: this page does NOT define the engine emitter (pcli-04/C3) or the plan-tasks
 `writes:`/`reads:` spine field (authored by `docs/plans/2026-07-19-pcli-phase2-stubs-claude-klabauter-
 contracts.md` C2) — both are cited as dependencies, not authored here.
 -->
@@ -43,10 +43,13 @@ distinct roles instead of one.
 **Subsumption.** The `2026-07-13-subagent-run-report-subsume` plan subsumed the
 flight recorder into a universal **run-report sidecar**, eligible for every scoped subagent
 (executors, integrators, enrichers, long scouts — per the `report_sidecar:` policy list), not
-just `/execute-plan` chunk executors. The sidecar now lives at
-`state/subagent-share/<session-id>/<provision_key>.md`, where `provision_key` is the flat,
+just `/execute-plan` chunk executors. The sidecar now lives under the current share root,
+`.coordinator-local/subagent-share/<session-id>/<provision_key>.md`
+(`coordinator_core/session/machinery_paths.py :: share_dir`) — the earlier
+`state/subagent-share/<session-id>/<provision_key>.md` form is a legacy leg, still read (never
+written) via `machinery_paths.share_roots()`. `provision_key` is the flat,
 pre-flattened `<plan-slug>.<chunk-id>` (joined on `.`), computed and provisioned at spawn time by
-Claude-klabauter's engine (`python3 -m coordinator_core.subagent_sandbox.provision_report`). It is typed
+the engine (`python3 -m coordinator_core.subagent_sandbox.provision_report`). It is typed
 by `coordinator/schemas/run-report.schema.json` (the superset schema that replaced
 `flight-recorder.schema.json`, which has been deleted) and read back by `workstream-complete`'s
 `d-fold-execution-observations` directive via `coordinator-fold-execution-record`. `coordinator-doc-new --type flight-recorder`
@@ -61,14 +64,23 @@ The three roles:
    `commits`, plus the new `started_at`/`finished_at` timestamps. The executor's own
    dispatched → in_flight → complete/blocked/thrashing state machine.
 2. **`dispatch_feed`** (new) — a per-chunk object shaped 1:1 against the live `Workflow`
-   `agent()` call contract, filled by the claude-klabauter emitter (C3/pcli-04), not the executor.
+   `agent()` call contract, filled by the engine emitter (C3/pcli-04), not the executor.
 3. **`divergence`** (new) — prose defending any divergence from the chunk's spec, written by the
    executor after the chunk finishes.
+
+**Not a fourth role: the plan-level completeness ledger.** `plan-completeness-ledger.md` reads
+every chunk's run-report sidecar (among other inputs) and emits a separate, per-PLAN artifact
+under `.coordinator-local/plan-sidecars/`. That ledger is a fourth ARTIFACT at a different
+altitude, not a fourth role on this page's sidecar — it stays a distinct file rather than folding
+into this one because of cardinality (per-plan versus this page's per-chunk) and provenance
+(machine-derived/computed versus `dispatch_feed`'s pre-dispatch-filled). See
+`plan-completeness-ledger.md` for the reader itself; this page's three-role table is unchanged by
+its existence.
 
 ## Why one file, three roles — not three files
 
 This is a **deliberate coordinator-side inlining choice**, not a claim that the three roles share
-a lifecycle. Claude-Klabauter's own reply on this exact question (`ops/dispatch/` as a new module,
+a lifecycle. The engine repo's own reply on this exact question (`ops/dispatch/` as a new module,
 separate from the `ops/emit/` cockpit-snapshot family — "different output kind, different
 contract, different lifecycle from the cockpit-snapshot emitter family") treats dispatch
 generation as structurally distinct from other emitted output. Coordinator's flight recorder
@@ -83,7 +95,7 @@ or a lifecycle phase — they don't. See the table below.
 | Field group | Fields | Write owner | Lifecycle phase | Executor may write? |
 | --- | --- | --- | --- | --- |
 | Lifecycle | `dispatched_at`, `dispatched_by`, `status`, `commits`, `started_at`, `finished_at` | Executor | In-flight (created at dispatch, updated throughout execution) | Yes — this is the executor's own state machine |
-| Dispatch feed | `dispatch_feed` (`label`, `agent_type`, `model`, `effort`, `schema_ref`, `brief_ref`, `phase`, `gate_kind`, `write_files`, `est_min`) | claude-klabauter emitter (C3/pcli-04) | Pre-dispatch (filled before the chunk is ever handed to an executor) | **No — READ-ONLY to the executor.** The executor does not author or mutate `dispatch_feed`; it is upstream of the executor's own work. |
+| Dispatch feed | `dispatch_feed` (`label`, `agent_type`, `model`, `effort`, `schema_ref`, `brief_ref`, `phase`, `gate_kind`, `write_files`, `est_min`) | engine emitter (C3/pcli-04) | Pre-dispatch (filled before the chunk is ever handed to an executor) | **No — READ-ONLY to the executor.** The executor does not author or mutate `dispatch_feed`; it is upstream of the executor's own work. |
 | Divergence | `divergence` (`diverged`, `summary`, `detail`) | Executor | Post-run (written after the chunk's work is done, before exit) | Yes — this is the executor's own account of what it did versus what the spec said |
 
 If a future change makes the executor believe it should populate or correct `dispatch_feed`,
@@ -106,26 +118,26 @@ Per-chunk field set (shaped 1:1 against the live `Workflow` `agent()` contract):
 (pointer to the per-chunk brief/prompt), `phase` (the `phase()` group name the chunk belongs to),
 `gate_kind` (`none | file-write-overlap | output-consumption-runtime | contract-change` — maps
 onto the await-boundary-vs-`parallel()`/`pipeline()` choice), `write_files`, `est_min`.
-`additionalProperties: true` on this object lets the claude-klabauter emitter add emitter-specific fields
+`additionalProperties: true` on this object lets the engine emitter add emitter-specific fields
 without a schema round-trip.
 
 **Cardinality: per-chunk, not per-plan.** `dispatch_feed` is one object per run-report sidecar
 file (one per chunk) — it matches C3's own independent design (spine task → N≥1 dispatch rows).
 The per-plan Workflow *envelope* (`meta` + the `phase()`/`parallel()`/`pipeline()` topology) is
-assembled separately, by the claude-klabauter emitter, from the N per-chunk feeds across a plan's
+assembled separately, by the engine emitter, from the N per-chunk feeds across a plan's
 run-report sidecars. This wiki page (and the schema it documents) defines the per-chunk
 `agent()`-shape only; per-plan derivation and assembly is C3/pcli-04's concern, not this
 schema's.
 
 ## The versioned schema is the ground truth, not the live Workflow API
 
-Claude-Klabauter's consult reply on this question is explicit: the emitter's codegen ground truth **must be a versioned, DoE-owned contract
+The engine repo's consult reply on this question is explicit: the emitter's codegen ground truth **must be a versioned, upstream-owned contract
 schema, not the live harness tool description** — coupling a producer to an un-versioned upstream
 API is "the classic brittleness trap." This plan honors that stance directly: the extended
 schema (`run-report.schema.json`, renamed from `flight-recorder.schema.json` v1.1.0)
 **is** that versioned Workflow-dispatch contract. The live
 `Workflow` tool description is read exactly once, at schema-authoring time, to pin the
-`dispatch_feed` field set — after that, the claude-klabauter emitter targets the versioned schema, never
+`dispatch_feed` field set — after that, the engine emitter targets the versioned schema, never
 the live API, for every subsequent chunk it processes.
 
 **A standalone `workflow-dispatch.schema.json` is a ruled-out proposal, not a live alternative.**
@@ -150,36 +162,36 @@ requirement from the retired flight-recorder target onto `run-report.schema.json
 **Pre-condition checked, not assumed: the body-fenced-block `## Tasks` parser.** This schema
 pin does not itself depend on pcli-01/C1's `## Tasks` spine parser, but a reader tracing the
 emitter's full dependency chain needs its status stated rather than assumed. As checked against
-the engine repo (`claude-klabauter/coordinator_core`): `coordinator_core/frontmatter/body_blocks.py`
+the engine repo's `coordinator_core`: `coordinator_core/frontmatter/body_blocks.py`
 has landed on disk; `task_spine.py` has not — no file by that name exists anywhere under
 `coordinator_core`. Treat the spine parser as partially landed, not landed, until `task_spine.py`
 (or its equivalent) appears.
 
-### Drift-gate obligation (downstream dependency for the claude-klabauter emitter)
+### Drift-gate obligation (downstream dependency for the engine emitter)
 
 Because the field set is pinned from a live API snapshot at one point in time, the versioned
 schema **will drift** as the `Workflow` tool's actual API surface moves. This plan does not build
 the gate — only documents the obligation. A drift gate is needed between this schema version and
-the live `Workflow` tool description, with the same discipline as claude-klabauter's own
+the live `Workflow` tool description, with the same discipline as the engine repo's own
 `plan-tasks.schema.json` vendoring drift-gate: it must fail loud when the live API and the pinned
 schema diverge, rather than silently emitting stale or invalid `agent()` calls. This is a **named
-dependency of the shipped `dispatch.emit` op** (the claude-klabauter emitter cites this schema as a hard
-input) — whether the gate itself shipped alongside the op is unverified here; check claude-klabauter's side
+dependency of the shipped `dispatch.emit` op** (the engine emitter cites this schema as a hard
+input) — whether the gate itself shipped alongside the op is unverified here; check the engine repo's side
 directly rather than assuming either way.
 
-### The `writes:`/`reads:` spine dependency (claude-klabauter contract-ask #2) — live
+### The `writes:`/`reads:` spine dependency (engine contract-ask #2) — live
 
 `dispatch_feed.write_files` and `gate_kind` are **derived outputs**, not authored directly: the
-Claude-klabauter emitter (`coordinator_core.ops.dispatch_emit`, op `dispatch.emit`) derives them from the
+engine emitter (`coordinator_core.ops.dispatch_emit`, op `dispatch.emit`) derives them from the
 explicit per-task `writes:` (and `reads:`) declaration on the plan's `## Tasks` spine. That spine
-field landed as claude-klabauter's **contract-ask #2**, a `plan-tasks.schema.json` change authored on claude-klabauter's side (`x-schema-version: 1.7.0`), and
-the emitter itself lives on claude-klabauter's side, deriving a Workflow wave-map from the spine.
+field landed as the engine's **contract-ask #2**, a `plan-tasks.schema.json` change authored on the engine's side (`x-schema-version: 1.7.0`), and
+the emitter itself lives on the engine's side, deriving a Workflow wave-map from the spine.
 `write_files`/`gate_kind` have a live producer wherever a plan's spine declares `writes:`.
 
 The op is preferred, not mandatory — `coordinator/skills/execute-plan/SKILL.md` Phase 1.6 names it
 as the preferred wave-map derivation with hand-authoring as the fallback, because the emitted
 Workflow script spawns coordinator-typed `agent()` calls and a Workflow `agent()` spawn is not an
-`Agent` tool call — injected `contract_blocks` never arrive on that path (claude-klabauter's
+`Agent` tool call — injected `contract_blocks` never arrive on that path (the engine's
 `coordinator_core/ops/dispatch_emit/emit.py`; see `SKILL.md` § Vehicle default QUALIFIES), so an
 emit-first default would fire a plan wave of coordinator-typed agents without their contract
 blocks. A spine row without
@@ -216,14 +228,14 @@ Re-verification against current disk found the guard already live: **AC13's red 
 ALREADY GREEN, not a build target.** This section records the discharge so a future reader
 doesn't re-open work that's done.
 
-**(a) The confirming artifact.** claude-klabauter's
+**(a) The confirming artifact.** the engine's
 `coordinator_core/write_guards/block_subagent_plan_body_write.py` is a CLASS hard-deny
 (PRIORITY 40) matched against `_PLAN_BODY_RE = (^|/)docs/plans/.+\.md$`, wired live into the
 `Write | Edit | MultiEdit | NotebookEdit` write_guards engine dispatch
 (`preuse-write-dispatch.py` → `write_guards.engine`). It denies `coordinator:executor`; named
 Opus personas are exempt (§ Two behavioral postures, not one above — control posture for
 generic executors, convenience posture for personas). This IS AC13's satisfying artifact — no
-DoE-side hook change accompanies this record. A related-but-distinct matcher,
+doctrine-repo-side hook change accompanies this record. A related-but-distinct matcher,
 `enforce-agent-dispatch-mode.py`, fires at `Agent`-tool spawn time in the *parent* session and
 never observes a spawned child's later `Write` events — it was mistakenly credited earlier in
 this workstream as the write-time enforcer, which is why the existing guard didn't surface
@@ -262,11 +274,10 @@ DRs as part of normal dispatch), and folding them into an immutable-path guard w
 delegation rather than close a gap. The widened scope stays strictly `coordinator:executor`
 (never a generic executor-class re-fence — the standing revisit-trigger forbids that) with personas
 exempt, unchanged from the existing guard's posture. **Status: accepted and landed.**
-`claude-klabauter-em` actioned the memo the same day (`disposition: accept`, direct-dispatch,
-archived at `claude-klabauter`'s `cross-repo/archive/2026-07-24-doe-claude-em-executor-spec-
-surface-widening.md`): `_PLAN_BODY_RE` widened to `(^|/)docs/(plans|problems)/.+\.md$`,
-`coordinator:executor`-only, wiki/decisions excluded exactly as proposed, landed at claude-klabauter. `docs/problems/**` is now guard-protected for
-`coordinator:executor` on claude-klabauter's side — a future reader does not need to chase disposition
+`_PLAN_BODY_RE` widened to `(^|/)docs/(plans|problems)/.+\.md$`,
+`coordinator:executor`-only, wiki/decisions excluded exactly as proposed, landed
+. `docs/problems/**` is now guard-protected for
+`coordinator:executor` on the engine repo's side — a future reader does not need to chase disposition
 further; the accept is the terminal state for this ask.
 
 ## Audit note — read-only reviewer-sidecar spot-check corrected two false AC marks
@@ -298,7 +309,7 @@ by default.
 
 `state/subagent-share/<session-id>/` is a growth surface — every dispatched subagent (executor,
 reviewer, synthesizer, scout) provisions a run-report sidecar under it, and nothing deletes those
-files on its own. The shipped reaper is **claude-klabauter-resident**, delete-by-convention (matches the
+files on its own. The shipped reaper is **engine-resident**, delete-by-convention (matches the
 `<session-id>/<provision_key>.md` path shape rather than reading a registry), and gated on two
 signals together, not either alone: **liveness** (is the owning session still active?) and **age**
 (has enough wall-clock time passed that the sidecar's fold-back into
@@ -317,7 +328,7 @@ race a still-running dispatch or an as-yet-unread divergence record.
    fallback path (used by the self-create branch — see § Conditional sidecar handling, case 2, in
    the executor operating doctrine) was still writing the old flight-recorder-shaped scaffold
    instead of the unified run-report shape, meaning a self-created sidecar could diverge from a
-   claude-klabauter-provisioned one. Fixed by unifying the `coordinator-doc-new` scaffold with
+   engine-provisioned one. Fixed by unifying the `coordinator-doc-new` scaffold with
    `provision_report`'s frontmatter-bearing output — one scaffold shape, two entry points,
    closing the producer divergence rather than leaving two shapes that happened to usually agree.
 
@@ -433,8 +444,8 @@ it was permitted.
   write-deny (Write/Edit/MultiEdit/NotebookEdit) whose carve-out is what keeps this sidecar
   writable, plus its new Bash sibling — honestly scoped to common write idioms, not
   categorical; see the hook's own header comment
-  (`hooks/scripts/block-subagent-plan-body-bash-write.sh`, folded into claude-klabauter
-  `coordinator_core.bash_guards` via `preuse-bash-dispatch.py`; DoE `.sh` removed). **The original `tasks/<plan-slug>/
+  (`hooks/scripts/block-subagent-plan-body-bash-write.sh`, folded into the engine's
+  `coordinator_core.bash_guards` via `preuse-bash-dispatch.py`; the doctrine repo's `.sh` removed). **The original `tasks/<plan-slug>/
   flight/*.md` carve-out path is RETIRED** — the current sidecar location is
   `state/subagent-share/<session-id>/<provision_key>.md`; a reader auditing the hook's allow-list
   should confirm against the live hook source, not this note.
@@ -445,6 +456,9 @@ it was permitted.
   `flight-recorder.schema.json`.
 - `coordinator/docs/wiki/computed-engine-model.md` § The subagent-sidecar convention — the
   generalization this page's three-role table is now a specialization of.
+- `coordinator/docs/wiki/plan-completeness-ledger.md` — the fourth, per-plan artifact that reads
+  this page's run-report sidecars but is not a fourth role on them (see § Not a fourth role
+  above).
 - `coordinator/docs/wiki/invisible-doctrine.md` — the discharge-test framing this page's N-role
   extension is scoped against (§ Generalizing the write-owner table below).
 
@@ -452,7 +466,7 @@ it was permitted.
 
 The three-role table above (§ Write-owner-per-field) was written for one dispatch shape:
 `/execute-plan` chunk executors, each writing lifecycle + divergence into a run-report sidecar
-while claude-klabauter's emitter writes `dispatch_feed`. That shape still holds exactly as documented —
+while the engine's emitter writes `dispatch_feed`. That shape still holds exactly as documented —
 nothing above is retracted. But it is now understood as the **executor specialization** of a
 wider pattern that spans every scoped subagent class, not just chunk executors:
 `coordinator/docs/wiki/computed-engine-model.md` § The subagent-sidecar convention names the
@@ -467,7 +481,7 @@ produces:
 
 | Agent class | Deliverable doc shape | Write owner |
 | --- | --- | --- |
-| Chunk executor (`/execute-plan`) | run-report sidecar — lifecycle + `dispatch_feed` + `divergence`, exactly as tabled above | Executor (lifecycle, divergence) / claude-klabauter emitter (`dispatch_feed`) |
+| Chunk executor (`/execute-plan`) | run-report sidecar — lifecycle + `dispatch_feed` + `divergence`, exactly as tabled above | Executor (lifecycle, divergence) / engine emitter (`dispatch_feed`) |
 | Review persona (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering) | review-findings sidecar — per-finding severity, file:line citation, `Worker Dispatch Recommendations` | Reviewer |
 | Staff-engineer / architecture reviewer | staff-eng-review sidecar — architectural tradeoff framing, alternatives-considered | Reviewer |
 | Scout / prior-art / docs-checker pre-flight | assessment sidecar — Conflicts / Compatible-but-relevant / Silent verdict, AUTO-FIX log | Pre-flight worker |
@@ -482,7 +496,7 @@ dispatch shape is `/execute-plan`. A future reader adding a new agent class shou
 generalized table, name the class's deliverable-doc type, and only then check whether the
 class's write-owner-per-field split needs its own version of § Write-owner-per-field above — most
 classes need a simpler split (one writer, no upstream-filled field like `dispatch_feed`) because
-`dispatch_feed`'s pre-dispatch/claude-klabauter-owned shape is specific to the Workflow-transferability
+`dispatch_feed`'s pre-dispatch/engine-owned shape is specific to the Workflow-transferability
 goal (§ `dispatch_feed` — Workflow-transferability is the design goal above), not a general
 feature every identity type needs.
 
@@ -540,7 +554,7 @@ following hold:
    is dead scaffolding, not a control.
 2. **At least one of:**
    - it transports its output **downstream** to another consumer (e.g. `dispatch_feed` to the
-     claude-klabauter emitter, review findings to `review-integrator`),
+     engine emitter, review findings to `review-integrator`),
    - it **accumulates across units of work** (e.g. divergence prose feeding a future
      canonization pass), or
    - it returns a **payload too large to hand back inline** (the context-management framing in §

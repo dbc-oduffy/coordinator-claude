@@ -219,7 +219,7 @@ lens. Correctness concerns override ambition; scope concerns get challenged.}
 ## Advisory (Optional)
 
 After completing synthesis, write an advisory if you have substantive observations beyond
-the session scope. This is where your DoE perspective is most valuable — ambition assessment,
+the session scope. This is where your engineering-director perspective is most valuable — ambition assessment,
 competitive positioning, missed opportunities.
 
 Write advisory to BOTH `[ADVISORY_PATH]` AND `[SCRATCH_DIR]/advisory.md`.

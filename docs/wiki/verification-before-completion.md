@@ -506,3 +506,27 @@ Two separately-landed doctrines can collide inside a single file, and the shim t
 3. **File with the rejected alternative recorded** so the next owner does not re-derive and re-attempt the same dead-end mechanical fix.
 
 **Especially applies when the conflicting surface belongs to a live peer workstream** — the committed tests you are breaking are that peer's contract, and reding them is a cross-session collision, not a local cleanup.
+
+## Independently Re-Check a Verify Agent's "Environmental" Verdict on Failures Inside the Plan's Own Domain
+
+A workflow verify/test-classifier agent lumped 4 real regressions (fixtures broken by the plan's own schema widen) in with 12 genuinely-environmental failures, labeling all 16 "pre-existing/environmental." The EM caught it only by independently re-running the domain-adjacent failures.
+
+**Rule:** a verify agent's blanket "environmental" verdict is untrusted for any failing test inside the plan's own blast radius — re-run it and read the actual error before believing the classification. A verdict that lumps in-domain and out-of-domain failures under one label is exactly the shape that hides a real regression inside a pile of genuine noise.
+
+## Scoped-Test-Framework Green Does Not Imply Typecheck-Green
+
+A test runner that transpiles via `esbuild` (vitest is the recurring case) strips TypeScript types without checking them — a scoped `pnpm vitest` pass on the touched files can be fully green while 6+ `TS2345`/`TS2304` errors sit uncaught in the same diff, because the runner never asked the type checker.
+
+**Rule:** run the full typecheck command (e.g. `pnpm typecheck`) at the EM verify gate before committing executor output, not just the chunk's scoped test-runner pass. A workflow's per-chunk "scoped test pass" is evidence about runtime behavior on the paths it exercised, not about type correctness.
+
+## A Dispatch Verb Reports the Act, Not the Effect — And a Record's Existence Is Not Its Contents
+
+Reporting "I routed X to the owning session" describes the act of calling a send/route tool, not its effect — the call can fail (session ended, target unreachable) while the calling process proceeds normally, so the sender believes delivery happened. `memo.send` and `review_trail.write` both fail this way: they refuse while the caller proceeds, so a memo reads as sent and a completed review leaves no trail record. Every one of these fails as **silence**, not as a visible error — the absence is indistinguishable from the work never having been needed.
+
+**Rule.** For any verb whose effect lands outside this process — sent, routed, notified, published, filed, delivered — read the tool result and state the *effect*, not the act. When the effect cannot be confirmed, say so in the same breath rather than reporting the act and letting the reader infer the effect.
+
+**Corollary — write the durable row first, relay second.** A finding routed to a named owner must not depend on that owner still being alive. The relay is an optimization on top of a record that already exists, never the record itself.
+
+**Second half — a record's existence is not evidence of its contents.** A durable record can itself be unactionable even though it exists: one improvement-queue entry, treated as authoritative specifically because it was durable, promised an enumeration ("verified present here rather than taken on report — one occurrence each:") and then never delivered it — zero items named. Neither its author nor two sessions citing it noticed, because the record's *existence* satisfied the check that should have inspected its *contents*. The same gap applies one level down from the act/effect gap above: "I filed it" says nothing about whether the filed body carries the thing that makes it actionable, and prose generated from a computed list still reads as complete when the underlying collection came back empty.
+
+**Practical form:** after writing a record whose value IS an enumeration, re-read it and count the items. If the body was generated from a collection, assert the collection was non-empty before trusting the prose around it — and when one such truncation is found, sweep the other artifacts the same session wrote, since the empty source usually fed more than one.

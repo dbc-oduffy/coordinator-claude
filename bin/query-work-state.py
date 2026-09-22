@@ -126,7 +126,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result = cc_invoke.route("session.work_state", {}, repo_root, _no_legacy)
     except Exception as exc:  # noqa: BLE001
-        # Review: staff-eng (Finding 10) -- widened from `except RuntimeError`
+        # Widened from `except RuntimeError`
         # only: the module docstring's own exit-code table promises "1 —
         # op-level failure ... any other exception raised while routing the
         # op", but `main_worktree_root` (reached inside `session.work_state`

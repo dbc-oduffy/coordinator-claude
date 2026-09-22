@@ -192,7 +192,7 @@ def certification_state(plan_text: str) -> tuple:
         return MALFORMED, []
     stamped = str(fm.get("mise_prepped_sha") or "")
     recomputed = canonical_body_sha(plan_text)
-    # Review: code-reviewer — EXACT equality, never a prefix match. `mise_prepped_sha`'s schema
+    # EXACT equality, never a prefix match. `mise_prepped_sha`'s schema
     # pattern admits 7-64 hex chars, so an abbreviated digest is a LEGAL value; under a prefix
     # test a 7-character stamp certified a body it had barely witnessed. The engine's own reader
     # for this field (`coordinator_core/roadmap/prep_gate.py :: read_stamp`) compares
@@ -209,7 +209,7 @@ def fire_verdict(fires: list, excluded_or_uncertified: list, withheld: list) -> 
     """The three-line FIRE/PARTIAL-FIRE/NO-FIRE rule, over the same three inputs both callers
     already compute: the fire set, whatever it excluded, and whatever it withheld.
 
-    # Review: overengineering-reviewer — exported here so `mise-prep-entry.certify` (which already
+    # Exported here so `mise-prep-entry.certify` (which already
     # imports this module by path for `certification_state`) has one place to call rather than a
     # second, identical derivation; this module's own docstring names a third copy as how one of
     # them drifts.

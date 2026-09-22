@@ -2,13 +2,13 @@
 
 <!-- distilled: run 2026-07-19-synth; sources: cross-repo/archive/2026-07-12-example-cockpit-repo-em-strategic-self-description-repo-setup-lifecycle.md, cross-repo/archive/2026-07-12-example-cockpit-repo-em-superpowers-editorial-honesty.md, 2026-07-14-self-description-competitor-marking-deliverable.md -->
 
-> **Spec backlink.** DoE's producer/schema leg of the fleet strategic self-description standard —
+> **Spec backlink.** This repo's producer/schema leg of the fleet strategic self-description standard —
 > `2026-07-11-strategic-self-description-standard.md` under `docs/plans/` (Chunk C6). Schema:
 > `coordinator/schemas/strategic-self-description.schema.json` (Chunk C1). Placement doctrine:
 > `state-placement-law.md § Fleet Producer Contract → Artifact class — strategic self-description`
 > (Chunk C2). Maintenance ceremony: `coordinator/skills/strategic-self-description-refresh/SKILL.md`
 > (Chunk C4). **Provenance.** Actions the cockpit proposal (`2026-07-11-example-cockpit-repo-em-strategic-self-description-standard.md`);
-> DoE owns the standard and built it from the abstract need each field serves, not cockpit's shipped
+> This repo owns the standard and built it from the abstract need each field serves, not cockpit's shipped
 > field names — see the plan's Anti-scope.
 
 ## What this is
@@ -35,7 +35,7 @@ Top-level required fields:
 | `competitors` | array of `{name, relationship, note, provenance}` | `relationship` enum: `competitor \| complement \| prior-art \| superseded-by \| supersedes`. `note` is present-as-null when absent. |
 | `call_to_action` | closed discriminated union, see § CTA below | Security boundary. |
 | `hero_asset` | `string \| null` (URI) | Present-as-null when absent. |
-| `maturity_axis`? | `string \| null`, OPTIONAL | Consumer-set-only (DEC-4) — DoE schema does not interpret its value. |
+| `maturity_axis`? | `string \| null`, OPTIONAL | Consumer-set-only (DEC-4) — the schema does not interpret its value. |
 | `depends_on`? | array of repo-identity refs, OPTIONAL | Consumer-set-only (DEC-4) — blast-radius / retirement-impact queries. |
 
 `additionalProperties: false` throughout — the schema is closed, not merely documented-closed.
@@ -47,7 +47,7 @@ carries a sibling `provenance` marker drawn from a **three-value enum**, never a
 
 - **`curated`** — a human authored or editorially ratified this value (e.g. at a
   `strategic-self-description-refresh` ceremony, or by hand-authoring the instance).
-- **`generated`** — a machine (claude-klabauter) derived this value from an observable signal (commit history,
+- **`generated`** — a machine (the engine) derived this value from an observable signal (commit history,
   release notes, example-market-data-repo deltas) and it has not yet been human-ratified.
 - **`asserted`** — a human typed a bare factual claim with **no editorial judgment and no observable
   signal behind it** — the canonical case is a version label: someone typed `"v2.3"` and nothing
@@ -82,9 +82,9 @@ The standard splits authorship into two channels that never write the same file 
 
 - **`self-description.yaml` under `state/strategic/`** — the canonical, human-ratified artifact. Only a human
   ratify decision writes here (directly, by hand-authoring, or via the refresh skill's Step 4 write).
-- **`draft.yaml` under `state/strategic/self-description.`** — a per-repo sibling claude-klabauter may emit, carrying
+- **`draft.yaml` under `state/strategic/self-description.`** — a per-repo sibling the engine may emit, carrying
   `provenance: generated` observable fields ONLY (e.g. `version_highlights` candidates, competitor
-  signal candidates). Claude-Klabauter never writes the canonical file and never writes the human-curated
+  signal candidates). The engine never writes the canonical file and never writes the human-curated
   `competitors[].relationship` judgment value, even inside the draft.
 
 The reconciliation seam (proposal §5) is the `strategic-self-description-refresh` skill
@@ -131,7 +131,7 @@ Two properties every consumer of this artifact can rely on, enforced at the sche
        not weaken DEC-5's closed-union guarantee — a consumer switching on `kind` still gets a hard
        validation failure on any unrecognized value, and `none` degrades trivially (render the label,
        no action). Noted here for plan/executed-diff provenance traceability. -->
-  The CTA is a security boundary (spawn-boundary command/argument-injection class) — DoE does not standardize any
+  The CTA is a security boundary (spawn-boundary command/argument-injection class) — this standard does not standardize any
   one consumer's execution mechanics (e.g. Cockpit's `shell:false` arg-vector posture is cockpit's own
   detail), only the shape that lets a consumer implement degrade-to-inert safely.
 
@@ -141,14 +141,14 @@ Two properties every consumer of this artifact can rely on, enforced at the sche
 prototype -> vertical-slice -> alpha -> shipped -> live-ops -> sunset
 ```
 
-This is DoE's **canonical, defined set** — the generic signal every repo emits into. It is
+This is this standard's **canonical, defined set** — the generic signal every repo emits into. It is
 deliberately richer than any single consumer's need (e.g. Cockpit's own board only distinguishes
 `shipped | pre-launch` today). Consumers **project/collapse** the canonical enum down into their own
 layer rather than the standard shrinking to fit one consumer's binary — the mapping direction is
 **generic superset → consumer subset**, and that direction is a documented contract property of this
 standard, not an ad-hoc per-consumer decision. A consumer adding a new collapse mapping does not
-require a DoE schema change; a consumer needing a *new lifecycle state* that doesn't collapse from the
-canonical set is a signal the canonical enum itself may need to grow, and that growth is DoE's call.
+require a change to this repo's schema; a consumer needing a *new lifecycle state* that doesn't collapse from the
+canonical set is a signal the canonical enum itself may need to grow, and that growth is this repo's call.
 
 ## Competitor marking — two altitudes, two axes (DEC-7)
 
@@ -157,11 +157,11 @@ altitude the field operates at and the two orthogonal axes a single `relationshi
 
 **Two-altitude model.** Per-repo competitor marking — the human-curated `competitors[]` array in
 `self-description.yaml` under `state/strategic/` — is **repo-owned source-of-truth**: this standard, and this
-repo (DoE), own the shape and the ratification ceremony. An **org-wide or cross-company rollup** —
+repo (the doctrine repo), own the shape and the ratification ceremony. An **org-wide or cross-company rollup** —
 resolving a repo's raw competitor mark into a canonical cross-fleet competitor identity
 (`competitor_uid`), deduplicating "Repo A calls it X, Repo B calls it Y" across the whole fleet — is a
 different altitude entirely, and is **explicitly out of scope for a single repo's schema**. A device
-running DoE's coordinator and a human PM pairing is not guaranteed to belong to a single company; the
+running this coordinator and a human PM pairing is not guaranteed to belong to a single company; the
 per-repo artifact cannot assume org-wide context it may not have. That rollup altitude belongs to
 Example-store-repo/cockpit (and, downstream, example-market-data-repo's `competitor_uid` resolution — see
 `docs/competitive-intel-enablement-initiative.md § Fleet convention`). See the ratified fleet-convention decision for the
@@ -221,7 +221,7 @@ treatment an agent gets mid-work.
 ## Lifecycle hooks — repo-setup and workweek-complete
 <!-- src: memo03-010 -->
 
-DoE owns two lifecycle touch-points for `self-description.yaml` under `state/strategic/`, both PM-authorized
+This repo owns two lifecycle touch-points for `self-description.yaml` under `state/strategic/`, both PM-authorized
 and both **advisory, not hard gates**:
 
 - **`/repo-setup`** mints a **born-compliant skeleton** — a schema-conformant instance with
@@ -264,19 +264,19 @@ re-nudged every ceremony once a mark has been ratified.
 
 ## Specialist-leg seam pointers
 
-This plan (and this wiki) covers DoE's producer/schema leg only. Three specialist legs consume the
+This plan (and this wiki) covers this repo's producer/schema leg only. Three specialist legs consume the
 schema on their own plans, each memo'd separately per the source plan's § Out of scope:
 
 - **rag leg** — makes the artifact queryable: indexing shape, query surface, and provenance
   composition across the harvested per-repo instances. Not built here; rag plans its own leg after
   ratification.
-- **claude-klabauter leg** — generates the observable fields this standard's `generated` provenance marker
+- **engine leg** — generates the observable fields this standard's `generated` provenance marker
   describes: version highlights from commit/release history, competitor deltas from
   example-market-data-repo signals, emitted to the per-repo `self-description.draft.yaml` sibling path
-  (path + present-triggers-consume trigger confirmed with claude-klabauter,
-  `2026-07-11-claude-klabauter-em-strategic-self-description-draft-path-seam.md` under `cross-repo/archive/`; the
-  draft's internal field shape is claude-klabauter's own follow-on shape-confirm against this schema, not
-  pinned by this plan). Claude-Klabauter never writes the canonical file.
+  (path + present-triggers-consume trigger confirmed with the engine repo,
+    the
+  draft's internal field shape is the engine's own follow-on shape-confirm against this schema, not
+  pinned by this plan). The engine never writes the canonical file.
 - **cockpit leg** — widens `StrategicViewDto` to carry per-field provenance badges and maps the
   generic artifact (including the lifecycle enum collapse, § Lifecycle enum above) into cockpit's own
   config/DTO layers. Cockpit's own follow-on work, tracked on cockpit's plans.

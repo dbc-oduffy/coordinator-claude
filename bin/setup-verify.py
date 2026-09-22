@@ -193,7 +193,7 @@ def cmd_check_override_flags(args: argparse.Namespace) -> int:
 # Step 6 Probe 2 (SKILL.md) — hooks.json coordinator-owned hook presence check
 # ---------------------------------------------------------------------------
 
-# Review: code-reviewer — F6 (carried from SKILL.md): check for specific
+# Check for specific
 # coordinator-owned hooks named in hooks.json by path, not a blanket *.sh
 # count (blanket passes vacuously when coordinator's hooks are absent but
 # other *.sh files happen to exist).

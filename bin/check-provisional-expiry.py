@@ -64,7 +64,13 @@ import sys
 #   - ops.records_query.liveness()'s plan branch answers "what LIVE/BLOCKED/
 #     DONE cockpit bucket does this status fall into?" — maps 'deferred' to
 #     BLOCKED, a third bucket, not folded into this binary set at all.
-_NOT_ACTIVELY_EXECUTING_STATUSES = {"implemented", "deferred", "abandoned", "superseded"}
+_NOT_ACTIVELY_EXECUTING_STATUSES = {
+    "implemented",
+    "closed_partial",
+    "deferred",
+    "abandoned",
+    "superseded",
+}
 
 _FRONTMATTER_KEYS = ("status", "provisional_until", "revisit_by")
 

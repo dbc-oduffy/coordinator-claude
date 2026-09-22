@@ -176,7 +176,7 @@ def main(argv: list[str]) -> int:
             modules.append(argv[i + 1] if i + 1 < len(argv) else "")
             i += 2
         elif arg == "--repo":
-            # Review: coordinator:code-reviewer (P4) — compute_layer.scaffold is
+            # compute_layer.scaffold is
             # scoped "none" (op_scopes.py); --repo is meaningless for it and used
             # to be silently accepted and dropped. Refuse loud instead, matching
             # DR-279's shape for the underlying op

@@ -8,14 +8,14 @@ dispatching EM's Agent()/Workflow() call that hands the subagent its
 prompt in the first place.
 
 THIS IS A REGISTRATION HOOK, NOT A CLASSIFIER. All suite-shaped-command
-judgement lives in claude-klabauter's
+judgement lives in the engine repo's
 `coordinator_core.bash_guards.check_test_suite_invocation.classify_text`
 (shipped `bfbe1625` + `18f8498e`, per the inbound memo
 cross-repo/inbox/2026-07-23-claude-klabauter-em-dr088-layers-2-5-shipped.md
 § "Layer 2"). This file owns ZERO test-runner names, ZERO command
 grammar, ZERO regex over suite invocations -- it calls `classify_text`,
 reads the returned `SuiteMatch.position`, and decides deny-or-allow. A
-second classifier grammar in this tree would drift from claude-klabauter's within
+second classifier grammar in this tree would drift from the engine repo's within
 weeks, and the drift would be silent (both would look correct) -- that
 is the boundary test this hook exists to hold.
 
@@ -24,9 +24,9 @@ contains a suite-shaped command in IMPERATIVE position (a real
 instruction to run it), which would hand a subagent a Tier-F/Tier-U test
 command a fan-out wave should never carry.
 
-`position` handling -- gate on "imperative" only. Claude-klabauter's classifier
+`position` handling -- gate on "imperative" only. The engine repo's classifier
 reports `fenced_code` / `inline_code` / `negated` / `unknown` /
-`imperative` as ADVISORY metadata; claude-klabauter classifies, this hook decides.
+`imperative` as ADVISORY metadata; the engine repo classifies, this hook decides.
 A brief that quotes a suite command inside a fence, inline code, or a
 negation ("do NOT run `pytest -v`") is legitimate authoring content -- an
 executor brief instructing a chunk to DELETE a deny-list table (this
@@ -91,7 +91,7 @@ routine option.
      file -- blast radius is the WHOLE REPO: it disarms this guard for
      EVERY dispatch while it exists, and on a shared `work/*` branch, for
      every concurrent peer session too. Named last resort only; two
-     sibling repos (project-rag, claude-klabauter) have already field-
+     sibling repos (project-rag, the engine repo) have already field-
      reported reaching for this on a single false-positive dispatch
      because hatch 2 was unreachable and hatch 1 did not yet exist --
      that is precisely the live pressure toward a posture worse than the
@@ -118,7 +118,7 @@ invocation deny is never shadowed by that hook's own (unrelated) verdict.
 PRECISION LEG -- the directory-breadth refusal. Additive over everything
 above, and it denies on the same contract as the identity leg. Gap this
 closes: DR-088 R9
-(claude-klabauter's PreToolUse(Bash) layer 3 precision leg) correctly refuses a
+(the engine repo's PreToolUse(Bash) layer 3 precision leg) correctly refuses a
 directory positional to a DISPATCHED agent -- Tier T is file-and-node-id
 precision for a subagent -- but that refusal fires at the dispatched
 agent's own Bash call, one hop downstream of the EM that wrote the brief.
@@ -166,7 +166,7 @@ identity leg above did NOT already fire (`matches`/`imperative` empty), so
 a dispatch that is ALSO suite-shaped-imperative gets that leg's deny and
 never both.
 
-Classification is 100% claude-klabauter's, same boundary as the deny leg above:
+Classification is 100% the engine repo's, same boundary as the deny leg above:
 `coordinator_core.bash_guards.check_test_suite_invocation.
 classify_text_precision`, returning `PrecisionMatch` (`detected`,
 `matched_text`, `span`, `position`, `directory_args`). This file adds
@@ -177,7 +177,7 @@ exactly as the deny leg reads `SuiteMatch.position`.
 the deny leg: a brief quoting or negating a directory-scoped command in
 its authoring prose is not an instruction to run one.
 
-Fail-open, silently, on every one of: claude-klabauter unresolvable; the API not
+Fail-open, silently, on every one of: the engine repo unresolvable; the API not
 yet importable (`classify_text_precision` may not have landed in the
 sibling checkout yet -- an `ImportError`/`AttributeError` degrades to
 silent allow, same as every other infra failure in this file, never a
@@ -325,7 +325,7 @@ def _extract_dispatch_text(tool_name: str, tool_input: "dict[str, Any]") -> "_Di
     `classify_text`, or routing the Workflow `script` case through
     per-argument classification instead of prose-oriented `classify_text`
     -- both are extraction-side (this file's) concerns, not a reason to
-    fork claude-klabauter's classifier grammar.
+    fork the engine repo's classifier grammar.
     """
     if tool_name == "Agent":
         prompt = tool_input.get("prompt", "") or ""
@@ -365,7 +365,7 @@ def _has_override_marker(text: str) -> bool:
 
 
 def _classify(text: str) -> "list[Any]":
-    """Resolve claude-klabauter root, import the shared classifier, call it.
+    """Resolve the engine root, import the shared classifier, call it.
     Returns [] (never raises) on any infra failure -- the caller treats
     an empty list identically to "no matches found" (silent allow),
     which is the correct fail-open behavior for this guard.
@@ -400,7 +400,7 @@ def _classify(text: str) -> "list[Any]":
 
 
 def _classify_precision(text: str) -> "list[Any]":
-    """Resolve claude-klabauter root, import the shared PRECISION classifier, call it.
+    """Resolve the engine root, import the shared PRECISION classifier, call it.
     Returns [] (never raises) on any infra failure, INCLUDING the sibling
     API not existing yet (`classify_text_precision` may not have landed in
     the sibling checkout) -- an empty list is treated identically to "no
@@ -428,7 +428,7 @@ def _classify_precision(text: str) -> "list[Any]":
             classify_text_precision,
         )
     except Exception:
-        # Covers both "claude-klabauter's classify_text_precision module is missing"
+        # Covers both "the engine repo's classify_text_precision module is missing"
         # and "the sibling checkout hasn't shipped the symbol yet" --
         # ImportError either way, fail open.
         return []

@@ -33,6 +33,11 @@ When the EM dispatches one wave, waits, verifies, commits, and dispatches the ne
 
 A workflow moves orchestration *out* of the compaction-prone context. The wave map lives in a script the harness executes; the EM holds only the final structured result.
 
+**3+ waves is the concrete escalation line.** EM-as-serial-orchestrator — dispatch, wait, verify,
+commit, repeat, all inside the EM's own context — is a compaction anti-pattern for any plan
+reaching a third wave; escalate to a background Workflow at that point rather than continuing to
+hand-orchestrate one wave at a time and hoping compaction holds off.
+
 > This is the fan-out-default reflex escalated one level: fan-out asks *"can this be N smaller agents?"*; a workflow asks *"and should the orchestration of those N agents outlive my context window?"*
 
 ---
@@ -109,6 +114,10 @@ A Workflow reporting a failure has almost always **already persisted its executo
 - **Session/usage-limit death.** Every `agent()` errors with "hit your session limit" and `subagent_tokens=0` / `tool_uses=0` — no partial disk writes at all. Verify clean, then re-run with `resumeFromRunId` once the limit resets; no agent was cached, so the whole wave re-runs safely. Do NOT hand-finish or re-plan around a limit-death.
 
 **`git status` is the arbiter, not the workflow's verdict string.** Verify what landed, then resume — never re-dispatch from scratch over partial work. Manual reads on a shared tree use `git --no-optional-locks status`; the flag sits between `git` and the subcommand or the invocation hard-fails. `git diff --cached` / `git ls-files -m` need no such flag.
+
+**A whole-run kill (e.g. hitting the session/token limit mid-workflow) resumes cleanly via `resumeFromRunId`** — the completed-agent prefix returns cached, the first failed agent onward re-runs live. Before resuming, verify on disk which wave's per-wave commit actually landed (`git log`) and that it is green: the resume trusts the cached prefix's *results*, so the real files on disk must still match what the cache believes shipped.
+
+**A dying agent commonly finishes its file writes before the drop.** A terminal "Connection closed mid-response" API error returns `null` from `agent()`, but the executor typically wrote its files before the connection dropped (the death lands at or after its verify step). Recovery: inspect disk state, EM-verify the partial work, commit it if complete, then edit the workflow script to replace the dead chunk's `agent()` call with a literal pass-through result matching its schema and re-launch — this resumes the cascade at the next wave without re-dispatching the chunk, which risks a fresh agent re-editing files the dead one already changed. A `null`-return cascade guard that halts downstream phases on this is working as intended, not a bug to route around.
 
 ---
 
@@ -224,7 +233,20 @@ The hook stays self-contained pure bash/awk rather than calling the engine's own
 
 The EM commits from the returned manifest after the run, verifying staging with `git diff --cached` before and `git show --stat HEAD` after. Do not introduce agent self-commit inside the workflow as a convenience.
 
+**Never let an executor brief reach for `git stash` on a shared tree.** An executor briefed to
+use `git stash` for isolation inside a serial chain stashed the whole working tree, clobbering
+every other chunk's uncommitted work sharing that same checkout — a workflow's phases run against
+one tree, so stash's tree-wide scope makes it unsafe for anything but a fully isolated checkout.
+Executor and verifier briefs must forbid `git stash` outright and pin `git worktree add --detach`
+instead when isolation is actually needed.
+
 **Per-wave commit staging computes its path list from executor reports, never hardcoded paths.** If a workflow commits per wave (a `commitWave` step) rather than deferring to the EM, the path list MUST be the *union of files each executor REPORTS editing*, with any that `git --no-optional-locks status` shows clean or absent dropped. A `commitWave` hardcoding broad paths (a directory, `install.md`) absorbs a concurrent EM's uncommitted work into your commit on a shared `work/*` branch — the hazard scoped commits exist to prevent.
+
+**A hardcoded explicit-path list must include test globs, not just the implementation file.** `git add -- src/lib/mcp/fleet-projection.ts` silently leaves a co-authored `fleet-projection.test.ts` untracked even though the executor wrote and ran it green — the commit scope simply never named it. Compose per-chunk/per-wave path lists as DIRECTORY globs (`src/lib/mcp`) or explicitly enumerate both `<impl>.ts` and `<impl>.test.ts`; a directory glob in the same list can mask the gap for one file while missing it for a sibling. Detect via a `git status` check for unexpected untracked test files once the run completes.
+
+**A per-wave commit that bundles multiple chunks in ONE commit strands passing siblings when any one chunk fails.** If chunk B's test fails, staging A+B+C together aborts the whole commit — A and C's passing work is left uncommitted and untracked, and a later gate or agent can misread those files as belonging to a foreign session. Commit each chunk independently within a wave, or have the final integration gate sweep in-scope untracked files before declaring the wave green.
+
+**Workflow agents cannot commit — the subagent destructive-git-op lock blocks them.** A dedicated commit agent dispatched between serial chunks to preserve per-chunk history can hit the subagent git lock and return `BLOCKED`, leaving its chunk uncommitted; the NEXT chunk's commit then sweeps both changes together under the wrong chunk's label. This is a second, concrete reason (on top of the git-index-race reason above) why commit steps do not belong inside a Workflow: executors return uncommitted by design and the EM commits each wave. When a plan needs a commit barrier mid-lane (e.g. a red-then-green test pair), split the workflow at that seam and commit from the main loop between runs.
 
 ---
 
@@ -281,7 +303,38 @@ return { done: true, foundation, results, probe }
 Notes on the shape:
 
 - **Every `agent()` call passes `model: 'sonnet'`** — see § Model selection.
-- **Every `agent()` call passes a `schema`** — the result is validated at the tool-call layer, so the model retries on mismatch and the EM receives structured data, not prose to parse. **EXCEPTION — a review/verify stage is the one place a schema of findings is WRONG.** A `schema:` return is an inline-return mechanism: right for an *executor* stage, wrong for a *review* stage, whose findings must land on its sidecar (`state/subagent-share/<session-id>/<provision_key>.md`) so `review-integrator` can consume them — its intake hard-stops unconditionally on inline findings (`agents/review-integrator.md` § Intake precondition; `review-integration-doctrine.md` § Reviewer self-persists). For a review phase, dispatch `agentType: 'coordinator:code-reviewer'` and return the `DONE: <path> | verdict | findings: N` pointer string, not a findings array. **Never `agent(reviewPrompt, {schema: FINDINGS_SCHEMA})`** — the natural reach produces exactly the artifact the integrator forbids.
+- **Every `agent()` call passes a `schema`** — the result is validated at the tool-call layer, so the model retries on mismatch and the EM receives structured data, not prose to parse. **EXCEPTION — a review/verify stage is the one place a schema of findings is WRONG.** A `schema:` return is an inline-return mechanism: right for an *executor* stage, wrong for a *review* stage, whose findings must land on its sidecar (`state/subagent-share/<session-id>/<provision_key>.md`) so `review-integrator` can consume them — its intake hard-stops unconditionally on inline findings (`agents/review-integrator.md` § Intake precondition; `review-integration-doctrine.md` § Reviewer self-persists). For a review phase, dispatch `agentType: 'coordinator:code-reviewer'` and return the `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N> | executed: <yes|no>` pointer string, not a findings array. **Never `agent(reviewPrompt, {schema: FINDINGS_SCHEMA})`** — the natural reach produces exactly the artifact the integrator forbids.
+
+### Per-wave review stage (target shape — not live in any emitted script today)
+
+A per-wave review stage is a `code-reviewer` `agent()` call the emitted script fires **concurrent
+with the next execution wave**, not serially after it — the stage `placement: per-wave` value on
+the roster fragment is its precondition, and nothing in this tree supplies that fragment to the
+emitter today (`coordinator/bin/emit-dispatch-workflow.py`'s `review_roster_fragment` parameter is
+unconnected). For the stage's per-agent-call payload and the reconciliation of its pointer return
+with the "no inline findings" rule above, see `workflow-emitter-contract.md` §11 — this subsection
+does not restate that shape.
+
+**Safety, as it currently stands.** A per-wave reviewer Reads/Greps source and Edits only its
+own sidecar (§ Self-persist contract, `agents/code-reviewer.md`), so it touches none of a
+concurrent executor wave's write paths. That safety is convention plus the engine repo's Bash allowlist
+(`coordinator_core.bash_guards.block_reviewer_bash_outside_allowlist`) plus the EM's own `git diff`
+at the wave boundary — **never a structural write sandbox.** A prior
+`block-subagent-write-outside-sandbox.sh` hook was deliberately removed; no such hook exists in this tree to inherit
+confinement from.
+
+**A named second exception to the sequential-review rule.** `coordinator/skills/review/SKILL.md`'s
+"Reviews are sequential, never parallel … integrate finding-set 1 before dispatching reviewer 2"
+rule names its exceptions explicitly; per-wave review is a further one, dispatching reviewer N+1
+before finding-set N is integrated, by construction. Its safety condition: nothing integrates
+mid-run, and every finding-set is integrated 1:1 at the close by an integrator that re-verifies
+each finding against HEAD (`review-integration-doctrine.md` § Re-verify reviewer premises) — a
+later wave may have moved the file a per-wave reviewer read. This subsection states the exception
+and its safety condition; it does not edit `review/SKILL.md:56` itself, whose exception list moves
+only when the doctrine flips together with it.
+
+**Why an emitted per-wave stage reads no pre-flight prior-art sidecar.** See the gate/never-emitted
+ruling on `coordinator/contract/review-roster-fragment.md` — cited here, not restated.
 - **Halts return a structured object** naming `phase_reached` and `halted:` — the EM reads which gate fired, fixes, and resumes via `resumeFromRunId`.
 - **`agentType: 'coordinator:executor'`** routes each agent through the coordinator executor. Other coordinator agent types compose the same way.
 - **Schema-validated ≠ functionally verified — command-shaped ACs need execution-time invocation.** A `schema:` return guarantees the result's *shape*, not that the artifact *works*: an AC reading "a command can scaffold X" passes every shape check while the CLI's dispatch branch is missing, and the crash stays invisible behind a green checkmark until a downstream repo hits it. **Any AC phrased as a command/CLI capability ("a command can do X", "type Z scaffolds", "X is invocable") must be verified by literally invoking the delivered command** — assert exit 0 plus expected output — inside the phase that claims it, folded into that phase's returned schema-validated result rather than trusting a registry, manifest, or file-touch. Registry-driven CLIs (a known-types table plus a dispatch `if/elif` chain) also carry a standing registration↔dispatch parity test as the regression net; `coordinator/bin/coordinator-doc-new-emitter-parity.test.py` is the shipped exemplar.
@@ -302,12 +355,19 @@ provision-sidecar \
 
 It prints one repo-relative path on stdout and fails loud — non-zero, empty stdout, named precondition on stderr — when it cannot. The CLI resolves the template from `report_type_map:` in `coordinator/subagent-sandbox-policy.yaml`, so a pre-provisioned reviewer gets `## Findings`, the same heading the hook-mediated path produces and the one `review-integrator` reads. `review-wave.mjs` survives without this only because it hands each agent an explicit `$FINDINGS_DIR` output path in the prompt; do not generalize from it.
 
+**A direct `Agent` executor dispatch outside `fan-out-dispatch.sh` gets no deviation-flight
+sidecar either.** The same hook-matched provisioning gap applies to the deviation-flight sidecar,
+not only `report_sidecar:` — a dispatch fired as a direct `Agent` call rather than through
+`fan-out-dispatch.sh` never gets one provisioned, so any spec-vs-execution deviation the executor
+would otherwise flag reports to chat and evaporates instead of landing anywhere durable.
+
 
 ## Workflow-script authoring gotchas — JS parse/runtime traps
 
 A Workflow script is plain JavaScript executed by the harness, so ordinary JS-authoring traps bite at parse or runtime and nothing persists. Three recur:
 
 - **`args` arrives as a JSON *string*, not a parsed array.** The `args` global reaches the script as a raw JSON string even when passed as a JSON array in the tool call — `args.filter(...)` / `pipeline(args, ...)` throw "expects an array". Guard at the top: `const X = Array.isArray(args) ? args : JSON.parse(args)`.
+- **No `process`, `Date.now`, or `Math.random` globals.** A script referencing `process.env` (or `Date.now`/`Math.random`) fails instantly with "process is not defined" — the sandbox omits these to keep runs resumable (a cached replay must reproduce identical values). Hardcode env-derived paths/values directly in agent briefs, or pass them in as `args`.
 - **`${...}` in a brief template literal is JS interpolation, not prose.** Accidental prose like `${REPO-relative dirs}` throws "Unexpected token" at parse time and nothing persists. Keep `${VAR}` to real interpolations and rewrite any incidental `${` in brief prose. (`$?` alone is fine; `${` is not.)
 - **The model-guard counts the `agent(` token inside STRINGS too.** `block-workflow-unmodeled-agent.py` counts the literal `agent(` substring across the whole script with comments stripped but string literals intact, and its balanced-paren attribution desyncs on parens inside string literals — prose using the literal token in a brief trips a false "un-modeled agent" block even when the one real call has `model: 'sonnet'`. Keep script *prose* free of the literal `agent(` token; write "agent-call" or "dispatch".
 

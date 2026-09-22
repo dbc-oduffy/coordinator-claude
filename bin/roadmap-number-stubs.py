@@ -69,7 +69,7 @@ def main(argv: "list[str] | None" = None) -> int:
         )
         return 3
 
-    # Review: code-reviewer — F3, op_main's call was unguarded; a RuntimeError
+    # op_main's call was unguarded; a RuntimeError
     # escaping resolve_root() (now caught inside op_main itself, see
     # number_stubs.py run_check_mode) or any other unhandled exception would
     # otherwise surface as a raw Python traceback here instead of a clean

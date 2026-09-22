@@ -70,6 +70,21 @@
 #     no-op returning success, provided for interface parity with
 #     pickup_assemble/baton_assemble's own drop(). Dispatched to
 #     coordinator_core.backlog_grind_assemble.apply.main_drop().
+#   grind-row check|append|close|settle [...]
+#     The queue-grind engine's row-level primitives (docs/plans/2026-09-21-
+#     bug-blitz-emitter-engine-leg.md § Design § Row verbs): `check` reads a
+#     batch's stale/vanished rows against the emitted script's frozen
+#     manifest; `append` writes one ledger line; `close` edits a row's
+#     closure fields and moves it to archive without touching the git
+#     index; `settle` deletes a row's ledger file. `backlog_grind_assemble`
+#     is a QUEUE-GENERIC door, not a bug-blitz-specific one — `grind-row` is
+#     a consumer name hosted on this door, reuse over standing up a second
+#     trampoline or renaming this one (eng-director F9, rejected shape 4).
+#     Dispatched to coordinator_core.backlog_grind_assemble.grind_rows.main()
+#     via entry_point_shim.py's `_backlog_grind_assemble_entry`, which
+#     receives this trampoline's argv verbatim, subcommand stripped — flags
+#     are parsed by grind_rows.py itself, never mirrored here. None of the
+#     four verbs mutates the git index or spawns git.
 #
 # Exit codes (locally scoped to this CLI, NOT inherited — see the contract's
 # own § Exit-code contract):

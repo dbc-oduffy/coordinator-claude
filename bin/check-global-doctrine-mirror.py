@@ -146,7 +146,7 @@ PROG = "check-global-doctrine-mirror.py"
 
 # (mirror-relative filename, ~/.claude-relative filename) -- currently identical
 # names on both sides, kept as a pair list in case that ever diverges.
-# Review: code-reviewer (Finding 1), corrected post-brief -- CLAUDE.local.md
+# CLAUDE.local.md
 # was deliberately RETIRED 2026-07-31 (commit 60b24123d: content folded into
 # CLAUDE.md, both copies deleted, 364 citations repointed), not merely
 # "never in play." A retired artifact does not belong in a live pair list,

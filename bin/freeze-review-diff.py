@@ -101,6 +101,11 @@ Exit codes:
     the caller asked for the record path", and it retired with the record —
     stated affirmatively so its absence from this matrix reads as the
     retirement it is rather than as a dropped row.
+    4 — coverage refusal: `--paths` carried an entry that matched no change
+        in `--range` (`result["uncovered_paths"]` non-empty). One stderr line
+        names the unmatched entries and the remedy ("re-run without them").
+        STDOUT STAYS EMPTY on 4 — neither output file is written, mirroring
+        exit 1's write-nothing contract rather than exit 0's one-line stdout.
 
 Spec backlink: cross-repo/inbox/2026-07-23-claude-central-em-review-diff-freeze-op-wanted.md
 Prior pattern: coordinator/skills/parallel-code-review/SKILL.md (DoE-claude) — the
@@ -238,6 +243,13 @@ def main(argv: list[str]) -> int:
     with recording_declared_writes(cwd=str(repo_root)):
         result = freeze_diff(repo_root, args.range_, args.slice_id, args.paths or None)
     if result["error"] is not None:
+        if result["uncovered_paths"]:
+            print(
+                f"{_PROG}: --paths entries matched no change in the range: "
+                f"{', '.join(result['uncovered_paths'])} — re-run without them.",
+                file=sys.stderr,
+            )
+            return 4
         print(f"{_PROG}: {result['error']}", file=sys.stderr)
         return 1
 

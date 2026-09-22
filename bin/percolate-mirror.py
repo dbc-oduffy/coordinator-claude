@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """percolate-mirror.py — publish EVERY registered row of ONE mirror in a
 single round, so a caller names a mirror and nothing else.
 

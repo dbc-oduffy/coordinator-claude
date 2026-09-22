@@ -1,13 +1,13 @@
 ---
 title: The bash-guard threat model — who the guards defend against, and from what
 purpose: Names the caller the PreToolUse:Bash confinement band actually defends against, and the harm it actually prevents. Every design argument about guard soundness, fail direction, and deny-message shape resolves against this page. Written because the model was load-bearing on every guard in the package and recorded nowhere — two separate reviews had to stop and ask.
-audience: EM, and anyone editing, reviewing, or sizing work on coordinator_core/bash_guards/ (claude-klabauter)
+audience: EM, and anyone editing, reviewing, or sizing work on coordinator_core/bash_guards/ (engine repo)
 last_distilled: 2026-07-29
 ---
 
 # The bash-guard threat model
 
-> The PreToolUse:Bash guard package (`coordinator_core/bash_guards/`, claude-klabauter) is routinely
+> The PreToolUse:Bash guard package (`coordinator_core/bash_guards/`, engine repo) is routinely
 > reasoned about as a security boundary. It is not one, and treating it as one produces the wrong
 > answer on soundness, on fail direction, and on what a deny message should say. This page states
 > the model so the next review does not have to ask.
@@ -375,6 +375,35 @@ found by attempting it, never by a test suite. And because a denied compound com
 full, a cleanup step chained behind a probe never runs: probing a sentinel guard with
 `rm ... ; touch ...` can leave the sentinel on disk with the boundary silently disarmed. Verify
 absence with a separate call, not a step fused onto the probe.
+
+## The uncovered spawn surface: the agent bash reflex itself
+
+Hook-based spawn migrations address two surfaces — per-tool-call hook fan-out, and boot. A third
+surface is wired nowhere and cannot be migrated the same way, because it is invented fresh each
+session: an agent improvising fan-out bash on its own initiative (root-anchored `find`, a
+multi-probe banner loop, `head`/`tail` plumbing over hundreds of files) rather than through any
+scripted or hooked path. The root cause in one observed case was not a script at all — it was a
+bare-name helper absent from PATH, so an agent hit command-not-found and reached for `find /` to
+locate it; a root-anchored `find` on a large tree burns tens of CPU-minutes, orphans when the
+subagent exits, and accumulates across sessions until the box slows for everyone on it.
+
+**The harness actively contradicts the inherited-doctrine assumption.** Under some permission
+modes a system reminder tells agents to prefer Bash for reads, searches, and edits — framed as an
+operating instruction, not a suggestion. Inheriting a bash-avoidance rule from standing doctrine is
+not enough against that: a dispatched agent complies with the ban only when its own dispatch brief
+states it outright (e.g. "NEVER the Bash tool"), not because the rule exists somewhere upstream in
+context it may or may not still carry weight.
+
+**Delegation does not launder a spawn gate.** Dispatching a subagent to do the spawn-heavy work
+does not clear a PM-gated spawn ceiling — the spawns land on the same machine regardless of which
+session issued them, so delegation moves the load rather than removing it.
+
+**The rule.** Put the Bash prohibition (or whatever confinement applies) in every dispatch brief
+verbatim; do not rely on the harness or on inherited doctrine to carry it. Before any Bash call,
+ask whether one Python (or equivalent single-process) call does the same job — it almost always
+does. Guard by shape through the existing classifier rather than re-deriving poison-shape
+predicates per guard. Treat a slow command as slow, not hung, and never retry a stalled scan
+blindly — a retry compounds exactly the load this section describes.
 
 ## Tripwires
 

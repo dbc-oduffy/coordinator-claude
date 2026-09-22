@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """mise-prep-gate.py — thin door-served CLI over `coordinator_core.roadmap.prep_gate_cli`.
 
 The published surface (`skills/plan-blitz/mise-prep-entry.py :: _gate_cmd`) probes this

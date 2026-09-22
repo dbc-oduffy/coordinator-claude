@@ -20,9 +20,7 @@ proposal without a confirmation round-trip — see `lanes/add-existing-project.y
 **Reconciliation on conflict.** When the Phase 1.5 proposal differs from the Phase 1 marker-scan
 `detected_type`, the proposal wins — the reconciled value is what gets ratified, not a re-ask.
 
-**Every `round_trip` point is pre-answered** per `lanes/add-existing-project.yaml`; the
-`tw.ci-inference-prompt` answer is conditional on whether `tw.ci-eligibility-resolve`'s inferred
-signal actually fired (never auto-`yes` absent a fired signal).
+**Every `round_trip` point is pre-answered** per `lanes/add-existing-project.yaml`.
 
 **Terminal offers with genuine residual judgment** (see `lanes/add-existing-project.yaml`
 `terminal_offer_defaults[]` for every value; two carry judgment this lane cannot manufacture a

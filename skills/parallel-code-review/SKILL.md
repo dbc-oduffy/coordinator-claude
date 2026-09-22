@@ -20,7 +20,8 @@ Back. The Staff Engineer is not in this gate — that advisory Layer-2 architect
 
 ## Wrong-Context Refusal
 
-Invoked exclusively from coordinator:/workweek-complete. Reached any other way — STOP, surface
+Invoked exclusively from coordinator:/workweek-complete, by the top-level EM — a dispatched
+agent has no `Agent` tool (`A-SKILL-PHASE-NAMES-ITS-ACTOR`). Reached any other way — STOP, surface
 the misroute to the PM. `coordinator/skills/review/SKILL.md` § A.3 — Sequencing governs every
 other surface.
 
@@ -31,10 +32,10 @@ other surface.
 Three CLI calls drive dispatch shape; each prints a decision envelope whose `next_move` field is
 the literal next step to take. **On a PowerShell host, invoke the `.exe` launcher by absolute path
 through the call operator** (Shape W) for every invocation on this page, never the `${...}`
-POSIX-shell form shown below. Ladder and shapes: `snippets/resolve-coordinator-bin.md`.
+POSIX-shell form shown below. Ladder and shapes: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
 - **Gate:** invoke `parallel-review-gate-decision gate --range "origin/main...HEAD" [--force]`,
-  resolved per `snippets/resolve-coordinator-bin.md` (Shape A/B on POSIX hosts, Shape W on
+  resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape A/B on POSIX hosts, Shape W on
   PowerShell). `judgment_points` is always `[]` here.
 - **Chunking:** same binary, `chunk --scope-files-file <scope-files> --seam-manifest-file
   <seam-manifest> [--target-size 25] --out "$FINDINGS_DIR/chunk-manifest.tsv"` — `<scope-files>`
@@ -57,7 +58,7 @@ wiki.
 ## Pre-Flight Orthogonality Assertion
 
 Before dispatch: invoke `parallel-review-orthogonality-guard guard`, resolved per
-`snippets/resolve-coordinator-bin.md` (Shape A/B on POSIX hosts, Shape W on PowerShell). Non-zero
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape A/B on POSIX hosts, Shape W on PowerShell). Non-zero
 — do not dispatch, surface to the PM.
 
 After chunking, before dispatching chunk reviewers: same command with `--chunk-manifest
@@ -68,14 +69,14 @@ After chunking, before dispatching chunk reviewers: same command with `--chunk-m
 ## Snapshot
 
 Invoke `parallel-review-orthogonality-guard snapshot --range "origin/main...HEAD"`, resolved per
-`snippets/resolve-coordinator-bin.md`. Capture its four printed fields as
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`. Capture its four printed fields as
 `$FINDINGS_DIR`, `$WEEKLY_SLICE_ID`, `$DIFF_PATH`, `$HEAD_SHA_PATH` — the only copies; reviewers
 and the synthesizer read them directly, never from `$FINDINGS_DIR`.
 
 ### Test-Output Capture — Tier-U, EM-only
 
 `/workweek-complete` holds this ceremony's implicit Tier-U grant. Consult it anyway, resolved per
-`snippets/resolve-coordinator-bin.md` (Shape A/B on POSIX hosts, Shape W on PowerShell):
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape A/B on POSIX hosts, Shape W on PowerShell):
 `tier-u-grant-cli check`.
 Ungranted (exit 1, or malformed/absent) — halt, surface to the PM, skip this step.
 
@@ -98,7 +99,7 @@ test-evidence-parser — the untouched file fails the synthesizer's pre-flight a
 **Dispatch the whole span as one Workflow — `Workflow({scriptPath: "coordinator/workflows/review-wave.mjs", args: {...}})`.** It encodes this
 section and the synthesizer dispatch below; its `args` contract is in the script's own header.
 Pre-provision each dispatched agent's sidecar first, resolved per
-`snippets/resolve-coordinator-bin.md` (Shape A/B on POSIX hosts, Shape W on PowerShell) —
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape A/B on POSIX hosts, Shape W on PowerShell) —
 `provision-sidecar --agent-type <type> --provision-key <slice-id>` — and inject the printed path
 as `sidecar_path:` in its brief: a Workflow spawn never auto-provisions one. Omit
 `testOutputPath` on an unconfigured-resolver (`RESOLVER_EXIT=2`) week and the parser is skipped.

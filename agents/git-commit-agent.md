@@ -50,7 +50,14 @@ it (project-rag `f017ab837`).
 anyway, never read as "route absent".
 
 <!-- VERBATIM -->
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-invoke" ceremony.commit_v2 '{"repo":"<worktree-root>","paths":["a.py","b.py"],"deleted_paths":[],"message":"<subject>"}'` (PowerShell: `coordinator-invoke.exe`). A multi-paragraph message does not go on argv: pass the body through the op's body-file channel rather than embedding a newline in `message`.
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-invoke" ceremony.commit_v2 --repo <worktree-root> '{"paths":["a.py","b.py"],"deleted_paths":[],"message":"<subject>"}'` (PowerShell: `coordinator-invoke.exe`). A multi-paragraph message does not go on argv: pass the body through the op's body-file channel rather than embedding a newline in `message`.
+
+**`--repo` is the only thing that anchors the commit, and it is not optional for you.** The op reads
+no `repo` params key, and `repo_root` in the params is a consistency assertion, never the
+worktree-resolution source (`commit_v2 :: _handler`). Omit the flag and the commit lands in whatever
+repo your cwd resolves — which is the dispatching session's cwd, not your target repo. The tell is a
+refusal naming a path under a SIBLING repo that your pathspec never mentioned; read it as a missing
+`--repo`, never as the op ignoring the repo you named.
 
 **Shape 2 — a scoped plain commit:**
 

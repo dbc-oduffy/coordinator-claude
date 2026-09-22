@@ -27,9 +27,9 @@ and worktrees into the current branch. Merge to main is a separate step."
 ## Compute the Inventory
 
 **On a PowerShell host, use the `.exe` launcher through the call operator** (Shape W), never the
-`${...}` POSIX-shell form shown below. Ladder and shapes: `snippets/resolve-coordinator-bin.md`.
+`${...}` POSIX-shell form shown below. Ladder and shapes: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
-`consolidate-assemble brief` (per `snippets/resolve-coordinator-bin.md`)
+`consolidate-assemble brief` (per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`)
 returns the current-user + branch inventory (ownership category per branch and worktree),
 unique-commit evidence per stale branch, absorb/delete directives, and the judgment points below.
 It is READ-ONLY — every mutating action surfaces as a directive or a judgment point, never fires

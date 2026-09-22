@@ -22,7 +22,7 @@ The agent that did your install is well-placed to write this up — it has the e
 - **Domain plugins** — new reviewer personas and routing rules for your domain (mobile, DevOps, security, etc.)
 - **Bug fixes** — in validation scripts, skill logic, or documentation
 - **Documentation** — clarifications, examples, tutorials
-- **Validation improvements** — new local validation checks, better error messages
+- **Validation improvements** — new local checks, better error messages
 
 ## How to Contribute
 
@@ -38,7 +38,7 @@ The agent that did your install is well-placed to write this up — it has the e
 `main` is protected. All changes land via PR.
 
 - **Maintainer approval required.** Every PR needs an approving review from @dbc-oduffy before it can merge. Approvals are dismissed when new commits are pushed, and the last push must be approved.
-- **Local validation must pass.** There is no hosted CI; run `python .github/scripts/run-all-checks.py` before submitting and the maintainer re-validates on their own machines.
+- **Validation must pass locally.** This repo runs no CI; run `python .github/scripts/run-all-checks.py` before opening the PR.
 - **No force pushes, no branch deletion, conversations must be resolved.**
 
 Maintainer self-merges (admin override on the maintainer's own PRs) are allowed — the PR ceremony itself is the speedbump.
@@ -60,7 +60,7 @@ Maintainer self-merges (admin override on the maintainer's own PRs) are allowed 
 - Must be registered in the coordinator README skill count
 
 ### Validation
-- All PRs must pass `python .github/scripts/run-all-checks.py` locally
+- All PRs must pass local validation (`run-all-checks.py`)
 - If you add a new component, update the README inventory counts
 - Cross-references must resolve — the `validate-references.py` script checks this
 
@@ -174,7 +174,7 @@ Before submitting a PR that adds or modifies an agent, skill, or command:
 - [ ] Frontmatter is complete and valid (`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/lint-frontmatter"`)
 - [ ] Reviewer agents: `bin/verify-snippet-sync reviewer-calibration --fix` run and diff is clean
 - [ ] New component is registered in the README inventory count
-- [ ] Cross-references (file paths, skill names, command names) resolve — `python .github/scripts/run-all-checks.py` passes locally
+- [ ] Cross-references (file paths, skill names, command names) resolve — `python .github/scripts/run-all-checks.py` passes
 - [ ] No hardcoded local paths; build-for-someone-else's-machine rule followed
 - [ ] If the component fires hooks: tripwire added to `docs/wiki/coordinator-tripwires/tripwire-registry/`
 - [ ] If the component is a reviewer: upstream pre-flight wired into the producer skill

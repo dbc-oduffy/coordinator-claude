@@ -107,6 +107,8 @@ npm test path/to/test.test.ts
 
 Confirm: test fails (not errors), failure message expected, fails because feature missing (not typos). Test passes? You're testing existing behavior — fix the test. Test errors? Fix the error and re-run until it fails correctly.
 
+**A still-red test after the plan's stated fix is evidence the plan under-scoped, not a test to weaken.** Land the failing case in its own commit before applying the plan's specified fix, and treat the case as a falsifier of the plan's diagnosis, not just of the code: if it stays red after the fix as written, the plan missed scope. (Case: a plan asserted that routing through a canonicalization helper would unify two ingest paths; it didn't — the paths partitioned on an unrelated field, and closing the gap took unplanned lines beyond what the plan specified. The `it.fails` case, landed first and in its own commit, is what surfaced this instead of it being absorbed as "the fix needed a bit more work.")
+
 ### GREEN — Minimal Code
 
 Simplest code to pass the test. Don't add features, refactor other code, or "improve" beyond the test.

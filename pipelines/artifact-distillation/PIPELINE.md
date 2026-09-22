@@ -57,7 +57,7 @@ Cross-Repo Archive Specialist Branch (Sonnet ×1 or ×N shards, parallel to Phas
 
 **Native op backing this phase:** the harvest-debt set, ripeness partition, memo cohort,
 `wikiDirs`/`wikiSlugs` index, and batching computed by steps 1-6 below are the same outputs
-emitted as one JSON payload by claude-klabauter's `distill.scope` op (`coordinator_core/ops/distill_scope.py`,
+emitted as one JSON payload by the engine repo's `distill.scope` op (`coordinator_core/ops/distill_scope.py`,
 `@register_op("distill.scope")`) — cite this op, not the retired per-script names, when pointing at
 "what computes Phase 0's Workflow INPUT". The individual `bin/distill-*.py` CLIs cited below remain
 valid as the C8-contract entrypoints `distill.scope` is built from.
@@ -65,6 +65,25 @@ valid as the C8-contract entrypoints `distill.scope` is built from.
 1. **Inventory artifact directories:** `plans/`, `docs/completed-work/`, completed `tasks/*/` dirs, `docs/research/`, `~/docs/research/`, `docs/superpowers/specs/`, `tasks/*/spec.md`, `tasks/*/design.md`. **`cross-repo/archive/` (closed `status: actioned` memos) is EXCLUDED from this generic candidate list** — it is routed to the dedicated Cross-Repo Archive Specialist Branch (§ below) instead, not scanned by the generic Haiku/Sonnet path. See `commands/distill.md` § Cross-repo archive distillation for the input-enumeration detail. **`archive/handoffs/` is EXCLUDED from every distillation cohort** — handoffs are not a knowledge source and carry no distill fate; the whole archive gets the bounded outlier scan (§ Handoff outlier scan below) and never a scan batch, a harvest, or a deletion row. **`archive/daily-summaries/` is a read-only intake path**, not a member of this candidate list — it is consumed by `/workday-complete` and `update-docs.md`'s doc surfaces, accrues no harvest debt, and is never scanned, harvested, or deleted by this pipeline; see `coordinator/docs/wiki/daily-summary-procedure.md`.
 
    **Plan files are the priority cohort.** Terminal plans already swept to `archive/specs/` by the session-init sweep (enumerated via `bin/query-records --type plan --format paths --root archive/specs/`, minus any paths already recorded in `state/distillation-log.md` under a `DISTILLED`/`PROMOTE` disposition — the un-harvested set = "harvest debt") are the highest-yield distillation source (`commands/distill.md:20-21`) and carry the heaviest Phase 5 sub-step (knowledge-harvest). They are processed **first** and banked before ephemera disposal — see the harvest-debt drain contract in Phase 5 and `commands/distill.md § Phase 5`.
+
+   **[claude-klabauter-reliant] Pre-filter process-scaffolding sidecar files via `bin/distill-sidecar-sweep.py`,
+   not LLM eyeballing.** Per the C8 contract (`docs/contracts/distill-engine-scripts.md` § 4):
+   `bin/distill-sidecar-sweep.py --scan-root <inventory-root> --repo-root <repo-root>` emits
+   `{"deletion_manifest": [{"path"}], "retained": [{"path", "reason": "active-reference"}]}` —
+   sidecar-suffix candidates (the `SIDECAR_SUFFIXES` set, plus timestamped variants) that have
+   already cleared the shared active-reference guard land in `deletion_manifest`; still-referenced
+   candidates land in `retained` and are excluded from the deletion set entirely. Run this over
+   each inventoried directory before batching for Phase 1: `deletion_manifest` entries are folded
+   straight into the run's EPHEMERAL disposition set (skip a Haiku scan for them — the guard
+   already cleared them mechanically), `retained` entries stay in the normal candidate list for
+   Phase 1/1.5 to classify on their merits. This replaces an LLM manually enumerating sidecar
+   files by eye and grepping each for active references before proposing deletion. **Fail-loud on
+   malformed op output:** if `deletion_manifest`/`retained` is missing from stdout, treat the
+   script as unavailable and fall back to the prior manual-grep path for that directory — do not
+   guess at a partial result. **Agentic-path fallback if the engine repo declines / the script is
+   unavailable:** revert to an LLM enumerating sidecar files by eye and manually checking each for
+   active references — degraded (fragile, ordering-invariant risk on proposing deletion before
+   confirming no active reference), not broken.
 
    **[claude-klabauter-reliant] Compute the un-harvested set via `bin/distill-harvest-debt.py`, not LLM
    re-derivation.** Per the C8 contract (`docs/contracts/distill-engine-scripts.md` § 2):
@@ -77,7 +96,7 @@ valid as the C8-contract entrypoints `distill.scope` is built from.
    the script fails this way, halt Phase 0 and surface to the coordinator rather than
    proceeding with an unbounded/fabricated debt list. A `warn: true` field is a loud
    stale-log signal (debt disproportionate to logged rows), not a hard failure — surface it in
-   the Phase 0 output. **Agentic-path fallback if claude-klabauter declines / the script is
+   the Phase 0 output. **Agentic-path fallback if the engine repo declines / the script is
    unavailable:** revert to manually diffing `archive/specs/` basenames against
    `state/distillation-log.md` `DISTILLED`/`PROMOTE` rows, preserving the same fail-loud
    absent-log behavior — degraded (LLM token cost, re-derivation risk), not broken.
@@ -135,7 +154,7 @@ valid as the C8-contract entrypoints `distill.scope` is built from.
    RIPE gate (Oracle DELIVERED+REVIEWED / DELIVERED-UNREVIEWED tie-break) stays the
    `plan-delivery-audit` judgment layer's job on top of the script's `harvest` set; the script
    narrows the candidate set the AC-verification judgment runs over, it does not replace that
-   judgment. **Agentic-path fallback if claude-klabauter declines / the script is unavailable:** revert
+   judgment. **Agentic-path fallback if the engine repo declines / the script is unavailable:** revert
    to an LLM reading each plan's frontmatter by hand to partition RIPE/PARTIAL/ABANDONED/
    IN-FLIGHT — degraded (per-spec LLM token cost), not broken.
    - **RIPE → NEW** (harvest: extract nuggets + trim→archive): `status: implemented` or `status: shipped` AND all typed-prefix ACs pass at HEAD (Oracle DELIVERED+REVIEWED or DELIVERED-UNREVIEWED). This is the dominant case — `status: implemented` is on the large majority of completed plans.
@@ -254,7 +273,7 @@ commitment is still open, or reducing a genuine boundary-ratification decision t
 `[EPHEMERAL]` nugget. AC6.
 
 **[claude-klabauter-reliant] `memo.triage` pre-filter (run BEFORE the Sonnet specialist dispatch).**
-Per the C8 contract (`docs/contracts/distill-engine-scripts.md` § 1), dispatch claude-klabauter's
+Per the C8 contract (`docs/contracts/distill-engine-scripts.md` § 1), dispatch the engine repo's
 `memo.triage` COMPUTE_ONLY op (`coordinator_core/ops/memo_triage.py`, registered as
 `memo.triage`) over the `cross-repo/archive/*.md` cohort before this branch's Sonnet agent
 runs. The op returns `{promote: [...], disqualified: [...], candidates: [...], counts: {...}}`
@@ -271,7 +290,7 @@ defeats the point of the pre-filter; the op itself only emits the counts, the ca
 and warns from the ratio). **Fail-loud on malformed op output:** if the op's stdout is
 missing any of `promote`/`disqualified`/`counts.promote`/`counts.total`, treat as
 op-unavailable and fall back to the agentic path — do not attempt the ratio computation
-against a malformed response. **Agentic-path fallback if claude-klabauter declines / the op is
+against a malformed response. **Agentic-path fallback if the engine repo declines / the op is
 unavailable:** revert to feeding the full `cross-repo/archive/*.md` cohort directly to the
 Sonnet specialist below with no pre-filter — degraded (the full per-memo LLM cost findings
 #1–#5/#8 diagnose), not broken.
@@ -288,7 +307,7 @@ inherited floor.
 
 **Native op backing the read-scope partition:** the mechanical split between the
 unlabeled-residue partition (what this branch's Sonnet specialists should read) and the
-labeled partition (mechanical log-append eligible) is computed by claude-klabauter's `memo.fate_partition`
+labeled partition (mechanical log-append eligible) is computed by the engine repo's `memo.fate_partition`
 op (`coordinator_core/ops/memo_fate_partition.py`, `@register_op("memo.fate_partition")`) —
 partitions on `distill_fate:`/`in_repo_capture:` plus a capture-target existence check. Cite
 this op name when describing why the specialist reads only one partition.
@@ -372,7 +391,7 @@ After all Phase 1.5 verdicts are PASS (or batches are marked FAIL/SKIP), regroup
 
 Runs between Clustering and Phase 2/Wave 2, over the clustering table's raw cluster set —
 **after** curation (§ above) has already run on invocation A's tag census and every surviving
-tag has cleared claude-klabauter's `distill.curate_clusters` verdict. That ordering is why consolidation is
+tag has cleared the engine repo's `distill.curate_clusters` verdict. That ordering is why consolidation is
 now a single unconditional rule rather than a shrapnel-triage pass: curation decided per-tag,
 upstream of clustering, whether a tag deserves a home at all, so by the time a cluster reaches
 consolidation the question "does this shit deserve a home" is already answered — consolidation
@@ -400,7 +419,7 @@ pending re-wiring — the two open questions that used to hold them unwired (doe
 verdict weight per-tag nugget volume; what does a cold-start drop-rate census show) are both
 answered, per `cross-repo/inbox/2026-08-06-claude-klabauter-em-curate-clusters-four-answers-volume-
 is-weighted-but-not-a-floor.md`. The minting policy they used to encode now lives in exactly one
-place — claude-klabauter's `distill.curate_clusters` gate — parameterized by `recommended_keep_threshold`,
+place — the engine repo's `distill.curate_clusters` gate — parameterized by `recommended_keep_threshold`,
 a value returned alongside `tag_counts` from invocation A and derived below.
 
 **Volume IS weighted, but not by a floor we hold — by a threshold WE pass.** The curation gate
@@ -412,8 +431,8 @@ stated job ("a 1-2-nugget cluster doesn't earn its own new file") is thus only P
 at threshold 2, not fully — record that gap honestly rather than smoothing it over.
 
 **Why the threshold lives on our side.** We emit **1 for cold-start** (empty wiki tree, or fewer
-than 150 carry-forward nuggets) and **2 for mature**, derived from claude-klabauter's own measured drop
-rates (mean of 20 seeds over their 433-nugget/249-tag census, deterministically subsampled to
+than 150 carry-forward nuggets) and **2 for mature**, derived from the engine repo's own measured drop
+rates (mean of 20 seeds over its 433-nugget/249-tag census, deterministically subsampled to
 simulate first runs of increasing size):
 
 | N nuggets | thr=2 | thr=1 |
@@ -460,8 +479,8 @@ gate's structural bare-token rule would savage a cold-start corpus. It does not,
 census settles it: at `keep_threshold=1` the drop rate is FLAT — 8-12% across a 20x range of
 corpus size, no cold-start blow-up. The structural rule is corpus-size-invariant because it never
 consults corpus size; the cold-start degeneration is entirely `keep_threshold`, not the bare-token
-rule (71.2% at threshold 2 on a 20-nugget run vs. 17.1% on the full corpus). This is claude-klabauter's
-measurement on their own corpus, with their own caveat attached: a single corpus, and a materially
+rule (71.2% at threshold 2 on a 20-nugget run vs. 17.1% on the full corpus). This is the engine repo's
+measurement on its own corpus, with its own caveat attached: a single corpus, and a materially
 different tag-naming convention could move the ~10% floor.
 
 **Count-conservation invariant, and where drops actually happen now.** No nugget is ever dropped
@@ -474,7 +493,7 @@ excluded before its nuggets ever reach a cluster, and every drop is recorded by 
 reason, then surfaced in the `drop_summary` structure returned from invocation B (verdict counts,
 homing-override count, dropped-nugget count and share of the pre-curation corpus, and the top-10
 dropped tags by nugget volume with their reasons). A `WARNING` log line fires when the dropped
-share exceeds `DROP_SHARE_WARNING_THRESHOLD` (0.25, a first guess — claude-klabauter's cold-start census has
+share exceeds `DROP_SHARE_WARNING_THRESHOLD` (0.25, a first guess — the engine repo's cold-start census has
 since landed, see the threshold derivation above, and does not by itself argue for moving this
 number) — a visibility tripwire, not a gate; it never halts a run or suppresses output.
 
@@ -688,6 +707,24 @@ directory_entries:
 
 **Input, in-memory, not scratch files:** the Workflow's own mechanically-computed `distillation_log_rows` (one row per source artifact — path, mechanical disposition `DISTILLED`/`EPHEMERAL`/`SKIP`, fate prose — computed earlier in the same run, § "Distillation-log rows" in the script) plus the Opus escalation resolution when Phase 3a triggered one. The agent's job is resolving those three mechanical dispositions into the final `DELETE`/`SEND_BACK`/`BLOCKED`/`PRESERVE` verdict by reading real external state (active `state/handoffs/`, open commitments, research/NotebookLM PRESERVE classes) that the mechanical pass has no visibility into — it never re-reads Phase 1/1.5/2 scratch files.
 
+**[claude-klabauter-reliant] Resolve delete-eligibility for candidate rows via `bin/distill-delete-guard.py`,
+not LLM manual guard-checking.** Per the C8 contract (`docs/contracts/distill-engine-scripts.md`
+§ 5): `bin/distill-delete-guard.py <candidate-path> ... [--repo-root <path>] [--basis-ref <ref> ...]`
+mechanically runs all 5 delete-safety guards (`shipped_in` present, `status: actioned`,
+active-reference, commitment-closure against `state/cross-repo-commitments/`, `realized_by`
+resolves-on-disk — including the #12 memory-pointer exclusion) and returns
+`{"eligible": bool, "blocked_by": [...guard-names...], "path"}` per candidate. Run this over the
+Cross-Repo Archive Specialist Branch's `ROUTINE` cross-repo-memo candidates (§ above) before
+splicing their pre-converted rows into this phase's manifest — an `eligible: false` result names
+its `blocked_by` guard(s) as the `SEND_BACK`/`BLOCKED` reason instead of the agent re-deriving it
+by hand. `archive/handoffs/**` stays out of this manifest per the pipeline-wide rule below
+regardless of guard output. **Fail-loud on malformed op output:** a response missing
+`eligible`/`blocked_by`/`path` is treated as script-unavailable, not a soft pass. **Agentic-path
+fallback if the engine repo declines / the script is unavailable:** revert to the LLM manually checking
+each of the 5 guard conditions per candidate — degraded (prone to reintroducing the #12
+memory-pointer hole and the short-SHA scientific-notation trap this script exists to close), not
+broken.
+
 **Suppressed, not dispatched, on join-integrity failure.** When the Workflow's `join_integrity.verdict` is `failed` (§ "Join-integrity verdict" in the script), this phase does not dispatch at all — the source→nugget join is unsafe to trust for disposal purposes, the same suppression the mechanical `distillation_log_rows` pass is already subject to. Never a partial manifest built on an untrustworthy join.
 
 **Either harvested or not — never a middle disposition.** `SKIP` rows (a batch that never scanned) resolve to `SEND_BACK`, naming "batch never scanned" as the reason — never `DELETE` and never a bare "retain"/"no citation found" row that reads as settled. An artifact whose knowledge is not fully extracted is `SEND_BACK` or `BLOCKED`, both of which route it back for completion at Phase 4/5, not into the delete set.
@@ -839,13 +876,13 @@ the same flow, not two competing mechanisms.
 
 7. **Update distillation log:** append all processed artifacts **with individual file paths and dispositions** to the SINGLE canonical log at `state/distillation-log.md` (schema-of-record: `coordinator/schemas/distillation-log.schema.md`) — this is the idempotency mechanism for subsequent runs. Canonical row shape: `- <path> -> <disposition>, <fate> (run: <run-id>)`, ASCII `->` (never the U+2192 `→` glyph), `disposition` ∈ `{DISTILLED, PROMOTE, EPHEMERAL, SKIP, PRESERVE}`, grouped under a `## Run <run-id>` header. Per-file entries are required — directory-level summaries are insufficient for Phase 0 exclusion matching.
 
-   **[claude-klabauter-reliant] Append through `bin/distill-log-append.py`, not a hand-rolled string append.** Per the C8 contract (`docs/contracts/distill-engine-scripts.md` § 6), every append to the canonical log goes through claude-klabauter's canonical-log WRITER so the on-disk format can never drift: `python3 bin/distill-log-append.py --log-path state/distillation-log.md --path <artifact-path> --disposition <DISTILLED|PROMOTE|EPHEMERAL|SKIP|PRESERVE> --fate "<free-text fate>" --run-id <run-id>`, once per artifact. The tool emits `{"row": ..., "header_opened": <bool>, "log_path": ...}` on success (exit 0) or `{"error": ...}` on exit 1 (invalid disposition or empty field) — a non-zero exit means NO row was written; do not treat it as a soft warning.
+   **[claude-klabauter-reliant] Append through `bin/distill-log-append.py`, not a hand-rolled string append.** Per the C8 contract (`docs/contracts/distill-engine-scripts.md` § 6), every append to the canonical log goes through the engine repo's canonical-log WRITER so the on-disk format can never drift: `python3 bin/distill-log-append.py --log-path state/distillation-log.md --path <artifact-path> --disposition <DISTILLED|PROMOTE|EPHEMERAL|SKIP|PRESERVE> --fate "<free-text fate>" --run-id <run-id>`, once per artifact. The tool emits `{"row": ..., "header_opened": <bool>, "log_path": ...}` on success (exit 0) or `{"error": ...}` on exit 1 (invalid disposition or empty field) — a non-zero exit means NO row was written; do not treat it as a soft warning.
 
-   **For a multi-row run, PREFER claude-klabauter's bulk mode over N single-row invocations.** `bin/distill-log-append.py --batch <file|->` accepts a JSONL stream of `{path, disposition, fate, run_id}` objects, validates every row against the schema-of-record BEFORE writing any of them, and only then writes the whole batch atomically — one bad row fails the entire batch loud rather than landing a partial log. Reach for `--batch` whenever a run is disposing of more than a handful of artifacts; the single-row form above remains correct for a one-or-two-artifact run.
+   **For a multi-row run, PREFER the engine repo's bulk mode over N single-row invocations.** `bin/distill-log-append.py --batch <file|->` accepts a JSONL stream of `{path, disposition, fate, run_id}` objects, validates every row against the schema-of-record BEFORE writing any of them, and only then writes the whole batch atomically — one bad row fails the entire batch loud rather than landing a partial log. Reach for `--batch` whenever a run is disposing of more than a handful of artifacts; the single-row form above remains correct for a one-or-two-artifact run.
 
-   **Agentic-path fallback if claude-klabauter declines / both the script and `--batch` are unavailable:** hand-appending is degraded (drift-prone), not broken — but it MUST still conform exactly to the schema-of-record (`coordinator/schemas/distillation-log.schema.md`), not an improvised shape:
+   **Agentic-path fallback if the engine repo declines / both the script and `--batch` are unavailable:** hand-appending is degraded (drift-prone), not broken — but it MUST still conform exactly to the schema-of-record (`coordinator/schemas/distillation-log.schema.md`), not an improvised shape:
    - **Row shape is exactly** `- <path> -> <disposition>, <fate> (run: <run-id>)` — `<run-id>` belongs in the trailing `(run: ...)` parenthetical and NOWHERE else; a `last_sha` or any other provenance detail belongs in the `<fate>` prose fragment, never smuggled into the `(run: ...)` parenthetical alongside or instead of the run id.
-   - **`<disposition>` MUST be one of the five enum values** `DISTILLED`, `PROMOTE`, `EPHEMERAL`, `SKIP`, `PRESERVE` — verbatim, exact case. Do NOT improvise a sixth value (e.g. an ad-hoc `DELETED` token): two recent claude-klabauter runs hand-appended 195 rows using `DELETED`, which is not in the enum and is invisible to every reader that parses against the schema-of-record. The ratified mapping treats an improvised `DELETED` action as canonical `EPHEMERAL` — use `EPHEMERAL` directly rather than reintroducing the non-canonical token.
+   - **`<disposition>` MUST be one of the five enum values** `DISTILLED`, `PROMOTE`, `EPHEMERAL`, `SKIP`, `PRESERVE` — verbatim, exact case. Do NOT improvise a sixth value (e.g. an ad-hoc `DELETED` token): two recent engine-repo runs hand-appended 195 rows using `DELETED`, which is not in the enum and is invisible to every reader that parses against the schema-of-record. The ratified mapping treats an improvised `DELETED` action as canonical `EPHEMERAL` — use `EPHEMERAL` directly rather than reintroducing the non-canonical token.
    - Never the legacy `docs/wiki/.distill-log.md` path, never the Unicode `→` glyph (ASCII `->` only, per the schema-of-record's single most load-bearing detail).
 
 8. **Amend log update** into the deletion commit

@@ -29,7 +29,7 @@ import re
 import subprocess
 import sys
 
-# Review: code-reviewer — F1 (P1): whats-next.py had regressed behind its own bash
+# whats-next.py had regressed behind its own bash
 # oracle, reintroducing a `bash <seam>.sh` shell-out the oracle had already
 # removed (raises uncaught FileNotFoundError on a bash-less Windows box — the
 # exact audience this campaign exists for). Replaced with the improved oracle's
@@ -58,7 +58,7 @@ def _no_console_window() -> dict:
     `repo_identity.resolve_checked_repo_root`) may run before the engine root is
     known.
 
-    Review: coordinator:code-reviewer — consolidated onto the single
+    Consolidated onto the single
     resolution path this file already owns (`_resolve_claude_klabauter_root_silent`),
     matching sibling standup.py's pattern instead of re-deriving the
     lib_dir/sys.path/cc_invoke import boilerplate a second time in this file.

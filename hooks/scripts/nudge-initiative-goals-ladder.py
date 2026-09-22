@@ -13,7 +13,7 @@ This port preserves every decision/advisory condition and the escape-hatch env
 var byte-for-byte from the retired bash predecessor; the full suppression
 table is reproduced in each guard clause below via inline comments.
 
-Candidate-resolution seam: claude-klabauter's `goal.match_candidates` op
+Candidate-resolution seam: the engine repo's `goal.match_candidates` op
 (coordinator_core/ops/goals_match.py — already exists, so this port is the "thin
 doctrine-plane stub" branch of the migration brief, not a from-scratch reimplementation).
 This port calls that op in-process (import + direct handler invocation,
@@ -172,7 +172,7 @@ _WIKI_ANCHOR = (
 
 
 def _resolve_goal_candidates(repo_root: str, text: str) -> list:
-    """In-process call into claude-klabauter's `goal.match_candidates` op.
+    """In-process call into the engine repo's `goal.match_candidates` op.
 
     Fail-open at every step (unresolvable seam / import error / handler
     exception) -> [] — a nudge with no suggestions is still a valid, safe

@@ -120,7 +120,7 @@ def _slug_from_title(title: str) -> str:
     s/-+$//' | cut -c1-40`): lowercase, non-alphanumeric collapsed to a single
     dash, leading/trailing dashes stripped, clamped to 40 chars.
 
-    Review: code-reviewer F4 (workweek-start.md) — slug uniqueness itself is
+    Slug uniqueness itself is
     not load-bearing here; the caller's SID_SHORT is the collision-breaker for
     concurrent same-week sessions. This formula is for readability/consistency
     with the scaffolder's own `id:` slug, not to guarantee filename uniqueness
@@ -204,7 +204,7 @@ def _fill_goal_placeholders(path: Path, iso_week: str, objective_prose: str) -> 
     """Fill the coordinator-doc-new `--type goal` scaffolder's placeholder gap:
     period_value + weekly_perceptible + objective.
 
-    Review: code-reviewer F2 (workweek-start.md) — objective is written FIRST,
+    Objective is written FIRST,
     before the goal_id hash is computed, and the hash input's _TEXT is then
     read BACK from the artifact (see `_read_objective`) rather than retyped —
     this guarantees the hash input and the on-disk objective are byte-identical
@@ -254,7 +254,7 @@ def _fill_goal_id(path: Path, goal_id: str) -> None:
 
 
 def _compute_goal_id(iso_week: str, text: str) -> str:
-    """Review: code-reviewer F1 (workweek-start.md) — this authored goal_id is
+    """This authored goal_id is
     the structured-records (C15) facet key, computed the same way
     append-goal-event.py:231 computes ITS OWN wire goal_id, but the two are
     NOT guaranteed to match: append-goal-event.py independently re-derives
@@ -328,7 +328,7 @@ def cmd_scaffold_goal(args: argparse.Namespace) -> int:
 
 
 def cmd_emit_goal_event(args: argparse.Namespace) -> int:
-    """Review: code-reviewer F3 (workweek-start.md) — YAML-aware extraction
+    """YAML-aware extraction
     (not grep+sed line-matching): goals-okr-system.md sanctions
     `objective: >-` as a multi-line folded block scalar, which a
     `grep '^objective:'` + sed one-liner cannot parse (yields an
@@ -465,7 +465,7 @@ def cmd_commit_archive_reset(args: argparse.Namespace) -> int:
 
 
 def cmd_ceremony_hook(args: argparse.Namespace) -> int:
-    """Review: code-reviewer F1 (workweek-start.md) — the guard below is
+    """The guard below is
     defensive-only against the helper-script-absent (install-drift) case; the
     helper itself is contracted always-exit-0 (see coordinator-ceremony-hook.py's
     own module docstring), so this failure path fires only if the interpreter

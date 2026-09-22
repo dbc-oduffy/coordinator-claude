@@ -18,7 +18,7 @@ Common amplifiers:
 
 When the resolved version matters (project tooling, test runners, CI parity, MCP server boot), one of the following must hold:
 
-1. **Absolute path pin.** The invocation uses a full path: `& "C:\Users\<user>\.venvs\<project>\Scripts\python.exe"` rather than `python`. <!-- foreign-path-ok: illustrating a Windows path-pin example shape, not asserting a location --> The path may be computed once and cached, but must not collapse to a bare name on the wire.
+1. **Absolute path pin.** The invocation uses a full path — drive letter, colon, then `\Users\<user>\.venvs\<project>\Scripts\python.exe` — via `& "<the full path>"` rather than bare `python`. The path may be computed once and cached, but must not collapse to a bare name on the wire.
 2. **Version assertion at boot.** First action of the script/tool is `python --version` (or equivalent) compared against an expected pin. Mismatch → exit non-zero with a remediation message naming both the resolved version and the expected version.
 3. **Indirection through a venv-aware launcher.** `uv run`, `npm exec`, `cargo run` — anything that resolves the version through the project's own manifest, not PATH.
 

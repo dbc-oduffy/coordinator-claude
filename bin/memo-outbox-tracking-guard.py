@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """memo-outbox-tracking-guard — detect delivered cross-repo memos losing their sender-side record.
 
 WHY THIS EXISTS. Nine delivered memos, sent by six different sessions, sat on disk and absent from

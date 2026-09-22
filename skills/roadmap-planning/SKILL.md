@@ -22,7 +22,10 @@ Detail for B/C/D, read before starting Phase 1 on that path: `residue/entry-poin
 - **A** — direct invocation, `<input-corpus-path>` is the corpus dir. Begin at Phase 1.
 - **B** — pickup of a `kind: roadmap-seed` stub (goal-seeded) → `§ Entry Point B`.
 - **C** — chain from `/shape` (`estimated_horizon: week`) → `§ Entry Point C`.
-- **D** — conform intake from a sizing-object (`xl_exit: roadmap`), never a gate → `§ Entry Point D`.
+- **D** — conform intake from a sizing-object (`xl_exit: roadmap`), never a gate → `§ Entry Point D`
+  (`residue/entry-points-b-c-d.md`). Receive-and-use-if-present: with no sizing-object present this
+  skill runs exactly as today, and the sizing lobby never gates or refuses a `roadmap-planning`
+  invocation absent one.
 
 ## Ceremony ladder
 
@@ -102,7 +105,7 @@ final-approved`.
 
 **Entry:** OVERVIEW `status: final-approved`, Phase 1.5 exit checked — else STOP, return to Phase 1.5.
 
-2.1. Scaffold each stub (Shape W, `snippets/resolve-coordinator-bin.md`):
+2.1. Scaffold each stub (Shape W, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.exe" --type roadmap-baton --title "<title>" --roadmap-id <run-id> --stub-id <slug>-<N> --out state/handoffs/<date>_<HHMMSS>_roadmap-<slug>-<N>.md`,
    mint the id (`bin/mint-deliverable-id --stub-id "<slug>-<N>"` → `deliverable_id:`), fill the rest
    from Step 2.1.5's numbering output. **Read `residue/stub-frontmatter-schema-and-field-notes.md`
@@ -117,7 +120,7 @@ final-approved`.
    by hand rather than trusting the flag silently took effect. Tripwire:
    `A-BATON-IS-NOT-A-SIZING-ARTIFACT`.
 2.1.5. Number stubs in dependency order before writing any — run (Shape W,
-   `snippets/resolve-coordinator-bin.md`)
+   `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`)
    `& "$env:COORDINATOR_SETTINGS_HOME\bin\roadmap-number-stubs.exe" <edges-file>`
    and transcribe its `N`/`sprint`/`wave` output verbatim (multi-sprint boundary assignment is hand
    judgment it doesn't resolve). Covers only DECLARED edges. Format + the dependency-order
@@ -155,7 +158,7 @@ final-approved`.
    user-facing language). Template + detection rule: wiki.
 
 <!-- engine-gap: field=roadmap_planning.pm_gate_keyword_detection producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
-2.6–2.7. Phase 2 close (Shape W, `snippets/resolve-coordinator-bin.md`):
+2.6–2.7. Phase 2 close (Shape W, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
    `& "$env:COORDINATOR_SETTINGS_HOME\bin\audit-roadmap.exe" <run-id>` — one gate, five audits (stub-coverage, `ready_to_fire`
    uniqueness, pm-gates cross-reference, dependency-order). Exit 1 blocks close and names the
    offender. `kind: roadmap-baton` frontmatter is also validator-clean per the engine's

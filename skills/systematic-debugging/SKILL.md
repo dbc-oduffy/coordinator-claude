@@ -1,6 +1,7 @@
 ---
 name: systematic-debugging
 description: "Root-cause one known bug — reproduce, trace to source, fix, verify."
+version: 1.0.0
 triggers:
   - /systematic-debugging
   - debug this

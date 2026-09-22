@@ -63,7 +63,7 @@ A migration that edits only the source-of-truth leaves two other classes stale: 
 
 A caller or entry point that *looks* like the migration target may be a dead fallback, or a false-green that bridges to the very thing you meant to retire. Confirm which path production actually executes before touching it.
 
-**Strangler facade → the caller may be dead code.** A caller-level state-routing flip (central→DoE at `coordinator-queue-append`) touched only the State-1 legacy fallback, while a concurrent strangler had retargeted those CLIs through a native op (`cc_invoke → claude-klabauter coordinator_core`) — the production path on any provisioned machine. Production still mis-homed. Before flipping routing at a caller, verify which execution path production takes; the empirical tell is **run the real CLI and check where the artifact LANDS**, not just that tests pass — test-green on the legacy path is necessary-not-sufficient.
+**Strangler facade → the caller may be dead code.** A caller-level state-routing flip (central→doctrine repo at `coordinator-queue-append`) touched only the State-1 legacy fallback, while a concurrent strangler had retargeted those CLIs through a native op (`cc_invoke → engine coordinator_core`) — the production path on any provisioned machine. Production still mis-homed. Before flipping routing at a caller, verify which execution path production takes; the empirical tell is **run the real CLI and check where the artifact LANDS**, not just that tests pass — test-green on the legacy path is necessary-not-sufficient.
 
 **A native-looking Python entry point can subprocess-bridge to the bash you want to delete.** An installer step or `probe_*` sentinel that reads native can be a false-green: its body shells out to the candidate `.sh`. Repointing onto it does NOT decouple — the Python is a *consumer* of the bash, so deleting the bash breaks it. Before tagging any Python entry point as a "repoint here / retire the bash" target, grep its body for `subprocess` / `bash -c` / `source` referencing the candidate script. If it bridges, it is a consumer awaiting native port — keep the bash live and delete only on the owning repo's cutover-clear memo.
 
@@ -98,12 +98,12 @@ A wide multi-agent port campaign surfaced four load-bearing mechanics:
 <!-- PROVENANCE: run 2026-08-06-14h38, derived from nugget c7-047 -->
 
 A migration that relocates an executable surface (e.g. `coordinator/bin/` scripts to
-`claude-klabauter`) can be clean in the tree — zero tracked files left at the old path — while
+the engine repo) can be clean in the tree — zero tracked files left at the old path — while
 still leaving the *plan corpus* stale. Plans are long-lived prose snapshots; they cite the
 path that was true when authored and don't self-update when the surface moves.
 
 **Empirical source (audit taken days after the `coordinator/bin/` →
-Claude-klabauter migration lifecycle-vocabulary overhaul landing
+engine migration lifecycle-vocabulary overhaul landing
 alongside):** 39 of 40 open plans cited `coordinator/bin/` paths against a repo that tracked
 zero files there. The disagreement was plan-vs-repo, not merely plan-vs-plan — a stale audit
 target found stale within days of the migration landing, because no leg of the migration swept
@@ -114,3 +114,97 @@ the plan corpus for the old path shape.
 declaring the migration done. A migration that changes where an executable surface lives is not
 complete until the plans that reference it are re-pointed or flagged stale — otherwise the next
 reader (human or agent) trusts a path the repo does not have.
+
+## 11. Gate the repoint action and the delete action separately
+
+In a strangler migration, the repoint (switch callers onto the new implementation) and the
+delete (remove the old implementation) are two independently-gatable actions, not one workstream
+item. Parking both under the workstream's single most-blocked entry over-blocks the repoint,
+which is often already executable, on a delete gate that has nothing to do with it. Split them:
+let the repoint proceed and land on its own merits, and hold only the delete behind whatever the
+delete actually needs (a cutover-clear memo, a consumer census, an owning-repo sign-off — see §5
+and §12).
+
+## 12. Subject-first relocation carries the destination repo's standards, at sub-file granularity
+
+Moving a subject INTO a repo organized around that subject is not an exemption from that repo's
+authoring standards — it is the occasion to apply them. The carry-over applies at sub-file
+granularity: a relocated file can be correct by the old repo's conventions in one section and
+wrong by the destination's in another, and "the file as a whole already moved" is not evidence
+every section inside it now conforms. Check each section against the destination's own rules,
+not just the file's new path.
+
+## 13. Census by grepping the subject name across the tree, never by transcribing a file list
+
+A substrate census for a port must enumerate every test file that exercises the subject by
+**grepping the subject's name across the whole tree**, not by transcribing a remembered or
+documented file list. A file list copied from memory or from prior docs silently omits test
+files that reference the subject but were never catalogued anywhere — the port then ships
+untested against them, with no error to signal the gap.
+
+## 14. Report both the broken-site count and the already-correct-site count
+
+Scoping a migration by counting only the broken sites leaves the already-correct sites as an
+invisible denominator. Without that second count, a migration executor cannot tell "N broken
+sites, done" from "N broken sites out of N+M total, M of them already correct" — and the missing
+denominator can trigger an unnecessary churn rewrite of code that was never wrong. Always report
+both counts together when scoping.
+
+## 15. Derive a migration's consumer set on the old surface vocabulary, not the new token
+
+A migration's consumer sweep must be scoped by grepping the **surface vocabulary being
+changed** — the old names, paths, or shapes — never by grepping for the new token the migration
+introduces. A new-token pattern is structurally blind to exactly the unmigrated consumers it
+exists to catch: those consumers still use the old vocabulary by definition, so searching for the
+new one returns zero hits from them every time, and the sweep reads as clean while missing its
+entire target population.
+
+## 16. Sweep a freshly-authored record's cited paths for existence before trusting its verdict
+
+Records that cite paths rot silently against migrations: a record authored before a migration
+lands can cite paths that no longer exist, and its verdict looks unchanged (an empty derivation
+looks identical to a clean surface — both report nothing). Before trusting a freshly-authored
+record's derivation or verdict, sweep every path it cites for existence. A record whose citations
+are already dead has produced its "clean" result by finding nothing to check, not by checking and
+finding nothing wrong.
+
+## 17. A signature change's caller sweep must reach every suite, not just the ones you ran
+
+Adding a required-keyword parameter to a shared helper is a caller-sweep obligation that a
+**scoped test run structurally cannot catch** — a suite that never calls the changed helper
+stays green regardless of whether its callers are broken, and the touching dispatch has no
+reason to run a suite it doesn't already know is affected. The sweep for a signature change must
+enumerate every caller across every suite by grep, not by running "the suites this change should
+plausibly affect."
+
+## 18. A deletion-clearing grep must include the publish mirror
+
+A grep that clears a deletion ("no consumer references this") must include the publish mirror —
+a mirror the repo percolates content into runs its **own CI over the percolated files**, and it
+is write-only for content, never a gate target. A sweep scoped to the source repo alone misses
+the mirror's independent read of the same files, and a deletion that looks clear against the
+source repo can still break the mirror's build.
+
+## 19. Enumerate the writers before ratifying a shared-module contract's reader
+
+Before ratifying a shared-module contract, enumerate every existing **emitter** of the field the
+contract governs, not just the reader you're about to write. Extracting a shared module is
+usually framed as stopping N copies of the same code from drifting, but the real risk sits on the
+other side: a second, divergent reading of the contract. A design-fork question about the
+contract's shape is often already settled by four greps over the existing emitters — read them
+before debating the shape in the abstract.
+
+**Reader-side mirror:** the same enumeration failure recurs symmetrically on the reader side. A
+type-specific claim written into a shared contract block is wrong for whichever consumer isn't
+the type in front of you — the majority case visible while writing the block is not the contract;
+enumerate every consumer of the shared block before hardcoding one type's specifics into it.
+
+## 20. A CONTRACT_VERSION bump is a three-step release sequence, not an edit
+
+Bumping a `CONTRACT_VERSION` constant is a three-step release sequence — a dispatched executor
+can only perform step 0 (the edit itself); the remaining steps are an EM-owned wave-boundary
+close-out. A plan that treats the bump as a single edit produces a **bare re-vendor silent
+no-op**: the version changes but nothing downstream re-derives against it, and nothing signals
+the gap. Any plan touching `CONTRACT_VERSION` must name the EM's close-out as its own explicit
+step, and treat an `--ack-major` flag as a review gate to walk through deliberately, never a
+keystroke to clear on the way past.

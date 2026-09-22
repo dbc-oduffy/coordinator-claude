@@ -51,7 +51,140 @@ GENERATES = []  # writes only to the caller-supplied -o/--out path (or stdout wh
 _TITLE_OVERLAP_MIN = 25  # min chars of title that must appear verbatim in routing summary
 
 
-def extract(lessons_dir: Path, shortname: str, since: str | None) -> tuple[list[dict], dict]:
+def _lesson_date(fm: dict) -> str | None:
+    """Resolve an entry's date from whichever field carries it: `created` or `date`.
+
+    Both spellings are in use across the corpus, and reading only `created` marks a dated
+    entry `undated: true`. That is not cosmetic — `undated` drives the `--since` window
+    and the age-sweep, so a misread date silently excludes a real lesson from both, and
+    the `undated_universal_remaining` counter over-reports by the same amount.
+
+    PyYAML parses an unquoted `2026-06-30` as a date object, so the value is normalised
+    to a string either way.
+    """
+    for key in ("created", "date"):
+        value = fm.get(key)
+        if value is not None:
+            return str(value)
+    return None
+
+
+def _load_lesson_file(path: Path) -> tuple[dict | None, str]:
+    """Read one lesson entry into (frontmatter, trailing-text), tolerant of every shape on disk.
+
+    Four shapes exist in `state/lessons/`, and the extension does not predict which:
+      1. a bare YAML mapping — no `---` fences at all;
+      2. a `---`-fenced frontmatter block followed by a markdown body;
+      3. a `---`-fenced frontmatter block followed by MORE YAML, which `yaml.safe_load`
+         rejects outright as a multi-document stream;
+      4. plain markdown with no frontmatter at all, whose title is its first `#` heading
+         and whose date is the `YYYY-MM-DD` prefix of its filename.
+
+    Reading only shape 1 is how a lesson goes missing without an error: shape 3 raised
+    "expected a single document" and was counted as malformed, and shape 2's body was
+    dropped because nothing looked past the fence. Both failures are silent to the
+    caller, which sees a smaller corpus and no signal that anything was skipped.
+
+    Returns `(None, "")` and warns when the file genuinely cannot be parsed, so the
+    caller skips it rather than emitting a record with invented content.
+    """
+    import yaml  # PyYAML — available in coordinator venv
+
+    text = path.read_text(encoding="utf-8")
+    trailing = ""
+    head = text
+
+    if text.lstrip().startswith("#"):
+        return _synthesize_frontmatter(path, text)
+
+    if text.startswith("---"):
+        parts = re.split(r"^---[ \t]*$", text, flags=re.MULTILINE)
+        # parts[0] is the empty string before the opening fence.
+        if len(parts) >= 3:
+            head, trailing = parts[1], "---".join(parts[2:])
+        elif len(parts) == 2:
+            head = parts[1]
+
+    try:
+        fm = yaml.safe_load(head)
+    except Exception as e:
+        print(f"warning: skipping unparseable frontmatter {path.name}: {e}", file=sys.stderr)
+        return None, ""
+
+    if not isinstance(fm, dict):
+        print(f"warning: skipping {path.name}: frontmatter is not a mapping", file=sys.stderr)
+        return None, ""
+    return fm, trailing
+
+
+def _synthesize_frontmatter(path: Path, text: str) -> tuple[dict | None, str]:
+    """Derive frontmatter for a lesson written as plain markdown, with no `---` block.
+
+    An entry in this shape carries the same two facts every other shape does, just
+    positionally rather than in named fields: the title is its first `#` heading and the
+    date is its filename's `YYYY-MM-DD` prefix. Deriving them is still a parse, not a
+    judgment — nothing is inferred from the prose.
+
+    `scope` is genuinely absent here, so the entry is never treated as `[universal]`:
+    an absent tag is not a tag, and guessing one would promote a lesson nobody marked.
+    """
+    lines = text.lstrip().splitlines()
+    title = lines[0].lstrip("#").strip() if lines else ""
+    body = "\n".join(lines[1:]).strip()
+
+    m = re.match(r"(\d{4}-\d{2}-\d{2})", path.name)
+    fm: dict = {"title": title}
+    if m and m.group(1) != "0000-00-00":
+        fm["created"] = m.group(1)
+    return fm, body
+
+
+def _lesson_title(fm: dict, trailing: str) -> str:
+    """Resolve an entry's title: `title`, else `description`, else the body's first `#` heading.
+
+    An entry can carry frontmatter and still leave the title out of it, stating it only as
+    the markdown heading the body opens with. Reading the field alone yields an empty title
+    for that shape, which is worse than an absent record: the verify gate's title-overlap
+    check compares a routing summary against the title, and an empty title can never overlap,
+    so every faithfully-routed record for such an entry is reported as a fabrication suspect.
+    A real defect and a loader gap look identical in that report.
+
+    A memory-node entry is the other case: it states its substance in `description` and keeps
+    `name` as a slug, so `description` is what the title field means for that shape.
+
+    Taking the first heading, or the description, is a parse, not a judgment — each is where
+    its own shape puts the title.
+    """
+    for key in ("title", "description"):
+        value = str(fm.get(key, "")).strip()
+        if value:
+            return value
+    for line in trailing.lstrip().splitlines():
+        if line.startswith("#"):
+            return line.lstrip("#").strip()
+        if line.strip():
+            break
+    return ""
+
+
+def _lesson_body(fm: dict, trailing: str) -> str:
+    """Resolve an entry's body: the explicit `body` field, else the text after the fence.
+
+    An entry carries its substance in one place or the other, never both, and which one
+    is a property of the file rather than of its extension. A memory-node entry keeps it in
+    `description`, which is why that key is read for the body as well as the title.
+    """
+    for key in ("body", "description"):
+        value = fm.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    if trailing.strip():
+        return trailing.strip()
+    return ""
+
+
+def extract(lessons_dir: Path, shortname: str, since: str | None,
+            include_md: bool = False) -> tuple[list[dict], dict]:
     """Enumerate state/lessons/*.yaml and emit verbatim record dicts.
 
     Each YAML file is one lesson entry. Fields are read from YAML frontmatter:
@@ -71,6 +204,15 @@ def extract(lessons_dir: Path, shortname: str, since: str | None) -> tuple[list[
     N encodes sorted-file-position rather than a line number.
 
     Negative-spec: do NOT read state/lessons.md — that path has been superseded.
+
+    `include_md` additionally enumerates `state/lessons/*.md` — the markdown-bodied
+    entry shape, whose frontmatter carries `title`/`created`/`scope` exactly as the
+    YAML shape does but whose body is the markdown after the frontmatter rather than
+    a `body:` field. Those records are appended AFTER the YAML ones and numbered in a
+    separate `{shortname}-M{N}` namespace, so enabling the flag never renumbers or
+    otherwise disturbs an existing `-L{N}` extraction used as a verify-gate oracle.
+    Without the flag a `.md` entry is invisible to extraction and therefore to every
+    routing and verify step downstream — silently, with no warning and no count.
     """
     import yaml  # PyYAML — available in coordinator venv
 
@@ -80,19 +222,21 @@ def extract(lessons_dir: Path, shortname: str, since: str | None) -> tuple[list[
         "undated_excluded": 0,
         "dated_excluded_pre_window": 0,
         "total_blocks_seen": len(yaml_files),
+        "malformed_skipped": 0,
+        "malformed_files": [],
+        # Visible even when include_md is False, so the blind spot is a reported
+        # count rather than a silent absence — see `main()`'s post-extract warning.
+        "md_files_present": len(sorted(lessons_dir.glob("*.md"))) if not include_md else 0,
     }
 
     for idx, f in enumerate(yaml_files, start=1):
-        try:
-            fm = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
-        except Exception as e:
-            # Malformed YAML — skip with a warning; callers get accurate count
-            print(f"warning: skipping malformed YAML {f.name}: {e}", file=sys.stderr)
+        fm, trailing = _load_lesson_file(f)
+        if fm is None:
+            stats["malformed_skipped"] += 1
+            stats["malformed_files"].append(f.name)
             continue
 
-        created = fm.get("created")
-        # PyYAML parses `created: 2026-06-30` (unquoted) as a date object; normalise to str.
-        date = str(created) if created is not None else None
+        date = _lesson_date(fm)
 
         if since:
             if date and date < since:
@@ -103,9 +247,8 @@ def extract(lessons_dir: Path, shortname: str, since: str | None) -> tuple[list[
                 continue
 
         scope = str(fm.get("scope", "")).strip()
-        title = str(fm.get("title", "")).strip()
-        body_val = fm.get("body")
-        body = str(body_val).strip() if body_val is not None else ""
+        title = _lesson_title(fm, trailing)
+        body = _lesson_body(fm, trailing)
 
         records.append({
             "id": f"{shortname}-L{idx}",
@@ -117,6 +260,38 @@ def extract(lessons_dir: Path, shortname: str, since: str | None) -> tuple[list[
             "title": title,
             "body": body,
         })
+
+
+    if include_md:
+        md_files = sorted(lessons_dir.glob("*.md"))
+        stats["total_blocks_seen"] += len(md_files)
+        for idx, f in enumerate(md_files, start=1):
+            fm, trailing = _load_lesson_file(f)
+            if fm is None:
+                stats["malformed_skipped"] += 1
+                stats["malformed_files"].append(f.name)
+                continue
+
+            date = _lesson_date(fm)
+
+            if since:
+                if date and date < since:
+                    stats["dated_excluded_pre_window"] += 1
+                    continue
+                if not date:
+                    stats["undated_excluded"] += 1
+                    continue
+
+            records.append({
+                "id": f"{shortname}-M{idx}",
+                "source": f"{f.as_posix()}:{idx}",
+                "source_line": idx,
+                "tag_universal": str(fm.get("scope", "")).strip() == "universal",
+                "date": date,
+                "undated": date is None,
+                "title": _lesson_title(fm, trailing),
+                "body": _lesson_body(fm, trailing),
+            })
 
     return records, stats
 
@@ -492,6 +667,9 @@ def main(argv: list[str]) -> int:
     pe.add_argument("--since", default=None, help="keep only entries dated >= YYYY-MM-DD")
     pe.add_argument("--require-tag", choices=["universal"], default=None,
                     help="keep only scope=universal entries")
+    pe.add_argument("--include-md", action="store_true",
+                    help="also enumerate state/lessons/*.md entries, in a separate "
+                         "{shortname}-M{N} id namespace (default: YAML only)")
     pe.add_argument("--format", choices=["yaml", "json"], default="yaml")
     pe.add_argument("-o", "--out", type=Path, default=None, help="write here instead of stdout")
 
@@ -553,7 +731,34 @@ def main(argv: list[str]) -> int:
             )
             return 2
 
-    records, stats = extract(args.directory, shortname, args.since)
+    records, stats = extract(args.directory, shortname, args.since, args.include_md)
+
+    # Visibility fix (klabauter#31): a `.md` capture is invisible to every downstream
+    # consumer unless `--include-md` is passed, and that absence previously carried no
+    # count and no warning — a smaller corpus with nothing to say why. Report it loudly
+    # whenever it would otherwise pass unremarked.
+    if not args.include_md and stats["md_files_present"]:
+        print(
+            f"warning: {stats['md_files_present']} `.md` lesson file(s) in "
+            f"{args.directory} were NOT extracted (extract only reads `*.yaml` here) — "
+            f"pass --include-md to include them.",
+            file=sys.stderr,
+        )
+
+    # Fail-loud fix (klabauter#32): a malformed record previously warned to stderr and
+    # vanished from the corpus with exit 0 — indistinguishable from "no such file
+    # existed". A record that cannot be parsed is a defect in the source, not a file
+    # to silently exclude, so it must fail the run rather than the run succeeding over
+    # a smaller, unexplained count.
+    if stats["malformed_skipped"]:
+        print(
+            f"error: {stats['malformed_skipped']} lesson file(s) could not be parsed "
+            f"and were skipped: {', '.join(stats['malformed_files'])} "
+            f"(see prior warning(s) above for the parse error on each)",
+            file=sys.stderr,
+        )
+        return 1
+
     pre_tag_count = len(records)
     if args.require_tag == "universal":
         records = [r for r in records if r["tag_universal"]]
@@ -567,6 +772,7 @@ def main(argv: list[str]) -> int:
         "undated_excluded_under_since": stats["undated_excluded"],
         "dated_excluded_pre_window": stats["dated_excluded_pre_window"],
         "filtered_by_require_tag": pre_tag_count - len(records),
+        "md_files_present_but_not_extracted": stats["md_files_present"],
         "extractor": "extract-lessons.py (deterministic — no LLM)",
     }
     text = _emit(records, args.format, meta)

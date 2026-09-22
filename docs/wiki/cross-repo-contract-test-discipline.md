@@ -28,6 +28,30 @@ A contract test without a matrix entry that runs it green is epistemically equiv
 - **Asserting "didn't raise" instead of "registered exactly this set."** Negative assertions pass when nothing ran.
 - **Single-lane CI on cross-repo integration.** Partner artifact prerequisites need `with-partner` and `without-partner` lanes.
 
+## `skipif`-on-Sibling-Absent Is a Silent-Pass Mode — Decide Explicitly What Absence Means
+
+The opening rule above covers a test that skips when its prerequisite package isn't installed.
+This is the sharper, more common variant: **a cross-repo agreement test that `skipif`s when the
+sibling checkout itself is unresolvable** — the guard exists, but its entire coverage depends on a
+second repo being present on the machine running it.
+
+Two repos that co-author the same artifact (a shared snippet registry, a schema both sides read, a
+wire contract) need an assertion that fails when they diverge. One such pair had exactly one such
+guard, and two independent reviewers reaching it from opposite repos found the same hole
+independently: the test is `pytestmark = pytest.mark.skipif(not DOE_ROOT_PRESENT)`, so on any
+machine or CI shape without a resolvable sibling checkout — a fresh machine, most CI shapes, an
+OSS install — it skips rather than fails. A guard whose absence-of-sibling behaviour is "pass" is
+indistinguishable from no guard at all, exactly when you need it. Compounding it, the guard was
+one-directional: it lived in one repo and read the other, so the repo *without* the test could
+change its own declaration freely and nothing local objected.
+
+**Rule:** when writing a cross-repo agreement test, decide explicitly what the sibling-absent case
+means and make it loud. Skip is acceptable only if some other always-run artifact — a vendored
+copy, a checked-in fingerprint, a published contract version — carries the same assertion without
+depending on the sibling being present. **Prefer asserting against a committed fingerprint of the
+sibling's declaration over reading the sibling's live tree** — a fingerprint travels with the repo
+and cannot skip, where a live-tree read structurally can.
+
 ## Paired Cross-Repo Writers: Pin a Shared Byte-Equal Fixture
 
 **Provenance:** 2026-05-21 `unreal.*` concern-file migration; convention named 2026-05-26 (example-game-repo `cross-repo-helper-fixture` spinoff).
@@ -159,36 +183,31 @@ Version constants are symbolic — pinning a version integer is not the same as 
 
 ## Zero-CI Consumer Planes: The Discipline Presupposes CI Exists
 
-**Provenance:** 2026-08-07 from `claude-klabauter` cross-repo memo on the engine-root contract oracle.
-
 This page's opening rule (line 5) reads: "The test only earns its keep when **≥1 CI matrix entry has the prerequisite installed AND the test runs (not skips) in that lane**." Rule 2 (line 18) requires "**Declare a CI matrix lane** that installs it," and the anti-patterns list (line 29) names "**Single-lane CI on cross-repo integration.** Partner artifact prerequisites need `with-partner` and `without-partner` lanes." All three clauses assume a CI matrix exists to declare a lane in.
 
-### claude-klabauter's plane: UNMET on the CI-lane clause, not deferred
+A real cross-repo incident tested this presupposition directly: a consumer plane with genuinely no CI at all had to state, in its own words, which clauses of this discipline it could and could not meet — and this repo's own plane turned out to share the same gap. The specifics (which repos, which memo, which registry key) are fleet-internal provenance:
 
-`claude-klabauter` has no CI at all — no `.github/workflows/`, stated outright in their own CLAUDE.md per their memo. They record this as **UNMET**, not dressed up as deferred, and this page records it the same way: **UNMET on the CI-lane clause specifically** (line 5's running-lane requirement, and rule 2), not on the discipline as a whole.
-
-Their remedy: skip the engine-root contract oracle ONLY when `engine.working_repos.doe_claude` is unregistered or its path is absent, with a reason naming the prerequisite. On a box where that key IS registered, a missing or unparseable fixture is a FAILURE, never a skip.
-
-Per their memo, this remedy discharges:
-
-- **Rule 1 (name the prerequisite)** — the skip reason names `engine.working_repos.doe_claude` explicitly.
-- **Rule 3 (skipping-where-required is failure)** — the degenerate always-green case is closed: registered-but-broken fails, it does not skip.
-- **Rule 4 (assert the positive contract)** — the oracle asserts the fixture's actual shape, not merely the absence of an exception.
-
-Their stated residual, per their memo: on a box with no DoE-claude checkout, the oracle does not run at all, and nothing else on that box detects cross-plane drift. **Only the CI-lane clause (rule 2, and line 5's running-lane requirement) is genuinely unmet** — the doctrine has no shape for a plane that runs this class of oracle exclusively via a registry-gated local skip/fail, because it presupposes a CI matrix as the vehicle for "the test runs (not skips) in ≥1 lane."
-
-### The gap is bilateral, not one-sided
-
-Verified this session: DoE-claude has no `.github/workflows/` directory and no CI lane running this oracle either. The CI-lane gap is **symmetric across both planes**, not a consumer-side deficiency recorded unilaterally against claude-klabauter from this repo's own doctrine wiki.
 
 ### Open question — surfaced, not settled here
 
-Does a declared, non-CI-running surface with skip-where-required-is-failure (as claude-klabauter's remedy provides, and as this repo would need to match) satisfy line 5's lane clause? Two readings:
+Does a declared, non-CI-running surface with skip-where-required-is-failure (as the engine repo's remedy provides, and as this repo would need to match) satisfy line 5's lane clause? Two readings:
 
 - **If yes:** both planes are close to compliant, and this discipline needs an explicit shape for zero-CI consumer planes — the "≥1 CI matrix entry" language would need a non-CI-running equivalent (e.g., a locally-invoked, registry-gated oracle with failure-not-skip semantics) named as satisfying the rule.
 - **If no:** the doctrine as currently written condemns this repo's own plane too, on the same clause.
 
 Which reading holds — a relaxed discipline, a different named obligation for zero-CI planes, or an accepted permanent gap — is a cross-repo boundary call at `~/.claude` altitude. It is **open with the PM**, not decided by this page.
+
+## Prove a Cross-Repo Capability on the Consumer's REAL Data, Not a Synthetic Fixture Matching Your Own Assumptions
+
+A synthetic fixture that stamps fields the way the **host** expects passes green while masking real integration bugs — the addon's real `source_type` and field names can differ from the host-side assumption baked into the fixture, silently dropping rows from filtered queries. A synthetic proof authored from the host's own mental model of the consumer's shape can miss exactly the divergence it exists to catch.
+
+**Rule:** for any cross-repo or consumer-facing capability, run a pre-flight against the consumer's REAL data — not a hand-built fixture — before declaring it done. This is the data-shape analogue of § Zero-CI Consumer Planes and § Paired Cross-Repo Writers above: a fixture authored by one side, unchecked against the other side's actual output, is a fabricated-on-one-side proof.
+
+## A Test That Hard-Asserts a Sibling Repo's Live Config Is Self-Invalidating — Skip, Don't Assert
+
+A precondition that hard-asserts something about a **sibling repo's live, unowned config** (e.g., "the sibling's allowlist row stays exclusion-free") fails permanently the moment that sibling legitimately exercises the feature the assertion forbids — the assertion encodes an invariant this repo has no authority to hold.
+
+**Rule:** make such preconditions `pytest.skip`, not `assert`. Skip says "the real-config fixture this test needs is unavailable right now," which is true; assert says "the sibling did something wrong," which is false when the sibling acted within its own authority. Reach for a synthetic fixture instead only when the test's purpose is not specifically to validate against the real row. This is a narrower case than § `skipif`-on-Sibling-Absent above — that rule is about the sibling checkout being *unresolvable*, and warns against letting absence silently pass; this rule is about the sibling's *live value* legitimately changing out from under a hard assertion, where the fix is to relax the assertion to a skip, not to keep asserting an invariant you don't own. Scale matters here: when dozens of files resolve a sibling's root, this is a standing surface, not a one-off — audit for the same shape wherever a test asserts on a sibling's live, unowned state.
 
 ## Cross-references
 

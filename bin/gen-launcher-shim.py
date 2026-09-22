@@ -433,7 +433,7 @@ def _cmd_raw_cmdline_block(preserve_raw_cmdline: bool) -> str:
     env var therefore names a FILE PATH (itself caret-free, so an ordinary
     `set` is safe here), not the raw text directly.
 
-    Review: staff-eng (Finding 0) -- the retry loop above was originally an
+    The retry loop above was originally an
     unbounded `goto`, which spins forever (silently, stderr swallowed by
     `2>nul`) if `%TEMP%` is full/read-only/ACL-denied, hanging the launcher
     BEFORE Python ever starts on the single hottest path in the system.
@@ -722,7 +722,7 @@ def render_cmd(
     tag = launcher_basename(name)
     backlink_block = _cmd_backlink_block(spec_backlink)
     raw_cmdline_block = _cmd_raw_cmdline_block(preserve_raw_cmdline)
-    # Review: staff-eng (Finding 2) -- on every path where Python never runs
+    # On every path where Python never runs
     # (interpreter-cascade exit /b 127, or the child's own exit code), the
     # freshly `mkdir`-ed raw-cmdline capture dir would otherwise leak under
     # %TEMP% forever: previously a stray .tmp file a `del *.tmp` sweep could

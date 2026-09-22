@@ -13,10 +13,25 @@ canonical specs, deletes scaffolding. Not a disposal route for EM-authored scrat
 
 Phase mechanics, the Workflow dispatch contract, every gate's evaluation logic, the
 PM-gate/dispatch-scope/`state/`-sweep boundaries, and the full Acceptance Criteria all live in
-`${CLAUDE_PLUGIN_ROOT}/pipelines/artifact-distillation/PIPELINE.md` — read there, don't
-re-derive. Delete-safety guard schemas live below in this file — the guards gate an irreversible
+`${CLAUDE_PLUGIN_ROOT}/pipelines/artifact-distillation/PIPELINE.md` — read there, don't re-derive
+it. Delete-safety guard schemas live below in this file — the guards gate an irreversible
 `git rm`. Rationale and worked evidence behind those calls: the plugin's `distill-residue` wiki
 page.
+
+## Execution vehicle
+
+The background **Workflow** is the vehicle unconditionally — scan-wave-journaled → cluster →
+one-file-owner synth wave, resumable across rate-limits and compaction. There is no size gate:
+a one-artifact run and a 500-artifact run both fire the same Workflow script; the former tiered
+split (small-batch single-Sonnet vs. large-batch Workflow-fanout) is retired, not reduced to a
+higher threshold. Manual serial `Agent` dispatch is the fallback only for genuinely non-Workflow
+work — a single ad-hoc scout or a hand confirmation outside a plan run, never a substitute for
+scope size. See `coordinator/docs/wiki/workflow-orchestration.md` for the general doctrine this instantiates
+and `pipelines/artifact-distillation/PIPELINE.md` for this pipeline's own Workflow phase mechanics.
+
+**PM gate applies to deletions only.** Additive knowledge writes (wiki/DR harvest, distillation-log
+rows) go direct, no PM checkpoint. Only the irreversible `git rm` at Phase 5 — governed by the
+delete-safety guards below — halts for PM/EM judgment.
 
 **Out-of-scope actions for all dispatched agents in this pipeline:** DO NOT run `gh pr create`,
 `gh pr merge`, `git push origin main`, `gh release create`, or any `gh` command that mutates
@@ -38,6 +53,14 @@ in path] into wiki documents."
 | Wiki entries | Write/update, provenance frontmatter |
 | Archived handoffs | **Not a cohort** — never harvested, never deleted here; bounded outlier scan only (pruning is `/update-docs` Phase 8b) |
 | Batons | Exhaust, never harvest — see § Baton fate below |
+
+**Reading a plan's outcome.** For a canonical plan/spec carrying a `## Tasks` spine, fold its
+outcome from `plan-completeness status <plan-path>` — rows-resolved, chunks-reported, and the
+divergence rollup, straight off disk. Do not reconstruct it from `git log` and handoffs; the
+ledger is the read path this harvest step consumes, per
+`coordinator/docs/wiki/plan-tasks-mutate-cli.md`. A plan predating the spine, or lacking a
+`## Tasks` block at all, falls back to the prior git-log/handoff reconstruction — the ledger
+answers nothing there.
 
 ---
 
@@ -83,6 +106,19 @@ list — HARD guards only. A dispositioning agent (Phase 3d) MUST NOT invent add
 retain-reasons. Conservatism is opt-in via `--no-delete` (skips disposal entirely for the run),
 not the default posture. Rationale and worked evidence: `distill-residue` wiki page.
 
+**Scan success-rate gate — disposal is suppressed on a mass-failed harvest, not just an empty
+one.** Before Phase 5 emits a deletion manifest, check Phase 1/2's own per-cohort scan
+success-rate (plans/handoffs/memos scanned vs. attempted). A coverage-% floor alone is
+necessary-not-sufficient — read terminal status off disk per `cleanup-sweep-hazards.md`
+§38/§44, then additionally refuse to build a disposal manifest from a wave where the underlying
+scan mass-failed, even if the few artifacts that DID scan look individually delete-eligible: a
+throttled run where every plan/handoff/memo scan failed must never still produce a sidecar/memo
+deletion manifest built from whatever scraps survived. Below the floor (default: any cohort with
+<50% of its Phase 1/2 scan attempts succeeding) ⇒ disposal is suppressed for that cohort this run,
+surfaced to the EM as a scan-failure report, not a deletion manifest. This composes with, but does
+not substitute for, the Workflow's rate-limit resume (which reduces how often a throttle happens
+at all) — this gate is defense-in-depth regardless of whether resume ran.
+
 **Archived handoffs are never delete-eligible here.** Handoffs are not a distillation cohort —
 `/distill` neither harvests nor deletes any `archive/handoffs/**` path, and the former four-guard
 handoff eligibility list is retired with the cohort. Archived-handoff pruning is owned by
@@ -127,6 +163,28 @@ shards' own judgment flag 5 open loops; a separate re-run of `evaluate_candidate
 the literal guards found 16 more retains the shards missed. `apply_disposal` MUST keep re-running
 this mechanical check on every candidate — a shard's careful-but-meaning-based disposition is not
 the same fact as a literal guard pass.
+
+---
+
+## § 5d — Link-heal no-rewrite classes
+
+The broad-sweep path-heal executor (Phase 5d) repoints stale in-repo links after archival moves.
+**No-rewrite classes — MUST NEVER be rewritten, regardless of how confidently a path resolves:**
+
+1. **Historical logs** — `state/week-changelog/*`, `wsc/*.json` receipts,
+   `review-trail/findings/*`. Each is a point-in-time record of what a prior run actually did;
+   rewriting its path references retroactively falsifies that record.
+2. **Inbox-path provenance** — a path captured to document where an artifact originated, not a
+   live reference to be kept resolving.
+3. **Bare `source_memo:` basenames** — the recorded basename is itself the point-in-time citation;
+   resolving it to a current path destroys what it was pointing at when written.
+
+**The active-ref scope deliberately stops at `docs/`, `tasks/`, `archive/`** (same boundary as the
+delete-safety active-reference check above) — link-heal never walks `state/` to "fix" the
+no-rewrite classes above, even when a rewrite would technically resolve. Precedent:
+`coordinator/docs/wiki/cleanup-sweep-hazards.md` #45 — an identical point-in-time-record LEAVE class in a
+rename context (dated spec/plan filenames are a point-in-time backlink, not a live identity
+reference).
 
 ---
 

@@ -3,7 +3,7 @@ purpose: >
   Types the three repo-setup lane files (`new-project.yaml`, `add-existing-project.yaml`,
   `add-repo.yaml`) so a caller — human or button — can fire `repo-setup-assemble` unattended
   with every `round_trip` judgment point pre-answered.
-census_backlink: "state/plan-sidecars/2026-08-20-repo-setup-computed-form.census-steps.md"
+census_backlink: ".coordinator-local/plan-sidecars/2026-08-20-repo-setup-computed-form.census-steps.md"
 contract_version: "1.0.0"
 ---
 
@@ -15,7 +15,7 @@ A lane is a **pre-answered round-trip set**, not a preset. Presetting only the e
 points and leaving a `round_trip` point to be prompted diverges silently from the interactive
 path in exactly the cases nobody tests — see the tripwire
 `coordinator/docs/wiki/coordinator-tripwires/a-lane-is-not-a-preset.md` (C8). Every lane file in
-this directory MUST answer all six `round_trip` census rows, land each as a tier-1 `directives[]`
+this directory MUST answer all five `round_trip` census rows, land each as a tier-1 `directives[]`
 entry (never a tier-2 `judgment_points[]` entry carrying only a `recommendation` — an unattended
 consumer halts on any `judgment_points` entry regardless of a recommendation), and declare a
 policy default for every terminal offer not on the second-phase deferral list.
@@ -33,9 +33,9 @@ other lane in at least one value (an identical pair collapses per plan anti-scop
 `add-repo` differs from `add-existing-project` on `p1.repo-classification-ask`,
 `p3x.memo-destination-offer`, and every round_trip point downstream of the classification halt).
 
-## The six `round_trip` judgment points (AC2)
+## The five `round_trip` judgment points (AC2)
 
-Per the census (`round_trip_shape`), these six select which downstream mechanical steps run at
+Per the census (`round_trip_shape`), these five select which downstream mechanical steps run at
 all and MUST be pre-answered as tier-1 `directives[]` in every lane file:
 
 1. `p1.repo-classification-ask` — working / published-artifact / both. Gates whether Phase 2 runs
@@ -45,14 +45,12 @@ all and MUST be pre-answered as tier-1 `directives[]` in every lane file:
 3. `p2.ask-project-name`
 4. `p2.ask-project-type`
 5. `p2.ask-workstreams`
-6. `tw.ci-inference-prompt` — yes / no / not now. A yes writes `cross_platform: true` and unlocks
-   the CI offer.
 
 ## Terminal offers requiring a lane policy default
 
-The census's terminal (non-`round_trip`) JUDGMENT/MIXED-judgment-half rows number 17. Nine of
+The census's terminal (non-`round_trip`) JUDGMENT/MIXED-judgment-half rows number 16. Nine of
 those are the AGENT-WORK STEPS below, deferred to the second phase — not policy-defaulted by a
-lane. The remaining **eight** are terminal offers a lane MUST still declare a policy default for,
+lane. The remaining **seven** are terminal offers a lane MUST still declare a policy default for,
 since a lane that leaves them unaddressed cannot fire unattended:
 
 - `p15.propose-workstreams`
@@ -62,7 +60,6 @@ since a lane that leaves them unaddressed cannot fire unattended:
 - `p3l.curation-prompt`
 - `p3x.memo-destination-offer`
 - `tw.windows-console-offer`
-- `tw.ci-offer`
 
 ## Nine agent-work steps deferred to the second phase
 
@@ -101,7 +98,7 @@ engine side to state the basis). Each lane file's `round_trip_directives[]` and
 `terminal_offer_defaults[]` entries therefore carry BOTH:
 
 - `step_id` — the census identifier, stable and joinable against
-  `state/plan-sidecars/2026-08-20-repo-setup-computed-form.census-steps.md`.
+  `.coordinator-local/plan-sidecars/2026-08-20-repo-setup-computed-form.census-steps.md`.
 - `engine_judgment_point_id` — placeholder, `null` until the engine side's answer to C1 fixes the
   resolution shape. A later contract shape-change is then a mechanical remap of this one field,
   not a re-authoring of the lane files.

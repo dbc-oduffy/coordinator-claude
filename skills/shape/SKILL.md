@@ -47,8 +47,8 @@ step-change. If the firing condition is known from the sizing exchange, name it;
 both as possible. A large-but-clear ask skips shape entirely — this is not a universal sizing
 route. Shape keeps its own § Transition horizon-routing regardless — sizing routes INTO shape, it
 does not perform shape's downstream routing. This is a receive-and-use-if-present detent: `/shape`
-runs exactly as without a sizing-object, and sizing never gates or refuses a bare `/shape`
-invocation.
+runs exactly as today with no sizing-object present, and sizing never gates or refuses a bare
+`/shape` invocation.
 
 <HARD-GATE>
 Once `/shape` has started, do NOT invoke any implementation skill, write code, scaffold anything,
@@ -89,7 +89,7 @@ helpfulness, so it self-reports green every time. Step 2 must instead produce th
 
 ## The problem-set artifact
 
-**Scaffold via** (POSIX-host form; PowerShell hosts: Shape W, `snippets/resolve-coordinator-bin.md`):
+**Scaffold via** (POSIX-host form; PowerShell hosts: Shape W, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
 `coordinator-doc-new --type problem-set --title "<problem title>"`
 — emits `docs/problems/YYYY-MM-DD-<slug>.md`, `status: draft`, canonical skeleton. Tiny by
 design: a bulleted problem list, not a design doc.

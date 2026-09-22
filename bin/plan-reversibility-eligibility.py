@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """plan-reversibility-eligibility — D4's six reversibility checks, run mechanically.
 
 WHY THIS EXISTS. `docs/plans/2026-08-30-delegated-approve-for-execution.md` § D4 names six
@@ -109,16 +108,14 @@ def _load_plan_text(plan_path: Path) -> str:
 
 
 def _parse_frontmatter(text: str, plan_path: Path) -> dict[str, Any]:
-    try:
-        import yaml
-    except ImportError:  # pragma: no cover - environment defect, not a code path under test
-        yaml = None
     if not text.startswith("---"):
         raise PlanReadError(f"{plan_path} has no YAML frontmatter (expected leading '---')")
     parts = text.split("---", 2)
     if len(parts) < 3:
         raise PlanReadError(f"{plan_path} frontmatter is not closed with a second '---'")
-    if yaml is None:
+    try:
+        import yaml
+    except ImportError:  # pragma: no cover - environment defect, not a code path under test
         raise PlanReadError("PyYAML is not installed; cannot parse plan frontmatter")
     try:
         parsed = yaml.safe_load(parts[1])
@@ -137,14 +134,12 @@ def _parse_tasks(text: str, plan_path: Path) -> list[dict[str, Any]]:
     spine is handled the same as a spine with no writes at all: containment checks vacuously
     hold, and check 4 (delegation_declarations) still gates independently.
     """
-    try:
-        import yaml
-    except ImportError:  # pragma: no cover - environment defect, not a code path under test
-        yaml = None
     match = _TASKS_FENCE.search(text)
     if not match:
         return []
-    if yaml is None:
+    try:
+        import yaml
+    except ImportError:  # pragma: no cover - environment defect, not a code path under test
         raise PlanReadError("PyYAML is not installed; cannot parse the plan-tasks block")
     try:
         parsed = yaml.safe_load(match.group(1))

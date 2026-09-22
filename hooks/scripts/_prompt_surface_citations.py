@@ -443,10 +443,8 @@ def _neutralize_structural_comments(text: str) -> str:
 # hookSpecificOutput dict keys, or the `_message_envelope` compose/emit seam)
 # ever reach a reader. Its module docstring, inline comments, and Review:
 # provenance lines are read by a HUMAN maintaining the source, never
-# forwarded anywhere — and per CLAUDE.md § Implementation Standards
-# ("RAG-bait exception. Purpose docstrings, spec backlinks, negative-spec
-# blocks: required") a spec-backlinked docstring citing docs/plans/ or a
-# bare DR- id there is a REQUIRED convention, not a defect. Flagging it is
+# forwarded anywhere, so a docstring citing docs/plans/ or a bare DR- id
+# there is not a reader-facing citation. Flagging it is
 # the miscalibration this rescope corrects — restricting the `.py` leg
 # structurally (an AST reachability rule) rather than adding a denylist of
 # comment/docstring prefixes, which would silently miss the next syntactic

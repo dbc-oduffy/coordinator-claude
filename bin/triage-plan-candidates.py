@@ -52,7 +52,6 @@ Spec backlink: docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W3-C2.
 from __future__ import annotations
 
 import argparse
-import subprocess
 import sys
 from pathlib import Path
 
@@ -89,22 +88,18 @@ def _git(repo: Path, *args: str) -> str:
     """One git read. Returns stdout stripped, or "" on any non-zero exit --
     this tool reports signal strength and must never fail a whole triage run
     because one path has no history.
-    """
-    from coordinator_core.win_portability import no_console_creationflags
 
-    try:
-        done = subprocess.run(
-            ["git", "-C", str(repo), *args],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            **no_console_creationflags(),
-        )
-    except (OSError, subprocess.SubprocessError):
+    # Routes through
+    # coordinator_core.ops.ceremony.git_native._git instead of hand-rolling a
+    # second subprocess.run wrapper with its own creationflags/timeout/failure
+    # mapping.
+    """
+    from coordinator_core.ops.ceremony.git_native import _git as _git_native
+
+    result = _git_native(list(args), cwd=repo, timeout=30)
+    if not result.ok:
         return ""
-    if done.returncode != 0:
-        return ""
-    return done.stdout.strip()
+    return result.stdout.strip()
 
 
 class RepoFacts:

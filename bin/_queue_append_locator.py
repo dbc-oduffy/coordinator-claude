@@ -53,7 +53,9 @@ from python_interp import (  # noqa: E402
 )
 
 
-def find_cli_cmd(caller_dir: str, cli_name: str) -> list[str] | None:
+def find_cli_cmd(
+    caller_dir: str, cli_name: str, *, sibling_only: bool = False
+) -> list[str] | None:
     """
     Return the ready-to-use subprocess argv PREFIX for invoking the
     extensionless sibling CLI `cli_name` (caller appends its own flags
@@ -77,26 +79,58 @@ def find_cli_cmd(caller_dir: str, cli_name: str) -> list[str] | None:
     must observe that CLI's own process exit rather than the caller's.
     Reason recorded in
     state/audits/2026-08-06-self-spawn-isolation-boundary-classification.md.
+
+    `sibling_only` skips both PATH probes and resolves only the sibling in
+    `caller_dir`. A caller passes it when it needs the child to run in ITS
+    OWN process tree, because the PATH name does not lead to a process at
+    all. Every name in `~/.coordinator-claude-settings/bin/` is one shared
+    generic DOOR binary — measured 2026-09-20: 444 byte-identical copies,
+    sha256 711532ed9123…, 53952 bytes each — which dispatches on its own
+    image name to `<engine>/coordinator/bin/<name>.py` inside the RESIDENT
+    warm engine. Its JSON-RPC payload is `{"method":"invoke.from_argv",
+    "params":{"argv":[…],"cwd":…}}`: argv and cwd, and no env
+    (`coordinator_core/op_scopes.py`'s `invoke.from_argv` entry says the same
+    — resolution happens from that explicit `cwd`). The served CLI therefore
+    runs under the SERVER's environment, not the caller's, so a caller's env
+    override never reaches it. `warm/server.py::_scrub_test_harness_env` then
+    drops the test-isolation vars outright at boot, deliberately.
+
+    That is the whole mechanism behind an eleven-week leak: harvest tests set
+    `LESSON_PROMOTE_OUTBOX_ROOT`, the door dropped it, and the served CLI
+    resolved the live `repos.doe_claude` outbox instead of the tmpdir. Going
+    sibling-only runs the CLI cold in the caller's own process tree, which is
+    the ONLY route where a test-isolation env var applies by design.
+
+    Negative-spec: NOT a general "prefer the source tree" switch, and never
+    the default. A live invocation SHOULD reach the door — warm dispatch is
+    the contract and the budget. Only a caller already established as under
+    test may pin the tree.
+
+    Negative-spec: do NOT grep a door binary for a CLI-specific string. It
+    holds none, for any CLI, so a zero hit is the expected answer and carries
+    no information about the source. Reading one as if it were that CLI's
+    artifact produced exactly one wrong root cause here already.
     """
-    for candidate in (cli_name, cli_name + ".py"):
-        try:
-            # Review: code-reviewer — pre-existing hazard, untouched by this
-            # diff: this bare-PATH probe validates only `returncode == 0` on
-            # a name found via PATH lookup, so a forwarder that answers
-            # `--help` with exit 0 for an unrelated reason would still pass.
-            # Seen and left deliberately: the probe order (PATH bare name →
-            # PATH .py → interpreter+sibling) is load-bearing and currently
-            # correct -- the bare-name probe resolving queue-append's own
-            # forwarder is the right door. Do not change the probe order.
-            result = subprocess.run(  # popup-intentional-last-resort
-                [candidate, "--help"],
-                capture_output=True,
-                text=True,
-            )
-        except OSError:
-            continue
-        if result.returncode == 0:
-            return [candidate]
+    if not sibling_only:
+        for candidate in (cli_name, cli_name + ".py"):
+            try:
+                # pre-existing hazard, untouched by this
+                # diff: this bare-PATH probe validates only `returncode == 0` on
+                # a name found via PATH lookup, so a forwarder that answers
+                # `--help` with exit 0 for an unrelated reason would still pass.
+                # Seen and left deliberately: the probe order (PATH bare name →
+                # PATH .py → interpreter+sibling) is load-bearing and currently
+                # correct -- the bare-name probe resolving queue-append's own
+                # forwarder is the right door. Do not change the probe order.
+                result = subprocess.run(  # popup-intentional-last-resort
+                    [candidate, "--help"],
+                    capture_output=True,
+                    text=True,
+                )
+            except OSError:
+                continue
+            if result.returncode == 0:
+                return [candidate]
 
     interpreter = _resolve_python_interpreter()
     if interpreter is None:

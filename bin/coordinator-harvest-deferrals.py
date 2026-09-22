@@ -170,13 +170,13 @@ from pathlib import Path
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Review: code-reviewer (slice2 Finding 1) — import the SAME doe_root() the
+# Import the SAME doe_root() the
 # write seams (coordinator-queue-append / coordinator-lesson-promote) call,
 # instead of re-deriving a partial (env-var-only) approximation of its
 # resolution chain. Mirrors the _LIB_DIR sys.path pattern used by both seams.
 _LIB_DIR = os.path.join(_BIN_DIR, "lib")
 
-_CLI_CMD_CACHE: dict[str, list[str] | None] = {}
+_CLI_CMD_CACHE: dict[tuple[str, bool], list[str] | None] = {}
 
 _BOOTSTRAPPED_NAMES = (
     "_resolve_claude_klabauter_root",
@@ -357,11 +357,22 @@ def __getattr__(name: str):
 
 
 def _resolve_cli_cmd(cli_name: str) -> list[str] | None:
-    """Resolve `cli_name` to a subprocess argv prefix, once per process."""
+    """Resolve `cli_name` to a subprocess argv prefix, once per process.
+
+    Under an active write-seam isolation redirect the child is pinned to THIS
+    tree rather than the PATH launcher — see `_child_cli_must_come_from_tree`
+    for why a redirect and the launcher cannot both be honoured. The cache is
+    keyed on that decision as well as the name, so one process cannot serve a
+    pinned answer to an unpinned caller or the reverse.
+    """
     _bootstrap_engine()
-    if cli_name not in _CLI_CMD_CACHE:
-        _CLI_CMD_CACHE[cli_name] = find_cli_cmd(_BIN_DIR, cli_name)
-    return _CLI_CMD_CACHE[cli_name]
+    sibling_only = _child_cli_must_come_from_tree()
+    cache_key = (cli_name, sibling_only)
+    if cache_key not in _CLI_CMD_CACHE:
+        _CLI_CMD_CACHE[cache_key] = find_cli_cmd(
+            _BIN_DIR, cli_name, sibling_only=sibling_only
+        )
+    return _CLI_CMD_CACHE[cache_key]
 
 # The 11-value project-tier improvement-queue-eligible change_kind subset.
 # SSOT: coordinator/docs/wiki/lessons-outbox-schema.md § Change-kind enum
@@ -471,6 +482,44 @@ def _isolation_root(env_var: str, caller_name: str) -> str | None:
     return None
 
 _LESSON_PROMOTE_OUTBOX_ROOT_ENV = "LESSON_PROMOTE_OUTBOX_ROOT"
+
+
+def _child_cli_must_come_from_tree() -> bool:
+    """True when a spawned child CLI must be this tree's source, not the
+    launcher the bare name resolves to on PATH.
+
+    A write-seam redirect (`QUEUE_APPEND_OUTPUT_ROOT`,
+    `LESSON_PROMOTE_OUTBOX_ROOT`) is a promise the CHILD has to keep, and a
+    bare name does not resolve to a child that can keep it. It resolves to
+    the generic warm DOOR, whose payload carries argv and cwd and NO env, so
+    the CLI executes inside the resident engine under the SERVER's
+    environment — and `warm/server.py::_scrub_test_harness_env` drops these
+    exact vars at boot by design, because an inherited one is the inverse
+    leak (a server spawned inside pytest served every later request from a
+    stale tmpdir, 2026-09-18).
+
+    So the redirect is not mishandled downstream; it never arrives. Set here,
+    honoured by this process, gone one process boundary out. Measured
+    2026-09-20: 148+ fixture rows in a sibling repo's tracked
+    `state/lessons-outbox/` going back to 2026-07-04. Pinning the tree runs
+    the child cold, in this process tree, which is the only route where these
+    vars apply by design.
+
+    Requires BOTH a redirect and `PYTEST_CURRENT_TEST`, matching
+    `_isolation_root`'s own gate above: a redirect inherited outside a test
+    run is already ignored there, and must not pin the tree either.
+
+    Negative-spec: a live harvest pins NOTHING. It sets no redirect, so this
+    returns False and the launcher stays the door — routing production work
+    to the source checkout is the inverse defect, and the dispatch-axis stamp
+    gate exists to refuse exactly that.
+    """
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        return False
+    return any(
+        (os.environ.get(var) or "").strip()
+        for var in (_QUEUE_APPEND_OUTPUT_ROOT_ENV, _LESSON_PROMOTE_OUTBOX_ROOT_ENV)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1481,11 +1530,30 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _resolve_archived_plan(plan: str) -> str:
+    """A `docs/plans/<name>` path that no longer exists resolves to its
+    `archive/specs/<YYYY-MM>/<name>` home when that exists, else unchanged.
+
+    Trap: workstream_complete's `d-stamp-plan-implemented` archives the plan
+    before `d-harvest-deferrals-<n>` dispatches with the path captured at build
+    time, and a replay re-fires the harvest after the move landed. The harvest
+    only reads the plan and keys on its stem, so the archived copy is equivalent.
+    """
+    path = Path(plan)
+    if path.exists() or path.parent.parts[-2:] != ("docs", "plans"):
+        return plan
+    from coordinator_core.ops.fleet.archive_plans import plan_archive_dest
+
+    dest = plan_archive_dest(path.parent.parent.parent, path)
+    return str(dest) if dest is not None and dest.is_file() else plan
+
+
 def main(argv: list[str] | None = None) -> int:
     _bootstrap_engine()
 
     parser = _build_parser()
     args = parser.parse_args(argv)
+    args.plan = _resolve_archived_plan(args.plan)
 
     try:
         with open(args.plan, encoding="utf-8") as fh:

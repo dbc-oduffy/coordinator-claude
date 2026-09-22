@@ -54,13 +54,13 @@ Explicit catalogue. Any write to these surfaces triggers the completeness rule:
 - **Hook configurations** — `settings.json`, `settings.local.json`, anything that wires a hook into the session lifecycle.
 - **Environment variables and shell-startup additions** — `~/.bashrc`, `~/.zshrc`, PowerShell `$PROFILE`, any per-machine env baseline.
 - **Sibling-repo path registrations** — `plugin.mirrors.<plugin>` blocks, `REPO_<NAME>` exports, anything that tells other tools where to find another checkout.
-- **Editable-install venv state** — `pyproject.toml` is source code, but the live `.venv/`'s editable-install MAPPING is install state. Changes to `pyproject.toml` that aren't paired with a refresh primitive (e.g. `refresh-plugin-live-install.py <plugin>` (claude-klabauter `coordinator/bin/refresh-plugin-live-install.py`)) leave drift. See `live-install-drift-audit.md`.
+- **Editable-install venv state** — `pyproject.toml` is source code, but the live `.venv/`'s editable-install MAPPING is install state. Changes to `pyproject.toml` that aren't paired with a refresh primitive (e.g. `refresh-plugin-live-install.py <plugin>` (`coordinator/bin/refresh-plugin-live-install.py`)) leave drift. See `live-install-drift-audit.md`.
 - **Doctor surface** — `:doctor` skills are read paths into install state; if your work depends on new install state, the doctor for that surface should detect its absence.
 - **INSTALL.md and onboarding docs** — if a new operator's documented path doesn't lead them to the state your work requires, the documentation is part of the install surface that needs updating.
 
 If you wrote to a file or registry that a fresh `~/.claude/` clone wouldn't have, you're on install surface. Default to "yes, this is install surface" when uncertain.
 
-**Bootstrap gap — machine-local/ creation and seeding.** claude-klabauter `coordinator/lib/install-substrate.py:81` (`mkdir -p "$_ml_dst"`) DOES create `~/.claude/machine-local/` on the `coordinator:install` Phase 3 path. The OSS path (`plugins/coordinator/dist/publish-repo-setup/install.sh`, ~59.9 KB) uses a "minimal mirror" that calls `install-substrate.py --setup-only` (C7a/C7b), so both populations — `coordinator:install` users AND OSS `setup/install.sh` users — receive the full machine-local layer (dir creation, tracked baselines including `hardware.toml`, registry seed, bin/ resolver shims, hardware audit). The deprecated `publish-targets.sh` fallback silently activates when the registry directory is absent; it remains in place as a bootstrap backstop until all installations have been migrated to the new seeding path. Any work that depends on `machine-local/` keys must verify which install population the operator used and direct them to the appropriate re-run path (see `coordinator-doctor.md` hardware-probe remediation text for the two-population wording).
+**Bootstrap gap — machine-local/ creation and seeding.** `coordinator/lib/install-substrate.py:81` (`mkdir -p "$_ml_dst"`) DOES create `~/.claude/machine-local/` on the `coordinator:install` Phase 3 path. The OSS path (`plugins/coordinator/dist/publish-repo-setup/install.sh`, ~59.9 KB) uses a "minimal mirror" that calls `install-substrate.py --setup-only` (C7a/C7b), so both populations — `coordinator:install` users AND OSS `setup/install.sh` users — receive the full machine-local layer (dir creation, tracked baselines including `hardware.toml`, registry seed, bin/ resolver shims, hardware audit). The deprecated `publish-targets.sh` fallback silently activates when the registry directory is absent; it remains in place as a bootstrap backstop until all installations have been migrated to the new seeding path. Any work that depends on `machine-local/` keys must verify which install population the operator used and direct them to the appropriate re-run path (see `coordinator-doctor.md` hardware-probe remediation text for the two-population wording).
 
 ## The completeness test — three concrete checks
 
@@ -89,7 +89,7 @@ The § Failure-mode narrative above describes the *pattern*; in practice it recu
 
 1. **Live-process file-lock during install.** An installer replaces files a long-lived process holds open — a daemon, an editor, a sidecar, an indexer. Breaks *loudly* on Windows (`WinError 5` / "file in use"); may differ *silently* on POSIX (the rename succeeds, the held process keeps the old inode, and the new file is invisible until restart). **Mitigation:** sibling-create + atomic pointer-flip + handle-tolerant cleanup, or a graceful release signal to the holding process — never rename a directory or file a live process holds open.
 
-2. **Editable-install label drift on repo-update.** An `-e` (editable) install whose `.dist-info` / `.pth` / import-finder isn't re-pinned when the repo advances, so the runtime misreports its own version. The MAPPING is baked at install time (see § Setuptools Editable MAPPING below); a `git pull` or a same-version rename never re-bakes it. **Mitigation:** pair every `pyproject.toml` package/version change with a `pip install -e .` (or `uv pip install -e .` / `refresh-plugin-live-install.py <plugin>` (claude-klabauter `coordinator/bin/refresh-plugin-live-install.py`)) step in post-change verification. **Known coordinator-side gap:** `refresh-plugin-live-install.py` returns `NOT_REGISTERED` for the "addon editable-installed into a *sibling's* venv" case — `plugin.mirrors` carries no `propagation_mode` for it. If this pattern recurs across repos, that gap warrants a coordinator-side fix (tracked in the improvement queue, not addon-local).
+2. **Editable-install label drift on repo-update.** An `-e` (editable) install whose `.dist-info` / `.pth` / import-finder isn't re-pinned when the repo advances, so the runtime misreports its own version. The MAPPING is baked at install time (see § Setuptools Editable MAPPING below); a `git pull` or a same-version rename never re-bakes it. **Mitigation:** pair every `pyproject.toml` package/version change with a `pip install -e .` (or `uv pip install -e .` / `refresh-plugin-live-install.py <plugin>` (`coordinator/bin/refresh-plugin-live-install.py`)) step in post-change verification. **Known coordinator-side gap:** `refresh-plugin-live-install.py` returns `NOT_REGISTERED` for the "addon editable-installed into a *sibling's* venv" case — `plugin.mirrors` carries no `propagation_mode` for it. If this pattern recurs across repos, that gap warrants a coordinator-side fix (tracked in the improvement queue, not addon-local).
 
 3. **Dependency-by-venv-leakage.** An importer relies on a dependency declared *elsewhere*, working only because a sibling package leaked it into a shared venv. The import succeeds on the author's machine and `ImportError`s on a clean install where the sibling isn't present. **Mitigation:** every importer declares its own dependencies in its own `pyproject.toml`, plus a pre-flight that verifies hard deps are importable *before* expensive work begins (fail-loud-early, not fail-deep-late).
 
@@ -103,11 +103,11 @@ A "yes" to any of these without the named mitigation is incomplete work, not a f
 
 ## Maintainer-green is not clean-install-green — the install-surface face of the maintainer-signal ruling
 
-*Source: claude-klabauter EM (memo `2026-07-31-claude-klabauter-em-doe-only-signals-in-shipped-guards.md`). [universal]*
+*Source: . [universal]*
 
 **The rule itself lives in its own decision record — read it there.** Registered as `MAINTAINER-SIGNAL-DIAGNOSIS`: a DoE-only signal (`.doe-root`, `COORDINATOR_CONTENT_ROOT`, a machine-local key) may **classify** an install — "dev or OSS?" — but its absence must never be **evidence that an install is unhealthy**. The discriminator is polarity, not vocabulary: `.coordinator-dev-repo` is exactly as DoE-only and is entirely legitimate, because absence there is a designed fact landing on a fully-supported path. This section carries only what that ruling implies *for install-surface work specifically*, and exists so prior-art-checker surfaces the class on install-touching plans.
 
-**Maintainer-green is not clean-install-green.** This wiki's § Rule says local-green is not clean-install-green; the guard-time sibling is that verifying a fix on the maintainer's own box is the one observation that *cannot distinguish* the two outcomes. `DoE-claude` is one person's tree; `coordinator` ships to dozens, so the absent-signal branch is the **majority** branch and earns primary-path scrutiny.
+**Maintainer-green is not clean-install-green.** This wiki's § Rule says local-green is not clean-install-green; the guard-time sibling is that verifying a fix on the maintainer's own box is the one observation that *cannot distinguish* the two outcomes. This repo is one person's tree; `coordinator` ships to dozens, so the absent-signal branch is the **majority** branch and earns primary-path scrutiny.
 
 **Walk the remedy, not just the detection.** The defect's damage was not the false positive but what it armed. The self-probe falsely armed the hook-generation kill-switch, and `generate()` checks the kill-switch marker *ahead* of its plugin-delivery-live check — so the banner's own stated remedy ("re-run the installer / `/coordinator:setup`") returned `"skipped (disabled by operator marker)"`. The user was told to do the one thing that could not work; recovery meant hand-deleting a marker nobody had named. **Before shipping a guard that arms persistent state, walk its own printed remedy from a clean install with that state already armed, and confirm the remedy is not gated behind the thing it undoes.** This composes with § The doctor is the consumer's self-service substitute below: a self-masking remedy is the doctor-substitute failing in the one state it exists for.
 
@@ -148,9 +148,9 @@ Three observed shapes:
 
 Per PM ruling, not all cross-repo writes are the same. The install-surface rule combines with the cross-repo memo doctrine differently at the two altitudes:
 
-- **DoE-altitude doctrine seeding** (CLAUDE.md additions, `docs/wiki/` entries, agent-prompt amendments authored from central-EM under PM direction) is a legitimate direct cross-repo write. The DoE has standing to seed "how we work" into sibling repos. Provenance is noted in the commit message; sibling EM may amend on receipt.
+- **Doctrine-altitude doctrine seeding** (CLAUDE.md additions, `docs/wiki/` entries, agent-prompt amendments authored from central-EM under PM direction) is a legitimate direct cross-repo write. The doctrine repo has standing to seed "how we work" into sibling repos. Provenance is noted in the commit message; sibling EM may amend on receipt.
 - **Code / install-surface changes in a sibling repo** (source edits, machine-local entries, install scripts, sentinel files, registry edits) route via `cross-repo-memo` CLI (writes ONE dirty file into `<receiver>/cross-repo/`) — **and the PM is handed the receiver path to relay to the affected EM**. The memo file is the persistent record; the PM is the active relay. A memo written without PM-relay is a document dropped in a hole — the affected EM has no signal to look at it. The sibling EM, once briefed by the PM, lands the change with their own implementation context. PM-authorized direct writes are the documented exception, not the default.
-- **Why the altitudes differ.** Doctrine is alignment work the DoE owns; code is implementation work the sibling EM owns. Conflating them produces churn in both directions — DoE doctrine that never lands because it routed through a slow memo loop, OR sibling-repo code edits that lose the implementing EM's context.
+- **Why the altitudes differ.** Doctrine is alignment work the doctrine repo owns; code is implementation work the sibling EM owns. Conflating them produces churn in both directions — doctrine that never lands because it routed through a slow memo loop, OR sibling-repo code edits that lose the implementing EM's context.
 
 The cleanup wave was largely the *code/install-surface* failure mode: EMs and executors making manual install-surface tweaks across the trio without the affected EM's coordination.
 
@@ -160,7 +160,7 @@ The cleanup wave was largely the *code/install-surface* failure mode: EMs and ex
 
 Each of these codifies a specific install surface or specific failure shape. This wiki is the universal rule; they are the worked examples:
 
-- **`live-install-drift-audit.md`** — source-tree → live-checkout propagation. Specific to plugins where the live install is a separate git checkout (e.g. `project-rag`). Probe: `check-plugin-drift.py`. Refresh: `refresh-plugin-live-install.py <plugin>` (claude-klabauter `coordinator/bin/refresh-plugin-live-install.py`).
+- **`live-install-drift-audit.md`** — source-tree → live-checkout propagation. Specific to plugins where the live install is a separate git checkout (e.g. `project-rag`). Probe: `check-plugin-drift.py`. Refresh: `refresh-plugin-live-install.py <plugin>` (`coordinator/bin/refresh-plugin-live-install.py`).
 - **`coordinator-installer-shape.md`** — the coordinator's own installer (`/coordinator:install`) and its three audiences (OSS adopters, internal users, meta-repo operators).
 - **`machine-local-registry.md`** — per-machine value writes (install roots, sibling-repo paths, vendor SDKs) under `~/.claude/machine-local/`. Authors the schema-vs-value distinction.
 - **`cross-repo-handshake-doctrine.md`** — when a sentinel crosses a repo boundary, it must self-document its preconditions inline; producer-only documentation is invisible at consumption time.
@@ -425,11 +425,11 @@ Example-game-repo's `settings.json` carried a hand-wired `powershell.exe -File .
 ### Worked example — this rule held 22 violations on the maintainer's own box, undetected {#duplicate-registration-worked-example}
 
 
-`~/.claude/settings.json` carried 27 hook commands (22 distinct scripts) that the coordinator plugin's own `hooks.json` already registered at the same event. Confirmed three independent ways: claude-klabauter's `detect_hook_delivery_duplication()` (`double_fire=True, duplicated=22, settings_only=6`); an independent basename+event enumeration; and **direct runtime observation** — `agent-completion-log.py` is one of the 22, and every agent dispatch wrote two identical rows to `.git/coordinator-sessions/logs/agent-audit.jsonl` (same timestamp, same `agentId`). Onset dating across 218 rows: zero doubled on every prior date, 3-of-3 on the day it was found.
+`~/.claude/settings.json` carried 27 hook commands (22 distinct scripts) that the coordinator plugin's own `hooks.json` already registered at the same event. Confirmed three independent ways:  `detect_hook_delivery_duplication()` (`double_fire=True, duplicated=22, settings_only=6`); an independent basename+event enumeration; and **direct runtime observation** — `agent-completion-log.py` is one of the 22, and every agent dispatch wrote two identical rows to `.git/coordinator-sessions/logs/agent-audit.jsonl` (same timestamp, same `agentId`). Onset dating across 218 rows: zero doubled on every prior date, 3-of-3 on the day it was found.
 
 The rule above was already written, already correct, and already precisely on point. **Three things still let 22 violations accumulate silently:**
 
-1. **Nothing enforces it.** There is no gate, test, or commit-time check for consumer-side re-registration of a plugin-owned hook. The only detector is a SessionStart banner — advisory, easily read past, and in this case actively wrong (it rendered *"nothing is firing twice today"*; see the `plugin_resolvable` defect in claude-klabauter's `format_hook_delivery_banner`).
+1. **Nothing enforces it.** There is no gate, test, or commit-time check for consumer-side re-registration of a plugin-owned hook. The only detector is a SessionStart banner — advisory, easily read past, and in this case actively wrong (it rendered *"nothing is firing twice today"*; see the `plugin_resolvable` defect in  `format_hook_delivery_banner`).
 2. **The cost is invisible per-occurrence and severe in aggregate.** One duplicated hook is one extra process spawn. Twenty-two of them, on the platform whose standing P0 is `spawn-count × indirection`, is a doubled hook tax that presents as "the machine feels slow" rather than as a config defect.
 3. **The two surfaces spell the same script differently** — `settings.json` bakes absolute paths, the plugin uses `${CLAUDE_PLUGIN_ROOT}` — so a naive comparison finds no overlap. Any check written for this rule must compare by **resolved script identity + event**, never by command text. A check that compares raw strings will report a confident, permanent green.
 
@@ -444,7 +444,7 @@ A fix scoped to the instance that surfaced it leaves every sibling instance live
 | # | The fix, correctly reasoned and written down | The sibling it did not reach |
 |---|---|---|
 | 1 | Deleted hook scripts brick every write. Remedy: *"commit the deletion in the same commit as the `hooks.json` registration removal."* Applied to the plugin-side `hooks.json`. | `settings.json` is a **second registration surface**. Nobody named it; it reproduced the identical every-write-blocked incident nine days later, with three of the same four scripts. |
-| 2 | `.doe-root` retired as machine-local state in a synced repo; **writer** migrated to `<settings-home>/machine-local/.doe-root`. | `is_inline_install` in claude-klabauter still **reads** the legacy rung. The canonical dev box now falls through both self-probe carve-outs and kill-switches its own hooks every boot. |
+| 2 | `.doe-root` retired as machine-local state in a synced repo; **writer** migrated to `<settings-home>/machine-local/.doe-root`. | `is_inline_install` in still **reads** the legacy rung. The canonical dev box now falls through both self-probe carve-outs and kill-switches its own hooks every boot. |
 | 3 | `~/.claude/.gitignore` block forbidding tracked machine-local coordinator state; lists `.doe-root`, `.coordinator-hooks-disabled`. | `.coordinator-content-root-last-seen` — written by the **same probe, in the same call, every boot** — was not listed, so one machine's resolution result was tracked into every other checkout. |
 
 In all three the reasoning was sound and recorded; only the **scope of application** was narrower than the scope of the problem. Nobody was careless — the *enumerations* were.
@@ -474,7 +474,7 @@ Sibling EMs in all repos may amend this wiki on receipt — doctrine-seeding und
 - Wrong-version installs that satisfy PATH presence but fail runtime requirements
 - Shims that delegate to absent interpreters
 
-The `--preflight` gate (`scripts/setup.py --preflight`) uses **functional probes** from `coordinator_core.install.prereq_probe` (native Python port; claude-klabauter) — each probe executes a minimal runtime operation to confirm the tool actually works, not just exists. This is FB-2 (functional-not-existence probe) as a required rule for any install-surface prerequisite check added to the coordinator. Existence checks are acceptable only for optional informational rows in the status table (never for hard or advisory gates).
+The `--preflight` gate (`scripts/setup.py --preflight`) uses **functional probes** from `coordinator_core.install.prereq_probe` (native Python port) — each probe executes a minimal runtime operation to confirm the tool actually works, not just exists. This is FB-2 (functional-not-existence probe) as a required rule for any install-surface prerequisite check added to the coordinator. Existence checks are acceptable only for optional informational rows in the status table (never for hard or advisory gates).
 
 ### Advisory-WARN gate severity for post-consumer gates
 
@@ -484,7 +484,7 @@ The `--preflight` step implements this doctrine for all env-prereq probes except
 
 ### Env-fix consent/backup/restore safety shape
 
-`scripts/normalize-env` (sh/python polyglot trampoline over claude-klabauter `coordinator_core.ops.normalize_env`, bash-clean-slate migration) is the sole writer for fixable env-prereq conditions. Its safety contract:
+`scripts/normalize-env` (sh/python polyglot trampoline over  `coordinator_core.ops.normalize_env`, bash-clean-slate migration) is the sole writer for fixable env-prereq conditions. Its safety contract:
 
 - **Consent-gated per mutation** — each proposed mutation is enumerated and requires explicit acceptance; `--yes` accepts all; `--dry-run` previews without writing.
 - **Backup before every write** — every mutation creates a timestamped backup before applying; `--restore` reverts to the pre-run state. The backup/restore discipline covers Windows PATH edits and registry mutations AND the macOS `~/.bash_profile` reconstruction (the one consent-gated macOS mutation — see § macOS/Linux = offers only below).
@@ -502,7 +502,7 @@ The probe lib (`coordinator_core.install.prereq_probe`) and the fixer (`normaliz
 
 **AC10 — PATH/shim rollback round-trip.** Whether `--restore` correctly reverses PATH and shim mutations applied by `normalize-env` on Windows is macOS-unverifiable. The backup mechanism is structurally sound from code inspection, but the round-trip (apply → restore → verify unchanged state) requires a Windows box to confirm. Both AC9 and AC10 are tracked as Windows-deferred in the version/OS test matrix.
 
-> **CI enforcement arm.** Closing the deferred items above (AC9–AC10 consent/rollback under a real Windows environment) requires a multi-OS CI matrix with an honest measurement gate. → `cross-platform-ci-discipline.md`
+> **Validation arm.** Closing the deferred items above (AC9–AC10 consent/rollback under a real Windows environment) requires a run on the PM's own Windows box with an honest measurement gate. → `cross-platform-ci-discipline.md`
 
 ## Post-Consumer Gates Must Be Advisory WARN, Not Hard-Fail
 
@@ -552,7 +552,7 @@ A single enforcement surface is not enough. Each protects a different stage:
 
 1. **Precommit hook** — fires at commit time; surfaces new drift before it reaches the index. Meta-repo: `coordinator-precommit-exec-bit-check` → `exec-bit.test.js` (scope: any tracked file with `#!` shebang, any directory). OSS repo: parallel shim installed by `coordinator/dist/publish-repo-setup/install.sh`.
 
-2. **CI validator** — fires on every PR; catches drift that bypasses the precommit hook (force-push, hook-skipped commit, Windows author without `core.fileMode` awareness). OSS repo: `check-exec-bit.py` wired into `.github/workflows/validate-plugins.yml`. NO allowlist — CI is the strict gate; any legitimate exception belongs in a DR, not the validator.
+2. **Local validator** — run before a PR; catches drift that bypasses the precommit hook (force-push, hook-skipped commit, Windows author without `core.fileMode` awareness). OSS repo: `check-exec-bit.py`, run by `python .github/scripts/run-all-checks.py`. NO allowlist — the validator is the strict gate; any legitimate exception belongs in a DR, not the validator.
 
 3. **Install-time chmod** — fires on a clean install; last-resort safety net against broken source-index state surviving into an end-user machine. `coordinator/dist/publish-repo-setup/install.sh` shebang-scans every installed file and `chmod +x` anything starting with `#!`.
 
@@ -594,7 +594,7 @@ Crash-insurance hooks installed only at `/repo-setup` time silently rot: repos t
 
 **Rule:** any hook the doctrine relies on for crash insurance or safety-net behavior MUST self-heal on every session boot, not only at install time.
 
-Mechanism: add a per-session `ensure-helper` (e.g., claude-klabauter `coordinator/bin/coordinator-ensure-hooks-fleet`) called unconditionally from a boot-time SessionStart hook. The helper is idempotent — a no-op when the hook is already present and correct. Companion: a `/workday-start` step that surfaces the "unpushed-commits-but-no-hook" signal catches the silent-failure mode even when the hook never wrote to `.git/push-failures.log`.
+Mechanism: add a per-session `ensure-helper` (e.g., `coordinator/bin/coordinator-ensure-hooks-fleet`) called unconditionally from a boot-time SessionStart hook. The helper is idempotent — a no-op when the hook is already present and correct. Companion: a `/workday-start` step that surfaces the "unpushed-commits-but-no-hook" signal catches the silent-failure mode even when the hook never wrote to `.git/push-failures.log`.
 
 **Audit completeness — runtime-derived patterns must enumerate the multi-machine variation axis.** When designing an audit that derives its patterns from `$HOME`, `$SCRIPT_DIR`, or any other runtime-context value, the patterns will only match the running operator's flavor. Add shape-catchers for every OS-axis variation (Windows native paths, Git-Bash POSIX paths, macOS paths, Linux paths) plus embedded placeholder allowlists (`yourname|name|user|operator|foo|<...>`) so pedagogy isn't flagged but real identity literals are. Source: personal-data-cleanup spinoff.
 
@@ -667,7 +667,7 @@ Defer any of these four steps to a follow-up and the LFS cost persists indefinit
 
 <!-- anchor: git-lfs-materialization — cross-refs use "§ Git-LFS materialization" -->
 
-*claude-central (DoE), discharging the cross-repo `ask` memo `2026-06-24-git-lfs-step-zero-requirement.md` under `cross-repo/inbox/` from the project-rag-ue-addon EM.*
+*claude-central, discharging the cross-repo `ask` memo `2026-06-24-git-lfs-step-zero-requirement.md` under `cross-repo/inbox/` from the project-rag-ue-addon EM.*
 
 **A repo that LFS-tracks binary assets (`*.png`, `*.uasset`, `*.umap`, `*.fbx`, `*.psd`, …) clones into broken silent-pointer state when git-lfs was never verified/enabled at install — and the failure surfaces late, at first asset *open*, not at clone.** A plain `git clone` with git-lfs absent **succeeds and looks fine**, but every LFS-tracked file is a ~130-byte text pointer, not real content. Nothing errors until something tries to load one (an extension manifest referencing unmaterialized icons; a cooked `.uasset`; an embedded `.pdf`). This is the install-surface-completeness rule (§ Rule) applied to LFS content: the clone path silently fails to reproduce the binary state the work depends on.
 
@@ -703,11 +703,11 @@ How to apply: any INSTALL.md, Phase-N restart-note, or handoff-prose that conclu
 
 ## Cold-terminal launch shim needs a registry-projected bootstrap pointer, not a bare machine-local call
 
-*DoE-claude.*
+*This repo.*
 
-**The coordinator plugin `bin/` dirs (`machine-local` etc.) are injected onto PATH by Claude Code at plugin-load — NOT by the shell profile.** A *cold* terminal (fresh Terminal.app opened outside a coordinator session) therefore has **zero** coordinator bins on PATH. A launch shim that calls bare `machine-local get repos.doe_claude` fails there, and any downstream bootstrap (e.g. Claude-klabauter `coordinator/bin/gen-settings-hooks.py`) dies with it.
+**The coordinator plugin `bin/` dirs (`machine-local` etc.) are injected onto PATH by Claude Code at plugin-load — NOT by the shell profile.** A *cold* terminal (fresh Terminal.app opened outside a coordinator session) therefore has **zero** coordinator bins on PATH. A launch shim that calls bare `machine-local get repos.doe_claude` fails there, and any downstream bootstrap (e.g. `coordinator/bin/gen-settings-hooks.py`) dies with it.
 
-The trap deepens post-cutover: `machine-local` **itself lives in the DoE clone**, so it cannot be the resolver that *finds* the DoE clone — a chicken-and-egg. The registry can't bootstrap the path to the registry.
+The trap deepens post-cutover: `machine-local` **itself lives in this repo's clone**, so it cannot be the resolver that *finds* this repo's clone — a chicken-and-egg. The registry can't bootstrap the path to the registry.
 
 **Correct design.** The installer **projects** the registry's `repos.doe_claude` into a stable, cold-readable settings-home artifact — a pointer file (`<settings-home>/machine-local/.doe-root`, with a read-only legacy `~/.claude/.doe-root` fallback rung) or a value baked into the shim — that the `claude()` shell function reads via `REPO_DOE_CLAUDE`. The registry stays the single source of truth; the projection is a **bootstrap cache** the cold terminal can read before any plugin loads. Setting `repos.doe_claude`, registering coordinator, and generating the shim from the registry is a **P0 install-surface-completeness requirement** for the maximalist install (its exact inverse is the coordinator-uninstall path). Hand-baking a literal path into one machine's `~/.bashrc` to unblock is a this-machine stopgap, not the install solution. Composes with § Publish-Target Parity (`repos.*` resolution + bootstrap precondition) and § Install-surface bugs must be fixed at the emitter (the projection is emitted by the installer, never hand-edited on one box).
 
@@ -726,3 +726,19 @@ How to apply: drift-audit scripts (e.g. `check-plugin-drift.py`) should compare 
 Installing a new supervisor (a daemon manager, a socket-owning proxy, a port-registering MCP server) is only complete when every OS-level autostart path for the SAME port is audited and either removed or subordinated. A stale `com.apple.launchd.*` plist, `~/.config/systemd/user/*.service`, or Windows `HKCU\...\Run` entry from a prior incarnation of the same service will race the new supervisor for the port on boot, causing the loser to crash-loop indefinitely — often with no user-visible error because both start, one wins the port, and the other loops silently in the background.
 
 How to apply: after installing a new port-owning supervisor, `launchctl list | grep <port-token>` (macOS), `systemctl --user list-units | grep <name>` (Linux), or `Get-ScheduledTask | Where Name -like <name>` (Windows) and confirm only the new entry exists. The supervisor itself must self-register via a lock file (PID lock or socket lock) so a second instance detects the occupying owner and exits immediately rather than spinning. Crash-only restart (no exponential-backoff retry) ensures a startup failure surfaces in logs on the first attempt rather than being masked by a retry loop. Composes with § OS-level autostart registration is unsolicited by default (opt-in gate). (Source: coordinator-improvement-queue L155.)
+
+## [universal] A green test can ratify a bug — verify install-surface assertions against doctrine, not current behavior
+
+*[universal]*
+
+A passing install-surface test is not by itself evidence the surface is correct: a test can encode "what the code does today" rather than what governing doctrine requires, and pass precisely because the code and the test share the same drift. `clean-install.test.ts` asserted `install-status.json` landed in the legacy `~/.claude` location; it passed only because the settings-home helper's broken fallback wrote there — while the same file's baton tests, checking the correct location, asserted the DR-governed placement independently. Neither test alone exposed the conflict.
+
+**Rule.** When an assertion covers a surface governed by an explicit doctrine record (a DR, a placement ruling, a schema), audit the assertion's expected value against the doctrine text itself, not against what the current implementation happens to emit — a red test here is recoverable (it fails loud and gets fixed), but a green test ratifying drift ships the bug silently, and every future refactor treats the wrong location as the contract.
+
+## [universal] `set -u` crashes in a shell fallback ladder are invisible to ordinary code review
+
+*[universal]*
+
+A `local _base` left declared-but-uninitialized in a bash fallback ladder crashed under `set -u` — but only in the exact condition the fallback rung exists for: the `coordinator-settings-home` CLI absent from `PATH` (the post-reset state). Reading the code never triggers the bug, because the primary rung (CLI present) never reaches the uninitialized variable; the failure is invisible to inspection and surfaced only as 37 failing install tests. A Python addon mirror of the same ladder carried the identical wrong-fallback bug, caught the same way.
+
+**Rule.** When reviewing or writing any shell resolution ladder with a CLI rung (or any fallback tier that only fires when a preferred tool is absent), actually exercise the fallback: run the function in a subshell with a scrubbed `PATH` and confirm it resolves cleanly rather than crashing. Composes with § Corollary — `set -u` latent crash (variable set only in one code path but referenced in another) — this is the same class of bug, specific to fallback-ladder rungs that ordinary review paths never execute.

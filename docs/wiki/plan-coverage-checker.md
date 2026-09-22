@@ -76,14 +76,16 @@ For the complete token list, stage-1 heading regex, and stage-2 classification r
 
 Parses the plan's `## Tasks` task-spine — the pinned, parser-locate `yaml plan-tasks` fenced block that all downstream tooling (this checker, the harvest tool, `coordinator-doc-new`) binds to. See `agents/plan-coverage-checker.md § Phase 3.5` and the schema SSOT at `2026-07-09-plan-full-coverage-and-deferred-harvest.md § The task-spine schema (Item A — pinned interface)` under `docs/plans/`.
 
-**Report-only, not the enforcement surface for closure authorization** — that lives in the claude-klabauter frontmatter-schema layer and its write guards. This lens buys earlier visibility: the harvest tool WARN-AND-SKIPs a malformed row, so this checker is the first place a malformed row or a fabricated approval surfaces before it ships silently. It makes a bad approval *falsifiable*, not *impossible*.
+**Report-only, not the enforcement surface for closure authorization** — that lives in the engine repo's frontmatter-schema layer and its write guards. This lens buys earlier visibility: the harvest tool WARN-AND-SKIPs a malformed row, so this checker is the first place a malformed row or a fabricated approval surfaces before it ships silently. It makes a bad approval *falsifiable*, not *impossible*.
 
 A plan is GOVERNED iff its frontmatter carries a `grouping_approvals` key — bare presence is the whole discriminator, checked before anything else in this lens. Each spine row's grouping (do / defer / ruled_out) is derived from its `disposition` (open+coded / spun_off+backlogged / wont_do respectively) and is never stored on the row itself; `do` rows are live or shipped work and are never gated by this lens.
 
-- **On a GOVERNED plan:** for any row whose grouping is closed (defer or ruled_out), check whether that grouping's `grouping_approvals` block reads `status: approved`, carries a non-empty `digest`, and an on-topic non-empty `pm_utterance`. **This lens cannot verify digest correctness** — only the field's presence and shape; recomputing against current row membership is the claude-klabauter write-time guard's job, not this checker's. A malformed or absent block on a grouping with closed rows is its own finding — never a fallback to the legacy per-row bool below.
+- **On a GOVERNED plan:** for any row whose grouping is closed (defer or ruled_out), check whether that grouping's `grouping_approvals` block reads `status: approved`, carries a non-empty `digest`, and an on-topic non-empty `pm_utterance`. **This lens cannot verify digest correctness** — only the field's presence and shape; recomputing against current row membership is the engine repo's write-time guard's job, not this checker's. A malformed or absent block on a grouping with closed rows is its own finding — never a fallback to the legacy per-row bool below.
 - **On a LEGACY plan** (no `grouping_approvals` key at all): the pre-existing bare-bool lens applies unchanged — see checks 1 and 2 below.
 
 1. **Malformed rows** (applies on both governed and legacy plans). Any row that fails to parse (bad YAML) or is missing a required field (`id`, `title`, `change_kind`, `surface`; on a LEGACY plan only, `pm_approved` as a *key* — presence only, any boolean value — when `deferred: true`) is flagged — quoted verbatim, with the specific missing field named. The *value* being literal `true` is checked separately, below. Enum membership (`change_kind`, `disposition`, `queue_scope`) is NOT this lens's job: it is enforced at write time by the frontmatter-schema write guard, which validates each spine row against `coordinator/schemas/plan-tasks.schema.json`.
+
+   **The write-time guard's coverage is not the whole safety net it looks like.** `coordinator-harvest-deferrals` only reads `change_kind` for rows it actually harvests — `deferred: true` rows — so a malformed `change_kind` on a non-deferred row has no downstream consumer to trip over it and can ship uncaught by anything. One plan spine carried four values outside the closed 11-value enum (`test-add`, `config-edit`, `doc-add`, `script-add`); only the one deferred row surfaced a behavioural symptom (the harvester warned and silently dropped it, exit 0), and this checker itself returned COMPLETE on the same plan. Treat "the write-time guard covers enum membership" as true only for the subset of rows something downstream actually reads.
 2. **Unratified deferrals — legacy plans only.** On a plan with no `grouping_approvals` block, any row with `deferred: true` but `pm_approved` absent, `false`, or non-`true` gets: **"deferral pending PM ratification — scope is a PM decision, EM preference is not a scope decision."** Fires regardless of how reasonable the deferral looks — the check is for the ratification signal, not the deferral's merit. On a GOVERNED plan this bool carries no authorization weight; the grouping-approval check above gates closure there.
 
 3. **Missing or vacuous `case_against` on a candidate scope cut** (GOVERNED plans). A scope cut must reach the PM as an argument, not a conclusion — the row carries the case FOR in `disposition_detail` and the case AGAINST in `case_against` (`docs/wiki/writing-plans.md` § Both-Sides Deferral Argument). Any **candidate scope-cut row** (defined below) whose `case_against` is absent, empty, or vacuous gets a finding, quoting the field.
@@ -93,6 +95,17 @@ A plan is GOVERNED iff its frontmatter carries a `grouping_approvals` key — ba
    **Specificity sub-check.** Phrase as a question to the EM, never an assertion: does `case_against` name a concrete consequence tied to this row's own surface, or is it a restated negation of `disposition_detail`? Anti-strawman is not fully mechanizable — this narrows the gap, it does not close it (honest-limit clause, `writing-plans.md`).
 
 4. **The LEGACY equivalent.** On a plan with no `grouping_approvals` key, the same lens reaches legacy `deferred: true` rows through the **existing D8 legacy-equivalence rule** (`deferred: true` reads as `disposition: backlogged`) — check 3 applies to them unchanged. This is read-tolerance for the pre-existing corpus only. **Do not treat it as a new authoring surface**: the legacy shape gets no `case_against` authoring path of its own, because the fleet is retiring that vocabulary, not extending it.
+
+**`deferred: true` means harvest-candidate, not sequenced-later.** The field encodes a scope
+decision — "not by this plan, and the PM agreed" — never a scheduling annotation for "later" or
+"elsewhere" within the same plan. It is wired directly to `coordinator-harvest-deferrals`, which
+treats every `deferred: true` row as eligible to leave the plan and reappear as a detached
+improvement-queue entry. A row that is genuinely still this plan's work, merely sequenced behind
+another wave or routed to a sibling repo, stays `deferred: false` and states the sequencing in its
+own title/body prose (e.g. `[Wave 2 — routed to X]`, `BLOCKED until Y ships`). Mislabeling
+sequencing as deferral is silent and one-directional: the row validates, the harvest behaves
+exactly as designed, and the plan reads complete while real work has quietly emigrated to the
+queue — visible only to someone who remembers the plan had more rows than it now shows.
 
 **The candidate scope-cut row — the trigger definition both new checks share.** A row is a *candidate* scope cut if ANY of:
 
@@ -115,6 +128,23 @@ Extracts all in-repo path citations and `file:line` / `file:symbol` references f
 **Line-drift tolerance is mandatory:** same file, same symbol, line number shifted = FALSE-POSITIVE. The agent only emits a finding when the symbol/identifier is absent from the file, or the file itself is missing. This tolerates the legitimate line drift produced by concurrent-EM workstream branches. The tolerance window is **±50 lines** (widened from ±10 in the initial implementation) — neighbor sections inserted between plan-write and check-time can push a cited symbol further than ±10 lines without invalidating the citation, so the narrow window produced false substrate-drift findings on sound plans. **Anchor-heading citations are drift-immune:** when a plan cites by `§ Heading` or a distinctive heading line rather than a bare line number, the agent matches on the heading's presence on disk and ignores the line number entirely — prefer anchor-heading citations in plans for this reason.
 
 Scope boundary: Lens 3 checks in-repo paths and symbols only. External API signatures are docs-checker's job.
+
+**Existence-checked, not behaviour-checked — a second, unchecked substrate-claim kind.** A plan
+makes two different kinds of substrate claim, and this lens verifies only one of them. "File F
+contains symbol S" is what the lens above checks. "Symbol S currently behaves as A, which is
+wrong" is not verified by anything: the lens confirms the symbol exists and stops, it does not
+open the symbol and compare its behaviour to the claim. This matters more than an ordinary gap,
+because a defect-shaped claim carries authority a design decision would not — a chunk framed as
+"fixing broken behaviour" reads as mechanical and gets skimmed rather than argued with. A plan
+claimed a model resolver fell back to a small context window and specced inverting the default;
+the resolver's terminal tier already returned the large window, two regression tests already
+asserted it, and the only narrow case was a prior PM-ratified asymmetry documented in the
+surrounding comments — none of which this lens, or anything else in the pipeline, checked. Any
+plan asserting current in-repo behaviour (wrong, broken, fails, silently, unsafely) should cite
+`file:line` for the asserted *behaviour*, not merely for the file being touched, and state what
+the surrounding tests/comments currently claim — so a contradiction is visible before dispatch
+rather than after. A future extension to this lens: open the cited symbol and diff its behaviour
+against the plan's description whenever the plan uses defect vocabulary.
 
 For extraction heuristics, verification procedure, and scope boundary, see the agent body: `agents/plan-coverage-checker.md § Phase 4`.
 
@@ -209,6 +239,92 @@ If a recurring oracle type (e.g., "all plans that audit CLI flags consistently m
 <!-- Review: code-reviewer — claiming a specific step number (Step 4) was false precision; the activity isn't a named sub-step yet. -->
 Operational hook: during `/workweek-complete`, as part of the weekly retrospective sweep (informal — not a numbered sub-step yet; promote to a named sub-step once the cadence proves itself), the EM scans recent `state/plan-sidecars/*.plan-coverage-check*.md` sidecars for recurring MISSED patterns across plans. Two plans with MISSED on the same oracle shape within a quarter means the plan template (or the authoring skill) has a structural gap worth addressing. This is judgment-based, not automated — but the responsibility lives in the weekly cadence so it does not drift.
 
+## Plan-lifecycle gaps this checker does not close
+
+Every lens above is scoped to a single plan artifact. That scoping is itself a limit, and the
+following failure shapes recur in the surrounding pipeline precisely because nothing — this
+checker included — reads across plans or across a plan's own lifecycle.
+
+### Cross-plan collision — the RELATION between two correct plans is unchecked ground
+
+plan-coverage-checker (and prior-art-checker, and the named Opus reviewer) each read one plan
+against its own oracle, its own accumulated prior art, or its own body. None reads a plan against
+*other in-flight approved plans*. Two individually-correct, individually-reviewed,
+individually-PM-authorized plans can independently design and get authorized to build the exact
+same mechanism — an 18-reference, three-file seam duplicated across two plans, one of which
+named the collision and one of which never reciprocated, both having cleared every existing gate.
+The defect lives in the relation, not in either artifact, so it stays invisible until the
+campaign fires and two executors race the same files. **Before firing any multi-baton parallel
+campaign:** extract file paths from every in-flight plan, invert to a file→claimant-plans map,
+and treat any file with more than one WRITE claimant as hot — distinguishing write-claims from
+mere citation-claims. Where two plans build the same *mechanism* (not merely touch the same
+file), dispatch eng-director for an ADOPT-A / ADOPT-B / SYNTHESIZE verdict and hoist the
+mechanism into a foundation wave owned by neither, reducing both to consumers.
+
+The scan's target set must be every artifact that **claims work**, not every artifact named
+"plan": `docs/plans/`, `state/roadmap/`, `state/handoffs/` entries with `deployment_state`
+`ready_to_fire`/`in_flight`, and `docs/problems/`. A scan limited to `docs/plans/` came back
+clean while a plan was drafted that duplicated a live nine-stub roadmap already carrying a
+pending PM shape-approval gate on the exact question the new plan answered unilaterally — a
+roadmap stub is a *stronger* claim than a plan chunk, since it usually carries its own wave
+structure and blocking gates, and both downstream pre-flight checkers caught it independently
+where the EM's own scan did not.
+
+The collision risk survives past authorship, too: a **valid, reproducible PM execution stamp can
+be invalidated by a sibling plan taking the ground under it**, not only by body drift. Stamp
+integrity (hash matches, body unchanged) and body drift are both about the artifact itself; they
+say nothing about whether a *different* approved plan has since declared `supersedes_roadmap`
+over the same target files and begun executing against them. Before dispatching execution against
+any stamp not minted this session, check target *ownership* as well as body integrity: grep other
+plans for the same `scope: paths`, and check `supersedes_roadmap`/`agent_sessions` frontmatter on
+siblings for a live working holder.
+
+### Gate-achievability — a reorder-for-correctness can create an unsatisfiable gate
+
+A plan's own sequencing gate can be self-defeating: sequencing chunks behind "cross-repo memo
+confirmed landed" while every cross-repo chunk in the same plan says "draft only, do not send,"
+with no Out-of-Scope section resolving the tension, is a deadlock that three prior surgeries and
+two pre-flights all missed. Introducing a gate for correctness reasons can create this by
+accident — check that any newly-introduced gate names an achievable trigger before the plan
+ships. Where the achievable path crosses a repo boundary, split the plan along that boundary so
+each half is dispatchable on its own clock.
+
+### A plan's own exit condition outranks the ceremony's unconditional stamp
+
+`/workstream-complete` Step 2.4 stamps the governing plan `status: implemented` unconditionally on
+the governing-plan predicate. A plan whose spine is fully shipped can still be deliberately
+non-terminal — e.g. a cross-plane plan that holds `executing` until a sibling repo's half lands
+and a consumer is observed firing on real data — and running the ceremony's default stamp there
+asserts a completion the plan itself forbids. When a plan carries an explicit exit condition,
+skip the stamp and say so in the summary; the ceremony's default assumes spine-complete equals
+done, and that assumption is not universal.
+
+### A superseded plan invalidates the stub's Plan pointer, not the roadmap dependency edges
+
+After plans are superseded by merge, `blocked_by`/`blocks`/`gate_dependency` edges naming the
+superseded plans can look stale without being stale: those edges name roadmap **stubs**, which
+stay alive — only each stub's own `Plan:` pointer has resolved onto a tombstone. Fixing the
+pointer lines collapses the whole class; mass-repointing the dependency edges instead fixes the
+wrong locus. Verify what a citation actually names — a stub identity vs. the plan document
+currently backing it — before mass-editing anything downstream of a supersession.
+
+### An anti-scope line handing a surface to a sibling plan needs the wire, not the sibling's claim
+
+When a plan anti-scopes a surface because "a sibling plan claims it," that claim can be true and
+the surface can still go unconverted: each plan correctly believes the other owns it, the sibling
+ships a real implementation, and nobody ever wires it into the consuming call site — the surface
+then sits built but unconsumed. An anti-scope line handing a surface to another plan must cite the
+consuming call site (a grep that returns non-zero for the not-yet-wired case), not the sibling
+plan's stated intent to own it.
+
+### Grep for an existing baton before authoring a spinoff for the same deliverable
+
+Before drafting a spinoff for what looks like new work, grep `state/handoffs/` for the topic and
+check `deliverable_id`. A PM-authorized spinoff can mint a second `deliverable_id` for work that
+already has a live `ready_to_fire` handoff — forking the ledger for one piece of work, the same
+drift class a cleanup session may already be fighting elsewhere. Report the existing baton instead
+of duplicating it.
+
 ## Distribution
 
 The reviewer-side consumption block (`snippets/plan-coverage-check-consumption.md`) is synced via `verify-snippet-sync plan-coverage-check-consumption --fix` to all Opus reviewer prompts that may receive plans with oracle tables:
@@ -216,7 +332,7 @@ The reviewer-side consumption block (`snippets/plan-coverage-check-consumption.m
 - `agents/staff-eng.md` (the Staff Engineer)
 - `agents/staff-data-sci.md` (the Data Science Reviewer)
 - `agents/senior-front-end.md` (the Front-End Reviewer)
-- `agents/eng-director.md` (the Director of Engineering — reviews plans at DoE altitude)
+- `agents/eng-director.md` (the Director of Engineering — reviews plans at Director-of-Engineering altitude)
 - example-game-repo sibling repo `game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer — example-game-repo-resolved via machine-local registry key `repos.example_game_workbench_repo`; skipped when example-game-repo repo is absent locally; `game-dev` retired from OSS coordinator-claude distribution)
 
 **Excluded intentionally:** `agents/code-reviewer.md` (Sonnet code-shaped review, not plan-shaped) and `agents/staff-ux.md` (the UX Reviewer — UX flow review rarely has audit/slate structure). These exclusions are the same as for the sibling consumption snippets.

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """check-launch-shape — assert the Windows `claude` launch chain is direct-child.
 
 WHAT THIS PROTECTS. On Windows the interactive ``claude.exe`` must be a DIRECT
@@ -26,6 +25,13 @@ when the rendered launcher pair is absent.
 
 Naked Python, single process, no subprocess fan-out: this runs on a machine that
 pays a severe per-spawn tax and is shared with many concurrent sessions.
+
+No DoE-relative paths: every path this probe touches (the launcher pair, the
+shim) is resolved from PATH or `$CLAUDE_HOME`/home at runtime, on the machine
+being probed — never from this file's own on-disk location — so no adaptation
+was needed for its move from DoE-claude into claude-klabauter
+(docs/plans/2026-09-18-doe-holds-no-scripts.md § Path resolution, "session
+repo"/"doctrine asset" classes do not apply here).
 
 Exit codes: 0 = PASS or SKIP, 1 = FAIL (a real launch-shape defect).
 
@@ -223,8 +229,8 @@ def main(argv: "list[str]") -> int:
         for f in failures:
             print(f"  - {f}")
         print(
-            "  Reference: DoE-claude coordinator/docs/wiki/windows-process-spawn-and-console.md "
-            "§ Interactive launch"
+            "  Reference: coordinator/docs/wiki/windows-process-spawn-and-console.md "
+            "§ Interactive launch (DoE-claude)"
         )
         return 1
 

@@ -134,8 +134,9 @@ def _xplatform_patterns() -> list[str]:
 
 def _win_home_patterns(home: str) -> list[str]:
     """MSYS/Git-Bash-style `$HOME` (e.g. `/c/Users/foo`) → Windows-path literal
-    patterns, both raw (`C:\\Users\\foo`) and JSON-escaped (`C:\\\\Users\\\\foo`)
-    forms — mirrors publish.sh:511-516's `_home_rest` backslash-doubling dance,
+    patterns, both raw (`<drive>:\\Users\\foo`) and JSON-escaped
+    (`<drive>:\\\\Users\\\\foo`) forms — mirrors publish.sh's `_home_rest`
+    backslash-doubling dance,
     expressed directly as the two literal text shapes it is built to match.
     """
     match = re.match(r"^/([a-zA-Z])/(.+)$", home)

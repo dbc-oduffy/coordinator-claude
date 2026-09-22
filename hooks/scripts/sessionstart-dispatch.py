@@ -205,6 +205,11 @@ REGISTRY: Tuple[StartGuard, ...] = (
     # module docstring for the two-output-channel rationale.
     StartGuard("job_mode_announce", "session-start-announce-job-mode.py",
                frozenset({"startup"})),
+    # Every source: the boot payload is re-read on each of them, and the check
+    # is one in-process tree walk. Silent unless uncommitted governed-surface
+    # text fails admission -- see session-start-governed-surface-drift.py.
+    StartGuard("governed_surface_drift", "session-start-governed-surface-drift.py",
+               frozenset({"startup", "resume", "clear", "compact", "fork"})),
     # LAST, deliberately -- see module docstring "INCREMENTAL FLUSH".
     StartGuard("guard_hook_generation_self_probe", "guard-hook-generation-self-probe.py",
                frozenset({"startup", "clear", "compact"})),

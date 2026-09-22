@@ -148,7 +148,7 @@ def __getattr__(name: str):
 _OP_CLUSTER = "queue.cluster"
 _OP_SCAFFOLD = "handoff.scaffold_from_queue"
 
-# Review: code-reviewer — Finding 1 (P1): scaffold-baton's `family` is
+# scaffold-baton's `family` is
 # interpolated into a filesystem path (`_entry_path_for`) with no parse-time
 # guard, unlike `entry_path` (checked for separators before use). Charset-only
 # allowlist, scoped to scaffold-baton's `family` alone — cluster's `family`
@@ -257,7 +257,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="leg", required=True)
 
-    # Review: code-reviewer — Finding 2 (P2): argparse's subparsers action
+    # argparse's subparsers action
     # (nargs=PARSER) consumes the subcommand token plus ALL remaining argv as
     # that subparser's own arguments, so `--repo-root` only worked when given
     # BEFORE the leg name. Carrying the same flag as a `parents=[...]` shared
@@ -330,7 +330,7 @@ def _entry_path_for(family: str, entry_path: str) -> str:
     host-specific separator into it.
     """
     if "/" in entry_path or "\\" in entry_path:
-        # Review: code-reviewer P2, EM override — the bare-filename branch
+        # The bare-filename branch
         # below was POSIX-normalized but this already-qualified branch still
         # returned a caller-supplied path verbatim, backslashes included.
         # Normalize here too so both branches honour the same
@@ -417,7 +417,7 @@ def main(argv: list[str] | None = None) -> int:
             _OP_SCAFFOLD, _build_scaffold_params(args), repo_root
         )
 
-    # Review: code-reviewer — Finding 7 (nit): gate printing on exit_code (2 ==
+    # Gate printing on exit_code (2 ==
     # transport failure, no envelope produced) rather than `result is not
     # None` — a legitimate op result of JSON `null` on success (exit_code 0)
     # or a refusal envelope (exit_code 1) must still print verbatim, per the

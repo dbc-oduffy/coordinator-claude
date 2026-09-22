@@ -738,7 +738,6 @@ def _resolve_central_state() -> Optional[Path]:
     # underneath the CLI needs no engine-root resolution at all -- we are
     # already running inside the engine -- so reaching past the argv wrapper
     # keeps the spawn eliminated AND the leg alive.
-    # Review: coordinator:code-reviewer, slice B finding 1.
     if not _STATE_ROOT_RESOLVER.is_file():
         return None
     try:
@@ -2733,7 +2732,7 @@ def _dest_ahead_count(dest: str) -> Optional[int]:
     no-upstream from a genuine probe failure should call `_dest_ahead_probe`
     directly instead of this collapsed wrapper.
     """
-    # Review: coordinatorcode-reviewer-c58be590 -- a missing `branch.ab`
+    # A missing `branch.ab`
     # line (no upstream tracking ref) previously fell through to the
     # `ahead = 0` initializer, indistinguishable from a real "+0" — every
     # consumer trusts `ahead == 0` to mean "in sync, nothing to push" and
@@ -2767,7 +2766,7 @@ def _publish_unpushed_dest_commits(
             timeout=publish_contention_wait_secs(),
         ):
             ahead = _dest_ahead_count(dest)
-            # Review: review-integrator — distinguish "the ahead-count probe
+            # Distinguish "the ahead-count probe
             # failed" from "genuinely zero commits ahead" (same defect class
             # already fixed on `percolate-push.py::_check_dest_state`'s side
             # of this seam, commit 7edcc4b8d): a probe failure must not be
@@ -3366,13 +3365,14 @@ def _cmd_round_default(
 
             # --- Step 4: CI smoke (after the commit) ------------------------
             print(f"=== percolate-round {target} — Step 4: CI smoke ===")
-            ci_script = Path(dest) / ".github" / "scripts" / "run-all-checks.py"
+            # `.github/` lives at the worktree root, never under a row's dest_subdir.
+            ci_script = Path(repo_root) / ".github" / "scripts" / "run-all-checks.py"
             ci_exit: Optional[int] = None
             if ci_script.is_file():
                 python = _resolve_python()
                 ci = _run(
                     [python, str(ci_script)],
-                    cwd=dest,
+                    cwd=repo_root,
                     timeout=_EXTERNAL_CI_TIMEOUT_SECS,
                 )
                 print(ci.stdout)

@@ -18,7 +18,7 @@ challenge (informational, never a re-ask): *file value wins, correct `coordinato
 re-run if wrong.* Legacy values (`unreal`, `meta`, bare `web`) get a one-line migration-hint
 warning — never auto-rewritten.
 
-**Runtime marker scan.** Run (Shape W, `snippets/resolve-coordinator-bin.md`)
+**Runtime marker scan.** Run (Shape W, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`)
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\detect-project-runtime.exe"`. Advisory only — warn and
 continue, never abort onboarding, if the forwarder or its engine-plane target is unresolvable.
 Output is advisory stdout; no skill/agent/hook reads it programmatically.
@@ -28,15 +28,6 @@ Output is advisory stdout; no skill/agent/hook reads it programmatically.
 - `package.json` + a JS framework config → `web-dev`
 - `requirements.txt`/`pyproject.toml`, no UE markers → `data-science`
 - `Cargo.toml`, `go.mod`, or none of the above → `general`
-
-**Cross-platform inference signal.** Two signals, either sufficient: (a) a
-`.github/workflows/*.yml` `os:` matrix with 2+ OS entries; (b) `*.sh` in `bin/` AND a Windows-
-operator marker in `coordinator.local.md`. Record `_CROSS_PLATFORM_INFERRED` +
-`_CROSS_PLATFORM_SIGNAL` (human-readable) when either fires — **never auto-write
-`cross_platform: true`**; the lane's `tw.ci-inference-prompt` pre-answer (or, absent a lane, a
-live prompt) decides whether to act on the signal. Suppress the signal (`_CROSS_PLATFORM_INFERRED`
-stays false) when `templates/ci/cross-platform-matrix.snippet.yml` already exists — the repo has
-already adopted the discipline.
 
 ## Rendering and scaffolding
 
@@ -73,7 +64,8 @@ has real day-1 content once Phase 2 answers exist.
 sentinels, ceremony/coverage transients, the group-EM watch trio —
 `state/group-em-watch.json`, `state/group-em-watch-parked.json`,
 `state/group-em-watch-spool.jsonl` — the engine-provenance ledger
-`state/engine-provenance-counts.jsonl`, `.project-rag-corpus-artifacts/` and
+`state/engine-provenance-counts.jsonl`, `state/housekeeping-liveness.json`,
+`.project-rag-corpus-artifacts/` and
 `.project-rag-corpus-store/`) is present — create if
 absent, append only the missing lines under one header if partially present, skip silently if
 complete. If ceremony/coverage transients, any of the group-EM watch trio, or the
@@ -200,14 +192,6 @@ env-var means). Retired form `# noqa: bare-subprocess-windows` is NOT honoured. 
 this tripwire at all is lane/PM judgment (Windows-operator repo signal); the install steps
 themselves don't vary by lane.
 
-**Cross-platform CI reference** — language-aware install once offered/declared:
-Python repos (`data-science` type or `pyproject.toml`/`requirements.txt`/`pytest.ini` present):
-auto-copy `templates/ci/cross-platform-matrix.snippet.yml` to `templates/ci/`, note in Needs
-Attention to adapt marker names for the project's own hardware-gated tests. Non-Python repos: never
-copy the pytest snippet — surface the wiki + snippet as a worked example to adapt instead. Whether
-the offer fires (declared vs inferred-and-confirmed) is lane/PM judgment; the copy behavior itself
-does not vary by lane.
-
 ## Phase 4 report — mechanical shape
 
 **Declared exemption from the ≤200-word EM→PM budget** (global `CLAUDE.md § Communication Style`):
@@ -234,8 +218,7 @@ Template:
 evolves (git-tracked, holds config/lessons/working-data); the plugin **source** lives in the
 doctrine-plane clone, resolved live via `--plugin-dir` — launch with `claude-doe`, not bare
 `claude`; restart (or `/reload-plugins` if available) to pick up mid-session doctrine-plane edits.
-CLAUDE.md fill-in reminder fires only when `_PHASE_3A_RENDERED_CLAUDE_MD=true`. Cross-platform CI
-availability note when relevant. `machine-local get repos.*` failure: no registry dir →
+CLAUDE.md fill-in reminder fires only when `_PHASE_3A_RENDERED_CLAUDE_MD=true`. `machine-local get repos.*` failure: no registry dir →
 `/coordinator:install` Phase 3; registry present, no keys → `machine-local set repos.<name> <path>`
 per sibling; command itself not found → re-run `/coordinator:install` Phase 3 (bare-name reach is
 the `coordinator/bin` forwarder, not a PATH edit).
@@ -243,7 +226,7 @@ the `coordinator/bin` forwarder, not a PATH edit).
 ## Fate of the seven prior segments
 
 - `phase1-detection-details.md` — mechanical detection retained above; the PM-ask/branch prose it
-  carried (Phase 2 question skip, cross-platform prompt firing) is now pre-answered per lane —
+  carried (Phase 2 question skip) is now pre-answered per lane —
   see the three lane files.
 - `phase3-core-docs.md` — rendering mechanics retained above verbatim in substance (3a/3d/3d.5/3g).
   Of its three retired-tracker references: the retired-3b tracker note and

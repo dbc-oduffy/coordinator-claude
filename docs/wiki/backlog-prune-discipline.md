@@ -63,9 +63,7 @@ dropped/superseded without delivery) instead.
 3. Commit the stamped-then-moved file in the same commit as the closing evidence. The commit
    subject names the closed entry slug.
 
-**Note on this CLI's dispatch — NOT the general-purpose pruner:** claude-klabauter
-`coordinator/bin/prune-resolved-queue-entries.py`
-does not handle this queue — it is a markdown line-deletion pruner path-allowlisted to
+**Note on this CLI's dispatch — NOT the general-purpose pruner:** does not handle this queue — it is a markdown line-deletion pruner path-allowlisted to
 `improvement-queue.md`/`bug-backlog.md` and hard-exits on any other path, including a
 directory-form YAML queue. `state/cross-repo-commitments/` closes exclusively via the manual
 `git mv` mechanic documented here (same shape as the other directory-form queues above), not
@@ -167,6 +165,32 @@ dispatch / re-park disposition — rather than only triaging the raw incoming qu
 session. A parked entry drawn back into circulation this way re-enters the four-outcome terminus
 like any other item; parking is not a one-way door, and a re-parked entry gets its `why_blocked`
 re-stated or updated, not silently carried over unexamined.
+
+## Queue Entries Need An Exit Mechanism — Independent Rediscovery Is An Overdue Signal
+
+A queue entry has no forced disposition; a memo does. When the same defect gets re-reported from
+an independent source — a session that didn't know the queue entry existed — that's the strongest
+signal an entry is overdue: one entry sat in the queue 26 days while an equivalent memo-routed
+report turned around the same hour, with nothing structurally different about the defect itself.
+
+**Move the liveness check left of dispatch.** Backlog entries fixed elsewhere are never closed
+automatically — a cheap read-only liveness sweep, run before dispatching fixers, would have
+disqualified 17 of 29 entries for a rounding error. bug-blitz's verification gate lives in the
+*executor's* prompt, so an entry's staleness is only discoverable after the cost of dispatching an
+executor against it is already sunk. Run the liveness sweep before dispatch, not inside the
+dispatched executor.
+
+**Ask each candidate agent which sibling entries its fix actually closes, before dispatching by raw
+count.** Sizing a backlog sweep by entry count over-dispatches: read the sibling queue entries
+first, because N entries frequently doesn't mean N distinct defects — several can close together
+under one fix. Dispatch against the defects a fix actually resolves, not against the raw row
+count.
+
+## Check For A Ratified Roadmap Before Queueing An Improvement
+
+Before filing a new improvement-queue entry, check whether a ratified roadmap already owns the
+work. A session once filed an entry for work a final-approved roadmap (eight clusters, seven
+minted batons) already covered, creating a duplicate entry against already-owned work.
 
 ## Cross-Links
 

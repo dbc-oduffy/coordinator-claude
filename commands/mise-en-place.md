@@ -171,7 +171,8 @@ Proceeding.
 ## Phase 5: Execute
 
 Default: ONE background Workflow for the whole run, carrying the Phase 2 DAG across every wave —
-executors, verifiers, and the per-wave commit phase alike. `model: 'sonnet'` on every `agent()`,
+executors, verifiers, and the per-wave commit phase alike. `model: 'sonnet'` on every `agent()` whose `subagent_type` is UNPINNED — never alongside a
+`coordinator:*` type, which pins its own tier and whose pin guard refuses the override —
 ≤5 write-capable executors/barrier. **No hand-dispatch, and no single-wave carve-out:** manual
 `Agent` calls spend EM context, which is the binding constraint in a mise run, and "only one wave"
 is not a shape a Workflow cannot express. Verifiers ride inside the Workflow — call
@@ -219,12 +220,18 @@ Per wave:
    (`AN-ORPHANED-RETURN-CONTRACT-IS-A-DROPPED-ONE`).
 
 <!-- engine-gap: field=tracker_sweep.item_state producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
-2. On DONE (verify via disk — DONE path + scoped `git status`; never trust idle-alone; never
-   double-dispatch onto a live footprint): the Workflow's verifier phase runs a Haiku verifier per
+2. On DONE (verify via disk — DONE path + `dirty-tree-gate --terminator mise-item-done`
+   (`--terminator` is a free-form display token, not a validated enum — confirmed against
+   `coordinator_core.ops.dirty_tree_gate.main` in `claude-klabauter`, which only interpolates it
+   into stderr text — so this value cannot fail loud at runtime; verified, no re-derivation
+   needed), which
+   classifies every dirty path as session-authored, known-peer, or unattributable rather than a
+   hand-parsed status line; never trust idle-alone; never double-dispatch onto a live footprint):
+   the Workflow's verifier phase runs a Haiku verifier per
    item from the brief's `d-mise-haiku-verifier-dispatch` fields. Batch per wave; gate on all-`PASS`.
    Non-PASS → re-dispatch, revert+re-plan, defer, or early-stop. **Peers write concurrently to
    this same checkout — footprint verification is scoped to the item's own declared paths.** A
-   bare unscoped `git status`/`git diff` shows every live peer's work; a path outside the item's
+   bare unscoped status/diff read shows every live peer's work; a path outside the item's
    declared footprint is another item's and is not evidence about this one.
 
    **Partial wave landing** — some items landed, some did not. Commit the PASSed items' footprint
@@ -298,10 +305,20 @@ check, anti-vacuity gate, diff freeze, inventory archival (COMPLETE only), track
   `/workstream-complete` or a review-and-cap `/handoff` in the tail summary. An aggregate baton's
   membership inherits this discharge unchanged — the obligation is keyed on the diff range, which
   every constituent lands inside; `/workstream-complete`'s chain diff covers a different object
-  and is untouched.
-- **Orphan check**, on that same range and inside this phase, never a mechanism of its own: take
-  the paths `git diff --name-status "<start-sha>..HEAD"` marks `A`, intersect with the run's
-  declared `writes:`, and ask of each whether any other file in the tree references it. Zero
+  and is untouched. **The frozen diff and its `.head.sha` (`state/review-trail/`) and executor
+  evidence (`state/plan-sidecars/`) are gitignored by design — absence from the commit is EXPECTED
+  and is not a missing step.** <!-- Review: coordinator-code-reviewer -- distinct fact the trim
+  dropped: an item can legitimately go DONE while its sidecar record contributes nothing to the
+  wave commit, so DONE must never be inferred from commit contents. --> A DONE item's evidence can
+  legitimately contribute nothing to the wave commit — never infer DONE-ness from commit
+  contents. Tripwire:
+  `A-GITIGNORED-DELIVERABLE-IS-INVISIBLE-TO-EVERY-COMMIT-BASED-READER`.
+- **Orphan check**, on that same range and inside this phase, never a mechanism of its own: read
+  the `.diff` file § Review routing just froze — a plain unified diff, not `--name-status` — and
+  take the added paths (each `--- /dev/null` / `new file mode` hunk) off it (never a fresh raw
+  diff re-run — the freeze already materialized this range to disk one bullet above), intersect with
+  the run's declared `writes:`, and ask of each whether any other file in the tree references it.
+  Zero
   referencers → **ORPHAN-CANDIDATE**, named in the tail summary with its path. It is
   **necessary, not sufficient, and is never reported as a correctness verdict** — a surface can
   acquire a referencer and still be wrong, and a clean check licenses no claim that the run's work

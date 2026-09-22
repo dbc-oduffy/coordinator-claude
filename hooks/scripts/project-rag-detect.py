@@ -10,8 +10,8 @@ stat, two `git` subprocess calls); no pwsh-only primitive exists anywhere in
 the pair, so there is nothing here that requires the stays-bash fallback.
 
 The doctrine plane owns only this thin PLUMBING shim (same shape as preuse-write-dispatch.py):
-resolve the claude-klabauter engine, hand it the cwd, relay its stdout banner verbatim.
-Claude-klabauter owns the detection LOGIC (`coordinator_core.hooks.project_rag_detect`).
+resolve the engine repo, hand it the cwd, relay its stdout banner verbatim.
+The engine repo owns the detection LOGIC (`coordinator_core.hooks.project_rag_detect`).
 The engine is imported and run IN-PROCESS - no bash, no pwsh, no `python3 -m`
 subprocess re-spawn - collapsing the old wrapper's "try pwsh, fall through to
 bash" two-process race into a single interpreter start.
@@ -87,7 +87,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open - claude-klabauter unresolvable on this machine
+        return 0  # fail-open - engine repo unresolvable on this machine
 
     if root not in sys.path:
         sys.path.insert(0, root)

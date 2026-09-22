@@ -343,7 +343,7 @@ reusable for the memo-emission graduation fixture.)
 **As of the tri-plane relocation and the strangler facade,
 Claude-klabauter `coordinator/bin/emit-cockpit-snapshot.py` retains no working emitter body.** The
 original bash implementation was ported to claude-klabauter's Python `artifact.emit`, which is now the
-**sole production cockpit emitter**. The bash script is a facade router with a three-state model:
+**sole production cockpit emitter**. The Python facade is a routing script with a three-state model:
 
 - **State 1 (claude-klabauter seam absent on disk)** — `legacy_emit` **fails loud**: "cockpit emission
   requires the claude-klabauter control plane, not present in this distribution." No snapshot is written.
@@ -356,7 +356,7 @@ original bash implementation was ported to claude-klabauter's Python `artifact.e
 - **State 3 (seam present, post-spawn unreachable)** — hard transport error, fail loud.
 
 Consumers conforming against this contract MUST target claude-klabauter's `artifact.emit` output (State 2)
-as the live-producer surface. The bash script's continued presence at `coordinator/bin/` is a
+as the live-producer surface. The Python facade's continued presence at `coordinator/bin/` is a
 routing facade only (zero caller repoints) — it is not an independent emitter
 implementation and must not be treated as one for conformance purposes.
 

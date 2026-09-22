@@ -9,7 +9,8 @@ argument-hint: "[--refresh]"
 
 Builds/refreshes the architecture atlas in `docs/architecture/`. Not for weekly spot-checks
 (`architecture-audit`), daily reviews (`code-health`), or one-off investigation. Occupies
-~25-90 min of context — not background work. Purpose, layout, rationale, retired mechanics: wiki
+~25-90 min of context — not background work, and top-level EM only: a dispatched agent cannot
+fan out (`A-SKILL-PHASE-NAMES-ITS-ACTOR`). Purpose, layout, rationale, retired mechanics: wiki
 (cited by name only — no path).
 
 ## Arguments

@@ -8,7 +8,7 @@ cold-start per tool call on Windows (each bash.exe spawn costs 200-500ms; this
 is the whole point).
 
 The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
-the claude-klabauter engine, hand it the mapped params, relay its stdout. Claude-klabauter owns the
+the engine repo, hand it the mapped params, relay its stdout. The engine repo owns the
 advisory LOGIC (coordinator_core.hooks.suggest_sonnet_research, registered under
 the JSON-RPC method "hooks.suggest_sonnet_research"). The engine is imported and
 run IN-PROCESS via coordinator_core.ipc.dispatch_from_hook (DR-175 -- the named
@@ -30,7 +30,7 @@ coordinator_core/hooks/suggest_sonnet_research.py's handler -- it reads ONLY
 agent_id via _payload.field(). The op does NOT reproduce the bash hook's
 query-specific ready-to-paste dispatch-brief extraction (tool_input.url /
 tool_input.query) -- that behavior was intentionally simplified away in the
-Claude-klabauter port per the op's own docstring/negative-spec; the claude-klabauter op emits a
+engine repo's port per the op's own docstring/negative-spec; the engine repo's op emits a
 fixed advisory message (with/without deep-research-plugin variants) rather
 than a URL/query-parameterised one. tool_name/tool_input are therefore NOT
 part of this op's params -- they are not read by the handler):
@@ -39,8 +39,8 @@ Missing/absent stdin keys map to "" -- mcp_tool's own "undeclared -> empty
 string" convention; _payload.field() already treats "" as ABSENT, so an
 absent key here is indistinguishable from one mcp_tool would have dropped.
 
-Graceful degradation -- REQUIRED: any failure to resolve/import/run the claude-klabauter
-engine, or to parse stdin, falls through to fail-open (exit 0, no stdout). A
+Graceful degradation -- REQUIRED: any failure to resolve/import/run the engine
+repo, or to parse stdin, falls through to fail-open (exit 0, no stdout). A
 missing sibling engine must NEVER brick a tool call -- identical philosophy to
 preuse-write-dispatch.py._resolve_claude_klabauter_root (kept in lockstep deliberately;
 see W2-stub-contract.md).
@@ -99,7 +99,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open -- claude-klabauter unresolvable on this machine
+        return 0  # fail-open -- engine repo unresolvable on this machine
 
     if root not in sys.path:
         sys.path.insert(0, root)

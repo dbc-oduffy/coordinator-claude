@@ -202,7 +202,7 @@ def cmd_run_step1(extra: list[str]) -> int:
     import cc_invoke
     from cc_invoke import child_env
 
-    # Review: code-reviewer P2 — resolve_engine_root() can raise RuntimeError
+    # resolve_engine_root() can raise RuntimeError
     # on this, the primary dispatch path of a workday ceremony step, with no
     # prior engine-root resolution anywhere upstream in this codepath; an
     # uncaught raise here was a regression versus the pre-diff code, which

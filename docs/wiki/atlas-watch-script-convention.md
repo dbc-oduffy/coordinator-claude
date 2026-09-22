@@ -8,7 +8,7 @@
 
 The pair:
 
-- **Audit-pass closeout gate** (claude-klabauter `coordinator/bin/verify-arch-audit-atlas-refresh.py`) — enforces atlas refresh AT the moment `/architecture-audit` closes (Branch A inline refresh, or Branch B `atlas-current-as-of:<date>` token). Stops a graded audit from landing against a stale baseline.
+- **Audit-pass closeout gate** (the engine repo's `coordinator/bin/verify-arch-audit-atlas-refresh.py`) — enforces atlas refresh AT the moment `/architecture-audit` closes (Branch A inline refresh, or Branch B `atlas-current-as-of:<date>` token). Stops a graded audit from landing against a stale baseline.
 - **`.watch.sh` convention** (this page) — surfaces mechanical atlas drift BETWEEN audit rotations, so structural facts the atlas claims (a count, a version pin, a registry composition) don't silently rot and invalidate the next audit's prior baseline.
 
 Both surfaces preserve the two-clock doctrine: neither touches `Last full audit` (that clock is exclusively `/architecture-survey`'s). This convention drives only the detection surface; rotation scoring continues to read `Last targeted audit` from the health-ledger via the existing rotation-clock helper.
@@ -37,12 +37,12 @@ Contract:
 
 ## How it composes
 
-Claude-klabauter `coordinator/bin/check-atlas-watch-drift.py` is the aggregator. It is read at run-time by:
+The engine repo's `coordinator/bin/check-atlas-watch-drift.py` is the aggregator. It is read at run-time by:
 
 - `/architecture-audit` Step 1 (Calculate Rotation Target) — surfaces `DRIFT` / `MISSING` / `ERROR` / `STALE` on rotation candidates so a drift signal on the proposed target system bumps it to the top of the rotation regardless of formula score.
 - `/workweek-complete` (weekly atlas drift walk) — runs aggregator across every atlas page, surfaces drift + staleness lines in the weekly report.
 
-Aggregator-side interpretation rules (enforced in claude-klabauter `coordinator/bin/check-atlas-watch-drift.py`, restated here so script authors understand the consumer):
+Aggregator-side interpretation rules (enforced in the engine repo's `coordinator/bin/check-atlas-watch-drift.py`, restated here so script authors understand the consumer):
 
 - Non-zero exit from `<name>.watch.sh` → `ERROR <system>: <name>.watch.sh exit=<N>`. Never silently FRESH.
 - Malformed stdout (not exactly one line, or first token not in `FRESH|DRIFT|MISSING`) → `MALFORMED <system>: <name>.watch.sh output unparseable`. Never silently FRESH.
@@ -75,7 +75,7 @@ The inter-skill two-clock contract above is unaffected: `Last full audit` remain
 - **NOT a pluggable predicate framework.** Mechanical scripts only — count files, grep a version, check a path. Anything that requires real interpretation belongs in a `/architecture-audit` pass, not a `.watch.sh`.
 - **NOT a frontmatter field.** An earlier shape considered an `atlas_watch:` YAML block in atlas-page frontmatter; that approach was explicitly rejected. The sibling-file convention replaces it entirely — there is no `atlas_watch:` schema, and atlas-page frontmatter must not carry one.
 - **NOT required per atlas page.** Optionality is structural, not a TODO. Pages without a `.watch.sh` are fully conformant; the aggregator handles them with `FRESH <system> (no watch script)`.
-- **NOT a closeout gate.** This convention is the detection surface that runs between audits. The closeout-gate sibling — claude-klabauter `coordinator/bin/verify-arch-audit-atlas-refresh.py` — is what enforces "you didn't close `/architecture-audit` against a stale atlas." Two surfaces, two jobs.
+- **NOT a closeout gate.** This convention is the detection surface that runs between audits. The closeout-gate sibling — the engine repo's `coordinator/bin/verify-arch-audit-atlas-refresh.py` — is what enforces "you didn't close `/architecture-audit` against a stale atlas." Two surfaces, two jobs.
 - **NOT a writer of any kind.** A `.watch.sh` reads source and emits one line. It does not modify the atlas page, the health-ledger, or anything else.
 
 ## Two-clock doctrine
@@ -91,14 +91,14 @@ Neither the closeout gate nor the `.watch.sh` aggregator reads or writes `Last f
 
 The convention itself is the doctrine. Per-system `.watch.sh` seeds are per-repo. Example-game-repo's known case (atlas drift on `probe_registry_version` bumps and `_VALID_PHASES` rotation) lives as `.watch.sh` siblings in the example-game-repo repo's own `docs/architecture/systems/`, authored against that repo's source layout — not seeded from here. Other repos adopt the convention by:
 
-1. Vendoring claude-klabauter `coordinator/bin/check-atlas-watch-drift.py` (or pulling it via the coordinator publish chain).
+1. Vendoring the engine repo's `coordinator/bin/check-atlas-watch-drift.py` (or pulling it via the coordinator publish chain).
 2. Writing `.watch.sh` siblings against the repo's own atlas pages, observing the contract on this page.
 3. Wiring the aggregator into the local `/architecture-audit` Step 1 and weekly walk.
 
 ## See also
 
-- claude-klabauter `coordinator/bin/check-atlas-watch-drift.py` — the aggregator.
-- claude-klabauter `coordinator/bin/verify-arch-audit-atlas-refresh.py` — the closeout-gate sibling that enforces refresh-at-close.
+- The engine repo's `coordinator/bin/check-atlas-watch-drift.py` — the aggregator.
+- The engine repo's `coordinator/bin/verify-arch-audit-atlas-refresh.py` — the closeout-gate sibling that enforces refresh-at-close.
 - `bin/check-arch-audit-staleness.py` — the rotation-clock helper (canonical; unchanged by this convention).
 - `coordinator/docs/wiki/coordinator-tripwires/` § Atlas-refresh gate at /architecture-audit closeout — the tripwire registry entry for both surfaces.
 - `cross-platform-shell-portability.md` — the portability rules that apply to `.watch.sh` scripts.

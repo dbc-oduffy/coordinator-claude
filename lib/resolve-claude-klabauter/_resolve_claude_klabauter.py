@@ -38,7 +38,7 @@ Spec backlink:
 
 Port source: coordinator_core.install.substrate._write_agent_forwarder
 
-Review: code-reviewer — sanctioned path-load consumer surface. Underscore-
+Sanctioned path-load consumer surface. Underscore-
 prefixed names below (``_ml_dir``, ``_registry_value``,
 ``_resolve_claude_klabauter_root``) are NOT general-purpose public API — this module's
 only stable contract for arbitrary callers is
@@ -410,7 +410,7 @@ _skew_advisory_emitted = False
 def _env_flag_set(name: str) -> bool:
     """True iff ``name`` is present and not one of the falsey spellings.
 
-    Review: code-reviewer — a bare truthy check on the raw string treats "0"
+    A bare truthy check on the raw string treats "0"
     and "false" as set, since Python treats those strings as truthy; an
     operator spelling a flag off that way would silently get it on.
     """

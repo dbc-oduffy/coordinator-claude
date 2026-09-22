@@ -89,7 +89,7 @@ def _repo_root_from_file() -> str:
     """Repo root derived from this file's own location -- `coordinator/bin/
     fleet-env.py` is two directories under it -- the same `__file__`-based,
     invocation-path-independent pattern `_LIB_DIR` already uses above.
-    Review: overengineering-reviewer -- the degrade route in
+    The degrade route in
     `resolve_fleet_env_root`'s except clause used to re-run
     `_import_cc_invoke()` and `_resolve_claude_klabauter_root()` to reach this path,
     which re-derives exactly the import the try block just failed on; a

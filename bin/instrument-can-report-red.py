@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """instrument-can-report-red — does a computed verdict reach this instrument's exit path?
 
 WHY THIS EXISTS. A falsifier, gate or probe that goes green is evidence only if it could have
@@ -47,7 +46,7 @@ from pathlib import Path
 
 # Ordered most-severe first. `verdict` is the first entry that fires; every finding is still
 # reported, because a caller reading only the headline would lose the ones underneath it.
-# Review: overengineering-reviewer — DANGLING_VERDICT cut: 155 findings across 167 files,
+# DANGLING_VERDICT cut: 155 findings across 167 files,
 # changes no downstream verdict (falsifier-integrity-reviewer.md already maps it to CLEAR), and
 # the module's own docstring called it "a question for a reader, not a defect claim."
 VERDICTS = (
@@ -92,11 +91,11 @@ def _names_in(node: ast.AST) -> set[str]:
     return {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
 
 
-# Review: code-reviewer (2026-09-08-hoexec-close/premise-check, finding 1) — pulled out of
+# Pulled out of
 # `_Scan._is_entrypoint_trampoline` so the "wrapped" idiom (`sys.exit(asyncio.run(main(...)))`)
 # is one case rather than one fixed depth.
 #
-# Review: code-reviewer (2026-09-08-hoexec-close/close-review-fixes, finding 1 — BLOCKER) — the
+# BLOCKER) — the
 # first version of this recursed through ANY single-argument call. That is not what "wrapper"
 # means here: excluding a site as plumbing asserts the wrapper forwards `main`'s value unchanged,
 # and an arbitrary single-arg call does not. `sys.exit(jitter(main(argv)))` where `jitter` adds
@@ -273,7 +272,7 @@ class _Scan(ast.NodeVisitor):
             self.exits.append((node.lineno, list(node.args), list(self._conditions)))
         self.generic_visit(node)
 
-    # Review: code-reviewer (2026-09-08-hoexec-close/premise-check, finding 1) — the trampoline
+    # The trampoline
     # exclusion recognized only the single literal shape `sys.exit(main(...))`. Two ordinary
     # idioms fell through it and, because CONSTANT_EXIT/SEALED_EXIT are each one verdict over the
     # union of every exit site, poisoned the WHOLE file to ARMED: the call split across a variable

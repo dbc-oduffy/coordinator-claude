@@ -99,7 +99,7 @@ the tolerance gets attached to *one function* rather than to the *role*, and eve
 reaching the same check through a different entry point silently keeps the strict behaviour.
 
 **Concrete precedent (greppable).** After the C10 baton-`kind` narrow stranded sibling records,
-Claude-klabauter added D1 pre-rename alias tolerance so legacy batons stay claimable. It
+ added D1 pre-rename alias tolerance so legacy batons stay claimable. It
 applied `_tolerate_handoff_kind_aliases` as a post-process inside `validate_frontmatter()` and
 deliberately excluded `_dispatch_validate()`, on the correct stated principle that *"alias tolerance
 is a reader contract, not a writer one."* It also shipped a parity test driving both arms over the
@@ -191,10 +191,16 @@ word descriptively and it greps like one. A change that narrows the accepted set
 additive terms all require that every document valid under the prior version still validates, and
 a narrowing fails that by construction. No term fits → nearest fit on the SAFE side, with the
 `x-bump-note` saying why none applied (`peer-set-entry.schema.json` is the worked case). Overstating
-makes a sibling wait; understating lets them skip a hold they owed. Until this key existed, that CLASS lived only
+makes a sibling wait; understating lets them skip a hold they owed.
+
+**State the emitted version; tell the receiver to diff their own copy.** A producer's own
+emit-to-emit delta measures its lag, not the sibling's, and is never the notice's headline —
+`A-RE-VENDOR-NOTICE-THAT-DIFFS-ITS-OWN-EMIT-UNDERSTATES-THE-GAP`.
+
+Until this key existed, that CLASS lived only
 in prose — a
 `declaration.bump_class` free-text field on a `cross-repo-commitment.yaml` record, or a sentence
-in a commit message. No machine read either. `claude-klabauter`'s
+in a commit message. No machine read either. The engine repo's
 `coordinator_core/frontmatter/schema_drift_watch.py` can already see that a vendored schema's
 bytes moved relative to its pin (it reports a DIRECTION — `we-are-ahead` / `we-are-behind` /
 `both`) but had no way to see whether the move was COMPATIBLE or BREAKING.
@@ -253,7 +259,7 @@ two axes do **not** apply the same holding rule to the same class name:
 
   The sharpest instance of this is a **symmetric-parity subcase**, live in this repo today: when
   an enum is mirrored in a sibling repo's artifact under a parity test — this schema's `detents`
-  enum and `claude-klabauter`'s `coordinator_core.sizing_assemble.DETENT_ENUM`, guarded by
+  enum and the engine repo's `coordinator_core.sizing_assemble.DETENT_ENUM`, guarded by
   `coordinator/tests/test_sizing_route_enum_schema_parity.py::test_detent_enum_parity` —
   bilateral sequencing is not merely advisable, it is mechanically enforced: either side widening
   alone turns this repo's own suite red.
@@ -337,7 +343,7 @@ see § The trap the obvious implementation walks into, `2026-07-31-pin-gate-shap
 before hashing, so a prose-only edit to an annotation cannot move it. **`$comment` is included in
 the strip set** because this corpus parks multi-paragraph cross-field-rule rationale in
 `$comment` beside a two-line `if`/`then`; the JSON-Schema spec gives `$comment` no validation
-effect, and on a schema `claude-klabauter` vendors byte-identically a spurious bump would charge
+effect, and on a schema the engine repo vendors byte-identically a spurious bump would charge
 that sibling a re-vendor round trip for a typo fix. Everything this section says about a
 description-only edit reads identically for a `$comment`-only one. **`content_hash` is
 refreshed by the same regenerator on every run but is not itself gated** — the pin test asserts
@@ -367,7 +373,7 @@ review time. No new gate and no new warning channel were added to produce it; it
 the regenerator refreshing both fields on every invocation (§ Anti-scope,
 `2026-07-31-pin-gate-shape-hash.md` under `docs/plans/`).
 
-**Worked example:** a description-only re-vendor from `claude-klabauter` — tripped
+**Worked example:**  — tripped
 two pins under the pre-split gate (which hashed `description` prose alongside shape) and had to
 be cleared by editing `content_hash` by hand, with no mechanical evidence that the shape had
 actually held still. That incident is what motivated this split: after it, the same re-vendor
@@ -411,7 +417,7 @@ drift.** The first is already-ratified doctrine — this same section, and
 `2026-07-31-pin-gate-shape-hash.md` under `docs/plans/` — and this section inherits it unchanged. The
 second is new here and needs its own reason stated: `x-bump-class`/`x-bump-note` are DoE-side
 metadata *about* a bump, not document shape — a validator behaves identically with or without
-them, and claude-klabauter's vendored copies of `cross-repo-commitment.schema.json` and
+them, and the engine repo's vendored copies of `cross-repo-commitment.schema.json` and
 `review-findings.schema.json` lack them today at equal versions with zero property/required/type
 delta (table below).
 
@@ -420,7 +426,7 @@ namespace, not an inert-annotation prefix. The live root-level `x-*` inventory a
 `coordinator/schemas/*.schema.json` is eight keys — `x-schema-name`, `x-schema-version`,
 `x-bump-class`, `x-bump-note`, `x-generated-by`, `x-external-consumers`, `x-baton-class`,
 `x-body-sections` — and `x-baton-class` (on `handoff.schema.json`) is a derived-field lookup
-table claude-klabauter's `coordinator_core/contract/cockpit_schema/entities/summaries.py:156` reads **out
+table the engine repo's `coordinator_core/contract/cockpit_schema/entities/summaries.py:156` reads **out
 of the vendored copy**; its own docstring (:255-259) says a missing `x-baton-class.mapping`
 entry nulls silently absent a parity gate. A glob would absorb exactly that key.
 
@@ -441,14 +447,14 @@ benign entries at HEAD today, measured against both repos' committed `HEAD`:
 | `cross-repo-commitment.schema.json` | 1.1.0 / 1.1.0 | **DIFFER** | DIFFER | DoE-only `x-bump-class`, `x-bump-note`. Zero property/required/type deltas. |
 | `review-findings.schema.json` | 3.2.0 / 3.2.0 | **DIFFER** | DIFFER | DoE-only `x-bump-class`, `x-bump-note`. Zero property/required/type deltas. |
 | `improvement-queue.schema.json` | 1.2.0 / 1.2.0 | SAME | DIFFER | `description` prose only. |
-| `plan-tasks.schema.json` | 1.11.0 / 1.11.0 | SAME | SAME | Converged. Its drift window is the worked example for the section below: both copies read `1.10.0` while only claude-klabauter's declared `execution_mode`. **The gate covered it and was red** — `_shape_diff`'s AHEAD branch names the property and correctly says do NOT re-vendor. Nobody read it; claude-klabauter's own test is what surfaced it. This table is a snapshot and catches nothing on its own. |
+| `plan-tasks.schema.json` | 1.11.0 / 1.11.0 | SAME | SAME | Converged. Its drift window is the worked example for the section below: both copies read `1.10.0` while only the engine repo's declared `execution_mode`. **The gate covered it and was red** — `_shape_diff`'s AHEAD branch names the property and correctly says do NOT re-vendor. Nobody read it; the engine repo's own test is what surfaced it. This table is a snapshot and catches nothing on its own. |
 
 ### Push-side duty on a vendored-schema bump
 
 
 Everything above governs **pull-side** discipline: how a consumer's validator reacts once it
 reads a record against a schema it may not have re-vendored yet. It does not, by itself, tell
-DoE-claude to *tell* claude-klabauter a vendored schema bumped — that push-side duty is
+this repo to *tell* the engine repo a vendored schema bumped — that push-side duty is
 the sibling-notification duty. Read this doc first for whether/how a bump is holding or non-holding; that duty governs
 whether the bump also owes an explicit notice to the sibling that vendors it. The two are
 independent: a non-holding `top-level-array-additive` bump can still trigger that duty's notice
@@ -594,7 +600,7 @@ that reproduces this bug in the next oracle. Live and archived corpora are delib
 different schemas: `handoff-archived.schema.json` retains retired `kind` values on purpose (it was
 *widened* in the same C10 commit that narrowed the live schema) precisely so archived records under
 either vocabulary keep validating. An oracle that judges archived records against the live enum
-fires on data that is exactly as it should be — claude-klabauter has zero live stranded records but 25
+fires on data that is exactly as it should be — the engine repo has zero live stranded records but 25
 correctly-archived `spinoff-roadmap`, project-rag 37, example-market-data-repo 33. Rules: **live off-enum
 gates; archived off-enum reports as a non-gating warning; an absent value is a valid bucket in both
 populations and never gates** (~20 live records fleet-wide carry no `kind`). A gate that cries wolf
@@ -604,7 +610,7 @@ fired at all — the same failure in a different coat.
 **Concrete precedent (greppable):** the `baton-kind-vocabulary-one-axis-per-field` plan's C10 chunk
 narrowed `coordinator/schemas/handoff.schema.json`'s live `kind` enum, retiring
 `spinoff-goal`/`spinoff-roadmap`/`spinoff-roadmap-creator`. The plan HAD a gate for exactly this —
-chunk C5, "Consumer-corpus pre-flight" (claude-klabauter
+chunk C5, "Consumer-corpus pre-flight" (the engine repo's
 `coordinator_core/ops/fleet/consumer_corpus_preflight.py`) — and C5's own module docstring names
 **the handoff-lifecycle vocabulary overhaul** (an earlier producer-scoped-oracle failure) as the incident it was purpose-built to fix.
 It failed anyway, on the same pattern, for three structural reasons: its `FLEET_REPO_KEYS` dict was
@@ -616,6 +622,33 @@ project-rag-ue-addon (21), and example-game-workbench-repo (13) — a purpose-bu
 failure mode recurred anyway, because the fix itself inherited that incident's shape (hand-maintained
 consumer list, no fail-loud). **A purpose-built gate is not proof against the failure it was built
 to fix if it reintroduces the same hardcoded-consumer-set shape.**
+
+**The doctrine written after this incident is itself an artifact that can carry the incident's
+defect — review it like code.** The corrective paragraphs above ("reconcile against the registry"
+and "fail loud against which vocabulary") replaced an earlier draft that had, in its first pass,
+reproduced the exact hardcoded-consumer-set shape it was written to fix: "derive its consumer set
+from the machine-local registry, never hardcode it" reads as the correction, but the registry also
+carries sandbox, fixture, and scratch keys — 15 of them fleet-wide as of 2026-07-31, including a
+`/tmp` path and a UE `Saved/` directory — so a walker built literally from that sentence sweeps in
+exactly the non-repo class the original hardcoded list existed to keep out. The proposed
+`--list-receivers` escape hatch had the same hole: it emits mirrors and aliases tagged
+`is_receiver: False` and leaves the filtering to the caller. A second instance sat two sentences
+earlier in the same draft paragraph: "fail loud on an unrecognised/off-enum value" with no
+statement of *which* vocabulary judges the record — and live vs. archived corpora are deliberately
+governed by different schemas here, so a naive implementation of that sentence alone would have
+fired on ~95 correctly-archived records fleet-wide.
+
+**What makes this worth generalizing:** the write-up that caught the C10 incident had already
+stated the correct principle in bold — "a purpose-built gate is not proof against the failure it
+was built to fix if it reintroduces the same hardcoded-consumer-set shape" — and then reproduced
+that exact shape in its own corrective prose two sentences later. Recognizing a failure pattern
+does not immunize the text fixing it against reproducing that pattern. Practice: give corrective
+doctrine the same adversarial pass as the fix it accompanies. For every "derive X from Y"
+instruction, ask what junk lives in Y and whether the instruction names it. For every "reject an
+unrecognised value" instruction, ask *which* schema is doing the recognizing, since a value is
+only off-enum relative to a named vocabulary. A sibling repo's first implementation of a piece of
+doctrine is the real test of it — treat an implementation memo as a review of the doctrine, not
+merely a status report.
 
 **Watch-out — repo-name near-collision reads as a clean result.** The plan recorded "rag 0" during
 this cutover, meaning `project-rag` carried zero retired-vocabulary records — true, but the 21

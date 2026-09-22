@@ -21,20 +21,20 @@ Calibration check: if every finding you flagged is 8+, you are miscalibrated. Re
 ## Fix Classification (AUTO-FIX vs ASK)
 
 Classify every finding:
-- **AUTO-FIX** — a senior engineer would apply without discussion. Wrong API name, wrong precedence, missing import, factual error, contradicts canonical doctrine. The integrator silently applies these and reports a one-line summary.
-- **ASK** — reasonable engineers could disagree. Architectural direction, scope vs polish, cost vs value tradeoff. The integrator surfaces these to the EM for routing.
+- **AUTO-FIX** — a senior engineer would apply without discussion: wrong API name, wrong precedence, missing import, factual error, contradicts canonical doctrine. The integrator silently applies these and reports a one-line summary.
+- **ASK** — reasonable engineers could disagree: architectural direction, scope vs polish, cost vs value tradeoff. The integrator surfaces these to the EM for routing.
 
 Default rule: AUTO-FIX requires confidence ≥ 8. Findings 5–7 default to ASK. Findings < 5 are not surfaced.
 
-**Math, algebra, precedence exception:** Any finding involving symbolic reasoning is ASK regardless of confidence rating. If also rated P0/P1, the P0/P1 verification gate applies in addition — the two gates compose: P0/P1 claims from sweep agents have a poor track record, so before acting the EM or a verifier reads the cited code and confirms against current source, not the agent's paraphrase.
+**Math, algebra, precedence exception:** any finding involving symbolic reasoning is ASK regardless of confidence. If also rated P0/P1, the P0/P1 verification gate applies too — those claims from sweep agents have a poor track record, so the EM or a verifier confirms against current source before acting, not the agent's paraphrase.
 
-**Substrate re-verification before executor dispatch.** Even when a reviewer pre-resolves a substrate value via `@import` or by quoting a constant from disk, the executor MUST `ls` / `Read` the cited path before proceeding — defense-in-depth, the cited file may have moved or churned between review-time and dispatch-time.
+**Substrate re-verification before executor dispatch.** Even when a reviewer pre-resolves a substrate value via `@import` or by quoting a constant, the executor MUST `ls` / `Read` the cited path before proceeding — the file may have moved or churned since review-time.
 
-**Review-staleness pre-flight.** Reviewer findings age between write-time and integrator-apply in concurrent-EM environments. Before integrator dispatch, the EM re-verifies named paths and shape claims against current HEAD; if substrate has shifted, brief the drift in the integrator dispatch prompt explicitly. Findings older than ~2 hours on a hot branch warrant a re-verification pass.
+**Review-staleness pre-flight.** Findings age between write-time and integrator-apply in concurrent-EM environments. Before integrator dispatch, the EM re-verifies named paths and shape claims against current HEAD and briefs any drift explicitly. Findings older than ~2 hours on a hot branch warrant a re-verification pass.
 
-**SSOT claims have a scope.** Reviewer single-source-of-truth claims apply within-artifact, not cross-ecosystem. If a reviewer asserts "X is the SSOT for Y," the EM verifies the scope of the claim — does it cover this artifact only, or does it claim cross-repo authority? Cross-ecosystem SSOT claims need explicit citation; otherwise treat as within-artifact.
+**SSOT claims have a scope.** Reviewer SSOT claims apply within-artifact, not cross-ecosystem, unless explicitly cited as cross-repo authority.
 
 **False-positive patterns to suppress.**
 
-- `try/except ImportError` blocks are seam-fallback idioms (graceful runtime degrade between optional dependencies), not a bug. Reviewers should not flag these unless the fallback path is unsound.
-- Reviewer privacy/contamination findings on structured artifacts (JSON, JSONL, YAML with explicit schema) are hypothesis until verified against the schema (`additionalProperties`, `properties`, declared field list). If the schema constrains the surface, a "privacy leak" claim asserting an off-schema field exists is a false-positive. Verify the schema before scoping fix work.
+- `try/except ImportError` blocks are seam-fallback idioms, not a bug — don't flag unless the fallback path is unsound.
+- Privacy/contamination findings on structured artifacts (JSON, JSONL, YAML with explicit schema) are hypothesis until verified against the schema (`additionalProperties`, `properties`, declared fields); an off-schema-field claim the schema disproves is a false-positive.

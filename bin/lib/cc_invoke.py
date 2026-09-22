@@ -90,6 +90,7 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import json
+import math
 import os
 import subprocess
 import sys
@@ -118,7 +119,7 @@ class ProvenanceDivergenceError(RuntimeError):
     """Marks `require_dispatch_engine_on_path`'s divergent-provenance raise
     (C9), distinct from `_resolve_claude_klabauter_root`'s missed-rung RuntimeError.
 
-    Review: code-reviewer P1 (slice f5bdd60b4) — a bare `except RuntimeError`
+    A bare `except RuntimeError`
     around this call (e.g. `agent-worktree-sweep.py`) previously reframed
     EVERY cause under a "CLAUDE_KLABAUTER_ROOT resolution failed" banner, which is
     false for this one (remedy is import ordering, not CLAUDE_KLABAUTER_ROOT).
@@ -182,6 +183,152 @@ class WarmDispatchIndeterminate(RuntimeError):
     def __init__(self, message: str, op: str = "") -> None:
         super().__init__(message)
         self.op = op
+
+
+class AppliedReportUndecodableError(RuntimeError):
+    """Marks a JSON-decode failure at cc_invoke()'s rung (4) — distinct from every
+    other rung, this one only ever runs after the op process has ALREADY exited 0.
+
+    THE INVARIANT THIS RELIES ON, NOT A GUESS. By the time this rung runs,
+    `_raise_on_process_failure` has already returned normally — its own rungs
+    (2)/(3) raise on any nonzero rc or empty stdout, so returning at all means
+    rc == 0 with non-empty stdout. `coordinator_core.invoke.__main__`'s own
+    documented exit codes make rc == 0 exactly the "JSON-RPC success result
+    printed to stdout" case (`_exit_code_for_response`: 0 iff the computed
+    response carries no 'error' key) — and that response is only printed,
+    flushed, THEN the process exits (`_dispatch_argv_body` steps 8/9), in that
+    order. So a decode failure reaching this branch can never mean the op
+    failed or a mutation's write never landed: the child already reported
+    success internally, and for a mutation op that write has already applied.
+    What failed is this PROCESS's parse of the bytes the child wrote — most
+    plausibly stray diagnostic text landing on stdout ahead of (or after) the
+    real envelope, not a malformed envelope the op itself produced.
+    -> state/bug-backlog/2026-08-14-plan-tasks-resolve-reports-failure-after-
+    the-mutation-succeeded.yaml
+
+    Negative-spec: catching this is not licence to retry blindly — the op
+    already ran, and re-running it risks exactly the double-apply the row
+    above warns against. A caller with a reconcile path (e.g.
+    `coordinator-safe-commit.py`'s own `_is_indeterminate_outcome` substring
+    match, unaffected — see below) should reconcile against real state; a
+    caller with none should still not report this as "nothing happened".
+
+    Subclasses RuntimeError, so an existing `except RuntimeError` caller still
+    catches it unchanged — same pattern as `WarmDispatchIndeterminate` above,
+    whose own docstring this mirrors. The literal substring
+    "invoke stdout is not valid JSON" is preserved verbatim in every message
+    this type carries, so `coordinator-safe-commit.py`'s own substring match
+    on that text is unaffected by this type existing.
+    """
+
+
+#: The ledger lives under the user-local runtime base, NOT inside any repo.
+#:
+#: It was repo-relative for its first hours and that was wrong in a way worth
+#: recording, because the failure renders as silence. The path resolved through
+#: the registry key `repos.claude_klabauter`, on the reasoning that every session
+#: should append to one registered checkout. The publish transform REWRITES
+#: that key when mirroring source to twin -- the published copy in
+#: `claude-klabauter` asks for `repos.claude_klabauter` and gets it -- so the
+#: mirror wrote its own `state/` file. Since this box resolves its hooks to the
+#: published engine, that was most of the traffic: 8.4KB in the mirror against
+#: five rows in the source, and a reader looking only at the source rendered
+#: nothing. Silence here is indistinguishable from health, which is the exact
+#: failure `test_the_writer_and_reader_agree_on_the_path` exists to catch --
+#: and it could not, because both halves agreed on a relative tuple that two
+#: clones resolved differently.
+#:
+#: A per-box location has no source/mirror to disagree about. Same three-
+#: candidate ladder as `warm.breadcrumb._runtime_base` (env override, then
+#: `%LOCALAPPDATA%`, then `~/.cache`) -- recomputed rather than imported
+#: because this module deliberately carries no `coordinator_core` dependency,
+#: and pinned against the reader's copy by full resolved path, not by relpath.
+_ROUTE_UNREACHABLE_LEDGER = ("coordinator", "sanctioned-route-unreachable.jsonl")
+
+#: Test-isolation seam, shared with `warm.breadcrumb.RUNTIME_BASE_ENV` by name
+#: so one `monkeypatch.setenv` moves warm runtime state and this ledger
+#: together. Read at call time, never cached. Not an operator knob.
+_ROUTE_UNREACHABLE_BASE_ENV = "COORDINATOR_WARM_RUNTIME_BASE"
+
+
+def _route_unreachable_runtime_base() -> str:
+    """User-local, non-synced base — clone-independent by construction."""
+    override = os.environ.get(_ROUTE_UNREACHABLE_BASE_ENV, "").strip()
+    if override:
+        return override
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        return local
+    return os.path.join(os.path.expanduser("~"), ".cache")
+
+
+def _route_unreachable_ledger_path() -> str:
+    """Absolute path to the ledger. Its own function so a test can redirect the
+    write without monkeypatching the recorder itself -- a test that exercises
+    the raise path must not append to a live ledger, and the raise path is
+    already covered by `test_cc_invoke_indeterminate.py`."""
+    return os.path.join(_route_unreachable_runtime_base(), *_ROUTE_UNREACHABLE_LEDGER)
+
+
+def _record_route_unreachable(op: str, arrival: str) -> None:
+    """Append one row recording that a sanctioned CLI route was unreachable.
+
+    Purpose and the incident this answers: see the reader,
+    `coordinator_core.orientation.route_unreachable_signal` module docstring.
+    This is the writer half; that module is the reader and the home for the
+    full rationale.
+
+    NEGATIVE SPEC -- THIS RECORDS, IT NEVER REFUSES. The queue row's own
+    negative_spec forbids resolving that finding by blocking hand-written
+    artifacts: a rule against them converts working sessions into stalled ones
+    and changes nothing about the degradation underneath. Nothing here inspects
+    what the caller does next, and the caller's exit code is untouched.
+
+    Rows carry the op name, the entrypoint, and which arrival raised -- shape,
+    never payload. `state/` is shared append-space across ~50 concurrent
+    sessions (docs/wiki/machine-load-norm.md) and every one of them can read
+    this file, so params never land here; the question the ledger answers is
+    "which routes went unreachable, to how many sessions, over what window",
+    which needs no argument values. Same discipline, and the same single
+    `os.open(O_APPEND|O_CREAT)` + one `os.write` untorn-row idiom, as
+    `cross-repo-memo.py :: _record_unsound_raw_cmdline_transport`.
+
+    Cost: error path only. Both call sites are about to raise, so no successful
+    dispatch pays for this -- the brightline budget is untouched by
+    construction, not by being fast.
+
+    Never raises. A ledger write failure must not convert an honest
+    indeterminate into a second, unrelated error on the way out.
+    """
+    try:
+        ledger_path = _route_unreachable_ledger_path()
+        row = {
+            "arrival": arrival,
+            "entrypoint": os.path.basename(sys.argv[0] or "?"),
+            "op": op or "?",
+            "session": os.environ.get("CLAUDE_SESSION_ID")
+            or os.environ.get("COORDINATOR_SESSION_ID")
+            or "",
+            "ts": _utc_now_iso_seconds(),
+        }
+        os.makedirs(os.path.dirname(ledger_path), exist_ok=True)
+        line = (json.dumps(row, sort_keys=True) + "\n").encode("utf-8")
+        fd = os.open(ledger_path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o644)
+        try:
+            os.write(fd, line)
+        finally:
+            os.close(fd)
+    except Exception:  # noqa: BLE001 -- see docstring; best-effort by contract
+        pass
+
+
+def _utc_now_iso_seconds() -> str:
+    """UTC timestamp, second resolution. Local helper so the recorder above
+    needs no module-scope `datetime` import on a file whose import cost every
+    coordinator CLI on the box pays."""
+    import datetime
+
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +466,7 @@ def _reset_op_timeout_cache() -> None:
 # (Plan C de-bash wave R — see state/debt-backlog/ for the tracked entry); this
 # comment previously claimed the opposite (subprocess-into-bash) and drifted
 # from the code four lines below it.
-# Review: code-reviewer — stale docstring at cc_invoke.py:116-119 contradicted
+# Stale docstring at cc_invoke.py:116-119 contradicted
 # _resolve_claude_klabauter_root()'s own docstring ("no bash subprocess anywhere in the
 # ladder"); corrected to describe the native ladder it introduces.
 # ---------------------------------------------------------------------------
@@ -751,7 +898,7 @@ def _report_provenance(caller: str, root: str, axis: str) -> ProvenanceReport:
             return report
         from coordinator_core.engine_provenance_counter import record_engine_provenance
 
-        # Review: code-reviewer P1 — omitting cwd left resolve_git_root_cheap's
+        # Omitting cwd left resolve_git_root_cheap's
         # `if not cwd: return None` guard firing on every call, so the sink
         # silently never wrote a record (indistinguishable at the call site
         # from an intentional unresolvable-root degrade). os.getcwd() is a
@@ -925,7 +1072,7 @@ def _norm_path_for_split_compare(path: str) -> str:
     """normcase over realpath, falling back to normcase(abspath) if realpath
     raises (e.g. a broken junction or an inaccessible ancestor).
 
-    Review: code-reviewer P2 (slice a6725136cee84332c) — plain
+    Plain
     abspath+normcase never resolves a symlink/junction/8.3-short-name
     spelling to canonical form, so two spellings of one physical tree can
     read as a false split. realpath closes that gap; the fallback keeps
@@ -1317,7 +1464,7 @@ def _emit_should_pass_repo_fail_open(branch: str, op: str) -> None:
     function's docstring), not an unresolved scope. Swallows its own failure:
     a broken stderr write must not take the transport down.
 
-    # Review: coordinator:code-reviewer — keyed on (branch, op), not branch alone,
+    # Keyed on (branch, op), not branch alone,
     # so a second genuinely-different op hitting the same fail-open branch still
     # gets its own warning instead of being silenced by the first op's emission.
     """
@@ -1350,7 +1497,7 @@ def _should_pass_repo(op: str, claude_klabauter_root: str | None = None) -> bool
     hardcoding an op list, so this wrapper and the engine's own refusal can never
     drift apart again.
 
-    Review: code-reviewer (P3) — a bare `from coordinator_core.op_scopes import
+    A bare `from coordinator_core.op_scopes import
     ...` here relies on coordinator_core already being importable from the
     CALLING process's ambient sys.path, which is NOT guaranteed: a caller script
     living at coordinator/bin/*.py (e.g. coordinator-workflow-scaffold.py) has
@@ -1559,6 +1706,14 @@ _IMPORT_ERROR_TOKENS = ("importerror", "modulenotfounderror", "no module named")
 #: stdout is not a parseable JSON-RPC envelope. A traceback or a debug dump can
 #: run to megabytes; the raised message has to stay readable in a terminal.
 _OP_ERROR_DETAIL_CAP = 2000
+
+#: Cap on the raw-stdout prefix `cc_invoke()` includes when the JSON-RPC envelope
+#: itself fails to decode (rung (4), a process-succeeded-but-unparseable-stdout
+#: case distinct from `_op_error_detail`'s nonzero-exit rung above). Without this,
+#: a decode failure reported only `json.JSONDecodeError`'s "line 1 column 1"
+#: text — discarding the bytes that would classify it (stdout pollution ahead of
+#: the envelope vs. a genuinely malformed one) and forcing a fresh repro.
+_JSON_DECODE_FAILURE_PREFIX_CAP = 500
 
 
 #: `warm.client.WARM_DISPATCH_INDETERMINATE`, restated rather than imported.
@@ -1775,6 +1930,7 @@ def _raise_on_process_failure(
                 "request was delivered and never answered; the op MAY have "
                 "completed. Reconcile against real state before re-running."
             )
+            _record_route_unreachable(op, "cold-spawn")
             raise WarmDispatchIndeterminate(
                 f"{message}\n{detail}" if detail else message, op=op
             )
@@ -1922,23 +2078,67 @@ def _op_timeout_ceiling(op: str, claude_klabauter_root: str, env: dict[str, str]
     `max`, which is exactly how the retired FLOOR grew. An op that needs a wider wait
     needs a wider ENGINE budget, declared server-side where a ratchet can see it.
 
-    Ceremony ops need no special case HERE and deliberately do not get one: their 2s
-    engine budget arrives through the ordinary `--dump-op-timeouts` read (the engine
-    projects every `ceremony.*` op explicitly for exactly this reason), so the formula
-    yields 2 + 2 = 4 without knowing anything about ceremonies. The margin still applies
-    because it bounds the CLIENT's wait -- cold python startup is the client's problem,
-    not the engine's budget -- and collapsing the client wait onto the engine budget
-    would kill legitimate cold dispatches. What ceremony ops do get is a different REMEDY
-    text; see `_timeout_exceeded_message`.
+    THE ENGINE PUBLISHES TWO NUMBERS FOR A CEREMONY OP, and this ceiling must clear the
+    larger. `engine_budget(op)` is a PERFORMANCE bar (2s, a ratchet); the engine's warm
+    client separately keeps reading the answer to a mutation it has already put on the
+    wire for a TRANSPORT deadline that is deliberately not ceremony-clamped
+    (`ipc.mutation_read_deadline_for`, 30s), because abandoning a delivered commit
+    converts a slowness report into an unknown-whether-it-committed. Sizing this ceiling
+    off the performance bar alone killed the child at 2 + 2 = 4s, so the
+    `WARM_DISPATCH_INDETERMINATE` envelope -- the one signal that tells an operator a
+    commit may have landed -- could never be returned on the ops that commit. Taking the
+    max of the engine's two published numbers is what keeps the client's wait inside its
+    own parent's ceiling, which is the invariant this whole derivation exists for.
+
+    A WARM MISS IS A THIRD ENGINE NUMBER, and it ADDS rather than competes. On a miss
+    the child has already spent up to one liveness read, then waits for a server to
+    answer, and only then starts the read the max above covers -- a mutation's read is
+    never shortened to fit, since a cut delivered mutation is a false indeterminate.
+    `__warm_miss_wait__` is that pre-read cost, and a ceiling of read + margin killed a
+    child that was being served (30 + 2 = 32s against 2 + 2 + 30s). Rounded up, not
+    truncated: undershooting is the defect this term exists to close. Absent on an
+    older engine, it contributes 0, exactly as before.
+
+    STILL NOT A WIDENING KNOB. Both terms are the ENGINE's, read live from
+    `--dump-op-timeouts`, and no environment read re-enters here (see the negative-spec
+    above). The op is still held to its 2s budget and still reported when it misses; what
+    changes is that the client survives long enough to say so. An older engine that does
+    not publish the transport row degrades to the budget alone, exactly as before.
+
+    Ceremony ops need no special case for the MARGIN and deliberately do not get one: it
+    bounds the CLIENT's wait -- cold python startup is the client's problem, not the
+    engine's budget -- and collapsing the client wait onto the engine budget would kill
+    legitimate cold dispatches. What ceremony ops do get is a different REMEDY text; see
+    `_timeout_exceeded_message`.
     """
     global _OP_TIMEOUTS_BREADCRUMB_SHOWN
 
     _resolve_op_timeouts(claude_klabauter_root, env, _DUMP_PROBE_TIMEOUT_SECS)
 
     if _OP_TIMEOUTS_STATE == "ok":
-        budget = _OP_TIMEOUTS_MAP.get(op, _OP_TIMEOUTS_MAP["__default__"])
+        is_ceremony = _is_ceremony_op(op)
+        if op in _OP_TIMEOUTS_MAP:
+            budget = _OP_TIMEOUTS_MAP[op]
+        elif is_ceremony:
+            # The dump's projection is driven by the engine's op-keying table, while
+            # its dispatcher prefix-matches; a `ceremony.*` op the table omits is
+            # still clamped server-side, so "__default__" would overstate it by 15x.
+            # This is the bound "__ceremony_budget__" is published FOR.
+            budget = _OP_TIMEOUTS_MAP.get(
+                "__ceremony_budget__", _OP_TIMEOUTS_MAP["__default__"]
+            )
+        else:
+            budget = _OP_TIMEOUTS_MAP["__default__"]
+
+        read_deadline = _OP_TIMEOUTS_MAP.get(f"__ceremony__{op}")
+        if read_deadline is None and is_ceremony:
+            read_deadline = _OP_TIMEOUTS_MAP.get("__ceremony_mutation_read_deadline__")
+        if read_deadline is not None:
+            budget = max(budget, read_deadline)
+
         budget_int = int(budget)  # integer-truncate a float budget (e.g. 30.0 -> 30)
-        return budget_int + _CLIENT_START_MARGIN_SECS
+        miss_wait = math.ceil(_OP_TIMEOUTS_MAP.get("__warm_miss_wait__", 0.0))
+        return budget_int + miss_wait + _CLIENT_START_MARGIN_SECS
 
     if _OP_TIMEOUTS_STATE == "error" and not _OP_TIMEOUTS_BREADCRUMB_SHOWN:
         print(
@@ -1974,16 +2174,29 @@ def is_timeout_error(exc: BaseException) -> bool:
 def _is_ceremony_op(op: str) -> bool:
     """Client-side mirror of `coordinator_core.ipc.is_ceremony_method`.
 
-    Deliberately a prefix test re-spelled here rather than an import: this module is
-    the thin client that runs BEFORE and INSTEAD OF loading the engine — importing
-    `coordinator_core.ipc` (which pulls asyncio) to answer a string question would put
-    an engine import on the client's own cold path, which is the cost this whole file
-    exists to avoid. The duplication is safe because the prefix is the contract: the
-    engine budgets by name, so a client that matches by name cannot disagree with it
-    about membership, only about the number — and the number is read from the engine's
-    own `--dump-op-timeouts`, never guessed here.
+    Not an import, and it may not become one: this module is the thin client that runs
+    BEFORE and INSTEAD OF loading the engine, so importing `coordinator_core.ipc`
+    (which pulls asyncio) to answer a string question would put an engine import on the
+    client's own cold path — the cost this whole file exists to avoid.
+
+    THE PREFIX IS NOT THE CONTRACT, and this function used to say it was. The engine's
+    membership is a UNION of three signals — the `ceremony.` prefix,
+    `ipc._CEREMONY_PACKAGE_ALIASES`, and the owning module — so `commit.exec_bit_change`
+    and `review.snapshot_diff_and_head` are ceremony ops with no prefix to match. A bare
+    prefix test called them ordinary: they got the wrong remedy text, and their ceilings
+    were sized as if the client's own warm read deadline did not apply to them, which is
+    a 4s parent against a 30s child on an op that commits.
+
+    So membership is READ, not re-derived. `--dump-op-timeouts` publishes a
+    `__ceremony__<op>` row for every op the engine itself classes as ceremony, and this
+    function trusts that assertion. The prefix survives as the arm that needs no dump:
+    it is true for a `ceremony.*` op the dump does not list, and it is the only answer
+    available at all on the degraded branches (an older engine, a failed probe), where
+    the remedy text still has to choose.
     """
-    return op.startswith("ceremony.")
+    if op.startswith("ceremony."):
+        return True
+    return f"__ceremony__{op}" in _OP_TIMEOUTS_MAP
 
 
 def _timeout_exceeded_message(op: str, timeout: int) -> str:
@@ -2003,10 +2216,26 @@ def _timeout_exceeded_message(op: str, timeout: int) -> str:
     ceiling no longer reads the environment at all (see `_op_timeout_ceiling`'s
     negative-spec), so naming those variables would now also be false.
 
-    What survives is the derivation with real numbers — the reader still learns which
-    term bound the wait — plus the one remedy that works: reconcile, then make the op
-    cheaper. The reconcile line is on EVERY branch, not just ceremony ops: a client-side
-    timeout never stops the engine, so any op that mutates may already have landed.
+    CLAIMS ONLY WHAT THE DOOR KNOWS (C4, docs/plans/2026-09-20-stop-the-engine-
+    spawning-to-talk-to-itself.md). Two sentences were cut, both unsupportable and
+    both contradicted on 2026-09-21 while the reader was being told to trust them:
+
+      - *"The engine does not stop when this client does"* — an assertion about the
+        engine's behaviour that this process cannot observe. What the door knows is
+        that it sent a request and no answer arrived inside the deadline. The
+        CONSEQUENCE that mattered survives, and is now stated first: a mutating op
+        may have landed, so reconcile.
+      - *"Make the op cheaper: fewer spawns, batched git, a warm path"* — a diagnosis,
+        not a fact, and a wrong one on the measured day. A stamped `ping` took 28.8s
+        through a resident door whose process and every pool member sat at 0.0% CPU
+        (docs/research/warm-door-in-process-reentry/c1-isolation-boundary.md). There
+        was nothing to make cheaper. A remedy that names the wrong cause teaches the
+        reader to discount the whole message, and this one must be read every time.
+
+    What survives is the reconcile instruction, exactly as strong as it was — it is
+    the half that was right — plus the derivation with real numbers, so the reader
+    still learns which term bound the wait. The reconcile line is on EVERY branch,
+    not just ceremony ops: any op that mutates may already have landed.
 
     The degraded branch (dump unavailable) states the ceiling without asserting a budget
     number it could not read.
@@ -2018,7 +2247,8 @@ def _timeout_exceeded_message(op: str, timeout: int) -> str:
     # COORDINATOR_DISPATCH_TIMEOUT_SECS here would hand the reader a remedy that
     # provably cannot work (the engine clamps ceremony ops with `min()` AFTER
     # reading that var) and would point them at the one door the ratchet exists
-    # to close. The honest remedy for a ceremony breach is the op, not the cap.
+    # to close. The ratchet is stated as a FACT, last, so it forecloses the knob
+    # without being read as this breach's cause.
     if _is_ceremony_op(op):
         budget_txt = ""
         if _OP_TIMEOUTS_STATE == "ok":
@@ -2029,12 +2259,10 @@ def _timeout_exceeded_message(op: str, timeout: int) -> str:
                 budget_txt = f" against a {ceremony_budget}s ceremony budget"
         return (
             f"{_TIMEOUT_MESSAGE_PREFIX}{timeout}s (op={op}) — "
-            f"the ceremony did not complete{budget_txt}\n"
-            "  The ceremony budget is a ratchet; no env var widens it. Make the op\n"
-            "  cheaper: fewer git spawns, batched pathspecs, a warm path.\n"
-            "  The engine does not stop when this client does — a mutating ceremony\n"
-            "  may still have committed. Reconcile against real repo state before\n"
-            "  re-running.\n"
+            f"no answer arrived{budget_txt}\n"
+            "  A mutating ceremony may have committed. Reconcile against real repo\n"
+            "  state (e.g. `git log`) before re-running.\n"
+            "  The ceremony budget is a ratchet; no env var widens it.\n"
             "  docs/decisions/DR-348-the-ceremony-budget-is-a-ratchet.md"
         )
 
@@ -2047,13 +2275,99 @@ def _timeout_exceeded_message(op: str, timeout: int) -> str:
     else:
         derivation = "the no-budget fallback (engine op-budget dump unavailable)"
     return (
-        f"{_TIMEOUT_MESSAGE_PREFIX}{timeout}s (op={op}) — the op is over budget\n"
-        f"  Exceeded {timeout}s = {derivation}.\n"
-        "  The client wait is derived from the engine's own budget; nothing outside the\n"
-        "  engine widens it. Make the op cheaper: fewer spawns, batched git, a warm path.\n"
-        "  The engine does not stop when this client does — a mutating op may still have\n"
-        "  landed. Reconcile against real repo state before re-running."
+        f"{_TIMEOUT_MESSAGE_PREFIX}{timeout}s (op={op}) — no answer arrived\n"
+        f"  Waited {timeout}s = {derivation}.\n"
+        "  A mutating op may have landed. Reconcile against real repo state (e.g.\n"
+        "  `git log`) before re-running.\n"
+        "  The client wait is derived from the engine's own budget; nothing outside\n"
+        "  the engine widens it."
     )
+
+
+#: Mirror of `coordinator_core.telemetry.op_latency.ROUTE_ENV` / `WARM_SERVER`.
+#: Spelled here, not imported: this module carries no `coordinator_core` import
+#: at module scope, and every coordinator CLI on the box pays its import cost.
+#: Pinned against the engine's own constants by
+#: `coordinator/bin/tests/test_cc_invoke_in_process_reentry.py`.
+_ROUTE_ENV = "COORDINATOR_EXECUTION_ROUTE"
+_ROUTE_WARM_SERVER = "warm_server"
+
+
+def _try_in_engine_dispatch(
+    op: str,
+    params: dict[str, Any],
+    repo_root: str,
+    claude_klabauter_root: str,
+) -> dict[str, Any] | None:
+    """Dispatch `op` in THIS process when this process is already inside the
+    warm engine's process tree. Returns the JSON-RPC response, or `None` to
+    fall through to today's warm-then-cold ladder unchanged.
+
+    WHY. An op running in a warm dispatch pool worker that spawns a
+    `coordinator/bin/` CLI (`backfill_initiative_fk`, `deliverable_rollup`,
+    `central_run_due`, ...) hands that CLI an inherited
+    `COORDINATOR_EXECUTION_ROUTE=warm_server` -- `server._worker_process_init`
+    sets it and nothing scrubs it. The CLI then took BOTH legs this function
+    removes: it dialled the resident door it was already running under -- a
+    request queued behind the very pool worker waiting on it -- and on a miss
+    spawned `python -m coordinator_core.invoke`, an interpreter start to ask
+    the engine a question the engine was already holding. DR-344: "an
+    interpreter start ahead of warmth is break-class."
+    (docs/research/warm-door-in-process-reentry/c1-isolation-boundary.md)
+
+    The value read here is already correctly present at every such call site;
+    nothing new is plumbed. `hooks/group_em_autofire.py` made this same change
+    for one op and recorded it as "one fewer process spawn per fire ... not a
+    re-architecture".
+
+    FALLS THROUGH, never raises, on anything that happens BEFORE dispatch: the
+    route env unset (the common case -- every caller outside the engine), the
+    engine not importable, or a worktree-scoped op whose worktree cannot be
+    walked. A caller outside the engine must be untouched.
+
+    NEVER FALLS THROUGH once dispatch has begun. An exception out of
+    `dispatch_message` means the op may have run; retrying it through the warm
+    or cold leg would be the double execution `WarmDispatchIndeterminate`
+    exists to prevent. That raises instead.
+    """
+    if os.environ.get(_ROUTE_ENV) != _ROUTE_WARM_SERVER:
+        return None
+    path_before = list(sys.path)
+    try:
+        _front_insert_on_path(claude_klabauter_root)
+        import asyncio
+
+        from coordinator_core.git.repo_root import show_toplevel
+        from coordinator_core.invoke.dispatch import dispatch_message
+        from coordinator_core.op_scopes import WORKTREE_SCOPED_OPS
+    except Exception:  # noqa: BLE001 -- pre-dispatch: fall through, see docstring
+        # Falling through promises the ladder an untouched process; the
+        # front-insert above is the one mutation this attempt made.
+        sys.path[:] = path_before
+        return None
+
+    # Unique per CLI process, so anything that logs by id can tell two
+    # in-engine calls apart.
+    msg: dict[str, Any] = {"jsonrpc": "2.0", "id": f"in-engine-{os.getpid()}", "method": op, "params": params}
+    if op in WORKTREE_SCOPED_OPS:
+        # `show_toplevel` WALKS ONLY and never spawns; the cold path's
+        # `_resolve_repo_root` would add a git spawn to a function whose whole
+        # purpose is removing one.
+        worktree = show_toplevel(repo_root)
+        if not worktree:
+            return None
+        msg["_origin_worktree"] = worktree
+    msg["_caller_cwd"] = os.getcwd()
+
+    try:
+        return asyncio.run(
+            dispatch_message(msg, caller="coordinator.bin.lib.cc_invoke._try_in_engine_dispatch")
+        )
+    except Exception as exc:  # noqa: BLE001 -- post-dispatch: surface, never retry
+        raise RuntimeError(
+            f"cc_invoke: in-engine dispatch raised (op={op}): {exc!r}. The op may "
+            "have run; reconcile against real state before re-running."
+        ) from exc
 
 
 def _try_in_process_warm_reach(
@@ -2235,6 +2549,7 @@ def _apply_warm_envelope(
             WARM_DISPATCH_INDETERMINATE = None
         if WARM_DISPATCH_INDETERMINATE is not None and code == WARM_DISPATCH_INDETERMINATE:
             # (1a) delivered-but-unanswered mutation -- refuse, never spawn.
+            _record_route_unreachable(op, "warm-hit")
             raise WarmDispatchIndeterminate(
                 f"cc_invoke: warm dispatch indeterminate (op={op}): {message}",
                 op=op,
@@ -2324,6 +2639,10 @@ def cc_invoke(
 
     Raises:
         RuntimeError: on any transport failure. Never returns legacy after a spawn.
+        AppliedReportUndecodableError (a RuntimeError subclass): specifically on rung
+            (4)'s JSON-decode failure — the op process has already exited 0 by that
+            point, so this always means the op already succeeded and the failure is
+            confined to parsing its report. See that type's own docstring.
     """
     # An already-resolved root is accepted from route() to avoid a double resolution
     # on the State-2 path.
@@ -2334,6 +2653,10 @@ def cc_invoke(
     # -> a warm-served response, handled by the SAME rung-(2)/(4) logic the
     # cold-spawn's own parsed stdout gets below, applied to this envelope
     # instead (see `_apply_warm_envelope`'s own docstring for the mapping).
+    _in_engine = _try_in_engine_dispatch(op, params, repo_root, claude_klabauter_root)
+    if _in_engine is not None:
+        return _apply_warm_envelope(op, _in_engine, "", _stderr_sink)
+
     _warm_response, _warm_stderr = _capture_warm_reach(op, params, repo_root)
     if _warm_response is not None:
         return _apply_warm_envelope(op, _warm_response, _warm_stderr, _stderr_sink)
@@ -2386,7 +2709,7 @@ def cc_invoke(
 
         try:
             proc = subprocess.run(
-                # Review: cross-slice (DR-148) — sys.executable ensures the same interpreter that
+                # cross-slice (DR-148) — sys.executable ensures the same interpreter that
                 # loaded cc_invoke.py is used; hardcoded "python3" breaks on Windows.
                 argv,  # popup-safe-env-suppressed
                 capture_output=True,
@@ -2419,8 +2742,15 @@ def cc_invoke(
     try:
         envelope = json.loads(stdout_text)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(
-            f"cc_invoke: invoke stdout is not valid JSON (op={op}): {exc}"
+        _prefix = stdout_text[:_JSON_DECODE_FAILURE_PREFIX_CAP]
+        raise AppliedReportUndecodableError(
+            f"cc_invoke: invoke stdout is not valid JSON (op={op}): {exc}\n"
+            "  The invoke process exited 0 — per coordinator_core.invoke's own "
+            "exit-code contract that only happens after a clean success envelope "
+            "was already printed, so this op has ALREADY SUCCEEDED (and, for a "
+            "mutation, already applied). This is a transport-report failure, not "
+            "an op failure — do not retry; reconcile against real state instead.\n"
+            f"  stdout (first {len(_prefix)} of {len(stdout_text)} chars): {_prefix!r}"
         ) from exc
 
     if not isinstance(envelope, dict):
@@ -2507,6 +2837,10 @@ def cc_invoke_bare(
     # envelope instead (see `_apply_warm_envelope`'s own docstring for the
     # mapping; its unwrap-to-`result` return is the warm-hit analogue of the
     # already-bare `--bare` stdout this function otherwise parses).
+    _in_engine = _try_in_engine_dispatch(op, params, repo_root, claude_klabauter_root)
+    if _in_engine is not None:
+        return _apply_warm_envelope(op, _in_engine, "", _stderr_sink)
+
     _warm_response, _warm_stderr = _capture_warm_reach(op, params, repo_root)
     if _warm_response is not None:
         return _apply_warm_envelope(op, _warm_response, _warm_stderr, _stderr_sink)

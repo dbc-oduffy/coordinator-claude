@@ -138,7 +138,7 @@ APPROVED = "approved"
 #: its own lock, refusing what the bar fails — so it IS "gate and stamp", in one op, and the bar
 #: below it is the DIAGNOSTIC for a refusal rather than a step before it. Naming the op by its
 #: wire name and not a path is deliberate: its invocation shape is the host's
-#: (`snippets/resolve-coordinator-bin.md`), which this read cannot resolve for a reader whose
+#: (`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`), which this read cannot resolve for a reader whose
 #: shell it never sees, and a plausible dead path is the failure mode the tests below pin.
 _REPAIR = {
     "UNSTAMPED": (
@@ -153,7 +153,7 @@ _REPAIR = {
 }
 
 #: The authoring bar every repair above routes to. A PLUGIN-LOCAL sibling, so it self-resolves off
-#: the plugin root — rung 3 of `snippets/resolve-coordinator-bin.md` — rather than through the
+#: the plugin root — rung 3 of `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` — rather than through the
 #: engine seam the bar itself uses for ITS forward reference. Absolute by construction, because
 #: this read's whole purpose is running over a CONSUMER repo (`--repo-root`), and the DoE-relative
 #: literal `coordinator/bin/mise-prep-gate.py` these repairs used to print resolves nowhere there.

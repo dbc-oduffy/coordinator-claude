@@ -98,28 +98,28 @@ polyglot class to preserve. The single target shape for every `coordinator/bin` 
 (ceremony/shell contexts) or the `.cmd` (Windows `cmd.exe`) — never bareword-through-a-shell,
 never a bash/git-bash wrapper.
 
-The ~16 remaining `#!/bin/sh` polyglot CLIs (the ones the claude-klabauter
+The ~16 remaining `#!/bin/sh` polyglot CLIs (the ones the engine repo's
 `block_bin_polyglot_break.py`/`block-bin-polyglot-break.sh` guard used to protect, until it was
-removed in claude-klabauter — the polyglot invariant it enforced is retired) are **legacy
+removed in the engine repo — the polyglot invariant it enforced is retired) are **legacy
 debt on the kill-bash roadmap**, not a coequal permanent class held open-ended. The polyglot shape
 was a crutch for shell-invoking a Python tool; since nothing should shell-invoke these bareword,
 the crutch has no remaining job. Any current git-bash reliance on one of the ~16 is a bug to gut,
 not a surface to preserve.
 
 `cross-repo-memo` is named the first migration candidate: its logic migrates to pure Python on
-Claude-klabauter with a thin CLI/`.cmd` front, no bash wrapper. That rewrite is a separate claude-klabauter-routed
-workstream (§ Cross-repo write discipline — code/install-surface changes route via
-`cross-repo-memo` + PM-relay, never a direct DoE write to claude-klabauter), not folded into the plan that
-ratified this doctrine.
+the engine repo with a thin CLI/`.cmd` front, no bash wrapper. That rewrite is a separate
+engine-routed workstream (§ Cross-repo write discipline — code/install-surface changes route via
+`cross-repo-memo` + PM-relay, never a direct write from the doctrine repo to the engine repo),
+not folded into the plan that ratified this doctrine.
 
 ## Forward obligation across the doctrine/engine boundary
 
 The invocation-parity invariant (Unix shebang+exec-bit path symmetric with the `.cmd` launcher,
-generator-owned) is a **preserved forward obligation**, not a DoE-implementation-only detail. If
-`claude-klabauter` later extracts the bin-generation/install surface under that boundary, the invariant
-travels with the surface — it does not lapse on extraction. Any DoE→claude-klabauter relay of this
-obligation is a doctrine-seeding forward-notice (not a bug report), routed via
-Claude-klabauter `coordinator/bin/cross-repo-memo` + PM-relay per `CLAUDE.md § Cross-repo
+generator-owned) is a **preserved forward obligation**, not a doctrine-repo-implementation-only
+detail. If the engine repo later extracts the bin-generation/install surface under that boundary,
+the invariant travels with the surface — it does not lapse on extraction. Any doctrine-repo→engine-repo
+relay of this obligation is a doctrine-seeding forward-notice (not a bug report), routed via
+the engine repo's `coordinator/bin/cross-repo-memo` + PM-relay per `CLAUDE.md § Cross-repo
 write discipline`.
 
 ## The reader-side half — what the docs tell an operator to TYPE {#reader-side-invocation}
@@ -140,7 +140,7 @@ Doctrine, skills, and snippets historically cited coordinator binaries in the ba
 
 ```
 InvalidOperation: Cannot run a document in the middle of a pipeline:
-C:\Users\<you>\.coordinator-claude-settings\bin\install-health-run.
+<drive>:\Users\<you>\.coordinator-claude-settings\bin\install-health-run.
 ```
 
 **Use the `.cmd` twin** — one exists beside every entry, and `BIN-ENTRYPOINT-NEEDS-CMD-TWIN`
@@ -176,5 +176,5 @@ doctrine cites the snippet rather than restating either form.
 - `install-surface-completeness.md` — the broader "works on every machine" doctrine this wiki is
   the invocation-layer instance of; § Windows-chmod commit mechanic for the exec-bit-in-index
   detail.
-- The ratifying decision record lives in the DoE-claude source repo's `docs/decisions/` and does
+- The ratifying decision record lives in the doctrine source repo's `docs/decisions/` and does
   not ship; its absence downstream is expected.

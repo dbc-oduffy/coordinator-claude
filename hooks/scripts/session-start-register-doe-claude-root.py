@@ -49,7 +49,7 @@ resolution anchor (`coordinator_core.trusted_root_guard._doe_root`,
 `OperatorConfigError` on `''`), a SEPARATE namespace from
 `engine.working_repos.doe_claude` by design (DR-132 — do not merge them).
 Unlike the `engine.working_repos.*` key above, `repos.doe_claude` is
-operator-set and a box may legitimately hold more than one DoE clone with
+operator-set and a box may legitimately hold more than one doctrine-repo clone with
 the operator pointing the sibling map at whichever one they're using —
 this hook only fills the key in when it is absent or empty (the
 `baton-assemble brief` failure mode this hook exists to close); it never

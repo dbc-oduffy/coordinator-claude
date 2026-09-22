@@ -161,7 +161,7 @@ def _run_machine_local(machine_local_bin: Path, *args: str) -> subprocess.Comple
     effect on POSIX, where `machine_local_bin` is a direct shebang exec and
     `str` vs `list` args behave identically for arguments with no spaces."""
     if os.name == "nt":
-        # Review: code-reviewer — the naive f'"{arg}"' wrapping below performs
+        # The naive f'"{arg}"' wrapping below performs
         # NO escaping, so an argument containing a literal `"` breaks the
         # quoting outright, and an argument ending in `\` immediately before
         # the appended closing `"` is a classic Windows command-line escape
@@ -453,7 +453,7 @@ def _default_repo_root() -> Path:
         return co_located
     if rung == "doe-root-pointer":
         return co_located
-    # Review: code-reviewer — pin on the resolved *path* being the DoE clone,
+    # Pin on the resolved *path* being the DoE clone,
     # not the rung label; a cwd-inside-DoE-clone hit resolves via rung 2
     # ("repo-local-git"), which the label-only check never caught (Finding 1).
     resolved_path = Path(resolved).resolve()

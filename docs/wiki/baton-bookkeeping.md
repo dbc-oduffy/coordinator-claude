@@ -20,7 +20,7 @@ This is reference prose, not a skill body — worked detail belongs here in a wa
 
 ## The two archivers, and which preconditions belong to which
 
-Two distinct claude-klabauter ops move a handoff's file on disk. Conflating their preconditions is
+Two distinct engine-repo ops move a handoff's file on disk. Conflating their preconditions is
 the specific error this page corrects — the three-condition precondition set below belongs to the
 *other* archiver, not `handoff_archive_transition.py`.
 
@@ -28,18 +28,18 @@ the specific error this page corrects — the three-condition precondition set b
 `mode=supersede`/`stamp_shipped`/`chain`). Its own preconditions, in the order the op evaluates
 them:
 
-- **Terminal `deployment_state`** (`claude-klabauter coordinator_core/ops/handoff_archive_transition.py:1676-1677` —
+- **Terminal `deployment_state`** (the engine repo's `coordinator_core/ops/handoff_archive_transition.py:1676-1677` —
   refuses unless the candidate's `deployment_state` is in `_TERMINAL_DEPLOYMENT_STATES`, a local
   frozenset the op defines and gates on itself — `handoff_archive_transition.py` never imports
   `lifecycle_constants`, and this local set is `{shipped, continued, closed}`, omitting
   `abandoned`, which `HANDOFF_TERMINAL_DEPLOYMENT` below carries).
-- **The live-children guard** (`claude-klabauter coordinator_core/ops/handoff_archive_transition.py:1424-1434` —
+- **The live-children guard** (the engine repo's `coordinator_core/ops/handoff_archive_transition.py:1424-1434` —
   unconditional across every mode, tri-state: guard exit 1 = safe, proceed; exit 0 (has live
   children) or exit 2 (indeterminate) = retain, never an error).
 - **No claim-holder check at all.** This op does not read who holds the claim — a live
   `claimed_by`/`consumed_by` session does not block either the status flip or the move.
 
-**`claude-klabauter coordinator_core/ops/fleet/archive_terminal_handoffs.py`** (`plan_sweep`/`_scan_terminal`, fronted by `bin/sweep-terminal-handoffs.py` — the general archiver; it subsumed the deleted `sweep-shipped-handoffs.py`, and the session-boot sweep that also fired this class is killed) and **`claude-klabauter coordinator_core/ops/fleet/
+**the engine repo's `coordinator_core/ops/fleet/archive_terminal_handoffs.py`** (`plan_sweep`/`_scan_terminal`, fronted by `bin/sweep-terminal-handoffs.py` — the general archiver; it subsumed the deleted `sweep-shipped-handoffs.py`, and the session-boot sweep that also fired this class is killed) and **the engine repo's `coordinator_core/ops/fleet/
 archive_shipped_handoffs.py`** (`::216`, the `shipped`-only sweep) are the *stricter* selector the
 three-condition set actually describes: terminal `deployment_state`, **childless** (`reverse_membership`
 over the DAG index, `archive_handoffs.py:925-937`), and **no live claim holder**
@@ -53,7 +53,7 @@ selector above, a *different* selector from the live-children guard on
 `handoff_archive_transition.py` this page documents first. The two ops answer different questions —
 "is it safe to move at successor-mint" vs. "is it safe for the boot-sweep to reap it later" — and
 their precondition sets are not interchangeable. `HANDOFF_TERMINAL_DEPLOYMENT` is defined once, at
-`claude-klabauter coordinator_core/lifecycle_constants.py:42` — today `{shipped, abandoned, continued,
+the engine repo's `coordinator_core/lifecycle_constants.py:42` — today `{shipped, abandoned, continued,
 closed}`.
 
 ---
@@ -62,7 +62,7 @@ closed}`.
 
 `continued_into` is the forward succession edge (schema
 `coordinator/schemas/handoff.schema.json:718-727`), written by `_supersede_continued`
-(`claude-klabauter coordinator_core/ops/handoff_archive_transition.py:603`). Two facts about when it
+(the engine repo's `coordinator_core/ops/handoff_archive_transition.py:603`). Two facts about when it
 fires are load-bearing and easy to conflate:
 
 - **The status flip is unconditional, ahead of the guard** (`handoff_archive_transition.py:1381-1394`
@@ -113,18 +113,36 @@ gap to close.
 ## The `## Session Ledger` carve-out
 
 Every claimed body is frozen once claimed — no appended session notes, no edited
-Progress/Recommended-Next-Steps blocks. One exception: a `## Session Ledger` block takes one
-appended row per session. It is an accumulator, not narration — chain LoE sums those rows across the
-chain (`session_ledger.aggregate_chain_loe`), so a session that never appends renders the chain as
-zero effort. Append at `/workstream-complete` or `/handoff`, in the format the block's own comment
-declares, one row, never edited after.
+Progress/Recommended-Next-Steps blocks. One exception: a `## Session Ledger` block takes
+**one row per (session, ceremony)** — not one row per session. It is an accumulator, not
+narration — chain LoE sums those rows across the chain
+(`session_ledger.aggregate_chain_loe`), so a session that never appends renders the chain as
+zero effort. Append at `/workstream-complete` or `/handoff`, in the format the block's own
+comment declares, one row per closing ceremony, never edited after.
+
+A session that runs two closing ceremonies against one baton (e.g. a small
+pickup-reconciliation close followed by a full `/workstream-complete`) appends two rows, one
+per ceremony — the one-row-per-session key silently kept only the first (and usually
+smaller) of the two, understating chain LoE with nothing marking it.
+Of the three shapes on offer there, "one row per (session, ceremony)" is chosen over a
+superseding row (which would need extra bookkeeping just to know which row a later reader
+should trust) and over refusing the first append until a "genuinely-final ceremony" signal
+exists (no such signal exists today, and building one is a bigger, separate change) —
+and over the ruling that a session "should not close two workstreams" (the
+`/workstream-complete` mutual-exclusion doctrine already permits exactly this: "Two
+workstreams (one done, one live) → end each separately, naming which"). Keeping the freeze
+on editing and widening the uniqueness key from `session_id` to `(session_id,
+closing_ceremony)` is the smallest change that makes the ledger honest: rows stay
+append-only, and the row format already parses multiple rows per session, so no schema
+change is needed to make the two rows readable. See
+`coordinator/tests/fixtures/session-ledger-two-ceremony.md` for a worked example.
 
 ---
 
 ## Archive-fallback: a moved baton still resolves from its stale path
 
 A baton absent at its passed live path may already have been swept by a concurrent archival move.
-`baton.resolve_swept_in_archive` (`claude-klabauter coordinator_core/ops/resolve_swept_baton.py`,
+`baton.resolve_swept_in_archive` (the engine repo's `coordinator_core/ops/resolve_swept_baton.py`,
 registered at `_registry_map.py:244`) resolves it by basename `rglob` against the known archive
 roots, regardless of which month directory it landed in — a skewed `created:`-vs-filename date
 mis-files a record, it never loses it (spike § E1c). The eager-supersede spike exercised this path
@@ -132,13 +150,12 @@ directly (§ E2): with a parent force-archived, `pickup-assemble brief` on the p
 path falls back to the archive path and resolves cleanly; the surviving child remains enumerable,
 claimable, and pickup-resolvable with its parent archived.
 
-**Known defect, claude-klabauter surface, not DoE's to patch:** the CLI/JSON-RPC transport for this op fails
+**Known defect, engine-repo surface, not the doctrine repo's to patch:** the CLI/JSON-RPC transport for this op fails
 on every archived handoff — `_read_frontmatter` returns a raw `yaml.safe_load`, so an unquoted
 `created: 2026-08-14` arrives as a `datetime.date` the JSON-RPC serializer rejects
 (`{"error":{"code":-32603,"message":"Handler returned non-serializable result: Object of type date
 is not JSON serializable"}}`). The in-process handler is fine; only the invoke-CLI transport is
-broken. Routed to claude-klabauter by memo (spike § "Break-class defect found en route").
-
+broken. 
 ---
 
 ## What archiving forecloses

@@ -4,8 +4,8 @@
 
 This doctrine-plane repo owns only this thin PLUMBING shim (DR-047
 transport-seam carve-out, same shape as `preuse-write-dispatch.py` and
-`guard-settings-integrity.py`): resolve the claude-klabauter engine, call its
-resolver IN-PROCESS, relay the result. Claude-klabauter owns the resolution LOGIC
+`guard-settings-integrity.py`): resolve the engine repo, call its
+resolver IN-PROCESS, relay the result. The engine repo owns the resolution LOGIC
 (`coordinator_core.session.mode_resolution.resolve_mode`, keyed on
 `COORDINATOR_JOB_MODE`, forwarded across the warm door) -- this stub adds no
 content logic of its own beyond formatting the two lines below. No bash, no
@@ -49,7 +49,7 @@ Contract:
   exit 0  -- ALWAYS.
 
 Graceful degradation -- REQUIRED, unconditional: any failure to resolve the
-Claude-klabauter engine, import it, or call `resolve_mode` falls through to silent
+engine repo, import it, or call `resolve_mode` falls through to silent
 fail-open (exit 0, no stdout, nothing raised) -- identical philosophy to
 `preuse-write-dispatch.py`. A missing sibling engine must never brick
 session start. Once a mode value IS in hand, the two output legs are
@@ -148,7 +148,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open -- claude-klabauter unresolvable on this machine
+        return 0  # fail-open -- engine repo unresolvable on this machine
 
     _place_engine_root_on_path(root)
 
@@ -180,7 +180,7 @@ def main() -> int:
 
     # Whether the value was explicitly ASSERTED via COORDINATOR_JOB_MODE, or
     # fell through to the conservative anchor -- read the same public wire
-    # name and enum claude-klabauter exports (never re-spelled here; see this
+    # name and enum the engine repo exports (never re-spelled here; see this
     # module's own docstring and mode_resolution.py's "ONE place the wire
     # name is spelled fleet-wide"). `job_mode` is `environment-wins`, so a
     # raw value inside the declared enum always IS the resolved value;

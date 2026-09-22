@@ -206,6 +206,18 @@ When the PM questions a budget ceiling at pickup ("is N really the right limit? 
 
 **Rule.** A questioned budget/ceiling at pickup is a cue to attempt the cuts, not to litigate the number. Cut to the target, observe whether anything load-bearing breaks, and surface to the PM *only* if the cuts hurt — with the specific hurt as the evidence. Theoretical "this rule isn't sourced" does not, on its own, qualify as resistance worth a round-trip; it qualifies as a reason to gather the empirical answer first. This is the ceremony-calibration axis applied to budget questions: cutting is the cheap direct action, debating-the-target is the over-ceremony failure mode. Composes with `coordinator/snippets/em-operating-doctrine.md` § How to Decide — the empirical cut *is* the verification you do before asking.
 
+## `wsc_commit`'s internal timeout is not extendable via the invoke wrapper
+
+`ceremony.wsc_commit`'s own `coordinator_core.ipc` timeout (30s) is independent of the `cc_invoke` wrapper's `CC_INVOKE_TIMEOUT_SECS` — raising the wrapper's value to 90 does not help, because the op's own internal timeout fires first regardless of what the caller allows. Under concurrent-fleet index contention the ceremony tail (scaffold, stamp, stage, commit, push, claim-release) can time out mid-tail, after the scaffold/stamp steps land but before the commit. Recovery is further complicated if a concurrent `fleet.archive_completed_plans` moves the governing plan out of `docs/plans/` mid-run. Recovery path: finish the deterministic tail by hand — `reconcile-completion-commits.sh --append`, an explicit-path commit of the completion entry plus lesson plus sidecars plus handoff-stamp, let the auto-push hook push, then `cs_release_artifact plan <slug>`. Don't retry the whole ceremony call expecting a longer wrapper timeout to help; it won't.
+
+## "Environmental" is a diagnosis to test, not a verdict to stop on
+
+Category labels for a test failure — environmental, flaky, pre-existing, not-ours — are hypotheses about a cause, not findings. Each is cheap to test and expensive to accept, because accepting one stops the investigation exactly where the interesting thing usually is. A dispatched executor reported two failures as an environmental `pyarrow` crash; confirming with a single run and stopping there (reporting N-2 of N fixed) let the crash mask an ordinary assertion failure underneath it — a real deposit-accounting gap that would otherwise have stayed invisible behind the environmental label indefinitely. The crash itself turned out to be a one-line DLL load-order fault.
+
+**Rule.** Test the label before reporting it as a verdict, and never inherit a category label from a subagent without testing it yourself.
+
+**Sizing corollary from the same incident.** A substrate-level finding surfaced while sweeping unrelated work is not automatically the size of the ask that surfaced it — the standing sizing rule is that a substrate-condition probe raised mid-task does not get applied to the ask's own sizing. Declaring it in-scope regardless inflates a small ask into something much larger until the PM rejects the inflation; route a substrate finding as its own item, not as evidence the original ask was bigger than sized.
+
 ## Companion doctrine
 
 - `docs/wiki/writing-plans.md` — plan-pipeline mechanics

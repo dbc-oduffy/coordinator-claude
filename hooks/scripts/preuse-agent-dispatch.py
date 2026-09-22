@@ -38,19 +38,10 @@ nothing) is emitted verbatim.
 FAILURE ISOLATION. Guards 1-3 each run inside their own `try/except
 BaseException` -- one guard crashing skips only that guard (with a stderr
 skipped-list breadcrumb) and the dispatcher proceeds to the next, mirroring
-`stop-dispatch.py`'s per-guard isolation. NAMED RESIDUAL, not a defect: guard 2
-(block-unenumerated-agent-type.py) documents its own fail-CLOSED behaviour on
-a *transport* failure (unresolvable engine root, unimportable engine module, a
-raising `check()` call) -- but that behaviour is encoded INSIDE its own `main()`
-via internal try/excepts that emit a deny JSON, so `main()` itself does not
-raise on any of the failure modes its own docstring names; this dispatcher's
-outer isolation wrapper is a defence-in-depth catch for a genuinely unexpected
-crash in THIS file's own invocation plumbing (a bug in `_invoke`, a malformed
-`sys.modules` entry, etc.), and on that narrow residual it fails OPEN for
-guard 2 same as every other guard here, converting the guard's own fail-closed
-contract to fail-open only in a case that contract's own docstring never
-claimed to cover. This is named, not silently accepted: see the ANTI-DODGE
-note in this dispatch's run-report.
+`stop-dispatch.py`'s per-guard isolation. Guard 2
+(block-unenumerated-agent-type.py) handles its own unreachable-engine legs
+inside `main()` by passing loudly, so this wrapper only ever catches a genuine
+crash in the invocation plumbing.
 
 Guard 4 (`enforce-agent-dispatch-mode.py`) is NOT wrapped in the same
 try/except -- it is the sole `updatedInput` emitter and its own `main()`

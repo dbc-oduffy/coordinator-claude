@@ -69,7 +69,7 @@ Operating rules:
 
 ### Running ad-hoc
 
-`normalize-handoff-frontmatter.js` migrated to claude-klabauter's `coordinator/bin/` — resolve `$REPO_CLAUDE_KLABAUTER` per `percolate-setup.md` § PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT.
+`normalize-handoff-frontmatter.js` migrated to the engine repo's `coordinator/bin/` — resolve `$REPO_CLAUDE_KLABAUTER` per `percolate-setup.md` § PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT.
 
 ```sh
 # Dry-run (preview only):
@@ -123,9 +123,9 @@ referenced in `coordinator/skills/handoff/SKILL.md` § Handoff Lineage.
 ### Archival — Option-A cutover mechanics
 
 
-As of 2026-07-12, archival is an **event-driven** operation owned by claude-klabauter's engine, replacing a
+As of 2026-07-12, archival is an **event-driven** operation owned by the engine, replacing a
 prior shell-side mtime-polling veto (Option A, chosen over re-keying the shell veto in place —
-PM direction: "lean on claude-klabauter," extending the engine's existing boot-time-archival ownership
+PM direction: "lean on the engine," extending its existing boot-time-archival ownership
 rather than patching the shell-side mechanism it was meant to replace). The cutover's concrete
 migration sequence:
 
@@ -141,13 +141,33 @@ migration sequence:
 Treat C1–C7 as an ordered checklist, not independently schedulable items — C2/C3 depend on C1
 being gone first, and C4 validates C2/C3.
 
-**Graceful degrade, not fail-loud, when claude-klabauter is absent (AC2, PM-confirmed).** The event-driven
-archival op is claude-klabauter-primary, not hard-required: with claude-klabauter present, archival runs through the
-engine op; with claude-klabauter absent, archival must still self-archive via a veto-less fallback that
+**Graceful degrade, not fail-loud, when the engine is absent (AC2, PM-confirmed).** The event-driven
+archival op is engine-primary, not hard-required: with the engine present, archival runs through the
+engine op; with the engine absent, archival must still self-archive via a veto-less fallback that
 skips the (retired) mtime veto logic entirely rather than blocking or erroring out. Do not
-confuse "claude-klabauter-primary" with "claude-klabauter-required," and do not re-introduce mtime-based archival
+confuse "engine-primary" with "engine-required," and do not re-introduce mtime-based archival
 vetoes in shell as a "quick fix" — the veto-less fallback, not a veto re-key, is the intended
 degrade path.
+
+**Chain-archiving a predecessor must flip `status` in the same move.** When a successor handoff
+is created and its predecessor is chain-archived (`git mv` to `archive/handoffs/`), the
+predecessor's `status: active` is frequently left un-flipped — landing an archived file that
+still reads `status: active` + `deployment_state: ready_to_fire`, i.e. a "live, pickable" handoff
+sitting in the archive. The chain-archive step must, in the same commit, set `status: consumed` +
+a truthful `deployment_state` (`in_flight` if the successor continues the workstream, `abandoned`
+if superseded-and-dropped), optionally with `consumed_by: <successor-basename>`. An archived
+handoff with an active status is not a stale record, it is a dangerous one — a reader or sweep can
+treat it as still fireable.
+
+**`handoff.ship_and_archive` receipts are not proof the DoE-side mutation ran.** The
+Claude-klabauter-driven (pipeline-inverted) `/workstream-complete` `wsc_commit` op records "ship consumed
+handoff" and stub-close as receipt nodes but has been observed NOT to execute the corresponding
+DoE-side mutation — the consumed handoff stays `consumed`/`in_flight` and the roadmap stub-index
+stays stale even though the receipt says the step ran. After a chain-terminal `wsc_commit`,
+verify the handoff and any origin stub on disk rather than trusting the receipt; if unshipped,
+ship and refresh them manually via the archive-stamp CLI's stamp-only mode. A stub-close call
+no-ops silently unless the plan/handoff itself carries `roadmap_id`/`stub_id` — that silent no-op
+is expected, not a bug to chase.
 
 ### Query surfaces
 
@@ -182,13 +202,14 @@ degrade path.
 Historically a handoff covered only involuntary/voluntary continuation (context ran out,
 session ending) — but a distinct sub-shape emerged organically: the **execution handoff**,
 used at the plan-review → `/execute-plan` seam, where a reviewed plan has been authorized and
-a fresh execution session is deliberately spun up to run it (per First Officer Doctrine's
-"ask, don't assume" rule for execution of a reviewed plan — see `plan-execute-session-split.md`
+a fresh execution session is deliberately spun up to run it (the Starfleet Officer Doctrine
+carries no "ask, don't assume" sub-rule for execution of a reviewed plan under that name,
+and no successor location is confirmed; see `plan-execute-session-split.md`
 for the authorization-stamp mechanics themselves).
 
 A 2026-07-17 fleet-wide sweep found **120 de-facto execution handoffs across 8 repos** already
 using this shape informally, with **five divergent dialects** across siblings. The 2026-07-17
-DoE contract 
+contract 
 formalized this into schema rather than leaving it as convention, and shipped it same-day.
 
 ### An orthogonal field, not a new kind
@@ -278,14 +299,14 @@ state. These are two **distinct live sub-states** along an axis orthogonal to
 - **Survey before you formalize.** The schema work here followed, not preceded, a fleet-wide
   empirical sweep (six scouts, 8 repos) that established the dialects already in informal use.
   The formalization target (four-field stamp, `handoff_phase` enum) was chosen to match the
-  dominant existing dialect (claude-klabauter/market-intel "full" dialect) rather than inventing a new
+  dominant existing dialect (the engine repo/market-intel "full" dialect) rather than inventing a new
   shape from scratch.
 
 ### Gotchas
 
 - **Convention drift across repos predates the schema.** The 2026-07-17 census found five
-  dialects: claude-klabauter/market-intel (full four-field stamp), cockpit/rag (mostly just `_by`),
-  DoE (mixed), example-game-repo (no stamp at all). Do not assume any given repo's pre-2026-07-17
+  dialects: the engine repo/market-intel (full four-field stamp), cockpit/rag (mostly just `_by`),
+  this repo (mixed), example-game-repo (no stamp at all). Do not assume any given repo's pre-2026-07-17
   handoff records conform to the four-field stamp — check the phase/cutoff logic before
   treating a record's absence of stamp fields as a validation failure.
 - **`handoff_phase` presence outside `kind:session-handoff` is a hard failure, not a warning**,
@@ -312,19 +333,19 @@ state. These are two **distinct live sub-states** along an axis orthogonal to
 
 `deployment_state` and `status` transitions are increasingly expressed as named **verbs**
 (`handoff.transition <verb>`) rather than by-hand frontmatter edits, ported one at a time from
-coordinator JS into claude-klabauter's Python engine (the contract-vs-engine split — DoE authors the
-verb contract, claude-klabauter owns the implementation).
+coordinator JS into the engine's Python implementation (the contract-vs-engine split — this repo authors the
+verb contract, the engine owns the implementation).
 
 ### Verb inventory (as of 2026-07-13)
 
 | Verb | Effect | Status |
 |------|--------|--------|
-| `consume` | `status: open → claimed`, stamps `claimed_at`/`claimed_by` | Ported to claude-klabauter; DoE side `strangle_route`d |
-| `supersede` | marks abandoned with lineage pointer | Ported to claude-klabauter |
-| `ship` | marks `deployment_state: shipped` | Ported to claude-klabauter |
-| `unconsume` | reverses `consume`: `status: claimed → open`; `deployment_state {in_flight\|ready_to_fire} → ready_to_fire`; strips `claimed_at`/`claimed_by` (and defensively any stray `consumed_at`/`consumed_by`); optional `note` param writes `park_note` frontmatter | Shipped (claude_klabauter60 tests green); DoE wired via `cs_unconsume_handoff` |
-| `gate-recheck` | re-evaluates a `blocked_by`/`gate_dependency` edge, clears if satisfied | Ported to claude-klabauter 2026-07-13 (was DoE-JS-only, `strangle_route`d after) |
-| `repark` | re-blocks a handoff; fail-loud when the handoff is not `in_flight` (guard preserved across the port) | Ported to claude-klabauter 2026-07-13 |
+| `consume` | `status: open → claimed`, stamps `claimed_at`/`claimed_by` | Ported to the engine; this repo's side `strangle_route`d |
+| `supersede` | marks abandoned with lineage pointer | Ported to the engine |
+| `ship` | marks `deployment_state: shipped` | Ported to the engine |
+| `unconsume` | reverses `consume`: `status: claimed → open`; `deployment_state {in_flight\|ready_to_fire} → ready_to_fire`; strips `claimed_at`/`claimed_by` (and defensively any stray `consumed_at`/`consumed_by`); optional `note` param writes `park_note` frontmatter | Shipped (engine60 tests green); this repo wired via `cs_unconsume_handoff` |
+| `gate-recheck` | re-evaluates a `blocked_by`/`gate_dependency` edge, clears if satisfied | Ported to the engine 2026-07-13 (was local-JS-only, `strangle_route`d after) |
+| `repark` | re-blocks a handoff; fail-loud when the handoff is not `in_flight` (guard preserved across the port) | Ported to the engine 2026-07-13 |
 
 **`unconsume` resolves the body-freeze problem:** once a handoff's `status` flips to `consumed`, it
 becomes an immutable archival record by convention — `unconsume` is the sanctioned way to reopen
@@ -343,7 +364,7 @@ writes fail loud; advisory stamps fail soft.
 
 ### Auto-reconcile engine — retired, do not re-arm
 
-`handoff.reconcile_open` is a dead op — engine-side unclassified, pinned dead by three claude-klabauter
+`handoff.reconcile_open` is a dead op — engine-side unclassified, pinned dead by three engine-repo
 tests, kill-ledger K-057 (superseding the earlier K-026 entry). No cadence invokes it, no wrapper
 consumes it, and no doctrine in this file depends on it being live. Two propagation rules survive
 independent of the retired op and remain in force: an `abandoned` handoff's gate is never silently
@@ -388,7 +409,7 @@ If any predicate fails, the reaper falls through to **release**, not abandonment
 `archive-stamp-cli`'s `unconsume-handoff` verb, returning the handoff to the pool (`status: active`,
 `deployment_state: ready_to_fire`, `consumed_by`/`claimed_by` and `consumed_at`/`claimed_at` stripped, a `park_note:` recording
 the release). The handoff stays in `state/handoffs/` and is NOT archived — archival only ever
-happens after a handoff reaches `shipped` via claude-klabauter `coordinator/bin/sweep-terminal-handoffs.py`, run from `/workday-start` Step 1.47 on demand, or via `/workday-complete`'s `reap-orphaned-in-flight-handoffs` + `handoff-housekeeping` pair, which owns the dead-holder case. Not on any boot-time trigger — that sweep is killed.
+happens after a handoff reaches `shipped` via the engine repo's `coordinator/bin/sweep-terminal-handoffs.py`, run from `/workday-start` Step 1.47 on demand, or via `/workday-complete`'s `reap-orphaned-in-flight-handoffs` + `handoff-housekeeping` pair, which owns the dead-holder case. Not on any boot-time trigger — that sweep is killed.
 **There is no liveness-based auto-abandonment.** `abandoned` is reachable only by
 explicit human/session decision, never by this sweep — a fail-closed-to-`abandoned` default
 silently destroys handoffs and must not be restored.
@@ -400,10 +421,10 @@ mutating anything.
 
 ### Ship-oracle design — ship, don't abandon
 
-Completion witnessing for handoffs is **DoE-local**, not sourced from claude-klabauter's cross-repo
-receipt. The canonical oracle is claude-klabauter `coordinator/bin/rollup-derive.py`'s deliverable-spine oracle — it derives
-completion from the DoE-local completion-entry witness. This explicitly replaces cross-repo
-receipt coupling to claude-klabauter's `wsc` (workstream-complete) receipt — do not reach for the claude-klabauter
+Completion witnessing for handoffs is **local to this repo**, not sourced from the engine's cross-repo
+receipt. The canonical oracle is the engine repo's `coordinator/bin/rollup-derive.py`'s deliverable-spine oracle — it derives
+completion from the local completion-entry witness. This explicitly replaces cross-repo
+receipt coupling to the engine's `wsc` (workstream-complete) receipt — do not reach for the engine's
 receipt as the completion signal. The completion-entry's `authored_by` witness is only trusted
 when gated behind an unambiguous 1:1-binding predicate (one completion-entry maps unambiguously
 to one handoff; ambiguous bindings do not count as a witness) — the architectural sibling of the
@@ -449,13 +470,13 @@ mechanisms disagreed on what "terminal" means. Fixed by widening `_is_terminal` 
 predicate: Branch A (`status == consumed` AND `deployment_state != in_flight`), Branch B (`status`
 anything, `deployment_state` in `HANDOFF_TERMINAL_DEPLOYMENT`). That set is four-member —
 `{shipped, continued, closed, abandoned}`, `abandoned` carried for legacy records only — and has a
-single home in `claude-klabauter coordinator_core/lifecycle_constants.py`. Read it from there; a
+single home in the engine repo's `coordinator_core/lifecycle_constants.py`. Read it from there; a
 hand-written copy of the member list is how the two branches silently diverged before.
 
 ### `/pickup` archive-fallback directory nesting
 
 `/pickup`'s Step 1 (Classify, Load, and Reconcile Against Reality) archive-fallback resolution originally used flat `[ -f <path> ]` existence
-checks, but DoE's actual archive layout sweeps handoffs into month-nested directories
+checks, but this repo's actual archive layout sweeps handoffs into month-nested directories
 (`archive/handoffs/2026-07/…`), so a swept baton dead-ended to "Ambiguous" instead of resolving as
 shipped. Fixed to `find` recursively across `cross-repo/archive`, `archive/handoffs`,
 and `archive/completed` — tolerates flat, month-nested, or any other layout. When adding a new
@@ -467,7 +488,7 @@ regress to the same "Ambiguous" failure mode.
 Some handoffs whose workstream fully shipped were observed left at `deployment_state: active`/
 `awaiting_gate` forever — never stamped terminal, so no sweep was ever eligible to archive them
 (e.g. a roadmap stub + its execution handoff, still live-labelled while all its child chunks
-shipped). The terminal-transition *engine verb* (`handoff_transition.ship`) is claude-klabauter's, but the
+shipped). The terminal-transition *engine verb* (`handoff_transition.ship`) is the engine's, but the
 *callers* are coordinator skills — `/workstream-complete`'s close and `/handoff` chain-archival.
 When authoring or auditing a new ship-path, confirm it actually invokes the terminal transition
 rather than assuming a downstream sweep will catch it — nothing sweeps a handoff that was never
@@ -490,3 +511,106 @@ pickup can find most tail chunks (observed: 5 of 6) are no-op or premise-correct
 confirmed-live get an executor. This is cheap relative to a wrong executor dispatch, and it is the
 tracker-side application of coordinator/docs/wiki/verification-discipline.md § Premises Are Hypothesis — Verify Against Disk, Not Prose ("handoff framing is
 hypothesis, not ground truth — read cited code before acting").
+
+**The verdict table is a hypothesis in both directions, not just the OPEN column.** Pickup
+doctrine already covers re-verifying items an inherited handoff calls OPEN — concurrent sessions
+routinely close a large fraction of such a list. The symmetric error is unguarded: an item the
+handoff writes off as dead, changed-shape, or already-closed deserves the same re-verification,
+not a free pass. A reconciliation baton once declared an item dead because the tracked successor
+record had been "wholly rewritten" — true, and irrelevant, because the item actually targeted two
+archived records whose own state was fully intact and unaddressed. Had only the live rows been
+re-checked, that write-off would have been carried forward as settled indefinitely. Treat every
+row of a verdict table — dead or open — as a claim to spot-check, not a label to trust.
+
+**`/workstream-complete` cannot see a plan the same session authored — it caps unexecuted work as
+clean.** A session that *authors* a plan never claims it; claim acquisition is `/pickup`'s alone,
+and the handoff path releases rather than acquires. Governing-plan resolution therefore has no
+input on a plan-authoring session, and every check keyed on it reports the healthy-looking
+absence — "not applicable, no open rows on the governing plan" — while a plan committed by that
+same session sits on disk with open, unauthorized rows. Multiple independent tail checks asking
+"is anything in flight" can each answer "cannot resolve" and have that read as "nothing in
+flight." When a session both authors and closes in the same sitting, check its own just-committed
+plans directly rather than trusting governing-plan resolution to surface them.
+
+---
+
+## Schema, Graph-Key, and Review-Trail Integrity Gaps
+
+**A dependency stated in prose but absent from frontmatter does not exist to a scheduler.**
+Humans reading a plan see a coherent dependency order; ceremonies like `/mise-en-place` and
+handoff-triage read `blocked_by`/`blocks`/`deployment_state` keys, not paragraphs. The two
+diverge silently: a plan can name its gate in `gate_dependency` prose while omitting it from
+`blocked_by`, or declare `blocks: [X, Y]` that neither X nor Y reciprocates, or assert an edge in
+its body with no graph keys at all. Any of these executes out of order with every individual gate
+passing. The same rule applies to conventions and mitigations generally: an ordering pinned only
+in an audit document is inert, because no executor reads audits. If a constraint must bind a
+machine, it has to be encoded in the key the machine actually reads.
+
+**`kind: spinoff-roadmap` handoffs have shipped with schema-invalid `gate_dependency`/`stub_id`.**
+A comment-only `gate_dependency` (parses to `null`) fails validation because the schema wants a
+string or omission, and `ready_to_fire`'s cross-field rule requires the key to be empty or
+*omitted*, not merely falsy — two validators in tension over the same field. Separately, a
+`spinoff-roadmap` handoff has shipped carrying `tc_id` where `stub_id` was expected, failing
+`cs_consume_handoff` on pickup. The fix belongs at the authoring skill (emit `stub_id`; omit,
+don't null-comment, a cleared `gate_dependency`); the pickup-time workaround is to delete the
+stray `gate_dependency` line and add `stub_id` before consuming.
+
+**A tool accepting your artifact without complaint is not schema validation.** The brief/read
+path (e.g. `pickup-assemble brief`) parses frontmatter; it does not validate against the schema.
+A hand-authored handoff has shipped clean through that path while carrying real schema
+violations — a status value from a retired enum, a typed-string field set to `null`, a key
+present alongside a deployment state whose cross-field rule forbids the key's presence at all
+(not just a truthy value). Only the write-time PreToolUse hook validates against schema; when
+hand-authoring a schema-backed handoff instead of taking a scaffolder the hook offers, validate
+explicitly against `coordinator/schemas/<kind>.schema.json` rather than inferring health from any
+tool that merely consumed the record without erroring. Note when validating by hand: an unquoted
+`YYYY-MM-DD` parses to a date object under PyYAML, so a naive harness will false-positive a
+"not of type string" finding on every record in the corpus — stringify before comparing, and
+don't "fix" the corpus to satisfy your own harness.
+
+**A review sidecar and an integration sidecar both existing does not mean the review landed
+before the integration.** A plan can carry a review-integration commit and a reviewer's sidecar
+(e.g. `REQUIRES_CHANGES` with several findings) that both read as "done" at a glance, while the
+integration pass actually ran *before* the reviewer's findings landed — so the integration
+ledger covers only the sidecars that existed at integration time, and the later findings,
+including a real correctness defect, sit un-applied with nothing on disk flagging the gap. At
+pickup or reconcile, do not treat the existence of a review-integration sidecar as proof its
+sibling reviews are integrated: compare each review sidecar's commit against the integration
+commit, and read the integration ledger's own finding list for which oracles it actually
+consumed. This matters most where reviewer dispatch and integration dispatch are separate waves
+that can interleave.
+
+**Per-stub review during a sprint does not satisfy the close-time coverage gate — the trail
+record is the coverage, not the review having happened.** A ten-stub sprint can have every stub
+genuinely reviewed — multiple reviewers, every finding integrated and verified — and still have
+`/workstream-complete`'s chain coverage gate return uncovered, because `state/review-trail/` is
+what the gate reads, and no trail record was written at review time. A review that happened but
+left no trail record is, to every downstream gate and successor session, indistinguishable from a
+review that never happened. Write the trail record at the moment of the review, not deferred to a
+closing ceremony that may be handed to a different session — deferring bookkeeping bets the same
+session runs the close, and on a shared branch `sha_range` usually cannot be a contiguous span of
+just your own commits, so the record gets harder to write the longer it's deferred. Separately,
+the close-time partitioned review this gate enforces is not a duplicate of the per-stub reviews:
+per-stub review checks a stub against its own acceptance criteria, while the close-time pass sees
+the integrated whole and is the only pass positioned to catch a defect whose fix was verified
+against the stub's framing rather than against the system it lands in. Budget for a chain-terminal
+close to require this re-review rather than treating "uncovered" as a bookkeeping nuisance to
+waive — and note that running the gate can itself mint an auto-ancestry waiver that reports
+"covered" with no review having occurred, so a waiver is an accounting artifact, never evidence
+the work was reviewed.
+
+**Every coordinator ceremony validates the artifact it owns; defects live in the disagreements
+*between* surfaces.** Plan frontmatter, completion entries, ceremony records, and git are each
+individually well-formed and each pass their own gate, so defects accumulate specifically where
+two surfaces disagree and nothing reads across them — a plan stamped `implemented` at a fraction
+of its acceptance criteria, an unfinished plan with no owner, a daily summary truncated by a
+ceremony that ran early, a stale plan stamp, a docstring claiming a sibling module "has not
+landed" work that a later commit already exported. None of this is hidden; every fact is usually
+already written down correctly in its own artifact. What's missing is a reader comparing two
+artifacts and noticing they disagree. Cheap cross-surface checks worth doing on reconcile: a
+plan's `status:` against its completion entry; a baton's `blocks:` against whether the named stub
+has a live owner; a daily summary's `covered_tip_sha` against that day's actual last commit; a
+plan's correction blocks against its own stamp; a module docstring's claim about a sibling against
+that sibling's landed code. Corollary for authors: a negative-spec or "not yet landed" claim is a
+dated assertion, not a permanent fact — it goes stale the moment the thing lands, and nothing will
+tell you.

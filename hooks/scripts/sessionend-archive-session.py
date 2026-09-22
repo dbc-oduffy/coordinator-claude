@@ -23,14 +23,14 @@ Contract:
   exit 0  -- ALWAYS. Archival here is explicitly best-effort (the 24h
              reaper is the backstop for anything this hook misses) and must
              never block session teardown. Every failure mode -- unparsable
-             stdin, absent session_id, unresolvable claude-klabauter root, a
+             stdin, absent session_id, unresolvable engine root, a
              non-zero/timed-out archive-session-scope.py -- degrades to a silent no-op.
 
 Why a subprocess shim rather than an in-process coordinator_core import
 (unlike track-dispatched-agents.py / nudge-em-code-dispatch.py, which import
-and call a claude-klabauter op directly): the archival logic already lives behind a
+and call an engine-repo op directly): the archival logic already lives behind a
 CLI surface purpose-built for this exact call --
-`coordinator/bin/archive-session-scope.py archive-session --sid <sid>` (claude-klabauter,
+`coordinator/bin/archive-session-scope.py archive-session --sid <sid>` (the engine repo,
 see its own module docstring) -- ported there from this repo's
 workstream-complete SKILL.md specifically so the tail-arg assembly and the
 session-scope archive share one non-fatal-by-design entrypoint. Re-importing
@@ -157,7 +157,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open -- claude-klabauter unresolvable on this machine
+        return 0  # fail-open -- engine repo unresolvable on this machine
 
     archive_cli = Path(root) / "coordinator" / "bin" / "archive-session-scope.py"
     if not archive_cli.is_file():

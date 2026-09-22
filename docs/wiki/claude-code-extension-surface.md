@@ -28,7 +28,7 @@ architecture — Sonnet/Haiku workers dispatched via `Agent`, returning `DONE: <
 sidecar-pointer text — is **structurally unreachable** by that whole flag family. The one place
 this repo shells out `claude --print` at all is the six-item contract at
 `coordinator/docs/claude-cli-subprocess-contract.md`, and even its executable call sites migrated
-to `claude-klabauter` — this repo tracks zero `coordinator/bin/` files. Treat
+to the engine repo — this repo tracks zero `coordinator/bin/` files. Treat
 every CLI flag below as "useful if we ever build a subprocess-shaped tool," not as something a
 dispatched agent can reach today.
 
@@ -59,13 +59,13 @@ dispatched agent can reach today.
 | `Stop` | Claude finishes responding | **YES** | — | `runtime-tripwire-em-check.py` (idle check), `runtime-tripwire-stop-watcher.py` (async, `asyncRewake`, 1800s) |
 | `StopFailure` | turn ends on API error | no | inconclusive — no reproducible trigger | — |
 | `SubagentStart` | subagent spawned | no | **fires** — carries `agent_id` (stable join key vs `SubagentStop`) + `agent_type`; fires before the subagent's own tool calls | would pair with the `SubagentStop` detector below to distinguish "never started" from "started and hung" |
-| `SubagentStop` | subagent finishes | **YES** | — | `subagent-zero-tool-use-detect.py` (counts `tool_use` blocks via a claude-klabauter op) |
+| `SubagentStop` | subagent finishes | **YES** | — | `subagent-zero-tool-use-detect.py` (counts `tool_use` blocks via an engine-repo op) |
 | `Notification` | Claude Code sends a notification | no | inconclusive — no notification-emitting condition reachable headlessly | — |
 | `MessageDisplay` | assistant message text streams | no | **fires** — once per message chunk, `final: true` on the last | — |
-| `ConfigChange` | a config file changes mid-session | no | **fires** on a tool-caused write to `.claude/settings.local.json` (`source: local_settings`). Untested: out-of-band edits, `settings.json`, user-tier files | could self-defend the hook stack itself — nothing today notices a mid-session `hooks.json` edit or `disableAllHooks: true` |
+| `ConfigChange` | a config file changes mid-session | no | **fires** on a tool-caused write to `.claude/settings.local.json` (`source: local_settings`), AND on an out-of-band edit to the same file, `.claude/settings.json` (`source: project_settings`), a user-tier `settings.json` (`source: user_settings`), and a `disableAllHooks: true` flip. **Does not fire** for an edit to a plugin's own `hooks/hooks.json`. `decision: "block"` from a `type: "command"` hook on this event fires but is ignored — no observable effect on the write or on session continuation; only a flag (`additionalContext`) is available (`docs/research/spike-verdicts/2026-09-11-configchange-trigger-scope-and-block-path.md`) | self-defends the hook stack via a flag, not a block — nothing today notices a mid-session `hooks.json` edit or `disableAllHooks: true`, and the register entry can only ever surface a warning, never refuse the mutation |
 | `InstructionsLoaded` | `CLAUDE.md`/`.claude/rules/*.md` loads | no | **fires** — once per file, `load_reason` distinguishes `session_start` from `nested_traversal`; carries `file_path` + `memory_type`. **Requires `--setting-sources` ≥ `project` to observe** | could convert the manually-spiked "does `--plugin-dir` deliver `coordinator/CLAUDE.md`" fact (`docs/research/spike-verdicts/2026-07-27-plugin-claude-md-delivery.md`) into a live per-session assertion |
 | `FileChanged` | a watched file changes on disk | no | **does not fire** — no watch-registration mechanism reachable from a settings-registered hook; 4 attempts across in-session writes and external out-of-band edits | — |
-| `CwdChanged` | working directory changes | no | **fires** — payload carries **both** `old_cwd` and `new_cwd`. Triggered by an ordinary Bash `cd` (the Bash tool's cwd persists) | could inject a cross-repo-write-discipline reminder when cwd crosses into `claude-klabauter` |
+| `CwdChanged` | working directory changes | no | **fires** — payload carries **both** `old_cwd` and `new_cwd`. Triggered by an ordinary Bash `cd` (the Bash tool's cwd persists). **Out-of-project reset case (C13, launcher's actual case — no `--add-dir`):** fires once on the crossing (`old_cwd`/`new_cwd` naming the two dirs); the shell's own subsequent auto-reset (`Shell cwd was reset to <A>` in the tool result) does **not** re-fire the hook. `--add-dir` control fires identically, once, with no reset message. One `python3` cold start per crossing either way — `unit-b-15 verdict: BUILD` (`_hook-frontmatter-reachability.md`) | could inject a cross-repo-write-discipline reminder when cwd crosses into a sibling repo |
 | `WorktreeCreate` | worktree created; hook must return path | no | **fires — and the hook *owns* creation.** Harness does not run `git worktree add`; it trusts the directory the hook prints as its **last stdout line** (plain text, not JSON). Returning nothing fails session startup <!-- spec-backlink: run 2026-08-06-14h38, nugget c8-040 --> | could validate/derive the `work/{machine}/{date}` / `feature/{name}` naming convention at creation instead of by review — but see reachability note: enforcing means owning the git mechanics |
 | `WorktreeRemove` | worktree removed | no | inconclusive — no CLI/subcommand trigger found; `ExitWorktree` tool untested. **Highest-value untested lead**: `EnterWorktree`/`ExitWorktree` appear as first-class in-session tool names in the harness's own tool list, likely a materially more relevant trigger than the `-w` CLI flag probed here — see `_hook-frontmatter-reachability.md § Highest-value follow-up` | — |
 | `PreCompact` | before context compaction | **YES** | — | `context-pressure-precompact.py` |
@@ -252,7 +252,7 @@ map onto in-session dispatch either, for the same reason. The one live use of th
 repo is `coordinator/docs/claude-cli-subprocess-contract.md`'s six-item contract (`--output-format
 json` for `total_cost_usd`/`usage.*` telemetry) — its `--json-schema` gap for structured
 deliverables (vs. text-parsed `result`) is a named-but-unbuilt discharge candidate, and its
-executable call sites now live in `claude-klabauter`, not here.
+executable call sites now live in the engine repo, not here.
 
 ## What's confirmed absent, not just unused
 

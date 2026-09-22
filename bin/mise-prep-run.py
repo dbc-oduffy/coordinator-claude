@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """mise-prep-run — gate and stamp a set of plans, and name each one's state.
 
 WHY THIS EXISTS. mise-prep's two halves both shipped and neither drives the ceremony.
@@ -40,25 +39,22 @@ re-derived from plan frontmatter.
 Exit 0 when every plan in the set ends CERTIFIED, 1 when at least one does not (the
 report names which and why), 2 on a refusal that stopped the run.
 
-IN-PROCESS OP DISPATCH (the requirement this arrival exists to discharge). The DoE
-version of this driver spawned `sys.executable coordinator-invoke.py <op> <params>` per
-op call — one interpreter start per gate, per stamp. This module lives inside the
-engine, so `_invoke` dispatches `plan.prep_gate`/`plan.stamp_prepped` in-process through
-`coordinator_core.invoke.dispatch.dispatch_message`, the same JSON-RPC path the
-subprocess route used, minus the process hop. Only `mise-prep-upgrade` — a separate CLI
-this row does not move — still runs as a subprocess: it has its own resolution ladder,
-unchanged, and is not this row's `writes:`.
-
-Arrived from DoE-claude coordinator/bin/mise-prep-run.py (docs/plans/2026-09-18-doe-holds-no-
-scripts.md, chunk W2-C9). `mise-prep-entry.py` lands beside this file, in coordinator/bin, not
-under skills/plan-blitz, so `_ENTRY` resolves as a sibling.
-
-Spec backlink: docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W2-C9.
+Landed here (`coordinator/bin/mise-prep-run.py`, claude-klabauter) from DoE-claude
+`coordinator/bin/mise-prep-run.py`, docs/plans/2026-09-18-doe-holds-no-scripts.md chunk W2-C9.
+`_invoke` no longer spawns `sys.executable coordinator-invoke.py` per op — the DoE original's
+one non-negotiable invocation tax this plan exists to remove. Both ops (`plan.prep_gate`,
+`plan.stamp_prepped`) are called IN-PROCESS via `coordinator_core.ipc.get_op_handler`, the same
+seam `coordinator_core/ops/cutover_advance.py` already uses to call `cutover.gate` from inside
+another op's own handler. `_upgrade`'s subprocess call to `mise-prep-upgrade` is unchanged: that
+is a separate CLI invocation, not a JSON-RPC op, and the plan body scopes the in-process rewrite
+to "per op" only. `_ENTRY` now points at the sibling `coordinator/bin/mise-prep-entry.py` this
+same chunk lands, not a DoE `skills/plan-blitz/` path.
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import importlib.util
 import json
 import os
@@ -73,13 +69,11 @@ EXIT_NOT_ALL_CERTIFIED = 1
 EXIT_REFUSED = 2
 
 _HERE = Path(__file__).resolve().parent
-#: mise-prep's entry query, now a `coordinator/bin` sibling of this driver. Imported rather than
+_REPO_ROOT = _HERE.parent.parent
+#: mise-prep's entry query, now a sibling bin CLI (this chunk lands both). Imported rather than
 #: re-implemented: re-deriving the approved set from plan frontmatter would be a second answer to
 #: a question the engine's gate settles.
 _ENTRY = _HERE / "mise-prep-entry.py"
-#: "engine" class per § Path resolution — this module lives inside the engine checkout, so its
-#: own tree IS the engine root.
-_ENGINE_ROOT = _HERE.parents[1]
 
 
 def _load_entry():
@@ -90,38 +84,39 @@ def _load_entry():
 
 
 def _default_engine_root() -> Path | None:
-    """This module's own tree — see § Path resolution, "engine" class.
+    """This driver ships INSIDE the engine checkout, so its own tree IS the engine root when
+    neither `--engine-root` nor `$COORDINATOR_ENGINE_ROOT` names one — the colocated resolution
+    class (§ Path resolution), replacing the DoE original's `_engine_root.resolve_claude_klabauter_root`
+    fence, which answered a question this file no longer has to ask.
 
-    Returns `None` only in the pathological case where this file's own on-disk location does not
-    resolve, so that `_invoke`/`_upgrade` degrade to their own "no launcher" refusals rather than
-    raising here."""
-    return _ENGINE_ROOT if _ENGINE_ROOT.is_dir() else None
-
-
-def _ensure_engine_on_path() -> None:
-    """Put the engine root on `sys.path`, fail-loud — the same self-location-first bootstrap
-    every other `coordinator/bin/*.py` engine-backed CLI uses (see e.g.
-    `coordinator/bin/compose-review-wave.py`). Idempotent: `require_colocated_engine_on_path`
-    front-inserts onto `sys.path` and a second call is harmless."""
-    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
-    from cc_invoke import require_colocated_engine_on_path
-
-    require_colocated_engine_on_path(__file__)
+    Returns `None` on any failure rather than raising: an unresolved engine root here is not
+    fatal to this driver the way it is to a gate — `_invoke` already reports its own refusal
+    when the op cannot be resolved.
+    """
+    try:
+        return _REPO_ROOT.resolve()
+    except OSError:
+        return None
 
 
 def _invoke(repo_root: Path, op: str, params: dict) -> dict:
-    """Dispatch one op IN-PROCESS via `coordinator_core.invoke.dispatch.dispatch_message` — the
-    same JSON-RPC envelope the subprocess route parsed, minus the process hop. The op itself is
-    dispatched against `repo_root`, via `_origin_worktree`, exactly as
-    `coordinator_core.ops.check_auto_reconcile.get_response` dispatches `handoff.reconcile_open`.
-    """
-    _ensure_engine_on_path()
-    import asyncio
+    """One op call, IN-PROCESS — never a `coordinator-invoke.py` subprocess.
 
+    Dispatched via `coordinator_core.invoke.dispatch.dispatch_message` — the same JSON-RPC
+    envelope the subprocess route parsed, minus the process hop — against `repo_root` via
+    `_origin_worktree`, exactly as `coordinator_core.ops.check_auto_reconcile.get_response`
+    dispatches `handoff.reconcile_open`. Raises `ValueError` on any failure — unresolvable
+    engine, an error envelope, or a malformed reply — so callers keep treating a refusal as a
+    reply, never a crash.
+    """
     try:
+        import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+        import cc_invoke
+
+        cc_invoke.require_engine_on_path(__file__)
         from coordinator_core.invoke.dispatch import dispatch_message
     except Exception as exc:
-        raise ValueError(f"{op} failed: coordinator_core.invoke.dispatch unimportable ({exc})")
+        raise ValueError(f"{op}: coordinator_core unresolvable: {exc}")
 
     msg = {
         "jsonrpc": "2.0",
@@ -130,15 +125,12 @@ def _invoke(repo_root: Path, op: str, params: dict) -> dict:
         "params": params,
         "_origin_worktree": str(repo_root),
     }
-    loop = asyncio.new_event_loop()
     try:
-        reply = loop.run_until_complete(
+        reply = asyncio.run(
             dispatch_message(msg, caller="coordinator_core.roadmap.mise_prep_run")
         )
     except Exception as exc:
-        raise ValueError(f"{op} failed: {exc}")
-    finally:
-        loop.close()
+        raise ValueError(f"{op} failed: {exc}") from exc
 
     if not isinstance(reply, dict):
         raise ValueError(f"{op} failed: dispatch returned no reply envelope")
@@ -148,7 +140,10 @@ def _invoke(repo_root: Path, op: str, params: dict) -> dict:
         raise ValueError(f"{op} refused: {message}")
     if "result" not in reply:
         raise ValueError(f"{op} returned a reply carrying neither `result` nor `error`")
-    return reply["result"]
+    result = reply["result"]
+    if not isinstance(result, dict):
+        raise ValueError(f"{op} returned a non-dict result: {result!r}")
+    return result
 
 
 def _failing_classes(gate: dict) -> list[str]:
@@ -200,12 +195,7 @@ def _failing_details(gate: dict) -> list[str]:
 # reported by project-rag-4a after running it across a whole set for zero writes.
 #
 # This line names only what the runner OBSERVED: which class refused, and that the upgrade path
-# cannot reach it. It deliberately names no cause. The first draft illustrated it with an unquoted
-# YAML date, borrowed from the report that prompted the fix — and that cause turned out not to
-# exist (the real validation path coerces; the census had bypassed it). A repair line that names a
-# cause the runner did not measure is `A-DIAGNOSTIC-THAT-NAMES-A-CAUSE-IT-DID-NOT-OBSERVE`, and it
-# would have sent every reader of a schema refusal to check their date quoting for as long as it
-# stood.
+# cannot reach it. It deliberately names no cause.
 _NOT_UPGRADEABLE = ("schema",)
 
 
@@ -267,9 +257,10 @@ def _resolve_upgrade_cli(settings_home: str, engine_root: Path | None) -> list[s
 
     Rung 2 is the settings-home launcher, then PATH; rung 3 is the engine's own
     `coordinator/bin/` copy under the engine root this run already dispatches ops
-    through (`--engine-root`, else `$COORDINATOR_ENGINE_ROOT`). A resolver that stops
-    at rung 2 refuses on boxes where the tool exists. The engine copy carries no
-    shebang, so the interpreter is part of the invocation.
+    through (`--engine-root`, else `$COORDINATOR_ENGINE_ROOT`). The same ladder
+    `snippets/resolve-coordinator-bin.md` names — a resolver that stops at rung 2 refuses on
+    boxes where the tool exists. The engine copy carries no shebang, so the interpreter is part
+    of the invocation.
     """
     launcher = Path(settings_home) / "bin" / "mise-prep-upgrade"
     if launcher.is_file():
@@ -325,11 +316,6 @@ def _upgrade(
     settings_home = os.environ.get("COORDINATOR_SETTINGS_HOME") or str(
         Path(os.environ.get("CLAUDE_HOME") or Path.home()) / ".coordinator-claude-settings"
     )
-    # The full resolution ladder, not its top rung alone. `mise-prep-upgrade` is an
-    # ENGINE CLI, so a box that never ran the installer still has it on disk under the
-    # engine checkout — and reporting that as "unavailable" sends an author hunting for
-    # a missing tool that is right there, the misdiagnosis this docstring warns about
-    # one rung up. `unavailable` stays honest when it is genuinely absent from every rung.
     cmd = _resolve_upgrade_cli(settings_home, engine_root)
     if cmd is None:
         engine_bin = (
@@ -341,8 +327,6 @@ def _upgrade(
             f"no mise-prep-upgrade launcher at {Path(settings_home) / 'bin'}, none on "
             f"PATH, and no copy under {engine_bin}"
         )
-    # Same engine env `_invoke` injects. Without it the upgrade CLI resolves CLAUDE_KLABAUTER_ROOT
-    # on its own and fails on exactly the install-less box this fallback exists for.
     env = dict(os.environ)
     if engine_root is not None:
         env.setdefault("COORDINATOR_ENGINE_ROOT", str(engine_root))
@@ -425,9 +409,7 @@ def main(argv=None) -> int:
             return EXIT_OK
         # SAY WHAT THE SET IS MADE OF. The selection reads BOTH plan-blitz exits — `status:
         # approved` and the S lane's execution-ready park, whose plan stays `draft` by design — so
-        # a count that moves with no approval in sight is ordinary. Reported on project-rag as
-        # "39 -> 40 with no line saying a plan had entered", which cost its driver a tree diff to
-        # explain a set that was correct all along.
+        # a count that moves with no approval in sight is ordinary.
         drafts = [
             p for p in plans
             if "status: approved" not in (repo_root / p).read_text(
@@ -553,4 +535,4 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())

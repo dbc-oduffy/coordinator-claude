@@ -118,6 +118,29 @@ _WIKI_ROOT_ENV = "LESSON_PROMOTE_WIKI_ROOT"
 # negative-spec: a skipped write is never exit 0).
 _EXIT_DOE_UNRESOLVABLE = 3
 
+# Path segments that mark a resolved doe_root() as an OSS publish-mirror install
+# rather than the private DoE-claude source repo (klabauter#39). The lessons-outbox
+# is DoE-claude's private central corpus, drained by /learn-lessons --central against
+# the private tree; a write landing under a marketplace/mirror install instead is a
+# duplicate the drain procedure never reads back from — never correct, regardless of
+# which resolution rung produced it.
+_PUBLISH_MIRROR_MARKERS = (
+    os.path.join("plugins", "coordinator-claude"),
+    os.path.join("plugins", "cache", "coordinator-claude"),
+)
+
+
+def _is_publish_mirror_root(resolved_root: str) -> bool:
+    """True if resolved_root looks like an OSS publish-mirror install path.
+
+    Conservative substring match on normalized path segments, not an exhaustive
+    identity check — good enough to refuse the known marketplace/mirror layouts
+    (`coordinator_registry.doe_root()` rungs 5-8) rather than silently writing
+    a duplicate outbox entry into one.
+    """
+    normalized = os.path.normpath(resolved_root)
+    return any(marker in normalized for marker in _PUBLISH_MIRROR_MARKERS)
+
 # Env var for DOE_ROOT override — mirrors CLAUDE_KLABAUTER_ROOT §4b idempotency gate.
 # Honoured by coordinator_registry.doe_root() (bound by _bootstrap_imports()) —
 # kept here as a local constant for documentation and error-message reference.
@@ -412,6 +435,12 @@ def _outbox_root() -> str:
     Negative-spec: does NOT fall back to cwd-relative state/ or to claude-klabauter when
     DOE_ROOT is unresolvable — silent fallback is a write-plane landmine.
 
+    Negative-spec (klabauter#39): does NOT write into an OSS publish-mirror install
+    (a scrubbed/marketplace copy of the doctrine repo) even when doe_root() resolves
+    one — raises RuntimeError instead. The lessons-outbox is a private central corpus;
+    a write into a publish mirror duplicates it into a tree the drain procedure never
+    reads back from, and is never correct.
+
     Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1
     """
     _bootstrap_engine()
@@ -424,7 +453,16 @@ def _outbox_root() -> str:
     # doe_root() raises _DoeUnresolvable when repos.doe_claude is unregistered and
     # DOE_ROOT env var is not set; _DoeUnresolvable propagates to legacy_fn() catch.
     # Spec backlink: gate2-w23-state-seam-caller-switch.md § C1 / AC2
-    return os.path.join(doe_root(), "state", "lessons-outbox")
+    resolved_doe_root = doe_root()
+    if _is_publish_mirror_root(resolved_doe_root):
+        raise RuntimeError(
+            f"coordinator-lesson-promote: refusing to write the lessons-outbox into "
+            f"an OSS publish-mirror install ({resolved_doe_root!r}) — the private "
+            f"DoE-claude source repo is unresolvable via env/registry. Remediation: "
+            f"run 'machine-local set repos.doe_claude /path/to/the-coordinator-doctrine-repo' "
+            f"or set DOE_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI."
+        )
+    return os.path.join(resolved_doe_root, "state", "lessons-outbox")
 
 
 # ---------------------------------------------------------------------------
@@ -582,7 +620,7 @@ def _slug_from_title(title: str) -> str:
     slug = title.lower()
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
     slug = slug.strip("-")
-    # Review: code-reviewer — F1/F3: strip("-") before truncation, but truncation can
+    # strip("-") before truncation, but truncation can
     # leave a trailing hyphen (e.g. "foo-bar-" at char 40). rstrip("-") after
     # truncation, matching coordinator-queue-append and migrate-queues-to-base.py:292.
     return slug[:_SLUG_MAX_CHARS].rstrip("-")
@@ -614,7 +652,7 @@ def _yaml_str(value: str) -> str:
     """
     if "\n" in value:
         # Block scalar — indent each line by 2 spaces.
-        # Review: code-reviewer Slice-B — (B-F8) changed | (clip chomping) to |- (strip
+        # Changed | (clip chomping) to |- (strip
         # chomping) for byte-fidelity parity with coordinator-queue-append._yaml_block_scalar.
         # Clip chomping adds a trailing newline on round-trip; strip chomping preserves exact bytes.
         indented = "\n".join("  " + line if line.strip() else "" for line in value.splitlines())
@@ -645,7 +683,7 @@ def _compose_yaml(fields: dict[str, str | list[str] | None]) -> str:
                 for item in value:
                     lines.append(f"  - {_yaml_str(item)}")
         else:
-            # Review: code-reviewer — collapsed the former "\n" in str(value) elif and
+            # Collapsed the former "\n" in str(value) elif and
             # this else branch: both emitted byte-identical code since _yaml_str already
             # internally branches on newline presence (block scalar vs. quoted scalar).
             lines.append(f"{key}: {_yaml_str(str(value))}")
@@ -823,7 +861,7 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = _build_parser(change_kind_values)
     args = parser.parse_args(argv)
-    # Review: code-reviewer Slice-B — (B-F3) deleted unreachable dead block that re-validated
+    # Deleted unreachable dead block that re-validated
     # change_kind after argparse; argparse choices= already rejects invalid values with exit 2
     # naming the valid set, so the explicit check was dead code.
 
@@ -912,7 +950,7 @@ def main(argv: list[str] | None = None) -> int:
 
     entry_id = str(uuid.uuid4())
     created = _now_iso()
-    # Review: code-reviewer strang-08-slice3 — (F3) hoist _current_repo_root() so git rev-parse
+    # Hoist _current_repo_root() so git rev-parse
     # spawns exactly once per invocation; pass resolved root to _resolve_from_repo and reuse
     # for _cc_route repo_root arg below.
     _raw_root = _current_repo_root()
@@ -959,6 +997,12 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return _EXIT_DOE_UNRESOLVABLE
+        except RuntimeError as exc:
+            # klabauter#39: _outbox_root()'s publish-mirror refusal — the resolved
+            # doe_root() is a scrubbed/marketplace mirror install, not the private
+            # DoE-claude source repo. Never silently write the duplicate; report loud.
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
         except OSError as exc:
             print(f"error: could not write outbox entry: {exc}", file=sys.stderr)
             return 1
@@ -991,7 +1035,7 @@ def main(argv: list[str] | None = None) -> int:
         why this is usually a no-op degrade. Both legacy_fn call sites below
         route through this instead of calling legacy_fn directly.
 
-        Review: coordinator:code-reviewer — the LESSON_PROMOTE_OUTBOX_ROOT
+        The LESSON_PROMOTE_OUTBOX_ROOT
         test-isolation gate is not a rare edge case: it is exactly the shape
         this repo's own test suite invokes, with coordinator_core genuinely
         importable, so `recording_declared_writes`/`declare_write` fire for
@@ -1026,17 +1070,39 @@ def main(argv: list[str] | None = None) -> int:
         "evidence": args.evidence if args.evidence else None,
         "from_repo": from_repo,
     }
+    # The native op must write under the SAME DoE root --target-wiki was validated
+    # against (DOE_ROOT honoured), not re-resolve it from the warm server's own env
+    # and registry (claude-klabauter#33). Unresolvable here → omit, and the op's own
+    # resolution reports the skip.
+    try:
+        params["doe_root"] = doe_root()
+    except _DoeUnresolvable:
+        pass
     # Test isolation gate: LESSON_PROMOTE_OUTBOX_ROOT redirects the outbox path (see
-    # _outbox_root() above), which the native queue.promote op does not honour — it
-    # resolves repos.doe_claude on its own, independent of this process's env. When
-    # set, routing native would silently escape the override and write to whatever
-    # doe_claude is ACTUALLY registered as on the invoking machine — mirrors
+    # _outbox_root() above), which the native queue.promote op honours only for an
+    # in-process caller (queue_promote._outbox_root_override). Routed to a warm
+    # server, the override would be dropped and the write would land in the real
+    # DoE outbox — mirrors
     # coordinator-queue-append's identical QUEUE_APPEND_OUTPUT_ROOT gate immediately
     # above _cc_route("queue.append", ...) in that sibling CLI. In production,
     # LESSON_PROMOTE_OUTBOX_ROOT is NEVER set, so this check is a no-op.
     if cli_shared.isolation_root_if_under_test(
         _OUTBOX_ROOT_ENV, caller_name="coordinator-lesson-promote"
     ):
+        return _run_legacy_with_write_declaration()
+
+    # DOE_ROOT gate (klabauter#33): DOE_ROOT is documented (module docstring, § from_repo
+    # resolution / _DOE_ROOT_ENV) as this CLI's steering lever for the DoE-claude root, and
+    # this CLI's OWN doe_root() (coordinator_registry.doe_root(), used by --target-wiki
+    # validation above and by the legacy write path) trusts it as rung 1a. The NATIVE
+    # queue.promote op's resolver (coordinator_core.ops.coordinator_doe_root) has no DOE_ROOT
+    # rung at all — only REPO_DOE_CLAUDE — so an operator who set DOE_ROOT (without also
+    # setting REPO_DOE_CLAUDE) would see --target-wiki validation obey it while the native
+    # write silently fell through to a different resolution (up to and including an OSS
+    # publish-mirror install — see _is_publish_mirror_root). Force the legacy in-process
+    # write, which resolves through THIS module's own DOE_ROOT-aware doe_root(), whenever
+    # DOE_ROOT is the only lever the operator has pulled.
+    if os.environ.get(_DOE_ROOT_ENV, "").strip() and not os.environ.get("REPO_DOE_CLAUDE", "").strip():
         return _run_legacy_with_write_declaration()
 
     result = _cc_route("queue.promote", params, repo_root, _run_legacy_with_write_declaration)
@@ -1056,8 +1122,14 @@ def main(argv: list[str] | None = None) -> int:
                 f"skipping central lessons-outbox write: {reason}",
                 file=sys.stderr,
             )
+            print(
+                "  Remediation: run 'machine-local set repos.doe_claude /path/to/the-coordinator-doctrine-repo'\n"
+                "  or set DOE_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI.\n"
+                "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c",
+                file=sys.stderr,
+            )
             return _EXIT_DOE_UNRESOLVABLE
-        # Review: code-reviewer strang-08-slice3 — (F1) guard out_path access; bare KeyError
+        # Guard out_path access; bare KeyError
         # on unexpected op result shape (missing both out_path and skipped) gives a misleading
         # traceback instead of a clean error. TWO-SIGNAL contract lives in the op, not here.
         out_path = result.get("out_path")
@@ -1068,7 +1140,15 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 1
-        print(out_path)
+        # Echo the write destination on success (claude-klabauter#33) — the one
+        # cheap check that would have made the DOE_ROOT/native-write mismatch
+        # self-evident in a single invocation, matching legacy_fn's own labelled
+        # stdout contract below.
+        print(f"Lesson outbox entry written: {out_path}")
+        print(f"  id:          {result.get('entry_id', entry_id)}")
+        print(f"  from_repo:   {result.get('from_repo', from_repo)}")
+        print(f"  change_kind: {result.get('change_kind', args.change_kind)}")
+        print(f"  target_wiki: {result.get('target_wiki', args.target_wiki)}")
         return 0
     # Legacy path: legacy_fn() returned an int exit code.
     return int(result)

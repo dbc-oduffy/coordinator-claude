@@ -600,9 +600,6 @@ def _sweep_mirror_top_level_orphans(
 # ---------------------------------------------------------------------------
 # Mirror mode — per-plugin subdir sync
 # ---------------------------------------------------------------------------
-#: Ceiling for the orphan-provenance git probes below. Three cheap local reads on
-#: a refusal path that is already fatal -- a bound, not a budget.
-_ORPHAN_PROVENANCE_TIMEOUT_S = 20
 
 
 def _git_out(repo: Path, args: "list[str]") -> str:
@@ -611,19 +608,14 @@ def _git_out(repo: Path, args: "list[str]") -> str:
     Fail-open by construction: every caller is a DIAGNOSTIC enriching a refusal
     that has already been decided, so a git that is missing, slow, or pointed at
     something that is not a repository must degrade to "no extra detail", never
-    change the verdict or raise into the abort path.
+    change the verdict or raise into the abort path. Bounded by
+    `coordinator_core.git.run.run_git`'s local-plumbing ceiling, never a
+    module-private number.
     """
-    try:
-        proc = subprocess.run(
-            ["git", "-C", str(repo), "--no-optional-locks", *args],
-            capture_output=True,
-            text=True,
-            timeout=_ORPHAN_PROVENANCE_TIMEOUT_S,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except Exception:  # noqa: BLE001 -- see docstring
-        return ""
-    return proc.stdout.strip() if proc.returncode == 0 else ""
+    from coordinator_core.git.run import run_git
+
+    result = run_git(["-C", str(repo), "--no-optional-locks", *args])
+    return result.stdout.strip() if result.ok else ""
 
 
 def _orphan_provenance(src_dir: Path, name: str) -> str:
@@ -1210,7 +1202,7 @@ def apply_manifest_layout_rewrite(dst_file: Path, rewrite: ManifestLayoutRewrite
 
     if not changed:
         return False
-    dst_file.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    dst_file.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
     return True
 
 

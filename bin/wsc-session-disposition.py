@@ -310,7 +310,7 @@ def resolve_session_id_with_source(_repo_root=None):
         # structural backstop, hit the first time this ran for real. The
         # resolution itself needs no new engine surface, so degrade to it and
         # report the provenance as unavailable rather than inventing one.
-        # Review: coordinator:code-reviewer (Finding 1, P1) — the degrade
+        # The degrade
         # guarded only the two attributes that happened to break on the copy
         # that surfaced this bug. `in_warm_served_request` is a plain
         # attribute read below; an engine copy old enough to lack it
@@ -334,7 +334,7 @@ def _resolve_session_id_engine_only(core) -> str:
     than that accessor too, where blending is the pre-existing behaviour and
     refusing outright would break every close against it.
 
-    # Review: coordinator:code-reviewer (Finding 1, P1) — `core.resolve_session_id`
+    # `core.resolve_session_id`
     # is read as a plain attribute, not `getattr`-guarded, and that is
     # deliberate rather than an oversight: it is the oldest surface in this
     # resolution ladder and predates every engine copy this bin script can
@@ -947,6 +947,7 @@ def _resolve_crash_recovery(
     committed_paths: list[str],
     repo_root: Path,
     diagnostics: list[str],
+    sid: str | None = None,
 ) -> "CrashRecoveryOutcome":
     """Pure scope-intersection resolver over already-fetched stale-baton and
     committed-path data — split out from `detector_c` so it is unit-testable
@@ -960,7 +961,13 @@ def _resolve_crash_recovery(
     first) — a directory scope entry matching multiple committed paths
     underneath it still counts as ONE matched entry, since the `break` right
     after a prefix hit stops scanning committed_paths for THAT scope entry,
-    not the scope_paths loop."""
+    not the scope_paths loop.
+
+    `sid`: this session's own id, consulted ONLY when scope-intersection
+    leaves more than one candidate (see the lineage-narrowing step below) —
+    optional and defaults to None so every existing positional 4-arg caller
+    (this module's own test suite) is unaffected and keeps exercising the
+    scope-only resolution unchanged."""
     committed_set = set(committed_paths)
     matches: list[BatonMatch] = []
     for path, dead_sid in stale_entries:
@@ -992,6 +999,29 @@ def _resolve_crash_recovery(
         deduped_matches = list(by_hit_path.values())
         if deduped_matches:
             matches.append(BatonMatch(path, dead_sid, tuple(deduped_matches), len(scope_paths)))
+
+    if len(matches) > 1 and sid and resolve_claim_state is not None:
+        # Scope-intersection is not lineage: narrow to the candidate(s) this
+        # session's OWN tracked-frontmatter mirror names as claimer, even
+        # though the branch-independent ledger now resolves each candidate's
+        # CURRENT holder to a different (dead) session — the same
+        # ledger-vs-mirror split `primary_consumed_handoff_scan`'s
+        # HOLDER-MISMATCH PARTITION documents, read in the opposite
+        # direction. A session that never ran `/pickup` on a given baton
+        # never wrote its sid into that baton's mirror, so this is a
+        # definitive consume-stamp check, not another heuristic guess.
+        lineage_matches = [
+            m for m in matches
+            if resolve_claim_state(m.handoff_path, repo_root=repo_root).mirror_holder == sid
+        ]
+        if len(lineage_matches) == 1:
+            diagnostics.append(
+                f"NOTE: Detector C narrowed {len(matches)} scope-intersecting stale batons to "
+                f"{lineage_matches[0].handoff_path} via this session's own-sid consume-stamp "
+                f"(tracked-frontmatter claimer) — resolving deterministically instead of "
+                f"delegating disambiguation."
+            )
+            matches = lineage_matches
 
     if len(matches) == 1:
         baton = matches[0]
@@ -1174,7 +1204,7 @@ def detector_c(
         return join_outcome
 
     committed = all_committed_paths(repo_root, sid, ship_base)
-    return _resolve_crash_recovery(stale, committed, repo_root, diagnostics)
+    return _resolve_crash_recovery(stale, committed, repo_root, diagnostics, sid=sid)
 
 
 # ---------------------------------------------------------------------------

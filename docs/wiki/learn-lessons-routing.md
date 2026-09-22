@@ -45,9 +45,9 @@ admissible **only** if the proposal can answer ALL of:
 4. **No existing CLAUDE.md section already covers the shape.** Demotion of a near-duplicate
    into the proposed addition's home wiki is preferred over adding alongside it.
 
-If any check fails (during DoE adjudication of a worker-flagged escalation, or during DoE
+If any check fails (during the doctrine owner's adjudication of a worker-flagged escalation, or during the doctrine owner's
 self-review of a proposed doctrine-edit plan), downgrade: `doctrine-edit` → `wiki-append` /
-`wiki-new` + `doe_escalation: true` (preserve the signal for DoE's separate downstream
+`wiki-new` + `doe_escalation: true` (preserve the signal for the doctrine owner's separate downstream
 consideration — NOT for further apply steps in the current run); `memory-pointer` →
 `wiki-append` to the wiki that already carries the topic (the prior-art-checker will surface
 it from there — no separate pointer needed).
@@ -56,24 +56,24 @@ it from there — no separate pointer needed).
 
 **Workers MUST NOT emit `change_kind: doctrine-edit` or `change_kind: memory-pointer`.** Route
 to `wiki-append` / `wiki-new` and set `doe_escalation: true` (with a one-line
-`escalation_reason:`) when the worker believes CLAUDE.md placement deserves DoE consideration.
+`escalation_reason:`) when the worker believes CLAUDE.md placement deserves the doctrine owner's consideration.
 The EM/consolidator treats any record arriving with either change-kind as a routing error
 and downgrades it to the corresponding `wiki-*` before the record reaches PM surfacing.
-DoE-authored exceptions (a separate downstream plan, not lifted from worker output) require
+Doctrine-owner-authored exceptions (a separate downstream plan, not lifted from worker output) require
 all four justification checks answered inline. **Do NOT auto-apply `doctrine-edit` or
-`memory-pointer` records, regardless of mode** — they always require DoE authoring, the Staff Engineer
+`memory-pointer` records, regardless of mode** — they always require doctrine-owner authoring, the Staff Engineer
 review, and PM surface.
 
 ### DoE-only adjudication on CLAUDE.md edits
 
 CLAUDE.md loads at every session start across every project — blast radius is maximum. The receive-side gate must match that asymmetry.
 
-**Workers / scouts MUST NOT propose `change_kind: doctrine-edit` or `change_kind: memory-pointer`.** These are reserved for the DoE (the Director of Engineering or the EM at Claude Central with explicit DoE authority). Worker records using either change-kind are downgraded by the consolidator before PM surfacing:
+**Workers / scouts MUST NOT propose `change_kind: doctrine-edit` or `change_kind: memory-pointer`.** These are reserved for the doctrine owner (the Director of Engineering, or the EM at Claude Central with explicit doctrine-owner authority). Worker records using either change-kind are downgraded by the consolidator before PM surfacing:
 
-- Worker sets `doe_escalation: true` on a `wiki-append`/`wiki-new` record with a one-line `escalation_reason:`. The wiki edit lands regardless — escalation is a DoE attention flag, not a blocker.
-- If the DoE accepts the escalation, they author a separate `doctrine-edit` plan (NOT lifted from worker output), reviewed by the Staff Engineer, gated on the four-check justification gate + char-budget pre-flight. Many gates before any CLAUDE.md byte changes.
+- Worker sets `doe_escalation: true` on a `wiki-append`/`wiki-new` record with a one-line `escalation_reason:`. The wiki edit lands regardless — escalation is a doctrine-owner attention flag, not a blocker.
+- If the doctrine owner accepts the escalation, they author a separate `doctrine-edit` plan (NOT lifted from worker output), reviewed by the Staff Engineer, gated on the four-check justification gate + char-budget pre-flight. Many gates before any CLAUDE.md byte changes.
 
-EMs proposing CLAUDE.md targets in captured `state/lessons/` entries is expected and inevitable — the load-bearing gate is on the receive side, not at capture time. The four-check justification gate still applies to DoE-authored proposals; the DoE does not bypass it.
+EMs proposing CLAUDE.md targets in captured `state/lessons/` entries is expected and inevitable — the load-bearing gate is on the receive side, not at capture time. The four-check justification gate still applies to doctrine-owner-authored proposals; the doctrine owner does not bypass it.
 
 ### Pointer-pollution bound
 
@@ -113,8 +113,8 @@ retained to read legacy pre-migration routing manifests that carry the old `<fil
 form. Routing records derived from YAML-era captures use the filename; records derived from
 legacy markdown entries retain the `:line` form.
 
-`doe_escalation` is the worker-side flag for "this might be CLAUDE.md-worthy — DoE please
-look." It rides on a `wiki-append` or `wiki-new` record; the wiki edit lands regardless.
+`doe_escalation` is the worker-side flag for "this might be CLAUDE.md-worthy — the doctrine
+owner should take a look." It rides on a `wiki-append` or `wiki-new` record; the wiki edit lands regardless.
 Workers MUST NOT use `change_kind: doctrine-edit` or `change_kind: memory-pointer` (see
 § Routing Bias above). Records arriving with those change-kinds are treated as routing errors
 and downgraded by the consolidator.
@@ -137,7 +137,7 @@ left 7 undated+universal records unrouted before the undated-pass became mandato
 
 | Kind | Meaning | Apply mechanism |
 |---|---|---|
-| `doctrine-edit` | **DoE-ONLY** — edit a CLAUDE.md at a named section. Workers MUST NOT propose; reserved for DoE authoring after escalation review. Must clear the four-check justification gate AND char-budget pre-flight (§ Routing Bias). | DoE-authored plan → the Staff Engineer review → executor; PM surface mandatory |
+| `doctrine-edit` | **DOCTRINE-OWNER-ONLY** — edit a CLAUDE.md at a named section. Workers MUST NOT propose; reserved for doctrine-owner authoring after escalation review. Must clear the four-check justification gate AND char-budget pre-flight (§ Routing Bias). | Doctrine-owner-authored plan → the Staff Engineer review → executor; PM surface mandatory |
 | `agent-prompt-edit` | Edit a specific agent's prompt file | Plan → reviewer → executor |
 | `hook-edit` | Edit a hook script | Plan → reviewer → executor |
 | `script-edit` | Edit a helper script in `bin/` | Plan → reviewer → executor |
@@ -145,10 +145,10 @@ left 7 undated+universal records unrouted before the undated-pass became mandato
 | `snippet-sync-update` | Edit a synced snippet + run propagation script | Edit + `bin/verify-*-sync.sh --fix` |
 | `wiki-new` | Create a new `docs/wiki/` guide. **Default destination** for non-trivial cross-cutting lessons. | **Mode-dependent — this row is the single statement of both routes, cited rather than restated elsewhere in this file.** Central mode: PM-gated plan → the Staff Engineer review → integrator → executor; update `DIRECTORY_GUIDE.md`. Local mode: direct executor (no plan, no the Staff Engineer) when the three named conditions in § Local Mode — Auto-Apply Bounds hold — that section is a carve-out from the central route, not a competing default. |
 | `wiki-append` | Append to existing wiki guide at named section. **Default destination** for lessons covered by an existing wiki topic. | Direct executor (low judgment) — the routing record's `candidate_restatements: [{line, excerpt}]` (computed by `learn_lessons_assemble.brief`/`generate_candidates`, never grepped for by the acting agent) is already present for the executor to disposition: amend a listed restatement in place, or record why the new material must coexist alongside it. See § Apply dispatch by change-kind and `skills/learn-lessons/SKILL.md` § Local mode — auto-apply bounds. |
-| `memory-pointer` | **DoE-ONLY** — add a one-line pointer to MEMORY.md or CLAUDE.md. Workers MUST NOT propose; reserved for DoE authoring. Same four-check gate as `doctrine-edit`; prior-art-checker should be reached for first. | DoE-authored edit; PM surface mandatory |
+| `memory-pointer` | **DOCTRINE-OWNER-ONLY** — add a one-line pointer to MEMORY.md or CLAUDE.md. Workers MUST NOT propose; reserved for doctrine-owner authoring. Same four-check gate as `doctrine-edit`; prior-art-checker should be reached for first. | Doctrine-owner-authored edit; PM surface mandatory |
 | `project-structural` | Change in originating project's repo | Plan → reviewer → executor in that repo |
 | `retag-local` | Change `[universal]` → `[<domain>]` tag in place | Direct edit |
-| `strip-local` | Delete entry from source file (gated on central commit SHA). In central mode, **DoE auto-applies in the same run** as the central promotion — see Phase 5 § Apply order in `skills/learn-lessons/SKILL.md` and § Per-record apply dispatch below for the pull + content-match + skip-on-drift procedure. | Pull-then-content-match-then-Edit + explicit-pathspec commit; ONLY after depends_on lands |
+| `strip-local` | Delete entry from source file (gated on the central promotion's commit SHA). Applied by the strip run, launched per repository after the central apply run — see `skills/learn-lessons/SKILL.md` § Phase Flow and § Per-record apply dispatch below. | The fired `lessons-strip` profile's `triage`/`refute-close`/`commit` nodes; ONLY after the row's `promoted_to` outbox record has settled |
 | `discard` | Archive-then-delete (no migration) | Archive append + direct edit |
 
 → See `docs/wiki/lessons-outbox-schema.md` for the full enum definition, field semantics, and any values added after this wiki was last updated.
@@ -182,7 +182,7 @@ After the justification gate clears, before dispatching a `doctrine-edit` whose 
 | ≤ 36,000 | Proceed normally (≥4K headroom under soft limit). |
 | 36,001 – 38,000 | Proceed, but emit a "budget approaching" note to the PM summary so the next addition is on notice. |
 | 38,001 – 40,000 | **Gate: identify a demote target first.** The plan must name a specific section to compress to a wiki pointer (or an existing wiki to extend) and include the demote in the same plan. No PM ratification needed if the demote is mechanical (existing wiki carries the topic); surface to PM if creating a new wiki. |
-| > 40,000 | **Hard refuse.** The pre-commit hook (claude-klabauter `check_validate_commit` Check 7) will block the commit anyway. Surface to PM with current size, proposed addition size, and the top-3 demote candidates ranked by char savings. |
+| > 40,000 | **Hard refuse.** The pre-commit hook (the engine's `check_validate_commit` Check 7) will block the commit anyway. Surface to PM with current size, proposed addition size, and the top-3 demote candidates ranked by char savings. |
 
 The same gate applies whether the target is `~/.claude/CLAUDE.md`, `global-doctrine/CLAUDE.md`, `coordinator/snippets/em-operating-doctrine.md`, or any project-level `CLAUDE.md` — the 40K limit is per-file, set by Claude Code's perf warning.
 
@@ -211,58 +211,58 @@ The same gate applies whether the target is `~/.claude/CLAUDE.md`, `global-doctr
   `learn-lessons-reconcile-candidates` itself to obtain it; that CLI is the bulk/backfill
   accelerator and in-process emitter call, not an apply-time step. Bounds are set at
   `skills/learn-lessons/SKILL.md` § Local mode — auto-apply bounds.
-- `strip-local` → **DoE-applied in the same central run** (cross-repo write from `~/.claude`
-  into the sibling repo), gated on the central wiki commit SHA landing first. Procedure per
-  record:
-  1. `cd <sibling-repo> && git pull --ff-only`. If pull is not fast-forward or working tree
-     is dirty under `state/lessons/`, **skip this strip and emit a one-line warning** —
-     don't fight a concurrent EM; the sibling's local-mode Phase 4.5 age-sweep is the
-     defence-in-depth that catches residue.
-  2. Re-enumerate `state/lessons/` and **match the target entry by body content** against the
-     extracted record from the Phase 2 extraction (`source:` body), NOT by the extracted id.
-     The `<shortname>-L<N>` id reflects the enumeration order at extraction time; a concurrent
-     EM session may have added/removed entries since. Same drift-safe pattern as
-     the heavy-queue sprint § Step 5.
-  3. If the content match is unambiguous (single hit), `git rm` the matched
-     `state/lessons/<file>.yaml`. If zero hits (entry already removed by a sibling EM) or
-     multiple hits (drift), skip with a one-line warning.
-  4. Commit via `ceremony.commit_v2` (claude-klabauter) with the explicit path of the
-     removed `state/lessons/<file>.yaml`, message `learn-lessons(central): strip <id> —
-     promoted in <central-SHA>`. Never `git add -A`. The op selects the safe commit mechanism
-     for you (→ `scoped-safety-commits.md § SC-DR-015`).
+- `strip-local` → a **strip run**, launched per repository after the central apply run — never
+  an EM-performed cross-repo write. Launching it in a sibling needs the PM's cross-repo assent,
+  asked once per strip session as a single bundled ask naming every sibling with rows in that
+  cycle (`skills/learn-lessons/SKILL.md` § Phase Flow); without it the strip waits. The fired
+  `lessons-strip` profile triages each row against the sibling's own `state/lessons/`: `promoted`
+  (the row's `promoted_to` outbox record has settled and the body still matches) closes through
+  `refute-close`/`commit`; `drifted` and `not-applied` hand back `strip-drift`/`strip-pending`
+  rather than force-closing or silently re-promoting. Content-signature matching, not the
+  extracted id or a line-number partition, is what the profile's triage grounds on — see
+  § Cross-Repo Strip below for why.
 
-  Central, not the sibling's local mode, is the primary mechanism for retiring promoted
-  universals. Phase 4.5 age-sweep remains the backstop for entries that
-  pre-date the central-promotion era, machines where the DoE can't reach all siblings, and
-  entries the strip pass skipped on drift.
+  The strip run is the primary mechanism for retiring promoted universals; the sibling's own
+  local-mode age-sweep remains the backstop for entries that pre-date the strip-run era, siblings
+  the strip run hasn't reached yet, and rows the strip run hands back on drift.
 - `project-structural` → in originating project repo: plan → review → executor.
 
 ## Local Mode — Auto-Apply Bounds
 
-Used by Phase 5 (`Authorization and Apply`) in local mode to determine which records apply
-automatically vs. require PM surfacing.
+The operative bounds live in the `lessons` profile's triage policy
+(`coordinator/queue-profiles/lessons.yaml`); this section keeps their rationale and the `wiki-new`
+carve-out the Change-Kind Taxonomy cites.
 
-**Auto-apply without PM prompt:**
-- `discard` of pure-ephemeral entries (archive first per Phase 4)
-- `wiki-append` to existing guides — **mandatory same-run apply when destination is named**
-- `wiki-new` when (a) destination filename is named, (b) substance is concrete enough for an executor draft, and (c) the new file does not cross into doctrine surfaces. Add `DIRECTORY_GUIDE.md` entry in same executor dispatch. Surface to PM only when the wiki home is itself an unresolved design question. **This is local mode's direct-executor carve-out from the central-mode plan → the Staff Engineer → integrator → executor route** (Change-Kind Taxonomy `wiki-new` row is the single statement of both routes) — central-mode `wiki-new` records never land in this bucket; they always take the PM-gated apply cycle.
-- `retag-local` within the same file
-- Dedupe of obvious duplicates
-- Phase 4.5 age-sweep (archive aged `[universal]` entries older than the last completed central run; reversible via archive + git)
+**Fixed in-run, behind the downstream verify:** `discard`, `wiki-append`, `wiki-new`, `dedupe`,
+and a tradeoff-free `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update` or
+`project-structural` row below plan weight. A plan-weight row becomes a baton. The fire authorized
+all of it; a fix bucket is not a PM ask.
 
-**Same-run apply is the default.** When a record lands in the auto-apply bucket, dispatch the apply this run. "Next local pass should fold these" is the defer-chain anti-pattern. If parallel-dispatch budget is tight, serialize — do not defer.
+**The local `wiki-new` carve-out** applies when (a) the destination filename is named, (b) the
+substance is concrete enough for an executor draft, and (c) the new file does not cross into
+doctrine surfaces; the fix adds its `DIRECTORY_GUIDE.md` entry. It is local mode's direct route,
+distinct from central mode's plan → review → integrator → executor route. Central-mode `wiki-new`
+records always take the PM-gated apply cycle.
 
-**Surface to PM (do not auto-apply):**
-- `doctrine-edit`, `memory-pointer` — **DoE-only.** Downgrade worker-proposed records to `wiki-*` + `doe_escalation: true` before surfacing. The DoE authors a real `doctrine-edit` plan only after reviewing the escalation bucket, clearing the four-check gate, and clearing the char-budget pre-flight.
-- `doe_escalation: true` records — surface as a separate "DoE reconsideration" bucket. The wiki edit auto-applies; the escalation flag is a DoE attention notice, NOT a blocker.
-- `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update`
-- `project-structural` outside the same repo
+**Same-run is the default.** A row triaged into a fix bucket is fixed in the run that triaged it.
+"Next local pass should fold these" is the defer-chain anti-pattern.
 
-`strip-local` is **NOT** in the PM-surface bucket — it auto-applies as the second half of the central promotion chain (see Phase 5 § Apply order in `skills/learn-lessons/SKILL.md`). Surfacing a strip-local to the PM is process theater: the PM has already authorized the central promotion that obsoletes the source-repo entry, and every day the entry remains in source bloats `state/lessons/` for `/learn-lessons`, the central strip-pass, and `/workstream-start` (sibling directories have hit 200–350 KB in roughly a month of high-volume capture).
+**Reach the PM:** direction and taste calls only. `doctrine-edit` and `memory-pointer` are
+doctrine-owner-only: triage downgrades them to `wiki-*` with the `doe-escalation` hand-back, and
+the doctrine owner authors a real `doctrine-edit` plan only after the four-check gate and the
+char-budget pre-flight. A `direction-call` names at least two acceptable outcomes that differ in
+user-visible behaviour or doctrine meaning.
 
-**Universals-pending escalation.** If ≥ 20 unactioned `[universal]`-tagged entries have accumulated since the last central-mode commit, surface the count to the PM: *"Backlog of N universals — invoke central mode now?"* — and wait. Do not launder the backlog into another "next pass" notice. Emit a one-screen PM summary with surfaced records and a "run /learn-lessons --mode=central" pointer.
+**Stripping is its own run.** The strip run retires promoted universals from a source repo after
+the apply run lands, launched per repo under its cross-repo-assent gate (the `lessons-strip`
+profile). Surfacing a strip to the PM row by row is process theater: the central promotion that
+obsoletes the source entry is already authorized, and every day it stays in source bloats
+`state/lessons/` for `/learn-lessons`, the central route and `/workstream-start`.
 
-**Project-specific entry routing is the goal, not just universals.** Local mode's exhaustivity target covers every entry in `state/lessons/`, not only `[universal]`-tagged ones. The auto-apply buckets above (`discard` / `wiki-append` / `wiki-new` / `retag-local` / dedupe) and the PM-surface buckets together should cover every non-universal entry the run can reach. The goal is aspirational — context-window can bound any single run — but a carryover residue is only legitimate if enumerated with reason (`context-window-bound: N entries remain` plus a recommended follow-up); silent un-routed residue is the failure mode. See `skills/learn-lessons/SKILL.md` Phase 8 § "Local-mode exhaustivity goal" for the report-shape contract.
+**Universals-pending is a post-run count.** A local run reports ≥ 20 unactioned universals in its
+Phase 8 report with a central-run recommendation; it never stops for them.
+
+**Project-specific entry routing is the goal, not just universals.** Local mode's exhaustivity target covers every entry in `state/lessons/`, not only `[universal]`-tagged ones. The fix buckets and PM hand-backs above together should cover every non-universal entry the run can reach. The goal is aspirational — context-window can bound any single run — but a carryover residue is only legitimate if enumerated with reason (`context-window-bound: N entries remain` plus a recommended follow-up); silent un-routed residue is the failure mode. See `skills/learn-lessons/SKILL.md` Phase 8 § "Local-mode exhaustivity goal" for the report-shape contract.
 
 ## Lesson Scope Classification
 
@@ -294,7 +294,7 @@ The 2026-04-27 example-game-repo pass illustrates the signal density: 3 lessons 
 
 **After a local-mode age-sweep, `retained-count ≠ [universal]-count` signals untagged universal-shape entries.**
 
-When Phase 4.5 archives aged entries, the remaining retained count minus the `[universal]`-tagged count should be small. A large gap signals entries that look universal in substance but were never tagged — they will be skipped by the central-promotion pass even if they belong there. Before sending a central-promotion memo, cross-check: enumerate `[universal]`-tagged entries vs. total retained; surface the gap as untagged candidates for DoE review. Do not leave the gap as a silent miss.
+When Phase 4.5 archives aged entries, the remaining retained count minus the `[universal]`-tagged count should be small. A large gap signals entries that look universal in substance but were never tagged — they will be skipped by the central-promotion pass even if they belong there. Before sending a central-promotion memo, cross-check: enumerate `[universal]`-tagged entries vs. total retained; surface the gap as untagged candidates for doctrine-owner review. Do not leave the gap as a silent miss.
 
 ## `[universal]` Tag Is Not a Stop-Sign for Local Wiki Folds — Bidirectional
 
@@ -308,11 +308,10 @@ The routing bias section above governs CLAUDE.md placement. A separate, symmetri
 
 Source directories are in motion. Between extraction at time T and strip at time T+N, concurrent EM sessions may add new universals, prune existing ones, or commit adjacent changes. A partition-based strip (re-derive all `tag_universal: true` entries from the current source directory at apply time) will archive post-extraction additions that were never centrally promoted — promoting the wrong thing.
 
-**Correct procedure (per `skills/learn-lessons/SKILL.md` § strip-local apply):**
-
-1. Re-enumerate `state/lessons/` at strip time.
-2. For each promoted body in the central run's extracted-yaml, match against current source by **normalized first-200-char content signature** (not filename or id).
-3. Strip only entries whose signatures match a promoted body (`git rm` the matched file); skip zero-match (already removed) and multi-match (ambiguous) with a warning.
-4. Archive provenance header cites the central SHA + "promoted by" — not "discarded."
+**The strip run applies it.** The `lessons-strip` profile's refute-close closes a row only when
+its `promoted_to` outbox record sits in the drained outbox with a closing commit and the row's
+body still matches the promoted body. A row that changed since promotion hands back
+`strip-drift`, and a row whose apply has not landed hands back `strip-pending`. Nothing is matched
+by filename, id or line number, and nothing is re-derived from the current source state.
 
 Content-signature matching is what keeps a strip pass correct against a source directory in motion: a partition-based re-derivation would archive post-extraction additions that were never centrally promoted, while content-match correctly leaves them alone.

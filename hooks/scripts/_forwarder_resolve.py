@@ -88,7 +88,9 @@ def resolve_forwarder(bin_dir: Path, name: str) -> Optional[Path]:
     return None
 
 
-def forwarder_argv(script_path: Path, tail: "list[str] | tuple[str, ...]" = ()) -> "list[str]":
+def forwarder_argv(
+    script_path: "Path | str", tail: "list[str] | tuple[str, ...]" = ()
+) -> "list[str]":
     """Build the argv that launches `script_path`, which must have come from
     `resolve_forwarder`.
 
@@ -107,8 +109,19 @@ def forwarder_argv(script_path: Path, tail: "list[str] | tuple[str, ...]" = ()) 
     it degraded in total silence -- the same silence this module was written to
     end, in mirror image. Ask the bytes.
 
+    Normalises `script_path` to `Path` at this boundary rather than trusting
+    every caller to have kept it one: every real caller does (it flows straight
+    out of `resolve_forwarder`, which is `Path`-typed end to end), but this
+    function is a fail-open hook-plane seam -- the four consumers wrap it in a
+    broad `except (OSError, ...)`/`except Exception` that does NOT catch
+    `AttributeError`, so a `str` slipping in here (e.g. a caller or test double
+    that forgot the contract) would raise past that handler and turn a
+    documented "never raises" leg into a silent, uncaught hook failure instead
+    of the OSError-shaped one callers are built to absorb.
+
     Tripwire: AN-EXTENSIONLESS-SETTINGS-HOME-BIN-ENTRY-IS-NOT-PYTHON-SOURCE.
     """
+    script_path = Path(script_path)
     if script_path.suffix.lower() in _NATIVE_SUFFIXES:
         return [str(script_path), *tail]
     if _is_native_image(script_path):

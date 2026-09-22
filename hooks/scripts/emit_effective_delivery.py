@@ -64,6 +64,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shlex
 import subprocess
 import sys
 from collections import namedtuple
@@ -75,6 +76,11 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import _engine_root as _er  # noqa: E402 -- sibling module, resolved off this script's own directory
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
+
+_HOOKS_DIR = SCRIPTS_DIR.parent
+if str(_HOOKS_DIR) not in sys.path:
+    sys.path.insert(0, str(_HOOKS_DIR))
+import fail_open_launcher as _fol  # noqa: E402 -- sibling module, resolved off this script's parent dir
 
 #: `SCRIPTS_DIR.parents[2]` was correct only under the nested plugin layout
 #: (`<repo>/coordinator/hooks/scripts/`) -- under the flat mirror layout this
@@ -639,19 +645,22 @@ def build_carrier_stop_family(matchers_by_tail: Dict[str, Set[str]]) -> Dict[str
     }
 
 
-#: The bash carrier's registered transport after the rehome. `_walk_registrations`
-#: partitions `args` arrays, and an `http` registration HAS no `args` -- so the
-#: carrier that actually delivers the bash guards is structurally invisible to that
-#: walk. Resolving it needs its own reader, keyed on the registration's URL.
-_BASH_CARRIER_HTTP_URL = "http://127.0.0.1:47623/hook"
+#: The bash carrier's registered transport: the native door, running
+#: `<settings-bin>/hook-run hooks.preuse_bash_dispatch`. `_walk_registrations`
+#: partitions `args` arrays, and a door registration is shell form with no `args` --
+#: so the carrier that actually delivers the bash guards is structurally invisible to
+#: that walk. Resolving it needs its own reader, keyed on the op the door names.
+_BASH_CARRIER_DOOR_OP = "hooks.preuse_bash_dispatch"
 
 
-def _http_matchers_for_url(doc: Dict[str, Any], url: str) -> Set[str]:
-    """Every hook-block matcher registered `type: "http"` against `url`.
+def _door_matchers_for_op(doc: Dict[str, Any], op: str) -> Set[str]:
+    """Every hook-block matcher registered as a native door naming `op`.
 
-    The `args`-shaped sibling of `_walk_registrations`, and deliberately narrow: it
-    keys on the URL rather than promoting every http registration into the manifest,
-    because only one of them is a guard CARRIER and the rest are ordinary ops.
+    The shell-form sibling of `_walk_registrations`, and deliberately narrow: it keys on
+    the op rather than promoting every door registration into the manifest, because only
+    one of them is a guard CARRIER. Door recognition itself is
+    `fail_open_launcher.is_native_door` -- the same predicate the carrier's own
+    fail-open runtime uses -- narrowed to this op by an additional token check.
     """
     out: Set[str] = set()
     hooks = doc.get("hooks")
@@ -670,7 +679,15 @@ def _http_matchers_for_url(doc: Dict[str, Any], url: str) -> Set[str]:
             if not isinstance(hook_list, list):
                 continue
             for hook in hook_list:
-                if isinstance(hook, dict) and hook.get("type") == "http" and hook.get("url") == url:
+                if not isinstance(hook, dict):
+                    continue
+                if not _fol.is_native_door(hook):
+                    continue
+                command = hook.get("command") or ""
+                # Review: coordinator-code-reviewer -- shlex.split for quote-aware
+                # tokenization, matching hook_latency_harness.py's equivalent check
+                # rather than a bare whitespace .split().
+                if op in shlex.split(command):
                     out.add(matcher)
     return out
 
@@ -679,8 +696,8 @@ def build_carrier_bash_dispatch(
     matchers_by_tail: Dict[str, Set[str]], doc: Dict[str, Any]
 ) -> Dict[str, Any]:
     # THE CARRIER KEY FOLLOWS THE TRANSPORT, and both shapes are read rather than
-    # one assumed. Registered `type: "command"`, the carrier is the dispatch script
-    # and the key is its tail; registered `type: "http"`, the script is unregistered
+    # one assumed. Registered as the dispatch script, the carrier is that script and
+    # the key is its tail; registered as the native door, the script is unregistered
     # and unreachable, and the key names the transport instead -- keying a live
     # manifest on a script nothing dials is the "stale is worse than absent" state
     # this module exists to prevent. Exactly one of the two must resolve: neither
@@ -688,16 +705,16 @@ def build_carrier_bash_dispatch(
     # guards, and either way the correct move is to fail closed rather than pick.
     script_tail = tail_key(_CARRIER_RAW_TOKENS["bash_dispatch"])
     command_matchers = matchers_by_tail.get(script_tail, set())
-    http_matchers = _http_matchers_for_url(doc, _BASH_CARRIER_HTTP_URL)
-    if command_matchers and http_matchers:
+    door_matchers = _door_matchers_for_op(doc, _BASH_CARRIER_DOOR_OP)
+    if command_matchers and door_matchers:
         raise EmitterError(
-            f"bash_dispatch is registered on BOTH transports -- command "
-            f"{sorted(command_matchers)} and http {sorted(http_matchers)}. Two "
+            f"bash_dispatch is registered on BOTH transports -- script "
+            f"{sorted(command_matchers)} and door {sorted(door_matchers)}. Two "
             "carriers would deliver the same guard roster; deregister one"
         )
-    if http_matchers:
-        carrier_tail = "http:" + _BASH_CARRIER_HTTP_URL
-        carrier_matcher_tokens = http_matchers
+    if door_matchers:
+        carrier_tail = "door:" + _BASH_CARRIER_DOOR_OP
+        carrier_matcher_tokens = door_matchers
     else:
         carrier_tail = script_tail
         carrier_matcher_tokens = command_matchers

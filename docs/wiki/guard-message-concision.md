@@ -944,3 +944,24 @@ on this page uses -- this renderer returns a hand-assembled multi-segment string
 (narration/verdict/next-move/your-call/evidence, capable of covering more than one work item at
 once, with its own truncation ladder), and forcing it through the single-message envelope shape
 would be a worse fit than leaving it as its own renderer.
+
+## A Guard That Blocks The Obvious Test Command Must Name The One That Works {#name-the-working-replacement}
+
+A Bash confinement guard that blocks `python3 -m pytest` and `python3 -c` (the reachable-looking
+test invocations) had refusal text that never named the actual reachable path —
+`project_rag_scripts/run_tier_tests.py --tier <tier> <files>`. A dispatched executor that doesn't
+already know that script exists, or that it accepts passthrough pytest args, has no route from the
+error text to a working command. It either stalls, or — the worse failure, because it's silent —
+reports untested work as done.
+
+**Rule.** When a guard blocks a command class, its refusal message names the working replacement
+inline, not just the prohibition. Other bash guards in this fleet already do this (the `git -C`
+guard and the scoped-commit guard both name their sanctioned form in the refusal itself); a guard
+that only says "blocked" without saying "use X instead" is the outlier, and the fix belongs in the
+guard's own message, not in doctrine a fresh executor hasn't loaded. A dispatched executor sees
+only its own dispatch prompt and the tool output in front of it — a wiki page it was never told to
+read does not help it in the moment the guard fires.
+
+*Case in point: `check-test-suite-invocation`. Applying this entry does not authorize editing a
+guard's script itself here — it lands the substance in this wiki; the actual message-text fix
+belongs to whoever owns that guard's source.*

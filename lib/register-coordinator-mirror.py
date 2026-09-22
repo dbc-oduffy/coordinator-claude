@@ -95,7 +95,7 @@ def _claude_home_argv(*args: str) -> list:
     branch. Negative spec: the mirror does not go ahead of `shutil.which`.
     """
     if os.name == "nt":
-        # Review: code-reviewer (slice1b Finding 1) — EM-verified disposition:
+        # EM-verified disposition:
         # `CLAUDE_HOME` means "the home directory *containing* `.claude`", not
         # `~/.claude` itself. 889 call sites across this codebase join
         # `CLAUDE_HOME` with `/.claude` (the `${CLAUDE_HOME:-$HOME}/.claude/...`
@@ -124,7 +124,7 @@ def _claude_home_argv(*args: str) -> list:
         found = shutil.which("claude-home")
         if found:
             return [found, *args]
-        # Review: code-reviewer (slice1b Finding 3) — breadcrumb before the
+        # Breadcrumb before the
         # bare-name last resort: distinguishes "not installed" from
         # "installed somewhere unexpected" for an operator debugging a
         # WinError 2 on the fallback below.
@@ -136,7 +136,7 @@ def _claude_home_argv(*args: str) -> list:
         )
         return ["claude-home", *args]
 
-    # Review: review-integrator — same bareword defect flagged in
+    # Same bareword defect flagged in
     # maximalist.py's POSIX branch (audit row above); ladder now matches.
     home = os.environ.get("HOME") or os.environ.get("USERPROFILE") or os.path.expanduser("~")
     settings_home_cand = os.path.join(
@@ -192,7 +192,7 @@ def _resolve_coordinator_live() -> str:
     else:
         tier1_fail_reason = "resolver script not found"
 
-    # Review: code-reviewer (slicedoe-2commits Finding 4) — one-line stderr
+    # one-line stderr
     # breadcrumb before the Tier-2 fallback so a transient Tier-1 failure
     # (torn resolver script, permissions) isn't papered over indefinitely.
     if not coordinator_live and tier1_fail_reason:

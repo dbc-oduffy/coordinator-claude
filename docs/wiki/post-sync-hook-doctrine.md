@@ -7,7 +7,7 @@ status: active
 
 <!-- spec backlink: none — doctrine distilled from publish pipeline operational experience -->
 
-Post-sync hooks that run after `rsync` or the publish pipeline (claude-klabauter `coordinator/bin/publish.py`) completes MUST constrain their work to the set of files the sync actually transferred. A hook that walks the destination tree as a whole operates on state it didn't create, and silently mutates files this sync had no stake in.
+Post-sync hooks that run after `rsync` or the publish pipeline (the engine repo's `coordinator/bin/publish.py`) completes MUST constrain their work to the set of files the sync actually transferred. A hook that walks the destination tree as a whole operates on state it didn't create, and silently mutates files this sync had no stake in.
 
 ## The Leak
 
@@ -164,5 +164,5 @@ Cross-references:
 ## Cross-References
 
 - `docs/wiki/percolate-setup.md` — percolation pipeline where hook scoping first mattered
-- `docs/wiki/plugin-extraction-and-distribution.md` — publish pipeline (claude-klabauter `coordinator/bin/publish.py`) that drives the rsync invocations
+- `docs/wiki/plugin-extraction-and-distribution.md` — publish pipeline (the engine repo's `coordinator/bin/publish.py`) that drives the rsync invocations
 - `docs/wiki/agentic-install-integrity.md` — classifier, sentinel, and three deferred extensions including §3 (the new-file mutation carve-out this section generalises)

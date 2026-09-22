@@ -68,7 +68,7 @@ def main(argv: "list[str] | None" = None) -> int:
     try:
         op_main = _import_main()
     except RuntimeError as exc:
-        # Review: code-reviewer P2 — engine-root resolution failure is an
+        # engine-root resolution failure is an
         # environment/install fault, not a CLI usage mistake; the docstring
         # (line 39) reserves exit 3 for exactly this class, distinct from
         # the exit-2 usage-error tier. Was sys.exit(2), misclassifying it.

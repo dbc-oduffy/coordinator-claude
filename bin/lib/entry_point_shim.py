@@ -68,6 +68,7 @@ import importlib
 import importlib.util
 import inspect
 import io
+import os
 import sys
 from pathlib import Path
 from typing import Callable, List, Optional
@@ -496,6 +497,76 @@ def _merge_assemble_dispatch(op: str, params: dict, print_fn, result_key: str, *
     return exit_code_int if exit_code_castable else 0
 
 
+def _native_route_entry(name: str, dotted: str) -> Callable[[List[str]], int]:
+    """Warm-routed replacement for `_simple_entry(name, dotted)`, for the
+    three names this campaign carries through `invoke.from_argv`'s
+    `params.entrypoint` (pickup-assemble, baton-assemble,
+    workstream-complete-assemble — plan's C4). Routes through
+    `cc_invoke.route` with `entrypoint=name` set, so the native door runs
+    THIS name's OWN `coordinator/bin/<name>.py :: main(argv)` in-process
+    (`coordinator_core.ops.invoke_from_argv._run_entrypoint`) — never a
+    per-name argv-to-op translation table (DR-347 Ruling 2, and this
+    module's own `_merge_assemble_dispatch` precedent, which routes a real
+    OP name rather than an entrypoint).
+
+    State-1 (seam absent): `route()` itself calls `legacy_fn` — here,
+    `_simple_entry(name, dotted)` unchanged — and passes its `int` return
+    straight through. Byte-identical to the pre-this-row direct-import
+    behaviour: same import target, same error-message text, same exit
+    codes, because nothing about `_simple_entry` changed.
+
+    State-2 (seam present): `route()` calls the native op and returns its
+    `{"stdout", "stderr", "exit_code"}` dict, printed here to this
+    process's real streams and reduced to the `exit_code` int. A State-2
+    transport failure is a HARD raise out of `route()` itself — this
+    function does not catch it and must not: `route`'s own contract
+    ("NEVER fall back to legacy_fn on State-2") is owned entirely by
+    `route`, not re-derived here.
+    """
+    legacy_entry = _simple_entry(name, dotted)
+
+    def _entry(argv: List[str]) -> int:
+        # NEGATIVE SPEC: served side runs the implementation; routing here
+        # again would re-enter this same shim through the door (this `main`
+        # IS what `invoke.from_argv` serves) -- unbounded self-recursion, cut
+        # only by the mutation read deadline. The pool worker declares its
+        # route (`server._worker_process_init`); a COLD-served
+        # `invoke.from_argv` declares none, so `_run_entrypoint` marks the
+        # served span itself (`SERVED_ENTRYPOINT_ENV`) -- without it each cold
+        # rung spawns the next, forever. The caller side, undeclared, still
+        # routes exactly as before.
+        if (
+            os.environ.get("COORDINATOR_EXECUTION_ROUTE") == "warm_server"
+            or os.environ.get("COORDINATOR_SERVED_ENTRYPOINT")
+        ):
+            return legacy_entry(list(argv))
+
+        lib_dir = str(BIN_DIR / "lib")
+        if lib_dir not in sys.path:
+            sys.path.insert(0, lib_dir)
+        import cc_invoke  # noqa: PLC0415
+
+        repo_root = _merge_assemble_checked_repo_root()
+        params = {"argv": list(argv), "cwd": str(Path.cwd()), "entrypoint": name}
+
+        result = cc_invoke.route(
+            "invoke.from_argv", params, repo_root, lambda: legacy_entry(list(argv))
+        )
+
+        if isinstance(result, dict):
+            stdout_text = result.get("stdout", "")
+            stderr_text = result.get("stderr", "")
+            if stdout_text:
+                sys.stdout.write(stdout_text)
+            if stderr_text:
+                sys.stderr.write(stderr_text)
+            exit_code = result.get("exit_code")
+            return exit_code if isinstance(exit_code, int) else 1
+        return int(result)
+
+    return _entry
+
+
 #: Pre-C2 behavior, kept as the fallback target for the seam-absent case
 #: where `coordinator_core.merge_assemble.cli` itself cannot be imported
 #: (root unresolvable, or resolved to a root that predates C1's cli split).
@@ -580,10 +651,20 @@ def _merge_assemble_entry(argv: List[str]) -> int:
 def _backlog_grind_assemble_entry(argv: List[str]) -> int:
     """Verbatim port of backlog-grind-assemble.py's own `main(argv)` —
     subcommand routing to `coordinator_core.backlog_grind_assemble`
-    (brief/mint-run-id) and its `.apply` submodule (apply/drop), which
-    is the one target besides workday-complete-assemble that fans out to
-    more than a single `mod.main(argv)` call."""
-    usage_text = "usage: backlog-grind-assemble brief|mint-run-id|apply|drop <cadence> [...]"
+    (brief/mint-run-id), its `.apply` submodule (apply/drop), and its
+    `.grind_rows` submodule (grind-row) — the one target besides
+    workday-complete-assemble that fans out to more than a single
+    `mod.main(argv)` call.
+
+    `grind-row` needs BOTH the allowlist tuple below AND its own dispatch
+    branch: allowlisting alone routes an unhandled subcommand into the
+    bare `main_drop` fallthrough at the bottom -- exit 0, drop's payload,
+    silently wrong (the exact mint-run-id incident `TestTrampolineDispatchRouting`
+    in `coordinator_core/test_backlog_grind_assemble.py` now pins for every
+    allowlisted subcommand, `grind-row` included)."""
+    usage_text = (
+        "usage: backlog-grind-assemble brief|mint-run-id|apply|drop|grind-row <cadence|verb> [...]"
+    )
 
     def _usage() -> int:
         print(usage_text, file=sys.stderr)
@@ -596,7 +677,7 @@ def _backlog_grind_assemble_entry(argv: List[str]) -> int:
         return 0
 
     subcommand, rest = argv[0], argv[1:]
-    if subcommand not in ("brief", "mint-run-id", "apply", "drop"):
+    if subcommand not in ("brief", "mint-run-id", "apply", "drop", "grind-row"):
         return _usage()
 
     try:
@@ -606,6 +687,7 @@ def _backlog_grind_assemble_entry(argv: List[str]) -> int:
             sys.path.insert(0, claude_klabauter_root)
         import coordinator_core.backlog_grind_assemble as brief_mod
         import coordinator_core.backlog_grind_assemble.apply as apply_mod
+        import coordinator_core.backlog_grind_assemble.grind_rows as grind_rows_mod
     except RuntimeError as exc:
         print(f"backlog-grind-assemble: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
         return _TRANSPORT_FAIL
@@ -620,6 +702,16 @@ def _backlog_grind_assemble_entry(argv: List[str]) -> int:
         return brief_mod.main(argv)
     if subcommand == "apply":
         return apply_mod.main_apply(rest)
+    if subcommand == "grind-row":
+        # DR-276: `grind-row` writes/moves/deletes files (append, close,
+        # settle, run-record) through a plain in-process call, never through
+        # `ipc.dispatch_message` -- so without an explicit declared-writes
+        # collection here, every one of those writes carries no session
+        # touch-claim and lands in `orphans` at the `scoped_git_commit` sink.
+        from coordinator_core.cli_entry import recording_declared_writes
+
+        with recording_declared_writes():
+            return grind_rows_mod.main(rest)
     return apply_mod.main_drop(rest)
 
 
@@ -678,18 +770,18 @@ def _workday_complete_assemble_entry(argv: List[str]) -> int:
 # from.
 _ENGINE_ENTRIES: dict[str, Callable[[List[str]], int]] = {
     "backlog-grind-assemble": _backlog_grind_assemble_entry,
-    "baton-assemble": _simple_entry("baton-assemble", "coordinator_core.baton_assemble"),
+    "baton-assemble": _native_route_entry("baton-assemble", "coordinator_core.baton_assemble"),
     "consolidate-assemble": _simple_entry("consolidate-assemble", "coordinator_core.consolidate_assemble"),
     "merge-assemble": _merge_assemble_entry,
     "orient-assemble": _simple_entry("orient-assemble", "coordinator_core.orient_assemble"),
-    "pickup-assemble": _simple_entry("pickup-assemble", "coordinator_core.pickup_brief"),
+    "pickup-assemble": _native_route_entry("pickup-assemble", "coordinator_core.pickup_brief"),
     "plan-assemble": _simple_entry("plan-assemble", "coordinator_core.plan_assemble"),
     "quick-wrap-assemble": _simple_entry("quick-wrap-assemble", "coordinator_core.quick_wrap_assemble"),
     "review-assemble": _simple_entry("review-assemble", "coordinator_core.review_assemble"),
     "sizing-assemble": _simple_entry("sizing-assemble", "coordinator_core.sizing_assemble"),
     "staff-session-assemble": _simple_entry("staff-session-assemble", "coordinator_core.staff_session_assemble"),
     "workday-complete-assemble": _workday_complete_assemble_entry,
-    "workstream-complete-assemble": _simple_entry("workstream-complete-assemble", "coordinator_core.workstream_complete"),
+    "workstream-complete-assemble": _native_route_entry("workstream-complete-assemble", "coordinator_core.workstream_complete"),
 }
 
 
@@ -983,7 +1075,7 @@ def run_gate_target(name: str, argv: List[str]) -> int:
     _record_invocation(name)
 
     if name in GATE_ENGINE_ENTRIES:
-        # Review: code-reviewer — sys.argv asymmetry, audited empirically.
+        # sys.argv asymmetry, audited empirically.
         # Grepped run_op_main and all 5 GATE_ENGINE_ENTRIES op modules
         # (assert_no_dangling_plan_backlinks, assert_plan_sizing_citation,
         # check_em_environment, check_posix_exec_assumptions,
@@ -1180,7 +1272,7 @@ def run_target(name: str, argv: List[str]) -> int:
         finally:
             sys.argv = original_argv
 
-    # Review: code-reviewer — sys.argv asymmetry, audited empirically. This
+    # sys.argv asymmetry, audited empirically. This
     # branch, unlike BY_PATH_TARGETS above, never sets sys.argv before
     # calling the target. Grepped all 12 engine-mapped ASSEMBLE_TARGETS
     # modules (coordinator_core.{backlog_grind_assemble,baton_assemble,

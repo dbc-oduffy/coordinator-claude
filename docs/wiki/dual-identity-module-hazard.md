@@ -77,7 +77,7 @@ if __name__ == "__main__":
 
 ## Dual plugin-source-tree identity — verify the loaded copy, not the assumed-canonical one
 
-*DoE-claude.* The `sys.modules` double-load above has a filesystem-level cousin: **two on-disk copies of the same plugin, each reached by a different launch path.** After the W4.2 cutover relocated the coordinator plugin source → `DoE-claude/coordinator/` (loaded via `--plugin-dir`), `~/.claude` retained an independent copy loaded by a plain `claude` invocation. A config/hook fix edited into one copy silently misses the other — the fix "lands" but nothing that runs loads it.
+*The doctrine repo.* The `sys.modules` double-load above has a filesystem-level cousin: **two on-disk copies of the same plugin, each reached by a different launch path.** After the W4.2 cutover relocated the coordinator plugin source → the doctrine repo's `coordinator/` (loaded via `--plugin-dir`), `~/.claude` retained an independent copy loaded by a plain `claude` invocation. A config/hook fix edited into one copy silently misses the other — the fix "lands" but nothing that runs loads it.
 
 **Detection.** When a hooks/config fix looks restart-gated but the behavior (e.g. shim-not-connected noise) *persists in a genuinely fresh session*, do NOT re-open the diagnosis — first confirm which tree the session actually loads:
 

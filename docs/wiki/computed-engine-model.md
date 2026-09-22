@@ -1,7 +1,7 @@
 # The Computed Engine — one canonical core for skills, agents, and process
 
 > **What this is.** The shared *thinking framework* for the coordinator system's move to run its
-> skills, commands, and agents atop the claude-klabauter Python engine — "claude-klabauter-ization." It captures the
+> skills, commands, and agents atop the engine repo's Python core — "engine-ization." It captures the
 > lenses and the layer model we reason with, NOT the specific architectural decisions (those are
 > resolved in the staff-session plan `2026-07-24-canonical-resolution-engine.md` under `docs/plans/` and its
 > eventual DRs). Read this to understand *how to think about* a computed-skill / computed-agent
@@ -29,8 +29,8 @@ The engine owns 1–3; the surface owns only the residue of 4.
 
 1. **Resolution / environment core.** Self-locate (`Path(__file__)`), engine location
    (`claude_klabauter_bin` / `coordinator_root`), per-device config (`settings_home`), and the trust verdict.
-   Today this logic is triplicated across claude-klabauter lib modules (settings-home precedence written 3×;
-   the claude-klabauter ladder split 3 ways — R3). The canonical core unifies it behind one resolver, with the
+   Today this logic is triplicated across the engine repo's lib modules (settings-home precedence written 3×;
+   the engine's ladder split 3 ways — R3). The canonical core unifies it behind one resolver, with the
    **guard boundary preserved exactly**: trust-guard roots that originate from `CLAUDE_PLUGIN_ROOT`
    (attacker-steerable); never guard operator-config reads (registry / `.claude-klabauter-root`) — the
    discriminator is *provenance, not operation*. **This is what B0 becomes** — not a keystone CLI the
@@ -101,7 +101,7 @@ dominate; compute is noise (R6). So performance is architecture, not polish:
 - Target: brief ≤60ms (stretch <10ms), **0 spawns on the hot path**, import ≤20ms, zero subprocess
   resolution rungs. State these AS acceptance criteria.
 - Two levers: lazy-import the heavy tree (same-day win); and eliminate per-call spawning (warm
-  worker / resident vs. per-call cold start — the claude-klabauter daemon question, re-decided for the
+  worker / resident vs. per-call cold start — the engine repo's daemon question, re-decided for the
   user-facing assembler surface).
 - **On Windows the profile flips to spawn-dominated** (each git/interpreter spawn is far costlier),
   so zero-spawn is a *correctness* requirement on the primary machine, not a micro-optimization.

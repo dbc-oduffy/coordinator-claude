@@ -205,7 +205,7 @@ def windows_cmd_first_candidates(bases: "list[str]") -> "list[str]":
     ``PATHEXT``, so a bare extensionless invocation of a delivered ``.cmd``
     silently fails); on every other platform, return ``bases`` unchanged.
 
-    Review: code-reviewer F2 — extracted from `resolve-repo-path.py`'s
+    Extracted from `resolve-repo-path.py`'s
     `_machine_local_path_candidates()` (which had this logic correct) so
     `machine_local_bin_candidates()` below stops silently omitting it — the
     duplication-avoidance this whole module exists for, applied to itself.

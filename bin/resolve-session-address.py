@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """resolve-session-address.py — turn a session id into something you can message.
 
 Purpose: coordinator artifacts record ownership as a raw session UUID

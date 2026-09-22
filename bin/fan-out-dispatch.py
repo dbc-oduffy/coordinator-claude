@@ -176,7 +176,7 @@ def _resolve_claude_klabauter_root_silent() -> Optional[str]:
     pointer-file/registry ladder) and put it on sys.path; None on any failure
     (fail-open).
 
-    Review: code-reviewer — this puts the root on sys.path itself, but every
+    This puts the root on sys.path itself, but every
     caller (`_no_console_kw`, `_generate_candidate_restatements`,
     `_provision_sidecars`) still performs its own guarded
     `if claude_klabauter_root not in sys.path: sys.path.insert(...)` afterward. That
@@ -547,7 +547,7 @@ def main(argv: List[str]) -> int:
 
         row_num += 1
 
-        # Review: code-reviewer — Finding 1. Validate at the RAW line (pre-collapse) that a
+        # Validate at the RAW line (pre-collapse) that a
         # row supplying a 5th (change_kind) field also supplies a non-empty 4th (pin-or-`-`)
         # field. Once tabs collapse below, a genuinely-empty 4th field is indistinguishable
         # from an absent one — a caller who leaves the 4th field empty instead of using the
@@ -740,7 +740,7 @@ def main(argv: List[str]) -> int:
         if chunk_change_kinds[idx] not in _WIKI_CHANGE_KINDS:
             continue
         target_path = chunk_files_lists[idx][0]
-        # Review: code-reviewer — Finding 3. "First in-scope file is the wiki target" is a
+        # "First in-scope file is the wiki target" is a
         # convention this compiler assumes, not something the row proves — a multi-file
         # wiki-append/wiki-new chunk that lists a supporting code/test file first would
         # otherwise compute candidates against the wrong file with no error, no NOTE, just

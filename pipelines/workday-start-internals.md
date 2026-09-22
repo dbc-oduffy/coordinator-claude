@@ -6,7 +6,7 @@ Detail companion to `commands/workday-start.md`. Step numbers refer to that comm
 
 On 2026-07-19, commit `af2133e4` ported the script invoked by the deployed
 `.git/hooks/prepare-commit-msg` hook from bash to Python. The installer that generates that hook
-body (claude-klabauter `coordinator/bin/lib/git_hook_install.py`) was already correct — it rewrites a stale hook on
+body (the engine repo's `coordinator/bin/lib/git_hook_install.py`) was already correct — it rewrites a stale hook on
 mismatch when run — but nothing re-ran it after the port. The hook only fires at one-time
 `repo-setup`, and the 2026-07-15 full-kill-keep-fast-orientation directive removed the SessionStart
 boot hooks that might otherwise have self-healed it. Net effect: every commit in this repo was
@@ -69,7 +69,7 @@ The goal is to ensure the active workstream branch reconciles with `origin/main`
 The hook polices branch *shape* at create-time, not branch *date* at workday-start. Daily ritual is **reconcile with origin/main**, applicable to both branch types. One active workstream branch per machine, kept current with main, until it's ready to merge.
 
 **Implementation note:** the procedure below is the conceptual model; the live entrypoint is
-Claude-klabauter `coordinator/bin/workday-start-step0.py`, which imports `cs_compute_machine`/`cs_parse_branch_span`/etc.
+the engine repo's `coordinator/bin/workday-start-step0.py`, which imports `cs_compute_machine`/`cs_parse_branch_span`/etc.
 natively from `coordinator_core.machine_resolver` / `coordinator_core.daily_branch`
 (de-bash campaign, unit "daily-branch" — `coordinator-daily-branch.sh` is retired).
 
@@ -188,7 +188,7 @@ above, this predates the per-commit auto-push hook (`coordinator-auto-push`, →
 on every commit; the current `commands/workday-start.md` numbering repurposes "Step 0.6" for the
 unrelated Agent Worktree Sweep. Documented here for historical rationale only — do not execute.
 
-The retired step resolved claude-klabauter's root (checking `REPO_CLAUDE_KLABAUTER`, then `CLAUDE_KLABAUTER_ROOT`, then falling back to the settings-home registry/pointer helper `_engine_root.py`), failing loud with remediation guidance if none resolved, and pushed the active branch computed via that root's `coordinator-current-branch.py`.
+The retired step resolved the engine repo's root (checking `REPO_CLAUDE_KLABAUTER`, then `CLAUDE_KLABAUTER_ROOT`, then falling back to the settings-home registry/pointer helper `_engine_root.py`), failing loud with remediation guidance if none resolved, and pushed the active branch computed via that root's `coordinator-current-branch.py`.
 
 Report:
 - _"On branch {active-branch}. Consolidated N open branches: {list}."_
@@ -250,7 +250,7 @@ Generate `state/orientation_cache.md` — a compact, schema-conformant summary t
 "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/regenerate-orientation-cache" --invoker workday-start
 ```
 
-The routine is the single source-of-truth derivation. This section documents the **canonical schema** that the routine produces and the verifier (claude-klabauter `coordinator/bin/verify-orientation-cache-sync.py`) enforces. Drift from this schema is a verifier failure at `/update-docs` Phase 11b.
+The routine is the single source-of-truth derivation. This section documents the **canonical schema** that the routine produces and the verifier (the engine repo's `coordinator/bin/verify-orientation-cache-sync.py`) enforces. Drift from this schema is a verifier failure at `/update-docs` Phase 11b.
 
 **Why a schema, not prose:** four writers (`/workday-start`, `/update-docs`, `/workstream-complete`, `/handoff`) historically patched the cache with free-form sections, and there was no owner for subtraction. The cache accreted prior-session narrative ("publish-repo-topology-sync just shipped...", "the Staff Engineer R1 (9 findings folded)...", "AC7 dogfood waived by PM") that poisoned every subsequent boot. The schema below is the structural fix: every section is either (a) static template, (b) sentinel-regenerated from disk, or (c) absent. No free-form prose anywhere.
 
@@ -279,7 +279,7 @@ The routine is the single source-of-truth derivation. This section documents the
 
 Canonical home is the writer — `coordinator_core.orientation.regenerate_cache` owns
 `LINE_CEILING` (plus `WORKSTREAM_MAX`, `WORKSTREAM_BODY_CAP`, `PRIORITIES_MAX`); the verifier
-(claude-klabauter `coordinator/bin/verify-orientation-cache-sync.py`) imports them rather than
+(the engine repo's `coordinator/bin/verify-orientation-cache-sync.py`) imports them rather than
 declaring its own independent copy. Line ceiling and byte budget trim in one shared write-time
 pass, so `/update-docs` Phase 11b should rarely trip on a compliant cache — it remains a correct
 post-hoc check, just no longer the sole enforcement point.
@@ -342,7 +342,7 @@ ceremony (or the async self-heal leg) actually re-runs this step.
 
 ## Step 1.45 — Outstanding Cross-Repo Memos (details)
 
-Helper: claude-klabauter `coordinator/bin/workday-start-cross-repo-memo-surface.py`.
+Helper: the engine repo's `coordinator/bin/workday-start-cross-repo-memo-surface.py`.
 
 **Query.** Glob `cross-repo/inbox/*.md` (git-root-relative), parse YAML frontmatter, filter to memos with `status ∈ {open, reviewed}` and `created >= 2026-05-22` (pre-cutoff memos grandfathered; never surface).
 
@@ -363,7 +363,7 @@ Helper: claude-klabauter `coordinator/bin/workday-start-cross-repo-memo-surface.
 
 ## Step 1.46 — Outstanding Outbox Drafts (details)
 
-Helper: claude-klabauter `coordinator/bin/workday-start-cross-repo-memo-outbox-surface.py`.
+Helper: the engine repo's `coordinator/bin/workday-start-cross-repo-memo-outbox-surface.py`.
 
 **Query.** Glob `state/memo-outbox/*.md` (git-root-relative), filter to files with mtime older than `${COORDINATOR_OUTBOX_STALE_HOURS:-24}` hours. Distinct from Step 1.45 — this surfaces sender-side composition state (drafts staged but not sent), not receiver-side inbox state. Mtime-based (not `created:` frontmatter), so a draft repeatedly edited resets its staleness clock.
 
