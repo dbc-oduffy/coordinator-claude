@@ -16,8 +16,8 @@ paired disciplines; cross-reference all three.
 ## The principle
 
 **A platform-targeted change must not regress another platform's invocation path.** Every
-executable entrypoint ships an invocation path for every supported OS — shebang + exec-bit for
-Unix, a launcher for Windows — and parity between the two is enforced by a red test, not by
+executable entrypoint ships an invocation path for every supported OS — an explicit interpreter
+or generated launcher for Unix, a launcher for Windows — and parity between the two is enforced by a red test, not by
 hoping someone dogfoods the other OS before it ships.
 
 This is deliberately narrower than "cross-platform behavioral parity" (the ops an entrypoint
@@ -29,7 +29,7 @@ all.
 
 | OS | Invocation mechanism | What breaks it |
 |----|----------------------|----------------|
-| Unix (macOS/Linux) | Shebang (`#!/usr/bin/env python3`) as line 1 + `100755` exec bit in the git index | Missing/wrong shebang line; exec bit lost (a plain working-tree `chmod +x` is silently reset by `core.fileMode=false` on Windows clones — the *index* mode is what ships, stamp it with `git update-index --chmod=+x`) |
+| Unix (macOS/Linux) | An explicit interpreter (`python3 <path>`) or a generated launcher; the `#!/usr/bin/env python3` shebang on line 1 documents the interpreter but is never what launches the file | A bareword caller that relies on the kernel honoring the shebang — that needs `100755` in the index, which is ratcheted Windows-P0 debt (`install-surface-completeness.md` § Exec-bit policy), so the caller is the defect |
 | Windows | A co-located launcher (`.cmd`/`.ps1`) resolved via `PATHEXT` when the entrypoint is invoked bareword from `cmd.exe` | Missing launcher; launcher drifts out of sync with the target it wraps |
 
 **The two-sided invariant.** For a `python3`-shebang + `.cmd` entrypoint, both halves are
@@ -48,18 +48,19 @@ independently load-bearing:
    conditional on callers respecting invariant (2), not unconditional.
 
 Both invariants are test-enforced, not merely documented — a two-layer gate: layer (a) asserts
-every entrypoint's shebang + exec-bit + `.cmd` triple; layer (b) asserts no caller invokes a
+every entrypoint's shebang + `.cmd` pair; layer (b) asserts no caller invokes a
 `coordinator/bin/*.py` entrypoint as a bareword inside a shell block. Documentation without teeth
 is exactly what let the incident below ship unnoticed.
 
 ## The generator-owns-both rule
 
-The two paths must be emitted by **one generator, one call per entrypoint** — never two
-independently-maintained emitters that can drift apart. `gen-launcher-shim.py` is that
-generator: it owns Unix-enablement (shebang + exec-bit stamping) symmetric with `.cmd`/`.ps1`
-emission, idempotently. Splitting the two into separate tools recreates the exact failure mode
-this doctrine exists to prevent — one side gets a feature, an install-time fix, or a bugfix, and
-the other silently doesn't.
+Every generated launcher for an entrypoint comes from **one generator, one call per entrypoint**
+— never two independently-maintained emitters that can drift apart. `gen-launcher-shim.py` is
+that generator: it emits the `.cmd`/`.ps1` pair idempotently. The Unix path needs no generated
+artifact — callers name the interpreter — so the generator stamps neither shebang nor exec bit.
+Splitting launcher emission across tools recreates the failure mode this doctrine exists to
+prevent: one side gets a feature, an install-time fix, or a bugfix, and the other silently
+doesn't.
 
 ## The W4a incident (cautionary precedent)
 
@@ -114,7 +115,7 @@ not folded into the plan that ratified this doctrine.
 
 ## Forward obligation across the doctrine/engine boundary
 
-The invocation-parity invariant (Unix shebang+exec-bit path symmetric with the `.cmd` launcher,
+The invocation-parity invariant (Unix interpreter-or-launcher path symmetric with the `.cmd` launcher,
 generator-owned) is a **preserved forward obligation**, not a doctrine-repo-implementation-only
 detail. If the engine repo later extracts the bin-generation/install surface under that boundary,
 the invariant travels with the surface — it does not lapse on extraction. Any doctrine-repo→engine-repo
@@ -174,7 +175,6 @@ doctrine cites the snippet rather than restating either form.
   layer: whether a script *runs correctly* once invoked, not whether it can be *launched*).
 - `bash-on-windows-gotchas.md` — the `python3`-shebang ban and its `.cmd`-coverage carve-out.
 - `install-surface-completeness.md` — the broader "works on every machine" doctrine this wiki is
-  the invocation-layer instance of; § Windows-chmod commit mechanic for the exec-bit-in-index
-  detail.
+  the invocation-layer instance of; § Exec-bit policy for why no path may depend on the index mode.
 - The ratifying decision record lives in the doctrine source repo's `docs/decisions/` and does
   not ship; its absence downstream is expected.

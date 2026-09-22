@@ -3172,6 +3172,27 @@ def _cmd_round_default(
                 )
                 return _EXIT_OK
 
+            # Before the pathspec is partitioned, not after: a re-moded path
+            # only reaches the commit if it is in `pathspec` when the partition
+            # and the subject read it, matching `publish.py`'s own ordering rule
+            # at its `_normalize_dest_exec_bits` call site.
+            #
+            # The sync swaps whole dest dirs, so every file under them lands with
+            # the source archive's mode whether or not its bytes changed. Under
+            # `core.fileMode=true` a mode-only delta outside the content pathspec
+            # is permanent dirt that defeats the next round's clean-dest
+            # precondition, and no content-comparing sync can clear it.
+            if manifest is not None and manifest.published_dest_dirs:
+                remoded = _sibling_cli(_PUBLISH)._normalize_dest_exec_bits(
+                    Path(repo_root), sorted(manifest.published_dest_dirs)
+                )
+                if remoded:
+                    print(
+                        f"percolate-round: re-moded {len(remoded)} dest path(s) "
+                        "onto the shebang predicate."
+                    )
+                    pathspec = sorted(set(pathspec) | set(remoded))
+
             # Partitioned BEFORE the subject is composed, not merely before the
             # commit: the subject's removed-count is only truthful if it can see
             # the deletion channel, and a removal reaches the pathspec from the

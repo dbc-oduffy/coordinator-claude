@@ -300,11 +300,11 @@ When an install-surface defect appears in emitted state (a generated sentinel, a
 
 In a multi-stage install chain, heavy installs (MCP registration, large downloads, engine indexing) are intentionally agent-gated upstream (e.g. exit 92 = "agent must drive this step"). A pre-restart **leaf bootstrap** can therefore only *seed batons / handoffs* — it cannot perform the heavy install itself. The post-bootstrap restart is **not** "just MCP registration": it exists for two independent reasons (the gated heavy install AND the harness re-read of newly-written enablement/registry state). Do not collapse the restart as a redundant step. (Source: example-game-workbench-repo.)
 
-## Committed publish-mirror of executable scripts — preserve exec-bit, shebang line 1, freshness-compare modulo banner
+## Committed publish-mirror of executable scripts — preserve index mode, shebang line 1, freshness-compare modulo banner
 
 When an executable script is committed as a publish-mirror copy (a second tracked copy in a distribution tree), the mirror must:
 
-1. **Preserve the exec-bit** (100755) — see § Exec-bit-shebang invariant.
+1. **Preserve the source's index mode** — the mirror records what the source records; it never stamps `100755` on its own (see § Exec-bit policy).
 2. **Keep the shebang on line 1** — any injected provenance/banner goes AFTER the shebang, never before it (a banner before `#!` makes the kernel fail to find the interpreter).
 3. **Freshness-compare modulo the banner** — the drift check between source and mirror must strip the injected banner before diffing, or every mirror reads as drifted from its source on every check.
 
@@ -537,54 +537,67 @@ Installers that register OS-level autostart (scheduled tasks, Windows `Startup` 
 
 Green helper tests mask integration-layer guards. At least one test must drive the real operator entry point (the wrapper script, the CLI surface, the skill phase-dispatch path) end-to-end, not just the inner function. Apply: for every install surface with a wrapper/CLI, add one test that calls the wrapper and verifies the guard fires — not a test of the helper the wrapper calls.
 
-## Exec-bit-shebang invariant
+## Exec-bit policy — invocation never depends on the bit
 
 
-### The invariant
+### The rule
 
-Any tracked file whose first two bytes are `#!` MUST be committed at index mode `100755`. A shebanged file at `100644` is a silent install-surface failure: on any Unix clone, `[[ -x "$file" ]]` gates skip it, the interpreter never runs it, and the failure surfaces only at the downstream user's machine — not at the Windows authoring machine where `core.fileMode=false` suppresses all mode-bit visibility.
+No entrypoint's invocation depends on the git exec bit. A script runs through an explicit
+interpreter (`python3 <path>`) or a generated launcher, never as a bareword exec of the script
+itself. A shebang line is fine — it documents the interpreter — but nothing may rely on the kernel
+honoring it.
 
-First confirmed instance: `session-init.sh`'s hygiene scripts (`lock-reaper`, `configure-git`, `renormalize-index`) committed at `100644` — dead on Mac/Linux until an install caught them via `[[ -x ]]` gating. Source lesson: `state/lessons/` content-anchor "A boot-hook script committed at mode 100644 silently never runs on fresh Mac/Linux clones [universal]".
+`100755` in the index is Windows-P0 debt, not a fix: `core.fileMode=false` hides it on Windows,
+so any path that needs it works on the authoring box's peers and fails nowhere the author looks.
+The fleet POSIX-exec ratchet (`check_posix_exec_assumptions`, wired here by
+`coordinator/tests/test_posix_exec_assumptions_baseline.py`) is the sole owner of git-mode
+policy: `mode_100755` is counted against a shrink-only baseline, and a real carve-out is an
+`EXEMPTIONS` entry in that engine module. **Never flip a file to `100755` to satisfy a gate** —
+a gate that demands it is the defect.
 
-### Three enforcement surfaces — each load-bearing
+A shebanged script at `100644` that breaks on a Unix clone has a bareword caller. Fix the caller
+to name its interpreter; do not stamp the bit.
 
-A single enforcement surface is not enough. Each protects a different stage:
-
-1. **Precommit hook** — fires at commit time; surfaces new drift before it reaches the index. Meta-repo: `coordinator-precommit-exec-bit-check` → `exec-bit.test.js` (scope: any tracked file with `#!` shebang, any directory). OSS repo: parallel shim installed by `coordinator/dist/publish-repo-setup/install.sh`.
-
-2. **Local validator** — run before a PR; catches drift that bypasses the precommit hook (force-push, hook-skipped commit, Windows author without `core.fileMode` awareness). OSS repo: `check-exec-bit.py`, run by `python .github/scripts/run-all-checks.py`. NO allowlist — the validator is the strict gate; any legitimate exception belongs in a DR, not the validator.
-
-3. **Install-time chmod** — fires on a clean install; last-resort safety net against broken source-index state surviving into an end-user machine. `coordinator/dist/publish-repo-setup/install.sh` shebang-scans every installed file and `chmod +x` anything starting with `#!`.
-
-Losing any one surface means silent failure at that stage. **Cross-surface obligation:** a fix that lives only in the meta-repo silently degrades OSS-user experience until re-clone. The obligation is to land all three surfaces (source-of-truth fix + percolation target fix + install-path awareness) in the same plan, never any single one alone.
+The install-time chmod in `coordinator/dist/publish-repo-setup/install.sh` stays: it touches
+only the installed copy, never the index, and covers residual bareword callers while the ratchet
+drains them.
 
 ### Windows-chmod commit mechanic
 
-On Windows with `core.fileMode=false` (a standard Windows git config), the scoped-commit form `git commit -m "..." -- <paths>` silently resets exec bits: the path-restricted commit re-reads the working-tree pathspec and overwrites the `update-index` staged mode with the on-disk mode (always `100644` when `fileMode=false`).
+Any commit that changes a mode — including shrinking `100755` debt with `--chmod=-x` — hits one
+Windows trap. With `core.fileMode=false` (standard on Windows), a path-restricted
+`git commit -m "..." -- <paths>` re-reads the working-tree pathspec and overwrites the
+`update-index`-staged mode with the on-disk mode.
 
-**Correct mechanic for chmod-bearing commits** (named exception to the scoped-commit rule):
+**Correct mechanic for mode-bearing commits** (named exception to the scoped-commit rule):
 
 ```bash
 # Stage via update-index — NOT git add:
-git update-index --chmod=+x -- <file1> <file2> ...
+git update-index --chmod=-x -- <file1> <file2> ...
 
-# Verify: git ls-files --stage <file> must show 100755
+# Verify: git ls-files --stage <file> shows the intended mode
 
 # Commit WITHOUT path restriction:
 git commit -m "<subject>"
 # No '-- <paths>' suffix. The path restriction re-reads working-tree mode under
-# core.fileMode=false and resets the staged exec bit back to 100644.
+# core.fileMode=false and discards the staged mode change.
 ```
 
-The path restriction in the scoped-commit rule is a re-staging guard to prevent blanket-staging of unrelated files. Once files are correctly staged via `update-index`, the path restriction is redundant and triggers the `fileMode=false` interaction. This carve-out also appears in `agents/executor.md § Commit Discipline` so dispatched executors see it at load time.
+Once files are correctly staged via `update-index`, the path restriction is redundant and triggers
+the `fileMode=false` interaction. Assert the staged set immediately before committing. This
+carve-out also appears in `agents/executor.md § Commit Discipline` so dispatched executors see it
+at load time.
 
 Source lesson: `state/lessons/` content-anchor "Windows `core.fileMode=false` + path-restricted `git commit` resets exec-bit in index [universal]".
 
 ### Scope-hole rot pattern
 
-Narrow guards rot at the edges when the authoring machine doesn't reproduce the failure mode. The precommit hook initially covered `.sh` files under `bin/`+`hooks/scripts/` only. A later Mac install error surfaced that `.py`, `.js`, `.bats`, and extensionless shebanged files in `lib/`, `tests/`, `setup/`, `.github/scripts/`, and `dist/` were entirely unguarded — 141 files in meta-repo, 211 in OSS.
-
-Rule when scoping a new guard: enumerate the negative space at design time (everything the guard does NOT cover, by extension and by directory) and either justify each exclusion architecturally or widen the scope. Default to the broadest enforceable scope; narrow only with a named cost. The cost of a wider scope is usually one regex change; the cost of a scope hole is a downstream-user-facing failure some days later.
+Narrow guards rot at the edges when the authoring machine doesn't reproduce the failure mode.
+When scoping a new guard, enumerate the negative space at design time (everything the guard does
+NOT cover, by extension and by directory) and either justify each exclusion architecturally or
+widen the scope. Default to the broadest enforceable scope; narrow only with a named cost. The
+cost of a wider scope is usually one regex change; the cost of a scope hole is a
+downstream-user-facing failure some days later.
 
 ## Hook-Install Probes — Self-Heal on Session Boot, Not Install-Time Only
 
