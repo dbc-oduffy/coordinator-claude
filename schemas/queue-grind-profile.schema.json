@@ -1,0 +1,395 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coordinator.local/schemas/queue-grind-profile.schema.json",
+  "x-schema-name": "queue-grind-profile",
+  "x-schema-version": "4.0.0",
+  "x-bump-class": "major",
+  "applies_to": "coordinator/queue-profiles/*.yaml",
+  "description": "DoE's authoring gate for a queue-grind profile (DR-queue-grinds-run-on-shared-primitives, canonical bug-blitz C8). Pins the engine's closed vocabularies (claude-klabauter's coordinator_core/contract/grind_vocab.py, emitted as grind-vocab.json) as enum $defs so a profile authored against this schema cannot drift from what the engine's own validate_graph will accept. The engine does not read this file — it is DoE's own authoring-time gate, and the pinned $defs are what make the two agree by construction. This schema does NOT re-derive validate_graph's structural graph-shape floor (refute-close before any close, verify downstream of the last fix, totality, acyclicity, per-stage-kind outcome typing, on_fail requirement) — that is the engine's job at emit. There is no 'name' key: the profile's name is its file stem (load_profile(name, profile_dir)). No field anywhere accepts a command-line-shaped string (DR-queue-grinds-run-on-shared-primitives § Negative spec: 'No profile field accepts a command line. Every executable step is a named engine op.') — every executable step is one of the pinned op enums below.",
+  "x-engine-contract": {
+    "repo": "claude-klabauter",
+    "path": "coordinator_core/contract/grind_vocab.py",
+    "version": "9.1.0",
+    "ref": "claude-klabauter@f0a600796f",
+    "sha256": "sha256:921fa27c562982140220df0430ce05f848e30e51eefd5f943b89baf422050687"
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "row_id_key",
+    "batch_key",
+    "priority",
+    "verdicts",
+    "graph",
+    "closure",
+    "triage_policy",
+    "appetite",
+    "archive_path",
+    "schema"
+  ],
+  "properties": {
+    "row_id_key": {
+      "type": "string",
+      "description": "The queue row field that names a row's identity for the ledger and receipts."
+    },
+    "batch_key": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Ordered coalesce list of queue row fields a batch is keyed by: the first present, non-sentinel value wins; a row with none batches under `@unkeyed`."
+    },
+    "priority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field",
+        "order"
+      ],
+      "properties": {
+        "field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "order": {
+          "enum": [
+            "asc",
+            "desc"
+          ]
+        }
+      },
+      "description": "The queue row field the selector sorts by, and its direction."
+    },
+    "verdicts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      },
+      "description": "The profile's own closed triage-verdict vocabulary — checked against the profile, not fixed by the engine (triage's single STAGE_OUTCOMES member is 'profile-declared')."
+    },
+    "graph": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/queue_grind_graph_node"
+      },
+      "description": "Map of stage name to stage node. Edge totality, acyclicity and per-stage-kind outcome typing are validate_graph's job at emit, not this schema's."
+    },
+    "closure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status_field",
+        "closed_values",
+        "stamp_fields"
+      ],
+      "properties": {
+        "status_field": {
+          "type": "string",
+          "description": "The queue row field the closer writes the closed status into."
+        },
+        "closed_values": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "fix": {
+              "type": "string"
+            },
+            "refute-close": {
+              "type": "string"
+            }
+          },
+          "description": "Closed status value keyed by the closing branch — lessons close differently per branch."
+        },
+        "stamp_fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Queue row field names the closer stamps on close. A field named `closed_by` takes the settling commit; every other field takes the run stamp. The engine fixes those two sources; the profile names only the fields."
+        }
+      }
+    },
+    "absent_sentinels": {
+      "type": "object",
+      "description": "Optional per-field sentinel values the selector's 'absent' operator treats as absence."
+    },
+    "triage_policy": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The operative triage policy, inline in the profile as one text block (a YAML block scalar). The engine hashes it into the receipt's profile digest, so a policy edit is visible on resume. Never a pointer to prose held elsewhere (DR-queue-grinds-run-on-shared-primitives § Alternatives Considered)."
+    },
+    "appetite": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/queue_grind_appetite_preset_knobs"
+      },
+      "description": "Map of appetite preset name to its resolved knob values."
+    },
+    "archive_path": {
+      "type": "string",
+      "description": "Directory a closed row's queue file is moved under."
+    },
+    "schema": {
+      "type": "string",
+      "description": "The queue row's own schema reference."
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "$ref": "#/$defs/queue_grind_source_op"
+        },
+        "args": {
+          "type": "object",
+          "description": "Keyword arguments passed to the source op at emit (e.g. lessons.extract's lessons_path). Values are data, never a command line."
+        }
+      },
+      "description": "Optional source stage: one of the closed source ops, with optional keyword args for it. Absent for a profile whose rows are queue-native.",
+      "required": [
+        "op"
+      ]
+    },
+    "hand_back_types": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+        "not": {
+          "$ref": "#/$defs/queue_grind_universal_hand_back_type"
+        }
+      },
+      "description": "Optional hand-back types this profile adds to the universal set (DR-404 § 3: profiles add, never remove). Kebab-case, unique, disjoint from the universal set; the engine also refuses a type that names a graph node (hand_back_type_collision). An edge target or on_fail may name any graph node, universal hand-back type, or one of these."
+    }
+  },
+  "$defs": {
+    "queue_grind_stage_kind": {
+      "type": "string",
+      "enum": [
+        "commit",
+        "fix",
+        "refute-close",
+        "triage",
+        "undo",
+        "verify"
+      ]
+    },
+    "queue_grind_verify_mode": {
+      "type": "string",
+      "enum": [
+        "agent",
+        "op"
+      ]
+    },
+    "queue_grind_source_op": {
+      "type": "string",
+      "enum": [
+        "lessons.extract"
+      ]
+    },
+    "queue_grind_verify_op": {
+      "type": "string",
+      "enum": [
+        "lessons.verify_extraction"
+      ]
+    },
+    "queue_grind_knob": {
+      "type": "string",
+      "enum": [
+        "batch_size",
+        "budget_tokens",
+        "concurrency",
+        "extra_verification",
+        "limit",
+        "max_agent_calls",
+        "triage_depth",
+        "where",
+        "window"
+      ]
+    },
+    "queue_grind_triage_depth": {
+      "type": "string",
+      "enum": [
+        "deep",
+        "shallow",
+        "standard"
+      ]
+    },
+    "queue_grind_universal_hand_back_type": {
+      "type": "string",
+      "enum": [
+        "baton",
+        "budget-exhausted",
+        "commit-failed",
+        "manifest-stale",
+        "needs-judgment",
+        "peer-dirty",
+        "rejected-after-retry",
+        "stage-dead",
+        "verify-failed",
+        "widen-exhausted"
+      ]
+    },
+    "queue_grind_where_operator": {
+      "type": "string",
+      "enum": [
+        "==",
+        "absent",
+        "contains",
+        "in",
+        "present"
+      ]
+    },
+    "queue_grind_reserved_key": {
+      "type": "string",
+      "enum": [
+        "@stem",
+        "@unkeyed"
+      ]
+    },
+    "queue_grind_graph_node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/queue_grind_stage_kind"
+        },
+        "edges": {
+          "type": "object",
+          "description": "Map of outcome to the downstream stage name. Per-stage-kind outcome typing and one-edge-per-outcome totality are validate_graph's job at emit."
+        },
+        "on_fail": {
+          "type": "string",
+          "description": "The stage's failure path: another graph node (the one permitted back-edge, bounded by the engine to one traversal per path), or a universal or profile-declared hand-back type, which ends the path without spending a retry."
+        },
+        "verify": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/queue_grind_verify_mode"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "mode",
+                  "op"
+                ],
+                "properties": {
+                  "mode": {
+                    "const": "op"
+                  },
+                  "op": {
+                    "$ref": "#/$defs/queue_grind_verify_op"
+                  }
+                }
+              }
+            ]
+          },
+          "description": "Present only on a verify-mode stage: a map of verify key (e.g. 'default', a severity value) to either a bare verify_mode string or {mode: 'op', op: <verify_op>}. A 'default' entry is required — enforced by the engine's validate_graph, not restated here."
+        }
+      }
+    },
+    "queue_grind_appetite_preset_knobs": {
+      "type": "object",
+      "additionalProperties": false,
+      "propertyNames": {
+        "$ref": "#/$defs/queue_grind_knob"
+      },
+      "required": [
+        "concurrency",
+        "extra_verification",
+        "batch_size",
+        "triage_depth",
+        "window",
+        "max_agent_calls"
+      ],
+      "properties": {
+        "where": {
+          "type": "array",
+          "description": "DNF: an array of AND-clauses, each an array of [field, operator, value?] triples. `value` is required for a binary operator (==, in, contains) and absent for a unary one (absent, present).",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 3,
+              "prefixItems": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "$ref": "#/$defs/queue_grind_where_operator"
+                }
+              ]
+            }
+          }
+        },
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "concurrency": {
+          "type": "integer"
+        },
+        "extra_verification": {
+          "type": "boolean"
+        },
+        "batch_size": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer"
+              }
+            }
+          ]
+        },
+        "triage_depth": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/queue_grind_triage_depth"
+            },
+            {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/queue_grind_triage_depth"
+              }
+            }
+          ]
+        },
+        "window": {
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "max_agent_calls": {
+          "type": "integer"
+        },
+        "budget_tokens": {
+          "type": "integer"
+        }
+      },
+      "description": "concurrency, extra_verification, batch_size, triage_depth, window and max_agent_calls are required on every preset (the engine's own _REQUIRED_KNOBS -- it has no defaults). batch_size/triage_depth are either a bare value or a map keyed by severity/whatever the profile's own vocabulary is (plus an optional 'default' entry). Only where, limit and budget_tokens are overridable at run time (resolve_appetite); the rest are fixed per preset."
+    }
+  },
+  "x-bump-note": "2.0.0 -> 2.0.1 ZERO SHAPE EFFECT: namespaces this schema's local $defs with a `queue_grind_` prefix (stage_kind, verify_mode, source_op, verify_op, regenerate_op, knob, triage_depth, universal_hand_back_type, where_operator, reserved_key, graph_node, appetite_preset_knobs) so the artifact-shape-contract bundle's flat $defs-hoist does not collide with a later schema declaring the same generic local name. Every $ref within this schema is updated to match; validation is unchanged. 2.0.1 -> 2.1.0 added the optional top-level `hand_back_types` array (DR-404 § 3: profiles add, never remove from the universal hand-back set). 2.1.0 -> 3.0.0 made `source.op` required on the optional `source` stage object (a `source` block with no `op` was accepted before and is rejected now -- MAJOR because a previously-valid `source: {args: {...}}`-shaped document now fails). 3.0.0 -> 4.0.0 (MAJOR, narrowing): each `appetite.*.where` DNF clause is constrained to a `[field, queue_grind_where_operator, value?]` tuple (a malformed clause failed only at the engine before); preset keys are constrained to `queue_grind_knob` via propertyNames; the unreferenced `queue_grind_regenerate_op` pin is removed, since no profile field names a regenerate op. Every shipped profile already conforms."
+}

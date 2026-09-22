@@ -40,7 +40,7 @@ Take the `brief` output as-is. Broader file-path/description-similarity overlap 
 presenting overlaps to the PM for a dedup decision (populate `evidence:` on both entries).
 
 **Improvement-queue triage is emitted, not EM classification.** Pick an appetite (`hunt`,
-`standard` or `sweep` — values in `coordinator/queue-profiles/improvement.yaml`). Emit with
+`standard` or `sweep` — values in `${CLAUDE_PLUGIN_ROOT}/queue-profiles/improvement.yaml`). Emit with
 `emit-dispatch-workflow.py --queue state/improvement-queue --profile improvement --appetite <a>
 --out state/scratch/debt-triage/{run-id}/improvement.workflow.mjs`, per
 `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`. There is no commit-readiness gate

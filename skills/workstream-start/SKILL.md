@@ -68,10 +68,13 @@ them — none reads another's output):
   `workday-start-cross-repo-memo-outbox-surface` — non-empty → surface verbatim; empty → skip.
 
 **Branch detection** stays its own call — its outcome (which branch you end up on) gates
-everything that follows: main is read-only. Stay on a non-main branch if on one; on main, run
-`sync-main --quiet` (report divergence first), then create `work/{machine}/{date}` (`-2` on
-collision) — superseded by the branch-day-span directive when present. Diverged from
-`main` >2 days → recommend `/merging-to-main`, wait for the PM; ≤2 days → continue silently.
+everything that follows: main is read-only. Stay on a non-main branch if on one — this already
+covers an environment-designated day branch (e.g. a cloud harness's checkout, recorded as
+`coordinator.dayBranch`): the engine's day-branch oracles honour it, whatever its shape, so
+nothing here needs a separate cloud rule. On main, run `sync-main --quiet` (report divergence
+first), then create the default `work/{machine}/{date}` (`-2` on collision) — superseded by the
+branch-day-span directive when present. Diverged from `main` >2 days → recommend
+`/merging-to-main`, wait for the PM; ≤2 days → continue silently.
 
 ### Context load — not part of the shared spine
 

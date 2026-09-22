@@ -1,0 +1,136 @@
+# coordinator/queue-profiles/lessons-central-apply.yaml — the lessons
+# central-mode apply grind profile, validated by
+# coordinator/schemas/queue-grind-profile.schema.json and by that schema's
+# test_every_queue_profile_validates, and pushed through the engine's own
+# load_profile/validate_graph/resolve_appetite seam by
+# coordinator/tests/test_lessons_queue_profile.py.
+#
+# /learn-lessons's central apply run emits and fires this profile through
+# emit-dispatch-workflow.py --queue state/lessons-outbox --profile
+# lessons-central-apply --appetite <a>, over rows the route run's
+# pm-decision hand-back the PM has already ruled `apply` on. Nothing here
+# is extracted, so the profile carries no source block, and the routing
+# decision the route run already verified is not re-verified here.
+#
+# Spec backlink: docs/plans/2026-09-21-canonical-learn-lessons-emitted-workflow.md
+# Tasks section C5.
+
+row_id_key: "@stem"
+
+batch_key: [target_wiki]
+
+absent_sentinels:
+  target_wiki: [unknown]
+
+priority:
+  field: created
+  order: asc
+
+verdicts:
+  - apply
+  - stale
+
+graph:
+  triage:
+    kind: triage
+    edges:
+      apply: fix
+      stale: refute-close
+    on_fail: needs-judgment
+
+  refute-close:
+    kind: refute-close
+    edges:
+      confirmed: commit
+    # A refuted stale claim (the rule is not already in its target after
+    # all) hands back rather than closing on an unconfirmed claim.
+    on_fail: needs-judgment
+
+  fix:
+    kind: fix
+    edges:
+      done: verify
+    on_fail: baton
+
+  verify:
+    kind: verify
+    edges:
+      pass: commit
+    # A failed verify hands back rather than closing. A back-edge to fix
+    # would close a loop through this on_fail, which validate_graph refuses.
+    on_fail: verify-failed
+    verify:
+      default: agent
+
+  commit:
+    kind: commit
+    edges: {}
+    on_fail: commit-failed
+
+closure:
+  status_field: status
+  closed_values:
+    fix: applied
+    refute-close: discarded
+  stamp_fields: [closed_at, closed_by]
+
+triage_policy: |
+  Wikis are the default destination. Never emit doctrine-edit or
+  memory-pointer -- the PM's apply ruling authorizes the destination the
+  route run's triage record already named, not a restatement the PM did
+  not see.
+
+  mechanical_contract_evidence:
+    - "A mechanical-contract lesson (an env-var value, a path rule, an API signature, an exit code) needs an executable witness: a passing test, live tool behaviour, or official docs."
+    - "With none, or with a witness that contradicts it, the row does not apply as authorized -- it hands back needs-judgment naming the missing witness."
+
+  reachable_target:
+    - "A wiki-append/wiki-new target must be reachable from a surface an agent traverses (a wiki index, a skill step, a dispatch preamble)."
+    - "An orphaned target is linked from its index in the same fix, or the row is rerouted to a linked wiki, named in the fix's triage record."
+
+  stale:
+    - "stale applies when the rule the row proposes already lives in its target_wiki. refute-close must confirm it before commit."
+
+  never_fabricate_a_routing_id:
+    - "Every record cites a manifest row id."
+
+  verify_map:
+    default:
+      - agent
+      - coordinator/tests/test_doctrine_surfaces_are_not_changelogs.py
+      - coordinator/tests/test_doctrine_surface_weight.py
+      - coordinator/tests/test_doctrine_surface_split_index_matches_corpus.py
+
+  every_row_ends_in_exactly_one_verdict: true
+
+appetite:
+  hunt:
+    where: [[["pm_decision", "==", "apply"], ["target_wiki", "present"]]]
+    concurrency: 4
+    extra_verification: true
+    batch_size: {default: 4}
+    triage_depth: standard
+    window: 1
+    max_agent_calls: 20
+
+  standard:
+    where: [[["pm_decision", "==", "apply"]]]
+    concurrency: 6
+    extra_verification: false
+    batch_size: {default: 4}
+    triage_depth: standard
+    window: 2
+    max_agent_calls: 40
+
+  sweep:
+    where: [[["pm_decision", "==", "apply"]]]
+    concurrency: 8
+    extra_verification: true
+    batch_size: {default: 4}
+    triage_depth: shallow
+    window: 4
+    max_agent_calls: 200
+
+archive_path: "state/lessons-outbox/drained/"
+
+schema: lessons-outbox.schema.json

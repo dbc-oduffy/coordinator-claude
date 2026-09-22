@@ -24,7 +24,7 @@ defer; defer needs named evidence."
 
 Dispatch, don't defer — defer needs named evidence, never a hunch. The operative triage policy
 (what counts as evidence, what is NOT a valid defer reason, severity classification) lives only
-in `coordinator/queue-profiles/bug.yaml` § `triage_policy`; this command cites it, it does not
+in `${CLAUDE_PLUGIN_ROOT}/queue-profiles/bug.yaml` § `triage_policy`; this command cites it, it does not
 restate it.
 
 ## Arguments
@@ -40,9 +40,11 @@ emit call. `--budget-tokens=N` — passed through to the emit call unchanged.
 
 ## Phase 0 — Preflight
 
-Note backlog presence/count; confirm `git branch --show-current` is
-`work/{machine}/{date-or-span}` (fail-closed, no override) and capture as `BLITZ_BRANCH`; mint run
-ID; scratch `state/scratch/bug-blitz/{run-id}/`. Mechanics: wiki.
+Note backlog presence/count; confirm `git branch --show-current` is the day branch and capture it
+as `BLITZ_BRANCH`: the `coordinator.dayBranch` designation when the repo has one (a cloud session
+records its harness-assigned branch there at SessionStart), else `work/{machine}/{date-or-span}`.
+Halt on anything else, always on `main`, the default branch, or a detached HEAD — fail-closed, no
+override. Mint run ID; scratch `state/scratch/bug-blitz/{run-id}/`. Mechanics: wiki.
 
 ## Phase 0.6 — Tier-U Authorization
 

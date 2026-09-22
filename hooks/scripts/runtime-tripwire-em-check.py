@@ -510,6 +510,28 @@ def _current_branch_cheap(git_root: str) -> str:
     return ""
 
 
+def _configured_day_branch_cheap(git_root: str) -> str:
+    """`coordinator.dayBranch` off `.git/config` via a raw file read -- the
+    same zero-spawn posture as `_current_branch_cheap`. Mirrors the engine's
+    own `coordinator_core.daily_branch.read_configured_day_branch` tolerant
+    scan without importing `coordinator_core` (this script is dependency-
+    free by design). "" on any read failure or absent key."""
+    try:
+        common_dir = _resolve_git_common_dir(git_root)
+        if not common_dir:
+            return ""
+        with open(
+            os.path.join(common_dir, "config"), "r", encoding="utf-8", errors="replace"
+        ) as fh:
+            text = fh.read()
+        m = re.search(
+            r"(?im)^\s*\[coordinator\]\s*$.*?^\s*dayBranch\s*=\s*(\S+)\s*$", text, re.DOTALL
+        )
+        return m.group(1) if m else ""
+    except Exception:
+        return ""
+
+
 def _unpushed_commit_count(git_root: str, session_id: str | None = None) -> int | None:
     """Count of local commits not present on the current branch's upstream,
     RESCOPED (DR-190 § 40, 2026-09-02) to this session's own commits only —
@@ -1146,9 +1168,12 @@ def _check_push_failures(git_root: str, session_id: str):
             pass
 
     branch = _current_branch_cheap(git_root)
-    if not branch.startswith("work/"):
-        # Mirrors the ceremony predicate's work/*-only scope. No alarm text
-        # is produced on this path, so advancing inline loses nothing --
+    designated = _configured_day_branch_cheap(git_root)
+    if not (branch.startswith("work/") or (designated and branch == designated)):
+        # Mirrors the ceremony predicate's day-branch scope: work/* by
+        # default, or the exact `coordinator.dayBranch` designation (a cloud
+        # harness's branch is the day branch, whatever its shape). No alarm
+        # text is produced on this path, so advancing inline loses nothing --
         # only a path that returns real text defers to `advance_fn`.
         _advance_cursor()
         return None, None
