@@ -441,8 +441,8 @@ absent a `workday_start_post_command:` key in `coordinator.local.md`.
 
 ## Step 5.7: Offer to Volunteer as Group EM
 
-**This ceremony never nominates.** Run the READ verb only —
-`<plugin-root>/bin/group-em-nomination.py who --repo <root>`
+**This ceremony never nominates, so it never calls `groupem.enter`** (its first leg claims the
+nomination). Run the READ verb only — `<plugin-root>/bin/group-em-nomination.py who --repo <root>`
 (`snippets/resolve-coordinator-bin.md` § CLIs with no launcher) — and report what it says in one
 line, followed by a one-line offer to take the role. Then stop. `nominate` runs on the PM's
 explicit yes to that offer and on nothing else: not on an empty record, not on a dead holder, not

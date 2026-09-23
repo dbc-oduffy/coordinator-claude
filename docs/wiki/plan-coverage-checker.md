@@ -23,7 +23,7 @@ related:
 
 plan-coverage-checker is belt-and-suspenders against the EM's own pull toward small, unambitious scoping — a Sonnet-tier agent that verifies a plan artifact's internal consistency before the artifact reaches an Opus reviewer. It answers questions none of the other pre-flights answer: **does the plan's own fix slate cover the plan's own audit list, with no appetite-based hedges and no substrate citations that drift from disk — and, on the `## Tasks` task-spine, has the PM actually ratified every scope cut, or is an EM preference wearing a `deferred:` flag?**
 
-The agent runs four mechanical lenses — coverage (slate-vs-oracle cross-reference), hedge detection (appetite-based deferral patterns), task-spine deferral-ratification and malformed-row detection, and substrate drift (in-repo path/symbol/constant verification) — and writes a sidecar at the plan-derivable `state/plan-sidecars/<plan-stem>.plan-coverage-check.md` home (D0) with six finding buckets: Missed, Ambiguous, Weak-OOS, Hedges, Unratified-Deferrals-and-Malformed-Rows, and Substrate-drift.
+The agent runs four mechanical lenses — coverage (slate-vs-oracle cross-reference), hedge detection (appetite-based deferral patterns), task-spine deferral-ratification and malformed-row detection, and substrate drift (in-repo path/symbol/constant verification) — and writes a sidecar at the plan-derivable `.coordinator-local/plan-sidecars/<plan-stem>.plan-coverage-check.md` home (D0) with six finding buckets: Missed, Ambiguous, Weak-OOS, Hedges, Unratified-Deferrals-and-Malformed-Rows, and Substrate-drift.
 
 The output is REPORT-ONLY. The agent makes no decisions, applies no fixes, and auto-blocks nothing; it surfaces un-considered work and un-ratified scope cuts for the EM (and, where PM ratification is the open question, the PM) to disposition before the named Opus reviewer is dispatched. This is the agent's un-skippable secret sauce: it exists precisely for the plans an EM feels most confident about, because that confidence is exactly the state in which coverage gaps and quiet re-scoping go unnoticed.
 
@@ -188,7 +188,7 @@ existed without checking `hooks.json`, on a corpus that had just deregistered ni
 
 ## Sidecar format
 
-Sidecar path: the plan-derivable `state/plan-sidecars/<plan-stem>.plan-coverage-check.md` home (D0).
+Sidecar path: the plan-derivable `.coordinator-local/plan-sidecars/<plan-stem>.plan-coverage-check.md` home (D0).
 
 Six finding sections:
 - **Missed audit items** — oracle items with no slate entry and no architectural OOS, with the three valid resolution options stated per item (add-to-slate / architectural-OOS / oracle-was-wrong)
@@ -205,7 +205,7 @@ Five verdicts:
 - **SCOPE-MISMATCH** — no oracle table found. Agent writes a sidecar carrying the SCOPE-MISMATCH verdict; for feature/architecture/spike plans lacking a ratified problem-set, the sidecar also carries the advisory nudge. Review proceeds normally — no lens ran. Orthogonal to the task-spine lens, which has its own no-signal/DEGRADED handling.
 - **DEGRADED** — agent ran with incomplete coverage, OR the `## Tasks` heading is present but the spine is missing/ambiguous (zero or >1 `yaml plan-tasks` blocks — FAIL-LOUD case). No signal; review proceeds as if lens did not run.
 
-Prior sidecars are never deleted. On re-run, the agent renames the existing sidecar to `state/plan-sidecars/<plan-stem>.plan-coverage-check.<UTC-mtime>.md` before writing the new one. This preserves the re-run history for feedback-loop analysis — `state/plan-sidecars/` is an unreaped-by-design archive class (Z1) for exactly this reason.
+Prior sidecars are never deleted. On re-run, the agent renames the existing sidecar to `.coordinator-local/plan-sidecars/<plan-stem>.plan-coverage-check.<UTC-mtime>.md` before writing the new one. This preserves the re-run history for feedback-loop analysis — `.coordinator-local/plan-sidecars/` is an unreaped-by-design archive class (Z1) for exactly this reason.
 
 ## When NOT to run
 
@@ -237,7 +237,7 @@ When the same oracle shape produces repeated MISSED findings across multiple pla
 If a recurring oracle type (e.g., "all plans that audit CLI flags consistently miss deprecation entries in the flag registry") produces MISSED findings in ≥3 plans, surface to the EM as a candidate for plan-template addition. The plan-coverage-checker thus becomes a quality loop on plan-authoring patterns, not just individual plan correctness.
 
 <!-- Review: code-reviewer — claiming a specific step number (Step 4) was false precision; the activity isn't a named sub-step yet. -->
-Operational hook: during `/workweek-complete`, as part of the weekly retrospective sweep (informal — not a numbered sub-step yet; promote to a named sub-step once the cadence proves itself), the EM scans recent `state/plan-sidecars/*.plan-coverage-check*.md` sidecars for recurring MISSED patterns across plans. Two plans with MISSED on the same oracle shape within a quarter means the plan template (or the authoring skill) has a structural gap worth addressing. This is judgment-based, not automated — but the responsibility lives in the weekly cadence so it does not drift.
+Operational hook: during `/workweek-complete`, as part of the weekly retrospective sweep (informal — not a numbered sub-step yet; promote to a named sub-step once the cadence proves itself), the EM scans recent `.coordinator-local/plan-sidecars/*.plan-coverage-check*.md` sidecars for recurring MISSED patterns across plans. Two plans with MISSED on the same oracle shape within a quarter means the plan template (or the authoring skill) has a structural gap worth addressing. This is judgment-based, not automated — but the responsibility lives in the weekly cadence so it does not drift.
 
 ## Plan-lifecycle gaps this checker does not close
 

@@ -70,6 +70,8 @@ cross-repo/fleet-shared hook.
 
 from __future__ import annotations
 
+INSTALL_CLASS = False  # read-only validator; see door_install.declared_install_class
+
 import os
 import sys
 

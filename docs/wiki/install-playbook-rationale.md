@@ -68,22 +68,6 @@ published mirror is a live tree, which is the engine-root decision's manual test
 accident. The engine root is the published mirror on every box; the live tree is reachable only
 via an explicit `COORDINATOR_ENGINE_ROOT`.
 
-## DoE-only: `claude-doe` — when the shim earns its keep
-
-The shim is about *live* resolution, not about whether coordinator loads at all. `claude-doe`
-passes `--plugin-dir` at the clone, so edits here take effect on the next session with no
-reinstall; a plain `claude` session loads the pinned snapshot instead. The two are additive, not
-exclusive — a `claude-doe` session that also has the plugin installed gets one deduplicated
-command set, not a double load. The gap between them is measurable:
-
-```bash
-claude -p "count skills starting with coordinator:"                       # snapshot
-claude --plugin-dir <clone>/coordinator -p "count skills starting with coordinator:"   # live
-```
-
-On the box this was written from, that read 51 vs 53 — the snapshot was four commits behind. If
-Step 1d has NOT run, a plain `claude` session is silently coordinator-less — nothing announces it,
-and it is easy to mistake for a doctrine bug rather than a launcher problem.
 
 ## Step 4 — why the ordering is not the obvious one
 

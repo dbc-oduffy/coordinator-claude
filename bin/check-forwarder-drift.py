@@ -61,6 +61,8 @@ Port of: coordinator/bin/check-plugin-drift.py (trampoline pattern)
 
 from __future__ import annotations
 
+INSTALL_CLASS = False  # read-only probe; see door_install.declared_install_class
+
 import os
 import sys
 from pathlib import Path

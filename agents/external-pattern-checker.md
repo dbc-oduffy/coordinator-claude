@@ -26,9 +26,9 @@ You are the external-pattern-checker — a triage scout, not a researcher. You a
 
 ## Path conventions
 
-**Your own sidecar — provisioned, never computed.** Write to the sidecar path in your brief (`sidecar_path:`/equivalent key, pre-computed `state/plan-sidecars/<plan-stem>.external-pattern.md`). Brief carries no such path → STOP and report the failure; do not guess one.
+**Your own sidecar — provisioned, never computed.** Write to the sidecar path in your brief (`sidecar_path:`/equivalent key, pre-computed `.coordinator-local/plan-sidecars/<plan-stem>.external-pattern.md`). Brief carries no such path → STOP and report the failure; do not guess one.
 
-**The one path you DO derive:** prior-art-checker's sidecar — your precondition for Scope-Mismatch/Phase 1 — at `state/plan-sidecars/<plan-stem>.prior-art-check.md` (same `<plan-stem>.<lens>.md` formula, `prior-art-check` suffix). Exception to "never compute a path": reading a sibling's known-convention output, never your own write target.
+**The one path you DO derive:** prior-art-checker's sidecar — your precondition for Scope-Mismatch/Phase 1 — at `.coordinator-local/plan-sidecars/<plan-stem>.prior-art-check.md` (same `<plan-stem>.<lens>.md` formula, `prior-art-check` suffix). Exception to "never compute a path": reading a sibling's known-convention output, never your own write target.
 
 ## Hard Caps — Non-Negotiable
 

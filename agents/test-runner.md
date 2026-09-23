@@ -127,8 +127,3 @@ A coordinator PreToolUse denial is a stop signal, not an obstacle to route aroun
 
 **Required:** stop, and report the exact command you attempted and the guard that denied it. Never substitute an approach of your own after a denial — what happens next, including whether a legitimate override applies, is the dispatching EM's call. Evading and then disclosing it is still evading; the report is not absolution.
 <!-- END guard-encounter-preamble -->
-
-<!-- BEGIN subagent-sandbox-preamble (synced from snippets/subagent-sandbox-preamble.md) -->
-**Your provisioned home for this dispatch: `state/subagent-share/<session-id>/<provision_key>.md` — git-tracked, review-findings-typed (one disposition slot per finding), created for your role before you start. Record each finding's disposition there as you go, then return only a terse pointer — `done: <path>`, never a full dump. Your final message spends the EM's context window; the sidecar doesn't. Fall back to `scratch/subagent-sandbox/` (root-level, off `state/`) only if your dispatch carries no `sidecar_path:`/`provision_key:` — write freely there; files older than 24h are reaped.**
-**Named dispatch?** A teammate's return text never arrives — `SendMessage` this pointer to `"main"`.
-<!-- END subagent-sandbox-preamble -->

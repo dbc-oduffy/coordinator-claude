@@ -99,10 +99,10 @@ _WIKI_ANCHOR = (
 # which is the failure mode this guard exists to prevent. Multi-OS support is
 # P0 here (project CLAUDE.md § Runtime conventions) -- a separator assumption
 # is a correctness defect, not a style nit. This alternation is
-# separator-family-only -- do not extend it to other `state/` roots (e.g.
-# `state/plan-sidecars/`) without a matching intake-contract change: per
+# separator-family-only -- do not extend it to other roots (e.g.
+# `.coordinator-local/plan-sidecars/`) without a matching intake-contract change: per
 # [guard-message-concision.md § review-integrator-sidecar-intake](coordinator/docs/wiki/guard-message-concision.md#review-integrator-sidecar-intake),
-# widening this regex to also admit `state/plan-sidecars/` would erase the
+# widening this regex to also admit `.coordinator-local/plan-sidecars/` would erase the
 # reap-lifecycle distinction between session-keyed persona-findings sidecars
 # (reaped on an age/liveness floor) and the four UNREAPED-BY-DESIGN
 # plan-derivable lens sidecars that live there by design.

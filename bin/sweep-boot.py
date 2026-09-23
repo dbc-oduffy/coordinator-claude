@@ -64,6 +64,8 @@ Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md § Pinned pat
 """
 from __future__ import annotations
 
+INSTALL_CLASS = False  # re-lands bare-name forwarders against a warm engine that survives, never the engine; see door_install.declared_install_class
+
 import os
 import sys
 

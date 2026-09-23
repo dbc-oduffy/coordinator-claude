@@ -184,6 +184,10 @@ Don't hand-author the script — mint and emit:
 writes the spine (item-id → chunk-id, footprint → `writes`) plus the `.mjs`; fire it with
 `Workflow({scriptPath: ...})`.
 
+**Ignore the Stop-hook's "commit and push" advisory mid-run** — the dirt it flags is a live
+wave's footprint. The only commit path is the wave-gate commit above; never widen it to satisfy
+the hook.
+
 **Then stay awake for as long as it runs — on a managed-remote host, ending the turn to wait for
 the completion notification is what kills the run.** The container is reclaimed on session
 inactivity and background work does not count as activity, so a fired wave plus a quiet EM is a
@@ -306,7 +310,7 @@ check, anti-vacuity gate, diff freeze, inventory archival (COMPLETE only), track
   membership inherits this discharge unchanged — the obligation is keyed on the diff range, which
   every constituent lands inside; `/workstream-complete`'s chain diff covers a different object
   and is untouched. **The frozen diff and its `.head.sha` (`state/review-trail/`) and executor
-  evidence (`state/plan-sidecars/`) are gitignored by design — absence from the commit is EXPECTED
+  evidence (`.coordinator-local/plan-sidecars/`) are gitignored by design — absence from the commit is EXPECTED
   and is not a missing step.** <!-- Review: coordinator-code-reviewer -- distinct fact the trim
   dropped: an item can legitimately go DONE while its sidecar record contributes nothing to the
   wave commit, so DONE must never be inferred from commit contents. --> A DONE item's evidence can
@@ -328,9 +332,7 @@ check, anti-vacuity gate, diff freeze, inventory archival (COMPLETE only), track
   refuses it without a PM grant; say which files you ran instead.
 - **Tracker sweep:** final pass, same procedure as the per-wave sweep (wiki); commit
   (`--message "mise: tracker sync"`).
-- **Baton disposition:** claimed+completed → `/workstream-complete` (`pickup-assemble apply` is
-  claim-side only, never a terminal-flip); unstarted → `pickup-assemble drop`; mid-stream → the
-  one successor `/handoff`, naming every non-primary baton's residue.
+- **Baton disposition (whenever Phase 0a ran):** the engine flips a baton terminal when its plan is stamped `implemented` or its workstream concludes — no manual flip. One still advertising live work after that is a **defect**: report it, don't hand-correct. Unstarted → `pickup-assemble drop <path>`; mid-stream → successor via `/handoff`. State each disposition in the tail summary.
 - **Verdict line** reads exactly `COMPLETE` or `CONTINUANCE` — never a bare "done."
   The run-level verdict line MUST read exactly COMPLETE or CONTINUANCE; the word 'complete'
   may not appear as the run's disposition unless the exhaustion check passed. Item-level,

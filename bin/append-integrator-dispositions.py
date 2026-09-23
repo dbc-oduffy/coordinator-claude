@@ -34,13 +34,14 @@ correct, and the guard read routed findings as unrouted. A stamp that cannot be
 placed WARNS on stderr and never fails the disposition write, which has already
 landed by then.
 
-Rationale prose: prefer --rationale-stdin, or the equivalent --rationale-file -, and
-pipe the prose in. A --rationale-file naming a real path is CALLER-CHOSEN, and that
-path is shared state on a box running dozens of concurrent sessions: one reusing it
-replaces this block's rationale with its own, silently and with a zero exit, leaving
-the structured buckets correct and the human-readable explanation belonging to a
-different review
-(state/bug-backlog/2026-08-31-concurrent-sessions-collide-on-a-shared.yaml).
+Rationale prose: a dispatched integrator has no stdin, so it writes the prose to a
+file beside --sidecar, named after it (<sidecar stem>.rationale.txt), and passes
+--rationale-file. That directory is session-keyed, so no concurrent session reuses
+the path. Any other caller-chosen path is shared state on a box running dozens of
+concurrent sessions: one reusing it replaces this block's rationale with its own,
+silently and with a zero exit, leaving the structured buckets correct and the
+human-readable explanation belonging to a different review. An interactive caller
+may pipe the prose in with --rationale-stdin (or --rationale-file -).
 
 Exit codes (parity with the ported module — coordinator_core/ops/append_integrator_dispositions.py):
   0 — success (block appended; a sidecar that already carries the heading gets a

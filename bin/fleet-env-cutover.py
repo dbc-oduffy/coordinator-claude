@@ -28,6 +28,8 @@ Spec backlink: docs/plans/2026-08-20-the-fleet-env-publishes-through-a-juncti.md
 """
 from __future__ import annotations
 
+INSTALL_CLASS = True  # rewrites the fleet environment; see door_install.declared_install_class
+
 import argparse
 import sys
 from pathlib import Path

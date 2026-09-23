@@ -267,11 +267,6 @@ A coordinator PreToolUse denial is a stop signal, not an obstacle to route aroun
 `coordinator:parallel-code-review`. Don't open a second scratch file; `synthesis.json` stays your
 sole write target.
 
-<!-- BEGIN subagent-sandbox-preamble (synced from snippets/subagent-sandbox-preamble.md) -->
-**You have a provisioned home for this dispatch: `state/subagent-share/<session-id>/<provision_key>.md` (git-tracked, a review-findings-typed doc — one disposition slot per finding) — the dispatcher creates it for your specific role before you start. Record each finding's disposition there as you go, not in your final message. When you finish, return a terse pointer to it — `done: <path>`, not a full dump: your final message lands in the EM's context window, so a pointer keeps your detail on disk (there when it's wanted) instead of flooding the EM's scarcest resource. Only if your dispatch carries no provisioned path (no `sidecar_path:`/`provision_key:`) fall back to `scratch/subagent-sandbox/` (root-level, off `state/`) — write as many `.md` files there as you like; stale files (>24h) are reaped automatically and the directory persists.**
-**Named dispatch?** A teammate's return text never arrives — `SendMessage` this pointer to `"main"`.
-<!-- END subagent-sandbox-preamble -->
-
 ## Worker Dispatch Recommendations
 
 None. This synthesizer does not name downstream workers — the EM reads `synthesis.json` and

@@ -93,6 +93,8 @@ returns.
 
 from __future__ import annotations
 
+INSTALL_CLASS = True  # writes settings.json plugin registration; see door_install.declared_install_class
+
 import argparse
 import json
 import os

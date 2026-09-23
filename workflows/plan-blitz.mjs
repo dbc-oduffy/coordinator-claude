@@ -2446,20 +2446,49 @@ function convergenceCatalogue(integration, reviews) {
     })
   })
 
-  // NOTHING CHECKED THE DOUBLE-RETURN THE INTEGRATOR'S BRIEF REQUIRES. `escalated` (prose) and
-  // `escalations` (structured) are meant to hold the same items, and only the structured half
-  // reaches this catalogue — so an integrator that writes ten prose ASKs and three structured rows
-  // loses seven silently, and the gate reads the shortfall as a quiet plan. `INTEGRATION_SCHEMA`
-  // cannot catch it: `escalations` is not in its top-level `required`, and making it required
-  // would fail the whole integration return rather than degrade, losing the prose too. So this is
-  // reported, not enforced.
-  const shortfall = escalationShortfall(integration)
+  // `escalated` (prose) and `escalations` (structured) are meant to hold the same items, and only
+  // the structured half was built above — so a prose item no structured row covers is RECOVERED
+  // here rather than lost: it becomes a `recoveredFromProse` row in the apply-or-decline lane
+  // (`unattributed: true`, `option: null`, same as any other finding with no reviewer-attributed
+  // option), continuing this lane's id numbering. When structured rows exist without valid
+  // `covers` and prose outnumbers them, coverage cannot be told from a merge, so every prose item
+  // is recovered `possibleDuplicate: true` and the resolve pass may decline it as already carried
+  // by a named row — a duplicate costs one line of reasoning, a drop costs a wave. Only a case
+  // this recovery cannot place — none is currently known — leaves `contractViolation` set; this
+  // stays reported, not enforced, since `INTEGRATION_SCHEMA` cannot require `escalations` without
+  // failing the whole return and losing the prose too.
+  const recovery = uncoveredProseItems(integration)
+  let recoveredFromProse = 0
+  if (recovery.items.length) {
+    let nextIndex = raw.length
+    for (const item of recovery.items) {
+      nextIndex += 1
+      recommendations.push({
+        id: `R${nextIndex}`,
+        summary: item.text,
+        option: null,
+        unattributed: true,
+        recoveredFromProse: true,
+        ...(recovery.possibleDuplicate ? { possibleDuplicate: true } : {}),
+        whyUnattributed: recovery.possibleDuplicate
+          ? `recovered from prose escalation #${item.n} — the integration's structured rows do `
+            + 'not declare valid `covers` and prose outnumbers them, so this may already be '
+            + `carried by a structured row rather than lost; decline it as "already carried by `
+            + 'R<n>" if so'
+          : `recovered from prose escalation #${item.n} — no structured row covered it, so it is `
+            + 'carried here rather than lost',
+      })
+      recoveredFromProse += 1
+    }
+  }
+
+  const shortfall = recoveredFromProse ? null : escalationShortfall(integration)
   const contractViolation = shortfall
     ? `${shortfall} Nothing below accounts for the shortfall; read the integration report before `
       + 'reading any count here as complete.'
     : null
 
-  return { escalations, recommendations, notConvergeable, contractViolation }
+  return { escalations, recommendations, notConvergeable, contractViolation, recoveredFromProse }
 }
 
 // Which PROSE escalations no structured row carries — a comparison of ITEMS, not of counts. Two
@@ -2474,19 +2503,42 @@ function convergenceCatalogue(integration, reviews) {
 // A `covers` naming a position outside `escalated` is no declaration at all: fire-0-4 of run
 // 20260911T145644Z wrote the reviewer's finding number (`[8]`) against a one-item list, and read
 // as declared it pulled a plan whose one row carried its one escalation.
-function escalationShortfall(integration) {
+//
+// Shared by `escalationShortfall` (which reports the gap as a sentence) and `convergenceCatalogue`
+// (which recovers it into rows). Three coverage shapes:
+//   1. Every structured row declares valid `covers` — the uncovered items are exactly the prose
+//      positions no row covers.
+//   2. No structured rows at all — every prose item is uncovered.
+//   3. Structured rows exist without valid `covers`, and prose outnumbers them — coverage cannot
+//      be told from a merge, so every prose item is uncovered and flagged `possibleDuplicate`.
+// Otherwise (rows without valid `covers`, but not outnumbered by prose) nothing is uncovered: the
+// count does not disagree.
+function uncoveredProseItems(integration) {
   const prose = ((integration && integration.escalated) || []).map(String)
   const rows = ((integration && integration.escalations) || []).filter(Boolean)
   const inRange = (n) => Number.isInteger(Number(n)) && Number(n) >= 1 && Number(n) <= prose.length
+  const all = () => prose.map((text, i) => ({ n: i + 1, text }))
+  if (!prose.length) return { items: [], possibleDuplicate: false }
   if (rows.length && rows.every((r) => Array.isArray(r.covers) && r.covers.length && r.covers.every(inRange))) {
     const covered = new Set(rows.flatMap((r) => r.covers.map(Number)))
-    const lost = prose.map((text, i) => ({ n: i + 1, text })).filter(({ n }) => !covered.has(n))
-    if (!lost.length) return null
+    return { items: all().filter(({ n }) => !covered.has(n)), possibleDuplicate: false }
+  }
+  if (!rows.length) return { items: all(), possibleDuplicate: false }
+  if (prose.length > rows.length) return { items: all(), possibleDuplicate: true }
+  return { items: [], possibleDuplicate: false }
+}
+
+function escalationShortfall(integration) {
+  const prose = ((integration && integration.escalated) || []).map(String)
+  const { items: lost } = uncoveredProseItems(integration)
+  if (!lost.length) return null
+  const rows = ((integration && integration.escalations) || []).filter(Boolean)
+  const inRange = (n) => Number.isInteger(Number(n)) && Number(n) >= 1 && Number(n) <= prose.length
+  if (rows.length && rows.every((r) => Array.isArray(r.covers) && r.covers.length && r.covers.every(inRange))) {
     return `the integration's structured escalations carry ${prose.length - lost.length} of its `
       + `${prose.length} prose escalation(s); no structured row covers `
       + lost.map(({ n, text }) => `#${n} ("${text.slice(0, 160)}")`).join(', ') + '.'
   }
-  if (prose.length <= rows.length) return null
   return `the integration returned ${prose.length} escalation(s) in prose and only ${rows.length} `
     + `structurally, and declared no \`covers\` — so ${prose.length - rows.length} are missing OR `
     + 'were merged into a shared row, and a count cannot say which.'
@@ -2707,6 +2759,7 @@ async function resolveEscalations(baton, decision, waveIndex, plan, reviews, int
     notConvergeable: catalogue.notConvergeable,
     recommendations: catalogue.recommendations,
     contractViolation: catalogue.contractViolation,
+    recoveredFromProse: catalogue.recoveredFromProse || 0,
   }
 
   // The pass fires on EITHER lane. Gating it on `escalations` alone is what made a single
@@ -2848,6 +2901,13 @@ function convergenceLines(convergence) {
   // so a gate that reads the counts without reading this reads a shortfall as a quiet plan.
   if (convergence.contractViolation) {
     parts.push(`  INTEGRATOR CONTRACT VIOLATION: ${convergence.contractViolation}`)
+  }
+  // Informational, not a violation: a prose escalation with no structured row was recovered into
+  // the recommendation lane above rather than lost, so `contractViolation` stayed null.
+  if (convergence.recoveredFromProse) {
+    parts.push(`  RECOVERED FROM PROSE: ${convergence.recoveredFromProse} escalation(s) had no `
+      + 'structured row from the integrator and were carried into the recommendation lane for '
+      + 'apply-or-decline')
   }
   // The resolve pass edits the plan body before anything reconciles its picks, so a refusal is
   // also a warning about the FILE: read the plan before calling it ready.
@@ -3047,17 +3107,22 @@ async function repairBaton(entry, trailDir) {
       + "Check this run's own `failures` for this baton's integrate agent before re-emitting: a "
       + 'call that errored without throwing lands here too, and that one resumes instead')
   }
-  // THE SAME SHORTFALL, REFUSED HERE, because this path never reaches the reconciliation that
-  // catches it in a wave. Repair mode returns before the readiness gate — no verdict is produced,
-  // so there is nothing for the fifth reconciliation to reconcile. A repair whose integration
-  // again returns more escalations in prose than structurally has under-recorded a second time,
-  // and reporting `repaired: true` over it hands the driver the exact reassurance this mode's own
-  // header refuses: a plan that looks re-dispositioned and cleared.
+  // A prose escalation with no structured row is RECOVERED, same as in a live wave
+  // (`convergenceCatalogue`): it is not the resolve pass's to disposition here (repair mode runs
+  // no planner), but it is not lost either — this path never reaches a resolve or readiness gate,
+  // so a repair whose integration under-recorded must still end up with a record of the gap
+  // rather than reporting `repaired: true` over silence. The count rides back on the result.
   //
-  // REFUSED rather than reported, and the distinction is the point. A printed line with no
-  // consumer is worse than no line, because a reader who sees a named mismatch infers something
-  // downstream handles it — which is how the wave-path version of this survived from the day the
-  // double-return contract was written. There is no downstream here at all.
+  // REFUSED only when something still cannot be placed — none of the three coverage shapes
+  // `uncoveredProseItems` handles currently leaves one, but this stays a refusal rather than a
+  // silent pass for whatever does: a printed line with no consumer is worse than no line, because
+  // a reader who sees a named mismatch infers something downstream handles it — which is how the
+  // wave-path version of this survived from the day the double-return contract was written. There
+  // is no downstream here at all.
+  const recovery = uncoveredProseItems(integration)
+  if (recovery.items.length) {
+    return { batonId, planPath, repaired: true, integration, recoveredFromProse: recovery.items.length }
+  }
   const repairShortfall = escalationShortfall(integration)
   if (repairShortfall) {
     return refuse(`${repairShortfall} Whatever is uncovered exists only as text, and no record `
@@ -3576,8 +3641,10 @@ const chains = await pipeline(
     // from an agent — and otherwise carry the chain as blocked rather than aiming two more
     // agents at a file that is not the artifact.
     const claimed = String(plan.planPath || '')
+    // A path SEGMENT, never a substring: a plan whose slug names the directory
+    // (`retire-the-legacy-subagent-share-root.md`) is still a plan.
     const looksLikeTrail =
-      claimed.includes('subagent-share') ||
+      claimed.split(/[\\/]/).includes('subagent-share') ||
       claimed.startsWith(trailDir) ||
       /\.(plan-review|em-size-review|review-integration|review-[a-z0-9-]*pointer)\.md$/.test(claimed)
 

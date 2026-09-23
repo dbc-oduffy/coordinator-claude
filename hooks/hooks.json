@@ -13,6 +13,23 @@
             "args": [
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start-repin-cloud-engine-root.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 10,
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sessionstart-dispatch.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
@@ -123,12 +140,6 @@
             },
             "allowedEnvVars": [
               "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "HOME", "USERPROFILE"
-            ],
-            "args": [
-              "-c",
-              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sessionend-archive-session.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -468,12 +479,6 @@
             "allowedEnvVars": [
               "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "HOME", "USERPROFILE",
               "COORDINATOR_AUTONOMOUS_ASK_OK"
-            ],
-            "args": [
-              "-c",
-              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-autonomous-askuserquestion.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -516,12 +521,6 @@
             "allowedEnvVars": [
               "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "HOME", "USERPROFILE",
               "CLAUDE_HOME", "CLAUDE_PROJECT_DIR"
-            ],
-            "args": [
-              "-c",
-              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/plan-persistence-check.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -552,12 +551,6 @@
             },
             "allowedEnvVars": [
               "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "HOME", "USERPROFILE"
-            ],
-            "args": [
-              "-c",
-              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -593,12 +586,6 @@
             },
             "allowedEnvVars": [
               "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "HOME", "USERPROFILE"
-            ],
-            "args": [
-              "-c",
-              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/watchdog-undischarged-next-move.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]

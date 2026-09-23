@@ -133,7 +133,7 @@ Classify each claim into one bucket:
 
 ### Phase 3: Produce the Sidecar
 
-**Sidecar path (plan mode):** never computed by you. The engine-provisioned `state/plan-sidecars/<plan-stem>.prior-art-check.md` home, derived once by `provision_report` and passed through as `sidecar_path:` in your brief. **No such path in your brief → STOP and report the failure** — never derive or guess one.
+**Sidecar path (plan mode):** never computed by you. The engine-provisioned `.coordinator-local/plan-sidecars/<plan-stem>.prior-art-check.md` home, derived once by `provision_report` and passed through as `sidecar_path:` in your brief. **No such path in your brief → STOP and report the failure** — never derive or guess one.
 
 **Sidecar path (research mode):** no plan path, no engine-provisioned path. Write to `<scratch-dir>/prior-art-check.md` (`scratch_dir:` in the brief).
 

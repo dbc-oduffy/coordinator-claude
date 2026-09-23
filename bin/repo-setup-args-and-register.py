@@ -64,6 +64,8 @@ unresolvable machine-local CLI).
 """
 from __future__ import annotations
 
+INSTALL_CLASS = True  # writes machine-local registry keys; see door_install.declared_install_class
+
 import argparse
 import os
 import re

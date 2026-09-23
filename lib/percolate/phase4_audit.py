@@ -88,15 +88,18 @@ class PercolateIdentity:
     expected: list[str] = field(default_factory=list)
     review: list[str] = field(default_factory=list)
     allow: list[str] = field(default_factory=list)
+    bare_identifier: str | None = None
 
 
 def parse_percolate_identity(path: str | Path) -> PercolateIdentity:
-    """Parse a `.percolate-identity` file's three bash arrays without executing it.
+    """Parse a `.percolate-identity` file's three bash arrays, plus the optional
+    `PERSONAL_BARE_IDENTIFIER` scalar, without executing it.
 
     The shell original sources the file as bash code (after ownership/mode
     checks — see publish.sh:154-174); this port never executes it, only reads
-    the three known array literals. Full-line `#` comments inside an array body
-    are stripped before tokenizing; inline quoting is handled via `shlex.split`.
+    the known array literals and the one scalar. Full-line `#` comments inside
+    an array body are stripped before tokenizing; inline quoting is handled via
+    `shlex.split`.
     """
     text = Path(path).read_text(encoding="utf-8")
 
@@ -109,10 +112,18 @@ def parse_percolate_identity(path: str | Path) -> PercolateIdentity:
         ]
         return shlex.split("\n".join(body_lines))
 
+    def _extract_scalar(var_name: str) -> str | None:
+        match = re.search(rf"^{var_name}=(.*)$", text, re.M)
+        if not match:
+            return None
+        parts = shlex.split(match.group(1).strip())
+        return parts[0] if parts else None
+
     return PercolateIdentity(
         expected=_extract("PERSONAL_EXPECTED_PATTERNS"),
         review=_extract("PERSONAL_REVIEW_PATTERNS"),
         allow=_extract("PERSONAL_ALLOW_TOKENS"),
+        bare_identifier=_extract_scalar("PERSONAL_BARE_IDENTIFIER"),
     )
 
 
@@ -234,13 +245,21 @@ def check_scrub_canary(allow_regex: str) -> None:
         )
 
 
-def bare_identifier(allow_tokens: list[str]) -> str | None:
-    """Derive the bare identifier to scan for from the first PERSONAL_ALLOW_TOKENS
-    entry's leading alphabetic run, lowercased (publish.sh:1957-1961).
+def bare_identifier(allow_tokens: list[str], explicit: str | None = None) -> str | None:
+    """Derive the bare identifier to scan for.
 
-    E.g. `['foo-delphi', 'Foo Bar']` → `'foo'`. Returns `None` when there are no
-    allow tokens or the first token has no leading alphabetic run.
+    Prefers `explicit` (`.percolate-identity`'s `PERSONAL_BARE_IDENTIFIER`,
+    e.g. the operator's surname). Otherwise falls back to the first
+    PERSONAL_ALLOW_TOKENS entry's leading alphabetic run, lowercased. Trap: for
+    an allow-token shaped `<org-prefix>-<surname>` the fallback yields the org
+    prefix, not the surname this net is meant to catch.
+
+    E.g. `bare_identifier(['foo-delphi', 'Foo Bar'])` → `'foo'`. Returns `None`
+    when there is no explicit override, no allow tokens, and the first token
+    has no leading alphabetic run.
     """
+    if explicit:
+        return explicit.lower()
     if not allow_tokens:
         return None
     match = re.match(r"^([a-zA-Z]+)", allow_tokens[0])
@@ -323,7 +342,7 @@ def audit_files(
     result.
     """
     review_patterns = build_review_patterns(identity, home=home, script_dir=script_dir)
-    bare_ident = bare_identifier(identity.allow)
+    bare_ident = bare_identifier(identity.allow, identity.bare_identifier)
     allow_regex = ""
     if bare_ident:
         allow_regex = build_allow_regex(list(identity.allow) + list(native_slugs or []))

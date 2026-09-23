@@ -121,7 +121,7 @@ The author and lineage/predecessor concepts exist in both types but are spelled 
 | Key | Semantics |
 |-----|-----------|
 | `delivery_mode` | Enum: `receiver-repo` (current), `central-only` (grandfathered); CLI only ever issues `receiver-repo` |
-| `kind` | Sender-declared shape: `ask`, `consult`, `fyi`, `proposal`; absent → reader applies `ask` default; validated via cross-field rule (not YAML enum) to enforce the grandfather cutoff |
+| `kind` | Sender-declared shape: `ask`, `consult`, `fyi`, `proposal`, `bug`, `notice`, `friction`; absent → reader applies `ask` default; validated via cross-field rule (not YAML enum) to enforce the grandfather cutoff |
 | `picked_up_by`, `picked_up_at` | Claim attribution; set when `status: in_progress`; cleared on release |
 | `decision`, `decision_note`, `actioned_note` | Receiver-side outcome fields; `decision` required when `status: action_taken` (cross-field rule) |
 

@@ -346,7 +346,17 @@ def _shared_wave_slots(payload: dict, wave_ids: list) -> list:
     return sorted((i, sorted(paths)) for i, paths in collapsed.items())
 
 
-def _report_predates_a_landing(trail_dir: Path, wave_number: int, wave_ids: list) -> str:
+def _fire_wave(path: Path) -> "int | None":
+    """The wave number a `fire-<wave>-<n>.mjs` name declares, or None for any other name."""
+    parts = path.stem.split("-")
+    if len(parts) == 3 and parts[0] == "fire" and parts[1].isdigit() and parts[2].isdigit():
+        return int(parts[1])
+    return None
+
+
+def _report_predates_a_landing(
+    trail_dir: Path, wave_number: int, wave_ids: list, take_remaining: bool = False
+) -> str:
     """The report is SHAPE-RIGHT and TIME-WRONG: frozen before a landing this run
     has since made, so it proposes batons that landing already advanced.
 
@@ -399,18 +409,32 @@ def _report_predates_a_landing(trail_dir: Path, wave_number: int, wave_ids: list
     # out which side was wrong.
     remaining = nxt.get("remaining")
     if isinstance(remaining, int) and remaining > 0:
+        if take_remaining:
+            return ""
         return (
             f"this report proposes {len(extra)} baton(s) that {prior.name} did not hand forward, "
             f"and that landing declares `remaining: {remaining}` — it was LIMIT-CAPPED, so it "
             f"handed forward {len(handed)} of a larger set and this report is not thereby stale. "
             "Re-land the same wave-result files at a `--limit` above the remainder if you want "
-            "them all in one hand-forward; otherwise emit from a freshly frozen report and take "
-            "the extra batons deliberately."
+            "them all in one hand-forward; otherwise, from a freshly frozen report, pass "
+            "`--take-remaining` to fire the extra batons deliberately."
         )
+    # A baton minted AFTER the landing (a grind's spinoff gate, a debt-triage baton) is also
+    # absent from the handed set, and a report frozen after that mint is fresh. What only a
+    # stale report proposes is a baton this run already FIRED: its id is declared in an
+    # earlier wave's fire script. Refuse on those; an extra never fired is a new candidate.
+    fired = "".join(
+        p.read_text(encoding="utf-8", errors="replace")
+        for p in sorted(trail_dir.glob("fire-*.mjs"))
+        if _fire_wave(p) is not None and _fire_wave(p) < wave_number
+    )
+    extra = [i for i in extra if f'"{i}"' in fired or f"/{i}.md" in fired]
+    if not extra:
+        return ""
     shown = extra[:8]
     tail = f" (and {len(extra) - len(shown)} more)" if len(extra) > len(shown) else ""
     return (
-        f"this report proposes {len(extra)} baton(s) that {prior.name} did not hand "
+        f"this report proposes {len(extra)} already-fired baton(s) that {prior.name} did not hand "
         f"forward to wave {wave_number}: {shown}{tail}. That landing declares "
         f"{len(handed)} candidate(s), so the report was frozen BEFORE it — it is "
         "shape-right and time-wrong, which is why nothing else here refused it. "
@@ -1136,6 +1160,15 @@ def main(argv=None) -> int:
     )
     ap.add_argument("--batons-per-fire", type=int, default=DEFAULT_BATONS_PER_FIRE)
     ap.add_argument(
+        "--take-remaining",
+        action="store_true",
+        help=(
+            "accept batons the previous landing did not hand forward when that landing was "
+            "LIMIT-CAPPED (`remaining` > 0). Pass only with a report frozen after that landing: "
+            "it silences the limit-capped refusal, never the stale-report one."
+        ),
+    )
+    ap.add_argument(
         "--exclude",
         action="append",
         default=[],
@@ -1256,7 +1289,7 @@ def main(argv=None) -> int:
     if not wave_ids:
         return refuse(f"wave {args.wave_index} is empty — nothing to fire")
 
-    stale = _report_predates_a_landing(trail_dir, wave_number, wave_ids)
+    stale = _report_predates_a_landing(trail_dir, wave_number, wave_ids, args.take_remaining)
     if stale:
         return refuse(stale)
 

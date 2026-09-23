@@ -40,7 +40,7 @@ Take the `brief` output as-is. Broader file-path/description-similarity overlap 
 presenting overlaps to the PM for a dedup decision (populate `evidence:` on both entries).
 
 **Improvement-queue triage is emitted, not EM classification.** Pick an appetite (`hunt`,
-`standard` or `sweep` — values in `${CLAUDE_PLUGIN_ROOT}/queue-profiles/improvement.yaml`). Emit with
+`standard` or `sweep` — values in `coordinator/queue-profiles/improvement.yaml`). Emit with
 `emit-dispatch-workflow.py --queue state/improvement-queue --profile improvement --appetite <a>
 --out state/scratch/debt-triage/{run-id}/improvement.workflow.mjs`, per
 `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`. There is no commit-readiness gate
@@ -68,13 +68,14 @@ Blocking other work → P0. In a D/F-graded system → P1. In a recently A/B-gra
 deprioritize to P2. >30 days with no activity → flag for PM attention.
 
 Query historical `nature: tech-debt` completions
-(`query-completions --where "nature=tech-debt" --since "90d" --sort "-loe.agent_dispatches" --format markdown-list`,
+(`query-completions --where "nature=tech-debt" --since "90d" --format json`, ranked descending on
+`frontmatter.loe.agent_dispatches` as a number — the reader takes no `--sort` —
 per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`)
 before grouping: high-LoE areas in the last 90d indicate festering complexity — escalate open
 items there.
 
-**Never sort on `loe.tshirt`.** `--sort` compares non-numeric values as STRINGS, so descending
-t-shirt order is `XXL, XS, XL, S, M, L` — the smallest tier ranks second. Rank on a numeric field.
+**Never rank on `loe.tshirt`.** Compared as strings, descending t-shirt order is
+`XXL, XS, XL, S, M, L` — the smallest tier ranks second. Rank on a numeric field.
 Zero-activity areas may reflect avoidance — flag: *"We have carried this debt for N days without
 touching it — is that intentional?"* Present a one-paragraph summary before Step 4; zero-row
 case: `(no tech-debt completions logged in last 90d — hot-zone analysis unavailable)`.

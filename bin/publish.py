@@ -407,15 +407,12 @@ class ClaudeKlabauterPercolate:
     run_entrypoint_gate: "Callable[..., object]"
     enumerate_gate_entrypoints: "Callable[..., tuple]"
     derive_worker_cap: "Callable[[], int]"
-    # § chunk C5 -- C4's pure, no-subprocess changed-set selector, plus the
-    # engine module itself (needed only to reach C4's private closure-walk
-    # helpers, `_build_first_party_import_index`/`_entrypoint_closure_
-    # reaches_any`, for this driver's own always-swept-floor computation, §
-    # `_compute_always_swept_entrypoints` below -- no equivalent PUBLIC seam
-    # exists in engine.py for "does this entrypoint's closure reach anything
-    # beyond itself", and engine.py is C4-committed, not ours to extend).
+    # § chunk C5 -- C4's pure, no-subprocess changed-set selector, plus
+    # engine.py's own complementary always-swept-floor seam (§ `_compute_
+    # always_swept_entrypoints` below), both PUBLIC on engine.py -- neither
+    # needs the engine module itself threaded through.
     derive_changed_entrypoints: "Callable[..., tuple]"
-    percolate_engine_module: object
+    derive_always_swept_entrypoints: "Callable[..., tuple]"
 
 
 def _describe_engine_import_failure(engine_root: "Optional[str]", exc: Exception) -> str:
@@ -584,7 +581,7 @@ def _import_claude_klabauter_percolate() -> ClaudeKlabauterPercolate:
         enumerate_gate_entrypoints=_pct_engine.enumerate_gate_entrypoints,
         derive_worker_cap=_derive_worker_cap,
         derive_changed_entrypoints=_pct_engine.derive_changed_entrypoints,
-        percolate_engine_module=_pct_engine,
+        derive_always_swept_entrypoints=_pct_engine.derive_always_swept_entrypoints,
     )
 
 
@@ -2777,31 +2774,6 @@ _CHANGED_ONLY_UNMODELED_SUFFIXES: "tuple[str, ...]" = (
 )
 
 
-class _AlwaysExceptSelf:
-    """A `__contains__`-only stand-in for `changed_set` (§ `_entrypoint_
-    closure_reaches_any`'s own `rel_posix in changed_set` checks) that
-    reports every path as "changed" EXCEPT the entrypoint's own -- used only
-    to probe closure SHAPE, never real change data (§ `_compute_always_
-    swept_entrypoints`).
-
-    With this stand-in, `_entrypoint_closure_reaches_any` returns True iff
-    the BFS visits at least one file other than the entrypoint itself, or
-    could not resolve some file's imports statically (`force_selected`,
-    independent of `changed_set` altogether). Both outcomes mean SOME
-    changed-set, in principle, could select this entrypoint -- so returning
-    False from that call is the only way to learn "no changed-set ever
-    could", which is exactly the always-swept-floor membership test.
-    """
-
-    __slots__ = ("_self_rel",)
-
-    def __init__(self, self_rel: str) -> None:
-        self._self_rel = self_rel
-
-    def __contains__(self, item: object) -> bool:
-        return item != self._self_rel
-
-
 def _compute_always_swept_entrypoints(
     engine_claude_klabauter: ClaudeKlabauterPercolate,
     repo_root: Path,
@@ -2815,33 +2787,16 @@ def _compute_always_swept_entrypoints(
     file. These must be swept every run regardless of `subset`, or a
     changed-only run silently stops proving they still start.
 
-    Derived AT RUNTIME from C4's OWN closure computation
-    (`_build_first_party_import_index` + `_entrypoint_closure_reaches_any`,
-    both reached via `engine_claude_klabauter.percolate_engine_module` since neither is
-    a public seam engine.py exports, and engine.py is C4-committed, not ours
-    to extend) -- never a stored list or count (§ chunk C5 task item 2: "The
-    plan measured 13 of 71 today... but that is an observation of today's
-    tree, not a threshold").
-
-    `_AlwaysExceptSelf` supplies a `changed_set` that reports every path as
-    changed except the entrypoint's own -- so `_entrypoint_closure_reaches_
-    any` returning False here means "this entrypoint's closure never reaches
-    anywhere a change could ever be observed", the always-swept condition.
+    Thin driver-side wrapper over engine.py's own PUBLIC seam for this
+    question, `derive_always_swept_entrypoints` -- never a stored list or
+    count (§ chunk C5 task item 2: "The plan measured 13 of 71 today... but
+    that is an observation of today's tree, not a threshold"), computed at
+    runtime same as before this seam existed. Kept as a named call site
+    (rather than calling the engine seam directly from the dispatcher) so
+    the always-swept-floor step keeps one place cited from `dispatch_end_
+    of_run_entrypoint_gate`'s own docstring.
     """
-    engine_module = engine_claude_klabauter.percolate_engine_module
-    build_index = engine_module._build_first_party_import_index  # noqa: SLF001 - see docstring
-    reaches_any = engine_module._entrypoint_closure_reaches_any  # noqa: SLF001 - see docstring
-    normalize = engine_module._normalize_repo_relative  # noqa: SLF001 - see docstring
-
-    index = build_index(repo_root)
-
-    always_swept: "list[str]" = []
-    for rel in entrypoints:
-        rel_norm = normalize(rel)
-        entrypoint_path = repo_root / rel
-        if not reaches_any(entrypoint_path, repo_root, index, _AlwaysExceptSelf(rel_norm)):
-            always_swept.append(rel)
-    return tuple(always_swept)
+    return engine_claude_klabauter.derive_always_swept_entrypoints(repo_root, entrypoints)
 
 
 def dispatch_end_of_run_entrypoint_gate(

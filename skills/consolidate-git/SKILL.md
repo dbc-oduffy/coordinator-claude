@@ -45,6 +45,21 @@ are reported under `gates` but never touched.
 
 ## Resolve the Judgment Points
 
+**Re-verify against origin before the first mutating action.** `consolidate-assemble brief` is a
+snapshot — a concurrent session's `git reset` on the current branch between that snapshot and
+this step can fork local from its origin counterpart without touching the working tree, which a
+tree-diff cannot see. Check by commit log instead: `git log <branch>..origin/<branch>` and `git
+log origin/<branch>..<branch>`. Either non-empty means the brief is stale — stop and re-run
+`consolidate-assemble brief` before absorbing, deleting, or merging anything.
+
+**A commit that looks orphaned mid-run can be a transient merge-base read, not a real orphan.**
+Absorbing this skill's own directives mid-session (a fetch, a peer's push landing) can make a
+commit you already landed read as merge-base-not-ancestor for one snapshot and reachable again
+the next — the inventory caught it between the two. Before treating such a commit as lost: re-run
+the merge-base check after the tree settles, and look for a recovering merge commit that already
+carries it. If re-landing still seems needed, try the cherry-pick first — an empty result means
+it is already applied; do not force an empty cherry-pick through or re-commit duplicate content.
+
 Each judgment point below carries its own evidence and per-option guidance in the decision
 object — decide from it, never invent a verdict the evidence doesn't support.
 
@@ -106,6 +121,11 @@ Close with current branch, ahead-of-main count, and the merge-ready disposition.
 
 **Remote branches with no local counterpart:** fetch first, so their commits are inspected
 before a remote delete is proposed.
+
+**Cross-device branch reconciliation** (two devices or sessions advancing the same logical
+branch): merge, never cherry-pick — a cherry-pick silently drops whichever side isn't replayed.
+Snapshot a pre-merge baseline, then verify the merged tree against EACH parent, not just the side
+that looked untouched — a hunk can vanish from a parent that never conflicted.
 
 ## What This Does NOT Do
 

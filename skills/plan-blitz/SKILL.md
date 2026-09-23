@@ -32,7 +32,10 @@ non-candidate; a run that quietly drops one is worse than a refusal.
 `coordinator:sizing`, then `coordinator:plan`. Plans exist and need executing →
 `coordinator:execute-plan`. A batch of bugs rather than roadmap batons → `coordinator:bug-blitz`.
 
-**Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
+**Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
+
+**Host shapes.** Calls below are Shape W; on POSIX run `coordinator-invoke <op> '<json>'` (Shape B,
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`).
 
 ---
 
@@ -185,11 +188,9 @@ the BIND CALL alone and refuses a root that carries a build stamp. Tripwire:
 dispatches only when its gate is open; a baton missing the field dispatches nothing and returns as
 a candidate every later wave. `emit-wave-fire.py` derives it and refuses rather than defaults.
 
-**Resolve `${CLAUDE_PLUGIN_ROOT}`; never pass a repo-relative path.** The plugin root differs by
-tree — under the doctrine source repo it is the `coordinator/` subdirectory, in an installed or mirrored
-plugin it IS the root. A path written `coordinator/workflows/...` resolves only where the cwd happens
-to be the doctrine repo and elsewhere fails as a MISSING FILE, which reads as "the vehicle does not exist" rather
-than "the path was not resolved" — the more expensive of the two wrong conclusions.
+**Resolve `${CLAUDE_PLUGIN_ROOT}`; never pass a repo-relative path** — the plugin root is
+`coordinator/` in the doctrine repo and the root itself elsewhere, so `coordinator/workflows/...`
+fails outside the doctrine repo as a missing file, misread as a missing vehicle.
 
 Then wait. **Do not read the trail to decide anything** — the wave needs no input between fire and
 return; intervening mid-wave overrides a judgment `blitz-em` was dispatched to make.

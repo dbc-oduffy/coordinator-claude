@@ -49,6 +49,15 @@ ls -l --time-style=full-iso "$d"/*.jsonl | grep -E '<YYYY-MM-DD> 12:02:(4[0-9]|5
 - Sessions written *after* the cluster are restarts/new sessions — exclude them (the recovery session itself is one).
 - Tiny transcripts (a few KB) in the cluster are usually near-empty `/clear` shells — classify fast, low priority.
 
+**The live mtime cluster computed here is the only authoritative casualty set.** Any pre-existing
+capture (a fleet-session list handed to you, or written earlier in the same recovery) is a snapshot
+frozen at its own write time — not a casualty list. Specimen: a capture written 00:41
+was worked as the casualty list at 02:30, two hours later; it listed 64 sessions against 24 real
+casualties (sessions that had closed normally after the snapshot read as false casualties). Before
+handing such a capture to anyone downstream, stamp it with its own capture time and a
+`NOT the casualty list — snapshot at <time>` banner, first line, so it cannot be mistaken for the
+live cluster above.
+
 ## Step 2 — Fan out one forensic investigator per repo (+ one crash-cause agent)
 
 Fan-out is the default shape. One `general-purpose` (Sonnet) investigator per affected repo, **backgrounded**,
@@ -84,6 +93,15 @@ Focus each investigator: FIRST few turns (the goal) + LAST ~15 turns (in-flight 
 
 Plus per repo: `git -C <repo> log --oneline -20` + `git -C <repo> status` — what committed near crash time vs what
 the crash left dirty. **Uncommitted work is the real loss surface** — enumerate and attribute it to a session.
+
+**Each `<repo>-findings.md` is itself a digest, not a casualty list — stamp it.** Lead it with its own
+generation time and a `NOT the casualty list — <repo> digest generated at <time>` banner, first line,
+and carry that stamp/banner with the file on any handoff or reuse — before anyone downstream can read
+it as current. Treat any pre-existing machine-generated digest the same way: orientation only, never
+trusted at face value. Verify its disposition against true transcript EOF, not a cached
+`last_assistant`-style field — specimen: a digest generated at 23:23:02 was trusted
+~3h stale, and its cached field flipped 2 of project-rag's 7 session dispositions until agents tailed
+the transcripts to true EOF.
 
 ### Crash-cause agent (Windows)
 

@@ -15,7 +15,7 @@
 <!-- `## Questions` to their types, and names the run-report body sections only to exclude -->
 <!-- them), and -->
 <!-- sidecar-emission-contract's path convention is specific to the G2 plan-pipeline pre-flight -->
-<!-- home (state/plan-sidecars/<plan-stem>.<lens>.md) — neither is the run-report shape. -->
+<!-- home (.coordinator-local/plan-sidecars/<plan-stem>.<lens>.md) — neither is the run-report shape. -->
 
 ## Run-Report Citizenship
 

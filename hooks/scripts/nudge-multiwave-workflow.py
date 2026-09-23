@@ -156,7 +156,17 @@ except Exception:
                     "additionalContext": "\n".join(parts),
                 }
             }
-            sys.stdout.write(json.dumps(envelope, separators=(",", ":")))
+            # Degrade to silence on a closed/broken stdout pipe -- this
+            # fallback exists only for an isolated copy-only deploy missing
+            # `_message_envelope.py` (see the import comment above), so it
+            # doesn't inherit that module's `_write_stdout_envelope` guard
+            # and must carry the same fix independently. This hook's own
+            # contract (module docstring) is ALWAYS exit 0; an undeliverable
+            # advisory write must never turn that into a non-zero exit.
+            try:
+                sys.stdout.write(json.dumps(envelope, separators=(",", ":")))
+            except OSError:
+                pass
             return 0
 
     _envelope = _FallbackEnvelope()

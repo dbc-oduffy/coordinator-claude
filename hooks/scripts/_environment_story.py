@@ -75,6 +75,13 @@ one of the six paths above returns `STRICTEST_STORY`. `validate_story` and
 because enforcement failing loudly is the whole point (a warning is not a
 remediation for a silent core omission -- see the `warn-is-not-a-
 remediation-for-silent-skip` lesson cited in the research corpus §4).
+
+WHAT A COMPOSED STORY'S `rule_ids` ARE ACCOUNTED AGAINST: a non-strictest
+story's `rule_ids` is built from
+`state/audits/2026-09-06-doctrine-rule-class-register.yaml`, an
+ENVIRONMENT-PREMISE extraction, not a doctrine census. A rule absent from
+the register carries no environment-scoped premise captured there -- it does
+not mean no rule exists.
 """
 
 from __future__ import annotations

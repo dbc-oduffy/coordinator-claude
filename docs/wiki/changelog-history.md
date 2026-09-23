@@ -396,7 +396,7 @@ In response to a 2026-05-01 postmortem (15 commits stranded for 22 hours on a br
 - **Tracking file `tasks/.deferred-branches.md`** — single-line entries managed by the Branch Reconciliation Decision flow; surfaced when re-check date arrives.
 
 ### Changed
-- **`coordinator/skills/handoff/SKILL.md` Step 3** — pre-flight reachability check on completed-work commits. When commits aren't on `origin/main`, "shipped" wording is replaced with "complete on branch, not yet merged" and a `## Not Yet On Main` section is appended.
+- **`coordinator/skills/handoff/SKILL.md`** — pre-flight reachability check on completed-work commits. When commits aren't on `origin/main`, "shipped" wording is replaced with "complete on branch, not yet merged" and a `## Not Yet On Main` section is appended. (Editorial note: this mechanism is absent from the current skill file — record of what shipped, not a live pointer.)
 - **`commands/update-docs.md`, `commands/distill.md`, `commands/architecture-audit.md`** — explicit DO-NOT-MERGE prohibition inline in Sonnet dispatch prompts. Closes the 2026-05-01 rogue-merge trigger (a doc-maintenance Sonnet ran `gh pr merge` autonomously). (Editorial note: `commands/architecture-audit.md` is absent from current trees; its doctrine lives in `coordinator/skills/architecture-audit/SKILL.md`. Entry text otherwise unchanged as a record of what shipped.)
 - **`skills/merging-to-main/SKILL.md`** — Step 4 5-min quiet gate (cross-platform `gh`+Python snippet, override via `--force-merge-active-branch`); Step 6 reports other unmerged branches owned by the user.
 - **`skills/using-git-worktrees/SKILL.md`, `commands/workday-complete.md`, `commands/session-start.md`** — `sync-main.sh` injected at every branch-creation site.

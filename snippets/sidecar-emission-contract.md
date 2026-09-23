@@ -12,7 +12,7 @@ EM), not read inline from your return value.
 
 **Path convention — you never compute a path.** The dispatching skill/command's brief names the
 sidecar path your findings must be written to: the engine-provisioned
-`state/plan-sidecars/<plan-stem>.<lens>.md` home, computed once by `provision_report` (the single
+`.coordinator-local/plan-sidecars/<plan-stem>.<lens>.md` home, computed once by `provision_report` (the single
 deriving surface) and passed through unchanged. Write your findings there. Do not derive, guess,
 or reconstruct this path yourself — a self-computed path is a contract violation even if it
 happens to match.
@@ -26,7 +26,7 @@ home, `state/subagent-share/<session-id>/<provision_key>.md`, or
 you glob for these). `plan_path` is never required for eligibility; its absence simply means "use
 the existing home." Callers on the plan-less path — `/bug-sweep`'s Track C and Phase 3.5
 docs-checker dispatches — must NOT start passing a synthetic stem to reach the plan-sidecars home:
-that would put run-scoped files into `state/plan-sidecars/`, which is an unreaped-by-design archive
+that would put run-scoped files into `.coordinator-local/plan-sidecars/`, which is an unreaped-by-design archive
 class. `plan_path` is settable only via the stdin JSON field; `provision_report`'s argparse exposes
 no `--plan` flag.
 
@@ -41,7 +41,7 @@ match this list.
 **Run-nonce stamp.** When your brief carries `run_nonce:`, write the sidecar THIS run and stamp
 `run_nonce: <value>` verbatim into its frontmatter. Never copy a nonce off disk, never emit one you
 were not given, and do not substitute your own timestamp — a consumer refuses any verdict whose
-sidecar lacks this run's nonce, and `state/plan-sidecars/` files are durable and reused across runs
+sidecar lacks this run's nonce, and `.coordinator-local/plan-sidecars/` files are durable and reused across runs
 by design. No `run_nonce:` in your brief → omit the field.
 
 **Verdict floor.** Your verdict enum MUST include `DEGRADED` (incomplete coverage — a corpus was

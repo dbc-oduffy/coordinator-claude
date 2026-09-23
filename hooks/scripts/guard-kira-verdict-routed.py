@@ -85,7 +85,12 @@ block cannot discharge this guard, and re-dispatches an integrator whose
 findings are already applied -- the reported miss `_find_answers` documents.
   1. No Kira sidecar in the session share dir, but other review activity
      is present -> BLOCK (a close that reviewed something owed Kira a run
-     too).
+     too). A PLAN review never counts as that "something": Kira reviews the
+     CODE diff at /workstream-complete, so a sidecar whose `plan:` field
+     points at `docs/plans/*.md`, an `apm` agent_type, or a
+     review-integrator run that answered only such sidecars, is excluded
+     from this condition's detection (`_is_plan_review`,
+     `_block_condition_1`).
   2. A Kira sidecar carrying `findings_count > 0` with no sibling sidecar
      stamping `integrated_from` naming it, and no `## Integrator
      Dispositions` block recorded on the verdict itself -> BLOCK. That block
@@ -371,11 +376,54 @@ def _is_kira(filename: str, meta: dict) -> bool:
     return _normalize_agent_type(meta.get("agent_type")) == _KIRA_AGENT_TYPE
 
 
+def _reviewed_a_plan(meta: dict) -> bool:
+    """True when this sidecar's `plan:` field -- the sidecar-frontmatter-
+    contract's reviewed-artifact-path, stamped by every review persona
+    regardless of what it actually reviewed -- names an actual plan
+    document under `docs/plans/`, not a code diff, handoff, or other
+    artifact wearing the same generic key. Kira's own sidecars stamp
+    `plan:` too (a session diff, a handoff -- confirmed on disk,
+    `coordinatoroverengineering-reviewer.abfb416965388dd5f.md`), so the
+    key's mere PRESENCE proves nothing; the path is what says PLAN."""
+    plan = meta.get("plan")
+    if isinstance(plan, list):
+        plan = plan[0] if plan else None
+    if not isinstance(plan, str) or not plan.strip():
+        return False
+    normalized = plan.strip().strip("'\"").replace("\\", "/")
+    return "docs/plans/" in normalized and normalized.endswith(".md")
+
+
+def _is_plan_review(meta: dict) -> bool:
+    """True when this sidecar reviews a PLAN, not a code diff -- Kira
+    reviews the code diff at /workstream-complete; a plan review never owes
+    her a run (module docstring, BLOCK condition 1). Two frontmatter shapes
+    name the target as a plan: a `plan:` field pointing at
+    `docs/plans/*.md` (staff-eng-review and the other plan-review
+    personas), or an `apm` agent_type (Autonomous Plan Module runs plan
+    review only)."""
+    return _reviewed_a_plan(meta) or _normalize_agent_type(meta.get("agent_type")) == "apm"
+
+
+def _integrated_from_list(meta: dict) -> list[str]:
+    """Normalize `integrated_from` to a list of sidecar-name strings --
+    same dual scalar-or-list shape `_find_answers` reads it in."""
+    integrated = meta.get("integrated_from")
+    if isinstance(integrated, str):
+        return [integrated] if integrated.strip() else []
+    if isinstance(integrated, list):
+        return [v for v in integrated if isinstance(v, str) and v.strip()]
+    return []
+
+
 def _is_review_activity(filename: str, meta: dict) -> bool:
     """Broader than `_is_kira` -- any OTHER review-shaped sidecar (a
     code-reviewer slice, a staff-eng review, a review-integrator run).
     Used only for BLOCK condition 1 ('reviewed something, but never ran
-    Kira')."""
+    Kira'). A plan-review sidecar (`_is_plan_review`) never counts -- Kira
+    is not owed a run for one."""
+    if _is_plan_review(meta):
+        return False
     if "findings_count" in meta:
         return True
     kind = meta.get("kind")
@@ -391,7 +439,31 @@ def _block_condition_1(in_scope: list[tuple[str, dict]]) -> bool:
     kira_present = any(_is_kira(f, m) for f, m in in_scope)
     if kira_present:
         return False
-    return any(_is_review_activity(f, m) and not _is_kira(f, m) for f, m in in_scope)
+
+    # Names (both the on-disk filename and its `.md`-stripped stem --
+    # `integrated_from` is stamped in either shape, see `_find_answers`) of
+    # every plan-review sidecar in scope. A review-integrator run that
+    # answered ONLY entries in this set is itself plan-review activity Kira
+    # is not owed for, even though its own frontmatter carries neither a
+    # `plan:` pointing at `docs/plans/` nor an `apm` agent_type (module
+    # docstring: "review-integrator run against a plan").
+    plan_review_names: set[str] = set()
+    for f, m in in_scope:
+        if _is_plan_review(m):
+            plan_review_names.add(f)
+            plan_review_names.add(_kira_stem(f))
+
+    def _counts_as_review(f: str, m: dict) -> bool:
+        if _is_kira(f, m):
+            return False
+        if not _is_review_activity(f, m):
+            return False
+        integrated = _integrated_from_list(m)
+        if integrated and all(name in plan_review_names for name in integrated):
+            return False
+        return True
+
+    return any(_counts_as_review(f, m) for f, m in in_scope)
 
 
 def _find_answers(kira_filename: str, in_scope: list[tuple[str, dict]]) -> list[str]:

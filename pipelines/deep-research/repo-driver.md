@@ -480,6 +480,24 @@ After spawning all teammates (including specialists), announce:
 
 **You are now free to continue the conversation with the PM.** Do not poll, do not monitor, do not broadcast WRAP_UP. The team handles everything.
 
+## Step 6.5 — Before Treating the Synthesizer as Stalled
+
+If a check-in (PM question, unrelated notification) ever surfaces the synthesizer idle with its
+task still `in_progress`, idle alone is not evidence of a stall — Phase 1's adversarial coverage
+read (`agents/research-synthesizer.md` § Phase 1) can run long and silent over large specialist
+outputs before anything is written to disk.
+
+**Before writing any EM self-synth fallback** (assembling the document yourself from raw
+specialist outputs), disk-check the canonical output path first:
+
+```bash
+ls -la {output-path} {scratch-dir}/synthesis.md 2>/dev/null
+wc -l {output-path} {scratch-dir}/synthesis.md 2>/dev/null
+```
+
+**Idle *and* zero output past a generous read window — not idle alone — is the redispatch
+signal.** A self-synth on idle alone overwrites an in-progress synthesis.
+
 ## Step 7 — On Completion Notification
 
 When you receive a notification that the synthesis task is complete:

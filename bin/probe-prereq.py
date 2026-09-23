@@ -71,6 +71,8 @@ Spec backlink: coordinator/commands/install.md (DoE-claude) § 1a.3 (git-lfs
 """
 from __future__ import annotations
 
+INSTALL_CLASS = True  # runs `git lfs install`; see door_install.declared_install_class
+
 import argparse
 import json
 import subprocess

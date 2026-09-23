@@ -35,6 +35,8 @@ already expose for testability, not new surface this module adds.
 
 from __future__ import annotations
 
+INSTALL_CLASS = True  # rewrites settings.json hooks; see door_install.declared_install_class
+
 import argparse
 import json
 import os

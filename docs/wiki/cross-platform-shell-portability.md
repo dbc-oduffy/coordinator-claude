@@ -90,6 +90,7 @@ Cross-reference: `install-surface-completeness.md § Worked example: brew bash o
 | `mktemp "${file}.XXXXXX.tmp"` (trailing suffix after the X-block) | BSD/macOS `mktemp` requires the `X`'s at the very **end** of the template with no trailing suffix — GNU `mktemp` tolerates a suffix, BSD does not always randomize past it, producing predictable names and concurrency collisions | `mktemp "${file}.XXXXXX"` (X's last, no trailing text) — move any fixed suffix to a prefix segment before the X-block instead. |
 | `grep -Z` / `grep -z` for NUL-delimited output | BSD/macOS `grep` **silently ignores** the flag — no error, no warning, just newline-delimited output. A downstream `xargs -0` or `read -d ''` then treats the whole stream as one record, or splits on spaces in filenames. The GNU box stays green, so the defect is invisible where it is developed | Iterate with `find … -print0` (portable NUL emission) piped to `xargs -0`; or drop NUL framing entirely and use `while IFS= read -r` on newline-delimited output where filenames cannot contain newlines. |
 | A Windows-style path used as a POSIX path component (a drive-rooted path, or any backslash-separated string) | POSIX has no drive letters and no backslash separator, so the whole string is ONE relative filename. A `mkdir`/open against it silently creates a single backslash-named file **under cwd** — commonly the repo root — instead of failing | Never hand-build a path from a platform-shaped string. Join with `pathlib`/`os.path.join` from components, and assert the result is absolute before writing. See § Patching `os.name` re-flavours `pathlib` for the subtlest way this happens. |
+| `${CLAUDE_HOME:-<path ending in>/.claude}` (`.claude`-substitute) | CLAUDE_HOME is a `$HOME`-substitute, not a `.claude`-substitute — folding `/.claude` into the default branch happens to resolve on a real machine (CLAUDE_HOME unset) but diverges under test isolation (CLAUDE_HOME set), because the caller then appends its own `/.claude` on top. See `coordinator/docs/wiki/coordinator-tripwires/claude-home-is-a-home-substitute-not-a-dot-claude-substitute.md` | Canonical form: `${CLAUDE_HOME:-$HOME}/.claude` — the `/.claude` suffix sits OUTSIDE the `:-` default. Mechanically checked by `coordinator/tests/test_no_claude_home_substitute_footgun.py`. |
 
 **NOT a problem (do not "fix"):** bare `mktemp`, `mktemp -d`, `mktemp <tmpl-with-XXXXXX>` (all portable); `grep -E`/`grep -oE` (POSIX ERE); plain `date +%s` / `date -u` / `date +%Y-%m-%d`; `sed` without `-i`.
 
@@ -778,3 +779,20 @@ A test green on CI/Linux but red on your Mac is suspect for two portability defe
 ## Hardcoded build-target flags are a dark-on-Mac trap that surfaces only under real compilation
 
 Any compile-flags artifact (a `compile_flags.txt`, a `.clangd` `CompileFlags`, a synthesized argv) fed to a **real compiler** — `clangd`'s cross-TU preamble build, not just a `-Wno-everything` libclang stub — must select `-target` / platform-defines by **host OS**, and must be validated on macOS specifically. The libclang stub path swallows a wrong `-target` and returns *something*; `clangd`'s real preamble build fails **silently** (empty results, not a loud error), so a Windows-authored flag set looks fine in unit tests and yields zero completions on a Mac. Validate LSP compile flags against the real compiler on the target OS, never against the stub. *(project-rag-ue-addon.)*
+
+## `RETURN`/`EXIT` traps are not function-local without `functrace` — a leaked trap crashes an unrelated caller under `set -u`
+
+A `trap ... RETURN` (or `EXIT`) set inside a function is **not** scoped to that function by default — it persists in the calling shell after the function returns, because `RETURN`/`DEBUG` trap inheritance across function scopes requires `set -o functrace` (`set -T`), which most scripts do not set. A helper that does `trap 'cleanup' RETURN` to tidy up its own locals leaves that trap **armed in the caller**, firing again on the caller's own next `return` — including references to the helper's now-out-of-scope local vars, which is a hard crash under `set -u` (`unbound variable`).
+
+**Fix — guard the referenced var and self-clear the trap immediately after use:**
+
+```bash
+some_helper() {
+    local tmpfile
+    tmpfile="$(mktemp)"
+    trap 'rm -f "${tmpfile:-}"; trap - RETURN' RETURN
+    ...
+}
+```
+
+Two independent defenses, both required: `${tmpfile:-}` so the trap body survives even if it fires somewhere `tmpfile` is unset, and `trap - RETURN` inside the trap body itself so it self-clears on first fire instead of persisting into the caller. Do not rely on `functrace` to scope the trap — it is a global shell option a caller may not have set, and depending on it silently breaks the moment this function is sourced into a script that doesn't.

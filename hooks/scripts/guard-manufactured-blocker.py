@@ -434,6 +434,22 @@ def _matches_manufactured_blocker(text: str) -> bool:
     return False
 
 
+_PATTERN_GROUP_NAMES = ("_HANDOFF_PATTERNS", "_POSSESSIVE_PATTERNS")
+
+
+def _matched_trigger_label(text: str) -> str | None:
+    """Diagnostic-only: name the group/pattern behind a C5 verdict so an
+    emitted correction can be checked against the predicate that fired.
+    Invariant: never consulted for the verdict -- it walks `_PATTERN_GROUPS`
+    in the same order as `_matches_manufactured_blocker`, so the two agree on
+    whether something matched and differ only in reporting which pattern."""
+    for name, patterns in zip(_PATTERN_GROUP_NAMES, _PATTERN_GROUPS):
+        for pattern in patterns:
+            if pattern.search(text):
+                return f"{name}:{pattern.pattern}"
+    return None
+
+
 def _external_action_pending(text: str) -> bool:
     return bool(_EXTERNAL_ACTION_PENDING_RE.search(text))
 
@@ -886,6 +902,10 @@ def main() -> int:
         candidate = _candidate_ownership_sentence(text) or text
         return _emit_decidability_verdict(candidate, text)
 
+    matched_label = _matched_trigger_label(text)
+    matched_note = f"[guard] matched: {matched_label}\n" if matched_label else ""
+    correction_text = _CORRECTION_TEXT + matched_note
+
     try:
         posture = resolve_posture()
     except Exception:
@@ -898,7 +918,7 @@ def main() -> int:
         repo_root = _repo_root(payload)
         if repo_root is not None:
             nonce = _record_fire(
-                repo_root, session_id, "guard-manufactured-blocker", _CORRECTION_TEXT
+                repo_root, session_id, "guard-manufactured-blocker", correction_text
             )
         else:
             nonce = None
@@ -919,10 +939,10 @@ def main() -> int:
                 "[guard] guard-manufactured-blocker: record_fire write failed, "
                 "no nonce minted\n"
             )
-        sys.stderr.write(_CORRECTION_TEXT + discharge_note)
+        sys.stderr.write(correction_text + discharge_note)
         return 2
 
-    sys.stdout.write(_CORRECTION_TEXT)
+    sys.stdout.write(correction_text)
     return 0
 
 

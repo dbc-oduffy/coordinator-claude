@@ -17,6 +17,8 @@ Spec backlink: DoE-claude:pln-extirpate-pasted-code-from-em--0f42e9 § M3
 
 from __future__ import annotations
 
+INSTALL_CLASS = True  # writes settings.json hooks; see door_install.declared_install_class
+
 import os
 import sys
 

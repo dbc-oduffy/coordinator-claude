@@ -1,25 +1,8 @@
-# coordinator/queue-profiles/bug.yaml — the bug-backlog grind profile,
-# validated by coordinator/schemas/queue-grind-profile.schema.json and by
-# that schema's test_every_queue_profile_validates, and pushed through the
-# engine's own load_profile/validate_graph/resolve_appetite seam by
-# coordinator/tests/test_bug_queue_profile.py.
-#
-# /bug-blitz emits and fires this profile through emit-dispatch-workflow.py
-# --queue state/bug-backlog --profile bug --appetite <a>, replacing
-# EM-driven waves and a hand-authored script. Every executable step below
-# is a named engine op or agent verify -- no field accepts a command line
-# (DR-queue-grinds-run-on-shared-primitives Negative spec). The operative
-# Phase 1 triage policy lives ONLY here, inline as data, transcribed from
-# coordinator/commands/bug-blitz.md at the ref C6 reads before removing the
-# operative text there.
-#
-# Spec backlink: docs/plans/2026-09-21-canonical-bug-blitz-emitted-workflow.md
-# Tasks section C9.
+# debt.yaml — debt-backlog grind profile for /debt-triage's debt leg,
+# derived from bug.yaml (same graph and verdict set). Authored in-session:
+# DoE ships no debt profile yet. Every executable step is a named engine
+# op or agent verify, as in bug.yaml.
 
-# Bug rows carry no id field (bug-backlog.schema.json 1.2.0) -- the file
-# stem is the row's identity, and it survives the archive rename. TF-*
-# rows in the run-scratch queue directory get stems that cannot collide
-# with backlog stems (TF-<run-id>-<n>), and emit refuses any collision.
 row_id_key: "@stem"
 
 batch_key: [severity]
@@ -105,41 +88,36 @@ closure:
 # No absent_sentinels -- the bug schema's enums admit no placeholder value.
 
 triage_policy: |
+  relevance_first:
+    - "Re-confirm each row against HEAD: history since `created`, and whether the cited surface still shows the debt. still-open, already-fixed (needs the pattern shown absent on HEAD, tagged ran or inspected) or partially-addressed. partially-addressed is a fix signal, not a close."
+
   defer_requires_evidence:
-    - "already-fixed needs the failing case run against HEAD, tagged ran or inspected."
+    - "already-fixed needs the pattern shown gone on HEAD."
     - "file-removed needs ls confirming absence."
     - "plan-substrate-collision needs a named file collision with an actively-rewriting plan."
 
   not_defer_reasons:
     - "summary-form"
-    - "P2 or refactor flavour"
+    - "P2/P3, or refactor flavour"
     - "intersects an active plan, without a named file"
     - "would take careful thought"
 
-  pattern_shifted_is_fix_signal:
-    - "A missing symbol at the cited line is usually the same bug with the symbol renamed or code reshuffled nearby, not a moved/resolved bug -- re-grep the recommended fix's central noun phrase before treating it as deferral-eligible. pattern-changed is not a verdict; the policy makes it a fix signal."
+  fix_eligibility:
+    - "fix only when the change is BOTH tradeoff-free AND non-structural (touches no module boundary, public op contract, or schema). Anything structural is plan-weight regardless of line count."
 
   severity_classification:
-    - "crash, data loss, security or silent corruption -> P0."
-    - "wrong behaviour or a breaking flow -> P1."
-    - "otherwise -> P2."
-    - "A missing severity is a triage input, never a default."
-
-  depth_meaning:
-    - "P0 (deep): a careful read."
-    - "P1 (standard): a bulk verify."
-    - "P2 (shallow): a footprint declaration. The appetite knob picks the depth."
-
-  tf_rows_never_skip_triage:
-    - "TF-* rows arrive pre-tagged (crash-shape P0, else P1) but never skip triage -- there is no pre-declared footprint to skip to."
+    - "Blocking other work -> P0. Wrong behaviour or a correctness risk -> P1. Otherwise P2; cosmetic -> P3. A missing severity is a triage input, never a default."
 
   plan_weight_evidence:
-    - "≥3 files, a new module, a schema change, or new fixtures."
+    - ">=3 files, a new module, a schema or op-contract change, or new fixtures."
     - "A t-shirt size needs evidence on every record."
 
   baton_prechecks:
     - "Not a phantom: the pattern is gone on HEAD."
-    - "Not mis-sized: ≤2 files and <50 lines is a fix, not a baton."
+    - "Not mis-sized: <=2 files and <50 lines, non-structural, is a fix, not a baton."
+
+  scope_calls:
+    - "YAGNI, won't-do and scope questions are PM calls: hand back as yagni / wont-do / unclear-direction with the one question the PM must answer, never close them in-run."
 
   never_weaken_assertion:
     - "Never weaken a test assertion to green without evidence it was wrong -- returns BLOCKED assertion-weakening-without-evidence."
@@ -147,8 +125,6 @@ triage_policy: |
   tradeoff_marks_needs_judgment:
     - "A record carrying a non-empty tradeoff statement goes to needs-judgment, regardless of size."
 
-# batch_size, limit, window and max_agent_calls below are the engine defaults, chosen
-# deliberately; recalibrate only against a tally confirmed to the run it measures.
 appetite:
   hunt:
     where: [[["status", "==", "open"], ["severity", "==", "P0"]]]
@@ -177,6 +153,6 @@ appetite:
     window: 4
     max_agent_calls: 200
 
-archive_path: "archive/bug-backlog/"
+archive_path: "archive/debt-backlog/"
 
-schema: bug-backlog.schema.json
+schema: debt-backlog.schema.json

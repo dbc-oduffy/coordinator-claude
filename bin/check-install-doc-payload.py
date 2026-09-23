@@ -178,6 +178,8 @@ Spec backlink: pln-claude-klabauter-oss-release-e-50bd5d
 """
 from __future__ import annotations
 
+INSTALL_CLASS = False  # read-only check; see door_install.declared_install_class
+
 import argparse
 import re
 import sys

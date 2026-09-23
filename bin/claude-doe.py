@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Unix shebang — load-bearing, not decoration. Unlike its peers in this
 # directory, this file is installed by BYTE COPY (shutil.copyfile via
 # coordinator_core.install.wrapper_onto_path) as an extension-less, exec-bit

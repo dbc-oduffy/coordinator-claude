@@ -38,11 +38,11 @@ is a fact, never a reason to assume success. Run `<plugin-root>/bin/group-em-ent
 `<plugin-root>/bin/` CLI here is plugin-local with no settings-home launcher — resolve per
 `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`, never cwd-relative.)
 
-The op shims the engine's `groupem.enter`. An unreachable engine refuses (exit 7) rather than
-assembling in-tree; `--local` picks in-tree assembly explicitly (`DRIFT UNKNOWN` is an unknown,
-never a match). **Exit 6 means a digest under a refused standing** — refuse the payload whole and
-re-run once the mirror carries the standing-gate fix. Full rationale for both refusal shapes:
-`coordinator/docs/wiki/group-em-standing.md` § Entry op refusal shapes.
+The op shims the engine's `groupem.enter` in-process — one call claims the nomination, then builds
+the candidate roster, send digest, peer-set baseline, teammate-presence assertion and watch-liveness
+read. **Exit 5 means a refused standing** — a live or unaccounted-for incumbent holds the role;
+`roster`/`digest`/`baseline`/`teammates` are absent from the payload, not empty. **Exit 2 means no
+resolvable session id.** Payload shape: `coordinator_core/ops/group_em_enter.py`'s module docstring.
 
 Do not import `read_pass` / `send_pass` directly. They are the op's collaborators.
 
@@ -306,6 +306,12 @@ it.
 the `ask-before-external-action` question lives, at the PM's own bar, justified by **cost to the
 receiver**, never the sender's convenience.
 
+### Standing check
+
+**Confirm this session still holds the nomination**: `<plugin-root>/bin/group-em-nomination.py who
+--repo <root> --json` (read-only). Never re-run `group-em-enter.py` to answer this — it re-claims
+and re-arms the send digest's cooldowns (§ Send pass step 1).
+
 ## Read pass (gem-13)
 
 The enumerate-and-classify ladder lives in `read_pass.py` beside this file, invoked through §
@@ -407,8 +413,7 @@ The Group EM may take the PM's execute-plan turn on one condition: the plan is
 reversibility-eligible and a rubric-scored judgment against its own prime exit criterion clears a
 locked threshold (8 of 8, no dimension scoring 0).
 
-1. Confirm this session holds the nomination (`<plugin-root>/bin/group-em-nomination.py who --repo
-   <root> --json`). Entry claims it; this is a check.
+1. **Standing check** (§ Standing check).
 2. Run `<plugin-root>/bin/plan-reversibility-eligibility.py <plan-path> --json` (C9). `eligible:
    false` → escalate per the threshold page's shape, stop, do not dispatch. This CLI is the single
    source of truth.
@@ -443,8 +448,7 @@ locked threshold (8 of 8, no dimension scoring 0).
 
 The Group EM may execute `/workday-start` Step 1.45a's inbox blitz on this repo's behalf.
 
-1. **Nomination gate.** `<plugin-root>/bin/group-em-nomination.py who --repo <root> --json` must
-   name this session.
+1. **Standing check** (§ Standing check) must name this session.
 2. Execute Step 1.45a's procedure as written, dispatching `coordinator:group-em-assistant` per
    `dispatches[]` entry. 1.45a owns the assembler invocation, tri-valued `state` handling
    (`skipped` = no dispatch), ~30-memo shard grain, verbatim `brief`/`memos[]` passing,

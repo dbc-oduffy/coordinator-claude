@@ -39,6 +39,38 @@ candidate-commit closures and stale `awaiting_gate` signals yourself; a changed 
 a stamped-authorization mismatch surfaces to the PM. **Stealth-skip**: an item marked shipped on
 prose rationale instead of a commit SHA ("subsumed by X") is the forbidden defer disposition in
 costume — treat it as pending, re-verify the literal AC against `HEAD`, surface the violation.
+**Failure-count attribution is hypothesis, not fact**: before accepting a handoff's claimed
+failure count, classify each cited failure's CLASS (collection error vs runtime failure —
+`pytest --co` enumerates collection failures, `-rfE` reports runtime ones) and its dep-TIER
+(base-dep vs producer-dep vs heavy-dep/`importorskip` target). A runtime-assertion failure is not
+fixed by `importorskip`; an unclassified count is unverified, not a verdict.
+
+**A cited surface already changed on disk is not necessarily undone work re-arriving stale** — it
+can be a crashed peer's work that landed and got committed before the process died. Before
+re-implementing, run `git log --all --since=<handoff-authoring-date>` over the cited surface and
+check each candidate commit's `Session-Id` trailer: a commit whose trailer names a session with no
+live PID is a recoverable crashed-peer commit, not undone work. Start-of-session reads can be
+stale or flaky, making committed work look uncommitted — re-run the git log/reachability check
+before trusting a first read that shows the surface unchanged.
+
+**A dissolved gate is not the same closure signal as a cleared one — name the difference.** The
+`awaiting_gate` aging recheck (`coordinator/docs/wiki/spinoff-handoffs.md` § Awaiting_gate aging)
+asks whether the blocker's named condition fired; it does not by itself ask whether the blocker's
+MECHANISM still exists. A superseding decision can delete the gating mechanism outright — the
+blocked work is then live-by-construction, never having had its condition fire at all. Example: a
+daemon-restart gate whose underlying restart mechanism a later DR deletes outright — the gate did
+not clear, it dissolved, and the blocked work is live either way. Before reporting an
+`awaiting_gate` as still standing, check for a superseding decision that removed the mechanism
+itself, not only whether the named condition fired; surface a dissolved gate to the PM as such,
+distinct from a routine "gate cleared."
+
+**An anti-scope negative constraint ("do NOT do X — sibling chunk Y owns it") decays the same way a
+positive premise does.** It is authoring-time hypothesis, not ground truth — re-verify its witness
+against current disk before honoring the prohibition literally. Grep the cited evidence (a version
+constant, an emitted-schema section, Y's own commit) rather than trusting the prose: if Y has since
+landed, the fact the constraint rested on may now be inverted, and honoring it literally leaves
+source and target inconsistent. Cross-ref: `coordinator/docs/wiki/spinoff-handoffs.md` § Pickup-side
+premise check (§ Handoff-scope language hazard covers the same negative-list framing).
 
 **Report briefly** — picked-up heading, branch, first recommended step. Prepend the recovery
 banner when present: the prior session died uncleanly, so verify on-disk state against

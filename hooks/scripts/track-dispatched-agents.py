@@ -47,9 +47,19 @@ registration (agentId/model/subagent_type bookkeeping writes) with ONE
 Windows (each bash.exe spawn costs 200-500ms; this is the whole point).
 
 The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): parse
-the raw PostToolUse payload, extract the same flat scalars the legacy bash
-cascade computed, resolve the engine repo, hand it the mapped params, relay
-its stdout. The engine repo owns the write LOGIC (coordinator_core.hooks.
+the raw PostToolUse/SubagentStart payload, extract the same flat scalars the
+legacy bash cascade computed, resolve the engine repo, hand it the mapped
+params. The two legs differ on the response, and this split is real, not
+cosmetic: the PostToolUse(Agent) enrich leg (`_dispatch_bookkeeping_write`)
+discards its response outright -- like `postuse_advisory_dispatch`'s stub in
+spirit, but not in fact, since that stub relays and this leg never does; see
+Contract below and the "No stdout relay" note on that call site. The
+SubagentStart leg (`_dispatch_subagent_start_ops`) does NOT discard its
+response: since the 2026-08-21 catering cutover it also dispatches
+`hooks.cater_subagent_start` alongside the bookkeeping op and relays that
+op's non-empty `additionalContext` to stdout as a `SubagentStart`
+`hookSpecificOutput` envelope (see the Contract section and
+`_dispatch_subagent_start_ops`'s own "Emission (AC5)" note). The engine repo owns the write LOGIC (coordinator_core.hooks.
 track_dispatched_agents, registered under "hooks.track_dispatched_agents") --
 the dedup/collision-rewrite/append to dispatched-agents.txt and the atomic
 em-session-id.txt back-pointer. The engine is imported and run IN-PROCESS via
@@ -58,15 +68,27 @@ seam, above the dispatch_message telemetry wrapper) -- no bash, no
 `python3 -m` subprocess re-spawn -- so a whole Agent-tool return pays exactly
 one Python interpreter start.
 
-Contract (mirrors the retired bash hook it replaces):
+Contract (mirrors the retired bash hook it replaces, PostToolUse(Agent) leg
+only -- SubagentStart's stdout behavior is separate, see below):
   stdin   -- PostToolUse JSON (tool_name, tool_input, tool_response,
              session_id, cwd, ...)
-  stdout  -- NOTHING (this op returns no_advisory() unconditionally; its
-             product is the on-disk write side-effect, not stdout)
+  stdout  -- NOTHING (the bookkeeping op returns no_advisory()
+             unconditionally on this leg; its product is the on-disk write
+             side-effect, not stdout)
   exit 0  -- always (advisory bookkeeping; never blocks the Agent tool call)
   As of the posttooluse-non-fire diagnostic, `main()` also appends one line
   to a scratch canary log before any other processing; see
   `_write_posttooluse_agent_canary`.
+
+  SubagentStart leg -- NOT "stdout NOTHING": `_dispatch_subagent_start_ops`
+  dispatches the bookkeeping op AND `hooks.cater_subagent_start`, then
+  writes a `{"hookSpecificOutput": {"hookEventName": "SubagentStart",
+  "additionalContext": ...}}` envelope to stdout whenever catering returns
+  non-empty `additionalContext` (empty/errored catering still emits
+  nothing). This is a real, registered stdout relay -- the structural
+  census fixture (`coordinator/tests/fixtures/hook-message-sweeps/
+  population-census.json`) classifies this file Category A ("locally-
+  authored, speaking") on that emission site alone.
 
 stdin -> params mapping (op scope "common_dir" -- REQUIRES _origin_worktree;
 see coordinator_core/ipc.py _OP_KEY_SCOPE["hooks.track_dispatched_agents"] =
@@ -830,7 +852,7 @@ def _dispatch_subagent_start_ops(cwd: Any, params: dict, payload: dict) -> int:
     # only event carrying the child's prompt -- see `_plan_path_bridge`. Absent
     # it, the engine's plan-derivable leg cannot fire and the lens's sidecar
     # falls through to the session-keyed home instead of
-    # `state/plan-sidecars/<plan-stem>.<lens>.md`.
+    # `.coordinator-local/plan-sidecars/<plan-stem>.<lens>.md`.
     plan_path = _read_plan_path(
         session_id if isinstance(session_id, str) else "",
         effective_subagent_type,

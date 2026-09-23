@@ -1,3 +1,5 @@
+# guard-not-a-hook-entrypoint: deregistered; its logic runs as Concern F inside
+# enforce-agent-dispatch-mode.py, carried by preuse-agent-dispatch.py.
 """guard-named-dispatch-tool-restriction.py -- standalone script, formerly a
 registered PreToolUse hook on matcher: Agent.
 

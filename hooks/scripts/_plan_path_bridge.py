@@ -5,7 +5,7 @@ SubagentStart, the only event that caters it.
 Purpose: `provision_report._provision`'s plan-derivable leg fires for the G2
 lens emitters ONLY when the spawn payload carries a non-empty `plan_path`;
 absent it, those dispatches fall through to the session-keyed
-`state/subagent-share/` home and their `state/plan-sidecars/<plan-stem>.<lens>.md`
+`.coordinator-local/subagent-share/` home and their `.coordinator-local/plan-sidecars/<plan-stem>.<lens>.md`
 sidecar never exists. `plan_path` is extracted from the child's prompt, and a
 `SubagentStart` payload carries no prompt at all (`agent_id`, `agent_type`,
 `cwd`, `session_id`, `transcript_path`, `prompt_id` -- nothing else). The two

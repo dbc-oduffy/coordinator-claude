@@ -197,13 +197,13 @@ _STAFF_SESSION_NAMING_CARVE_OUT = (
 #: dispatch these nine types BY NAME so their teammates can address each
 #: other and the synthesizer via `SendMessage`/`ListAgents` -- naming is
 #: how the ceremony wakes a blocked peer, not a delivery hazard:
-#:   - `coordinator/pipelines/deep-research/repo-driver.md:277,284,318,351`
+#:   - `coordinator/pipelines/deep-research/repo-driver.md` (lines 277, 284, 318, 351)
 #:     (`coordinator:repo-scout`, `coordinator:research-synthesizer`,
 #:     `coordinator:repo-specialist`)
-#:   - `coordinator/pipelines/deep-research/web-driver.md:121,140,153`
+#:   - `coordinator/pipelines/deep-research/web-driver.md` (lines 121, 140, 153)
 #:     (`coordinator:research-scout`, `coordinator:research-specialist`,
 #:     `coordinator:research-synthesizer`)
-#:   - `coordinator/pipelines/deep-research/structured-driver.md:188,206,223`
+#:   - `coordinator/pipelines/deep-research/structured-driver.md` (lines 188, 206, 223)
 #:     (`coordinator:research-scout`, `coordinator:research-specialist`,
 #:     `coordinator:structured-synthesizer`)
 #:   - `coordinator/commands/notebooklm-research.md:96-97`

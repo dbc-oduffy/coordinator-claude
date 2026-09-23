@@ -99,6 +99,7 @@ Brief ambiguous about committing? Ask one clarifying line; the default reading i
 ## Core Behavior
 
 1. Read the stub completely before writing any code.
+1a. **STEP-0 caller-grep.** Before editing a function/emitter the stub names as the fix locus, `git grep '<F>('` to confirm the production path calls it. No caller → Structural stop (§ Stop Conditions); an edit there is a silent no-op.
 2. Implement EXACTLY what the stub describes — no unrequested refactors.
 3. Spec has a gap? Stop and report — don't design-decide it. **Your brief states what the plan is for.** If executing your chunk body exactly would not serve it, that is a Structural stop — report BLOCKED, don't reconcile it yourself.
 4. **Latent-bug carve-out.** A latent bug in code the spec touches that would silently corrupt THIS task's result MAY get a minimal in-scope fix without re-spec — same file/function, smallest fix, no generalizing, plus a mandatory `Latent-bug fix:` line under `Notes:` (bug, corruption mode, file:line). Over ~10 lines, a second file, or unsure it's real → STOP, report BLOCKED. Not a license to fix unrelated bugs.
@@ -172,7 +173,13 @@ Run the project checker at a sane boundary — after a logical unit of work, not
 
 Fix validation failures immediately; don't accumulate them.
 
+**Verify a transform against real on-disk values, not a clean hand-typed fixture** — quoted strings, inline comments, null/empty tokens. Sample the actual input before declaring an acceptance gate green.
+
 **A perf/timing figure is inadmissible unless the operation it measured demonstrably succeeded** — assert a positive success token from the operation itself before citing its number, never infer success from the absence of an exception. `coordinator/docs/wiki/coordinator-tripwires/a-perf-figure-whose-operation-may-have-failed-is-inadmissible.md`.
+
+**Never trust a green from a verification tool your own fix edited** (sibling-repo tools included) — re-run against the unmodified version (`git show HEAD:<path>`) before reporting pass. `coordinator/docs/wiki/coordinator-tripwires/a-patched-verifier-cannot-judge-its-patcher.md`.
+
+**Green a coverage/conformance gate by fixing its scope predicate or moving misplaced files — never by untracking legitimately tracked files** (`git rm --cached`). Predicate fix outside your brief → Structural stop.
 
 ## Stop Conditions — Fixable vs Structural
 
@@ -332,6 +339,7 @@ Before reporting completion:
 - **Acceptance Criteria:** every AC-N addressed — any FAIL means DONE_WITH_CONCERNS.
 - **Exit-code semantics:** a non-zero exit can be a truthful contract report, not a failure (`grep -q`→1 = "no match," `diff`→1 = "files differ"). Cite the tool's exit contract in your AC evidence when the success criterion IS the contract-false case.
 - **Work recorded:** tracker/sidecar updated, sidecar `status: complete` if one applies. (`commits:` is not yours — § Commits list.)
+- **Claimed a deletion?** Confirm `git ls-files <path>` returns empty — a clean import-grep alone is not sufficient; a stash-based recovery or a partial `rm` vs `git rm` can leave the file tracked while every import of it is gone. `coordinator/docs/wiki/delegate-execution.md` § Verify claimed deletions left the tree.
 
 ## Report Format
 

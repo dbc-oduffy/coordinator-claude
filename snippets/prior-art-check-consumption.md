@@ -4,7 +4,7 @@
 <!-- BEGIN prior-art-check-consumption (synced from snippets/prior-art-check-consumption.md) -->
 ## Prior-Art Check Integration
 
-If your dispatch prompt cites a **prior-art-check pre-flight** with a sidecar path (the engine-provisioned `state/plan-sidecars/<plan-stem>.prior-art-check.md` home, computed once by `provision_report` and passed through unchanged), the artifact has already been cross-referenced against the coordinator's accumulated internal doctrine and decision corpus. Use the pre-flight to focus your review on architecture, approach, and design rather than re-deriving lessons we've already captured.
+If your dispatch prompt cites a **prior-art-check pre-flight** with a sidecar path (the engine-provisioned `.coordinator-local/plan-sidecars/<plan-stem>.prior-art-check.md` home, computed once by `provision_report` and passed through unchanged), the artifact has already been cross-referenced against the coordinator's accumulated internal doctrine and decision corpus. Use the pre-flight to focus your review on architecture, approach, and design rather than re-deriving lessons we've already captured.
 
 **Prior art is current best-state, not eternal law.** A Conflict is *not* "plan must yield" — it's a direction-of-correction question with multiple valid resolutions: amend the plan, amend the wiki/registry/lessons, do both, or document a knowing divergence. Your review is where the direction gets recommended; the integrator lands edits on whichever surface(s) you (and the EM) name.
 

@@ -47,12 +47,10 @@ Parse `--mode`; if absent, apply auto-detect. Extract remaining arguments for th
 
 ## Step 2: Run Identity
 
-A universal pre-flight before mode-specific routing.
-
-1. Generate run ID `YYYY-MM-DD-HHhMM` and a topic slug from the parsed topic/subject (repo mode:
-   basename of `<repo-path>`; structured mode: `<subject-key>`).
-2. Create the shared run workdir `docs/research/{run-id}-{topic-slug}-workdir`; bind it as
-   `{scratch-dir}` and forward it to the driver (its Step 1 accept-if-passed clause uses it).
+A universal pre-flight before mode-specific routing. Run ID format: `YYYY-MM-DD-HHhMM`. Topic
+slug: repo mode uses the basename of `<repo-path>`; structured mode uses `<subject-key>`. Shared
+run workdir: `docs/research/{run-id}-{topic-slug}-workdir`, bound as `{scratch-dir}` — the driver's
+Step 1 accept-if-passed clause consumes that binding.
 
 ## Step 3: Prior-Art Pre-Flight
 

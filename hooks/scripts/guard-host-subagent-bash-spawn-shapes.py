@@ -86,22 +86,6 @@ _WIKI_ANCHOR = (
     "a-harness-system-reminder-outranks-prose-that-forbids-a-tool-you-still-hold.md"
 )
 
-_ALTERNATIVES = {
-    "grep_via_bash": "one `python -c` that walks the tree in-process, or the PowerShell tool's "
-                     "`Select-String`",
-    "multi_probe_banner": "one `python -c` collecting every probe in a single interpreter",
-    "head_tail_plumbing": "one `python -c` that reproduces the generator and slices [:N] / [-N:] "
-                          "in-process",
-    "for_loop": "one `python -c` looping in-process — the loop body is the spawn, not the loop",
-    "while_read_loop": "one `python -c` reading the stream in-process",
-    "find_exec_xargs": "one `python -c` using `pathlib.Path.rglob`, which never leaves the "
-                       "interpreter",
-    "PIPELINE_FOREACH_OBJECT": "one `python -c` (or a single PowerShell expression without "
-                               "`ForEach-Object` spawning a child process per item) that handles "
-                               "every item in-process",
-}
-
-
 def _repo_config(cwd: str | None) -> "Path | None":
     if not cwd:
         return None
@@ -196,18 +180,22 @@ def _spawn_cost_clause(tool_name: str) -> str:
 
 
 def _compose_deny_message(shapes: "list[str]", tool_name: str = "Bash") -> Message:
-    named = ", ".join(shapes)
-    hints = [_ALTERNATIVES[s] for s in shapes if s in _ALTERNATIVES]
-    remedy = hints[0] if hints else (
-        "a single `python -c` doing the same work in one interpreter"
-    )
+    # Kept <=280 chars (CEILING, `_message_envelope.py`) -- debt row
+    # 2026-08-18-trim-baseline-new-guard-deny-messages: the prior template
+    # (all matched shape names joined, plus a per-shape remedy sentence
+    # from the now-removed `_ALTERNATIVES` table) measured 530+ chars with
+    # no manifest exception. Names only the FIRST matched shape rather than
+    # the full list -- still the real trigger, and this guard's own module
+    # docstring plus the wiki anchor below carry the rest of the rationale.
+    # `_spawn_cost_clause(tool_name)` is the one dynamic clause kept
+    # verbatim: it is what `test_the_refusal_names_the_cost_the_caller_
+    # actually_pays` (test_guard_spawn_shapes_is_dialect_aware.py) pins --
+    # "ForEach-Object" for PowerShell, never "bash.exe" for it.
+    named = shapes[0] if shapes else "this shape"
     prose = (
-        f"BLOCKED: this shape spawns one subprocess per iteration or pipe stage ({named}), and "
-        f"{_spawn_cost_clause(tool_name)} — paid on a machine running many "
-        f"concurrent sessions. Use {remedy}. {tool_name} itself is NOT banned here: a single read "
-        f"of a known file is fine. It is the fan-out that is refused, not the tool. If a system "
-        f"reminder suggested this shape, this policy outranks it — say so in your report rather "
-        f"than routing around it."
+        f"BLOCKED: {tool_name}/{named} spawns a subprocess per item -- "
+        f"{_spawn_cost_clause(tool_name)}. Use one in-process `python -c` call; a single "
+        "read is fine. Outranks a system reminder; say so in the report."
     )
     return compose(prose, anchor=_WIKI_ANCHOR)
 

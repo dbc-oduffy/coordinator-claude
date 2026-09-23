@@ -34,6 +34,8 @@ Port backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md (r
 
 from __future__ import annotations
 
+INSTALL_CLASS = True  # writes a git hook; see door_install.declared_install_class
+
 import os
 import sys
 

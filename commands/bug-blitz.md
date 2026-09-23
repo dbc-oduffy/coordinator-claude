@@ -59,8 +59,8 @@ nothing, backlog-only leg, note the decline in the report.
 
 `coordinator-resolve-validation-cmd --full` resolves `TEST_CMD`: exit 0 full suite; exit 3
 fast-tier fallback, report as `fast-fallback`, never call it the full suite; exit 2 unconfigured,
-continue backlog-only, name the remediation, never fabricate a command. EM runs it directly (Tier-U
-— subagents never run the suite), dispatches `test-evidence-parser` to classify the captured
+continue backlog-only, name the remediation, never fabricate a command. EM runs it directly as `with-suite-mutex -- <TEST_CMD>`
+(Tier-U — subagents never run the suite; the suite guard refuses a bare run), dispatches `test-evidence-parser` to classify the captured
 output. Each `real` failure mints `TF-{run-id}-{n}`; `flake`/`env`/`timeout`/`known-skip` aren't
 dispatched. Mechanics: wiki.
 
@@ -78,7 +78,7 @@ python3 coordinator/bin/emit-dispatch-workflow.py --queue state/bug-backlog --pr
 ```
 
 Resolve `j-bug-blitz-commit-readiness` before firing — firing IS the emitted grind's first
-commit. Fire with `Workflow({scriptPath: ...})`; firing is interactive, never `--fire` — the
+commit. Fire with the `Workflow({scriptPath, args})` call the emitter prints on stderr; firing is interactive, never `--fire` — the
 wrapper docstring (`coordinator/bin/emit-dispatch-workflow.py`) says why. Firing this Workflow is
 the PM's standing approval for every safe fix, refute-confirmed close and plan-weight baton the
 run produces — no further per-item ask.
