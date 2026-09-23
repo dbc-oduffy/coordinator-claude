@@ -169,6 +169,7 @@ Spec backlink: docs/decisions/DR-301-agent-initiated-publish-push-is-automatable
 from __future__ import annotations
 
 import argparse
+import faulthandler
 import json
 import re
 import shutil
@@ -282,6 +283,8 @@ _EXIT_CONFIRM_REQUIRED = 3
 #: failure, the user is invited to retry".
 #: Spec backlink: docs/reference/percolate-lock-contention.md
 _EXIT_LOCK_BUSY = 75
+
+_HANG_DUMP_SECONDS = 900
 
 def _lock_busy_message(dest: str, exc: Exception) -> str:
     """Thin delegate onto `percolate.wire_contract.lock_busy_message` (C3,
@@ -3550,6 +3553,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     # boolean rather than a knob, and for the spawn count this bound
     # accommodates and does not fix.
     publish_lane.declare_lane()
+
+    # A round once sat idle after its commit (0 CPU, no children) holding the
+    # destination lock; static tracing found no unbounded wait. A healthy round
+    # finishes well inside this window, so a dump here names the blocked frame
+    # the next time it recurs instead of leaving a silent lock-holder.
+    faulthandler.dump_traceback_later(_HANG_DUMP_SECONDS, repeat=True)
 
     parser = _build_parser()
     args = parser.parse_args(argv)
