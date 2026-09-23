@@ -1216,7 +1216,20 @@ def _ensure_hook(
         )
         return _note("skipped-no-helper")
 
-    hook_path = os.path.join(root, ".git", "hooks", hook_name)
+    git_dir = _resolve_git_hooks_dir(root)
+    if git_dir is None:
+        # `root` looked like a repo to whatever caller resolved it (or its
+        # `.git` vanished between classification and this call) but no hooks
+        # dir can be found — refuse rather than write into a path `os.path.
+        # join` would happily construct under a NON-EXISTENT `.git`.
+        print(
+            f"[git_hook_install] WARNING: {hook_name} install/repair skipped "
+            f"— no resolvable git dir under {root!r} (missing or unreadable "
+            "'.git').",
+            file=sys.stderr,
+        )
+        return _note("skipped-no-root")
+    hook_path = os.path.join(git_dir, "hooks", hook_name)
 
     # Hook absent → install canonical bash-free shim.
     if not os.path.exists(hook_path):
@@ -1471,6 +1484,48 @@ def _registry_repo_roots(bin_dir: str) -> List[tuple]:
     return roots
 
 
+def _resolve_git_hooks_dir(root: str) -> Optional[str]:
+    """The directory git actually consults for hooks in `root`, or None if
+    `root` is not (or does not resolve to) a git repo.
+
+    `root/.git` is a directory for an ordinary clone (the common case this
+    function used to be the only shape of), but a `git worktree add`
+    checkout — or any registry entry pointing at one — has `.git` as a FILE
+    containing `gitdir: <path>`, one level of indirection `os.path.join(root,
+    ".git", "hooks", ...)` cannot see through. `_classify_target` used to
+    treat that shape as `missing` (an `isdir` check on `.git` fails on a
+    file), silently EXCLUDING such a repo from the fleet enumeration
+    entirely — one of the three candidate causes named for claude-klabauter
+    DoE-claude#85 row 9 ("a repo skipped by the fleet enumeration").
+
+    Hooks are not per-worktree: git stores them in the repository's COMMON
+    dir (shared across every worktree), found by following the worktree
+    gitdir's own `commondir` file (relative to that worktree gitdir) when
+    present. Absent `commondir`, the worktree gitdir IS already the common
+    dir (matches an ordinary non-worktree clone, where `root/.git` plays
+    both roles).
+    """
+    git_entry = os.path.join(root, ".git")
+    if os.path.isdir(git_entry):
+        return git_entry
+    if not os.path.isfile(git_entry):
+        return None
+    text = _read(git_entry).strip()
+    if not text.startswith("gitdir:"):
+        return None
+    gitdir = text[len("gitdir:"):].strip()
+    if not os.path.isabs(gitdir):
+        gitdir = os.path.normpath(os.path.join(root, gitdir))
+    commondir_file = os.path.join(gitdir, "commondir")
+    if os.path.isfile(commondir_file):
+        commondir = _read(commondir_file).strip()
+        if commondir:
+            if not os.path.isabs(commondir):
+                commondir = os.path.normpath(os.path.join(gitdir, commondir))
+            return commondir
+    return gitdir
+
+
 def _classify_target(root: str) -> str:
     """Classify a registered `repos.*` path: `worktree` | `mirror` | `missing`.
 
@@ -1484,8 +1539,12 @@ def _classify_target(root: str) -> str:
     from a mirror under a boolean, silently never healed, and exactly the
     failure class being closed here. So: mirrors are silent, missing targets
     speak up.
+
+    Uses `_resolve_git_hooks_dir` (not a bare `isdir(.git)`) so a `git
+    worktree add` checkout classifies correctly instead of reading as
+    `missing` and being silently dropped from the fleet.
     """
-    if not os.path.isdir(os.path.join(root, ".git")):
+    if _resolve_git_hooks_dir(root) is None:
         return "missing"
     return "worktree" if _is_coordinator_worktree(root) else "mirror"
 
@@ -1502,7 +1561,7 @@ def _is_coordinator_worktree(root: str) -> bool:
     mirror does; verified against this machine's 15 registered repos, where it
     correctly admits 14 and rejects claude-klabauter alone.
     """
-    if not os.path.isdir(os.path.join(root, ".git")):
+    if _resolve_git_hooks_dir(root) is None:
         return False
     return (
         os.path.exists(os.path.join(root, "CLAUDE.md"))
@@ -1561,7 +1620,7 @@ def ensure_hooks_fleet(bin_dir: str, *, check_only: bool = False) -> int:
         )
         return 0
 
-    healed, missing = [], []
+    healed, missing, errored = [], [], []
     for key, root in sorted(roots):
         kind = _classify_target(root)
         if kind == "missing":
@@ -1573,7 +1632,17 @@ def ensure_hooks_fleet(bin_dir: str, *, check_only: bool = False) -> int:
             ("prepare-commit-msg", ensure_prepare_commit_msg_hook),
         ):
             states: List[str] = []
-            fn(bin_dir, root=root, outcome=states, check_only=check_only)
+            try:
+                fn(bin_dir, root=root, outcome=states, check_only=check_only)
+            except Exception as exc:  # noqa: BLE001 - one bad repo must not
+                # abort the whole fleet walk (claude-klabauter DoE-claude#85
+                # row 9): this loop used to have no per-iteration guard, so a
+                # single repo raising (e.g. an unreadable `.git`) propagated
+                # straight out of `ensure_hooks_fleet` and skipped every
+                # repo sorted after it — including, on some registries,
+                # `coordinator-claude` and `klabauter` themselves, silently.
+                errored.append(f"{key} {label}: {type(exc).__name__}: {exc}")
+                continue
             state = states[0] if states else "unknown"
             if state in _HEALED_OUTCOMES:
                 healed.append(f"{key} {label}: {state}")
@@ -1600,5 +1669,14 @@ def ensure_hooks_fleet(bin_dir: str, *, check_only: bool = False) -> int:
             file=sys.stderr,
         )
         for line in missing:
+            print(f"  {line}", file=sys.stderr)
+    if errored:
+        print(
+            f"[git_hook_install] fleet heal hit {len(errored)} unexpected "
+            "error(s) installing a hook — that repo's hook state is "
+            "UNKNOWN, not healed:",
+            file=sys.stderr,
+        )
+        for line in errored:
             print(f"  {line}", file=sys.stderr)
     return 0

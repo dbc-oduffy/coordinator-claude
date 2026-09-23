@@ -488,12 +488,8 @@ read (`agents/research-synthesizer.md` § Phase 1) can run long and silent over 
 outputs before anything is written to disk.
 
 **Before writing any EM self-synth fallback** (assembling the document yourself from raw
-specialist outputs), disk-check the canonical output path first:
-
-```bash
-ls -la {output-path} {scratch-dir}/synthesis.md 2>/dev/null
-wc -l {output-path} {scratch-dir}/synthesis.md 2>/dev/null
-```
+specialist outputs), disk-check the canonical output path first: Read `{output-path}` and
+`{scratch-dir}/synthesis.md`, and note whether each exists and how long it is.
 
 **Idle *and* zero output past a generous read window — not idle alone — is the redispatch
 signal.** A self-synth on idle alone overwrites an in-progress synthesis.
