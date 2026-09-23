@@ -118,11 +118,13 @@ def _deny_reason(target: str, violations: list) -> str:
     a short list rather than none) for the multi-kind case; the
     single-kind case is unaffected."""
     kinds = sorted({v.kind for v in violations})
+    first = min(violations, key=lambda v: v.line)
+    where = f" First at line {first.line}: {first.excerpt[:60]!r}."
     if len(kinds) == 1:
         alt = _ALTERNATIVES.get(kinds[0], _DEFAULT_ALTERNATIVE)
         return (
             f"oss-payload locality: {target} has {len(violations)} "
-            f"OSS-unresolvable defect(s) -- {alt}."
+            f"OSS-unresolvable defect(s) -- {alt}.{where}"
         )
     shown = kinds[:2]
     kinds_text = ", ".join(shown)
@@ -130,7 +132,7 @@ def _deny_reason(target: str, violations: list) -> str:
         kinds_text += f", +{len(kinds) - len(shown)} more"
     return (
         f"oss-payload locality: {target} has {len(violations)} "
-        f"OSS-unresolvable defect(s): {kinds_text} -- {_DEFAULT_ALTERNATIVE}."
+        f"OSS-unresolvable defect(s): {kinds_text} -- {_DEFAULT_ALTERNATIVE}.{where}"
     )
 
 

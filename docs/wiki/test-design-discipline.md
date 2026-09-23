@@ -113,6 +113,19 @@ Corollaries: subagents get exactly one rung — Tier T. A dispatch brief must ne
 
 See the "Targeted tests during fix-loops" bullet (~§95) for the fix-loop/gate split; §97 for why going sequential is the wrong lever; `concurrent-em-hazards.md` (~line 384, "full-suite spins during concurrent EM activity are unstable signal") for the shared-box rationale.
 
+### Verify once and trust it — no stacked reruns or background waiters at close
+
+A verification run — a test suite, an acceptance-oracle check, any invocation that spawns
+subprocesses (`npx bats` spins up Node per call) — runs **once, in the foreground, and is
+trusted.** Repeated reruns "to characterize" a result, plus background until-loop waiter shells
+left stacked behind them, compound into RAM holds that drag or destabilize a shared box (specimen:
+an acceptance-oracle close at `/workstream-complete` piled ~64 node/bash processes this
+way). **A single non-reproduced failure on a shared, moving tree is noise pending reproduction** —
+that session's intermittent failure was pre-existing and cwd-dependent, not a regression, and five
+reruns to "characterize" it was itself the over-investment the first failure's own detail already
+answered. Chase a suspected flake only with a named reason to believe it is real **and**
+reproducible, and reproduce it with one additional foreground run, never a rerun loop.
+
 ### "Full suite green" is not a plan acceptance criterion — write ACs against the scoped tier
 
 **PM ruling, verbatim:** *"I don't like 'all tests must be green' as a plan item."* Struck from a

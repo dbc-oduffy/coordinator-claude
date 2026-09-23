@@ -1628,23 +1628,42 @@ def _git_diff_cached_is_empty() -> bool:
     return result.returncode == 0
 
 
+def _literal_pathspec(path: str) -> str:
+    """Wraps *path* so git's default glob magic (`*`, `?`, `[...]`) never
+    misreads a literal path segment as a character class -- e.g. a Next.js
+    dynamic-route directory named `[id]`. Mirrors
+    `coordinator_core.session.scope._literal_pathspec`'s `:(literal)` prefix
+    format; a local copy rather than an import because the callers here run
+    on every ls-files/validate call and must not pull in the lazily-imported
+    `coordinator_core.session` module just for one string format."""
+    return f":(literal){path}"
+
+
 def _git_ls_files_pathspec(pathspec: str) -> List[str]:
     """Port of the bash `git ls-files -- "$ps"; git ls-files --others
     --exclude-standard -- "$ps"` two-command union used to expand a
     pathspec to concrete tracked + untracked files. Order matches bash
-    (tracked first, then untracked); no sort/dedup — mirrors the original."""
-    tracked = _git_output_lines(["ls-files", "--", pathspec])
-    untracked = _git_output_lines(["ls-files", "--others", "--exclude-standard", "--", pathspec])
+    (tracked first, then untracked); no sort/dedup — mirrors the original.
+    Wraps *pathspec* as a literal (see `_literal_pathspec`) so a path
+    containing pathspec magic characters is matched byte-literally."""
+    literal = _literal_pathspec(pathspec)
+    tracked = _git_output_lines(["ls-files", "--", literal])
+    untracked = _git_output_lines(["ls-files", "--others", "--exclude-standard", "--", literal])
     return [f for f in (tracked + untracked) if f]
 
 
 def _validate_pathspec(pathspec: str) -> bool:
     """Port of `validate_pathspec`: a pathspec is valid iff `git ls-files --
     <pathspec>` exits 0 (git accepts the pathspec syntax), independent of
-    whether it matches any files."""
+    whether it matches any files. Validates the literal-wrapped form (see
+    `_literal_pathspec`), matching what `_git_ls_files_pathspec` actually
+    sends to git."""
     try:
         result = subprocess.run(
-            ["git", "ls-files", "--", pathspec], capture_output=True, text=True, check=False
+            ["git", "ls-files", "--", _literal_pathspec(pathspec)],
+            capture_output=True,
+            text=True,
+            check=False,
         )
     except OSError:
         return False
@@ -1665,7 +1684,10 @@ def _first_invalid_pathspec(pathspecs: List[str]) -> Optional[str]:
         return None
     try:
         batch_result = subprocess.run(
-            ["git", "ls-files", "--", *pathspecs], capture_output=True, text=True, check=False
+            ["git", "ls-files", "--", *(_literal_pathspec(ps) for ps in pathspecs)],
+            capture_output=True,
+            text=True,
+            check=False,
         )
     except OSError:
         batch_result = None

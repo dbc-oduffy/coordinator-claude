@@ -4,7 +4,7 @@
 <!-- BEGIN docs-checker-consumption (synced from snippets/docs-checker-consumption.md) -->
 ## Docs Checker Integration
 
-If your dispatch prompt cites a **docs-checker pre-flight** with sidecar paths — a verification report at the engine-provisioned `state/plan-sidecars/<plan-stem>.docs-check.md` home (computed once by `provision_report` and passed through unchanged) and, if any auto-fixes were applied, an edits changelog at `state/review-findings/{timestamp}-docs-checker-edits.md` — the artifact has already been mechanically verified and may have been auto-edited. Use the pre-flight to focus your review on architecture, approach, and design.
+If your dispatch prompt cites a **docs-checker pre-flight** with sidecar paths — a verification report at the engine-provisioned `.coordinator-local/plan-sidecars/<plan-stem>.docs-check.md` home (computed once by `provision_report` and passed through unchanged) and, if any auto-fixes were applied, an edits changelog at `state/review-findings/{timestamp}-docs-checker-edits.md` — the artifact has already been mechanically verified and may have been auto-edited. Use the pre-flight to focus your review on architecture, approach, and design.
 
 **Claim statuses:**
 - **VERIFIED** — docs-checker confirmed the API claim against authoritative sources. Trust it. Do not re-verify.

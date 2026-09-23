@@ -783,6 +783,23 @@ row that drifts from the schema is warned on, not rejected outright; the mechani
 above (coverage-checker FAIL-LOUD, harvest WARN-AND-SKIP) are what actually catch drift at
 the points that matter.
 
+### New Decision Records: writes_under, Not a Projected Filename
+
+**A chunk that creates a new `docs/decisions/` record does not know its `DR-<N>` id at
+plan-authoring time.** `coordinator-doc-new --type decision` allocates it at scaffold time
+(claude-klabauter `coordinator/bin/lib/dr_allocator.py::allocate_dr_number`, vendored
+byte-identical at `coordinator_core/ops/docgen/dr_allocator.py`) — the one allocator that reads
+BOTH existing filenames and frontmatter `id:` fields. Never project a number with a hand-typed
+probe (`ls docs/decisions | grep -oE 'DR-[0-9]+' | sort | tail -1` and variants): a lexical `sort`
+returns the id that sorts last, not the highest, and even a correct probe races every concurrent
+plan landing on the same projection.
+
+So a task-spine row that creates one MUST declare `writes_under: ["docs/decisions/"]` (see the
+field table above) — the "filenames chosen at run time" case it exists for — never a `writes:`
+entry naming a guessed filename. `writes:` freezes at spine-emission time; a guessed filename
+frozen there diverges from the allocator-assigned one, and the committer refuses the undeclared
+path as a pathspec divergence. Prose in the row cannot widen a scope emission already froze.
+
 ## Full-Coverage Scoping — Default Is the Complete Problem Set
 
 
@@ -1045,13 +1062,14 @@ When plan A depends on plan B — shared paths, asset names, API contracts — a
 
 **In the plan document itself:** If interlocking plans exist, add a `**Depends on:**` line in the header and a reconciliation checklist as the final pre-execution step. Do not leave this implicit.
 
-**Cross-plan conflict scan before executor dispatch (procedure).** A `**Depends on:**` header is insufficient when sibling plans were authored concurrently and neither knew about the other. Before dispatching any executor on a freshly-written plan, run a mechanical scan over `docs/plans/*.md` that have been touched since the plan-author last reconciled (or are still in `## Active` state):
+**Cross-plan conflict scan before executor dispatch (procedure).** A `**Depends on:**` header is insufficient when sibling plans were authored concurrently and neither knew about the other. Before dispatching any executor on a freshly-written plan, run a mechanical scan over both `docs/plans/*.md` AND `plugins/*/*/docs/plans/*.md` that have been touched since the plan-author last reconciled (or are still in `## Active` state) — a single-owner declaration can live in a plugin-nested plan dir, and a scan that only globs the top level will not reach it:
 
-1. **File-overlap grep.** For each chunk-scope file in the new plan, grep sibling plans for the same path. Any sibling that names an overlapping file is a candidate conflict — read the sibling's relevant section.
+1. **File-overlap grep.** For each chunk-scope file in the new plan, grep sibling plans (both glob roots) for the same path. Any sibling that names an overlapping file is a candidate conflict — read the sibling's relevant section.
 2. **Architectural-seam grep.** For each new abstraction, registry entry, hookspec, schema field, or contract the new plan introduces, grep sibling plans for the seam's central noun. A sibling that mentions the same seam (even with a different name) is a candidate conflict.
-3. **Fold into `## Cross-plan coordination` section.** Add a section to the new plan body enumerating: (a) each sibling plan touched on the same file or seam, (b) what assumption each carries, (c) whether the new plan amends, defers to, or supersedes the sibling. No conflicts found → write the section with this body:
+3. **Ownership-frontmatter check.** Before claiming a hotspot file unowned, grep sibling plans for `owns_plans:` / `install_surface_index:` frontmatter naming it — a file can be declared single-owner by frontmatter alone, with no body prose a path grep would catch.
+4. **Fold into `## Cross-plan coordination` section.** Add a section to the new plan body enumerating: (a) each sibling plan touched on the same file or seam, (b) what assumption each carries, (c) whether the new plan amends, defers to, or supersedes the sibling. No conflicts found → write the section with this body:
 
-   > **Cross-plan coordination:** scanned `docs/plans/*.md` — no overlapping file scope or seam citations.
+   > **Cross-plan coordination:** scanned `docs/plans/*.md` and `plugins/*/*/docs/plans/*.md` — no overlapping file scope, seam citations, or ownership-frontmatter claims.
 
    Empty-but-present section is fine; missing section is the failure mode.
 
@@ -1122,6 +1140,10 @@ When a plan's AC genuinely requires a commit to exist (e.g. `cited:<sha>` accept
 When a plan declares "VERBATIM parity" with a source mechanism, it MUST copy ALL branches and side-effects of that mechanism — including `--check-only` paths, error branches, fallback clauses, and conditional sub-steps. Partial duplication that lies about being verbatim is worse than honest divergence: it causes the plan's executor to ship an incomplete implementation that silently diverges precisely in the less-common paths.
 
 **Rule:** before writing "verbatim" or "reuses the exact mechanism from X", enumerate every branch in X (if/else trees, conditional flags, mode switches). Mirror each or explicitly name the deviation and weaken the claim: "reuses the headline invocation, omitting the `--check-only` branch." the Staff Engineer's review surface is the backstop — a "VERBATIM" assertion in a plan is a known attention trigger for the reviewer.
+
+### (p) A plan-body conflict resolution must reach the executor brief's VERBATIM/hard-constraints block, with a grep-AC
+
+When review or prior-art-checker surfaces a conflict over a canonical form and the plan body is edited to resolve it, that edit alone does not change what ships: the executor reads its own brief's VERBATIM/hard-constraints block, not the surrounding narrative. The integrator (or plan author) must also edit that block — or the already-shipped code directly — to match the resolved canonical form. Any plan that states a canonical form MUST carry a grep-based AC asserting shipped code matches it; a narrative-only resolution with no grep-AC lets a stale brief or unreviewed code re-ship the flagged anti-pattern. Empirical case: a resolver-shim re-shipped the corrected `CLAUDE_HOME` anti-pattern despite a prior-art flag and a plan-body fix, because neither the executor brief nor an AC was updated to match.
 
 ## Anti-Literal-Tripwire Chunks Must Grep-and-Mark Scoped Docstrings In-Chunk
 

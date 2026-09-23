@@ -545,6 +545,18 @@ def _write_measurement_record(message: Message) -> None:
     sys.stdout.write(line + "\n")
 
 
+def _write_stdout_envelope(envelope: dict) -> None:
+    """Write a PreToolUse envelope to stdout, degrading to silence on any
+    `OSError` (including `BrokenPipeError`). Both PreToolUse channels this
+    module serves are advisory -- their hooks' own docstrings promise ALWAYS
+    exit 0 -- so an undeliverable write must never propagate and turn that
+    promise into a non-zero exit; the caller still returns 0 either way."""
+    try:
+        sys.stdout.write(json.dumps(envelope, separators=(",", ":")))
+    except OSError:
+        pass
+
+
 def emit(message: Message, channel: str) -> Optional[int]:
     """Impure: the one emission seam. Writes `message` to `channel` exactly
     as hooks do today -- UNLESS `COORDINATOR_HOOK_MESSAGE_MEASURE=1` is set,
@@ -597,7 +609,7 @@ def emit(message: Message, channel: str) -> Optional[int]:
                 "additionalContext": text,
             }
         }
-        sys.stdout.write(json.dumps(envelope, separators=(",", ":")))
+        _write_stdout_envelope(envelope)
         return 0
 
     envelope = {
@@ -607,5 +619,5 @@ def emit(message: Message, channel: str) -> Optional[int]:
             "permissionDecisionReason": text,
         }
     }
-    sys.stdout.write(json.dumps(envelope, separators=(",", ":")))
+    _write_stdout_envelope(envelope)
     return 0

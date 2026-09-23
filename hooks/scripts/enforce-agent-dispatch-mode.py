@@ -48,7 +48,9 @@ overwritten and/or the E/F/G rewrites applied -- never a partial object. See
 the oracle's SEQUENCING ASSUMPTION: this remains the ONLY updatedInput
 emitter on the Agent matcher for the concerns above (nudge-foreground-agent-
 dispatch's deny still wins via deny-precedence over this hook's allow --
-unaffected by this port).
+unaffected by this port). Under `preuse-agent-dispatch.py` the "original"
+tool_input is the one upstream guards already rewrote (the engine's
+inherited-Opus -> sonnet switch), so `merged` carries that rewrite too.
 
 Concern E -- worktree-isolation strip (single-emitter fix, 2026-07-31): this
 hook used to race `strip-worktree-isolation.py` for `updatedInput` on any

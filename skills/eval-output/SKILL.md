@@ -10,13 +10,11 @@ version: 1.0.0
 /coordinator:eval-output <path-to-research-output>
 
 ## Process
-1. Read the eval rubric at `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/eval-rubric.md`
-2. Read the research output at the provided path
-3. Dispatch a Sonnet agent (model: sonnet, tools: Read, WebFetch, Write) with:
-   - The rubric
-   - The research output
-   - Instruction to: read the output, sample 3-5 cited URLs via WebFetch to verify citation accuracy, score each of the 5 criteria with a 0.0-1.0 score and 2-3 sentence justification, provide overall pass/marginal/fail grade
-4. Present the scores to the PM
+Dispatch a Sonnet agent (model: sonnet, tools: Read, WebFetch, Write) with the rubric
+(`${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/eval-rubric.md`) and the research output at the
+provided path: sample 3-5 cited URLs via WebFetch to verify citation accuracy, score each of the
+5 criteria with a 0.0-1.0 score and 2-3 sentence justification, and give an overall
+pass/marginal/fail grade. Present the scores to the PM.
 
 ## Notes
 - This is a post-hoc quality check, not a gate. Use it to calibrate prompt improvements.

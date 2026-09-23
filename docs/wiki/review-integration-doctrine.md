@@ -468,6 +468,15 @@ named → escalate ASK rather than guessing.
   quote and the override rationale; the prior-art file is not edited.
 - `PM-input-needed` — no edit; surface the conflict, the candidate directions, and a recommendation.
 
+**Canonical-form conflicts propagate past the plan, or they don't ship.** `update-plan` and `both`
+edit the plan's narrative, but an executor reads its own brief's VERBATIM/hard-constraints block —
+a distinct artifact from the prose beside it. Resolving the conflict in the plan body alone changes
+nothing about what a dispatched executor produces. The integrator must also edit that block (or the
+already-shipped code directly) to match the resolved form, and confirm the plan carries a
+grep-based AC asserting shipped code matches it. Empirical case: a resolver-shim re-shipped the
+corrected `CLAUDE_HOME` anti-pattern despite a prior-art flag and a plan-body fix, because neither
+the executor brief nor an AC was updated to match.
+
 On the two hand-editing directions the integrator holds read-write access to wikis, lessons, and
 registry/improvement-queue files. Matching the EM's correction in scope and substance wins the tie
 against Reconcile-Before-You-Add: needing more than the stated update to stay consistent escalates

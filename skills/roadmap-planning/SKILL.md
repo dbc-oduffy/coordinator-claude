@@ -125,6 +125,10 @@ final-approved`.
    and transcribe its `N`/`sprint`/`wave` output verbatim (multi-sprint boundary assignment is hand
    judgment it doesn't resolve). Covers only DECLARED edges. Format + the dependency-order
    invariant it enforces: wiki.
+
+   **`<edges-file>` format** — one `A <- B` per line ("A blocked_by B", B ships first; the prose
+   form is NOT accepted); a line with no `<-` is an isolated node; `@N` tags sprint N; `#` comments.
+   An unparseable line exits 2. Sample: `C1 <- C3` and `C4@2` on separate lines.
 2.1.6. **Fold to size — the baton is the parallel wave, not the idea.** Runs on 2.1.5's `wave`
    output; sets how many stubs 2.1 scaffolds. `loe:` is the whole-baton t-shirt read.
    - **Band: mostly M and L.** XS/S never ship alone — group them into one baton. XL only where a
@@ -162,9 +166,7 @@ final-approved`.
    `& "$env:COORDINATOR_SETTINGS_HOME\bin\audit-roadmap.exe" <run-id>` — one gate, five audits (stub-coverage, `ready_to_fire`
    uniqueness, pm-gates cross-reference, dependency-order). Exit 1 blocks close and names the
    offender. `kind: roadmap-baton` frontmatter is also validator-clean per the engine's
-   frontmatter cross-field rules — the live enforcement point; this repo's
-   `coordinator/hooks/scripts/validate-frontmatter-schema.py` non-executing parity copy is
-   deleted (`348260b83`) — never the thing to edit. Those rules require `roadmap_id`, when
+   frontmatter cross-field rules, the live enforcement point. Those rules require `roadmap_id`, when
    present, to name a cluster
    that actually exists on disk — not merely be non-empty. **A cluster is required before a stub
    scaffolds one — if no cluster applies, the stub is not a `roadmap-baton` at all; scaffold it

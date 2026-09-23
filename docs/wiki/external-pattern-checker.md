@@ -17,7 +17,7 @@ related:
 
 external-pattern-checker is an opt-in Sonnet-tier pre-flight that scans a plan's Silent claims — the claims prior-art-checker found no internal prior art for — and does a bounded web triage to determine whether external experience is worth pulling in before the Opus reviewer sees the plan.
 
-It writes a sidecar at the plan-derivable `state/plan-sidecars/<plan-stem>.external-pattern.md` home (D0) with four buckets: `Signal Worth Deeper Research`, `Light Context Surfaced`, `Cautionary Note`, `No External Signal`. The verdict (`RESEARCH-RECOMMENDED` / `LIGHT-CONTEXT-AVAILABLE` / `NO-EXTERNAL-SIGNAL` / `DEGRADED` / `SCOPE-MISMATCH`) is advisory. The EM decides whether to act.
+It writes a sidecar at the plan-derivable `.coordinator-local/plan-sidecars/<plan-stem>.external-pattern.md` home (D0) with four buckets: `Signal Worth Deeper Research`, `Light Context Surfaced`, `Cautionary Note`, `No External Signal`. The verdict (`RESEARCH-RECOMMENDED` / `LIGHT-CONTEXT-AVAILABLE` / `NO-EXTERNAL-SIGNAL` / `DEGRADED` / `SCOPE-MISMATCH`) is advisory. The EM decides whether to act.
 
 **It is opt-in. It never runs by default.**
 

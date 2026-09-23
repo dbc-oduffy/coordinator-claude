@@ -505,8 +505,8 @@ def _landing_pathspec(fires: list, replies: list, repo_root: Path) -> list[str]:
 
 
 def _landing_candidates(fires: list, replies: list, repo_root: Path) -> set[str]:
-    """The paths this wave's own records name, dirty or not. Pure: reads the trail root's
-    listing and nothing else, so it is tested without a repository."""
+    """The paths this wave's own records name, dirty or not. Reads the trail root's listing and
+    the text of the records it collects, never git, so it is tested without a repository."""
     candidates: set[str] = set()
     for _, result in fires:
         slot = _repo_relative(result.get("trailSlotDir") or "", repo_root)
@@ -532,7 +532,38 @@ def _landing_candidates(fires: list, replies: list, repo_root: Path) -> set[str]
             rel = _repo_relative(s, repo_root)
             if rel and rel.startswith(_LANDING_ROOTS) and rel.endswith((".md", ".yaml")):
                 candidates.add(rel)
+    candidates |= _cited_records(candidates, repo_root)
     return candidates
+
+
+#: Records a wave WRITES that no lane field names: the scout's sizing object (named only by the
+#: plan's `sizing_object:` and the slot's sizing record) and the queue rows a planner or
+#: integrator spins off (named only in the slot's prose). Missed, they sit uncommitted after the
+#: landing commit — measured 2026-09-22, 37 sizings and one debt row on one wave.
+_CITED_RECORD = re.compile(
+    r"(?<![\w.-])(state/(?:sizings|debt-backlog|bug-backlog|improvement-queue)/[\w.-]+\.yaml)"
+)
+
+
+def _cited_records(candidates: set[str], repo_root: Path) -> set[str]:
+    """Sizing objects and queue rows cited by the text of this wave's own records.
+
+    Reads only files already in `candidates` (the slot's files, the plans, the handoffs), so the
+    set stays bounded by what this wave's records name — a citation is not a directory sweep.
+    """
+    cited: set[str] = set()
+    for rel in candidates:
+        path = repo_root / rel
+        files = path.rglob("*") if path.is_dir() else (path,)
+        for f in files:
+            if f.suffix not in (".md", ".yaml", ".json") or not f.is_file():
+                continue
+            try:
+                text = f.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            cited.update(_CITED_RECORD.findall(text))
+    return cited
 
 
 def _dirty_among(candidates: set[str], repo_root: Path, run=subprocess.run) -> list[str]:

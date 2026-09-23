@@ -403,9 +403,9 @@ Don't infer coordinator is live from the absence of errors — confirm it direct
    python3 -c "import json;h=json.load(open('<resolved-plugin-root>/hooks/hooks.json'))['hooks'];print({k:len(v) for k,v in h.items()})"
    ```
 
-   **One exception, inverting the check:** `--plugin-dir` delivery GENERATES `settings.json` hooks
-   from `hooks.json`, so there a populated block is correct and an empty one means auto-wire is
-   broken.
+   The same holds for `--plugin-dir` delivery: the harness reads `hooks/hooks.json` from the
+   directory passed, and `settings.json` needs no coordinator hooks. Coordinator hooks found in
+   `settings.json` would fire twice alongside the plugin's own.
 
 A coordinator-less session and a session with genuinely missing/corrupted doctrine look identical
 from the outside — step 1 above is what tells them apart, and it is the fastest check to run

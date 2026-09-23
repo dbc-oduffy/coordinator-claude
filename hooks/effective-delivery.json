@@ -1,12 +1,12 @@
 {
   "x-effective-delivery": {
     "version": 1,
-    "generated_from_sha": "deed78a87fdf1335f91adf5ebadad2112996ccef",
-    "generated_at": "2026-09-21T16:42:46Z",
+    "generated_from_sha": "01dc9ac7ac725783d1393b43cffd9a219df3692d",
+    "generated_at": "2026-09-22T23:17:35Z",
     "generated_from_dirty_tree": true,
-    "engine_source_sha": "a50e06c6a7e7293678dd4d7a589c84fc17d53a66",
+    "engine_source_sha": "41ae2f0feca3713ff1d3c215d0c3525feae0f78e",
     "engine_source_dirty_tree": true,
-    "engine_source_resolution": "resolved-engine/published-target",
+    "engine_source_resolution": "live-working-tree/env-override",
     "carriers": {
       "scripts/preuse-write-dispatch.py": {
         "script": "scripts/preuse-write-dispatch.py",
@@ -1014,7 +1014,7 @@
           },
           {
             "id": "head-tail-plumbing-rewrite",
-            "script": "bash_guards/_dialect.py",
+            "script": "bash_guards/guard_head_tail_rewrite.py",
             "tool_names": [
               "Bash",
               "PowerShell"
@@ -1133,6 +1133,11 @@
             "tool_names": []
           },
           {
+            "id": "governed_surface_drift",
+            "script": "scripts/session-start-governed-surface-drift.py",
+            "tool_names": []
+          },
+          {
             "id": "guard_hook_generation_self_probe",
             "script": "scripts/guard-hook-generation-self-probe.py",
             "tool_names": []
@@ -1166,6 +1171,11 @@
           {
             "id": "session_start_write_plugin_root_breadcrumb",
             "script": "scripts/session-start-write-plugin-root-breadcrumb.py",
+            "tool_names": []
+          },
+          {
+            "id": "session_start_ensure_precommit_hook",
+            "script": "scripts/session-start-ensure-precommit-hook.py",
             "tool_names": []
           }
         ]
@@ -1383,6 +1393,17 @@
         "script": "scripts/runtime-tripwire-em-check.py",
         "tool_names": [
           "Agent"
+        ]
+      },
+      {
+        "id": "session-start-repin-cloud-engine-root.py",
+        "script": "scripts/session-start-repin-cloud-engine-root.py",
+        "tool_names": [
+          "clear",
+          "compact",
+          "fork",
+          "resume",
+          "startup"
         ]
       },
       {

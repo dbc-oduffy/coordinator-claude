@@ -27,7 +27,18 @@ dispatches with EM-verify between, never one long-lived executor. No per-chunk r
 code review defers to `/workstream-complete`. **EM-verify means the EM itself runs the chunk's
 tests, never trusts an executor's pass claim** — a dispatch vehicle can narrow the executor's Bash
 surface below what the tests need (wiki: `workflow-orchestration.md`), and an honest executor then
-reports "PASS (by inspection)". Inspection is not verification. Dispatched executors are always
+reports "PASS (by inspection)". Inspection is not verification. **A host-dependent chunk's red is
+not a verdict until the interpreter is confirmed** — before treating red as a regression, confirm
+the interpreter EM-verify runs under matches the canonical gate env (host venv, or the sibling on
+path) rather than a bare `python3`; a sibling-host import error reads as a test failure, not a
+skip, and masquerades as a chunk regression. **Unit-green is not reachable —
+a chunk that ships a new helper/hook/injector is not done on green tests alone.** An executor's
+own note flagging the mechanism as unwired does not discharge the EM's check, and a mechanism
+with no caller is never accepted as shipped. It is a gated step
+in Phase 3's per-task loop (mark-complete is conditioned on it) and re-checked in Phase 4's
+close-out checklist before the stamp. Detail: `coordinator/docs/wiki/review-integration-doctrine.md`
+§ An observable-outcome acceptance criterion is never satisfied by a tested pure function alone.
+Dispatched executors are always
 Sonnet; self-execute only on a named token-economics carve-out. Phase boundaries are not stop
 boundaries: ship Phase N green, dispatch Phase N+1 immediately, no checkpoint offer.
 
@@ -142,6 +153,19 @@ Tripwire: `A-PLAN-DOES-NOT-PICK-THE-EXECUTION-VEHICLE`.
 
 A row carrying an uncleared `external_gate` entry with `blocks: execution` is unschedulable in any
 wave — that gate is on another repo, not on a chunk pair, so no pair-classification clears it.
+
+**Cross-check the AC table against the chunk list before emitting.** An `## Acceptance Criteria`
+row with no chunk citing it (frontmatter list, `covers:`, or body reference) is a silent gap — the
+row renumbers under a chunk reshuffle and nothing catches it, since `plan-coverage-checker`
+explicitly excludes this table from its oracle. Walk every AC row, confirm at least one `## Tasks`
+row names it, and treat an uncovered AC as an authoring gap to fix in the plan before dispatching,
+not a `plan-coverage-checker` finding to defer.
+
+**A signature/param-removal chunk that scopes only production handler signatures is the same kind
+of authoring gap.** Test fixture defs and test call sites passing the removed param break at the
+same cut a production call site would — walk the chunk's task list for a scope that also names
+fixtures and call sites, and fix it in the plan before dispatching, same as an uncovered AC row
+above.
 
 **Invoke `dispatch.emit` — don't derive the wave shape by hand and don't stop at deriving it.** It
 reads the spine's `writes:`/`depends_on` and emits the ready-to-fire Workflow itself, each row's
@@ -291,8 +315,11 @@ the ungated EXPLICIT arm; it never softens the gate on the bare arm.
 
 Default: execute every task in sequence without stopping to ask. Per task: write-ahead (mark
 `In progress` on disk + TaskUpdate `in_progress`) → execute (follow the plan, fix routine errors,
-move on) → mark complete (on disk + TaskUpdate `completed`) → proceed immediately, including
-across phase boundaries, same session, same flight recorder.
+move on) → **reachability gate** (task shipped a new helper/hook/injector? confirm a production
+call site reaches it — caller-grep or traced entry point, never an import smoke-check — before
+proceeding; unit-green alone does not clear this, per Phase 1 § EM-verify) → mark complete (on
+disk + TaskUpdate `completed`) → proceed immediately, including across phase boundaries, same
+session, same flight recorder.
 
 Mid-dispatch decisions are EM decisions — pick, record a one-line rationale inline, continue; only
 the Phase 5 list escalates. A residual (a site the sweep missed, a fix wider than the AC) needs a
@@ -308,8 +335,8 @@ no queue id/spine row/commit behind it is not a routed item.
 chunks → return to Phase 3. Leg 1 alone yields candidates, never a verdict — corroborate against
 leg 2 or leg 3.
 
-1. **Leg 1 — `chunk-commits <plan-path> <chunk-id>`**, the engine op purpose-built for this read
-   (`ceremony.chunk_commits`): it resolves the plan's own add-commit, range-scopes to
+1. **Leg 1** — the engine op purpose-built for this read, named `chunk-commits <plan-path>
+   <chunk-id>` (`ceremony.chunk_commits`): it resolves the plan's own add-commit, range-scopes to
    `<add-sha>..HEAD`, and filters on the commit SUBJECT (never `--grep`, which false-positives on
    body-line matches). Its own negative-spec is the reason: it never accepts a pathspec-scoped
    query — a doctrine-conforming chunk commit is forbidden from touching the plan document
@@ -403,6 +430,11 @@ commit:**
    body, no AC table, no chunk bodies, no run reports, no reviewer sidecars. A reader who never sees
    AC3 cannot be misled by AC3 — that is the entire value, and a well-meaning "here is the context
    you need" destroys it.
+3.7. **Reachability re-check, before the stamp.** Any landed row that shipped a new
+   helper/hook/injector: re-confirm at `HEAD` that the production call site found by the Phase 3
+   reachability gate still reaches it — a caller-grep, not an import smoke-check. Unconfirmed (or
+   never checked) → Phase-5-halted, no stamp; step 4's `close-out-and-stamp` does not perform this
+   check itself and its green is not evidence of it.
 4. `close-out-and-stamp "$ARGUMENTS"` — stamps `status: implemented` and commits the plan path
    (full-plan-shipped), or reports remaining uncommitted chunks and skips the stamp
    (Phase-5-halted). Folding the stamp into your own commit is acceptable — state that you did.

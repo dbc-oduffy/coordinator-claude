@@ -63,6 +63,8 @@ Named consumers (cross-repo contract commitments):
 
 from __future__ import annotations
 
+INSTALL_CLASS = False  # read-only probe; see door_install.declared_install_class
+
 import argparse
 import difflib
 import json

@@ -68,6 +68,8 @@ Spec backlink: docs/reference/fleet-shared-environment-contract.md § The siblin
 """
 from __future__ import annotations
 
+INSTALL_CLASS = True  # rewrites the fleet environment; see door_install.declared_install_class
+
 import argparse
 import sys
 from pathlib import Path

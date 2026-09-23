@@ -513,8 +513,10 @@ _END_WORD = re.compile(r"^\s*END\b")
 #: and never reaches an OSS reader, so it earns the same scan-skip treatment
 #: as a `BEGIN`/`END` fence -- counting content inside it is a false
 #: positive against this detector's own "does an OSS reader see it" test.
-_FLEET_ONLY_BEGIN_WORD = re.compile(r"^\s*coordinator:fleet-only:start\b")
-_FLEET_ONLY_END_WORD = re.compile(r"^\s*coordinator:fleet-only:end\b")
+#: `INSTALL-DOE-ONLY:BEGIN`/`:END` is the install docs' strip pair, removed
+#: by the same publish transform, so it fences identically.
+_FLEET_ONLY_BEGIN_WORD = re.compile(r"^\s*(?:coordinator:fleet-only:start|INSTALL-DOE-ONLY:BEGIN)\b")
+_FLEET_ONLY_END_WORD = re.compile(r"^\s*(?:coordinator:fleet-only:end|INSTALL-DOE-ONLY:END)\b")
 
 
 def _matches_any(patterns: Iterable, text: str) -> bool:

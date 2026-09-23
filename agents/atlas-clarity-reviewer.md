@@ -100,6 +100,5 @@ A coordinator PreToolUse denial is a stop signal, not an obstacle to route aroun
 <!-- END guard-encounter-preamble -->
 
 <!-- BEGIN subagent-sandbox-preamble (synced from snippets/subagent-sandbox-preamble.md) -->
-**Your provisioned home for this dispatch: `state/subagent-share/<session-id>/<provision_key>.md` — git-tracked, assessment-typed (question/answer shape), created for your role before you start. Record your findings and answer there as you go, then return only a terse pointer — `done: <path>`, never a full dump. Your final message spends the EM's context window; the sidecar doesn't. Fall back to `scratch/subagent-sandbox/` (root-level, off `state/`) only if your dispatch carries no `sidecar_path:`/`provision_key:` — write freely there; files older than 24h are reaped.**
-**Named dispatch?** A teammate's return text never arrives — `SendMessage` this pointer to `"main"`.
+**Provisioned home: `state/subagent-share/<session-id>/<provision_key>.md` — git-tracked, assessment-typed (question/answer shape), created for your role before you start. Record your findings and answer there as you go; return only a terse pointer, `done: <path>`, never a full dump. No `sidecar_path:`/`provision_key:` in your dispatch → fall back to `scratch/subagent-sandbox/` (root-level, off `state/`); files there are reaped after 24h.**
 <!-- END subagent-sandbox-preamble -->

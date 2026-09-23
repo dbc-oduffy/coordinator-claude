@@ -19,6 +19,8 @@ Usage:
 
 from __future__ import annotations
 
+INSTALL_CLASS = False  # read-only census; see door_install.declared_install_class
+
 import sys
 from pathlib import Path
 

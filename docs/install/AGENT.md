@@ -23,45 +23,6 @@ contract: ../wiki/agent-install-contract.md
 
 ---
 
-## Chain posture
-
-coordinator-claude is the root of the plugin-adoption chain (chain step 5 of 5). As of W0.5
-Option B+C (identity corrected 2026-08-17), it declares **one hard direct dep**:
-`claude-klabauter` (`severity: hard`, `functional_probe_kind: claude_klabauter_seam_resolvable`). The
-chain-walker visits coordinator-claude, probes that one dep, and terminates once it is
-satisfied:
-
-"coordinator install-chain walker — chain step 5 of 5: all deps satisfied."
-
-No upstream probe is needed in the plugin-chain sense — as the root of THAT chain, there is
-nothing above coordinator-claude to walk — but the claude-klabauter probe still runs (it is
-the walker's own mandatory engine dependency, not a plugin-chain edge). The probe kind's name
-(`claude_klabauter_seam_resolvable`) is an internal-mechanism label, not a second dependency identity —
-it resolves the engine root that backs claude-klabauter via CLAUDE_KLABAUTER_ROOT's four-rung ladder, not
-sibling-colocation. If it is unresolvable, the walker fails loud — see § Fail-loud claude-klabauter
-resolution below. Any downstream consumer that depends on coordinator-claude recurses into this
-same terminal state; coordinator is visited exactly once even when reached via multiple paths,
-via the disk-resident visited-set per contract § Visited-set protocol.
-
-### Fail-loud claude-klabauter resolution
-
-Because claude-klabauter's `coordinator/scripts/setup.py` (the chain-walker itself) is a trampoline into
-Claude-klabauter-authored `coordinator_core.ops.setup_chain_walker`, CLAUDE_KLABAUTER_ROOT must already be
-resolvable just to IMPORT the walker — a genuine chicken-egg constraint. If CLAUDE_KLABAUTER_ROOT cannot
-be resolved via any of its four rungs, `setup.py` fails loud at that import step (exit 95, the
-dedicated claude-klabauter-transport-failure code) with the four-rung remediation printed to stderr:
-
-1. `CLAUDE_KLABAUTER_ROOT` environment variable.
-2. `<settings-home>/machine-local/.claude-klabauter-root` pointer file.
-3. `machine-local get repos.claude_klabauter` registry entry.
-4. If none resolve: clone `claude-klabauter` as a sibling repo
-   (`git clone https://github.com/dbc-oduffy/claude-klabauter`) and register it, or set
-   `CLAUDE_KLABAUTER_ROOT` directly, then re-run `/coordinator:setup` or `/coordinator:install`.
-   `claude-klabauter` is private until its OSS release — if the clone is denied or 404s, request
-   access from the maintainer rather than treating the URL as broken.
-
----
-
 ## Three install verbs — disambiguation
 
 coordinator-claude ships three distinct slash-commands that sound similar but serve different
@@ -101,6 +62,45 @@ the scope of `/coordinator:setup` above — not the narrow OSS-plugin-install le
 reads in sequence. The bin entry is not renamed to remove the collision — the grepped name has
 to win — so read this paragraph rather than assuming the slash-command and the bin entry are the
 same verb.
+
+## Chain posture
+
+coordinator-claude is the root of the plugin-adoption chain (chain step 5 of 5). As of W0.5
+Option B+C (identity corrected 2026-08-17), it declares **one hard direct dep**:
+`claude-klabauter` (`severity: hard`, `functional_probe_kind: claude_klabauter_seam_resolvable`). The
+chain-walker visits coordinator-claude, probes that one dep, and terminates once it is
+satisfied:
+
+"coordinator install-chain walker — chain step 5 of 5: all deps satisfied."
+
+No upstream probe is needed in the plugin-chain sense — as the root of THAT chain, there is
+nothing above coordinator-claude to walk — but the claude-klabauter probe still runs (it is
+the walker's own mandatory engine dependency, not a plugin-chain edge). The probe kind's name
+(`claude_klabauter_seam_resolvable`) is an internal-mechanism label, not a second dependency identity —
+it resolves the engine root that backs claude-klabauter via CLAUDE_KLABAUTER_ROOT's four-rung ladder, not
+sibling-colocation. If it is unresolvable, the walker fails loud — see § Fail-loud claude-klabauter
+resolution below. Any downstream consumer that depends on coordinator-claude recurses into this
+same terminal state; coordinator is visited exactly once even when reached via multiple paths,
+via the disk-resident visited-set per contract § Visited-set protocol.
+
+### Fail-loud claude-klabauter resolution
+
+Because claude-klabauter's `coordinator/scripts/setup.py` (the chain-walker itself) is a trampoline into
+Claude-klabauter-authored `coordinator_core.ops.setup_chain_walker`, CLAUDE_KLABAUTER_ROOT must already be
+resolvable just to IMPORT the walker — a genuine chicken-egg constraint. If CLAUDE_KLABAUTER_ROOT cannot
+be resolved via any of its four rungs, `setup.py` fails loud at that import step (exit 95, the
+dedicated claude-klabauter-transport-failure code) with the four-rung remediation printed to stderr:
+
+1. `CLAUDE_KLABAUTER_ROOT` environment variable.
+2. `<settings-home>/machine-local/.claude-klabauter-root` pointer file.
+3. `machine-local get repos.claude_klabauter` registry entry.
+4. If none resolve: clone `claude-klabauter` as a sibling repo
+   (`git clone https://github.com/dbc-oduffy/claude-klabauter`) and register it, or set
+   `CLAUDE_KLABAUTER_ROOT` directly, then re-run `/coordinator:setup` or `/coordinator:install`.
+   `claude-klabauter` is private until its OSS release — if the clone is denied or 404s, request
+   access from the maintainer rather than treating the URL as broken.
+
+---
 
 ## Settings-home provisioning
 

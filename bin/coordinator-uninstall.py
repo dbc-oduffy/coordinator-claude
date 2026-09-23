@@ -40,6 +40,8 @@ Port backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md
 
 from __future__ import annotations
 
+INSTALL_CLASS = True  # removes the install; see door_install.declared_install_class
+
 import os
 import sys
 

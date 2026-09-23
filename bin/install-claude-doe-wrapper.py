@@ -19,6 +19,8 @@ Spec backlink: docs/plans/2026-07-23-skills-carry-no-code-extirpation.md § M3/D
 
 from __future__ import annotations
 
+INSTALL_CLASS = True  # writes the claude-doe launcher; see door_install.declared_install_class
+
 import os
 import sys
 

@@ -1,3 +1,6 @@
+# guard-not-a-hook-entrypoint: the live guard is the engine's port
+# (coordinator_core.bash_guards.guard_doctrine_surface_bash_write), run by the
+# engine behind preuse-bash-dispatch.py -- hooks.json never invokes this file.
 """PreToolUse(Bash) hook: close the Bash escape from the C7 doctrine
 admission gate (`check-claude-md-size.py`, registered on
 ``Write|Edit|MultiEdit`` only).
@@ -268,6 +271,36 @@ the SINK:
       denies exactly as before -- this narrows only the no-write,
       quoted-mention shape.
 
+  12. REDIRECT-TARGET SUFFIX-DECOY FIX (state/bug-backlog/2026-09-01-
+      doctrine-surface-bash-write-guard-matche-5afe5af585d7.yaml, repro 1;
+      ``_names_governed_identifier``). Points 3 and 4's redirect-target
+      narrowing (``_has_write_marker_for_point3``, ``_assignment_
+      indirection_reaches_a_write``) resolve the literal token a ``>``/``>>``
+      targets and ask whether IT names a governed surface -- but they asked
+      via the whole-command PREFILTER (``_mentions_governed_identifier``,
+      deliberately an unbounded substring test, see point 1), which is right
+      at the prefilter's own job (a false positive there costs nothing, per
+      that function's own docstring) and wrong at a decision point that
+      resolves one specific token: a session-scratchpad probe file named
+      ``CLAUDE.md.probe`` was denied because the redirect's own target
+      contains ``claude.md`` as a raw substring, even though the target is a
+      DIFFERENT file with an appended suffix, never the governed one. Both
+      call sites now classify the resolved target (and, for point 3's
+      bare-mention fallback, the quote-stripped segment) with
+      ``_names_governed_identifier`` instead -- the same boundary-anchored
+      test point 1's `dotclaude.md` fix already established, now also
+      excluding a trailing ``.`` so a SUFFIX decoy (`CLAUDE.md.probe`) is
+      rejected the same way a PREFIX decoy (`dotclaude.md`) already was. Every
+      genuine write (``> CLAUDE.md``, ``> "CLAUDE.md"``, ``>
+      global-doctrine/CLAUDE.md``, a real dereferenced-variable target) still
+      denies -- none of the four governed identifiers carries a trailing
+      extension of its own for the new exclusion to catch. This hook remains
+      deliberately path-INDEPENDENT otherwise (see
+      ``test_governed_write_verdict_is_path_independent`` in the paired test
+      module) -- this fix narrows WHICH TEXT counts as naming a governed
+      surface, it does not resolve, normalise, or filesystem-check the write
+      target's location.
+
 NEGATIVE-SPEC -- known, accepted over-denial, preserved from the prior
 revision: a SEGMENT that mentions a governed surface AND also contains an
 unrelated write marker in that SAME segment (e.g. ``git diff
@@ -419,8 +452,24 @@ _GOVERNED_IDENTIFIERS_LOWER = tuple(identifier.lower() for identifier in _GOVERN
 #: characters (`dotclaude.md` contains `claude.md` as a raw substring, but
 #: the character immediately before the match is `t`, a word character, so
 #: the anchored pattern does not match it).
+#:
+#: TRAILING-`.` EXCLUDED TOO (state/bug-backlog/2026-09-01-doctrine-surface-
+#: bash-write-guard-matche-5afe5af585d7.yaml, repro 1) -- every governed
+#: identifier already ends in `.md`, so the original lookahead alone let a
+#: DECOY basename that merely APPENDS a further extension after the real
+#: one -- `CLAUDE.md.probe`, a session-scratchpad probe file -- match, since
+#: the character right after the `.md` in `CLAUDE.md.probe` is `.`, which
+#: `[A-Za-z0-9]` never excludes. `.` is not a word character but it is not a
+#: legitimate END of a governed basename either: a real reference to the
+#: governed file is never immediately followed by another `.`. Excluding it
+#: from the lookahead closes the decoy while leaving every genuine
+#: reference -- `CLAUDE.md`, `"CLAUDE.md"`, `./CLAUDE.md`,
+#: `global-doctrine/CLAUDE.md`, `path/to/CLAUDE.md` -- matching exactly as
+#: before (see `test_allow_read_of_scratch_file_whose_basename_carries_a_
+#: dotted_suffix` / `test_deny_real_write_to_claude_md_variants_adjacent_
+#: to_separators`).
 _GOVERNED_IDENTIFIER_PATTERNS = tuple(
-    re.compile(r"(?<![A-Za-z0-9])" + re.escape(identifier) + r"(?![A-Za-z0-9])")
+    re.compile(r"(?<![A-Za-z0-9])" + re.escape(identifier) + r"(?![A-Za-z0-9.])")
     for identifier in _GOVERNED_IDENTIFIERS_LOWER
 )
 
@@ -531,37 +580,76 @@ def _has_write_marker_for_point3(segment: str) -> bool:
     plain-redirect case reproduced above, nothing else. Used only by the
     point-3 loop in ``is_denied_bash_write``; every other caller of
     ``_has_write_marker`` (the git/wrapper/grant carve-outs, point 4) is
-    unchanged."""
+    unchanged.
+
+    BOTH checks use ``_names_governed_identifier`` (path-segment-boundary-
+    anchored, suffix-decoy-excluding), never the broad
+    ``_mentions_governed_identifier`` prefilter -- state/bug-backlog/
+    2026-09-01-doctrine-surface-bash-write-guard-matche-5afe5af585d7.yaml,
+    repro 1: a session-scratchpad probe file whose basename APPENDS a
+    suffix after the real extension (``CLAUDE.md.probe``) was denied by
+    both the redirect-target check and this bare-mention fallback, because
+    the broad substring test the prior revision used treats ``CLAUDE.md``
+    as present inside ``CLAUDE.md.probe`` -- true as a raw substring, false
+    as a path identity. A false positive HERE is not free the way it is at
+    the whole-command prefilter (module docstring point 1): this is the
+    decision point itself, so an unbounded substring match denies a write
+    that never touches a governed surface at all. Every existing true
+    positive keeps denying: each protected surface's own identifier is
+    still an EXACT match (no trailing extension of its own to be confused
+    for a decoy suffix).
+
+    QUOTED `>` IS SCRIPT SYNTAX, NOT A REDIRECT. A read-only ``awk``/``sed``
+    one-liner carries ``>`` as its own operator inside the quoted script
+    (``awk 'NR>1{print}' CLAUDE.md``); the shell never sees it as a
+    redirect. ``target_mentions`` already reaches inside quotes, so an awk
+    print-redirect naming a governed file (``awk '{print > "CLAUDE.md"}' x``)
+    still denies. Past that, if no ``>``/``>>`` survives
+    ``_strip_quoted_spans``, ``bare_mention`` has no real redirect to attach
+    to and only the non-redirect write markers apply. A real redirect
+    outside quotes (``awk '...' CLAUDE.md > /tmp/out``) still reaches
+    ``bare_mention`` unchanged, keeping NEGATIVE-SPEC-1's over-denial."""
     if not _has_redirect_marker(segment):
         return _has_write_marker(segment)
     target = _redirect_target_token(segment)
-    target_mentions = bool(target) and _mentions_governed_identifier(target)
-    bare_mention = _mentions_governed_identifier(_strip_quoted_spans(segment))
-    if target_mentions or bare_mention:
+    target_mentions = bool(target) and _names_governed_identifier(target)
+    if target_mentions:
+        return True
+    stripped = _strip_quoted_spans(segment)
+    if not _has_redirect_marker(stripped):
+        return _has_non_redirect_write_marker(segment)
+    bare_mention = _names_governed_identifier(stripped)
+    if bare_mention:
         return True
     without_redirect = _BARE_REDIRECT_RE.sub(" ", _SAFE_REDIRECT_RE.sub(" ", segment))
     return _has_write_marker(without_redirect)
 
 
+#: Every write marker except a redirect; ``_has_write_marker_for_point3``
+#: checks these alone once it has settled the redirect question itself.
+_NON_REDIRECT_WRITE_PATTERNS = (
+    _TEE_RE,
+    _SED_INPLACE_RE,
+    _PERL_INPLACE_RE,
+    _CP_MV_RE,
+    _WRITE_MODE_OPEN_RE,
+    _WRITE_METHOD_RE,
+    _EX_ED_RE,
+    _PATCH_RSYNC_RE,
+    _CURL_OUTPUT_RE,
+    _WGET_OUTPUT_RE,
+    _SED_WRITE_SCRIPT_RE,
+)
+
+
+def _has_non_redirect_write_marker(text: str) -> bool:
+    return any(pattern.search(text) for pattern in _NON_REDIRECT_WRITE_PATTERNS)
+
+
 def _has_write_marker(text: str) -> bool:
     if _has_redirect_marker(text):
         return True
-    for pattern in (
-        _TEE_RE,
-        _SED_INPLACE_RE,
-        _PERL_INPLACE_RE,
-        _CP_MV_RE,
-        _WRITE_MODE_OPEN_RE,
-        _WRITE_METHOD_RE,
-        _EX_ED_RE,
-        _PATCH_RSYNC_RE,
-        _CURL_OUTPUT_RE,
-        _WGET_OUTPUT_RE,
-        _SED_WRITE_SCRIPT_RE,
-    ):
-        if pattern.search(text):
-            return True
-    return False
+    return _has_non_redirect_write_marker(text)
 
 
 #: Interpreter / command-assembly indirection markers -- see module
@@ -614,8 +702,16 @@ def _mentions_governed_identifier(text: str) -> bool:
 def _names_governed_identifier(text: str) -> bool:
     """Path-segment-BOUNDARY-anchored test: does this text name a governed
     surface as its own path component, rather than merely contain the
-    characters inside a longer basename (``dotclaude.md``)? Precision half of
-    the pair above; never a prefilter."""
+    characters inside a longer basename (``dotclaude.md`` as a PREFIX decoy,
+    ``CLAUDE.md.probe`` as a SUFFIX decoy)? Precision half of the pair above;
+    never a prefilter -- used only at a decision point that already has a
+    single, specific TOKEN to classify (a redirect's own target, not an
+    unbounded blob of command text), where over-denying on a coincidental
+    substring costs a real false positive rather than nothing. See callers:
+    ``_has_write_marker_for_point3`` (a redirect's target token, and the
+    whole-segment bare-mention fallback) and
+    ``_assignment_indirection_reaches_a_write`` (point 4's redirect-target
+    narrowing, the same shape one level up)."""
     lowered = text.lower()
     return any(pattern.search(lowered) for pattern in _GOVERNED_IDENTIFIER_PATTERNS)
 
@@ -726,7 +822,30 @@ def _stdin_program_heredoc_bodies(text: str) -> "list[str]":
     friends, where the body IS the executed program. Returning those bodies
     lets the point-4 companion below scan them as live code without
     disturbing the strip that legitimately suppresses prose-in-a-heredoc
-    false positives everywhere else."""
+    false positives everywhere else.
+
+    GENUINELY UNTERMINATED HEREDOC (Review: code-reviewer, wsc-20260818-c3run
+    slice4 finding 3 -- state/debt-backlog/
+    2026-08-18-guard-doctrine-surface-bash-write-unterminat.yaml). When the
+    closing terminator line is never found (``scan`` runs off the end of
+    ``lines``), real bash does not discard the body -- it reads every
+    remaining byte up to actual EOF as the heredoc's program text. The prior
+    fallback set ``body = ""`` in that case, which is falsy, so the
+    ``if body and ...`` guard below skipped the segment entirely: an
+    assign-then-write-through-the-name payload (the exact shape
+    ``_has_stdin_program_var_write`` exists to catch) smuggled inside an
+    intentionally-unterminated heredoc was never scanned at all, a silent
+    ALLOW regardless of what the body contained. The fix mirrors
+    ``_strip_heredoc_bodies``'s own maximal-suspicion posture for this same
+    shape (nothing hidden, everything left visible to scan): the body is the
+    REST OF THE TEXT from just after the introducing line to the end, and
+    ``idx`` is advanced to the end of ``lines`` -- matching real bash
+    semantics, nothing after an unterminated heredoc can be a separate
+    command. This still only ADDS the body to the scan set; whether the
+    command actually denies is decided downstream by
+    ``_has_stdin_program_var_write`` exactly as for a terminated body, so an
+    unterminated heredoc containing no assign-then-write-through-name
+    pattern keeps allowing, same as before."""
     bodies: "list[str]" = []
     lines = text.split("\n")
     idx = 0
@@ -740,9 +859,12 @@ def _stdin_program_heredoc_bodies(text: str) -> "list[str]":
         scan = idx
         while scan < len(lines) and lines[scan].strip() != terminator:
             scan += 1
-        body = "\n".join(lines[idx:scan]) if scan < len(lines) else ""
         if scan < len(lines):
+            body = "\n".join(lines[idx:scan])
             idx = scan + 1
+        else:
+            body = "\n".join(lines[idx:])
+            idx = len(lines)
         if body and _STDIN_PROGRAM_RE.search(line[: match.start()] + " "):
             bodies.append(body)
     return bodies
@@ -796,11 +918,12 @@ def _has_stdin_program_var_write(cmd: str) -> bool:
             # WRITE intent through the bound name only. A bare ``open(NAME)``
             # is a READ and must keep passing -- matching it on the name alone
             # denied ``print(open(p).read())``.
+            escaped_name = re.escape(name)
             deref = re.compile(
-                r"open\s*\(\s*%s\s*,\s*['\"][wax]"  # open(p, "w")
-                r"|%s\s*,\s*['\"][wax]"  # io.open(p, "w"), any write-mode call
-                r"|%s\s*\)\s*\.\s*write"  # Path(p).write_text(...)
-                r"|>\s*\$?\{?%s\}?\b" % ((re.escape(name),) * 4)  # redirect via $p
+                rf"open\s*\(\s*{escaped_name}\s*,\s*['\"][wax]"  # open(p, "w")
+                rf"|{escaped_name}\s*,\s*['\"][wax]"  # io.open(p, "w"), any write-mode call
+                rf"|{escaped_name}\s*\)\s*\.\s*write"  # Path(p).write_text(...)
+                rf"|>\s*\$?\{{?{escaped_name}\}}?\b"  # redirect via $p
             )
             if deref.search(body):
                 return True
@@ -1287,7 +1410,14 @@ def _assignment_indirection_reaches_a_write(segments: "list[str]") -> bool:
         target = _redirect_target_token(segment)
         if not target:
             return True  # cannot resolve the destination -- fail closed
-        if _mentions_governed_identifier(target):
+        # `_names_governed_identifier` (boundary-anchored, suffix-decoy-
+        # excluding), not the broad `_mentions_governed_identifier` prefilter
+        # -- same fix, same reason, as `_has_write_marker_for_point3`'s
+        # target check: this IS the decision point for this single resolved
+        # target token, so a bare substring match (`p="CLAUDE.md.probe";
+        # echo x > "$p"` would otherwise deny a write that never touches the
+        # governed file) costs a real false positive here, not nothing.
+        if _names_governed_identifier(target):
             return True
         if any(deref in bound for deref in _VAR_DEREF_RE.findall(target)):
             return True

@@ -16,10 +16,15 @@ installer change for a discriminant that governs whether THIS repo's own
 sessions resolve the live engine checkout or the published engine.
 
 Contract:
-  stdin   — SessionStart JSON payload (unused — this hook needs no payload
-            field; it always resolves its OWN root from `__file__`, per
-            CLAUDE.md "Scripts self-resolve their own root from BASH_SOURCE,
-            never cwd")
+  stdin   — SessionStart JSON payload. This hook still resolves its OWN root
+            from `__file__` alone, per CLAUDE.md "Scripts self-resolve their
+            own root from BASH_SOURCE, never cwd" — the payload is read only
+            for two OTHER things it cannot get any other way: `cwd`, to
+            locate a DIFFERENT repo (rung 1, see `_scan_for_doe_clone`), and
+            `transcript_path`, to locate THIS session's own project
+            directory (see `_ensure_memory_dir_exists`). Read once and
+            cached by `_read_stdin_payload` — stdin can only be consumed
+            once per process.
   stdout  — NOTHING (registered `async: true` in hooks.json — this hook's
             whole value is the registry side effect, not context-bound
             output; see hooks.json's own C8/boot-sweep entries for the
@@ -42,6 +47,18 @@ Idempotence: reads the current registry value first
 resolution ladder itself uses) and does NOTHING — no write, no subprocess
 spawn — when it already matches this repo's own root. Only a genuinely
 absent or different value triggers a write.
+
+Third, independent step: `_ensure_memory_dir_exists()` recreates THIS
+session's own `~/.claude/projects/<slug>/memory/` directory when the
+harness has not (yet) lazily created it. The harness's own SessionStart
+system prompt asserts that directory "already exists -- do not run mkdir or
+check for its existence," but it is created lazily on first write and not
+persisted once emptied (e.g. by the workstream-complete drain gate, which
+empties the store to zero at every close) -- so the assertion is false on
+any slug currently empty, the normal post-drain state. This step runs
+whenever `root` resolves, regardless of whether either registry write below
+succeeds, since it shares no state with them. See that function's own
+docstring for the full contract gap it closes.
 
 Second key, `repos.doe_claude` — write-when-absent-only, not
 write-when-different: this is the engine's own canonical `doe_root`
@@ -153,6 +170,10 @@ _REPOS_REGISTRY_KEY = "repos.doe_claude"
 _SENTINEL_NAME = ".coordinator-dev-repo"
 _EXPECTED_SLUG = "doe-claude"
 
+#: The auto-memory subdirectory name under a session's own project directory
+#: (`~/.claude/projects/<slug>/memory/`) -- see `_ensure_memory_dir_exists`.
+_MEMORY_DIRNAME = "memory"
+
 
 #: Pointer files every no-launcher fence reads to find the doctrine clone
 #: (`snippets/resolve-coordinator-bin.md` § CLIs with no launcher). Both are
@@ -185,12 +206,41 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+_PAYLOAD_CACHE: dict = {}
+_PAYLOAD_READ_DONE = False
+
+
+def _read_stdin_payload() -> dict:
+    """The SessionStart JSON payload, parsed once and cached for the life of
+    this process.
+
+    stdin can only be consumed once, and two callers now need a field off
+    the same payload (`_payload_cwd` below, and `_payload_transcript_path`
+    for `_ensure_memory_dir_exists`) -- both route through this single read
+    rather than each calling `sys.stdin.read()` independently, which would
+    leave whichever runs second reading an already-drained, empty stream.
+
+    Never raises: an unreadable stream, or a body that fails to parse or
+    parses to something other than a dict, caches `{}` -- which every
+    caller's own `.get(...)` already treats as "field absent," the same
+    fail-open shape as the rest of this hook.
+    """
+    global _PAYLOAD_CACHE, _PAYLOAD_READ_DONE
+    if _PAYLOAD_READ_DONE:
+        return _PAYLOAD_CACHE
+    _PAYLOAD_READ_DONE = True
+    try:
+        raw = sys.stdin.read()
+        payload = json.loads(raw)
+        if isinstance(payload, dict):
+            _PAYLOAD_CACHE = payload
+    except Exception:
+        pass
+    return _PAYLOAD_CACHE
+
+
 def _payload_cwd() -> "Optional[str]":
     """The SessionStart payload's `cwd`, or None.
-
-    The payload is otherwise unused by this hook, and `sessionstart-async-
-    dispatch.py` hands each leg the same stdin text, so reading it here costs
-    one parse of a string already in memory.
 
     **Not a violation of "scripts self-resolve their own root, never cwd."**
     That rule governs a script locating its OWN tree, which rung 0 above still
@@ -200,18 +250,23 @@ def _payload_cwd() -> "Optional[str]":
     accepted on the strength of cwd: every candidate still has to clear
     `_is_genuine_doe_claude_repo`.
     """
-    try:
-        raw = sys.stdin.read()
-    except Exception:
-        return None
-    try:
-        payload = json.loads(raw)
-    except Exception:
-        return None
-    if not isinstance(payload, dict):
-        return None
-    cwd = payload.get("cwd")
+    cwd = _read_stdin_payload().get("cwd")
     return cwd if isinstance(cwd, str) and cwd else None
+
+
+def _payload_transcript_path() -> "Optional[str]":
+    """The SessionStart payload's `transcript_path`, or None.
+
+    Consumed only by `_ensure_memory_dir_exists()`, to locate THIS session's
+    own project directory (`<project-dir>/<session-id>.jsonl`) without
+    recomputing the harness's own project-slug algorithm -- undocumented,
+    not owned by this repo, and a wrong reimplementation would create a
+    directory nothing ever reads. The transcript path IS the harness's own
+    answer to where this session's project directory lives, for this
+    session, on this OS, with nothing to get wrong.
+    """
+    transcript_path = _read_stdin_payload().get("transcript_path")
+    return transcript_path if isinstance(transcript_path, str) and transcript_path else None
 
 
 def _scan_for_doe_clone(payload_cwd: "Optional[str]") -> "Optional[Path]":
@@ -374,10 +429,56 @@ def _resolve_doe_clone() -> Optional[Path]:
         return None
 
 
+def _ensure_memory_dir_exists() -> None:
+    """Self-heal step: recreate THIS session's own
+    `~/.claude/projects/<slug>/memory/` directory if the harness has not
+    (yet) lazily created it.
+
+    Invariant this makes true: the harness's own SessionStart system prompt
+    tells every agent this directory "already exists -- do not run mkdir or
+    check for its existence." That is false on any slug currently empty --
+    the harness creates the directory lazily on first write and does not
+    persist it once emptied (e.g. by the workstream-complete drain gate,
+    which empties the store to zero at every close). An agent that trusts
+    the prompt and writes without creating the parent is relying on its file
+    tool to `mkdir -p` silently. This step runs before anything else in the
+    session can act on that prompt, so the assertion is true by the time it
+    matters.
+
+    Derives the project directory from `_payload_transcript_path()` rather
+    than recomputing a project-slug algorithm this repo does not own --
+    see that function's own docstring.
+
+    Scoped by call site: `main()` only calls this after `root` has already
+    cleared the wrong-repo guard, so this closes the gap for a confirmed
+    DoE-claude session, not a general mechanism for every project on the
+    box.
+
+    Fails open like every other step in this hook: a missing/unreadable
+    `transcript_path`, or an unwritable directory, is a silent no-op, never
+    an exception.
+    """
+    transcript_path = _payload_transcript_path()
+    if not transcript_path:
+        return
+    try:
+        project_dir = Path(transcript_path).parent
+        (project_dir / _MEMORY_DIRNAME).mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+
 def main() -> int:
     root = _resolve_doe_clone()
     if root is None:
         return 0  # not confirmed anywhere — never register
+
+    try:
+        _ensure_memory_dir_exists()
+    except Exception:
+        # Defence in depth -- the function already fails open internally,
+        # same posture as every other call site in this hook.
+        pass
 
     try:
         reg_dir = _settings_home_registry_dir()

@@ -247,7 +247,7 @@ about your close. The live mechanism is the reviewer's own sidecar receipt.
 
 `--reviewer-evidence` correlates the `--reviewer` claim with an artifact showing the review ran.
 Delegate values (`code-reviewer`, `code-reviewer+staff-eng`, `staff-eng`, `ubt-compile`) take an
-existing sidecar path under `state/subagent-share/` or `state/plan-sidecars/`, or a dispatch id
+existing sidecar path under `state/subagent-share/` or `.coordinator-local/plan-sidecars/`, or a dispatch id
 matching column 1 of this session's own `dispatched-agents.txt`. `em-verified`/`waived` take ≥20
 characters of justification instead. Exempt: `wsc-auto-adjudication`, and a delegate reviewer at
 `--verdict pending`. The value gates the write and is not persisted into the record.
@@ -488,11 +488,16 @@ Both `review-coverage-gate.py` and the two-oracle brightline gate (§ Two-oracle
 
 **What this means in practice:** the verdict is a computed, trustworthy signal; the halt is prose addressed to the EM, whose compliance is the whole enforcement mechanism. Whether that should change — whether the gate should become an actual hard stop — is an open PM decision, not something this doctrine resolves; this section records the current mechanism honestly, not a recommendation either way.
 
-## Three-Surface Composition — Automated Build Verdicts (UBT pattern)
+## Three-Surface Composition — Automated Build Verdicts (UBT pattern), RETIRED from this repo's ceremonies
 
-The review trail accommodates automated build-quality checks via a deferred three-surface
-composition. The UBT compile gate is the first example; future automated linters (`clippy`,
-`eslint`, `pytest-coverage`) follow the same shape.
+**This pattern is not wired into any DoE ceremony.** UBT compile-freshness was never this repo's
+requirement to discharge — the writer's own docstring names example-game-repo's `/workstream-complete`
+Step 2.9 and `/workday-complete` as its consumers, and example-game-repo's own ceremonies now carry it.
+Neither `/workday-complete` nor `/workweek-complete` in this repo names a UBT step: see
+`docs/wiki/workweek-gate-residue.md § Step 4c/UBT directive — drained; it was never a gate` for
+the measurement and `coordinator/commands/workweek-complete.md § Step 0.95` for the standing
+ruling. What follows documents the marker/reviewer wire shape for readers tracing example-game-repo's own
+implementation, not a live DoE gate.
 
 ### Motivation
 
@@ -501,28 +506,21 @@ commits under the concurrent-EM cadence (`state/lessons/:324` — "at most one U
 executor in flight"). The three-surface pattern decouples intent-capture (cheap, workstream-complete)
 from build-execution (expensive, daily) from gate-enforcement (cheap, weekly).
 
-### Three surfaces and their roles
+### Three surfaces and their roles (example-game-repo-owned, not a DoE ceremony step)
 
 | Surface | Role | Cost | Trigger |
 |---|---|---|---|
 <!-- guard-allow: directive-ids-are-engine-current the row documents a RETIRED leg; naming a live id here would assert a wiring that no longer exists -->
-| ~~`/workstream-complete`'s `d-run-ubt-pending-check` directive~~ **RETIRED** | Wrote a `verdict=pending` marker if the chain-diff touched `control/plugin/**/Source/**/*.{cpp,h}` | — | **Nothing writes the marker today** |
-| `/workday-complete` Step 0c | Resolve today's pending markers — run UBT, parse result, write new resolved record | ~30s incremental | Daily |
-| `/workweek-complete` Step 4c | Refuse merge if any `verdict=pending` records have NO resolved sibling | Cheap (scan) | Weekly |
-
-### Cost profile
-
-<!-- guard-allow: directive-ids-are-engine-current same retired leg as the table row above -->
-**The writer leg is gone, so this chain currently starts at its second link.** `d-run-ubt-pending-check` was removed from `/workstream-complete` along with its CLI: the directive named `scan_unresolved_ubt_records.py` as its `cli` and no such script ever existed on disk, so the gate could not fire and reported success anyway — the worked example in `coordinator-tripwires/phantom-cli-guard-seam.md`. The op it fronted (`review_trail.scan_unresolved_ubt`) still exists and is still callable; what does not happen automatically is the per-session marker write. Read the two rows below as a resolver and a merge gate over a marker set nothing is currently populating.
-
-The asymmetry the table records still holds for the pattern: the writer leg was "Cheap (no build)" — a marker write, not a test tier. The full-tier run this pattern exists to gate happens at `/workday-complete` Step 0c, one of the three ceremonies holding an implicit Tier-U grant; `/workstream-complete` holds none and stays test-free → `docs/wiki/test-design-discipline.md § The Three Implicit-Grant Ceremonies`.
+| ~~`/workstream-complete`'s `d-run-ubt-pending-check` directive~~ **RETIRED** | Wrote a `verdict=pending` marker if the chain-diff touched `control/plugin/**/Source/**/*.{cpp,h}` | — | Retired; example-game-repo's own writer (`bin/check_ubt_build_fresh.py`) covers this leg |
+| example-game-repo's `/workday-complete` | Resolve today's pending markers — run UBT, parse result, write new resolved record | ~30s incremental | Daily, example-game-repo only |
+| example-game-repo's `/workstream-complete` Step 2.9 | Refuse merge if any `verdict=pending` records have NO resolved sibling | Cheap (scan) | Per-workstream, example-game-repo only |
 
 ### Two-record model (never-overwrite)
 
 Pending and resolved are distinct files. The pending marker is NEVER mutated after creation.
 Resolution writes a NEW `<base>.ubt-compile.resolved.json` alongside the pending file.
-`/workweek-complete` Step 4c scans for pending-without-resolved-sibling pairs (not raw
-`verdict=pending`), so a resolved pending record is not a merge blocker.
+Example-game-repo's `/workstream-complete` Step 2.9 scans for pending-without-resolved-sibling pairs
+(not raw `verdict=pending`), so a resolved pending record is not a merge blocker.
 
 **Filename shape:** `YYYY-MM-DD-<nanosecond-timestamp>-<sha-fragment>.ubt-compile.pending.json`
 and `<same-base>.ubt-compile.resolved.json`. Nanosecond precision eliminates concurrent-session

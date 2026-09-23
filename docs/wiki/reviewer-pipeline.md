@@ -164,7 +164,7 @@ Before dispatching expensive Opus reviewers, decide whether to run the **prior-a
 
 **Dispatch:**
 1. Dispatch `prior-art-checker` agent with the plan path.
-2. prior-art-checker reads the coordinator's accumulated internal doctrine and decision corpus; cross-references the plan; writes a sidecar at the plan-derivable `state/plan-sidecars/<plan-stem>.prior-art-check.md` home (D0).
+2. prior-art-checker reads the coordinator's accumulated internal doctrine and decision corpus; cross-references the plan; writes a sidecar at the plan-derivable `.coordinator-local/plan-sidecars/<plan-stem>.prior-art-check.md` home (D0).
 3. Sidecar verdict is `COMPATIBLE`, `WARN`, or `BLOCKED-SURFACE-TO-PM`.
 4. **EM reads the sidecar before dispatching the Opus reviewer.** This step is mandatory — the verdict determines whether to proceed or escalate to PM. It does NOT require EM pre-disposition of Conflicts; the Opus reviewer's judgment is the primary input on direction-of-correction (per `snippets/prior-art-check-consumption.md` and `docs/wiki/prior-art-checker.md § Bidirectional resolution`).
    - **COMPATIBLE:** include the sidecar path in the Opus reviewer's dispatch prompt and proceed.
@@ -200,7 +200,7 @@ Before dispatching expensive Opus reviewers, decide whether to run the **prior-a
 
 **Dispatch:**
 1. Dispatch `plan-coverage-checker` agent with the plan path.
-2. Agent parses oracle + slate, runs three lenses, writes sidecar at the plan-derivable `state/plan-sidecars/<plan-stem>.plan-coverage-check.md` home (D0).
+2. Agent parses oracle + slate, runs three lenses, writes sidecar at the plan-derivable `.coordinator-local/plan-sidecars/<plan-stem>.plan-coverage-check.md` home (D0).
 3. EM reads sidecar before dispatching the Opus reviewer.
    - **COMPLETE:** include sidecar path in Opus reviewer dispatch and proceed.
    - **INCOMPLETE:** fold findings into the plan BEFORE Opus reviewer dispatch. Missed items added to slate or OOS with architectural reason. Weak-OOS rewritten or promoted to slate. Substrate-drift amended.
@@ -238,8 +238,8 @@ Before dispatching expensive Opus reviewers, decide whether to run the **externa
 **This phase always runs AFTER Phase 2.7b (prior-art-checker).** It reads the prior-art sidecar as input; dispatching it before prior-art-checker runs produces an automatic SCOPE-MISMATCH abstain.
 
 **Dispatch (when both conditions hold):**
-1. Dispatch `external-pattern-checker` agent with the plan path. The EM does NOT pass the prior-art sidecar path as an argument — external-pattern-checker DERIVES it itself from the plan-stem convention (`state/plan-sidecars/<plan-stem>.prior-art-check.md`, D0), the same convention its own output home follows. This is the load-bearing proof that the plan-derivable convention closes the coupling gap that a passed-argument would have papered over.
-2. The agent locates and reads the prior-art sidecar via that derivation, identifies architecturally-loaded Silent claims, runs ≤ 2 WebSearch + ≤ 5 WebFetch, and writes a sidecar at the plan-derivable `state/plan-sidecars/<plan-stem>.external-pattern.md` home (D0).
+1. Dispatch `external-pattern-checker` agent with the plan path. The EM does NOT pass the prior-art sidecar path as an argument — external-pattern-checker DERIVES it itself from the plan-stem convention (`.coordinator-local/plan-sidecars/<plan-stem>.prior-art-check.md`, D0), the same convention its own output home follows. This is the load-bearing proof that the plan-derivable convention closes the coupling gap that a passed-argument would have papered over.
+2. The agent locates and reads the prior-art sidecar via that derivation, identifies architecturally-loaded Silent claims, runs ≤ 2 WebSearch + ≤ 5 WebFetch, and writes a sidecar at the plan-derivable `.coordinator-local/plan-sidecars/<plan-stem>.external-pattern.md` home (D0).
 3. Sidecar verdict is `RESEARCH-RECOMMENDED`, `LIGHT-CONTEXT-AVAILABLE`, `NO-EXTERNAL-SIGNAL`, `DEGRADED`, or `SCOPE-MISMATCH`.
 4. **EM reads the sidecar before dispatching the Opus reviewer.** The verdict determines next steps:
    - **RESEARCH-RECOMMENDED:** EM dispatches the recommended `general-purpose` web scout or `/deep-research` as a separate decision before the Opus review. Include the sidecar path in the Opus reviewer prompt.

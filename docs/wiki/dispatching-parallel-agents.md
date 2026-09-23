@@ -1516,6 +1516,15 @@ directly-invoked-op probe, not the post-restart observation.
 
 **Dispatch-seam corollary — verify each cross-cutting registration END-TO-END, not just the entry point.** When a fan-out wave adds a cross-cutting registration (a new action, route, handler, CVar), verifying "added to ACTIONS" is insufficient — verify the full chain: validation-set membership AND dispatch-forward wiring AND the backing handler all exist and connect. A registration that lands in the lookup table but never wires to a handler ships green at the registry level and fails at runtime. (observed empirically, twice: once a new lane dropped a seed filter, once a registration was validated only at the lookup-table level, not end-to-end.)
 
+## Single-File "Extract-N + Rewrite-N" Refactors Are Sized by Step Count, Not File Count
+
+**A single-file refactor that extracts N helpers and rewrites N call sites is one file to the file-overlap gate but 2N mechanical edits of work.** Size a single-file chunk by its internal step total (extractions + rewrites), not its file count: a high step count on one file is the same over-budget shape as a high file count, and it hides from both existing signals — § Wall-Time Cap and Chunking Threshold keys on file count, and § Chunk-Size Signal fires only after the fact. An executor handed such a refactor as "one file" stalled at ~600s, past the 5-10 min target and pressing the 15-min ceiling, with neither signal firing.
+
+**Two remedies:**
+
+- **Same-file sequential dispatch** — C-a (extract the helpers) → C-b (rewrite the call sites), verified between dispatches, per § Same-File Sequential Chunk Split below.
+- **Self-execute under a loaded-context carve-out** — only when the EM already holds the target file loaded from diagnosing the refactor and the edit is mechanical, not judgment-bearing; there a fresh executor's own read can cost more than the inline edit. Past that narrow shape, § Inline-EM Dispatch Classification's default-to-dispatch posture holds.
+
 ## Same-File Sequential Chunk Split — Anchor Downstream Edits on Greppable Symbols, Not Line Numbers
 
 **When a same-file edit is split into sequential chunks (C3a → C3b), the downstream brief must anchor its edit sites on greppable symbols, not line numbers — the predecessor chunk shifts every line below its edit.** A C3b brief that says "edit line 142" is wrong the moment C3a inserts or deletes lines above 142. Anchor on a unique symbol/string the executor greps for, and add a backstop-grep step to the brief: the executor confirms the anchor resolves to exactly one site before editing. (observed empirically.)

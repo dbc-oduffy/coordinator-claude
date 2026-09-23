@@ -732,7 +732,9 @@ Either emit with `\n` line endings from the Python side (open stdout in binary o
 
 *~/.claude.* A recurring Windows blue-`powershell.exe` flash was assumed upstream/Claude-Code-owned and treated as belt-only ("can't fully fix this"). Root cause was our own `CLAUDE_CODE_USE_POWERSHELL_TOOL=1` added months earlier via `git log -S <setting> -- settings.json`.
 
-**Caveat — this bisect is currently undischargeable for `~/.claude`-level settings.** The provenance commits this lesson was originally verified against do not resolve in any tracked repo: `~/.claude` was re-initialised from scratch and its git history begins from that re-init — there is no earlier history left to bisect. A machine-level `settings.json` maintained outside a git repo entirely (e.g. a hand-edited Windows-side copy) has no history to bisect in the first place. Before reaching for `git log -S` on this class of setting, confirm the target file's history actually reaches back far enough — if it doesn't, the lesson's method degenerates to "read the current value and reason from evidence outside git," not a 3-second bisect.
+**Precondition — the target file must be tracked with history reaching back before the suspected regression.** Without it, a zero-hit `git log -S` is indistinguishable from "the setting was never added." Confirm history depth before trusting a zero-hit result.
+
+This bisect is undischargeable for `~/.claude`-level settings: `~/.claude`'s git history begins at a from-scratch re-init, so there is no earlier history to bisect, and a machine-level `settings.json` kept outside git (e.g. a hand-edited Windows-side copy) has none at all. There the method degenerates to "read the current value and reason from evidence outside git," not a 3-second bisect.
 
 ## Bash tool cwd persists across calls — never cd without cd-ing back
 

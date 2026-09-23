@@ -69,6 +69,8 @@ Spec backlink: DoE-claude coordinator/skills/setup/SKILL.md (Steps 1, 3, 4, 6 Pr
 """
 from __future__ import annotations
 
+INSTALL_CLASS = False  # writes only a chain-walk visited-set; see door_install.declared_install_class
+
 import argparse
 import datetime
 import json

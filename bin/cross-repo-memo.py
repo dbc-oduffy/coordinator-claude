@@ -2072,7 +2072,16 @@ _OUTBOX_REQUIRED_FIELDS = ("title", "from", "to", "created", "status", "delivery
 # `cross-repo-memo.schema.json` declares it as a bare string with no enum.
 # `notice` (klabauter#46/#40, 2026-09-19) therefore round-trips today; nothing
 # is owed by a peer. Confirmed against DoE-claude's tree 2026-09-20.
-_VALID_KINDS = ("ask", "consult", "fyi", "proposal", "bug", "notice")
+#
+# `friction` (2026-09-22) closes
+# state/improvement-queue/2026-09-05-memo-kind-has-no-friction-value-and-bug-
+# degrades-silently.yaml: draft-side offered `bug` for reports that were
+# really workflow friction, which both overstated the report and then
+# silently degraded to `ask` at pickup (the receiving side did not know
+# `bug` either, at the time). `friction` gives that category its own value,
+# reconciled with a real `_KIND_DISPOSITIONS` entry — see
+# `pickup_assemble.__init__._KIND_DISPOSITIONS`.
+_VALID_KINDS = ("ask", "consult", "fyi", "proposal", "bug", "notice", "friction")
 
 # The kinds that assert a premise about the RECEIVER's tree state, and so earn
 # the premise-check advisory. `fyi`/`consult` are deliberately excluded: they

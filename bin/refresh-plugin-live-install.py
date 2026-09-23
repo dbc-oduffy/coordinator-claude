@@ -53,6 +53,8 @@ Propagation modes (registry `propagation_mode` field):
 
 from __future__ import annotations
 
+INSTALL_CLASS = True  # re-lands the live plugin install; see door_install.declared_install_class
+
 import argparse  # noqa: F401  (kept for parity with sibling ports; CLI uses a hand
                   # -rolled loop below so --help matches the original script's shape)
 import atexit

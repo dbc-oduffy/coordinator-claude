@@ -495,7 +495,7 @@ _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]*$")
 #: That test exists because this tuple sat one value stale (`bug` landed in the
 #: engine and in cross-repo-memo, not here) and the scaffolder refused a kind
 #: the sender accepted.
-_MEMO_KINDS = ("ask", "consult", "fyi", "proposal", "bug", "notice")
+_MEMO_KINDS = ("ask", "consult", "fyi", "proposal", "bug", "notice", "friction")
 
 # Slice ID regex — allows uppercase because slice IDs like "Z", "A", "B1" are common in wave-maps.
 _SLICE_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9\-]*$")

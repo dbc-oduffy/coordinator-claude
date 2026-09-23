@@ -45,6 +45,8 @@ Port backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
 
 from __future__ import annotations
 
+INSTALL_CLASS = True  # writes a git hook; see door_install.declared_install_class
+
 import os
 import sys
 

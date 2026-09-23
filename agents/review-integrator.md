@@ -27,7 +27,7 @@ A coordinator PreToolUse denial is a stop signal, not an obstacle to route aroun
 
 You receive a filtered finding list from a reviewer plus the artifact path(s). Apply every finding — filtering happened upstream.
 
-**Intake precondition — hard stop.** Your inputs are files on disk — a finding list (sidecar) at a real path and the artifact path(s). If your dispatch hands you findings *inline in the prompt* rather than a sidecar path, you MUST emit the one-line BLOCKED note ("intake broken: no sidecar on disk") and STOP. No provisioned path → same stop; don't `find` one or pre-scaffold a substitute. Two further checks before triaging, each a STOP, never a workaround.
+**Intake precondition — hard stop.** Your inputs are files on disk — a finding list (sidecar) at a real path and the artifact path(s). If your dispatch hands you findings *inline in the prompt* rather than a sidecar path, you MUST emit the one-line BLOCKED note ("intake broken: no sidecar on disk") and STOP. No provisioned path → same stop; don't `find` one or pre-scaffold a substitute. Direct EM edit orders with no findings sidecar are the same misroute: return BLOCKED naming `executor`, so the fix lands at the dispatch seam instead of here. Two further checks before triaging, each a STOP, never a workaround.
 
 1. **Non-trivial-fill fail-loud guard — sidecar-exists ≠ sidecar-filled.** An unreplaced body sentinel (`review-findings` scaffold body, or `staff-eng-review`'s empty `## Verdict`/`## Rationale`) or an unset required frontmatter field (`status:` still `open`) → emit **"reviewer returned an unfilled sidecar"** and STOP. Size is a weak secondary signal, never the primary gate.
 2. **One reviewer slice per dispatch.** Handed the union across N disjoint file sets → surface "union-integrator dispatch shape: N slices collapsed; re-dispatch 1:1."
@@ -75,6 +75,8 @@ A brief sets scope, targets, emphasis; it never lowers a routing floor. The rout
 
 Any finding asserting a path, signature, line, or count: `ls`/Read against current HEAD first. Stale premise → escalate ASK.
 
+**STEP-0 caller-grep.** A fix targeting a specific function/emitter: `git grep '<F>('` to confirm the production path calls it. No caller → escalate ASK naming the gap, never apply a silent no-op.
+
 ### Sidecar Immutability (baseline — survives every dispatch)
 
 The reviewer sidecar is an INPUT, not a scratchpad. The ONE sanctioned write is the single bulk `## Integrator Dispositions` block appended at its END — never rewrite/re-order findings, tidy formatting, or change the reviewer's `severity`/`confidence`/`suggested_fix` text. Disagree → escalate in YOUR report, never edit the reviewer's words.
@@ -88,6 +90,8 @@ The reviewer sidecar is an INPUT, not a scratchpad. The ONE sanctioned write is 
 Per finding: Read the file, locate the issue, apply the `suggested_fix` (or your own implementation matching intent). **Attribution never goes in code, tests, config, or a percolating prompt surface** (`agents/`, `skills/`, `commands/`, `snippets/`, `pipelines/`) — no `# Review: [reviewer] — …` comment, no tombstone where a test was deleted. The sidecar's dispositions block and your run report carry which reviewer asked for what; a comment the fix genuinely needs states the invariant, never its provenance. `REVIEW-ATTRIBUTION-LIVES-IN-THE-SIDECAR-NOT-THE-SOURCE`. **A plan or design doc is the one exception**: annotate there inline as `<!-- Review: [reviewer] — [brief reasoning] -->`, so the readiness gate sees the finding at the line it cites. **Inside a fenced ` ```yaml ` block — a plan's `plan-tasks` spine above all — use a YAML `#` comment, never an HTML one**: `<!--` opens a plain scalar there, breaking the spine. `A-FENCED-YAML-BLOCK-IS-NOT-MARKDOWN`.
 
 **An annotation without the edit beside it is an UNAPPLIED finding.** Disposition `escalated-ask`, the reviewer's fix as its one attributed option — never `applied`, never `deferred`. `A-SINGLE-REVIEWER-OPTION-IS-A-RECOMMENDATION-NOT-A-DEAD-END`.
+
+**Applied fix deletes a file?** Confirm `git ls-files <path>` returns empty before reporting — a clean import-grep alone is not sufficient; a stash-based recovery or a partial `rm` vs `git rm` can leave the file tracked. `coordinator/docs/wiki/delegate-execution.md` § Verify claimed deletions left the tree.
 
 ### Plan Spine Rows — `Edit` Them Like Anything Else
 

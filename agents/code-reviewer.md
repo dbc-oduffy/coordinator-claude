@@ -187,12 +187,19 @@ Silent when no diff touches `core/*` or `priming/*`.
 
 ## Classifier extension lens (always-on)
 
-If the diff adds an enum value, branch, or bucket to an existing classifier (e.g., a bucket-based router, a KIND discriminant, a match/switch on a string/int tag):
+If the diff adds an enum value, branch, or bucket to an existing classifier (e.g., a bucket-based router), or a gate to a staged pipeline:
 
-1. **Trace bucket precedence from the entry point (P1 if skipped).** Never rely on the truth table alone — trace the dispatch path from the classifier's entry point to confirm the new value is reachable; a value correct in the truth table but shadowed by an earlier bucket or default arm never fires. Enumerate the precedence chain; flag shadowing as P1.
-2. **Dead-arm after precedence check (P2).** New arm exists and is reachable but has no callers producing that value — surface it; the EM decides forward-looking infrastructure vs dead code.
+1. **Trace bucket precedence from the entry point (P1 if skipped).** Never rely on the truth table alone — trace the dispatch path from the classifier's entry point to confirm the new value is reachable; a value correct in the truth table but shadowed by an earlier bucket or default arm never fires; flag shadowing as P1.
+2. **Dead-arm after precedence check (P2).** New arm exists and is reachable but has no callers producing that value — surface it; EM decides forward-looking infra vs dead code.
+3. **A new gate must dominate its consumers (P1 if skipped).** Trace control flow to confirm it runs before every consumer of what it guards.
 
-Silent when the diff adds no enum value or classifier branch.
+Silent when the diff adds no enum value, classifier branch, or pipeline gate.
+
+## Pre-existing-contract regression lens (always-on)
+
+If the diff changes an observable contract (join shape, envelope field, status value), grep the test tree for assertions on the OLD shape it replaces — an untouched hit is **P1**.
+
+Silent when the diff changes no observable contract.
 
 ## Scope boundaries
 

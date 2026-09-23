@@ -215,11 +215,11 @@ If you have hit this guard, there are three ways forward, in order of likelihood
   write the reviewer's verbatim output into the already-provisioned sidecar path, then re-dispatch
   review-integrator naming that exact path in the prompt.
 
-### `state/plan-sidecars/` is never the answer here, even for a `staff-eng-review`-lens plan review
+### `.coordinator-local/plan-sidecars/` is never the answer here, even for a `staff-eng-review`-lens plan review
 
 A persona's findings on a PLAN can look, at a glance, like they belong next to the plan-pipeline
-lens sidecars (`state/plan-sidecars/<plan-stem>.prior-art-check.md` and siblings) -- they don't.
-`state-placement-law.md`'s two rows are explicit about the split: `state/plan-sidecars/` is
+lens sidecars (`.coordinator-local/plan-sidecars/<plan-stem>.prior-art-check.md` and siblings) -- they don't.
+`state-placement-law.md`'s two rows are explicit about the split: `.coordinator-local/plan-sidecars/` is
 reserved for exactly four plan-derivable, D0/Z2-relocated, UNREAPED-BY-DESIGN lens emitters
 (prior-art-check, plan-coverage-check, docs-check, external-pattern) whose whole purpose is
 cross-run continuity at a fixed plan-derived path. `staff-eng-review` (and every other persona
@@ -227,9 +227,9 @@ finding, code review included) stays session-keyed at `state/subagent-share/<ses
 the one home the typed-sidecar contract gives it, reaped on an age/liveness floor once its
 content folds into a consuming
 artifact -- a fundamentally different lifecycle than the unreaped lens sidecars. A persona findings
-sidecar that lands under `state/plan-sidecars/` didn't move because the guard's regex is narrow; it
+sidecar that lands under `.coordinator-local/plan-sidecars/` didn't move because the guard's regex is narrow; it
 moved because provisioning put it in the wrong family. Widening `_SIDECAR_PATH_RE` to also admit
-`state/plan-sidecars/` would fix the symptom by erasing that reap-lifecycle distinction -- resist
+`.coordinator-local/plan-sidecars/` would fix the symptom by erasing that reap-lifecycle distinction -- resist
 it. The fix is re-dispatching (or re-provisioning) the persona so its findings land at its own
 auto-provisioned `state/subagent-share/` path, not teaching the guard to accept the wrong family.
 

@@ -77,6 +77,15 @@ Procedure detail — body authoring, `d5` release, next-steps durability,
 supersession, orientation refresh — arrives with this invocation from
 `coordinator/skills/handoff/residue/`; you should not need to open it.
 
+**`d5` releases the plan artifact-claim only — the path-touch plane is a separate close-time
+check.** Before this session ends, loop `who-claims-path <repo-relative-path>` over the paths it
+actually touched and release what comes back with `session-claim-cli release-artifact artifact
+<path>`. `list-claims-by-session` never enumerates the path-touch plane, so a clean-looking
+result from it proves nothing about touch-claims. Recheck any path a safe-commit already
+committed but this session then edited again — that re-touched path is where a claim goes
+missing, not merely stale.
+`coordinator/docs/wiki/coordinator-tripwires/touch-claim-retirement-is-commit-path-specific-who-claims-path-is-the-only-instrument-that-sees-it.md`.
+
 ---
 
 ## Step 0: Trigger Check — Is Context Pressure Actually Forcing This?

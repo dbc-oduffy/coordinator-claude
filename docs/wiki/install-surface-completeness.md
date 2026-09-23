@@ -70,6 +70,8 @@ Before declaring work done, your install-surface writes pass all three:
 
 Could you reproduce the state your work depends on by running the documented install path on a fresh `~/.claude/` (or fresh sibling-repo checkout)? If "no" or "I haven't checked," your installer is incomplete. The most direct version of this check is to actually run the installer in a scratch directory; the cheap version is to trace the install script line-by-line against the state your work needs.
 
+**Extends to a plan chunk's scoping claim.** A chunk scoped "only X changes — the rest resolves/builds automatically" rests on an unverified upstream assumption this check covers: see § Install/consumer plans must verify an assumed-away upstream dependency by running the real resolver/build.
+
 ### (b) Doctor surface
 
 Does the relevant `:doctor` skill detect the absence of the state your work needs? If a new operator runs `:doctor` on a fresh install, do they get a diagnostic that names what's missing and remediates (or directs them to the installer)? Silent missing-state is the failure mode this check prevents.
@@ -190,7 +192,7 @@ This lens runs as a structural check; the reviewer need not have domain context 
 
 ## Greppability for prior-art-checker
 
-This wiki is intentionally keyword-dense so prior-art-checker surfaces it on plans touching install surface. Keywords carried: `install surface`, `clean install`, `installer story`, `cross-repo install`, `machine-local`, `doctor surface`, `install completeness`, `live-process file-lock`, `editable-install drift`, `dependency-by-venv-leakage`, `doctor as EM-substitute`, `git-lfs`, `git lfs pull`, `LFS pointer materialization`, `LFS orphan object`, `silent pointer`. Plans that grep for any of these will match this wiki in the prior-art sidecar. Additional keywords from the running-in-Claude-Code section: `running-in-Claude-Code`, `restart-gated`, `configured-but-broken`, `restart-batch`, `validated as working`.
+This wiki is intentionally keyword-dense so prior-art-checker surfaces it on plans touching install surface. Keywords carried: `install surface`, `clean install`, `installer story`, `cross-repo install`, `machine-local`, `doctor surface`, `install completeness`, `live-process file-lock`, `editable-install drift`, `dependency-by-venv-leakage`, `doctor as EM-substitute`, `git-lfs`, `git lfs pull`, `LFS pointer materialization`, `LFS orphan object`, `silent pointer`. Plans that grep for any of these will match this wiki in the prior-art sidecar. Additional keywords from the running-in-Claude-Code section: `running-in-Claude-Code`, `restart-gated`, `configured-but-broken`, `restart-batch`, `validated as working`. Additional keywords from the assumed-away-upstream-dependency section: `assumed-away dependency`, `run the real resolver`, `verify the upstream dependency`, `target platform resolver`, `uv sync --dry-run`, `only X changes` scoping claim.
 
 ## Doctor surface gaps and the vacuous-pass anti-pattern
 
@@ -318,6 +320,12 @@ When mirroring a peer repo's pinned-dependency story (e.g. a pinned-CUDA lockfil
 - **`soft-dep || true` swallow + a deleted readiness probe = green-twice defect** — a soft dependency that swallows its own failure (`|| true`) AND a readiness probe that was removed produces a doubly-false green: the install "succeeds" and the (absent) probe "passes," so the broken state ships undetected.
 
 (Source: example-game-workbench-repo.) Composes with § Versioned gates / Post-Consumer Gates (advisory-WARN) and the doctor-EM-substitute framing — a deleted readiness probe is the absence of the consumer's self-service diagnostic.
+
+## Install/consumer plans must verify an assumed-away upstream dependency by running the real resolver/build
+
+**Rule.** For any install/consumer plan chunk scoped "only X changes" (the rest assumed to resolve or build cleanly), run the real resolver or build for the assumed-away part **on the target platform** before accepting the scoping claim — the actual package-manager resolve (e.g. `uv sync --dry-run`) or cross-compile/build step, never a read of the manifest. A pinned dependency, an `explicit`/platform-restricted lockfile source, or a CUDA-only wheel can fail upstream of the stated fix-locus with no signal in the diff. Reasoning about a lockfile is a hypothesis; running the resolver is the proof. This is check (a) of § The completeness test — three concrete checks, applied one level up at plan-scoping time; it composes with § Mirroring a peer's pinned-CUDA dependency (the most common trigger) and § FB-2 rule — functional-not-existence probes.
+
+*Worked example (example-game-workbench-repo).* `gpu-sidecar-macos-mps` C3 scoped itself to "only the `gpu_sidecar` torch step needs a Darwin branch — `uv` resolves the main-runtime torch automatically." The ML/torch-lens reviewer stopped at the runner surface; the portability reviewer traced one level up and found `uv.lock` pinning `torch==2.12.0+cu130` under `[tool.uv.sources] explicit` — no macOS arm64 wheel — so `uv sync` fails on Mac before the chunk's locus is reached, confirmed by running `uv sync --dry-run`.
 
 ## A runtime sidecar provisions on the host's resolved interpreter, not a separate phase
 

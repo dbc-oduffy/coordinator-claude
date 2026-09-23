@@ -33,7 +33,8 @@ output files from the scratch directory.
 ### Phase 1: Assess (adversarial coverage check)
 
 Before writing anything, use extended thinking to map which specialist findings reinforce each
-other, where contradictions exist, and what the coverage gaps are.
+other, where contradictions exist, and what the coverage gaps are. Silence here is expected, not
+stalled.
 
 Read all specialist claims (`{letter}-claims.json`) and summaries (`{letter}-summary.md`).
 Adversarial coverage check:

@@ -61,6 +61,8 @@ and hands it to that module.
 # apart from "checks could not run at all, e.g. cold machine with
 # the engine root/DoE root unresolvable" (3).
 from __future__ import annotations
+
+INSTALL_CLASS = False  # read-only validator; see door_install.declared_install_class
 import os
 import sys
 

@@ -19,7 +19,7 @@ order: 1
   EM diffs the new sidecar against it to see what the amendment moved.
 
 **A delta re-run writes the canonical path, never a delta-suffixed one.** The plan-sidecar
-family has exactly one path per `(plan-stem, lens)` pair — `state/plan-sidecars/<plan-stem>.<lens>.md`
+family has exactly one path per `(plan-stem, lens)` pair — `.coordinator-local/plan-sidecars/<plan-stem>.<lens>.md`
 — and provisioning re-opens it idempotently on re-dispatch. A re-run archives the prior sidecar
 by inserting `.<UTC-mtime>` before its final `.md` (filename-safe — hyphens for colons) and
 writes the fresh findings at the canonical path. A name like `<plan-stem>.<lens>-delta.md` is off

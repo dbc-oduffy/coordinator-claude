@@ -57,6 +57,8 @@ dual-identity anti-pattern (docs/wiki/dual-identity-module-hazard.md and
 docs/wiki/machine-local-registry.md §8(a)); shell-out is the only contract.
 """
 
+from __future__ import annotations
+
 import sys
 import os
 import json

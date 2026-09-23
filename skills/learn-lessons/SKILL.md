@@ -82,7 +82,7 @@ directive`:
 - **local:** the `learn_lessons_pipeline` brief's age-sweep directive as the only pre-run step —
   never write routing records under `state/lessons/`; the grind writes them under
   `<run_dir>/records/`. Emit with `emit-dispatch-workflow.py --queue state/lessons --profile
-  lessons --appetite <a> --out <scratch>`, fire with `Workflow({scriptPath})`, never `--fire`.
+  lessons --appetite <a> --out <scratch>`, fire with the `Workflow({scriptPath, args})` call it prints, never `--fire`.
 - **central route:** drain the outbox, then assert cross-plane emptiness first (a FAIL stops the
   run and goes to the PM). Emit `--queue state/lessons-outbox --profile lessons-central-route`,
   fire, then present the `pm-decision` hand-back to the PM; the EM writes each ruling as

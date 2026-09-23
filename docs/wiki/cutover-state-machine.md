@@ -374,6 +374,35 @@ the resulting scope: every distinct live surface the census found gets a
 record, several surfaces already had more than one hand-rolled consumer plan
 asking for the same underlying cutover.
 
+## Diagnosing a foreign consumer's test surface before opening the record
+
+<!-- spec-backlink: state/handoffs/2026-09-23-cutover-consumer-test-preflight.md -->
+
+Two causes make a gate verdict swing (`closed-reason-terminal` went PASS → INDETERMINATE →
+REFUSE → INDETERMINATE), distinct from § A sibling's bulk rename orphans `verified_by` refs
+silently, above. Recognize them on sight:
+
+- **The verifiability wall.** `verified_by: {kind: test-node-id}` is admissible only if the cited
+  file is importable. A `*.test.py` dotted basename, a JS-runner test, or a fixture file cannot be
+  collected by pytest at all, so a consumer whose only coverage lives there has no honest
+  reference this record can cite, however correct the consumer is. This is a property of the
+  *file*, checkable by attempting collection before any triage of what the file asserts.
+- **Precision-for-recall false positives.** A derivation or companion test enforcing the
+  cutover's vocabulary can fire on a literal that merely shares its words while belonging to an
+  unrelated enum on a different entity (plan-status `abandoned`/`implemented` vs. handoff
+  `closed_reason`; a result-dict key `closed` that is a count, not a status). The tell is a check
+  applied *regardless* of a classification the same code already computes (e.g. a
+  `reads_deployment_state` flag): treat that RED as a candidate false positive and inspect which
+  enum the flagged literal belongs to.
+
+**Method: sample-read, never run.** Before opening a cutover record whose `gate_source` spans a
+foreign repo, read (not run) the cited consumer files for both tells: is the citation collectable
+at all, and does the enforcing check's own classification agree with the literal it flags. There
+is no engine-run pre-flight: running a sibling repo's tests from here is a cross-repo test
+execution with its own authority cost (`CLAUDE.md` § cross-repo commit/test discipline), out of
+proportion to what a sampled read catches — and catching both before the record opens is cheaper
+than meeting them mid-cutover as an INDETERMINATE the gate cannot explain.
+
 ## Cross-references
 
 - `coordinator/docs/wiki/schema-version-gate.md` § Reader-first ordering, §

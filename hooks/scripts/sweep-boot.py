@@ -342,10 +342,15 @@ def _record_failure(
             return
         record_child_failure = _import_record_child_failure(claude_klabauter_root)
         if record_child_failure is not None:
+            # `record_child_failure` derives its persisted log line from `exc` when
+            # given, else falls back to a bare "non-zero exit {exit_code}" -- so
+            # `detail` (which may carry e.g. _LOCK_CONTENTION_NOTE) must always be
+            # forwarded via `exc`, not only on the exception path, or it never
+            # reaches the log.
             record_child_failure(
                 repo_root,
                 os.path.abspath(__file__),
-                exc=None if exit_code is not None else RuntimeError(detail),
+                exc=RuntimeError(detail),
                 exit_code=exit_code,
             )
         else:

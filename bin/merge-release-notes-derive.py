@@ -65,7 +65,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 _BIN_DIR = Path(__file__).resolve().parent
 
@@ -136,13 +136,28 @@ def _tag_ancestor_shas(tag: str) -> Set[str]:
     return {line.strip() for line in r.stdout.splitlines() if line.strip()}
 
 
-def _contains_all(tag: str, commits: List[str]) -> bool:
+def _contains_all(
+    tag: str,
+    commits: List[str],
+    _cache: Optional[Dict[str, Set[str]]] = None,
+) -> bool:
     # Membership is by PREFIX, not equality: completion-log `commits:` entries
     # carry abbreviated shas (8 chars today) while `git rev-list` emits full
     # 40-char ones, so equality would be False for every real entry and silently
     # collapse every lookup to the release-tag-cut fallback -- no exception, no
     # failing test. `merge-base --is-ancestor` resolved the abbreviation itself.
-    ancestors = _tag_ancestor_shas(tag)
+    #
+    # `_cache`, keyed by tag, is an across-entries memo for `_tag_ancestor_shas`
+    # (one `git rev-list` per tag instead of one per (entry, tag) pair) -- see
+    # `cmd_flip_tags`'s own comment for why this was the measured 2.6s/entry
+    # cost on a multi-tag repo. Left `None` (the default) for direct unit
+    # callers, which keep their existing one-shot-per-call contract.
+    if _cache is not None:
+        if tag not in _cache:
+            _cache[tag] = _tag_ancestor_shas(tag)
+        ancestors = _cache[tag]
+    else:
+        ancestors = _tag_ancestor_shas(tag)
     return all(any(a.startswith(c) for a in ancestors) for c in commits)
 
 
@@ -181,6 +196,7 @@ def _flip_entry(
     release_tag_cut: str,
     merge_sha: str,
     merge_date: str,
+    _tag_ancestor_cache: Optional[Dict[str, Set[str]]] = None,
 ) -> Optional[str]:
     with open(path, encoding="utf-8") as f:
         text = f.read()
@@ -190,7 +206,7 @@ def _flip_entry(
     commits = _parse_commits(text)
     resolved_tag: Optional[str] = None
     for tag in tags:
-        if commits and _contains_all(tag, commits):
+        if commits and _contains_all(tag, commits, _tag_ancestor_cache):
             resolved_tag = tag
             break
     if resolved_tag is None:
@@ -243,9 +259,20 @@ def cmd_flip_tags(args: argparse.Namespace) -> int:
     if release_tag_cut not in tags:
         tags.append(release_tag_cut)
 
+    # Shared across every entry in this call: without it, an N-entry run
+    # against T existing tags re-runs `git rev-list <tag>` up to N*T times
+    # (once per (entry, tag) pair the containment walk visits) instead of
+    # once per tag -- measured 2026-09-06 at ~2.6s/entry over 64 entries and
+    # 7 tags, ~5x the 500ms brightline. Scoped to this call (not a module
+    # global) so concurrent/sequential invocations never see a stale tag's
+    # ancestor set from a prior repo state.
+    tag_ancestor_cache: Dict[str, Set[str]] = {}
+
     flipped = []
     for path in entry_paths:
-        result = _flip_entry(path, tags, release_tag_cut, merge_sha, merge_date)
+        result = _flip_entry(
+            path, tags, release_tag_cut, merge_sha, merge_date, tag_ancestor_cache
+        )
         if result is not None:
             flipped.append(result)
 

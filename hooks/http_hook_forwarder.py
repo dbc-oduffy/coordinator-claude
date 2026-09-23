@@ -2282,6 +2282,12 @@ def publish_door_discovery(port: int) -> bool:
     NEVER RAISES, NEVER BLOCKS THE BIND. A box with no importable engine publishes
     nothing -- and needs nothing, since `ensure_front_door` gates on `is_engine_root` and
     returns before it ever reads this file there.
+
+    ALSO REAPS A DEAD PREDECESSOR. A record whose `pid` fails `discovery_is_live` is
+    unlinked before the new one is written -- the only reap this file gets, since no
+    periodic sweep covers it (see `retract_door_discovery`). A live predecessor's record
+    is left alone; the file's own election guarantees at most one process ever reaches
+    this line with the seat actually free.
     """
     if port != FIXED_PORT:
         # ONLY THE REAL SEAT IS EVER ADVERTISED. Every test in this repo binds port 0, and
@@ -2310,6 +2316,27 @@ def publish_door_discovery(port: int) -> bool:
             return False
 
         root = _front_door.current_engine_clone()
+
+        # REAP AN ORPHAN BEFORE ADVERTISING OUR OWN SEAT. A holder that was SIGKILLed or
+        # lost power never runs `retract_door_discovery`'s `finally`, so its record can
+        # outlive it indefinitely -- nothing else sweeps `warm-front-door.json`. This is
+        # the one point that already pays for a read (`write_discovery` below makes the
+        # write unconditionally, so the read here is pure addition, but it is the
+        # cheapest place to put it: every bind reaches it, and only a bind has a fresh
+        # record to overwrite anyway). A record that still names a live process is left
+        # untouched -- unlinking a live holder's seat out from under it would manufacture
+        # the exact "no-op becomes a spawn storm" churn `publish_door_discovery` exists to
+        # prevent, and `discovery_is_live` is the same predicate `ensure_front_door`
+        # trusts for that call, so this can never disagree with the reader.
+        stale = _front_door.read_discovery(root)
+        if stale is not None and not _front_door.discovery_is_live(stale):
+            stale_pid = stale.get("pid")
+            if isinstance(stale_pid, int):
+                # `owner_pid` re-reads and compares inside `unlink_discovery` itself, so
+                # a fresh record published between our read and this call (another
+                # process winning the race) is never deleted out from under it.
+                _front_door.unlink_discovery(root, owner_pid=stale_pid)
+
         _front_door.write_discovery(
             port=port,
             pid=os.getpid(),

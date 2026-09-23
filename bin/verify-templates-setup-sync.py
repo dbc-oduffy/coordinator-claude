@@ -18,6 +18,8 @@ Port target: claude-klabauter coordinator_core/ops/verify_templates_setup_sync.p
 
 from __future__ import annotations
 
+INSTALL_CLASS = False  # read-only check; see door_install.declared_install_class
+
 import os
 import sys
 

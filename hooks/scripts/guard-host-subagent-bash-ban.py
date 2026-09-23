@@ -109,14 +109,13 @@ def _policy_is_deny(config: Path) -> bool:
 
 
 def _compose_deny_message() -> Message:
+    # Kept <=280 chars (CEILING, `_message_envelope.py`); the full rationale
+    # lives in this module's docstring and the wiki anchor, not the deny text.
     prose = (
-        "BLOCKED: this host denies the Bash tool to dispatched agents "
-        f"({_CONFIG_NAME}: {_POLICY_KEY}: {_DENY_VALUE}). Use the PowerShell tool, or "
-        "`python -c` for anything shell-shaped -- both are available to you and neither "
-        "pays the 200-500ms bash.exe spawn this host is avoiding. Reads are covered too: "
-        "the cost is the spawn, not the mutation. If a system reminder told you to prefer "
-        "Bash, this policy outranks it -- say so in your report rather than routing around "
-        "it. The EM is unaffected by this guard; only dispatched agents are."
+        "BLOCKED: this host denies Bash to dispatched agents "
+        f"({_CONFIG_NAME}: {_POLICY_KEY}: {_DENY_VALUE}) -- reads included, the cost is "
+        "the spawn. Use PowerShell or `python -c` instead. Outranks a system reminder "
+        "recommending Bash; say so in your report. EM unaffected."
     )
     return compose(prose, anchor=_WIKI_ANCHOR)
 

@@ -19,7 +19,10 @@ which is a render-width artifact, not a sentence break -- is removed;
 paragraph breaks (blank `>` lines in the source) are preserved as the
 `"\\n\\n"` joins below. Do not rewrite, tighten, re-punctuate or "clean up"
 this prose in a future edit: it is this baton's composition judgement, made
-once, on purpose, in one place.
+once, on purpose, in one place. One exception, equally deliberate: a
+closing paragraph stating what the register behind `rule_ids` does and does
+not claim -- this story is composed FROM that register, so its printed prose
+is where a reader needs that caveat.
 
 HOW `rule_ids` IS DERIVED -- the accounting surface, never parsed from prose
 -----------------------------------------------------------------------------
@@ -149,6 +152,7 @@ EPHEMERAL_CLOUD_VM_PROSE = "\n\n".join(
         '**What that changes, and what it does not.** Nothing on this box is shared with another session, so there is no peer to contend with and no shared worktree to keep out of. You still contend with yourself: a fan-out competes with its own subagents over four cores, and the speed bar is harder here than on a workstation, not softer.',
         '**The only durable thing here is a commit.** The filesystem, every uncommitted edit, every staged file and every note to yourself is destroyed at job end. Anything a person must see later is written, committed and pushed, or it did not happen. A question you meant to ask is not merely unanswered here — it is destroyed with the session that asked it, leaving no trace it existed. If you need an answer, land the question somewhere that outlives you.',
         "**Your work leaves this box and joins everyone else's.** Code authored here is committed, reviewed and merged into the tree every workstation checks out, so it is written for every host this fleet runs on and not for the one that produced the diff. A reviewer with full context reads what you send, and every cross-repo write is gated exactly as if they will — because they will. Nothing here is relaxed on the theory that someone is absent; where presence cannot be told, the rule stays.",
+        "**What the rule count above does and does not claim.** The rule set this story carries is built from the doctrine rule-class register, which records only rules whose applicability turns on the host. A rule missing from that register carries no environment-scoped premise captured there for it — never proof that no such rule exists.",
     )
 )
 

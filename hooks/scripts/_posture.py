@@ -55,6 +55,11 @@ _cached_posture_by_root: dict[str, str] = {}
 # Serves `resolve_posture(repo_root=...)`'s explicit-`repo_root` call shape,
 # keyed on the exact `repo_root` string passed in -- a call with a different
 # `repo_root` must never be served a value cached under a prior one.
+# Same process-lifetime-only contract as `_cached_posture` above: this dict
+# is safe only for the life of ONE hook process. Do not import this module
+# into a long-lived process without adding a TTL or invalidation path --
+# an unbounded per-root cache in a resident process never re-reads a repo's
+# `coordinator.local.md` after its first call for that root.
 
 # Reuse the existing root-resolution PRIMITIVE (`_engine_root._session_repo_root`
 # -- CLAUDE_PROJECT_DIR when set and real, else a zero-spawn upward walk for a
@@ -176,6 +181,18 @@ def resolve_posture(repo_root: str | None = None) -> str:
     anchor at directly, bypassing `_find_repo_root()`'s own CLAUDE_PROJECT_DIR/
     `.git`-walk anchoring. Every existing caller passes nothing and gets
     byte-identical behaviour to before this parameter existed.
+
+    INTENDED CONSUMER: this module's own planned move into claude-klabauter
+    (`coordinator_core/hooks/support/posture.py`, per
+    docs/plans/2026-09-18-doe-holds-no-scripts.md W4-C4) and, ahead of that
+    move, any DoE hook already holding a Stop/PostToolUse payload with a
+    `cwd` field (e.g. guard-manufactured-blocker.py, which already reads
+    `payload["cwd"]` for its own use). A resident engine process serves ~50
+    concurrent sessions and cannot anchor off its own process cwd or
+    `CLAUDE_PROJECT_DIR` the way a short-lived per-invocation script can; it
+    must derive `repo_root` fresh from each call's own payload and pass it
+    in explicitly. No call site does this yet -- the parameter is prepared
+    ahead of that consumer, not dead.
 
     Cached per process, in one of two module-level stores depending on call
     shape -- a call with a different `repo_root` is NEVER served a value

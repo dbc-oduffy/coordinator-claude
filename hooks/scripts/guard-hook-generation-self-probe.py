@@ -159,12 +159,20 @@ def _write_raw_failure_record(repo_root: str, detail: str) -> None:
     ``CHILD FAILED script=<path> :: <detail>`` line shape. Used only on the
     one failure path where that real writer is structurally unreachable: an
     unresolved engine root means there is no known `coordinator_core` to
-    import in the first place."""
+    import in the first place.
+
+    `script=` is the basename, never `os.path.abspath(__file__)` — this hook
+    runs from the doctrine-plane source tree regardless of which repo's
+    session invoked it (`--plugin-dir` resolution), so an absolute path here
+    would write a DoE-claude host path into a THIRD repo's own tracked
+    `state/housekeeping-failures.log`, the same leak class
+    `_compose_missing_snippet_banner` (assert-em-role.py) already closes for
+    its own banner."""
     from datetime import datetime, timezone
 
     try:
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        line = f"[{timestamp}] CHILD FAILED script={os.path.abspath(__file__)} :: {detail}\n"
+        line = f"[{timestamp}] CHILD FAILED script={os.path.basename(__file__)} :: {detail}\n"
         log_path = Path(repo_root, "state", "housekeeping-failures.log")
         log_path.parent.mkdir(parents=True, exist_ok=True)
         with open(log_path, "a", encoding="utf-8") as fh:
@@ -176,7 +184,15 @@ def _write_raw_failure_record(repo_root: str, detail: str) -> None:
 def _record_failure(claude_klabauter_root: str | None, detail: str) -> None:
     """Best-effort, defensive-by-construction failure recorder shared by every
     fail-open path below. NEVER raises — a broken observability path must
-    never become the thing that wedges SessionStart boot."""
+    never become the thing that wedges SessionStart boot.
+
+    `script=` passed to `record_child_failure` is the basename, never
+    `os.path.abspath(__file__)` — the same leak class `_write_raw_failure_record`
+    below already closes. `record_child_failure` re-applies `os.path.abspath`
+    to whatever it is given (`coordinator_core.ops.ceremony.detached_spawn`),
+    so passing the basename here resolves it against the CALLING repo's cwd
+    at record time instead of hard-coding the doctrine-plane source tree's own
+    absolute path into a third repo's tracked `state/housekeeping-failures.log`."""
     try:
         repo_root = _resolve_this_repo_root()
         if not repo_root:
@@ -191,7 +207,7 @@ def _record_failure(claude_klabauter_root: str | None, detail: str) -> None:
 
                 record_child_failure(
                     repo_root,
-                    os.path.abspath(__file__),
+                    os.path.basename(__file__),
                     exc=RuntimeError(detail),
                 )
                 return

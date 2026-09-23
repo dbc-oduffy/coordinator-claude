@@ -262,8 +262,8 @@ above is one concrete instance of it.
 | `gates.claim_grant` | object `{verdict, reason, holder, holder_live, claim_age_minutes, drop_invocation}` (plus `override_invocation` + `recommendation` on `denied`) | yes | `verdict` ∈ `granted \| granted-with-warning \| denied`. Pickup-specific — § Template-scope partition. |
 | `gates.coast` | object `{verdict, notes[], blocked_by[]}` | yes | `verdict` ∈ `clear \| blocked`. Reports what the EM is holding; never gates the claim (that is `claim_grant`'s job). Sub-key of the existing `gates` object — no sixth top-level key (AC8). Pickup-specific. |
 | `preflight.tree_quiescence` | object `{verdict, repos: [{repo, dirty[], unparseable_scope_entries[]}]}` | yes | `verdict` ∈ `quiet \| dirty`. Real `git status --porcelain` intersection per repo in `scope:`, not a scope echo; a prose `scope:` entry surfaces in `unparseable_scope_entries`, never silently counted as dirty. Pickup-specific. |
-| `gates.competing_claim` | object `{verdict, candidates: [{path, claimed_by, holder_live, disposition}]}` | yes | `verdict` ∈ `none \| stale-only \| live-peer`. Distinct from `claim_grant`: `claim_grant` reads this artifact's own claim record; `competing_claim` scans sibling artifacts in the same workstream. Pickup-specific. |
 | `gates.execution_stamp_match` | object `{verdict, stamped_sha, computed_sha, stamp_commit, delta_class, next_move}` | conditional — present only on an artifact carrying a `## Plan to Execute` pointer or an `execution_authorized_sha` | `verdict` ∈ `match \| stale-bookkeeping \| stale-substantive \| unstampable`. Emitted, not aspirational — § MECHANICAL checklist names its computation locus. Pickup-specific instantiation; the tier-split worked example it demonstrates (§ The three-tier model) generalizes. |
+| `sizing_disposition` | object `{value, basis, warning}` \| `null` | conditional — present (object or `null`) on `classification` `handoff \| spinoff`; absent on `memo` and on the early-exit supersession/terminal branches | `value` ∈ `execution \| sized \| unsized`. Computed by `compute_sizing_disposition` (`coordinator_core.sizing_disposition`), verbatim reuse — this module owns the rule. Pickup-specific. |
 
 **The list form of `depends_on`.** Two `judgment_points` entries can independently
 fire and both claim to gate the same directive — e.g. an `awaiting_gate` handoff
@@ -849,7 +849,7 @@ assembler calls; the manifest row above covers the disk-mirror half only.
 | Arrival legibility (narrate-before-evidence with register separation, no surface terminates in a refusal, one voice across every surface that speaks) | **Candidate-general** — every computed skill that auto-fires or returns a decision object inherits these three rules |
 | `pickup`'s specific `gates` set (claim/addressee/branch/aging) | **Pickup-specific** — a different skill's gate set reflects its own preconditions |
 | `claim_grant`, `coast`, `CLAIM_STALE_AFTER`, and the claim-grant truth table | **Pickup-specific** — claim semantics answer questions specific to claiming a baton; a skill that claims nothing should not inherit a claim gate or a settling window |
-| `tree_quiescence` and `competing_claim` | **Pickup-specific** — `pickup`'s own coverage-gap fields, not a general schema requirement |
+| `tree_quiescence` | **Pickup-specific** — `pickup`'s own coverage-gap field, not a general schema requirement |
 | The memo/handoff bimodal classification and the two parallel branch structures it produces | **Pickup-specific** — `workstream-complete` and other frontage targets are not bimodal in this way |
 | The specific `directives` CLI catalogue (archive-stamp-cli verbs, session-claim-cli, etc.) | **Pickup-specific instantiation** of a general pattern (name existing atomic CLIs as directives) — the *pattern* generalizes, the specific CLI names do not |
 | `gates.execution_stamp_match`'s specific verdict enum and computation | **Pickup-specific instantiation**; the tier-split it demonstrates (stale-bookkeeping promotes to a directive, stale-substantive stays a tier-3 judgment point) is the **candidate-general** worked example of the three-tier model |
@@ -873,7 +873,7 @@ re-deriving the shape from scratch:
    `docs/wiki/coordinator-tripwires/draft-plan-aging.md § SKILL-NARRATES-PROCEDURE`). The census itself
    is a schema'd artifact, not a hand-rolled table: it validates against
    `coordinator/schemas/census-document.schema.json` and lives at
-   `state/plan-sidecars/<plan-or-skill-stem>.census-steps.md`, one per conversion.
+   `.coordinator-local/plan-sidecars/<plan-or-skill-stem>.census-steps.md`, one per conversion.
 2. **No MIXED row may remain unsplit.** This is the MIXED concession's actual term:
    the engine's row schema persists MIXED as a container of two half-steps, so the
    invariant is `MIXED ⇒ both mechanical_part and judgment_part present` — exactly its
@@ -1035,7 +1035,7 @@ Only the **candidate-general** elements from § Template-scope partition above a
 codified as required schema shape: the 8-key envelope, the `directive` and
 `judgment_point` item sub-shapes, and the `subagent_sidecar` container. Per-skill
 instance content — `pickup`'s specific `gates` set (`claim_grant`, `coast`,
-`tree_quiescence`, `competing_claim`), its specific `directives` CLI catalogue, and its
+`tree_quiescence`), its specific `directives` CLI catalogue, and its
 specific `judgment_points` inventory — is deliberately left permissive
 (`additionalProperties: true`) in the schema rather than baked in as required fields;
 those are a per-skill instantiation of the general pattern, not part of the schema

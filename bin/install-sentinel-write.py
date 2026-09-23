@@ -23,6 +23,8 @@
 
 from __future__ import annotations
 
+INSTALL_CLASS = True  # writes the install sentinel; see door_install.declared_install_class
+
 import argparse
 import re
 import subprocess

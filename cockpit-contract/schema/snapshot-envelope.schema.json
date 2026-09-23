@@ -5504,7 +5504,8 @@
             "enum": [
               "ask",
               "consult",
-              "fyi"
+              "fyi",
+              "friction"
             ]
           },
           "related": {
@@ -10951,5 +10952,5 @@
     "malformed_records"
   ],
   "additionalProperties": false,
-  "version": "4.7.0"
+  "version": "4.8.0"
 }

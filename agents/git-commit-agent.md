@@ -142,7 +142,9 @@ Every dispatch ends with a report naming:
 4. A shape you couldn't use is ABSENT (path not found — report it) or DENIED (a
    permission/classifier refusal — quote it verbatim); never one "unavailable" claim for both. No
    attempted command, no claim. On a denial: report the pathspec and the verbatim denial, then say
-   the EM should commit it directly — never suggest a Bash permission-rule widening.
+   the EM should commit it directly — never suggest a Bash permission-rule widening. Quote the argv
+   exactly as passed, never reconstructed; if you cannot, say so rather than approximate.
+5. A suspected guard defect is inference — label it so, never as a finding.
 
 The commit message states what changed and its workstream — cite the plan/chunk id or handoff the
 brief names.

@@ -1158,40 +1158,18 @@ def sync_mirror(
 # ---------------------------------------------------------------------------
 # Coordinator install-manifest layout transform
 # ---------------------------------------------------------------------------
-# WHY THIS EXISTS — the coordinator install-manifest layout transform
-# ===================================================================
-# The working-tree manifest at:
-#   plugins/coordinator/docs/install/agent-install-manifest.json
-# declares:
-#   standalone_setup_script.posix    = "scripts/setup.py"
-#   standalone_setup_script.windows  = "scripts/setup.ps1"
-# These are correct relative paths in the NESTED coordinator/ layout, where the
-# manifest lives at coordinator/docs/install/ and the script at coordinator/scripts/.
+# A documented no-op. `standalone_setup_script.{posix,windows}` and
+# `programmatic_entry_point.posix` resolve against the engine dependency's
+# root (claude-klabauter / claude-klabauter), not coordinator-claude's own
+# nested-vs-flat layout, so they must publish byte-identical; any rewrite would
+# corrupt them. The function stays as the seam for a future field that is
+# coordinator-claude-tree-relative.
 #
-# When this manifest is flat-mirrored to the PUBLISH-REPO root layout (e.g.
-# Code_Projects/coordinator-claude/docs/install/), the publish repo root IS the
-# coordinator/ root — so the script lives at coordinator/scripts/setup.py from
-# the manifest's vantage point (i.e. <publish-root>/coordinator/scripts/setup.py).
+# TRAP: do not re-add a pair keyed on `scripts/setup.*` or
+# `coordinator/scripts/...` for either declared field — the published value
+# then differs from the source and `_needs_copy` reports the manifest changed
+# on every publish round.
 #
-# The flat-mirror is verbatim by default; without this transform the published
-# manifest still says "scripts/setup.py", which resolves to a non-existent path
-# in the publish-repo layout and causes leaf-bootstrap step D to fail with a
-# path-resolution error.
-#
-# FIX: apply a single, documented, explicit path substitution during the
-# coordinator-claude-toplevel-install flat-mirror copy — rewriting the
-# standalone_setup_script values from the nested-layout paths to the
-# publish-root paths. The working-tree manifest (single source of truth) is
-# NEVER modified; only the copy at the publish destination receives the rewrite.
-#
-# KEYING: the transform is applied iff BOTH conditions hold:
-#   1. The file being copied is "agent-install-manifest.json" (the install manifest).
-#   2. The src_dir ends with "coordinator/docs/install" (confirming this is the
-#      coordinator nested-layout source, not an already-transformed publish root).
-# This combination is unique to the coordinator-claude-toplevel-install flat-mirror
-# target — no other flat-mirror target copies from that source path.
-#
-# Spec backlink: docs/plans/2026-06-17-coordinator-install-seed-phase-and-manifest-alignment.md § C4
 # See also: agent-install-contract.md § install-manifest layout transform
 #
 # DO NOT extend this transform to other files or targets without a named plan section.
@@ -1207,11 +1185,20 @@ _INSTALL_MANIFEST_FILENAME = "agent-install-manifest.json"
 # before `coordinator`, so the match is unaffected.
 _COORDINATOR_INSTALL_SRC_SUFFIX = "/coordinator/docs/install"
 
-# Path rewrite pairs: (nested-layout value, publish-root value)
-_COORDINATOR_MANIFEST_PATH_REWRITES: list[tuple[str, str]] = [
-    ("scripts/setup.py", "coordinator/scripts/setup.py"),
-    ("scripts/setup.ps1", "coordinator/scripts/setup.ps1"),
-]
+# Path rewrite pairs: (nested-layout value, publish-root value). Empty by
+# design — see the block above.
+_COORDINATOR_MANIFEST_PATH_REWRITES: list[tuple[str, str]] = []
+
+# Engine-root-relative manifest fields; never a rewrite target.
+_EXCLUDED_ENGINE_ROOT_RELATIVE_FIELDS: tuple[str, ...] = (
+    "standalone_setup_script",
+    "programmatic_entry_point",
+)
+
+
+class UnwiredManifestRewritePairError(RuntimeError):
+    """A rewrite pair was added without wiring the transform to apply it.
+    A real exception, not an `assert`: `python -O` strips asserts."""
 
 
 def _is_coordinator_install_src(src_dir: Path) -> bool:
@@ -1225,55 +1212,22 @@ def _is_coordinator_install_src(src_dir: Path) -> bool:
 
 
 def _apply_coordinator_install_manifest_transform(dst_file: Path) -> None:
-    """Rewrite standalone_setup_script paths in a just-copied install manifest.
+    """Documented no-op while `_COORDINATOR_MANIFEST_PATH_REWRITES` is empty.
 
-    Reads the JSON at dst_file, rewrites only the standalone_setup_script values
-    that need the nested→publish-root layout correction, then writes the result
-    back in-place (UTF-8, trailing newline, same indentation as json.dumps
-    indent=2 — consistent with the existing manifest style).
-
-    Raises json.JSONDecodeError or OSError on failure (caller must not silently
-    swallow — these indicate the manifest on disk is malformed or unwritable,
-    which is a publish-correctness failure).
-
-    Called ONLY when:
-      - The filename is agent-install-manifest.json
-      - The src_dir ended with coordinator/docs/install  (checked by caller)
-      - dry_run is False (no dst_file exists in dry-run paths)
+    A populated pair raises rather than being silently ignored. The caller
+    invokes this only for agent-install-manifest.json copied from
+    coordinator/docs/install, and never on dry-run; a future rewrite must
+    touch `dst_file` only, never the source, and must not target a field in
+    `_EXCLUDED_ENGINE_ROOT_RELATIVE_FIELDS`.
     """
-    raw = dst_file.read_text(encoding="utf-8")
-    data = json.loads(raw)
-
-    sss = data.get("standalone_setup_script")
-    if not isinstance(sss, dict):
-        # Key absent — no transform needed (nothing to break, nothing to fix).
-        return
-
-    changed = False
-    for nested_val, publish_val in _COORDINATOR_MANIFEST_PATH_REWRITES:
-        for key in list(sss):
-            if sss[key] == nested_val:
-                sss[key] = publish_val
-                changed = True
-
-    if not changed:
-        # All values already in publish-root form (e.g. re-publish after first run).
-        return
-
-    # Write back: 2-space indent, ensure trailing newline.
-    out = json.dumps(data, indent=2, ensure_ascii=False)
-    if not out.endswith("\n"):
-        out += "\n"
-    dst_file.write_text(out, encoding="utf-8")
-    # Review: code-reviewer (F3) — this goes to stderr but publish.sh captures stderr
-    # into the sync_log via `> "$sync_log" 2>&1`, so the TRANSFORM line is intentionally
-    # visible in publish output alongside the NEW:/UPDATE: lines.
-    print(
-        f"    TRANSFORM: {_INSTALL_MANIFEST_FILENAME} "
-        f"standalone_setup_script paths rewritten for publish-root layout "
-        f"(scripts/ → coordinator/scripts/)",
-        file=sys.stderr,
-    )
+    if _COORDINATOR_MANIFEST_PATH_REWRITES:
+        raise UnwiredManifestRewritePairError(
+            f"{dst_file}: a rewrite pair was added to "
+            "_COORDINATOR_MANIFEST_PATH_REWRITES but "
+            "_apply_coordinator_install_manifest_transform still returns "
+            "unconditionally — wire it in, and confirm the pair's target field "
+            "is not also in _EXCLUDED_ENGINE_ROOT_RELATIVE_FIELDS"
+        )
 
 
 # ---------------------------------------------------------------------------

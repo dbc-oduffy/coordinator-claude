@@ -887,6 +887,8 @@ Discriminate by ownership before reaching for a coordinated bump: a bump is the 
 
 **How to apply:** before `cross-repo-memo draft <slug> --to <receiver>`, run a glob/grep of `<receiver-repo>/cross-repo/inbox/*<slug>*.md` and `<receiver-repo>/cross-repo/archive/*<slug>*.md` for the topic. If a same-topic memo exists: read it. If it is correct and current, do not duplicate — the receiver already has the signal. If it is *wrong* (mis-framed, contradicts a PM decision, supersedes-worthy), supersede it explicitly (`--supersedes <old-path>` or an in-place correction the receiver can see), don't silently stack a second directive. Verify sibling-repo channel state, not just local git log, before composing.
 
+The inbox glob catches a duplicate memo already in flight; it does not by itself catch the case where the *work the memo proposes* already shipped on a sibling branch your local log never touched. For that check, see H65 in [`concurrent-em-hazards.md`](./concurrent-em-hazards.md): before spinoff/relay/memo-action, run `git log --all` (every ref, not the checked-out branch) against the surface the memo names — a branch-scoped log is not evidence of absence.
+
 ## Cross-repo memo bullets must trace consumer code paths before naming sibling-repo test files
 
 *Source: project-rag — undated. [universal]*
