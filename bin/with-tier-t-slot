@@ -43,6 +43,8 @@ Negative spec:
 from __future__ import annotations
 
 import os
+import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -94,8 +96,131 @@ from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 require_colocated_engine_on_path(__file__)
 
 from coordinator_core.testing import tier_t_slots  # noqa: E402
+from coordinator_core.win_portability import is_executable  # noqa: E402
 
 _DEFAULT_OWNER_PREFIX = "with-tier-t-slot"
+
+# Win32-only: `CreateProcess` cannot launch a shebang-only POSIX shim
+# (extensionless `node_modules/.bin/<name>`, WinError 193) and cannot launch
+# a `.cmd`/`.bat` directly either -- both need a shell to mediate, and this
+# wrapper is a no-shell-out zone (EM ruling 2026-09-23, in response to
+# state/cross-repo/inbox/2026-09-23-example-cockpit-repo-em-with-tier-t-slot-cannot-launch-npm-bin-shims-on-win32.md:
+# no cmd.exe, no shell=True). The narrow shape that stays shell-free: `npm`'s
+# own `cmd-shim` writes a `.cmd` whose invocation line is
+# `"%_prog%"  "%dp0%\..\<pkg>\<entry>" %*` (older shims: `"%~dp0..\..."`) --
+# `%dp0%`/`%~dp0` is always the shim's OWN directory. Parsing that one line
+# for its JS target and launching `[node, <target>, *args]` directly is a
+# PLAIN_SPAWN, not a shell-out: no interpreter is asked to parse a command
+# line, we're just reading a known-format text file once.
+_WIN32_SHIM_EXTS = (".cmd", ".exe", ".bat")
+
+# Matches the target-script quoted argument on an npm cmd-shim's invocation
+# line: `"%dp0%\..\typescript\bin\tsc" %*` or the older `"%~dp0..\..."` form.
+# `%~?dp0%?\\?` absorbs either spelling and either zero or one extra
+# backslash (both `%dp0%` and `%~dp0` already end in a trailing backslash on
+# expansion, so the literal shim text sometimes carries one more, sometimes
+# not) before capturing the relative path up to the closing quote.
+_NPM_SHIM_TARGET_RE = re.compile(r'"%~?dp0%?\\?(?P<rel>[^"]+)"\s+%\*')
+
+
+def _win32_resolve_argv0(argv0: str) -> Optional[str]:
+    """Resolve `argv0` to an actual `CreateProcess`-launchable file on win32,
+    the way a shell's own PATHEXT resolution would -- reusing
+    `win_portability.is_executable` (already-correct PATHEXT logic) to judge
+    whether a candidate is directly launchable, rather than re-deriving that
+    check here. Returns None when nothing launchable is found.
+    """
+    if os.path.splitext(argv0)[1]:
+        # Already carries an extension: launchable iff is_executable() says
+        # so (a recognized PATHEXT suffix on an existing file) -- there is
+        # no PATHEXT sibling to fall back to for a name that already has its
+        # own, different extension.
+        return argv0 if is_executable(argv0) else None
+    for ext in _WIN32_SHIM_EXTS:
+        candidate = argv0 + ext
+        if is_executable(candidate):
+            return candidate
+    if not os.path.dirname(argv0):
+        # Bare command name -- fall back to a full PATH search, same as a
+        # shell would for an unqualified word.
+        found = shutil.which(argv0)
+        if found:
+            return found
+    return None
+
+
+def _parse_npm_cmd_shim(shim_path: str) -> Optional[str]:
+    """Read `shim_path` (an npm `cmd-shim`-generated `.cmd`) and resolve its
+    JS target to an absolute path, or None if the file isn't in the
+    recognized cmd-shim shape or the target doesn't exist on disk."""
+    try:
+        with open(shim_path, "r", encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        return None
+    match = None
+    for match in _NPM_SHIM_TARGET_RE.finditer(text):
+        pass  # last match wins: the invocation line, never the SET lines above it
+    if match is None:
+        return None
+    rel = match.group("rel").replace("\\", "/")
+    target = os.path.normpath(os.path.join(os.path.dirname(shim_path), rel))
+    return target if os.path.isfile(target) else None
+
+
+def _resolve_node_exe(shim_dir: str) -> str:
+    """The node binary an npm cmd-shim would itself prefer: a `node.exe`
+    sibling in the shim's own directory (cmd-shim's own `%dp0%\\node.exe`
+    check) if present, else whatever `node` resolves to on PATH."""
+    sibling = os.path.join(shim_dir, "node.exe")
+    if os.path.isfile(sibling):
+        return sibling
+    return shutil.which("node") or "node"
+
+
+def _win32_resolve_command(command: List[str]) -> Optional[List[str]]:
+    """Return `command` with argv[0] resolved for win32 launch, or None with
+    a one-line diagnostic already printed on stderr when nothing launchable
+    was found. No-op (returns `command` unchanged) on POSIX, where the OS
+    loader already honors the shebang directly.
+    """
+    if sys.platform != "win32":
+        return command
+
+    resolved = _win32_resolve_argv0(command[0])
+    if resolved is None:
+        print(
+            f"with-tier-t-slot: cannot resolve {command[0]!r} to a launchable "
+            "file on win32 (no matching .exe/.cmd/.bat found).",
+            file=sys.stderr,
+        )
+        return None
+
+    ext = os.path.splitext(resolved)[1].lower()
+    if ext == ".exe":
+        return [resolved, *command[1:]]
+    if ext in (".cmd", ".bat"):
+        target = _parse_npm_cmd_shim(resolved)
+        if target is None:
+            print(
+                f"with-tier-t-slot: {resolved!r} is a .cmd/.bat this wrapper cannot "
+                "launch without a shell, and isn't a recognizable npm cmd-shim. "
+                "Workaround: invoke `node <script>` directly instead.",
+                file=sys.stderr,
+            )
+            return None
+        return [_resolve_node_exe(os.path.dirname(resolved)), target, *command[1:]]
+
+    # Anything else _win32_resolve_argv0 handed back (e.g. an
+    # extensionless shebang shim with no .cmd/.exe/.bat sibling) is not
+    # launchable without a shell either.
+    print(
+        f"with-tier-t-slot: {resolved!r} has no recognized win32-launchable "
+        "shape (need .exe, or an npm .cmd/.bat shim). "
+        "Workaround: invoke `node <script>` directly instead.",
+        file=sys.stderr,
+    )
+    return None
 
 #: How long to wait for a slot before proceeding unserialized. Generous: the
 #: runs this bounds are short by construction, so a caller that waits this long
@@ -202,6 +327,10 @@ def main(argv: List[str]) -> int:
     if not command:
         return 2
 
+    launch_command = _win32_resolve_command(command)
+    if launch_command is None:
+        return 1
+
     _install_signal_handlers()
     owner = tier_t_slots.owner_id() if owner_label is None else owner_label
     cmd_text = " ".join(command)
@@ -214,7 +343,7 @@ def main(argv: List[str]) -> int:
     proc: Optional[subprocess.Popen] = None
     slot = None
     try:
-        proc = subprocess.Popen(command)
+        proc = subprocess.Popen(launch_command)
         slot = tier_t_slots.acquire_slot(owner, cmd_text, wait, pid=proc.pid)
         if slot is None:
             taken, cap, _ = tier_t_slots.occupancy()

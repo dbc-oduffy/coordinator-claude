@@ -313,7 +313,7 @@ def _record_route_unreachable(op: str, arrival: str) -> None:
         }
         os.makedirs(os.path.dirname(ledger_path), exist_ok=True)
         line = (json.dumps(row, sort_keys=True) + "\n").encode("utf-8")
-        fd = os.open(ledger_path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o644)
+        fd = os.open(ledger_path, os.O_APPEND | os.O_CREAT | os.O_WRONLY | getattr(os, "O_BINARY", 0), 0o644)
         try:
             os.write(fd, line)
         finally:

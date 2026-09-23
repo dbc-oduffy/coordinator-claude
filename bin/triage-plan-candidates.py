@@ -93,7 +93,11 @@ def _git(repo: Path, *args: str) -> str:
     # coordinator_core.ops.ceremony.git_native._git instead of hand-rolling a
     # second subprocess.run wrapper with its own creationflags/timeout/failure
     # mapping.
+
+    Bootstraps itself: its only caller is `RepoFacts.__init__`, reachable from
+    the exported `triage()` without passing through `main()`.
     """
+    _resolve_engine_root()
     from coordinator_core.ops.ceremony.git_native import _git as _git_native
 
     result = _git_native(list(args), cwd=repo, timeout=30)

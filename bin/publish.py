@@ -8878,6 +8878,38 @@ def _normalize_dest_exec_bits(repo_root: Path, scope_dirs: Sequence[Path]) -> "L
     return sorted(fixed)
 
 
+#: How many removed paths the sync commit body names before it counts instead.
+_REMOVED_NAME_CAP = 20
+
+
+def _sync_commit_message(
+    dest_name: str,
+    row_names: "Sequence[str]",
+    present_paths: "Sequence[str]",
+    deleted_paths: "Sequence[str]",
+    source_sha_suffix: str,
+) -> str:
+    """The mirror sync commit's message. A round that deletes a file must say
+    so: `commit_paths` refuses an undeclared staged deletion, and the subject
+    this replaced never mentioned one, so every deleting round left the mirror
+    dirty and exited 3. The removed paths are named in the body, capped, so the
+    mirror's own history records what left it."""
+    rows = ", ".join(row_names) if row_names else "no named rows"
+    total = len(present_paths) + len(deleted_paths)
+    subject = (
+        f"percolate: sync {total} path(s) to {dest_name} ({rows}; "
+        f"{len(present_paths)} added-or-updated, {len(deleted_paths)} removed)"
+        f"{source_sha_suffix}"
+    )
+    if not deleted_paths:
+        return subject
+    shown = sorted(deleted_paths)[:_REMOVED_NAME_CAP]
+    body = "\n".join(f"Removed: {p}" for p in shown)
+    if len(deleted_paths) > len(shown):
+        body += f"\n...and {len(deleted_paths) - len(shown)} more removed"
+    return f"{subject}\n\n{body}"
+
+
 def _commit_published_dests(
     published_dest_dirs_by_repo_root: "dict[Path, set[Path]]",
     *,
@@ -8978,11 +9010,6 @@ def _commit_published_dests(
         if not paths:
             print(f"  {repo_root}: already clean — nothing to commit.")
             continue
-        rows = ", ".join(succeeded_row_names) if succeeded_row_names else "no named rows"
-        subject = (
-            f"percolate: sync {len(paths)} path(s) to {repo_root.name} ({rows})"
-            f"{_source_sha_suffix(round_pinned_shas)}"
-        )
         # `deleted_paths` split out explicitly: `commit_paths` reads a
         # present path's bytes off the worktree, so a path the sync deleted
         # must go through its `deleted_paths` kwarg instead of `paths` --
@@ -8994,6 +9021,10 @@ def _commit_published_dests(
         # still dirty, which is the whole failure this step exists to end.
         present_paths = [p for p in paths if (repo_root / p).exists()]
         deleted_paths = [p for p in paths if p not in present_paths]
+        subject = _sync_commit_message(
+            repo_root.name, succeeded_row_names, present_paths, deleted_paths,
+            _source_sha_suffix(round_pinned_shas),
+        )
         try:
             outcome = commit_paths(
                 repo_root,
