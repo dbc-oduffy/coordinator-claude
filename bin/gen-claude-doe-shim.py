@@ -19,7 +19,7 @@ Supports --check-only (validate without mutating live files) and --rc/
 # contract/generator, claude-klabauter owns engine). This file is now a thin trampoline
 # over that claude-klabauter (engine) module — it lives in claude-klabauter post the
 # 2026-07-22 executable-surface migration, resolving its DoE-owned template
-# via coordinator_data_root.data_root(), not a co-located script path. See the
+# via coordinator_data_root.data_file(), not a co-located script path. See the
 # claude-klabauter module's own docstring for the full design rationale (idempotency,
 # dry-run safety, Windows temp-file portability, faithful-oracle negative-spec).
 #
@@ -61,12 +61,11 @@ Supports --check-only (validate without mutating live files) and --rc/
 
 from __future__ import annotations
 
-import os
 import sys
 
 def _default_template_path(shell_family: str = "bash") -> str:
     """Mirror the bash oracle's `${_script_dir}/../templates/shell/claude-doe-shim.sh.tmpl`
-    default. Resolved via `coordinator_data_root.data_root()`'s co-located/
+    default. Resolved via `coordinator_data_root.data_file()`'s co-located/
     DoE-resident two-rung chain, not a bare `__file__`-relative walk: the
     2026-07-22 executable-surface migration moved this trampoline into
     claude-klabauter while `templates/` stayed in DoE-claude (DR-047
@@ -81,10 +80,10 @@ def _default_template_path(shell_family: str = "bash") -> str:
     shell start. An unrecognized family falls through to the bash template and
     is rejected downstream by the engine's own `--shell` validation."""
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from coordinator_data_root import data_root
+    from coordinator_data_root import data_file
 
     stem = "claude-doe-shim.ps1.tmpl" if shell_family == "powershell" else "claude-doe-shim.sh.tmpl"
-    return os.path.join(str(data_root("templates")), "shell", stem)
+    return str(data_file("templates", "shell", stem))
 
 
 def _shell_family_from_argv(argv: list[str]) -> str:

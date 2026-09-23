@@ -516,6 +516,10 @@ def _resolve_plugin_root(coord_path: str) -> str | None:
     already fails CLOSED on exactly that shape via the same engine twin this
     function mirrors (claude-klabauter#6 conflict resolution, 2026-09-18).
     """
+    if not coord_path:
+        # An unresolved root joined onto "coordinator" is a cwd-relative path,
+        # and from inside the engine tree that path exists.
+        return None
     coord = Path(coord_path)
     for candidate in (coord / "coordinator", coord):
         if (candidate / "templates" / "bin" / "_machine_local.py").is_file():

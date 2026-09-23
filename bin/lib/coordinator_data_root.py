@@ -394,6 +394,49 @@ def data_root(dir_name: str) -> Path:
     if colocated.is_dir():
         return colocated
 
+    private_candidate, flat_candidate = _doe_resident_candidates(dir_name, colocated)
+    if private_candidate.is_dir():
+        return private_candidate
+    if flat_candidate.is_dir():
+        return flat_candidate
+
+    raise RuntimeError(
+        f"coordinator_data_root: cannot resolve data dir {dir_name!r}. "
+        f"Rung 1 (co-located) tried: {colocated} (not found). "
+        f"Rung 2 (DoE-resident) tried: {private_candidate} (private layout, not found), "
+        f"{flat_candidate} (OSS-flat layout, not found)."
+    )
+
+
+def data_file(dir_name: str, *parts: str) -> Path:
+    """Resolve one FILE under a data dir, falling through rung 1 when the
+    co-located dir exists but does not carry it.
+
+    `data_root` answers at directory level, so a partial co-located dir
+    shadows the DoE-resident one entirely: the engine tree ships
+    `coordinator/templates/bin/` of its own, and every DoE-owned template
+    lookup (`templates/shell/...`) from the engine tree resolved to a path
+    that cannot exist. Same rungs, same order, first candidate holding the
+    file wins. Raises RuntimeError naming every candidate tried.
+    """
+    colocated = _colocated_root() / dir_name
+    tried = [colocated.joinpath(*parts)]
+    if tried[0].is_file():
+        return tried[0]
+    for base in _doe_resident_candidates(dir_name, colocated):
+        candidate = base.joinpath(*parts)
+        if candidate.is_file():
+            return candidate
+        tried.append(candidate)
+    raise RuntimeError(
+        f"coordinator_data_root: cannot resolve {dir_name}/{'/'.join(parts)}; tried: "
+        + ", ".join(str(t) for t in tried)
+    )
+
+
+def _doe_resident_candidates(dir_name: str, colocated: Path) -> "tuple[Path, Path]":
+    """Rungs 1.5 and 2's DoE root, joined in private-then-OSS-flat order.
+    Raises RuntimeError when no DoE root resolves."""
     doe = _cdr_codename_free_root()
 
     if not doe:
@@ -424,20 +467,7 @@ def data_root(dir_name: str) -> Path:
     # state/review-findings/2026-08-08-successor-partitioned/hermetic-ac-reverify.md.
     # Must stay behaviourally identical to coordinator_core/data_root.py's
     # own data_root() (AC4) -- same two-candidate order there.
-    private_candidate = Path(doe) / "coordinator" / dir_name
-    if private_candidate.is_dir():
-        return private_candidate
-
-    flat_candidate = Path(doe) / dir_name
-    if flat_candidate.is_dir():
-        return flat_candidate
-
-    raise RuntimeError(
-        f"coordinator_data_root: cannot resolve data dir {dir_name!r}. "
-        f"Rung 1 (co-located) tried: {colocated} (not found). "
-        f"Rung 2 (DoE-resident) tried: {private_candidate} (private layout, not found), "
-        f"{flat_candidate} (OSS-flat layout, not found)."
-    )
+    return Path(doe) / "coordinator" / dir_name, Path(doe) / dir_name
 
 
 #: The marker that makes a FLAT directory a coordinator content root. A flat

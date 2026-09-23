@@ -1418,6 +1418,13 @@
         ]
       },
       {
+        "id": "session-start-cloud-focus.py",
+        "script": "scripts/session-start-cloud-focus.py",
+        "tool_names": [
+          "startup"
+        ]
+      },
+      {
         "id": "sessionend-archive-session.py",
         "script": "scripts/sessionend-archive-session.py",
         "tool_names": []
