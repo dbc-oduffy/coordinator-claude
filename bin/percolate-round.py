@@ -2026,6 +2026,78 @@ def _count_drift_hits(drift_stdout: str) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Step 2c — percolate.wiki_seed_count_match. The published wiki set against
+# the ratified OSS seed, computed rather than eyeballed at the Step 3 confirm.
+# ---------------------------------------------------------------------------
+
+_SEED_WIKIS_MANIFEST_REL = Path("coordinator") / "schemas" / "seed-wikis.json"
+"""Under the percolate root. The ratified seed's shipped copy, pinned equal to
+DoE's `SEED_WIKIS` by `coordinator/tests/test_publish_seed_wiki_allowlist.py ::
+test_shipped_seed_manifest_matches_seed_wikis`. A root without it has no seed,
+and the check does not apply."""
+
+_DEST_WIKI_REL = Path("docs") / "wiki"
+"""Under the dest repo root. Two independent rows publish here
+(`coordinator-claude|mirror` and `coordinator-claude-toplevel-wiki|flat-mirror`),
+so the dest tree after the sync is the union of both — the one set that covers
+the trap of narrowing only one row."""
+
+_STORE_REL = Path("setup") / "percolate-hooks" / "percolate-store.yaml"
+
+
+def _published_seed_names(percolate_root: str, target: str, seed: "set[str]") -> "set[str]":
+    """The seed in PUBLISHED names: each entry mapped through the target's
+    `basename_rename` file pairs. Trap: comparing source names directly fails
+    every round, because `example-game-repo-for-your-ue-project.md` publishes as
+    `example-game-repo-for-your-ue-project.md`."""
+    store_path = Path(percolate_root) / _STORE_REL
+    if not store_path.is_file():
+        return set(seed)
+    import contextlib
+    import io
+
+    from coordinator_core.percolate.store import load_store, resolve_target
+
+    # `load_store` reports stale redaction-baseline entries on stdout; that is
+    # store hygiene, not this check's output.
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        section = resolve_target(load_store(store_path), target)
+    renames = {
+        pair["src"]: pair["dst"]
+        for pair in section.get("basename_rename") or []
+        if not str(pair["src"]).endswith("/")
+    }
+    return {renames.get(name, name) for name in seed}
+
+
+def _wiki_seed_mismatch(
+    percolate_root: str, target: str, repo_root: str
+) -> "Optional[Tuple[List[str], List[str], int]]":
+    """`None` when the check does not apply (no seed manifest under the
+    percolate root, or no `docs/wiki/` at the dest). Otherwise
+    `(extra, missing, published_count)`: files at the dest's `docs/wiki/` the
+    seed does not name, and seed entries absent there. Both empty is a match.
+
+    Reads the dest tree AFTER the sync, never the allowlist config — the
+    allowlist is what may be wrong. A dotfile is not a published wiki.
+    Raises on an unreadable seed manifest: a seed that cannot be read is not
+    a seed that matches."""
+    manifest = Path(percolate_root) / _SEED_WIKIS_MANIFEST_REL
+    wiki_dir = Path(repo_root) / _DEST_WIKI_REL
+    if not manifest.is_file() or not wiki_dir.is_dir():
+        return None
+    seed = set(json.loads(manifest.read_text(encoding="utf-8"))["seed_wikis"])
+    expected = _published_seed_names(percolate_root, target, seed)
+    published = {
+        path.relative_to(wiki_dir).as_posix()
+        for path in wiki_dir.rglob("*")
+        if path.is_file()
+        and not any(part.startswith(".") for part in path.relative_to(wiki_dir).parts)
+    }
+    return sorted(published - expected), sorted(expected - published), len(published)
+
+
+# ---------------------------------------------------------------------------
 # Step 6 summary counts (added-or-updated / removed), for the human-facing
 # panels only — never fed back into any gate logic.
 # ---------------------------------------------------------------------------
@@ -3067,6 +3139,48 @@ def _cmd_round_default(
                     file=sys.stderr,
                 )
                 return _EXIT_FAIL
+
+            # --- Step 2c: wiki-seed count match. Hard stop, no confirm
+            # override: the remedy is a ratified seed amendment or a source
+            # fix, never an allowlist edit to make the count fit. -----------
+            try:
+                seed_check = _wiki_seed_mismatch(percolate_root, target, repo_root)
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                print(
+                    f"percolate-round: percolate.wiki_seed_count_match: seed unreadable "
+                    f"({type(exc).__name__}: {exc}) -- refusing to commit/push."
+                    + _pending_removal_warning(dest),
+                    file=sys.stderr,
+                )
+                return _EXIT_FAIL
+            if seed_check is not None:
+                extra, missing, published_count = seed_check
+                print(f"=== percolate-round {target} — Step 2c: wiki-seed count ===")
+                if extra or missing:
+                    print(
+                        f"percolate-round: percolate.wiki_seed_count_match: false -- "
+                        f"{published_count} wiki file(s) at dest {_DEST_WIKI_REL.as_posix()}/, "
+                        f"{len(extra)} not in the ratified seed, {len(missing)} seed "
+                        "entr(ies) absent. Refusing to commit/push.",
+                        file=sys.stderr,
+                    )
+                    for name in extra:
+                        print(f"  extra:   {name}", file=sys.stderr)
+                    for name in missing:
+                        print(f"  missing: {name}", file=sys.stderr)
+                    print(
+                        "  Fix the source or ratify a seed amendment; never narrow or "
+                        "widen an allowlist row to fit. Dest holds this round's "
+                        "synced-but-uncommitted content -- revert with `git -C <dest> "
+                        "reset --hard && git clean -fd`."
+                        + _pending_removal_warning(dest),
+                        file=sys.stderr,
+                    )
+                    return _EXIT_FAIL
+                print(
+                    f"percolate.wiki_seed_count_match: true ({published_count} "
+                    "published == ratified seed)"
+                )
 
             manifest = _read_fresh_round_manifest(Path(repo_root), real_run_started_at)
             manifest_added = sorted(manifest.added_or_updated) if manifest is not None else []
