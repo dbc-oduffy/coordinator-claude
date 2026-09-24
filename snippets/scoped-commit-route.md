@@ -15,17 +15,12 @@ split — you do not reproduce that logic in a skill body. Hand it the enumerate
 subject, and your own id as `Dispatching Session-Id: <uuid>` (`$CLAUDE_CODE_SESSION_ID`) — without
 it the commit lands unattributed and every session-keyed gate undercounts. It refuses an unbounded or missing pathspec rather than guessing.
 
-## Why the mechanism is not named here
-
-`ceremony.scoped_git_commit` is **retired** — the op, its trampoline, and its tests are deleted in
-the engine repo's relocation ledger. Where a pre-retirement install left a `scoped-git-commit`
-launcher behind in the settings-home `bin/`, it is dead: it points at helpers deleted from the
-engine tree and fails with a helper-missing error (exit 127 on every host measured), **not** the `-32006` the kill-switch
-contract prescribes. A caller written against that contract handles the wrong failure shape. Never
-route a ceremony commit through those launchers.
+## The mechanism underneath
 
 **The route is the op `ceremony.commit_v2`, INVOKED — `coordinator-invoke ceremony.commit_v2
-'{...}'`, or the `python3 -m coordinator_core.invoke` spelling of it.** Both spellings name the
+'{...}'`, or the `python3 -m coordinator_core.invoke` spelling of it.** Params: `paths`,
+`message`, optional `deleted_paths`, and optional `prefer_staged` for a deliberate stage the
+worktree does not match. Both spellings name the
 op through its invoker; neither names, nor licenses reaching for, the function underneath. It
 runs `coordinator_core.git.commit.commit_paths`, but naming that function is not naming the
 route, and a dispatched subagent never imports or calls it directly, invoke spelling or not.
@@ -121,6 +116,3 @@ the worktree *at commit time*, and a peer can write into your path in between. N
 `git diff --cached`: a pathspec commit bypasses the index, so it reads empty for the path at risk
 (measured: 7+/7- versus nothing). Knowing the rule does not replace the preview — this exists
 because a session told a file held a peer's edits committed it by pathspec minutes later.
-
-A restore of `ceremony.scoped_git_commit` is a live rebuild candidate. If it lands under the same
-name, this snippet changes and the citing bodies do not.

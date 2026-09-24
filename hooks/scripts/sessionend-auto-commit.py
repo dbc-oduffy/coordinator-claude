@@ -60,8 +60,7 @@ Contract:
              these degrades to a silent (or best-effort-logged) no-op, same
              posture as `sessionend-archive-session.py`.
 
-Push-failure framing: `ceremony.scoped_git_commit` (composed inside
-`auto_commit_session`) commits FIRST, then pushes-with-retry — a push that
+Push-failure framing: `auto_commit_session` commits FIRST, then pushes-with-retry — a push that
 exhausts its bounded retry leaves the commit landed locally and reports
 `push_state` accordingly; it does not roll the commit back. A commit that
 landed but did not push is a GOOD outcome here (it survives on disk, it

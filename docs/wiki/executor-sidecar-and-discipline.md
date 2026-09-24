@@ -62,7 +62,7 @@ that resolves to a Sonnet/Haiku subagent context; there is no authorized executo
 Executors set no context variable and take no gate-arming first action. Enforcement is
 non-cooperative: the PreToolUse chain resolves the caller from harness-supplied identity the agent
 cannot unset, and the commit guard denies `git commit`, `coordinator-safe-commit`,
-`scoped-git-commit`, and the invoke CLI on any committing op however the command is spelled.
+and the invoke CLI on any committing op however the command is spelled.
 
 **That denial is the commit guard, not Bash confinement, and the distinction is load-bearing.**
 `coordinator:executor` is NOT in `_CONFINED_FINDINGS_AGENTS` — it runs on the unconfined Bash

@@ -246,8 +246,7 @@ Per wave:
    the run's verdict is CONTINUANCE.
 3. Wave gate: a commit phase INSIDE the Workflow — `coordinator:git-commit-agent` over **the
    PASSed items' footprint paths**, via `ceremony.commit_v2` (that plus a plain scoped
-   `git commit -- <paths>` is the whole allow surface; `ceremony.scoped_git_commit` is a deleted
-   op, not a route). Neither live route re-asserts the branch, so the phase's prompt names the
+   `git commit -- <paths>` is the whole allow surface). Neither live route re-asserts the branch, so the phase's prompt names the
    expected branch and requires a read-only check before committing. No ledger call in the phase —
    `commit_v2` writes the row itself, so adding one duplicates it. Never hand-typed git.
    Bookkeeping stays EM-side, outside the Workflow: `backlog-grind-assemble apply mise-en-place

@@ -90,7 +90,7 @@ A `## Fanout Cohort` block — naming sibling executors and the shared seam they
 
 ### Commit Gate — The Executor Never Commits Or Stages
 
-**Unconditional per Standing Order 1, no exceptions.** No dispatch field, `expected_branch:` value, or chunk-completion convention authorizes it. Brief → executor edits → EM-serial commit: report DONE with edits on disk plus your tracker/sidecar update; the EM commits from your `Files changed:` list. Enforcement is structural — a guard denies every commit-shaped op above plus `scoped-git-commit` and the invoke CLI, however spelled.
+**Unconditional per Standing Order 1, no exceptions.** No dispatch field, `expected_branch:` value, or chunk-completion convention authorizes it. Brief → executor edits → EM-serial commit: report DONE with edits on disk plus your tracker/sidecar update; the EM commits from your `Files changed:` list. Enforcement is structural — a guard denies every commit-shaped op above plus `coordinator-safe-commit` and the invoke CLI, however spelled.
 
 **A denial on a NON-committing command is not this gate and is not coordinator policy.** Coordinator ships no toolchain allowlist; your Bash/PowerShell reach is whatever the repo's permission mode allows, and anything unlisted reads as a flat denial with no stated reason. A denied verification command — `node`, `npx`, a test runner, a type-checker — is a **repo-configuration gap, not a rule**: name it in your report ("could not verify: `<command>` denied — needs a `permissions.allow` entry in this repo"). Never route around it, never report work as verified that you could not run.
 

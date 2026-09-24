@@ -36,8 +36,11 @@ Subcommands:
                [--percolate-root <path>]
       Run the three severity-tier grep-style scan (HIGH credential shapes,
       MEDIUM identity/internal-path/peer-repo shapes, LOW informational)
-      over the newline-delimited absolute file paths in <file-list-path>.
-      Renders the Step 2c panel to stdout. Exits 2 if any HIGH hit fired
+      over the newline-delimited absolute file paths in <file-list-path> --
+      the round passes the DEST copies (post-transform, the bytes that ship).
+      A listed path that is not a file exits 1: a scan that skips what it
+      was told to read cannot be told apart from a clean one. Renders the
+      Step 2c panel to stdout. Exits 2 if any HIGH hit fired
       (publish-blocking contract — mirrors the skill's "HIGH >=1: abort"
       rule), else 0. A MEDIUM path-shape match whose rooted segment is a
       placeholder (single letter, `<...>`, `$...`, `foo`, or any of those
@@ -50,10 +53,9 @@ Subcommands:
       names a service and not a person. With --percolate-root, the
       peer-repo-name leg's hits are resolved against <target>'s
       `percolate-store.yaml` guards: a target declaring a `no-residual-pattern` / `registry_codenames` guard gets
-      those hits rendered in a SEPARATE covered group (read pre-transform;
-      Phase-4's post-rsync audit is the post-transform oracle), never mixed
-      into the plain MEDIUM group the pre-transform read would otherwise
-      misrepresent as an unaddressed leak. Without --percolate-root (or on a
+      those hits rendered in a SEPARATE covered group (that guard, enforced
+      by Phase-4's post-rsync audit, is their gating oracle), never mixed
+      into the plain MEDIUM group as an unaddressed leak. Without --percolate-root (or on a
       target with no such guard), the panel is unchanged.
 
   inverse-drift <target> --percolate-root <path> --dest <dest-path>
@@ -557,13 +559,10 @@ def _scan_file(
     line_gates: Optional[Callable[[str], bool]] = None,
 ) -> List[Tuple[Path, int, str]]:
     hits: List[Tuple[Path, int, str]] = []
-    try:
-        with path.open("r", encoding="utf-8", errors="ignore") as fh:
-            for lineno, line in enumerate(fh, start=1):
-                if pattern.search(line) and (line_gates is None or line_gates(line)):
-                    hits.append((path, lineno, line.rstrip("\n")))
-    except OSError:
-        pass
+    with path.open("r", encoding="utf-8", errors="ignore") as fh:
+        for lineno, line in enumerate(fh, start=1):
+            if pattern.search(line) and (line_gates is None or line_gates(line)):
+                hits.append((path, lineno, line.rstrip("\n")))
     return hits
 
 
@@ -649,6 +648,14 @@ def _target_declares_registry_codename_guard(percolate_root: Optional[Path], tar
 def _cmd_scan_secrets(args: argparse.Namespace) -> int:
     _bootstrap_engine()
     files = _load_file_list(Path(args.files))
+    missing = [path for path in files if not path.is_file()]
+    if missing:
+        print(
+            f"percolate-gate: scan-secrets: {len(missing)} listed path(s) are not "
+            f"files; refusing to report a partial scan. First: {missing[0]}",
+            file=sys.stderr,
+        )
+        return 1
 
     high_hits: List[Tuple[Path, int, str]] = []
     medium_hits: List[Tuple[Path, int, str]] = []
@@ -744,8 +751,8 @@ def _cmd_scan_secrets(args: argparse.Namespace) -> int:
     if transform_covers_peer:
         print(f"  {_MEDIUM_PANEL_INFORMATIONAL_MARKER}")
         print(
-            "  MEDIUM -- peer-repo names, read pre-transform (depersonalize runs before "
-            "publish; Phase-4 is the post-transform oracle):"
+            "  MEDIUM -- peer-repo names under the target's registry_codenames guard "
+            "(Phase-4 is their gating oracle):"
         )
         if medium_covered_hits:
             for path, lineno, line in medium_covered_hits:

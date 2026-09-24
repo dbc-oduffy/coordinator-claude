@@ -19,7 +19,7 @@ crash-recovery pre-flight, the commit and the push.
 Negative-spec — this module SEQUENCES, it does not reimplement. Every leg
 delegates to `percolate-round.py`'s own helpers (imported by file path, since a
 dashed filename is not importable as a module name): `_resolve_dest`,
-`_resolve_repo_root`, `_round_held_lock`, `_split_stdout_by_row_dest`,
+`_resolve_repo_root`, `_round_held_lock`, `_rows_scan_lists`,
 `_extract_change_lines`, `_read_fresh_round_manifest`, `_pathspec_from_manifest`,
 `_push_dest`. It does NOT own gate policy, does NOT widen any allowlist, and
 does NOT decide a seed amendment — those stay where they are.
@@ -60,16 +60,15 @@ def _load_round_module():
 
 def __getattr__(name: str):
     """PEP 562 module `__getattr__` -- lets a caller that reaches for
-    `<this module>._round` / `.publish_lane` BEFORE `main()` has run (e.g.
-    this file's own test suite, which monkeypatches `_mod._round`'s
-    attributes ahead of calling `_mod.main()`) trigger `_bootstrap_engine()`
-    lazily on first access, instead of requiring `_round`/`publish_lane` to
-    already be module globals at import time. Only fires when the name is
-    NOT already present in this module's `__dict__` -- once
-    `_bootstrap_engine()` has run once (via this hook or via `main()`), the
-    plain global wins on every later lookup and this function is not called
-    again for that name."""
-    if name in ("_round", "publish_lane"):
+    `<this module>._round` BEFORE `main()` has run (e.g. this file's own
+    test suite, which monkeypatches `_mod._round`'s attributes ahead of
+    calling `_mod.main()`) trigger `_bootstrap_engine()` lazily on first
+    access, instead of requiring `_round` to already be a module global at
+    import time. Only fires when the name is NOT already present in this
+    module's `__dict__` -- once `_bootstrap_engine()` has run once (via this
+    hook or via `main()`), the plain global wins on every later lookup and
+    this function is not called again for that name."""
+    if name in ("_round",):
         _bootstrap_engine()
         try:
             return globals()[name]
@@ -103,10 +102,9 @@ def _require_percolate_engine(root: str) -> None:
 
 
 def _bootstrap_engine() -> None:
-    """Resolve the engine root and bind `_round`/`publish_lane` module
-    globals. Called once, first thing in `main()` (or lazily via
-    `__getattr__` above, for a caller that reaches for `_round`/
-    `publish_lane` before `main()` runs).
+    """Resolve the engine root and bind the `_round` module global. Called
+    once, first thing in `main()` (or lazily via `__getattr__` above, for a
+    caller that reaches for `_round` before `main()` runs).
 
     The engine root is put on `sys.path` EXPLICITLY here, not inherited from
     `_load_round_module()` below. That call does happen to leave the engine
@@ -147,7 +145,7 @@ def _bootstrap_engine() -> None:
     `coordinator/lib` (the percolate helpers), while `cc_invoke` lives in
     `coordinator/bin/lib`. They are different directories.
     """
-    if all(n in globals() for n in ("_round", "publish_lane")):
+    if all(n in globals() for n in ("_round",)):
         # Already bootstrapped (via `main()` or a prior `__getattr__` hit) --
         # re-running would call `_load_round_module()` again and rebind
         # `_round` to a BRAND NEW module object (`importlib.util.module_
@@ -184,11 +182,8 @@ def _bootstrap_engine() -> None:
 
     _round_ = _load_round_module()
 
-    from coordinator_core import publish_lane as _publish_lane_  # type: ignore[import-not-found]
-
     for _name, _value in (
         ("_round", _round_),
-        ("publish_lane", _publish_lane_),
     ):
         globals().setdefault(_name, _value)
 
@@ -285,10 +280,15 @@ def _select_mirror(selector: str, groups: Dict[str, List[str]]) -> Optional[str]
 
 
 def _run_gate_legs(
-    real_stdout: str, targets: List[str], percolate_root: str, tmp: Path
+    repo_root: str,
+    manifest_added: List[str],
+    targets: List[str],
+    percolate_root: str,
+    tmp: Path,
 ) -> Optional[int]:
     """Steps 2 and 2b — the content-leak scan and the inverse-drift check —
-    run against the real run's own output. Returns an exit code to return, or
+    run over the dest copies of the files the real run's manifest names.
+    Returns an exit code to return, or
     `None` when every leg passed.
 
     These are the reason a publish to a PUBLIC mirror is allowed to land at
@@ -298,7 +298,7 @@ def _run_gate_legs(
     module did when first written) makes the entry point cheaper than
     `percolate-round` by removing the safety, not the cost.
 
-    Scanned per target, each over ITS OWN row's file list. `scan-secrets` is
+    Scanned per target, each over ITS OWN row's files (`_rows_scan_lists`). `scan-secrets` is
     target-scoped (peer-repo pattern, `registry_codenames` guard), so a row
     needs its own pass — and must not be handed another row's sources, which
     would judge them under the wrong ruleset. An earlier revision fed every
@@ -306,21 +306,6 @@ def _run_gate_legs(
     wrong in this direction, and the failure is recorded at the call site.
     """
     _bootstrap_engine()
-    # Per-row stdout, keyed by that row's own reported `Target:` line. Each
-    # row's scan list must come from ITS OWN chunk: `scan-secrets` is
-    # target-scoped (peer-repo pattern, `registry_codenames` guard), so feeding
-    # it the whole run's file list judges every other row's sources under this
-    # row's ruleset. Observed live 2026-08-18: doing that raised HIGH-tier
-    # "credential" hits on ordinary prose in `docs/install/` and `scripts/`
-    # while scanning under `claude-klabauter-coordinator-bin`, blocking a clean
-    # 9/9 publish. Over-inclusive is NOT the safe direction here — it
-    # manufactures false blocks, and a HIGH tier that fires on documentation is
-    # one operators learn to route around.
-    row_chunks = {
-        dest: chunk
-        for dest, chunk in _round._split_stdout_by_row_dest(real_stdout, "")
-    }
-
     identity_file = Path(percolate_root) / "setup" / ".percolate-identity"
     peer_repos_file = _round._resolve_central_state()
     medium_total = 0
@@ -347,42 +332,20 @@ def _run_gate_legs(
                 file=sys.stderr,
             )
             return _round._EXIT_FAIL
-        source_dir, dest = paths
+    row_dests = {target: row_paths[target][1] for target in targets}
+    try:
+        scan_lists = _round._rows_scan_lists(repo_root, manifest_added, row_dests)
+    except ValueError as exc:
+        _round._print_step_failure("scan-file-list build", [], str(exc))
+        return _round._EXIT_FAIL
 
-        row_stdout = row_chunks.get(dest)
-        if row_stdout is None:
-            # publish.py reported no `Target:` line for this row — it touched
+    for target in targets:
+        source_dir, dest = row_paths[target]
+        scan_file_list = scan_lists[target]
+        if not scan_file_list:
+            # The manifest names nothing under this row's dest — it changed
             # nothing this run, so it has nothing of its own to scan.
             continue
-        row_stdout_path = tmp / f"row-stdout-{targets.index(target)}.txt"
-        row_stdout_path.write_text(row_stdout, encoding="utf-8", newline="\n")
-
-        parse = _round._run(
-            [
-                sys.executable,
-                str(_round._PARSE_DRYRUN),
-                "parse-dryrun",
-                "--stdout-file",
-                str(row_stdout_path),
-                "--source-dir",
-                source_dir,
-            ],
-            timeout=_round._ROUND_SCAN_LEG_TIMEOUT_SECS,
-        )
-        if parse.returncode != 0:
-            _round._print_step_failure("percolate-parse-dryrun", [], parse.stderr)
-            return _round._EXIT_FAIL
-        try:
-            scan_file_list = json.loads(parse.stdout)["preflight"][
-                "step2c_scan_file_list"
-            ]
-        except (json.JSONDecodeError, KeyError, TypeError) as exc:
-            _round._print_step_failure(
-                "percolate-parse-dryrun — malformed envelope",
-                [],
-                f"{type(exc).__name__}: {exc}",
-            )
-            return _round._EXIT_FAIL
 
         scan_files_path = tmp / f"scan-files-{target}.txt"
         scan_files_path.write_text(
@@ -538,14 +501,6 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[List[str]] = None) -> int:
     _bootstrap_engine()
 
-    # Declared here and not inherited from `percolate-round`: this module imports that
-    # one by path for its helpers and never calls its `main()`, so the round's own
-    # declaration does not run for a mirror publish — and this driver spawns
-    # `scoped-git-commit` itself (`_commit_mirror`), which is the one leg the lane
-    # exists for. PM ruling 2026-08-21, DR-350; mechanism in
-    # `coordinator_core.publish_lane`.
-    publish_lane.declare_lane()
-
     args = _build_parser().parse_args(argv)
 
     # `_resolve_percolate_root` owns the override precedence itself (it returns
@@ -646,20 +601,23 @@ def main(argv: Optional[List[str]] = None) -> int:
                 )
                 return _round._EXIT_FAIL
 
+            # The commit pathspec and the gate legs' scan lists both come from
+            # the manifest publish.py persisted, never from parsing its printed
+            # NEW:/UPDATE:/REMOVE: lines. Same fix as percolate-round.py's
+            # `_cmd_round_default`; this file carried a structurally identical
+            # copy of that defect.
+            manifest = _round._read_fresh_round_manifest(
+                Path(repo_root), manifest_not_before
+            )
+            manifest_added = sorted(manifest.added_or_updated) if manifest is not None else []
+
             with tempfile.TemporaryDirectory() as gate_tmp:
                 gate_rc = _run_gate_legs(
-                    real.stdout, targets, str(percolate_root), Path(gate_tmp)
+                    repo_root, manifest_added, targets, str(percolate_root), Path(gate_tmp)
                 )
             if gate_rc is not None:
                 return gate_rc
 
-            # The commit pathspec comes from the manifest publish.py persisted,
-            # never from parsing its printed NEW:/UPDATE:/REMOVE: lines. Same fix
-            # as percolate-round.py's `_cmd_round_default`; this file carried a
-            # structurally identical copy of that defect.
-            manifest = _round._read_fresh_round_manifest(
-                Path(repo_root), manifest_not_before
-            )
             pathspec = (
                 []
                 if manifest is None

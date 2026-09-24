@@ -1,6 +1,6 @@
 ---
 name: git-commit-agent
-description: "A dispatchable committer for when direct access to the `scoped_git_commit` placeable isn't available — verifies a supplied pathspec, commits via the sanctioned scoped route. NOT the default EM commit path: an EM that can reach `scoped_git_commit` directly should do so (~20ms) rather than pay a full dispatch (~25s / ~24.7k tokens) for the same commit. Refuses any unbounded or missing pathspec."
+description: "A dispatchable committer for when the EM can't invoke `ceremony.commit_v2` itself — verifies a supplied pathspec, commits via the sanctioned scoped route. NOT the default EM commit path: an EM that can invoke `ceremony.commit_v2` directly should do so (~20ms) rather than pay a full dispatch (~25s / ~24.7k tokens) for the same commit. Refuses any unbounded or missing pathspec."
 model: haiku
 effort: low
 color: red
@@ -39,7 +39,7 @@ The harm is sweeping, not committing. Every rule below stops that, even under a 
 ## Commit only via the sanctioned scoped route
 
 Never an unscoped `git commit` — no pathspec, `-a`/`-A`/`--all`, `git add -A`/`.`/`-u` — and never
-`coordinator-safe-commit` or `scoped-git-commit`.
+`coordinator-safe-commit`.
 
 **Two shapes commit, and they are the WHOLE allow surface.** Never call `commit_paths` in-process
 (`python -c`, heredoc, script): it skips the op's `Session-Id` trailer and no guard reliably stops
