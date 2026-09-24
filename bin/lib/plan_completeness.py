@@ -64,6 +64,18 @@ GATED_GROUPING_FOR_DISPOSITION = {
 #: run-report.schema.json `status` values that make a chunk's dispatch terminal.
 TERMINAL_SIDECAR_STATUSES = frozenset({"complete", "blocked", "thrashing"})
 
+#: Where an emitted workflow's executor writes its report:
+#: `<repo>/<this>/<plan stem>/<chunk id>.md`. Pinned equal to
+#: `dispatch_emit.emit._DISPATCH_REPORT_DIR`, not imported: that module costs ~50ms.
+DISPATCH_REPORT_DIR = ".coordinator-local/subagent-share/dispatch-reports"
+
+#: An emitted-workflow report carries no frontmatter; its executor return contract
+#: writes a `Status: <DONE|BLOCKED|PARTIAL>` line. PARTIAL stopped short: terminal,
+#: not complete.
+_DISPATCH_REPORT_STATUS = {"DONE": "complete", "BLOCKED": "blocked", "PARTIAL": "blocked"}
+#: Tolerates markdown emphasis either side (`**Status: DONE**`) -- executors write both.
+_DISPATCH_STATUS_LINE_RE = re.compile(r"^[\s*_]*Status:[\s*_]*([A-Z_]+)\b", re.M)
+
 _DATE_PREFIX_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}-")
 _WORK_LABEL_RE = re.compile(r"label:\s*'work:([^'\s]+)'")
 
@@ -435,6 +447,34 @@ def classify_divergence(value: Any) -> tuple:
     return "non-conformant", None
 
 
+def _dispatch_report_candidate(
+    chunk_id: str, plan_path: Path, repo_root: str
+) -> Optional[ChunkCandidate]:
+    """The emitted workflow's own report for `chunk_id`, or `None` when absent.
+
+    Frontmatter `status` wins when present; otherwise the executor contract's
+    `Status:` line, mapped onto the run-report enum. An unmapped token, or a
+    body carrying more than one `Status:` line, leaves `status` None, so the
+    chunk resolves but never counts as reported."""
+    path = Path(repo_root) / DISPATCH_REPORT_DIR / Path(plan_path).stem / f"{chunk_id}.md"
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    fm = read_frontmatter(text)
+    status = fm.get("status") if isinstance(fm.get("status"), str) else None
+    if status is None:
+        matches = _DISPATCH_STATUS_LINE_RE.findall(text)
+        status = _DISPATCH_REPORT_STATUS.get(matches[0]) if len(matches) == 1 else None
+    return ChunkCandidate(
+        path=path,
+        slug_form="dispatch-report",
+        spawned_at=fm.get("spawned_at") if isinstance(fm.get("spawned_at"), str) else None,
+        status=status,
+        divergence=fm.get("divergence"),
+    )
+
+
 def resolve_chunk(
     chunk_id: str,
     plan_path: Path,
@@ -472,6 +512,14 @@ def resolve_chunk(
                         divergence=fm.get("divergence"),
                     )
                 )
+
+    # The workflow report carries no `spawned_at`, so pooling it beside a
+    # sidecar would force every such chunk to `ambiguous`; it is consulted
+    # only when no Agent-tool sidecar exists.
+    if not pool:
+        report = _dispatch_report_candidate(chunk_id, plan_path, repo_root)
+        if report is not None:
+            pool.append(report)
 
     if not pool:
         return ChunkResolution(
