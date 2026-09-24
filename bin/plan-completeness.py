@@ -35,8 +35,6 @@ import json
 import sys
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-
 EXIT_OK = 0
 EXIT_INCOMPLETE = 1
 EXIT_UNREADABLE = 2
@@ -101,13 +99,40 @@ def _status_exit_code(rollup: dict) -> int:
     return EXIT_INCOMPLETE
 
 
+def _plan_and_repo(plan_arg: str) -> "tuple[Path, Path] | None":
+    """The plan's absolute path and the repo it lives in, or None after naming the miss on stderr.
+
+    Trap: the repo root is the PLAN's, never this script's. The published plugin installs this
+    file outside any consumer repo, so an install-relative root reads every consumer plan as
+    missing and writes sidecars where nothing reads them (claude-klabauter#78). A relative path
+    resolves against cwd, as every sibling ceremony CLI does. The walk looks for `.git` (a dir,
+    or a file in a worktree/submodule) instead of spawning git.
+    """
+    plan = Path(plan_arg)
+    if not plan.is_absolute():
+        plan = Path.cwd() / plan
+    plan = plan.resolve()
+    if not plan.is_file():
+        print(f"plan-completeness: NOT FOUND — {plan}", file=sys.stderr)
+        return None
+    for candidate in plan.parents:
+        if (candidate / ".git").exists():
+            return plan, candidate
+    print(f"plan-completeness: NO REPO — no .git above {plan}", file=sys.stderr)
+    return None
+
+
 def cmd_generate(args: argparse.Namespace) -> int:
+    resolved = _plan_and_repo(args.plan_path)
+    if resolved is None:
+        return EXIT_UNREADABLE
+    plan, root = resolved
     pc = _lib()
-    repo_root = str(_REPO_ROOT)
-    result = pc.build_ledger(repo_root, args.plan_path)
+    repo_root = str(root)
+    result = pc.build_ledger(repo_root, str(plan))
     if result.status != "located":
         label = _TERMINAL_LABEL.get(result.status, result.status.upper())
-        print(f"plan-completeness: {label} — {args.plan_path}", file=sys.stderr)
+        print(f"plan-completeness: {label} — {plan}", file=sys.stderr)
         return EXIT_UNREADABLE
 
     document = result.document
@@ -135,17 +160,20 @@ def cmd_generate(args: argparse.Namespace) -> int:
 
 
 def cmd_status(args: argparse.Namespace) -> int:
+    resolved = _plan_and_repo(args.plan_path)
+    if resolved is None:
+        return EXIT_UNREADABLE
+    plan, root = resolved
     pc = _lib()
-    repo_root = str(_REPO_ROOT)
     try:
-        result = pc.build_ledger(repo_root, args.plan_path)
+        result = pc.build_ledger(str(root), str(plan))
     except pc.EngineUnreachableError as exc:
         print(f"plan-completeness: {exc}", file=sys.stderr)
         return EXIT_UNREADABLE
 
     if result.status != "located":
         label = _TERMINAL_LABEL.get(result.status, result.status.upper())
-        print(f"plan-completeness: {label} — {args.plan_path}", file=sys.stderr)
+        print(f"plan-completeness: {label} — {plan}", file=sys.stderr)
         return EXIT_UNREADABLE
 
     document = result.document
