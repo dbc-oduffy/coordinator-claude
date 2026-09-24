@@ -72,6 +72,11 @@ through.
 `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape W on PowerShell hosts) — same `<artifact-path>` as
 `brief`.
 
+Once `apply`'s commit lands, best-effort trigger project-rag's SCIP rebuild in the background —
+never waits, never blocks this ceremony: `"$_py"
+"${CLAUDE_PLUGIN_ROOT:-<doe-root>/coordinator}/bin/scip-rebuild-at-ceremony.py" --ceremony handoff`
+(§ Plugin-local `coordinator/bin/`, `resolve-coordinator-bin.md`).
+
 Procedure detail — body authoring, `d5` release, next-steps durability,
 `carried_items` minting and its disposition gate, dirty-tree case-(c) and safe-commit grouping,
 supersession, orientation refresh — arrives with this invocation from

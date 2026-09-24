@@ -197,6 +197,11 @@ as leaving nothing landed.** Then, still yours to make:
 2. **Nothing** — the review record landed when the reviewer stamped its sidecar receipt. Confirm
    `gates.review_receipt.blocks` is `false` and name any missing integrator receipt in the summary.
 
+Once the close commit(s) land, best-effort trigger project-rag's SCIP rebuild in the background —
+never waits, never blocks this ceremony: `"$_py"
+"${CLAUDE_PLUGIN_ROOT:-<doe-root>/coordinator}/bin/scip-rebuild-at-ceremony.py" --ceremony
+workstream-complete` (§ Plugin-local `coordinator/bin/`, `resolve-coordinator-bin.md`).
+
 **The terminal stamp is gated engine-side, and a blocked stamp is not a failed one.**
 `d-stamp-plan-implemented` carries three empty-`resolves` judgment points on its `depends_on`:
 `jp-open-spine-rows-block-stamp` (unwaived `open` rows, or `indeterminate`),

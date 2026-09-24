@@ -186,10 +186,12 @@ hand-authored wave map, or a chat emission of a wave table.
 session the EM runs `python <plugin-root>/bin/emit-dispatch-workflow.py --plan <plan-path>`
 (plugin-local, no settings-home launcher — resolve per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`
 § CLIs with no launcher; never cwd-relative), then
-calls `Workflow({scriptPath: "<emitted path>"})` in this session. The emitter's output is already a
-valid `scriptPath` input — no flag, no re-authoring. That call carries the same imperative force as
-the emit: it is not EM discretion about whether to dispatch, and it is not hand-dispatch — it is
-the emitted script, one action. Emitting and stopping writes a script nothing runs.
+calls `Workflow({scriptPath: "<emitted path>", args: {repoRoot: "<absolute repo root>"}})` in this
+session, using the exact `fire with: Workflow(...)` line the emitter prints on stderr. The
+emitter's output is already a valid `scriptPath` input — no flag, no re-authoring. That call
+carries the same imperative force as the emit: it is not EM discretion about whether to dispatch,
+and it is not hand-dispatch — it is the emitted script, one action. Emitting and stopping writes a
+script nothing runs.
 **An emitted script is not a delivered dispatch.**
 
 **An emitted fire raises no permission prompt; a hand-rolled one does.**

@@ -118,12 +118,16 @@ import re
 def claude_home() -> str:
     """Return the ``~/.claude`` root, honouring ``CLAUDE_CONFIG_DIR`` (the
     harness's own env var naming the config directory itself) ahead of
-    ``CLAUDE_HOME`` (this fleet's own invention naming its *parent*), for
-    test isolation and to keep this module's resolution in step with the
-    canonical ``coordinator_core._settings_home.claude_config_dir()`` seam.
+    ``CLAUDE_HOME`` (this fleet's own invention naming its *parent*, per
+    Convention A), for test isolation and to keep this module's resolution
+    in step with the canonical
+    ``coordinator_core._settings_home.claude_config_dir()`` seam.
 
     Precedence mirrors ``claude_config_dir()`` exactly: ``CLAUDE_CONFIG_DIR``
-    first, else the ``CLAUDE_HOME``-derived ``<home>/.claude``. This module
+    is returned unchanged (it already names the ``.claude`` dir itself);
+    else ``CLAUDE_HOME`` is a ``$HOME`` substitute and ``<CLAUDE_HOME>/.claude``
+    is returned (Convention A — the same convention
+    ``check_install_singularity._claude_base_dir()`` enforces). This module
     cannot import that seam (see module docstring — the whole point of this
     file is to stay importable by scripts that never establish
     ``coordinator_core`` on ``sys.path``), so the rung is duplicated inline
@@ -135,7 +139,7 @@ def claude_home() -> str:
         return config_dir_override
     override = os.environ.get("CLAUDE_HOME")
     if override:
-        return override
+        return os.path.join(override, ".claude")
     home = os.environ.get("HOME") or os.environ.get("USERPROFILE") or os.path.expanduser("~")
     return os.path.join(home, ".claude")
 

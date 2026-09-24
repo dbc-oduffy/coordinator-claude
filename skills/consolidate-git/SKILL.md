@@ -40,8 +40,12 @@ current branch is stale state, not active work — a lock from a long-finished i
 stale signal, not a veto, and its removal is proposed like any other stale branch. A
 worktree with uncommitted changes is a genuine pause, not an auto-fire.
 
-**Only branches/worktrees owned by the current git identity are candidates.** Everyone else's
-are reported under `gates` but never touched.
+**Candidates are branches/worktrees owned by the current git identity, plus `cloud-session`
+branches.** A cloud session's tip is authored by `noreply@anthropic.com`. When its `Operator:`
+trailer equals your git email, it is `mine-stale` like any branch of yours; `cloud-channel`
+records that identity. Without the trailer, or with another operator's, it is `cloud-session`,
+most often still the operator's own in-flight work. Absorbing it is the point of this skill, not
+an overreach. Every other owner's branch is reported under `gates` and never touched.
 
 ## Resolve the Judgment Points
 
@@ -62,6 +66,11 @@ it is already applied; do not force an empty cherry-pick through or re-commit du
 
 Each judgment point below carries its own evidence and per-option guidance in the decision
 object — decide from it, never invent a verdict the evidence doesn't support.
+
+**`j-delete-<branch>` — zero-unique-commit `cloud-session` branch.** **delete** once its tip is
+reachable from main or the current branch and it heads no open PR, which you check with `gh pr list`.
+Otherwise **keep**. `mine-stale` branches with zero unique commits delete unconditionally; a
+`cloud-session` branch always gets a verdict, because its owner is inferred, not proven.
 
 **`j-absorb-<branch>` — supersession verdict.** You get the unique-commit list plus a
 `git show --stat` per commit; nothing labels a commit "superseded" for you. Before
@@ -138,4 +147,4 @@ that looked untouched — a hunk can vanish from a parent that never conflicted.
 - **Force-delete branches** — safe delete (`-d`) only; `-D` needs explicit PM approval if `-d`
   refuses.
 - **Touch other people's branches or worktrees** — ownership is tip-commit-author-scoped; every
-  non-owned branch/worktree is reported, never modified.
+  non-owned branch/worktree except `cloud-session` is reported, never modified.

@@ -30,7 +30,6 @@ Exit:    0 = no movable terminal plan remains; 1 = >=1 movable (sweep owes work)
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -63,42 +62,30 @@ def _query_terminal_paths() -> list[str]:
 
 
 def _coordinator_state_root() -> str | None:
-    from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+    """P055-C1 conversion: was a `[python, "-m", "coordinator_core.state_root"]`
+    spawn. `ensure_engine_on_path` already puts coordinator_core on THIS
+    process's own sys.path (see the comment this replaced), so the spawn was
+    pure Python-for-Python work -- call `coordinator_state_root()` directly.
+    """
+    from cc_invoke import _resolve_claude_klabauter_root, ensure_engine_on_path  # noqa: E402
 
     try:
-        claude_klabauter_root = _resolve_claude_klabauter_root()
+        _resolve_claude_klabauter_root()
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return None
 
-    env = dict(os.environ)
-    pythonpath = env.get("PYTHONPATH", "")
-    sep = ";" if os.name == "nt" else ":"
-    env["PYTHONPATH"] = claude_klabauter_root + (sep + pythonpath if pythonpath else "")
-
-    # `claude_klabauter_root` above only reaches the CHILD subprocess's env
-    # (PYTHONPATH) -- this process's own `sys.path` never got it, so the
-    # coordinator_core import below died on a mirror checkout where
-    # coordinator_core isn't pip-installed. `ensure_engine_on_path` puts it
-    # on THIS process's sys.path too.
-    from cc_invoke import ensure_engine_on_path
-
     ensure_engine_on_path(__file__)
 
-    from coordinator_core.win_portability import no_console_creationflags
+    from coordinator_core.state_root import CrossCuttingStateRoot, StateRootError, coordinator_state_root
 
-    proc = subprocess.run(
-        [sys.executable, "-m", "coordinator_core.state_root"],
-        capture_output=True,
-        text=True,
-        env=env,
-        check=False,
-        **no_console_creationflags(),
-    )
-    if proc.returncode != 0:
+    try:
+        root = coordinator_state_root()
+    except (CrossCuttingStateRoot, StateRootError):
+        # Matches the spawn form's behavior exactly: proc.stderr was
+        # captured and discarded on a nonzero exit, never printed.
         return None
-    root = proc.stdout.strip()
-    return root or None
+    return root.strip() or None
 
 
 def _read_frontmatter_status(path: str) -> str | None:

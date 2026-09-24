@@ -3914,8 +3914,8 @@ def dispatch_end_of_run_assembled_mirror_gate(
         )
         if result.not_applicable:
             # Gate does not refuse; the round proceeds. Never reaches the
-            # coverage leg / passed / is_load_indeterminate / exemption
-            # branches below -- there is no claim about this tree for any
+            # coverage leg / passed / exemption branches below -- there is
+            # no claim about this tree for any
             # of them to act on (see `MirrorCollectionResult.not_
             # applicable`'s own docstring for why this must be read before
             # `passed`/`is_incomplete`).
@@ -3977,25 +3977,15 @@ def dispatch_end_of_run_assembled_mirror_gate(
 
         row_names = [row.name for row in rows_by_repo_root.get(repo_root, [])]
 
-        if result.is_load_indeterminate:
-            # A LOAD-INDETERMINATE result (a timeout, and every further
-            # no-verdict cause `is_incomplete` grows) carries no claim
-            # about the tree at all -- see `MirrorCollectionResult.
-            # is_load_indeterminate`'s own docstring. The exemption ledger
-            # waives a KNOWN, REPRODUCIBLE tree property; it has nothing to
-            # waive here, so the lookup is skipped entirely rather than
-            # letting a load-driven timeout on an exempted row pass through
-            # this branch as declared content debt.
-            #
-            # The predicate is deliberately NOT `is_incomplete`: that one
-            # also covers `isolation_unverified`, which is a deterministic
-            # function of the destination tree's contents rather than of
-            # the box, and is precisely the case the single live ledger
-            # entry was declared to cover. Gating here on `is_incomplete`
-            # made that entry unreachable and shut the DoE ->
-            # coordinator-claude publish lane
-            # (cross-repo/inbox/2026-08-31-doe-claude-em-mirror-gate-
-            # completeness-reclosed-the-oss-lane.md).
+        if result.is_incomplete:
+            # An INCOMPLETE result (timed_out, isolation_unverified, or any
+            # further no-verdict cause `is_incomplete` grows) carries no
+            # claim about the tree at all -- see `MirrorCollectionResult.
+            # is_incomplete`'s own docstring. The exemption ledger waives a
+            # KNOWN, REPRODUCIBLE tree property; it has nothing to waive
+            # here, so the lookup is skipped entirely rather than letting
+            # an incomplete result on an exempted row pass through this
+            # branch as declared content debt.
             print(
                 f"  Error: end-of-run assembled-mirror gate did not complete for "
                 f"{repo_root} -- no declared exemption applies because this "
@@ -8910,15 +8900,60 @@ def _sync_commit_message(
     return f"{subject}\n\n{body}"
 
 
+def _paths_excluding_dirs(
+    repo_root: Path, paths: Sequence[str], excluded_dirs: "Iterable[Path]"
+) -> "List[str]":
+    """Drop any path in `paths` (repo-root-relative) that is a STRICT
+    descendant of one of `excluded_dirs`. An excluded dir equal to
+    `repo_root` itself (a failed toplevel row) excludes nothing by prefix —
+    § C1's own note: that row wrote nothing (pre-check) or is a mutated root
+    handled separately via `skip_repo_roots`, so treating "." as a prefix
+    here would wrongly exclude every path."""
+    excluded_rel: "set[str]" = set()
+    for excl in excluded_dirs:
+        try:
+            rel = excl.resolve().relative_to(repo_root.resolve())
+        except ValueError:
+            continue
+        rel_str = rel.as_posix()
+        if rel_str not in (".", ""):
+            excluded_rel.add(rel_str)
+    if not excluded_rel:
+        return list(paths)
+    kept: "List[str]" = []
+    for p in paths:
+        if any(p == excl or p.startswith(excl + "/") for excl in excluded_rel):
+            continue
+        kept.append(p)
+    return kept
+
+
 def _commit_published_dests(
     published_dest_dirs_by_repo_root: "dict[Path, set[Path]]",
     *,
     succeeded_row_names: Sequence[str],
     round_pinned_shas: "dict[str, str]",
+    exclude_dirs_by_repo_root: "dict[Path, set[Path]] | None" = None,
+    skip_repo_roots: "set[Path] | None" = None,
+    uncommitted_roots_sink: "set[Path] | None" = None,
 ) -> bool:
     """Commit each destination repo's synced bytes, once, at the successful
-    conclusion of a percolation. Returns `True` when every destination either
-    committed or had nothing to commit.
+    conclusion of a percolation. Returns `True` when every destination
+    either committed or had nothing to commit — unchanged return shape, so
+    every existing `_commit_published_dests(...)` caller (`ok is True`)
+    keeps working untouched. `uncommitted_roots_sink`, when given, is
+    updated in place with every repo root this call leaves with synced-but-
+    uncommitted bytes (a skipped root, or one whose commit failed) — built
+    from values already in hand here, so a caller can print the AC5 residue
+    line without an extra git probe.
+
+    `exclude_dirs_by_repo_root` drops a failed row's own dest-dir subtree
+    (§ C1) from the commit pathspec before it is frozen, so a partial
+    round's succeeded rows still commit even when a failed sibling row
+    shares the same repo root. `skip_repo_roots` names a repo root a failed
+    row actually mutated (`PublishSwapPartial(content_swapped=True)`) — its
+    dirty state cannot be attributed to one dest-dir subtree, so the whole
+    root is left uncommitted this round rather than partially committed.
 
     WHY THIS EXISTS. A bare `coordinator-publish` run used to exit 0 with
     every gate green and leave the mirror holding its own certified output as
@@ -8963,11 +8998,14 @@ def _commit_published_dests(
     separate deliberate act per this function's own "COMMIT, NOT PUBLISH"
     section above.
 
-    Negative-spec: NOT called under `--dry-run`, NOT called when any row
-    failed, and NOT called when an end-of-run gate failed — a gate failure
-    means this run's published bytes are unverified (AC15 fail-closed), and
-    committing unverified bytes would hand the next round a clean dest that
-    certifies nothing.
+    Negative-spec: NOT called under `--dry-run`, NOT called when no row
+    succeeded, and NOT called when an end-of-run gate failed — a gate
+    failure means this run's published bytes are unverified (AC15
+    fail-closed), and committing unverified bytes would hand the next round
+    a clean dest that certifies nothing. A failed row's own subtree is
+    never committed (`exclude_dirs_by_repo_root` / `skip_repo_roots` above)
+    even when this function DOES run because gates passed and at least one
+    sibling row in the same round succeeded.
 
     Negative-spec: does NOT run when `percolate-round` drives the publish
     (it passes `--no-commit`). The round owns its own
@@ -8983,8 +9021,19 @@ def _commit_published_dests(
         hash_worktree_blobs_via_spawn,
     )
 
+    exclude_dirs_by_repo_root = exclude_dirs_by_repo_root or {}
+    skip_repo_roots = skip_repo_roots or set()
+
     all_ok = True
     for repo_root, scope_dirs in published_dest_dirs_by_repo_root.items():
+        if repo_root in skip_repo_roots:
+            print(
+                f"  {repo_root}: skipped — a failed row mutated this root "
+                "(PublishSwapPartial); left uncommitted this round."
+            )
+            if uncommitted_roots_sink is not None:
+                uncommitted_roots_sink.add(repo_root)
+            continue
         if not scope_dirs or not _is_git_repo(repo_root):
             continue
         paths = _dirty_paths_under(repo_root, sorted(scope_dirs))
@@ -8996,6 +9045,8 @@ def _commit_published_dests(
                 file=sys.stderr,
             )
             all_ok = False
+            if uncommitted_roots_sink is not None:
+                uncommitted_roots_sink.add(repo_root)
             continue
         # Before the pathspec is frozen, not after: a re-moded path is only
         # in the commit if it is in `paths`, and `_dirty_paths_under` cannot
@@ -9007,6 +9058,12 @@ def _commit_published_dests(
                 f"({', '.join(remoded[:5])}{', …' if len(remoded) > 5 else ''})."
             )
             paths = sorted(set(paths) | set(remoded))
+        # § C1 — drop a failed sibling row's own dest-dir subtree before the
+        # pathspec is frozen, so this repo root's succeeded rows still
+        # commit despite a failed row sharing the root.
+        excluded_dirs = exclude_dirs_by_repo_root.get(repo_root)
+        if excluded_dirs:
+            paths = _paths_excluding_dirs(repo_root, paths, excluded_dirs)
         if not paths:
             print(f"  {repo_root}: already clean — nothing to commit.")
             continue
@@ -9042,6 +9099,8 @@ def _commit_published_dests(
                 file=sys.stderr,
             )
             all_ok = False
+            if uncommitted_roots_sink is not None:
+                uncommitted_roots_sink.add(repo_root)
             continue
         sha = outcome.sha
         print(f"  {repo_root}: committed {len(paths)} path(s) as {sha[:12]}.")
@@ -9057,6 +9116,27 @@ def _commit_published_dests(
         # naming the base row. A second notice in this loop printed the same
         # command twice per round — observed live 2026-08-21.
     return all_ok
+
+
+def _print_uncommitted_residue(
+    residue_roots: "Iterable[Path]",
+    rows_by_repo_root: "dict[Path, list]",
+    *,
+    err: IO[str] = sys.stderr,
+) -> None:
+    """AC5 — one stderr line per affected dest root, printed ahead of every
+    non-zero `main()` return other than a commit that succeeded for every
+    root. No line on a clean exit 0. Built entirely from values `main()`
+    already holds — no extra git probe. Follows `docs/wiki/guard-
+    messaging.md` § Register: the fact, then the remedy, no override key."""
+    for root in sorted(residue_roots, key=str):
+        rows = rows_by_repo_root.get(root, [])
+        names = ", ".join(sorted(t.name for t in rows)) if rows else "no named rows"
+        print(
+            f"publish.py: uncommitted in {root}: {names} — re-run the failed "
+            "rows to retry.",
+            file=err,
+        )
 
 
 def should_warn_unresolved_rename_exemption(
@@ -9857,6 +9937,34 @@ def _fleet_env_unstaged_names(dest_dir: Path) -> frozenset:
     )
 
 
+def _publish_staging_parent(dest_dir: Path) -> Path:
+    """Directory the staging/prior/sweep trio mint into — `dest_dir.parent`
+    unchanged in the ordinary case, matching every pinned same-filesystem
+    invariant elsewhere in this file (§ `_create_publish_staging_dir`,
+    `_swap_publish_staging_into_dest`).
+
+    Falls back to a stable, derived subdirectory of `dest_dir.parent` ONLY
+    when `dest_dir.parent` is itself a filesystem anchor (`parent == parent.
+    parent` — true for `/` on POSIX and `X:\\` on Windows, portable without
+    an os-specific check). An unqualified mkdtemp there used to land staging
+    scratch directories straight in the drive root when `dest_dir` was
+    `X:\\<mirror>` — this is the ONLY case this function changes; every
+    dest_dir nested under a normal directory (every existing fixture in this
+    file's test suite) is unaffected, so the pinned `dest_dir.parent`-globbing
+    tests keep matching production behaviour unchanged.
+
+    Still same filesystem as `dest_dir` either way (a plain subdirectory of
+    `dest_dir.parent`), so `_swap_publish_staging_into_dest`'s renames stay
+    metadata-only. Never creates the fallback directory itself — callers that
+    need it to exist (`_create_publish_staging_dir`) create it; a sweep or
+    stranded-prior glob against a not-yet-created fallback simply finds
+    nothing, which is correct."""
+    parent = dest_dir.parent
+    if parent == parent.parent:
+        return parent / f".{dest_dir.name}.publish-staging-root"
+    return parent
+
+
 def _create_publish_staging_dir(dest_dir: Path) -> Path:
     """Materializes a fresh, destination-ADJACENT staging directory seeded
     with a copy of `dest_dir`'s current on-disk content (`.git` excluded),
@@ -9864,7 +9972,8 @@ def _create_publish_staging_dir(dest_dir: Path) -> Path:
     against instead of the real destination.
 
     Same filesystem as `dest_dir` by construction
-    (`tempfile.mkdtemp(dir=dest_dir.parent)`) — `_swap_publish_staging_into_dest`'s
+    (`tempfile.mkdtemp(dir=str(_publish_staging_parent(dest_dir)))`, ordinarily
+    `dest_dir.parent`, § `_publish_staging_parent`) — `_swap_publish_staging_into_dest`'s
     `os.rename` calls are only cheap, atomic-as-the-OS-provides metadata
     operations when source and destination share a volume; an unqualified
     `tempfile.mkdtemp()` would resolve to the system temp dir, frequently a
@@ -9940,8 +10049,11 @@ def _create_publish_staging_dir(dest_dir: Path) -> Path:
     file cannot leave the directory only partially removed the way a bare
     `ignore_errors=True` would.
     """
+    staging_parent = _publish_staging_parent(dest_dir)
+    if staging_parent != dest_dir.parent:
+        staging_parent.mkdir(parents=True, exist_ok=True)
     staging_dir = Path(
-        tempfile.mkdtemp(prefix=f".{dest_dir.name}.publish-staging-", dir=str(dest_dir.parent))
+        tempfile.mkdtemp(prefix=f".{dest_dir.name}.publish-staging-", dir=str(staging_parent))
     )
     unstaged = _fleet_env_unstaged_names(dest_dir)
 
@@ -9985,8 +10097,9 @@ def _sweep_stale_publish_staging_dirs(
     pathspec from.
 
     Glob is deliberately the exact `_create_publish_staging_dir` mint shape,
-    scoped to `dest_dir.parent` only — never a broader pattern, never another
-    destination's directory. `.prior` directories (§
+    scoped to `_publish_staging_parent(dest_dir)` only (ordinarily
+    `dest_dir.parent`, § `_publish_staging_parent`) — never a broader pattern,
+    never another destination's directory. `.prior` directories (§
     `_swap_publish_staging_into_dest`'s stranded-`.git` guard) are a DIFFERENT
     lifecycle with their own refuse-on-detection handling at swap time and
     are explicitly excluded here — this sweep must never touch that mechanism.
@@ -10028,11 +10141,12 @@ def _sweep_stale_publish_staging_dirs(
     mutation, not row disposition, so it must obey the same gate without
     losing C3's row-disposition-independent placement."""
     try:
-        if not dest_dir.parent.is_dir():
+        staging_parent = _publish_staging_parent(dest_dir)
+        if not staging_parent.is_dir():
             return
         now = time.time()
         escaped_prefix = glob.escape(f".{dest_dir.name}.publish-staging-")
-        for candidate in dest_dir.parent.glob(f"{escaped_prefix}*"):
+        for candidate in staging_parent.glob(f"{escaped_prefix}*"):
             if candidate.name.endswith(".prior"):
                 continue
             if not candidate.is_dir():
@@ -10260,23 +10374,11 @@ def _refuse_stranded_root_swap_prior(dest_dir: Path) -> None:
     build plumbing minted by something else entirely, which an unfiltered
     check would read as a strand and refuse every round on.
     """
-    import fnmatch  # noqa: PLC0415 - lazy, this check is the only user
-
     from coordinator_core.percolate.surface import (  # noqa: PLC0415
-        STRUCTURAL_NEVER_PUBLISHED_PREFIXES as _STRUCTURAL,
+        stranded_swap_priors as _stranded_swap_priors,
     )
 
-    # `dest_dir.glob("*.prior")` never yields a dotted basename -- stdlib
-    # glob hides `.`-prefixed names from a pattern that does not itself
-    # start with `.`, and `_swap_publish_staging_into_dest_root` iterates
-    # `staging_dir.iterdir()` (no dotfile filter), so it can legally mint a
-    # dotted strand like `.github.prior`. Scan `iterdir()` directly instead.
-    stranded = sorted(
-        entry
-        for entry in dest_dir.iterdir()
-        if entry.name.endswith(".prior")
-        and not any(fnmatch.fnmatch(entry.name, pattern) for pattern in _STRUCTURAL)
-    )
+    stranded = _stranded_swap_priors(dest_dir)
     if not stranded:
         return
     shown = "".join(f"      {p}\n" for p in stranded[:10])
@@ -10523,7 +10625,7 @@ def _swap_publish_staging_into_dest(dest_dir: Path, staging_dir: Path) -> None:
     keep its glob meaning.
 
     Every rename below is same-filesystem (`staging_dir` was created via
-    `tempfile.mkdtemp(dir=dest_dir.parent)`), so each is a metadata-only
+    `tempfile.mkdtemp(dir=str(_publish_staging_parent(dest_dir)))`), so each is a metadata-only
     operation on every OS this driver supports, never a full-tree copy. The
     prior `dest_dir` is renamed aside rather than deleted outright, and only
     reclaimed after `staging_dir` has successfully taken its place — this
@@ -10598,7 +10700,7 @@ def _swap_publish_staging_into_dest(dest_dir: Path, staging_dir: Path) -> None:
     prior_backup = staging_dir.with_name(staging_dir.name + ".prior")
 
     escaped_prefix = glob.escape(f".{dest_dir.name}.publish-staging-")
-    for candidate in dest_dir.parent.glob(f"{escaped_prefix}*.prior"):
+    for candidate in _publish_staging_parent(dest_dir).glob(f"{escaped_prefix}*.prior"):
         if (candidate / ".git").exists():
             raise PublishSwapPartial(
                 f"refusing to publish {dest_dir}: a stranded prior-backup "
@@ -12753,6 +12855,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     # failures, they are "stop everything now."
     succeeded_row_names: "List[str]" = []
     failed_row_names: "List[str]" = []
+    # § C1 (docs/plans/2026-09-23-partial-round-strand.md) — a failed row's
+    # own dest dir, so the end-of-run commit can exclude its (pre-check:
+    # empty, unless the row also mutated it — see `failed_row_mutated_roots`
+    # below) subtree from the succeeded rows' commit instead of skipping the
+    # whole repo root. `end_of_run_token_index_invalidate_roots`'s meaning is
+    # different (token-index staleness, not commit scope) and is not reused
+    # here.
+    failed_dest_dirs_by_repo_root: "dict[Path, set[Path]]" = {}
+    # A repo root where a failed row raised
+    # `PublishSwapPartial(content_swapped=True)` — content DID land at dest
+    # for that row, so the whole root is excluded from this round's commit
+    # (its dirty state cannot be attributed to a single dest-dir subtree).
+    failed_row_mutated_roots: "set[Path]" = set()
     # `--delta` whole-row skips (§ below) land here, never in
     # `succeeded_row_names` or `failed_row_names` — a skip is neither. Tracked
     # separately so the end-of-run summary can say so instead of leaving
@@ -13058,6 +13173,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     # be invalidated rather than left stale-but-covered.
                     if isinstance(exc, PublishSwapPartial) and exc.content_swapped:
                         end_of_run_token_index_invalidate_roots.add(repo_root)
+                        failed_row_mutated_roots.add(repo_root)
                     code = getattr(exc, "code", None)
                     # `OSError.__repr__` (what `{exc!r}` prints) emits only
                     # `(errno, strerror)` — it discards `.filename`/
@@ -13087,6 +13203,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     )
                     print("", file=sys.stdout)
                     failed_row_names.append(target.name)
+                    failed_dest_dirs_by_repo_root.setdefault(repo_root, set()).add(target.dest_dir)
                     continue
                 # `process_target` returns `None` on BOTH its success path and
                 # every gate-declined-this-row path (allowlist build failure,
@@ -13101,6 +13218,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 # with `totals.processed`'s own tally on the summary line.
                 if totals.processed == prev_processed:
                     failed_row_names.append(target.name)
+                    failed_dest_dirs_by_repo_root.setdefault(repo_root, set()).add(target.dest_dir)
                     continue
                 succeeded_row_names.append(target.name)
                 end_of_run_visited_by_repo_root.setdefault(repo_root, set()).update(row_visited)
@@ -13618,6 +13736,48 @@ def main(argv: Optional[List[str]] = None) -> int:
         # placement covers all of them without duplicating the summary print.
         _print_round_timing_summary(round_timings, _round_wall_start)
 
+        # § C1 (docs/plans/2026-09-23-partial-round-strand.md) — the commit
+        # now runs AHEAD of the failed-row / gate-failure returns below, not
+        # after them: a partial round's succeeded rows are verified (every
+        # end-of-run gate passed) whether or not every requested row landed,
+        # and committing them here is what stops a partial round from
+        # stranding synced-but-uncommitted bytes. The exit-code precedence
+        # is otherwise UNCHANGED — a row failure still wins exit 1 over a
+        # gate failure's 2, and a commit failure is still 3 — this only
+        # moves WHETHER the commit happens ahead of those checks, never
+        # what they return. A failed row's own subtree is always excluded
+        # (`failed_dest_dirs_by_repo_root`) and a root a failed row actually
+        # mutated is always skipped whole (`failed_row_mutated_roots`) — see
+        # `_commit_published_dests`'s own negative-spec block. Never called
+        # when no row succeeded or when `--dry-run` returned further up.
+        commit_ran = bool(args.commit and gates_ok and succeeded_row_names)
+        commit_ok = True
+        uncommitted_after_commit: "set[Path]" = set()
+        if commit_ran:
+            print("=== publish.py — commit ===")
+            commit_ok = _commit_published_dests(
+                end_of_run_published_dest_dirs_by_repo_root,
+                succeeded_row_names=succeeded_row_names,
+                round_pinned_shas=round_pinned_shas,
+                exclude_dirs_by_repo_root=failed_dest_dirs_by_repo_root,
+                skip_repo_roots=failed_row_mutated_roots,
+                uncommitted_roots_sink=uncommitted_after_commit,
+            )
+
+        # AC5 residue set — every dest root this round leaves with synced-
+        # but-uncommitted bytes. A root a failed row actually mutated is
+        # always residue (never committed, whatever else happened). When
+        # the commit ran, the rest of the residue is exactly what
+        # `_commit_published_dests` reports uncommitted (a skipped or
+        # commit-failed root). When it did NOT run (gate failure, or no
+        # succeeded rows, or --commit not passed), every root this round
+        # published bytes into is still uncommitted.
+        residue_roots: "set[Path]" = set(failed_row_mutated_roots)
+        if commit_ran:
+            residue_roots |= uncommitted_after_commit
+        else:
+            residue_roots |= set(end_of_run_published_dest_dirs_by_repo_root.keys())
+
         # Checked AFTER the gates above run (2026-08-14 aggregate-instead-of-
         # abort fix), not before — see this branch's `--dry-run` counterpart
         # up top for the identical row-failure semantics under --dry-run.
@@ -13631,6 +13791,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             # Never exit 0 having processed fewer rows than requested — a row
             # that raised (SystemExit or otherwise) is reported above and this
             # is the run-level consequence of that report.
+            _print_uncommitted_residue(residue_roots, end_of_run_rows_by_repo_root, err=sys.stderr)
             return 1
 
         if not gates_ok:
@@ -13641,25 +13802,16 @@ def main(argv: Optional[List[str]] = None) -> int:
             # failing, and a caller must be able to tell "bytes did not
             # land" (1) from "bytes landed, but verification did not
             # complete" (2) from the exit code alone.
+            _print_uncommitted_residue(residue_roots, end_of_run_rows_by_repo_root, err=sys.stderr)
             return 2
 
-        # Successful conclusion of the percolation — every requested row
-        # landed and every end-of-run gate passed. This is the ONLY point
-        # from which the commit runs (§ `_commit_published_dests`'s own
-        # negative-spec block): both non-zero returns above are ahead of it,
-        # and `--dry-run` returned further up.
-        if args.commit:
-            print("=== publish.py — commit ===")
-            if not _commit_published_dests(
-                end_of_run_published_dest_dirs_by_repo_root,
-                succeeded_row_names=succeeded_row_names,
-                round_pinned_shas=round_pinned_shas,
-            ):
-                # Exit 3, not 0: the bytes landed and verified, but the
-                # destination is still dirty — which is precisely the state
-                # the next `percolate-round` reads as a crashed predecessor.
-                # Reporting it as success is what let that confusion exist.
-                return 3
+        if not commit_ok:
+            # Exit 3, not 0: the bytes landed and verified, but the
+            # destination is still dirty — which is precisely the state
+            # the next `percolate-round` reads as a crashed predecessor.
+            # Reporting it as success is what let that confusion exist.
+            _print_uncommitted_residue(residue_roots, end_of_run_rows_by_repo_root, err=sys.stderr)
+            return 3
 
         return 0
     finally:

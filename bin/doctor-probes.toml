@@ -102,43 +102,15 @@ severity_if_fail = "error"
 remediation = "Re-run /coordinator:install Phase 3; on macOS <settings-home>/bin is the primary resolver location (reached via the coordinator/bin forwarder, not PATH directly); the compat forwarder at ~/.claude/bin is also retained during the transition window — re-running Phase 3 installs both"
 
 # ---------------------------------------------------------------------------
-# Cluster: whoami — coordinator_whoami package + mcpServers config
-# (venv relocated from ~/.claude/.coordinator-venv/ to <settings-home>/.coordinator-venv/
-#  by durable-substrate-to-settings-home plan § C5; settings-home = $(coordinator-settings-home))
+# Cluster: whoami — mcpServers config
+#
+# P-5/P-6/P-6s (coordinator_whoami import + envelope probes) RETIRED
+# (2026-09-24): coordinator_whoami itself is RETIRED (scripts/setup.py: "no
+# provisioning step creates it"), so these probes were a permanent false RED
+# whose printed remedy (bin/ensure-coordinator-venv.sh) had already been
+# deleted. See
+# state/cross-repo/archive/2026-09-11-doe-claude-em-doctor-p5-probes-retired-whoami.md.
 # ---------------------------------------------------------------------------
-
-[[probe]]
-id = "P-5"
-cluster = "whoami"
-weight = "standard"
-interactivity = "silent"
-fix = "none"
-symptom_keywords = ["coordinator_whoami import error", "ImportError", "package not installed", "whoami not importable"]
-triage = true
-severity_if_fail = "error"
-remediation = "Re-run /coordinator:install (Phase 3 Step 6) — rebuilds the coordinator venv at <settings-home>/.coordinator-venv/ idempotently; <settings-home> = $(coordinator-settings-home). The bare pip install path is no longer correct after the venv relocation."
-
-[[probe]]
-id = "P-6"
-cluster = "whoami"
-weight = "standard"
-interactivity = "silent"
-fix = "none"
-symptom_keywords = ["project_rag whoami invalid", "contract_version", "envelope invalid", "plugin-binding health"]
-triage = false
-severity_if_fail = "error"
-remediation = "Check P-5 first; inspect registry keys the probe requires; see cross-plugin-whoami-contract.md"
-
-[[probe]]
-id = "P-6s"
-cluster = "whoami"
-weight = "standard"
-interactivity = "silent"
-fix = "none"
-symptom_keywords = ["session whoami invalid", "not oriented", "coordinator-session", "orientation health"]
-triage = false
-severity_if_fail = "error"
-remediation = "Check P-5 first; verify coordinator_whoami.session subpackage present; re-run Phase 3 Step 6"
 
 [[probe]]
 id = "P-7"

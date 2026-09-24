@@ -1134,6 +1134,7 @@ def _pathspec_from_manifest(
     from coordinator_core.percolate.surface import (  # noqa: PLC0415 - lazy, engine-only path
         STRUCTURAL_NEVER_PUBLISHED_PREFIXES,
         matches_exclude_prefix,
+        stranded_swap_priors,
     )
 
     repo_root_path = Path(repo_root)
@@ -1150,6 +1151,22 @@ def _pathspec_from_manifest(
         elif rel not in head_tree:
             seen.setdefault(str(repo_root_path / rel), (_DECLARED_ONLY_TAG, rel))
     if _REMOVAL_SIDE_ENABLED:
+        # The removal side reads dest HEAD with no check for a stranded
+        # root-swap `.prior` -- a subtree an incomplete swap left absent
+        # from the worktree but still tracked at HEAD reads as exactly the
+        # shape this side names for removal (§ publish.py ::
+        # `_refuse_stranded_root_swap_prior`, the swap-side half of the same
+        # guard). Stand down BEFORE naming any removal.
+        strands = stranded_swap_priors(repo_root_path)
+        if strands:
+            shown = ", ".join(str(p) for p in strands[:10])
+            raise RemovalCandidateOnDiskError(
+                f"percolate-round: {len(strands)} stranded prior-backup "
+                f"entr(ies) from an earlier incomplete root-dest swap sit in "
+                f"{repo_root_path}: {shown}. Restore by hand (rename "
+                "`<entry>.prior` back to `<entry>`, or reconcile against "
+                "HEAD) before this round can name any removal."
+            )
         # § AC3, docs/dispatch-briefs/2026-08-26-open-the-percolate-removal-
         # side/C1.md -- the removal rule is `(head_tree ∩
         # row_scope) - declared_payload`, never a bare `head_tree -
@@ -1209,6 +1226,23 @@ def _pathspec_from_manifest(
             if matches_exclude_prefix(rel, list(STRUCTURAL_NEVER_PUBLISHED_PREFIXES))
         }
         removal_candidates = sorted(row_scope - manifest.declared_payload)
+        # A candidate this round's OWN source positively retired
+        # (`manifest.removed`) and that still sits on disk is not the
+        # "operands are wrong" signal `_refuse_removals_present_on_disk`
+        # exists to catch -- it is Leg A's ungated report below, already
+        # printed via `removed_still_on_disk`. Subtracting it here breaks
+        # the Leg A/B deadlock: without this, the same on-disk path is both
+        # skipped by Leg A (still on disk, so no-op) and a raising Leg B
+        # candidate, so every round against that mirror aborts forever. A
+        # candidate NOT in `manifest.removed` still raises unchanged (AC9).
+        retired_on_disk = {
+            rel
+            for rel in removal_candidates
+            if rel in manifest.removed and os.path.lexists(repo_root_path / rel)
+        }
+        removal_candidates = [
+            rel for rel in removal_candidates if rel not in retired_on_disk
+        ]
         _refuse_removals_present_on_disk(repo_root_path, removal_candidates)
         for rel in removal_candidates:
             seen.setdefault(str(repo_root_path / rel), ("REMOVE", rel))
@@ -1350,12 +1384,17 @@ def _already_committed_non_executable_scripts(
     before widening this: it is a whole-index scan, and a much larger mirror
     would want the read set narrowed rather than this budget quietly grown.
     """
-    result = subprocess.run(
-        ["git", "ls-files", "-s"],
-        cwd=str(repo_root),
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "-s"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=_GIT_PLUMBING_TIMEOUT_SECS,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except subprocess.TimeoutExpired:
+        return []
     if result.returncode != 0:
         return []
     already = set(staged)
@@ -1406,7 +1445,12 @@ def _refresh_rewritten_stat(repo_root: "str | Path", rewritten: "Sequence[str]")
         return 0
 
 
-def _stage_shebang_exec_bits(repo_root: "str | Path", pathspec: "list[str]") -> int:
+def _stage_shebang_exec_bits(
+    repo_root: "str | Path",
+    pathspec: "list[str]",
+    *,
+    reconciled_sink: "list[str] | None" = None,
+) -> int:
     """Set mode `100755` IN THE DEST INDEX for every path in `pathspec` whose
     destination file opens with `#!`. Returns how many paths were named.
 
@@ -1452,6 +1496,19 @@ def _stage_shebang_exec_bits(repo_root: "str | Path", pathspec: "list[str]") -> 
     `repo_root` therefore takes `str` or `Path`: `_resolve_repo_root` returns
     `Optional[str]`, and coercing here rather than at the call site keeps a
     future caller from re-introducing the same crash.
+
+    `reconciled_sink`, WHEN GIVEN, GAINS THE RECONCILE SET ONLY -- not the
+    in-pathspec shebangs, which the caller's `commit_paths(repo_root,
+    present_paths, ...)` already carries. `commit_paths` commits
+    `present_paths`, partitioned before this call ever runs, so a mirror
+    reconciled here from an already-committed `100644` script is otherwise
+    outside the change set by construction: the index now has it at
+    `100755`, but nothing tells the commit leg to look. Appending it to
+    `present_paths` (via this sink) is what lets `commit_paths` read the
+    `100755` mode already staged and carry it into HEAD's tree, not just
+    the index. Every appended path is one this same call just staged with
+    `git add --chmod=+x`, so no dest change the round did not itself stage
+    can reach the commit this way.
     """
     try:
         root = Path(repo_root)
@@ -1463,9 +1520,10 @@ def _stage_shebang_exec_bits(repo_root: "str | Path", pathspec: "list[str]") -> 
                         shebang_paths.append(rel_path)
             except OSError:
                 continue
-        shebang_paths.extend(
-            _already_committed_non_executable_scripts(root, shebang_paths)
+        reconciled_paths = _already_committed_non_executable_scripts(
+            root, shebang_paths
         )
+        shebang_paths.extend(reconciled_paths)
         if not shebang_paths:
             return 0
         result = subprocess.run(
@@ -1483,6 +1541,10 @@ def _stage_shebang_exec_bits(repo_root: "str | Path", pathspec: "list[str]") -> 
                 file=sys.stderr,
             )
             return 0
+        if reconciled_sink is not None:
+            for rel_path in reconciled_paths:
+                if rel_path not in reconciled_sink:
+                    reconciled_sink.append(rel_path)
         return len(shebang_paths)
     except Exception as exc:  # noqa: BLE001 - a best-effort mode fix never ends a publish
         print(
@@ -3257,7 +3319,9 @@ def _cmd_round_default(
             # Before the pipeline stages: record 100755 for shebanged dest
             # files. The on-disk chmod `publish_sync` performs is inert under
             # `core.fileMode=false` -- see `_stage_shebang_exec_bits`.
-            executable_count = _stage_shebang_exec_bits(repo_root, pathspec)
+            executable_count = _stage_shebang_exec_bits(
+                repo_root, pathspec, reconciled_sink=present_paths
+            )
             if executable_count:
                 print(
                     f"percolate-round: staged {executable_count} shebanged path(s) "
@@ -3273,7 +3337,11 @@ def _cmd_round_default(
             # reappearing between the pre-commit filter and this call) is
             # still excluded rather than committed.
             #
-            ignore_result = _gn.check_ignore(repo_root, present_paths) if present_paths else None
+            ignore_result = (
+                _gn.check_ignore(repo_root, present_paths, timeout=_GIT_PLUMBING_TIMEOUT_SECS)
+                if present_paths
+                else None
+            )
             gitignored_set = set()
             if ignore_result is not None and ignore_result.ok:
                 gitignored_set = {
@@ -3318,6 +3386,18 @@ def _cmd_round_default(
                 committed = False
             if committed:
                 _advance_lastsync_marker(target, percolate_root, sha)
+            # The pre-commit refresh covers only what THIS round wrote. A round
+            # that died mid-sync left its own content-identical rewrites
+            # stat-dirty, and no later round rewrites them again, so they read
+            # ` M` forever. Sweep every HEAD-tracked path, committed or not; the
+            # stat pre-check skips clean entries, so this costs a stat per path
+            # and a hash only for the dirty ones.
+            healed = _refresh_rewritten_stat(repo_root, sorted(head_tracked))
+            if healed:
+                print(
+                    f"percolate-round: re-recorded dest index stat for {healed} "
+                    "content-identical path(s) left by an earlier round."
+                )
             # REPORTED ON BOTH ARMS, DELIBERATELY. This report used to hang
             # off `committed` alone, so a round that committed NOTHING -- the
             # arm where the operator most needs to know WHY -- printed a bare

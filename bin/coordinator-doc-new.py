@@ -720,77 +720,77 @@ def _machine_local_impl() -> str:
     return os.path.join(_claude_home(), "bin", "_machine_local.py")
 
 
-def _machine_local_get(key: str) -> str | None:
-    """Call machine-local get <key> and return the value, or None on failure."""
+def _load_machine_local_kernel():
+    """Load `_machine_local.py`'s module object by its own resolved path
+    (`_machine_local_impl()` -- settings-home first, DR-210 Amendment) and
+    return it, in-process, no interpreter spawn.
+
+    Spec: docs/plans/2026-09-11-a-python-process-does-not-spawn-a-python-process.md
+    (P055-C3). Twin of `cli_shared.py :: _load_machine_local_kernel`, kept
+    local rather than imported (no new shared helper per the plan's own
+    § right-not-merely-working rejection of a shared wrapper). Each call
+    re-resolves `_machine_local_impl()` first, matching the pre-conversion
+    per-call resolution, then loads fresh via `importlib`.
+    """
+    import importlib.util
+
     _bootstrap_engine()
     impl = _machine_local_impl()
-    interpreter = _resolve_console_python()
-    if interpreter is None:
-        return None
+    spec = importlib.util.spec_from_file_location("_machine_local_kernel", impl)
+    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
+def _machine_local_get(key: str) -> str | None:
+    """Call machine-local get <key> and return the value, or None on failure."""
     try:
-        result = subprocess.run(
-            [interpreter, impl, "get", key],
-            capture_output=True, text=True,
-        )
-    except OSError:
+        mod = _load_machine_local_kernel()
+        rc, val = mod.resolve_one(key, layers=None)
+    except (SystemExit, Exception):
         return None
-    if result.returncode != 0 or not result.stdout.strip():
-        return None
-    return result.stdout.strip()
+    if rc == mod.EXIT_OK and val:
+        return val
+    return None
 
 
 def _machine_local_dump_repos() -> dict[str, str]:
-    """Resolve every repos.* key in one machine-local process (the batch
-    counterpart to enumerate-then-get). `dump --prefix repos` shares
-    resolve_one with `get`, so a batched value is byte-identical to what a
-    per-key `get` would print — see _machine_local.py::cmd_dump docstring.
-    Returns {} on any spawn/parse failure OR a non-zero returncode (matches
-    _machine_local_get's fail-closed contract — a non-zero exit with
-    parseable stdout is a partial/crashed dump, not a value to trust);
-    callers already tolerate an empty/partial paths table.
+    """Resolve every repos.* key in one in-process kernel call (the batch
+    counterpart to enumerate-then-get). `resolve_one` is the same kernel
+    `get` uses, so a batched value is byte-identical to what a per-key
+    `get` would print — see _machine_local.py::cmd_dump docstring.
+    Returns {} on any load/resolution failure OR when any key hits an
+    OPERATIONAL failure (matches _machine_local_get's fail-closed contract —
+    a partial/crashed dump is not a value to trust); callers already
+    tolerate an empty/partial paths table.
     """
-    _bootstrap_engine()
-    impl = _machine_local_impl()
-    interpreter = _resolve_console_python()
-    if interpreter is None:
-        return {}
     try:
-        result = subprocess.run(
-            [interpreter, impl, "dump", "--prefix", "repos", "--format", "json"],
-            capture_output=True, text=True,
-        )
-    except OSError:
+        mod = _load_machine_local_kernel()
+        reg_dir = mod._registry_dir()
+        layers = mod._build_resolution_layers(reg_dir)
+        all_keys = [k for k in mod._all_keys(layers) if k == "repos" or k.startswith("repos.")]
+        values: dict[str, object] = {}
+        for k in all_keys:
+            rc, val = mod.resolve_one(k, layers)
+            if rc == mod.EXIT_OK and val is not None:
+                values[k] = val
+            elif rc == mod.EXIT_OPERATIONAL:
+                return {}
+    except (SystemExit, Exception):
         return {}
-    if result.returncode != 0 or not result.stdout.strip():
-        return {}
-    try:
-        data = json.loads(result.stdout)
-    except ValueError:
-        return {}
-    return {k: v for k, v in data.items() if isinstance(v, str) and v}
+    return {k: v for k, v in values.items() if isinstance(v, str) and v}
 
 
 def _machine_local_repos_keys() -> list[str]:
     """Return all repos.* keys from the machine-local registry."""
-    _bootstrap_engine()
-    impl = _machine_local_impl()
-    interpreter = _resolve_console_python()
-    if interpreter is None:
-        return []
     try:
-        result = subprocess.run(
-            [interpreter, impl, "keys"],
-            capture_output=True, text=True,
-        )
-    except OSError:
+        mod = _load_machine_local_kernel()
+        reg_dir = mod._registry_dir()
+        layers = mod._build_resolution_layers(reg_dir)
+        all_keys = mod._all_keys(layers)
+    except (SystemExit, Exception):
         return []
-    if result.returncode != 0:
-        return []
-    return [
-        line.strip()
-        for line in result.stdout.splitlines()
-        if line.strip().startswith("repos.")
-    ]
+    return [k for k in all_keys if k.startswith("repos.")]
 
 
 # _same_path deleted (C2b) — not needed in this CLI. _em_id_for_root imported from coordinator_registry above.
@@ -1023,6 +1023,18 @@ def _resolve_state_root(central: bool = False) -> str | None:
     Negative-spec: does NOT fall back silently — returns None on any failure so callers
     can degrade gracefully (fallback to repo-root anchoring on un-migrated installs).
     Negative-spec: does NOT call coordinator_state_root with both flags at once.
+
+    Spec: docs/plans/2026-09-11-a-python-process-does-not-spawn-a-python-process.md
+    (P055-C3) -- EXEMPT-3 (hard import boundary), NOT converted. An in-process
+    import of the trampoline's `coordinator_state_root()` was attempted and
+    reverted: `_import_state_root()`'s `require_dispatch_engine_on_path()` call
+    raises `cc_invoke.ProvenanceDivergenceError` when THIS process has already
+    bound `coordinator_core` from a different tree than the dispatch root
+    resolves to (observed live in this checkout: local `claude-klabauter` vs.
+    dispatch root `claude-klabauter`) -- exactly "which tree it would import
+    from depends on how the CLI was launched." The pre-conversion spawn works
+    unconditionally because the child interpreter starts with no
+    `coordinator_core` pre-bound. See C3's audit record for the reproduction.
     """
     _bootstrap_engine()
     script_dir = os.path.dirname(os.path.abspath(__file__))

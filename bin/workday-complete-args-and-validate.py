@@ -64,7 +64,6 @@ from __future__ import annotations
 import os
 import re
 import shlex
-import subprocess
 import sys
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -199,33 +198,34 @@ def cmd_run_step1(extra: list[str]) -> int:
         )
         return 1
 
-    import cc_invoke
-    from cc_invoke import child_env
+    # P055-C1 conversion: was a `[python, step1_path, *extra]` sibling-script
+    # spawn. workday-complete-step1-validate.py's `main()` takes no argv (it
+    # never reads sys.argv -- confirmed by grep, so `extra` was always
+    # discarded by the spawned child too), so this loads that module by path
+    # (importlib -- its filename is not import-statement-friendly) and calls
+    # `main()` in-process. stderr is left unredirected here, exactly
+    # preserving the spawn form's `stderr=None` passthrough; only stdout is
+    # captured, to re-emit verbatim below.
+    del extra  # step1's main() has never read argv; the spawn form discarded it too
 
-    # resolve_engine_root() can raise RuntimeError
-    # on this, the primary dispatch path of a workday ceremony step, with no
-    # prior engine-root resolution anywhere upstream in this codepath; an
-    # uncaught raise here was a regression versus the pre-diff code, which
-    # never depended on resolution succeeding. Mirrors cmd_check_cross_machine's
-    # own established local try/except pattern around _current_machine().
-    try:
-        no_console_kw = cc_invoke._no_console_kw(cc_invoke.resolve_engine_root(__file__))
-    except (RuntimeError, ImportError):
-        no_console_kw = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+    import contextlib
+    import importlib.util
+    import io
 
-    proc = subprocess.run(
-        [sys.executable, step1_path, *extra],
-        stdout=subprocess.PIPE,
-        stderr=None,  # forward step1's stderr straight through, uncaptured
-        text=True,
-        env=child_env(),
-        **no_console_kw,
-    )
-    if proc.stdout:
-        sys.stdout.write(proc.stdout)
-        if not proc.stdout.endswith("\n"):
+    spec = importlib.util.spec_from_file_location("workday_complete_step1_validate", step1_path)
+    step1_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(step1_module)
+
+    stdout_buf = io.StringIO()
+    with contextlib.redirect_stdout(stdout_buf):
+        rc = step1_module.main()
+
+    stdout_text = stdout_buf.getvalue()
+    if stdout_text:
+        sys.stdout.write(stdout_text)
+        if not stdout_text.endswith("\n"):
             sys.stdout.write("\n")
-    return proc.returncode
+    return rc
 
 
 _USAGE = (

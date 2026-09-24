@@ -114,29 +114,27 @@ def _bootstrap_engine() -> None:
     require_colocated_engine_on_path(__file__)
 
 
-def _run(cli_path: Path, args: list[str], capture_stdout: bool = False) -> subprocess.CompletedProcess:
-    """Invoke a sibling coordinator/bin CLI with the current interpreter, cwd
-    unchanged (these CLIs all resolve paths relative to the CALLER's cwd -- the
-    consumer repo, not this claude-klabauter checkout -- matching how the bash oracle
-    invoked them: `python3 "${_mkb_bin}/<cli>.py" ...` with no cd)."""
-    _bootstrap_engine()
-    from cc_invoke import child_env
-    from coordinator_core.win_portability import no_console_creationflags
+def _load_sibling_module(cli_path: Path, module_name: str):
+    """Import a sibling coordinator/bin CLI by path, in-process."""
+    import importlib.util
 
-    return subprocess.run(
-        [sys.executable, str(cli_path), *args],
-        stdout=subprocess.PIPE if capture_stdout else None,
-        stderr=None,
-        text=True,
-        env=child_env(),
-        **no_console_creationflags(),
-    )
+    spec = importlib.util.spec_from_file_location(module_name, cli_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def cmd_stitch_sidecar(args: argparse.Namespace) -> int:
     """Step 4d: stitch the Sonnet daily observer's sidecar into the canonical
     daily summary, hard-failing (never silently proceeding) on a non-zero exit
-    from the sidecar stitcher."""
+    from the sidecar stitcher.
+
+    P055-C1 conversion: was a `[python, _STITCH_SIDECAR_CLI, *args]` spawn via
+    the (now-removed) generic `_run` helper. stitch-observer-sidecar.py's own
+    `main(argv)` indexes `argv[0]` as its own prog name (its `__main__` guard
+    calls `main(sys.argv)`, not `sys.argv[1:]`), so the in-process call below
+    passes a placeholder prog-name element to match that contract exactly.
+    """
     _bootstrap_engine()
     from coordinator_core.daily_day import local_day
     from coordinator_core.machine_resolver import compute_machine
@@ -146,10 +144,11 @@ def cmd_stitch_sidecar(args: argparse.Namespace) -> int:
     daily_summary = f"archive/daily-summaries/{today}-{machine}.md"
     observer_sidecar = f"archive/daily-summaries/{today}-{machine}.observer.md"
 
-    result = _run(_STITCH_SIDECAR_CLI, [daily_summary, observer_sidecar])
-    if result.returncode != 0:
+    stitch = _load_sibling_module(_STITCH_SIDECAR_CLI, "stitch_observer_sidecar")
+    rc = stitch.main(["stitch-observer-sidecar.py", daily_summary, observer_sidecar])
+    if rc != 0:
         print(
-            f"ERROR: stitch-observer-sidecar failed (rc={result.returncode}) — "
+            f"ERROR: stitch-observer-sidecar failed (rc={rc}) — "
             "see stderr above. The sidecar was left in place; do NOT re-run this "
             "step blind. Investigate before continuing /workday-complete.",
             file=sys.stderr,
@@ -158,13 +157,30 @@ def cmd_stitch_sidecar(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_step9_module():
+    """Import workday-complete-step9-append-changelog.py by path, in-process.
+
+    P055-C1 conversion (shared by `cmd_step9_dispatch` and
+    `_dispatch_step9_row`, both of which were `[python, _STEP9_CLI, *forward]`
+    spawns): its own `main(argv)` reads `argv[1:]`-shaped input (confirmed by
+    its own `if __name__ == "__main__": sys.exit(main(sys.argv[1:]))`), so
+    `forward` below needs no prog-name prefix -- the same shape the spawn
+    form already built.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("workday_complete_step9_append_changelog", _STEP9_CLI)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def cmd_step9_dispatch(args: argparse.Namespace) -> int:
     """Step 9's dispatch gate: skip entirely under --only-mode (the targeted
     block was already committed via Step 3.5 Phase B), otherwise forward to
     workday-complete-step9-append-changelog.py with RC_VALIDATE/RC_PLUGIN_SUITE
     defaulted from the environment."""
     _bootstrap_engine()
-    from coordinator_core.win_portability import no_console_passthrough_kwargs
 
     if args.only_mode:
         print(
@@ -186,16 +202,15 @@ def cmd_step9_dispatch(args: argparse.Namespace) -> int:
     if args.scope_summary:
         forward.append(args.scope_summary)
 
-    env = dict(os.environ)
-    env.setdefault("RC_VALIDATE", "not-run")
-    env.setdefault("RC_PLUGIN_SUITE", "n/a")
+    # In-process now, so these are this process's own env, not a child's --
+    # matches the spawn form's setdefault-on-a-copy semantics for THIS run
+    # (never overwrites an already-set value; both keys are process-lifetime,
+    # exactly as they were per-child before).
+    os.environ.setdefault("RC_VALIDATE", "not-run")
+    os.environ.setdefault("RC_PLUGIN_SUITE", "n/a")
 
-    result = subprocess.run(
-        [sys.executable, str(_STEP9_CLI), *forward],
-        env=env,
-        **no_console_passthrough_kwargs(),
-    )
-    return result.returncode
+    step9 = _load_step9_module()
+    return step9.main(forward)
 
 
 def cmd_ceremony_hook(args: argparse.Namespace) -> int:
@@ -210,13 +225,30 @@ def cmd_ceremony_hook(args: argparse.Namespace) -> int:
         )
         return 0
 
-    result = _run(_CEREMONY_HOOK_CLI, ["workday-complete"], capture_stdout=True)
-    if result.returncode != 0:
+    # P055-C1 conversion: was a `[python, _CEREMONY_HOOK_CLI, "workday-complete"]`
+    # spawn via the (now-removed) generic `_run` helper. coordinator-ceremony-hook.py's
+    # own `__main__` guard wraps `main(sys.argv[1:])` in a broad try/except so an
+    # unanticipated escape still honors its "always exit 0" contract -- that backstop
+    # lived OUTSIDE `main()` itself, so calling `main()` directly here does not inherit
+    # it. Recreated locally: this call site's OWN contract is already "never blocks",
+    # so any exception maps to the same non-blocking WARN path a nonzero rc took.
+    import contextlib
+    import io
+
+    _bootstrap_engine()
+    ceremony_hook = _load_sibling_module(_CEREMONY_HOOK_CLI, "coordinator_ceremony_hook")
+    stdout_buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(stdout_buf):
+            rc = ceremony_hook.main(["workday-complete"])
+    except Exception:
+        rc = 1
+    if rc != 0:
         print(
             "[workday-complete] WARN: ceremony-hook exited non-zero (non-blocking)",
             file=sys.stderr,
         )
-    hook_out = (result.stdout or "").strip()
+    hook_out = stdout_buf.getvalue().strip()
     if hook_out:
         print(hook_out)
     return 0

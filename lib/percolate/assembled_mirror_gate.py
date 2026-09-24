@@ -305,8 +305,8 @@ class MirrorCollectionResult:
     refusal (see `dispatch_end_of_run_assembled_mirror_gate` in
     `publish.py`, which proceeds the round rather than gating on it).
 
-    Deliberately excluded from `is_incomplete`/`is_load_indeterminate`
-    below: those predicates answer "does this result carry a claim worth
+    Deliberately excluded from `is_incomplete` below: that predicate
+    answers "does this result carry a claim worth
     an operator's exemption", and a structurally-inapplicable tree carries
     no claim to exempt — there is nothing here for a declared exemption to
     waive, the same way there is nothing for it to waive on a clean PASS.
@@ -361,8 +361,7 @@ class MirrorCollectionResult:
     Note the sibling `isolation_unverified: bool = False` already defaults
     the safe way; this now matches it. See `is_incomplete` for why this
     must feed the predicate rather than be enumerated as a third named
-    cause, and `is_load_indeterminate` for why a forgotten flag here would
-    have been exemptible."""
+    cause."""
 
     @property
     def is_incomplete(self) -> bool:
@@ -384,9 +383,10 @@ class MirrorCollectionResult:
         =False`. An INCOMPLETE result must never be treated as evidence
         about the tree by any caller.
 
-        NOT the predicate a caller should gate an exemption lookup on —
-        see `is_load_indeterminate` for that, and its docstring for why the
-        two came apart.
+        This IS the predicate `dispatch_end_of_run_assembled_mirror_gate`
+        gates its exemption-lookup skip on: an incomplete result carries no
+        claim about the tree for any exemption to waive, regardless of
+        which no-verdict cause produced it.
 
         Excludes `not_applicable`: that field marks a tree this gate has
         NOTHING to say about, by construction (see its own docstring) —
@@ -399,33 +399,6 @@ class MirrorCollectionResult:
             not self.not_applicable
             and (self.timed_out or self.isolation_unverified or not self.verdict_obtained)
         )
-
-    @property
-    def is_load_indeterminate(self) -> bool:
-        """True iff this result reached no content verdict for a reason that
-        is a function of the BOX rather than of the tree — the subset of
-        `is_incomplete` a declared exemption can never legitimately waive.
-
-        `dispatch_end_of_run_assembled_mirror_gate` gates its exemption
-        lookup on THIS, not on `is_incomplete`. The two are not the same
-        predicate and conflating them closed a real publish lane:
-        `isolation_unverified` is a pure function of `tree_root`'s
-        contents (`_verify_isolation_precondition` asks whether a
-        `coordinator_core/` directory is there, and asks nothing else), so
-        it is deterministic, load-independent, and reproducible — a mirror
-        that structurally never carries the engine refuses this way on
-        every round, on an idle box, forever. That is exactly the standing,
-        named tradeoff the exemption ledger exists to let an operator
-        declare. A timeout is the opposite: it says nothing about the tree,
-        it says the box was busy, and waiving it would let load reach the
-        verdict — the prime exit criterion's own negation
-        (`docs/plans/2026-08-31-the-mirror-gate-collects-the-whole-tree.md`).
-
-        Defined as a subtraction rather than an enumeration, so every
-        further no-verdict cause added to `is_incomplete` is
-        non-exemptible by default and only a deliberate edit here can make
-        one waivable."""
-        return self.is_incomplete and not self.isolation_unverified
 
 
 def _tail(text: str, n_lines: int = 40) -> str:

@@ -28,12 +28,7 @@ Subcommands:
                                     changed in the last 14 days; otherwise
                                     reports the changed set for the EM to
                                     dispatch dep-cve-auditor against.
-    schema-drift-gate            — BLOCKING gate. Three-way exit-code branch
-                                    (0 PASS / 1 BLOCK / 2 ERROR) over the
-                                    sibling schema-drift-gate CLI — a release
-                                    gate must never conflate "ran and found
-                                    drift" with "could not run".
-    pcli-drift-gate               — BLOCKING gate. Same three-way exit-code
+    pcli-drift-gate               — BLOCKING gate. Three-way exit-code
                                     branch (0 PASS / 1 FAIL / 2 ERROR) over
                                     the sibling check-pcli-drift-gate CLI —
                                     dispatch_feed-vs-live-Workflow-API drift,
@@ -46,13 +41,15 @@ Subcommands:
                                     check-multi-event-hook-hardcoded-event.py.
 
 Exit-code contract per subcommand is documented in its own function docstring
-below — they are NOT uniform (schema-drift-gate propagates a real block
+below — they are NOT uniform (pcli-drift-gate propagates a real block
 signal; the advisory subcommands always exit 0 by design, per DoE doctrine
 that advisories never block merge).
 
 Spec backlink: DoE-claude coordinator/commands/workweek-complete.md
     §§ Step 4d (description-length), Step 4f (enabledPlugins drift),
-    Step 4h (CVE recheck), Step 4k (vendored-schema drift gate),
+    Step 4h (CVE recheck), Step 4k (advisory vendored-schema drift, now the
+    doctor's vendor_drift sentinel — this file no longer carries a blocking
+    subcommand for it),
     Step 6 (console-flash guard + multi-event-hook guard). ShellCheck sweep
     (formerly this file's `shellcheck-sweep` subcommand) was removed
     2026-08-16 — see state/kill-ledger.md K-102; the DoE ceremony's Step 6
@@ -174,45 +171,12 @@ def cmd_cve_recheck(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Step 4k: vendored-schema drift gate (BLOCKING)
-# ---------------------------------------------------------------------------
-
-def cmd_schema_drift_gate(_args: argparse.Namespace) -> int:
-    """Blocking gate. Three-way exit-code branch — a release gate must never
-    conflate "ran and found drift" with "could not run":
-        0 PASS  — schemas MATCH, or the gate fails open on
-                  INDETERMINATE/UNRESOLVED (see sibling CLI's own stderr).
-        1 BLOCK — drift positively observed; halt the release.
-        2 ERROR — the gate could not run at all; halt and surface, NOT a pass.
-        other   — unexpected rc from the sibling CLI; treated as ERROR (2).
-    """
-    script = _sibling("schema-drift-gate.py")
-    if not os.path.isfile(script):
-        print(f"ERROR: schema-drift-gate CLI not found at {script} — halt and surface", file=sys.stderr)
-        return 2
-    rc, out = _run([sys.executable, script])
-    if out:
-        print(out, end="" if out.endswith("\n") else "\n")
-    if rc == 0:
-        return 0
-    if rc == 1:
-        print("BLOCK: vendored-schema drift observed (see above) — halt the release, reconcile, re-run", file=sys.stderr)
-        return 1
-    if rc == 2:
-        print("ERROR: schema-drift-gate could not run — halt and surface; this is NOT a pass", file=sys.stderr)
-        return 2
-    print(f"ERROR: schema-drift-gate returned unexpected rc={rc} — halt and surface", file=sys.stderr)
-    return 2
-
-
-# ---------------------------------------------------------------------------
 # pcli-04 drift gate (BLOCKING)
 # ---------------------------------------------------------------------------
 
 def cmd_pcli_drift_gate(_args: argparse.Namespace) -> int:
-    """Blocking gate. Three-way exit-code branch — same shape as
-    cmd_schema_drift_gate above, a release gate must never conflate "ran and
-    found drift" with "could not run":
+    """Blocking gate. Three-way exit-code branch — a release gate must never
+    conflate "ran and found drift" with "could not run":
         0 PASS  — dispatch_feed-vs-capture, staleness, and C7 hash legs all
                   clean (see sibling CLI's own stdout).
         1 FAIL  — at least one leg fired; halt the release.
@@ -299,8 +263,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("cve-recheck")
     p.add_argument("--repo-root", default=None)
     p.set_defaults(func=cmd_cve_recheck)
-
-    sub.add_parser("schema-drift-gate").set_defaults(func=cmd_schema_drift_gate)
 
     sub.add_parser("pcli-drift-gate").set_defaults(func=cmd_pcli_drift_gate)
 

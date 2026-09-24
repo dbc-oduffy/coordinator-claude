@@ -285,6 +285,7 @@ RETIRED_HELPER_STEMS = frozenset({
     "coordinator-write-review-trail",
     "list-review-trail-records",
     "repair-empty-review-trail-ranges",
+    "schema-drift-gate",
 })
 
 
@@ -1538,13 +1539,13 @@ def exec_cli(target: str, argv: Optional[List[str]] = None) -> None:
             sys.stderr.write(
                 f"ERROR: coordinator helper '{stem}' was retired — this "
                 "forwarder outlived it and does nothing. Remove it with "
-                "python3 <engine-clone>/scripts/setup.py\n"
+                f"python3 {claude_klabauter_root}/scripts/setup.py\n"
             )
         else:
             sys.stderr.write(
                 f"ERROR: coordinator helper '{target_path}' is missing under "
                 f"the {resolution_class} root ('{claude_klabauter_root}') — run "
-                "python3 <engine-clone>/scripts/setup.py to repair the plugin tree\n"
+                f"python3 {claude_klabauter_root}/scripts/setup.py to repair the plugin tree\n"
             )
         sys.exit(127)
 
@@ -1557,6 +1558,6 @@ def exec_cli(target: str, argv: Optional[List[str]] = None) -> None:
         sys.stderr.write(
             f"ERROR: coordinator helper '{target_path}' is missing or not "
             f"executable ({exc.strerror}) — run python3 "
-            "<engine-clone>/scripts/setup.py to repair the plugin tree\n"
+            f"{claude_klabauter_root}/scripts/setup.py to repair the plugin tree\n"
         )
         sys.exit(127)
