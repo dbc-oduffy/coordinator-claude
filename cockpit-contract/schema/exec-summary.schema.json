@@ -427,5 +427,5 @@
     "docs_staleness"
   ],
   "additionalProperties": false,
-  "version": "4.8.0"
+  "version": "4.9.0"
 }

@@ -181,6 +181,9 @@ def _bootstrap_engine() -> None:
     _require_percolate_engine(root)
 
     _round_ = _load_round_module()
+    # Puts `coordinator/lib` (the `percolate` package `_mirror_groups` imports)
+    # on sys.path and binds the round's engine names; exec_module alone does not.
+    _round_._bootstrap_engine()
 
     for _name, _value in (
         ("_round", _round_),
@@ -577,7 +580,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             real_env[_round._INHERITED_LOCK_ROOTS_ENV] = (
                 f"{os.getpid()}={os.path.realpath(mirror_root)}"
             )
-            real_cmd = [sys.executable, str(_round._PUBLISH), joined]
+            # `--no-commit`: this module owns the commit and the push. Left to
+            # commit itself, publish.py lands the round before the gate legs run
+            # and the manifest pathspec below then finds nothing, so the round
+            # exits "nothing to commit" with its commit never pushed.
+            real_cmd = [sys.executable, str(_round._PUBLISH), joined, "--no-commit"]
             if not args.delta:
                 # publish.py defaults delta ON (PM ruling 2026-08-19) — the
                 # engine owns that, not each caller. Only an explicit opt-out

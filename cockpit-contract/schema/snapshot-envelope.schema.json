@@ -1525,6 +1525,16 @@
                 "type": "null"
               }
             ]
+          },
+          "human_owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -4605,6 +4615,7 @@
               "draft",
               "reviewed",
               "approved",
+              "blocked",
               "executing",
               "landed",
               "implemented",
@@ -10952,5 +10963,5 @@
     "malformed_records"
   ],
   "additionalProperties": false,
-  "version": "4.8.0"
+  "version": "4.9.0"
 }
