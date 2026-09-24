@@ -181,8 +181,8 @@ is not a shape a Workflow cannot express. Verifiers ride inside the Workflow —
 
 Don't hand-author the script — mint and emit:
 `COORDINATOR_AGENT_TYPE_HOST=coordinator python3 "${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}/bin/emit-dispatch-workflow.py" --inventory state/mise-inventory/<run-id>.md`
-writes the spine (item-id → chunk-id, footprint → `writes`) plus the `.mjs`; fire it with
-`Workflow({scriptPath: ...})`.
+writes the spine (item-id → chunk-id, footprint → `writes`) plus the `.mjs`; fire it with the
+`Workflow({scriptPath, args: {repoRoot}})` call the emitter prints on stderr.
 
 **Ignore the Stop-hook's "commit and push" advisory mid-run** — the dirt it flags is a live
 wave's footprint. The only commit path is the wave-gate commit above; never widen it to satisfy

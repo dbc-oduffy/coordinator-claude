@@ -121,17 +121,13 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
-import tempfile
 
-GENERATES = []  # writes only a NamedTemporaryFile params payload (deleted after the subprocess call) and prints to stdout — the goal.append write itself happens inside the dispatched coordinator_core.invoke subprocess, not this trampoline
+GENERATES = []  # writes nothing of its own; the goal.append write happens inside the in-process coordinator_core.invoke dispatch this trampoline calls
 
 _BOOTSTRAPPED_NAMES = (
     "resolve_checked_repo_root",
-    "_op_timeout_ceiling",
     "_resolve_claude_klabauter_root",
-    "_timeout_exceeded_message",
 )
 
 
@@ -150,24 +146,11 @@ def _bootstrap_age() -> None:
 
         resolve_checked_repo_root = _rcr
 
-    global _op_timeout_ceiling, _resolve_claude_klabauter_root, _timeout_exceeded_message
-    if (
-        "_op_timeout_ceiling" not in globals()
-        or "_resolve_claude_klabauter_root" not in globals()
-        or "_timeout_exceeded_message" not in globals()
-    ):
-        from cc_invoke import (
-            _op_timeout_ceiling as _otc,
-            _resolve_claude_klabauter_root as _rmr,
-            _timeout_exceeded_message as _tem,
-        )
+    global _resolve_claude_klabauter_root
+    if "_resolve_claude_klabauter_root" not in globals():
+        from cc_invoke import _resolve_claude_klabauter_root as _rmr
 
-        if "_op_timeout_ceiling" not in globals():
-            _op_timeout_ceiling = _otc
-        if "_resolve_claude_klabauter_root" not in globals():
-            _resolve_claude_klabauter_root = _rmr
-        if "_timeout_exceeded_message" not in globals():
-            _timeout_exceeded_message = _tem
+        _resolve_claude_klabauter_root = _rmr
 
 
 def __getattr__(name: str):
@@ -194,102 +177,54 @@ def __getattr__(name: str):
 
 
 def _cc_invoke_bare(op: str, params: dict[str, object], repo_root: str) -> dict[str, object]:
-    """Spawn coordinator_core.invoke in --bare mode and return the bare result dict.
+    """Dispatch coordinator_core.invoke in-process, in --bare mode, and return
+    the bare result dict.
 
-    Local mirror of coordinator-core-invoke.sh's cc_invoke() fail-closed ladder
-    (timeout / nonzero exit / empty stdout / non-JSON stdout), shaped for the
-    --bare/--params-file wire contract (see module docstring for why this isn't
-    cc_invoke.py's own cc_invoke()). --bare means a successful invoke's stdout
-    IS the result object directly -- no jsonrpc/id/result envelope to unwrap.
+    P055-C1 conversion: was a `[<python>, "-m", "coordinator_core.invoke", ...]`
+    spawn (fail-closed ladder: nonzero exit / empty stdout / non-JSON stdout).
+    Same failure ladder now runs against `_dispatch_argv`'s in-process return
+    tuple instead of a `subprocess.CompletedProcess`. --bare means a successful
+    dispatch's stdout IS the result object directly -- no jsonrpc/id/result
+    envelope to unwrap.
 
     Raises RuntimeError on any transport/op failure (never returns on failure).
 
-    Timeout ceiling and the TimeoutExpired remedy text are computed via cc_invoke.py's
-    own `_op_timeout_ceiling`/`_timeout_exceeded_message` (not re-derived here) — see
-    Review note on the except-branch below.
+    Deliberately drops the `subprocess.run(timeout=...)` kill guard the spawn
+    form had: that guard fired against the CHILD PROCESS, not the op itself, and
+    every other consumer of `_dispatch_argv`/`dispatch_message` (the warm server,
+    `invoke.from_argv`) already runs the same call with no such external timeout
+    wrapper. Reintroducing one here would be new infrastructure this call site
+    alone would carry.
     """
     _bootstrap_age()
 
     claude_klabauter_root = _resolve_claude_klabauter_root()
+    # `sys.path`, not the child-env PYTHONPATH the spawn form used: this call
+    # is in-process now, so coordinator_core must resolve from claude_klabauter_root
+    # for the interpreter already running this file, not a future child's.
+    if claude_klabauter_root not in sys.path:
+        sys.path.insert(0, claude_klabauter_root)
+    os.environ["CLAUDE_KLABAUTER_ROOT"] = claude_klabauter_root
+    os.environ["COORDINATOR_ENGINE_ROOT"] = claude_klabauter_root
 
-    env = dict(os.environ)
-    # BOTH names, same value, for the duration of the rename window. Setting
-    # only the retired name gives the child an environment where the variable
-    # IS set and every post-C14 reader has stopped reading it, so the failure
-    # surfaces rungs downstream of the pin that caused it.
-    env["CLAUDE_KLABAUTER_ROOT"] = claude_klabauter_root
-    env["COORDINATOR_ENGINE_ROOT"] = claude_klabauter_root
-    sep = os.pathsep
-    existing_pp = env.get("PYTHONPATH", "")
-    if f"{sep}{claude_klabauter_root}{sep}" not in f"{sep}{existing_pp}{sep}":
-        env["PYTHONPATH"] = f"{claude_klabauter_root}{sep}{existing_pp}" if existing_pp else claude_klabauter_root
+    from coordinator_core.invoke.__main__ import _dispatch_argv
 
-    timeout = _op_timeout_ceiling(op, claude_klabauter_root, env)
-
-    params_fh = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", prefix="cc-invoke-params-", delete=False, encoding="utf-8"
+    stdout, stderr, exit_code = _dispatch_argv(
+        [op, json.dumps(params), "--bare", "--repo", repo_root],
+        os.getcwd(),
     )
-    try:
-        json.dump(params, params_fh)
-        params_fh.close()
 
-        try:
-            from coordinator_core.win_portability import no_console_creationflags
-            from python_interp import resolve_console_python
-
-            interpreter = resolve_console_python()
-            if interpreter is None:
-                raise RuntimeError(
-                    "no console Python interpreter could be resolved"
-                )
-
-            # `-m` subclass, not a sibling script: the interpreter itself
-            # imports coordinator_core.invoke via -m, so PYTHONPATH (set on
-            # `env` above, before this spawn) MUST already contain
-            # claude_klabauter_root — keep that ordering.
-            proc = subprocess.run(
-                [
-                    interpreter,
-                    "-m",
-                    "coordinator_core.invoke",
-                    op,
-                    "--bare",
-                    "--params-file",
-                    params_fh.name,
-                    "--repo",
-                    repo_root,
-                ],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                env=env,
-                **no_console_creationflags(),
-            )
-        except subprocess.TimeoutExpired as exc:
-            # Was a third, divergent
-            # hand-built "engine timeout after Ns" message with no ceiling derivation
-            # (same defect class AC7 targets, minus the install-blame text). Routed
-            # through cc_invoke.py's shared _timeout_exceeded_message instead of
-            # duplicating it a third time.
-            raise RuntimeError(_timeout_exceeded_message(op, timeout)) from exc
-    finally:
-        try:
-            os.unlink(params_fh.name)
-        except OSError:
-            pass
-
-    if proc.returncode != 0:
-        stderr = (proc.stderr or "").strip()
+    if exit_code != 0:
         raise RuntimeError(
-            f"cc_invoke: invoke process exited {proc.returncode} (op={op}) — "
-            f"op or dispatch error\n  stderr: {stderr}"
+            f"cc_invoke: invoke process exited {exit_code} (op={op}) — "
+            f"op or dispatch error\n  stderr: {stderr.strip()}"
         )
 
-    if not proc.stdout:
+    if not stdout:
         raise RuntimeError(f"cc_invoke: empty stdout from invoke (op={op})")
 
     try:
-        return json.loads(proc.stdout)
+        return json.loads(stdout)
     except json.JSONDecodeError as exc:
         raise RuntimeError(
             f"cc_invoke: invoke stdout is not valid JSON (op={op}): {exc}"

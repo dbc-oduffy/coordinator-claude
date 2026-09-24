@@ -444,8 +444,11 @@ def primary_consumed_handoff_paths(repo_root: Path, sid: str) -> list[str]:
 
 
 def primary_consumed_handoff(repo_root: Path, sid: str) -> str | None:
+    """The chain HEAD, not the chain root: `matches` is sorted oldest-first
+    (date-prefixed filenames), so `matches[0]` is the earliest handoff in the
+    chain, not the one actually closing it. `matches[-1]` is the newest."""
     matches = primary_consumed_handoff_paths(repo_root, sid)
-    return matches[0] if matches else None
+    return matches[-1] if matches else None
 
 
 # ---------------------------------------------------------------------------

@@ -1570,13 +1570,16 @@ def _is_coordinator_worktree(root: str) -> bool:
     )
 
 
-def ensure_hooks_fleet(bin_dir: str, *, check_only: bool = False) -> int:
+def ensure_hooks_fleet(
+    bin_dir: str, *, check_only: bool = False, strict: bool = False
+) -> int:
     """Install/repair the coordinator prepare-commit-msg hook in EVERY
-    registered repo, and say what changed. Always returns 0 — that is true
-    in BOTH forms; `check_only` changes what is written to disk, never this
-    function's own return contract (see `_ensure_hook`'s own `check_only`
-    docstring for the exit-code signal that actually distinguishes clean
-    from dirty, which lives one layer up in `cmd_hook_currency`).
+    registered repo, and say what changed. Returns 0 in both `check_only`
+    forms UNLESS `strict=True` (see below); `check_only` changes what is
+    written to disk, never this function's own return contract by itself
+    (see `_ensure_hook`'s own `check_only` docstring for the exit-code signal
+    that actually distinguishes clean from dirty, which lives one layer up in
+    `cmd_hook_currency`).
 
     `check_only`: keyword-only, default False (byte-identical to every
     existing caller). When True, every classification below is reached via
@@ -1585,6 +1588,24 @@ def ensure_hooks_fleet(bin_dir: str, *, check_only: bool = False) -> int:
     `ensure_prepare_commit_msg_hook`). The `healed`/`missing` stderr report
     is unchanged in shape: at `check_only=True` it names what WOULD be
     repaired, not what was.
+
+    `strict`: keyword-only, default False (byte-identical to every existing
+    caller — /workday-start Step -0.45's "must never block a session start"
+    contract is preserved by leaving this off). When True and `check_only`
+    is False, this function STATs `.git/hooks/prepare-commit-msg` after the
+    attempt in every repo it classified `worktree` (i.e. every repo it
+    OWNS — a `mirror` is deliberately excluded from hook installation, so its
+    absence there is not a defect) and returns 1 if any owned repo still
+    lacks an installed, executable hook, or if installing into one raised.
+    Closes this function's own failure class (see the "Why detection is the
+    load-bearing half" paragraph below) reflexively: a caller that DOES need
+    a real signal — `scripts/cloud_setup.py`'s pre-boot install, which has no
+    other chance to notice before the container is handed to a session — was
+    previously unable to get one from this entrypoint at all, and fell back
+    to re-implementing its own STAT-based verification beside it
+    (`install_hooks_fleet`'s own docstring). `strict=True` gives that caller
+    (or a future one) a path that does not require a second, hand-rolled
+    verification.
 
     The defect this closes (2026-08-08): the per-day self-heal added to
     `/workday-start` — itself the replacement for the boot hook killed by the
@@ -1621,6 +1642,15 @@ def ensure_hooks_fleet(bin_dir: str, *, check_only: bool = False) -> int:
         return 0
 
     healed, missing, errored = [], [], []
+    #: Repos this run OWNS (kind == "worktree") that still lack an installed,
+    #: executable `prepare-commit-msg` after the attempt — the reflexive
+    #: application of this function's own detection principle (see its
+    #: docstring: "detection is the load-bearing half, not the install") to
+    #: ITSELF. A worktree repo is one this function claims responsibility
+    #: for; ending an attempt without a landed hook there is the exact
+    #: "exits 0 having installed nothing" failure class this module exists
+    #: to catch elsewhere, now checked against its own write.
+    owned_missing: list[str] = []
     for key, root in sorted(roots):
         kind = _classify_target(root)
         if kind == "missing":
@@ -1642,12 +1672,42 @@ def ensure_hooks_fleet(bin_dir: str, *, check_only: bool = False) -> int:
                 # repo sorted after it — including, on some registries,
                 # `coordinator-claude` and `klabauter` themselves, silently.
                 errored.append(f"{key} {label}: {type(exc).__name__}: {exc}")
+                # UNKNOWN is not the same fact as HEALTHY: an owned repo whose
+                # install attempt raised must count against the strict
+                # (non-check_only) exit-code verdict below, not be treated as
+                # silently fine because the loop merely moved on.
+                if not check_only:
+                    owned_missing.append(f"{key} {label}: install raised ({exc})")
                 continue
             state = states[0] if states else "unknown"
             if state in _HEALED_OUTCOMES:
                 healed.append(f"{key} {label}: {state}")
             elif state.startswith("skipped-") or state.startswith("left-"):
                 healed.append(f"{key} {label}: {state}")
+            # `check_only=True` never writes (see `_ensure_hook`'s own
+            # `check_only` docstring), so asserting the file landed there
+            # would fail on every current-vs-drift run whether or not
+            # anything is actually wrong -- the on-disk assertion below is
+            # therefore write-mode only.
+            if not check_only:
+                git_dir = _resolve_git_hooks_dir(root)
+                hook_path = os.path.join(git_dir, "hooks", label) if git_dir else None
+                # `os.access(..., X_OK)`, NOT `win_portability.is_executable`:
+                # that helper's Windows rung answers "would CreateProcess
+                # launch this directly" (PATHEXT-suffixed-sibling test for an
+                # extensionless path) -- the right question for a bareword CLI
+                # entrypoint, the WRONG one here. A git hook is never launched
+                # by CreateProcess/PATHEXT; git's own bundled `sh` execs the
+                # extensionless file directly, so requiring a `.cmd` sibling
+                # would make this check fail on every correctly-installed
+                # hook on Windows. `os.access(X_OK)` matches the predicate
+                # `scripts/cloud_setup.py :: install_hooks_fleet` already uses
+                # for this exact file.
+                landed = bool(
+                    hook_path and os.path.isfile(hook_path) and os.access(hook_path, os.X_OK)
+                )
+                if not landed:
+                    owned_missing.append(f"{key} {label}: not present/executable after install")
 
     # The common case is silent — an all-current fleet prints nothing, so this
     # can sit on a daily ceremony without becoming noise the operator learns
@@ -1679,4 +1739,16 @@ def ensure_hooks_fleet(bin_dir: str, *, check_only: bool = False) -> int:
         )
         for line in errored:
             print(f"  {line}", file=sys.stderr)
+    if owned_missing:
+        print(
+            f"[git_hook_install] fleet heal owns {len(owned_missing)} hook(s) "
+            "that are still absent or non-executable after the attempt "
+            "(worktree-classified repos only — a mirror's absence is by "
+            "design, not counted here):",
+            file=sys.stderr,
+        )
+        for line in owned_missing:
+            print(f"  {line}", file=sys.stderr)
+        if strict:
+            return 1
     return 0

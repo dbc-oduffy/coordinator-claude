@@ -16,9 +16,10 @@
 #                   records_query.query_records(unattached=True) union lens
 #                   (in-process call, no node/query-records.js spawn).
 #
-# VERBATIM — central-seam resolution: state/initiatives/ is resolved via
-# coordinator_state_root --central by invoking lib/coordinator-state-root.py
-# as a subprocess (de-bash campaign). NOT coordinator-session.sh.
+# Central-seam resolution: state/initiatives/ is resolved via
+# coordinator_core.state_root.coordinator_state_root(central=True), imported
+# in-process (P055-C1: was a spawn of lib/coordinator-state-root.py, itself a
+# thin bridge over the same native call). NOT coordinator-session.sh.
 # Spec backlink: docs/plans/2026-07-04-initiative-govern-sweep-prioritize-doe-d.md § C2
 #
 # Port: de-bash campaign, extensionless entrypoint keeps its exact
@@ -42,15 +43,10 @@ import re
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-# lib/ is one level up from bin/ (coordinator/bin/ → coordinator/lib/).
-LIB_DIR = os.path.join(SCRIPT_DIR, "..", "lib")
-_COORDINATOR_STATE_ROOT_PY = os.path.join(LIB_DIR, "coordinator-state-root.py")
 
-# records_query.py lives under bin/lib/ (coordinator/bin/lib/), a SIBLING of
-# LIB_DIR above (coordinator/lib/) — NOT the same directory. Mirrors the
+# records_query.py lives under bin/lib/ (coordinator/bin/lib/). Mirrors the
 # import preamble in coordinator/bin/detect-initiative-candidates, the other
-# native consumer of this trampoline. Do NOT conflate with LIB_DIR/
-# _COORDINATOR_STATE_ROOT_PY above, which resolve a different lib/ tree.
+# native consumer of this trampoline.
 _BIN_LIB_DIR = os.path.join(SCRIPT_DIR, "lib")
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -74,63 +70,39 @@ def _bootstrap_imports() -> None:
 # Respects COORDINATOR_INITIATIVE_ROOT env override for test isolation.
 # Negative-spec: does NOT fall back silently if the seam fails — returns None (fail-loud).
 def _resolve_initiatives_dir() -> str | None:
+    """P055-C1 conversion: was a
+    `[<python>, lib/coordinator-state-root.py, "--central"]` spawn. That
+    script is itself a thin bridge over `coordinator_core.state_root`
+    (its own docstring: "delegates entirely to coordinator_core.state_root")
+    -- `_bootstrap_imports()` (called from `main()` before any dispatch
+    reaches here) already puts coordinator_core on this process's sys.path,
+    so call the native module directly rather than hopping through the
+    bridge script a second time.
+    """
     # Test-isolation override: bypasses central-seam resolution entirely.
     override = os.environ.get("COORDINATOR_INITIATIVE_ROOT", "")
     if override:
         return override
 
-    if not os.path.isfile(_COORDINATOR_STATE_ROOT_PY):
+    try:
+        from coordinator_core.state_root import CrossCuttingStateRoot, StateRootError, coordinator_state_root
+    except ImportError as exc:
         print(
-            f"coordinator-initiative: lib/coordinator-state-root.py not found at "
-            f"{_COORDINATOR_STATE_ROOT_PY}",
+            f"coordinator-initiative: coordinator_core.state_root not importable: {exc}",
             file=sys.stderr,
         )
-        print("  Remediation: ensure the coordinator plugin is fully installed.", file=sys.stderr)
-        return None
-
-    # De-bash campaign: the bash sourced-lib oracle was ported to a Python CLI
-    # trampoline (coordinator-state-root.py) — invoke it directly rather than
-    # sourcing bash. Mirrors the subprocess pattern used by coordinator-doc-new
-    # (Python) for the same seam.
-    # ENGINE (claude-klabauter): sole consumer emit-cockpit-snapshot.py reads
-    # state/initiatives — §Residency-Is-Not-Ownership; doctrine reclassification
-    # pending lockstep cockpit-read flip (improvement-queue entry)
-    import subprocess
-
-    from coordinator_core.win_portability import no_console_creationflags
-    from python_interp import resolve_console_python
-
-    interpreter = resolve_console_python()
-    if interpreter is None:
         print(
-            "coordinator-initiative: no console Python interpreter could be resolved.",
+            "  Ensure CLAUDE_KLABAUTER_ROOT is configured (machine-local registry) and the lib is reachable.",
             file=sys.stderr,
         )
         return None
 
     try:
-        proc = subprocess.run(
-            [interpreter, _COORDINATOR_STATE_ROOT_PY, "--central"],
-            capture_output=True,
-            text=True,
-            **no_console_creationflags(),
-        )
-    except OSError as exc:
-        print(
-            f"coordinator-initiative: failed to resolve central state root via "
-            f"coordinator-state-root.py.\n  {exc}",
-            file=sys.stderr,
-        )
-        print(
-            "  Ensure CLAUDE_KLABAUTER_ROOT is configured (machine-local registry) and the lib is reachable.",
-            file=sys.stderr,
-        )
-        return None
-
-    if proc.returncode != 0:
+        state_root = coordinator_state_root(central=True)
+    except (CrossCuttingStateRoot, StateRootError):
         print(
             "coordinator-initiative: failed to resolve central state root via "
-            "coordinator-state-root.py.",
+            "coordinator_core.state_root.",
             file=sys.stderr,
         )
         print(
@@ -139,7 +111,7 @@ def _resolve_initiatives_dir() -> str | None:
         )
         return None
 
-    state_root = proc.stdout.strip()
+    state_root = state_root.strip()
     if not state_root:
         print(
             "coordinator-initiative: coordinator_state_root --central returned empty path.",

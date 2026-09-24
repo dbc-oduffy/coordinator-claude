@@ -39,6 +39,14 @@
 #     at or past `reviewed` is an rc-0 no-op. Unlike the `stamp` verb's
 #     side-effect fire, a failed rung advance here IS this subcommand's
 #     exit code.
+#   restamp <plan-path> --by <witness> --reason <one line> [--at <YYYY-MM-DD>]
+#     Records a non-PM witness of the CURRENT body (an EM correction after
+#     PM authorization) without disturbing the PM's own
+#     execution_authorized_{by,at,note} words. Rebinds execution_authorized_sha
+#     to the live body and writes/updates the execution_restamped_{by,at,
+#     from_sha,note} quartet. MUTATING. Fires no rung. Refuses a PM-shaped
+#     --by, a newline in --reason (exit 2), and a plan with no prior
+#     authorization (exit 1).
 #
 # Exit codes (locally scoped to this CLI, NOT inherited — see the contract's
 # own § Exit-code contract):

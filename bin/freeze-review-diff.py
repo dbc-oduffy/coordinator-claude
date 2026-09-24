@@ -259,6 +259,11 @@ def main(argv: list[str]) -> int:
             f"(paths={args.paths or 'all'}) — froze an empty diff, not an error",
             file=sys.stderr,
         )
+    if not result["committed"]:
+        print(
+            f"{_PROG}: note: freeze written but not committed: {result['commit_error']}",
+            file=sys.stderr,
+        )
     print(result["diff_path"])
     return 0
 

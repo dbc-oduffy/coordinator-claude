@@ -45,6 +45,25 @@ Subcommands:
         `cmd_supersede`'s own self-verification) before failing loud — see
         `cmd_chain`'s docstring.
 
+    abandon <handoff-path> --reason <cancelled|displaced|stale>
+        Closes a dead, UNWORKED placeholder baton through the existing
+        session-only close door (`coordinator_core.archive_stamp
+        .cs_close_handoff`, DR-084) and then chain-archives it (this file's
+        own `cmd_chain`) in one call — plan
+        docs/plans/2026-09-23-plan-blocked-state.md chunk C3. This is CLI-only:
+        never an op mode, never wired into any sweep, cascade or ceremony
+        tail — a human or EM types this by name, same posture as
+        `_stamp_reopened`. `handoff.archive_transition`'s own `_VALID_MODES`
+        stays unchanged; this subcommand composes two existing calls, it
+        does not add a mode to the op.
+        Refuses (rc 1, no write) when the body carries anything beyond HTML
+        comments, heading lines and whitespace (`_is_unworked_placeholder`)
+        — the refusal names `archive-stamp-cli close-handoff` as the
+        deliberate path for a WORKED baton — when `carried_items` is
+        non-empty (those obligations would be dropped), when `--reason` is
+        not one of cancelled/displaced/stale, or when the path resolves
+        outside `state/handoffs/`.
+
     supersede <handoff-path> --continued-into <successor> [--exclude <path>]...
         Park-with-links on supersession (SKILL.md "Park-with-links on
         supersession"). Dispatches handoff.archive_transition mode='supersede'
@@ -91,6 +110,13 @@ Exit codes:
                `docs/plans/2026-07-28-handoff-close-path-fail-loud.md`
                chunk C13 — see `cmd_supersede`'s docstring); 2 on a usage
                error (missing --continued-into or missing handoff-path).
+    abandon:   0 when the close-then-chain composition lands (including a
+               guard-retained stamp-only landing from the `chain` half —
+               that is `chain`'s own retention contract, unchanged here);
+               1 on a bad/missing --reason, a worked (non-placeholder)
+               body, a non-empty `carried_items`, a path outside
+               `state/handoffs/`, or a non-zero `cs_close_handoff`/`chain`
+               result.
 
 Negative-spec:
     - Does NOT open any UDS socket or read an auth token — routes through
@@ -111,6 +137,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -636,6 +663,127 @@ def cmd_supersede(handoff_path: str, continued_into: str | None, exclude: list[s
     return 0
 
 
+_ABANDON_REASONS = ("cancelled", "displaced", "stale")
+
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+
+
+def _is_unworked_placeholder(file_text: str) -> bool:
+    """Pure predicate, no I/O: True iff `file_text`'s body (everything below
+    the frontmatter's closing `---`) is nothing but HTML comments, heading
+    lines and whitespace — the shape `coordinator/bin/coordinator-doc-new.py
+    :: _scaffold_handoff` emits with no edits (AC9). CRLF-tolerant (the
+    caller's `\\r\\n` is normalized to `\\n` before the frontmatter split, same
+    as `split_frontmatter`'s own normalization).
+
+    False the moment one real sentence is added to any section — this is the
+    single source of truth `cmd_abandon` gates on before ever calling the
+    close door; it has no knowledge of `carried_items` or `--reason`, which
+    are separate refusals in `cmd_abandon`.
+    """
+    from coordinator_core.frontmatter.primitives import frontmatter_body_text
+
+    body = frontmatter_body_text(file_text.replace("\r\n", "\n"))
+    body = _HTML_COMMENT_RE.sub("", body)
+    remainder = "\n".join(
+        line for line in body.split("\n") if not line.lstrip().startswith("#")
+    )
+    return not remainder.strip()
+
+
+def cmd_abandon(handoff_path: str, reason: str) -> int:
+    """Close-then-chain composition for a dead, unworked placeholder baton
+    (plan docs/plans/2026-09-23-plan-blocked-state.md chunk C3, AC7-AC11).
+
+    Composes exactly two existing calls — never a new close path:
+    `coordinator_core.archive_stamp.cs_close_handoff` (the DR-084 session-
+    only close door) and then this module's own `cmd_chain`, whose
+    terminal-state precondition now passes because `closed` is terminal.
+    `cmd_chain`'s live-holder retention contract applies unchanged on the
+    second half — a retained landing there stays this function's own 0.
+
+    Refuses (rc 1, no write) in each of these cases, checked in this order:
+    `reason` outside {cancelled, displaced, stale}; the resolved path is not
+    contained under `state/handoffs/`; the file is unreadable;
+    `_is_unworked_placeholder` is False on its text (the message names
+    `archive-stamp-cli close-handoff <path> --reason <r>` as the deliberate
+    door for a WORKED baton); or `carried_items` parses non-empty (those
+    obligations would be dropped by an abandon).
+
+    Negative-spec: CLI-only. No `@register_op`, never a mode on
+    `handoff.archive_transition`, never called by any sweep, cascade or
+    ceremony tail — grep the tree for `"abandon"` outside tests to confirm
+    (AC10, a close-out check, not a standing test).
+    """
+    if reason not in _ABANDON_REASONS:
+        print(
+            f"abandon: --reason must be one of {_ABANDON_REASONS} (got "
+            f"{reason!r})",
+            file=sys.stderr,
+        )
+        return 1
+
+    repo_root = _resolve_repo_root(handoff_path)
+    if not repo_root:
+        print(
+            f"abandon: cannot resolve git repo root from {handoff_path!r}'s "
+            "directory — no mutation attempted",
+            file=sys.stderr,
+        )
+        return 1
+
+    from coordinator_core.ops._path_guard import contained_path
+
+    allowed_root = Path(repo_root) / "state" / "handoffs"
+    contained = contained_path(Path(handoff_path), [allowed_root])
+    if contained is None:
+        print(
+            f"abandon: {handoff_path!r} does not resolve under {allowed_root} "
+            "— refusing",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        text = contained.read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"abandon: could not read {handoff_path!r}: {exc}", file=sys.stderr)
+        return 1
+
+    if not _is_unworked_placeholder(text):
+        print(
+            f"abandon: {handoff_path!r} carries content beyond scaffold "
+            "placeholders — refusing to abandon a worked baton; use "
+            f"'archive-stamp-cli close-handoff {handoff_path} --reason "
+            f"{reason}' instead, the deliberate close for a worked baton",
+            file=sys.stderr,
+        )
+        return 1
+
+    from coordinator_core.ops.handoff_carry_gate import CarryGateError, read_carried_items
+
+    try:
+        carried = read_carried_items(str(contained))
+    except CarryGateError as exc:
+        print(f"abandon: {exc}", file=sys.stderr)
+        return 1
+    if carried:
+        print(
+            f"abandon: {handoff_path!r} carries a non-empty carried_items — "
+            "refusing, those obligations would be dropped by an abandon",
+            file=sys.stderr,
+        )
+        return 1
+
+    from coordinator_core.archive_stamp import cs_close_handoff
+
+    rc = cs_close_handoff(str(contained), reason)
+    if rc != 0:
+        return rc
+
+    return cmd_chain(str(contained), [])
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog=PROG)
     sub = p.add_subparsers(dest="subcommand", required=True)
@@ -677,6 +825,22 @@ def _build_parser() -> argparse.ArgumentParser:
     supersede.add_argument("--continued-into", dest="continued_into", default=None)
     supersede.add_argument("--exclude", action="append", default=[], dest="exclude")
 
+    abandon = sub.add_parser(
+        "abandon",
+        help=(
+            "close an all-scaffold placeholder baton through the existing "
+            "session close door, then chain-archive it (CLI-only)"
+        ),
+    )
+    abandon.add_argument("handoff_path")
+    abandon.add_argument(
+        "--reason",
+        dest="reason",
+        required=True,
+        choices=_ABANDON_REASONS,
+        help="closed_reason to stamp via the DR-084 close door (required)",
+    )
+
     return p
 
 
@@ -691,6 +855,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_chain(args.handoff_path, args.exclude, args.sha, args.force)
     if args.subcommand == "supersede":
         return cmd_supersede(args.handoff_path, args.continued_into, args.exclude)
+    if args.subcommand == "abandon":
+        return cmd_abandon(args.handoff_path, args.reason)
 
     print(f"{PROG}: unknown subcommand {args.subcommand!r}", file=sys.stderr)
     return 2

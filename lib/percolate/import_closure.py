@@ -91,6 +91,7 @@ names — all three are this plan's Anti-scope, shared with
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 PACKAGE_NAME = "coordinator_core"
@@ -526,4 +527,124 @@ def find_import_closure_violations(tree_root: Path) -> tuple[int, list[tuple[str
                 violations.append((rel, entry))
         for entry in sorted(never_published):
             violations.append((rel, entry))
+    return examined, violations
+
+
+_UNION_IMPORT_LINE_RE = re.compile(r"^\s*(?:from|import)\s.*" + PACKAGE_NAME, re.MULTILINE)
+"""Cheap prefilter for `find_union_closure_violations`: a single compiled
+`re.MULTILINE` pattern run once over a file's raw text (no `str.splitlines()`
+materialization — that step alone measured 70-84ms of the 243-255ms full
+pipeline on the real klabauter mirror, per
+`docs/research/spike-verdicts/2026-09-22-publish-union-closure.md` (b)). Only
+files an import-shaped line naming `coordinator_core` reach `ast.parse`;
+everything else (comments, string literals, unrelated code) is skipped
+without parsing. This is a SPEED cut only — every candidate this regex lets
+through still gets full AST extraction below, so no violation shape this
+module reports depends on the regex seeing a specific dotted needle
+contiguous in the text (the shape a naive full-dotted-needle substring
+prefilter would miss, per this function's own AC review note)."""
+
+
+def find_union_closure_violations(assembled_root: Path) -> tuple[int, list[tuple[str, str]]]:
+    """Walk every `.py` file physically inside `assembled_root` that is NOT
+    itself under a `coordinator_core/` directory, and return
+    `(examined_count, violations)` in `find_import_closure_violations`'s
+    shape — each violation a `(assembled-root-relative path, unresolved
+    entry)` pair.
+
+    This is the CROSS-ROW grader `find_import_closure_violations` cannot be:
+    that gate only ever sees one row's own restricted tree, so a file
+    shipped by a DIFFERENT row that imports a `coordinator_core` name absent
+    from the union (`docs/plans/2026-09-22-publish-integrity-union-and-
+    anchor-spike.md` § Problem, Leg U — 24 violations over 21 files at
+    authoring) is invisible to it. `assembled_root` is the union: the
+    already-assembled destination tree carrying every row's output side by
+    side, with `coordinator_core/` as one sibling directory among the rest.
+    A name resolves here exactly when it resolves inside
+    `assembled_root/coordinator_core` — never against any other row's tree,
+    and never against this repo's own unassembled source.
+
+    Files under `coordinator_core/` are never walked: grading whether
+    `coordinator_core` resolves against itself is the per-row gate's job
+    (`find_import_closure_violations`), not this one's — reusing this
+    module's existing depth/guard/ambiguity rules over that specific
+    self-referential case would just repeat that gate's own answer.
+
+    Reuses `_unguarded_import_nodes`, `_resolves_in_tree`, and
+    `_package_init_attribute_names` UNCHANGED (per this row's own file-scope
+    note) — this function only orchestrates them differently, over a wider
+    walk, because the union case has one shape the per-row gate's
+    `_extract_from_tree` does not need to resolve on its own: `from
+    coordinator_core.<present package> import <name>` only ever checked that
+    `<present package>`'s dotted path resolves, never whether `<name>` itself
+    names an existing nested submodule vs. an attribute the package's own
+    `__init__.py` exports — an ambiguity structurally identical to the bare
+    `from coordinator_core import X` case (`_package_init_attribute_names`),
+    just one level deeper. This function resolves that ambiguity per nested
+    package instead of leaving it unchecked, which is what lets it catch a
+    `from <present top-level package> import <absent submodule>` pair the
+    per-row gate's own dotted-shape handling does not check for by design
+    (see AC review note on this row).
+
+    Every import shape graded (bare, dotted-module, dotted-attribute,
+    `import a.b.c`) is decided by `ast.parse`, never by the prefilter regex
+    below — the regex only decides which files are WORTH parsing at all, so
+    no violation depends on a needle appearing contiguous in the raw text.
+    Guarded imports (`try/except`, `TYPE_CHECKING`, `pytest.raises(...)`) are
+    never reported, via `_unguarded_import_nodes`. No subprocess is spawned:
+    the walk, every read, and every parse are in-process."""
+    coordinator_core_root = assembled_root / PACKAGE_NAME
+    init_attrs = _package_init_attribute_names(coordinator_core_root)
+    violations: list[tuple[str, str]] = []
+    examined = 0
+    for py_file in sorted(assembled_root.rglob("*.py")):
+        rel = py_file.relative_to(assembled_root).as_posix()
+        if rel == PACKAGE_NAME or rel.startswith(PACKAGE_NAME + "/"):
+            continue
+        examined += 1
+        source = py_file.read_text(encoding="utf-8")
+        if PACKAGE_NAME not in source or not _UNION_IMPORT_LINE_RE.search(source):
+            continue
+        try:
+            tree = ast.parse(source, filename=rel)
+        except SyntaxError:
+            continue
+        for node in _unguarded_import_nodes(tree):
+            if isinstance(node, ast.ImportFrom):
+                if node.level:
+                    continue
+                if node.module == PACKAGE_NAME:
+                    for alias in node.names:
+                        if not _resolves_in_tree(coordinator_core_root, alias.name) and (
+                            alias.name not in init_attrs
+                        ):
+                            violations.append((rel, alias.name))
+                elif node.module and node.module.startswith(PACKAGE_NAME + "."):
+                    submodule_path = node.module[len(PACKAGE_NAME) + 1 :]
+                    if not _resolves_in_tree(coordinator_core_root, submodule_path):
+                        violations.append((rel, submodule_path))
+                        continue
+                    nested_root = coordinator_core_root.joinpath(*submodule_path.split("."))
+                    if not nested_root.is_dir():
+                        # A resolved FILE, not a package: every imported
+                        # name is necessarily an attribute defined inside
+                        # it, never a further nested submodule — nothing
+                        # left to check (see docstring's nested-ambiguity
+                        # note, which only applies to package directories).
+                        continue
+                    nested_attrs = _package_init_attribute_names(nested_root)
+                    for alias in node.names:
+                        nested_entry = f"{submodule_path}.{alias.name}"
+                        if not _resolves_in_tree(coordinator_core_root, nested_entry) and (
+                            alias.name not in nested_attrs
+                        ):
+                            violations.append((rel, nested_entry))
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == PACKAGE_NAME:
+                        continue
+                    if alias.name.startswith(PACKAGE_NAME + "."):
+                        entry = alias.name[len(PACKAGE_NAME) + 1 :]
+                        if not _resolves_in_tree(coordinator_core_root, entry):
+                            violations.append((rel, entry))
     return examined, violations

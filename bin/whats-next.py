@@ -26,7 +26,6 @@ depended on it and runs clean whether or not a tracker file is present.
 
 import os
 import re
-import subprocess
 import sys
 
 # whats-next.py had regressed behind its own bash
@@ -51,56 +50,38 @@ def _resolve_claude_klabauter_root_silent() -> "str | None":
         return None
 
 
-def _no_console_window() -> dict:
-    """`**no_console_creationflags()` when coordinator_core is resolvable;
-    falls back to the inline literal (0 elsewhere) if the engine root cannot be
-    resolved yet — this CLI's own repo-root discovery (`main`'s call into
-    `repo_identity.resolve_checked_repo_root`) may run before the engine root is
-    known.
-
-    Consolidated onto the single
-    resolution path this file already owns (`_resolve_claude_klabauter_root_silent`),
-    matching sibling standup.py's pattern instead of re-deriving the
-    lib_dir/sys.path/cc_invoke import boilerplate a second time in this file.
-    """
-    try:
-        claude_klabauter_root = _resolve_claude_klabauter_root_silent()
-        if claude_klabauter_root is None:
-            raise RuntimeError("engine root unresolved")
-        import cc_invoke  # noqa: E402  (path injected by _resolve_claude_klabauter_root_silent)
-
-        return cc_invoke._no_console_kw(claude_klabauter_root)
-    except Exception:
-        return (
-            {"creationflags": subprocess.CREATE_NO_WINDOW}
-            if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
-            else {}
-        )
-
-
 def _resolve_state_root(*args: str):
-    """Invoke `python3 -m coordinator_core.state_root` natively.
+    """Resolve via `coordinator_core.state_root.main()`, in-process.
+
+    P055-C1 conversion: was a `[python, "-m", "coordinator_core.state_root",
+    *args]` spawn. `_resolve_claude_klabauter_root_silent()` already resolves and
+    imports `cc_invoke` for the caller's own sys.path -- `coordinator_core`
+    is reachable the same way once the engine root is on sys.path, so this
+    calls the module's own `main(argv)` (its CLI body, unchanged) directly,
+    capturing stdout exactly as the spawn's `capture_output=True` did.
 
     Returns (path_or_None, returncode). Callers decide whether a non-zero rc is
     fatal — the improvement-queue read degrades gracefully on failure while the
     handoffs read relies on the default (no-arg) resolution succeeding.
     """
+    import contextlib
+    import io
+
     claude_klabauter_root = _resolve_claude_klabauter_root_silent()
     if not claude_klabauter_root:
         return None, 2
-    env = dict(os.environ)
-    existing_pp = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = f"{claude_klabauter_root}{os.pathsep}{existing_pp}" if existing_pp else claude_klabauter_root
-    result = subprocess.run(
-        [sys.executable, "-m", "coordinator_core.state_root", *args],
-        capture_output=True,
-        text=True,
-        env=env,
-        **_no_console_window(),
-    )
-    if result.returncode != 0:
-        return None, result.returncode
-    return result.stdout.strip(), 0
+    if claude_klabauter_root not in sys.path:
+        sys.path.insert(0, claude_klabauter_root)
+
+    from coordinator_core.state_root import main as _state_root_main
+
+    stdout_buf = io.StringIO()
+    stderr_buf = io.StringIO()
+    with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
+        rc = _state_root_main(list(args))
+    if rc != 0:
+        return None, rc
+    return stdout_buf.getvalue().strip(), 0
 
 
 def _heading(path: str) -> str:

@@ -1001,6 +1001,41 @@ def _offending_field_for_yaml_error(exc: "yaml.YAMLError", line_owners: list[str
     return "<unknown field>"
 
 
+def _native_js_parser_dup_keys(document: str) -> list[str]:
+    """Detect duplicate top-level mapping keys via the native restricted-YAML
+    parser (coordinator_core.frontmatter.schema_validate.parse_yaml — the
+    byte-parity Python port of the deleted schema-cli.js parser; see the
+    "Native schema seam" section header above for that lineage).
+
+    PyYAML's `safe_load` never raises on a duplicate top-level key — it
+    last-key-wins silently, so the pre-existing round-trip gate in
+    `_build_yaml` (which only calls `yaml.safe_load`) cannot catch this
+    class. `parse_yaml`'s `dup_keys` collector is the JS-parser-parity check
+    that closes that gap, with no Node spawn (pure Python).
+
+    Fail-soft: any import/resolution failure (engine root unresolvable from
+    a non-claude-klabauter cwd) returns an empty list rather than blocking every queue
+    write on this one extra check — the pre-existing yaml.safe_load gate
+    still runs unconditionally.
+    """
+    try:
+        _bootstrap_imports()
+        claude_klabauter_root = _claude_klabauter_root()
+        if claude_klabauter_root and claude_klabauter_root not in sys.path:
+            sys.path.insert(0, claude_klabauter_root)
+        from coordinator_core.frontmatter.schema_validate import (
+            parse_yaml as _native_parse_yaml,
+        )
+    except Exception:  # noqa: BLE001 — fail-soft, see docstring
+        return []
+    dup_keys: list[str] = []
+    try:
+        _native_parse_yaml(document, dup_keys=dup_keys)
+    except Exception:  # noqa: BLE001 — restricted parser is best-effort here
+        return []
+    return dup_keys
+
+
 def _build_yaml(schema_name: str, fields: dict) -> str:
     """Construct the YAML document string for a queue entry.
 
@@ -1075,6 +1110,18 @@ def _build_yaml(schema_name: str, fields: dict) -> str:
             f"field: {offending_field!r}. Fix the value passed for that field. "
             f"Underlying parser error: {exc}"
         ) from exc
+
+    # Second, JS-parser-parity round-trip leg (see _native_js_parser_dup_keys):
+    # PyYAML's safe_load above never raises on a duplicate top-level key, so
+    # this refuses the shape PyYAML's own round-trip gate cannot catch.
+    dup_keys = _native_js_parser_dup_keys(document)
+    if dup_keys:
+        raise ValueError(
+            "queue.append: composed YAML document has duplicate top-level "
+            f"key(s) {dup_keys!r} — an earlier occurrence's value would be "
+            "silently discarded by every fleet reader's last-key-wins parse. "
+            "Fix the caller to emit each field once."
+        )
     return document
 
 
@@ -2184,7 +2231,43 @@ def main(argv: "list[str] | None" = None) -> int:
 
     def legacy_fn() -> None:
         # Note: return from legacy_fn() returns None to route(), signalling legacy-complete.
-        # Write-core body preserved byte-identical to pre-swap HEAD.
+        # Write-core body preserved byte-identical to pre-swap HEAD, except for
+        # the central-scope refusal immediately below.
+        #
+        # Close the confirmed second writer (P144-C1 spike, dedupe_root_cause,
+        # verdict live-at-HEAD via H2): a State-1 (native seam absent)
+        # central-scope write used to reach _output_path's central branch
+        # whenever _claude_klabauter_root() resolved to ANY tree, including a
+        # resolvable-but-mirror-shaped one (e.g. the published klabauter
+        # mirror). Its hash-less `<date>-<slug40>.yaml` naming disagrees with
+        # the native op's `<date>-<slug>-<digest12>.yaml` collision strategy,
+        # and a write landing in a mirror tree is silently rewritten away by
+        # the next publish round — the vanish-with-no-trace symptom the row
+        # reports. Rather than teach the legacy path the native digest
+        # scheme (a second, harder-to-keep-in-sync naming implementation),
+        # central-scope writes are native-only: refuse here unconditionally,
+        # before validating/building/writing anything, so no legacy
+        # central-scope file is ever produced, resolvable root or not.
+        # Negative-spec: do NOT gate this on whether _claude_klabauter_root() resolves
+        # to a mirror — that predicate isn't reliably decidable from here,
+        # and a resolvable-but-live-source root is just as much a second
+        # writer as a mirror one; the row's fix is closing the ROUTE, not
+        # detecting the mirror case.
+        if queue_scope == "central":
+            print(
+                "warn: coordinator-queue-append: native coordinator_core.invoke seam "
+                "absent — central-scope writes require the native queue.append op "
+                "and are not supported by the legacy fallback; skipping central write",
+                file=sys.stderr,
+            )
+            print(
+                "  Remediation: run 'machine-local set repos.claude_klabauter /path/to/claude-klabauter'\n"
+                "  or set COORDINATOR_ENGINE_ROOT=/path/to/claude-klabauter before invoking this CLI.\n"
+                "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c",
+                file=sys.stderr,
+            )
+            return  # exits 0 via normal return from legacy_fn()
+
         # Validate before writing.
         _validate(schema_name, fields)
 
@@ -2192,13 +2275,10 @@ def main(argv: "list[str] | None" = None) -> int:
         yaml_content = _build_yaml(schema_name, fields)
 
         # Compute output path and ensure directory exists.
-        # _ClaudeKlabauterUnresolvable is raised by BOTH the central-scope branch
-        # (queue_scope == "central") and the meta-repo cwd else-branch of
-        # _output_path — central state routes to claude-klabauter unconditionally per
-        # state-placement-law.md § Taxonomy "Central/global state", the same seam
-        # the meta-repo per-project branch already used. Both degrade gracefully
-        # per the graceful-degradation contract (WARN + skip, exit 0), distinguished
-        # below by queue_scope so the WARN text names the write that was skipped.
+        # _ClaudeKlabauterUnresolvable is raised by the meta-repo cwd else-branch of
+        # _output_path (the central-scope branch is unreachable here now —
+        # see the refusal above). It degrades gracefully per the
+        # graceful-degradation contract (WARN + skip, exit 0).
         # workstream-store filenames are keyed by workstream_id / workstream+session,
         # not by title — see _output_path's filename_override parameter.
         # Spec backlink: docs/plans/2026-07-08-project-tracker-render-from-queue.md § Substrate
@@ -2216,26 +2296,12 @@ def main(argv: "list[str] | None" = None) -> int:
                 filename_override=filename_override,
             )
         except _ClaudeKlabauterUnresolvable as exc:
-            # AC2-analog (central): degrade gracefully on unresolvable engine root for
-            # central-scope writes (queue_scope == "central"). A coordinator install
-            # without repos.claude_klabauter registered WARNs and skips rather than
-            # hard-erroring. Central-scope is guarded (main()) to only ever apply to
-            # improvement-queue/lessons — never the workstream-store schemas — so no
-            # fail-loud carve-out is needed on this leg.
-            # Spec backlink: docs/wiki/state-placement-law.md § Taxonomy "Central/global state"
-            if queue_scope == "central":
-                print(
-                    f"warn: coordinator-queue-append: the engine root unresolvable — "
-                    f"skipping central write: {exc}",
-                    file=sys.stderr,
-                )
-                print(
-                    "  Remediation: run 'machine-local set repos.claude_klabauter /path/to/claude-klabauter'\n"
-                    "  or set COORDINATOR_ENGINE_ROOT=/path/to/claude-klabauter before invoking this CLI.\n"
-                    "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c",
-                    file=sys.stderr,
-                )
-                return  # exits 0 via normal return from legacy_fn()
+            # queue_scope == "central" can no longer reach this except: the
+            # early return above (P144-C2) refuses central-scope legacy
+            # writes unconditionally, before _output_path's central branch —
+            # the one that used to raise this — is ever called. Only the
+            # meta-repo per-project cwd else-branch of _output_path reaches
+            # here now.
             # AC13: degrade gracefully on unresolvable engine root for meta-repo per-project
             # cwd writes (else-branch of _output_path). Unchanged from pre-flip behaviour
             # for all pre-existing schemas.

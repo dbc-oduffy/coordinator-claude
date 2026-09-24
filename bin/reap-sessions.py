@@ -17,9 +17,15 @@ claim dirs) in one dispatch, and once this trampoline is wired into
 self-gates and self-manages its own cadence bookkeeping.
 
 Usage:
-    python3 reap-sessions.py [<repo_root>]
+    python3 reap-sessions.py [--repo <repo_root> | <repo_root>]
 
     <repo_root>  Optional; defaults to `git rev-parse --show-toplevel`.
+
+Negative-spec:
+    - Does NOT exit non-zero on a malformed `--repo` argv (e.g. `['--repo']` with
+      no value following, or an unrecognised flag): both fall through to the
+      `git rev-parse --show-toplevel` resolution / `None`, and `main()` still
+      returns 0.
 
 Commit semantics: NO git commit on ANY path. session.reap mutates only
 .git/coordinator-sessions/ (untracked substrate; Class-B op). No git diff,
@@ -94,8 +100,24 @@ def _no_fallback() -> None:
 
 
 def _resolve_repo_root(argv: list[str]) -> str | None:
+    """Hand-rolled `--repo <value>` parse, in the shape of
+    `session-reachability-cli.py`'s `peer-roster` subcommand parse (borrowed
+    for the PARSE ONLY -- never its `_usage(...)` non-zero-exit branch: this
+    module's own docstring pins every exit path at 0, so no argv shape here
+    may raise or propagate a non-zero return).
+
+    - `['--repo', <value>, ...]` resolves to `<value>`.
+    - A bare positional (`argv[0]` not starting with `--`) resolves to itself,
+      preserving the prior caller shape.
+    - `['--repo']` alone (no value following) and any other unrecognised flag
+      fall through to the `git rev-parse --show-toplevel` resolution below.
+    """
     if argv:
-        return argv[0]
+        if argv[0] == "--repo":
+            if len(argv) >= 2:
+                return argv[1]
+        elif not argv[0].startswith("--"):
+            return argv[0]
     try:
         _bootstrap_imports()
         claude_klabauter_root = _resolve_claude_klabauter_root()

@@ -1334,13 +1334,13 @@ def _reconcile_after_indeterminate(
     # anything: it converts "has not happened yet" into "found" without
     # weakening the rule below, and costs nothing when the commit is genuinely
     # absent. Bounded, and never a retry of the mutation itself.
-    probe = _reconcile_landed_despite_failure(resolved, attempt_trailer, pre_sha, args.paths)
+    probe = _reconcile_landed_despite_failure(resolved, attempt_trailer, pre_sha)
     if probe.sha is None:
         deadline = time.monotonic() + _RECONCILE_SETTLE_SECS
         while probe.sha is None and time.monotonic() < deadline:
             time.sleep(_RECONCILE_POLL_SECS)
             probe = _reconcile_landed_despite_failure(
-                resolved, attempt_trailer, pre_sha, args.paths
+                resolved, attempt_trailer, pre_sha
             )
 
     if probe.sha is not None:
@@ -1484,6 +1484,7 @@ def _own_touched_paths_for_banner() -> "tuple[Optional[Set[str]], str]":
         )
     try:
         from coordinator_core.session import core as cs_core  # noqa: PLC0415
+        from coordinator_core.session import scope as cs_scope  # noqa: PLC0415
     except ImportError as exc:
         return None, f"session module unavailable ({exc})"
     try:
@@ -1492,14 +1493,19 @@ def _own_touched_paths_for_banner() -> "tuple[Optional[Set[str]], str]":
         return None, f"sessions dir unresolved ({exc})"
     if not base:
         return None, "sessions dir unresolved (empty)"
-    touched_path = os.path.join(base, session_id, "touched.txt")
+    touched_path = os.path.join(base, session_id, cs_scope._TOUCH_RECORD_FILENAME)
     if not os.path.isfile(touched_path):
-        return None, f"no touched.txt at {touched_path}"
+        return None, f"no {cs_scope._TOUCH_RECORD_FILENAME} at {touched_path}"
     try:
-        lines = Path(touched_path).read_text(encoding="utf-8").splitlines()
+        lines, _degraded = cs_scope._read_touch_record_as_legacy_lines(touched_path)
     except OSError as exc:
-        return None, f"touched.txt unreadable ({exc})"
-    return {ln.strip() for ln in lines if ln.strip()}, "ok"
+        return None, f"{cs_scope._TOUCH_RECORD_FILENAME} unreadable ({exc})"
+    # `lines` are re-rendered OLD-dialect `'<verb> <ts> <path>'` rows (see
+    # `_read_touch_record_as_legacy_lines`'s own docstring) — `project_self_
+    # scope` is the same extraction `do_scoped` already applies to this exact
+    # shape, not a bare-path split, so a released (R) path is excluded here
+    # too rather than re-widening the banner's own-set beyond `do_scoped`'s.
+    return set(cs_scope.project_self_scope(lines)), "ok"
 
 
 def _scoped_commit_suggestion(subject: str) -> str:
@@ -3275,25 +3281,45 @@ def main(argv: Sequence[str]) -> None:
     # Self-heal orphaned git locks before any git operation. Best-effort:
     # non-zero rc is not fatal — git itself surfaces a real collision.
     # See docs/wiki/concurrent-em-hazards.md § H21.
-    # Invoke via the shared resolver's
-    # console interpreter, not the bare extensionless path, so this self-heal
-    # is Windows-invocable (CreateProcess has no shebang support; the old
-    # bare-path form raised FileNotFoundError there and was silently
-    # swallowed) — the resolver is what makes that note true.
+    #
+    # P055-C5 (docs/plans/2026-09-11-a-python-process-does-not-spawn-a-
+    # python-process.md): this used to spawn a Python interpreter to run the
+    # co-located `coordinator-reap-stale-locks.py` as its own process
+    # (Python-for-Python work, no isolation reason applies). It is loaded
+    # in-process instead via `importlib.util.spec_from_file_location` — the
+    # same pattern `workday-complete-close.py`/`coordinator-doc-new.py` use
+    # for a co-located hyphenated (non-import-statement-legal) sibling
+    # script — and its own `main([])` is called directly. Which tree that
+    # resolves from is UNCHANGED by this conversion: `main()` still runs the
+    # module's own `_import_runner()` -> `require_dispatch_engine_on_path()`
+    # -> `coordinator_core.cli_entry.run_op_main` chain byte-for-byte, the
+    # exact same code that ran inside the old child process — only the
+    # process boundary is gone, not the resolution logic (no locator-axis
+    # `require_engine_on_path` is introduced here to answer for it).
+    #
+    # Failure semantics preserved exactly: `stdout`/`stderr` are still
+    # discarded (redirect_stdout/redirect_stderr replace the old
+    # `subprocess.DEVNULL` pair), the exit code is still ignored (the old
+    # `check=False` never inspected it either), and ANY exception — import
+    # failure, engine-root failure, or anything `coordinator_core.ops.
+    # reap_stale_locks.main` itself raises — is swallowed exactly like the
+    # old `OSError` from a failed process spawn was: this self-heal is
+    # best-effort either way, never fatal to the commit it runs ahead of.
     reap_script = os.path.join(SCRIPT_DIR, "coordinator-reap-stale-locks.py")
-    from python_interp import resolve_console_python
+    try:
+        import importlib.util
 
-    _reap_interpreter = resolve_console_python()
-    if _reap_interpreter is not None:
-        try:
-            subprocess.run(
-                [_reap_interpreter, reap_script],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
-            )
-        except OSError:
-            pass
-    # A None from the resolver takes the same silently-swallowed branch as
-    # today's OSError — the self-heal is best-effort either way.
+        _reap_spec = importlib.util.spec_from_file_location(
+            "_coordinator_reap_stale_locks", reap_script
+        )
+        if _reap_spec is not None and _reap_spec.loader is not None:
+            _reap_module = importlib.util.module_from_spec(_reap_spec)
+            with contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                _reap_spec.loader.exec_module(_reap_module)
+                _reap_module.main([])
+    except Exception:
+        pass
 
     cs_core, cs_liveness, cs_scope, cs_claims = _import_session()
 

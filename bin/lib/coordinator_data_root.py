@@ -126,9 +126,11 @@ if _THIS_DIR not in sys.path:
 # level like coordinator_registry.py's own `_mlir_claude_home` import.
 # Converges this module's home derivation onto the SAME semantics
 # `coordinator_registry.py::_mp_marketplace_cache_rung`/
-# `_mp_flat_layout_probe_rung` already use — `claude_home()` returns
-# `CLAUDE_HOME` AS-IS when set (not `<CLAUDE_HOME>/.claude`). This module's
-# own rungs previously inlined `CLAUDE_HOME or HOME or USERPROFILE` and then
+# `_mp_flat_layout_probe_rung` already use — `claude_home()` treats
+# `CLAUDE_HOME` as a `$HOME` substitute (Convention A) and returns
+# `<CLAUDE_HOME>/.claude`, agreeing with
+# `check_install_singularity._claude_base_dir()`. This module's own rungs
+# previously inlined `CLAUDE_HOME or HOME or USERPROFILE` and then
 # unconditionally joined `.claude`, so with `CLAUDE_HOME` set the two
 # modules probed different directories — see F6 in
 # state/review-findings/2026-08-08-successor-partitioned/hermetic-ac-reverify.md.
@@ -265,9 +267,10 @@ def _cdr_flat_layout_probe_rung() -> str:
 
     Home resolution delegates to `_mlir_claude_home()` (F6 fix, 2026-08-08)
     — see module import comment; previously inlined a divergent
-    `CLAUDE_HOME`-or-`HOME`-or-`USERPROFILE` ladder that, unlike
-    `claude_home()`, always appended `.claude` even when `CLAUDE_HOME` was
-    already set to the `.claude` directory itself.
+    `CLAUDE_HOME`-or-`HOME`-or-`USERPROFILE` ladder that joined `.claude`
+    unconditionally, which happened to agree with `claude_home()` only
+    once `claude_home()` itself also treated `CLAUDE_HOME` as a `$HOME`
+    substitute (Convention A) rather than as the `.claude` dir itself.
     """
     home = _mlir_claude_home()
     if not home:

@@ -1,5 +1,6 @@
 """PreToolUse hook (matcher: Workflow): auto-approve a fire whose script
-carries a VERIFYING emission receipt, and stay silent for everything else.
+carries a VERIFYING emission receipt, warn on a hand-rolled one, and stay
+silent for everything else.
 
 The friction this removes. `/execute-plan` derives a `.mjs` from a ratified
 plan spine with `emit-dispatch-workflow.py` (or the engine's `dispatch.emit`
@@ -32,12 +33,21 @@ firing, layered under the one that already exists for that job
 (`block-workflow-foreign-emission.py`). Pinned by
 `test_allow_emitted_workflow_fire.py::test_never_denies_on_any_payload`.
 
+WARNS ON HAND-ROLLED, STILL WITHOUT A DECISION. The prompt is the only signal
+a hand-rolled fire used to get, and a headless or auto-mode session never
+shows it -- there the fire ran unremarked. So a fire with no receipt at all
+also carries an `additionalContext` warning naming the emitter route. It
+sets no `permissionDecision`, so the prompt still happens wherever prompts
+happen; the warning adds a signal and removes no friction.
+
 Per-payload-shape decision table (`tool_input` key -> decision):
   - `scriptPath`, receipt verifies      -> allow, reason names plan + emitter
-  - `scriptPath`, no/bad/stale receipt  -> silent (normal prompt)
-  - `script` (inline text)              -> silent. An inline script has no
-    disk file and by construction can carry no receipt: this IS the
-    hand-rolled case, and it must never be auto-approved.
+  - `scriptPath`, no receipt file       -> hand-rolled warning (normal prompt)
+  - `scriptPath`, bad/stale receipt     -> silent (normal prompt); the
+    neighbour hook owns the stale-digest refusal and its remediation
+  - `script` (inline text)              -> hand-rolled warning. An inline
+    script has no disk file and by construction can carry no receipt: this
+    IS the hand-rolled case, and it must never be auto-approved.
   - `name` (a saved workflow)           -> silent. Resolved by the tool from
     its own store, not from an emitted path; nothing to verify here.
   - `resumeFromRunId`                   -> whatever `scriptPath` says. A
@@ -75,6 +85,43 @@ def _allow(reason: str) -> None:
             }
         )
     )
+
+
+def _warn(context: str) -> None:
+    print(
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "additionalContext": context,
+                }
+            }
+        )
+    )
+
+
+def _compose_hand_rolled_warning() -> str:
+    """The warning's one prose site, pure so the message-budget harness can
+    measure it by direct call."""
+    return "Hand-rolled Workflow, no receipt. Emit it: `emit-dispatch-workflow.py --plan <plan>`."
+
+
+def _is_hand_rolled(payload: dict) -> bool:
+    """A fire with no receipt to check at all. A present-but-stale receipt is
+    NOT hand-rolled: it is an edited emission, refused with its own route by
+    `block-workflow-foreign-emission.py`."""
+    if payload.get("tool_name") != "Workflow":
+        return False
+    tool_input = payload.get("tool_input") or {}
+    if tool_input.get("script"):
+        return True
+    script_path = tool_input.get("scriptPath")
+    if not script_path:
+        return False
+    script = Path(script_path)
+    if not script.is_absolute():
+        script = Path(payload.get("cwd") or ".") / script
+    return not script.with_name(script.name + ".emitted.json").is_file()
 
 
 def _session_id(payload: dict) -> "str | None":
@@ -141,10 +188,13 @@ def main() -> int:
     try:
         payload = json.load(sys.stdin)
         reason = _decide(payload)
+        hand_rolled = reason is None and _is_hand_rolled(payload)
     except Exception:
         return 0
     if reason is not None:
         _allow(reason)
+    elif hand_rolled:
+        _warn(_compose_hand_rolled_warning())
     return 0
 
 

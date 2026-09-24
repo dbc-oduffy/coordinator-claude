@@ -175,6 +175,11 @@ that tag and is quietly wrong the same way.
 This is the interim guard, not the fix — the ordering is what is wrong, and moving `d2` after the
 merge is tracked separately. Run the check every time until `d2` moves.
 
+Once the merge lands, best-effort trigger project-rag's SCIP rebuild in the background — never
+waits, never blocks this ceremony: `"$_py"
+"${CLAUDE_PLUGIN_ROOT:-<doe-root>/coordinator}/bin/scip-rebuild-at-ceremony.py" --ceremony
+merge-to-main` (§ Plugin-local `coordinator/bin/`, `resolve-coordinator-bin.md`).
+
 ---
 
 ## Step 8: Post-Merge Re-Verify Shared Infra

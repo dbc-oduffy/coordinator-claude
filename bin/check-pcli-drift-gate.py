@@ -8,7 +8,7 @@ live `Workflow` `agent()` option surface (both owned by the sibling DoE
 repo's schema files), plus capture staleness and a C7
 subagent-catering-resolution.json source-hash check. Direct-import shape
 (same as check-harvest-debt.py), deliberately NOT the registered-op
-`cc_invoke.route()` trampoline shape (schema-drift-gate.py's shape) — the
+`cc_invoke.route()` trampoline shape (baton-drift-sweep.py's shape) — the
 detection module is a plain, unregistered coordinator_core.ops module
 (mirrors check_import_budget_staleness.py), so there is no op name to route
 through. This CLI owns argument parsing and exit-code mapping only; all

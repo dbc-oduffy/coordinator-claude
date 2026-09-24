@@ -30,7 +30,6 @@ Spec backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
@@ -225,74 +224,80 @@ def resolve_python() -> str:
     return sys.executable
 
 
+def _load_machine_local_kernel():
+    """Load `_machine_local.py`'s module object by its own resolved path
+    (`machine_local_impl()` -- settings-home first, DR-210 Amendment) and
+    return it, in-process, no interpreter spawn.
+
+    Spec: docs/plans/2026-09-11-a-python-process-does-not-spawn-a-python-process.md
+    (P055-C3). The resolved path is the identical file the pre-conversion
+    code spawned `python <impl> ...` against -- importing it in-process
+    trades the interpreter spawn for a module load of the SAME file,
+    introducing no new which-tree ambiguity (the path resolution itself is
+    unchanged). Not cached module-to-module: each call re-resolves
+    `machine_local_impl()` first, matching the pre-conversion per-call
+    resolution, then loads fresh via `importlib` (cheap: one file, no
+    heavy transitive imports) so a test's `MACHINE_LOCAL_IMPL` override
+    between calls is honoured exactly as the spawn form was.
+    """
+    import importlib.util
+
+    impl = machine_local_impl()
+    spec = importlib.util.spec_from_file_location("_machine_local_kernel", impl)
+    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
 def machine_local_get(key: str) -> str | None:
     """Call machine-local get <key> and return the value, or None on failure."""
-    impl = machine_local_impl()
-    python = resolve_python()
     try:
-        result = subprocess.run(
-            [python, impl, "get", key],
-            capture_output=True,
-            text=True,
-            creationflags=_NO_WINDOW,
-        )
-    except OSError:
+        mod = _load_machine_local_kernel()
+        rc, val = mod.resolve_one(key, layers=None)
+    except (SystemExit, Exception):
         return None
-    if result.returncode != 0 or not result.stdout.strip():
-        return None
-    return result.stdout.strip()
+    if rc == mod.EXIT_OK and val:
+        return val
+    return None
 
 
 def machine_local_dump_repos() -> dict[str, str]:
-    """Resolve every repos.* key in one machine-local process (the batch
-    counterpart to enumerate-then-get). `dump --prefix repos` shares
-    resolve_one with `get`, so a batched value is byte-identical to what a
-    per-key `get` would print — see _machine_local.py::cmd_dump docstring.
-    Returns {} on any spawn/parse failure OR a non-zero returncode (matches
-    machine_local_get's fail-closed contract — a non-zero exit with
-    parseable stdout is a partial/crashed dump, not a value to trust);
-    callers already tolerate an empty/partial paths table.
+    """Resolve every repos.* key in one in-process kernel call (the batch
+    counterpart to enumerate-then-get). `resolve_one` is the same kernel
+    `get` uses, so a batched value is byte-identical to what a per-key
+    `get` would print — see _machine_local.py::cmd_dump docstring.
+    Returns {} on any load/resolution failure OR when any key hits an
+    OPERATIONAL failure (matches machine_local_get's fail-closed contract —
+    a partial/crashed dump is not a value to trust); callers already
+    tolerate an empty/partial paths table.
     """
-    impl = machine_local_impl()
-    python = resolve_python()
     try:
-        result = subprocess.run(
-            [python, impl, "dump", "--prefix", "repos", "--format", "json"],
-            capture_output=True,
-            text=True,
-            creationflags=_NO_WINDOW,
-        )
-    except OSError:
+        mod = _load_machine_local_kernel()
+        reg_dir = mod._registry_dir()
+        layers = mod._build_resolution_layers(reg_dir)
+        all_keys = [k for k in mod._all_keys(layers) if k == "repos" or k.startswith("repos.")]
+        values: dict[str, object] = {}
+        for k in all_keys:
+            rc, val = mod.resolve_one(k, layers)
+            if rc == mod.EXIT_OK and val is not None:
+                values[k] = val
+            elif rc == mod.EXIT_OPERATIONAL:
+                return {}
+    except (SystemExit, Exception):
         return {}
-    if result.returncode != 0 or not result.stdout.strip():
-        return {}
-    try:
-        data = json.loads(result.stdout)
-    except ValueError:
-        return {}
-    return {k: v for k, v in data.items() if isinstance(v, str) and v}
+    return {k: v for k, v in values.items() if isinstance(v, str) and v}
 
 
 def machine_local_repos_keys() -> list[str]:
     """Return all repos.* keys from the machine-local registry."""
-    impl = machine_local_impl()
-    python = resolve_python()
     try:
-        result = subprocess.run(
-            [python, impl, "keys"],
-            capture_output=True,
-            text=True,
-            creationflags=_NO_WINDOW,
-        )
-    except OSError:
+        mod = _load_machine_local_kernel()
+        reg_dir = mod._registry_dir()
+        layers = mod._build_resolution_layers(reg_dir)
+        all_keys = mod._all_keys(layers)
+    except (SystemExit, Exception):
         return []
-    if result.returncode != 0:
-        return []
-    return [
-        line.strip()
-        for line in result.stdout.splitlines()
-        if line.strip().startswith("repos.")
-    ]
+    return [k for k in all_keys if k.startswith("repos.")]
 
 
 def claude_klabauter_root() -> str | None:

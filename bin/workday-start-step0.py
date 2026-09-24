@@ -240,26 +240,25 @@ def contributor_slug_self_heal() -> None:
 
 def _exec_reconcile() -> int:
     _ensure_claude_klabauter_on_path()
-    from cc_invoke import child_env
-    from coordinator_core.win_portability import no_console_creationflags
 
-    result = subprocess.run(
-        [sys.executable, _BIN_RECONCILE],
-        **no_console_creationflags(),
-        capture_output=True,
-        text=True,
-        env=child_env(),
+    # Converted from a subprocess spawn to a direct in-process import+call
+    # (P055-C2): the callee's own main() prints its stdout/stderr line
+    # directly and never raises (see workday-start-step0-reconcile.py::main,
+    # which catches RuntimeError/ImportError internally and returns an int),
+    # so no stdio-capture-and-relay is needed here — that relay existed only
+    # to make a Windows silent-kill (inherited-stdio + CREATE_NO_WINDOW)
+    # diagnosable across a process boundary that no longer exists.
+    import importlib.util
+
+    _spec = importlib.util.spec_from_file_location(
+        "_workday_start_step0_reconcile", _BIN_RECONCILE
     )
-    # Relay captured stdio to this process's own stdout/stderr to preserve the
-    # module docstring's contract (reconcile's own line on stdout on the
-    # FRESH-CUT / NAMED-WORKSTREAM / RENAMED paths) — capture_output is needed
-    # so a Windows silent-kill (inherited-stdio + CREATE_NO_WINDOW) is
-    # diagnosable instead of a bare rc=1 with nothing printed.
-    if result.stdout:
-        print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
-    if result.stderr:
-        print(result.stderr, file=sys.stderr, end="" if result.stderr.endswith("\n") else "\n")
-    return result.returncode
+    _mod = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(_mod)
+    try:
+        return _mod.main([])
+    except SystemExit as exc:
+        return exc.code if isinstance(exc.code, int) else 1
 
 
 # ---------------------------------------------------------------------------

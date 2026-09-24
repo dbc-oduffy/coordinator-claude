@@ -64,14 +64,21 @@ except Exception as exc:  # never block a session start -- see main() below
 
 
 def main() -> int:
+    # `--strict`: opt-in, off by default so /workday-start Step -0.45's
+    # existing bare invocation keeps its "must never block a session start"
+    # contract byte-for-byte. A caller that DOES want a real non-zero signal
+    # when a repo this tool OWNS (worktree-classified) still lacks its hook
+    # after the attempt passes this flag — see `ensure_hooks_fleet`'s own
+    # `strict` docstring.
+    strict = "--strict" in sys.argv[1:]
     if _BOOTSTRAP_ERROR is not None:
         print(f"coordinator-ensure-hooks-fleet: {_BOOTSTRAP_ERROR}", file=sys.stderr)
-        return 0
+        return 1 if strict else 0
     try:
-        return ensure_hooks_fleet(_BIN_DIR)
-    except Exception as exc:  # never block a session start
+        return ensure_hooks_fleet(_BIN_DIR, strict=strict)
+    except Exception as exc:  # never block a session start unless --strict
         print(f"coordinator-ensure-hooks-fleet: {exc}", file=sys.stderr)
-        return 0
+        return 1 if strict else 0
 
 
 if __name__ == "__main__":

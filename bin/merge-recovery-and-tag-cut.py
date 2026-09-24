@@ -31,6 +31,7 @@ Subcommands (argv[1] selects):
       nothing, exits 0 (bare-`v*` default per DR-149).
 
   cut-tag TAG [--repo-root PATH] [--fetch-ref main] [--merge-ref origin/main]
+           [--must-contain SHA]
       Idempotent annotated-tag cut + push: fetches `--fetch-ref` from origin,
       resolves `--merge-ref` to a commit SHA, and only (re)creates + pushes
       the annotated tag when it does not already point at that commit.
@@ -40,6 +41,11 @@ Subcommands (argv[1] selects):
       below). Ported from SKILL.md Step 1.5 Part 2, both Mode A (git-tag-only)
       and Mode B (GH-release) share this exact tag-cut core; only the
       GH-release publish step (below) differs between the two.
+      When `--must-contain SHA` is given, asserts (via `git merge-base
+      --is-ancestor`) that the resolved merge_ref commit is an ancestor of
+      SHA before cutting or skipping the tag — fails loud, no tag mutation,
+      if it is not. The `--merge-ref origin/main` default is unaffected by
+      whether `--must-contain` is passed.
       Prints `MERGE_SHA=<sha>` and either `TAG_CUT=<tag>` or
       `TAG_SKIPPED=<tag>` to stdout.
 
@@ -68,6 +74,10 @@ Negative-spec:
     release cuts a distinct `vX.Y.Z` tag name, so "TAG already exists but at
     a different commit" is not a case this ceremony's design expects; it
     fails loud like the original rather than silently rewriting history.
+  - Does NOT run the ancestor assertion unconditionally — `--must-contain`
+    is opt-in; omitting it preserves the prior unconditional-cut behavior
+    exactly (no new git spawn, no new failure mode) for callers that never
+    asked for it.
 
 Spec backlink: DoE-claude coordinator/skills/merging-to-main/SKILL.md Step 1
 (recovery-branch dance) and Step 1.5 Part 2 (tag_anchor=git-tag mode C4,
@@ -176,13 +186,25 @@ def cmd_recovery_branch(args: argparse.Namespace) -> int:
             "under them. Wait for peers to clear, or resolve manually."
         )
 
-    sync_main = Path(__file__).resolve().parent / "sync-main.py"
-    sync = subprocess.run(
-        [sys.executable, str(sync_main)],
-        cwd=str(repo_root),
-        **_win_portability_passthrough_kwargs(),
-    )
-    if sync.returncode != 0:
+    # Spec: docs/plans/2026-09-11-a-python-process-does-not-spawn-a-python-process.md
+    # (P055-C3). Was `subprocess.run([sys.executable, sync-main.py], cwd=repo_root)`
+    # -- an in-repo Python-for-Python spawn with no isolation reason. `sync_main.main`
+    # reads/writes only via `os.getcwd()`-relative git calls (coordinator_core/ops/
+    # sync_main.py :: _git), so the caller's `cwd=` kwarg is replicated with a
+    # bounded chdir rather than dropped.
+    try:
+        _require_engine_on_path()
+        from coordinator_core.ops.sync_main import main as _sync_main_op
+    except (RuntimeError, ImportError):
+        sync_rc = 1
+    else:
+        _prev_cwd = os.getcwd()
+        os.chdir(str(repo_root))
+        try:
+            sync_rc = _sync_main_op([])
+        finally:
+            os.chdir(_prev_cwd)
+    if sync_rc != 0:
         _die(
             "sync-main.py failed — local main has diverged. "
             "Investigate before creating a recovery branch."
@@ -303,16 +325,35 @@ def _peeled_tag_sha(repo_root: Path, tag: str) -> Optional[str]:
     return result.stdout.strip()
 
 
+def _assert_is_ancestor(repo_root: Path, commit: str, must_contain: str) -> None:
+    """Fail loud (no tag mutation) unless `commit` is an ancestor of
+    `must_contain` — i.e. `must_contain` actually contains the merge."""
+    check = _run(
+        ["git", "merge-base", "--is-ancestor", commit, must_contain],
+        cwd=repo_root,
+        check=False,
+    )
+    if check.returncode != 0:
+        _die(
+            f"{commit} is not an ancestor of {must_contain} — refusing to "
+            f"cut a tag for a commit that {must_contain} does not contain."
+        )
+
+
 def cut_tag(
     repo_root: Path,
     tag: str,
     fetch_ref: str = "main",
     merge_ref: str = "origin/main",
+    must_contain: Optional[str] = None,
 ) -> tuple[bool, str]:
     """Idempotent annotated-tag cut + push. Returns (cut, merge_sha).
 
     `cut` is True iff the tag was (re)created and pushed this call; False
     means the tag already pointed at merge_sha (idempotent skip).
+
+    When `must_contain` is given, asserts merge_sha is an ancestor of it
+    before either cutting or skipping — see module docstring.
     """
     fetch = _run(["git", "fetch", "origin", fetch_ref], cwd=repo_root, check=False)
     if fetch.returncode != 0:
@@ -322,6 +363,9 @@ def cut_tag(
     if rev.returncode != 0:
         _die(f"git rev-parse {merge_ref} failed: {rev.stderr.strip()}")
     merge_sha = rev.stdout.strip()
+
+    if must_contain is not None:
+        _assert_is_ancestor(repo_root, merge_sha, must_contain)
 
     existing = _peeled_tag_sha(repo_root, tag)
     if existing == merge_sha:
@@ -349,6 +393,7 @@ def cmd_cut_tag(args: argparse.Namespace) -> int:
         args.tag,
         fetch_ref=args.fetch_ref,
         merge_ref=args.merge_ref,
+        must_contain=args.must_contain,
     )
     print(f"MERGE_SHA={merge_sha}")
     print(f"TAG_CUT={args.tag}" if cut else f"TAG_SKIPPED={args.tag}")
@@ -440,6 +485,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_cut.add_argument("--repo-root", default=None)
     p_cut.add_argument("--fetch-ref", default="main")
     p_cut.add_argument("--merge-ref", default="origin/main")
+    p_cut.add_argument("--must-contain", default=None)
     p_cut.set_defaults(func=cmd_cut_tag)
 
     p_release = sub.add_parser(

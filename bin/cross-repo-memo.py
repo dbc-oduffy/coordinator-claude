@@ -1652,9 +1652,12 @@ def _build_and_validate_scoped_to(
 
 # Restored 2026-08-25: c07062c99 (the eleven-op kill) deleted this definition and
 # left its only use site below, so every `cross-repo-memo draft` raised NameError
-# before writing anything. The set itself is unchanged -- the premise-check advisory
-# fires for the two kinds that carry a premise a receiver can refute, not for fyi
-# or consult.
+# before writing anything. Gates only the UNPINNED "add scoped_to" offer below --
+# a memo carrying a `scoped_to` is checked for every kind regardless of this set
+# (example-store-repo-em, 2026-09-04: scoped_to is a change-control coordinate, not a
+# property of ask/proposal's speech act). fyi/consult stay excluded from the
+# unpinned offer: they assert nothing checkable about the receiver's clone, and
+# nagging on them is noise (offers-not-nags).
 _PREMISE_BEARING_KINDS = frozenset({"ask", "proposal"})
 
 def _print_premise_check_advisory(
@@ -1711,12 +1714,19 @@ def _print_premise_check_advisory(
     which is the same defect one stage later: the remedy it names was no
     longer takeable by the time it printed.
 
-    Fires only when kind is 'ask' or 'proposal' (None/absent defaults to
-    'ask' per the reader-side convention documented at the kind frontmatter
-    parse site — see _validate_outbox_frontmatter's kind handling) AND the
-    receiver's clone resolved to a local path. fyi/consult are silently
-    skipped: they don't assert a receiver-tree-state premise, and nagging on
-    them is noise (offers-not-nags — CLAUDE.md § design-as-offers).
+    Gated on `scoped_to` presence, not on `kind` (example-store-repo-em,
+    2026-09-04): `scoped_to` is a change-control coordinate the CLI already
+    enforces as all-or-nothing for every kind, so any memo carrying one is
+    checked against the receiver's clone regardless of `bug`/`fyi`/`consult`/
+    etc — the resolvability of a pin does not depend on the mood of the
+    sentence around it. Only the UNPINNED "you could pin this" offer stays
+    kind-gated: it fires only when kind is 'ask' or 'proposal' (None/absent
+    defaults to 'ask' per the reader-side convention documented at the kind
+    frontmatter parse site — see _validate_outbox_frontmatter's kind
+    handling). fyi/consult get no unpinned offer: they don't assert a
+    receiver-tree-state premise, and nagging on them is noise
+    (offers-not-nags — CLAUDE.md § design-as-offers). Both arms require the
+    receiver's clone to have resolved to a local path.
 
     Never blocks, never changes exit code, at any stage — advisory only.
     At `send`, this prints alongside (not instead of) the existing "Hand the
@@ -1732,8 +1742,6 @@ def _print_premise_check_advisory(
     docs/plans/2026-07-21-cross-repo-decision-scoping-and-peer-read-reconciliation.md § C3
     """
     effective_kind = kind if kind is not None else "ask"
-    if effective_kind not in _PREMISE_BEARING_KINDS:
-        return
     if not receiver_path:
         return
     # Absolutize to match the adjacent "Hand the
@@ -1752,6 +1760,9 @@ def _print_premise_check_advisory(
         _run_scoped_premise_checks(
             receiver_em_id, abs_receiver_path, effective_kind, scoped_to, file=stream
         )
+        return
+
+    if effective_kind not in _PREMISE_BEARING_KINDS:
         return
 
     if stage in ("draft", "compose"):
@@ -2082,21 +2093,6 @@ _OUTBOX_REQUIRED_FIELDS = ("title", "from", "to", "created", "status", "delivery
 # reconciled with a real `_KIND_DISPOSITIONS` entry — see
 # `pickup_assemble.__init__._KIND_DISPOSITIONS`.
 _VALID_KINDS = ("ask", "consult", "fyi", "proposal", "bug", "notice", "friction")
-
-# The kinds that assert a premise about the RECEIVER's tree state, and so earn
-# the premise-check advisory. `fyi`/`consult` are deliberately excluded: they
-# assert nothing checkable about the receiver's clone, and nagging on them is
-# noise (offers-not-nags). This set is the executable half of
-# `_print_premise_check_advisory`'s docstring, which has always specified
-# exactly this rule ("Fires only when kind is 'ask' or 'proposal' ... fyi/
-# consult are silently skipped") — the constant it reads was never defined, so
-# every invocation reaching that line died on NameError AFTER the draft was
-# already written. The draft landing while the CLI exits on a traceback is the
-# worst shape available: the operation succeeded and reported as a crash, and a
-# caller told to report-don't-hand-author reads it as "the CLI is unavailable"
-# — the one condition under which someone hand-writes into a sibling's tree,
-# which is precisely what this CLI exists to prevent.
-_PREMISE_BEARING_KINDS = frozenset({"ask", "proposal"})
 
 # scoped_to sub-field keys, flattened for this CLI's internal representation
 # (scoped_to_artifact / scoped_to_version / scoped_to_sha / scoped_to_seam) —

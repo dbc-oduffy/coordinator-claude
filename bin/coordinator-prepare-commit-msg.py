@@ -963,6 +963,69 @@ def _warn_hyphen_range_subject(commit_msg_file: str) -> None:
     )
 
 
+def _config_value(path: str, section: str, key: str) -> str:
+    """Last `<section>.<key>` value in one git config file, or ``""``.
+
+    In-process on purpose: this runs on every coordinator commit, and a
+    `git config` spawn is the exact per-commit cost the spawn-budget test
+    pins. Handles plain `[section]` headers, case-insensitive names, quoted
+    values and trailing `#`/`;` comments. Does NOT follow `include.path` —
+    a value set only through an include is invisible here (omitted, never
+    guessed)."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return ""
+    in_section = False
+    value = ""
+    for raw in lines:
+        line = raw.strip()
+        if not line or line[0] in "#;":
+            continue
+        if line.startswith("["):
+            in_section = line[1:].split("]", 1)[0].strip().lower() == section
+            continue
+        if not in_section or "=" not in line:
+            continue
+        name, _, rest = line.partition("=")
+        if name.strip().lower() != key:
+            continue
+        rest = rest.strip()
+        if rest.startswith('"'):
+            rest = rest[1:].split('"', 1)[0]
+        else:
+            for marker in (" #", " ;", "\t#", "\t;"):
+                rest = rest.split(marker, 1)[0]
+        value = rest.strip()
+    return value
+
+
+def _resolve_operator(git_dir: str) -> str:
+    """`coordinator.operator` with git's global < local precedence, read from
+    the config files directly. Set by a cloud session (whose commits carry no
+    operator identity) so its branches stay attributable to the human."""
+    home = os.environ.get("HOME") or os.path.expanduser("~")
+    global_override = os.environ.get("GIT_CONFIG_GLOBAL")
+    if global_override:
+        candidates = [global_override]
+    else:
+        xdg = os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")
+        candidates = [os.path.join(xdg, "git", "config"), os.path.join(home, ".gitconfig")]
+    if git_dir:
+        common = git_dir
+        try:
+            with open(os.path.join(git_dir, "commondir"), encoding="utf-8") as fh:
+                common = os.path.normpath(os.path.join(git_dir, fh.read().strip()))
+        except OSError:
+            pass
+        candidates.append(os.path.join(common, "config"))
+    value = ""
+    for path in candidates:
+        value = _config_value(path, "coordinator", "operator") or value
+    return value
+
+
 def main(argv: list) -> int:
     commit_msg_file = argv[0] if argv else ""
     if not commit_msg_file or not os.path.isfile(commit_msg_file):
@@ -990,12 +1053,17 @@ def main(argv: list) -> int:
     try:
         need_session_id = not _has_trailer_line(commit_msg_file, "Session-Id:")
         need_deliverable_id_check = not _has_trailer_line(commit_msg_file, "Deliverable-Id:")
+        need_operator = not _has_trailer_line(commit_msg_file, "Operator:")
     except Exception:
         return 0
 
     trailer_args: list = []
     if need_session_id:
         trailer_args += ["--trailer", f"Session-Id: {session_id}"]
+    if need_operator:
+        operator = _resolve_operator(git_dir)
+        if operator:
+            trailer_args += ["--trailer", f"Operator: {operator}"]
     if need_deliverable_id_check:
         staged_paths = _resolve_staged_paths()
         deliverable_id = _resolve_deliverable_id(git_dir, session_id, staged_paths)

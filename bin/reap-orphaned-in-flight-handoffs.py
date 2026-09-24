@@ -201,7 +201,10 @@ def _print_report(result, *, dry_run: bool) -> None:
     for d in result.dispositions:
         sha_suffix = f" sha={d.sha}" if d.sha else ""
         print(f"[{d.verdict}] {d.path} (holder={d.holder}){sha_suffix}: {d.detail}")
-    print(f"would_release={result.would_release} would_reclaim={result.would_reclaim}")
+    print(
+        f"would_release={result.would_release} would_reclaim={result.would_reclaim} "
+        f"would_undetermined={result.would_undetermined}"
+    )
     if dry_run:
         print("[dry-run] no changes made")
 

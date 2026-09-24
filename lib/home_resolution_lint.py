@@ -1,7 +1,9 @@
-"""Shared engine: four structural (AST-based) scans for the home-resolution
-cross-platform-portability defect class -- code that resolves a user's home
-directory, a PATH-list, or a settings/trusted-root path in a way that works
-on the host its author sits at and quietly degrades on another.
+"""Shared engine: five structural (AST-based) scans (`RULE_NAMES`: `x_ok`,
+`colon_join`, `forward_slash`, `bare_or`, `rung_order`) for the
+home-resolution cross-platform-portability defect class -- code that
+resolves a user's home directory, a PATH-list, or a settings/trusted-root
+path in a way that works on the host its author sits at and quietly
+degrades on another.
 
 The framing is portability, not "Windows-correctness", because macOS,
 Windows and Linux are all first-class (P0): a resolution that degrades on
@@ -69,7 +71,7 @@ import sys
 from pathlib import Path
 from typing import Iterable, Sequence
 
-ENGINE_VERSION = "2026-09-19.1"
+ENGINE_VERSION = "2026-09-23.1"
 
 DEFAULT_EXCLUDED_PARTS: frozenset[str] = frozenset(
     {
