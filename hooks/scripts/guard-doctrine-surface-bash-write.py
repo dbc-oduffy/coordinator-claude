@@ -137,8 +137,8 @@ the SINK:
      stay subject to points 3-5.
 
      SCOPED-COMMIT WRAPPER RECOGNITION. Doctrine mandates the
-     ``ceremony.scoped_git_commit`` wrapper family (``scoped-git-commit``,
-     ``coordinator-safe-commit``, ``spinoff-deliverable-and-commit``) over a
+     scoped-commit wrapper family (``coordinator-safe-commit``,
+     ``spinoff-deliverable-and-commit``) over a
      raw ``git add -A``/``git commit`` -- but until this point
      existed, the carve-out above recognised only the literal ``git``
      executable by name,
@@ -157,24 +157,24 @@ the SINK:
      and a trailing ``.cmd`` suffix stripped case-insensitively before the
      comparison -- Windows ships every wrapper as BOTH a bare POSIX form
      AND a ``.cmd`` form under the same ``bin/`` directory, and Windows
-     paths/extensions are case-insensitive, so ``Scoped-Git-Commit.CMD``
-     names the same binary as ``scoped-git-commit``; recognising the POSIX
+     paths/extensions are case-insensitive, so ``Coordinator-Safe-Commit.CMD``
+     names the same binary as ``coordinator-safe-commit``; recognising the POSIX
      form while silently denying the ``.cmd`` form would be a multi-OS
-     correctness defect, not a cosmetic gap) is one of those four names is
+     correctness defect, not a cosmetic gap) is one of those names is
      treated as inherently commit-shaped -- equivalent to point 7's
      content-safe set -- because the wrappers take no git subcommand at
      all; there is no ``checkout``-class subcommand for them to carry, so
      they never become eligible for point 8's mutation treatment. Matching
      is BASENAME-EXACT (modulo the ``.cmd``/case handling above) against
      the command token only (never a substring, never an argument later in
-     the segment), so a lookalike name (``my-scoped-git-commit-wrapper``)
+     the segment), so a lookalike name (``my-coordinator-safe-commit-wrapper``)
      or the same name appearing as a mere argument rather than the invoked
      command does not match. Every other check in this carve-out -- the
      pathspec-vs-redirect
      scan, ``$(...)``/heredoc-as-argument vs. as-write-sink, ``tee``, an
      interpreter payload -- applies to a matched wrapper segment completely
      UNCHANGED: a real redirect that truncates a governed file
-     (``scoped-git-commit -m msg > CLAUDE.md``) still denies, exactly as it
+     (``coordinator-safe-commit -m msg > CLAUDE.md``) still denies, exactly as it
      would for ``git commit -m msg > CLAUDE.md``.
 
      Both of the carve-out's scans first strip HEREDOC BODIES
@@ -1101,37 +1101,31 @@ def _git_subcommand(segment: str) -> "str | None":
     return None
 
 
-#: Basenames of the ``ceremony.scoped_git_commit`` wrapper family -- see
+#: Basenames of the scoped-commit wrapper family -- see
 #: module docstring point 7's "SCOPED-COMMIT WRAPPER RECOGNITION" prose.
 #: Deliberately exact-match only, never a substring or prefix test: a
-#: lookalike name (``my-scoped-git-commit-wrapper``) must NOT inherit the
+#: lookalike name (``my-coordinator-safe-commit-wrapper``) must NOT inherit the
 #: exemption.
 #:
-#: ``safe-commit-offer`` was a member of this set (a fixed-shape CLI that
-#: only ever committed AND pushed with no confirmation step, reusing
-#: ``scoped-git-commit``'s own push path). Its engine-plane CLI was deleted
-#: and replaced by the registered op ``session.safe_commit_offer``, dialed
-#: through the generic ``coordinator-invoke`` door alongside every other
-#: engine op. ``coordinator-invoke`` is NOT re-keyed in here to replace it:
-#: this set's safety property is basename-only recognition of a wrapper
-#: whose BEHAVIOR IS FIXED BY ITS NAME -- ``coordinator-invoke``'s behavior
-#: is chosen by its op-name argument, so basename recognition alone would
-#: exempt every op dialed through the door, not just the commit-shaped one.
+#: ``coordinator-invoke`` is NOT a member: this set's safety property is
+#: basename-only recognition of a wrapper whose BEHAVIOR IS FIXED BY ITS
+#: NAME -- ``coordinator-invoke``'s behavior is chosen by its op-name
+#: argument, so basename recognition alone would exempt every op dialed
+#: through the door, not just the commit-shaped one.
 #: See ``coordinator/docs/wiki/coordinator-tripwires/
 #: guard-carve-out-keyed-on-executable-name.md``.
 _COMMIT_WRAPPER_BASENAMES = frozenset(
     {
-        "scoped-git-commit",
         "coordinator-safe-commit",
         "spinoff-deliverable-and-commit",
     }
 )
 
 #: Windows carries every wrapper as BOTH a bare form and a ``.cmd`` form
-#: (``$COORDINATOR_SETTINGS_HOME/bin/scoped-git-commit.cmd`` alongside the
+#: (``$COORDINATOR_SETTINGS_HOME/bin/coordinator-safe-commit.cmd`` alongside the
 #: extension-less POSIX form), and Windows paths/extensions are
-#: case-insensitive -- ``Scoped-Git-Commit.CMD`` is the same binary as
-#: ``scoped-git-commit``. A carve-out that recognises the POSIX form and
+#: case-insensitive -- ``Coordinator-Safe-Commit.CMD`` is the same binary as
+#: ``coordinator-safe-commit``. A carve-out that recognises the POSIX form and
 #: silently denies the ``.cmd`` form is a multi-OS correctness defect (P0 in
 #: this repo), not a cosmetic gap, so the suffix is stripped case-
 #: insensitively before the exact-match comparison below.
@@ -1154,9 +1148,9 @@ def _segment_command_token(segment: str) -> "str | None":
 def _command_token_basename(token: str) -> str:
     """The final ``/``-separated component of ``token``, with a single
     layer of surrounding quotes stripped first -- so
-    ``"$COORDINATOR_SETTINGS_HOME/bin/scoped-git-commit"`` and
-    ``"${VAR:-default}/bin/scoped-git-commit"`` both resolve to
-    ``scoped-git-commit`` regardless of what the variable expansion itself
+    ``"$COORDINATOR_SETTINGS_HOME/bin/coordinator-safe-commit"`` and
+    ``"${VAR:-default}/bin/coordinator-safe-commit"`` both resolve to
+    ``coordinator-safe-commit`` regardless of what the variable expansion itself
     looks like, since only the text after the LAST ``/`` is ever the
     binary name."""
     stripped = token.strip("'\"")
@@ -1650,7 +1644,7 @@ def is_denied_bash_write(cmd: str) -> bool:
     (``_is_git_read_shape``) cannot deny under (a): a content-safe ``git``
     subcommand does not write working-tree files, so a governed identifier
     in its commit message or pathspec is not a write. The same applies to a
-    segment recognised as one of the ``ceremony.scoped_git_commit`` wrapper
+    segment recognised as one of the scoped-commit wrapper
     basenames (``_is_commit_wrapper_read_shape`` -- see point 7's "SCOPED-
     COMMIT WRAPPER RECOGNITION"), and to a segment recognised as the
     ``coordinator_core.session.claude_md_grant`` CLI

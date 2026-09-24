@@ -7,22 +7,18 @@ predicate as a single decision-object envelope.
 Ports the reader-performed stdout-parsing narration at Step 2 (L102-106:
 deletions / total-touched-file-count / sensitive-path detection), Step 2b
 (L133-137: impact-radius top-directories / file-types / sensitive-paths
-summary), Step 2c's scan-file-list build (L147 -- this chunk supersedes
-that line's "This is a mechanical text transform — do it directly ...
-rather than shelling out" instruction; the parse now lives here instead
-of being narrated as reader work), and the Step-3 gate-fire predicate
+summary), and the Step-3 gate-fire predicate
 (L214-219: deletion present OR >=10 files touched OR a sensitive path
 touched OR Step 2c reported >=1 MEDIUM content-leak hit OR Step 2d
 reported >=1 real inverse-drift commit).
 
 Subcommand:
-  parse-dryrun --stdout-file <path> --source-dir <path>
+  parse-dryrun --stdout-file <path>
                [--medium-leak-count N] [--inverse-drift-count N]
                [--changes-file <path>]
       With `--changes-file` (see `_read_changes_file`), the Step 2/2b fields
       and the Step-3 predicate's deletion / file-count / sensitive-path
-      inputs come from that file, not from stdout; the Step 2c scan list is
-      still built from stdout.
+      inputs come from that file, not from stdout.
       Reads the captured `publish --dry-run <target>` stdout from
       <stdout-file>, computes every field above, and prints the 8-key
       decision-object envelope (build_envelope/emit) as JSON. The Step-3
@@ -94,7 +90,10 @@ _DELETING = re.compile(r"^\s*REMOVE: ")
 
 def _touched_paths(stdout_text: str) -> List[str]:
     """Every `UPDATE: <path>` / `NEW: <path>` rel-path from rsync's
-    dry-run stdout, in stdout order (Step 2c's file-set build)."""
+    dry-run stdout, in stdout order. Relative to a `--- <subdir> ---` header
+    this does not track, so never a path to open -- a count and a shape only;
+    the round's scan list comes from its manifest (`percolate-round.py ::
+    _dest_scan_list`)."""
     paths: List[str] = []
     for line in stdout_text.splitlines():
         match = _UPDATE_OR_NEW.match(line.strip())
@@ -173,12 +172,6 @@ def _file_types(paths: List[str]) -> dict[str, int]:
     return counts
 
 
-def _scan_file_list(source_dir: Path, paths: List[str]) -> List[str]:
-    """Step 2c's absolute-path scan-file-list build (supersedes the
-    surviving L147 "do it directly" reader-performed-transform prose)."""
-    return [str(source_dir / rel_path) for rel_path in paths]
-
-
 def compute_gate_fire(
     *,
     has_deletions: bool,
@@ -254,14 +247,12 @@ def _cmd_parse_dryrun(args: argparse.Namespace) -> int:
     )
 
     stdout_path = Path(args.stdout_file)
-    source_dir = Path(args.source_dir)
     try:
         stdout_text = stdout_path.read_text(encoding="utf-8", errors="ignore")
     except OSError as exc:
         print(f"percolate-parse-dryrun: cannot read {stdout_path}: {exc}", file=sys.stderr)
         return int(PercolateParseExitCode.TRANSPORT_FAIL)
 
-    paths = _touched_paths(stdout_text)
     if args.changes_file:
         try:
             changed, removed = _read_changes_file(Path(args.changes_file))
@@ -274,7 +265,7 @@ def _cmd_parse_dryrun(args: argparse.Namespace) -> int:
         gate_paths = changed + removed
         has_deletions = bool(removed)
     else:
-        gate_paths = paths
+        gate_paths = _touched_paths(stdout_text)
         has_deletions = _has_deletions(stdout_text)
     sensitive = _sensitive_hits(gate_paths)
     ignore_missing = _ignore_missing(stdout_text)
@@ -289,7 +280,6 @@ def _cmd_parse_dryrun(args: argparse.Namespace) -> int:
             "file_types": _file_types(gate_paths),
             "sensitive_paths": sensitive,
         },
-        "step2c_scan_file_list": _scan_file_list(source_dir, paths),
     }
 
     gate_fires = compute_gate_fire(
@@ -320,7 +310,7 @@ def _cmd_parse_dryrun(args: argparse.Namespace) -> int:
         judgment_points=judgment_points,
         decisions={},
         narration=(
-            "Step 2/2b/2c dry-run-stdout parse computed; Step 3 gate-fire "
+            "Step 2/2b dry-run-stdout parse computed; Step 3 gate-fire "
             f"predicate resolved to {gate_fires}."
         ),
         next_move=(
@@ -340,7 +330,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_parse = sub.add_parser("parse-dryrun")
     p_parse.add_argument("--stdout-file", required=True)
-    p_parse.add_argument("--source-dir", required=True)
     p_parse.add_argument("--medium-leak-count", type=int, default=0)
     p_parse.add_argument("--inverse-drift-count", type=int, default=0)
     p_parse.add_argument("--changes-file", default=None)

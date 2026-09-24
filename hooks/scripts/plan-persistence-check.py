@@ -350,9 +350,7 @@ def _commit_cmd(plans_git_root: str, repo_root: str, rel_paths: list[str], slug:
     """Prefilled scoped-commit command for the persisted plan (and README row).
 
     Routes through `coordinator-safe-commit "<subject>" -- <path>...`, whose
-    `--` form dials `ceremony.commit_v2`. NOT `scoped-git-commit`: that CLI was
-    killed under DR-344 (2026-08-23) and naming it here hands the operator a
-    command that does not resolve.
+    `--` form dials `ceremony.commit_v2`.
 
     The cross-repo case emits two lines rather than a `(cd ... && ...)`
     subshell. Parentheses fork a subshell only in POSIX shells; in PowerShell

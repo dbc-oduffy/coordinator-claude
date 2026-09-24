@@ -166,7 +166,6 @@ _BOOTSTRAPPED_NAMES = (
     "_iter_portable_rows",
     "_resolve_portable_file",
     "directive_cli_arity",
-    "publish_lane",
     "payload_parity",
     "_resolve_git_dir",
     "_resolve_show_toplevel",
@@ -251,7 +250,6 @@ def _bootstrap_engine() -> None:
         # this module carries none of the fail-closed/engine-resolution concerns the
         # lazy `coordinator_core.percolate.*` imports below exist to guard.
         from coordinator_core import directive_cli_arity  # noqa: E402
-        from coordinator_core import publish_lane  # noqa: E402
         from coordinator_core.percolate import payload_parity  # noqa: E402
         from coordinator_core.git.repo_root import git_dir as _resolve_git_dir  # noqa: E402
         from coordinator_core.git.repo_root import show_toplevel as _resolve_show_toplevel  # noqa: E402
@@ -12425,14 +12423,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     row failure, making the two indistinguishable from the exit code alone.
     """
     _bootstrap_engine()
-    # Declare the publish lane first, for the same reason `percolate-round.py::main`
-    # does and independently of it: this driver is also reached directly (via
-    # `coordinator-publish`, a no-argument mixed-dest run), where no round has declared
-    # the lane on its behalf. Its `_commit_published_dests` end-of-run leg reaches
-    # `ceremony.scoped_git_commit` — exit code 3 above is precisely the outcome when
-    # that commit does not complete, which is what the 2s cap and the suspension roster
-    # produce for every publish. PM ruling 2026-08-21, DR-350.
-    publish_lane.declare_lane()
 
     args = build_arg_parser().parse_args(argv)
 

@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import os
 
-from coordinator_core import publish_lane
 from coordinator_core.locked_write import contended_lock_wait_secs
+
+#: Falsy-string set for `COORDINATOR_ALLOW_PERCOLATE_QUEUE`'s truthiness read below.
+_FALSY_ENV_VALUES = ("", "0", "false", "no", "off")
 
 #: D1 fix — inherited-holder handoff env var. `percolate-round.py` writes
 #: `"<its own pid>=<realpath>"` (pathsep-joined for multiple roots);
@@ -86,15 +88,12 @@ def publish_contention_wait_secs() -> float:
     (LEG 3 of `docs/plans/2026-08-30-a-second-percolate-round-stops-sleeping.falsifier.py`
     measures it; 1.7-2.9ms across runs, against 2.8ms on the pre-change baseline).
 
-    Truthiness is delegated to `coordinator_core.publish_lane.env_declares_lane`
-    itself (fed this env var's own raw value under `PUBLISH_LANE_ENV`'s key,
-    via a synthetic one-entry `environ` mapping) rather than a second copy of
-    its falsy-string tuple — staff-eng-review finding 5: two in-tree copies
-    of one truthiness convention drift the first time either one changes.
-    An unset key needs no branch of its own: `env_declares_lane` reads an
-    empty value as falsy, so absent and explicitly-off resolve identically.
+    Falsy-string aware, so `COORDINATOR_ALLOW_PERCOLATE_QUEUE=0` reads as
+    "not opted in" rather than as the presence of a variable. An unset key
+    needs no branch of its own: an empty raw value reads as falsy, so absent
+    and explicitly-off resolve identically.
     """
     raw = os.environ.get(COORDINATOR_ALLOW_PERCOLATE_QUEUE_ENV, "")
-    if not publish_lane.env_declares_lane({publish_lane.PUBLISH_LANE_ENV: raw}):
+    if raw.strip().lower() in _FALSY_ENV_VALUES:
         return 0.0
     return contended_lock_wait_secs()

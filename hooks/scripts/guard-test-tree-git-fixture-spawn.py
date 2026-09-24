@@ -89,7 +89,7 @@ possibly match, cheaply, before paying an import").
 
 BOUNDARY NOTE -- unchanged from the plan's "still load-bearing" framing:
 scoped to the test tree only. Production code legitimately shells to git
-(the cross-repo-memo CLI, `scoped_git_commit`, the SessionEnd hook) --
+(the cross-repo-memo CLI, `ceremony.commit_v2`, the SessionEnd hook) --
 none of those live under a `tests/` directory component or carry a
 `test_*` basename, so `is_test_tree_site()` never matches them; widening
 this hook's scope beyond the test tree would break them, which is why the

@@ -189,7 +189,6 @@ _ENGINE_BOUND_NAMES = (
     "_round_held_lock",
     "_INHERITED_LOCK_ROOTS_ENV",
     "publish_contention_wait_secs",
-    "publish_lane",
     "_RoundManifest",
     "_read_manifest",
     "_default_manifest_path",
@@ -225,9 +224,9 @@ def _bootstrap_engine() -> None:
     construction: the all-names guard covers every name in
     `_ENGINE_BOUND_NAMES`, not a single sentinel, and each freshly-imported
     name is published via `globals().setdefault(...)` -- so a caller's
-    monkeypatch of just one of these globals (e.g. `publish_lane`) is left
-    alone even when some other bootstrapped name is still missing, rather
-    than being clobbered by a later incidental trigger."""
+    monkeypatch of just one of these globals is left alone even when some
+    other bootstrapped name is still missing, rather than being clobbered by
+    a later incidental trigger."""
     if all(n in globals() for n in _ENGINE_BOUND_NAMES):
         return
 
@@ -247,7 +246,6 @@ def _bootstrap_engine() -> None:
         INHERITED_LOCK_ROOTS_ENV as _INHERITED_LOCK_ROOTS_ENV_,
         publish_contention_wait_secs as publish_contention_wait_secs_,
     )
-    from coordinator_core import publish_lane as _publish_lane_  # type: ignore[import-not-found]
     from coordinator_core.percolate.manifest import (  # type: ignore[import-not-found]
         RoundManifest as _RoundManifest_,
         read_manifest as _read_manifest_,
@@ -261,7 +259,6 @@ def _bootstrap_engine() -> None:
         ("_round_held_lock", _round_held_lock_),
         ("_INHERITED_LOCK_ROOTS_ENV", _INHERITED_LOCK_ROOTS_ENV_),
         ("publish_contention_wait_secs", publish_contention_wait_secs_),
-        ("publish_lane", _publish_lane_),
         ("_RoundManifest", _RoundManifest_),
         ("_read_manifest", _read_manifest_),
         ("_default_manifest_path", _default_manifest_path_),
@@ -478,13 +475,13 @@ _REGISTRY_CLI_TIMEOUT_SECS = 2.0 + _SPAWN_SCHEDULING_HEADROOM_SECS
 
 # NOT dead, despite this module's own legs no longer passing it: the scan and
 # parse legs here became in-process `_run_step` calls, but `percolate-mirror.py`
-# loads THIS module as `_round` and still spawns `percolate-parse-dryrun.py`
+# loads THIS module as `_round` and still spawns `percolate-gate.py`
 # through `_round._run(..., timeout=_round._ROUND_SCAN_LEG_TIMEOUT_SECS)` at
-# three sites, and `test_percolate_round.py :: _DECLARED_LEG_BOUNDS` names it.
+# two sites, and `test_percolate_round.py :: _DECLARED_LEG_BOUNDS` names it.
 # Deleting it as unreferenced-in-this-file breaks the mirror driver at runtime.
 _ROUND_SCAN_LEG_TIMEOUT_SECS = 60.0
 
-#: The round's own scan legs: `percolate-parse-dryrun.py` (x2 per branch)
+#: The round's own scan legs: `percolate-parse-dryrun.py` (x1 per branch)
 #: over the publish leg's stdout, and `percolate-gate.py`'s `scan-secrets`
 #: and `inverse-drift` over the round's scan-file-list.
 #: Measured on the registered `claude-klabauter-bin` row (2,064-file scan
@@ -583,7 +580,7 @@ def _sibling_cli(script: Path):
 
     Same `importlib.util` idiom as `percolate-gate.py::_import_publish_module`
     and `percolate-sweep-scope-probe.py::_import_publish_module`. Cached per
-    script because a round calls into `percolate-parse-dryrun.py` twice and
+    script because a round calls into `percolate-parse-dryrun.py` once and
     `percolate-gate.py` five times; re-executing a module body per call would
     trade a process for an import and keep most of the cost.
     """
@@ -818,45 +815,42 @@ def _resolve_repo_root(dest: str) -> Optional[str]:
     return result.stdout.strip()
 
 
-# `_TARGET_LINE_RE` is the one survivor of the retired stdout-scrape family
-# (chunk C4, docs/plans/2026-08-23-rebuild-the-percolate-round-as-six-
-# steps.md AC5, further retired 2026-08-23 with `--dry-run-first` itself):
-# `_extract_change_lines`/`_CHANGE_LINE_RE`/`_RENAME_LINE_RE`/
-# `_TRAILING_ANNOTATION_RE`/`_BLOCK_HEADER_RE` parsed publish.py's printed
-# `NEW:`/`UPDATE:`/`RENAME:`/`--- <subdir> ---` report to build a commit
-# pathspec; that whole family is gone (`_pathspec_from_manifest` reads a
-# `RoundManifest` instead). This one regex survives for
-# `_split_stdout_by_row_dest` below, whose only remaining caller
-# (`percolate-mirror.py`'s scan-secrets/inverse-drift row attribution) is
-# unrelated to the commit pathspec.
-_TARGET_LINE_RE = re.compile(r"^\s*Target:\s+(.+?)\s*$")
+def _dest_scan_list(repo_root: str, rel_paths: List[str]) -> List[str]:
+    """Step 2's scan list: the dest copy of each manifest path, absolute.
+
+    The dest copy, not the source: it is the bytes that ship, post-transform,
+    and it is the right tree whichever row's source a path came from. The
+    manifest, not the real run's stdout: stdout names a file once per row and
+    per phase, and its `UPDATE:`/`NEW:` paths are relative to a
+    `--- <subdir> ---` header a line-wise parse drops -- joined to a source
+    root, they scanned unpublished files and silently missed published ones."""
+    root = Path(repo_root)
+    return [str(root / rel) for rel in rel_paths]
 
 
-def _split_stdout_by_row_dest(
-    stdout_text: str, fallback_dest: str
-) -> List[Tuple[str, str]]:
-    """Splits REAL-run stdout into per-row `(dest, chunk_text)` pairs keyed
-    by each row's own reported `  Target:` line. `fallback_dest` covers any
-    line preceding the first `Target:` line — a single-row run has no such
-    line at all, so its whole stdout stays one chunk under `fallback_dest`,
-    matching today's single-row behaviour byte-identically (§ C5 body).
+def _rows_scan_lists(
+    repo_root: str, rel_paths: List[str], row_dests: Dict[str, str]
+) -> Dict[str, List[str]]:
+    """`_dest_scan_list` split per row: each manifest path goes to the row
+    whose dest is its deepest enclosing directory, so a toplevel row whose
+    dest IS the repo root is not handed a nested row's files (scan-secrets is
+    target-scoped; another row's files judged under this row's ruleset raise
+    false blocks). A path under no row's dest is an error, not a skip."""
+    import os  # noqa: PLC0415 - lazy, matching this module's other `os` users
 
-    SURVIVES chunk C4 (docs/plans/2026-08-23-rebuild-the-percolate-round-as-
-    six-steps.md AC4/AC5) for exactly one remaining caller:
-    `percolate-mirror.py`'s scan-secrets/inverse-drift per-row file-list
-    attribution (that module's own `_run_gate_legs`) -- unrelated to the
-    commit pathspec AC5 targets, the same category as the two
-    `percolate-parse-dryrun.py` scrapes this plan's own scoping note leaves
-    alone. `percolate-round.py`'s OWN pathspec-building callers of this
-    function are gone; do not resurrect one."""
-    rows: List[Tuple[str, List[str]]] = [(fallback_dest, [])]
-    for line in stdout_text.splitlines():
-        target_match = _TARGET_LINE_RE.match(line)
-        if target_match:
-            rows.append((target_match.group(1).strip(), []))
-            continue
-        rows[-1][1].append(line)
-    return [(row_dest, "\n".join(lines)) for row_dest, lines in rows]
+    root = Path(os.path.realpath(repo_root))
+    prefixes: List[Tuple[str, str]] = []
+    for row, dest in row_dests.items():
+        rel = Path(os.path.realpath(dest)).relative_to(root).as_posix()
+        prefixes.append(("" if rel == "." else rel + "/", row))
+    prefixes.sort(key=lambda item: -len(item[0]))
+    lists: Dict[str, List[str]] = {row: [] for row in row_dests}
+    for rel in rel_paths:
+        row = next((r for prefix, r in prefixes if rel.startswith(prefix)), None)
+        if row is None:
+            raise ValueError(f"manifest path {rel!r} is under no row's dest")
+        lists[row].append(str(root / rel))
+    return lists
 
 
 # ---------------------------------------------------------------------------
@@ -3046,35 +3040,28 @@ def _cmd_round_default(
 
             real_stdout_path.write_text(real.stdout, encoding="utf-8", newline="\n")
 
-            # --- scan-file-list build, off the real run's own output -------
-            parse1 = _run_step(
-                _PARSE_DRYRUN,
-                [
-                    "parse-dryrun",
-                    "--stdout-file",
-                    str(real_stdout_path),
-                    "--source-dir",
-                    source_dir,
-                ],
-            )
-            if parse1.returncode != 0:
-                _print_step_failure("percolate-parse-dryrun (pass 1)", [], parse1.stderr)
-                return _EXIT_FAIL
-            try:
-                envelope1 = json.loads(parse1.stdout)
-                scan_file_list = envelope1["preflight"]["step2c_scan_file_list"]
-            except (json.JSONDecodeError, KeyError, TypeError) as exc:
-                _print_step_failure(
-                    "percolate-parse-dryrun (pass 1) — malformed envelope",
-                    [],
-                    f"{type(exc).__name__}: {exc}\nstdout:\n{parse1.stdout}",
+            # --- repo root + the manifest publish.py's real run just
+            # persisted (§ AC4/AC5) -- never a re-parse of its stdout. Read
+            # BEFORE Step 2, whose scan list is built from it, and Step 3,
+            # whose predicate counts from it. -------------------------------
+            repo_root = _resolve_repo_root(dest)
+            if repo_root is None:
+                print(
+                    f"percolate-round: could not resolve git worktree root for "
+                    f"dest '{dest}'.",
+                    file=sys.stderr,
                 )
                 return _EXIT_FAIL
+            manifest = _read_fresh_round_manifest(Path(repo_root), real_run_started_at)
+            manifest_added = sorted(manifest.added_or_updated) if manifest is not None else []
+            manifest_removed = sorted(manifest.removed) if manifest is not None else []
+
+            scan_file_list = _dest_scan_list(repo_root, manifest_added)
             scan_files_path.write_text(
                 "\n".join(scan_file_list) + ("\n" if scan_file_list else ""), encoding="utf-8", newline="\n"
             )
 
-            # --- Step 2: content-leakage scan (reads SOURCE files) ---------
+            # --- Step 2: content-leakage scan (reads the DEST copies) ------
             print(f"=== percolate-round {target} — Step 2: content-leakage scan ===")
             identity_file = Path(percolate_root) / "setup" / ".percolate-identity"
             peer_repos_file = _resolve_central_state()
@@ -3115,7 +3102,7 @@ def _cmd_round_default(
                 "--percolate-root",
                 percolate_root,
                 "--dest",
-                dest,
+                repo_root,
                 "--files",
                 str(scan_files_path),
                 "--source-dir",
@@ -3127,18 +3114,6 @@ def _cmd_round_default(
                 _print_step_failure("Step 2b (inverse-drift)", list(drift.args), drift.stderr)
                 return _EXIT_FAIL
             drift_count = _count_drift_hits(drift.stdout)
-
-            # --- resolve repo root + read the manifest publish.py's real run
-            # just persisted (§ AC4/AC5) -- never a re-parse of its stdout.
-            # Read BEFORE the Step 3 predicate, which counts from it. -------
-            repo_root = _resolve_repo_root(dest)
-            if repo_root is None:
-                print(
-                    f"percolate-round: could not resolve git worktree root for "
-                    f"dest '{dest}'.",
-                    file=sys.stderr,
-                )
-                return _EXIT_FAIL
 
             # --- Step 2c: wiki-seed count match. Hard stop, no confirm
             # override: the remedy is a ratified seed amendment or a source
@@ -3182,9 +3157,6 @@ def _cmd_round_default(
                     "published == ratified seed)"
                 )
 
-            manifest = _read_fresh_round_manifest(Path(repo_root), real_run_started_at)
-            manifest_added = sorted(manifest.added_or_updated) if manifest is not None else []
-            manifest_removed = sorted(manifest.removed) if manifest is not None else []
             # Drop-in replacement for the old stdout-derived `real_changes`:
             # same `List[Tuple[str, str]]` shape `_summarize_change_lines`/
             # `_report_commit_residual`/`_build_commit_subject` already
@@ -3213,8 +3185,6 @@ def _cmd_round_default(
                     "parse-dryrun",
                     "--stdout-file",
                     str(real_stdout_path),
-                    "--source-dir",
-                    source_dir,
                     "--medium-leak-count",
                     str(medium_count),
                     "--inverse-drift-count",
@@ -3731,22 +3701,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[List[str]] = None) -> int:
     _bootstrap_engine()
-
-    # Declare the publish lane before any argv-driven work. Historically this
-    # covered every process this round spawned that could reach
-    # `ceremony.scoped_git_commit` — the 2026-08-21 suspension roster turned
-    # that op off and the ceremony budget caps it at 2s, neither number
-    # written for a publish round (PM ruling 2026-08-21, DR-350). The commit
-    # leg itself no longer reaches that op at all (§ C6, 2026-08-25:
-    # re-pointed at `commit_pipeline.run_commit_pipeline` in-process, the
-    # same bypass `publish.py::_commit_published_dests` already used) — this
-    # declaration is retained for any OTHER process this round still spawns
-    # that could reach a lane op (e.g. an engine subprocess resolving one via
-    # `ipc.get_op_handler`), not for the commit leg. See
-    # `coordinator_core.publish_lane` for why this is a closed list and a
-    # boolean rather than a knob, and for the spawn count this bound
-    # accommodates and does not fix.
-    publish_lane.declare_lane()
 
     # A round once sat idle after its commit (0 CPU, no children) holding the
     # destination lock; static tracing found no unbounded wait. A healthy round
