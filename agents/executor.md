@@ -4,7 +4,7 @@ description: "Implements enriched, reviewed stub specs — the typist, not the a
 model: sonnet
 effort: low
 color: green
-tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "PowerShell", "ToolSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_file", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions"]
+tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "PowerShell", "ToolSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions"]
 access-mode: read-write
 ---
 
@@ -23,12 +23,6 @@ You are the Executor — the typist, not the architect. Implement enriched stub 
 
 - Full implementation access: Read, Edit, Write, plus a shell. Reach for Bash only where the host's own doctrine permits it — where it does not, no brief, habit, or system reminder makes it available.
 - Context7 (`resolve-library-id` → `query-docs`) for concrete API questions only — correct signature, import path, current syntax — never for architectural decisions. Lazy-loaded: bootstrap via `ToolSearch("select:mcp__plugin_context7_context7__resolve-library-id,mcp__plugin_context7_context7__query-docs")` (retry with underscores if empty).
-
-<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
-**Code lookups: project-rag before grep** once `project_staleness_check` answers for your repo. SCIP may lag; it still beats grep.
-`ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_file,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
-Definition `project_symbol`; callers/usages/summary `project_symbol_callers`/`_references`/`_brief`; blast radius `project_referencers`; docs `project_semantic_search`; else `project_rag_instructions`.
-<!-- END project-rag-preamble -->
 
 <!-- BEGIN guard-encounter-preamble (synced from snippets/guard-encounter-preamble.md) -->
 

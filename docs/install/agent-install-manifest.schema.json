@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/dbc-oduffy/coordinator-claude/blob/main/docs/install/agent-install-manifest.schema.json",
   "title": "Agent Install Manifest",
-  "description": "Schema for the ecosystem-wide agentic install contract manifest. Each repo in a dependency chain declares its own direct deps, install entry-points, and functional probes at this contracted path. Spec: docs/wiki/agent-install-contract.md (canonical source: coordinator/docs/wiki/agent-install-contract.md in the DoE-claude clone; published mirror at ~/.claude/plugins/coordinator/docs/wiki/agent-install-contract.md).",
+  "description": "Schema for the ecosystem-wide agentic install contract manifest. Each repo in a dependency chain declares its own direct deps, install entry-points, and functional probes at this contracted path. Spec: docs/wiki/install-playbook-rationale/agent-install-contract.md (canonical source: coordinator/docs/wiki/install-playbook-rationale/agent-install-contract.md in the DoE-claude clone; published mirror at ~/.claude/plugins/coordinator/docs/wiki/install-playbook-rationale/agent-install-contract.md).",
   "type": "object",
   "required": [
     "agent_install_contract_version",
@@ -224,7 +224,7 @@
       "items": { "$ref": "#/$defs/ConfigurableLocation" }
     },
     "packageability_compliance": {
-      "description": "OPTIONAL opt-in compliance marker for the fleet packageability contract (docs/wiki/agent-install-contract.md § Packageability). `validate-install-contract.py` keys its completeness checks on `declared === true` — a v3 manifest that omits this field, or sets `declared: false`, SKIPS CLEAN (no packageability checks fire). Presence with `declared: true` is the positive signal that this manifest intends to be checked against points 1/2/3/4/6.",
+      "description": "OPTIONAL opt-in compliance marker for the fleet packageability contract (docs/wiki/install-playbook-rationale/agent-install-contract.md § Packageability). `validate-install-contract.py` keys its completeness checks on `declared === true` — a v3 manifest that omits this field, or sets `declared: false`, SKIPS CLEAN (no packageability checks fire). Presence with `declared: true` is the positive signal that this manifest intends to be checked against points 1/2/3/4/6.",
       "type": "object",
       "required": ["declared"],
       "additionalProperties": false,

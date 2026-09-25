@@ -14,7 +14,7 @@ agent's `tools:` list makes that recommendation actionable. Tripwire:
 `A-HARNESS-SYSTEM-REMINDER-OUTRANKS-PROSE-THAT-FORBIDS-A-TOOL-YOU-STILL-HOLD`.
 
 Prose has measurably failed, so this is the artifact that discharges the rule
-(`docs/wiki/invisible-doctrine.md`): if the executor remembering is the mechanism, the work is not
+(`docs/wiki/claude-md-surfaces/invisible-doctrine.md`): if the executor remembering is the mechanism, the work is not
 finished.
 
 WHY NOT REMOVE `Bash` FROM `executor.md`'s TOOL LIST -- the obvious fix, deliberately refused.

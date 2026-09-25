@@ -102,7 +102,7 @@ _GUARDED_TOOLS = ("Write", "Edit", "MultiEdit")
 #: Wiki anchor carrying the relocated explanation of why an unresolvable
 #: citation is a problem and the two legitimate exits -- see
 #: `state/relocations/guard-message-cap/guard-prompt-surface-citations.py.md`.
-_WIKI_ANCHOR = "coordinator/docs/wiki/guard-message-concision.md#prompt-surface-citations"
+_WIKI_ANCHOR = "coordinator/docs/wiki/guards/guard-message-concision.md#prompt-surface-citations"
 
 
 def _deny_reason(target: str, violations: list) -> str:

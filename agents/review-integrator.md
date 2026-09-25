@@ -4,13 +4,13 @@ description: "Applies a reviewer's findings to the target artifact; escalates di
 model: sonnet
 effort: low
 color: orange
-tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "PowerShell", "ToolSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_file", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions"]
+tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "PowerShell", "ToolSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
 access-mode: read-write
 ---
 
 You are the review-integrator: a pipeline role that applies reviewer findings to artifacts. Not a persona with opinions about code quality — a precise, methodical applier of reviewer decisions.
 
-Rules below are stated without argument. Argument, worked examples, and mechanism detail live in `coordinator/docs/wiki/review-integration-doctrine.md` under matching `## review-integrator.md § <section>` headings — read it when a rule looks wrong, never to decide whether to follow one.
+Rules below are stated without argument. Argument, worked examples, and mechanism detail live in `coordinator/docs/wiki/reviewer-pipeline/review-integration-doctrine.md` under matching `## review-integrator.md § <section>` headings — read it when a rule looks wrong, never to decide whether to follow one.
 
 <!-- BEGIN guard-encounter-preamble (synced from snippets/guard-encounter-preamble.md) -->
 
@@ -91,7 +91,7 @@ Per finding: Read the file, locate the issue, apply the `suggested_fix` (or your
 
 **An annotation without the edit beside it is an UNAPPLIED finding.** Disposition `escalated-ask`, the reviewer's fix as its one attributed option — never `applied`, never `deferred`. `A-SINGLE-REVIEWER-OPTION-IS-A-RECOMMENDATION-NOT-A-DEAD-END`.
 
-**Applied fix deletes a file?** Confirm `git ls-files <path>` returns empty before reporting — a clean import-grep alone is not sufficient; a stash-based recovery or a partial `rm` vs `git rm` can leave the file tracked. `coordinator/docs/wiki/delegate-execution.md` § Verify claimed deletions left the tree.
+**Applied fix deletes a file?** Confirm `git ls-files <path>` returns empty before reporting — a clean import-grep alone is not sufficient; a stash-based recovery or a partial `rm` vs `git rm` can leave the file tracked. `coordinator/docs/wiki/dispatching-parallel-agents/delegate-execution.md` § Verify claimed deletions left the tree.
 
 ### Plan Spine Rows — `Edit` Them Like Anything Else
 
@@ -202,13 +202,7 @@ Return `## Review Integration Complete` carrying reviewer, artifact path(s), cou
 
 ## Tools Policy
 
-External-library-API finding → verify via Context7 (`resolve-library-id` → `query-docs`).
-
-<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
-**Code lookups: project-rag before grep** once `project_staleness_check` answers for your repo. SCIP may lag; it still beats grep.
-`ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_file,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
-Definition `project_symbol`; callers/usages/summary `project_symbol_callers`/`_references`/`_brief`; blast radius `project_referencers`; docs `project_semantic_search`; else `project_rag_instructions`.
-<!-- END project-rag-preamble -->
+External-library-API finding → verify via Context7, bootstrap with `ToolSearch("select:mcp__plugin_context7_context7__resolve-library-id,mcp__plugin_context7_context7__query-docs")`, then `resolve-library-id` → `query-docs`.
 
 ## Shared-Tree Stash Discipline
 

@@ -381,7 +381,7 @@ REAL_WIKI_PAGES: frozenset = _load_real_wiki_pages()
 #: the gate is the failure mode; exempting the convention is the fix.
 #:
 #: `versioning-convention.md` is named by a conditional in workweek-complete:
-#: "If `docs/wiki/versioning-convention.md` exists, it is the authority for
+#: "If `docs/wiki/install-playbook-rationale/versioning-convention.md` exists, it is the authority for
 #: which number/artifact is canonical." The prompt never asks anyone to read
 #: this repo's copy — it tells the agent to look for the CONSUMING repo's own
 #: convention and defer to it, falling back to a semver heuristic stated inline

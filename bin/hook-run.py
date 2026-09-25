@@ -20,6 +20,13 @@ Contract:
                 (exit 2, nothing on stdout) for anything else, so a
                 registration typo can never reach an unrelated op through
                 this door.
+    --advisory — optional, precedes the op name: `hook-run --advisory
+                hooks.<name>`. For advisory hooks, never guards: any
+                dispatch failure (engine unreachable, any HookDispatchError
+                including METHOD_NOT_FOUND) answers empty stdout / exit 0.
+                A successful result passes through unchanged. The caller
+                declares it because METHOD_NOT_FOUND cannot say whether a
+                missing op was a guard. No flag: the loud envelope.
     stdin     — the harness's own hook event JSON (session_id, cwd,
                 hook_event_name, tool_name, tool_input, ...), same shape
                 every existing cold hook script already reads.
@@ -241,6 +248,9 @@ def main(argv: "list[str] | None" = None) -> int:
     args = sys.argv[1:] if argv is None else argv[1:]
     if args and args[0] == "--check-all":
         return _check_all(args[1:])
+    advisory = bool(args) and args[0] == "--advisory"
+    if advisory:
+        args = args[1:]
     if not args or not args[0].startswith("hooks."):
         sys.stderr.write(
             "hook-run: refuses op %r -- only \"hooks.<name>\" ops are servable "
@@ -265,6 +275,8 @@ def main(argv: "list[str] | None" = None) -> int:
         )
     except (RuntimeError, ImportError) as exc:
         sys.stderr.write("hook-run: %s: engine unreachable (%s)\n" % (op_name, exc))
+        if advisory:
+            return 0
         sys.stdout.write(json.dumps(_engine_down_pass(_read_event().get("hook_event_name"), str(exc))))
         sys.stdout.write("\n")
         return 0
@@ -296,6 +308,9 @@ def main(argv: "list[str] | None" = None) -> int:
     try:
         result = dispatch_from_hook(op_name, params, origin_worktree=origin_worktree)
     except HookDispatchError as exc:
+        sys.stderr.write("hook-run: %s: %s\n" % (op_name, exc))
+        if advisory:
+            return 0
         # Same obligation `hook_http.py` itself carries for its own transport:
         # a guard that could not run must never read as one that passed.
         # `is_blocking_event` is consulted for parity with that module's own
@@ -304,7 +319,6 @@ def main(argv: "list[str] | None" = None) -> int:
         _ = is_blocking_event(event_name)
         sys.stdout.write(json.dumps(unreachable_response(event_name, str(exc))))
         sys.stdout.write("\n")
-        sys.stderr.write("hook-run: %s: %s\n" % (op_name, exc))
         return 0
 
     sys.stdout.write(json.dumps(result))

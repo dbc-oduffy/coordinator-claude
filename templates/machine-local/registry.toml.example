@@ -24,7 +24,7 @@ schema = 1
 #
 # These keys replace the sibling-layout convention (../<sibling-repo>/) for
 # triangular or multi-drive setups where a single shared parent folder is not
-# feasible. See docs/wiki/machine-local-registry.md for the preference order.
+# feasible. See docs/wiki/hook-best-practices/machine-local-registry.md for the preference order.
 # ---------------------------------------------------------------------------
 # NOTE: there is deliberately no "repos.coordinator_claude" declaration here.
 # The OSS publish mirror is not a working tree, so it is not a repos.* entry —
@@ -207,7 +207,7 @@ concerns = ["project_rag", "unreal"]
 # bin/check-machine-local-regeneratability.py queries it. Do NOT use inline
 # `# regeneratability:` comments — tomllib discards comments on load.
 #
-# See docs/wiki/machine-local-registry.md § 13 for the full classification rationale.
+# See docs/wiki/hook-best-practices/machine-local-registry.md § 13 for the full classification rationale.
 # ---------------------------------------------------------------------------
 [regeneratability]
 "coordinator.machine_slug"     = "idempotent-regeneratable"

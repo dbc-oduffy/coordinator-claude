@@ -12,7 +12,7 @@ Novel work enters via this sizing lobby, not directly into plan/shape/dispatch.
 
 The EM's first move on any PM ask that isn't a mid-workstream continuation — before
 `coordinator:plan`, `coordinator:shape`, or direct dispatch. Full framing and every worked
-incident: `coordinator/docs/wiki/sizing-lobby.md`.
+incident: `coordinator/docs/wiki/planning/sizing-lobby.md`.
 
 **Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 
@@ -106,7 +106,8 @@ second session-goal task means one of them re-created a recorder that was alread
 
 **5. `post_size_prompt_pending` (M+) — ask once, in the PM's register, and stop:** *"Looks like an
 X — go with that, split it, cut it, what's up?"* Never a closed fork. Record the answer in
-`pm_resolution` (and `fork` when cut/raise-shaped). Expires at plan ratification.
+`pm_resolution` — an object, `decided_on: YYYY-MM-DD` required, the answer beside it — and `fork`
+when cut/raise-shaped. Expires at plan ratification.
 
 **5b. `route: pm-decision` bundles into the same ask** — the M+ prompt and the XL exit question
 are ONE combined PM ask when both fire, mirroring the engine's existing combined-`next_move`

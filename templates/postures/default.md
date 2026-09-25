@@ -4,4 +4,4 @@
 same disposition the installed `~/.claude/CLAUDE.md` § Posture already delivers unconditionally —
 this slot exists as an override point, not a second copy of it.
 
-Full text, other anchors: `coordinator/docs/wiki/posture-anchors.md`.
+Full text, other anchors: `coordinator/docs/wiki/em-operating-model/posture-anchors.md`.

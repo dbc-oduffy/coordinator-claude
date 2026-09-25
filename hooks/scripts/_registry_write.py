@@ -27,7 +27,7 @@ authoritative over a plugin tree that may be a different checkout.
 
 **Never a hand-edit of the registry TOML.** A concurrent session may be writing
 it, and `cmd_set` is idempotent, atomic, and concern-aware in ways a hand-rolled
-append is not — see `docs/wiki/machine-local-registry.md` § "Use this instead of
+append is not — see `docs/wiki/hook-best-practices/machine-local-registry.md` § "Use this instead of
 editing registry files by hand". This module runs that writer; it never composes
 TOML.
 

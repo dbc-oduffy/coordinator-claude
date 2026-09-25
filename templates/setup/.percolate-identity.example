@@ -21,7 +21,7 @@
 # also surfaces a visible note when this file is absent or unpopulated so the EM
 # knows the identity-token net is down.
 #
-# See ~/.claude/plugins/coordinator/docs/wiki/percolate-setup.md
+# See ~/.claude/plugins/coordinator/docs/wiki/install-playbook-rationale/percolate-setup.md
 #
 # PARSER CAVEATS (claude-klabauter `coordinator/lib/percolate/phase4_audit.py` parses this file's
 # three arrays via regex + shlex — it never executes the file):

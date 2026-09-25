@@ -18,7 +18,7 @@ contract: ../wiki/agent-install-contract.md
 
 > **You are an agent reading this file** either because you were asked to install this repo, or
 > because the setup skill dispatched you to walk the install chain for coordinator-claude — both
-> arrivals land here. Follow the install contract at `docs/wiki/agent-install-contract.md`. Do
+> arrivals land here. Follow the install contract at `docs/wiki/install-playbook-rationale/agent-install-contract.md`. Do
 > not improvise. If a step fails, stop and report.
 
 ---
@@ -38,7 +38,7 @@ purposes. Use the right one.
   claude-klabauter, as of W0.5, identity corrected 2026-08-17), and terminates cleanly once
   satisfied. This is the verb you
   invoke when performing a first-time or refreshed install-chain verification. It is specified
-  by the contract at `docs/wiki/agent-install-contract.md` and is what the `setup_skill` field
+  by the contract at `docs/wiki/install-playbook-rationale/agent-install-contract.md` and is what the `setup_skill` field
   in the manifest points to.
 
 - **`/coordinator:install`** — the **OSS plugin install** verb. Installs the coordinator plugin
@@ -146,7 +146,7 @@ or the venv; the plugin-layered and maximalist paths are the same provisioning c
 ways.
 
 **Discharge split, by ownership.** DoE declares this post-condition (this section, and
-`docs/wiki/agent-install-contract.md`); **claude-klabauter owns the proof** — a test in their own
+`docs/wiki/install-playbook-rationale/agent-install-contract.md`); **claude-klabauter owns the proof** — a test in their own
 tree pinning that the plugin-layered invocation shape (no `--setup-only`) provisions the
 directory, since a DoE-side paragraph citing their `file:line`s rots on their next refactor
 (`install_health_run.py` lives at `coordinator_core/ops/install_health_run.py`, not
@@ -171,12 +171,12 @@ The `/coordinator:setup` skill reads `agent-install-manifest.json` at this path:
 No spinoff seeding in this plan (coord-as-orchestrator spinoff seeding is a follow-on workstream
 per plan §13).
 
-Full walker contract: `docs/wiki/agent-install-contract.md`.
+Full walker contract: `docs/wiki/install-playbook-rationale/agent-install-contract.md`.
 
 ## Packageability contract — v3-additive fields (no version bump)
 
 `agent_install_contract_version` stays `3` — the fleet packageability contract
-(`docs/wiki/agent-install-contract.md` § Packageability) landed entirely as **optional additive
+(`docs/wiki/install-playbook-rationale/agent-install-contract.md` § Packageability) landed entirely as **optional additive
 fields** on the existing v3 schema. No required-array entry changed; a pre-packageability v3
 manifest still validates clean. coordinator-claude's own manifest opts in (see
 `packageability_compliance` below) and is the reference instance for the six points.
@@ -198,7 +198,7 @@ chain-walk invocation and is the Point-2 fallback only when `programmatic_entry_
 For coordinator-claude the declared Point-2 entry IS `coordinator_core/install/maximalist.py`
 (`--non-interactive`/`--check-only`) via `programmatic_entry_point`; `setup.py`
 (`--i-am-agent`/`--check`) is the chain-walk dispatch target, not the install entry; see
-`docs/wiki/agent-install-contract.md` § Two entries, two roles. Both entries now live in
+`docs/wiki/install-playbook-rationale/agent-install-contract.md` § Two entries, two roles. Both entries now live in
 Claude-klabauter, not in this repo (migration `b644d5a9b`) — `programmatic_entry_point.posix`
 resolves to `coordinator_core/install/maximalist.py` and `standalone_setup_script.posix` to
 `scripts/setup.py`, both repo-root-relative to whichever engine root resolves. A same-purpose
@@ -258,4 +258,4 @@ the install docs).
 ---
 
 <!-- spec-backlink: ~/.claude/archive/specs/2026-06/2026-06-15-coordinator-install-chain-application-phase-b.md §7 C1 -->
-<!-- spec-backlink: plugins/coordinator/docs/wiki/agent-install-contract.md -->
+<!-- spec-backlink: plugins/coordinator/docs/wiki/install-playbook-rationale/agent-install-contract.md -->

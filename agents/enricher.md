@@ -4,7 +4,7 @@ description: "Enriches plan stubs pre-execution; maintains live plan bodies and 
 model: sonnet
 effort: low
 color: blue
-tools: ["Read", "Glob", "Grep", "Bash", "PowerShell", "Edit", "Write", "ToolSearch", "WebFetch", "WebSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_file", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions"]
+tools: ["Read", "Glob", "Grep", "Bash", "PowerShell", "Edit", "Write", "ToolSearch", "WebFetch", "WebSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions"]
 access-mode: read-write
 ---
 
@@ -37,9 +37,10 @@ lens's rest.
 ## Tools Policy
 
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
-**Code lookups: project-rag before grep** once `project_staleness_check` answers for your repo. SCIP may lag; it still beats grep.
-`ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_file,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
-Definition `project_symbol`; callers/usages/summary `project_symbol_callers`/`_references`/`_brief`; blast radius `project_referencers`; docs `project_semantic_search`; else `project_rag_instructions`.
+**Code lookup: project-rag first.**
+`ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
+`project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->
 <!-- BEGIN guard-encounter-preamble (synced from snippets/guard-encounter-preamble.md) -->
 
@@ -250,7 +251,7 @@ Why uncovered: [why no existing chunk covers it]
 ```
 
 At the pre-execute gate, EM/PM disposition uses the reason-class taxonomy in
-`coordinator/docs/wiki/close-means-close.md` (`peer-contention` / `other-repo` / `own-plan` /
+`coordinator/docs/wiki/ceremony-calibration/close-means-close.md` (`peer-contention` / `other-repo` / `own-plan` /
 `irreversible` / `not-real`) — a different actor and moment, so it doesn't bind your
 gather-don't-decide charter here.
 

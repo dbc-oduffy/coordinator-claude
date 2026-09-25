@@ -26,7 +26,7 @@ a one-artifact run and a 500-artifact run both fire the same Workflow script; th
 split (small-batch single-Sonnet vs. large-batch Workflow-fanout) is retired, not reduced to a
 higher threshold. Manual serial `Agent` dispatch is the fallback only for genuinely non-Workflow
 work — a single ad-hoc scout or a hand confirmation outside a plan run, never a substitute for
-scope size. See `coordinator/docs/wiki/workflow-orchestration.md` for the general doctrine this instantiates
+scope size. See `coordinator/docs/wiki/em-operating-model/workflow-orchestration.md` for the general doctrine this instantiates
 and `pipelines/artifact-distillation/PIPELINE.md` for this pipeline's own Workflow phase mechanics.
 
 **PM gate applies to deletions only.** Additive knowledge writes (wiki/DR harvest, distillation-log
@@ -58,7 +58,7 @@ in path] into wiki documents."
 outcome from `plan-completeness status <plan-path>` — rows-resolved, chunks-reported, and the
 divergence rollup, straight off disk. Do not reconstruct it from `git log` and handoffs; the
 ledger is the read path this harvest step consumes, per
-`coordinator/docs/wiki/plan-tasks-mutate-cli.md`. A plan predating the spine, or lacking a
+`coordinator/docs/wiki/planning/plan-tasks-mutate-cli.md`. A plan predating the spine, or lacking a
 `## Tasks` block at all, falls back to the prior git-log/handoff reconstruction — the ledger
 answers nothing there.
 
@@ -182,7 +182,7 @@ The broad-sweep path-heal executor (Phase 5d) repoints stale in-repo links after
 **The active-ref scope deliberately stops at `docs/`, `tasks/`, `archive/`** (same boundary as the
 delete-safety active-reference check above) — link-heal never walks `state/` to "fix" the
 no-rewrite classes above, even when a rewrite would technically resolve. Precedent:
-`coordinator/docs/wiki/cleanup-sweep-hazards.md` #45 — an identical point-in-time-record LEAVE class in a
+`coordinator/docs/wiki/bug-blitz-residue/cleanup-sweep-hazards.md` #45 — an identical point-in-time-record LEAVE class in a
 rename context (dated spec/plan filenames are a point-in-time backlink, not a live identity
 reference).
 

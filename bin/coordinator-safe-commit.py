@@ -271,6 +271,23 @@ _DESTRUCTIVE_SHAPE_REF_RE = re.compile(
 )
 
 
+#: Cache for `_bare_trailer_keys()` below -- `None` until first resolved.
+_BARE_TRAILER_KEYS_CACHE: Optional[frozenset] = None
+
+
+def _bare_trailer_keys() -> frozenset:
+    """The engine's `BARE_TRAILER_KEYS`, imported on first use because
+    `coordinator_core` is not on `sys.path` at module import."""
+    global _BARE_TRAILER_KEYS_CACHE
+    if _BARE_TRAILER_KEYS_CACHE is None:
+        _bootstrap_engine()
+        require_engine_on_path(__file__)
+        from coordinator_core.git.commit_trailers import BARE_TRAILER_KEYS
+
+        _BARE_TRAILER_KEYS_CACHE = BARE_TRAILER_KEYS
+    return _BARE_TRAILER_KEYS_CACHE
+
+
 class UsageError(RuntimeError):
     """Raised for CLI usage errors; caught at the top level, prints to stderr, exit 1."""
 
@@ -318,7 +335,10 @@ class Args:
         self.declared_reverts: List[str] = []
 
 
-def usage() -> None:
+def usage(stream=None) -> None:
+    # A help gesture prints to stdout; a usage ERROR to stderr. The warm door
+    # (`invoke_from_argv._render_usage_text`) keeps only "usage"-bearing
+    # stderr lines, so help on stderr collapses to a bare `Usage:`.
     print(
         """Usage:
   coordinator-safe-commit "<subject>"
@@ -358,7 +378,7 @@ Whether a caller may commit at all is enforced by the
 coordinator_core/bash_guards/block_subagent_commit.py PreToolUse(Bash)
 guard, not by a flag this script parses (2026-07-24, M4).
 """,
-        file=sys.stderr,
+        file=sys.stderr if stream is None else stream,
     )
 
 
@@ -480,6 +500,26 @@ def parse_args(argv: Sequence[str]) -> Args:
             "bisect output -- write a subject that names the change."
         )
 
+    # a background committer landed a commit whose message
+    # was ONLY trailers (no subject line) -- the positional slot this
+    # function fills with `args.subject` had been given a trailer line
+    # (e.g. "Session-Id: <uuid>") instead of prose. That reads as an
+    # ordinary, non-degenerate string to the length check above, so it needs
+    # its own refusal: a subject whose key half exactly matches a KNOWN
+    # trailer name is refused here, before any mode dispatch. Keyed on a
+    # fixed key list rather than the generic "key: value" shape
+    # (`coordinator_core.git.commit_trailers._TRAILER_LINE_RE`) so an
+    # ordinary conventional-commit subject ("fix: frobnicator", "grind(p):
+    # row-1 committed") is never refused -- only the specific keys this repo
+    # actually appends as trailers.
+    _subject_key = args.subject.strip().split(":", 1)[0].strip().lower()
+    if _subject_key in _bare_trailer_keys() and ":" in args.subject:
+        raise UsageError(
+            f"Commit subject {args.subject!r} is a trailer line, not a "
+            "subject -- trailers are appended automatically; write a real "
+            "subject describing the change."
+        )
+
     if saw_pathspec_separator and not args.paths:
         raise UsageError("`--` requires at least one path argument after it.")
     if args.paths:
@@ -592,6 +632,20 @@ def do_pathspec(args: "Args") -> None:
     and say the retry is safe. This is detect-and-report, never
     detect-and-redo: no retry is issued from here (Anti-scope, this plan —
     a commit is not idempotent)."""
+    # `worktree_root`/the untracked-siblings probe run FIRST -- zero imports,
+    # zero engine bootstrap -- before ANYTHING else in this function touches
+    # engine machinery. `require_engine_on_path` below is itself one of
+    # `cc_invoke.py`'s wrapped `*_on_path` provenance carriers
+    # (`engine_provenance_counter.record_engine_provenance`) and writes its
+    # own `state/engine-provenance-counts.jsonl` side file relative to THIS
+    # worktree the moment it runs -- a side effect of the committer's own
+    # preflight, not the fix agent's work. This probe's whole premise is "an
+    # untracked file the fix agent left behind", so it has to run before that
+    # side file (or the session-touching `_refuse_contested_pathspec` gate's
+    # own telemetry) exists, or it refuses on its own preflight's residue.
+    worktree_root = _worktree_root_from_cwd()
+    _warn_undeclared_untracked_siblings(args.paths, worktree_root)
+
     _bootstrap_engine()
     from cc_invoke import cc_invoke
 
@@ -603,7 +657,6 @@ def do_pathspec(args: "Args") -> None:
     # the warm-reach probe before ever reaching the cold-spawn fallback.
     require_engine_on_path(__file__)
 
-    worktree_root = _worktree_root_from_cwd()
     attempt_id = uuid.uuid4().hex
     attempt_trailer = f"Attempt-Id: {attempt_id}"
     pre_sha = _resolve_pre_sha_for_reconcile(worktree_root)
@@ -635,17 +688,44 @@ def do_pathspec(args: "Args") -> None:
     # "never considered it".
     if args.declared_reverts:
         params["declared_reverts"] = args.declared_reverts
-    try:
-        result = cc_invoke("ceremony.commit_v2", params, worktree_root)
-    except BrokenPipeError as exc:
-        _reconcile_after_indeterminate(args, worktree_root, attempt_trailer, pre_sha, exc)
-        return
-    except RuntimeError as exc:
-        if _is_indeterminate_outcome(exc):
+    # a ledger-only commit failed outright on
+    # `.git/index.lock: File exists` under the ~50-session load norm, with no
+    # retry -- the caller only ever saw "commit-failed" once. Bounded retry
+    # (2 extra attempts, short fixed backoff -- never an unbounded loop):
+    # `preflight_reap_stale_lock` (`coordinator_core.lock_preflight`,
+    # ALREADY the repo's shared orphaned-lock self-heal every other commit
+    # seam calls) runs before each retry, and only a lock-contention-shaped
+    # failure is retried -- any other `RuntimeError` falls straight through
+    # to the existing indeterminate-outcome/error handling below, unchanged.
+    result = None
+    _lock_retry_backoffs = (0.1, 0.3)
+    for _attempt in range(len(_lock_retry_backoffs) + 1):
+        try:
+            result = cc_invoke("ceremony.commit_v2", params, worktree_root)
+            break
+        except BrokenPipeError as exc:
             _reconcile_after_indeterminate(args, worktree_root, attempt_trailer, pre_sha, exc)
             return
-        print(f"ERROR: ceremony.commit_v2: {exc}", file=sys.stderr)
-        sys.exit(1)
+        except RuntimeError as exc:
+            if _is_lock_contention(exc) and _attempt < len(_lock_retry_backoffs):
+                try:
+                    from coordinator_core.lock_preflight import preflight_reap_stale_lock
+
+                    preflight_reap_stale_lock(worktree_root)
+                except Exception:
+                    pass
+                print(
+                    f"WARNING: index-lock contention ({exc}); retrying "
+                    f"(attempt {_attempt + 2}/{len(_lock_retry_backoffs) + 1})",
+                    file=sys.stderr,
+                )
+                time.sleep(_lock_retry_backoffs[_attempt])
+                continue
+            if _is_indeterminate_outcome(exc):
+                _reconcile_after_indeterminate(args, worktree_root, attempt_trailer, pre_sha, exc)
+                return
+            print(f"ERROR: ceremony.commit_v2: {exc}", file=sys.stderr)
+            sys.exit(1)
 
     if result.get("nothing_to_commit"):
         # SEPARATED FROM THE GENERIC REFUSAL because the two need opposite
@@ -1069,6 +1149,62 @@ def _refuse_contested_pathspec(paths: Sequence[str], worktree_root: str) -> None
         file=sys.stderr,
     )
     sys.exit(1)
+
+
+def _is_lock_contention(exc: BaseException) -> bool:
+    """`.git/index.lock` contention (raw git text or `IndexWriteLockBusy`):
+    a peer's write in flight, the only failure safe to retry."""
+    text = str(exc).lower()
+    return "index.lock" in text or "holds the index" in text
+
+
+def _warn_undeclared_untracked_siblings(paths: Sequence[str], worktree_root: str) -> None:
+    """Name untracked files in a declared path's own directory that the
+    pathspec left out -- the usual shape of a fix committed without its new
+    module or test.
+
+    Warns, never refuses: in a shared tree those files are as often a peer's
+    in-flight work as this commit's omission. "Same directory" is exact, not
+    recursive -- git's directory pathspec matches at any depth, so the
+    filter is client-side. One batched git call; fails open.
+    """
+    wanted = {_norm(p) for p in paths if str(p).strip()}
+    if not wanted:
+        return
+    wanted_dirs = {(w.rsplit("/", 1)[0] if "/" in w else ".") for w in wanted}
+    dirs = sorted(wanted_dirs)
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard", "-z", "--"] + dirs,
+            cwd=worktree_root,
+            capture_output=True,
+            text=True,
+            timeout=2,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return
+    if result.returncode != 0:
+        return
+
+    def _dirname(p: str) -> str:
+        return p.rsplit("/", 1)[0] if "/" in p else "."
+
+    undeclared = sorted(
+        {
+            _norm(f)
+            for f in result.stdout.split("\x00")
+            if f and _norm(f) not in wanted and _dirname(_norm(f)) in wanted_dirs
+        }
+    )
+    if not undeclared:
+        return
+    print(
+        "WARNING: untracked beside declared paths, not committed: "
+        + ", ".join(undeclared)
+        + ". Name any that belong to this change in `-- <paths>`.",
+        file=sys.stderr,
+    )
 
 
 def _worktree_root_from_cwd() -> str:
@@ -3221,7 +3357,7 @@ def do_scope_from(args: "Args", session_id: str, cs_core, cs_liveness, cs_scope,
 def main(argv: Sequence[str]) -> None:
     _bootstrap_engine()
     if argv[:1] and argv[0] in ("--help", "-h"):
-        usage()
+        usage(sys.stdout)
         sys.exit(0)
 
     try:

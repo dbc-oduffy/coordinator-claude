@@ -76,7 +76,7 @@ from _message_envelope import ALTERNATIVE_MAX_LINES, compose, render  # noqa: E4
 #: docs/plans/2026-08-02-guard-message-character-cap.md § C6 and this
 #: hook's own relocation fragment.
 _WIKI_ANCHOR = (
-    "coordinator/docs/wiki/guard-message-concision.md"
+    "coordinator/docs/wiki/guards/guard-message-concision.md"
     "#review-integrator-sidecar-intake"
 )
 
@@ -101,7 +101,7 @@ _WIKI_ANCHOR = (
 # is a correctness defect, not a style nit. This alternation is
 # separator-family-only -- do not extend it to other roots (e.g.
 # `.coordinator-local/plan-sidecars/`) without a matching intake-contract change: per
-# [guard-message-concision.md § review-integrator-sidecar-intake](coordinator/docs/wiki/guard-message-concision.md#review-integrator-sidecar-intake),
+# [guard-message-concision.md § review-integrator-sidecar-intake](coordinator/docs/wiki/guards/guard-message-concision.md#review-integrator-sidecar-intake),
 # widening this regex to also admit `.coordinator-local/plan-sidecars/` would erase the
 # reap-lifecycle distinction between session-keyed persona-findings sidecars
 # (reaped on an age/liveness floor) and the four UNREAPED-BY-DESIGN

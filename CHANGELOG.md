@@ -164,7 +164,7 @@ coordinating. Windows is now first-class alongside macOS and Linux; new automati
 3.11+.
 
 The long-form argument for the split, including what it costs, is
-[`docs/wiki/manifesto.md`](docs/wiki/manifesto.md).
+[`docs/wiki/claude-md-surfaces/manifesto.md`](docs/wiki/claude-md-surfaces/manifesto.md).
 
 ### What this costs, stated plainly
 
@@ -415,6 +415,6 @@ The last publicly released version before 4.0.0. A large batch of session-lifecy
 
 Every entry for **v2.5.1 and older** — v2.5.1, v2.2.0, v2.1.0, v2.0.0, and the whole 1.x line back
 to the initial public release — has been moved verbatim to
-[`docs/wiki/changelog-history.md`](docs/wiki/changelog-history.md), including the corrections and
+[`docs/wiki/install-playbook-rationale/changelog-history.md`](docs/wiki/install-playbook-rationale/changelog-history.md), including the corrections and
 amendments attached to those entries. It is kept for provenance; nothing there is part of the
 upgrade path from v2.7.0.

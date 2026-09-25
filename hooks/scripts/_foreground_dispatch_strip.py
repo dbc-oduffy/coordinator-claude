@@ -166,7 +166,7 @@ _FOREGROUND_OK_MARKER_NAME = ".foreground-ok"
 #: Repo-relative literal, resolved for the reader by `resolve_wiki_citation()`
 #: at render time (below) rather than emitted verbatim -- same mechanism the
 #: 16 `_message_envelope`-routed hooks use for their `_WIKI_ANCHOR` sites.
-_UNLOCK_DOC_CITATION = "coordinator/docs/wiki/guard-unlock-channel.md"
+_UNLOCK_DOC_CITATION = "coordinator/docs/wiki/guards/guard-unlock-channel.md"
 
 _REROUTE_NOTICE = (
     "[foreground gate] this Agent dispatch was rewritten to run_in_background: true and "

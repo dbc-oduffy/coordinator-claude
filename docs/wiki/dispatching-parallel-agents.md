@@ -5,7 +5,7 @@ type: doctrine
 related:
   - global-doctrine/CLAUDE.md
   - coordinator/snippets/em-operating-doctrine.md
-  - docs/wiki/delegate-execution.md
+  - docs/wiki/dispatching-parallel-agents/delegate-execution.md
   - plugins/coordinator/commands/mise-en-place.md
 ---
 
@@ -123,7 +123,7 @@ The opposite failure of the file-overlap pass: over-sequencing parallel-safe wor
 **The only true dispatch gates between parallel-wave executors are:**
 
 1. **File-write overlap.** Two executors *editing* the same path. (Covered by § EM File-Overlap Pre-Dispatch Pass above. Only writes gate — reads never do; see § Read-Overlap Is NOT Write-Overlap below.)
-2. **Output-consumption.** Executor B reads a file Executor A writes. (Covered by `coordinator/docs/wiki/pre-dispatch-verification.md`: "Dispatch-brief task ordering must be explicit when later tasks reference earlier outputs.")
+2. **Output-consumption.** Executor B reads a file Executor A writes. (Covered by `coordinator/docs/wiki/dispatching-parallel-agents/pre-dispatch-verification.md`: "Dispatch-brief task ordering must be explicit when later tasks reference earlier outputs.")
 3. **Contract-change dependency.** Executor A bumps a schema, helper signature, or shared API that downstream executors will misread if dispatched before A lands. Promote shared-API work to a predecessor wave (see § Shared-API Gap in Parallel Waves below).
 
    **Contract-format changes ripple beyond the import graph — grep producer mocks, not just symbol importers.** When the changed contract is a *serialization format* (CSV column order, JSON envelope shape, wire protocol) rather than a callable signature, the consumers that break are not only the modules that `import` the producer — they include every test that hand-rolls a *mock* of the producer's output (fixture files, inline string literals, `responses`/`nock` stubs). These mocks live outside the symbol-reference graph, so an importer-only impact scan misses them and the format change ships green until the mock-backed test runs against the new shape. The contract-change gate's impact enumeration must grep for the *format markers* (column headers, JSON keys, the literal delimiter) across test/fixture dirs, not just `grep` the producer symbol. (claude-central.)
@@ -765,9 +765,9 @@ For chunks that are too large for any single executor but have natural seam boun
 **When NOT to use this — use a single Sonnet executor instead:**
 - The stub is small enough for one executor (the common case)
 - The system is tightly coupled but the enriched spec has exact code sketches — a single Sonnet can follow a well-specified blueprint regardless of coupling
-- If the spec is genuinely incomplete, fix the spec first or have the EM handle it directly — don't dispatch an Opus executor (see `docs/wiki/delegate-execution.md` Phase 2 rubric)
+- If the spec is genuinely incomplete, fix the spec first or have the EM handle it directly — don't dispatch an Opus executor (see `docs/wiki/dispatching-parallel-agents/delegate-execution.md` Phase 2 rubric)
 
-See `docs/wiki/delegate-execution.md` Phase 2 for the full model selection rubric.
+See `docs/wiki/dispatching-parallel-agents/delegate-execution.md` Phase 2 for the full model selection rubric.
 
 ## Long-Running Dispatched Process
 
@@ -1148,7 +1148,7 @@ executor briefs so the executor itself could pass `--expected-branch <name>` to
 superseded — `coordinator-safe-commit
 --expected-owner em-only` fails closed on any subagent-context invocation, so there is no
 authorized executor self-commit path left for a branch-pin flag to attach to
-(`docs/wiki/scoped-safety-commits.md § 8`).
+(`docs/wiki/concurrent-em-git-operations/scoped-safety-commits.md § 8`).
 Branch-pin verification is now the EM's own concern, exercised at EM-commit time against
 the EM's own working tree, not something a dispatch brief can delegate down.
 

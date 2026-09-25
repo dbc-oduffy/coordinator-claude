@@ -124,7 +124,7 @@ Resolve from the spine's directives in one pass; advisory rows never block:
   disposition of "skip" is recorded with a reason on the spine — never silently dropped, and
   never folded back into the advisory bucket, where a fleet-wide drift went undetected for
   seven weeks. Schema, provenance model, and the curated-vs-generated partition this line
-  schedules a gate for: `coordinator/docs/wiki/strategic-self-description-standard.md`. Onboarding
+  schedules a gate for: `coordinator/docs/wiki/skills-corpus/strategic-self-description-standard.md`. Onboarding
   a new repo onto the standard is `coordinator/skills/repo-setup/SKILL.md`'s concern, not this
   ceremony's — this line is the recheck cadence for a repo already on it.
 - **Sidecar reap (hand-run):** `reap-stale-subagent-sidecars`; non-zero → surface.
@@ -260,14 +260,14 @@ reclassifications.
 
 ## Step 13: Version Bump — PM Confirmation Gate
 
-`coordinator/docs/wiki/versioning-convention.md`, if present, is authority. Fallback: Major = breaking change
+`coordinator/docs/wiki/install-playbook-rationale/versioning-convention.md`, if present, is authority. Fallback: Major = breaking change
 in any `Decisions:` field; Minor = new feature/command; Patch = fixes/docs/refactors only.
 
 **This step is the weekly bump for the coordinator-plugin-triple anchor** — `plugin.json`
 `.version`, `marketplace.json` `.metadata.version`, and the CHANGELOG's latest `## [X.Y.Z]`
 section, the only anchors that exist today. EM proposes the level; PM confirms — the gate below
 IS that confirmation, because a release surface is a product call. The engine is deliberately not
-an anchor here: its converged contract (`coordinator/docs/wiki/release-cadence-and-currency-notification.md`
+an anchor here: its converged contract (`coordinator/docs/wiki/release-and-distribution/release-cadence-and-currency-notification.md`
 § Engine anchor — converged contract) is a per-publish `version.txt` source SHA + `track_ref`
 field, not a release-shaped anchor, so it bumps per-publish, on claude-klabauter-em's own cadence,
 never on this weekly clock.

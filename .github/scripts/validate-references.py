@@ -105,12 +105,12 @@ def check_memory_links(errors: list):
 # aren't copied into this publish layout; the docs themselves are still
 # useful here as addon-protocol reference. Skip link-validation on these.
 ADDON_PROTOCOL_MIRROR_WIKIS = {
-    "docs/wiki/addon-chunker-categories.md",
+    "docs/wiki/addon-protocol/addon-chunker-categories.md",
     "docs/wiki/addon-protocol.md",
-    "docs/wiki/capability-dispatch.md",
-    "docs/wiki/corpus-band-protocol.md",
-    "docs/wiki/host-addon-separation-of-concerns.md",
-    "docs/wiki/host-vs-addons.md",
+    "docs/wiki/addon-protocol/capability-dispatch.md",
+    "docs/wiki/addon-protocol/corpus-band-protocol.md",
+    "docs/wiki/addon-protocol/host-addon-separation-of-concerns.md",
+    "docs/wiki/addon-protocol/host-vs-addons.md",
 }
 
 

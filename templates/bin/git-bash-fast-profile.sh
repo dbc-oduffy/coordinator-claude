@@ -129,7 +129,7 @@ case "$-" in
       # the moment /etc/profile runs NONE of the three is set. That reads as safe and is not:
       # `LANG` IS present in a child of `bash -lc`, but only because the profile just set it.
       # Observing it there and concluding the guard passes is the same login-shell-parent
-      # confound documented in docs/wiki/bash-on-windows-gotchas.md § 17 for PATH.
+      # confound documented in docs/wiki/portability/bash-on-windows-gotchas.md § 17 for PATH.
       #
       # Cost: one spawn on the common path instead of five plus two glob subshells.
       if [ -z "${LC_ALL:-${LC_CTYPE:-$LANG}}" ]; then

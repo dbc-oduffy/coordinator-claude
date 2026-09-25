@@ -21,7 +21,7 @@ Why this exists (three real incidents, one session, 2026-07-31)
 
 Every one was caught only by a full test-tier run. The rule (both
 ratchets) is correct; the FEEDBACK TIMING is the defect this hook closes.
-Per this repo's own discharge test (`docs/wiki/invisible-doctrine.md`): if
+Per this repo's own discharge test (`docs/wiki/claude-md-surfaces/invisible-doctrine.md`): if
 the discharge is "the author remembers to check", the work is not
 finished.
 
@@ -129,7 +129,7 @@ from _engine_root import (  # noqa: E402
 _WIKI_ANCHOR = (
     # Review: code-reviewer -- bare fragment produced an unresolvable
     # `render()` citation. Full path matches every other converted hook.
-    "coordinator/docs/wiki/guard-message-concision.md"
+    "coordinator/docs/wiki/guards/guard-message-concision.md"
     "#new-file-zero-budget-ratchet-remedies"
 )
 

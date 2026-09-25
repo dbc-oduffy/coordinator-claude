@@ -86,7 +86,7 @@ _GUARDED_TOOLS = ("Write", "Edit", "MultiEdit")
 
 #: Wiki anchor carrying the relocated per-kind remedy explanations -- see
 #: `state/relocations/guard-message-cap/guard-oss-payload-locality.py.md`.
-_WIKI_ANCHOR = "coordinator/docs/wiki/guard-message-concision.md#oss-payload-locality"
+_WIKI_ANCHOR = "coordinator/docs/wiki/guards/guard-message-concision.md#oss-payload-locality"
 
 #: Per-kind SHORT alternative, keyed by the exact `Violation.kind` strings
 #: `_prompt_surface_locality.iter_violations` emits. The full reasoning for

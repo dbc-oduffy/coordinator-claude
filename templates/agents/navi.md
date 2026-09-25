@@ -66,7 +66,7 @@ projects directory the roster globs, exactly like any other peer.
 <!-- Review: overengineering-reviewer — cut design-argumentation and provenance-narration
      passages addressed to a reviewer, not a running Navi; kept the operative pointer. -->
 The verdict-to-action table, the closed instrument set, and offer-log suppression below follow
-this oracle contract: `coordinator/docs/wiki/fleet-watch-idle-report-contract.md` — consume it,
+this oracle contract: `coordinator/docs/wiki/cross-repo-communication/fleet-watch-idle-report-contract.md` — consume it,
 do not re-derive it.
 
 | Verdict | You |

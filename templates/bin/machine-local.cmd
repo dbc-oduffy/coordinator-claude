@@ -14,7 +14,7 @@ REM path-resolution plus interpreter-dispatch value, which this shim promotes
 REM directly into the .cmd ladder below rather than re-wrapping the
 REM forwarder. _machine_local.py itself is a plain dot-py file, not a
 REM polyglot, so running python against that file runs it directly, no shell
-REM in the loop. See docs/wiki/windows-cmd-shims.md and
+REM in the loop. See docs/wiki/portability/windows-cmd-shims.md and
 REM docs/plans/2026-07-19-debash-coordinator-windows.md, Wave 0.
 REM
 REM SETTINGS-HOME SEAM, ported verbatim from the Python forwarder's resolution
@@ -55,7 +55,7 @@ REM name, a version comparison written with a literal greater-than-or-equal
 REM sign, a parenthesized aside split across lines, or a quoted phrase that
 REM spans two REM lines can all silently corrupt the rest of the script's
 REM parse. This exact file broke that way in production on 2026-07-28. See
-REM docs/wiki/windows-cmd-shims.md, section on REM metacharacters.
+REM docs/wiki/portability/windows-cmd-shims.md, section on REM metacharacters.
 setlocal enableextensions
 set "_settings_home="
 if not "%COORDINATOR_SETTINGS_HOME%"=="" set "_settings_home=%COORDINATOR_SETTINGS_HOME%"

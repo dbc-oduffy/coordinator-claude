@@ -97,7 +97,7 @@ from _message_envelope import compose, render  # noqa: E402
 #: enforce-agent-dispatch-mode.py.md (the site is measured via
 #: `enforce-agent-dispatch-mode.py`'s imported `_compute_named_dispatch`
 #: alias, per docs/plans/2026-08-02-guard-message-character-cap.md § C6).
-_WIKI_ANCHOR = "coordinator/docs/wiki/guard-message-concision.md#named-dispatch-strip"
+_WIKI_ANCHOR = "coordinator/docs/wiki/guards/guard-message-concision.md#named-dispatch-strip"
 
 #: CONFINEMENT reason. Naming one of these discards a read-only tool
 #: restriction (`tools` falls back to `"*"`), so a rewrite this module cannot

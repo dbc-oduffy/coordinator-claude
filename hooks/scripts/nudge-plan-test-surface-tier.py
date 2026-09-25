@@ -68,7 +68,7 @@ brick plan authoring -- worse than the gap this hook closes.
 Spec: inline dispatch brief (no plan file), team-lead dispatch
 2026-08-06, "Plan-write-time tier advisory hook". Sibling deliverable
 (tripwire registration, SKILL.md/wiki wording) owned by a peer worker in
-`coordinator/skills/plan/SKILL.md`, `coordinator/docs/wiki/writing-plans.md`,
+`coordinator/skills/plan/SKILL.md`, `coordinator/docs/wiki/planning/writing-plans.md`,
 `coordinator/docs/wiki/coordinator-tripwires/tripwire-registry/` -- NOT touched here.
 
 SECOND DETECTOR (C4, `docs/plans/2026-08-19-vehicle-prohibition-caught-by-a-mechanism.md`)

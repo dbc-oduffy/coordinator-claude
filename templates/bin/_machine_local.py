@@ -53,8 +53,8 @@ Negative-spec: reader is read-only for GET path; bare SET writes only registry.l
 
 All consumers — including the ergonomic wrapper ``claude_machine_local.py`` —
 shell out to the ``machine-local`` CLI. Direct in-process import is the
-dual-identity anti-pattern (docs/wiki/dual-identity-module-hazard.md and
-docs/wiki/machine-local-registry.md §8(a)); shell-out is the only contract.
+dual-identity anti-pattern (docs/wiki/skills-corpus/dual-identity-module-hazard.md and
+docs/wiki/hook-best-practices/machine-local-registry.md §8(a)); shell-out is the only contract.
 """
 
 from __future__ import annotations

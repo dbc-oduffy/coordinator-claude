@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """PreToolUse hook (matcher: Workflow): closes the un-modeled agent() cost trap
-documented in coordinator/docs/wiki/workflow-orchestration.md § "Model
+documented in coordinator/docs/wiki/em-operating-model/workflow-orchestration.md § "Model
 selection: Sonnet by default, Opus is PM-gated". That doc's own
 negative-spec says: "an un-modeled agent() in an Opus session is a defect,
 not a shortcut... there is no warning, no gate, and no retry." This hook
@@ -177,7 +177,7 @@ except Exception:
 #: sentinel file, PM-gate) -- see this hook's conversion relocation fragment
 #: at state/relocations/guard-message-cap/block-workflow-unmodeled-agent.py.md.
 _WIKI_ANCHOR = (
-    "coordinator/docs/wiki/guard-message-concision.md"
+    "coordinator/docs/wiki/guards/guard-message-concision.md"
     "#workflow-model-guard-override-hatches-and-pm-gate"
 )
 

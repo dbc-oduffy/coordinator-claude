@@ -9,7 +9,7 @@ The third target is what reaches a machine that never clones this repo.
 so the authoring copy ships nowhere — which is why a cloud VM cloning the OSS
 mirror had the engine, the plugin, and no fleet doctrine. Nothing becomes
 public that was not already: the substance ships today through
-`snippets/em-operating-doctrine.md` and `docs/wiki/posture-anchors.md`; only
+`snippets/em-operating-doctrine.md` and `docs/wiki/em-operating-model/posture-anchors.md`; only
 the assembled always-loaded file was missing.
 
 Why this exists — the mirror direction is TRACKED -> LIVE, not the reverse:
@@ -60,7 +60,7 @@ turn without blocking; exit 0 + silence is the non-firing no-op):
              match, no tracked source), OR the live copy was already
              byte-identical to the tracked source (nothing to do). NOTHING
              on stdout/stderr in either sub-case -- per this repo's own
-             wiki (coordinator/docs/wiki/eager-agent-calibration.md §
+             wiki (coordinator/docs/wiki/dispatching-parallel-agents/eager-agent-calibration.md §
              "A Check That Speaks Only on Drift Is Free to Run Anywhere"),
              a check silent on the clean state costs nothing to run on
              every SessionStart across the fleet.
@@ -116,7 +116,7 @@ _WIKI_ANCHOR = (
     # Review: code-reviewer -- render() emits `f"See {anchor}."` verbatim;
     # a bare fragment produces an unresolvable citation. Full path matches
     # every other converted hook's `_WIKI_ANCHOR` shape.
-    "coordinator/docs/wiki/guard-message-concision.md"
+    "coordinator/docs/wiki/guards/guard-message-concision.md"
     "#derive-global-doctrine-mirror-and-fail-loud"
 )
 
@@ -274,7 +274,7 @@ def _derive_live_copy(tracked: Path, live: Path, *, emit_state: dict | None = No
 
     Silent (return 0) when the live copy is already byte-identical to the
     tracked source -- see the module docstring's contract table and
-    coordinator/docs/wiki/eager-agent-calibration.md § "A Check That Speaks
+    coordinator/docs/wiki/dispatching-parallel-agents/eager-agent-calibration.md § "A Check That Speaks
     Only on Drift Is Free to Run Anywhere". Loud (stderr + exit 2) only when
     a real derivation happens (drift found and corrected) or a read/write
     failure occurs.

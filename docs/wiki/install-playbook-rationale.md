@@ -85,7 +85,7 @@ with no explanation.
 Percolation (`python3 "$(python3 coordinator/hooks/scripts/_engine_root.py)/coordinator/bin/publish.py"`
 — this driver migrated to the engine repo, resolved via the engine-root seam,
 not this repo — driven by `/percolate`) resolves its runtime root (`PERCOLATE_ROOT`) via a
-four-rung chain — see `coordinator/docs/wiki/percolate-setup.md § PERCOLATE_ROOT Resolution` for
+four-rung chain — see `coordinator/docs/wiki/install-playbook-rationale/percolate-setup.md § PERCOLATE_ROOT Resolution` for
 the full mechanism. A fresh-machine install produces a *working* percolation surface only if all
 three pieces below are in place; the installer delivers the first, the operator must provision the
 second and third by hand.

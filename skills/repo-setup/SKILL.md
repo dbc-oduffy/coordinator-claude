@@ -80,4 +80,4 @@ does not decide it inline. A Perforce workspace registers per `contract/p4-provi
   fields per `coordinator/schemas/workstream.schema.json`) — never in
   `state/orientation_cache.md`, whose `## Active workstreams` heading is name-only, capped at 10
   entries, and schema-forbidden from carrying free-form prose or citations
-  (`coordinator/pipelines/workday-start-internals.md:265`, `coordinator/docs/wiki/tiered-context-loading.md:57`).
+  (`coordinator/pipelines/workday-start-internals.md:265`, `coordinator/docs/wiki/skills-corpus/tiered-context-loading.md:57`).

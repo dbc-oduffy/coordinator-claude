@@ -72,7 +72,7 @@ fail-open guards. **This posture is scoped to the RATIO predicate only
 
 ADMISSION LEG (C7 hole #1, `state/bug-backlog/2026-08-29-tool-call-
 guards-are-blind-to-the-op-pa-3f8d21c07b45.yaml`, settled via
-`coordinator/docs/wiki/guard-trigger-class-table.md` row #1)
+`coordinator/docs/wiki/guards/guard-trigger-class-table.md` row #1)
 --------------------------------------------------------------------
 `guard-doctrine-surface-bash-write.py` (`PreToolUse Bash|PowerShell`) and
 `check-claude-md-size.py` (`PreToolUse Write|Edit|MultiEdit`) are both

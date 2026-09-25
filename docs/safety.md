@@ -102,7 +102,7 @@ Most of coordinator-claude's 36 skills call into the engine, directly or through
 forwarder, and will not function without it; the skills that don't (plan-review, brainstorming,
 shape flows) are pure-prompt and work regardless.
 
-Sources: `NOTICE.md` (this distribution's top level), `docs/wiki/manifesto.md` (status note),
+Sources: `NOTICE.md` (this distribution's top level), `docs/wiki/claude-md-surfaces/manifesto.md` (status note),
 `README.md` § "The engine underneath" (this distribution's top level).
 
 ---

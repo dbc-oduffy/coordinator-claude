@@ -25,7 +25,7 @@ narrowing, not a regression to be "fixed" back to the PM-gated ask.
     narrowing mechanism (`sessionstart-dispatch.py`'s `ctx.source and not
     any(...)` gate). Three of those five values — `compact`, `resume`, `fork` —
     fire in a session that is ALREADY MID-EXECUTION, and a cut on `compact` is
-    exactly the mid-execution mutation `docs/wiki/daily-branch-discipline.md`
+    exactly the mid-execution mutation `docs/wiki/concurrent-em-git-operations/daily-branch-discipline.md`
     keeps out of bounds: a peer's next commit would land on a branch it never
     chose. The PM ruling authorises the on-`main` case at session BOOT only,
     never a ref move triggered by a mid-session compaction.

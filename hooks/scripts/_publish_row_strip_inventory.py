@@ -39,7 +39,7 @@ TWO STRIP PLANES, NOT ONE
     A row is covered if EITHER plane reaches it, and `gated_by` records which — because
     "covered by the other plane" and "covered by this one" have different failure modes,
     and a stale entry in one plane hides behind live coverage in the other. That is not
-    hypothetical here: `docs/wiki/install-command-residue.md` is named in
+    hypothetical here: `docs/wiki/install-playbook-rationale/install-command-residue.md` is named in
     `_MIRROR_DOE_STRIP_ELIGIBLE_PATHS` and published by NO mirror row — the store plane
     took the job over, and the publish_sync entry has been dead ever since, reporting
     nothing.

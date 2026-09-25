@@ -46,18 +46,9 @@ is the drop this shape exists to stop. Contract: wiki.
 ## Resolving the scripts this ceremony runs
 
 These live only in the doctrine repo's `coordinator/bin/` and get no settings-home launcher, so
-rung 2 404s. Open every fence below with the prescribed rung from
+rung 2 404s. Open every fence below with the exact fence in
 `snippets/resolve-coordinator-bin.md` § CLIs with no launcher — `_doe_root` does not survive from
-one Bash call to the next:
-
-    _sh=${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}
-    _doe_root=$(cat "$_sh/machine-local/.doe-root" 2>/dev/null || cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)
-    [ -n "$_doe_root" ] && [ -d "$_doe_root/coordinator" ] || { echo "unresolved .doe-root — re-run /coordinator:install" >&2; exit 1; }
-
-**Keep the `:-`, never `:?`, and keep the emptiness check.** `CLAUDE_PLUGIN_ROOT` is EMPTY in a
-Bash tool call, so the default arm is the one that carries; unguarded, it expands to a
-root-relative `/coordinator` that reads as "this script does not exist" rather than "the root did
-not resolve".
+one Bash call to the next.
 
 ## Phase 0: Readiness Gate
 
@@ -71,7 +62,7 @@ non-blocking finding in the Phase 1 ledger. STALE → re-gate (`python3 "${CLAUD
 UNSTAMPED → gate and stamp; MALFORMED → a hand-written stamp, repair the frontmatter; census
 drift → the premise moved, re-plan. **Name the state** — "not certified" sends an author to the
 wrong repair. A handoff can assert executability; it cannot assert a sha. States, recipe and the
-four repairs: `coordinator/docs/wiki/mise-prepped-attest.md`.
+four repairs: `coordinator/docs/wiki/lesson-triage/mise-prepped-attest.md`.
 
 Bypass only if the invoking handoff asserts **executability** (not merely pickup-readiness) for
 the named items in its body — a stated stop condition or `deployment_state: awaiting_gate` always
@@ -123,7 +114,7 @@ to go compute it. Verdict `SOUND` | `BROKEN` | `UNREVIEWABLE`, naming the tell; 
 never refuses. `BROKEN` routes the item out of the wave with the tell named — the existing
 dropped-item behaviour. An item with no `falsifier` sub-object is not reviewed and is not a
 finding here. Inputs the phase marshals, and the blinding invariant that bounds them:
-`coordinator/docs/wiki/falsifier-integrity.md`.
+`coordinator/docs/wiki/reviewer-pipeline/falsifier-integrity.md`.
 
 ## Phase 2: Sequence and Parallelize
 
@@ -179,6 +170,12 @@ is not a shape a Workflow cannot express. Verifiers ride inside the Workflow —
 `provision-sidecar --agent-type <type>` for any phase whose `report_type_map` row is not
 `run-report`.
 
+**Pre-fire anchor.** Before firing a part's Workflow, if the session's primary working directory
+is not inside the target repo — a managed-remote container starts primary cwd at the repos'
+common parent — run `cd <abs repoRoot>` as its own standalone Bash call, never folded into a
+compound command, and confirm the harness reports the new primary working directory before
+proceeding. `A-CD-OUT-OF-A-REPO-DISARMS-EVERY-DISPATCHED-COMMIT-FOR-THE-SESSION`.
+
 Don't hand-author the script — mint and emit:
 `COORDINATOR_AGENT_TYPE_HOST=coordinator python3 "${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}/bin/emit-dispatch-workflow.py" --inventory state/mise-inventory/<run-id>.md`
 writes the spine (item-id → chunk-id, footprint → `writes`) plus the `.mjs`; fire it with the
@@ -196,6 +193,13 @@ same-session-only so what died is not resumable. Hold the turn with a `Monitor` 
 poll interval and re-arm it at expiry. Push after every wave, not at the end of the run — the repo
 volumes and settings home survive reclamation, so an unpushed commit is the only thing that does
 not. `a-quiet-session-gets-its-container-reclaimed-under-running-work`.
+
+**File/commit counts can't see a stall** — both stay flat on live and dead runs alike. Size the
+Monitor per `[[a-compaction-can-kill-a-background-workflow]]`.
+
+**A mid-run `/compact` can take the whole Workflow down with no retry and no verdict** — after
+any compaction, check for that before assuming the run survived it.
+`A-COMPACTION-CAN-KILL-A-BACKGROUND-WORKFLOW`.
 
 **The env var is not optional, and omitting it does not fail — it downgrades.** The script probes
 for a plugin root to decide whether `coordinator:*` agent types resolve, and a Bash subprocess
@@ -292,7 +296,7 @@ check, anti-vacuity gate, diff freeze, inventory archival (COMPLETE only), track
   under the seven landing rules in the wiki. Every candidate — revoked, accepted, refused,
   unadjudicated — lands in `state/mise-inventory/<run-id>-adjudication.md`. Any `unadjudicated`
   candidate makes the phase INCOMPLETE, and the verdict line may not read COMPLETE while it is.
-  Enforcement detail: `coordinator/docs/wiki/subtractive-adjudication.md`.
+  Enforcement detail: `coordinator/docs/wiki/test-design-discipline/subtractive-adjudication.md`.
 - **Exhaustion check** (live disposition ledger): COMPLETE if every item terminal
   (PASSed/routed-out/already-fixed/dropped), else CONTINUANCE — wording only, tail always runs
   full. Three inputs force CONTINUANCE regardless of the item ledger: an aggregate PARTIAL-FIRE

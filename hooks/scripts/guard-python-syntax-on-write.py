@@ -21,7 +21,7 @@ The hazard was already known and already discharged the wrong way --
 `docs/plans/2026-08-07-powershell-guard-chain-rearm.md` instructs an
 executor to `python -m py_compile` the hook before reporting done. A rule
 whose only enforcement is that the brief remembered to say it fails the
-discharge test (`docs/wiki/invisible-doctrine.md`). This guard is that
+discharge test (`docs/wiki/claude-md-surfaces/invisible-doctrine.md`). This guard is that
 instruction's mechanism.
 
 Parseability ONLY -- a deliberately narrow bar

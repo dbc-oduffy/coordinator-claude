@@ -5,10 +5,10 @@ author: doe-em
 status: active
 kind: wiki
 related:
-  - coordinator/docs/wiki/external-plugin-live-resolution.md
-  - coordinator/docs/wiki/percolate-setup.md
-  - coordinator/docs/wiki/install-surface-completeness.md
-  - coordinator/docs/wiki/state-placement-law.md
+  - coordinator/docs/wiki/install-playbook-rationale/external-plugin-live-resolution.md
+  - coordinator/docs/wiki/install-playbook-rationale/percolate-setup.md
+  - coordinator/docs/wiki/install-playbook-rationale/install-surface-completeness.md
+  - coordinator/docs/wiki/hook-best-practices/state-placement-law.md
 keywords:
   - CLAUDE.md
   - the (now-removed) meta-repo local-doctrine file
@@ -138,7 +138,7 @@ independent layers**, and only one of them decides wiki/file *admission*:
   mirror.
 - **The per-file ALLOWLIST**, field 7 of the `coordinator-claude|mirror` row in
   `~/.claude/setup/publish-targets.portable`. Verified 2026-07-22, that field is exactly:
-  `bin,lib,hooks,skills,agents,commands,docs/wiki/daily-branch-discipline.md,docs/wiki/docs-checker-pre-review.md,docs/wiki/prior-art-checker.md,docs/wiki/rag-bait-conventions.md,docs/wiki/scoped-safety-commits.md,docs/wiki/tiered-context-loading.md,docs/wiki/workday-workweek-cadence.md,.claude-plugin,cockpit-contract/schema`.
+  `bin,lib,hooks,skills,agents,commands,docs/wiki/concurrent-em-git-operations/daily-branch-discipline.md,docs/wiki/reviewer-pipeline/docs-checker-pre-review.md,docs/wiki/reviewer-pipeline/prior-art-checker.md,docs/wiki/claude-md-surfaces/rag-bait-conventions.md,docs/wiki/concurrent-em-git-operations/scoped-safety-commits.md,docs/wiki/skills-corpus/tiered-context-loading.md,docs/wiki/ceremony-calibration/workday-workweek-cadence.md,.claude-plugin,cockpit-contract/schema`.
 
 `CLAUDE.md` is absent from that field → **`coordinator/CLAUDE.md` does NOT reach the OSS mirror**,
 despite being the doctrine every coordinator session runs on. Corollary: this wiki you're reading

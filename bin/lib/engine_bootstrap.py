@@ -50,8 +50,10 @@ Negative-spec:
       `import cc_invoke`, safe because that rung only fires after a caller has
       already triggered this module's import path, by which point cc_invoke
       itself is either already loaded or loads without issue.
-    - Does NOT change rung order, remediation text, or any observable behavior
-      of `_resolve_engine_root` relative to its pre-split form in cc_invoke.py.
+    - Does NOT change rung order or any other observable behavior of
+      `_resolve_engine_root` relative to its pre-split form in cc_invoke.py.
+      Remediation text is not under that parity: it must name a runnable
+      script, never a slash command (`test_cold_path_remediation_is_runnable.py`).
 """
 from __future__ import annotations
 
@@ -95,11 +97,17 @@ class _RegistryReadTimeout(RuntimeError):
 
 
 _CLAUDE_KLABAUTER_ROOT_REMEDIATION = (
-    "cc_invoke: cannot resolve the engine root — repos.claude_klabauter is not set.\n"
-    "  The machine-local registry has no 'repos.claude_klabauter' entry on this machine.\n"
+    "cc_invoke: cannot resolve the engine root — every rung missed.\n"
+    "  Searched: COORDINATOR_ENGINE_ROOT (unset or not a directory), the "
+    "<settings-home>/machine-local pointer files (.claude-klabauter-root, "
+    ".claude-klabauter-root — absent or unreadable), the machine-local registry key "
+    "repos.claude_klabauter (unset), and self-location from this script's own "
+    "checkout (no enclosing coordinator_core/ + pyproject.toml found).\n"
     "  Remediate (choose one):\n"
     "    machine-local set repos.claude_klabauter /path/to/claude-klabauter\n"
-    "    Re-run /coordinator:install to populate the repos.* registry entries.\n"
+    "    python3 <claude-klabauter>/scripts/setup.py   (installs and registers the engine)\n"
+    "    On a cloud/container box with no prior install: "
+    "python3 <claude-klabauter>/scripts/cloud_setup.py\n"
     "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c"
 )
 
@@ -357,7 +365,7 @@ def _claude_klabauter_root_gate_empty_remediation(candidate: str, *, source: str
         "  Remediate (choose one):\n"
         f"    Confirm {candidate!r} is a genuine, stamped claude-klabauter checkout.\n"
         "    machine-local set repos.claude_klabauter /path/to/claude-klabauter\n"
-        "    Re-run /coordinator:install to populate the repos.* registry entries.\n"
+        "    python3 <claude-klabauter>/scripts/setup.py   (installs and registers the engine)\n"
         "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c"
     )
 

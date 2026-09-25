@@ -107,7 +107,7 @@ escalation_reason: ""                   # one-line; only meaningful if doe_escal
 ## Change-kind taxonomy (closed enum, 13 kinds)
 
 > **Authoritative definition.** The single source of truth for the `change_kind` enum is
-> `docs/wiki/lessons-outbox-schema.md` — including `skill-edit`. The
+> `docs/wiki/schema-and-validation-contracts/lessons-outbox-schema.md` — including `skill-edit`. The
 > summary list below is for reading convenience; if the two diverge, the schema doc wins.
 
 `doctrine-edit` (**doctrine-owner-only**), `agent-prompt-edit`, `hook-edit`, `skill-edit`, `script-edit`, `snippet-sync-update`, `wiki-new`, `wiki-append`, `memory-pointer` (**doctrine-owner-only**), `project-structural`, `retag-local`, `strip-local` (gated on central commit SHA), `discard`.
@@ -152,9 +152,9 @@ When writing a `[universal]` lesson in a project's `state/lessons/` capture queu
 | `[universal]` | Central coordinator wiki (`~/.claude/docs/wiki/`) | Invoke `coordinator-lesson-promote` CLI → `state/lessons-outbox/<ts>-<slug>.yaml`. Do **not** use `coordinator-queue-append` targeting the central queue (`$(python3 coordinator/lib/coordinator-state-root.py --central)/improvement-queue/`, `queue_scope: central`) for this path — the outbox is the correct surface. |
 | `[universal]` | Project-local wiki (`docs/wiki/` in the project repo) | Auto-apply locally via `/learn-lessons` local-mode — unchanged. |
 | `[universal]` | Unknown / not yet determined | Manual-review path: capture the tagged lesson to `state/lessons/<date>-<slug>.yaml` (via `coordinator-lesson-add`) and surface at next `/learn-lessons` central run. |
-| Project-specific | Any | `state/improvement-queue/<date>-<slug>.yaml` in the project repo (per-entry YAML directory — the flat `state/improvement-queue.md` prose file is retired as a write target); `/debt-triage` terminates in the four-outcome baton terminus (solo baton / themed baton / immediate dispatch / explicit park) per `docs/wiki/queue-terminus-doctrine.md` — not a migration to `state/debt-backlog/`. |
+| Project-specific | Any | `state/improvement-queue/<date>-<slug>.yaml` in the project repo (per-entry YAML directory — the flat `state/improvement-queue.md` prose file is retired as a write target); `/debt-triage` terminates in the four-outcome baton terminus (solo baton / themed baton / immediate dispatch / explicit park) per `docs/wiki/ceremony-calibration/queue-terminus-doctrine.md` — not a migration to `state/debt-backlog/`. |
 
-**Source of truth for this routing contract:** `CLAUDE.md § Improvement Queue` (Routing contract paragraph). **Schema for outbox YAML entries:** `docs/wiki/lessons-outbox-schema.md`.
+**Source of truth for this routing contract:** `CLAUDE.md § Improvement Queue` (Routing contract paragraph). **Schema for outbox YAML entries:** `docs/wiki/schema-and-validation-contracts/lessons-outbox-schema.md`.
 
 Test: "If a different project type also used the coordinator pipeline, would this rule apply?" Universal → tag and route per table above. Project-specific → leave un-tagged, queue locally.
 

@@ -12,7 +12,7 @@
  * the shape between them.
  *
  * Spec backlink: docs/plans/2026-07-12-distill-rebuild-claude-klabauter-reliant.md chunk C6.
- * Doctrine: coordinator/docs/wiki/workflow-orchestration.md (vehicle-choice, chunking,
+ * Doctrine: coordinator/docs/wiki/em-operating-model/workflow-orchestration.md (vehicle-choice, chunking,
  * commit-discipline, model-selection rules — this script follows all of them).
  *
  * Negative-spec: the two waves are NEVER merged into one resumable unit — merging re-pays the
@@ -1398,7 +1398,7 @@ Stamp PROVENANCE on every section you add or update, TWO ways, both required:
    derived from <nugget id(s)> -->\`, per docs/wiki/rag-bait-conventions.md.
 2. Machine-readable YAML frontmatter at the TOP of ${wikiPath} (add it if the file has none;
    merge into it if it already has frontmatter — never duplicate the block), per
-   docs/wiki/rag-bait-conventions.md § 5b:
+   docs/wiki/claude-md-surfaces/rag-bait-conventions.md § 5b:
      provenance:
        - archived_spec: <path, if this nugget traces to an archived spec>
          original_path: <pre-move path, if applicable>
@@ -1532,7 +1532,7 @@ main synth pass:
    <nugget id(s)> -->\`, per docs/wiki/rag-bait-conventions.md.
 2. Machine-readable YAML frontmatter at the TOP of ${gap.wikiPath} (add it if none exists;
    merge into existing frontmatter — never duplicate the block), per
-   docs/wiki/rag-bait-conventions.md § 5b (\`archived_spec\`/\`original_path\`/
+   docs/wiki/claude-md-surfaces/rag-bait-conventions.md § 5b (\`archived_spec\`/\`original_path\`/
    \`last_verbose_sha\`/\`distilled\`/\`run_id\`). Omit any of the four optional fields you
    cannot resolve from real evidence rather than guessing a plausible value.
 
@@ -2654,7 +2654,7 @@ the artifact's knowledge, or unresolved synthesis ambiguity). Extract and additi
 remaining knowledge into the relevant docs/wiki/<topic>.md guide (create one if none exists), or a
 docs/decisions/ record for decision-shaped content, direct write with Write/Edit. Stamp
 PROVENANCE the same two ways as the main synth pass (spec-backlink comment + YAML frontmatter,
-docs/wiki/rag-bait-conventions.md).
+docs/wiki/claude-md-surfaces/rag-bait-conventions.md).
 
 Then resolve EACH artifact_path to exactly one of:
 - **DELETE** — extraction now complete, citation exists, no active reference blocks it.

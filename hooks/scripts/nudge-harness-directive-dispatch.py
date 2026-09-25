@@ -23,7 +23,7 @@ a session's ability to end its turn, so there is no failure mode here that exits
 non-zero. The op is additionally self-limiting (once per session, honours
 `stop_hook_active`, `COORDINATOR_HARNESS_DIRECTIVE_NUDGE_OFF=1`).
 
-Wiki: docs/wiki/harness-directive-conflicts.md § Why prose alone has not held
+Wiki: docs/wiki/claude-md-surfaces/harness-directive-conflicts.md § Why prose alone has not held
 
 Executable body: shared with the sibling `nudge-unrouted-sizing.py` shim via
 `_engine_root.run_stop_hook_pointer_shim` — the two shims' bodies differed in

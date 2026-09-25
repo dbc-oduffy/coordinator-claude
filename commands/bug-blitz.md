@@ -60,9 +60,11 @@ nothing, backlog-only leg, note the decline in the report.
 `coordinator-resolve-validation-cmd --full` resolves `TEST_CMD`: exit 0 full suite; exit 3
 fast-tier fallback, report as `fast-fallback`, never call it the full suite; exit 2 unconfigured,
 continue backlog-only, name the remediation, never fabricate a command. EM runs it directly as `with-suite-mutex -- <TEST_CMD>`
-(Tier-U — subagents never run the suite; the suite guard refuses a bare run), dispatches `test-evidence-parser` to classify the captured
-output. Each `real` failure mints `TF-{run-id}-{n}`; `flake`/`env`/`timeout`/`known-skip` aren't
-dispatched. Mechanics: wiki.
+(Tier-U — subagents never run the suite; the suite guard refuses a bare run), pre-scaffolds the
+parser's output (`Edit` cannot create a file) with `printf '<!-- FINDINGS -->\n' >
+state/scratch/bug-blitz/{run-id}/tests.md`, and dispatches `test-evidence-parser` with that path and
+the captured output to classify it. Each `real` failure mints `TF-{run-id}-{n}`;
+`flake`/`env`/`timeout`/`known-skip` aren't dispatched. Mechanics: wiki.
 
 **Empty-backlog-and-green-suite short-circuit:** absent/empty backlog AND fully green resolved
 suite → skip to a one-line all-clear, no commit. Not reachable under decline.
@@ -74,7 +76,7 @@ After Phase 0.7, emit through C4's queue route and fire it interactively:
 ```
 python3 coordinator/bin/emit-dispatch-workflow.py --queue state/bug-backlog --profile bug \
   --appetite <a> --limit <N> --budget-tokens <N> \
-  --out state/scratch/bug-blitz/{run-id}/blitz.workflow.mjs
+  --out state/scratch/bug-blitz/{run-id}/blitz.workflow.mjs --repo-root <abs repo root>
 ```
 
 Resolve `j-bug-blitz-commit-readiness` before firing — firing IS the emitted grind's first
@@ -90,7 +92,7 @@ pre-run cost estimate.
 ## Spinoff Gate — Mint Themed Batons from the Baton Hand-Back After the Run
 
 Cluster the hand-back's `baton` rows with `detect-initiative-candidates`, author to
-`coordinator/docs/wiki/baton-authoring-bar.md`'s bar. The only mint-time check that remains here
+`coordinator/docs/wiki/baton-lifecycle/baton-authoring-bar.md`'s bar. The only mint-time check that remains here
 is "not already covered by a live handoff or plan" — phantom and mis-size checks are triage
 policy already applied inside the grind, per the profile. No PM authorization message: the fire
 already discharged it.
@@ -104,10 +106,10 @@ command from the receipt.
 
 ## Queue Terminus
 
-The four outcome classes of `coordinator/docs/wiki/queue-terminus-doctrine.md` — cite, don't
+The four outcome classes of `coordinator/docs/wiki/ceremony-calibration/queue-terminus-doctrine.md` — cite, don't
 restate: dispatch (`small`/`fix`), solo spinoff (`big`, PM-authorized), close
 (already-fixed/file-removed/wontfix), themed baton (N `small` items sharing a thesis, clustered
-via `detect-initiative-candidates`, authored to `coordinator/docs/wiki/baton-authoring-bar.md`'s
+via `detect-initiative-candidates`, authored to `coordinator/docs/wiki/baton-lifecycle/baton-authoring-bar.md`'s
 bar as one multi-item handoff). Firing the emitted grind is the run-authority act: it stands in
 for the PM-authorization gate a themed baton or a `big` item would otherwise need, per the Spinoff
 Gate above. Bug-specific dispositions — severity, repro, the `wontfix` status value — are

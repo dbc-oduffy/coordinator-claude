@@ -44,7 +44,7 @@ signals it. A named `Explore` is therefore not read-only, silently.
 Framing (PM correction, 2026-07-30): this is NOT a security boundary. The
 mechanism is real but the harm is an eager agent exceeding what the call site
 implies, on a git-tracked, recoverable tree -- the "defends against eager,
-not adversary" class (docs/wiki/bash-guard-threat-model.md), not a safety
+not adversary" class (docs/wiki/guards/bash-guard-threat-model.md), not a safety
 chunk. The defect that matters is correctness and cost: the dispatch bills
 ~48.6k tokens instead of ~17.6k and does not do what its call site says.
 Do not restate a safety framing in this guard's message, commit, or any

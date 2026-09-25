@@ -77,7 +77,7 @@ the same wrong-repo guard and written through the same
 Write path: the sanctioned CLI writer, `machine-local set
 engine.working_repos.doe_claude <path>` — never a hand-edit of the registry
 TOML (a concurrent session may be writing it; see
-`docs/wiki/machine-local-registry.md` § "Use this instead of editing
+`docs/wiki/hook-best-practices/machine-local-registry.md` § "Use this instead of editing
 registry files by hand"). Delegated to `_registry_write.machine_local_set`,
 the shared write seam, which runs the `_machine_local.py` implementation
 under `sys.executable` — never the `machine-local`/`machine-local.cmd`

@@ -23,10 +23,15 @@ shape, its closest sibling in both naming and lifecycle. `main()` parses
 so this trampoline never returns and never needs its own `sys.exit()` call.
 
 Fail-loud-on-ambiguity: if the engine root cannot be resolved or the claude-klabauter
-module is not importable, exit 1 rather than 0 — a silent no-op here would
-be indistinguishable from "op declined", which is the exact ambiguity
+module is not importable, exit non-zero rather than 0 — a silent no-op here
+would be indistinguishable from "op declined", which is the exact ambiguity
 `coordinator-invoke`'s own pyproject.toml comment calls out as the reason
 this entrypoint must fail as "command not found", not a mid-dispatch decline.
+
+Exit 2 means no engine root resolved; exit 1 means the engine resolved but
+`coordinator_core.invoke` would not import. `coordinator-invoke ping '{}'`
+is therefore the reachability probe. Never cold-start or provision an
+engine here on a miss: provisioning is `scripts/cloud_setup.py`'s alone.
 
 Entry placement: no edit to coordinator/lib/bin-templates-manifest.py is
 needed or wanted, for the same reason coordinator-install.py's docstring
@@ -56,8 +61,15 @@ def main(argv: "list[str] | None" = None) -> int:
     try:
         op_main = _import_main()
     except RuntimeError as exc:
-        print(f"coordinator-invoke.py: engine-root resolution failed: {exc}", file=sys.stderr)
-        return 1
+        print(
+            "coordinator-invoke.py: engine unreachable (searched "
+            "COORDINATOR_ENGINE_ROOT, machine-local pointer files, "
+            "repos.claude_klabauter, self-location). Run: python3 "
+            "<claude-klabauter>/scripts/setup.py (cloud box: scripts/cloud_setup.py)",
+            file=sys.stderr,
+        )
+        print(f"coordinator-invoke.py: detail: {exc}", file=sys.stderr)
+        return 2
     except ImportError as exc:
         print(
             f"coordinator-invoke.py: coordinator_core.invoke.__main__ "

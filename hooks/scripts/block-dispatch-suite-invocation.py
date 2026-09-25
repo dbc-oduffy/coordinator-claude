@@ -251,7 +251,7 @@ from _message_envelope import compose, render  # noqa: E402
 #: in the deny/advisory prose. See docs/plans/2026-08-02-guard-message-
 #: character-cap.md § C6.
 _WIKI_ANCHOR = (
-    "coordinator/docs/wiki/guard-message-concision.md"
+    "coordinator/docs/wiki/guards/guard-message-concision.md"
     "#dispatch-suite-guard-overrides-and-directory-breadth-advisory"
 )
 

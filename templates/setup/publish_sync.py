@@ -145,7 +145,7 @@ def _locate_percolate_lib() -> Path:
     second matcher implementation is exactly the drift this delegation
     exists to prevent (detect-then-fail-loud on ambiguity, never
     detect-then-silently-pick — see
-    coordinator/docs/wiki/implementation-standards-by-domain.md §
+    coordinator/docs/wiki/doctrine-authoring/implementation-standards-by-domain.md §
     Cross-cutting standards; formerly coordinator/CLAUDE.md § Implementation
     Standards, retired 2026-07-27).
     """

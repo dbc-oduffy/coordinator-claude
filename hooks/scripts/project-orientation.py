@@ -132,7 +132,7 @@ def _run(cmd: list, cwd: Optional[Path] = None, timeout: float = 5.0) -> subproc
     Mirrors session-init.py's `_run()` exactly (same CREATE_NO_WINDOW flag —
     no bare console-subprocess popup on Windows under the headless Bash-tool
     parent; the canonical fix is creationflags=CREATE_NO_WINDOW at the Python
-    spawn site — see docs/wiki/windows-process-spawn-and-console.md §2).
+    spawn site — see docs/wiki/portability/windows-process-spawn-and-console.md §2).
     """
     try:
         return subprocess.run(
@@ -1029,7 +1029,7 @@ def local_install_surface_banner(repo_root: Optional[str]) -> None:
 # `2026-08-27-cadence-gate-feedback-loop.md`, C2) reuses the SAME threshold deliberately rather
 # than inventing a second staleness convention (that plan's Anti-scope) -- both banners read a
 # `ran_at`-bearing sentinel and both are daily-cadence artifacts, so one concern-neutral constant
-# is correct, not coincidental reuse. `docs/wiki/addon-health-sentinel.md`: "stale sentinels
+# is correct, not coincidental reuse. `docs/wiki/addon-protocol/addon-health-sentinel.md`: "stale sentinels
 # (>24h since ran_at)". P-19 refreshes daily under `/workday-start` Step 1.10, so a cache within
 # this window reflects that day's run.
 _CURRENCY_BANNER_STALE_HOURS = 24
@@ -1101,7 +1101,7 @@ def install_currency_banner(repo_root: Optional[str]) -> None:
 
     `source_is_live` silences only the PLUGIN surface covered by this function -- it must never be
     read as silencing the engine-currency surface (§ Engine anchor — open contract,
-    `docs/wiki/release-cadence-and-currency-notification.md`), which is a distinct, not-yet-built
+    `docs/wiki/release-and-distribution/release-cadence-and-currency-notification.md`), which is a distinct, not-yet-built
     axis this function does not touch.
     """
     if os.environ.get("COORDINATOR_CURRENCY_STATUS_OFF"):

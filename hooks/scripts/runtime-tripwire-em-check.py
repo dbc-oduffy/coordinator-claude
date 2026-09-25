@@ -20,7 +20,7 @@ artifact scan). Per the W5 straggler-port contract: port the logic directly
 into a self-contained hook rather than inventing a new engine-repo op.
 
 Spec backlink: docs/plans/2026-06-08-runtime-tripwire-background-executors.md § C3b
-Wiki: docs/wiki/runtime-tripwire.md
+Wiki: docs/wiki/hook-best-practices/runtime-tripwire.md
 
 This is the EM-side complement to the former bash advisory hook /
 postuse-advisory-dispatch.py's _check_runtime_tripwire_sync (which fires

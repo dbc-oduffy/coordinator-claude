@@ -210,7 +210,7 @@ Reads `## Anti-scope` as **prose, deliberately**.
 
 **Finding (correction inline):** quote it, cite tripwire `A-PLAN-DOES-NOT-PICK-THE-EXECUTION-VEHICLE`:
 - Shared write target → "re-express as a `depends_on` edge on the task-spine, not a vehicle prohibition."
-- A shape a Workflow can't express → "re-express as a named carve-out per `coordinator/docs/wiki/workflow-orchestration.md` § What qualifies as a carve-out — 'the plan says so' is not one."
+- A shape a Workflow can't express → "re-express as a named carve-out per `coordinator/docs/wiki/em-operating-model/workflow-orchestration.md` § What qualifies as a carve-out — 'the plan says so' is not one."
 
 No `## Anti-scope` section → silent.
 

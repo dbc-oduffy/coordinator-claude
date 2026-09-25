@@ -23,7 +23,7 @@ Purpose: Registered on the Stop hook event with asyncRewake: true. Fires at
          overrunning dispatch.
 
 Spec backlink: docs/plans/2026-06-15-runtime-tripwire-idle-em-layered-fix.md § C2a
-Wiki: docs/wiki/runtime-tripwire.md § L2
+Wiki: docs/wiki/hook-best-practices/runtime-tripwire.md § L2
 Bash original: retired by the repo-wide bash-kill campaign; this module is
   now the sole implementation.
 

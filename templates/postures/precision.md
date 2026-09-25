@@ -10,4 +10,4 @@ means they would not have chosen is not finished.
 - **Doubling-back tolerance: LOW.** Right on the first pass; pause at an unweighed fork.
 - Every default gate fires, at the same or higher visibility.
 
-Full text, other anchors: `coordinator/docs/wiki/posture-anchors.md`.
+Full text, other anchors: `coordinator/docs/wiki/em-operating-model/posture-anchors.md`.

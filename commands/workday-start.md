@@ -310,7 +310,7 @@ sentinel run and its boot line doesn't go quiet — it degrades to `stale-unknow
 refresh window.
 `<ENGINE-CURRENCY-PROBE-PLACEHOLDER>`: engine leg, still not in this batch. C6's cross-plane
 contract with claude-klabauter-em converged
-(`coordinator/docs/wiki/release-cadence-and-currency-notification.md` § Engine anchor — converged contract:
+(`coordinator/docs/wiki/release-and-distribution/release-cadence-and-currency-notification.md` § Engine anchor — converged contract:
 `version.txt` source SHA + `track_ref`/channel field) — but the engine-side probe (P-20, a sibling
 to P-19 pointed at that surface) is the engine repo's to implement on the engine repo's own surface,
 not yet shipped. Add the real invocation here once it ships; do not invent one now, that surface is

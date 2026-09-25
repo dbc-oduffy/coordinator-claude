@@ -45,7 +45,7 @@ export const meta = {
   ],
 }
 
-// Model-tier discipline (coordinator/docs/wiki/delegate-execution.md § Model Selection
+// Model-tier discipline (coordinator/docs/wiki/dispatching-parallel-agents/delegate-execution.md § Model Selection
 // Rubric, and staff-eng.md/vp-product.md's own "Do Not Commit"/Tools Policy sections):
 //   - Judgment/review personas (vp-product, staff-eng) run OPUS, but their write access is for
 //     their OWN findings/recommendation artifact only -- staff-eng.md is explicit: "never change

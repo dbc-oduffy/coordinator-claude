@@ -265,7 +265,7 @@ def block_obligation(
     memo, and the folding/read side lives there, not here -- this repo is
     the ledger's sole WRITER for this op, the same relationship it already
     has with the intake side of `_next_move_ledger.py`. See
-    `coordinator/docs/wiki/obligations-inbound-intake.md` for the contract.
+    `coordinator/docs/wiki/cross-repo-communication/obligations-inbound-intake.md` for the contract.
     A future reader with a dead-code eye: check that wiki before deleting --
     a write-only field with no local consumer is the correct shape here, not
     a defect.
@@ -381,7 +381,7 @@ def mark_fired(session_id: str, obligation_id: str) -> bool:
 #                     --delete--> (only after the fold committed)
 #
 # Row shape, one JSON object per line. The producing plane's copy of this
-# table lives at `coordinator/docs/wiki/obligations-inbound-intake.md`:
+# table lives at `coordinator/docs/wiki/cross-repo-communication/obligations-inbound-intake.md`:
 #
 #   schema         int, must be 1
 #   session_id     str, the session the obligation belongs to; must equal the

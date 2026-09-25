@@ -26,7 +26,7 @@ its own SessionStart stdout convention, not by any structured
 Delivery is by an ORDERED MANIFEST of EM-only snippets (`_EM_SNIPPET_MANIFEST`
 below), not a single hardcoded path — `agent-role-em.md` is the resident
 role-assertion core, budgeted under the 2KB-First Rule
-(`coordinator/docs/wiki/doctrine-channel-purposes.md:175`). Fuller
+(`coordinator/docs/wiki/claude-md-surfaces/doctrine-channel-purposes.md:175`). Fuller
 EM-addressed operating doctrine (`em-operating-doctrine.md`) is deliberately
 NOT a manifest entry: it fires at a moment that names itself (the EM's own
 first dispatch), so it is read via the resident core's trigger-named pointer

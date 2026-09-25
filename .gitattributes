@@ -1,7 +1,7 @@
 # Byte-equal cross-repo conformance fixture: pin LF explicitly so it does not
 # diverge to CRLF under autocrlf on a Windows checkout. This .gitattributes lives
 # INSIDE the publish source root (not the meta-repo root) so the pin ships to the
-# OSS coordinator-claude publish. See docs/wiki/cross-repo-contract-test-discipline.md
+# OSS coordinator-claude publish. See docs/wiki/cross-repo-communication/cross-repo-contract-test-discipline.md
 # and docs/wiki/step-zero-emitter-contract.md.
 tests/fixtures/step-zero-conformance.json text eol=lf
 
@@ -19,8 +19,8 @@ artifact-shape-contract/artifact-shape-contract.schema.json text eol=lf
 # checked out CRLF, and a CRLF shell script emits a stray \r into its own
 # stdout, silently corrupting any pipeline consuming it (invisible on
 # macOS/Linux, fails far from its cause). See
-# docs/wiki/gitattributes-lfs-carve-outs.md for the last-match-wins semantics
-# these pins rely on, and docs/wiki/windows-cmd-shims.md for the CRLF
+# docs/wiki/concurrent-em-git-operations/gitattributes-lfs-carve-outs.md for the last-match-wins semantics
+# these pins rely on, and docs/wiki/portability/windows-cmd-shims.md for the CRLF
 # counterpart below.
 *.sh text eol=lf
 *.py text eol=lf
@@ -49,6 +49,6 @@ bin/* text eol=lf
 # consumer's core.autocrlf setting on checkout. See docs/wiki/windows-cmd-shims.md.
 # NOTE: *.cmd must stay the LAST line in this file — bin/* above also matches
 # .cmd files under bin/ (last-match-wins; see
-# docs/wiki/gitattributes-lfs-carve-outs.md), so this rule must resolve after
+# docs/wiki/concurrent-em-git-operations/gitattributes-lfs-carve-outs.md), so this rule must resolve after
 # it to keep .cmd pinned CRLF instead of falling through to bin/*'s LF.
 *.cmd text eol=crlf

@@ -69,6 +69,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # § Fire the wave: "Batons come from waves[0], at most 8 per fire."
@@ -637,6 +638,52 @@ def _trail_provenance(trail_dir: Path, fresh_ref: dict) -> list[str]:
     return lines
 
 
+def _write_fire_receipt(script_path: Path) -> None:
+    """Write `<script_path>.emitted.json` beside a just-written fire, in the
+    SAME shape `coordinator_core.ops.dispatch_emit.op._write_emission_receipt`
+    writes (module docstring "The receipt is a property of emitting, not of
+    one repo's wrapper") — same keys, same raw-bytes sha256, same
+    `isoformat(timespec="seconds")`, same `json.dumps(..., indent=2,
+    sort_keys=True) + "\\n"`. `hooks.block_workflow_foreign_emission` reads
+    receipts by shape alone, never by which emitter wrote them, so a
+    matching receipt here is what makes a fire's `Workflow({scriptPath})`
+    sanctioned exactly like a `dispatch.emit`/`emit-dispatch-workflow.py`
+    emission.
+
+    Reimplemented, not imported: this script runs as a bare CLI (no bound
+    per-request session identity), so `session_id` is read straight off
+    `coordinator_core.session.core.resolve_session_id`'s own env-var tiers
+    (`COORDINATOR_SESSION_ID`, `CLAUDE_SESSION_ID`, `CLAUDE_CODE_SESSION_ID`)
+    — the same ladder the op uses, minus the ContextVar tier that only a
+    bound warm-request carries.
+
+    Best-effort, mirroring the op's own contract: a receipt that fails to
+    write narrates on stderr and never fails the emit — the script is the
+    deliverable, the receipt is evidence about it.
+    """
+    receipt_path = script_path.with_name(script_path.name + ".emitted.json")
+    try:
+        import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+        from cc_invoke import require_colocated_engine_on_path
+
+        require_colocated_engine_on_path(__file__)
+        from coordinator_core.session.core import resolve_session_id
+
+        receipt = {
+            "sha256": hashlib.sha256(script_path.read_bytes()).hexdigest(),
+            "session_id": resolve_session_id() or "",
+            "emitted_at": datetime.now().isoformat(timespec="seconds"),
+            "plan": None,
+        }
+        receipt_path.write_text(
+            json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+    except Exception as exc:  # noqa: BLE001 -- best-effort; must never fail the emit
+        print(f"  WARNING: could not write emission receipt for {script_path.name}: {exc}", file=sys.stderr)
+
+
 def _bind(
     script_path: Path,
     args: dict,
@@ -1031,6 +1078,7 @@ def _emit_repair(args, repo_root: Path, trail_dir: Path, plugin_root: Path, engi
     )
     out = trail_dir / f"repair-fire-{n}.mjs"
     out.write_text(text, encoding="utf-8", newline="\n")
+    _write_fire_receipt(out)
 
     manifest = [{"fire": n, "scriptPath": str(out), "batons": [e["batonId"] for e in entries]}]
     if args.json:
@@ -1490,6 +1538,7 @@ def main(argv=None) -> int:
         # LF on every host: Windows newline translation writes a CR per line, and the harness
         # refuses a Workflow script carrying control characters its approval dialog would hide.
         out.write_text(text, encoding="utf-8", newline="\n")
+        _write_fire_receipt(out)
         manifest.append(
             {"fire": n, "scriptPath": str(out), "batons": [b["id"] for b in batch]}
         )

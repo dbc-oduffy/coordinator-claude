@@ -74,7 +74,7 @@ from _message_envelope import compose, render  # noqa: E402
 #: docs/plans/2026-08-02-guard-message-character-cap.md § C6 and this
 #: hook's own relocation fragment
 #: (state/relocations/guard-message-cap/plan-persistence-check.py.md).
-_WIKI_ANCHOR = "coordinator/docs/wiki/guard-message-concision.md#plan-persistence-check"
+_WIKI_ANCHOR = "coordinator/docs/wiki/guards/guard-message-concision.md#plan-persistence-check"
 
 
 # ---------------------------------------------------------------------------

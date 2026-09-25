@@ -120,7 +120,7 @@ entries:
   # HAND sections ship as documented placeholders (EAGER-with-HAND-placeholder is compliant
   # with produce-not-prescribe.md — real derivable content exists on day 1).
   # kind: exec-summary is deliberately outside the schema registry — no schemas/ entry by
-  # design (light render path, no typed entity). See docs/wiki/exec-summary-artifact.md
+  # design (light render path, no typed entity). See docs/wiki/em-operating-model/exec-summary-artifact.md
   # § Deliberately outside the schema registry.
   # Spec backlink: docs/plans/2026-07-03-exec-summary-per-repo-brief.md § D3
   - path: docs/exec-summary.md

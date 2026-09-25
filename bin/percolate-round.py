@@ -2061,7 +2061,14 @@ def _published_seed_names(percolate_root: str, target: str, seed: "set[str]") ->
         for pair in section.get("basename_rename") or []
         if not str(pair["src"]).endswith("/")
     }
-    return {renames.get(name, name) for name in seed}
+    # Pairs are basenames and the transform renames at any depth, so map the
+    # basename and keep the directory.
+    def _published(name: str) -> str:
+        head, _, base = name.rpartition("/")
+        new = renames.get(base, base)
+        return f"{head}/{new}" if head else new
+
+    return {_published(name) for name in seed}
 
 
 def _wiki_seed_mismatch(
