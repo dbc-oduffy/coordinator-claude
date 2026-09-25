@@ -10,7 +10,7 @@ sibling repos) were reduced to plain descriptive text, since this page ships in 
 and those pointers would otherwise dangle. That de-identification pass is the only editing this
 > page has received.
 >
-> **For current releases, see [`CHANGELOG.md`](../../CHANGELOG.md).** That file carries v4.0.0 and
+> **For current releases, see [`CHANGELOG.md`](../../../CHANGELOG.md).** That file carries v4.0.0 and
 > the compressed v2.7.0 → v3.1.0 line, which is where the upgrade path from the last published
 > release runs.
 
