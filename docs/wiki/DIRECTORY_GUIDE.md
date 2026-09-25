@@ -7,8 +7,7 @@ into `docs/wiki/<name>/README.md` plus sibling body files links to `<name>/READM
 generated index), never a bare `<name>.md`, which is not a valid path for a split page. The
 split's body files are `<name>`'s internal structure and get no separate top-level row.
 
-Per-family `_index.md` files, once the navigable-wiki-hierarchy generator lands, supersede this
-table's rows for pages inside a family — see `doctrine-authoring/navigable-wiki-hierarchy.md`.
+Per-family `_index.md` files, where present, supersede this table's rows for pages inside a family.
 
 | Guide | System | One-line |
 |-------|--------|----------|
@@ -39,7 +38,6 @@ table's rows for pages inside a family — see `doctrine-authoring/navigable-wik
 | [cleanup-sweep-hazards](./bug-blitz-residue/cleanup-sweep-hazards.md) | cleanup-sweep | Recurring failure modes for cleanup, sweep, and migration operations |
 | `coordinator/docs/wiki/install-playbook-rationale/cloud-container-egress.md` (internal source repo only — not in the OSS seed, so its absence from a mirrored tree is expected) | cloud-container-egress | Proven vs dead-end paths for getting an artifact off a Claude-Code-cloud container (no `gh` CLI, MCP-only GitHub access, no release-create/asset-upload MCP tool); ownership split (project-rag owns its own API-native fallback, MCP-native upload is an upstream platform ask); sibling to `coordinator/docs/wiki/addon-protocol/corpus-artifact-distribution.md` (same-machine landing, not egress) — likewise source-repo only |
 | [migration-script-conventions](./doctrine-authoring/migration-script-conventions.md) | migration-script | Path-rename/relocation migration scripts: enumerate with `find` not `grep --include`; rmdir empty source dirs before `git mv` |
-| [navigable-wiki-hierarchy](./doctrine-authoring/navigable-wiki-hierarchy.md) | navigable-wiki-hierarchy | The directory-is-the-hierarchy rule: `X.md` beside `X/`, a new page goes into a family never the root, basenames never renamed or duplicated, `_index.md` generated never hand-written, pathed citations resolve through the moved verdict — plus the fleet adoption recipe other repos follow |
 | [completion-log-release-loop](./release-and-distribution/completion-log-release-loop.md) | completion-log | Four-stage loop (workstream-complete → workday-complete → workweek-complete → merge-to-main): per-entry schema, query recipes, migration, absence-as-signal doctrine |
 | [multi-channel-claim-discipline](./concurrent-em-git-operations/multi-channel-claim-discipline.md) | multi-channel-claims | Cross-cutting infrastructure claims (changelogs, release notes, completion entries) must enumerate channel coverage before claiming "fixed" — scope-vs-channel polarity hazard |
 | [consumer-self-evolution-loop](./lesson-triage/consumer-self-evolution-loop.md) | consumer-self-evolution | How a downstream `coordinator-claude` consumer gets a working local self-improvement loop (`learn-lessons` local mode → `$GIT_ROOT/state`, never `~/.claude`) — and why upstream's central improvement queue is fleet-private with an accepted, by-design dogfooding-blindness gap |
