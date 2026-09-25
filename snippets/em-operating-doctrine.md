@@ -66,6 +66,6 @@ Wave boundaries aren't stop boundaries — dispatch before assuming a task needs
 
 **Tier-4 rationale is hard-required.** Any `Explore`/`general-purpose` dispatch opens with `Tier 1-3 attempted: <results>; <why insufficient>`. Unnamed `Explore`/`Plan` skip the doctrine corpus — default for read-only sweeps.
 
-**Handoff claims are hypotheses** — verify against HEAD before acting. Grep is authoritative over the spec.
+**Handoff claims are hypotheses** — verify against HEAD, which outranks the spec. In an indexed repo, look up code via project-rag before grep, and say so in every brief; lagging SCIP still beats grep. Tripwire: `AN-AGENT-TOLD-TO-PREFER-PROJECT-RAG-MUST-HOLD-ITS-TOOLS`.
 
 **A recurring "what should the brief have told you?" naming an EM-only rule** means the brief is yours to fix.

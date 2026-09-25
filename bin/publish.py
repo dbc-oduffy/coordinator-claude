@@ -10048,11 +10048,19 @@ def _create_publish_staging_dir(dest_dir: Path) -> Path:
     `ignore_errors=True` would.
     """
     staging_parent = _publish_staging_parent(dest_dir)
-    if staging_parent != dest_dir.parent:
-        staging_parent.mkdir(parents=True, exist_ok=True)
-    staging_dir = Path(
-        tempfile.mkdtemp(prefix=f".{dest_dir.name}.publish-staging-", dir=str(staging_parent))
-    )
+    # Two attempts: a concurrent row's `_remove_empty_publish_staging_parent`
+    # can rmdir the fallback parent between our mkdir and mkdtemp.
+    for attempt in (1, 2):
+        if staging_parent != dest_dir.parent:
+            staging_parent.mkdir(parents=True, exist_ok=True)
+        try:
+            staging_dir = Path(
+                tempfile.mkdtemp(prefix=f".{dest_dir.name}.publish-staging-", dir=str(staging_parent))
+            )
+            break
+        except FileNotFoundError:
+            if attempt == 2:
+                raise
     unstaged = _fleet_env_unstaged_names(dest_dir)
 
     def _ignore(directory: str, names: list[str]) -> set[str]:
@@ -10168,6 +10176,24 @@ def _sweep_stale_publish_staging_dirs(
                 )
     except OSError as exc:
         warn(totals, f"stale publish-staging sweep failed for {dest_dir}: {exc}", out=out)
+    if not dry_run:
+        _remove_empty_publish_staging_parent(dest_dir)
+
+
+def _remove_empty_publish_staging_parent(dest_dir: Path) -> None:
+    """Removes the anchor-fallback staging parent (§ `_publish_staging_parent`)
+    once nothing is in it, so no `.<mirror>.publish-staging-root` sits in the
+    drive root between publishes. `rmdir` only succeeds on an empty directory:
+    a concurrent row's live staging dir or a stranded `.prior` (which must
+    survive for refuse-on-detection) keeps it. The ordinary `dest_dir.parent`
+    case is never touched."""
+    staging_parent = _publish_staging_parent(dest_dir)
+    if staging_parent == dest_dir.parent:
+        return
+    try:
+        staging_parent.rmdir()
+    except OSError:
+        pass
 
 
 def _dir_trees_equal(a: Path, b: Path) -> bool:
@@ -12022,6 +12048,8 @@ def process_target(
         # before staging was ever created) is a no-op.
         if not staging_swapped:
             _discard_publish_staging_dir(staging_dir)
+        if staging_dir is not None:
+            _remove_empty_publish_staging_parent(target.dest_dir)
         # Allowlist restricted-tree cleanup — matches the bash original's
         # `rm -rf "$_ALLOWLIST_TMP_SRC"` at the end of each target iteration
         # (setup/publish.sh). Runs on both the success path above and

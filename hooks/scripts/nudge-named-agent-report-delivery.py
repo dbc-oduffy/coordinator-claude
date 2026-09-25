@@ -92,8 +92,8 @@ def main() -> int:
     if not root:
         return 0  # fail-open silent pass -- engine plane unresolvable on this machine
 
-    if root not in sys.path:
-        sys.path.insert(0, root)
+    from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
+    _place_engine_root_on_path(root)
 
     try:
         from coordinator_core.hooks import nudge_named_agent_report_delivery as _op  # noqa: F401

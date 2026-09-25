@@ -1184,8 +1184,8 @@ def _capture_producer(
         _log_producer_capture_failure(session_id, typed_command, "engine_unresolvable")
         return
 
-    if root not in sys.path:
-        sys.path.insert(0, root)
+    from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
+    _place_engine_root_on_path(root)
 
     try:
         from coordinator_core.session import shape as _shape

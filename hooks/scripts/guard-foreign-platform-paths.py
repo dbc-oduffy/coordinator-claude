@@ -80,8 +80,8 @@ def main() -> int:
     if not root:
         return 0  # fail-open — engine repo unresolvable on this machine
 
-    if root not in sys.path:
-        sys.path.insert(0, root)
+    from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
+    _place_engine_root_on_path(root)
 
     # Single direct-import engine call, no dispatch-by-name -- the ~80-module
     # eager op-registry population is dead weight here. Must precede the first

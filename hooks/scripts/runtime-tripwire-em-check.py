@@ -684,8 +684,8 @@ def _push_failure_verdict(git_root: str) -> tuple[dict | None, str | None]:
         root = _resolve_claude_klabauter_root()
         if not root:
             return None, "unreachable"
-        if root not in sys.path:
-            sys.path.insert(0, root)
+        from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
+        _place_engine_root_on_path(root)
         from coordinator_core.ops import push_failure_verdict as _op  # noqa: F401
         from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
     except Exception:
@@ -1513,8 +1513,8 @@ def _check_zero_tool_use_surface(
         root = _resolve_claude_klabauter_root()
         if not root:
             return None, None
-        if root not in sys.path:
-            sys.path.insert(0, root)
+        from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
+        _place_engine_root_on_path(root)
         from coordinator_core.hooks import subagent_zero_tool_use_surface as _op  # noqa: F401
         from coordinator_core.ipc import dispatch_message
 
@@ -1896,8 +1896,8 @@ def _mint_session_baton(
         root = _resolve_claude_klabauter_root()
         if not root:
             return mint_advisory
-        if root not in sys.path:
-            sys.path.insert(0, root)
+        from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
+        _place_engine_root_on_path(root)
 
         _arm_lazy_ops()  # sys attribute, in-process only -- see comment block above
         from coordinator_core.ops.session_baton_mint import _handler

@@ -383,8 +383,8 @@ def _classify(text: str) -> "list[Any]":
     if not claude_klabauter_root:
         return []
 
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
+    _place_engine_root_on_path(claude_klabauter_root)
 
     try:
         from coordinator_core.bash_guards.check_test_suite_invocation import (  # noqa: E402
@@ -420,8 +420,8 @@ def _classify_precision(text: str) -> "list[Any]":
     if not claude_klabauter_root:
         return []
 
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
+    _place_engine_root_on_path(claude_klabauter_root)
 
     try:
         from coordinator_core.bash_guards.check_test_suite_invocation import (  # noqa: E402
