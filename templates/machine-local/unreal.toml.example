@@ -1,6 +1,6 @@
 # ~/.coordinator-claude-settings/machine-local/unreal.toml  (TRACKED — shared baseline)
 #
-# Spec backlink: docs/wiki/machine-local-registry.md §5b (concern-file convention)
+# Spec backlink: docs/wiki/hook-best-practices/machine-local-registry.md §5b (concern-file convention)
 #
 # Concern file for the `unreal.*` namespace.
 #

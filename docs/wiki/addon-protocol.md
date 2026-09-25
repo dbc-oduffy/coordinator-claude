@@ -76,7 +76,7 @@ extraction to `example-game-workbench-repo` is Wave 2b.
       the same architectural shape as the v6 `register_schema_tables` /
       `register_schema_edge_types` precedent. Zero UE source_type names in host
       code (polarity rule). Full contract:
-      [`docs/wiki/chunk-metadata-schema-seam.md`](chunk-metadata-schema-seam.md).
+      [`docs/wiki/schema-and-validation-contracts/chunk-metadata-schema-seam.md`](./schema-and-validation-contracts/chunk-metadata-schema-seam.md).
 
       **Joint v6 surface — concurrent W8c T1 contribution
       lands eight additional façades + eight hookspecs under the same v6
@@ -223,7 +223,7 @@ extraction to `example-game-workbench-repo` is Wave 2b.
          original `single_file_runner` carve-out shape, refined by the inert-vs-
          wrap discrimination above. Forward-compat guard for addon hookimpls:
          `if "structural_index_resolver" in CorpusBand.__dataclass_fields__: ...`.
-         Full field contract and opaque-resource semantics: `docs/wiki/corpus-band-protocol.md`.
+         Full field contract and opaque-resource semantics: `docs/wiki/addon-protocol/corpus-band-protocol.md`.
 
       3. **CI-time / load-time registry-content invariants are
          dispatch-gating (clause added with the v10 → v11 bump).** A new
@@ -439,7 +439,7 @@ across all registered addons.
 | `project_rag_register_health_field` | `list[AddonHealthFieldSpec]` | Addon-contributed health subfields; land in ``addon_fields`` envelope sub-block (v5, WS-1 Step 3) |
 | `project_rag_register_schema_tables` | `list[AddonTableSpec]` | Addon-contributed table DDL; host executes each spec's `ddl` + `indexes` after core DDL on every `init_graph_db` open. `schema_extension_version` in the capability dict is load-bearing: host upserts it into `addon_schema_versions` for observability. DDL must use `CREATE TABLE IF NOT EXISTS`; indexes must use `CREATE INDEX IF NOT EXISTS`. Parse-tested against `:memory:` at registration; malformed DDL raises `AddonRegistrationError` at boot (v6, Phase-1 addon-extensible-schema) |
 | `project_rag_register_schema_edge_types` | `list[AddonEdgeTypeSpec]` | Addon-contributed edge type names; host builds `EdgeTypeRegistry` from `CORE_EDGE_TYPES` + all hookimpl returns at `init_graph_db` time. Registry is constructed fresh per `init_graph_db` invocation — no module-global state. Extractor INSERT sites validate against the registry; unknown edge types raise `UnknownEdgeTypeError` (v6, Phase-1 addon-extensible-schema) |
-| `project_rag_register_chunk_metadata_extras` | `list[AddonChunkMetadataExtrasSpec]` | Per-source-type Layer-1 chunk field extras the addon contributes. Host unions all registered specs per `source_type` at validation time; canonical-eight and `_UNIVERSAL_EXTRAS` are host-owned and not extensible through this hookspec. Parallel-call (no `firstresult`). Graceful-fail: return `[]` when no extras applicable. Collision with canonical-eight or `_UNIVERSAL_EXTRAS` raises `AddonRegistrationError` at registration time. See [`chunk-metadata-schema-seam.md`](chunk-metadata-schema-seam.md) (v7, γ-prime) |
+| `project_rag_register_chunk_metadata_extras` | `list[AddonChunkMetadataExtrasSpec]` | Per-source-type Layer-1 chunk field extras the addon contributes. Host unions all registered specs per `source_type` at validation time; canonical-eight and `_UNIVERSAL_EXTRAS` are host-owned and not extensible through this hookspec. Parallel-call (no `firstresult`). Graceful-fail: return `[]` when no extras applicable. Collision with canonical-eight or `_UNIVERSAL_EXTRAS` raises `AddonRegistrationError` at registration time. See [`chunk-metadata-schema-seam.md`](./schema-and-validation-contracts/chunk-metadata-schema-seam.md) (v7, γ-prime) |
 
 Hookspec naming uses a single `project_rag_` namespace. There is no per-hook
 versioning — `ADDON_PROTOCOL_VERSION` is the single version constant.
@@ -604,7 +604,7 @@ The UE addon uses this to contribute `ue_plugin_enabled`, replacing the deprecat
 
 All eight v6 hookspecs land under `ADDON_PROTOCOL_VERSION=6`. Full hookspec signatures are in
 `core/addon_hookspecs.py`. Full capability-dispatch doctrine is in
-[capability-dispatch.md](capability-dispatch.md).
+[capability-dispatch.md](./addon-protocol/capability-dispatch.md).
 
 ### `AddonProducerSpec` polarity flip (v6, W8c)
 
@@ -615,13 +615,13 @@ gate at `priming/producer_runner.py` resolves each capability through
 
 No transition alias — PM 2026-05-16 OQ-2 disposition: **stop, not warn**. Old manifests
 declaring `requires_editor:` or `domain:` raise `ManifestSchemaError` with the migration
-path documented in [capability-dispatch.md](capability-dispatch.md) §Migration.
+path documented in [capability-dispatch.md](./addon-protocol/capability-dispatch.md) §Migration.
 
 ### Six capability-dispatch hookspecs (W8c)
 
 | Hookspec | Pluggy semantics | Returns | Notes |
 |---|---|---|---|
-| `project_rag_provide_capability` | `firstresult=True` | `AddonCapabilityResult \| None` | Capability satisfaction query. Abstain (return `None`) for unrecognised capability strings. `satisfied=False` when recognised but not currently satisfiable. See abstain-vs-unsatisfied contract in [capability-dispatch.md](capability-dispatch.md). |
+| `project_rag_provide_capability` | `firstresult=True` | `AddonCapabilityResult \| None` | Capability satisfaction query. Abstain (return `None`) for unrecognised capability strings. `satisfied=False` when recognised but not currently satisfiable. See abstain-vs-unsatisfied contract in [capability-dispatch.md](./addon-protocol/capability-dispatch.md). |
 | `project_rag_classify_content_error` | `firstresult=True` | `AddonContentErrorClassification \| None` | Replaces `priming.bp_corruption.is_bp_content_error`. Return `None` when error is not recognised by this addon at all. Return non-None only when claiming the error AS a content/non-content classification. |
 | `project_rag_summarize_runtime_log` | `firstresult=True` | `AddonRuntimeLogSummary \| None` | Replaces `ue_log_parser.parse_ue_log` + `compose_remediation`. Invoked after `dispatch_external_runtime`. Return `None` to abstain. |
 | `project_rag_resolve_external_runtime_binary` | `firstresult=True` | `Path \| None` | Returns absolute path to the binary for `capability` (e.g. `UnrealEditor-Cmd.exe` for `'ue_editor'`). Return `None` to abstain. Sister hookimpl: W8d. |
@@ -651,7 +651,7 @@ The v6 capability-dispatch surface is observable via the `capability-satisfactio
 phase in `/project-rag:doctor`. The probe enumerates the union of `requires_capabilities`
 across all registered producers, calls `project_rag_provide_capability` for each, and
 surfaces a structured table: `capability | claimed_by | satisfied | reason`. See
-[capability-dispatch.md](capability-dispatch.md) §Doctor probe.
+[capability-dispatch.md](./addon-protocol/capability-dispatch.md) §Doctor probe.
 
 ## Façade types
 
@@ -663,8 +663,8 @@ additions, field removal, and field retype DO mandate a bump.
 
 | Façade type | Wraps | Key fields |
 |---|---|---|
-| `AddonChunkerSpec` | `indexer.chunker_registry.ChunkerEntry` | `id: str`, `runner: Callable`, `domain: list[str]`, `scope: str`, `requires: list[str]`, `categories: list[str]` (defaulted-additive, see [addon-chunker-categories.md](addon-chunker-categories.md)) |
-| `AddonProducerSpec` | `priming.manifest.ProducerEntry` | `id: str`, `runner: Callable`, `requires_capabilities: tuple[str, ...]`, `depends_on: list[str]`, `timeout_seconds: int`, `required_python_classes: list[dict]`, `output_dir: str | None` (v6: `requires_editor: bool` and `domain: list[str]` retired — see [capability-dispatch.md](capability-dispatch.md)) |
+| `AddonChunkerSpec` | `indexer.chunker_registry.ChunkerEntry` | `id: str`, `runner: Callable`, `domain: list[str]`, `scope: str`, `requires: list[str]`, `categories: list[str]` (defaulted-additive, see [addon-chunker-categories.md](./addon-protocol/addon-chunker-categories.md)) |
+| `AddonProducerSpec` | `priming.manifest.ProducerEntry` | `id: str`, `runner: Callable`, `requires_capabilities: tuple[str, ...]`, `depends_on: list[str]`, `timeout_seconds: int`, `required_python_classes: list[dict]`, `output_dir: str | None` (v6: `requires_editor: bool` and `domain: list[str]` retired — see [capability-dispatch.md](./addon-protocol/capability-dispatch.md)) |
 | `AddonExtractorSpec` | `priming.extractor_registry.ExtractorEntry` | `id: str`, `runner: Callable`, `domain: list[str]`, `requires: list[str]`, `writes_tables: list[str]` (string list — the host translates to `TableTarget` at registration) |
 | `AddonProvenanceClassifier` | `core.provenance._ClassifierFn` | `priority: int`, `classify: Callable[[Path, Path, Path \| None], AddonProvenance \| None]` |
 | `AddonToolRegistration` | MCP tool registration | `name: str`, `description: str`, `handler: Callable` |
@@ -672,7 +672,7 @@ additions, field removal, and field retype DO mandate a bump.
 | `AddonProjectValidityCallback` | `Callable[[PreflightContext], PreflightResult]` | (callable type alias) |
 | `AddonProvenance` | re-export of `core.provenance.Provenance` | Stable re-export under `Addon`-prefixed alias |
 | `AddonLongLivedSubprocessSpec` | `core.long_lived_subprocess.SubprocessSpec` | Lifecycle spec for an addon-managed CPU/GPU subprocess. Key fields: `id: str`, `argv_builder: Callable`, `env_extras: dict`, `health_url: str`, `idle_timeout_s: int`, `exit_timeout_s: int`, `tenant_kind: str`, `doctor_probe_step_id: str`. Added in tc-2 (v2 bump). Full field docs: `core/addon_protocol.py`. |
-| `AddonCapabilityResult` | (v6, W8c) | `satisfied: bool`, `reason: str | None`. Returned by `project_rag_provide_capability` hookimpls when the capability string is recognised. Return `None` (abstain) to pass through to the next addon. See [capability-dispatch.md](capability-dispatch.md). |
+| `AddonCapabilityResult` | (v6, W8c) | `satisfied: bool`, `reason: str | None`. Returned by `project_rag_provide_capability` hookimpls when the capability string is recognised. Return `None` (abstain) to pass through to the next addon. See [capability-dispatch.md](./addon-protocol/capability-dispatch.md). |
 | `AddonContentErrorClassification` | (v6, W8c) | `is_content_error: bool`, `error_class: str`, `file_path: Path | None`, `hint: str | None`. Returned by `project_rag_classify_content_error` hookimpls. Replaces direct `is_bp_content_error` calls. |
 | `AddonRuntimeLogSummary` | (v6, W8c) | `verdict: str`, `summary: str`, `remediation_hint: str | None`, `structured_findings: tuple[dict, ...]`. Returned by `project_rag_summarize_runtime_log` hookimpls. Replaces `parse_ue_log` + `compose_remediation` calls. |
 | `AddonRuntimeBinaryResolution` | (v6, W8c) | `binary_path: Path`, `found: bool`, `reason: str | None`. Structured failure context for `project_rag_resolve_external_runtime_binary` callers needing more than `Path | None`. Consumer: W8d. |
@@ -1025,7 +1025,7 @@ must be explicitly added to a `_V7_HOOKSPEC_NAMES` list in that test (Stub 2 of 
 plan — the test reads the live hookspec module so auto-coverage of new names requires
 explicit registration in the static list).
 
-See [`addon-receiver-scaffold.md`](addon-receiver-scaffold.md) for Wave-2a
+See [`addon-receiver-scaffold.md`](./addon-protocol/addon-receiver-scaffold.md) for Wave-2a
 doctrine and the project-type gate philosophy.
 
 ---
@@ -1225,7 +1225,7 @@ def _wrap_addon_handler_for_project_db(handler, get_db_conn):
 ### Source/authority separation is unaffected
 
 Source/authority separation at the corpus-class layer (see
-`docs/wiki/corpus-class-taxonomy.md` if present) is unaffected by this
+`docs/wiki/addon-protocol/corpus-class-taxonomy.md` if present) is unaffected by this
 decision. That layer governs what corpus a structural-index row belongs to,
 not what data sources a handler may read. The `requires_project_graph_db`
 flag is a *capability declaration* at the registration surface, not a

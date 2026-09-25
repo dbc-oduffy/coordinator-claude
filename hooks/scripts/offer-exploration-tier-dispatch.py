@@ -3,7 +3,7 @@
 Design-as-offers hook on the dispatch path (Leg D of the boot-envelope
 retiering baton): when the EM dispatches a doctrine-carrying agent
 (anything other than `Explore`/`Plan`, the two the harness exempts from
-the CLAUDE.md corpus -- see `docs/wiki/agent-dispatch-economics.md`) for
+the CLAUDE.md corpus -- see `docs/wiki/dispatching-parallel-agents/agent-dispatch-economics.md`) for
 work whose prompt reads as read-only-shaped, this hook offers the cheap
 alternative -- an UNNAMED `Explore` dispatch -- instead of nagging about
 the more expensive one already chosen. Never blocks, never mutates the
@@ -176,7 +176,7 @@ _MARKER_NAME = "exploration-tier-dispatch-offered"
 #: state/relocations/guard-message-cap/offer-exploration-tier-dispatch.py.md,
 #: and docs/plans/2026-08-02-guard-message-character-cap.md § C6.
 _WIKI_ANCHOR = (
-    "coordinator/docs/wiki/guard-message-concision.md"
+    "coordinator/docs/wiki/guards/guard-message-concision.md"
     "#unnamed-explore-dispatch-cost-and-guarantee"
 )
 

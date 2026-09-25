@@ -253,8 +253,9 @@ def main() -> int:
             "outside the emitter, so the wave map about to run is not the one that "
             "was derived from the plan.\n\n"
             "If YOU edited it -- the documented recovery from a halted run is to "
-            "edit the halting phase's agent step, and an unedited resume replays "
-            "the cached refusal -- re-stamp the receipt over your own edit:\n"
+            "edit the halting phase's agent step, and no earlier one -- an edited "
+            "completed step loses its cache and re-runs -- and an unedited resume "
+            "replays the cached refusal -- re-stamp the receipt over your own edit:\n"
             f"  {_emitter_invocation()[0]} --restamp "
             f'"{script}"\n'
             "It prints the phase spine it is authorizing, and refuses unless the "

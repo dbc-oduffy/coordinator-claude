@@ -208,7 +208,7 @@ except Exception:
 _WIKI_ANCHOR = (
     # Review: code-reviewer -- bare fragment produced an unresolvable
     # `render()` citation. Full path matches every other converted hook.
-    "coordinator/docs/wiki/guard-message-concision.md"
+    "coordinator/docs/wiki/guards/guard-message-concision.md"
     "#workflow-offer-nudge"
 )
 

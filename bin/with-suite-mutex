@@ -358,11 +358,10 @@ def _wait_interruptible(
                 print(
                     "with-suite-mutex: killed the command after "
                     f"{int(max_runtime)}s ({killed} process(es)) and released the "
-                    "suite mutex. A run this long is not slow, it is stuck. "
-                    "pytest's --timeout and --session-timeout only fire while a test "
-                    "is RUNNING, so an xdist worker dying uninterruptibly hangs the "
-                    "run with no test in flight and no timeout able to fire. "
-                    "Diagnose with: py-spy dump --pid <controller-pid>. "
+                    "suite mutex. The ceiling cannot tell a wedged run from a long "
+                    "serial one; output above is unbuffered. Bound workers via "
+                    "coordinator-resolve-validation-cmd --full, or if wedged: "
+                    "py-spy dump --pid <controller-pid>. "
                     "Raise or disable this ceiling with --max-runtime SECS (0 = unbounded).",
                     file=sys.stderr,
                 )

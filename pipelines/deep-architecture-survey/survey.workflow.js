@@ -54,7 +54,7 @@
  * coordinator/docs/contracts/arch-engine-scripts.md (I/O contract, budget table, fail-loud invariants).
  *
  * Spec backlink: docs/plans/2026-07-12-survey-rebuild-claude-klabauter-reliant.md chunk C3.
- * Doctrine: coordinator/docs/wiki/workflow-orchestration.md (vehicle-choice, chunking,
+ * Doctrine: coordinator/docs/wiki/em-operating-model/workflow-orchestration.md (vehicle-choice, chunking,
  * commit-discipline, model-selection rules — this script follows all of them).
  * Templates: coordinator/pipelines/deep-architecture-survey/agent-prompts.md (Phase 1/2/3
  * prompt bodies — this script inlines adapted copies scoped to schema-forced structured return;

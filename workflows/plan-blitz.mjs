@@ -4313,7 +4313,7 @@ return {
   // phase existed, could not have been repaired in-wave at all — so the rate this baton claims
   // to move is countable from wave one, over these rows joined to `ready`/`pulled`, with no
   // before-and-after and no peer figure standing in for a DoE measurement.
-  // Method: coordinator/docs/wiki/blitz-convergence.md § Re-measurement.
+  // Method: coordinator/docs/wiki/planning/blitz-convergence.md § Re-measurement.
   converged,
   // Every phase whose returned `sidecarPath` carries no `subagent-share` segment. Not a lost
   // review — the findings are there and the integrator read them — but a review the disposition

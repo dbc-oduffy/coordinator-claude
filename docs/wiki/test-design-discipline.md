@@ -629,12 +629,12 @@ A test that passes in isolation but fails in the full suite (§14) has two struc
 
 ## Skill Reference
 
-`docs/wiki/test-driven-development.md` should cite items 1, 2, 3, 5, 8, 9, 10, and 11 in its preflight checklist when the planned change crosses a contract or refactors >3 files of similar shape.
+`docs/wiki/test-design-discipline/test-driven-development.md` should cite items 1, 2, 3, 5, 8, 9, 10, and 11 in its preflight checklist when the planned change crosses a contract or refactors >3 files of similar shape.
 
 ## Related
 
-- `docs/wiki/oom-reproducer-strategy.md` — multi-dimension assertions for fan-out OOM reproducers (RSS + commit count + concurrent-session count + wall-clock).
-- `docs/wiki/round-trip-contract-tests.md` — producer/consumer schemas need round-trip tests, not parallel fabrications.
+- `docs/wiki/test-design-discipline/oom-reproducer-strategy.md` — multi-dimension assertions for fan-out OOM reproducers (RSS + commit count + concurrent-session count + wall-clock).
+- `docs/wiki/test-design-discipline/round-trip-contract-tests.md` — producer/consumer schemas need round-trip tests, not parallel fabrications.
 
 ## 32. Autouse HOME-Isolation Fixtures Break Subprocess Tests
 
@@ -666,7 +666,7 @@ A pytest autouse fixture like `_isolate_test_home` that redirects `HOME` (or its
 ## 38. Multi-Test Failure Cluster May Be Stale-Bytecode Flake
 
  When several unrelated tests fail together — especially after a file rename, module move, or branch switch — suspect stale `.pyc` files in `__pycache__` before triaging each failure individually. The bytecode mismatch causes import errors that look like real failures. Defense: `find . -type d -name __pycache__ | xargs rm -rf && find . -name "*.pyc" -delete` before re-running in isolation. If the failures disappear after the cache clear, the root cause was bytecode flake, not a regression. 
-The runtime mechanics of stale-bytecode flake — plus the concurrent-shared-tree variant where a transient mid-edit file state produces a *fake* assertion failure on a constant HEAD already defines correctly — live in `docs/wiki/test-environment-discipline.md` §6. Cross-link, don't duplicate.
+The runtime mechanics of stale-bytecode flake — plus the concurrent-shared-tree variant where a transient mid-edit file state produces a *fake* assertion failure on a constant HEAD already defines correctly — live in `docs/wiki/test-design-discipline/test-environment-discipline.md` §6. Cross-link, don't duplicate.
 
 ## 39. Graceful-Skip on a Missing Fixture Is a Hollow Pass — Make the Load-Bearing Assertion Unskippable
 

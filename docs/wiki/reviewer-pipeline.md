@@ -158,7 +158,7 @@ Before dispatching expensive Opus reviewers, decide whether to run the **prior-a
 | **Pure prose** (lessons, postmortems, retros, strategy memos) | Skip. | None — no claim surface to cross-reference. |
 | **Trivial single-file edits** | Skip. | None — overhead exceeds the benefit. |
 
-**Heuristic, not law.** When the plan reverses a prior decision, ALWAYS run — that is exactly the case where prior art most matters (per `coordinator/docs/wiki/pre-dispatch-verification.md` § Plan-Time Verification Checklist, "Premise-pass before regenerating torn-down structure"; `coordinator/CLAUDE.md` retired). When in doubt, run it; the agent is cheap and the alternative is silent doctrine decay.
+**Heuristic, not law.** When the plan reverses a prior decision, ALWAYS run — that is exactly the case where prior art most matters (per `coordinator/docs/wiki/dispatching-parallel-agents/pre-dispatch-verification.md` § Plan-Time Verification Checklist, "Premise-pass before regenerating torn-down structure"; `coordinator/CLAUDE.md` retired). When in doubt, run it; the agent is cheap and the alternative is silent doctrine decay.
 
 **Skip is silent.** No flag needed, no justification required. EM judgment.
 
@@ -166,7 +166,7 @@ Before dispatching expensive Opus reviewers, decide whether to run the **prior-a
 1. Dispatch `prior-art-checker` agent with the plan path.
 2. prior-art-checker reads the coordinator's accumulated internal doctrine and decision corpus; cross-references the plan; writes a sidecar at the plan-derivable `.coordinator-local/plan-sidecars/<plan-stem>.prior-art-check.md` home (D0).
 3. Sidecar verdict is `COMPATIBLE`, `WARN`, or `BLOCKED-SURFACE-TO-PM`.
-4. **EM reads the sidecar before dispatching the Opus reviewer.** This step is mandatory — the verdict determines whether to proceed or escalate to PM. It does NOT require EM pre-disposition of Conflicts; the Opus reviewer's judgment is the primary input on direction-of-correction (per `snippets/prior-art-check-consumption.md` and `docs/wiki/prior-art-checker.md § Bidirectional resolution`).
+4. **EM reads the sidecar before dispatching the Opus reviewer.** This step is mandatory — the verdict determines whether to proceed or escalate to PM. It does NOT require EM pre-disposition of Conflicts; the Opus reviewer's judgment is the primary input on direction-of-correction (per `snippets/prior-art-check-consumption.md` and `docs/wiki/reviewer-pipeline/prior-art-checker.md § Bidirectional resolution`).
    - **COMPATIBLE:** include the sidecar path in the Opus reviewer's dispatch prompt and proceed.
    - **WARN:** include the sidecar in the Opus reviewer's dispatch prompt and proceed. The reviewer recommends a direction-of-correction per Conflict (`update-plan` / `update-prior-art` / `both` / `override-and-document` / `PM-input-needed`). EM pre-disposition in the dispatch brief is OPTIONAL — use it when the right direction is mechanically obvious (e.g., a Conflict against load-bearing doctrine that's already settled), and leave it for the reviewer when the call is architectural. A reviewer recommendation contrary to an EM pre-disposition escalates as ASK in the integrator pass (see `agents/review-integrator.md § Prior-Art Conflict Resolution`).
    - **BLOCKED-SURFACE-TO-PM:** STOP. Surface to PM with the sidecar quote(s). Do NOT dispatch the Opus reviewer until PM has decided fold-in or authorized override.
@@ -178,7 +178,7 @@ Before dispatching expensive Opus reviewers, decide whether to run the **prior-a
 
 **The prior-art-checker is a feedback loop on wiki quality.** Repeated false-positive conflicts on a wiki entry are signal — surface to PM as a candidate for wiki revision (the wiki may be outdated, vague, or wrong). This is the recall side of the capture-recall loop; without it, captured wikis decay silently.
 
-**Fleet-capability-index input (cross-repo capability lens).** The prior-art-checker dispatch may optionally carry a `fleet_capability_index:` input — the path to the claude-klabauter-aggregated, persisted fleet-capability index, resolved and TTL-checked by the SKILL at dispatch time. When present, the Platform-capability bucket ("consume, don't rebuild") is consumed by the checker alongside the other buckets in the same pre-flight pass. Failure to resolve/read the index is additive and non-blocking — the checker proceeds without the bucket, matching the existing Phase 2.7b failure posture above. See `docs/wiki/prior-art-checker.md § Cross-repo capability lens` for the substrate and matching rationale.
+**Fleet-capability-index input (cross-repo capability lens).** The prior-art-checker dispatch may optionally carry a `fleet_capability_index:` input — the path to the claude-klabauter-aggregated, persisted fleet-capability index, resolved and TTL-checked by the SKILL at dispatch time. When present, the Platform-capability bucket ("consume, don't rebuild") is consumed by the checker alongside the other buckets in the same pre-flight pass. Failure to resolve/read the index is additive and non-blocking — the checker proceeds without the bucket, matching the existing Phase 2.7b failure posture above. See `docs/wiki/reviewer-pipeline/prior-art-checker.md § Cross-repo capability lens` for the substrate and matching rationale.
 
 **Phase 2.7b integrator note:** The review-integrator processes prior-art-side edits AFTER the Opus reviewer pass, per the direction-of-correction the reviewer (and optionally the EM) named. No integrator pass runs *between* the prior-art-checker and the first named reviewer — pre-flight sidecars are not a sequential reviewer. See `agents/review-integrator.md § Prior-Art Conflict Resolution` for the integrator's authority on wiki/registry/lessons edits. The prior-art-check sidecar is archived alongside the review findings. Note: this contract applies to prior-art-checker WARN (Conflicts with five valid directions, passing through the reviewer unintegrated); plan-coverage-checker INCOMPLETE has a different contract — see Phase 2.7d.
 
@@ -259,7 +259,7 @@ This makes consumption auditable. Silent omission of the sidecar with no confirm
 
 **On external-pattern-checker failure:** Proceed to Phase 2.8 and Phase 3 without the sidecar. This phase is additive, not blocking.
 
-**Note on vocabulary:** external-pattern-checker uses its own bucket vocabulary (`Signal Worth Deeper Research`, `Light Context Surfaced`, `Cautionary Note`, `No External Signal`). These are distinct from prior-art-checker's vocabulary (`Conflicts`, `Compatible-but-relevant`, `Silent`). Do not conflate them in reviewer prompts or EM notes. Full doctrine: `docs/wiki/external-pattern-checker.md`.
+**Note on vocabulary:** external-pattern-checker uses its own bucket vocabulary (`Signal Worth Deeper Research`, `Light Context Surfaced`, `Cautionary Note`, `No External Signal`). These are distinct from prior-art-checker's vocabulary (`Conflicts`, `Compatible-but-relevant`, `Silent`). Do not conflate them in reviewer prompts or EM notes. Full doctrine: `docs/wiki/reviewer-pipeline/external-pattern-checker.md`.
 
 ---
 

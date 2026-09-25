@@ -54,7 +54,7 @@ stale or flaky, making committed work look uncommitted — re-run the git log/re
 before trusting a first read that shows the surface unchanged.
 
 **A dissolved gate is not the same closure signal as a cleared one — name the difference.** The
-`awaiting_gate` aging recheck (`coordinator/docs/wiki/spinoff-handoffs.md` § Awaiting_gate aging)
+`awaiting_gate` aging recheck (`coordinator/docs/wiki/baton-lifecycle/spinoff-handoffs.md` § Awaiting_gate aging)
 asks whether the blocker's named condition fired; it does not by itself ask whether the blocker's
 MECHANISM still exists. A superseding decision can delete the gating mechanism outright — the
 blocked work is then live-by-construction, never having had its condition fire at all. Example: a
@@ -69,7 +69,7 @@ positive premise does.** It is authoring-time hypothesis, not ground truth — r
 against current disk before honoring the prohibition literally. Grep the cited evidence (a version
 constant, an emitted-schema section, Y's own commit) rather than trusting the prose: if Y has since
 landed, the fact the constraint rested on may now be inverted, and honoring it literally leaves
-source and target inconsistent. Cross-ref: `coordinator/docs/wiki/spinoff-handoffs.md` § Pickup-side
+source and target inconsistent. Cross-ref: `coordinator/docs/wiki/baton-lifecycle/spinoff-handoffs.md` § Pickup-side
 premise check (§ Handoff-scope language hazard covers the same negative-list framing).
 
 **Report briefly** — picked-up heading, branch, first recommended step. Prepend the recovery
@@ -194,7 +194,7 @@ report its verdict verbatim: it fires at **≥1** certified constituent plan, an
 **PARTIAL-FIRE naming what was excluded**, never a completion. Certification is read per plan and
 lives on the plan; the baton stores none, so never read one off it. Excluded plans ride the
 successor. Everything else about pickup is unchanged — claim, reconcile, frozen body, ledger row.
-Contract: `coordinator/docs/wiki/aggregate-execution-baton.md`. Tripwire:
+Contract: `coordinator/docs/wiki/baton-lifecycle/aggregate-execution-baton.md`. Tripwire:
 `AN-AGGREGATE-BATON-THAT-STORES-ITS-VERDICT-CERTIFIES-A-STALE-SET`.
 
 **Route the rest of the execution queue**: in-progress work first, then recommended-next-steps;

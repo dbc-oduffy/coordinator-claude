@@ -65,7 +65,7 @@ ops above (11i, 11j, 10). `tasks/` is the aggressive target — dated reports/to
 scratch, `status: superseded`/`archived` frontmatter; UUID flight-recorder dirs are
 Tasks-API-managed, untouched. `state/scratch/<managed-namespace>/` is exempt. Thresholds: wiki.
 
-**`archive/daily-summaries/` is a read-only intake path**, outside the Phase 13 artifact count — see `coordinator/docs/wiki/daily-summary-procedure.md`.
+**`archive/daily-summaries/` is a read-only intake path**, outside the Phase 13 artifact count — see `coordinator/docs/wiki/ceremony-calibration/daily-summary-procedure.md`.
 
 ### Phase 14: Report
 

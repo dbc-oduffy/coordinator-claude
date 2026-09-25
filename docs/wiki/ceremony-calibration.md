@@ -220,7 +220,7 @@ Category labels for a test failure — environmental, flaky, pre-existing, not-o
 
 ## Companion doctrine
 
-- `docs/wiki/writing-plans.md` — plan-pipeline mechanics
+- `docs/wiki/planning/writing-plans.md` — plan-pipeline mechanics
 - This wiki's own § Pattern-extraction calibration — instance-#3 rule, lessons cadence
 - `coordinator/snippets/em-operating-doctrine.md` § How to Plan and Hand Off — plan-skill invocation discipline
 - `coordinator/snippets/em-operating-doctrine.md` § How to Decide — what to ask vs what to act on

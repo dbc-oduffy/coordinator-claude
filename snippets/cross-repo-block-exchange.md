@@ -9,7 +9,7 @@
 A leg blocked on a sibling repo may not be parked on the word "blocked". It rests only on an
 **addressed, answered exchange**. The three conjuncts below are the whole operative rule. Full
 definition, adversarial cases, and the carrier decision live in the doctrine source repo at
-`coordinator/docs/wiki/cross-repo-block-exchange-predicate.md`, which is fleet-internal and does
+`coordinator/docs/wiki/cross-repo-communication/cross-repo-block-exchange-predicate.md`, which is fleet-internal and does
 not ship — its absence from an installed or mirrored tree is expected, not a missing page.
 
 ## The three conjuncts
@@ -36,7 +36,7 @@ not ship — its absence from an installed or mirrored tree is expected, not a m
 ## Where it goes when unanswered
 
 An addressed memo with no answer is an open escalation, not a rest. Its disposition comes from
-`coordinator/docs/wiki/group-em-escalation-threshold.md` — do not invent a second threshold.
+`coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-escalation-threshold.md` — do not invent a second threshold.
 
 ## What the report must say
 

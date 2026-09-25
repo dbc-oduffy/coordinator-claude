@@ -1,0 +1,661 @@
+# Cross-Repo Memo Lifecycle — Single-Surface, Receiver-Only
+
+
+Describes the single-surface, receiver-only lifecycle a cross-repo memo follows from send to closure.
+
+> One surface, no dual-write, no symmetric closure (the cross-repo single-surface plan).
+
+### The single pattern
+
+**Sender writes once, receiver closes in-place.**
+
+1. **Sender** runs `cross-repo-memo draft <topic> --to <receiver-em-id> --title "<one-line>"`, writes the body into the printed outbox path, then runs `cross-repo-memo send <topic>`. CLI writes ONE file at `<receiver-repo>/cross-repo/inbox/YYYY-MM-DD-<from>-<topic>.md` with `status: open`, then commits that single file into the receiver's repo (see § Delivery commit — a sanctioned small exception below). Sender keeps no copy. CLI prints the receiver path — sender hands the PM that path for relay.
+
+2. **Receiver** sees the memo — already committed, not just dirty — at their next session (`git log` on their active branch, or `git --no-optional-locks status` if the delivery commit degraded to an uncommitted write; see below). They read it, act, flip `status: open → actioned` in-place (optionally adding `decision:` and a note), then commit that flip into their repo. That second commit is the terminal state. Manual reads of `git status` on a shared tree use `git --no-optional-locks status` — the flag must sit between `git` and the subcommand or the invocation hard-fails; `git diff --cached` and `git ls-files -m` need no such flag.
+
+### Delivery commit — a sanctioned small exception
+
+> A memo that only sat dirty on disk was durable in name only — *visible* only once a receiver-EM happened to notice it in `git status`, and never surfaced to an EM that doesn't land a session on that device before the file gets swept up in something else. The CLI closes that gap by committing the delivered memo itself.
+
+After the memo file is written, `cross-repo-memo` stages and commits **only that one file** in the receiver repo — an explicit `git add -- <memo-path>` then `git commit -- <memo-path>`, never `git add -A`/`git add .` (a dirty receiver tree from a concurrent EM session must never be swept into the delivery commit — same discipline as `scoped-safety-commits.md`, applied here to a repo the CLI doesn't own). This is the agree-case form (the CLI just wrote the file, so index and worktree match); it does not push; the receiver's own auto-push hook on `work/*` branches carries the commit onward.
+
+This is a **deliberate, sanctioned exception** to "don't touch another repo's working tree" — the CLI prints a one-line explanation on every successful delivery commit, naming the receiver repo and branch, so the sending EM sees it happening rather than discovering it later as a mystery commit. The exception is narrow by construction: one file, one commit, no push, no other write to the receiver tree.
+
+**Branch selection.** If the receiver repo is already on a normal branch (the common case), the memo commits there — no branch switch. If the receiver has **no active branch** (detached `HEAD`, or an unborn/no-commits-yet repo), the CLI skips the commit and leaves the memo written-but-uncommitted: creating a branch in a repo you do not own is a mutation the delivery exception does not cover, and the narrow one-file-one-commit shape is what makes that exception defensible. A pre-existing `main`/`master` branch is committed to as-is (branch discipline there is the receiver's to resolve, not the CLI's) with a WARNING on stderr noting it.
+
+### `Delivered (uncommitted)` — repair it, never escalate it
+
+The delivery commit is best-effort and never-raise: the memo is already durably written when it runs, so a commit failure must not turn a successful delivery into a failed send.
+
+The never-raise contract holds; the commit's failure mode is legible, not silent. Three properties of the mechanism (the engine repo's `coordinator_core`):
+
+- **The git reason travels.** `_commit_delivered_memo` returns a frozen `CommitOutcome(committed, branch, reason)`, and `_memo_send` publishes it on the acted entry as `delivery_commit: {committed: bool, branch: str|None, reason: str|None, retried: bool}`. Top-level envelope keys are unchanged. The reason rides the *envelope*, deliberately not the helper's stderr — a headless op does not print into a foreign process's stderr.
+- **One retry on `index.lock`.** Exactly one, keyed on a case-insensitive match in the reason string, fixed 0.2s delay, no loop, no config knob.
+- **Exit `2` on an orphaned delivery** (untracked on read-back) — "degraded", matching the engine repo's `commit_pipeline.py` precedent; `1` stays setup-error, a committed delivery still exits `0`. **Read `2` from `cross-repo-memo` as delivered-but-uncommitted, never as a failed send.** No coordinator surface here shells out to the CLI, so no `set -e` caller breaks; the exposure is an EM-typed invocation rendering as a failed Bash call.
+
+The commit can still fail. It takes the receiver's index lock, and a sibling tree under concurrent-EM load is exactly where that lock is contended. The warning naming the git error goes to a module logger with no handler on the CLI path, so it is discarded there; the sender sees the CLI's own read-back, plus the reason on the envelope:
+
+```
+Delivered (uncommitted): <path> is on disk but is not tracked in <receiver> …
+```
+
+**That line is a defect to repair, not a gate to escalate.** An untracked memo is one `git clean` from gone and neither end knows it existed. Do not hand the PM the path as an assent ask — landing a delivered memo needs no assent, because the receiver-side commit is part of sending, not a cross-repo commit in the § sense. Re-run it:
+
+**Dispatching a memo is EM-autonomous, on the same footing as a same-repo subagent dispatch — no PM assent before `send`.** The discriminator: does the action mutate the peer's working tree or their tests (**gated** — per-session commit assent applies), or does it add an addressed, revertible item to a queue the receiver chooses when to action (**autonomous**)? A memo is additive, addressed to a named receiver, revertible (`cs_release_memo_revert` exists), and actioned at the receiver's own discretion — it is not a mutation of the peer's tree or tests, and cross-repo-commit gate is untouched by this. This retires an authorization-sense gate only: **hand the PM the receiver path *after* sending, for notification** (§ below, `:567`/`:759`) still stands — that is a different sense of "PM-relay" and is not what retires here. The pre-send assent is a deliberately retired young-system volume throttle, not a correctness or safety invariant — do not restore it as an oversight.
+
+```
+git -C <receiver> -c core.hooksPath="$(mktemp -d)" \
+    commit -m "cross-repo: deliver <title> memo from <sender>" -- <memo-relpath>
+```
+
+`-c` must precede `commit`; after it, `-c` is `--reedit-message` and fatals against `-m`. The empty hooks dir is what the CLI itself uses — it neutralizes `pre-commit`, `prepare-commit-msg`, `commit-msg` *and* the receiver's auto-push `post-commit`, which `--no-verify` does not do.
+
+A failure of this shape leaves no trace on either side, so past ones are still sitting in receivers' inboxes: `git --no-optional-locks status --short cross-repo/inbox/` in a sibling tree, and any `??` entry is a memo nobody has read.
+
+**Graceful degradation — the commit is best-effort, never a send-blocker.** If branch creation itself fails, or any git subprocess in the commit sequence fails, the CLI emits a WARNING to stderr and leaves the memo written-but-uncommitted rather than failing the send — the memo is already durably on disk by the time the commit is attempted, and a commit-layer failure must not turn a successful delivery into a failed *send*. It surfaces as a **degraded** send: exit `2` plus the git reason on `delivery_commit.reason`. The send envelope is still successful and still never raises; the degradation is legible, not silent.
+
+   **Replace the existing `status:` line — never append.** Edit the existing `status: open` line to `status: actioned`; do NOT write a second `status:` key at the bottom of the frontmatter. A duplicate YAML key leaves `grep -m1`-based tooling reading the first (stale) value, silently keeping the memo surfaced as `open` at the next `/workday-start`. Confirm exactly one occurrence after editing: `grep -c '^status:' <file>` must return `1`. See also `skills/pickup/SKILL.md` § M4 for the same rule at pickup time. *(Source: dup-key instance.)*
+
+3. **No move, no second side — and no `sent/`.** The memo is created in `cross-repo/inbox/` and lives there as the primary record. **Return memos carrying portable findings are legitimate; ack-of-ack is not.** The test is "does new information travel?" — a return memo summarizing portable template/methodology findings discovered during receipt is legitimate; a pure acknowledgment of receiving an acknowledgment is not. `cross-repo/archive/` is the canonical closed-memo destination (flat — no `<YYYY-MM>/` subfolders, unlike handoffs); `archive/cross-repo/` (the old top-level path) is removed. **There is deliberately no `sent/` subfolder** — an EM looking to file an outbound copy finds no home for it, and the absence is the signal: the sender keeps no copy; the memo lives in the *recipient's* inbox.
+
+   **A `Spec backlink:` cites the inbox path, never the archive path — even for a memo being actioned right now.** Archival is not automatic (next paragraph), so the archive path names where the memo may never land.
+
+   **Archival is NOT automatic — the receiver archives, and no occasion fires a sweep.** Nothing dispatches an archival sweep on its own: `session.boot_sweep` carries no archival composite, `sweep-boot.py` declares `never dispatches an op` as a negative spec, and no ceremony tail fires one. **The receiver hand-`git mv`s the memo** from `cross-repo/inbox/` to `cross-repo/archive/` — flat, no `<YYYY-MM>/` subfolder — in the same commit as the `actioned` flip. Leaving it in the inbox strands it there permanently.
+
+   **To drain an inbox that has already accumulated, dial the engine op directly.** `fleet.archive_actioned_memos` is registered and reachable — `coordinator-invoke fleet.archive_actioned_memos '{"dry_run": true, "mode": "already-terminal", "cap": <n>}' --repo <repo>`. Both `mode` and a positive integer `cap` are required; the op refuses with a setup error when either is absent, and there is no unbounded default. Dry-run first and read `candidates`, then re-dial with `"dry_run": false`. It skips `open`/`in_progress` memos, `README.md`, and live-claimed actioned memos, and it is idempotent. What it lacks is an invoker, not a body: no CLI fronts it and no occasion calls it, so an operator dialling it is currently the only automated route.
+
+### Claim-at-pickup parity with handoffs — `open → in_progress → actioned`
+
+> Closes the asymmetry where handoff-pickup had an atomic claim-lock but memo-pickup did not (the whoami collision: two sessions actioned the same memo + drove its plan in parallel).
+
+The lifecycle has a **claim state** between `open` and `actioned`, mirroring handoff `deployment_state: in_flight`:
+
+- **`open`** — sender wrote it; awaiting a receiver.
+- **`in_progress`** — a receiver session claimed it at pickup-start (Memo Branch step **Claim the memo**, formerly M2.5): atomic `cs_claim_memo <basename> <baton-repo>` mkdir lock + a `picked_up_by` stamp (required when `in_progress`) + a `git fetch` idempotency re-read. Concurrent pickup of an `in_progress` memo is **fail-loud**, same as handoffs. The claim gate runs AFTER the whole-memo read (Read before you act, formerly M1) and premise verification (Verify premises, formerly M2) — never before, or you'd lock work you haven't read or a peer already did.
+- **`actioned`** — terminal disposition written (Accept/Decline/Surface-decided/consult/fyi). Work-realizing dispositions (`accepted`/`partial`) additionally stamp `realized_by:` — see § Claim-at-pickup parity with handoffs below. The terminal flip is written by `cs_action_memo` (the engine repo's `coordinator_core/archive_stamp.py`), which enforces claim ownership via the liveness-gated check: it stands down (fail-loud) if a different live session holds the memo claim; override `COORDINATOR_OVERRIDE_MEMO_ACTION_CLAIM=1` for a legitimate cross-session handoff.
+
+**`plan` class — a third sibling claim.** As of 2026-06-26, the same atomic-mkdir machinery extends to plan execution via `cs_claim_plan <slug>` (no repo-root arg — cwd-default). Acquired at `execute-plan` Phase 1.5 (before the gate graph) and at `workstream-complete` (governing-plan only, no-op on plan-less sessions). Re-entrant for the same session (covering the execute-plan → workstream-complete two-seam span); fail-loud for a different live peer. Released at the two clean terminals (`workstream-complete` terminal commit + `/handoff` deliberate PAUSE) or idle-reaped (30-min `last_activity` recency, same bound as handoff/memo). The Phase-1.5 premise reconcile is retained as a complementary layer (it catches a peer driving a disjoint chunk remainder); the plan lock is the fail-loud prevention layer above it. The no-arg session-init reaper sweeps `plan-claims` alongside `handoff-claims` and `memo-claims`.
+
+**Claim → action → flip-or-release.** A terminal disposition releases the claim via `cs_release_artifact` (holder-identity-checked — no-op unless this session is the holder). **"Releases the claim" = the filesystem mkdir lock only, NOT the frontmatter attribution.** The `picked_up_by:` field is *preserved* on the terminal `actioned` flip — it is not cleared. The two were historically conflated; `cs_release_artifact` rm's the `.git/coordinator-sessions/*-claims/` lock dir, while `picked_up_by:` stays in the memo frontmatter as attribution-of-record (see § `realized_by` below). A **non-terminal** exit — Surface-to-PM where the session ends before the PM decides — reverts `in_progress → open` and clears the stamps FIRST, then releases the lock (ordering matters: a crash must never leave claim-freed-but-`in_progress`, which would re-admit two sessions). Dead-PID reaping (`cs_reap_stale_claims`, sweeps both `handoff-claims` and `memo-claims`) is the safety net.
+
+**`realized_by` — the claim survives into `actioned` as a claim-of-record.** Stamping `picked_up_by` only on `in_progress` left a gap: once a memo went `actioned` and was archived, nothing recorded *who* handled it or *where* the work landed, so a second session could re-realize the same accepted memo (the example-game-repo B3 collision). On the terminal flip of a **work-realizing** disposition (`decision: accepted` or `decision: partial`), the receiver stamps `realized_by: <plan-path | commit-sha | "inline">` AND preserves `picked_up_by:`. Together they make the archived memo a claim-of-record. The value shape is schema-validated (`bin/lib/schema.js` cross-repo-memo rule): the sentinel `"inline"`, a path (contains `/`), or a hex SHA `/^[0-9a-f]{7,40}$/` — a bare prose word fails loud (detect-then-fail-loud). Decline / `consult` / `fyi` realize no work and carry no `realized_by` (schema-exempt). Two halves of the original visibility gap: (a) the archived **claim-of-record** is CLOSED by `realized_by`; (b) the visible `in_progress` window during a same-session terminal Accept — or a session PM-directed straight to realization that never runs `/pickup`'s Claim the memo step (formerly M2.5) — is NOT closed and architecturally cannot be (you cannot stamp an `in_progress` window on a session that never enters the pickup claim flow). The upstream collision-prevention is the `source_memo:` cross-check at `coordinator:plan` Branch B.0.
+
+**Foreign-baton coverage boundary.** A memo claim written under a foreign `BATON_REPO` (a `~/.claude` memo picked up from a sibling-repo cwd) is NOT reached by the session-init reaper, which fires on the cwd repo — explicit `cs_release_artifact` is the primary cleanup for cross-repo memo pickup; inline dead-PID takeover on next contention is the fallback. Parity with the handoff foreign-baton boundary.
+
+**Surfacing.** `/workday-start` surfaces `in_progress` memos with a `[CLAIMED by <picked_up_by>]` tag — visible-but-attributed, not hidden (an unsurfaced in-flight memo makes the inbox "look free mid-action"). A stale claim is reverted to `open` by the reaper, at which point normal `open` surfacing resumes.
+
+**Routed-plan reconcile (Gap #2).** When a picked-up memo forward-points to a plan (`docs/plans/*.md` in `decision_note`/frontmatter), pickup echoes that plan's **live execution state** before dispatching — on both the `open` path (Claim the memo, formerly M2.5) and the already-`actioned` re-pickup path (Short-circuit already-actioned memos, formerly M0). Liveness uses a positive predicate (active handoff / live claim / an in-progress wave-map / a `<chunk-id>:` commit within the last 24h with no corresponding closure), not bare commit-existence — the latter cry-wolfs forever on long-shipped plans on the shared branch. See `skills/pickup/SKILL.md` § Routed-plan reconcile-and-surface.
+
+**Pre-dispatch reconcile before executor dispatch on an accepted `ask` (cross-machine double-spend prevention).** The `cs_claim_memo` `mkdir` lock is machine-local — invisible to a second machine on the shared `work/*` branch. The only honest cross-machine claim signal is the committed `picked_up_by:`/`status:` frontmatter, which the Claim the memo step's (formerly M2.5) fetch+re-read only catches if this machine fetched *after* a peer's claim commit was pushed. On one occasion, two machines picked up the same `ask` near-simultaneously and each ran a full executor → code-reviewer → review-integrator pipeline on the identical change (correct outcome via the `open → actioned` terminal flip, but fully duplicated spend). The M3 **Accept** pre-dispatch reconcile is mandated immediately before performing the work / dispatching an executor: (1) `git fetch` + re-read the memo's own `status:`/`picked_up_by:`; (2) run the same positive-liveness predicate as § Routed-plan reconcile-and-surface against the memo's topic nouns (layered on top of, not replacing, the frontmatter re-read); (3) any peer signal → surface and **stand down** until the operator confirms the peer is gone. This is a stand-down/reconcile, not a hard block — the residual race is bounded to duplicate spend, never incorrect state. This is delivered as an engine-computed `judgment_points` entry (`revalidate_at_dispatch: true`) in `pickup_assemble`'s fired decision object, not static `skills/pickup/SKILL.md` prose; see `docs/wiki/skills-corpus/computed-skills.md` § Round-trip classification and `docs/wiki/coordinator-tripwires/memo-predispatch-standdown.md`.
+
+**`/workstream-complete`'s `d-flip-memo-status` directive — lifecycle sweep.** At workstream end, before the final commit, `/workstream-complete` runs a cross-repo memo lifecycle sweep: it scans this repo's `cross-repo/inbox/*.md` for memos whose underlying work was completed during the session (i.e., the issue they described has been resolved), and flips their `status: open → actioned` inline with a `decision:` note. This prevents the inbox from drifting from reality — memos where the work is done should not stay `open` and surface again at the next `/workday-start` Step 1.45.
+
+**Distill integration.** `/distill` gains a `## Cross-repo archive distillation` phase: it mines `cross-repo/archive/*.md` with `status: actioned` for evergreen knowledge (folding into wiki), then clears entries older than the configured retention threshold. `/update-docs` runs a 90-day janitorial sweep on `cross-repo/archive/` — cadence is anchored at ≥3× expected distill cadence to ensure the sweep never deletes un-mined content.
+
+### Schema
+
+Memo files use `plugins/coordinator/schemas/cross-repo-memo.schema.json`. Key fields:
+
+- `from:` / `to:` — author EM id and receiver EM id (e.g. `claude-central-em`, `project-rag-em`). **`from:` is derived automatically** from the repo the CLI runs in — the inverse of receiver resolution (cwd git root → `repos.<name>` → `<name>-em`; the doctrine repo (`repos.doe_claude`) is `claude-central-em`). It is never hardcoded and never an EM self-identify step.
+- `status:` — `open | actioned`
+- `decision:` — optional note on the receiver's action, added when flipping to `actioned`
+- `kind:` — optional sender-declared shape (`ask | consult | fyi | proposal | bug | notice`); absent is interpreted as `ask`. See § `kind` enum — sender-declared memo shape below.
+- `to_repo:` — optional resolved receiver registry key. See § `to_repo` — resolvable-registry-key receiver field below.
+
+### `to_repo` — resolvable-registry-key receiver field
+
+
+> Jointly-held field (PM-ratified) — see the `distill_fate` section above for the established shape this section follows.
+
+`to:` carries a human-readable nickname — this seat alone is addressable under eight of them (`claude-central-em`, `central-em`, `central`, `doe-claude-em`, plus the `redirectAliases` set) — so a reader cannot verify by inspection that a memo landed in the right repo without already knowing the alias mapping. `to_repo:` carries a **resolvable registry key**, in the same `repos.<key>` form used fleet-wide for sibling-repo resolution (`repos.doe_claude`, `repos.claude_klabauter`, `repos.project_rag`): the addressee becomes machine-checkable, not a name the reader must already have memorized.
+
+- **Optional, on both `cross-repo-memo.schema.json` and `archived-memo.schema.json`.** Never added to `required` — the entire pre-2026-07-24 corpus has none, and the engine repo does not emit it yet. Making it required would retroactively invalidate every memo on disk.
+- **Disambiguates, does not replace.** `to:` remains the human-readable addressee and every existing alias stays valid. `to_repo:`, when present, is authoritative for routing: the write-guard engine's `validate_frontmatter_schema` routing-mismatch check (Chunk G) — formerly this repo's own `hooks/scripts/validate-frontmatter-schema.py` — compares it against the landing repo's own registry key and decides the match on that alone — the `to:`/alias comparison is not consulted when `to_repo:` is present. Absent `to_repo:` (the common case) falls through to the pre-existing `to:`/alias comparison, unchanged.
+- **Fail-open, same posture as the rest of the routing guard.** An unresolvable or absent `to_repo:` never blocks — it only ever narrows an offer to a firmer footing or leaves the existing comparison untouched.
+
+### `distill_fate` — shared reconciliation-log stamp field with the engine repo
+
+<!-- src: memo02-013 -->
+
+> Ratified shared vocabulary (): the engine repo runs with the doctrine repo's field as canonical on `cross-repo-memo.schema.json` — both EMs run with it.
+
+A second, orthogonal stamp field to `status`/`decision`/`realized_by` above: `distill_fate: ephemeral | commitment | ratification`, with `in_repo_capture:` **required** whenever `distill_fate: ratification`. Where `status`/`decision`/`realized_by` record the memo's *lifecycle disposition* (did the receiver act?), `distill_fate` records the memo's *evergreen-knowledge weight* for `/distill`-class mining of `cross-repo/archive/`:
+
+- **`ephemeral`** — routine coordination, no lasting pattern; distill sweeps skip it.
+- **`commitment`** — opens a `realized_by`-tracked loop distinct from a routine ack; the memo commits one side to future work, not just a nod.
+- **`ratification`** — the memo IS the record of a cross-repo decision. **Requires `in_repo_capture:`** naming the doc/wiki/DR the decision was actually written into — this closes the "memory-pointer hole" where a ratified decision lived only in the memo's prose and was never captured anywhere durable, so it evaporated the moment the memo aged out of `cross-repo/archive/`.
+
+**Fallback for legacy memos:** un-stamped memos (pre-field) fall back to the existing #1a heuristic (infer weight from `kind` + `decision`) — this field does not retroactively invalidate older archive entries.
+
+### CLI
+
+Invoked per the precedence ladder in `coordinator/snippets/resolve-coordinator-bin.md` — rung 0 /
+Shape W on a PowerShell host, Shape A (POSIX hosts) resolving `cross-repo-memo draft <topic> --to
+<receiver-em-id> --title "<one-line>"`, then `cross-repo-memo send <topic>`. The flag-only
+`--topic/--title/--body-file` send form is gone; only the discovery flags below remain.
+
+**Discovering valid receivers — run `cross-repo-memo --list-receivers`.** That is the one canonical enumerator of every valid `--to` target on this machine. It lists `claude-central-em` first, then every registered sibling, each with its resolved path. **Do NOT discover receivers via `machine-local keys | grep '^repos\.'`:** that lists the `repos.*` siblings by their raw registry key, but `claude-central-em` resolves to the doctrine repo (`repos.doe_claude`) — the registry key (`doe_claude`) differs from the canonical EM id (`claude-central-em`), so raw key enumeration bypasses alias resolution. An EM reasoning from registry keys alone may invent the wrong `--to` value or hand-author a memo to the wrong path, the exact anti-pattern this CLI exists to prevent. `claude-central-em` (aliases `central-em`, `central`) is **always** a valid target, registry or no registry.
+
+**Receiver resolution is by convention, not a hand-maintained table.** A `<receiver>-em` identity maps to the machine-local registry key `repos.<receiver, dashes→underscores>` — e.g. `project-rag-ue-addon-em → repos.project_rag_ue_addon`, `example-sim-repo-em → repos.example-sim-repo`. Any repo registered under `repos.<name>` (`machine-local set repos.<name> <path>`) is automatically a valid `<name>-em` receiver with no code change — so anyone installing the coordinator gets cross-repo delivery to their own registered repos for free. The only exceptions are identities whose doctrine name diverges from the repo's registry shortname (currently just `example-game-repo-em → repos.example_game_workbench_repo`), held in a tiny alias map in `cross-repo-memo` that does not grow with repo count.
+
+On machines where the receiver repo is not registered, the CLI **hard-errors** (exit 1, no file written) and lists the known receivers — a dirty memo cannot be written to a repo that isn't on this machine. There is no central-only fallback in the single-surface model; route via the PM's next session in that repo instead. (`central-only` survives only as a grandfathered `delivery_mode` value in the schema for pre-existing memos; the CLI does not issue it.)
+
+On success the CLI prints the receiver path and the relay reminder:
+
+```
+Receiver-side: <abs-path>
+Hand the PM this path for relay: <abs-path>
+Reminder: Hand the PM the receiver path — PM-relay is still the primary channel.
+```
+
+That reminder string is emitted by the engine-owned CLI (`coordinator/bin/` in the engine repo, execed via the doctrine repo's forwarder), not authored here. PM-relay is the correct default; a same-machine, registry-visible peer session reachable per § "Then, the sync-vs-async gate" is a second legitimate primitive when both gates pass. The printed string names only the default — read it alongside that gate, not as the exhaustive route. Updating the printed string is an engine-side change.
+
+(`--self-receipt` prints only the `Receiver-side:` line — no relay reminder, since the dispatcher is the receiver.)
+
+### Send-verb discoverability from consumer trees — breadcrumb scaffold + relocation-invariant
+
+The send verb is doctrine-repo-owned and lives **on PATH**, so it is deliberately vendored into *no* consumer repo. A consumer-repo EM going to send their first memo naturally searches their own tree (`ls bin/`, `find . -name 'cross-repo-memo*'`, grep) and finds nothing — the verb is fine (on PATH, correct owner), but it is **invisible to a tree-scoped search from where the consumer EM looks**. `which cross-repo-memo` would find it; a naive-but-reasonable search does not. This is a class problem: every consumer repo hits the same wall on first send (originating report: an engine-repo memo, `cross-repo-memo-send-discoverability`).
+
+**Breadcrumb scaffold (the fix).** `coordinator:repo-setup` scaffolds a pointer doc at `bin/cross-repo-memo.md` into every onboarded repo (single and `--batch`) — exactly where the naive `ls bin/` / `find` search lands. It is a declared file-entry in `canonical-structure.yaml` (`template: templates/cross-repo-memo-breadcrumb.md`), materialized by the engine repo's `coordinator_core.install.scaffold_structure` CLI (idempotent, never clobbers). The breadcrumb redirects to the on-PATH verb with the real `draft → compose → send` lifecycle; it is NOT a shim executable — the ownership boundary keeps the verb in the doctrine repo.
+
+**Relocation-invariant (load-bearing acceptance criterion).** Consumer-tree discoverability is a **required property of the send verb, independent of where the verb lives.** Any future relocation of the send verb — notablyop-migration into the engine repo's `coordinator_core/ops` — MUST preserve it: "discoverable from the consumer tree" is an explicit acceptance criterion of that migration plan, so the generalized solution does not reintroduce the blind spot at a new location. A relocation that moves the verb without carrying the breadcrumb (or an equivalent discoverability affordance) regresses this invariant and is incomplete. (engine-owned; the engine repo's EM carries this AC into that plan — captured here as doctrine-repo doctrine because the doctrine repo owns the CLI and the onboarding scaffold.)
+
+### Receiver-ID discipline — `--list-receivers` is authoritative, never invent from the repo slug
+
+**`--to` values come from `cross-repo-memo --list-receivers`, not from the sibling repo's name or shortname.** Receiver IDs are CLI-owned identifiers gated by a frozenset and an alias map; not every plausible `<repo>-em` string resolves, and the doctrine repo's inbox is `claude-central-em`, NOT `coordinator-claude-em` (that's a publish target — rejected). Inventing a `--to` value from the receiving repo's slug ("we're sending to coordinator-claude, so `--to coordinator-claude-em`") hits the rejection at executor-time and stalls delivery.
+
+**Run the CLI at plan-write time.** When authoring a plan that includes a cross-repo memo chunk, run `cross-repo-memo --list-receivers` during plan-authoring and cite a value from its output verbatim in the brief. Neither the prior-art check nor the named-reviewer pass executes the CLI to verify the receiver enum — the only floor against an invented identifier is the plan-author dropping into a shell. (case: example-game-repo — Wave 1 executors hit frozenset rejection on `coordinator-claude-em` / `coordinator-claude-doe`; canonical was `claude-central-em`.)
+
+### `kind` enum — sender-declared memo shape
+
+
+The optional `kind:` frontmatter field lets the sender declare what shape of response the memo needs. Enum membership: `ask | consult | fyi | proposal | bug | notice`.
+
+| Value | Meaning | Receiver disposition |
+| --- | --- | --- |
+| `ask` | Sender requests the receiver *do* something (action request). Surfaces with urgency. | Adjudicate-and-own: weigh against this repo's consumers; action (→ `decision: accepted` + `decision_note`) or decline (→ `decision: declined` + `decision_note`); surface to PM only on a genuine product/tradeoff/architectural fork. |
+| `consult` | Sender requests the receiver's *input or opinion* — a question, not a directive. Surfaces with urgency. | Reply-in-place: capture the response in `actioned_note` directly on the memo, then mark `status: actioned`. The sender reads the response on the same machine. No return-memo. |
+| `fyi` | Informational from the **sender's** perspective; no action or response *requested*. Quiet log line at surfacing. | **Assess impact on receiver BEFORE acknowledging** — `fyi` is the sender's framing of their intent, not a verdict on your repo's exposure. Run the impact-on-receiver gate (active plans / in-flight workstreams / doctrine / hypotheses corrected) per `skills/pickup/SKILL.md` § `fyi` Step 1. Nil-impact (verified, not assumed) → `status: actioned` + `actioned_note: "noted — informational; impact-assessed nil against <what you checked>"`, no `decision` field. Material impact → re-plan, scope-adjust, surgical work, or Surface-to-PM per shape; the memo is not ack-only. |
+| `proposal` | Sender presents a concrete change or recommendation for the receiver's adoption. Surfaces with urgency. | Evaluate-and-decide: assess the proposed change against this repo's current direction; adopt (→ `decision: accepted` + `decision_note` on what you'll apply), decline (→ `decision: declined` + rationale), or negotiate via a return memo. The receiver owns the adoption decision. |
+
+`bug` and `notice` are also valid `kind:` values (vendored schema 1.8.0); no per-value disposition is documented for either yet.
+
+**`ack` is NOT a `kind` — it is receipt-state, not a sender-declared value.** An acknowledgement is the receiver flipping `status: open → actioned` (with `decision:` + note) in-place. `ack` is never a valid `kind:` value and never a return-memo. The same rule as "don't send an ack-of-ack when the inbound was a confirmation" (§ Memo content is hypothesis — verify before acting, item 8) applies here: the `status` flip IS the receipt; authoring a separate ack memo is ceremony with no value.
+
+**Inbound replies carrying a reply-flavored `kind` jam `archive-stamp-cli`'s `action-memo` cross-field validation — normalize on receipt.** The enum is `ask|consult|fyi|proposal|bug|notice` and nothing else; a sibling repo replying with `kind: consult-reply` (or `ask-reply`, `ack`) trips `archive-stamp-cli`'s `action-memo` cross-field validation, so the inbound memo cannot be transitioned `open → actioned` and stays stuck at `status: open` even though it was actioned in substance. Any cross-repo peer using a reply-flavored `kind` hits this. On receipt of such a memo, read the reply-flavored `kind` as its base kind (`consult-reply → consult`; `ack →` receipt-only) and flip the status by hand if the transition tool rejects the value; the sender-side fix is to reply with a valid enum value, since the `status` flip — not a `kind` — carries the reply semantics. *(case: the engine repo replied `kind: consult-reply`; the memo jammed at `status: open`.)*
+
+**Absent `kind:` defaults to `ask` at the READER.** The CLI does not stamp a default — absence stays meaningful. Every reader (surfacing helper, `/pickup` branch) applies `ask` when the field is absent. This preserves back-compat: no pre-2026-05-30 memo is silently downgraded to a quiet `fyi` by the absence of a field it never had.
+
+### `discharges` — the closure-signal contract for `external_gate`
+
+
+A `plan-tasks.schema.json` `external_gate` entry can carry a `closure_key` (`{kind, id}`,
+`kind` one of `deliverable`\|`memo-thread`) naming the identity whose landing discharges it.
+The discharging side emits that landing as an ordinary cross-repo memo into the WAITING
+repo's `cross-repo/inbox/` — the existing channel, correct polarity: the repo that OWES the
+work is the sender, the repo waiting on it is the receiver, so the record lands in the same
+tree as the plan whose gate is parked. No new substrate, no `kind: discharge` memo-kind enum
+member: a discharge memo travels as an ordinary memo (`ask`/`consult`/`fyi`/`proposal`), because
+a new enum member is a four-site cross-repo lockstep for a surfacing convenience that
+correctness must not depend on.
+
+The memo carries a `discharges:` frontmatter block, presence-triggered completeness in the
+same pattern as `scoped_to`/`distill_fate` above:
+
+```yaml
+discharges:
+  closure_key:
+    kind: memo-thread
+    id: 2026-08-21-claude-klabauter-em-gate-closure-signal-contract.md
+  evidence: <commit-sha>
+  landed_at: 2026-08-21
+```
+
+`evidence` reuses `realized_by`'s already-validated value shape — sentinel `inline`, a path, or
+7-64 hex chars — so the existing validator covers it with no new rule.
+
+**Two reader rules, both non-negotiable:**
+
+- **Scan both `cross-repo/inbox/` and `cross-repo/archive/`.** An actioned memo is archived
+  by its receiver, and a discharge memo that has been actioned is still the discharge record —
+  an inbox-only scan misses every one already archived.
+- **Key on the `discharges` block alone, never on `status:`.** A census of the live
+  `external_gate` corpus falsified every status-derived inference tried, five separate ways
+  (archive location, terminal `status:`, sweep hygiene, deliverable-rollup presence,
+  `status: actioned` polarity) — 30 archived memos still read `open`.
+
+**A match lets a reader *propose* the `cleared: true` flip with a citation to the discharge
+memo — it never performs the flip.** `cleared: true` stays the one clearing path on both
+readers; the discharge record only supplies the evidence a human or a proposing tool cites.
+
+**Ownership split.** The doctrine repo owns `closure_key` on the `plan-tasks` task spine. The owning
+repo of `cross-repo-memo.schema.json` owns the `discharges` block, its cross-field rule, the
+emitter, and the resolver that consumes it — that schema is a generated projection whose
+source of truth lives there, not here.
+
+#### Authoring an `ask` — presume action, don't write it meek
+
+> The send side shapes the receive side: a meek ask invites lazy handling.
+
+When you author an `ask` memo to a sibling repo, **write it presuming action** — name what needs doing and why, in the imperative, as a fellow EM handing real work to a peer who ships. Do NOT hedge it into a suggestion-box submission: "um, maybe a backlog item?", "could be worth queueing eventually?", "low priority, no rush" are the meek shapes to avoid. A tentatively-framed ask *tells* the receiver it's backlog-tier, and the compliant response to a backlog-tier ask is to file it to a queue — the exact laundering the receive-side gate (§ Picking up a memo) forbids. The two failures are one disease: **presumed-action on the send side and action-on-receipt on the receive side are the same rule.** We ship more working code in a day than a human team ships in a month — an ask between our own repos should read as "here's what needs doing," not "here's a thing you might consider someday."
+
+This is not a license to manufacture urgency or skip the verification the receiver owes the ask (§ Memo content is hypothesis). It is a framing discipline: state the work plainly and let the receiving EM adjudicate-and-own it (Accept / Decline / Surface-to-PM). If the ask genuinely *is* low-stakes-someday work, that is a judgment for the receiving EM to make on their own consumers' priorities — not something you pre-decide for them by wording it as deferrable. Name the work; trust the peer to adjudicate.
+
+#### Paste hazard — no body line opens with a bare `>` before shell metacharacters
+
+Review/plan prose crossing an EM boundary (memo bodies, review findings, plan text) must NOT open a body line with a bare `>` immediately followed by shell-special characters (e.g. `> correct?*`, `> foo | bar`, `> *.md`). As rendered markdown this is a harmless blockquote, but a line pasted into a live shell — a manual terminal paste, or an editor "send line to terminal" integration — reads the leading `>` as a redirect, and the glob/metacharacters become a literal target: with bash `failglob` off, `> correct?*` silently creates a junk file named `correct?*` that can balloon to hundreds of gigabytes before anyone notices. Prefer indenting, fencing, or rewording so no authored body line begins with `>` immediately followed by shell metacharacters.
+
+*Motivated by an eng-director review blockquote pasted into a shell in the engine repo, which produced a 365 GB runaway file. Human-factors complement to the shell-init `ulimit -f` + `failglob` guards.*
+
+### `/workday-start` Step 1.45 surfacing (receiver-inbound)
+
+A step inserted between Step 1.4 (cross-reference completed archive) and Step 1.55 (Recent Roadmap Orientation) queries **this repo's** `cross-repo/inbox/*.md`, parses frontmatter, filters to `status: open`, and surfaces:
+
+```
+Cross-repo memos awaiting your action:
+- 2026-05-23 from claude-central-em: gate-check failures — open (1 day)
+```
+
+Staleness flag: `open` >7 days appends ` [STALE]`.
+
+Cap: ≤8 entries; `(N more — see cross-repo/inbox/ for full list)` truncation beyond that.
+
+`actioned` memos drop off the surface. The helper script is `workday-start-cross-repo-memo-surface.py`.
+
+### Partial-ack memo unblocks the sender — send early, even when the main deliverable is in flight
+
+A cross-repo memo's acknowledgement function is independent of the main deliverable's completion. When you have confirmed that you understand and accept an inbound request — even if implementation is still running — send a partial-ack memo immediately. The sender may be blocked waiting for any signal; a "received and in progress" ack is sufficient to unblock them. Do not wait until the work is fully closed to reply.
+
+*Source: rag-ue-addon `state/lessons.md`.*
+
+### Memo-lifecycle adjudication is EM work
+
+When an inbound memo describes a situation, proposes an action, or asks a question — read the memo body and judge the right response yourself. Do not surface the memo contents to the PM as "what should I do?" The PM's job is product authority; memo adjudication (what the memo says, what the right EM response is, whether the action is already done, whether the memo is superseded) is EM work. Escalate to PM only if the memo implicates a product decision — not for "I have a memo, what do I do?" (See also § Memo content is hypothesis — verify before acting.)
+
+*Source: example-game-repo `state/lessons.md`.*
+
+### Picking up a memo — the adjudicate-and-own gate
+
+
+**"Migrate X to the sibling" is a hypothesis — verify before treating as a move.** HEAD-verify the sibling's adoption commit exists before deleting your local copy. Trace the full import graph before pruning "migrated" files. Routine investigation frequently inverts the framing: the sibling already owns the content, it was never migrated, or the copy is legitimately shared.
+
+**Premise-check vendored-fork references by SYMBOL, not by cited line number.** When a memo cites a line reference in a vendored or forked copy of a library (e.g. `lib/vendor/foo.py:L123`), that line number is the sender's view of THEIR fork — it is NOT a stable reference across independent forks of the same upstream. Before acting on the cited locus, grep HEAD by the FUNCTION or SYMBOL NAME, not the line. A missing symbol (`grep -n 'def the_function' <file>` returns nothing) is categorically different from "moved by N lines" — the former means the implementation doesn't exist in this fork at all, the latter means it exists but the line number drifted. Treating a symbol-absent result as a line-drift false-negative wastes a round-trip and mis-classifies the fix-locus. *(Source: a memo cited L247 in a vendored fork; the symbol had been removed from the receiver's fork entirely, but the session first tried L247 ± a few lines before checking by symbol name.)*
+
+
+
+When `/pickup` routes to the memo branch, two existing sections in this wiki constitute the contract it invokes:
+
+- **§ Memo-lifecycle adjudication is EM work** (immediately above) — the EM reads and judges, never routes "what should I do?" to the PM.
+- **§ Memo content is hypothesis — verify before acting** — premises (fix-locus, tree-state, architectural framing) are hypothesis until checked against current disk state.
+
+These are not new rules authored for the pickup procedure; they are existing doctrine now made reachable at the moment the EM opens a memo baton. The `/pickup` memo branch is the procedure that wires them into the pickup-time moment; the doctrine lives here.
+
+**The calibrated stance: adjudicate-and-own.**
+
+A memo-ask is a PEER HYPOTHESIS from the sender's EM — a suggestion from a fellow EM at another repo, not a work order. The receiving EM adjudicates and OWNS the disposition for this repo's customers and consumers:
+
+- **Tradeoff-free ask the EM endorses** → action it; mark `status: actioned` + `decision: accepted` + `decision_note: <what was done>`.
+- **Disagree, or wrong for this repo's consumers** → decline; mark `status: actioned` + `decision: declined` + `decision_note: <rationale>`.
+- **Genuine product/tradeoff/architectural fork** → surface to PM for direction, then act on the answer.
+
+**There is no fourth disposition. Filing the ask into the improvement queue is the laundering anti-pattern, not a way to handle a memo.** Moving an inbound ask from the inbox into the repo's own improvement queue (or the central queue, or "a separate plan for later") shuffles paper between two staging grounds, adds zero value, and silently makes a *prioritization* call — deciding the ask is not-now — that is the PM's to make, not the EM's. The inbox row clearing feels like progress; it is not. The honest exits when you can't action this session are **decline-with-architectural-rationale** or **surface-to-PM-for-priority** — never queue. "Annoying to fix right now" is not a rationale; presume action. (This is the inbound-memo instance of the general rule in `coordinator/snippets/em-operating-doctrine.md` § How to Plan and Hand Off, "Improvement Queue" (superseding coordinator/CLAUDE.md): an inbound cross-repo ask is one of the two cases hard-forbidden from the queue.)
+
+This is the **"reviewer findings: apply, don't ratify"** framing applied to memo-asks. It is NOT "always bounce to the PM" — § Memo-lifecycle adjudication is EM work explicitly forbids "what should I do?" escalation. Escalate only when the memo implicates a product decision, not as a default.
+
+#### Route-to-baton — inbound work inside an active baton's scope lands IN that handoff, committed
+
+
+When inbound work — an inbox memo, a review finding, a triage item — falls inside the scope of an **active** handoff/baton (`state/handoffs/*.md`, `status: open|claimed`), the DEFAULT action is **route-to-baton**: append a routing note into that handoff file and commit the edit immediately, as a matter of course. Not: hold the routing in session context (evaporates at session end); not: leave the source artifact as the only record (the baton's next pickup is blind to it); not: ask the PM per-instance (this ruling IS the standing authorization).
+
+Mechanics:
+
+1. **Append, don't restructure** — add under a dated `## Routed from inbox triage (<YYYY-MM-DD>)` heading at the end of the handoff body (extend the section if it already exists for the day): one bullet per routed item, citing the source artifact path and one line on what the baton now additionally owes.
+2. **Leave the handoff frontmatter untouched** — `status`, `deployment_state`, and lineage fields are lifecycle state with their own authorized writers; a routing note is body content only.
+3. **Commit the handoff edit via `ceremony.commit_v2`** (the engine repo, `coordinator_core/git/commit.py` :: `commit_paths`) with `paths: [<handoff>]`, subject `route-to-baton: <handoff-slug> ← <source-basename>` — it commits the tree it builds from that path alone, whether or not you staged a partial hunk, so there's nothing to classify here (→ `scoped-safety-commits.md § SC-DR-015`). The commit is the durable record; an uncommitted routing note fails the ruling.
+4. **Route-then-close, in that order, in the same pass.** The routing commit must exist before the flip — never close against a capture you have not landed. Once it has landed and the baton demonstrably names the memo, resolve the memo where you routed it:
+
+       archive-stamp-cli resolve-memo <memo> \
+         --decision accepted \
+         --decision-note "routed into <baton path>, which now owns this work" \
+         --realized-by "<baton path>" \
+         --in-repo-capture "<baton path>"
+
+   `resolve` is `open` → `actioned` in one locked write, so triage needs no separate claim, and `in_repo_capture` is what makes the close auditable and reversible rather than a silent drop. One obligation, one home: the baton owns the work, and `memo.blitz_buckets` stops counting a memo whose work is specified elsewhere.
+
+   Two memos do **not** close on routing: one whose capture could not be landed (stays `open`), and one carrying an unanswered question addressed to this repo's PM — a baton cannot discharge a decision, so a ruling-bearing memo stays `open` even when a baton names it.
+
+   When `/pickup` opens the memo itself, route-to-baton is the same Accept shape by the same mechanics.
+
+This is the opposite of queue-laundering (§ There is no fourth disposition, above): the queue is an ownerless staging ground; an active baton is a live, owned execution vehicle with a pickup path. Routing INTO the baton attaches the work to the session that will actually do it. It is also the write-side completion of reconcile-handoffs-before-inbox-triage: triage that only *reads* the batons can classify an item as in-scope yet leaves no record — the committed routing note is that record.
+
+Surfacing ceremonies (`/workday-start` Step 1.45, `/workstream-start` § Outstanding cross-repo memos) perform both the routing write and its paired resolve at triage time. That is the one carve-out to the "`/workstream-start` surfaces, `/pickup` acts" boundary (below), and it is narrow by construction: the ceremony may close a memo *only* into a baton it just committed, with the disposition recorded. Every other memo-lifecycle fork — adjudicating an ask on its own terms, declining, superseding — still lives solely in the `/pickup` memo branch.
+
+#### Tri-plane reroute — an ask targeting another plane's charter routes to that plane's owner
+
+
+Accept has a **partial + reroute** shape when the ask targets work your repo does not (or does not currently) own. The fleet work-state system decomposes into three planes, each with a single named owner (routing fact mirrored in `state-placement-law.md` § Residency Is Not Ownership):
+
+- **Artifact-shape / contract plane → coordinator-claude.** The `artifact-shape-contract`, the cockpit-contract Zod shapes, doctrine, skills. The contract never migrates.
+- **Emission-write plane → the engine repo.** Producing/snapshotting work-state artifacts to a versioned disk emission (the `emit-cockpit-snapshot.py`-class producers, engine-resident; DD#2 "emission write") — and holding custody of its own disk-truth bytes; the engine repo's `state/` is the authoritative store for its corpus.
+- **Query/retrieval-capability plane → rag.** rag owns the chunker/embedder/query capability code, reading and serving over a *derived, re-projectable projection* of another plane's disk-truth — not a durable store in its own right, and not a fleet system-of-record.
+
+An inbound `ask` can target a plane your repo does not own — most commonly an **emission-producer ask that lands on `claude-central-em` out of legacy habit**, because coordinator-claude hosted the tc-3 emission producers *before* the split that moved emission-write to the engine repo. The correct disposition is **neither decline** (the ask is valid work) **nor queue** (laundering, forbidden above). It is **accept-your-slice + reroute-the-rest**:
+
+1. Realize the part *your* plane owns (e.g. a contract-shape change stays coordinator-side).
+2. `cs_action_memo … --decision partial` — `decision_note` names the split and the reroute target; `realized_by` points at your slice's plan/commit.
+3. **Memo the plane owner** (`cross-repo-memo draft <slug> --to <owner-em> …` then `send`) for their part, and **hand the PM the receiver path** for relay — the reroute is only real once the owner has it.
+4. **Inform the original sender** of the reroute and any timeline shift via a return memo — do not let their `open`-expectation silently rot behind a plane migration they can't see.
+
+This is durable routing, not a migration-window hack: post-migration the plane owner is permanent, so an emission-producer ask should *always* route to the engine repo. Worked instance: the 2026-07-04 cockpit backlog-history ask — the `backlogHistory` contract block realized coordinator-side, the recorder + emit-assembly rerouted to the engine repo's EM, cockpit informed that v2.5.0 now sequences behind the emission-stack migration.
+
+#### Adjudicate-and-own includes ceremony, not just disposition — and ceremony is the receiver's call
+
+Once you Accept (above), a second judgment follows: how much *ceremony* does the work earn? This is the receiver's call, because **magnitude is not knowable to the sender and the sender's register does not encode it.** Under § Authoring an ask the sender writes every ask plainly and in the imperative — that rule governs sender *plainness* (don't soft-pedal real work into a suggestion-box submission), NOT how big a deal the ask is for your repo. The two rules are complementary halves of one discipline: **the sender states the work plainly; the receiver decides how big a deal it is.** Reading an imperatively-worded ask as therefore-weighty is the misread this pairing exists to prevent — a plainly-stated "move these eight documents" is mechanical, not a planning exercise.
+
+- **Default: mechanical-direct.** Most accepted asks are surgical follow-ups. Do the work, commit it (both sides where authorized — see the carve-out below), action the memo. No plan, no round-trip, no back-and-forth.
+- **Escalate to a plan ONLY on a NAMED weighty signal** — inherit [`ceremony-calibration.md`](../ceremony-calibration.md) § TL;DR: a *novel decision* (not a surgical follow-up to one already made), *instance #1* of a pattern with downstream occupancy, or *vague framing* that needs shaping first. Absent a named signal the default stands; do not manufacture ceremony to feel thorough.
+
+**Channel and ceremony are orthogonal axes — do not conflate them.** Two independent questions govern cross-repo coordination; they are NOT a hierarchy:
+
+- **Channel axis — *do I use the memo channel at all?* — keyed to GOVERNANCE *and* CHANGE-CLASS.** `triad-roles-doctrine.md` §208 (project-rag-ue-addon) eliminates the blocking memo channel within the same-PM/EM triad for **two narrow classes only**: (a) **break-glass / emergency** coordination, and (b) **DoE-altitude structural / doctrine seeding** (CLAUDE.md / wiki / agent-prompt edits authored from on high). For those, cross-repo coordination is *direct commits into the peer repo*; memos become after-the-fact `## Response` records, not handshakes. **Everyday cross-repo code / install-surface / contract changes route via `cross-repo-memo` + PM-relay even inside the triad** — the owning-EM-lands-with-context discipline is the default, because the cross-repo-write-without-the-owning-EM's-context hazard does not disappear under shared governance. §208 is a narrow exception, NOT a general "triad ⇒ direct-commit" default. The channel choice is settled by who owns the repos **and which class of change it is** — magnitude is the *ceremony* axis, not this one.
+- **Ceremony axis — *given a memo arrived, how much process?* — keyed to MAGNITUDE,** operative only *inside* the memo channel. This is the receiver-judgment rule above.
+
+§208 is **not** "the low-ceremony case of the receiver-judgment rule," and the receiver-judgment rule is **not** "§208 generalized." The channel axis is keyed to *class*, not magnitude: a triad EM doing a weighty **doctrine-seed** skips the memo channel (channel axis), but a triad EM doing weighty **code/install-surface** work still routes via memo + PM-relay; a non-triad EM receiving a mechanical ask still does it directly (ceremony axis). Name the axis that applies — never nest one rule inside the other, and never read "triad" as license to direct-commit code into a peer repo. (This is the exact confusion that produced the over-ceremony incident this rule fixes: a mechanical transfer was read as weighty because the channel-vs-ceremony axes were conflated.)
+
+**Both-sides-commit carve-out — three cases (mechanical cross-repo transfers).** When an accepted mechanical ask is a *transfer* (move a document, relocate a file, hand over ownership), the receiver may need to write into the offering repo too. Scope it:
+
+- **(i) Triad + you own both repos AND the transfer itself is one of §208's two named classes (break-glass, or DoE-altitude doctrine-seeding)** → §208 direct-commit governs (channel axis) natively; the both-sides-commit is not a separate carve-out, it falls out of §208's own regime. Triad membership and dual ownership are necessary but not sufficient — a mechanical transfer that is code/install-surface work does NOT qualify here even inside a triad (§ above: "a triad EM doing weighty code/install-surface work still routes via memo + PM-relay"); that transfer falls to case (ii) or (iii) below instead.
+- **(ii) Non-triad but you hold authority over both repos** → the both-sides-commit carve-out applies as a ceremony-axis legibility aid: commit the offering-side change because you hold authority over it. This is a sanctioned cross-repo write for a *mechanical transfer*, scoped to has-authority-over-both — **not** a blanket license.
+- **(iii) You lack authority over the offering repo** → the offering-side change routes per the altitude rules (§ Doctrine seeding vs code/install-surface): memo + PM-relay for code/install-surface, direct doctrine-seed for doctrine. The carve-out does not apply.
+
+**Case (ii) instance — publish-target-where-the-doctrine-repo-is-sole-writer.** The canonical instance of Case (ii) is a cross-repo install-surface fix that spans the meta-repo (`~/.claude`) and its OSS publish target (`coordinator-claude`). The doctrine repo holds authority over both: the meta-repo is the source-of-truth; the publish target is a percolation destination with no sibling EM session and no independent writer. In this configuration, a direct write to the publish target is not a surprise to any collaborator — it IS the routine doctrine-repo operation (`setup/publish.sh` percolation), and the fix cannot land at meta-repo-only without silently degrading OSS-user experience.
+
+`state/lessons.md` (content-anchor: "Cross-repo direct write is for doctrine-seed only; code/install-surface changes route via memo + plan, even when PM-authorized [universal]") warns against generalizing PM-authorized direct writes. The publish-target instance is the named structural carve-out from that lesson's prior framing: the warning governs writes to sibling repos that have their own EM/consumers who would be surprised; it does NOT govern writes to a publish target the doctrine repo owns and exclusively drives via `publish.sh`.
+**`/workstream-start` surfaces, `/pickup` acts.** This is an architectural boundary, not a gap: `/workstream-start` (via `workday-start-cross-repo-memo-surface.py`) provides awareness; adjudication lives solely in the `/pickup` memo branch. Teaching both entry points the same fork creates divergence risk. Its one carve-out is the route-to-baton close (§ Route-to-baton, mechanic 4) — no fork to duplicate there, since the ceremony may only resolve a memo into a baton it just committed; everything requiring a judgment call still routes to `/pickup`.
+
+### Do-now applies to memos — a "land before X happens" ask is do-now
+
+> The do-soon→do-now discipline governs inbound memo-asks too: an Accept IS the work, this session — not an agreement to do it before a future gate.
+
+**Failure shape.** A sibling EM memos *"land your fix on your pushed branch before <our coupled release>."* The receiver "Accepts" in word — `decision: accepted`, *"sure, we'll do that before the release"* — and the agreement substitutes for the action. The stamp says yes; nothing lands. It reads as actioned at the next `/workday-start` while the requested fix still hasn't landed. Deferral in Accept's clothes — the laundering `realized_by` exists to stop, slipped past because *"before X"* reframed do-now work as do-before-a-gate. The anti-pattern is deferring the landing, not which ref it lands on.
+
+**Discriminator — two independent axes; don't collapse them.** The **work-gate** (*when do I do the fix?*) is **do-now**: landing the fix on your pushed shared branch is just doing the work — a commit is not a release, and doing the work does not wait on `merge-to-main` (branch-landing is the work-gate; `merge-to-main` is the PM-owned ship/sync-gate — see `daily-branch-discipline.md § Align on branch`). The **release-gate** (*when do the coupled repos go live together?*) gates the synchronized go-live, never the landing of either half. Reading *"land before X"* as a reason to defer the *fix* conflates them.
+
+**Release synchronization is PM-owned, like memo relay.** Shipping dependent repos *together* is a human-relay concern the PM holds. The EM does not hold back a landable fix as a private release maneuver ("I'll wait to land mine until theirs is ready") — that re-implements a gate the PM already owns. Land your half **now**; if the go-live must be synchronized, that's a one-line surface to the PM, not undone work.
+
+**Reply mechanics** (the existing ack-of-ack / partial-ack rules, applied here):
+- **Sender hasn't landed their half** → `kind: ask` return memo: *"mine is at `<SHA>`; land yours."* New info + a live request → legitimate, not ack-of-ack. The full form of *partial-ack unblocks the sender* (§ above) — send it the moment your half lands.
+- **Sender already landed theirs** (verify: `git fetch` + `git branch --contains <their-SHA>`) → **no** reply memo. Stamp the inbound in place: `status: actioned`, `decision: accepted`, `realized_by: <your-SHA>`, `decision_note: "both halves landed — mine <SHA>, theirs <their-SHA>"`. The stamp is the receipt; a reply is ack-of-ack.
+
+
+Premises stay hypotheses: a concurrent session may already have landed your half (§ Memo content is hypothesis; Verify premises, formerly M2). Do-now means do the verified-still-needed work now, not commit blind.
+
+### Extension-items audit — scope-narrow inbound `ask` proposals before actioning
+
+When an inbound `ask` memo carries a multi-item proposal table, the receiver EM must identify the load-bearing items for the **named problem statement** first. Proposal extensions ("while we're here, also flip X") ride along for free ONLY if they satisfy the same shipping discipline as the load-bearing item. Default to scope-narrowing; ratify additions one at a time.
+
+The sender is closer to their own frustration than to the problem boundary the receiver-EM is solving. Reading an imperatively-worded proposal table as "all items are load-bearing" is the failure mode — the sender writes all items plainly (§ Authoring an ask), but plainness does not imply load-bearing. Source: repo-setup-produce-not-prescribe pickup.
+
+### Receiver decline on substrate grounds is premise correction — send an outbound notification
+
+When a memo is declined because the cited locus is wrong (it lives in the sender's repo, not the receiver's), the receiver-side disposition flip (`status: actioned, decision: declined`) is **not terminal** — the sender expected action; without outbound notification they will not revisit their archive for weeks.
+
+**Rule when partial-declining on substrate-correction grounds:** dispatch an outbound `kind: ask` memo naming (a) that the receiver's substrate-check found the fix lives on the sender's side, (b) the concrete fix shape (or pointer to work already done that helps them), and (c) any evidence gathered (test invocations, grep paths). The decline is a premise-correction, not a conflict; treat the receiver as authoritative on their own substrate and hand the work back with a concrete specification.
+
+*Complement to the general receiver-judgment rule:* the adjudicate-and-own gate covers the case where you ACCEPT; this rule covers the case where you DECLINE on substrate grounds. The obligation to notify is the same in both cases. Source: claude-home-exec-hardening pickup.
+
+### Don't re-nag the PM about already-sent memos
+
+Once the receiver path has been handed to the PM at send time, the sender's job is done. Do not re-list memos (or doctrine-seeding direct writes) as "pending PM-relay" or "pending your action" in later session reports, `/handoff` bodies, or session openings. The receiving repo's `/workday-start` Step 1.45 surfacing is the canonical channel; sender-side action-state knowledge goes stale silently. Operative rule lives in `skills/workstream-complete/SKILL.md` § Step 2.66.
+
+### Premise checks are point-in-time — re-read immediately before you act, not earlier
+
+A premise read at plan-write time, at inbox-triage time, or even minutes ago is a snapshot, not a
+lock — the tree it describes keeps moving underneath it. Re-reading right before the action that
+depends on it is not paranoia; it is the only place the check actually protects anything, because
+every earlier read is stale by the time you act on it:
+
+- **Before drafting a plan that depends on a peer's disposition**, re-read the cross-repo inbox
+  immediately, not only at session start — a plan drafted against a stale inbox snapshot inherits
+  whatever changed between session-open and plan-write.
+- **Before running a gate's own suggested remediation command**, check the inbox first: a sibling
+  may have already flagged the same condition and deliberately held the regeneration you are
+  about to fire — the gate's remediation text has no way to know that.
+- **Before replying to an inbox memo**, re-read its status immediately rather than trusting the
+  `status: open` you read earlier in the session. An inbox memo read as `open` is a snapshot, not
+  a lock — a concurrent peer session can claim, action, or reply to it between your read and your
+  reply, and two contradictory memos can then reach the recipient from the same nominal sender
+  with no way to know which one governs. "Is this still mine to answer?" is part of the premise
+  check, not a separate step.
+- **Before dispatching a memo in a many-session repo**, check the outbound record you are about to
+  send against what has already gone out on this event. Two complementary memos about the same
+  thing, sent moments apart by different sessions, still cost the receiver a reconciliation pass
+  even when neither is wrong on its own — the cost is duplication, not error.
+- **Verify the premise against the receiver's own record, not your inference about it**, before
+  drafting the memo at all. An apparent silence can be a reply already sent — pointed at a
+  mismatched ask number you never cross-checked — which reads as "they haven't answered" only
+  because you didn't look at their record before assuming it.
+
+### Citation and scope pinning — a pin proves WHERE, never WHEN
+
+A SHA pin or a `scoped_to` field answers "what tree does this citation point at," never "is that
+tree still current." Treating a pin that resolves cleanly as proof of freshness is the recurring
+mistake:
+
+- **A pinned SHA and a live checkout cannot both be the source of one citation.** A memo pinning
+  `scoped_to_sha` but then resolving its cited line numbers from the sibling's *live* working tree
+  breaks the pin's promise silently — pick one source for both halves, the pinned commit or the
+  live tree, never a mix of the two. Corollary: an inherited line number is evidence, not
+  staleness — check it against its original SHA before "correcting" it to match the live tree.
+- **On a live peer tree, a SHA-pinned citation can be correct and stale at once.** A memo scoped
+  to a sibling commit can pass its own premise checker — the artifact is present, the SHA is in
+  `HEAD` — and still describe a duplicate, because the sibling landed a superseding commit in the
+  window between the read and the send. Both checks were true and the memo was stale anyway; a
+  passing premise checker on a pinned SHA proves *where* you read, not *when* the tree you read
+  was last true.
+- **`scoped_to.artifact` must name a surface in the RECEIVER's tree, not a sender-local one.** The
+  field is resolved against the receiver's own clone by the send-time premise check — pinning an
+  artifact that only exists on the sender's side makes that check report the premise as already
+  stale the moment the memo is delivered.
+
+### Verify a claim about the sender's own repo before adopting it — agreement is not evidence
+
+A memo's factual claims about the sender's own repo — a schema field's meaning, a stated fallback
+if you decline — do not transfer to yours by virtue of being written down. Verify each cited field
+against your own local schema or corpus before letting it become doctrine here, and verify a
+sender's stated fallback ("if you decline, we fall back to X") the same way you would verify any
+other memo claim, not as a courtesy to accept at face value. **The check is most urgently owed
+when you agree with the memo** — agreement is exactly the condition that suppresses the instinct
+to check, because nothing about a claim you already believe feels like it needs verifying. Report
+a struck fallback as a finding either way, not only when it turns out to be wrong.
+
+### Hand-authored memos, the legacy flag-form, and the summary cap — sender-side CLI hazards
+
+Three concrete ways a memo can leave the sender's hands broken without the sender knowing:
+
+- **A hand-authored memo bypasses every schema gate the memo CLI enforces on your behalf.** The
+  CLI validates shape at draft/send time; a memo file written by hand and dropped into the
+  receiver's inbox skips all of that. The receiver's claim-memo-stamp machinery is the first
+  validator any hand-authored memo actually meets — by then it is already sitting in the
+  receiver's inbox, whatever shape it is in.
+  - **`kind` enum values.** Applies here as elsewhere: hand-authoring a `kind` outside
+    `ask | consult | fyi | proposal | bug | notice` produces a memo the receiver-side archive-stamp
+    tooling cannot terminally flip (see § `kind` enum above).
+- **The legacy flag-form send arm silently loses the body when stdin is empty.** Never use it for
+  an agent-authored body — use the `draft → compose → send` idiom (§ CLI above) every time. The
+  flag-only send form is gone from the current CLI precisely because of failure modes like this
+  one; treat any surviving reference to a flag-only `--body-file`-style invocation as something to
+  route through draft/compose/send instead, never as a shortcut.
+- **The `cross-repo-memo` summary field has a hard 120-character cap.** A drafted summary that
+  reads naturally in prose routinely exceeds it — check the length before `send`, not after the
+  CLI rejects it.
+
+### Send a cross-repo contract as a consult with open questions, never as a frozen schema
+
+When proposing a data contract to a sibling repo, send it as `kind: consult` with the open
+questions named explicitly, not as a frozen schema for the receiver to simply adopt. The producer
+of the data knows what is cheaply derivable at their own seam in a way the consumer, working from
+the outside, cannot — a consult invites that knowledge back into the contract before it locks; a
+frozen schema forecloses it. In a worked case, the consult reply caught a latent baseline-rotation
+correctness bug that a consumer-authored frozen schema would have shipped unchallenged.
+
+### A cross-repo propagation rule needs a worked example, not just prose
+
+A rule describing how something inherits or propagates across a graph of repos or nodes — an
+inheritance rule, a supersession chain, a rollup — reads as unambiguous in prose right up until it
+is instantiated on a concrete graph, at which point the ambiguity surfaces as a contradiction. In
+one case, five independent reviewers each read the same prose rule and missed the same
+contradiction; only a worked N-node example, walked through by hand, exposed it. Ship the worked
+example alongside the rule, not as a follow-up if someone asks for one — prose alone is not a
+sufficient spec for a propagation rule, however carefully worded.
+
+### An external check catches what your own review passes structurally cannot
+
+A reviewer checking the sibling's disk, or an inbound coordination document read for an unrelated
+reason, is how a stale cross-repo premise or a latent defect actually gets caught — not a re-read
+of your own notes, however careful. Twice in one session, a chunk was carried as blocked on a
+sibling repo that had already landed the work; both times the mistake was caught by a dispatched
+reviewer checking the sibling's disk, never by re-reading the handoff or reply memo that produced
+the belief in the first place. Separately, a live PreToolUse surface almost shipped an incorrect
+band assignment despite two plan reviews, a prior-art check, and a merge review — all missed it,
+because none of them was asking the question an inbound reconciliation aside happened to ask. A
+cross-session coordination document is a review surface in its own right: it enumerates your
+substrate from outside your plan, in a way none of your own review passes will, because none of
+them was framed to ask that particular question. Do not treat "I already checked" as equivalent to
+a reviewer or an external document actually checking.
+
+### A ratified ruling with no sent reply is an open loop, not a closed one
+
+A ruling can be correct, PM-ratified, and still worthless until the reply that carries it actually
+leaves the tree. In one case a memo was ruled on and ratified the same day, with "reply memo owed
+once the exit is chosen" recorded in the ruling itself; the exit was chosen but the reply memo was
+never sent, and five days later the sender re-sent the identical memo because nothing had reached
+them. "Reply owed once X" needs a follow-through checkpoint that actually fires once X happens, not
+a note that sits unactioned in a ruling record — a ratified ruling reads as silence to the sender
+until the reply is sent, no matter how settled it is on this side.
+
+### Accepting an offer with a landing dependency needs a receiving-side commitment row too
+
+Existing memo-accept guidance covers commitments this repo owes outward, but not the inverse case:
+accepting an OFFER whose value only arrives once the *other* side lands something has no home on
+either side of the channel by default. In one case the doctrine repo accepted an engine-repo op offer, asked to be
+told when it went live, and neither repo held a tracking row for it — so a hand-derived duplicate
+predicate sat stale for a day with nobody watching for the landing signal. Treat accepting a
+landing-dependent offer the same as making a promise: open a receiving-side commitment row keyed
+on the landing signal, not just a note to "check back later."
+
+### Delivery is receiver-side — key a closure identifier to the receiver's inbox, never the sender's outbox
+
+Cross-repo-memo delivery consumes the draft on send and writes into the RECEIVER's inbox,
+committing there; nothing persists sender-side (§ The single pattern, above — sender keeps no
+copy, and there is deliberately no `sent/` folder). A closure identifier or tracking key built on
+"the outbound memo path" is built on a path that is empty by design, and looking there for a
+memo's record produces a false not-found that reads exactly like a genuine sequencing miss. Key
+any closure identifier to the receiver's inbox path plus the delivery commit SHA, never to
+anything on the sender's side.
+
+### Grandfather cutoff
+
+**Pre-2026-05-22 memos are grandfathered.** Step 1.45 skips memos with `created: < 2026-05-22` by design. If a pre-cutoff memo has unfinished business, re-issue via `cross-repo-memo` with `supersedes: <old-path>`.
+
+**Disambiguation — `supersedes:` on a memo vs. on a live baton.** The `supersedes:` field means something different depending on the artifact type. Canonical contrast (verbatim, also in `docs/wiki/baton-lifecycle/spinoff-handoffs.md` § `supersedes:` on a live baton):
+
+> "`supersedes:` on a memo = terminal (paired with `superseded_by:` + `status: superseded`, wired in the `CROSS_FIELD_RULES` memo block); `supersedes:` on a live baton = conditional+live, a spine-build-time preference (never flips status, no back-pointer, wired in the `CROSS_FIELD_RULES` handoff block)."
+
+On a **memo**, `supersedes:` is a terminal re-issue signal — the old memo is paired with `superseded_by:` and its `status:` flips to `superseded`; the old memo is dead. On a **live baton** (`kind: spinoff`), `supersedes:` is an optional spine-build-time preference used by the orientation-supersession convention (`docs/wiki/install-playbook-rationale/agent-install-contract.md` § Orientation-supersession); it does NOT mark any baton dead and never flips `status:`. Cross-reference: `docs/wiki/baton-lifecycle/spinoff-handoffs.md` § `supersedes:` on a live baton carries the matching note.
+
+### Worked example
+
+Memo from `claude-central-em` to `project-rag-em`.
+
+**Step 1 — Sender writes** (POSIX-host form, Shape A; a PowerShell host uses rung 0 / Shape W —
+see `coordinator/snippets/resolve-coordinator-bin.md`)**.** Resolves `cross-repo-memo draft
+gate-check-fix --to project-rag-em --title "Gate-check failures in check-plugin-drift.py —
+recommended fix"`, writes the body into the printed outbox path, then `cross-repo-memo send
+gate-check-fix`.
+
+CLI writes `<project-rag-root>/cross-repo/inbox/<date>-claude-central-em-gate-check-fix.md` (dirty, untracked) with:
+```yaml
+---
+title: "Gate-check failures in check-plugin-drift.py — recommended fix"
+from: claude-central-em
+to: project-rag-em
+created: 2026-05-23
+status: open
+---
+```
+
+CLI prints:
+```
+Receiver-side: <project-rag-root>/cross-repo/inbox/<date>-claude-central-em-gate-check-fix.md
+Hand the PM this path for relay: <project-rag-root>/cross-repo/inbox/<date>-claude-central-em-gate-check-fix.md
+Reminder: Hand the PM the receiver path — PM-relay is still the primary channel.
+```
+
+Sender notes the send in their workstream-complete notes. No sender-side file is created.
+
+**Step 2 — project-rag-EM sees the dirty file** at next session open (`git status` shows `?? cross-repo/inbox/<date>-claude-central-em-gate-check-fix.md`), reads it, implements the fix, then flips status in-place:
+```yaml
+status: actioned
+decision: "Fixed gate-check exit-code handling in check-plugin-drift.py"
+```
+Commits: `memo: actioned 2026-05-23-gate-check-fix — accepted and implemented`
+
+Done. Memo lives in `project-rag/cross-repo/inbox/` as the active record; once actioned it may be swept to `project-rag/cross-repo/archive/`. No further action required on either side.
+
+### Verify an ask's live status against the inbox and commitment ledger, not the roadmap's ask doc
+
+`state/roadmap/**/peer-team-asks.md` is authored at roadmap-planning time and is never re-synced when an ask is answered — it records an ask's *origin*, not its *current state*. Before asserting a peer-team ask is unsent or pending — especially before drafting a memo to (re)send it, or reporting its status to the PM — check the live sources instead: `cross-repo/inbox/` and `cross-repo/archive/` for a reply, `state/cross-repo-commitments/*.yaml` for the watch-ledger, and `COORDINATOR-RESOLUTIONS.md` UPDATE blocks. A roadmap ask doc alone can describe an ask as unsent for a request that was already ratified, landed, and actioned weeks earlier.
+
+### A cross-repo drift guard needs an external oracle — a hand-pinned mirror of the sibling's version cannot detect the sibling's drift
+
+A guard that compares a locally-owned constant (a hand-maintained mirror of a sibling's schema or contract version) against another locally-owned constant tests only self-consistency, never the cross-repo contract it claims to protect — it can stay green through a real major-version drift because both sides of the comparison are ours. Where the sibling is co-located on the same box, read its real version off disk (its own version file, skipping loud when the clone is absent) rather than comparing against a pinned mirror; where the sibling is genuinely unreachable, give the mirror a staleness expiry that fails on age, since a comparison with no external oracle can never notice drift on its own. Applies to every vendored-version, mirrored-constant, or "keep these two repos in sync" pin in the fleet — a green test on one of these is evidence of internal consistency, not of the cross-repo contract holding.
+
+### A sibling's "we're holding until you acknowledge" is a courtesy, not a gate — verify their branch, don't plan against their promise
+
+Treat a sibling's stated hold as unverified until their actual branch state has been checked. When a cross-repo memo names a cutover date or a hold, `git log` their branch for the change itself before that date shapes sequencing, urgency, or wave structure in your own plan — the check is one `git log` against a sibling checkout, and the failure it prevents is planning a comfortable multi-day sequence for work that is already a live outage. Record what the tree actually shows, not what the memo said, and note any divergence back to the sibling neutrally and factually — it changes how their next hold-promise should be read, and saying so once is cheaper than silently discounting every future promise.
+
+### A status line written as "pending" goes stale the moment you do the pending thing
+
+A field describing an action as pending, queued, or awaiting is a live claim about the future, and the session most likely to falsify it is the one that wrote it — because the line reads correct at write time, so there is no error to notice and nothing for a test to fail on when a later action in the same session invalidates it. When you perform an action a status line predicted, grep for the places that predicted it rather than trusting you'll remember you wrote one; noting the file path in the same breath as the plan to act gives the fixup somewhere to attach. Prefer wording that records distinct observable states (filed / delivered / acknowledged) over a single pending/not-pending binary — a binary forces relitigating the whole claim, distinct states let a session append only what changed.
+
+### This is a Claude-focused shop — reach for a different Claude configuration before a cross-vendor model
+
+Model-diversity needs (a blinded second labeler, adversarial verification, independent review) are answered inside the Claude family first — a different tier (Sonnet against Opus) or a differently-prompted or blinded instance of the same model — before reaching for a cross-vendor model. A cross-vendor model is a one-off escalation carrying its own justification for why intra-Claude diversity is insufficient, never a routine suggestion: every cross-vendor dependency is another credential, another billing surface, another thing that can drift, and choosing one is a PM/product-focus call, not an engineering default. Where Claude-labeling-Claude genuinely weakens a methodological claim, the fix is to downgrade the claim honestly (call the labels a consistency check, not independent ground truth) rather than reach cross-vendor to rescue the stronger claim — that inverts the priority, spending vendor-strategy budget to avoid an honesty adjustment that costs nothing.
+
+### When ownership is genuinely ambiguous, ask the platform team before building it locally
+
+Where work could reasonably be this repo's or could reasonably be a platform team's (project-rag for querying/embedding, the engine repo for the engine, the doctrine repo for doctrine), the default is to route it to them and ask, not to absorb it locally because building it would be faster. The economics favor asking even at a low expected yes-rate: a consult costs one round trip, a duplicated primitive costs forever, and "that's addon/platform territory" is a perfectly good, still-cheap outcome. Three things to get right: (1) ask BEFORE building, not after — an ask next to a finished implementation is a notification, not a consult, and forecloses the answer it pretends to seek; (2) don't treat the ask as a scheduling dependency — keep working on what is unambiguously yours while it's in flight, and expect a "don't wait on us, here's an interim shape" answer rather than a block; (3) expect the consult to correct your framing, not just answer yes or no — a correction is worth more than the yes.
+
+### Cross-plan corrections are edited in situ, never routed through a memo to the plan's owner
+
+When work in one plan makes a sibling plan's text stale or wrong, edit that plan directly and commit the correction in the same pass as the work that made it stale — do not draft a memo asking its owner to fix it. This is a named exception to the general "another owner's surface, so flag it rather than touch it" reflex: that reflex is correct for code and for another team's runtime surface, but wrong for plan DOCUMENTS, where deferring the edit manufactures a coordination step nobody executes — memos sit unsent, the stale text survives, and the next reader trips on it. Reserve memos for things that genuinely cannot be actioned by editing.
+
+### Backfilled completion logs are built from ceremony residue, not the commit spine
+
+When backfilling daily or weekly completion logs, `git log` is the *weakest* available source — a commit says a file changed, not whether the work it belonged to was finished, deferred on purpose, superseded, or turned into a lesson; only the ceremony record carries that disposition. Build backfills from the residue `/workstream-complete` and its siblings actually leave — `archive/completed/<month>/` entries, ceremony state JSON, `state/lessons/*.yaml`, `archive/specs/`, the handoff tracker and lineage, `state/review-trail/`, and the cross-repo inbox/sent record — named first in the brief, commits named last. Sequence weekly rollups strictly after the daily backfills for their week: a weekly consumes its dailies as primary input, and running them concurrently wastes the fan-out and thins the base every weekly depends on.
+
+### Cross-repo asks get sent and answered, then the backlog item carrying the stale premise is never closed
+
+Sending a memo and receiving its reply or landing notice is not the same act as walking back to close the backlog or debt item the ask was blocking, and the gap compounds quietly because nothing prompts the return trip. A blocker item can sit for weeks past the point its cross-repo dependency actually landed, and a debt/backlog item's cross-reference to an *adjacent* memo (same repo, different subject, different thread) can read as coverage for far longer than it should. When a cross-repo ask resolves, walk back to the backlog or debt item it was blocking and close or re-scope it in the same pass — "memo sent" and "memo answered" are not themselves the closing action.
+
+### A peer's hand-over is a diff against your live code, not a build order
+
+When a sibling repo hands over working code or a proposed fix, size it as a diff against your own current implementation before adopting any of it, even when the sibling's memo presents the whole handed-over batch as equally actionable. A batch of handed-over pieces regularly reduces sharply once diffed — some duplicate stronger code already in place, some don't apply to the receiving repo's shape at all, and only a remainder is a real gap worth taking, sometimes buried last in the memo and described as the cheap part.
+
+### A channel with a disciplined write side and a discretionary read side loses exactly its newest corrections
+
+Sending is transactional — a verb, a ledger row, a delivery commit — and accretes proof of its own health on its own; reading an inbound memo has no equivalent mechanism, so unread memos accrete silent debt while the outbound side looks clean. The corollary is specific and costly: the newest correction is the least likely to have been seen, because it has had the least time to be found by accident — so briefing a PM or a peer session from a premise that two sessions independently reached by both skipping the same unread memo can look like corroboration and is not; it is two parties downstream of the same gap. Before briefing anyone on the state of a cross-repo question, read that counterparty's inbox first, newest items first rather than oldest-first: a memo you sent is not evidence of an exchange, and a reply you have not read is not evidence of agreement.
+
+### When a guard's safe direction is also its silent-failure direction, its pass and its total failure are the same observation
+
+A fail-closed filter, or a stable/null default, can make "correctly filtering" and "always producing nothing" indistinguishable to every test that never exercises the real producer path — the guard's success and its complete dead-on-arrival failure read identically to the suite. Ask of any such guard: if this kept nothing at all, forever, what would go red? If the honest answer is nothing, add a positive assertion that the non-default path actually fires end to end through the real producer, not a hand-built fixture. This matters most at a cross-repo seam, where each side watches a different property — one side's stability invariant can be protected by the very null value that silently kills the other side's feature — and neither side's own guards alone can see the hole between them. On such a seam, a cross-repo ruling that names its condition and asks the requester to go verify which branch actually produced a value, rather than reasoning it out, catches what reasoning alone gets wrong — only the requester can see their own construction sites.
+
+### Two repos each escalating to "their PM" can be queuing for the same person
+
+In a fleet with one PM across every repo, "I'll take it to my PM" and "I'll take it to mine" can describe the same act, and each side reasoning correctly from inside its own repo boundary can still land on a shared wrong conclusion — that the decision is blocked behind two separate approvers. The cost is quiet: nothing reports it, both sides look healthy, and the decision simply does not get made until someone asks who the other's PM actually is. Before recording a cross-repo item as blocked on a counterparty's PM, establish whether that PM is your PM — one question settles it — and if so, put the decision to them once, in their vocabulary, with both repos' halves of the cost stated together, rather than queued twice from opposite directions with each half looking too small on its own to raise. This does not collapse the repo boundary itself: sign-offs still land against the surfaces that need them, in the tree that owns them: one PM does not make one tree. Relay corollary: when a ruling comes back through a peer session, that session relaying it is not the counterparty receiving it — say so explicitly and have the counterparty confirm through their own channel before treating it as binding.
+
+### A capability is not an output — verify a production caller before reporting a feature shipped
+
+"The capability is built" is a different claim from "the output exists in production," and a green test suite is exactly the wrong evidence for the second: a test exercises a function by importing and calling it, which is precisely what a caller census needs and precisely what it must exclude. Before reporting a feature as shipped to a sibling repo or to the PM, grep the symbol across the production package, subtract its own definition and every test import, and check what production caller remains — zero means dormant regardless of how many tests pass. Confirm the symbol actually resolves before trusting a zero count: a census against a symbol name that no longer exists returns the same zero as a census against genuinely dead code, and only one of those is good news.
+

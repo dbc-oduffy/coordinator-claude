@@ -3,7 +3,7 @@ name: coverage-auditor
 description: "Fresh-eyes auditor cross-referencing specialist claims against a finished synthesis; read-only, binary present/absent verdict."
 model: sonnet
 effort: low
-tools: ["Read", "Grep", "Glob", "Write", "Edit", "Bash", "PowerShell"]
+tools: ["Read", "Grep", "Glob", "Write", "Edit", "Bash", "PowerShell", "ToolSearch", "mcp__notebooklm-mcp__notebook_query", "mcp__notebooklm-mcp__cross_notebook_query", "mcp__notebooklm-mcp__notebook_list"]
 color: yellow
 access-mode: read-write
 ---

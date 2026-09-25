@@ -5,7 +5,7 @@
 # Settings-home contract (DR-072): the machine-local registry and its reader
 # live under a settings home, not a fixed ~/.claude/bin path. Consumers MUST
 # NOT invoke the bare-name `machine-local` wrapper to bootstrap — per
-# docs/wiki/machine-local-registry.md:278, on Windows the bare-name `.cmd`
+# docs/wiki/hook-best-practices/machine-local-registry.md:278, on Windows the bare-name `.cmd`
 # wrapper hits a CreateProcess-no-PATHEXT / shebang trap when invoked from
 # hidden-window install children. This script instead resolves the settings
 # home by pure path arithmetic and invokes the reader impl directly:

@@ -15,4 +15,4 @@ order: 3
 
 `docs-checker` is auto-provisioned its sidecar at spawn, same as Check 1's — no manual pre-scaffold. Dispatch it; it writes findings there and returns the pointer.
 
-_See `coordinator/docs/wiki/docs-checker-pre-review.md` for full rows and sidecar consumption pattern._
+_See `coordinator/docs/wiki/reviewer-pipeline/docs-checker-pre-review.md` for full rows and sidecar consumption pattern._

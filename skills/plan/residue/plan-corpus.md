@@ -50,7 +50,7 @@ rules, and the review cycle their absence cost: writing-plans.md § Prime Exit C
   call at dispatch time, default a background Workflow. *"Do not fan this out"* / *"EM-sequenced,
   chunk at a time"* will be overridden, so write the real constraint instead: a shared write target
   is a `depends_on` edge on the spine, a Workflow-inexpressible shape is a named carve-out
-  (`coordinator/docs/wiki/workflow-orchestration.md`). Tripwire: `A-PLAN-DOES-NOT-PICK-THE-EXECUTION-VEHICLE`.
+  (`coordinator/docs/wiki/em-operating-model/workflow-orchestration.md`). Tripwire: `A-PLAN-DOES-NOT-PICK-THE-EXECUTION-VEHICLE`.
 - _Wave shape depends on something this plan has not established ("do X, then decide")?_
   → That is a **spike chunk before execution**, not a licence to grind chunk-at-a-time. An
   unresolved decision left in the body bounces at `/execute-plan` Phase 1.4 anyway.

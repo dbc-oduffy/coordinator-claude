@@ -66,14 +66,14 @@
         "mode": "manual",
         "remediation": "install: uv tool install notebooklm-mcp-cli (requires uv/uvx), then nlm login, then nlm setup add claude-code to register the notebooklm-mcp MCP server."
       },
-      "reference": "coordinator/docs/wiki/notebooklm-for-your-research.md"
+      "reference": "coordinator/docs/wiki/mcp-topology/notebooklm-for-your-research.md"
     }
   ],
   "required_local_surfaces": [
     {
       "id": "statusline-registration",
       "description": "The `statusLine` key in `~/.claude/settings.json`, registering coordinator/bin/statusline.py as the Claude Code harness's status-line command. This is a MACHINE-LOCAL registration written INTO the operator's ~/.claude, not a repo artifact -- a `git pull` cannot carry it, so it must be re-performed on every machine and goes missing silently when work is authored on one host and pulled on another (distinct from required_mcp_surfaces, which probes marketplace-plugin/external-server enablement, and required_env_vars, which probes shell environment).",
-      "why": "coordinator/bin/statusline.py is the sole producer of the per-session context-window sidecar under $COORDINATOR_SETTINGS_HOME/state/context-window/, and the harness statusline stdin is the ONLY surface exposing live context usage (see coordinator/docs/wiki/anthropic-harness-capability-map.md, the /usage row). Claude-klabauter's context-pressure advisory is a declared consumer of that sidecar's shape -- without this registration it silently loses its only source of live context usage and the operator loses the context gauge.",
+      "why": "coordinator/bin/statusline.py is the sole producer of the per-session context-window sidecar under $COORDINATOR_SETTINGS_HOME/state/context-window/, and the harness statusline stdin is the ONLY surface exposing live context usage (see coordinator/docs/wiki/claude-md-surfaces/anthropic-harness-capability-map.md, the /usage row). Claude-klabauter's context-pressure advisory is a declared consumer of that sidecar's shape -- without this registration it silently loses its only source of live context usage and the operator loses the context gauge.",
       "tier": "semi-hard",
       "probe": {
         "kind": "json_key_present",
@@ -85,7 +85,7 @@
         "mode": "manual",
         "remediation": "set statusLine in ~/.claude/settings.json to a `type: command` entry invoking <repo>/coordinator/bin/statusline.py by absolute path through a real python (e.g. {\"type\": \"command\", \"command\": \"python /absolute/path/to/coordinator/bin/statusline.py\"}). If statusLine already carries a different value, relocate it -- do not clobber an existing registration."
       },
-      "reference": "coordinator/docs/wiki/anthropic-harness-capability-map.md"
+      "reference": "coordinator/docs/wiki/claude-md-surfaces/anthropic-harness-capability-map.md"
     }
   ],
   "required_env_vars": [],
@@ -347,9 +347,9 @@
       },
       "install": {
         "mode": "manual",
-        "remediation": "install the 1Password CLI (op) if you use the 1Password SSH agent for GitHub auth: brew install 1password-cli (macOS) / winget install AgileBits.1Password.CLI (Windows) — see docs/wiki/github-auth-setup.md § Tier 1. Without 1Password, ignore this entirely; nothing breaks without it."
+        "remediation": "install the 1Password CLI (op) if you use the 1Password SSH agent for GitHub auth: brew install 1password-cli (macOS) / winget install AgileBits.1Password.CLI (Windows) — see docs/wiki/install-playbook-rationale/github-auth-setup.md § Tier 1. Without 1Password, ignore this entirely; nothing breaks without it."
       },
-      "reference": "coordinator/docs/wiki/github-auth-setup.md"
+      "reference": "coordinator/docs/wiki/install-playbook-rationale/github-auth-setup.md"
     }
   ]
 }

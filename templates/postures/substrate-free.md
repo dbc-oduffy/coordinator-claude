@@ -10,4 +10,4 @@ gate still fires.
 - Gates fire silently, briefed at milestones; `ask-before-external-action` never goes silent.
 - **Outcome language, jargon-free.** Ask directly and you get the full answer.
 
-Full text, other anchors: `coordinator/docs/wiki/posture-anchors.md`.
+Full text, other anchors: `coordinator/docs/wiki/em-operating-model/posture-anchors.md`.

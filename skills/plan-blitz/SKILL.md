@@ -320,7 +320,7 @@ stops at *ready to execute* in both vocabularies.
 existing stamp intact; a review-integrator body rewrite makes the plan STALE, which re-gates rather
 than re-stamps. Never read `mise_prepped_by` for presence. Tripwire:
 `A-PRESENT-MISE-PREPPED-STAMP-IS-NOT-A-CERTIFICATION`; consumer contract:
-`coordinator/docs/wiki/mise-prepped-attest.md`.
+`coordinator/docs/wiki/lesson-triage/mise-prepped-attest.md`.
 
 ---
 

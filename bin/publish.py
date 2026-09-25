@@ -8640,6 +8640,37 @@ def _dest_repo_root(dest_dir: Path) -> Optional[Path]:
     return None
 
 
+def _candidate_top_level_orphans(
+    publish_sync_module,
+    source_dir: Path,
+    dest_dir: Path,
+) -> "List[str]":
+    """Top-level dest files with no source counterpart: what the orphan sweep
+    would consider. Filesystem listing only (no git, no delete), so it works
+    with the engine down. Display only, never delete-safe: without the rename
+    exemption a dropped file and a renamed one look the same.
+    """
+    if not dest_dir.is_dir():
+        return []
+    ignore_file = source_dir / ".percolate-ignore"
+    ignore_matcher = publish_sync_module.load_ignore(
+        ignore_file if ignore_file.is_file() else None
+    )
+    names: "List[str]" = []
+    for dst_file in sorted(p for p in dest_dir.iterdir() if p.is_file()):
+        rel_path = dst_file.name
+        if rel_path.startswith("."):
+            continue
+        if publish_sync_module._archived_or_orphan(rel_path):
+            continue
+        if ignore_matcher.matches(rel_path):
+            continue
+        if (source_dir / rel_path).is_file():
+            continue
+        names.append(rel_path)
+    return names
+
+
 #: The `git status --porcelain=v1 -z` status codes that emit TWO NUL-separated
 #: path fields (new path, then old path). Every other code emits exactly one.
 _PORCELAIN_TWO_PATH_CODES = ("R", "C")
@@ -9170,6 +9201,25 @@ def should_warn_unresolved_rename_exemption(
     if mode_descriptor is None or not getattr(mode_descriptor, "is_mirror_like", False):
         return False
     return bool(declares_basename_rename)
+
+
+def resolve_effective_renamed_file_names(
+    *,
+    renamed_file_names: "frozenset[str] | None",
+    basename_rename_lookup_ok: bool,
+    declares_basename_rename: bool,
+) -> "frozenset[str] | None":
+    """`renamed_file_names` as the orphan sweep should see it. A resolved
+    exemption passes through. An unresolved one becomes an empty set only
+    when the store CONFIRMED this row declares no renames, since then there is
+    nothing to protect. Otherwise it stays None and the sweep fails closed:
+    sweeping blind can delete a renamed published file.
+    """
+    if renamed_file_names is not None:
+        return renamed_file_names
+    if basename_rename_lookup_ok and not declares_basename_rename:
+        return frozenset()
+    return None
 
 
 def _ensure_dest_ready(target: ResolvedTarget, totals: RunTotals, *, out: IO[str] = sys.stdout) -> bool:
@@ -11572,10 +11622,13 @@ def process_target(
             # Keyed on the row's OWN declaration rather than on the mode flag so
             # a flat-mirror row with no rename map stays silent instead of
             # paying a banner it has no REMOVE lines to explain.
+            # Needed on real runs too: it decides whether the sweep can run.
             declares_basename_rename = False
+            # `declares_basename_rename` is False both when the lookup confirmed
+            # no renames and when it failed; only the former licenses sweeping.
+            basename_rename_lookup_ok = False
             if (
-                dry_run
-                and renamed_file_names is None
+                renamed_file_names is None
                 and mode_descriptor is not None
                 and mode_descriptor.is_mirror_like
             ):
@@ -11586,14 +11639,15 @@ def process_target(
                             'basename_rename'
                         )
                     )
+                    basename_rename_lookup_ok = True
                 # Same tolerated-degradation contract as the exemption block
                 # above: an undeclared target, an absent or unwired store, or an
                 # unimportable helper means "cannot tell whether this row
-                # renames", which suppresses the banner rather than aborting a
-                # preview over a purely explanatory line.
+                # renames": no banner, and the sweep below fails closed.
                 except (ImportError, OSError, ValueError, RuntimeError, KeyError,
                         AttributeError, TypeError):
                     declares_basename_rename = False
+                    basename_rename_lookup_ok = False
             if should_warn_unresolved_rename_exemption(
                 dry_run=dry_run,
                 renamed_file_names=renamed_file_names,
@@ -11620,6 +11674,27 @@ def process_target(
                     "exemption, not a failing rename map; a real run resolves it.",
                     file=out,
                 )
+            # A sweep that fails closed says so and names what it left.
+            effective_renamed_file_names = resolve_effective_renamed_file_names(
+                renamed_file_names=renamed_file_names,
+                basename_rename_lookup_ok=basename_rename_lookup_ok,
+                declares_basename_rename=declares_basename_rename,
+            )
+            if (
+                renamed_file_names is None
+                and effective_renamed_file_names is None
+                and _dest_is_owned_subdir(target.dest_dir)
+            ):
+                candidate_orphans = _candidate_top_level_orphans(
+                    publish_sync_module, effective_source_dir, target.dest_dir
+                )
+                if candidate_orphans:
+                    print(
+                        f"  WARNING: {target.name}: orphan sweep skipped "
+                        "(rename exemption unresolved). Not swept, check by "
+                        "hand: " + ", ".join(candidate_orphans),
+                        file=out,
+                    )
             # Sibling-row claim index (§ docs/plans/2026-09-06-the-orphan-
             # sweep-learns-what-a-sibling-r.md, C2): computed from `target`'s
             # REAL `dest_dir`, never `sync_target`'s staging path, for the
@@ -11666,26 +11741,21 @@ def process_target(
                     #     is found at all -- "could not tell", never "not the
                     #     root", which is why `_dest_is_owned_subdir` exists
                     #     rather than a bare `!=` folded in here.
-                    #   * `renamed_file_names` is None, not empty, whenever the
-                    #     rename-exemption block above did not run -- most
-                    #     commonly because the percolate engine is unavailable
-                    #     (an unresolvable engine root, or an import that
-                    #     raises). Empty and unknown are NOT the same: an empty
-                    #     exemption means "no renames exist", while None means
-                    #     "renames may exist and I cannot enumerate them", and
-                    #     sweeping under None deletes every engine-renamed
-                    #     published file. Observed live before this guard
-                    #     existed -- an engine that failed to load was enough to
-                    #     put 10 renamed files on the delete list.
+                    #   * `effective_renamed_file_names` is None when renames may
+                    #     exist but cannot be enumerated (usually the percolate
+                    #     engine failed to load). Empty means "no renames".
+                    #     Sweeping under None deletes every renamed published
+                    #     file: an engine that failed to load once put 10 on
+                    #     the delete list.
                     #
                     # The cost of failing closed is one round that does not reap
                     # an orphan; the cost of failing open is deleting published
                     # files. Not symmetric, so this is not a tuning choice.
                     sweep_top_level_orphans=(
                         _dest_is_owned_subdir(target.dest_dir)
-                        and renamed_file_names is not None
+                        and effective_renamed_file_names is not None
                     ),
-                    renamed_file_names=renamed_file_names,
+                    renamed_file_names=effective_renamed_file_names,
                     foreign_dir_names=foreign_dir_names,
                     module_accepts_foreign_dir_names=module_accepts_foreign_dir_names,
                 )

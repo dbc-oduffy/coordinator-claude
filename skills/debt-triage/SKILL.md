@@ -42,10 +42,10 @@ presenting overlaps to the PM for a dedup decision (populate `evidence:` on both
 **Improvement-queue triage is emitted, not EM classification.** Pick an appetite (`hunt`,
 `standard` or `sweep` — values in `coordinator/queue-profiles/improvement.yaml`). Emit with
 `emit-dispatch-workflow.py --queue state/improvement-queue --profile improvement --appetite <a>
---out state/scratch/debt-triage/{run-id}/improvement.workflow.mjs`, per
+--out state/scratch/debt-triage/{run-id}/improvement.workflow.mjs --repo-root <abs repo root>`, per
 `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`. There is no commit-readiness gate
 to resolve for this leg. Fire with `Workflow({scriptPath})`, never `--fire` — firing authorizes
-the in-run fixes and closes and the post-run hand-back (`coordinator/docs/wiki/queue-terminus-doctrine.md`
+the in-run fixes and closes and the post-run hand-back (`coordinator/docs/wiki/ceremony-calibration/queue-terminus-doctrine.md`
 § Emitted-workflow triage). The run's triage is the only triage — the EM works Steps 2–4 on the
 debt backlog while it runs. An emit refusal is reported, not routed around.
 
@@ -59,6 +59,13 @@ Dispatch Haiku agents, grouped by system, to mechanically re-confirm each open i
 current code: history since the finding's `created` date, the cited `file:line` still shows the
 issue. Verdict per item — `still-open` / `already-fixed` / `partially-addressed`.
 <!-- engine-gap: field=debt_triage.haiku_verify_dispatch producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
+
+Before any verdict, run a mechanical pre-check per row: do its cited paths exist at HEAD, and
+does a grep for its cited symbol hit? A row whose paths exist and symbol hits cannot be
+verdicted `already-fixed: cited file deleted`. Any `already-fixed` verdict claiming a deletion
+must carry `git log --diff-filter=D -- <path>` evidence. A verdict that only echoes a prior
+YAML verification stamp is not a verification — re-check, don't copy.
+
 `already-fixed` → mark `no-longer-applicable`; `partially-addressed` → update the description
 from the Haiku report. Haiku, not Sonnet — rationale: wiki.
 
@@ -135,8 +142,8 @@ touch Step 2's `Dispatch Haiku agents` text, a different step that stays unedite
 do not govern debt-backlog rows today (debt-backlog stays on the current 6b, unedited); if 6b is
 ever applied to debt-backlog rows, that governance still applies.
 
-- `baton`: cluster per `coordinator/docs/wiki/queue-terminus-doctrine.md` § Clustering, then mint
-  solo or themed batons to `coordinator/docs/wiki/baton-authoring-bar.md`'s bar, carrying
+- `baton`: cluster per `coordinator/docs/wiki/ceremony-calibration/queue-terminus-doctrine.md` § Clustering, then mint
+  solo or themed batons to `coordinator/docs/wiki/baton-lifecycle/baton-authoring-bar.md`'s bar, carrying
   triage's sizing evidence. There is no second gate. Close each source row.
 - `route-to-learn-lessons`: run `coordinator-lesson-promote` once per row with `--title-file` and
   `--body-file` (the row's title and body), `--change-kind` (the row's), `--target-wiki unknown`
@@ -163,6 +170,6 @@ ever applied to debt-backlog rows, that governance still applies.
 
 **Commit shape:** batons, promotes and PM-gated closures are separate commits, each naming the
 source ids. The run committed its own fixes and closes. Every hand closure here is followed by
-`grind-row sweep` (`coordinator/docs/wiki/queue-terminus-doctrine.md` § Emitted-workflow triage).
+`grind-row sweep` (`coordinator/docs/wiki/ceremony-calibration/queue-terminus-doctrine.md` § Emitted-workflow triage).
 
 Skip this step entirely if no project-specific entries survived Step 5.

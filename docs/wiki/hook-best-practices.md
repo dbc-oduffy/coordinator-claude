@@ -3,8 +3,8 @@ title: Hook best practices
 created: 2026-05-17
 type: doctrine
 related:
-  - plugins/coordinator/docs/wiki/daily-branch-discipline.md
-  - plugins/coordinator/docs/wiki/claude-code-platform-gotchas.md
+  - plugins/coordinator/docs/wiki/concurrent-em-git-operations/daily-branch-discipline.md
+  - plugins/coordinator/docs/wiki/claude-md-surfaces/claude-code-platform-gotchas.md
 ---
 
 # Hook Best Practices
@@ -13,7 +13,7 @@ Working notes on Claude Code hook mechanics — the platform behaviors that are 
 
 ## Editing a live Bash-matcher hook: stage, don't multi-`Edit` the live path
 
-The harness `exec`s each hook fresh from disk on every matching tool call, so a multi-`Edit` sequence against a hook currently registered under a Bash-inclusive PreToolUse matcher briefly exposes every intermediate state as the live enforcement code for every concurrent agent's Bash tool. Use the engine repo `coordinator/bin/edit-live-hook.py stage`/`commit` (stage → edit scratch copy → `bash -n` validate → atomic swap) instead of editing the live path directly. → `docs/wiki/concurrent-em-hazards.md § H33`, `docs/wiki/coordinator-tripwires.md § LIVE-HOOK-EDIT`.
+The harness `exec`s each hook fresh from disk on every matching tool call, so a multi-`Edit` sequence against a hook currently registered under a Bash-inclusive PreToolUse matcher briefly exposes every intermediate state as the live enforcement code for every concurrent agent's Bash tool. Use the engine repo `coordinator/bin/edit-live-hook.py stage`/`commit` (stage → edit scratch copy → `bash -n` validate → atomic swap) instead of editing the live path directly. → `docs/wiki/concurrent-em-git-operations/concurrent-em-hazards.md § H33`, `docs/wiki/coordinator-tripwires.md § LIVE-HOOK-EDIT`.
 
 ## PreToolUse deny: JSON output, not exit 2
 
@@ -35,7 +35,7 @@ Exit codes do NOT block-with-a-clean-reason. **exit 1** is non-blocking — the 
 
 The `permissionDecisionReason` field is required — hooks that omit it produce a terse "denied" with no context, which is harder to diagnose when an agent hits the block.
 
-→ `docs/wiki/daily-branch-discipline.md` § Enforcement surfaces shows a working example of the JSON deny shape.
+→ `docs/wiki/concurrent-em-git-operations/daily-branch-discipline.md` § Enforcement surfaces shows a working example of the JSON deny shape.
 
 ### Multi-hook deny aggregation: registration order, first-deny-wins
 
@@ -177,7 +177,7 @@ When a PreToolUse deny hook carves out legitimate cases via a regex allowlist, a
 
 **Rule:** invert. Blocklist the violation class (e.g., `subagent_type = coordinator:executor`), allow everything else to pass through. The lookup chain is: back-pointer `agents/<agent_id>/em-session-id.txt → dispatched-agents.txt column 3 → subagent_type`. A growing-allowlist smell (four suffixes added over two months) is the tell.
 
-**Design-as-offers complement:** even after inverting, the hook should be offer-shape — propose the better alternative, not just block. See `docs/wiki/eager-agent-calibration.md`. Source: block-subagent-plan-body-write.sh inversion.
+**Design-as-offers complement:** even after inverting, the hook should be offer-shape — propose the better alternative, not just block. See `docs/wiki/dispatching-parallel-agents/eager-agent-calibration.md`. Source: block-subagent-plan-body-write.sh inversion.
 
 ### Subsuming a single-agent confinement hook into a policy hook: preserve sanctioned targets + cross-check confined-set vs offer-coverage
 
@@ -285,4 +285,4 @@ A hook that lives on a high-frequency event (`Stop`, `UserPromptSubmit`, `PostTo
 - **Advance the cursor only once the surfaced text has been handed to the emission path — never at read time, and never on the op-read alone.** Reading "there is new content" and writing "this content is now surfaced" are two different facts; collapsing them means an exception or an early return between the read and the actual `stdout` write **burns the record** — surfaced-once means it never surfaces again, so a data-loss failure wearing an exactly-once costume. In a single small function where the read and the eventual emission are only a few lines apart, this gap is negligible; it stops being negligible the moment the read and the emission are separated by real branching logic, multiple exit paths, or a fold into a larger multi-purpose hook — tighten the ordering to strictly *after* the write in that shape, not merely "later in the same function." See `_check_push_failures()`'s own docstring for how it names and accepts this tradeoff at its own (adjacent-statement) scale.
 - **Cost ceiling: one `os.path.getsize` stat plus one small cursor-file read on the steady-state (nothing-new) path — no subprocess, no full-file read.** Only the rare firing path seeks to the prior offset and reads the (small) delta. This is what makes the pattern safe to hang off a high-frequency event at all; an unconditional subprocess or full-file scan on every `Stop`/`UserPromptSubmit`/`PostToolUse` would not be.
 
-Being per-session also buys concurrency-safety for free: two EM sessions sharing a working tree each own their own cursor file, so there is no shared mutable state to race, lock, or make atomic. See `docs/wiki/concurrent-em-hazards.md` for the hazard-catalog framing of the same point.
+Being per-session also buys concurrency-safety for free: two EM sessions sharing a working tree each own their own cursor file, so there is no shared mutable state to race, lock, or make atomic. See `docs/wiki/concurrent-em-git-operations/concurrent-em-hazards.md` for the hazard-catalog framing of the same point.

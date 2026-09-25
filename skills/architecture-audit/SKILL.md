@@ -48,9 +48,12 @@ background context. Absent → reviewer discovers from scratch.
 ## Step 2.75: Emit Ground-Truth File-Enumeration Artifact
 
 `cartography file_index --target-root <system-dirs>` → write the `index` field to
-`tasks/scratch/weekly-architecture-audit/{run-id}/ground-truth-files.txt`, commit it. Pass the
-path in every analysis-agent prompt; the Opus reviewer diffs any "fabricated"/"non-existent" claim
-against it before issuing a verdict.
+`state/audits/{run-id}/ground-truth-files.txt`, commit it. Pass the path in every analysis-agent prompt;
+the Opus reviewer diffs any "fabricated"/"non-existent" claim against it before issuing a verdict.
+
+**Out of scope: cross-repo targets** — a host↔addon boundary or any target spanning two repos.
+Run the audit once per repo and link the two audit records to each other, naming the boundary
+in each.
 
 ---
 

@@ -1,7 +1,7 @@
 # ~/.coordinator-claude-settings/machine-local/hardware.toml  (TRACKED — shared baseline)
 #
 # Spec backlink: docs/plans/2026-06-23-coordinator-install-surface-dogfood-hardening.md §C4
-# Spec backlink: docs/wiki/machine-local-registry.md §5b (concern-file convention)
+# Spec backlink: docs/wiki/hook-best-practices/machine-local-registry.md §5b (concern-file convention)
 #
 # Concern file for the `hardware.*` namespace.
 #

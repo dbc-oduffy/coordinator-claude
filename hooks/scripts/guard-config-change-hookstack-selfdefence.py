@@ -81,7 +81,7 @@ if _HOOKS_DIR not in sys.path:
 import _message_envelope as _envelope  # noqa: E402
 
 _WIKI_ANCHOR = (
-    "coordinator/docs/wiki/claude-code-extension-surface.md"
+    "coordinator/docs/wiki/claude-md-surfaces/claude-code-extension-surface.md"
 )
 
 _TARGET_SOURCE = "local_settings"

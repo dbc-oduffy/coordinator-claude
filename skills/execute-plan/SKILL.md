@@ -36,7 +36,7 @@ a chunk that ships a new helper/hook/injector is not done on green tests alone.*
 own note flagging the mechanism as unwired does not discharge the EM's check, and a mechanism
 with no caller is never accepted as shipped. It is a gated step
 in Phase 3's per-task loop (mark-complete is conditioned on it) and re-checked in Phase 4's
-close-out checklist before the stamp. Detail: `coordinator/docs/wiki/review-integration-doctrine.md`
+close-out checklist before the stamp. Detail: `coordinator/docs/wiki/reviewer-pipeline/review-integration-doctrine.md`
 § An observable-outcome acceptance criterion is never satisfied by a tested pure function alone.
 Dispatched executors are always
 Sonnet; self-execute only on a named token-economics carve-out. Phase boundaries are not stop
@@ -135,7 +135,7 @@ about being a snapshot of a recompute-on-read projection, not a live signal.
 prescribing EM-sequenced chunk-at-a-time execution, is overridden here: the vehicle follows from
 the classification below, default a background Workflow. Note the override in one line and
 continue — do not ask. A vehicle prohibition traceable to a genuine Workflow-inexpressible shape
-(`coordinator/docs/wiki/workflow-orchestration.md` § What qualifies as a carve-out) is the one that survives.
+(`coordinator/docs/wiki/em-operating-model/workflow-orchestration.md` § What qualifies as a carve-out) is the one that survives.
 Tripwire: `A-PLAN-DOES-NOT-PICK-THE-EXECUTION-VEHICLE`.
 
 **Classify every chunk pair before dispatching — this decides whether you can run them together:**
@@ -256,7 +256,9 @@ recovery is `Workflow({scriptPath, resumeFromRunId: <run>})` in the same session
 alone does not recover. Resume serves the longest UNCHANGED prefix of `agent()` calls from cache,
 and the commit agent that refused *completed*; its refusal is cached. Relaunching the script
 untouched replays that cached refusal and re-halts at the same gate. **Edit the halting phase's
-agent step first** — fix what the refusal named — then **re-stamp the receipt**, then resume; the
+agent step first, and no earlier one** — an edited completed step loses its cache and re-runs,
+re-committing or halting on an already-clean pathspec — fix what the refusal named — then
+**re-stamp the receipt**, then resume; the
 run id comes back in the `Workflow` tool result, not from anything the script can read about
 itself. The re-stamp is not a formality: `block-workflow-foreign-emission.py` denies a fire whose
 bytes differ from the receipt beside the script, and the edit is exactly that difference.

@@ -12,7 +12,7 @@ them along. A **mode a session enters, not an operation on a target**.
 
 **THIS BODY IS A SNAPSHOT, FROZEN WHEN YOU ENTERED, CARRYING NO VERSION.** Before citing it as
 authority for anything MECHANICAL — a signature, a module path, a flag, a refusal vocabulary —
-read that passage from disk. Worked case: `coordinator/docs/wiki/group-em-standing.md` § A
+read that passage from disk. Worked case: `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing.md` § A
 snapshot body is confidently stale.
 
 **PM-GATED — only on an explicit PM ask, never EM-initiated.** A description-prefix convention
@@ -63,7 +63,7 @@ then retakes the record, after which the new crown's arm is refused.
 
 **INTRODUCE YOURSELF TO EVERY LIVE PEER, ONCE.** The roster is the population; skip only a
 `PAUSED:away` peer, and re-resolve each addressee immediately before sending (§ Send pass step 4).
-Full rationale for all five constraints below: `coordinator/docs/wiki/group-em-standing.md` §
+Full rationale for all five constraints below: `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing.md` §
 Owed introductions.
 
 1. **Say four things and stop:** who you are (name and session id); that you hold the Group EM
@@ -78,7 +78,7 @@ Owed introductions.
 4. **It arms no cooldown and is not an offer.** Only `build_send_digest` emitting an entry arms a
    peer's throttle.
 5. **Once per PEER, not once per tick**, and **tracked by SESSION ID, never by name** (§ Send pass
-   step 4). Measured case: `coordinator/docs/wiki/group-em-standing.md` § A name is not an
+   step 4). Measured case: `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing.md` § A name is not an
    identity. **Neither key is independently reliable**: a session id has been observed to change
    under a stable name, so a name match alone cannot confirm "already introduced" and a session id
    match alone cannot confirm "same peer as before." On ambiguity between the two, re-introduce —
@@ -116,7 +116,7 @@ re-runs it, and a roster read is stale within a minute. In this order, as your f
    per-repo sensor: transcript tails, baton claimants, what landed on a path since a SHA, **and the
    watch SUBPROCESS together with the `Monitor` over it**. It owns the sensor half in full: arming
    the watch, the `Monitor` that wakes it off that watch, park-spool triage, and holding
-   `state/group-em-watch.json`. Full remit: `coordinator/docs/wiki/group-em-assistant-remit.md`.
+   `state/group-em-watch.json`. Full remit: `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-assistant-remit.md`.
 
    **DISPATCH `group-em-assistant` WITHOUT A `name`.** A named `Agent` call spawns an in-process
    teammate, and a teammate is never re-invoked by a `Monitor` it armed — so a named watcher cannot
@@ -165,7 +165,7 @@ cannot be asked anything.** Keep its session id for the record.
 | **Read `holder_session_id` from `state/group-em-watch.json`** before arming beside a fresh holder. | A holder from another repo ran the command once; the record ages out on its own. |
 | **The engine must be importable**, which it is not from the repo you are Group EM for — use `$COORDINATOR_SETTINGS_HOME/bin/group-em-watch` (`.exe` on Windows; on PowerShell, `&` + forward slashes). | A bare-module run from a doctrine repo raises `ModuleNotFoundError` before doing anything. |
 
-Full mechanics and both false premises measured: `coordinator/docs/wiki/group-em-assistant-remit.md`
+Full mechanics and both false premises measured: `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-assistant-remit.md`
 § Arming the watch.
 
 ### The wires — who arms what, and how fast you would know
@@ -195,13 +195,13 @@ never arms one twice. Prefer the clock that cannot be spent — a one-shot fires
 leaves it unwatched, so re-arming it per peer per tick is required, not duplication.
 
 **A Group EM holding neither teammate is not hypothetical.** Worked case:
-`coordinator/docs/wiki/group-em-entry-teammates.md`.
+`coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-entry-teammates.md`.
 
 ### Liveness instruments — two sanctioned, one banned, and you read the banned one constantly
 
 **`ListAgents`' `busy`/`idle` IS the harness registry's `status`, banned as an input to any
 liveness, reachability, or claim verdict.** `idle` means unknown, never quiet. Measurements:
-`coordinator/docs/wiki/group-em-assistant-remit.md` § Liveness. Tripwire:
+`coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-assistant-remit.md` § Liveness. Tripwire:
 `LISTAGENTS-BUSY-IS-A-BANNED-LIVENESS-INPUT`.
 
 **Sanctioned, exhaustively: the oracle's verdict, and `last_tick_at` age in
@@ -210,7 +210,7 @@ fixed threshold. Do not shape this as a process-table check — `pgrep -f` canno
 process command lines, and the watch runs under two different command lines besides. **Resource-usage
 proxies (CPU, memory, I/O) are banned for the same reason `busy`/`idle` is** — "progress toward a
 known end" is what a liveness verdict certifies, and a process burning CPU is not a process making
-progress. Full rationale: `coordinator/docs/wiki/group-em-assistant-remit.md` § Liveness.
+progress. Full rationale: `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-assistant-remit.md` § Liveness.
 
 **When a PM reports the watcher is dead, do not confirm it from the session list.** `idle` is
 `group-em-assistant`'s normal state between polls. Answer from `last_tick_at` age and name the
@@ -266,7 +266,7 @@ Nudging is the mechanism; this is the goal. The Group EM owns four of these five
 5. **Assign something new from the daily priority set.** PM-owned and per-day; ask for it if you
    do not have one.
 
-Two worked cases, both expensive: `coordinator/docs/wiki/group-em-standing.md` § A self-reported
+Two worked cases, both expensive: `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing.md` § A self-reported
 close is not a ceremony. Tripwire: `A-SELF-REPORTED-CLOSE-IS-NOT-A-COMPLETED-CEREMONY`.
 
 **No step here is discharged by an artifact, and your own report cannot show the gap** — re-read
@@ -332,7 +332,7 @@ owes nothing.
 **Compare `roster_considered` — the enumerated count entry reports top-level — against the room,
 never `len(roster)`.** A `roster` smaller than `roster_considered` is NORMAL; a `roster_considered`
 smaller than the sessions you know are running is `unknown`, never quiet. Worked case:
-`coordinator/docs/wiki/group-em-assistant-remit.md` § The roster is not the population.
+`coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-assistant-remit.md` § The roster is not the population.
 
 Two settling reads: `claude agents --json`, and `python3 -m coordinator_core.group_em.idle_report
 --repo-root <root> --group-em-session-id <your sid>`. Pass `--group-em-session-id` even though the
@@ -341,7 +341,7 @@ CLI accepts its omission silently — omitting it degrades offer-log suppression
 **Ledger rows can arrive from the engine plane.** This plane is the ledger's sole writer; the
 engine appends to `state/subagent-share/<sid>/obligations-inbound.jsonl` and entry folds every
 session's intake before the digest ranks. Contract:
-`coordinator/docs/wiki/obligations-inbound-intake.md`. Tripwire:
+`coordinator/docs/wiki/cross-repo-communication/obligations-inbound-intake.md`. Tripwire:
 `A-SECOND-WRITER-TO-A-REWRITTEN-FILE-LOSES-ROWS-SILENTLY`.
 
 **Procedure, per invocation:**

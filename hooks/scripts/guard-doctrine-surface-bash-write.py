@@ -402,7 +402,7 @@ from _message_envelope import compose, render  # noqa: E402
 #: guard-doctrine-surface-bash-write.py.md, and
 #: docs/plans/2026-08-02-guard-message-character-cap.md § C6.
 _WIKI_ANCHOR = (
-    "coordinator/docs/wiki/guard-message-concision.md"
+    "coordinator/docs/wiki/guards/guard-message-concision.md"
     "#doctrine-surface-bash-write-guard-carve-outs-and-remedies"
 )
 

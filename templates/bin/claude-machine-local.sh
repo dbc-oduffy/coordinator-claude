@@ -8,7 +8,7 @@
 # Settings-home contract (DR-072): the machine-local registry and its reader
 # live under a settings home, not a fixed ~/.claude/bin path. Consumers MUST
 # NOT invoke the bare-name `machine-local` wrapper to bootstrap — per
-# docs/wiki/machine-local-registry.md:278, this script resolves the settings
+# docs/wiki/hook-best-practices/machine-local-registry.md:278, this script resolves the settings
 # home by pure path arithmetic and invokes the reader impl directly:
 #   <settings-home>/bin/_machine_local.py dump --prefix repos --format sh
 # Settings-home resolution ladder (most-specific first; mirrors, but does not
@@ -64,7 +64,7 @@ _ml_reader="$_ml_settings_home/bin/_machine_local.py"
 
 # Interpreter probe: conservative, fail loud on absence rather than silently
 # skipping the whole export ladder (silent-skip on a resolver is the named
-# anti-pattern here — see coordinator/docs/wiki/machine-local-registry.md
+# anti-pattern here — see coordinator/docs/wiki/hook-best-practices/machine-local-registry.md
 # § 4 Resolution Order (formerly coordinator/CLAUDE.md § Build For Someone
 # Else's Machine, retired 2026-07-27)).
 if command -v python3 >/dev/null 2>&1; then

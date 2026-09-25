@@ -145,7 +145,7 @@ On Windows: run the CLI in Git Bash; the platform-specific wiring (path translat
 
 ### Prompt Style Rules
 
-All agent and skill prompts follow the conventions in `docs/wiki/rag-bait-conventions.md`. Key requirements:
+All agent and skill prompts follow the conventions in `docs/wiki/claude-md-surfaces/rag-bait-conventions.md`. Key requirements:
 
 - Module/file-top purpose docstrings
 - Function-level purpose lines on non-trivial public sections

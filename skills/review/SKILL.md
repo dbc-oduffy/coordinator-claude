@@ -115,7 +115,7 @@ Finding classification/disposition below is a lookup a program can compute from 
 pass the bar was never re-run for. Never read `mise_prepped_by` for presence; the predicate is a
 recomputed sha, at every caller. Tripwire:
 `A-PRESENT-MISE-PREPPED-STAMP-IS-NOT-A-CERTIFICATION`; four states, four repairs:
-`coordinator/docs/wiki/mise-prepped-attest.md`.
+`coordinator/docs/wiki/lesson-triage/mise-prepped-attest.md`.
 
 **`/review` fires on exiting `/plan`, not after an announcement.** Naming review as the next step
 and stopping is the failure this sequencing exists to remove — the EM invokes it, in the same turn,

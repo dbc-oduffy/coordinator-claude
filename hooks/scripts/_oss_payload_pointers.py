@@ -219,7 +219,7 @@ def _coarse_dir_entries() -> frozenset:
     textually overlap every `docs/…` path including the individually
     allowlisted ones. Applying the exclusion check to a non-coarse entry
     would therefore misclassify an explicitly-shipped, individually
-    allowlisted file (e.g. `coordinator/docs/wiki/scoped-safety-commits.md`)
+    allowlisted file (e.g. `coordinator/docs/wiki/concurrent-em-git-operations/scoped-safety-commits.md`)
     as excluded — measured: this was the one false-positive class the
     exclusion check produced before this scoping was added."""
     row = _oss_payload.parse_mirror_row()

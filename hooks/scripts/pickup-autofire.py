@@ -33,7 +33,7 @@ Contract (mirrors the sibling hooks in this directory):
 
 Spec: docs/plans/2026-07-23-computed-skills-bz-pickup-rebuild.md, chunk C3;
 AC4, AC9, AC9(a-d), AC11, AC11b. Contract doc:
-coordinator/docs/wiki/computed-skills.md (decision-object JSON schema).
+coordinator/docs/wiki/skills-corpus/computed-skills.md (decision-object JSON schema).
 
 Safety envelope (AC9), each clause load-bearing:
   (a) SESSION-ID PROPAGATION, not event filtering. The event payload already

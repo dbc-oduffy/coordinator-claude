@@ -183,7 +183,7 @@ def _registry_value(reg_dir: Path, key: str) -> str | None:
     Reads `registry.local.toml` before the tracked `registry.toml` baseline
     and returns the first hit — per-machine values live in the gitignored
     `.local.toml` layer and override the tracked baseline's empty-string key
-    DECLARATIONS (see `docs/wiki/machine-local-registry.md`). Accepts both
+    DECLARATIONS (see `docs/wiki/hook-best-practices/machine-local-registry.md`). Accepts both
     the flat dotted-key form (`"repos.claude_klabauter" = "..."`) and a nested
     `[repos]` table — nested tables are flattened to dotted keys
     (`_flatten_registry`) before the lookup, so a hand-edited registry using
@@ -436,7 +436,7 @@ def resolve_publish_mirror_roster() -> list[tuple[str, str, str]]:
     `registry.toml`, via `_flatten_registry`), and both are MERGED — a
     mirror's `owner` typically lives in the tracked baseline while its
     per-machine `path` lives in the gitignored local layer (see
-    `docs/wiki/machine-local-registry.md` §5c.2's schema-shape example), so a
+    `docs/wiki/hook-best-practices/machine-local-registry.md` §5c.2's schema-shape example), so a
     first-hit-wins read would miss the pairing entirely.
 
     An entry is included only when `path` is a non-empty string AND

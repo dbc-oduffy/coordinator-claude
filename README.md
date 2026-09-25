@@ -47,7 +47,7 @@ The reason for the cut is that an operating system for AI engineering work has t
 
 What that buys, concretely: a bug in a state operation gets fixed once instead of in every copy of a paragraph. State becomes checkable — the engine emits files you can read, diff, and assert against, rather than a claim the model makes about what it did. Multi-OS support becomes a property of one Python codebase instead of something every shell-shaped instruction has to re-earn. And the doctrine got *smaller and sharper*, which we did not anticipate: once the bookkeeping left, what remained was almost entirely judgment, which is what large models are actually good at reading.
 
-**The full argument — including the cost side, and the one rule that governs the seam — is [docs/wiki/manifesto.md](docs/wiki/manifesto.md).** It is an argument, not a proof, and it says so.
+**The full argument — including the cost side, and the one rule that governs the seam — is [docs/wiki/claude-md-surfaces/manifesto.md](docs/wiki/claude-md-surfaces/manifesto.md).** It is an argument, not a proof, and it says so.
 
 ### What a doctrine-only install gets you
 
@@ -98,7 +98,7 @@ Stop and tell me when you need me to restart.
 
 **Auditing & uninstall** → [`docs/safety.md`](docs/safety.md) — what the install changes, what it does not do, audit commands, and exact uninstall steps.
 
-**Why it's built this way** → [`docs/wiki/manifesto.md`](docs/wiki/manifesto.md) — why the system is split into a doctrine plugin and a separate engine, what the split buys, and what it costs.
+**Why it's built this way** → [`docs/wiki/claude-md-surfaces/manifesto.md`](docs/wiki/claude-md-surfaces/manifesto.md) — why the system is split into a doctrine plugin and a separate engine, what the split buys, and what it costs.
 
 **What we actually measured** → [`docs/evidence.md`](docs/evidence.md) — the experiments behind the design, including the ones that reversed a position we'd already written down, and an explicit line between what was measured and what changed on a single observed failure.
 
@@ -186,7 +186,7 @@ Don't memorize commands; learn five flows. Most of what the system does, you'll 
 
 **Flow 1 — Build a feature.** You describe intent → Claude enters plan mode and proposes acceptance criteria + scope mode → you review and approve → Claude delegates implementation → reviewers (domain expert first, generalist second) check the artifact with fix gates between → for user-visible work or patches that smell like they should be refactors, **the VP-Product Reviewer** (`coordinator:vp-product`) — scope challenger, naming optional via `/coordinator:install` Phase 6 — stress-tests the choice → `/merging-to-main` produces a ship verdict and you decide.
 
-**Flow 2 — Fix a bug.** Reproduction first (don't trust the report) → root cause via the [systematic-debugging guide](docs/wiki/systematic-debugging.md) → scoped fix in production-patch mode (minimal diff, no opportunistic refactors) → regression check → reviewer → merge. For codebase-wide grinds, `/bug-blitz` autonomously works through the bug backlog with EM-serial commits at each wave gate.
+**Flow 2 — Fix a bug.** Reproduction first (don't trust the report) → root cause via the [systematic-debugging guide](docs/wiki/em-operating-model/systematic-debugging.md) → scoped fix in production-patch mode (minimal diff, no opportunistic refactors) → regression check → reviewer → merge. For codebase-wide grinds, `/bug-blitz` autonomously works through the bug backlog with EM-serial commits at each wave gate.
 
 **Flow 3 — Resume work.** The boot `SessionStart` hook automatically loads orientation, lessons, and pending handoffs into context → optionally run `/workstream-start` for a deeper triage → you pick up via `/pickup <handoff>` or pick from the menu → Claude lands mid-context and starts where the last session stopped.
 
@@ -204,7 +204,7 @@ The system scales — a typo fix is a two-word instruction; a system rewrite is 
 |------|-----------------|----------|-----------|
 | **Tiny edit** (typo, constant, rename) | Direct EM edit — no plan | None required | < 5 min |
 | **Feature** (new command, new skill) | `/execute-plan` after PM approves a plan | Domain reviewer → the Staff Engineer (`coordinator:staff-eng`) generalist; the Director of Engineering (`coordinator:eng-director`) as backstop at High effort (sequential) | 30 min – 2 hrs |
-| **System rewrite** (multi-plugin overhaul) | `/staff-session plan` → `/execute-plan` (with executor dispatch per [`docs/wiki/delegate-execution.md`](docs/wiki/delegate-execution.md)) | Full sequential chain + PM ship verdict | Half day+ |
+| **System rewrite** (multi-plugin overhaul) | `/staff-session plan` → `/execute-plan` (with executor dispatch per [`docs/wiki/dispatching-parallel-agents/delegate-execution.md`](docs/wiki/dispatching-parallel-agents/delegate-execution.md)) | Full sequential chain + PM ship verdict | Half day+ |
 
 <details>
 <summary><strong>All Commands (appendix)</strong></summary>

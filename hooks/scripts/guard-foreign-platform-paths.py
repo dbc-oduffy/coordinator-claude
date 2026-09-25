@@ -26,7 +26,7 @@ Residual gap (AC-3, stated plainly rather than papered over): on this repo's
 actual dev topology, native `--plugin-dir` hook-delivery is dead (upstream
 bug #38699), so EVERY hook — this one included — is delivered by being baked
 as an absolute-path entry into `settings.json`'s OWN `hooks` block
-(`docs/wiki/external-plugin-live-resolution.md § Hook-delivery`). A corruption
+(`docs/wiki/install-playbook-rationale/external-plugin-live-resolution.md § Hook-delivery`). A corruption
 that damages the `hooks` block ITSELF therefore also disables this guard for
 that session — the exact circularity a hook-only guard cannot solve by
 construction. This is the same circularity `docs/wiki/settings-integrity-

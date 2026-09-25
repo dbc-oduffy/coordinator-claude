@@ -207,6 +207,7 @@ _BOOTSTRAPPED_NAMES = (
     "_allocate_dr_number",
     "_assert_dr_id_unique",
     "_DrAllocatorError",
+    "_mint_next_dr_id",
     "SESSION_LEDGER_BLOCK_LINES",
     "_SESSION_LEDGER_BLOCK",
     "_canonical_kind",
@@ -348,6 +349,13 @@ def _bootstrap_engine() -> None:
             from coordinator_core.reconcile.gate_eval import derive_readiness as _derive_readiness  # noqa: E402
         except ImportError:  # noqa: BLE001 -- best-effort import; unresolvable engine degrades to None
             _derive_readiness = None
+
+        # The one DR-number allocator (shared with the decision_record.mint_id
+        # op). `_allocate_dr_number` survives only for `--dr-prefix`.
+        try:
+            from coordinator_core.ops.decision_record_mint import mint_next_dr_id as _mint_next_dr_id  # noqa: E402
+        except ImportError:  # noqa: BLE001 -- best-effort import; unresolvable engine degrades to None
+            _mint_next_dr_id = None
 
         # Type registries — derived from schemas/coordinator-registry.manifest.json via bin/lib/coordinator_registry.py.
         # Do not add literal type lists here; update the manifest instead.
@@ -2785,6 +2793,7 @@ def _scaffold_spinoff(
     origin_handoff_id: str | None = None,
     predecessor_id: str | None = None,
     category: str | None = None,
+    gated_open: str | None = None,
 ) -> str:
     """Generate validator-clean spinoff frontmatter + canonical section skeleton.
 
@@ -2825,6 +2834,20 @@ def _scaffold_spinoff(
     category (--category) is validated against _HANDOFF_CATEGORY_ENUM before the
     frontmatter is written — defaults to 'infra' unchanged when not supplied.
     Spec backlink: cross-repo/inbox/2026-07-23-example-cockpit-repo-em-coordinator-doc-new-category-no-validation.md
+
+    gated_open (--gated-open) is an ORDERING edge, not a lineage edge: schema
+    rule A3a-3 forces `predecessor: none` on every spinoff (a spinoff forks
+    mid-session with no continuation spine to name), so an ordering
+    dependency on an earlier spinoff/baton rides on `blocked_by` instead —
+    the same field `_scaffold_handoff` already exposes via this flag, and
+    the one `reconcile.gate_eval.derive_readiness`/`ops.handoff_children
+    .blocked_by_dependents` already read for readiness on any kind, spinoff
+    included (handoff.schema.json's `blocked_by`: "Permitted on ANY kind").
+    Takes a single stub_id/handoff_id (an ordered spinoff CHAIN needs only
+    its immediate predecessor per link); existence against the live corpus
+    is a resolve/audit-time check (SC-DR-016), not scaffold-time. Omitted →
+    `blocked_by` unset and readiness derives ready_to_fire, unchanged from
+    before this parameter existed.
     """
     _bootstrap_engine()
     today = _today()
@@ -2878,15 +2901,44 @@ def _scaffold_spinoff(
     _authoring_session_line = (
         f"# minted by {_display_name}\n" if _display_name else ""
     ) + f"authoring_session: {_yaml_quote(_authoring_session_value)}"
-    # Spinoff takes no blocker input at all, so this is always the empty-
-    # blocked_by leg of C1's derive_readiness (docs/plans/2026-08-19-gate-
-    # notes-are-advisory-blocked-by-derives-readiness.md § C3) -- one
-    # evaluator deciding readiness rather than a second hardcoded literal
-    # duplicating its own empty-blocked_by rule. Same degrade-to-hardcoded
-    # posture as _scaffold_handoff's no-flag path: an unresolvable engine
-    # must not break spinoff scaffolding, which never depended on it before.
-    if _derive_readiness is not None:
-        _readiness = _derive_readiness({"blocked_by": []}, [])
+    # --gated-open declares an ORDERING edge (blocked_by), never the
+    # predecessor:none-by-design lineage edge (A3a-3) -- see this function's
+    # docstring. Blank is refused for the same reason _scaffold_handoff
+    # refuses it: blocked_by must be a non-empty id naming the ordering
+    # predecessor.
+    if gated_open is not None and not gated_open.strip():
+        print(
+            "coordinator-doc-new: --gated-open was supplied an empty or whitespace-only "
+            "value. blocked_by must be a non-empty id naming the ordering predecessor; "
+            "omit --gated-open entirely to scaffold ready_to_fire instead.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    _blocked_by = [gated_open] if gated_open else []
+    # C1's derive_readiness (docs/plans/2026-08-19-gate-notes-are-advisory-
+    # blocked-by-derives-readiness.md § C3) is the one evaluator deciding
+    # readiness -- never a second hardcoded literal duplicating its own
+    # empty-blocked_by rule. Same posture as _scaffold_handoff: the no-flag
+    # path degrades to the pre-existing hardcoded default when the engine is
+    # unresolvable (spinoff scaffolding never depended on the engine before
+    # --gated-open existed here), but a caller supplying --gated-open needs
+    # the derivation to actually run, so that leg refuses fail-loud instead.
+    if gated_open:
+        if _derive_readiness is None:
+            print(
+                "coordinator-doc-new: --gated-open needs the readiness derivation "
+                "engine (coordinator_core.reconcile.gate_eval.derive_readiness, C1) "
+                "and it could not be resolved. Omit --gated-open to scaffold "
+                "ready_to_fire instead, or fix engine resolution "
+                "(_ensure_engine_on_path).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        _readiness = _derive_readiness({"blocked_by": _blocked_by}, [])
+        _deployment_state = _readiness["deployment_state"] or "awaiting_gate"
+        _pickup_ready = "true" if _readiness["pickup_ready"] else "false"
+    elif _derive_readiness is not None:
+        _readiness = _derive_readiness({"blocked_by": _blocked_by}, [])
         _deployment_state = _readiness["deployment_state"] or "ready_to_fire"
         _pickup_ready = "true" if _readiness["pickup_ready"] else "false"
     else:
@@ -2929,6 +2981,9 @@ def _scaffold_spinoff(
         lines.append(f"origin_handoff_id: {_yaml_quote(origin_handoff_id)}")
     if predecessor_id:
         lines.append(f"predecessor_id: {_yaml_quote(predecessor_id)}")
+    if _blocked_by:
+        lines.append("blocked_by:")
+        lines.extend(f"  - {_yaml_quote(_entry)}" for _entry in _blocked_by)
     lines.extend([
         "---",
         "",
@@ -5973,17 +6028,22 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
         default=None,
         metavar="BLOCKED_BY_ID",
         help=(
-            "(handoff) Declare the blocker, not the readiness: writes "
+            "(handoff, spinoff) Declare the blocker, not the readiness: writes "
             "blocked_by: [BLOCKED_BY_ID] and DERIVES deployment_state/"
             "pickup_ready from it via reconcile.gate_eval.derive_readiness "
             "(C1) -- an unresolved id derives awaiting_gate/pickup_ready:false. "
             "Omitted -> blocked_by: [] derives ready_to_fire/pickup_ready:true, "
             "byte-identical to today. Prose reasons belong in --gate-note "
             "instead (advisory only, never flips readiness -- 2026-08-19 "
-            "ruling); the two are independent and may be combined. Refused "
-            "fail-loud when blank. Handoff-scoped: refused fail-loud for every "
-            "other --type. "
-            "Spec: docs/plans/2026-08-19-gate-notes-are-advisory-blocked-by-derives-readiness.md § C3"
+            "ruling, handoff-only); the two are independent and may be "
+            "combined on --type handoff. Refused fail-loud when blank. On "
+            "--type spinoff this is an ORDERING edge to an earlier spinoff/ "
+            "baton (a stub_id or handoff_id, never a raw path), distinct from "
+            "the predecessor:none-by-design lineage edge A3a-3 forces on every "
+            "spinoff kind -- name one link of an ordered spinoff chain here. "
+            "Refused fail-loud for every --type but handoff/spinoff. "
+            "Spec: docs/plans/2026-08-19-gate-notes-are-advisory-blocked-by-derives-readiness.md § C3; "
+            "state/cross-repo/inbox/2026-09-25-doe-claude-em-doe-issues-92-95-engine-asks.md ask 1"
         ),
     )
     parser.add_argument(
@@ -7072,12 +7132,24 @@ def main(argv: "list[str] | None" = None) -> int:
     if doc_type == "decision":
         _dr_repo_root = _current_repo_root() or "."
         _decisions_dir = os.path.join(_dr_repo_root, "docs", "decisions")
-        try:
-            _resolved_dr_id = _allocate_dr_number(_decisions_dir, explicit_prefix=args.dr_prefix)
-            _assert_dr_id_unique(_decisions_dir, _resolved_dr_id)
-        except _DrAllocatorError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 1
+        # Unprefixed ids go through the shared mint; a second scan here is how
+        # the two paths disagreed and minted a claimed id.
+        if not args.dr_prefix and _mint_next_dr_id is not None:
+            try:
+                from pathlib import Path as _Path  # noqa: PLC0415 -- local, mirrors this file's on-demand-import convention
+
+                _resolved_dr_id = f"DR-{_mint_next_dr_id(_Path(_dr_repo_root))}"
+                _assert_dr_id_unique(_decisions_dir, _resolved_dr_id)
+            except (_DrAllocatorError, RuntimeError) as exc:  # RuntimeError: mint exhaustion
+                print(f"error: {exc}", file=sys.stderr)
+                return 1
+        else:
+            try:
+                _resolved_dr_id = _allocate_dr_number(_decisions_dir, explicit_prefix=args.dr_prefix)
+                _assert_dr_id_unique(_decisions_dir, _resolved_dr_id)
+            except _DrAllocatorError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 1
 
     # Kind-gate the fan-in down-edge. Mirrors --predecessor's own handoff-only
     # contract (schema rule A3a-3 _cf_spinoff_predecessor_none makes the spinoff
@@ -7122,27 +7194,40 @@ def main(argv: "list[str] | None" = None) -> int:
         )
         return 1
 
-    # --summary/--gated-open are handoff-scoped, same posture as
-    # --additional-predecessor above: refused fail-loud for every other
+    # --summary/--gate-note/--gated-predicate are handoff-scoped, same posture
+    # as --additional-predecessor above: refused fail-loud for every other
     # --type rather than silently dropped (cross-repo/inbox/
     # 2026-08-18-project-rag-em-doc-new-silently-drops-type-inapplicable-flags.md
     # offered warn-or-refuse; refuse matches the existing
     # --additional-predecessor precedent, so no third posture is invented).
+    #
+    # --gated-open is ALSO accepted for --type spinoff (state/cross-repo/
+    # inbox/2026-09-25-doe-claude-em-doe-issues-92-95-engine-asks.md ask 1):
+    # it writes `blocked_by`, an ORDERING edge distinct from the
+    # predecessor:none-by-design lineage edge A3a-3 forces on every spinoff
+    # kind. `blocked_by` is schema-permitted on any kind (handoff.schema.json)
+    # and is the field ordered spinoff chains (architecture-audit Step 4) now
+    # declare their predecessor leg on.
     if (
-        args.summary or args.gated_open or args.gate_note or args.gated_predicate
+        args.summary or args.gate_note or args.gated_predicate
     ) and doc_type != "handoff":
         if args.summary:
             _bad_flag = "--summary"
-        elif args.gated_open:
-            _bad_flag = "--gated-open"
         elif args.gate_note:
             _bad_flag = "--gate-note"
         else:
             _bad_flag = "--gated-predicate"
         print(
             f"coordinator-doc-new: {_bad_flag} is not accepted for --type {doc_type}. "
-            "--summary, --gated-open, --gate-note, and --gated-predicate are "
-            "handoff-only fields.",
+            "--summary, --gate-note, and --gated-predicate are handoff-only fields.",
+            file=sys.stderr,
+        )
+        return 1
+    if args.gated_open and doc_type not in ("handoff", "spinoff"):
+        print(
+            f"coordinator-doc-new: --gated-open is not accepted for --type {doc_type}. "
+            "--gated-open (the blocked_by ordering edge) is accepted for --type handoff "
+            "and --type spinoff only.",
             file=sys.stderr,
         )
         return 1
@@ -7243,6 +7328,7 @@ def main(argv: "list[str] | None" = None) -> int:
             origin_handoff_id=args.origin_handoff_id,
             predecessor_id=args.predecessor_id,
             category=args.category,
+            gated_open=args.gated_open,
         )
     elif doc_type == "roadmap-baton":
         roadmap_id = args.roadmap_id if args.roadmap_id else "placeholder-rm"

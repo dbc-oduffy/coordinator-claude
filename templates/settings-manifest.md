@@ -126,7 +126,7 @@ both directions.
 
 ## Device-Singular vs. OSS-Canonical Discriminator
 
-<!-- spec-backlink: coordinator/docs/wiki/depersonalize-doctrine.md §Discriminator -->
+<!-- spec-backlink: coordinator/docs/wiki/claude-md-surfaces/depersonalize-doctrine.md §Discriminator -->
 <!-- canonical on-device store; see depersonalize-doctrine.md §Discriminator -->
 
 **`~/.coordinator-claude-settings` is the canonical on-device store** for anything stored on a device in a singular space. Device-singular values are set on-device via the machine-local registry (`registry.local.toml`), never hardcoded in committed source.
@@ -140,7 +140,7 @@ Two classes of coordinator configuration have superficially similar shapes but f
 | **Device-singular operator identity** — values unique to one operator/device | A sibling repo's on-disk path (`repos.<slug>`), the publish-mirror root (`publish.mirrors.<key>.path`) | `registry.local.toml` (operator-set, gitignored) | These values differ per operator/device; hardcoding them in committed source would personalize what must be a portable, impersonal artifact. Unset → fail loud with remediation. |
 | **OSS-canonical project constants** — values identical for every operator | The canonical OSS publish destination `dbc-oduffy/coordinator-claude`, `COORDINATOR_PUBLISH_OWNER` | Committed source | These are project constants, not device-singular. Every operator running the coordinator gets the same value. Moving them to `registry.local.toml` would break publish for fresh-install operators who haven't set the key. |
 
-**Cross-reference:** `coordinator/docs/wiki/depersonalize-doctrine.md §Discriminator` for the load-bearing-vocabulary-vs-operator-identity distinction. The OSS-canonical vs. device-singular split is the same discriminator; the terminology maps 1:1.
+**Cross-reference:** `coordinator/docs/wiki/claude-md-surfaces/depersonalize-doctrine.md §Discriminator` for the load-bearing-vocabulary-vs-operator-identity distinction. The OSS-canonical vs. device-singular split is the same discriminator; the terminology maps 1:1.
 
 ## Adding a New Gated Plugin
 

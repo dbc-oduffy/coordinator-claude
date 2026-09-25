@@ -233,7 +233,7 @@ def _strip_trailing_sentence_period(token: str) -> str:
 #: The ratified stable-ID prefixes, one per artifact type, all four minted by
 #: `coordinator-doc-new`'s `_mint_artifact_id` off one uniqueness basis —
 #: hence one pattern, not four. Canonical:
-#: `coordinator/docs/wiki/canonical-artifact-shapes.md` § Stable-ID table
+#: `coordinator/docs/wiki/schema-and-validation-contracts/canonical-artifact-shapes.md` § Stable-ID table
 #: (`plan.schema.json` `plan_id`, `handoff.schema.json` `handoff_id`,
 #: `completion-entry.schema.json` `completion_id`, `mint-deliverable-id.py`
 #: `deliverable_id`).

@@ -22,7 +22,7 @@ unwelded seam is one of two reasons and was never the whole of it: until handoff
 cluster-less by construction — `--roadmap-id` is an OPTIONAL narrowing, so constituents are drawn
 across clusters and mostly from batons carrying no `roadmap_id` at all. An aggregate over that set
 now mints as `kind: spinoff` (DR-198(a));
-`coordinator/docs/wiki/aggregate-execution-baton.md` § Minting one is the table.
+`coordinator/docs/wiki/baton-lifecycle/aggregate-execution-baton.md` § Minting one is the table.
 
 WHOSE MODULE THIS IS. mise-prep's, not plan-blitz's. It is sited beside the exit it reads because
 that is where the exit's shape is owned — the same siting `roadmap.plan_gate`'s own spec backlink

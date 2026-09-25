@@ -1,5 +1,5 @@
 {
-  "description": "Coordinator hooks \u2014 session guardrails and cost optimization. REGISTRATIONS IN THIS FILE ARE READ AT SESSION START AND CACHED: adding or removing an entry here reaches NO already-running session until it runs /reload-plugins or restarts, and a deleted entry keeps firing until then. Run /reload-plugins in this session before testing your change, and expect peer sessions on this machine to keep their booted roster regardless. Hook SCRIPT bodies are unaffected \u2014 those resolve live per tool call. Measurement: docs/wiki/external-plugin-live-resolution.md \u00a7 Hook REGISTRATION staleness; tripwire HOOKS-JSON-REGISTRATION-STALENESS.",
+  "description": "Coordinator hooks \u2014 session guardrails and cost optimization. REGISTRATIONS IN THIS FILE ARE READ AT SESSION START AND CACHED: adding or removing an entry here reaches NO already-running session until it runs /reload-plugins or restarts, and a deleted entry keeps firing until then. Run /reload-plugins in this session before testing your change, and expect peer sessions on this machine to keep their booted roster regardless. Hook SCRIPT bodies are unaffected \u2014 those resolve live per tool call. Measurement: docs/wiki/install-playbook-rationale/external-plugin-live-resolution.md \u00a7 Hook REGISTRATION staleness; tripwire HOOKS-JSON-REGISTRATION-STALENESS.",
   "hooks": {
     "SessionStart": [
       {
@@ -297,6 +297,17 @@
             "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" hooks.preuse_bash_dispatch",
             "shell": "bash",
             "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.preuse_search_dispatch 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
+            "shell": "bash",
+            "timeout": 5
           }
         ]
       },
@@ -634,7 +645,6 @@
             "type": "command",
             "command": "python3",
             "timeout": 5,
-            "_comment": "Register entry #17. Fires only for a hard tool failure carrying a top-level `error` key (confirmed: Bash non-zero exit, Read on a missing path). Narrowed in-script to Bash exit-127 commands naming cross-repo-memo; every other failure passes through silently.",
             "args": [
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
@@ -653,7 +663,6 @@
             "type": "command",
             "command": "python3",
             "timeout": 5,
-            "_comment": "Register entry #15. Fires on every OSS install regardless of whether claude-klabauter resolves in the sibling registry: _resolve_live_working_tree() returns (None, provenance) with no repos.claude_klabauter rung, and the script exits 0 having emitted nothing on that arm. CwdChanged carries no matcher enforcement; all narrowing happens in-script against old_cwd/new_cwd.",
             "args": [
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
@@ -672,7 +681,6 @@
             "type": "command",
             "command": "python3",
             "timeout": 5,
-            "_comment": "Register entry #21. C1's probe (docs/research/spike-verdicts/2026-09-11-configchange-trigger-scope-and-block-path.md) verdict: BUILD -- out-of-band settings.local.json edits and disableAllHooks:true flips FIRE (source local_settings); a plugin hooks/hooks.json edit does not; decision:block is emitted-and-ignored on this event. Fires and flags via additionalContext only, scoped to source==local_settings; never sets decision:block. ConfigChange carries no matcher enforcement either, so narrowing happens in-script against the payload.",
             "args": [
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",

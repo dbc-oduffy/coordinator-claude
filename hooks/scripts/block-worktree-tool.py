@@ -78,7 +78,7 @@ except Exception:
 
 _OVERRIDE_SENTINEL_NAME = ".coordinator-override-worktree-guard"
 
-_WIKI_ANCHOR = "coordinator/docs/wiki/guard-message-concision.md#worktree-ban-rationale"
+_WIKI_ANCHOR = "coordinator/docs/wiki/guards/guard-message-concision.md#worktree-ban-rationale"
 
 _DENY_PROSE = (
     "Worktrees banned (break Windows, don't scale to concurrent dispatch). "

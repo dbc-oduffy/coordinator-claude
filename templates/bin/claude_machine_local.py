@@ -8,9 +8,9 @@ agents and humans default to portable references. Resolves <settings-home> by
 pure path arithmetic (never a filesystem read) and shells out to
 <settings-home>/bin/_machine_local.py — never invokes the bare-name
 `machine-local` wrapper (forbidden for consumers, see
-docs/wiki/machine-local-registry.md §8(a)) and never imports
+docs/wiki/hook-best-practices/machine-local-registry.md §8(a)) and never imports
 _machine_local.py in-process (dual-identity hazard, see
-docs/wiki/dual-identity-module-hazard.md).
+docs/wiki/skills-corpus/dual-identity-module-hazard.md).
 
 Public API:
     from claude_machine_local import repos
@@ -71,7 +71,7 @@ def _reader_invocation() -> list[str]:
     """Compose the invocation for the settings-home machine-local reader.
 
     Never shells out through the bare-name `machine-local` wrapper — that
-    invocation form is forbidden for consumers (docs/wiki/machine-local-registry.md
+    invocation form is forbidden for consumers (docs/wiki/hook-best-practices/machine-local-registry.md
     §8(a)) and hits a CreateProcess-no-PATHEXT/shebang trap on Windows. Instead,
     compose <settings-home>/bin/_machine_local.py by path arithmetic and invoke
     it explicitly under the running interpreter (sys.executable) — the running

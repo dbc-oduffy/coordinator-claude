@@ -384,7 +384,7 @@ _LEDGER_PATH_OVERRIDES = {
 _DEFAULT_DEMOTE_TARGET_HINT = (
     "Demote target: route non-conduct, reference, or rationale content to "
     "the wiki/decision-record channel (coordinator/docs/wiki/, channel 5) "
-    "per coordinator/docs/wiki/doctrine-channel-purposes.md, unless it "
+    "per coordinator/docs/wiki/claude-md-surfaces/doctrine-channel-purposes.md, unless it "
     "genuinely governs every agent's (or the EM's) conduct."
 )
 

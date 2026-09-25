@@ -30,7 +30,7 @@ every such pair, each row declaring its own parity MODE:
 byte-copy rows, but detection fires only when someone runs pytest — until then
 the copies diverge silently, and the only discharge is "the operator remembers
 to run the copy by hand." That is precisely the failure shape this repo's
-north star (`coordinator/docs/wiki/invisible-doctrine.md`) names. This hook
+north star (`coordinator/docs/wiki/claude-md-surfaces/invisible-doctrine.md`) names. This hook
 makes byte-copy derivation automatic, keeping the parity gate green without
 anyone remembering.
 
@@ -96,7 +96,7 @@ from _message_envelope import CHANNEL_STOP, compose, emit  # noqa: E402
 _WIKI_ANCHOR = (
     # Review: code-reviewer -- bare fragment produced an unresolvable
     # `render()` citation. Full path matches every other converted hook.
-    "coordinator/docs/wiki/guard-message-concision.md"
+    "coordinator/docs/wiki/guards/guard-message-concision.md"
     "#derive-setup-copies-parity-modes-and-remedies"
 )
 

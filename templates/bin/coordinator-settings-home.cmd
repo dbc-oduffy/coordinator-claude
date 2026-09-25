@@ -16,7 +16,7 @@ REM
 REM Unlike machine-local.cmd, the target here needs no settings-home seam: the
 REM extensionless `coordinator-settings-home` file IS the implementation and
 REM is always co-located with this shim (%~dp0), so "python" plus that file
-REM runs it directly, no shell in the loop. See docs/wiki/windows-cmd-shims.md
+REM runs it directly, no shell in the loop. See docs/wiki/portability/windows-cmd-shims.md
 REM — parity with machine-local.cmd / python3.cmd / claude-home.cmd.
 REM
 REM NOTE ON THIS COMMENT BLOCK: no bare angle-bracket, pipe, or ampersand
@@ -25,7 +25,7 @@ REM metacharacters INSIDE REM lines too (a REM line is not immune at the
 REM tokenizer level), so an angle-bracket placeholder name or a version
 REM comparison written with a literal greater-than-or-equal sign silently
 REM corrupts the rest of the script's parse. See
-REM docs/wiki/windows-cmd-shims.md section on REM metacharacters, and the
+REM docs/wiki/portability/windows-cmd-shims.md section on REM metacharacters, and the
 REM 2026-07-28 machine-local.cmd incident this note was added after.
 setlocal enableextensions
 set "_impl=%~dp0coordinator-settings-home"

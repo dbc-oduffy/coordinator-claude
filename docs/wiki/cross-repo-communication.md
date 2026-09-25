@@ -2,6 +2,8 @@
 
 <!-- distilled: run 2026-07-19-synth; sources: 2026-07-12-claude-klabauter-em-distill-reconciliation-log-standardization.md, 2026-07-17-claude-klabauter-em-strang-03-repoint-send-onto-claude-klabauter-engine.md -->
 
+Decision tree for cross-repo coordination — handoffs and spinoffs stay within a repo, `cross-repo-memo` (or a direct peer session) carries anything meant for another repo's EM.
+
 > When the EM needs to tell another repo's EM (or session) something — or thinks it does — this is the decision tree.
 
 
@@ -18,7 +20,7 @@ inbound delivery commit as an ungranted write is the tell you skipped the pathsp
 
 ## Deadlock doctrine — read `cross-repo-handshake-doctrine.md` before any bilateral contract bump
 
-> **This wiki governs the messaging primitive (handoffs vs. memos vs. PM-relay); it does NOT carry the fleet's anti-deadlock doctrine.** If you are sequencing a bilateral schema/contract bump, a producer/consumer version flip, or anything with a "who goes first" shape, stop here and read [`cross-repo-handshake-doctrine.md`](./cross-repo-handshake-doctrine.md) before drafting a memo — several of that wiki's rules directly prevent shipping stalls this wiki's messaging-primitive framing does not, by itself, catch.
+> **This wiki governs the messaging primitive (handoffs vs. memos vs. PM-relay); it does NOT carry the fleet's anti-deadlock doctrine.** If you are sequencing a bilateral schema/contract bump, a producer/consumer version flip, or anything with a "who goes first" shape, stop here and read [`cross-repo-handshake-doctrine.md`](./cross-repo-communication/cross-repo-handshake-doctrine.md) before drafting a memo — several of that wiki's rules directly prevent shipping stalls this wiki's messaging-primitive framing does not, by itself, catch.
 
 That wiki names, and is the authority on:
 
@@ -29,7 +31,7 @@ That wiki names, and is the authority on:
 
 Consult it *before* drafting a bilateral-bump memo through this wiki's decision tree, not after a standoff has already stalled a workstream.
 
-**Once a vendored contract has actually drifted AHEAD/BEHIND, read [`ahead-direction-reconciliation-protocol.md`](./ahead-direction-reconciliation-protocol.md) next.** `cross-repo-handshake-doctrine.md` above governs *sequencing the bump itself* (who flips the manifest, in what order); the AHEAD-direction protocol governs *the state that exists once a producer has moved and a consumer's pin hasn't caught up yet* — what that state obliges, how long it may stand (bounded by bump CLASS via a trigger, not a clock), and who is responsible for closing it (the consumer, always — the producer's duty is declaration only, via the `cross-repo-memo` channel below).
+**Once a vendored contract has actually drifted AHEAD/BEHIND, read [`ahead-direction-reconciliation-protocol.md`](./concurrent-em-git-operations/ahead-direction-reconciliation-protocol.md) next.** `cross-repo-handshake-doctrine.md` above governs *sequencing the bump itself* (who flips the manifest, in what order); the AHEAD-direction protocol governs *the state that exists once a producer has moved and a consumer's pin hasn't caught up yet* — what that state obliges, how long it may stand (bounded by bump CLASS via a trigger, not a clock), and who is responsible for closing it (the consumer, always — the producer's duty is declaration only, via the `cross-repo-memo` channel below).
 
 ## The four legitimate triggers for `state/handoffs/`
 
@@ -311,7 +313,7 @@ A subagent dispatched without a governing plan (no `plan:`/`chunk:` pair to deri
 
 `coordinator:plan` Branch C rejects any chunk that authors a handoff, spinoff, or workstream-complete artifact. Plans that pre-authorize "Chunk N: write a spinoff to <topic>" launder the PM gate through plan approval — by execution time the EM treats it as a checklist item and the spinoff's Step 0 PM-gate never fires. Cross-EM coordination chunks should read "surface cross-repo brief to PM via `cross-repo-memo`" with the path handed to the PM for relay.
 
-**Producer/consumer contract-field parity** — when a plan introduces or modifies a contract value (metadata field, identity constant, schema version, protocol enum) that crosses a repo boundary between a producer and a consumer, the prior-art check surfaces [`cross-repo-contract-parity`](cross-repo-contract-parity.md). Two conventions apply: consumer publishes its own read surface as a citable constant (Convention A), and shared identity pins are vendored both sides with a producer-side parity test (Convention B). Drift guard lives producer-side in both cases.
+**Producer/consumer contract-field parity** — when a plan introduces or modifies a contract value (metadata field, identity constant, schema version, protocol enum) that crosses a repo boundary between a producer and a consumer, the prior-art check surfaces [`cross-repo-contract-parity`](./cross-repo-communication/cross-repo-contract-parity.md). Two conventions apply: consumer publishes its own read surface as a citable constant (Convention A), and shared identity pins are vendored both sides with a producer-side parity test (Convention B). Drift guard lives producer-side in both cases.
 
 ## Hook tripwire
 
@@ -426,7 +428,7 @@ Otherwise: verify in-session, ship both producer and consumer halves under one w
 
 > One surface, no dual-write, no symmetric closure (the cross-repo single-surface plan).
 
-Extracted to `docs/wiki/cross-repo-memo-lifecycle.md` — sender/receiver pattern, delivery-commit
+Extracted to `docs/wiki/cross-repo-communication/cross-repo-memo-lifecycle.md` — sender/receiver pattern, delivery-commit
 exception, and the worked examples live there now.
 
 ## Memo consumer-count is the sender's floor, not the full surface
@@ -451,7 +453,7 @@ exception, and the worked examples live there now.
 
 **On receipt — before acting on an inbound memo:**
 
-1. **Verify the cited locus exists on the alleged-responsible side.** Incoming memos arrive with proposed-fix framing; the proposed locus can be wrong even when the symptom is real. Grep the cited import path / symbol / file *in this repo* first. If it doesn't exist here, the fix-locus is probably the sibling where the asymmetric implementation lives (parallel `.sh`/`.ps1`, addon-vs-host, producer/consumer). The seven-dimension fix-locus discrimination check (`coordinator/docs/wiki/pre-dispatch-verification.md`; superseding coordinator/CLAUDE.md) applies to incoming memos as much as to plan-time substrate. *(Canonical: a `MIN_SUPPORTED_SCHEMA` memo pointed at the host; the import never existed there — real fix was the sibling addon's download script.)*
+1. **Verify the cited locus exists on the alleged-responsible side.** Incoming memos arrive with proposed-fix framing; the proposed locus can be wrong even when the symptom is real. Grep the cited import path / symbol / file *in this repo* first. If it doesn't exist here, the fix-locus is probably the sibling where the asymmetric implementation lives (parallel `.sh`/`.ps1`, addon-vs-host, producer/consumer). The seven-dimension fix-locus discrimination check (`coordinator/docs/wiki/dispatching-parallel-agents/pre-dispatch-verification.md`; superseding coordinator/CLAUDE.md) applies to incoming memos as much as to plan-time substrate. *(Canonical: a `MIN_SUPPORTED_SCHEMA` memo pointed at the host; the import never existed there — real fix was the sibling addon's download script.)*
 
 2. **Check it hasn't already been actioned by a concurrent EM before drafting a reply.** Before authoring any cross-repo reply or relay: (a) `ls` the receiver's `cross-repo/` for an in-reply-to match, (b) `git log <our-branch> --since=<inbound-memo timestamp>` for concurrent work that changed the premise, (c) *then* draft. The memos staging dir (in claude-klabauter at `$(python3 coordinator/lib/coordinator-state-root.py --central)/memos/` — see `state-placement-law.md`) is session-scratch — not authoritative; the sibling's `cross-repo/` is.
 
@@ -538,7 +540,7 @@ The hypothesis discipline does not stop at "is the cited file in this repo?" It 
 
 3. **A reviewer/memo "missing field" finding inverts once you check field OWNERSHIP — grep the consumer before adding a producer-side emit.** Absence of a *consumer-owned* field at the producer is often correct, not a gap; the producer emitting it is the redundant anti-pattern. *(Canonical: a code-review flagged descriptor chunkers as "missing `chunk_content_hash`"; the host computes it at index time (`indexer/embed.py` overwrites any producer value with its own xxh3), so the omission was correct and the chunkers *emitting* a blake2b value were the redundancy.)* Before treating an absent field across a cross-repo seam as a defect, grep who *computes* and who *consumes* it. The seam direction inverts the finding.
 
-The unifying rule: **a cross-repo finding names a symptom from one vantage; its proposed fix-shape, fix-locus, and ownership attribution are all hypotheses.** Verify the producer's live model, the implementation's real home, the surface's intended multiplicity, and the field's owning side on disk before building the consumer half or shipping an exclusion. → `coordinator/docs/wiki/pre-dispatch-verification.md` (7-dim fix-locus discrimination; superseding coordinator/CLAUDE.md); the verification is identical, the entry point is an inbound memo or review finding rather than your own plan.
+The unifying rule: **a cross-repo finding names a symptom from one vantage; its proposed fix-shape, fix-locus, and ownership attribution are all hypotheses.** Verify the producer's live model, the implementation's real home, the surface's intended multiplicity, and the field's owning side on disk before building the consumer half or shipping an exclusion. → `coordinator/docs/wiki/dispatching-parallel-agents/pre-dispatch-verification.md` (7-dim fix-locus discrimination; superseding coordinator/CLAUDE.md); the verification is identical, the entry point is an inbound memo or review finding rather than your own plan.
 
 ## A cross-repo diagnosis is a hypothesis until the peer falsifies it against their own disk
 
@@ -560,11 +562,11 @@ The unifying rule: **a cross-repo finding names a symptom from one vantage; its 
 
 ## Operational safety with sibling-repo processes — don't kill the daemon you depend on
 
-Don't stop/restart/kill a sibling repo's running process (MCP daemon, indexer, watcher) without first verifying the relaunch path resolves end-to-end — this is process-management discipline, documented with the other runtime-readiness rules. → [`verification-before-completion.md`](./verification-before-completion.md) § Runtime Readiness vs. Green Tests.
+Don't stop/restart/kill a sibling repo's running process (MCP daemon, indexer, watcher) without first verifying the relaunch path resolves end-to-end — this is process-management discipline, documented with the other runtime-readiness rules. → [`verification-before-completion.md`](./em-operating-model/verification-before-completion.md) § Runtime Readiness vs. Green Tests.
 
 ## Peer-doctor pointer resolution — four-rung discovery cascade
 
-→ [`cross-doctor-routing.md`](./cross-doctor-routing.md) owns the canonical four-rung cascade (machine-local registry → sibling-relative → grep → GitHub fallback, stop-at-first-hit, skip-not-flag when the peer is absent). A cross-repo memo that needs to *locate* its peer at runtime resolves the path via that cascade.
+→ [`cross-doctor-routing.md`](./cross-repo-communication/cross-doctor-routing.md) owns the canonical four-rung cascade (machine-local registry → sibling-relative → grep → GitHub fallback, stop-at-first-hit, skip-not-flag when the peer is absent). A cross-repo memo that needs to *locate* its peer at runtime resolves the path via that cascade.
 
 ## Doctrine seeding vs. code/install-surface change — two different cross-repo altitudes
 
@@ -887,7 +889,7 @@ Discriminate by ownership before reaching for a coordinated bump: a bump is the 
 
 **How to apply:** before `cross-repo-memo draft <slug> --to <receiver>`, run a glob/grep of `<receiver-repo>/cross-repo/inbox/*<slug>*.md` and `<receiver-repo>/cross-repo/archive/*<slug>*.md` for the topic. If a same-topic memo exists: read it. If it is correct and current, do not duplicate — the receiver already has the signal. If it is *wrong* (mis-framed, contradicts a PM decision, supersedes-worthy), supersede it explicitly (`--supersedes <old-path>` or an in-place correction the receiver can see), don't silently stack a second directive. Verify sibling-repo channel state, not just local git log, before composing.
 
-The inbox glob catches a duplicate memo already in flight; it does not by itself catch the case where the *work the memo proposes* already shipped on a sibling branch your local log never touched. For that check, see H65 in [`concurrent-em-hazards.md`](./concurrent-em-hazards.md): before spinoff/relay/memo-action, run `git log --all` (every ref, not the checked-out branch) against the surface the memo names — a branch-scoped log is not evidence of absence.
+The inbox glob catches a duplicate memo already in flight; it does not by itself catch the case where the *work the memo proposes* already shipped on a sibling branch your local log never touched. For that check, see H65 in [`concurrent-em-hazards.md`](./concurrent-em-git-operations/concurrent-em-hazards.md): before spinoff/relay/memo-action, run `git log --all` (every ref, not the checked-out branch) against the surface the memo names — a branch-scoped log is not evidence of absence.
 
 ## Cross-repo memo bullets must trace consumer code paths before naming sibling-repo test files
 
@@ -1008,8 +1010,8 @@ The repo that needs the notice is the one holding **unmigrated** records against
 - `skills/spinoff/SKILL.md` Step 0 — PM-authorization gate
 - `skills/workstream-complete/SKILL.md` — lessons/state capture
 - `coordinator/skills/handoff/SKILL.md` § Handoff Lineage (supersedes `coordinator/CLAUDE.md` § Handoff Lineage)
-- `docs/wiki/install-surface-completeness.md` — the universal install-surface rule, which combines with the cross-repo doctrine differently at the two altitudes above
-- `docs/wiki/cross-repo-memo-lifecycle.md` — the single-surface, receiver-only memo lifecycle (sender/receiver pattern, delivery-commit exception)
+- `docs/wiki/install-playbook-rationale/install-surface-completeness.md` — the universal install-surface rule, which combines with the cross-repo doctrine differently at the two altitudes above
+- `docs/wiki/cross-repo-communication/cross-repo-memo-lifecycle.md` — the single-surface, receiver-only memo lifecycle (sender/receiver pattern, delivery-commit exception)
 
 ## "Already addressed" reflex on inbound memo asks is hedging when current code hasn't been re-verified — discoverability is a real bug class
 
