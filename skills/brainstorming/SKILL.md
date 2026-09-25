@@ -78,15 +78,9 @@ digraph brainstorming {
 ## Understanding Intent
 
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
-**Project-rag is project-scoped.** It indexes ONE specific codebase, configured at install time.
-Before reaching for `mcp__*project-rag*` tools, confirm they index the codebase you're
-investigating. If your target has no project-rag index, skip this preamble and use grep/Explore.
-
-**If `mcp__*project-rag*` tools are available AND index your target, prefer them over
-grep/Explore for code-shaped lookups.** Symbol-shaped → `project_cpp_symbol` /
-`project_semantic_search`. Subsystem-shaped → `project_subsystem_profile`. Impact-shaped →
-`project_referencers` depth=2. Fall through to grep/Explore only if RAG returns nothing and
-staleness is plausible.
+**Code lookups: project-rag before grep** once `project_staleness_check` answers for your repo. SCIP may lag; it still beats grep.
+`ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_file,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
+Definition `project_symbol`; callers/usages/summary `project_symbol_callers`/`_references`/`_brief`; blast radius `project_referencers`; docs `project_semantic_search`; else `project_rag_instructions`.
 <!-- END project-rag-preamble -->
 
 Check accumulated project knowledge first (architecture atlas, wikis, repo map) before reading

@@ -803,8 +803,8 @@ def _dispatch_subagent_start_ops(cwd: Any, params: dict, payload: dict) -> int:
     if not root:
         return 0  # fail-open -- engine unresolvable on this machine
 
-    if root not in sys.path:
-        sys.path.insert(0, root)
+    from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
+    _place_engine_root_on_path(root)
 
     try:
         # Same eager-import cost note as _dispatch_bookkeeping_write below --
@@ -913,8 +913,8 @@ def _dispatch_bookkeeping_write(cwd: Any, params: dict) -> int:
     if not root:
         return 0  # fail-open -- engine unresolvable on this machine
 
-    if root not in sys.path:
-        sys.path.insert(0, root)
+    from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
+    _place_engine_root_on_path(root)
 
     try:
         # Importing coordinator_core.hooks.track_dispatched_agents triggers the

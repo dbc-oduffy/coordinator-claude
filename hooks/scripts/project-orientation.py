@@ -410,8 +410,8 @@ def resolve_state_root(repo_root: Optional[str], boot: bool = False) -> str:
     try:
         claude_klabauter_native_root = _resolve_claude_klabauter_root_native()
         if claude_klabauter_native_root:
-            if claude_klabauter_native_root not in sys.path:
-                sys.path.insert(0, claude_klabauter_native_root)
+            from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
+            _place_engine_root_on_path(claude_klabauter_native_root)
             from coordinator_core.state_root import (  # noqa: PLC0415
                 StateRootError,
                 coordinator_state_root as _native_coordinator_state_root,

@@ -1338,8 +1338,7 @@ def run_stop_hook_pointer_shim(module_name: str) -> int:
     if not root:
         return 0  # engine unresolvable on this machine
 
-    if root not in sys.path:
-        sys.path.insert(0, root)
+    place_engine_root_on_path(root)
 
     try:
         import importlib

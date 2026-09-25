@@ -121,7 +121,7 @@ Three compounding reasons (empirical anchor):
 
 ## Content-agnostic preamble — single-source discipline
 
-The project-RAG preamble for agent/skill dispatch lives at `coordinator/snippets/project-rag-preamble.md` (~80 words). Each consuming agent/skill file inlines it verbatim, fenced by:
+The project-RAG preamble for agent/skill dispatch lives at `coordinator/snippets/project-rag-preamble.md` (~40 words, language-neutral, index-gated via `project_staleness_check`, and carries a `ToolSearch("select:...")` bootstrap naming the nine structural/SCIP/semantic tools a consuming agent needs). Each consuming agent/skill file inlines it verbatim, fenced by:
 ```
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
 <!-- END project-rag-preamble -->

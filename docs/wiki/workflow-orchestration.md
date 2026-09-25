@@ -33,10 +33,7 @@ When the EM dispatches one wave, waits, verifies, commits, and dispatches the ne
 
 A workflow moves orchestration *out* of the compaction-prone context. The wave map lives in a script the harness executes; the EM holds only the final structured result.
 
-**3+ waves is the concrete escalation line.** EM-as-serial-orchestrator — dispatch, wait, verify,
-commit, repeat, all inside the EM's own context — is a compaction anti-pattern for any plan
-reaching a third wave; escalate to a background Workflow at that point rather than continuing to
-hand-orchestrate one wave at a time and hoping compaction holds off.
+**3+ waves is the concrete escalation line** — past it, hand-orchestration is a compaction anti-pattern.
 
 > This is the fan-out-default reflex escalated one level: fan-out asks *"can this be N smaller agents?"*; a workflow asks *"and should the orchestration of those N agents outlive my context window?"*
 
@@ -54,7 +51,7 @@ The failure this doctrine exists to stop: **the EM hand-orchestrates executor di
 
 What a Workflow removes is the context-window burn of the EM holding the wave-map and bookkeeping across compaction. Nothing else is surrendered.
 
-**What qualifies as a carve-out.** A legitimate carve-out names a *shape a Workflow cannot express* — a mid-run pause for genuine interactive PM input gating the very next dispatch, or a tool only the main loop can call. None of the five above name such a shape; each is answered by scoping or restructuring the Workflow. Nor does a content-dependent wave graph qualify: a Workflow script is plain JS and computes the next fan-out from the prior phase's returned results, or the EM re-plans from the returned manifest and fires a fresh phase. **The carve-out test is self-graded by the same agent that wants to skip the Workflow** — the hazard the `When to EM-Inline` checklist guards against (`docs/wiki/agent-dispatch-economics.md`); the non-qualifying enumeration above is this doctrine's equivalent guard.
+**What qualifies as a carve-out.** A legitimate carve-out names a *shape a Workflow cannot express* — a mid-run pause for genuine interactive PM input gating the very next dispatch, or a tool only the main loop can call. None of the five above name such a shape; each is answered by scoping or restructuring the Workflow. Nor does a content-dependent wave graph qualify: a Workflow script is plain JS and computes the next fan-out from the prior phase's returned results, or the EM re-plans from the returned manifest and fires a fresh phase. The carve-out test is self-graded by the agent that wants to skip the Workflow; the enumeration above is its guard.
 
 Workflow doctrine concentrates at `/execute-plan` rather than blanket-covering every dispatch shape (§ The base Workflow tool's opt-in gate). The multi-wave nudge hook is a bounded, offer-shaped burst nudge, not an enforcement backstop.
 
@@ -64,11 +61,11 @@ Workflow doctrine concentrates at `/execute-plan` rather than blanket-covering e
 
 1. **Control flow is code, not EM discipline.** Gates are literal `if` statements executed deterministically (`if (divergences.length) return { halted: 'port-divergence', ... }`), not the EM *remembering* to check between waves. **Why it matters:** a compacted EM forgets a gate; a script cannot.
 
-2. **Subagent transcripts never enter the EM context.** Each agent's reasoning stays inside the workflow; the EM receives a small schema-validated result object. **Why it matters:** this is what makes a workflow survive EM compaction — if the EM is summarized mid-run, the workflow keeps executing and re-invokes it at completion. N can be large without context pressure.
+2. **Subagent transcripts never enter the EM context.** Each agent's reasoning stays inside the workflow; the EM receives a small schema-validated result object. This is what makes a workflow survive EM compaction; N can be large without context pressure.
 
 3. **Resumable.** `resumeFromRunId` replays cached successful phases and re-runs only from an edited or failed phase forward (same-session only; same script + same args → 100% cache hit). **Why it matters:** a phase that halts on a real fork is fixed and resumed without re-paying the successful phases.
 
-**Fleet-quota discipline is yours, not the tool's.** The fleet shares one account/IP rate-limit budget across independent sessions — a wipeout is usually *fleet-wide* (several `/update-docs` + `/architecture-*` + `/distill` at once), not one workflow's burst. Resume already makes a throttle **non-fatal for correctness**: the journaled wave returns for free, so a wipeout costs wall-clock and retries, not data. It does not prevent the throttle. Cross-session quota governance has no clean primitive — independent Claude processes cannot see each other's budget — and building it is disproportionate to a transient, recoverable failure. The control is launch discipline: **stagger concurrent workflow-heavy sessions rather than firing them all at once**, the same reflex as not running `make -j1000`.
+**Fleet-quota discipline is yours, not the tool's.** The fleet shares one account/IP rate-limit budget across independent sessions — a wipeout is usually *fleet-wide* (several `/update-docs` + `/architecture-*` + `/distill` at once), not one workflow's burst. Resume already makes a throttle **non-fatal for correctness**: the journaled wave returns for free, so a wipeout costs wall-clock and retries, not data. The control is launch discipline: **stagger concurrent workflow-heavy sessions rather than firing them all at once**, the same reflex as not running `make -j1000`.
 
 **The journaled-scan-then-synth shape is the shared resume primitive.** Run a cheap, mechanical, near-free scan wave first and journal it; run the expensive agentic synth wave after. On a rate-limit wipeout `resumeFromRunId` re-runs only the failed synth agents — the cheap wave returns from cache. This makes the cheap wave durable independent of the EM's own context survival. `/distill` and `/architecture-survey` both run this shape and differ only in concurrency posture: `/distill` uses the plain cap of `min(16, cores-2)`; `/architecture-survey` uses a LOW cap (~4) plus exponential backoff, because its fan-out trips an **account-level** rate limit that stays hot for minutes regardless of the cap — arrival-rate-triggered, not concurrency-triggered.
 
@@ -86,9 +83,7 @@ Bash, StructuredOutput` against a definition declaring more. `ToolSearch` and `T
 call forces emission through a `StructuredOutput` tool — retry-cap failure mode below). A reader
 who knows only "tools get removed" will mis-model the add side.
 
-That surface figure is an agent's self-report, not an attempted call, and is not to be cited as a
-measurement (`SELF-REPORTED-TOOL-SURFACE-IS-NOT-EVIDENCE`). The `StructuredOutput` add is
-independently documented; the Bash narrowing below has its own empirical evidence.
+That surface figure is a self-report, not a measurement (`SELF-REPORTED-TOOL-SURFACE-IS-NOT-EVIDENCE`).
 
 **Bash narrowing has a demonstrated correctness cost.** A Workflow-dispatched
 `coordinator:executor` was denied `pnpm vitest`/`pnpm run typecheck` by its Bash allowlist, wrote
@@ -108,9 +103,10 @@ received on either path (rule 3 of the dispatch-delivery decision).
 
 ## Reading a Workflow failure — verify disk before re-dispatch
 
-A Workflow reporting a failure has almost always **already persisted its executors' file edits** — the general "files persist before failure" crash-doctrine applies here too. Two failure shapes recur, both more benign than the verdict string reads:
+A Workflow reporting a failure has almost always **already persisted its executors' file edits** — the general "files persist before failure" crash-doctrine applies here too. These failure shapes recur, all more benign than the verdict string reads:
 
 - **StructuredOutput retry-cap exhaustion.** A schema'd `agent()` that fails to emit conformant JSON five times surfaces as `parallel[N] failed` — but the executor's disk edits landed *before* the final emission failed. The failure is the structured-output emission, not the task. Check the executor's write-files before assuming loss.
+- **Stall-watchdog retry.** An `agent()` silent for `stallMs` (default 180 s) is aborted — its transcript ends `[Request interrupted by user]`, not a PM message — and relaunched fresh over its disk state, at most 5 times. Tripwire: `A-WORKFLOW-STALL-ABORT-READS-AS-A-USER-INTERRUPT`.
 - **Session/usage-limit death.** Every `agent()` errors with "hit your session limit" and `subagent_tokens=0` / `tool_uses=0` — no partial disk writes at all. Verify clean, then re-run with `resumeFromRunId` once the limit resets; no agent was cached, so the whole wave re-runs safely. Do NOT hand-finish or re-plan around a limit-death.
 
 **`git status` is the arbiter, not the workflow's verdict string.** Verify what landed, then resume — never re-dispatch from scratch over partial work. Manual reads on a shared tree use `git --no-optional-locks status`; the flag sits between `git` and the subcommand or the invocation hard-fails. `git diff --cached` / `git ls-files -m` need no such flag.

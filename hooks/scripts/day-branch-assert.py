@@ -140,8 +140,8 @@ def main() -> int:
     if not root:
         return 0  # engine unresolvable on this machine
 
-    if root not in sys.path:
-        sys.path.insert(0, root)
+    from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
+    _place_engine_root_on_path(root)
 
     try:
         from coordinator_core.hooks.day_branch_assert import assert_day_branch

@@ -171,8 +171,8 @@ except Exception:
 
 if _engine_root:
     try:
-        if _engine_root not in sys.path:
-            sys.path.insert(0, _engine_root)
+        from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
+        _place_engine_root_on_path(_engine_root)
         from coordinator_core.write_guards._sentinel_write_guard import (
             reconstruct_after,
         )

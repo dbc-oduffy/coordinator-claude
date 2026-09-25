@@ -199,8 +199,8 @@ def _record_failure(claude_klabauter_root: str | None, detail: str) -> None:
             return
         if claude_klabauter_root:
             try:
-                if claude_klabauter_root not in sys.path:
-                    sys.path.insert(0, claude_klabauter_root)
+                from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
+                _place_engine_root_on_path(claude_klabauter_root)
                 from coordinator_core.ops.ceremony.detached_spawn import (
                     record_child_failure,
                 )
@@ -230,8 +230,8 @@ def main() -> int:
         _record_failure(None, "claude-klabauter root unresolved — skipping self-probe")
         return 0  # fail-open — engine repo unresolvable on this machine
 
-    if root not in sys.path:
-        sys.path.insert(0, root)
+    from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
+    _place_engine_root_on_path(root)
 
     # Skip the ~80-module eager op-registry population; this stub reaches
     # exactly one engine function by direct import (see module docstring).

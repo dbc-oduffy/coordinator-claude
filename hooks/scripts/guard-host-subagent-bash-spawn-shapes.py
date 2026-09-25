@@ -136,8 +136,8 @@ def _classify(cmd: str, dialect_name: str = "BASH") -> "list[str]":
         return []
     if not root:
         return []
-    if root not in sys.path:
-        sys.path.insert(0, root)
+    from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
+    _place_engine_root_on_path(root)
     try:
         from coordinator_core.bash_guards._shape_classifier import classify_command
     except Exception:

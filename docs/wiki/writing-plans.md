@@ -130,9 +130,9 @@ Read `CONTEXT.md` if present at the project root; if absent, proceed silently �
 ## Codebase Research (before file mapping)
 
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
-**Project-rag is project-scoped.** It indexes ONE specific codebase, configured at install time. Before reaching for `mcp__*project-rag*` tools, confirm they index the codebase you're investigating — not a different project on the same machine. If your target codebase doesn't have a project-rag index (no `Saved/ProjectRag/` marker at its root, no `--project-root` argument pointing at it in the MCP config), skip this preamble entirely and use grep/Explore.
-
-**If MCP tools matching `mcp__*project-rag*` are available AND they index the codebase you're investigating, prefer them over grep/Explore for any code-shaped lookup.** Symbol-shaped questions ("where is X defined", "find the function that does Y") → `project_cpp_symbol` / `project_semantic_search`. Subsystem-shaped questions ("how does X work") → `project_subsystem_profile`. Impact questions ("what breaks if I change X") → `project_referencers` with depth=2. Stale RAG still beats grep on structure. Fall through to grep/Explore only if RAG returns nothing AND staleness is plausible.
+**Code lookups: project-rag before grep** once `project_staleness_check` answers for your repo. SCIP may lag; it still beats grep.
+`ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_file,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
+Definition `project_symbol`; callers/usages/summary `project_symbol_callers`/`_references`/`_brief`; blast radius `project_referencers`; docs `project_semantic_search`; else `project_rag_instructions`.
 <!-- END project-rag-preamble -->
 
 Before defining the file structure, check what's already been documented about the relevant systems. Read these if they exist (skip silently if they don't):

@@ -395,8 +395,8 @@ def _import_engine_module(module_path: str):
             "manifest cannot be built; aborting closed rather than emitting "
             "a partial block"
         )
-    if root not in sys.path:
-        sys.path.insert(0, root)
+    from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
+    _place_engine_root_on_path(root)
 
     import importlib
 

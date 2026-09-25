@@ -157,8 +157,8 @@ def main() -> int:
     if not root:
         return 0  # fail-open ALLOW — engine unresolvable on this machine
 
-    if root not in sys.path:
-        sys.path.insert(0, root)
+    from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
+    _place_engine_root_on_path(root)
 
     # Must precede the first coordinator_core.* import -- see
     # _engine_root.arm_lazy_ops for the ~80ms package-init cost this avoids.

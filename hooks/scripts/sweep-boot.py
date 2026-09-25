@@ -293,8 +293,8 @@ def _import_record_child_failure(claude_klabauter_root: str | None):
     if not claude_klabauter_root:
         return None
     try:
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
+        from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
+        _place_engine_root_on_path(claude_klabauter_root)
         from coordinator_core.ops.ceremony.detached_spawn import record_child_failure
     except Exception:
         return None
