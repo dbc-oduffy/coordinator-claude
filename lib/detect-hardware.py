@@ -43,14 +43,6 @@ from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_main():
-    """Resolve the engine root, put it on sys.path, and import the ported entrypoint.
-
-    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
-    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
-    re-deriving it -- this is a plain in-process import, not an RPC invoke, so
-    cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
-    deliberately NOT used here.
-    """
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.detect_hardware import main as _op_main
 
@@ -61,9 +53,6 @@ def main() -> None:
     try:
         op_main = _import_main()
     except RuntimeError as exc:
-        # Fail-loud: the bash oracle exits 1 on any unresolvable prerequisite
-        # (missing machine-local, undetectable cores/RAM); an unresolvable
-        # engine link is the same class of failure.
         print(f"detect-hardware: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
         sys.exit(1)
     except ImportError as exc:

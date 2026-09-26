@@ -69,8 +69,8 @@ returned `route`/`detents`/`next_move` verbatim — it already carries the disch
 **4. Scaffold the sizing-object** (`coordinator-doc-new --type sizing-object`) for any
 non-express-lane sizing, populating `intent`/`estimate`/`route`/`detents`/`scout_evidence` and the
 property-attests verbatim from the returned fields. Undecided direction-class items go in
-`surfaced_to_pm`, never folded into `fork`/`xl_exit`. Optionally populate `name` — a few words,
-whiteboard length; never a slice of `intent`.
+`surfaced_to_pm`, never folded into `fork`/`xl_exit`. Optionally pass `--name "<short label>"` for
+`name` — a few words, whiteboard length; never a slice of `intent`.
 
 **`status`.** An XS routes to dispatch and has no plan: stamp it `shipped` yourself the moment the
 work lands, citing the commit. S and above route into a plan, where the terminal cascade owns the

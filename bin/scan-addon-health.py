@@ -30,11 +30,6 @@ import os
 import sys
 
 def _import_main():
-    """Resolve the engine root, put it on sys.path, and import the ported CLI entry.
-
-    Plain in-process import, not an RPC invoke — cc_invoke's subprocess-spawn
-    transport (cc_invoke()/route()) is deliberately NOT used here.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 
@@ -45,12 +40,6 @@ def _import_main():
 
 
 def main(argv: "list[str] | None" = None) -> int:
-    # This script's own docstring contract (line 32)
-    # says "Exit 0 always (advisory, never gating)". A sys.exit(1) here would
-    # abort a caller (/workday-start, /workstream-start --check-sentinel-
-    # presence at fresh-install bootstrap — exactly when the engine root is most
-    # likely unresolvable) that trusts the "never gating" promise and has no
-    # defensive `|| true`. Degrade to a stderr notice and exit 0 instead.
     try:
         op_main = _import_main()
     except RuntimeError as exc:

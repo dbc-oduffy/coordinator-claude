@@ -1,4 +1,3 @@
-# skills/repo-setup/SKILL.md Phase 3j invokes this file as
 # `"$PYTHON_BIN" "${PYTHON_ARGS[@]}" "${_PLUGIN_ROOT}/lib/setup-seed-health-ledger.py" "$(pwd)"`.
 """
 setup-seed-health-ledger.py — CLI trampoline over claude-klabauter
@@ -45,14 +44,6 @@ from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_main():
-    """Resolve the engine root, put it on sys.path, and import the ported entrypoint.
-
-    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
-    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
-    re-deriving it -- this is a plain in-process import, not an RPC invoke, so
-    cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
-    deliberately NOT used here.
-    """
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.setup_seed_health_ledger import main as _op_main
 
@@ -63,9 +54,6 @@ def main() -> None:
     try:
         op_main = _import_main()
     except RuntimeError as exc:
-        # Fail-loud: this is a setup-time gate/config-writer (matches the
-        # bash original's own exit-1 posture on ambiguity), not a never-block
-        # hook -- a broken claude-klabauter link must not silently skip the seed step.
         print(f"setup-seed-health-ledger: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
         sys.exit(1)
     except ImportError as exc:

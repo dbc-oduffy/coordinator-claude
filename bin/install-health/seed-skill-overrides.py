@@ -63,14 +63,6 @@ from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_main():
-    """Resolve the engine root, put it on sys.path, and import the ported entrypoint.
-
-    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
-    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
-    re-deriving it -- this is a plain in-process import, not an RPC invoke, so
-    cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
-    deliberately NOT used here.
-    """
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.seed_skill_overrides import main as _op_main
 
@@ -90,15 +82,10 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # plugin_root mirrors the original .sh's own resolution:
     # ${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)} —
-    # env override first, else this file's own grandparent directory
-    # (coordinator/bin/install-health/seed-skill-overrides.sh -> coordinator/).
     plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT") or os.path.dirname(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     )
-    # site mirrors the original .sh's own $0 in its ERROR line — whatever
-    # invocation-time path/argv[0] the caller used, not a fixed basename.
     sys.exit(op_main(sys.argv[1:], plugin_root=plugin_root, site=sys.argv[0]))
 
 

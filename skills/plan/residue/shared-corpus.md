@@ -70,7 +70,10 @@ untrusted-gate obligation, never composition machinery the EM discharges alone: 
 become a spine row with a closed disposition (spun off, backlogged, ruled out) and a real
 disposition detail — never a silent drop, never a row the author approves themselves. The cut is
 not authorized until the PM approves the grouping it lands in. Enforcement lives at write time,
-in the row's own closure gate, not in a checker's after-the-fact report.
+in the row's own closure gate, not in a checker's after-the-fact report. A distill-routed item
+(ADR, lineage, docs chunk) is not a cut and needs no grouping approval, but it keeps a tracking
+hook — a non-empty `## Distill pass` referenced from the closing handoff or the
+`/workstream-complete` step, which hands its items to `/distill`.
 
 - _Spine rows and the prime exit criterion testable + time framed for agents, not humans?_
   → Each spine row and the prime exit criterion's falsifier leg is a binary pass/fail check. Agent-scoped time annotations are fine ("this dispatch runs ~90s"); reject human-sprint framing ("two-week effort", "Q3 milestone").

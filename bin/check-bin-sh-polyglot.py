@@ -69,7 +69,6 @@ import os
 import subprocess
 import sys
 
-# The verbatim trampoline string every polyglot-class member must contain.
 TRAMPOLINE = (
     '\'\'\'\'exec "$(command -v python3 || command -v python || command -v py)" '
     '"$0" "$@" #\'\'\''
@@ -77,30 +76,9 @@ TRAMPOLINE = (
 
 TRAMPOLINE_WINDOW = 20
 
-# A guard whose SUBJECT is the trampoline must carry the literal as a data
-# value, so it would otherwise self-classify as in-class. This script and its
-# repo-wide sibling (check-sh-suffix-polyglot.py) are the only two such guards.
-# Membership is by construction, not convenience: merely mentioning the
-# trampoline does not qualify — the file must be a checker that detects it.
-#
-# Three surfaces carry this exemption independently: this set,
 # EXCLUDED_TRAMPOLINE_DOC_FILES in tests/test_no_bin_polyglot_invariant.py
 # (keyed on repo-relative path), and _SELF_SKIP_BASENAMES in
-# coordinator_core/bash_guards/commit_tripwires.py (keyed on basename, and
-# additionally retaining the dead pre-rename basename check-bin-sh-polyglot.sh
-# so a tree still carrying the old name stays exempt — inert wherever the
-# rename has landed, which is why that asymmetry is deliberate rather than
 # drift). The enforced invariant is therefore agreement on the LIVE-FILE
-# SUBSET, not strict set equality: after dropping entries naming files absent
-# from disk and normalizing basename-vs-repo-relative keying, all three must be
-# identical, or one surface reads green while another fires on the same file.
-# Mechanically checked by TestGuardSelfSkipCrossSetAgreement in
-# coordinator_core/bash_guards/tests/test_commit_tripwires.py.
-#
-# Basename keying is safe only because this guard's scan domain is
-# non-recursive over one directory (coordinator/bin/), so a basename collision
-# is impossible; widening the scan domain would require re-keying this set on
-# repo-relative path, as sh-suffix-polyglot-baseline.txt already is.
 _GUARD_SELF_SKIP_BASENAMES = {
     "check-bin-sh-polyglot.py",
     "check-sh-suffix-polyglot.py",
@@ -122,11 +100,6 @@ def _show_toplevel(bin_dir: str) -> str:
     indirection.
     """
     try:
-        # The engine root is not on sys.path by construction on the published
-        # mirror (coordinator_core is not pip-installed there), so the import
-        # below cannot succeed without this. RuntimeError joins the except
-        # tuple because an unresolvable root must degrade to the git spawn
-        # below exactly as an absent module already does.
         import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
         from cc_invoke import require_dispatch_engine_on_path
 
@@ -184,7 +157,7 @@ def _candidate_paths(bin_dir: str, staged_only: bool) -> list[str]:
         else:
             continue
         if "/" in base:
-            continue  # skip — in a subdirectory
+            continue
         out.append(os.path.join(bin_dir, base))
     return out
 
@@ -241,7 +214,7 @@ def main(argv: list[str]) -> int:
             continue
 
         if not _has_trampoline(filepath):
-            continue  # not in the polyglot class — skip
+            continue
 
         if not _has_sh_shebang(filepath):
             offenders.append("  %s  (missing #!/bin/sh on line 1)" % filepath)

@@ -60,14 +60,6 @@ _BOOTSTRAP_DONE = False
 
 
 def _bootstrap_engine() -> None:
-    """Put `coordinator/bin/lib` on `sys.path` -- idempotent, safe to call
-    more than once.
-
-    What moved and what did not: this mutation used to run at MODULE scope,
-    which made every import of this file mutate the `sys.path` of a warm
-    server ~50 sessions share. Only the trigger moved; the value inserted is
-    byte-for-byte the same.
-    """
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
         return
@@ -77,10 +69,6 @@ def _bootstrap_engine() -> None:
     _BOOTSTRAP_DONE = True
 
 
-# Generator-provenance declaration (generator_provenance.py).
-# _rewrite_anchor/_inject_anchor rewrite whichever
-# archive/daily-summaries/<date>-<machine>.md file currently matches the
-# caller's date/machine -- a data-dependent target set, not a fixed artifact.
 MUTATES = ["archive/daily-summaries/*.md"]
 
 _ANCHOR_KEY = "covered_tip_sha:"
@@ -92,21 +80,12 @@ def _err(msg: str) -> None:
 
 
 def _ensure_claude_klabauter_on_path() -> None:
-    """Idempotently put the engine root on sys.path, reusing `_derive_machine`'s /
-    `_completion_count`'s own resolver (`cc_invoke.ensure_engine_on_path`,
-    self-location-first) so this file has exactly one engine-root resolution
-    path. Best-effort: a resolution failure here is caught by the caller,
-    matching the existing try/except shape those two functions already use.
-    """
     import cc_invoke
 
     cc_invoke.ensure_engine_on_path(__file__)
 
 
 def _declare_write(target_file: str) -> None:
-    """Best-effort DR-276 write declaration for the two real write sites below
-    (`_rewrite_anchor`, `_inject_anchor`) — never lets a resolution/import
-    failure mask the anchor write that already succeeded."""
     try:
         _ensure_claude_klabauter_on_path()
         from coordinator_core.session.declared_writes import declare_write
@@ -117,7 +96,6 @@ def _declare_write(target_file: str) -> None:
 
 
 def _rewrite_anchor(target_file: str, full_sha: str, machine: str) -> None:
-    """Rewrite the first covered_tip_sha / covered_machine lines in place (bump path)."""
     with open(target_file, "r", encoding="utf-8") as f:
         lines = f.read().splitlines(keepends=True)
     stip = smach = False
@@ -134,13 +112,10 @@ def _rewrite_anchor(target_file: str, full_sha: str, machine: str) -> None:
         out.append(line)
     with open(target_file, "w", encoding="utf-8", newline="\n") as f:
         f.writelines(out)
-    # DR-276: declared AFTER the write lands.
     _declare_write(target_file)
 
 
 def _inject_anchor(target_file: str, full_sha: str, machine: str, today: str) -> int:
-    """Insert anchor lines + prose note. Returns 0 on success, 1 on malformed structure
-    (unclosed frontmatter / no H1) — mirroring the awk END-guard exits."""
     with open(target_file, "r", encoding="utf-8") as f:
         lines = f.read().splitlines(keepends=True)
 
@@ -152,7 +127,6 @@ def _inject_anchor(target_file: str, full_sha: str, machine: str, today: str) ->
 
     out: list[str] = []
     if first_line == "---":
-        # YAML frontmatter: insert bare key lines before the closing --- ; prose note after the H1.
         keys_done = False
         note_done = False
         for i, line in enumerate(lines):
@@ -175,7 +149,6 @@ def _inject_anchor(target_file: str, full_sha: str, machine: str, today: str) ->
             _err("ERROR: frontmatter block not closed (no terminating ---); anchor not injected")
             return 1
     else:
-        # No frontmatter: insert all three lines after the # Daily Summary H1.
         done = False
         for line in lines:
             if not done and line.lower().startswith("# daily summary"):
@@ -193,7 +166,6 @@ def _inject_anchor(target_file: str, full_sha: str, machine: str, today: str) ->
 
     with open(target_file, "w", encoding="utf-8", newline="\n") as f:
         f.writelines(out)
-    # DR-276: declared AFTER the write lands.
     _declare_write(target_file)
     return 0
 
@@ -204,7 +176,6 @@ def _derive_machine(root: str, full_sha: str, machine_arg: str) -> str:
 
     if machine_arg:
         return machine_arg
-    # git for-each-ref --contains <sha> over work/ heads and origin/work/ remotes.
     proc = wc.git(
         "-C", root, "for-each-ref", "--contains", full_sha,
         "--format=%(refname)", "refs/heads/work/", "refs/remotes/origin/work/",
@@ -217,7 +188,6 @@ def _derive_machine(root: str, full_sha: str, machine_arg: str) -> str:
         m = re.match(r"^refs/remotes/origin/work/([^/]+)/", ref)
         if m:
             return m.group(1)
-    # Fall back to the native cs_compute_machine equivalent (coordinator_core.machine_resolver).
     try:
         _ensure_claude_klabauter_on_path()
         from coordinator_core.machine_resolver import compute_machine
@@ -230,25 +200,6 @@ def _derive_machine(root: str, full_sha: str, machine_arg: str) -> str:
 
 
 def _completion_count(root: str, date: str) -> int:
-    """Count completion-log entries for DATE, natively in-process.
-
-    De-bash campaign, docs/2026-07-29-debash-residual-sites-spec.md § Group C: this used
-    to bridge to bash twice (once to source coordinator-claude-klabauter-root.sh for the engine root,
-    once to gate `command -v node` before shelling out to query-completions.py). Both
-    bridges are retired — the engine root resolves via `cc_invoke.ensure_engine_on_path()`
-    (the same self-location-first resolver `_derive_machine()` above already uses, so
-    this file has exactly one engine-root resolution path instead of two that could
-    drift apart), and the completion-log query calls
-    `coordinator_core.ops.ceremony.records_query.query_records` in-process — no `node`
-    gate, because query-completions.py (what that gate used to guard) is itself already
-    fully native and spawns no node subprocess.
-
-    Return contract (unchanged from the retired bridge version): always an int; 0
-    covers BOTH "query ran and found nothing" and "native query seam unavailable" —
-    those two were never distinguishable in the prior bridge implementation either
-    (both paths produced empty/absent stdout under its `|| true` shell fallback), so
-    this preserves rather than introduces the non-distinction. Never raises.
-    """
     try:
         _ensure_claude_klabauter_on_path()
         from coordinator_core.ops.ceremony.records_query import query_records
@@ -288,7 +239,6 @@ def main(argv: list[str]) -> int:
     today = argv[3] if len(argv) >= 4 and argv[3] else datetime.date.today().strftime("%Y-%m-%d")
     machine_arg = argv[4] if len(argv) >= 5 else ""
 
-    # Resolve ROOT to an absolute path (fail loud if it doesn't exist).
     if not os.path.isdir(root_raw):
         _err(f"ERROR: ROOT does not exist or is not accessible: {root_raw}")
         return 1
@@ -298,7 +248,6 @@ def main(argv: list[str]) -> int:
         _err(f"ERROR: DATE must be YYYY-MM-DD (got '{date}')")
         return 1
 
-    # Verify the descendant tip SHA resolves in this repo.
     full_sha = wc.git_out("-C", root, "rev-parse", "--verify", f"{descendant_tip_sha}^{{commit}}")
     if not full_sha:
         _err(f"ERROR: DESCENDANT_TIP_SHA '{descendant_tip_sha}' does not resolve to a commit in {root}")
@@ -306,7 +255,6 @@ def main(argv: list[str]) -> int:
 
     machine = _derive_machine(root, full_sha, machine_arg)
 
-    # Resolve target summary file (per-machine → glob → legacy flat).
     ds_dir = os.path.join(root, "archive", "daily-summaries")
     target_file = ""
     cand1 = os.path.join(ds_dir, f"{date}-{machine}.md")
@@ -325,7 +273,6 @@ def main(argv: list[str]) -> int:
         _err(f"summary-absent: no summary file found for {date} in {ds_dir}/")
         return 20
 
-    # Idempotency — already anchored, and is it FRESH?
     recorded = ""
     with open(target_file, "r", encoding="utf-8") as f:
         for line in f:
@@ -352,7 +299,6 @@ def main(argv: list[str]) -> int:
         _err(f"already-anchored (>= target or divergent): {target_file}")
         return 10
 
-    # Content-completeness guard.
     completion_count = _completion_count(root, date)
     bullet_count = _bullet_count(target_file)
     _err(f"INFO: date={date} file={target_file} completions={completion_count} bullets={bullet_count}")
@@ -361,7 +307,6 @@ def main(argv: list[str]) -> int:
              f"{bullet_count} Work Completed bullets; route to Phase A content-assembly analyst")
         return 30
 
-    # Commit-density content-gap signal.
     range_out = wc.git(
         "-C", root, "log", full_sha, "--no-merges",
         f"--since={date} 00:00:00", f"--until={date} 23:59:59", "--format=%H",
@@ -396,7 +341,6 @@ def main(argv: list[str]) -> int:
              f"{range_count}-commit range; route to Phase A content-assembly analyst")
         return 30
 
-    # Inject anchors.
     rc = _inject_anchor(target_file, full_sha, machine, today)
     if rc != 0:
         return rc
@@ -406,12 +350,6 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    # DR-276: this script owns its own positional-arg main(argv) (no argparse,
-    # no single-op forwarding contract run_op_main could route through), so
-    # it uses recording_declared_writes() -- the sanctioned carve-out
-    # (coordinator_core.cli_entry module docstring) -- to make its two real
-    # write sites (_rewrite_anchor / _inject_anchor, via _declare_write
-    # above) a session scope-touch claim.
     try:
         _ensure_claude_klabauter_on_path()
         from coordinator_core.cli_entry import recording_declared_writes

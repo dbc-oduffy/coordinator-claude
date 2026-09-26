@@ -71,8 +71,6 @@ from _win_portability import no_console_creationflags  # noqa: E402
 try:
     from _git_root_walk import git_root_walk as _git_root_walk  # noqa: E402
 except Exception:
-    # Defensive fallback -- a deploy missing its sibling _git_root_walk.py
-    # must still fail open to the subprocess rung below, not crash on import.
     def _git_root_walk() -> str | None:
         return None
 
@@ -88,20 +86,10 @@ _DENY_PROSE = (
 
 
 def _deny_message():
-    """Pure composer for the deny message -- kept separate from `main()` so
-    it can be measured / unit-exercised without stdin plumbing (mirrors the
-    shape used by the other Category-A hooks in this tree)."""
     return compose(_DENY_PROSE, anchor=_WIKI_ANCHOR)
 
 
 def _git_root() -> "str | None":
-    """Repo root as `git rev-parse --show-toplevel` would report it — same idiom as
-    block-workflow-unmodeled-agent.py's `_git_root()`: an in-process parent walk
-    (`_git_root_walk`) first, no subprocess on the routine path, with the 1s-timeout
-    `git rev-parse --show-toplevel` subprocess below kept only as a fallback for the case the
-    walk cannot resolve. Any failure (not a git repo, git missing, timeout) returns None and
-    the sentinel check is skipped — fails toward "no override", never toward a crash.
-    """
     walked = _git_root_walk()
     if walked:
         return walked
@@ -122,13 +110,6 @@ def _git_root() -> "str | None":
 
 
 def _sentinel_override_active() -> bool:
-    """Repo-root sentinel FILE override, reachable from inside a live
-    session (`touch <repo-root>/.coordinator-override-worktree-guard`) —
-    unlike an env var, which a running hook process cannot have injected
-    into it mid-session. Fails toward "no override" (returns False) on any
-    resolution failure, consistent with every other detection-failure
-    guard in this hook tree.
-    """
     root = _git_root()
     if not root:
         return False

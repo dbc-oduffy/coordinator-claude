@@ -1,31 +1,3 @@
-# identity-cli — CLI trampoline over coordinator/lib/session/identity.py's pure
-# teammate-identity-resolution functions (resolve_subagent_identity,
-# cs_build_canonical_agent_id, cs_canonical_agent_id_format_ok).
-# Port of: coordinator/lib/session/identity.sh (6fb5fb37, 2026-07-22)
-#
-# No engine-root / coordinator_core dependency: identity.py is pure logic
-# (no filesystem I/O, no engine-side state), so this trampoline imports it
-# directly from the co-located coordinator/lib/session/ tree -- unlike
-# session-liveness-cli / session-claim-cli, there is no claude-klabauter seam here.
-#
-# Subcommands (argv[1] selects; remaining argv forwarded to the mapped
-# coordinator/lib/session/identity.py function):
-#   resolve-subagent-identity <agent_id> <session_id>
-#       -> identity.resolve_subagent_identity(...); prints result (may be
-#          empty string), always exits 0 (mirrors the bash echo "" fail-closed
-#          convention -- callers gate on the printed value, not exit code).
-#   build-canonical-agent-id <name> <short_session>
-#       -> identity.cs_build_canonical_agent_id(...); prints result, exit 0.
-#          Exits 2 with a stderr message on empty name/short_session (mirrors
-#          bash's ${1:?...} parameter-expansion hard-fail).
-#   format-ok <agent_id>
-#       -> identity.cs_canonical_agent_id_format_ok(...): bool->exit
-#          (0 = matches, 1 = does not match).
-#
-# Exit codes: resolve-subagent-identity and build-canonical-agent-id (success
-# path) always exit 0 -- their contract is "print the answer, empty string on
-# no-match", not "boolean via exit code". format-ok is the one bool->exit
-# subcommand. A usage error (missing/unknown subcommand, wrong arity) exits 2.
 from __future__ import annotations
 
 import os
@@ -39,12 +11,6 @@ _BOOTSTRAP_DONE = False
 
 
 def _bootstrap_engine() -> None:
-    """Put coordinator/lib/session/ on sys.path so `import identity` resolves.
-
-    Moved out of module scope: this used to mutate sys.path on every import
-    of this file, a process global ~50 warm-server sessions share. Only the
-    trigger moved -- the mutation itself is unchanged.
-    """
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
         return

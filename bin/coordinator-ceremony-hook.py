@@ -131,12 +131,6 @@ _KNOWN_CEREMONIES = (
     "workweek-complete",
 )
 
-# Read/redact/warn primitives now live in coordinator_resolve_validation_cmd
-# — the naked-python port of the former lib/coordinator-resolve-validation-cmd.sh
-# (DoE c187f5b9, 2026-07-21) this hook used to source for
-# cs_read_local_md_key / _cs_metachar_warn / _cs_redact_for_diag. See
-# that module's read_local_md_key / _metachar_warn / redact_for_diag.
-
 
 def main(argv: list[str]) -> int:
     ceremony = argv[0] if argv else ""
@@ -152,8 +146,6 @@ def main(argv: list[str]) -> int:
 
     key = ceremony.replace("-", "_") + "_post_command"
 
-    # Guarded import (AC13) — see module docstring § "Guarded import". Do not
-    # re-flatten this back to an unguarded import.
     try:
         import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
         import cc_invoke
@@ -161,8 +153,6 @@ def main(argv: list[str]) -> int:
 
         cc_invoke.ensure_engine_on_path(__file__)
     except ImportError as exc:
-        # distinct message from the resolver guard below — this one
-        # names the bin/lib sibling (cc_invoke/win_argv), not the resolver.
         print(
             f"[coordinator-ceremony-hook] WARN: bin/lib module unavailable "
             f"({exc}) — skipping hook",
@@ -170,7 +160,6 @@ def main(argv: list[str]) -> int:
         )
         return 0
 
-    # Guarded import (AC13) — see module docstring § "Guarded import".
     try:
         if not os.path.isfile(_RVC_PATH):
             raise ImportError(f"resolver not found at {_RVC_PATH}")
@@ -180,11 +169,6 @@ def main(argv: list[str]) -> int:
         if _spec is None or _spec.loader is None:
             raise ImportError(f"could not build a module spec for {_RVC_PATH}")
         rvc = importlib.util.module_from_spec(_spec)
-        # Registered before exec_module: the resolver module uses @dataclass
-        # at module scope, which resolves annotation types via
-        # sys.modules.get(cls.__module__) during exec — mirrors
-        # coordinator_core/bash_guards/check_test_suite_invocation.py's
-        # identical by-path load of this same resolver.
         sys.modules[_spec.name] = rvc
         _spec.loader.exec_module(rvc)
     except ImportError as exc:
@@ -195,7 +179,6 @@ def main(argv: list[str]) -> int:
         )
         return 0
 
-    # Guarded import (AC13) — see module docstring § "Guarded import".
     try:
         from repo_identity import resolve_checked_repo_root
     except ImportError as exc:
@@ -211,30 +194,18 @@ def main(argv: list[str]) -> int:
         repo_root = os.getcwd()
     elif verdict["verdict"] == "MISMATCH":
         # DR-277: this hook DISPATCHES a configured post-command, it does not
-        # itself write into the resolved root -- warn and proceed rather than
         # refuse. UNRESOLVED never refuses either (AC4).
         print(verdict["message"], file=sys.stderr)
 
     cmd = rvc.read_local_md_key(repo_root, key)
 
-    # Opt-in: key absent or empty -> silent no-op, no output.
     if not cmd:
         return 0
 
     rvc._metachar_warn(cmd, f"ceremony-hook:{ceremony}", caller="coordinator-ceremony-hook")
     redacted = rvc.redact_for_diag(cmd)
 
-    # W1 pre-exec routing (coordinator_core.ceremony_config.argv_only): a
-    # `VAR=value` first-token prefix parses cleanly under shlex (it is not a
-    # ValueError, see the try/except below) and used to reach the exec
-    # attempt, where it fails with ENOENT and only THEN explains itself in
-    # the launch-failure WARN's trailing clause — the confusing primary
-    # signal (`No such file or directory: 'VAR=value'`) ran ahead of the
-    # precise diagnosis. `check_argv_only` classifies this case before any
-    # exec is attempted, so a W1 command routes straight to its own
-    # diagnostic instead of arriving there by way of a failed launch. See
     # `argv_only.py`'s module docstring, "CORRECTION" section, for the
-    # sequencing defect this closes.
     try:
         from coordinator_core.ceremony_config.argv_only import check_argv_only
     except ImportError as exc:
@@ -254,15 +225,6 @@ def main(argv: list[str]) -> int:
             )
             return 0
 
-    # Argv-only contract (PM-ruled 2026-08-06, breaking change): no shell=True,
-    # no compatibility path. win_argv.win_safe_shlex_split failure (e.g. an
-    # unterminated quote) is a hard, clearly-diagnosed skip — not a crash,
-    # not a silent no-op, and NOT a fallback to shell execution.
-    # renamed from `argv` (shadowed the function parameter of the same
-    # name, a readability trap for anyone tracing argv through this function).
-    # switched from bare `shlex.split` to `win_argv.win_safe_shlex_split`
-    # — the former silently stripped backslashes from a Windows-authored path,
-    # then echoed the mangled result back in this hook's own diagnostics.
     try:
         post_argv = win_safe_shlex_split(cmd)
     except ValueError as exc:
@@ -290,20 +252,8 @@ def main(argv: list[str]) -> int:
     try:
         from coordinator_core.win_portability import no_console_creationflags, run_forwarding
 
-        # PWD env override: subprocess.run(cwd=...) chdir()s the child before
-        # exec, but does NOT update an inherited $PWD env var. A shell's `pwd`
-        # builtin trusts a stale-but-device/inode-matching $PWD over its own
-        # getcwd() (POSIX logical-pwd semantics), so a configured command that
-        # itself runs `pwd` would echo back a inherited, possibly-unresolved
-        # ancestor path (e.g. a macOS /var/folders symlink source, not the
-        # /private/var/folders physical target) instead of repo_root. Setting
-        # $PWD explicitly closes that staleness gap.
         child_env = dict(os.environ)
         child_env["PWD"] = repo_root
-        # run_forwarding, not subprocess.run: this hook is latent-reachable
-        # in-process through an assembler directive whose sys.stderr is an
-        # io.StringIO capture buffer with no fileno() — see
-        # coordinator_core.win_portability.run_forwarding's own docstring.
         proc = run_forwarding(
             post_argv,
             cwd=repo_root,
@@ -314,9 +264,6 @@ def main(argv: list[str]) -> int:
         )
         rc = proc.returncode
     except ImportError as exc:
-        # widened alongside the bin/lib and resolver guards above —
-        # an unimportable coordinator_core (partial live-install mirror) is
-        # the identical failure mode; it must degrade to WARN+0, not escape
         # main()'s ALWAYS-0 contract.
         print(
             f"[coordinator-ceremony-hook] WARN: coordinator_core module unavailable "
@@ -325,12 +272,6 @@ def main(argv: list[str]) -> int:
         )
         return 0
     except OSError as exc:
-        # "on PATH" is the POSIX predicate and is WRONG on Windows, where
-        # CreateProcess appends only `.exe` to a bare name and never consults
-        # PATHEXT. `pnpm` resolves under both `shutil.which` and `where` (to a
-        # `.cmd` shim) and still raises WinError 2 here, so an operator who
-        # checks PATH on the strength of the sentence below concludes the
-        # message does not apply to them. Name the real predicate instead.
         shim_note = ""
         if sys.platform == "win32" and getattr(exc, "winerror", None) == 2:
             shim_note = (
@@ -362,16 +303,6 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    # Structural floor (negative-spec): this session found THREE separate
-    # ImportError escapes from main()'s per-import guards (cc_invoke/win_argv,
-    # no_console_creationflags, repo_identity) before this floor existed —
-    # each fixed individually, whack-a-mole. This is the backstop so a
-    # fourth unanticipated escape (any exception, not just ImportError)
-    # still honors the docstring's "Exit codes: ALWAYS 0" contract instead
-    # of crashing the calling ceremony. It does NOT replace the per-import
-    # guards above — those name the specific missing module; this can only
-    # say "something failed." Do not remove the per-import guards on the
-    # assumption this floor makes them redundant.
     try:
         sys.exit(main(sys.argv[1:]))
     except (KeyboardInterrupt, SystemExit):

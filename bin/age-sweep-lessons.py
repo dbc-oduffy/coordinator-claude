@@ -82,7 +82,7 @@ def partition(
     ARCHIVE iff scope=='universal' AND created date present AND date < cutoff.
     KEEP otherwise — conservative for missing scope, missing date, project-scoped entries.
     """
-    import yaml  # PyYAML — available in coordinator venv
+    import yaml
 
     yaml_files = sorted(lessons_dir.glob("*.yaml"))
     archive_entries: list[tuple[Path, str]] = []
@@ -97,12 +97,7 @@ def partition(
             continue
 
         created = fm.get("created")
-        # PyYAML parses `created: 2026-06-30` (unquoted) as a date object; normalise to str.
         date = str(created) if created is not None else None
-        # The migration sentinel "0000-00-00" (undated legacy entry) means date-UNKNOWN, not
-        # ancient. Treat it as missing so the conservative-keep path applies — an entry whose
-        # date we cannot prove must not be auto-archived (matches this script's stated contract:
-        # "entries without created (can't prove aged) — conservative keep").
         if date == "0000-00-00":
             date = None
         scope = str(fm.get("scope", "")).strip()
@@ -144,8 +139,6 @@ def main(argv: list[str]) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 2
 
-    # Cutoff validation: a blank --before satisfies argparse's required group but is
-    # not a usable cutoff. Fail loud with a distinct exit code.
     if args.before is not None:
         cutoff = args.before.strip()
         if not cutoff:
@@ -177,7 +170,6 @@ def main(argv: list[str]) -> int:
             print(f"    would archive: {f.name} (dated {date})")
         return 0
 
-    # Repo root: state/lessons/ → state/ → repo root
     repo_root = lessons_dir.resolve().parent.parent
 
     now = datetime.now(timezone.utc)
@@ -199,14 +191,6 @@ def main(argv: list[str]) -> int:
     return 0
 
 
-# Windows caps a process command line at 32767 characters (`CreateProcess`); a
-# corpus of aged lessons can in principle exceed one batch. All sources share
-# ONE destination directory here (same `adir` for the whole sweep), so `git mv
-# src1 src2 ... dst/` is valid git syntax (basenames are preserved on a
-# directory destination) and the batch just needs byte-budget chunking against
-# the argv cap -- the idiom named in this plan's Safe-primitive map
-# (discriminator 7), applied by hand here since the loop target is a `Path`
-# list, not a raw argv splice.
 _GIT_MV_BATCH_BUDGET = 20000
 
 

@@ -1,38 +1,4 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
-"""harvest-exit-interviews.py — CLI trampoline over claude-klabauter
-coordinator_core.subagent_sandbox.harvest_exit_interviews.
-
-Three DoE plan ACs cite ``harvest_exit_interviews.py`` by filename as an
-entrypoint, but the module lives under ``coordinator_core/subagent_sandbox/``
-and was invocable only via ``python3 -m coordinator_core.subagent_sandbox.
-harvest_exit_interviews`` — no bareword/bin entrypoint existed for it to be
-picked up by ``coordinator_core/install/substrate.py``'s
-``_derive_agent_helper_target_map`` (which derives the installed-forwarder
-set purely from a ``coordinator/bin/`` directory listing). This file is that
-thin trampoline: it exposes the module's ``main(argv)`` entrypoint verbatim,
-with no reimplemented logic.
-
-Shebang note: the SHEBANG line above is `#!/usr/bin/env python3`, generator-
-owned by `gen-launcher-shim.py --ensure-unix`, and correct for this shape. On
-Windows, this file's co-located `.cmd` twin wins via `PATHEXT` when invoked as
-a bareword, so the shebang is never read there; on macOS/Linux `python3` is the
-right interpreter. Caution: callers must invoke via the extensionless name or a
-resolved-interpreter prefix, never a bareword `.py` through git-bash — git-bash
-DOES honor the shebang and would exec-127 with no `python3` present. See the
-carve-out in DoE-claude's coordinator/docs/wiki/bash-on-windows-gotchas.md §
-Carve-out (cross-repo — this wiki lives in the DoE-claude repo, not
-here).
-
-Exit convention: this is a read-only harvest/report tool, not a commit gate.
-On an engine-root resolution or import failure this prints a stderr note and
-exits 1 (transport failure is fail-loud here, unlike the advisory
-check-harvest-debt.py trampoline, since this tool has no orientation-nudge
-posture to fall back to). Once import succeeds, the exit code and stdout/
-stderr shape are entirely coordinator_core.subagent_sandbox.
-harvest_exit_interviews.main()'s own — see that module's docstring.
-
-Spec backlink: pln-claude-klabauter-subagent-run-report-aut-f51428
-"""
 
 from __future__ import annotations
 
@@ -40,14 +6,6 @@ import os
 import sys
 
 def _import_main():
-    """Resolve the engine root, put it on sys.path, and import the ported entrypoint.
-
-    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
-    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
-    re-deriving it -- this is a plain in-process import, not an RPC invoke, so
-    cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
-    deliberately NOT used here.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 

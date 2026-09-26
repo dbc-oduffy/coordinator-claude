@@ -45,11 +45,6 @@ def main(argv: list[str]) -> int:
         print(f"{Path(__file__).name}: engine-root resolution failed: {_exc}", file=sys.stderr)
         return 1
 
-    # DR-276: routed through coordinator_core.cli_entry.run_op_main rather than a
-    # plain `from coordinator_core.ops.doctor import main` + direct call, so the
-    # paths the op declares (--fix's hooks.json rewrite) become a session
-    # scope-touch claim. Without that, everything this CLI writes is an orphan
-    # at the `scoped_git_commit` sink.
     from coordinator_core.cli_entry import run_op_main
 
     try:

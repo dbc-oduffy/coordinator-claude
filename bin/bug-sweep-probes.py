@@ -45,34 +45,20 @@ import subprocess
 import sys
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# detect-stack — SKILL.md Phase 0 step 1
-# ---------------------------------------------------------------------------
 
-# Extensions from the original `find . -name "*.py" -o -name "*.ts" ...` fence.
 _LANGUAGE_EXTENSIONS = (".py", ".ts", ".tsx", ".js", ".cpp", ".h")
 
-# Directory names from the original `ls -d tests/ __tests__/ spec/ test/`.
 _TEST_DIR_NAMES = ("tests", "__tests__", "spec", "test")
 
-# Literal filenames + one glob pattern from the original
-# `ls pytest.ini pyproject.toml jest.config.* tsconfig.json CMakeLists.txt`.
 _CONFIG_FILE_NAMES = ("pytest.ini", "pyproject.toml", "tsconfig.json", "CMakeLists.txt")
 _CONFIG_FILE_GLOBS = ("jest.config.*",)
 
-# Directories excluded from the language-file walk purely for tractability on
-# large repos — `find` in the original fence has no such exclusion, but a
-# bounded first-20-hits scan degenerates badly inside dependency/build trees.
-# Divergence noted in the port report; behavior on a repo without these dirs
-# is identical to the original fence.
 _WALK_EXCLUDE_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv"}
 
 _LANGUAGE_HEAD_LIMIT = 20
 
 
 def _find_language_files(root: Path) -> list[str]:
-    """Mirror `find . -name "*.py" -o ... | head -20`: first N matches, in
-    filesystem traversal order, relative to `root`."""
     hits: list[str] = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in sorted(dirnames) if d not in _WALK_EXCLUDE_DIRS]
@@ -86,8 +72,6 @@ def _find_language_files(root: Path) -> list[str]:
 
 
 def _find_test_dirs(root: Path) -> list[str]:
-    """Mirror `ls -d tests/ __tests__/ spec/ test/ 2>/dev/null`: existing
-    directories only, in the original listed order."""
     found = []
     for name in _TEST_DIR_NAMES:
         if (root / name).is_dir():
@@ -96,17 +80,14 @@ def _find_test_dirs(root: Path) -> list[str]:
 
 
 def _find_config_files(root: Path) -> list[str]:
-    """Mirror `ls pytest.ini pyproject.toml jest.config.* tsconfig.json
-    CMakeLists.txt 2>/dev/null`: existing literal names, plus glob-expanded
-    jest.config.* matches, in the original listed order."""
     found = []
-    for name in _CONFIG_FILE_NAMES[:2]:  # pytest.ini, pyproject.toml
+    for name in _CONFIG_FILE_NAMES[:2]:
         if (root / name).is_file():
             found.append(name)
-    for pattern in _CONFIG_FILE_GLOBS:  # jest.config.*
+    for pattern in _CONFIG_FILE_GLOBS:
         for match in sorted(glob_mod.glob(str(root / pattern))):
             found.append(os.path.relpath(match, root))
-    for name in _CONFIG_FILE_NAMES[2:]:  # tsconfig.json, CMakeLists.txt
+    for name in _CONFIG_FILE_NAMES[2:]:
         if (root / name).is_file():
             found.append(name)
     return found
@@ -131,11 +112,6 @@ def cmd_detect_stack(args: argparse.Namespace) -> int:
     return 0
 
 
-# ---------------------------------------------------------------------------
-# verify-diff — SKILL.md Phase 4 step 0 (mechanical diff gate)
-# ---------------------------------------------------------------------------
-
-
 def _git_diff_name_only(repo_root: Path) -> list[str]:
     proc = subprocess.run(
         ["git", "-C", str(repo_root), "diff", "--name-only"],
@@ -151,7 +127,6 @@ def _git_diff_name_only(repo_root: Path) -> list[str]:
 
 
 def _load_expected_files(fix_now_path: Path) -> list[str]:
-    """Mirror `jq -r '.[].file' < phase2-fix-now.json | sort -u`."""
     with fix_now_path.open("r", encoding="utf-8") as fh:
         entries = json.load(fh)
     if not isinstance(entries, list):
@@ -209,18 +184,8 @@ def cmd_verify_diff(args: argparse.Namespace) -> int:
         )
         for path in missing:
             print(path, file=sys.stderr)
-        # Informational, not blocking (SKILL.md: "Do not block commit on a
-        # non-empty MISSING set") — the calling agent decides whether/how to
-        # surface this in the Phase 4 report. Exit 1 signals "alert present"
-        # to any automation that wants to branch on it; it is not a failure
-        # exit in the pytest/CI sense.
         return 1
     return 0
-
-
-# ---------------------------------------------------------------------------
-# CLI wiring
-# ---------------------------------------------------------------------------
 
 
 def _build_parser() -> argparse.ArgumentParser:

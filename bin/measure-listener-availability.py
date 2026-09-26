@@ -146,12 +146,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-# --------------------------------------------------------------------------------------------
-# Engine-root resolution ("engine" class, § Path resolution). This script lives inside the
-# engine it probes, so its own `__file__` parent chain IS the engine root -- no registry lookup,
 # no sibling-checkout search. `COORDINATOR_ENGINE_ROOT` is kept as an override for a test
-# sandbox or a differently-laid-out clone.
-# --------------------------------------------------------------------------------------------
 
 _ENGINE_ROOT = Path(__file__).resolve().parents[2]
 
@@ -161,18 +156,11 @@ def _resolve_engine_root() -> Path:
     return Path(override) if override else _ENGINE_ROOT
 
 
-# --------------------------------------------------------------------------------------------
 # The probe. Imports `coordinator_core.warm.election` / `.client` READ-ONLY, and only the pure
-# derivation functions (`pipe_name`, `socket_path`, `engine_token`, the two deadline constants) --
-# never `client.try_warm_dispatch` or `client.dispatch`, which is exactly the seam C1 forbade.
-# --------------------------------------------------------------------------------------------
 
 SUBJECT_UP = "up"
 SUBJECT_DOWN = "down"
 
-#: The op this probe dials: `cli.parse_flag`, `scope=none` (no filesystem, no repo state) --
-#: the same op the 2026-08-23 door-probe spike validated as transport-only work with no side
-#: effects (C1's own citation). Any value works; this one is deliberately inert.
 _PROBE_METHOD = "cli.parse_flag"
 _PROBE_PARAMS = {"arguments": "--probe listener-availability", "flag_names": ["--probe"]}
 
@@ -228,12 +216,7 @@ def _probe_windows(pipe: str, payload: bytes, read_deadline: float) -> tuple[str
         return SUBJECT_DOWN, "no_listener", (time.perf_counter() - started) * 1000
     except OSError as exc:
         # ERROR_PIPE_BUSY (231): server up, contended -- warm.client's own anti-storm table
-        # counts this as UP and refuses to retry into it; this sampler mirrors that verdict
-        # rather than inventing a third state for "present but momentarily contended".
         # Recorded under its own mode, never merged into "answered": for a BLOCKING guard the
-        # operator waits out contention, and this box's contention is not incidental -- the
-        # door-probe spike measured arm C at 324ms p50 against a 22ms floor. An uptime figure
-        # that cannot say how much of its "up" was queueing would overstate the guard's health.
         if getattr(exc, "winerror", None) == 231:
             return SUBJECT_UP, "busy", (time.perf_counter() - started) * 1000
         return SUBJECT_DOWN, f"connect_error:{exc!r}", (time.perf_counter() - started) * 1000
@@ -271,7 +254,6 @@ def _probe_posix(
         return SUBJECT_DOWN, "no_listener", (time.perf_counter() - started) * 1000
     except (TimeoutError, _socket.timeout):
         # Full backlog -- server up, contended. Same verdict as ERROR_PIPE_BUSY above,
-        # and likewise recorded under its own mode rather than merged into "answered".
         sock.close()
         return SUBJECT_UP, "backlog", (time.perf_counter() - started) * 1000
     except OSError as exc:
@@ -281,7 +263,7 @@ def _probe_posix(
     try:
         sock.settimeout(None)
         io = sock.makefile("rwb")
-        sock.close()  # documented CPython idiom -- io holds its own reference
+        sock.close()
         io.write(payload)
         io.flush()
         line = _ThreadedRead(io).wait(read_deadline)
@@ -334,15 +316,10 @@ class Prober:
             )
         return {
             "subject": subject,
-            "mode": mode,  # "answered"/"busy"/"backlog" on up; the failure name on down
+            "mode": mode,
             "probe_latency_ms": round(latency_ms, 3),
             "engine_token": token,
         }
-
-
-# --------------------------------------------------------------------------------------------
-# Singleton lock -- refuses a second sampler against the same output file.
-# --------------------------------------------------------------------------------------------
 
 
 class AlreadyRunningError(RuntimeError):
@@ -379,11 +356,6 @@ def _acquire_singleton_lock(output_path: Path):
                 f"another sampler already holds the lock for {output_path}"
             ) from exc
     return fd
-
-
-# --------------------------------------------------------------------------------------------
-# Recording.
-# --------------------------------------------------------------------------------------------
 
 
 def _now_iso() -> str:
@@ -476,10 +448,6 @@ def run_sampler(
         pass
 
 
-# --------------------------------------------------------------------------------------------
-# --report
-# --------------------------------------------------------------------------------------------
-
 OUTAGE_BUCKETS = ("<1min", "1-5min", "5-15min", "15-60min", ">60min")
 
 
@@ -531,10 +499,6 @@ def _engine_commits(engine_root: Path, since: datetime, until: datetime) -> list
     part of the measurement, not a nicety: an outage with a deploy behind it and an outage from
     natural churn are different findings that a duration alone cannot tell apart.
     """
-    # Routes through
-    # coordinator_core.ops.ceremony.git_native._git instead of a hand-rolled
-    # subprocess.run (which also lacked the Windows-safe creationflags/stdin
-    # handling every other git call site in this codebase carries).
     try:
         from coordinator_core.ops.ceremony.git_native import _git as _git_native  # noqa: PLC0415
 
@@ -637,9 +601,6 @@ def build_report(output_path: Path, interval_secs: float, gap_threshold_multipli
 
     timestamps = [_parse_ts(s["ts"]) for s in samples]
 
-    # The bound arithmetic below is keyed on the cadence the SAMPLES actually show, never on
-    # `interval_secs` as configured: a sampler that drifted, was throttled, or was restarted
-    # with a different flag would otherwise be scored against a cadence it never ran at.
     _deltas = sorted(
         d for d in ((timestamps[i + 1] - timestamps[i]).total_seconds()
                     for i in range(len(samples) - 1))
@@ -714,15 +675,12 @@ def build_report(output_path: Path, interval_secs: float, gap_threshold_multipli
         "sampler_gap_secs": round(gap_secs, 1),
         "sampler_gap_count": gap_count,
         "outage_count": len(outage_durations_secs),
-        # Ranked on the UPPER bound, never on accumulated wall time -- see `_outage_rows`.
         "longest_outage_at_most_secs": (
             round(max(outage_at_most_secs), 1) if outage_at_most_secs else 0.0
         ),
         "sample_interval_observed_secs": round(observed_interval, 1),
         "outage_duration_buckets": buckets,
-        # Uptime is not uniform: a "busy"/"backlog" sample means the host process was present
         # but queued. For a BLOCKING guard the operator waits that out, so it is reported as its
-        # own share of uptime rather than left indistinguishable from a clean answer.
         "contended_secs": round(contended_secs, 1),
         "contended_share_of_uptime": (
             round(contended_secs / up_secs, 6) if up_secs > 0 else None

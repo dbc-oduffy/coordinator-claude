@@ -83,6 +83,7 @@ snapshot a derived copy — every invocation re-derives from live git history.
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import re
@@ -90,23 +91,10 @@ import sys
 
 
 def _no_legacy() -> None:
-    """State-1 fallback — `records.history` has no bash predecessor.
-
-    Raises unconditionally; `cc_invoke.route()` wraps the raise in the
-    standardized four-rung remediation message on State-1 (seam absent).
-    """
     raise RuntimeError("query-record-history: native seam required (no bash fallback)")
 
 
 def _supported_types_hint() -> str:
-    """Best-effort supported-type listing for an error message.
-
-    Imports `coordinator_core.ops.record_history` in-process (same
-    precedent `query-records.py::_list_schemas` already establishes for
-    reaching engine-side metadata from a CLI). Returns an empty string
-    (never raises) if the seam is unavailable — the caller's own error
-    message still stands on its own without this hint.
-    """
     try:
         from cc_invoke import require_dispatch_engine_on_path
 
@@ -198,15 +186,6 @@ def main(argv: list[str] | None = None) -> int:
 
     cc_invoke.require_dispatch_engine_on_path()
     # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
-    # what BINDS coordinator_core, and binding it HERE is the whole fix.
-    # require_dispatch_engine_on_path() above only mutates sys.path -- it imports
-    # nothing. Without this line the next import below (a binder module that
-    # resolves on the LOCATOR axis) wins the race and binds coordinator_core off
-    # the working tree instead of the dispatch root, and no later sys.path insert
-    # can rebind an already-imported package. Removing it restores a silent
-    # wrong-tree divergence that require_dispatch_engine_on_path now raises on.
-    # Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
-    # docs/research/engine-provenance-carrier-dependence.md
     import coordinator_core  # noqa: F401
 
     from records_query import _resolve_repo_root
@@ -224,18 +203,30 @@ def main(argv: list[str] | None = None) -> int:
         print(msg, file=sys.stderr)
         return 2
 
-    if args.since is not None and not _SINCE_RE.match(args.since):
+    if args.since is not None:
+        since_ok = bool(_SINCE_RE.match(args.since))
+        if since_ok:
+            try:
+                datetime.date.fromisoformat(args.since)
+            except ValueError:
+                since_ok = False
+        if not since_ok:
+            print(
+                f"query-record-history: --since {args.since!r} is not an ISO date "
+                "(YYYY-MM-DD)",
+                file=sys.stderr,
+            )
+            return 2
+
+    raw_type_members = args.type_.split(",")
+    if any(not t for t in raw_type_members):
         print(
-            f"query-record-history: --since {args.since!r} is not an ISO date "
-            "(YYYY-MM-DD)",
+            f"query-record-history: --type {args.type_!r} has an empty member "
+            "(leading/trailing/doubled comma)",
             file=sys.stderr,
         )
         return 2
-
-    # Comma-split multi-value (`--type a,b`), not a repeatable flag. A single
-    # value with no comma passes through as a bare string so the op's
-    # existing single-type response envelope stays byte-for-byte (P083-C4 R3).
-    type_members = [t for t in args.type_.split(",") if t]
+    type_members = raw_type_members
     record_type: str | list[str] = type_members[0] if len(type_members) == 1 else type_members
 
     repo_root = os.path.abspath(args.root) if args.root else _resolve_repo_root()
@@ -248,31 +239,15 @@ def main(argv: list[str] | None = None) -> int:
         result = cc_invoke.route("records.history", params, repo_root, _no_legacy)
     except Exception as exc:  # noqa: BLE001 - CLI boundary: any failure -> diagnostic + exit 2
         msg = f"query-record-history: records.history invocation failed: {exc}"
-        # The op raises UnsupportedRecordTypeError across the seam as a bare
-        # -32603, so the supported set the exception itself carries never
-        # reaches stderr. Re-derive it here rather than let an unknown --type
-        # read as a transport failure.
         hint = _supported_types_hint()
         hint_set = hint.split(", ") if hint else []
         unsupported_type = bool(hint) and any(t not in hint_set for t in type_members)
         if unsupported_type:
             msg += f"\nquery-record-history: --type {args.type_!r} is not a supported type; supported: {hint}"
         print(msg, file=sys.stderr)
-        # 2 = usage error (fix the call), 1 = op failure (may be transient).
-        # These were both 2, which cost a consumer a distinction it acts on:
-        # example-cockpit-repo's cache classifies an unknown type as
-        # `not-configured` and an op failure as `upstream`, and a single 2
-        # forced it to parse stderr prose to tell them apart — which is not a
-        # contract (cross-repo/inbox/2026-08-20-example-cockpit-repo-em-record-
-        # history-four-consumer-asks.md, ask 3). The collapse was an
-        # acknowledged outlier in this file's own docstring, never a ruling.
         return 2 if unsupported_type else 1
 
     records = result.get("records", []) if isinstance(result, dict) else []
-    # `is not None`, NOT truthiness — `--limit 0` is an explicit "zero
-    # records", distinguishable from "no --limit given" (no server-side
-    # default exists here to silently restore). Mirrors query-records.py's
-    # own `is not None` guard.
     if args.limit is not None:
         records = records[: args.limit]
 

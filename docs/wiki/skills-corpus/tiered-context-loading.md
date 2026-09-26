@@ -158,7 +158,7 @@ Tier 1-3 attempted: atlas has no page for the payments subsystem, RAG returned n
 Tier 1-3 attempted: wiki guide covers auth at a high level, RAG symbol search returned AuthManager:line 42, Read confirmed it's a thin wrapper; insufficient because the actual auth logic is in the middleware chain and the atlas doesn't map it.
 ```
 
-The rationale preamble does three things: it forces the EM to verify that tiers 1–3 were actually tried (not assumed to return nothing), it gives the scout useful negative context (what was already checked), and it produces a visible artifact that the Staff Engineer and the review-integrator can flag if the rationale is implausible.
+The rationale preamble does three things: it forces the EM to verify that tiers 1–3 were actually tried (not assumed to return nothing), it gives the scout useful negative context (what was already checked), and it produces a visible artifact that the Staff Engineer and any reviewer applying its own findings can flag if the rationale is implausible.
 
 The rationale preamble is a writing discipline, not an enforced gate — no hook blocks dispatch when it is missing. The earlier telemetry attempt tried to measure compliance via regex on dispatch prompts and conflated investigation scouts with the rest of the `Agent` tool surface — a mismeasurement of the wrong agent population, not a compliance signal worth trusting. Future enforcement should either block dispatch on a missing preamble or not exist as compliance theater.
 

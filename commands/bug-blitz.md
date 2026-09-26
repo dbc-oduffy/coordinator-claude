@@ -74,14 +74,14 @@ suite → skip to a one-line all-clear, no commit. Not reachable under decline.
 After Phase 0.7, emit through C4's queue route and fire it interactively:
 
 ```
-python3 coordinator/bin/emit-dispatch-workflow.py --queue state/bug-backlog --profile bug \
+"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/emit-dispatch-workflow" --queue state/bug-backlog --profile bug \
   --appetite <a> --limit <N> --budget-tokens <N> \
   --out state/scratch/bug-blitz/{run-id}/blitz.workflow.mjs --repo-root <abs repo root>
 ```
 
 Resolve `j-bug-blitz-commit-readiness` before firing — firing IS the emitted grind's first
 commit. Fire with the `Workflow({scriptPath, args})` call the emitter prints on stderr; firing is interactive, never `--fire` — the
-wrapper docstring (`coordinator/bin/emit-dispatch-workflow.py`) says why. Firing this Workflow is
+wrapper docstring (`emit-dispatch-workflow`) says why. Firing this Workflow is
 the PM's standing approval for every safe fix, refute-confirmed close and plan-weight baton the
 run produces — no further per-item ask.
 

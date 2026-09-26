@@ -105,12 +105,6 @@ class Baton(NamedTuple):
 
 
 def _split_frontmatter(text: str):
-    """(frontmatter dict, body) or (None, text) when no valid `---`-delimited YAML block leads.
-
-    A leading HTML comment is skipped before the fence is sought: the seeded install-leg handoff
-    templates carry a provenance comment above their frontmatter, and treating those as unreadable
-    made every chain in the corpus unverifiable at once.
-    """
     import yaml
 
     text = _COMMENT_PREFIX.sub("", text, count=1).lstrip()
@@ -190,9 +184,6 @@ def load_all_batons(repo_root: Path, unreadable: Optional[list] = None) -> list:
 
 
 def _index_batons(batons: list):
-    """(handoff_id -> baton, basename -> baton). A basename claimed by more than one path maps to
-    None: an archived file and a later live file can share a name, and resolving to whichever
-    loaded first would merge two unrelated chains or attach the wrong predecessor."""
     by_id = {b.handoff_id: b for b in batons if b.handoff_id}
     by_name = {}
     for b in batons:
@@ -253,10 +244,6 @@ def build_chains(batons: list) -> dict:
         root = uf.find(k)
         chains.setdefault(root, []).append(by_key[k])
     return chains
-
-
-# --- Liveness: copied idiom, not imported (group-em-nomination.py's filename is not
-# import-safe -- hyphenated -- per that module's own header comment). ---
 
 
 def _session_registry_dir() -> Path:
@@ -324,11 +311,7 @@ def _session_is_live(session_id: str, registry_dir: Optional[Path] = None) -> bo
     return False
 
 
-# --- Governing-plan spine resolution ---
-
-
 def build_plan_index(repo_root: Path) -> dict:
-    """`plan_id` -> plan file path, over every `docs/plans/*.md`."""
     index: dict = {}
     plans_dir = repo_root / "docs" / "plans"
     if not plans_dir.is_dir():
@@ -430,11 +413,6 @@ def chain_name(chain: list) -> str:
 
 
 def _chain_tip(chain: list) -> Optional[Baton]:
-    """The chain's head: the one member no other member names as its predecessor.
-
-    None when the spine forks or the chain is a bare `deliverable_id` group with no spine at all --
-    callers fall back rather than pick arbitrarily.
-    """
     by_id, by_name = _index_batons(chain)
     referenced = set()
     for b in chain:
@@ -556,8 +534,6 @@ def _cmd_chains(repo_root: Path, stranded_only: bool = False) -> int:
 
 
 def _chain_containing(repo_root: Path, handoff_path: str):
-    """(chain members or None, unreadable paths). The second element is why closure may not be
-    declared: an unparseable handoff is a chain member this walk could not see."""
     target = Path(handoff_path).resolve()
     unreadable = []
     for members in build_chains(load_all_batons(repo_root, unreadable)).values():
@@ -599,7 +575,7 @@ def _cmd_signal(repo_root: Path, handoff_path: str) -> int:
         print(f"no chain found containing {handoff_path}", file=sys.stderr)
         return 2
     if len(members) < 2:
-        return 0  # a single baton shipping is never "a chain closing" (Anti-scope).
+        return 0
     if unreadable:
         for p in unreadable:
             print(f"{p}: unreadable handoff — closure unverifiable", file=sys.stderr)
@@ -638,7 +614,7 @@ def main(argv: Optional[list] = None) -> int:
         return _cmd_check(repo_root, args.handoff_path)
     if args.verb == "signal":
         return _cmd_signal(repo_root, args.handoff_path)
-    raise AssertionError(f"unhandled verb {args.verb!r}")  # argparse guarantees one of the above
+    raise AssertionError(f"unhandled verb {args.verb!r}")
 
 
 if __name__ == "__main__":

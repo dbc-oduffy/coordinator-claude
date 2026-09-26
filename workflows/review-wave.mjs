@@ -78,7 +78,7 @@ export const meta = {
   ],
 }
 
-// Validated against agents/parallel-review-synthesizer.md § Output Schema.
+
 const VERDICT_SCHEMA = {
   type: 'object',
   required: ['verdict', 'verdict_rationale', 'head_drift', 'convergent_findings', 'arch_tier_candidates', 'per_reviewer_findings', 'requires_em_resolution', 'lens_coverage'],
@@ -129,11 +129,7 @@ const VERDICT_SCHEMA = {
   },
 }
 
-// Per skill § Parallel Dispatch: every reviewer dispatch prompt must include expected_branch.
-// The Workflow harness does not expose the caller's branch name directly, so the chunk/worker
-// prompts below instruct each agent to read it via `git branch --show-current` and pass it to
-// coordinator-safe-commit-adjacent no-commit discipline — reviewers do not commit at all, they
-// only need the branch name for the disk-first scoped-write verification the skill requires.
+
 function chunkPrompt(chunk, diffPatchPath, findingsDir) {
   return [
     'You are a Sonnet code-reviewer-weekly instance dispatched as part of a review-wave Workflow.',
@@ -158,15 +154,11 @@ function chunkPrompt(chunk, diffPatchPath, findingsDir) {
 }
 
 // Generalized over the worker's INPUT ARTIFACT, not "the diff" — security-audit-worker and
-// dep-cve-auditor take the full diff, but test-evidence-parser takes an EM-captured test-output
-// path (it has no Bash on its tool surface and never runs the suite itself; see the args-contract
-// note on testOutputPath above). Grouping all three under a diff-shaped call site is exactly the
-// bug this generalizes away from — see the plan's F6 finding.
+
+
 function mechanicalPrompt(worker, inputPath, inputDescription, findingsDir, outFile) {
-  // test-evidence-parser carries no Bash post-2026-07-23 (bash-kill ruling) — it persists via a
-  // single Edit on an EM-pre-scaffolded sentinel, and Edit's own fail-loud-if-absent behavior is
-  // the verification; there is no `ls -la` for it to run. The other two workers keep Bash and
-  // keep the disk-verify line.
+  
+  
   const canVerifyOnDisk = worker !== 'test-evidence-parser'
   return [
     'You are the ' + worker + ' dispatched as part of a review-wave Workflow, per',
@@ -231,9 +223,8 @@ const chunkResults = args.skipCodeSemantics
 phase('Mechanical')
 
 // An absent testOutputPath is the skill's RESOLVER_EXIT=2 week reaching this script: no
-// resolver, so no captured test output and no pre-scaffolded tests.md sentinel for an
-// Edit-only agent to write into. Dispatching anyway burns a slice that can only fail its
-// disk read, and the synthesizer scores that as failed_disk_read rather than a clean skip.
+
+
 const mechanicalThunks = [
   () => agent(mechanicalPrompt(
     'security-audit-worker', args.diffPatchPath,

@@ -1,6 +1,7 @@
 ---
 name: vp-product
 description: "Personas are Opus-only. The VP-Product Reviewer (they/them), VP Product — stress-tests choices before they ship: refactor-over-patch, alternative shapes."
+persona: the VP-Product Reviewer
 model: opus
 effort: low
 color: cyan

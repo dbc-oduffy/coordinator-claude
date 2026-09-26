@@ -184,10 +184,6 @@ from typing import Iterable
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
-#: `.md` trees this module governs. `docs/wiki` is included alongside the
-#: agent-prompt trees because doctrine wiki pages are exactly the surface
-#: the PM ruling names ("doctrine surfaces" is not scoped to agent-facing
-#: prompt text only).
 DOCTRINE_MD_DIRS = (
     REPO_ROOT / "coordinator" / "skills",
     REPO_ROOT / "coordinator" / "agents",
@@ -196,36 +192,14 @@ DOCTRINE_MD_DIRS = (
     REPO_ROOT / "coordinator" / "docs" / "wiki",
 )
 
-#: `coordinator/schemas/*.schema.json` — direct children only, matching the
-#: governing glob literally. `coordinator/schemas/fixtures/` is excluded by
-#: this non-recursion, same as the `*.md` trees' explicit tests/fixtures skip.
 DOCTRINE_SCHEMAS_DIR = REPO_ROOT / "coordinator" / "schemas"
 
-#: Subdirectory names that, anywhere in a governed `.md` file's relative
-#: path, exempt it entirely — test fixtures and example data, not doctrine
-#: prose a model reads mid-task.
 _EXEMPT_PATH_SEGMENTS = frozenset({"tests", "fixtures"})
 
-#: Basenames that are, by their own stated purpose, a changelog rather than
 #: a doctrine surface -- exempt from `DOCTRINE_MD_DIRS` scanning regardless
-#: of which governed directory they sit under. `changelog-history.md` is the
-#: seed case: its own header states its entire job is to preserve the
 #: pre-consolidation release history VERBATIM ("Entry content, dates,
-#: version numbers... are unchanged from the original -- that record is not
-#: a defect to be edited away"), and `test_publish_seed_wiki_allowlist.py`
-#: independently confirms it ships in the OSS seed for exactly that reason.
-#: Rewriting it into present tense would not fix a doctrine defect -- it
-#: would destroy the artifact the page exists to be. A doctrine surface
-#: states the rule as it stands now; a changelog states what happened when --
-#: this file is the second thing, on purpose, and this module's whole job is
-#: to keep the two apart. Widen this set only for another file whose own
-#: stated purpose is the same (a changelog, not a rule), never to silence a
-#: genuine prose finding.
 _EXEMPT_BASENAMES = frozenset({"changelog-history.md"})
 
-#: JSON object keys whose string VALUES are in scope inside a `*.schema.json`
-#: file. `x-bump-note`/`x-bump-class` are deliberately absent — see module
-#: docstring.
 _SCHEMA_PROSE_KEYS = frozenset({"description", "$comment"})
 
 
@@ -235,24 +209,14 @@ class Violation:
     kind: str
     excerpt: str
     line_fingerprint: str = ""
-    confidence: str = "high"  # "high" | "ambiguous"
+    confidence: str = "high"
 
 
-# ---------------------------------------------------------------------------
-# Scope
-# ---------------------------------------------------------------------------
-
-#: Basename of the config-class file this module also governs -- a
 #: repo-root `coordinator.local.md`, resolved from the CANDIDATE PATH's own
 #: nearest `.git` ancestor (see `_find_repo_root`), never from `REPO_ROOT`
-#: (the plugin's own tree -- see module docstring's "Two governed file
 #: CLASSES" section for why an appended `DOCTRINE_MD_DIRS` entry can never
-#: reach a sibling repo's config).
 _CONFIG_FILE_BASENAME = "coordinator.local.md"
 
-#: Bound on the upward walk `_find_repo_root` performs -- this runs on the
-#: hook hot path, so the walk must terminate even against a pathological
-#: input (a target with no `.git` ancestor within any plausible repo depth).
 _REPO_ROOT_WALK_MAX_DEPTH = 32
 
 
@@ -324,10 +288,6 @@ def surface_of(path: Path) -> "str | None":
 
 
 def scope_class(path: Path) -> "str | None":
-    """Which governed class `path` belongs to -- `"doctrine"`, `"config"`,
-    or `None` (out of scope). `is_in_scope()` is this function's boolean
-    projection; callers that need to treat the two classes differently
-    (the guard, the ratchet) call this directly instead."""
     try:
         resolved = path.resolve()
     except Exception:
@@ -337,8 +297,6 @@ def scope_class(path: Path) -> "str | None":
         repo_root = _find_repo_root(resolved)
         if repo_root is not None and resolved.parent == repo_root:
             return "config"
-        # No `.git` ancestor, or the file isn't directly at that root --
-        # degrade to out-of-scope, never a false in-scope.
         return None
 
     if resolved.suffix == ".md":
@@ -396,14 +354,8 @@ def iter_doctrine_surface_files() -> Iterable[Path]:
         yield config_path
 
 
-# ---------------------------------------------------------------------------
-# Line-level exemptions
-# ---------------------------------------------------------------------------
-
 _FENCE = re.compile(r"^\s*```")
 
-#: Lines that are never scanned, regardless of content — required doctrine
-#: machinery, not prose.
 _EXEMPT_LINE_PATTERNS = (
     re.compile(r"^\s*<!--\s*spec-backlink:", re.IGNORECASE),
     re.compile(r"^\s*<!--\s*Spec backlink:", re.IGNORECASE),
@@ -411,10 +363,6 @@ _EXEMPT_LINE_PATTERNS = (
     re.compile(r"^\s*<!--\s*consumers:", re.IGNORECASE),
 )
 
-#: Strip common leading markdown decoration (list markers, blockquote,
-#: bold/italic delimiters) so a paragraph-leading construction like
-#: `- **Origin:** ...` or `> Update 2026-08-06: ...` is still recognized as
-#: paragraph-leading.
 _LEADING_MARKUP = re.compile(r"^[\s>*\-]+")
 _BOLD_ITALIC = re.compile(r"^[*_]+")
 
@@ -425,56 +373,21 @@ def _dequote_leading(line: str) -> str:
     return stripped
 
 
-#: Inline code spans and quoted runs, anywhere in a line — the spans in which a
-#: forbidden phrase is being NAMED rather than used.
 _MENTION_SPAN = re.compile(
-    r"`[^`]*`"           # `this used to`
-    r'|"[^"]*"'          # "this used to"
-    r"|“[^”]*”"  # curly-quoted
+    r"`[^`]*`"
+    r'|"[^"]*"'
+    r"|“[^”]*”"
 )
 
 
 def _strip_mentions(line: str) -> str:
-    """Blank out code spans and quotations so a MENTION of a forbidden phrase
-    does not read as a USE of it.
-
-    Doctrine that names the shapes it forbids — this repo's tripwire registry
-    row, a plan's ruling table, a skill briefing an executor — must be able to
-    quote them verbatim. Without this, the guard's own documentation trips the
-    guard, and the corpus learns to describe the shapes obliquely instead of
-    naming them, which costs the greppability the doctrine depends on.
-
-    Replaces each span with spaces rather than deleting it, so downstream
-    offsets into the returned string still line up with the original.
-    """
     return _MENTION_SPAN.sub(lambda m: " " * len(m.group()), line)
 
 
-# ---------------------------------------------------------------------------
-# High-confidence rules
-# ---------------------------------------------------------------------------
-
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _TOKEN = re.compile(r"\S+")
-#: `*` included so an italic-wrapped bare date token (`*2026-07-09.*`)
-#: strips down to a recognizable ISO date -- needed for
-#: `_bare_dated_parenthetical_hit`'s italic-span leg to see it as a date
-#: token at all (the token boundary otherwise includes the asterisks).
 _TOKEN_STRIP = ".,;:()[]\"'*"
 
-#: History-verb stems/phrases. Matched as a substring search over the whole
-#: line (multi-word phrases like "used to"/"no longer"/"ruled down" can't be
-#: single-token matches), then converted to a token index for the proximity
-#: check against a date token.
-#:
-#: `(?<![\w.-])`/`(?![\w.-])` REPLACE plain `\b` on both ends -- `\b` alone
-#: treats `-` and `.` as boundaries, so `\bcompletion\b` matched inside
-#: `local-completion` and `\bsource\b`-adjacent logic matched inside
-#: `cross-source` (confirmed false positives: `completion.fold`,
-#: `local-completion`, `cross-source`, all compound identifiers/filenames/
-#: dotted attribute paths, none of them prose). The lookaround additionally
-#: excludes `-`/`.` from BOTH sides so a verb only counts as a standalone
-#: word, never a segment of a hyphenated or dotted compound. Applies to
 #: `_PROVENANCE_KEYWORDS` below for the identical reason.
 _HISTORY_VERB = re.compile(
     r"(?<![\w.-])("
@@ -488,51 +401,19 @@ _HISTORY_VERB = re.compile(
     re.IGNORECASE,
 )
 
-#: Standalone changelog-narration phrases that must fire on their own -- NO
 #: co-located date or `_HISTORY_VERB` hit required (C7/plan Rulings). Each
-#: is a phrase whose presence alone, anywhere on a scannable line, is the
-#: changelog shape: "this used to work like X", "no longer applies",
-#: "the new version handles Y". Deliberately NOT folded into
 #: `_HISTORY_VERB` -- that constant only drives the proximity-gated
-#: verb-near-date rule, and these must fire WITHOUT a date at all.
-#: Deliberately narrower than a bare `\bused\s+to\b` -- that blanket form
 #: false-positived on the FUNCTIONAL "is used to <verb>" construction
 #: (`"RECEIVER-ROUTING-CRITICAL — used to determine delivery target"`,
-#: `"used to produce the audited synthesis"` in schema descriptions), which
-#: is present-tense purpose prose, not history narration. The plan's named
-#: shapes are specifically "this used to…" and "used to be…"; both keep the
-#: subject/copula immediately adjacent to "used to", which the functional
-#: construction never does.
 _USED_TO_STANDALONE = re.compile(
     r"\b(this|it|that|they|which)\s+used\s+to\b|\bused\s+to\s+be\b", re.IGNORECASE
 )
 _NO_LONGER_STANDALONE = re.compile(r"\bno\s+longer\b(?!\s+than\b)", re.IGNORECASE)
 
 #: The same narrowing `_USED_TO_STANDALONE` above already earned, applied to
-#: the phrase that kept the blanket form. "no longer" has two populations, and
-#: only one of them is changelog:
-#:
 #:   CHANGELOG — a definite subject in main-clause position narrates that THIS
-#:   system changed: "The helper no longer unions mtime-dirty paths", "You no
-#:   longer relay events", "it just no longer fires inside your commit".
-#:
 #:   FUNCTIONAL — a RELATIVE CLAUSE describes a runtime state the reader may
-#:   encounter, which is present-tense prose about the world, not history about
-#:   the doctrine: "an assigned memo that is no longer where the manifest says",
-#:   "processes that no longer exist", "a wiring that no longer exists".
-#:
-#: The discriminator is structural, not semantic: the functional form puts a
-#: relative pronoun immediately before the phrase, and the changelog form never
-#: does — its subject sits in main-clause position. Same argument, same shape as
-#: the `used to` narrowing, which is why this is a correction rather than a new
-#: exemption class.
-#:
 #: DELIBERATELY CONSERVATIVE, in the direction of the guard FIRING. The window
-#: is three words so a clause boundary cannot be spanned, and reduced relatives
-#: ("a surface this repo no longer owns") and generic-subject modals ("a reader
-#: can no longer tell") are NOT carved — they read as functional to a human but
-#: have no structural marker, and inventing one would start carving the
-#: changelog population too. Rewrite those in prose; do not widen this.
 _NO_LONGER_RELATIVE_CLAUSE = re.compile(
     r"\b(?:that|which|who|whose|where)\b(?:\s+\w+){0,3}?\s+no\s+longer\b", re.IGNORECASE
 )
@@ -541,17 +422,11 @@ _NEW_VERSION_STANDALONE = re.compile(
 )
 
 #: `UPDATE:` as a paragraph/line preamble -- distinct from `_ORIGIN_HEADER`'s
-#: `Update <date>:` form, which requires a co-located date. This fires on a
-#: bare `UPDATE:` preamble with no date required.
 _UPDATE_PREAMBLE = re.compile(r"^UPDATE\s*:", re.IGNORECASE)
 
 #: `PM decision:`/`PM ruling:` used as a DATELINE/ATTRIBUTION PREAMBLE --
-#: i.e. leading the line/paragraph, colon-terminated, standing in for a
-#: changelog dateline ("PM decision: retired the old flag."). Distinct from
 #: the inline `_PM_RULING` ambiguous rule below, which matches the phrase
 #: ANYWHERE on a line and requires a date/verb signal to fire at all -- a
-#: leading dateline-shaped construction is unconditionally the changelog
-#: shape regardless of what follows it.
 _PM_DATELINE_PREAMBLE = re.compile(r"^PM\s+(decision|ruling)\s*:", re.IGNORECASE)
 
 _TOKEN_PROXIMITY_WINDOW = 15
@@ -565,8 +440,6 @@ _ORIGIN_HEADER = re.compile(
 _DR_CHAIN = re.compile(r"\bDR-\d+\s+supersed(es|ed)\s+DR-\d+\b", re.IGNORECASE)
 _SUPERSEDED_DATE = re.compile(r"\bsuperseded\s+(in part\s+)?\d{4}-\d{2}-\d{2}\b", re.IGNORECASE)
 
-#: Cue phrases that reclassify an otherwise-high-confidence verb-near-date
-#: hit as the archived-read-tolerance ambiguous class — see module docstring.
 _READ_TOLERANCE_CUES = re.compile(
     r"retained for|read-tolerance|read tolerance|backward-compat|"
     r"legacy read|archived read",
@@ -575,15 +448,10 @@ _READ_TOLERANCE_CUES = re.compile(
 
 _PM_RULING = re.compile(r"\bPM ruling\b", re.IGNORECASE)
 
-#: Reversal verbs used ONLY to widen the `PM ruling` ambiguous condition
 #: below -- deliberately NOT folded into `_HISTORY_VERB`, whose match also
-#: drives the HIGH-confidence verb-near-date rule gated by the shrink-only
-#: ratchet baseline (`coordinator/tests/doctrine_changelog_prose_baseline.json`).
 #: Widening `_HISTORY_VERB` corpus-wide would raise high-confidence counts
-#: and break that ratchet; a bare "PM ruling flipped this from a hard-deny to
 #: advisory." has no date and no `_HISTORY_VERB` hit, so it needs its own,
 #: narrower-scoped verb set to stay in the AMBIGUOUS bucket rather than
-#: passing unflagged.
 _PM_RULING_REVERSAL_VERB = re.compile(
     r"(?<![\w.-])("
     r"flip\w*|switch\w*|chang\w*|walked?\s+back|downgrad\w*|soften\w*|"
@@ -592,35 +460,19 @@ _PM_RULING_REVERSAL_VERB = re.compile(
     re.IGNORECASE,
 )
 
-#: Keyword-form dated provenance tag -- see module docstring. Widened from
-#: an initial 6-token window: a real tag can carry a short qualifier between
-#: the keyword and the date (`Source: claude-central L10, 2026-05-30`), so 6
 #: undercounted. Still narrower than `_TOKEN_PROXIMITY_WINDOW` -- these tags
-#: are compact, not paragraphs.
-#:
 #: Same `(?<![\w.-])`/`(?![\w.-])` boundary fix as `_HISTORY_VERB` -- plain
-#: `\b` matched `source` inside `cross-source` (a compound identifier, not a
-#: provenance tag); see that constant's comment for the full reasoning.
 _PROVENANCE_KEYWORDS = re.compile(
     r"(?<![\w.-])(Source|Origin|Encoded|Established)(?![\w.-])", re.IGNORECASE
 )
 _PROVENANCE_WINDOW = 10
 
-#: Italic-form dated provenance tag: `*2026-06-26, project-rag*` or
-#: `*project-rag, 2026-06-26*` -- a bare ISO date and a trailing/leading
-#: attribution joined by a comma, inside a single `*...*` span. The
-#: `[.,;:]?` before the closing `*` tolerates a sentence-final period inside
-#: the italics (`*Source: claude-central L10, 2026-05-30.*`) -- without it,
-#: the trailing period sat between the date and the closing delimiter and
-#: the match failed outright.
 _ITALIC_PROVENANCE = re.compile(
     r"\*\s*(?:\d{4}-\d{2}-\d{2}\s*,\s*[^*\n]+?|[^*\n]+?,\s*\d{4}-\d{2}-\d{2})[.,;:]?\s*\*"
 )
 
 #: A cue immediately before a bare date token that names an OPERATIVE
 #: THRESHOLD the rule gates on now ("Pre-2026-05-22 memos...", "before
-#: 2026-08-01, X applies", "as of 2026-08-01") rather than a historical
-#: event -- see `_bare_dated_parenthetical_hit`.
 _THRESHOLD_CUE = re.compile(r"(?i)\b(pre|before|since|as\s+of)[\s-]*$")
 
 _PAREN_SPAN = re.compile(r"\(([^()]*)\)")
@@ -628,18 +480,11 @@ _ITALIC_SPAN = re.compile(r"\*([^*\n]*)\*")
 
 
 def _is_paragraph_leading(line: str, start: int) -> bool:
-    """True if nothing but whitespace/list/blockquote/bold markup precedes
-    `start` on `line` -- the same leading-decoration set `_dequote_leading`
-    strips, checked inline so callers don't need a second dequoted copy of
-    the line just to answer this."""
     prefix = line[:start]
     return prefix.strip(" \t>*_-") == ""
 
 
 def _date_token_positions(line: str) -> "list[tuple[int, int]]":
-    """Char spans of tokens that, after stripping surrounding punctuation,
-    are EXACTLY an ISO date and carry no `/` — the path/filename exclusion
-    described in the module docstring."""
     spans = []
     for m in _TOKEN.finditer(line):
         raw = m.group(0)
@@ -656,8 +501,6 @@ def _token_index_at(char_pos: int, token_spans: "list[tuple[int, int]]") -> int:
     for i, (start, end) in enumerate(token_spans):
         if start <= char_pos < end:
             return i
-    # char_pos falls between tokens (shouldn't normally happen for a match
-    # start) -- fall back to the nearest token before it.
     for i in range(len(token_spans) - 1, -1, -1):
         if token_spans[i][0] <= char_pos:
             return i
@@ -689,7 +532,6 @@ def _bare_dated_parenthetical_hit(line: str, date_spans: "list[tuple[int, int]]"
 
 
 def _scan_text_line(line: str, line_no: int) -> "list[Violation]":
-    """All violations on a single already-frontmatter/fence-filtered line."""
     violations: list = []
     for pattern in _EXEMPT_LINE_PATTERNS:
         if pattern.match(line):
@@ -699,18 +541,8 @@ def _scan_text_line(line: str, line_no: int) -> "list[Violation]":
     if not fingerprint:
         return []
 
-    #: The doctrine-prose class's own use of the retirement-exemption
-    #: marker -- same marker/semantics as the config class (C1(c)): it
-    #: exempts the DATE-attached legs only (verb-near-date, bare dated
-    #: parenthetical, provenance tags), never the phrase-only rules below,
-    #: which carry no date to exempt.
     exempt_date = bool(_RETIREMENT_EXEMPTION_MARKER.search(line))
 
-    # The date-attached legs read the mention-stripped line for the same reason
-    # the phrase-only legs do: a dated example quoted inside a code span or
-    # quotation is being shown, not asserted. `_strip_mentions` substitutes
-    # equal-length runs of spaces, so every offset below still indexes into the
-    # original line and `all_token_spans` stays aligned.
     scannable = _strip_mentions(line)
 
     all_token_spans = [(m.start(), m.end()) for m in _TOKEN.finditer(line)]
@@ -761,9 +593,6 @@ def _scan_text_line(line: str, line_no: int) -> "list[Violation]":
             if km.group(0).lower() == "origin" and (
                 origin_header_hit or _is_paragraph_leading(line, km.start())
             ):
-                # A leading "Origin:" construction is narration to rewrite
-                # wholesale (see the header rule above), not a tag to trim --
-                # stays exclusively in that bucket.
                 continue
             kw_idx = _token_index_at(km.start(), all_token_spans)
             if any(abs(kw_idx - di) <= _PROVENANCE_WINDOW for di in date_token_idx):
@@ -792,8 +621,6 @@ def _scan_text_line(line: str, line_no: int) -> "list[Violation]":
         )
 
     if not exempt_date and (_DR_CHAIN.search(line) or _SUPERSEDED_DATE.search(line)):
-        # Avoid double-counting a line already caught by verb_date_hit for
-        # the same underlying "superseded <date>" text.
         if not verb_date_hit:
             violations.append(
                 Violation(
@@ -834,13 +661,8 @@ def _scan_text_line(line: str, line_no: int) -> "list[Violation]":
             )
         )
 
-    # ---- Phrase-only shapes: fire unconditionally, no co-located date or
     # ---- `_HISTORY_VERB` hit required (C7/plan Rulings). ----
     # A phrase inside a code span or quotation marks is being MENTIONED, not
-    # used — doctrine that names these shapes (this file's own tripwire row, the
-    # plan's ruling table) must be able to quote them without tripping the
-    # guard that forbids them. Same use/mention discrimination the preamble legs
-    # below get from `dequoted`.
     mention_free = _strip_mentions(line)
 
     if _USED_TO_STANDALONE.search(mention_free):
@@ -848,9 +670,6 @@ def _scan_text_line(line: str, line_no: int) -> "list[Violation]":
             Violation(line_no, "history phrase (used to)", _excerpt(line), fingerprint, "high")
         )
 
-    # Blank the relative-clause occurrences before testing, rather than
-    # short-circuiting the line: a line carrying BOTH a functional relative
-    # clause and a genuine changelog clause must still fire on the second.
     if _NO_LONGER_STANDALONE.search(_NO_LONGER_RELATIVE_CLAUSE.sub(" ", mention_free)):
         violations.append(
             Violation(line_no, "history phrase (no longer)", _excerpt(line), fingerprint, "high")
@@ -892,51 +711,19 @@ def _scan_text_line(line: str, line_no: int) -> "list[Violation]":
     return violations
 
 
-# ---------------------------------------------------------------------------
-# Config-class rules -- a separate, blunter, tier-free scan (C1(b)). Every
-# hit is `confidence="high"`, no proximity condition, no verb requirement --
-# deliberately unlike `_scan_text_line` above, which this does NOT share or
-# call. Reuses `_date_token_positions` (already excludes a date fused into a
-# path/filename token) and the `Violation`/`_violation_key` shapes so
-# `new_violations()` works unchanged over the new kinds.
-# ---------------------------------------------------------------------------
-
-#: A bare `DR-\d+` id, ANY occurrence -- deliberately unlike the prose path
-#: (`_scan_text_line`), which exempts a lone `DR-` citation as a live rule
 #: reference. Same `(?<![\w.-])`/`(?![\w.-])` boundary as `_HISTORY_VERB` so
-#: a `DR-1` inside a longer identifier never counts as a standalone id.
 _CONFIG_DR_ID = re.compile(r"(?<![\w.-])DR-\d+(?![\w.-])")
 
-#: Path fragments that name a rot-prone location -- a pointer into one of
-#: these is stale the moment the memo is actioned or the handoff archived.
-#: Matched as a plain substring search (not token-bounded): a config line
-#: citing one of these paths is the violation regardless of what surrounds
-#: it on the line.
 _CONFIG_ROT_PATH_RE = re.compile(r"cross-repo/inbox/|archive/|state/handoffs/")
 
-#: The retirement-exemption marker (C1(c)) -- CLAUDE.md § Conventions'
-#: carve-out for a retirement whose ABSENCE is the operative rule, made
-#: mechanical. Exempts a line from the DATE leg only. Not the
-#: rot-prone-path leg (no retirement rationale needs a live handoff
-#: pointer), and NOT the bare-`DR-` leg: a bare `DR-127` also reads as a
-#: plan-local `DR-N` or a sibling repo's id, so it identifies no single
-#: record. A retirement clause cites its record path-qualified, which
 #: `_CONFIG_DR_ID`'s `(?![\w.-])` boundary already lets through
 #: unflagged -- so exempting the leg would license only the one citation
-#: shape that cannot be resolved.
 _RETIREMENT_EXEMPTION_MARKER = re.compile(
     r"<!--\s*doctrine-retirement-exemption:\s*[^>]*-->", re.IGNORECASE
 )
 
 
 def _scan_config_line(line: str, line_no: int) -> "list[Violation]":
-    """Config-file class predicate for one already-frontmatter/fence-
-    filtered line. Every violation is high-confidence and unconditional --
-    see module-level comment above.
-
-    Single backticks do not exempt a citation. Only a fenced block or the
-    `<!-- doctrine-retirement-exemption: ... -->` marker escapes this
-    scan."""
     fingerprint = " ".join(line.split())
     if not fingerprint:
         return []
@@ -977,11 +764,6 @@ def _iter_config_violations(text: str) -> "list[Violation]":
 
 
 def _iter_scannable_lines(text: str) -> "Iterable[tuple[int, str]]":
-    """`(line_no, line)` for every line of `text` NOT inside the frontmatter
-    block (first `---`-delimited region) or a fenced code block -- the walk
-    shared by both the doctrine-prose scan and the config-class scan (C1(b):
-    skipping frontmatter/fences is load-bearing for the config class, since
-    the operative config lives in frontmatter)."""
     lines = text.split("\n")
     in_fence = False
     in_frontmatter = False
@@ -1015,28 +797,6 @@ def _iter_markdown_violations(text: str) -> "list[Violation]":
 
 
 def _schema_prose_value_line_no(text: str, value: str, cursor: int) -> "tuple[int, int]":
-    """Real 1-indexed physical LINE in `text` where the JSON string literal
-    encoding `value` starts, searched forward from `cursor` (a char offset)
-    so repeated/identical values still anchor to successive occurrences in
-    document order rather than all collapsing onto the first match. Returns
-    `(line_no, next_cursor)`; `line_no` is `0` if the literal cannot be
-    located (never raises -- a miss degrades to an unanchored-but-still-
-    reported violation, not a crash).
-
-    A JSON string cannot contain a literal newline (an embedded `\\n` is
-    always the two-character escape), so the encoded literal for any
-    `description`/`$comment` value -- however many logical lines
-    `value.split("\\n")` produces -- sits on exactly ONE physical source
-    line. Anchoring the whole value to that one line is therefore correct,
-    not an approximation.
-
-    `json.dumps` is used only to reproduce standard JSON string escaping for
-    the SEARCH, never to reconstruct the file's own byte-for-byte spelling
-    -- tried both `ensure_ascii` settings because this corpus's schemas
-    routinely author non-ASCII characters (em dashes) as `\\uXXXX` escapes
-    (the `ensure_ascii=True` default) rather than literal UTF-8 bytes, and a
-    hard-coded single setting would silently fail to anchor whichever style
-    a given file does not use."""
     for ensure_ascii in (True, False):
         encoded = json.dumps(value, ensure_ascii=ensure_ascii)[1:-1]
         pos = text.find(encoded, cursor)
@@ -1046,21 +806,6 @@ def _schema_prose_value_line_no(text: str, value: str, cursor: int) -> "tuple[in
 
 
 def _iter_schema_json_violations(text: str) -> "list[Violation]":
-    """Walk a `*.schema.json` document, scanning only `description`/`$comment`
-    string values (see module docstring for why `x-bump-note`/`x-bump-class`
-    are excluded by construction). `line_no` is the REAL physical file line
-    each value's JSON string literal starts on (see
-    `_schema_prose_value_line_no`) -- not a synthetic per-value sequence
-    index. A prior version used a bare traversal counter here, which reads
-    as a line number but is not one; consumers that mapped it back onto the
-    file's own lines (`text.split("\\n")[line_no - 1]`) to show context
-    displayed unrelated JSON structure -- e.g. a bare `},` -- instead of the
-    prose actually flagged. The `Violation.excerpt` field was always correct
-    (it carries the flagged text directly); only this anchor was wrong. See
-    `state/bug-backlog/2026-09-07-the-changelog-prose-ratchet-is-red-on-ma-7c4e1a09d3b2.yaml`.
-
-    Fails open (returns `[]`) on any parse failure -- an unparseable schema
-    is not this module's problem to diagnose."""
     try:
         data = json.loads(text)
     except Exception:
@@ -1090,17 +835,6 @@ def _iter_schema_json_violations(text: str) -> "list[Violation]":
 def iter_violations(
     text: str, *, is_json: bool = False, is_config: bool = False
 ) -> "list[Violation]":
-    """Every violation in `text`, in traversal order.
-
-    `is_config` selects the config-class scan (`_scan_config_line`) over the
-    doctrine-prose walk; `is_json` (checked only when `is_config` is False)
-    selects the schema-file walk over the markdown line-scan. Both are
-    explicit caller-supplied selectors -- the caller (which already knows
-    the file's `scope_class`) decides; this stays a pure text function, no
-    path sniffing inside it. Pure function over already-loaded text, same
-    shape as its `_prompt_surface_citations.py` sibling -- the caller
-    decides whether that text is a whole file (the ratchet test) or a
-    reconstructed before/after (the hook, via `new_violations`)."""
     if is_config:
         return _iter_config_violations(text)
     if is_json:
@@ -1109,20 +843,12 @@ def iter_violations(
 
 
 def _violation_key(v: Violation) -> tuple:
-    """Identity for before/after delta comparison -- kind + confidence + the
-    full normalized text, deliberately not line number (line-shift safety,
-    same reasoning as the sibling module's `_violation_key`)."""
     return (v.kind, v.confidence, v.line_fingerprint)
 
 
 def new_violations(
     before: str, after: str, *, is_json: bool = False, is_config: bool = False
 ) -> "list[Violation]":
-    """Violations present in `after` that were NOT already present in
-    `before`, as a multiset difference -- see `_prompt_surface_citations.
-    new_violations` for the full "why this makes an advisory safe against
-    legacy debt" reasoning; identical shape here. `is_config`/`is_json`
-    forward to `iter_violations()` unchanged -- see its docstring."""
     before_counts = Counter(
         _violation_key(v)
         for v in iter_violations(before, is_json=is_json, is_config=is_config)

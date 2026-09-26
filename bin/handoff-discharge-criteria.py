@@ -158,10 +158,6 @@ def __getattr__(name: str):
 
 
 def _no_console_kw() -> dict:
-    """Lazily resolve the engine root onto sys.path (self-location-first via
-    cc_invoke.ensure_engine_on_path), then splat the canonical
-    no-console-window kwarg. ``{}`` on any resolution/import failure
-    (fail-open). Mirrors handoff-backfill-claim-stamp.py's own helper."""
     try:
         import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
         import cc_invoke
@@ -184,8 +180,6 @@ def _no_fallback():
 
 
 def _resolve_repo_root(handoff_path: str) -> str | None:
-    """Resolve repo root from the handoff's own directory, not the process
-    cwd (mirrors handoff-backfill-claim-stamp.py::_resolve_repo_root)."""
     handoff_abs = os.path.abspath(handoff_path)
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     import cc_invoke
@@ -205,9 +199,6 @@ def cmd_discharge_criteria(
     unmet_text: str,
     override_reason: str,
 ) -> int:
-    """Validate, dispatch, and print. Usage errors (client-side, cheap) are
-    distinguished from op-level refusals and transport failures per the
-    module docstring's exit-code contract."""
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     import cc_invoke
 

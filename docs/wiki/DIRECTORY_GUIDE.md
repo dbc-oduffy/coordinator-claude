@@ -162,7 +162,7 @@ Per-family `_index.md` files, where present, supersede this table's rows for pag
 | [project-rag-mcp-self-declaration](./mcp-topology/project-rag-mcp-self-declaration.md) | project-rag-routing | project-RAG MCP runtime self-declaration + content-class routing (FastMCP instructions= word-budget, ToolAnnotations, host-vs-addon bug ownership, configure-via-verbs surfaces) |
 | [python-subprocess-patterns](./portability/python-subprocess-patterns.md) | python | Hardening subprocess.run/Popen calls against Windows locale-inherited UnicodeDecodeError |
 | [repomap-rag-gating](./mcp-topology/repomap-rag-gating.md) | repomap | Three-tier RAG-gating doctrine: skip when RAG fresh, fallback when stale, primary when RAG absent |
-| [reviewer-pipeline](reviewer-pipeline.md) | reviewer-pipeline | Full reviewer dispatch chain: pre-flights → sequential reviewers → integrator → worker dispatch |
+| [reviewer-pipeline](reviewer-pipeline.md) | reviewer-pipeline | Full reviewer dispatch chain: pre-flights → sequential reviewers (each applies its own findings) → worker dispatch |
 | [scout-and-dispatch-discipline](./dispatching-parallel-agents/scout-and-dispatch-discipline.md) | scout-dispatch | Rogue-write, scout-commit, EM-as-absorber, path-translation, namespace-prefix discipline |
 | [skill-budget-discipline](./skills-corpus/skill-budget-discipline.md) | skill-budget | Skill budget audit findings, utilization data, consolidation decisions, CI enforcement |
 | [super-skill-architecture](./skills-corpus/super-skill-architecture.md) | super-skill | Decision-tree skill pattern: 7 contract rules, build sequence for coordinator:plan/review/review-code |

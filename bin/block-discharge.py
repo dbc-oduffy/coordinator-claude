@@ -95,19 +95,12 @@ from typing import Optional
 
 _CLI_ROOT = Path(__file__).resolve().parents[2]
 
-#: Populated by `_bootstrap()`, deferred out of module scope so the non-stdlib imports it
-#: performs are not a module-body-inertness violation
-#: (`coordinator_core.warm.serve_classifier`). Every caller that needs either name below calls
-#: `_bootstrap()` first; the cache makes repeat calls in one process free.
 _show_toplevel = None  # type: ignore[assignment]
 bd = None  # type: ignore[assignment]
 _bootstrap_done = False
 
 
 def _bootstrap() -> None:
-    """Import the engine-bootstrap chain exactly once per process. Failure (missing `lib`/
-    `cc_invoke`, or the engine not resolvable) leaves `_show_toplevel`/`bd` at `None` -- see
-    main(): a usage-error exit, not a crash."""
     global _show_toplevel, bd, _bootstrap_done
     if _bootstrap_done:
         return
@@ -126,11 +119,6 @@ def _bootstrap() -> None:
         bd = None
     _bootstrap_done = True
 
-# conhost on Windows spawns a visible window for a console-subsystem child
-# (git.exe included) unless this flag suppresses it; a no-op on other OSes.
-# Used only by `_git_add`/`cmd_archive` below (real `git add`/`git mv` calls)
-# -- ledger-root resolution itself is zero-spawn (`_show_toplevel` walks,
-# never spawns; see `coordinator_core.git.repo_root`).
 _NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 
@@ -172,11 +160,6 @@ def _resolve_ledger_root(explicit_repo_root: Optional[str] = None) -> Path:
     override = os.environ.get("COORDINATOR_BLOCK_DISCHARGE_ROOT", "").strip()
     if override:
         resolved = Path(override).resolve()
-        # Review carried over from DoE (coordinator:code-reviewer P2): a typo'd or
-        # partially-wrong override previously produced no error at all. This is a
-        # warning, not a refusal: the mechanism's whole trust model is an
-        # operator-controlled env var, not attacker input, and a hard failure here
-        # would be worse than a noisy but working ledger path.
         if not resolved.is_dir():
             print(
                 f"block-discharge: COORDINATOR_BLOCK_DISCHARGE_ROOT={override!r} "
@@ -213,10 +196,6 @@ def _session_id_from_ledger_path(path: Path) -> str:
 
 
 def _git_add(path: Path) -> None:
-    """Best-effort `git add` of a single explicit pathspec. Never `-A`/`.`.
-    Staging failure (e.g. not a git work tree in some test harness) must
-    never turn a successful ledger write into a non-zero exit -- the write
-    already durably happened; staging is a courtesy on top of it."""
     try:
         subprocess.run(
             ["git", "add", "--", str(path)],
@@ -258,10 +237,7 @@ def cmd_record(args: argparse.Namespace) -> int:
         _git_add(ledger_path)
         print(f"block-discharge record: discharged {nonce} (session {session_id})")
         return 0
-    # Name the likelier cause first. Saying only that the NONCE did not match reads
-    # as "you typed the wrong id" and invites a retry -- when the actual fact is
     # almost always that the fire was recorded in a DIFFERENT repo's ledger, because
-    # the guard writes into whichever repo the session works in.
     hint = ""
     if not _LEDGER_DIR.is_dir() or not any(_iter_ledger_files()):
         hint = (
@@ -282,8 +258,6 @@ def cmd_record(args: argparse.Namespace) -> int:
 
 
 def _undischarged_for_session(session_id: str) -> tuple:
-    """Return `(undischarged, skipped)` for one session's ledger --
-    undischarged is a list of `(nonce, guard, session_id)` tuples."""
     _bootstrap()
     records, skipped = bd.read_ledger(str(REPO_ROOT), session_id=session_id)
     fires = {}
@@ -357,11 +331,6 @@ def cmd_archive(args: argparse.Namespace) -> int:
     dest_dir = REPO_ROOT / "archive" / "block-discharge" / month
     dest = dest_dir / f"{session_id}.jsonl"
     dest_dir.mkdir(parents=True, exist_ok=True)
-    # `git mv` refuses a source that was written but never staged (e.g. a
-    # ledger whose owning session never got as far as `record`'s own `git
-    # add`, or a ledger this same invocation is archiving before anything
-    # committed it) -- stage it first so the move always has a tracked
-    # source to act on.
     _git_add(source)
     try:
         result = subprocess.run(
@@ -416,12 +385,8 @@ def main(argv: Optional[list] = None) -> int:
 
     args = parser.parse_args(argv)
 
-    # Re-resolve the ledger root for THIS invocation now that `--repo-root`
     # (if any) is known -- the module-level REPO_ROOT/_LEDGER_DIR computed at
-    # import time are only the no-argument default. Every command function
     # below reads REPO_ROOT/_LEDGER_DIR as module globals, so updating them
-    # here is what makes `--repo-root` (and the ladder under it) apply to
-    # `record`, `check`, and `archive` alike.
     global REPO_ROOT, _LEDGER_DIR
     REPO_ROOT = _resolve_ledger_root(args.repo_root)
     _LEDGER_DIR = REPO_ROOT / "state" / "block-discharge"

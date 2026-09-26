@@ -21,7 +21,7 @@ distilled_run: 2026-05-06-13h00
 2. **W2 — Counter-evidence pass** in `repo-specialist` (research stage).
 3. **W3 — the Staff Engineer Pass 0** premise review (reviewer stage).
 4. **W4 — Reversal-verb suggested staff-session escalation** (PM-discretion).
-5. **W5 — review-integrator REJECTED handling** (integration stage).
+5. **W5 — reviewer-applies-own-findings REJECTED handling** (finding-application stage).
 
 ## Key Patterns
 
@@ -65,9 +65,9 @@ A new verdict — `REJECTED` — fires only when premise is `refuted`.
 - "I haven't gone deep on this" framing mandatory.
 - the Staff Engineer does NOT rank or compare alternatives — list flat, no comparative judgments.
 
-### W5 — review-integrator REJECTED handling
+### W5 — reviewer-applies-own-findings REJECTED handling
 
-The integrator **does NOT apply findings inline** when verdict is `REJECTED`. Instead it surfaces a prominent block:
+The reviewer **does NOT apply findings inline** when verdict is `REJECTED` (per `review-integration-doctrine.md` § Verdicts, findings log as `suspended`). Instead it surfaces a prominent block:
 
 ```
 REJECTED — replan recommended

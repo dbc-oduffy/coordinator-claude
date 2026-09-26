@@ -1,33 +1,9 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
-"""query-completions.py — CLI trampoline for querying the completion-log.
-
-Thin wrapper over claude-klabauter coordinator_core.ops.query_completions, giving callers
-a --type-free entry point onto the completion-log record store. All arguments
-are forwarded verbatim to that op via coordinator_core.cli_entry.run_op_main
-(DR-276).
-
-Negative-spec: does NOT shell out to a Node oracle. Earlier revisions of this
-docstring described forwarding to `query-records.js --type completion`; that
-path was retired with the rest of the JS read layer and no claude-klabauter CLI may
-reintroduce a Node runtime dependency on this seam.
-"""
 from __future__ import annotations
-# query-completions.py — CLI trampoline over claude-klabauter coordinator_core.ops.query_completions.
-#
-# Spec backlink: docs/plans/2026-05-19-completion-log-phase1-foundational-loop.md § Chunk 2
-#
-# Thin wrapper for querying completion-log entries. All arguments are forwarded
-# verbatim to coordinator_core.ops.query_completions (see the claude-klabauter module's
-# docstring for the full contract). Run this CLI with --help for option
-# documentation.
 import os
 import sys
 
 def _import_runner():
-    """DR-276: routed through `coordinator_core.cli_entry.run_op_main` rather
-    than calling the op's `main` directly, so any paths it declares become a
-    session scope-touch claim (query_completions is read-only today, but the
-    seam is uniform across every trampoline over this route)."""
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 

@@ -64,8 +64,8 @@ corpus" wall is incidental (bash preambles don't exist in agent `.md`), not load
 ## The subagent-sidecar convention (layer 2, agent-side)
 
 The concrete manifestation of the agent-side envelope, and a **generalization of an already-proven
-flow** — the review-sidecar → cheap-EM-disposition → review-integrator loop (a fresh agent integrates
-non-mechanically and serves as an extra judgment layer). A dispatched agent is spawned with a
+flow** — the review-sidecar → cheap-EM-disposition → reviewer-applies-own-findings loop (the same
+reviewer folds its findings non-mechanically and serves as an extra judgment layer). A dispatched agent is spawned with a
 prescaffolded, frontmatter-stamped sidecar it writes its deliverable into; the EM reads the document
 instead of a memory dump, and can share it directly. Load-bearing fields:
 
@@ -113,8 +113,8 @@ dominate; compute is noise (R6). So performance is architecture, not polish:
 Doctrine says wait for instance #3 before codifying a shared pattern (codifying the wrong invariant
 into a core is harder to correct than N independent assemblers). Weigh it per layer, not globally:
 the **resolution core** (layer 1) consolidates existing triplicated logic — extraction, not
-speculation; the **sidecar layer** is the generalization of the shipped review-integrator flow —
-past instance #3 already; the **assembler envelope** (layer 2) is the genuinely open call (1 built +
+speculation; the **sidecar layer** is the generalization of the shipped reviewer-applies-own-findings
+flow — past instance #3 already; the **assembler envelope** (layer 2) is the genuinely open call (1 built +
 9 designs) and any extract-now decision must name the override it invokes.
 
 ## Status and open decisions

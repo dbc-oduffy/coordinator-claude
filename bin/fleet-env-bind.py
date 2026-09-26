@@ -68,7 +68,7 @@ Spec backlink: docs/reference/fleet-shared-environment-contract.md § The siblin
 """
 from __future__ import annotations
 
-INSTALL_CLASS = True  # rewrites the fleet environment; see door_install.declared_install_class
+INSTALL_CLASS = True
 
 import argparse
 import sys
@@ -80,15 +80,6 @@ _FLAGGED = 4
 
 
 def _bootstrap_engine() -> None:
-    """Put `coordinator/bin/lib` and the resolved claude-klabauter engine on `sys.path`.
-
-    Same shape and same call order as `fleet-env-cutover.py::_bootstrap_engine`
-    — `import lib` before `require_colocated_engine_on_path`. Copied
-    deliberately rather than re-derived: this family's bootstrap has a
-    recorded failure mode (see `fleet-env.py`'s module docstring, "Root cause
-    of ModuleNotFoundError"), and a second spelling of it is how that
-    recurs.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_colocated_engine_on_path
 
@@ -137,7 +128,6 @@ def _cmd_check() -> int:
     try:
         env_root = resolve_environment_root()
     except FleetEnvError as exc:
-        # Rare: both of C5's ladder rungs unwritable. Not a failure.
         print(
             f"fleet-env-bind.py: the fleet environment root does not resolve on this "
             f"machine ({exc}). {_NOT_PROVISIONED}",
@@ -145,10 +135,6 @@ def _cmd_check() -> int:
         )
         return _UNRESOLVABLE
 
-    # The common rollout-window state, and the reason this probe exists: the
-    # root resolves (C5's ladder always yields one) but nothing was ever built
-    # there. Every registered binding would read `missing_pth`, which is
-    # accurate and useless — see the exit-code note in the module docstring.
     if not _site_packages_dir(Path(env_root)).is_dir():
         print(
             f"fleet-env-bind.py: {env_root} resolves but carries no provisioned "

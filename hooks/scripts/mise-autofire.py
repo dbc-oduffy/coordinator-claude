@@ -99,18 +99,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-# --- Constants ---------------------------------------------------------------
 
-# The bare verbs this hook reacts to. Deliberately the SAME literal set
 # `pickup-autofire.py` uses for its own `_BATON_GRAB_COMMAND_NAMES` -- not a
-# second, independently-chosen convention for what counts as an invocation of
-# the wide run. Both spellings name one ceremony, so both must mint.
 _MISE_COMMAND_NAMES = frozenset({"mise-en-place", "warp-speed-execute"})
 
-# The one cadence `mint-run-id`/`brief` are called with from this hook. It is
-# ENGINE vocabulary, not an invocation verb: the sentinel mode, the run-id
-# family and `handoff.schema.json`'s cadence key all spell it `mise-en-place`,
-# and none of them move when a new verb is admitted above. Widening
 # `_MISE_COMMAND_NAMES` never widens this.
 _CADENCE = "mise-en-place"
 
@@ -120,7 +112,6 @@ _MINT_TIMEOUT_SECONDS = 12
 _BRIEF_TIMEOUT_SECONDS = 12
 
 # Windows console-subprocess discipline: `python.exe` is a CONSOLE-subsystem
-# child. `getattr` resolves to 0 (no-op) on every non-Windows platform.
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
@@ -145,7 +136,6 @@ def resolve_settings_home() -> Path:
     return Path(base) / ".coordinator-claude-settings"
 
 
-# --- Shared forwarder resolution ---------------------------------------------
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
@@ -153,80 +143,33 @@ try:
     from _forwarder_resolve import forwarder_argv as _forwarder_argv
     from _forwarder_resolve import resolve_forwarder as _resolve_forwarder
 except Exception:
-    # Defensive fallback -- a deploy missing its sibling _forwarder_resolve.py must
-    # degrade to the pre-existing extensionless-only behaviour (which the caller
-    # already treats as a fail-open transport failure), never crash on import.
     def _resolve_forwarder(bin_dir, name):  # type: ignore[misc]
         candidate = bin_dir / name
         return candidate if candidate.is_file() else None
 
     def _forwarder_argv(script_path, tail=()):  # type: ignore[misc]
-        # Review: overengineering-reviewer F3 -- see _forwarder_resolve's
-        # "Import-fallback contract" docstring section for the rationale.
         raise OSError("forwarder resolution unavailable -- import fallback declined to guess a launch decision")
 
-# No defensive `except ImportError` fallback here -- per _skill_invocation's
-# own docstring, every consumer of that module lives in this same directory,
-# so a deploy missing it is a deploy error to surface, not a shape to
-# degrade past.
 from _skill_invocation import context_envelope as _context_envelope
 from _skill_invocation import read_invocation as _read_invocation
 
 
 def resolve_backlog_grind_assemble_bin(settings_home: Path) -> Path | None:
-    """Resolve the installed `backlog-grind-assemble` forwarder under
-    `settings_home`.
-
-    Returns the extensionless script or the native `.exe`, whichever the install
-    carries, or None when neither is found -- the caller treats a None return as a
-    transport failure and fails open.
-
-    Probing the extensionless name alone (what this did) resolved nothing on a
-    Windows box carrying the native-forwarder generation, so this autofire simply
-    stopped firing there, silently.
-
-    Negative-spec: still does NOT resolve `bin/backlog-grind-assemble.cmd` -- see
-    `_forwarder_resolve`'s negative-spec for why (`CreateProcess` cannot launch
-    one, and the two variants this DOES probe already cover every platform).
-    """
     return _resolve_forwarder(settings_home / "bin", "backlog-grind-assemble")
 
 
 def backlog_grind_assemble_argv(script_path: Path, tail: list[str]) -> list[str]:
-    """Build the subprocess argv for invoking the resolved forwarder.
-
-    The interpreter prefix is decided by which variant resolved, not assumed: an
-    extensionless naked-Python script requires it, a native `.exe` must be launched
-    bare. See `_forwarder_resolve.forwarder_argv`.
-    """
     return _forwarder_argv(script_path, tail)
 
 
-# --- Subprocess invocation (fail-open) ---------------------------------------
-
-
 class _TransportFailure(Exception):
-    """Raised internally when a `backlog-grind-assemble` invocation could
-    not be completed at all (binary unresolvable, spawn failure, or
-    timeout) -- as opposed to the target CLI running and returning a
-    non-zero business exit code (e.g. an unclaimed cadence), which still
-    yields usable stdout/stderr and is not a transport failure from this
-    hook's point of view, though this hook treats BOTH the same way
-    (silent pass) since it has no use for a partial mint/brief result."""
+    pass
 
 
 def _run_backlog_grind_assemble(
     script_path: Path, tail: list[str], timeout: float
 ) -> subprocess.CompletedProcess:
-    """Run the resolved forwarder. Raises `_TransportFailure` on ANY
-    failure to complete the subprocess (spawn error, timeout) -- never lets
-    a raw OSError/TimeoutExpired escape, since every caller must be able to
-    fail open.
-    """
     try:
-        # Review: overengineering-reviewer F3 -- argv computation moved inside
-        # the try so a fallback-leg OSError (see _forwarder_resolve) is
-        # absorbed by the handler below rather than needing its own guard.
         argv = backlog_grind_assemble_argv(script_path, tail)
         return subprocess.run(
             argv,
@@ -242,11 +185,6 @@ def _run_backlog_grind_assemble(
 
 
 def decode_mint_payload(stdout: str) -> dict | None:
-    """Parse `mint-run-id`'s stdout into its `{"inventory_path", "run_id"}`
-    dict, or None on ANY shape mismatch (unparseable JSON, non-dict, or a
-    dict missing either required key with a non-empty string value) --
-    fail-open, never raises.
-    """
     try:
         obj = json.loads(stdout)
     except (json.JSONDecodeError, TypeError):
@@ -263,18 +201,11 @@ def decode_mint_payload(stdout: str) -> dict | None:
 
 
 def decode_brief_payload(stdout: str) -> dict | None:
-    """Parse `brief`'s stdout into its decision-object dict, or None on any
-    shape mismatch (unparseable JSON, or a non-dict top level) -- fail-open,
-    never raises.
-    """
     try:
         obj = json.loads(stdout)
     except (json.JSONDecodeError, TypeError):
         return None
     return obj if isinstance(obj, dict) else None
-
-
-# --- additionalContext rendering ---------------------------------------------
 
 
 def render_additional_context(run_id: str, inventory_path: str, brief: dict) -> str:
@@ -309,9 +240,6 @@ def render_additional_context(run_id: str, inventory_path: str, brief: dict) -> 
     return rendered[:_CONTEXT_BUDGET_CHARS]
 
 
-# --- Entry point --------------------------------------------------------------
-
-
 def compute_context(stdin_text: str) -> str | None:
     """Compute the bare `additionalContext` prose for a single invocation,
     or `None` when nothing should be emitted (a non-matching verb, or any
@@ -334,14 +262,14 @@ def compute_context(stdin_text: str) -> str | None:
 
     inv = _read_invocation(payload)
     if inv is None:
-        return None  # neither entry shape -- silent pass
+        return None
     if inv.command_name not in _MISE_COMMAND_NAMES:
-        return None  # not a wide-run invocation -- silent pass
+        return None
 
     settings_home = resolve_settings_home()
     script_path = resolve_backlog_grind_assemble_bin(settings_home)
     if script_path is None:
-        return None  # transport failure -- CLI unresolvable, fail open
+        return None
 
     try:
         mint_result = _run_backlog_grind_assemble(
@@ -351,11 +279,11 @@ def compute_context(stdin_text: str) -> str | None:
         return None
 
     if mint_result.returncode != 0:
-        return None  # e.g. unclaimed cadence -- fail open, EM mints by hand
+        return None
 
     minted = decode_mint_payload(mint_result.stdout)
     if minted is None:
-        return None  # malformed mint output -- fail open
+        return None
 
     run_id = minted["run_id"]
     inventory_path = minted["inventory_path"]
@@ -370,11 +298,11 @@ def compute_context(stdin_text: str) -> str | None:
         return None
 
     if brief_result.returncode != 0:
-        return None  # fail open -- brief could not be computed for this id
+        return None
 
     brief = decode_brief_payload(brief_result.stdout)
     if brief is None:
-        return None  # malformed brief output -- fail open
+        return None
 
     additional_context = render_additional_context(run_id, inventory_path, brief)
     if not additional_context:
@@ -384,13 +312,10 @@ def compute_context(stdin_text: str) -> str | None:
 
 
 def main(stdin_text: str | None = None) -> int:
-    """Thin printer around `compute_context` on the UserPromptExpansion
-    path: read stdin, compute, wrap with `context_envelope`, print if not
-    `None`."""
     try:
         raw = stdin_text if stdin_text is not None else sys.stdin.read()
     except Exception:
-        return 0  # fail-open -- stdin unreadable
+        return 0
 
     additional_context = compute_context(raw)
     if additional_context is None:

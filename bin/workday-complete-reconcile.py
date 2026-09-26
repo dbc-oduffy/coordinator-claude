@@ -1,29 +1,4 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
-"""
-workday-complete-reconcile.py — /workday-complete Step 1.5 (cruft-sweep
-dispatch), ported to naked Python. Bash-kill campaign, M3 chunk WDC-2.
-
-    cruft-sweep
-        Invokes the co-located `cruft-sweep --class all --apply --quiet`
-        binary. On a non-zero exit, prints a WARN pointing at the central
-        cruft-sweep-log.md (resolved via the co-located
-        coordinator-state-root.py --central) and returns 0 regardless —
-        Layer 1 is lock-protected/idempotent and advisory-only by design
-        (docs/wiki/cruft-sweep-cadence.md § Layer 1).
-
-Step 2.6's completion-entry reconcile sweep (the sibling `completion-reconcile`
-subcommand that used to live here) was removed with `completion.reconcile_commits`
-— killed and rebuilt from scratch per PM ruling, 2026-08-23. The directive that
-dispatched it (`d_step2_6_completion_reconcile`) is gone from
-`coordinator_core/workday_complete/brief.py`; do not resurrect either half
-before the op's replacement lands.
-
-Spec backlink: DoE-claude coordinator/commands/workday-complete.md § Step 1.5
-    (Cruft Sweep Apply)
-Port source: DoE-claude coordinator/commands/workday-complete.md Step 1.5
-    bash fence, ported verbatim to naked Python as part of the bash-kill
-    campaign (2026-07-23, M3 chunk WDC-2).
-"""
 from __future__ import annotations
 
 import argparse
@@ -35,13 +10,6 @@ _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _bootstrap_engine() -> str:
-    """Put coordinator/bin/lib onto sys.path and resolve the claude-klabauter root.
-
-    Order is load-bearing: `import lib` first (so `cc_invoke` is importable),
-    then resolve the claude-klabauter root via `cc_invoke._resolve_claude_klabauter_root`. Every
-    function in this file that imports `cc_invoke` or a name from it calls
-    this first.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     import cc_invoke
     from cc_invoke import _resolve_claude_klabauter_root
@@ -50,9 +18,6 @@ def _bootstrap_engine() -> str:
 
 
 def _no_console_kw() -> dict:
-    """Windows: suppresses the console popup a subprocess.run(...) would
-    otherwise trigger under the headless Claude Code Bash-tool parent.
-    Splat-ready; empty dict elsewhere / on any resolution failure."""
     claude_klabauter_root = _bootstrap_engine()
     import cc_invoke
 
@@ -71,11 +36,6 @@ def _no_console_passthrough_kw() -> dict:
     import cc_invoke
 
     return cc_invoke._no_console_passthrough_kw(claude_klabauter_root)
-
-
-# ---------------------------------------------------------------------------
-# Step 1.5 — cruft-sweep dispatch
-# ---------------------------------------------------------------------------
 
 
 def _default_cruft_sweep_bin() -> str:
@@ -128,10 +88,6 @@ def _default_state_root_script() -> str:
 
 
 def _cruft_sweep_log_path(state_root_script: str) -> str:
-    """Best-effort resolve `<central-state-root>/cruft-sweep-log.md` for the
-    WARN pointer. Falls back to a bare filename on any resolution failure —
-    the WARN is advisory, never a gate, so a broken resolver must not raise.
-    """
     _bootstrap_engine()
     from cc_invoke import child_env
 
@@ -157,10 +113,6 @@ def run_cruft_sweep(
     out=sys.stdout,
     err=sys.stderr,
 ) -> int:
-    """Invoke `cruft-sweep --class all --apply --quiet`. Non-blocking: always
-    returns 0 — a non-zero cruft-sweep exit prints a WARN (mirroring the bash
-    `|| echo ... WARN ...` fallthrough) and the sweep proceeds regardless.
-    """
     cruft_sweep_bin = cruft_sweep_bin or _default_cruft_sweep_bin()
     state_root_script = state_root_script or _default_state_root_script()
 
@@ -188,11 +140,6 @@ def run_cruft_sweep(
     return 0
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="workday-complete-reconcile.py — Step 1.5 cruft-sweep dispatch."
@@ -207,18 +154,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str]) -> int:
-    # `argv` is args-only (no leading program-name token) -- the convention
-    # every sibling consumes-manifest CLI's `main(argv)` follows (see e.g.
-    # `workday-complete-args-and-validate.py`'s `subcmd, rest = argv[0],
-    # argv[1:]`, `workday-complete-close.py`'s `parser.parse_args(argv)`),
-    # and the one `workday_complete.apply._invoke_cli_main` relies on when
-    # it calls `main_fn(list(directive_args))` in-process with no argv[0]
-    # placeholder. This function previously did `argv[1:]` here (compensating
-    # for an `if __name__ == "__main__": sys.exit(main(sys.argv))` guard
-    # below that passed the real `sys.argv` untouched) -- an off-by-one
-    # relative to every sibling, which silently ate the real `cruft-sweep`
-    # subcommand token under in-process apply dispatch (2026-07-26
-    # arg-mismatch audit).
     args = _build_parser().parse_args(argv)
 
     if args.subcommand == "cruft-sweep":
@@ -227,7 +162,7 @@ def main(argv: list[str]) -> int:
             state_root_script=args.state_root_script,
         )
 
-    return 1  # unreachable — argparse enforces required subparser choice
+    return 1
 
 
 if __name__ == "__main__":

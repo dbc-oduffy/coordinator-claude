@@ -69,30 +69,10 @@ import sys
 
 
 def _no_legacy() -> None:
-    """State-1 fallback — the engine-repo control-plane seam is absent on disk.
-
-    `session.work_state` has no bash predecessor and no fallback body; this
-    raises unconditionally, and `cc_invoke.route()` wraps the raise in the
-    standardized four-rung remediation message on State-1 (seam absent).
-    """
     raise RuntimeError("query-work-state: native seam required (no bash fallback)")
 
 
 def _parse_args(argv: list[str]) -> dict[str, object]:
-    """Parse CLI args into (params, repo_root).
-
-    `--repo-root <path>` is the only recognized flag (default: cwd) — see
-    the module docstring's negative-spec for why no `--fleet` flag exists
-    here. Any unrecognized token, or `--repo-root` given as the trailing
-    token with no value, is a hard usage error (exit 1, message naming the
-    offending token) rather than a silent drop.
-
-    Returns a dict with key "repo_root" (str, possibly os.getcwd()) — this
-    op takes no other params, so the returned dict is intentionally not the
-    op's wire-params dict (unlike query-handoff-columns.py's _parse_args,
-    which returns the wire params directly); main() reads "repo_root" back
-    out and passes an empty params dict to the op.
-    """
     repo_root = os.getcwd()
     i = 0
     n = len(argv)
@@ -126,14 +106,6 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result = cc_invoke.route("session.work_state", {}, repo_root, _no_legacy)
     except Exception as exc:  # noqa: BLE001
-        # Widened from `except RuntimeError`
-        # only: the module docstring's own exit-code table promises "1 —
-        # op-level failure ... any other exception raised while routing the
-        # op", but `main_worktree_root` (reached inside `session.work_state`
-        # on the non-standard-layout arm) raises `ValueError`, not
-        # `RuntimeError` -- a Node/TS fleet-board consumer spawning this CLI
-        # would previously get an unhandled traceback instead of the
-        # documented single stderr line.
         print(f"query-work-state: {exc}", file=sys.stderr)
         return 1
 

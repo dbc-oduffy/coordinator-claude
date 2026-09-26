@@ -53,9 +53,7 @@ except Exception:
 FOCUS_ENV = "COORDINATOR_CLOUD_FOCUS_REPO"
 TEAMS_FLAG_ENV = "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
 
-#: Where the platform mounts the repositories selected for an environment,
-#: matching `cloud_setup.py`'s own `retrieval_search_roots`.
-CHECKOUT_ROOTS = (Path("/home/user"), Path("/workspace"))  # abs-path-ok: cloud VM mount points, cloud-only hook
+CHECKOUT_ROOTS = (Path("/home/user"), Path("/workspace"))
 
 _GIT_TIMEOUT_S = 3
 _REMOTE_SLUG = re.compile(r"[/:]([^/:]+)/([^/]+?)(?:\.git)?/?$")
@@ -71,7 +69,6 @@ def parse_focus(value: str) -> Tuple[Optional[str], str]:
 
 
 def origin_slug(checkout: Path) -> Optional[Tuple[str, str]]:
-    """`(owner, repo)` of `remote "origin"`, read from `.git/config` directly."""
     try:
         text = (checkout / ".git" / "config").read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -103,9 +100,6 @@ def _candidates(roots: Iterable[Path]) -> List[Path]:
 
 def find_checkout(owner: Optional[str], repo: str,
                   roots: Iterable[Path]) -> Optional[Tuple[Path, str]]:
-    """`(checkout, "owner/repo")` for the checkout whose origin names `repo` (and
-    `owner`, when given). Case-insensitive: GitHub slugs are, and env-box values
-    get retyped."""
     for path in _candidates(roots):
         slug = origin_slug(path)
         if slug is None:
@@ -147,7 +141,6 @@ def base_branch(checkout: Path) -> Optional[str]:
 
 
 def ensure_anchor(checkout: Path, branch: str, base: str, session_id: str) -> bool:
-    """True when the branch can carry a PR: already ahead of base, or anchored now."""
     ahead = _git(checkout, "rev-list", "--count", f"refs/remotes/origin/{base}..HEAD")
     if ahead is None:
         return False
@@ -184,7 +177,6 @@ def render_teams_line(flag: str) -> Optional[str]:
 
 def render_focus_line(focus: str, name: Optional[str], branch: Optional[str],
                       base: Optional[str], ready: bool) -> str:
-    """Pure: `name` is the checkout's `owner/repo`, None when no checkout matched."""
     if name is None:
         return f"CLOUD FOCUS: no checkout matches {focus}; select that repo for this environment."
     if branch is None or (base is not None and branch == base):

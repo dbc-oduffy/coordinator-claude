@@ -1,32 +1,4 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
-"""assert-no-terminal-plans-in-live.py — AC6 gate for programmatic terminal-plan archival.
-
-Asserts that NO *movable* terminal plan remains in docs/plans/ — i.e. running
-cs_sweep_terminal_plans would move zero files. A terminal plan
-(status in {implemented, superseded, abandoned}) is allowed to remain in
-docs/plans/ ONLY when it is legitimately HELD by a live reference:
-  - an active (non-consumed/superseded) handoff in state/handoffs/, or
-  - a live (non-terminal) plan body in docs/plans/.
-
-Why "movable", not "zero terminal plans": the sweep deliberately skips
-terminal plans cited by live work (cleanup-sweep-hazards §1 — don't bury an
-in-flight thread's referenced plan). Most shipped plans stay cited by some
-live plan for a while, so a literal zero-terminal-plans assertion would be
-permanently red. The operative invariant the sweep CAN guarantee is "nothing
-left that the sweep should have moved" — which is exactly what regressed when
-review sidecars were mis-counted as live plans (sidecar-self-hold bug).
-
-This predicate MIRRORS the sweep in coordinator/bin/sweep-terminal-plans.py:
-three-status enum via query-records, active-handoff skip, live-plan skip with
-review sidecars excluded. Keep the two in sync.
-
-Spec backlink: docs/plans/2026-06-23-programmatic-terminal-plan-archival.md § AC6 / C4.
-Port backlink: docs/plans/2026-07-19-debash-coordinator-windows.md § E3-b
-
-Usage:   assert-no-terminal-plans-in-live.py [--root <dir>]
-Exit:    0 = no movable terminal plan remains; 1 = >=1 movable (sweep owes work).
-         3 = records.query State-3 hard error (native engine present-but-broken).
-"""
 from __future__ import annotations
 
 import os
@@ -35,10 +7,6 @@ import sys
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
 
-# records.query defaults --limit 50. Claude-klabauter has ~158 terminal plans, so a
-# per-status cap of 50 would make this assert see only a subset — a latent
-# dead-gate. Pass a high sentinel to uncap. NOT 0: the claude-klabauter op treats 0 as
-# zero-records, not unlimited.
 _TERMINAL_PLAN_QUERY_LIMIT = 100000
 
 
@@ -62,11 +30,6 @@ def _query_terminal_paths() -> list[str]:
 
 
 def _coordinator_state_root() -> str | None:
-    """P055-C1 conversion: was a `[python, "-m", "coordinator_core.state_root"]`
-    spawn. `ensure_engine_on_path` already puts coordinator_core on THIS
-    process's own sys.path (see the comment this replaced), so the spawn was
-    pure Python-for-Python work -- call `coordinator_state_root()` directly.
-    """
     from cc_invoke import _resolve_claude_klabauter_root, ensure_engine_on_path  # noqa: E402
 
     try:
@@ -82,8 +45,6 @@ def _coordinator_state_root() -> str | None:
     try:
         root = coordinator_state_root()
     except (CrossCuttingStateRoot, StateRootError):
-        # Matches the spawn form's behavior exactly: proc.stderr was
-        # captured and discarded on a nonzero exit, never printed.
         return None
     return root.strip() or None
 
@@ -120,9 +81,6 @@ def _read_full(path: str) -> str:
 
 def main(argv: list[str]) -> int:
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path (same
-    # bootstrap _query_terminal_paths() already performs, needed here too since
-    # this function later imports cc_invoke-adjacent / lib-dependent modules
-    # such as handoff_lifecycle regardless of whether --root was passed)
 
     root = ""
     i = 0
@@ -142,11 +100,11 @@ def main(argv: list[str]) -> int:
         root = show_toplevel() or ""
 
     if not root:
-        return 0  # non-git consumer: no-op pass
+        return 0
 
     plans_dir = os.path.join(root, "docs", "plans")
     if not os.path.isdir(plans_dir):
-        return 0  # no plans dir: no-op pass
+        return 0
 
     records_query_py = os.path.join(_LIB_DIR, "records_query.py")
     if not os.path.isfile(records_query_py):
@@ -177,16 +135,7 @@ def main(argv: list[str]) -> int:
     if state_root:
         handoffs_dir = os.path.join(state_root, "handoffs")
         if os.path.isdir(handoffs_dir):
-            # DR-084: status: consumed -> status: claimed. P0 additive widen —
-            # accept both vocabularies while the on-disk corpus is mixed, so a
-            # handoff already migrated to `claimed` isn't misread as active and
-            # spuriously counted as a live-ref hold. Sourced from the shared
             # coordinator/bin/lib/handoff_lifecycle.py TERMINAL_STATUS constant
-            # (mirrors coordinator/bin/lib/consumed-marker.js's set of the same
-            # name on the JS side) rather than a locally re-declared literal —
-            # this file previously carried its own hardcoded tuple here, which
-            # is exactly the per-caller-drift shape the shared accessor exists
-            # to close.
             from handoff_lifecycle import TERMINAL_STATUS  # noqa: E402  (sys.path-dependent)
 
             for name in sorted(os.listdir(handoffs_dir)):
@@ -207,7 +156,7 @@ def main(argv: list[str]) -> int:
             continue
         stem = name[: -len(".md")]
         if "." in stem:
-            continue  # sidecar, not a plan
+            continue
         status = _read_frontmatter_status(lfile)
         if status in ("implemented", "superseded", "abandoned"):
             continue
@@ -217,9 +166,9 @@ def main(argv: list[str]) -> int:
     for rel in term_paths:
         fname = os.path.basename(rel)
         if fname in active_handoff_refs:
-            continue  # held by handoff
+            continue
         if fname in live_plan_refs:
-            continue  # held by live plan
+            continue
         movable += 1
         print("MOVABLE terminal plan still in docs/plans/: %s" % fname, file=sys.stderr)
 

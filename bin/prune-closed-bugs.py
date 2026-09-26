@@ -1,51 +1,4 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
-"""prune-closed-bugs.py — archive closed bug-backlog entries via fleet.prune_closed_bugs.
-
-Port of: prune-closed-bugs.sh (DoE f703efad, 2026-07-21). Daily ceremony wrapper — dispatches
-fleet.prune_closed_bugs, which self-enumerates state/bug-backlog/*.yaml
-with status: closed and owns the git-mv + self-commit. Best-effort: errors
-are logged and this script always exits 0 so it never hard-gates
-/workday-complete.
-
-Two-call shape (KD-4 self-preview; the ACT call's dispatch verb now mirrors
-sweep-terminal-plans.py -- route() + manual exit_code inspection, not
-route_mutation() -- see Review note above the ACT call below):
-    Call 1: dry_run:true  — op self-selects candidate IDs (status: closed
-             only; wontfix/deferred are retained — see
-             coordinator/docs/wiki/bug-backlog-schema.md § Status enum).
-    Call 2: dry_run:false — op performs git-mv + self-commit for those IDs.
-    Empty candidates -> report "nothing to prune", skip Call 2, exit 0.
-
-Usage:
-    python3 prune-closed-bugs.py [--dry-run] [--repo-root <path>]
-
-    --dry-run    preview only (Call 1 result reported; Call 2 skipped, no git-mv).
-    --repo-root  explicit repo root for the git-mv + self-commit (default: the
-                 checked resolver's answer, `lib.repo_identity.
-                 resolve_checked_repo_root`, from the CALLING process's cwd,
-                 falling back to cwd itself). This op self-selects candidates AND deletes
-                 (git-mv) — a cwd-derived root under an in-process ceremony
-                 dispatch (no subprocess, no `-C`) silently targets whatever
-                 directory the caller happened to be standing in, which for a
-                 destructive op is a data-loss risk, not a cosmetic one
-                 (2026-07-26 arg-mismatch audit, class (d): named as one of only
-                 two data-loss-capable directives in the whole consumes-manifest).
-
-Exit codes:
-    0 — best-effort; transport/resolution failures are logged to stderr,
-        never propagated as non-zero.
-    1 — the act call returned a recognized-refusal or unrecognized exit_code
-        (anything other than 0/None/2) — a setup-error shape, not a healthy
-        prune.
-
-Big-bang cutover (2026-07-19 Windows de-bash campaign, Wave F1): no legacy
-bash fallback — the op is assumed present; a genuinely seam-absent install
-surfaces as a transport failure (RuntimeError), caught below and logged,
-never propagated.
-
-Spec backlink: DoE-claude:pln-wire-claude-klabauter-fleet-archive-prun-8fd552 § KD-4 / AC6
-Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md § Wave F1 (facade collapse)
-"""
 from __future__ import annotations
 
 import os
@@ -61,17 +14,6 @@ _BOOTSTRAPPED_NAMES = (
 
 
 def _bootstrap_pcb() -> None:
-    """Bind the deferred cc_invoke/repo_identity names this module's own
-    functions read as globals, each guarded independently so a caller (this
-    file's own test suite, which does plain `mod.route_mutation =
-    fake_route_mutation` / `mod._resolve_repo_root = fake_resolver`
-    assignments, or `mock.patch.object(mod, "resolve_checked_repo_root",
-    ...)`, ahead of calling `mod.main()`) that has already set one of these
-    names on the module is never clobbered by a later real import -- only a
-    name still absent from `__dict__` is bound. Per-name (not a single
-    flag/sentinel) because a test may stub `route_mutation` while leaving
-    `cc_invoke` for this bootstrap to still provide (`mod.cc_invoke` is read
-    directly by `_install_route()`-shaped test helpers)."""
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
 
     global cc_invoke, RouteMutationError, is_timeout_error, route_mutation
@@ -194,25 +136,13 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"prune-closed-bugs.py: {len(ids)} closed bug(s) selected for prune")
 
-    # route() + manual exit_code inspection, NOT
-    # route_mutation(), on the ACT call. fleet.prune_closed_bugs's act response is a
     # DETERMINATE-PARTIAL shape (build_act_result): exit_code=2 means some candidates
-    # failed, but acted[] still lists the ones that succeeded -- and those were already
-    # git-mv'd and committed. route_mutation() treats ANY non-zero exit_code (including
-    # this legitimate partial-success shape) as a hard refusal and raises before the
-    # per-item acted[] detail can be inspected, mischaracterizing a real partial success
-    # as "not archived (transport error)" for every requested id. Mirrors
-    # sweep-terminal-plans.py's ACT-call pattern (route() + acted/exit_code inspection).
     act_params = {"mode": "already-terminal", "dry_run": False, "candidate_ids": ids}
     try:
         act_result = cc_invoke.route("fleet.prune_closed_bugs", act_params, repo_root, _no_fallback)
     except RuntimeError as exc:
         print(f"prune-closed-bugs.py: WARN: fleet.prune_closed_bugs act call failed: {exc}", file=sys.stderr)
         if is_timeout_error(exc):
-            # CLAUDE.md § Load norm: a timeout is a SLOW op, not a stopped one -- the
-            # act call may be mid-git-mv+commit and about to succeed. Reporting a
-            # completed/absent count here would be a false negative that re-dispatches
-            # the same ids on the next sweep.
             print(
                 f"prune-closed-bugs.py: {len(ids)} candidate(s) selected -- archive status "
                 "indeterminate (engine timeout, op may still complete)"

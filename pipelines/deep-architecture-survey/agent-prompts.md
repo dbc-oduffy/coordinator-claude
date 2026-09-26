@@ -635,8 +635,8 @@ Produce an UPDATED version of the atlas page. Follow these rules:
    if the changes affect any of these. Preserve observations that are still accurate.
 
 5. **Update YAML frontmatter** — bump `last_mapped` date, update `entry_points`,
-   `cross_system_connections`, and `dependencies` if any changed. Do NOT add grade
-   or status fields — those are set by weekly-architecture-audit.
+   `cross_system_connections`, and `dependencies` if any changed. Leave `last_attested`
+   untouched. Do NOT add grade or status fields — those are set by weekly-architecture-audit.
 
 ## Output Format
 
@@ -651,6 +651,10 @@ cross_system_connections: [count]
 dependencies: [list]
 ---
 ```
+
+If the existing atlas page carries a `last_attested` field, carry it forward verbatim in
+the updated frontmatter; never emit or bump one. A page with no `last_attested` stays
+without one.
 
 Followed by all sections as exact H2 headers, verbatim, in this order — do NOT renumber,
 rename, retitle, or demote to H3: `## System Narrative`, `## Information Flow Diagram`,
@@ -909,7 +913,8 @@ For each system, produce a file with YAML frontmatter and the full Phase 2 analy
 ---
 system: [system-name-kebab-case]
 last_mapped: [YYYY-MM-DD]
-last_attested: [YYYY-MM-DD]
+# last_attested: carry the existing page's value forward verbatim if it has one;
+# never emit a new one — a new page has none
 entry_points: [count]
 cross_system_connections: [count]
 dependencies: [list of other system names]
@@ -930,8 +935,8 @@ No grade or status fields in YAML frontmatter — weekly-architecture-audit adds
 - Flag one-sided connections as potential inventory errors (note in system's atlas page)
 - The cross-system map must show ALL systems, even if they have zero cross-system connections
 - Per-system YAML frontmatter must include all required fields: system, last_mapped,
-  last_attested, entry_points, cross_system_connections, dependencies
-- Atlas frontmatter may carry additional fields owned by `/architecture-audit` (e.g. `grade`, `health_status`); preserve them on rewrite.
+  entry_points, cross_system_connections, dependencies
+- Atlas frontmatter may carry additional fields owned by `/architecture-audit` (e.g. `last_attested`, `grade`, `health_status`); preserve them on rewrite.
 - Do NOT add grade or status to YAML frontmatter — those are weekly-audit domain
 - Do NOT write any code or modify any source files — produce markdown artifacts only
 ```
@@ -1028,7 +1033,8 @@ Updated YAML frontmatter for churned systems:
 ---
 system: [system-name]
 last_mapped: [YYYY-MM-DD]
-last_attested: [YYYY-MM-DD]
+# last_attested: carry the existing page's value forward verbatim if it has one;
+# never emit a new one — a new page has none
 entry_points: [count]
 cross_system_connections: [count]
 dependencies: [list]
@@ -1044,9 +1050,9 @@ Do NOT add or change grade or status fields.
 - Preserve stable system atlas pages verbatim — do not rephrase or reorganize
 - Validate cross-system connections bidirectionally
 - The cross-system map and connectivity matrix must reflect the CURRENT state of ALL systems
-- Per-system YAML frontmatter must include: system, last_mapped, last_attested, entry_points,
+- Per-system YAML frontmatter must include: system, last_mapped, entry_points,
   cross_system_connections, dependencies — NO grade or status fields
-- Atlas frontmatter may carry additional fields owned by `/architecture-audit` (e.g. `grade`, `health_status`); preserve them on rewrite.
+- Atlas frontmatter may carry additional fields owned by `/architecture-audit` (e.g. `last_attested`, `grade`, `health_status`); preserve them on rewrite.
 - Do NOT write any code or modify any source files — produce markdown artifacts only
 ```
 

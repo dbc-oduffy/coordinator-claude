@@ -30,9 +30,9 @@ the first arm for the whole freshness window. Every reader (the SessionStart pre
 hook, `group-em-watch-cli.py`, `read_watch` below) is this copy, not the
 engine's.
 
-Review: coordinatorreview-integrator -- overengineering-reviewer finding #3: the
-paragraph that lived here re-derived the module header's own claim above; it
-now lives once, at TWO_MODULES_ONE_RECORD_ARE_TWO_SIGNATURES, not here.
+Review: coordinatoroverengineering-reviewer finding #3: the paragraph that
+lived here re-derived the module header's own claim above; it now lives once,
+at TWO_MODULES_ONE_RECORD_ARE_TWO_SIGNATURES, not here.
 
 NO TIMING PREDICATE. `next_expected_by` is a recorded EXPECTATION -- what
 this tick believes the next one will land by -- never a threshold this module
@@ -60,9 +60,6 @@ from typing import Any, Callable, Optional
 
 _WATCH_RELATIVE_PATH = os.path.join("state", "group-em-watch.json")
 
-#: Recorded expectation window used by `stamp()` -- matched to the
-#: `~23 minute` `CronCreate` tick interval named in `SKILL.md`. Never read
-#: back as a threshold by this module.
 DEFAULT_TICK_INTERVAL_SECONDS = 23 * 60
 
 _TICK_SOURCES = ("cron", "monitor", "entry")
@@ -74,15 +71,10 @@ VERDICT_ARMED = "armed"
 
 _CLAUDE_AGENTS_CMD = ["claude", "agents", "--json"]
 
-#: `_fetch_live_agents`'s third answer, and not a synonym for its `None`:
-#: this host carries no session registry to probe at all, so neither this
-#: read nor any later one can observe a holder's liveness. A failed probe is
-#: a moment; an uninstalled registry is a property of the box.
 REGISTRY_UNINSTALLED = "registry-uninstalled"
 
 
 def watch_path(repo_root: str) -> str:
-    """Absolute path of the heartbeat file for `repo_root`."""
     return os.path.join(repo_root, _WATCH_RELATIVE_PATH)
 
 
@@ -91,11 +83,6 @@ def _now_iso() -> str:
 
 
 def _parse_iso(value: Any) -> Optional[float]:
-    """Best-effort epoch-seconds parse of a `%Y-%m-%dT%H:%M:%SZ` stamp.
-
-    Returns None on anything unparseable -- a malformed or missing timestamp
-    degrades the caller to treating the record as unreadable, never raises.
-    """
     if not isinstance(value, str) or not value:
         return None
     try:
@@ -116,13 +103,6 @@ def _read_existing(path: str) -> Optional[dict]:
 
 
 def _write_atomic(path: str, payload: dict) -> bool:
-    """Rewrite the whole heartbeat via temp file + `os.replace` -- atomic on
-    both POSIX and Windows (see `_next_move_ledger._write_records`, the same
-    pattern).
-    """
-    # Review: coordinatorreview-integrator -- overengineering-reviewer finding #3:
-    # dropped the four added lines re-deriving the module header's claim at a
-    # helper that neither writes nor reads a prior_* key.
     directory = os.path.dirname(path)
     tmp_path = None
     try:
@@ -204,9 +184,9 @@ def stamp(
     `source` must be one of `cron` | `monitor` | `entry` (P2b/P3's `tick_source`
     vocabulary) -- `entry` in practice for this module's own callers; the other
     two are accepted to mirror the engine's declared vocabulary, not because a
-    reader downstream inspects the argument (Review: coordinatorreview-integrator
-    -- overengineering-reviewer finding #5: the prior wording attributed the
-    width to `read_watch`, which never sees this argument). `declinations` is
+    reader downstream inspects the argument (Review: coordinatoroverengineering-reviewer
+    finding #5: the prior wording attributed the width to `read_watch`, which
+    never sees this argument). `declinations` is
     THIS tick's rows only -- each
     `{session_id, gate, reason}` -- never an accumulating history; a
     tick that messaged nobody and declined nobody passes `[]`, which is what
@@ -295,14 +275,6 @@ def _writer_identity(record: dict) -> tuple:
 
 
 def current_holder(repo_root: str) -> Optional[str]:
-    """The `holder_session_id` on `state/group-em-watch.json`, or `None`.
-
-    Identity only -- no freshness, no arm/stale verdict. Returns `None` when
-    the record is absent (`_read_existing` sees no file), unreadable
-    (malformed JSON or not a JSON object), or has no `holder_session_id` key
-    at all. Lets a caller like `group-em-enter.py` ask "who holds this
-    record" without reaching into `_read_existing` itself.
-    """
     record = _read_existing(watch_path(repo_root))
     if not isinstance(record, dict):
         return None
@@ -339,7 +311,6 @@ def _fetch_live_agents(
 
 
 def _holder_row(holder_session_id: Any, agents: list) -> Optional[dict]:
-    """The registry row for this holder, or `None` when it lists no such session."""
     if not isinstance(holder_session_id, str) or not holder_session_id:
         return None
     for agent in agents:
@@ -408,11 +379,6 @@ def read_watch(
     holder_session_id = record.get("holder_session_id")
     holder_name = record.get("holder_name")
     last_tick_at = record.get("last_tick_at")
-    # Review: coordinatorcode-reviewer P2 -- a structurally-valid JSON record whose
-    # `declinations` field is truthy but not list-shaped (disk corruption, a second
-    # writer's bug) short-circuited `X or []` to the non-list value and raised
-    # inside this reader; `group-em-watch-cli.py` calls `read_watch` unguarded, so
-    # this reached the user as an unhandled `TypeError` instead of degrading.
     raw_declinations = record.get("declinations")
     declination_count = len(raw_declinations) if isinstance(raw_declinations, list) else 0
 
@@ -421,9 +387,6 @@ def read_watch(
         "holder_name": holder_name,
         "last_tick_at": last_tick_at,
         "declination_count": declination_count,
-        # Review: coordinatorreview-integrator -- overengineering-reviewer finding #2:
-        # the CLI's destroyed-tick render needs the record's CURRENT tick_source to
-        # tell "prior differs from current" from "prior repeats current".
         "tick_source": record.get("tick_source"),
         "prior_holder_session_id": record.get("prior_holder_session_id"),
         "prior_holder_name": record.get("prior_holder_name"),
@@ -440,11 +403,6 @@ def read_watch(
         row = _holder_row(holder_session_id, registry)
         if row is None:
             return {"verdict": VERDICT_VACANT, **base}
-        # The registry is the live answer and the record is a snapshot, so the
-        # name is re-resolved here rather than trusted from disk. A name stored
-        # at stamp time can point at a different session by the time anyone
-        # reads it, which is the hazard `resolve_addressee` exists to refuse on
-        # the send path -- a durable copy is the same hazard with a longer fuse.
         live_name = row.get("name")
         if live_name:
             base["holder_name"] = live_name

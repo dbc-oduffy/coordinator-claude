@@ -45,17 +45,12 @@ Port backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
 
 from __future__ import annotations
 
-INSTALL_CLASS = True  # writes a git hook; see door_install.declared_install_class
+INSTALL_CLASS = True
 
 import os
 import sys
 
 def _import_runner():
-    """DR-276: routed through `coordinator_core.cli_entry.run_op_main` with
-    `entrypoint="main_install_all"` so its declared writes become a session
-    scope-touch claim, without repointing it at bare `main` (see module
-    docstring — that reintroduces the post-merge/post-checkout gap).
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 

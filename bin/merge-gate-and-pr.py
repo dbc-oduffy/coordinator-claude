@@ -109,13 +109,6 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _win_portability_flags() -> dict:
-    """Lazily resolve the engine root and return `no_console_creationflags()`.
-
-    The engine root must be on sys.path before the coordinator_core import
-    below: this file is also published into the claude-klabauter mirror, where
-    coordinator_core is NOT pip-installed and the interpreter's sys.path[0] is
-    this bin/ directory, not the checkout root. Same bootstrap as
-    coordinator/bin/coordinator-lesson-add (9b979ee5f)."""
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_engine_on_path
 
@@ -125,10 +118,6 @@ def _win_portability_flags() -> dict:
 
     return no_console_creationflags()
 
-
-# ---------------------------------------------------------------------------
-# pr-body
-# ---------------------------------------------------------------------------
 
 def _commit_log(commit_range: str) -> str:
     proc = subprocess.run(
@@ -141,16 +130,6 @@ def _commit_log(commit_range: str) -> str:
     return proc.stdout.rstrip("\n")
 
 
-#: The fleet PR template's heading contract (DoE-claude
-#: coordinator/templates/github-pull-request-template.md), in order, as
-#: (heading, argparse dest, guidance comment). `gh pr create --body` bypasses
-#: GitHub's own template fill, so this composer is what carries the template
-#: to agent PRs. A section whose flag is absent renders its heading plus the
-#: template's guidance comment verbatim — the body keeps the template's shape
-#: and the gap reads as unfilled, not as omitted. Demo path is the one
-#: section the template deletes when nothing is user-visible, so it renders
-#: only when given. Parity with the template file:
-#: tests/test_merge_gate_and_pr.py :: test_pr_body_sections_match_fleet_template.
 _SHIP_VERDICT_PREFIX = "**Ship verdict:**"
 _PR_BODY_SECTIONS: tuple[tuple[str, str, str | None], ...] = (
     ("Summary", "summary",
@@ -192,10 +171,6 @@ def cmd_pr_body(args: argparse.Namespace) -> int:
     return 0
 
 
-# ---------------------------------------------------------------------------
-# coverage-gate
-# ---------------------------------------------------------------------------
-
 _COVERAGE_GATE_ADVISORY_NOTE = (
     "not enforced at the git-push layer: a raw `git push origin main` still "
     "reaches the remote unchecked."
@@ -203,12 +178,6 @@ _COVERAGE_GATE_ADVISORY_NOTE = (
 
 
 def _changed_files(commit_range: str) -> list[str]:
-    """Batched, single-spawn changed-file listing for `commit_range` — the
-    ONLY git call this subcommand issues itself. Per-commit review coverage
-    is computed downstream by `gate_dimension_review`'s already-batched
-    reads of `review_trail.reviewed_set.read_reviewed_set` plus
-    `review_trail.receipt_credit`; this function must never be extended to
-    walk commits one at a time."""
     proc = subprocess.run(
         ["git", "diff", "--name-only", commit_range],
         capture_output=True,
@@ -265,10 +234,6 @@ def _sessions_named_in_detail(detail: str) -> list[str]:
 def _resolve_owner_repo_for_post_status(
     args: argparse.Namespace, repo_root: str
 ) -> tuple[str, str] | None:
-    """Returns `(owner, repo)` or None (never guesses). Explicit
-    `--owner`/`--repo` win; otherwise resolved from the origin remote via
-    `push._resolve_github_owner_repo`, in-process, no subprocess beyond the
-    one git call that function already makes."""
     if args.owner and args.repo:
         return args.owner, args.repo
 
@@ -280,10 +245,6 @@ def _resolve_owner_repo_for_post_status(
 
 
 def _cmd_coverage_gate_post_status(args: argparse.Namespace, repo_root: str) -> int:
-    """`coverage-gate --post-status`: posts the review-dimension verdict as a
-    commit status on `args.sha`. Delegates the verdict computation entirely
-    to `post_coverage_status.post_coverage_status` — this function computes
-    nothing itself, per C5's "nothing is computed twice" constraint."""
     import json
 
     from coordinator_core.ops import post_coverage_status
@@ -365,16 +326,10 @@ def cmd_coverage_gate(args: argparse.Namespace) -> int:
     return 1
 
 
-# ---------------------------------------------------------------------------
-# active-branch-guard
-# ---------------------------------------------------------------------------
-
 _QUIET_WINDOW_SECONDS = 300
 
 
 def _gh_pr_view_json(pr: str, jq_field: str) -> tuple[int, str]:
-    """Isolated for test monkeypatching — mirrors `gh pr view <pr> --json <field>
-    -q .<jq_field-or-path>`."""
     proc = subprocess.run(
         ["gh", "pr", "view", pr, "--json", jq_field.split(".")[0], "-q", f".{jq_field}"],
         capture_output=True,
@@ -425,10 +380,6 @@ def cmd_active_branch_guard(args: argparse.Namespace) -> int:
 
     return 0
 
-
-# ---------------------------------------------------------------------------
-# argv plumbing
-# ---------------------------------------------------------------------------
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="merge-gate-and-pr.py")

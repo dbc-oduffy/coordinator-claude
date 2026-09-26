@@ -1,46 +1,3 @@
-"""DR-<PREFIX>-NNN decision-record identifier allocation.
-
-Computes the next collision-free `DR-<PREFIX>-NNN` (or unprefixed `DR-NNN`)
-identifier for a `docs/decisions/` directory, and asserts a proposed id isn't
-already in use. Extracted from `coordinator-doc-new` so it can be vendored
-verbatim by sibling repos — claude-klabauter maintains a duplicate Python port
-of this algorithm and is the first consumer, publishing here as the single
-source of truth so that port can be deleted in favor of a vendored copy of
-this file. Vendored, never imported across repos: consumers copy these bytes
-into their own tree, because a cross-repo runtime dependency is exactly the
-install-time coupling both planes' isolation posture exists to prevent.
-
-Deliberately dependency-free and side-effect-free: no coordinator-specific
-imports, no `print`, no `sys.exit`. Failure is signalled by raising
-`DrAllocatorError` (or a subclass) with a human-readable message; callers own
-turning that into user-facing output (stderr + exit code, a raised HTTP
-error, a log line — whatever fits the calling context).
-
-Negative-spec: do not add imports beyond `os`/`re`, and do not reintroduce
-`print`/`sys.exit` into this module — purity is the vendoring contract. A
-change here that adds a coordinator import or a side effect breaks every
-vendored copy silently, since vendored copies are copy-pasted, not
-`pip install`'d, and won't pick up a "fix" until someone re-copies the file.
-This purity budget is also why frontmatter-carried ids (below) are read via
-a bounded `os`/`re` line scan rather than a YAML parser.
-
-SSOT / vendoring: this module is tracked in claude-klabauter only, in two
-places — `coordinator/bin/lib/dr_allocator.py` (this file, the live import
-target of `coordinator-doc-new`) and its vendored copy at
-`coordinator_core/ops/docgen/dr_allocator.py`. The two are kept
-byte-identical by `test_dr_allocator_copies_conformance.py`, which is the
-drift guard for the pair. Any behavioural change here must be re-vendored
-into that copy in the same change (copy the bytes, don't retype the
-algorithm) so the conformance test keeps passing; this repo holds both
-copies, so no cross-repo memo is needed to close that loop. If a downstream
-repo outside claude-klabauter vendors a further copy of its own, that is
-currently unverified from here — say so rather than assuming a specific
-obligation.
-
-`decisions_dir` accepts `str` or any `os.PathLike` (e.g. `pathlib.Path`) —
-vendoring consumers, including claude-klabauter's test suite, call these
-functions with `Path` objects.
-"""
 
 from __future__ import annotations
 
@@ -49,23 +6,20 @@ import re
 
 DR_ID_RE = re.compile(r"^DR-(?:([A-Z][A-Z0-9]*)-)?(\d+)-")
 
-# Bounded frontmatter scan: frontmatter always leads the file, so a handful
-# of lines is enough to find an `id:` field without slurping whole files.
 _FRONTMATTER_MAX_LINES = 20
 _FRONTMATTER_ID_LINE_RE = re.compile(r"^id:\s*(\S+)\s*$")
 
 
 class DrAllocatorError(Exception):
-    """Base class for allocation failures raised by this module."""
+    pass
 
 
 class DrPrefixError(DrAllocatorError):
-    """Raised when an explicit `--dr-prefix`-style value is not valid."""
+    pass
 
 
 class DrCollisionError(DrAllocatorError):
-    """Raised when a proposed DR id already leads a filename on disk, or is
-    carried in a date-named record's `id:` frontmatter field."""
+    pass
 
 
 def _read_frontmatter_dr_id(path: str) -> tuple[str, int, int] | None:
@@ -129,32 +83,6 @@ def _frontmatter_dr_entries(
 def allocate_dr_number(
     decisions_dir: str | os.PathLike[str], explicit_prefix: str | None = None
 ) -> str:
-    """Allocate the next collision-free DR-<PREFIX>-NNN identifier.
-
-    Scans `decisions_dir` for existing `DR-<PREFIX>-NNN-*.md` / `DR-NNN-*.md`
-    filenames, resolves a prefix namespace (explicit `--dr-prefix`, else the sole
-    prefix shared by every existing record, else the unprefixed namespace when
-    records are unprefixed, mixed, or the directory is empty), and returns
-    `max(existing NNN in that namespace) + 1`, zero-padded to the widest existing
-    width in that namespace (minimum 3 digits).
-
-    This closes the read-modify-write race that produced an 8-way collision on a
-    single DR number in a downstream consumer repo (created 2026-06-15, discovered
-    2026-07-20 after 5 silent weeks and a leak into shipped C++ strings): the prior scaffolder
-    emitted a literal `DR-XXX` placeholder and left numbering to a manual
-    docs/decisions/INDEX.md lookup with no compare-and-check against files already
-    on disk.
-
-    Also folds in ids carried in `id:` frontmatter for date-named records
-    whose filename doesn't itself lead with a DR id, closing a second gap
-    where a filename-only scan was blind to those ids and could return an
-    already-taken number.
-
-    Spec backlink: cross-repo/inbox/2026-07-20-example-game-repo-em-dr-number-allocator-collision.md
-    Spec backlink: cross-repo/inbox/2026-08-01-example-cockpit-repo-em-dr-allocator-frontmatter-id-blindness.md
-    """
-    # `is not None`, not truthiness: "" is an explicitly-supplied invalid
-    # value and must fail loud below, not silently fall through to disk inference.
     if explicit_prefix is not None:
         prefix_norm = explicit_prefix.strip().upper()
         if not re.match(r"^[A-Z][A-Z0-9]*$", prefix_norm):
@@ -165,7 +93,7 @@ def allocate_dr_number(
     else:
         prefix_norm = None
 
-    entries: list[tuple[str, int, int]] = []  # (prefix, number, digit-width)
+    entries: list[tuple[str, int, int]] = []
     if os.path.isdir(decisions_dir):
         for name in os.listdir(decisions_dir):
             if not name.endswith(".md"):
@@ -179,10 +107,6 @@ def allocate_dr_number(
         entries.extend(_frontmatter_dr_entries(decisions_dir))
 
     if prefix_norm is None:
-        # Infer namespace from disk: use the sole prefix shared by every existing
-        # record. Mixed or absent -> plain (unprefixed) namespace — the safer
-        # default, since guessing a prefix nobody has used yet risks starting a
-        # second, silently-diverging namespace.
         distinct_prefixes = {e[0] for e in entries}
         prefix_norm = next(iter(distinct_prefixes)) if len(distinct_prefixes) == 1 else ""
 

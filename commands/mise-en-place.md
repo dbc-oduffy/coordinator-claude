@@ -58,7 +58,7 @@ step, two ordered legs: recompute the plan body sha against `mise_prepped_sha` (
 only if that passes, re-run each `census[].command` and diff against `result`. Fire on sha-leg
 CERTIFIED with no entry-level census DRIFT; an unclosed census leg (`UNDECIDABLE` / `REFUSED` /
 `UNRUNNABLE`, per-entry or rolled up) does not block the fire — record it as a named,
-non-blocking finding in the Phase 1 ledger. STALE → re-gate (`python3 "${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}/bin/mise-prep-gate.py" <plan>`), then re-stamp;
+non-blocking finding in the Phase 1 ledger. STALE → re-gate (`"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/mise-prep-gate" <plan>`), then re-stamp;
 UNSTAMPED → gate and stamp; MALFORMED → a hand-written stamp, repair the frontmatter; census
 drift → the premise moved, re-plan. **Name the state** — "not certified" sends an author to the
 wrong repair. A handoff can assert executability; it cannot assert a sha. States, recipe and the
@@ -177,7 +177,7 @@ compound command, and confirm the harness reports the new primary working direct
 proceeding. `A-CD-OUT-OF-A-REPO-DISARMS-EVERY-DISPATCHED-COMMIT-FOR-THE-SESSION`.
 
 Don't hand-author the script — mint and emit:
-`COORDINATOR_AGENT_TYPE_HOST=coordinator python3 "${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}/bin/emit-dispatch-workflow.py" --inventory state/mise-inventory/<run-id>.md`
+`COORDINATOR_AGENT_TYPE_HOST=coordinator "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/emit-dispatch-workflow" --inventory state/mise-inventory/<run-id>.md`
 writes the spine (item-id → chunk-id, footprint → `writes`) plus the `.mjs`; fire it with the
 `Workflow({scriptPath, args: {repoRoot}})` call the emitter prints on stderr.
 

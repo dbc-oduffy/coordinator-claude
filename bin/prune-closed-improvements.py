@@ -72,18 +72,6 @@ _BOOTSTRAP_NAMES = ("load_family_records", "route", "cc_invoke", "resolve_checke
 
 
 def __getattr__(name: str):
-    """PEP 562 module `__getattr__` -- lets a caller that reaches for
-    `load_family_records` / `route` / `cc_invoke` before `main()` has run
-    (e.g. this file's own test suite, which does `mod.load_family_records =
-    fake_load_records` / `mod.route = fake_route` ahead of calling
-    `mod.main()`; plain attribute assignment reads the old value first via
-    `getattr()`, which is what actually triggers this) run
-    `_bootstrap_imports()` lazily on first access, instead of requiring the
-    name to already be a module global at import time. Only fires when the
-    name is NOT already present in this module's `__dict__` -- once
-    `_bootstrap_imports()` has run once (via this hook or via `main()`), the
-    plain global wins on every later lookup and this function is not called
-    again for that name."""
     if name in _BOOTSTRAP_NAMES:
         _bootstrap_imports()
         try:
@@ -96,21 +84,6 @@ def __getattr__(name: str):
 
 
 def _bootstrap_imports() -> None:
-    """Import cc_invoke/repo_identity/queue_family, ensuring the engine root
-    is on sys.path first, and bind every dependency at module scope (C6k
-    import-motion: module bodies stay inert on both the warm door and the
-    un-bootstrapped settings-home forwarder load routes). Idempotent by
-    construction: a name already bound at module scope (via a prior call, or
-    a test's own `mod.load_family_records = fake_load_records` ahead of
-    calling `main()`) is left alone rather than clobbered by a real import.
-
-    coordinator_core is co-located in this same repo (the engine plane) --
-    resolvable only from the repo root, which is not on sys.path when this
-    file is run directly (only its own dir and lib/ are). coordinator_core.ops
-    registers ops lazily, unconditionally, so the queue_family import below
-    never pays coordinator_core.ops's eager op-registration sweep it does not
-    need (it only wants the read seam).
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
 
     if "load_family_records" not in globals():
@@ -197,7 +170,6 @@ def main(argv: list[str] | None = None) -> int:
         print("prune-closed-improvements.py: no closed improvement-queue entries found -- nothing to prune")
         return 0
 
-    # ---- Call 1 (whole set): dry_run:true batch preview ----
     try:
         preview = route(
             "fleet.archive_queue_entry",
@@ -239,8 +211,6 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"prune-closed-improvements.py: {len(previewed)} closed improvement(s) selected for prune")
 
-    # ---- Call 2 (previewed set, act mode): dry_run:false batch archive,
-    # ONE archive_and_commit call/commit for the whole set (F9 fix). ----
     try:
         act = route(
             "fleet.archive_queue_entry",
@@ -262,9 +232,6 @@ def main(argv: list[str] | None = None) -> int:
             archived += 1
         elif item.get("error"):
             failures.append((item.get("id"), str(item["error"])))
-        # archived:False with no error is an idempotent no-op (already
-        # archived / concurrent replay) -- not a failure, per
-        # archive_queue_entry's own Idempotency (AC7) contract.
 
     if failures:
         print(

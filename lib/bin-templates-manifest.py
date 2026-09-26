@@ -53,24 +53,6 @@ from typing import NamedTuple
 
 
 class BinTemplateEntry(NamedTuple):
-    """One DoE `templates/bin/` artifact's install classification.
-
-    `artifact_class`: "code" | "operator-config" (declared by AC19; every
-        current entry is "code" per C1's landed decision — see module
-        docstring).
-    `exec_bit`: POSIX +x bit `_install_one` applies at the destination.
-        False-by-construction for every `.cmd`/`.ps1` twin (no POSIX exec
-        bit exists on those platforms) — this is NOT a code/config signal,
-        see `_install_one`'s own docstring.
-    `force_overwrite`: True = force-overwrite-on-diff (code), False =
-        preserve-on-diff (operator config). Declared per-entry here for
-        completeness/audit, but the write loops in
-        `_install_bin_resolvers` still pass the family-level literal
-        `force_overwrite=True` at the call site (C1's landed, unchanged
-        decision) rather than reading this field — this manifest is a
-        classification-source swap, not a rewiring of that call-site
-        literal (AC20 anti-scope).
-    """
 
     name: str
     artifact_class: str
@@ -103,42 +85,16 @@ PLATFORM_LOCALIZE_FILES: "tuple[BinTemplateEntry, ...]" = (
     BinTemplateEntry("platform-localize.cmd", "code", False, True),
 )
 
-# --- git_bash_fast_profile: the login-shell-tax fix (see docs/wiki/
-# coordinator-tripwires/tripwire-registry/a-git-update-silently-restores-the-
-# login-shell-tax.md). `install-git-bash-fast-profile.py` carries a shebang
-# and is run directly from an elevated shell (exec_bit=True, like
-# platform-localize.py above); `git-bash-fast-profile.sh` is sourced by the
-# installer into Git-for-Windows' /etc/profile rather than executed on its
-# own, so exec_bit=False — same convention as claude-machine-local.sh above
-# (every plain `.sh` entry in this manifest is exec_bit=False).
 GIT_BASH_FAST_PROFILE_FILES: "tuple[BinTemplateEntry, ...]" = (
     BinTemplateEntry("install-git-bash-fast-profile.py", "code", True, True),
     BinTemplateEntry("git-bash-fast-profile.sh", "code", False, True),
 )
 
-# --- launcher templates: NOT consumed by `_install_bin_resolvers` at all.
-# Rendered (not copied verbatim) by `coordinator_core.ops.gen_claude_doe_launcher`,
-# which already has its own correct check-mode freshness pattern (tempfile +
-# filecmp) — see that module. These two names were absent from ALL FOUR
-# original tuples; this is the one open classification question C12's brief
-# calls out explicitly. Conservative pick, not a re-derivation of an
-# existing decision (there was none to transcribe): class "code" (they are
-# code, just not installed via `_install_one`), `exec_bit=False` (no
-# `.cmd`/`.ps1` twin in this whole manifest ever carries the POSIX bit,
-# consistent with every other entry above), `force_overwrite=True` (they
-# are always re-rendered fresh, never preserved-as-stale, by their own
-# consumer). Included here ONLY so the parity test can classify every
-# artifact `templates/bin/` actually contains — `_install_bin_resolvers`
-# does not read this group.
 LAUNCHER_TEMPLATE_FILES: "tuple[BinTemplateEntry, ...]" = (
     BinTemplateEntry("claude-doe-launcher.cmd.tmpl", "code", False, True),
     BinTemplateEntry("claude-doe-launcher.ps1.tmpl", "code", False, True),
 )
 
-# Union of every group above — the complete classification of DoE's
-# `templates/bin/` directory. The parity test asserts this set's name
-# collection is EXACTLY the on-disk listing (minus __pycache__), in both
-# directions.
 ALL_BIN_TEMPLATE_FILES: "tuple[BinTemplateEntry, ...]" = (
     ML_FAMILY_FILES
     + ML_EXPLICIT_FILES

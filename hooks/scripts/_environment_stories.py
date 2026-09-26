@@ -143,9 +143,7 @@ from _environment_story import (  # noqa: E402
     register_story,
 )
 
-# The composed prose -- FIXED by the plan, landed verbatim. See the module
 # docstring's "WHAT THIS MODULE COMPOSES" for what was and was not changed
-# in transit (the blockquote marker and its line-wrap only).
 EPHEMERAL_CLOUD_VM_PROSE = "\n\n".join(
     (
         '**Where you are.** A single-tenant ephemeral Linux VM. One job, one EM session, a fresh checkout, no peer sessions and no sibling repositories on the disk. The box is yours for the length of this job and is destroyed when it ends.',
@@ -156,13 +154,8 @@ EPHEMERAL_CLOUD_VM_PROSE = "\n\n".join(
     )
 )
 
-# Derived from `state/audits/2026-09-06-doctrine-rule-class-register.yaml`
 # at build time -- see "WHY A BUILT CONSTANT, NOT A RUNTIME READ" above.
-# Regenerate with: python coordinator/hooks/scripts/_environment_stories.py
-# 1,211 ids: EVERY rule-bearing row id, `genuinely-inapplicable` included --
-# see the module docstring on why nothing is omitted while the ratification
 # DR stands proposed. `CORE_RULE_IDS` is unioned in separately, below, not
-# baked in here, so this constant stays a pure function of the register.
 _EPHEMERAL_CLOUD_VM_REGISTER_RULE_IDS: frozenset[str] = frozenset(
     {
         'rcr-00ff2b33', 'rcr-01480747', 'rcr-01a18c5d', 'rcr-01d0991c', 'rcr-01d963a1', 'rcr-020b34b3',
@@ -376,9 +369,7 @@ EPHEMERAL_CLOUD_VM_STORY = Story(
     rule_ids=_EPHEMERAL_CLOUD_VM_REGISTER_RULE_IDS | CORE_RULE_IDS,
 )
 
-# `register_story` calls `validate_story` on the way in -- a story missing
 # either `CORE_RULE_IDS` member raises `CoreOmissionError` here, at import
-# time, rather than admitting a core-omitting story silently. See
 # "IDEMPOTENT REGISTRATION" above for why re-running this line is safe.
 register_story(EPHEMERAL_CLOUD_VM_STORY)
 
@@ -419,10 +410,6 @@ def _derive_register_rule_ids(
 
     Dev-time tooling only: called from `__main__` below, never from
     this module's import path."""
-    # Function-local for the same reason `_read_ratified_omissions` refuses a
-    # YAML parser: the enum split has ONE definition, in the omission ledger,
-    # and this module reaches it without putting a second module on the
-    # session-start import path that only `__main__` ever needs.
     from _environment_story_omission_ledger import RULE_BEARING_DISPOSITIONS
 
     rule_bearing_not_omitted: set[str] = set()
@@ -500,10 +487,6 @@ def _read_ratified_omissions(ledger_path: str, story_name: str) -> "frozenset[st
 
 if __name__ == "__main__":
     # Regenerator, not a runtime path -- see "WHY A BUILT CONSTANT, NOT A
-    # RUNTIME READ" above. Walks up from this file's own directory to the
-    # repo root (coordinator/hooks/scripts -> coordinator/hooks ->
-    # coordinator -> repo root) with `os.path`, never a literal `/`, so
-    # this also runs unmodified on Windows.
     _repo_root = os.path.dirname(os.path.dirname(os.path.dirname(_SCRIPTS_DIR)))
     _register_path = os.path.join(
         _repo_root,

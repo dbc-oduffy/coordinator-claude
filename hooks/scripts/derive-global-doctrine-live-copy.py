@@ -109,12 +109,7 @@ if _HOOKS_DIR not in sys.path:
 
 from _message_envelope import CHANNEL_STOP, compose, emit, measurement_enabled  # noqa: E402
 
-#: Wiki section carrying the relocated mirror-direction, OSS-clobber-hazard,
-#: and fail-loud-contract explanation -- see this hook's own relocation
-#: fragment (state/relocations/guard-message-cap/derive-global-doctrine-live-copy.py.md).
 _WIKI_ANCHOR = (
-    # Review: code-reviewer -- render() emits `f"See {anchor}."` verbatim;
-    # a bare fragment produces an unresolvable citation. Full path matches
     # every other converted hook's `_WIKI_ANCHOR` shape.
     "coordinator/docs/wiki/guards/guard-message-concision.md"
     "#derive-global-doctrine-mirror-and-fail-loud"
@@ -139,15 +134,7 @@ def _parse_input(raw: str) -> dict:
 
 
 def _repo_root() -> Path:
-    # coordinator/hooks/scripts/<this file> -> parents[3] is the repo root.
-    # Review: code-reviewer -- Finding 4: this resolves from Path(__file__),
     # i.e. from wherever ${CLAUDE_PLUGIN_ROOT} points -- the canonical plugin
-    # source checkout, not necessarily the checkout backing the session's
-    # cwd. A session working out of a git worktree, editing that worktree's
-    # own global-doctrine/CLAUDE.md, will never match tracked_resolved
-    # (pinned to the plugin-root checkout), so the hook silently no-ops for
-    # that worktree -- believed correct (one canonical live doctrine
-    # target), but worth knowing if a worktree edit doesn't propagate.
     return Path(__file__).resolve().parents[3]
 
 
@@ -160,14 +147,10 @@ def _live_path() -> Path:
 
 
 def _published_path() -> Path:
-    """The in-plugin copy, which is what reaches a machine that never clones
-    this repo. See the module docstring for why this target exists.
-    """
     return _repo_root() / "coordinator" / "templates" / "global-doctrine" / "CLAUDE.md"
 
 
 def _published_rules_dir() -> Path:
-    """Mirror of `_published_path()` for the rules dir."""
     return _repo_root() / "coordinator" / "templates" / "global-doctrine" / "rules"
 
 
@@ -180,12 +163,6 @@ def _live_rules_dir() -> Path:
 
 
 def _tracked_rules_files() -> list[Path]:
-    """Every tracked `*.md` file under `global-doctrine/rules/`, sorted for
-    deterministic derivation order. Copy-in only -- the caller mirrors each
-    of these into the live rules dir, and NEVER deletes a live file absent
-    here (see module docstring's prune-safety contract). Returns an empty
-    list on a missing directory or any read error -- fails open, matching
-    every other non-owned-path guard in this module."""
     rules_dir = _tracked_rules_dir()
     try:
         if not rules_dir.is_dir():
@@ -227,14 +204,11 @@ def _compose_read_failure_message(tracked: Path, exc: Exception):
 
 
 def _compose_write_failure_message(live: Path, tracked: Path, exc: Exception, source_bytes: bytes):
-    """Pure composer for a live-copy write failure after a successful
-    tracked-source read."""
     prose = f"live copy write failed ({len(source_bytes)}B read OK): {live}"
     return compose(prose, anchor=_WIKI_ANCHOR)
 
 
 def _compose_success_message(live: Path, tracked: Path, source_bytes: bytes):
-    """Pure composer for a successful tracked->live re-derivation."""
     prose = f"re-derived {live} ({len(source_bytes)}B)"
     return compose(prose, anchor=_WIKI_ANCHOR)
 
@@ -266,25 +240,8 @@ def _emit_stop(message: str, emit_state: dict) -> int:
 
 
 def _derive_live_copy(tracked: Path, live: Path, *, emit_state: dict | None = None) -> int:
-    """Shared read/compare/write path for both invocation modes and both
-    mirrored targets (the single `CLAUDE.md` and each `global-doctrine/
-    rules/*.md` file) -- `tracked`/`live` are passed explicitly by the
-    caller rather than hardcoded, so this one function drives every mirrored
-    pair.
-
-    Silent (return 0) when the live copy is already byte-identical to the
-    tracked source -- see the module docstring's contract table and
-    coordinator/docs/wiki/dispatching-parallel-agents/eager-agent-calibration.md § "A Check That Speaks
-    Only on Drift Is Free to Run Anywhere". Loud (stderr + exit 2) only when
-    a real derivation happens (drift found and corrected) or a read/write
-    failure occurs.
-    """
     # Routed through `_message_envelope.emit()` (CHANNEL_STOP) rather than
-    # hand-rolling `render()` + a text-mode `sys.stderr.write()` -- `emit()`'s
     # CHANNEL_STOP branch writes via `sys.stderr.buffer.write()`, which
-    # bypasses Python's Windows text-mode LF->CRLF translation (a real
-    # byte-fidelity loss the hand-rolled path used to carry silently). See
-    # `state/bug-backlog/2026-08-06-derive-hooks-hand-roll-stop-shape-and-lo-4c1e9a7b03d5.yaml`.
     if emit_state is None:
         emit_state = {}
 
@@ -299,7 +256,6 @@ def _derive_live_copy(tracked: Path, live: Path, *, emit_state: dict | None = No
         live_bytes = None
 
     if live_bytes == source_bytes:
-        # Already in sync -- nothing to do, stay silent.
         return 0
 
     try:
@@ -315,9 +271,6 @@ def main() -> int:
     raw = _read_stdin()
     data = _parse_input(raw)
 
-    # OSS-clobber gate, applied on EVERY path through this script (defense
-    # in depth on the Write|Edit path, load-bearing on SessionStart -- see
-    # module docstring). Checked FIRST, before any payload interpretation.
     if not _is_dev_repo():
         return 0
 
@@ -332,20 +285,8 @@ def main() -> int:
     if not isinstance(file_path, str):
         file_path = ""
 
-    # Mode detection: require an explicit positive signal for SessionStart
-    # mode -- never infer it from absence. A payload carrying neither a
-    # recognized hook_event_name nor a usable file_path falls through to the
-    # `if not file_path: return 0` no-op below, per the module's own no-op
-    # contract.
-    # Review: code-reviewer -- Finding 1: the prior `else: not file_path`
-    # fallback treated any payload lacking BOTH fields as SessionStart,
-    # which could trigger a live-copy write on a malformed/future-shaped
-    # event the contract promises must be a silent no-op.
     session_start_mode = hook_event_name == "SessionStart"
 
-    # Shared across every _derive_live_copy call in this invocation so
-    # _emit_stop can separate concatenated stderr messages when 2+ targets
-    # drift in the same run (code-reviewer P1).
     emit_state: dict = {}
 
     if session_start_mode:
@@ -369,7 +310,6 @@ def main() -> int:
             )
         return exit_code
 
-    # --- Existing Write|Edit payload-driven behaviour ---
     if not file_path:
         return 0
 
@@ -384,13 +324,6 @@ def main() -> int:
     except Exception:
         tracked_resolved = tracked
 
-    # Review: code-reviewer -- Finding 2: this is a strict Path equality
-    # comparison. Path.resolve() does not case-normalize on
-    # case-insensitive-but-case-preserving filesystems (macOS APFS default,
-    # Windows NTFS), so a differently-cased file_path for the same physical
-    # file would fail to match here -- a fail-open miss (degrades
-    # gracefully; not a false positive), left unguarded as an accepted edge
-    # case. Same caveat applies to the rules-dir match added below.
     if resolved == tracked_resolved:
         return max(
             _derive_live_copy(tracked, _live_path(), emit_state=emit_state),

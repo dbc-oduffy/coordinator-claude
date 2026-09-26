@@ -1,34 +1,6 @@
-# percolate-liveops-preflight — CLI trampoline over claude-klabauter
-# coordinator_core.session.{liveness,peer_roster} and
-# coordinator_core.machine_resolver, answering the operator's actual
-# question before a percolation/publish run: "will this affect any live
-# ops?" A REPORT, not a gate — see the module docstring below for the full
-# rationale and the negative-spec this deliberately does not violate.
-#
-# Subcommands (argv[0]; no argv means "run"):
-#   run | (no args)        -> census every repo the machine-local registry
-#                              knows about (`repos.*`), list each repo's
-#                              live sessions (`coordinator_core.session.
-#                              liveness`), classify each as affected/
-#                              unaffected by resolving whether that repo's
-#                              path IS the engine's own resolved source tree
-#                              (`_resolve_claude_klabauter.py::_resolve_claude_klabauter_root` --
-#                              the same structural check the resolver's own
-#                              gate makes; unaffected -- resolves its own
-#                              tree by construction) or falls through to the
-#                              published engine (affected), and emit a
-#                              plain-text report plus the verdict line
-#                              "affects N of M live sessions."
-#
 # Exit codes: 0 on a successful report (REGARDLESS of the N/M verdict --
 # this is a report, never a gate; see NEGATIVE SPEC below). 3
 # (_TRANSPORT_FAIL) when the engine root cannot be resolved or the wrapped
-# coordinator_core.session modules are not importable -- "the engine could
-# not be reached," same convention as session-liveness-cli /
-# session-reachability-cli. A usage error (unknown subcommand) exits 2.
-#
-# Spec backlink: docs/plans/2026-08-15-klabauter-release-channels.md, chunk
-# C11.
 """percolate-liveops-preflight — answers "will this percolation affect any
 live ops?" as a REPORT, not a gate (PM, 2026-08-15, reproduced verbatim in
 the plan chunk this ships against): "we do percolation and publishing
@@ -78,10 +50,6 @@ sibling-repo edit (skills are discovery-resolved surfaces owned by that
 repo, out of scope here) -- this chunk ships the runnable and its contract
 only.
 """
-# `from __future__ import
-# annotations` was placed before this docstring, demoting the string to a
-# dead expression statement that never became `__doc__`. Moved below the
-# docstring so it registers.
 from __future__ import annotations
 
 import os
@@ -235,14 +203,7 @@ def _run(liveness_mod, peer_roster_mod, machine_resolver_mod) -> int:
 
     repos = _load_registry_prefix(machine_resolver_mod, "repos.")
 
-    # The ONE path that IS the engine's own live source tree — same
-    # structural comparison `_resolve_claude_klabauter.py::_is_claude_klabauter_source_tree`
-    # makes, not a scan over `engine.working_repos.*` (C4 retired that as
-    # the resolution-class discriminant; the key survives elsewhere as a
-    # pure locator, but is no longer this question's input). `None` means
-    # undeterminable (no live source tree resolves on this box at all) --
     # every repo then classifies AFFECTED, since nothing resolves the live
-    # tree for anyone to be unaffected via.
     try:
         source_tree_path = _normalize_path(
             _resolve_claude_klabauter_source_root(_claude_klabauter_ml_dir())
@@ -250,26 +211,10 @@ def _run(liveness_mod, peer_roster_mod, machine_resolver_mod) -> int:
     except ClaudeKlabauterResolutionError:
         source_tree_path = None
 
-    # Always consider the repo this preflight is invoked from, even if it
-    # has no `repos.*` registry entry of its own (a fresh/unregistered
-    # checkout should not silently vanish from its own census).
     here = os.getcwd()
     candidates: "dict[str, str]" = dict(repos)
     candidates.setdefault("_this_repo", here)
 
-    # `repos.*` is a many-names-per-path registry (aliases, legacy keys,
-    # and the always-added "_this_repo" entry can all name the SAME
-    # on-disk path -- e.g. `repos.claude_klabauter` and `_this_repo` here).
-    # Census by physical repo, once each -- counting the same live session
-    # twice under two aliases would silently inflate both N and M in the
-    # verdict line. Preferred name is the FIRST (sorted) REAL registry
-    # alias naming that path; the synthetic "_this_repo" placeholder wins
-    # only when it is the sole name for that path, so the operator-facing
-    # report shows a real registered repo name over the placeholder
-    # whenever one exists.
-    # Sorting "_this_repo"
-    # (leading '_') ahead of lowercase alias names displaced a real
-    # registry alias in the report; fixed to prefer real aliases.
     groups: "dict[str, list[str]]" = {}
     for name in candidates:
         norm = _normalize_path(candidates[name])

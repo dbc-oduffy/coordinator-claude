@@ -45,11 +45,6 @@ import sys
 
 
 def _import_run_op_main():
-    """Resolve the engine root and import `run_op_main` (DR-276: routes the op
-    in-process through `coordinator_core.cli_entry` rather than a plain
-    `_import_main()` + `sys.exit(op_main(argv))` tail, so any path the op
-    declares via `declare_write` becomes a session scope-touch claim instead
-    of an unclaimed orphan at the `scoped_git_commit` sink)."""
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 

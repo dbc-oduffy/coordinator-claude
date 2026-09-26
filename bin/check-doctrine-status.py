@@ -51,9 +51,6 @@ from pathlib import Path
 
 
 def _load_doctrine_status():
-    """Engine imports happen here, inside a function, never at module scope --
-    keeps the module body pure so `serve_classifier` still classifies this file
-    warm-servable (the same bootstrap every engine-resident CLI in this directory uses)."""
     import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
     import cc_invoke
 
@@ -110,9 +107,6 @@ def main(argv: "list[str] | None" = None) -> int:
         try:
             finding = ds.check_page(page, vocabulary)
         except UnicodeDecodeError as exc:
-            # An unreadable page must not collide
-            # with exit 1 (unlisted status value); loud exit 2 naming the
-            # file beats silently skipping a page the lint cannot check.
             try:
                 rel = page.relative_to(ds.REPO_ROOT)
             except ValueError:

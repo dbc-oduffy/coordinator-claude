@@ -88,7 +88,6 @@ import os
 import sys
 
 
-
 def _fetch_result() -> dict:
     """Return the bare engine.drift result dict, or {} on any failure/skip.
 
@@ -127,7 +126,7 @@ def _fetch_result() -> dict:
 
 
 def main(argv: "list[str] | None" = None) -> int:
-    del argv  # this CLI takes no arguments; argv accepted for the warm-call contract
+    del argv
     result = _fetch_result()
     state = result.get("state", "")
 

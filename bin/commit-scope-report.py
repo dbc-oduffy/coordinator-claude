@@ -67,7 +67,6 @@ def _git_common_dir(repo: Path) -> Path | None:
                 gitdir = Path(text.split(":", 1)[1].strip())
                 if not gitdir.is_absolute():
                     gitdir = (candidate / gitdir).resolve()
-                # A linked worktree's gitdir is <common>/worktrees/<name>.
                 if gitdir.parent.name == "worktrees":
                     return gitdir.parent.parent
                 return gitdir
@@ -151,8 +150,6 @@ def summarize(records: Iterator[Dict[str, Any]]) -> Dict[str, Any]:
         foreign += 1
         if rec.get("sweep_all"):
             # `-a`/`--all` stages from the WORKTREE at commit time; the staged
-            # snapshot cannot answer what it will sweep, so it is counted
-            # separately rather than folded into either population.
             warned_but_sweep_all += 1
         elif rec.get("pathspec_scoped"):
             warned_but_scoped += 1
@@ -169,10 +166,6 @@ def summarize(records: Iterator[Dict[str, Any]]) -> Dict[str, Any]:
         "warned_but_sweep_all": warned_but_sweep_all,
         "sweep_rate": (sweep_candidates / total) if total else 0.0,
         # FP proxy = false-positive rate among DECIDABLE attempts. The
-        # `-a`/`--all` bucket (`warned_but_sweep_all`) cannot be classified
-        # as sweep-or-scoped from the staged snapshot alone, so it is
-        # excluded from BOTH the numerator and this denominator — it stays
-        # visible only as its own printed line, not folded into the rate.
         "fp_proxy_rate": (
             (warned_but_scoped / (sweep_candidates + warned_but_scoped))
             if (sweep_candidates + warned_but_scoped)

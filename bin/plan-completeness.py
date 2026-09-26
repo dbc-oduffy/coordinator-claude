@@ -44,10 +44,6 @@ _TERMINAL_LABEL = {"no-spine": "NO-SPINE", "unreadable": "UNREADABLE"}
 
 
 def _lib():
-    """The `plan_completeness` lib module, lazily bound — never at module scope (see module
-    docstring). Mirrors `plan-spine-check.py::_ensure_engine_on_path`'s lazy-bootstrap shape:
-    `import lib` puts `coordinator/bin/lib` on `sys.path` (idempotently, via that package's own
-    `__init__.py`), then the sibling module resolves by bare name."""
     import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
 
     import plan_completeness as _pc
@@ -56,7 +52,6 @@ def _lib():
 
 
 def _chunks_segment(chunks_total, chunks_reported: int) -> str:
-    """The `chunks ...` status-line segment (plan's § C3 body, verbatim forms)."""
     if chunks_total is not None:
         return f"chunks {chunks_reported} of {chunks_total} reported"
     if chunks_reported == 0:
@@ -64,10 +59,6 @@ def _chunks_segment(chunks_total, chunks_reported: int) -> str:
     return f"chunks {chunks_reported} reported of UNKNOWN (no emitted workflow)"
 
 def _status_line(rollup: dict) -> str:
-    """The one-line rollup (plan's § C3 body). Zero-valued optional segments — non-conformant,
-    ambiguous, orphan, `K unapproved closures`, `K out-of-enum dispositions` — are omitted.
-    `... diverged` is never omitted, even at zero (the plan's own worked examples show `0
-    diverged` unconditionally)."""
     segments = [
         f"{rollup['rows_resolved']} of {rollup['rows_total']} rows resolved",
         _chunks_segment(rollup["chunks_total"], rollup["chunks_reported"]),
@@ -100,14 +91,6 @@ def _status_exit_code(rollup: dict) -> int:
 
 
 def _plan_and_repo(plan_arg: str) -> "tuple[Path, Path] | None":
-    """The plan's absolute path and the repo it lives in, or None after naming the miss on stderr.
-
-    Trap: the repo root is the PLAN's, never this script's. The published plugin installs this
-    file outside any consumer repo, so an install-relative root reads every consumer plan as
-    missing and writes sidecars where nothing reads them (claude-klabauter#78). A relative path
-    resolves against cwd, as every sibling ceremony CLI does. The walk looks for `.git` (a dir,
-    or a file in a worktree/submodule) instead of spawning git.
-    """
     plan = Path(plan_arg)
     if not plan.is_absolute():
         plan = Path.cwd() / plan

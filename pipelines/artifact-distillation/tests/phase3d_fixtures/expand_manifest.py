@@ -34,18 +34,10 @@ SUPPORTED_VERSIONS = {1, 2}
 
 
 class ManifestExpansionError(Exception):
-    """Raised when the manifest fails the expansion contract (fail-loud per DR-082)."""
+    pass
 
 
 def _strip_front_matter(raw: str) -> str:
-    """Extract the YAML front-matter block between the first pair of --- fences.
-
-    Manifests may have prose content after the closing ---, which creates a second
-    YAML document and causes yaml.safe_load to reject the stream. Strategy: if the
-    file starts with ---, extract only the text between the first --- and the second
-    ---. If there is no closing fence, strip the leading --- and use the rest. If
-    there are no fences at all, use the raw text as-is (plain YAML document).
-    """
     lines = raw.splitlines()
     if lines and lines[0].rstrip() == "---":
         close_idx = None
@@ -60,10 +52,6 @@ def _strip_front_matter(raw: str) -> str:
 
 
 def _resolve_scout_path(scout_source: str, scout_base: str) -> str:
-    # Review: code-reviewer F3 (2026-07-23) — dropped the bare
-    # `os.path.exists(scout_source)` branch: it resolved against the
-    # process cwd, not scout_base, so a same-named path in an unrelated
-    # cwd could silently short-circuit to the wrong file.
     if os.path.isabs(scout_source):
         return scout_source
     return os.path.join(scout_base, scout_source)
@@ -83,20 +71,12 @@ def _expand_group(group: dict, scout_base: str, warnings: list[str]) -> list[str
     with open(scout_path, encoding="utf-8") as fh:
         scout_text = fh.read()
 
-    # Locate the H2 heading that exactly matches section_anchor.
-    # Review: code-reviewer F1 — pin H2-only; lstrip("#") alone matches H1/H3/H4
-    # with same text; DR-3 mandates H2 headings only.
     anchor_line = section_anchor.lstrip("#").strip()
     lines = scout_text.splitlines()
     anchor_idx = None
     for i, line in enumerate(lines):
         if line.startswith("## ") and line.lstrip("#").strip() == anchor_line:
             if anchor_idx is not None:
-                # Review: code-reviewer F8/F2 (2026-07-23) — warn on duplicate
-                # anchor match (non-fatal): the comment claimed a warning was
-                # surfaced but nothing appended to `warnings` — fixed to
-                # actually emit one, matching the WARN-only pattern used by
-                # the .md-only audit guard below.
                 warnings.append(
                     f"duplicate section_anchor match for '{section_anchor}' in "
                     f"{scout_path} — using first match at line {anchor_idx + 1}."
@@ -109,8 +89,6 @@ def _expand_group(group: dict, scout_base: str, warnings: list[str]) -> list[str
             f"section_anchor not found in scout file: '{section_anchor}' in {scout_path}"
         )
 
-    # Read the fenced YAML block immediately following the heading.
-    # Allow blank lines between heading and fence.
     fence_start = None
     for i in range(anchor_idx + 1, len(lines)):
         stripped = lines[i].strip()
@@ -149,8 +127,6 @@ def _expand_group(group: dict, scout_base: str, warnings: list[str]) -> list[str
     artifact_paths = block_doc.get("artifact_paths", []) if isinstance(block_doc, dict) else []
     actual_count = len(artifact_paths)
 
-    # Review: code-reviewer F10 — count: is required per DR-3 sanity-check discipline;
-    # silently skipping the assertion when count: is absent defeats the invariant.
     if expected_count is None:
         raise ManifestExpansionError(
             f"missing required 'count:' field for group '{section_anchor}' in manifest. "
@@ -167,12 +143,6 @@ def _expand_group(group: dict, scout_base: str, warnings: list[str]) -> list[str
 
 
 def check_fanout_sentinel(manifest_path: str) -> None:
-    """Fanout sentinel — mirrors the shell runner's fragment-vs-canonical guard.
-
-    Fires when: (a) fragment files ARE present in the manifest dir, AND (b) the
-    canonical assembled manifest (phase3d-deletion-manifest.md) is NOT the file
-    being expanded. I.e. fragments exist but assembly hasn't completed yet.
-    """
     manifest_dir = os.path.dirname(manifest_path)
     manifest_base = os.path.basename(manifest_path)
     fragment_count = 0
@@ -189,16 +159,6 @@ def check_fanout_sentinel(manifest_path: str) -> None:
 
 
 def expand(manifest_path: str, scout_base: str | None = None) -> tuple[list[str], list[str]]:
-    """Expand a Phase 3d deletion manifest into its final delete set.
-
-    Returns (md_paths, warnings) — md_paths is the sorted, deduped, .md-only delete
-    set; warnings is a list of human-readable WARN strings (non-.md exclusions,
-    duplicate-anchor matches) that the shell runner printed to stderr.
-
-    Raises ManifestExpansionError on any condition the shell runner treated as a
-    fatal ERROR (unsupported schema_version, missing scout file, missing anchor,
-    missing/unclosed YAML fence, count mismatch, missing count:, fanout sentinel).
-    """
     if not os.path.isfile(manifest_path):
         raise ManifestExpansionError(f"manifest file not found: {manifest_path}")
 
@@ -224,7 +184,6 @@ def expand(manifest_path: str, scout_base: str | None = None) -> tuple[list[str]
 
     schema_version = doc.get("schema_version", 1)
 
-    # Schema version gate (fail-loud per DR-082 / AC12).
     if schema_version not in SUPPORTED_VERSIONS:
         raise ManifestExpansionError(
             f"unsupported schema_version: {schema_version}. "
@@ -234,7 +193,6 @@ def expand(manifest_path: str, scout_base: str | None = None) -> tuple[list[str]
 
     delete_paths: list[str] = []
 
-    # Consume per-file deletions: rows (both schema v1 and v2).
     for row in doc.get("deletions", []) or []:
         if not isinstance(row, dict):
             continue
@@ -243,18 +201,12 @@ def expand(manifest_path: str, scout_base: str | None = None) -> tuple[list[str]
             if path:
                 delete_paths.append(path)
 
-    # .md-only audit guard.
-    # Review: code-reviewer F16 — soft/cosmetic guard, WARN-only, no dedicated
-    # negative fixture (documented coverage gap, not a bug).
     warnings: list[str] = []
 
-    # Expand deletion_groups: (schema_version: 2 only).
     if schema_version == 2:
         for group in doc.get("deletion_groups", []) or []:
             if not isinstance(group, dict):
                 continue
-            # Review: code-reviewer F9 — whitelist DELETE only; missing disposition
-            # is a schema error, not an implicit DELETE.
             if group.get("disposition") != "DELETE":
                 continue
             delete_paths.extend(_expand_group(group, scout_base, warnings))

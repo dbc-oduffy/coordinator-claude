@@ -124,7 +124,7 @@ def build_content_cache(repo_root: Path) -> tuple[dict[str, gp.FileWrites], int]
             continue
         digest = cache.content_hash(data)
         if digest in entries:
-            continue  # already scanned this exact content under another path
+            continue
 
         try:
             source = data.decode("utf-8")

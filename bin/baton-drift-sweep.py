@@ -141,7 +141,6 @@ def main(argv: list[str]) -> int:
         print(f"baton-drift-sweep.py: cannot resolve git repo root from {os.getcwd()}", file=sys.stderr)
         return 2
     if verdict["verdict"] == "MISMATCH":
-        # DR-277: this is a READER (no write into resolved root) -- warn and
         # proceed rather than refuse. UNRESOLVED never refuses either (AC4).
         print(verdict["message"], file=sys.stderr)
 

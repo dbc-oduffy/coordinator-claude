@@ -133,60 +133,21 @@ __all__ = [
     "main",
 ]
 
-#: RETIRED AS A VERDICT BY DR-402, KEPT AS A CAUSE LABEL. This text was the deny this module
-#: emitted when discovery resolved no backend, and emitting it is now the defect: a guard that
-#: never evaluated holds no verdict to report. It survives ONLY as the `cause` string the ladder
-#: stamps into its durable rung records and its loud proceed message, where "no live engine
-#: backend reachable" is a true statement of fact rather than a permission decision.
-#:
 #: DO NOT REATTACH THIS TO A `permissionDecision`. A successor reading a deny storm and reaching
-#: for the "safe default" is exactly the misunderstanding DR-402 names -- see the module
-#: docstring's ladder.
 DENY_REASON = (
     "http-hook-forwarder: no live engine backend reachable. Retrying does not start a "
     "backend sooner. Wait for a call to succeed; do not probe."
 )
 
-#: Reason text for the OTHER case this module must author a decision for: a backend that was
-#: reached and answered, but answered with a transport-level refusal rather than a verdict.
-#:
 #: WHY THIS IS A DENY AND NOT A RELAY, MEASURED. Relaying the raw status was this module's
-#: original behaviour and it is a guard-bypass hole: the harness FAILS OPEN on a non-2xx from a
 #: hook, and on `PreToolUse` it does so SILENTLY -- nothing surfaces in the tool result at all.
-#: Measured 2026-08-27 with a receiver answering every POST with a bare 401 registered as
-#: `PreToolUse`: the harness dialled, took the 401, and ran the tool anyway
-#: (`docs/research/evidence/2026-08-27-transport-error-fail-open/`). A transport error is NOT a
-#: verdict, and this module must never hand the harness one where a verdict was required.
 #: DIAGNOSTIC LIMIT, worth knowing before this text is trusted as a diagnosis. `cookie.read`
-#: collapses "no cookie exists" and "the cookie exists and could not be read" to `None` by
-#: design -- the engine keeps `CookieUnreadableError` for the boot paths that must NOT collapse
-#: them. So this module cannot distinguish an ungated backend from a gated one whose credential
-#: it failed to read, and under a deny storm those have entirely different diagnoses. Reading
-#: the cookie a second way to tell them apart is deliberately NOT done here: it would add a
-#: failure path to the hot path of every Bash call on the box to improve a log line.
 #: RETIRED AS A VERDICT BY DR-402, KEPT AS A CAUSE LABEL -- see `DENY_REASON`'s note; same
-#: disposition applies here. A backend that answered with a transport error still did not
-#: evaluate the guard, so this is a ladder entry (rung 2, then 3), never a deny.
 REFUSED_REASON = "http-hook-forwarder: engine backend refused the request"
 
 #: Reason text for the third deny this module authors: the override channel was DECLARED and then
-#: VETOED (`_env_from_request_headers` found an `httpHookAllowedEnvVars` setting vetoing the
-#: registration's own `allowedEnvVars`). Its own branch because it has NOTHING to do with backend
-#: reachability and fires against a live, healthy, unskewed backend -- a caller told the backend
-#: was unreachable will probe the listener, read the discovery record, and test skew, and every
-#: one of those steps is wasted. A deny whose stated cause is false costs more than a silent one,
-#: because it is acted upon.
 #: NAMES ITS OWN RECOVERY, because this is the one deny in this module an actor cannot act on
-#: with the tool it just lost. It fires on the Bash matcher, so every documented recovery --
-#: `claude plugin disable`, the unlock sentinel, killing the resident forwarder -- is itself a
-#: Bash call, and the deny stands for the life of the session (hook registrations are read at
-#: session start). `guard-proportionality.md`'s outlet test is exactly this: the denied actor
-#: must be able to state what it does next WITHOUT a human. So the text names the file edit,
-#: which file tools alone can make: the `enabledPlugins` entry in `~/.claude/settings.json`,
-#: which takes effect in the next session. It does not assert the veto as fact: an empty canary
-#: also results from a harness process with neither canary variable set, and this module cannot
 #: see which, so claiming one is the false-cause deny the `DENY_REASON` note warns costs more
-#: than a silent one.
 VETOED_ENV_REASON = (
     "http-hook-forwarder: the override channel is declared but its canary header (HOME / "
     "USERPROFILE) arrived empty, so no caller override reached the guard and the Bash guard "
@@ -199,194 +160,66 @@ VETOED_ENV_REASON = (
 )
 
 #: Discovery resolved a backend and it could not be reached -- distinct from `DENY_REASON`'s
-#: "nothing resolved at all". A stale record pointing at a dead process denies exactly like an
-#: absent one, but the two want different first moves: this one names the address that failed.
 #: RETIRED AS A VERDICT BY DR-402, KEPT AS A CAUSE LABEL -- see `DENY_REASON`'s note; same
-#: disposition applies here.
 UNREACHABLE_REASON = (
     "http-hook-forwarder: discovery named an engine backend but it could not be reached "
     "(refused, timed out, or reset mid-response); the discovery record may be stale"
 )
 
-#: Same cap `http_listener.py` applies to its own POST bodies -- a hook event is a small JSON
-#: object, and anything larger here is malformed or hostile before it reaches this module's own
-#: (tiny) parsing.
 MAX_BODY_BYTES = 1 << 20
 
-#: How long the CONNECT leg may take before this module treats the backend as unreachable and
-#: denies. Small: the backend is loopback-local and, per the 2026-08-19 spike, sub-millisecond
-#: when it is actually up. This bound exists for the down case, not the up one.
 _FORWARD_CONNECT_TIMEOUT_SECS = 2.0
 
 #: How long the backend may spend RESPONDING once the socket is established. Deliberately an
-#: order of magnitude above the connect bound, and above the engine's own per-op dispatch budget
 #: (30 s at the time of writing), because this leg measures guard EXECUTION, not transport.
-#:
-#: WHY THE TWO LEGS CANNOT SHARE ONE NUMBER. `HTTPConnection(timeout=N)` applies N to the socket
-#: for its whole lifetime -- connect, send, AND response read -- so a single small value caps how
-#: long the engine may take to *evaluate a guard*, and a `socket.timeout` on that read is an
-#: `OSError` that lands in `do_POST`'s unreachable branch. A live backend still legitimately
-#: serving an expensive guard (a commit guard's cwd-sensitive git reads plus a delegate spawn, on
-#: a large index under fleet load) is then reported as no-backend and the command is denied.
-#: Reachability must never be adjudicated on a call the backend is still answering.
-#:
-#: Sized ABOVE the engine's own budget on purpose: the engine is the component that owns giving
-#: up on a slow op, and it already does. This module's job is to not pre-empt that decision.
 _FORWARD_READ_TIMEOUT_SECS = 45.0
 
-#: The one fixed, machine-global loopback port this module ever binds or dials -- named here so
-#: exactly one place in the tree commits the number (module docstring, "WHAT THIS MODULE DOES
-#: NOT DO"; `DR-http-hook-forwarder-fixed-port.md` Decision 3 assigns *ownership* of the port,
 #: not its value). It carries no clone identity -- routing rides the `COORDINATOR_CLONE_ROOT`
-#: header per that DR's Decision 1 -- so one number serves every clone on the box.
-#:
-#: Checked against, before picking 47623:
-#:   - IANA registered ports (0-49151, both the "well known" 0-1023 and "user/registered"
-#:     1024-49151 ranges as of the IANA Service Name and Transport Protocol Port Number
-#:     Registry) -- 47623 is unassigned in that registry.
-#:   - Windows' default dynamic/ephemeral client port range, `49152-65535`
-#:     (`netsh int ipv4 show dynamicport tcp`, Windows default since Vista) -- 47623 sits below
-#:     that range, so the OS will never hand it out to an outbound client socket and collide
-#:     with this module's own listener.
-#:   - Common dev-tool defaults in this environment (Node/Vite 5173, common debug ports
-#:     8000/8080/9000-series, Postgres 5432, Redis 6379, etc.) -- no overlap.
 FIXED_PORT = 47623
 
 #: THE FIXED-PORT SUCCESSION -- the four literals that let this module keep the seat.
-#:
-#: `coordinator_core.warm.front_door` binds this same 47623 (it took the value FROM here, per its
 #: own module docstring), so a spawned front door takes EADDRINUSE against this process and must
-#: then discriminate an ordinary lost election from a foreign squatter. It does that by
 #: `probe_existing_holder`: GET `<HEALTH_PATH>` on the bound port, and a 2xx UTF-8 JSON object
 #: carrying `DOOR_PROTOCOL_VERSION_KEY` as an int. Anything else -- refused, timed out, non-2xx,
-#: malformed, or missing the marker -- is `ForeignHolderError`, which its AC4 branch says must
-#: never be read as "no listener" nor as an ordinary defer.
-#:
-#: The marker is what lets `ensure_front_door` have a useful production caller: without it,
-#: registering one would spawn a front-door process per session that can never win the seat --
-#: ~30 concurrently on this box -- restoring nothing.
-#:
 #: THE MARKER IS A CONFORMANCE CLAIM, NOT AN IDENTITY CLAIM. It asserts "this holder speaks the
-#: front-door hook transport", never "I am a process running front_door.py". This module is not
-#: one and never becomes one; it is a legitimate ordinary-defer holder. The full holder contract
-#: -- route, status, body, version, budget, and the `POST /hook` obligation the marker also
-#: claims -- is written down at `hook-seam-warm-reach-contract.md` § The fixed-port succession
-#: (engine repo `fa736c9dba`), and is pinned engine-side by
-#: `coordinator_core/warm/tests/test_front_door_succession_contract.py`.
-#:
 #: SPELT AS LITERALS, NOT IMPORTED, for the identical reason `COOKIE_HEADER_NAME` below is: this
-#: module must keep serving when `coordinator_core` is unimportable, and the health answer in
-#: particular must not depend on an engine root resolving -- an engine-gated `/health` would 501
-#: on exactly the cold box where the succession has to work. Pinned against the engine's own
-#: constants by `test_http_hook_forwarder_health.py`, the same way the cookie header is.
-#:
 #: DO NOT BUMP `PUBLISHED_DOOR_PROTOCOL_VERSION` TO FORCE A RE-ELECTION. It gates wire shape, and
-#: `is_own_door_health_payload` accepts ANY int precisely so a bump is not a fleet restart.
 HEALTH_PATH = "/health"
 DOOR_PROTOCOL_VERSION_KEY = "door_protocol_version"
 PUBLISHED_DOOR_PROTOCOL_VERSION = 1
 
-#: Published beside the marker so a human reading a probe body can tell WHICH conforming holder
-#: answered. The contract ignores extra keys, and the engine pins that they stay ignored, so this
-#: is safe to carry and strictly better than an anonymous 2xx: the marker says the transport is
-#: spoken, this says by whom.
 HOLDER_NAME = "doe-http-hook-forwarder"
 
 #: HTTP header the `type: "http"` registration carries `${COORDINATOR_CLONE_ROOT}` on, per
-#: `DR-http-hook-forwarder-fixed-port.md` Decision 1's routing key. The DR names the env var but
-#: leaves the on-the-wire header name unstated (the registration flip is itself deferred --
 #: `coordinator/hooks/REGISTRATIONS.md`'s note on the folded Bash entry -- so no header has
-#: been exercised end-to-end yet). Chosen here as a single module constant so the registration
-#: chunk cites this name rather than inventing its own: `X-Coordinator-Clone-Root`.
 ROUTING_HEADER_NAME = "X-Coordinator-Clone-Root"
 
-#: Credential header the warm listener's cookie gate requires on every forwarded request
 #: (`coordinator_core/warm/cookie.py` `COOKIE_HEADER`; enforced in `supervisor.py`
-#: `_cookie_is_valid`, before routing, fail-closed).
-#:
-#: NOT the door key, and the two are routinely conflated. `X-Coordinator-Door-Key` is env-sourced
 #: (`COORDINATOR_DOOR_KEY`, `door_credential.py`) and interpolates into a `type: "http"`
-#: registration; THIS one is file-sourced per engine root and the harness cannot interpolate it,
-#: which is why it is attached here at forward time rather than by the registration. A third
-#: axis, the skew token, is neither -- it self-stamps and refuses with 409, not 401.
-#:
-#: Spelt as a literal rather than imported from the engine so this module keeps forwarding when
-#: `coordinator_core` is unimportable; the value is pinned against the engine by
-#: `test_http_hook_forwarder_cookie.py`.
 COOKIE_HEADER_NAME = "X-Coordinator-Cookie"
 
-#: Env var overriding where the dial counter is persisted. Exists for tests and for a second
-#: forwarder deliberately run off to one side; a deployment never sets it.
 DIAL_COUNT_PATH_ENV = "COORDINATOR_FORWARDER_DIAL_COUNT_PATH"
 
-#: How many recent arrivals the counter keeps alongside the totals. A bare integer is
-#: uninterpretable while a sweep varies one registration field at a time -- the tail is what says
-#: WHICH variation dialled. Small: this is a breadcrumb, not a log.
-#: Wall-clock ceiling on the bounded wait `_resolve_backend` and `do_POST`'s `OSError` arm
-#: spend re-reading discovery before they deny. THREE SECONDS, NOT FIFTEEN, AND THE NUMBER IS
 #: ARGUED RATHER THAN INHERITED.
-#:
-#: The shape is `warm.client`'s, whose ledger is 161/166 served against a 15s deadline, p50 wait
-#: 1.30s, p90 3.05s, over a boot whose own `ready_secs` is p50 0.783s / p90 1.189s. That is prior
-#: art, not authority: this module runs inside a `PreToolUse` hook on the hot path of every Bash
-#: call on the box, and `coordinator.local.md`'s worst-host rule governs here -- the budget is set
-#: by the slowest machine any peer is sitting at, and a per-call stall is never "not a hot path".
-#: Against that text a 15s hold is not defensible; ~3s recovers 89% of the same population for a
-#: fifth of the worst-case stall, which is the trade this repo's own governing text picks.
-#:
-#: WHY A BOUNDED WAIT IS CHEAPER THAN TODAY'S DENY, on both units. A hard deny costs the caller a
-#: full model retry -- more wall clock AND more process time than any wait here. And a thread
-#: blocked on `time.sleep` between discovery reads consumes ~0 process time, so this adds no
-#: second process-time bar. That is the whole of the process-time claim; it is not a licence to
-#: treat wall clock as free, which is why the deadline above is argued down rather than adopted.
 _BACKEND_WAIT_DEADLINE_SECS = 3.0
 
-#: Gap between discovery re-reads inside the wait. Small enough that a listener that binds at
-#: 0.78s is served at ~0.8s rather than at the next coarse tick.
 _BACKEND_WAIT_TICK_SECS = 0.1
 
-#: The three ways a dial that ARRIVED can still fail to reach a backend, counted separately.
-#: `received_total - sum(forwarded_by_event)` collapses all three into one number, and that
-#: collapse is why the incident this instrument exists for could not diagnose itself: "no record
-#: was published", "a record named a backend that refused the connection", and "a record parsed
-#: but was version-skewed and never resolved" have different owners and different fixes, and are
 #: indistinguishable in a single gap figure. They are also what makes the wait above MEASURABLE
-#: rather than merely asserted -- an effect size needs the arm it moved.
 DENY_ARM_NO_BACKEND = "no_backend"
 DENY_ARM_UNREACHABLE = "unreachable"
 DENY_ARM_SKEW = "skew"
 
-#: The two below-warm rungs of DR-402's ladder, as recorded in `degrade_log_path()` and counted
-#: in `DialCounter.rungs`. Rung 1 (warm) is not named here because it is the absence of a rung
-#: record -- a served call writes nothing, which is what keeps the degrade log readable as
-#: "everything in this file is a departure from normal".
-#:
 #: THE ARMS ABOVE DID NOT BECOME REDUNDANT. `DENY_ARM_*` says WHY warmth was unavailable (whose
-#: bug: no record published, a record naming a dead port, a version-skewed record); the rungs say
-#: WHAT WE DID ABOUT IT. A box where every call is rung 2 is healthy-ish and slow; a box where
-#: every call is rung 3 is running unguarded. Collapsing the two axes loses the second question.
 RUNG_COLD = "cold"
 RUNG_PROCEED = "proceed"
 
-#: Not a rung of the ladder -- a lifecycle event recorded on the same surface, because a reader
-#: chasing a degrade run needs to see that the process changed its mind about where the engine is
 #: IN THE SAME TIMELINE as the denials around it. Filed here rather than in a second log for the
-#: reason the rungs are: a fact split across two files is a fact nobody correlates.
 RUNG_ENGINE_ROOT_INVALIDATED = "engine_root_invalidated"
 
 #: WHY `no_backend` NEEDED SPLITTING, and this is the whole P1. On 2026-09-01 a forwarder denied
-#: for ~38 minutes against a live, healthy listener, and its own dial file could not say why: the
-#: `no_backend` arm collapses ELEVEN distinct return sites -- no routing key, a header naming no
-#: real clone, no engine root resolvable, `coordinator_core` unimportable, a root that fails
-#: `is_engine_root`, no discovery record, a malformed record, a bad port, an unresolvable bind
-#: host -- into a single integer. Those have different owners and different first moves, and no
-#: arithmetic over the other counters recovers which fired. This is the identical defect
 #: `DENY_ARM_*` was introduced to fix one level up, repeated one level down; the incident could
-#: not diagnose itself for exactly that reason.
-#:
 #: THE ARM IS UNCHANGED AND STAYS COARSE. `denied_by_arm` remains the three-way whose-bug-is-it
-#: axis that existing readers and tests depend on; the cause is a strictly additive second
-#: dimension recorded beside it. A cause is never a verdict and never changes one.
 CAUSE_NO_ROUTING_KEY = "no_routing_key"
 CAUSE_CLONE_UNRESOLVED = "clone_root_unresolvable"
 CAUSE_NO_ENGINE_ROOT = "engine_root_unresolved"
@@ -399,30 +232,16 @@ CAUSE_RECORD_BAD_PORT = "record_port_missing_or_invalid"
 CAUSE_NO_BIND_HOST = "bind_host_unresolvable"
 CAUSE_SKEWED = "record_version_skewed"
 
-#: Env var overriding where the rung records are persisted. Exists for tests, like
 #: `DIAL_COUNT_PATH_ENV`; a deployment never sets it.
 DEGRADE_LOG_PATH_ENV = "COORDINATOR_FORWARDER_DEGRADE_LOG_PATH"
 
-#: Cap on the rung record file before it is truncated and restarted. Small on purpose -- this is
-#: a bounded breadcrumb like `DialCounter`'s ring, not an archive. A box in sustained rung 3
-#: writes one row per Bash call, and the reader's question ("is this happening, and since when")
-#: is answered by the recent tail, never by the whole history.
 _DEGRADE_LOG_MAX_BYTES = 2 << 20
 
-# Review: coordinator:code-reviewer (a4d565927c67359bc) -- guards the stat/truncate/append
-# sequence in `_record_rung` across `ThreadingHTTPServer` handler threads, same reasoning
-# `DialCounter._lock` documents for its own write path: an unsynchronized truncate racing an
-# append can silently drop a degrade row on the exact hot path DR-402 exists to make loud.
 _degrade_log_lock = threading.Lock()
 
 _DIAL_RING_SIZE = 20
 
-#: Bounded ladder for the counter's atomic replace. CPython's ``open()`` does not request
 #: ``FILE_SHARE_DELETE``, so on Windows a replace of a file any reader currently holds open fails
-#: with ``PermissionError`` (WinError 5) rather than blocking. Measured against one polling
-#: reader, 2474 of 4000 single-attempt replaces failed that way; every one was swallowed by
-#: ``persist``'s never-raise contract and lost the arrival it carried. The cap keeps a contended
-#: write shorter than the response it already trails, and POSIX never enters the ladder at all.
 _REPLACE_RETRY_ATTEMPTS = 50
 _REPLACE_RETRY_SLEEP_SECONDS = 0.002
 
@@ -558,10 +377,6 @@ class DialCounter:
 
     def _snapshot_locked(self) -> dict:
         return {
-            # Schema 5 adds `denied_by_cause` and `engine` -- the two facts the 2026-09-01
-            # incident needed and could not get. Schema 4 added `rungs` (DR-402's ladder). Every
-            # bump here has been purely additive; a reader that only knows an older schema still
-            # parses every field it knew.
             "schema": 5,
             "boot_id": self._boot_id,
             "pid": self._pid,
@@ -597,10 +412,6 @@ class DialCounter:
         return at
 
     def record_event(self, hook_event_name: Optional[str], at: Optional[str] = None) -> None:
-        """The arrival's body parsed and named this event.
-
-        `at` is the timestamp `record_arrival` returned for THIS request -- see why there.
-        """
         key = hook_event_name or "<unnamed>"
         stamped = at or _utc_now()
         with self._lock:
@@ -610,7 +421,6 @@ class DialCounter:
                 del self._recent[: len(self._recent) - _DIAL_RING_SIZE]
 
     def record_forwarded(self, hook_event_name: Optional[str]) -> None:
-        """The arrival reached a live backend, as opposed to being denied for want of one."""
         key = hook_event_name or "<unnamed>"
         with self._lock:
             self._forwarded_by_event[key] = self._forwarded_by_event.get(key, 0) + 1
@@ -632,19 +442,6 @@ class DialCounter:
             self._denied_by_arm[arm] = self._denied_by_arm.get(arm, 0) + 1
 
     def record_cause(self, cause: Optional[str]) -> None:
-        """WHICH of the arm's many return sites produced it -- the P1 fix.
-
-        `denied_by_arm` says whose bug it is at three-way resolution; `no_backend` alone covers
-        eleven distinct return sites with different owners and different first moves. On
-        2026-09-01 a forwarder denied for ~38 minutes against a healthy listener and this file,
-        the only surface anyone reads, could not narrow it past "no_backend: 162". Recorded, not
-        derived: no arithmetic over the other fields recovers it, exactly as `record_denied`'s own
-        note says of the arm.
-
-        A `None` cause is filed under `<unattributed>` rather than dropped. Dropping it would let
-        the causes silently sum to less than the arm and make the pair look inconsistent, which is
-        the failure this whole instrument exists to avoid.
-        """
         key = cause or "<unattributed>"
         with self._lock:
             self._denied_by_cause[key] = self._denied_by_cause.get(key, 0) + 1
@@ -662,24 +459,6 @@ class DialCounter:
             self._rungs[rung] = self._rungs.get(rung, 0) + 1
 
     def persist(self) -> None:
-        """Rewrite the file atomically.
-
-        THE LOCK IS HELD ACROSS THE WRITE, not merely across the snapshot, and that is a
-        correctness requirement rather than tidiness. This is a `ThreadingHTTPServer`: two
-        handlers persist concurrently. Snapshot under the lock and write outside it, and the
-        orderings interleave -- thread A snapshots at 1, thread B snapshots at 2, B writes, then
-        A writes -- and the file settles at 1 **permanently**, with an arrival correctly counted
-        in memory now absent from the only surface anyone reads. A counter that loses arrivals
-        under concurrency cannot be trusted to report a zero, which is the one thing it exists to
-        do. Serializing the writes costs nothing that matters: `persist` is called only after the
-        response has already been sent.
-
-        Each write carries the whole snapshot rather than a delta, so a write that loses a race
-        is corrected by the next one instead of compounding.
-
-        Never raises: a counter able to take the forwarder down would be a worse defect than the
-        one it measures.
-        """
         try:
             with self._lock:
                 payload = json.dumps(self._snapshot_locked(), indent=2, sort_keys=True)
@@ -723,10 +502,6 @@ class DialCounter:
                 time.sleep(_REPLACE_RETRY_SLEEP_SECONDS)
 
 
-# `_engine_root.py` lives one directory down from this module (`coordinator/hooks/scripts/`),
-# the same seam every other coordinator/hooks/*.py hook resolves the sibling engine checkout
-# through -- see that module's own docstring for why a single shared seam replaced 22 copies of
-# the same ladder.
 _SCRIPTS_DIR = str(Path(__file__).resolve().parent / "scripts")
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
@@ -736,9 +511,6 @@ try:
         resolve_claude_klabauter_root_with_provenance as _resolve_engine,
     )
 except Exception:
-    # Defensive fallback, matching every other coordinator/hooks/*.py consumer of this seam:
-    # a deploy missing its sibling _engine_root.py must still fail open (deny, on this module's
-    # own terms -- "no engine root" is exactly the no-backend case) rather than crash on import.
     def _resolve_engine() -> "Tuple[Optional[str], str, str]":
         return None, "unresolved", "none"
 
@@ -750,13 +522,6 @@ _engine_root_resolved_at: Optional[str] = None
 _engine_root_last_reresolve: float = 0.0
 _engine_discovery_path: Optional[str] = None
 
-#: Minimum gap between two re-resolutions of the engine root. See `invalidate_engine_root`.
-#:
-#: BOUNDED, BECAUSE THE LADDER IS NOT FREE. `_resolve_engine` reads a machine-local registry and
-#: touches disk; the original "resolve once" decision was right about that cost and this does not
-#: reverse it. What it reverses is resolving once and then trusting the answer FOREVER, including
-#: through the entire lifetime of a wrong answer. Re-resolution happens only on the failure path
-#: and at most this often, so a healthy forwarder never runs the ladder twice.
 _ENGINE_ROOT_RERESOLVE_MIN_GAP_SECS = 30.0
 
 
@@ -786,14 +551,6 @@ def _ensure_engine_on_sys_path() -> bool:
 
 
 def _ensure_engine_on_sys_path_locked() -> Optional[str]:
-    """Do the resolve-and-cache work of `_ensure_engine_on_sys_path`. Caller MUST already hold
-    `_engine_root_lock` -- this is the shared body behind both that function's bool contract and
-    `_resolved_engine_root`'s value contract, so the two never observe two different lock
-    acquisitions of the same fact (Review: coordinator:code-reviewer, Finding 3 -- a caller
-    reading `_engine_root_cache` after `_ensure_engine_on_sys_path` released the lock could race
-    a concurrent `invalidate_engine_root`; folding the read into the same critical section
-    closes that window).
-    """
     global _engine_root_cache, _engine_root_provenance, _engine_root_resolved_at
     if _engine_root_cache is not None:
         return _engine_root_cache
@@ -893,12 +650,6 @@ def _resolved_engine_root() -> Optional[str]:
 
 
 def _parse_hook_event_name(body: bytes) -> Optional[str]:
-    """The one parse. `None` means the body carried no usable `hook_event_name`.
-
-    Its two callers differ ONLY in what they do with that `None`, and that difference is
-    load-bearing (see `_counted_event_name`). The parsing itself is shared so a future change to
-    the body shape has one place to land rather than two to keep in step. Never raises.
-    """
     try:
         obj = json.loads(body.decode("utf-8"))
     except (ValueError, UnicodeDecodeError):
@@ -911,8 +662,6 @@ def _parse_hook_event_name(body: bytes) -> Optional[str]:
 
 
 def _extract_hook_event_name(body: bytes) -> str:
-    """The event name for the DENY this module may author, defaulting to `PreToolUse` -- a
-    refusal has to name some event, and that is the only one this plan wires over http."""
     return _parse_hook_event_name(body) or "PreToolUse"
 
 
@@ -1066,10 +815,6 @@ def _record_rung(
             row["detail"] = detail[:500]
         line = json.dumps(row, sort_keys=True) + "\n"
         path.parent.mkdir(parents=True, exist_ok=True)
-        # Review: coordinator:code-reviewer (a4d565927c67359bc) -- hold the lock across the
-        # whole stat-check + truncate + append sequence, not just the append, mirroring
-        # `DialCounter.persist`'s own reasoning: a truncating open racing an appending open on
-        # another thread can lose a row with no error raised on either side.
         with _degrade_log_lock:
             try:
                 if path.stat().st_size > _DEGRADE_LOG_MAX_BYTES:
@@ -1346,27 +1091,9 @@ def _wait_for_discovery(
 _ensure_listener_lock = threading.Lock()
 _ensure_listener_last_at: float = 0.0
 
-#: Minimum gap between two `ensure_listener` calls from THIS process, across all handler threads.
-#:
 #: WHY A DEBOUNCE IS REQUIRED AND NOT A NICETY. `ensure_listener` health-checks and, when nothing
-#: answers, best-effort spawns a detached interpreter -- and the engine's own `should_spawn`
-#: returns True unconditionally while the discovery record is absent, so it does not debounce on
-#: its side. One trigger per request against a down backend therefore means one interpreter start
-#: per Bash call, on a box with ~50 live sessions. That was already latent; DR-402's ladder makes
-#: it WORSE rather than better, because rungs 2 and 3 let the calls SUCCEED, so the box goes back
-#: to full command volume while the backend is still down. Trading a deny storm for a spawn storm
-#: would be a worse outage than the one being fixed -- the spawns compete for the same CPU the
-#: cold evaluations now need.
-#:
 #: THE RECOVERY PROPERTY IS PRESERVED. The point of the trigger is that a listener exists for a
-#: LATER call, never this one (`ensure_listener` never waits, by contract). One attempt every few
-#: seconds recovers a downed listener just as surely as one per request, because the listener's
-#: own boot is p50 0.783s / p90 1.189s -- far inside this window. What is lost is only the
-#: redundant attempts, which never helped anyone.
-#:
 #: PROCESS-LOCAL, DELIBERATELY. This forwarder is the single machine-wide resident on the fixed
-#: port, so a process-local gate IS the box-wide gate for hook-driven spawns -- no shared file,
-#: no lock, nothing that can itself fail on the hot path.
 _ENSURE_LISTENER_MIN_GAP_SECS = 5.0
 
 
@@ -1389,12 +1116,6 @@ def _ensure_listener_debounced(supervisor, engine_root: Path) -> None:
 
 
 def _import_supervisor():
-    """The engine's `warm.supervisor` module, or `None` when it cannot be imported.
-
-    A named seam rather than an inline import so the wait paths can be exercised without an
-    engine on disk. An unimportable engine is "no backend" like every other resolution failure
-    here -- never an exception onto the hot path.
-    """
     try:
         from coordinator_core.warm import supervisor as _supervisor
 
@@ -1499,11 +1220,6 @@ def _resolve_backend(
     except Exception:
         stamped = False
     if not stamped:
-        # THE CACHED ROOT HAS STOPPED BEING AN ENGINE. This is the sharpest available signal that
-        # the answer cached at bind is no longer the right one -- the path either never was a
-        # stamped build or has ceased to be one, and every discovery read keyed on it is looking
-        # in a directory no listener publishes into. Dropping it costs one debounced re-run of
-        # the ladder; keeping it costs what it cost on 2026-09-01, which was the box.
         invalidate_engine_root(CAUSE_NOT_ENGINE_ROOT)
         return None, DENY_ARM_NO_BACKEND, CAUSE_NOT_ENGINE_ROOT
 
@@ -1512,41 +1228,15 @@ def _resolve_backend(
     try:
         record = _supervisor.read_discovery(Path(engine_root))
         if record is None:
-            # NO BACKEND IS A TRIGGER, NOT JUST A VERDICT. `ensure_listener` is the engine's own
-            # autostart entry: it NEVER WAITS (its docstring mirrors `warm.client`'s "no client
-            # ever waits for a server to boot"), returns `None` this call, and best-effort spawns
             # one for the next. Without it, a single engine republish is a PERMANENT box-wide
-            # outage rather than one cold call: the republish rotates `engine_sha`, the skew check
-            # correctly evicts the stale record, and nothing on any production path writes a new
-            # one -- measured live, `634b886a` -> `68851d47`, listener gone, every later read
-            # `None`. Denying every Bash call on the machine until a human intervenes is not the
-            # failure mode this guard is for.
-            #
             # ORDERED AFTER THE READ, DELIBERATELY. `ensure_listener` health-checks and may spawn;
-            # calling it ahead of the read spends that on EVERY fire, on the hot path of every
-            # Bash call on the box -- measured at +26ms to p50, which is real money against a
-            # budget whose whole purpose is removing 271ms. The happy path must cost one discovery
-            # read and nothing else.
-            #
             # AND THE SPAWN IT TRIGGERS TAKES TIME, so a single re-read behind it asks the
-            # question before the answer can exist. `ensure_listener` never waits by contract;
-            # the listener it starts is p50 0.783s / p90 1.189s from ready, and a one-shot
-            # re-read lands inside that window essentially always. The wait below is what turns
-            # "spawned one for the next call" into "served this one" -- ticking on discovery
-            # reads alone, per `_wait_for_discovery`'s negative spec.
             _ensure_listener_debounced(_supervisor, Path(engine_root))
             record = _wait_for_discovery(
                 _supervisor, Path(engine_root), lambda rec: not _record_is_skewed(rec, Path(engine_root))
             )
 
-        # SKEW IS THE SAME FACT AS ABSENCE, arriving as a record that parses. `read_discovery`
-        # does no version check, so a skewed record is not `None` and would sail past the branch
-        # above; the listener is alive, so the caller's `OSError` deny arm never fires either.
         # Forwarding it buys ONE UNGUARDED BASH CALL PER REPUBLISH -- the guard does not run, the
-        # relay hands the harness a -32002 the model reads as "the guard errored out", and
-        # nothing denies. Handled HERE rather than on the relay path so the module's contract
-        # holds unchanged: it still authors no permission decision about a VERDICT, because a
-        # skewed listener never produces one.
         if record is not None and _record_is_skewed(record, Path(engine_root)):
             _ensure_listener_debounced(_supervisor, Path(engine_root))
             record = _wait_for_discovery(
@@ -1554,24 +1244,11 @@ def _resolve_backend(
             )
             if record is not None and _record_is_skewed(record, Path(engine_root)):
                 # COUNTED, BECAUSE IT WAS INVISIBLE. A skewed record that never resolves denied
-                # exactly like "no record at all" in the dial file, which is why the original
-                # bug row could not diagnose itself. The arm names it; it never changes the
-                # verdict.
                 return None, DENY_ARM_SKEW, CAUSE_SKEWED
     except Exception:
-        # `read_discovery` is documented never to raise; this except is belt-and-braces so an
-        # engine-side regression cannot turn "no backend" into an unhandled exception that would
-        # otherwise 500 rather than deny.
         return None, DENY_ARM_NO_BACKEND, CAUSE_DISCOVERY_RAISED
     if not isinstance(record, dict):
         if record is None:
-            # NO RECORD BEHIND A ROOT THAT PASSES `is_engine_root`. The root is a stamped build
-            # and still nothing publishes there, which is the OTHER shape the 2026-09-01 stuck
-            # state could have taken: a plausible-looking root that is simply not the one the
-            # live listener belongs to. `ensure_listener` above has already had its (debounced)
-            # go at spawning one, and the bounded wait has already elapsed, so a re-resolution is
-            # the only remaining move that can change the answer. Debounced, and a no-op when the
-            # ladder returns the same root -- which is the healthy engine-genuinely-down case.
             invalidate_engine_root(CAUSE_NO_DISCOVERY_RECORD)
             return None, DENY_ARM_NO_BACKEND, CAUSE_NO_DISCOVERY_RECORD
         return None, DENY_ARM_NO_BACKEND, CAUSE_RECORD_MALFORMED
@@ -1592,26 +1269,8 @@ def _resolve_backend(
         return None, DENY_ARM_NO_BACKEND, CAUSE_NO_BIND_HOST
 
     # BEST-EFFORT, AND DELIBERATELY NOT A DENY ON ABSENCE. The listener's cookie gate
-    # (`supervisor.py` `_cookie_is_valid`) refuses an uncredentialed caller with a bare 401, so
-    # this header is required against any gated backend. But denying HERE when the cookie cannot
-    # be read would invent a new box-wide outage of exactly the shape the `ensure_listener`
-    # comment above exists to prevent -- one unreadable file and every Bash call on the machine
-    # denies, including against a backend that never wanted a cookie.
-    #
-    # The non-2xx mapping in `do_POST` is what makes that safe to skip: send the credential when
-    # we have it, and if the backend refuses for want of it, the refusal becomes an affirmative
-    # deny anyway. Fail-closed is preserved without stranding a backend that never wanted a
-    # cookie.
-    #
     # STATE THE GUARANTEE NARROWLY. A GATED backend plus an unreadable cookie still denies
-    # box-wide -- correctly, the guard did not run -- just by way of the 401 rather than a local
-    # branch. What best-effort buys is only the ungated case. Said plainly for the one reader
     # this comment has: someone debugging a total deny storm, seeing `REFUSED_REASON` on every
-    # call, who must NOT rule the cookie out on the strength of the sentence above.
-    #
-    # `cookie.read` is documented never to raise and to return `None` for missing/unreadable;
-    # the `except` is belt-and-braces against an engine-side regression, matching how every
-    # other engine call in this function is wrapped.
     try:
         cookie_value = _cookie.read(Path(engine_root))
     except Exception:
@@ -1644,10 +1303,6 @@ def _note_discovery_path(supervisor, engine_root: str) -> None:
     except Exception:
         return
     with _engine_root_lock:
-        # Review: coordinator:code-reviewer — double-checked locking needs a second check.
-        # A concurrent invalidate_engine_root() between the unlocked read above and this
-        # acquisition clears both fields for a reason; re-check under the lock so a resolution
-        # computed against the now-invalidated root is not written back in.
         if _engine_discovery_path is not None or engine_root != _engine_root_cache:
             return
         _engine_discovery_path = resolved
@@ -1674,17 +1329,11 @@ def _compute_plugin_root(clone_root: Path) -> Optional[Path]:
     return None
 
 
-#: The engine's own override-channel header names (`warm/hook_http.py`). Mirrored here as
-#: literals rather than imported: this module must stay importable with no `coordinator_core`
-#: on the path. A divergence is caught by the DoE-side registration coverage test, which reads
-#: the same names out of `hooks.json`.
 _ENV_HEADER_PREFIX = "x-coordinator-env-"
 _ENV_CHANNEL_HEADER = "x-coordinator-env-channel"
 _ENV_CANARY_HEADER = "x-coordinator-env-canary"
 
 #: Exactly `hook_http.FORWARDED_ENV_PREFIXES`. A caller's environment is not forwarded
-#: wholesale; only these four prefixes are guard-relevant, and widening this tuple puts
-#: unrelated session state on the wire.
 _FORWARDED_ENV_PREFIXES = (
     "COORDINATOR_ALLOW_",
     "COORDINATOR_OVERRIDE_",
@@ -1754,17 +1403,6 @@ def _env_from_request_headers(headers) -> Tuple[Dict[str, str], Optional[str]]:
 
 
 def _with_injected_env(body: bytes, env: Dict[str, str]) -> bytes:
-    """Put `env` onto `body` so it survives this hop, or hand `body` back unchanged.
-
-    Same shape and the same conservatism as `_with_injected_plugin_root`: the engine's
-    `payload_from_event` reads `event["env"]`, and its listener only overwrites that key when
-    request headers carried an override channel -- which, through this forwarder, they never do.
-    So a body-carried `env` is what reaches the guards.
-
-    Returns `body` untouched when there is nothing to add, when it does not parse as a JSON
-    object, or when it already carries an `env` mapping -- this function is a fallback author,
-    never an authority over a caller-supplied value.
-    """
     if not env:
         return body
     try:
@@ -1838,10 +1476,6 @@ def _with_injected_plugin_root(body: bytes, clone_root_header: Optional[str]) ->
 
 
 def _drain(rfile: Any, length: int) -> None:
-    """Discard `length` bytes without buffering them all in memory -- mirrors
-    `http_listener._Handler.do_POST`'s own oversized-body handling, and for the same reason:
-    responding before the client has finished sending surfaces as a connection reset rather than
-    the refusal this module means to send."""
     remaining = max(0, length)
     while remaining:
         chunk = rfile.read(min(remaining, 65536))
@@ -1851,12 +1485,6 @@ def _drain(rfile: Any, length: int) -> None:
 
 
 class _ForwarderHandler(BaseHTTPRequestHandler):
-    """One request: read the body, resolve today's backend, forward or deny.
-
-    Holds no guard policy of its own -- see module docstring. `log_message` is silenced for the
-    same reason `http_listener._Handler` silences it: this is a resident process on the hot path
-    of every Bash call on the box, and per-request stderr from it is noise at that volume.
-    """
 
     server_version = "coordinator-http-hook-forwarder"
 
@@ -1909,9 +1537,6 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
         self._respond(200, json.dumps(payload).encode("utf-8"))
 
     def do_POST(self) -> None:  # noqa: N802
-        # ARRIVAL IS COUNTED HERE, ahead of every validation below, so a request the harness did
-        # send but this module could not parse is never filed under "the harness never dialled".
-        # See `DialCounter`'s negative spec.
         counter = self._counter
         arrived_at = counter.record_arrival() if counter is not None else None
         try:
@@ -1931,27 +1556,7 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
             if counter is not None:
                 counter.record_event(counted_event_name, at=arrived_at)
                 # PERSISTED HERE: after the arrival is classified, before anything that can
-                # block. Everything above this line is a header read and a JSON parse -- cheap
-                # and incapable of hanging. Everything BELOW resolves discovery and forwards over
-                # a socket, which on a busy engine takes seconds and can be killed part-way.
-                #
-                # Leaving persistence to the handler's `finally` alone put both facts behind that
-                # slow work, so an arrival already correct in memory stayed invisible on disk for
-                # seconds and read, to any reader, as a no-dial -- the exact false negative this
-                # counter exists to prevent, measured as a 5s timeout in its own suite. One write
-                # here makes "the harness dialled, and it was this event" durable independently
-                # of whether the rest of the handler ever completes.
-                #
                 # COST, MEASURED -- it stays. This executes on every Bash call on this box, ahead
-                # of the verdict, which is the placement deliberately rejected for the
-                # end-of-handler persist, so it owed a number rather than an argument. n=400,
-                # warm, on Windows with ~32 live sessions contending for the same disk:
-                # **median 0.70 ms, p90 0.94 ms, p99 1.30 ms, max 1.57 ms** on a ~1.3 KB payload.
-                # Against DR-344's 50 ms budget that is ~1.4% at the median, and against the
-                # measured 45.1 ms warm round trip it is ~1.5% -- noise, in a workstream whose
-                # target is removing 271 ms. Kept unconditional on that evidence; an env-gate
-                # would buy a rounding error and cost the durability above on every real fire.
-                # Re-measure if the payload stops being small: the ring is bounded at
                 # _DIAL_RING_SIZE precisely so this write cannot grow without someone choosing it.
                 counter.persist()
 
@@ -1960,29 +1565,12 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
                 clone_root_header = _extract_cwd(body)
 
             # THE ENV CHANNEL AND THE BODY PREPARATION BOTH MOVED ABOVE BACKEND RESOLUTION, and
-            # the reorder is load-bearing rather than tidying. Under DR-402 the no-backend exit no
             # longer terminates the request -- it descends to a COLD IN-PROCESS evaluation, and
-            # that evaluation must see the SAME payload the warm listener would have seen. Leaving
-            # the injections below the resolution would have rung 2 evaluate a body with no
             # `plugin_root` and no `env`, so a `COORDINATOR_OVERRIDE_*` the caller really did set
-            # would read to the cold guard as "no override requested" -- the permissive direction,
-            # arrived at by accident, which is exactly what `_env_from_request_headers` exists to
-            # prevent. Rung 2's verdict has to be the verdict, not an approximation of it.
             header_env, env_disarm = _env_from_request_headers(self.headers)
             if env_disarm is not None:
                 # A DECLARED-BUT-VETOED CHANNEL IS AN UNRUN GUARD, NOT A CLEAN ONE -- the same
-                # call the engine's own listener makes. Forwarding with an emptied env would
-                # have every guard read "no override requested" and decide in the permissive
-                # direction, so refuse the verdict instead.
-                #
                 # STILL A DENY UNDER DR-402, AND DELIBERATELY OUTSIDE THE LADDER. That record
-                # covers a guard that could not RUN because warmth was unreachable; this is a
-                # live, healthy, reachable backend plus a misconfigured registration, and the
-                # cold rung would inherit the identical emptied channel and reach the identical
-                # wrong answer -- descending would launder a config fault into a permissive
-                # verdict rather than surface it. DR-402's own limit applies: membership in the
-                # ladder is claimed explicitly, never inferred. The fix here is the setting, and
-                # the deny is what makes anyone go look at it.
                 self._respond(200, _deny_body(hook_event_name, VETOED_ENV_REASON))
                 return
             body_to_forward = _with_injected_plugin_root(body, clone_root_header)
@@ -1990,8 +1578,6 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
 
             backend, deny_arm, deny_cause = _resolve_backend(clone_root_header)
             if backend is None:
-                # NO BACKEND -- rung 1 unavailable, so descend. Never a deny: the guard holds no
-                # verdict to report (module docstring's ladder, DR-402).
                 if counter is not None:
                     counter.record_denied(deny_arm or DENY_ARM_NO_BACKEND)
                     counter.record_cause(deny_cause)
@@ -2008,27 +1594,11 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
             try:
                 status, resp_body = _forward(host, port, hook_path, body_to_forward, cookie_value)
             except OSError:
-                # Discovery named a backend but it could not actually be reached (refused, timed
-                # out, reset mid-response, ...) -- still the "no backend" case, not "backend said
-                # no". A stale record pointing at a dead process must deny exactly like an absent
-                # one -- same decision, different first move, so a different reason string.
-                #
-                # RETRIED ONCE AGAINST A RE-READ RECORD BEFORE DENYING. A record naming a backend
-                # that refuses the connection is the same "not there yet" fact as no record at
-                # all: a listener mid-succession has published its port and not yet accepted on
-                # it. Waiting for a record whose port CHANGED is the discriminating move -- a
-                # re-dial to the identical port would only re-sample the same refusal, so the
-                # predicate is port inequality, not mere presence. The deny below is unchanged
-                # in every other respect; this only spends the same bounded window the no-record
-                # arm spends, and only on a path that was already going to deny.
                 retried = _retry_forward_after_wait(
                     host, port, hook_path, body_to_forward, cookie_value
                 )
                 if retried is None:
                     if counter is not None:
-                        # Review: coordinator:code-reviewer — record_cause must accompany every
-                        # record_denied, or denied_by_cause silently undercounts denied_by_arm
-                        # for this arm (record_cause's own docstring states the invariant).
                         counter.record_denied(DENY_ARM_UNREACHABLE)
                         counter.record_cause(DENY_ARM_UNREACHABLE)
                     ladder_body, rung = _ladder_response(
@@ -2044,36 +1614,14 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
                 status, resp_body = retried
 
             if counter is not None:
-                # COUNTED ON EVERY ANSWER, including the refusals below. This records that the
-                # dial reached a backend, which it did; whether that backend produced a verdict
-                # is the next branch's question, not this counter's.
                 counter.record_forwarded(counted_event_name)
 
             if not (200 <= status < 300):
                 # A TRANSPORT ERROR IS NOT A VERDICT -- and the harness FAILS OPEN on one,
                 # silently on `PreToolUse` (see `REFUSED_REASON`). Relaying the raw status here
-                # was this module's original behaviour and it is a guard-bypass hole: the guard
-                # did not run, and the harness would run the command anyway with nothing
-                # surfaced.
-                #
                 # MAPPED AS A CLASS, NOT PER-STATUS, DELIBERATELY. Today's live instance is the
-                # listener's 401 cookie gate, but a per-status fix closes one instance and
-                # leaves the shape for the next backend failure nobody enumerated. Every
-                # non-2xx lands on the same affirmative deny the unreachable-backend path
-                # already emits, so the module's contract -- an unevaluated guard DENIES -- holds
-                # for the whole class at once.
-                #
-                # 2xx ONLY IS THE WHOLE TEST. A verdict rides a 200 body; nothing else here is
-                # one. Note this deliberately catches the listener's own 409 skew refusal too:
-                # `_resolve_backend` already screens skewed records, and a 409 arriving anyway
-                # means the guard did not run, which descends for the same reason.
-                #
                 # DESCENDS RATHER THAN DENIES, PER DR-402, AND THE ORIGINAL MEASUREMENT SURVIVES
-                # THE CHANGE. Relaying the raw non-2xx is still forbidden -- the harness fails
                 # open on it SILENTLY, which is the guard-bypass hole this branch was built to
-                # close. What changed is only where the branch terminates: a silent fail-open
-                # becomes a cold evaluation, and failing that, a LOUD and durably recorded one.
-                # The hole stays shut; the fleet stays working.
                 ladder_body, rung = _ladder_response(
                     body_to_forward, hook_event_name, REFUSED_REASON
                 )
@@ -2083,13 +1631,9 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
                 return
 
             # BACKEND SAID SOMETHING -- relayed verbatim, allow included. This module authors no
-            # permission decision on this path; whatever `_serve_line` returned is what the
-            # harness sees.
             self._respond(status, resp_body)
         finally:
             # PERSISTED AFTER THE RESPONSE, on every exit path including the early returns above.
-            # Off the latency path of a hook that fires on every Bash call, and unconditional so
-            # a rejected arrival still lands on disk as an arrival.
             if counter is not None:
                 counter.persist()
 
@@ -2134,27 +1678,12 @@ def _apply_registration_op(backend_hook_path: str, incoming_path: Optional[str])
 def _forward(
     host: str, port: int, hook_path: str, body: bytes, cookie_value: Optional[str] = None
 ) -> Tuple[int, bytes]:
-    """POST `body` to the resolved backend and return its raw `(status, body)`.
-
-    Any failure to connect, send, or read a complete response raises (`OSError` and its
-    subclasses, `socket.timeout`/`TimeoutError`, `http.client` transport errors) rather than
-    being swallowed here -- the caller (`_ForwarderHandler.do_POST`) is the one place that
-    decides a raised exception means "no backend", so this function must not itself convert a
-    transport failure into a response of any kind.
-    """
     headers = {"Content-Type": "application/json", "Content-Length": str(len(body))}
     if cookie_value:
-        # The listener's `_cookie_is_valid` refuses anything but EXACTLY ONE of these headers --
-        # zero is uncredentialed, two or more reads as smuggling -- so this assignment must stay
-        # a set, never an append onto a header that might already be present.
         headers[COOKIE_HEADER_NAME] = cookie_value
     conn = HTTPConnection(host, port, timeout=_FORWARD_CONNECT_TIMEOUT_SECS)
     try:
-        # CONNECT UNDER THE SHORT BOUND, READ UNDER THE LONG ONE. `connect()` is called
-        # explicitly rather than left to `request()` so the socket exists before the deadline is
-        # widened; re-arming it afterwards is what stops the read leg inheriting the down-case
         # bound (see `_FORWARD_READ_TIMEOUT_SECS`). `conn.sock` is None only if `connect()`
-        # raised, which this function deliberately does not catch.
         conn.connect()
         if conn.sock is not None:
             conn.sock.settimeout(_FORWARD_READ_TIMEOUT_SECS)
@@ -2179,18 +1708,11 @@ class _ExclusiveServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = False
 
-    #: Set by `make_server` immediately after bind. Declared here so the attribute is part of the
-    #: class rather than grafted on, and so a handler reaching it through `self.server` is
-    #: reading a documented member.
     dial_counter: "Optional[DialCounter]" = None
 
     def server_bind(self) -> None:
         # SO_EXCLUSIVEADDRUSE only exists on Windows. Where it is absent (POSIX), the machine-
-        # wide binder election named in DR-http-hook-forwarder-fixed-port.md Decision 4 is the
-        # portable floor this class's exclusivity is a hardening layer on top of, not a
         # substitute for -- POSIX's own SO_REUSEADDR semantics (permits rebinding a TIME_WAIT
-        # socket; does not grant first-bind-wins exclusivity) do not give this class an
-        # equivalent kernel-level guarantee to assert here.
         exclusive_flag = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
         if exclusive_flag is not None:
             self.socket.setsockopt(socket.SOL_SOCKET, exclusive_flag, 1)
@@ -2223,17 +1745,11 @@ def make_server(port: int = FIXED_PORT, host: Optional[str] = None) -> _Exclusiv
             host = "127.0.0.1"
     server = _ExclusiveServer((host, port), _ForwarderHandler)
     # BOUND, THEREFORE COUNTED FROM ZERO. Written here rather than on first request so "no file"
-    # and "a file reading zero" stay different facts -- the first says no forwarder ever bound,
-    # the second says one has been up since `bound_at` and nothing has dialled it. Collapsing
-    # them is the failure this counter exists to end.
     server.dial_counter = DialCounter()
     server.dial_counter.persist()
     return server
 
 
-#: The engine root `publish_door_discovery` actually wrote against, captured so the
-#: retract cannot re-resolve a different one. `None` means nothing was published, which
-#: is also what makes the retract a no-op rather than a guess.
 _PUBLISHED_DOOR_ROOT: "Optional[Any]" = None
 
 
@@ -2291,50 +1807,23 @@ def publish_door_discovery(port: int) -> bool:
     """
     if port != FIXED_PORT:
         # ONLY THE REAL SEAT IS EVER ADVERTISED. Every test in this repo binds port 0, and
-        # a record written from one would name a short-lived test process as the machine's
-        # front-door holder -- clobbering the live one on the operator's own box, since
-        # `svc_dir` keys on the clone and knows nothing about a test.
         return False
     if not _ensure_engine_on_sys_path():
         return False
     try:
         from coordinator_core.warm import front_door as _front_door
 
-        # THE ENGINE'S OWN HELPER, not a local copy. This module's no-engine-import rule
-        # does not reach here: three lines up it imports `front_door` outright, and that
-        # is the module already exposing this exact function -- every other writer of this
-        # record (`front_door`, `supervisor`, `server`) calls it. A local copy would import
-        # `session.core._win_create_time_epoch` instead, trading one engine-private name
-        # for another while adding a second thing that can disagree about the value
-        # `discovery_is_live` compares against.
         epoch = _front_door._self_stable_pid_start_epoch()
         if epoch is None:
-            # Cannot vouch for our own birth instant, so cannot write a record
-            # `discovery_is_live` would ever accept. Publishing a zero would advertise a
-            # holder that reads dead -- strictly worse than the absent record, which at
-            # least fails honestly to the spawn path.
             return False
 
         root = _front_door.current_engine_clone()
 
         # REAP AN ORPHAN BEFORE ADVERTISING OUR OWN SEAT. A holder that was SIGKILLed or
-        # lost power never runs `retract_door_discovery`'s `finally`, so its record can
-        # outlive it indefinitely -- nothing else sweeps `warm-front-door.json`. This is
-        # the one point that already pays for a read (`write_discovery` below makes the
-        # write unconditionally, so the read here is pure addition, but it is the
-        # cheapest place to put it: every bind reaches it, and only a bind has a fresh
-        # record to overwrite anyway). A record that still names a live process is left
-        # untouched -- unlinking a live holder's seat out from under it would manufacture
-        # the exact "no-op becomes a spawn storm" churn `publish_door_discovery` exists to
-        # prevent, and `discovery_is_live` is the same predicate `ensure_front_door`
-        # trusts for that call, so this can never disagree with the reader.
         stale = _front_door.read_discovery(root)
         if stale is not None and not _front_door.discovery_is_live(stale):
             stale_pid = stale.get("pid")
             if isinstance(stale_pid, int):
-                # `owner_pid` re-reads and compares inside `unlink_discovery` itself, so
-                # a fresh record published between our read and this call (another
-                # process winning the race) is never deleted out from under it.
                 _front_door.unlink_discovery(root, owner_pid=stale_pid)
 
         _front_door.write_discovery(

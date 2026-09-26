@@ -56,103 +56,33 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-#: The cap, defined once. C3 (the exception manifest) and C4 (the five-leg
-#: gate test) import this constant; they do not redeclare it. See the plan's
-#: "The cap is five separately-testable legs" section for how 280 was
-#: derived from a working exemplar, not chosen for round-numberedness.
-#:
-#: RULED (2026-08-13, `docs/plans/2026-08-13-doe-guard-text-trust-failure-
-#: coverage.md` chunk C6, AC7): kept at 280 CHARS, deliberately NOT
-#: converged with the sibling control-plane engine's own 220-BYTE guard-
-#: message cap. Two independent reasons, either sufficient on its own:
-#:   1. Different corpora. 280 was derived here against THIS repo's own
-#:      Category-A hook population (`docs/plans/2026-08-02-guard-message-
-#:      character-cap.md`'s "working exemplar" derivation); the sibling
-#:      figure was derived against a different corpus entirely. A shared
-#:      number would be true of neither corpus by construction -- two
-#:      different real distributions coincidentally sharing a digit.
-#:   2. Different units. The sibling figure counts BYTES; this ceiling
-#:      counts Python `len(str)` CHARS. Reassigning 280 to mean bytes, or
-#:      rescaling it to a byte-equivalent, would change what the 26 tests
-#:      currently passing against it actually measure, for no
-#:      corpus-derived reason.
-#: Converging the two numbers on sight is a number-matching move, not a
-#: corpus-derived one -- exactly what this repo's own Anti-scope for this
-#: chunk warns against. If a future measured Category-A distribution
-#: genuinely outgrows 280, that is grounds to re-derive a NEW char ceiling
-#: from THIS corpus, never to borrow the sibling's byte figure.
 CEILING = 280
 
-#: Environment variable that switches `emit()` from writing a hook's real
-#: channel output to writing a structured measurement record instead. Set by
-#: C1's in-process harness, never by a hook itself.
 MEASURE_ENV_VAR = "COORDINATOR_HOOK_MESSAGE_MEASURE"
 
-#: The three channel shapes in use across `coordinator/hooks/scripts/`
-#: today (see the plan's Measurement mechanism section). `emit()` accepts
-#: exactly one of these.
 CHANNEL_STOP = "stop"
 CHANNEL_ADDITIONAL_CONTEXT = "additional_context"
 CHANNEL_DENY = "deny"
 
 _CHANNELS = frozenset({CHANNEL_STOP, CHANNEL_ADDITIONAL_CONTEXT, CHANNEL_DENY})
 
-#: A bounded line count for the fenced alternative block (AC3's "bounded
-#: line count" leg). Not specified numerically by the plan; picked generous
-#: enough for a real copy-pasteable command/diff (a few lines) while still
-#: ruling out a converted hook smuggling paragraphs of prose into the
-#: exempt slot under cover of a fence.
 ALTERNATIVE_MAX_LINES = 10
 
 
 @dataclass(frozen=True)
 class Message:
-    """The result of `compose()` -- what `emit()` writes to a real channel
-    or a measurement record. `prose` is the only field the 280-char ceiling
-    counts; `alternative` and `anchor` are structurally separate and
-    EXEMPT from the count (see AC3)."""
 
     prose: str
     alternative: Optional[str] = None
     anchor: Optional[str] = None
 
 
-# --------------------------------------------------------------------------
-# Alternative-block shape validation (AC3) -- the structural exemption.
-# Exposed as an importable function so C4's `_goes_red` teeth can drive it
-# with synthesized data, per the chunk brief.
-# --------------------------------------------------------------------------
-
-#: First non-blank-line "looks like a command or path" proxy. Deliberately
-#: cheap, not a real shell parser -- see `_looks_like_command_or_path`'s own
-#: docstring for what it does and does not catch. A token carrying a literal
-#: `$` (a `${VAR}`/`$VAR` shell expansion) is checked against the WIDER
 #: `_SHELL_VAR_TOKEN_RE` instead -- kept as a separate, narrower carve-out
-#: (gated on the presence of `$`) rather than folding `${}:=,@%+~` into the
-#: base charset outright, so a bare colon-bearing prose token (e.g. `Note:`)
-#: does not newly slip through just because the base charset widened.
-#: A Windows drive-letter prefix -- a single letter immediately followed by
-#: `:` and a path separator -- is admitted as an optional leading segment,
 #: mirroring the identical narrow carve-out `_PROSE_PUNCT_RE` already
-#: applies to the SAME shape (see that regex's own comment). This is the
-#: only new thing the widened charset admits: a bare drive-letter colon at
-#: the very start of the token, still followed by a separator. It does not
-#: admit a colon anywhere else in the token (a mid-token colon, or a
-#: trailing prose colon, still fail), so a genuinely malformed alternative
-#: block is no more likely to pass than before.
 _COMMAND_TOKEN_RE = re.compile(r"^(?:[A-Za-z]:[\\/])?[A-Za-z0-9_./\\-]+$")
 _SHELL_VAR_TOKEN_RE = re.compile(r"^[A-Za-z0-9_./\\${}:=,@%+~-]+$")
 _SENTENCE_END_RE = re.compile(r"[.!?]\s*$")
-#: A comma/semicolon/em-dash, or a colon that is not part of a
-#: drive-letter-style path prefix (a single letter immediately followed by
-#: `:` and a path separator) -- punctuation shapes common in natural-
-#: language prose and rare in a single command or path invocation.
 _PROSE_PUNCT_RE = re.compile(r"[,;\u2014]|(?<![A-Za-z]):(?![\\/])")
-#: Curated content-word list (pre-existing) -- two or more hits among the
-#: line's tokens is treated as prose. Kept at its original >=2 threshold
-#: for back-compat: these are ordinary content words that CAN legitimately
-#: appear once in a real command/path (e.g. a flag literally named `name`),
-#: so a single incidental hit is not enough on its own.
 _STOPWORDS = frozenset(
     {
         "the",
@@ -174,19 +104,8 @@ _STOPWORDS = frozenset(
         "for",
     }
 )
-#: Closed-class English grammar words (articles, prepositions, conjunctions,
-#: pronouns, auxiliary/modal verbs) -- ANY single hit among the line's
 #: tokens is treated as prose, unlike `_STOPWORDS`'s >=2 threshold. A real
-#: shell command or path essentially never contains a standalone closed-
-#: class function word as one of its own tokens (flags, subcommands, and
-#: path segments are open-class/symbolic, not grammatical glue); an
 #: imperative remedy PHRASE ("delete THE shebang line", "IRREDUCIBLE_LITERALS
-#: IN _oss_operative_strings.py") almost always does, in exactly the two
-#: reviewer-found bypasses this hardening closes. Deliberately excludes
-#: everyday CLI-subcommand-shaped verbs (`add`, `remove`, `use`, `fix`, ...)
-#: -- those are NOT closed-class and appear in genuine commands (`git add`),
-#: so blacklisting them would reject real, live hook alternatives instead of
-#: only the prose-smuggling shape this set targets.
 _FUNCTION_WORDS = frozenset(
     {
         "the", "a", "an",
@@ -258,27 +177,6 @@ def _looks_like_command_or_path(line: str) -> bool:
 def validate_alternative_shape(
     alternative: Optional[str], *, max_lines: int = ALTERNATIVE_MAX_LINES
 ) -> "tuple[bool, Optional[str]]":
-    """The alternative-block structural validator (AC3), importable
-    directly so C4's `_goes_red` teeth can drive it with synthesized data
-    rather than live disk state.
-
-    Returns `(True, None)` when `alternative` is `None` (no block supplied
-    -- always valid) or a valid runnable block. Returns `(False, reason)`
-    otherwise. Enforces, in order:
-
-      - non-empty text;
-      - no embedded triple-backtick fence -- callers pass RAW block text,
-        this module owns the fencing at render time (`render()`); an
-        embedded fence would let a caller smuggle a second "alternative"
-        inside the first, defeating the "at most one alternative per
-        message" rule that `compose()`'s single-parameter signature
-        otherwise enforces structurally;
-      - at most `max_lines` lines;
-      - the first non-blank line parses as a command or path invocation
-        (`_looks_like_command_or_path`) -- this is the check that makes
-        AC3's falsifiable property hold: prose wrapped in a fence must NOT
-        pass as an alternative.
-    """
     if alternative is None:
         return True, None
     if not isinstance(alternative, str) or not alternative.strip():
@@ -300,27 +198,9 @@ def validate_alternative_shape(
     return True, None
 
 
-# --------------------------------------------------------------------------
-# The pure composer. C1 calls this (or a hook's own thin wrapper around it)
-# directly per emission site, with no process, stdin, or environment setup.
-# --------------------------------------------------------------------------
-
-
 def compose(
     prose: str, alternative: Optional[str] = None, anchor: Optional[str] = None
 ) -> Message:
-    """Build a `Message` from a hook's diagnosis (`prose`, the ONLY field
-    the 280-char ceiling counts), an optional fenced runnable `alternative`
-    (structurally separate, exempt from the count -- see
-    `validate_alternative_shape`), and an optional wiki `anchor` naming
-    where the relocated explanation lives.
-
-    Pure: no I/O, no environment read, no process interaction. Raises
-    `ValueError` on a shape violation (empty prose, an invalid alternative
-    block, or an empty-string anchor) rather than composing a malformed
-    `Message` -- callers (hooks, and C1's harness) get the failure at the
-    point of composition, not silently downstream at measurement or emit
-    time."""
     if not isinstance(prose, str) or not prose.strip():
         raise ValueError("_message_envelope.compose: prose must be non-empty text")
     if alternative is not None:
@@ -334,90 +214,22 @@ def compose(
     return Message(prose=prose.strip(), alternative=alternative, anchor=anchor)
 
 
-# --------------------------------------------------------------------------
-# Wiki-citation resolution -- the C2 seam fix.
-#
 # Every `_WIKI_ANCHOR` constant across the 16 converted hooks (and the
-# hand-rolled "Reference: docs/wiki/..." strings in the two runtime-tripwire
-# hooks) is authored as a `coordinator/docs/wiki/<page>.md#<slug>`-shaped
 # literal. That literal is REPO-RELATIVE: it resolves only from this source
-# repo's own root, and 404s for a reader in any OTHER repo the plugin is
-# installed into (verified live from project-rag's checkout -- see the C2
-# dispatch report). `render()` was appending it verbatim ("See <anchor>."),
-# per the standing reviewer note in `derive-global-doctrine-live-copy.py`
-# that a bare fragment (no path at all) is even less useful -- that note is
-# correct and is why the fix is NOT to strip the path down, but to resolve
 # it against the plugin root the hook is ACTUALLY running from.
-#
 # `_coordinator_dir()` is deliberately NOT `os.environ["CLAUDE_PLUGIN_ROOT"]`.
-# `enforce-agent-dispatch-mode.py`'s "Concern B" note records that env var
-# as an "undeclared ... dependency" not reliably present/correct in a hook
-# subprocess's own environment. What IS reliable: this very module's own
 # `__file__`. Every hook that carries a `_WIKI_ANCHOR` lives at
-# `<coordinator-dir>/hooks/scripts/<hook>.py` in EVERY install shape (this
-# dev source tree, or a `--plugin-dir`-resolved installed copy) -- that is a
-# structural fact of the plugin layout, not an inherited value that can go
-# missing or point somewhere else.
-# --------------------------------------------------------------------------
 
-#: `docs/wiki/`, optionally `coordinator/`-prefixed -- the two forms
 #: observed across the 16 `_WIKI_ANCHOR` constants and the six hand-rolled
-#: runtime-tripwire "Reference:" citations (see the C2 plan chunk body for
-#: the full site list).
-#:
 #: The page part spans SUBDIRECTORIES, not just a flat page name: real
-#: anchors live at `docs/wiki/coordinator-tripwires/<page>.md` and
-#: `docs/wiki/coordinator-tripwires/tripwire-registry/<page>.md`. Each
-#: interior segment must itself match the same conservative character class
-#: and the final one must end `.md`, so a directory-only target
-#: (`docs/wiki/`, `docs/wiki/coordinator-tripwires/`) still does not match
-#: and is emitted verbatim -- resolving one to an absolute path would point
-#: a reader at a directory, not a page.
 #: CROSS-TRANSPORT CONTRACT, not a local edit. The control-plane engine's
-#: ported bash guards mirror THIS pattern by construction so the cold
-#: transport (here) and the warm/resident transport emit byte-identical deny
-#: text, and a cold-vs-warm parity oracle asserts over it. Widening this
-#: pattern to nested anchors turned 19 of that oracle's cases red mid-flight
-#: -- the widening was correct and the oracle is what caught it, but the
-#: lesson is that editing this regex changes test outcomes outside this
-#: repo. Re-check the engine-side copy at source before touching it; do not
-#: reason about it from here.
-#:
-#: KNOWN DEFECT, coordinated fix or none: `resolve_wiki_citation` below emits
 #: an ABSOLUTE path, so on a marketplace-shaped install -- where the plugin
-#: root sits under the operator's home directory -- deny text names that
-#: home directory. Not reproducible from a development clone, whose root is
-#: outside the home tree; the engine side has a register lint that catches
-#: it, this side has no equivalent, and both transports share the property.
-#: Suppressing it on one transport alone re-opens the divergence both sides
-#: just closed, so it is a coordinated change, not a local cleanup.
 _WIKI_CITATION_RE = re.compile(
     r"(?:coordinator/)?docs/wiki/((?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.md)"
 )
 
 
 def _coordinator_dir() -> "Path":
-    """The `coordinator/` directory THIS process is actually running from.
-    `_message_envelope.py` itself lives at
-    `<coordinator-dir>/hooks/scripts/_message_envelope.py`, so its own
-    resolved parent-of-parent-of-parent IS `coordinator/` -- in BOTH install
-    shapes: the source-repo layout (where `coordinator/` IS the plugin
-    root) and an installed layout (where the true plugin root sits one
-    level ABOVE this same `coordinator/` subdirectory; see this repo's own
-    CLAUDE.md § Architecture). This function returns the `coordinator/`
-    directory itself in either case, never the true plugin root of an
-    installed layout -- hence the name, not `plugin_root`. Callers
-    resolving `docs/wiki/` are unaffected by that offset, since `docs/wiki/`
-    lives under `coordinator/` in both layouts -- but a future caller
-    resolving something that genuinely lives at the true plugin root (one
-    level up from here in the installed case) must not assume this
-    function's return value already is that root. Renamed from the prior
-    `plugin_root()` (module-private, no external call site referenced that
-    name -- verified via a repo-wide grep before the rename) because the old
-    name overclaimed: it collided with a genuinely different `plugin_root`
-    concept already in use elsewhere in this directory (e.g.
-    `assert-em-role.py`, `project-orientation.py`), and its return value is
-    the plugin root only in the source-repo layout, not the installed one."""
     return Path(__file__).resolve().parent.parent.parent
 
 
@@ -488,20 +300,7 @@ def resolve_wiki_citation(text: str) -> str:
     return _WIKI_CITATION_RE.sub(_sub, text)
 
 
-# --------------------------------------------------------------------------
-# Rendering (pure*) and emission (impure) -- attaches to the existing hook
-# seam, does not create a parallel one. (*`render()` reads `__file__` via
-# `resolve_wiki_citation()` -- no environment/network/process I/O.)
-# --------------------------------------------------------------------------
-
-
 def render(message: Message) -> str:
-    """Flatten `message` to the text a real (non-measurement) channel
-    carries: the prose, then the alternative re-fenced in triple backticks
-    (if present), then a trailing pointer at the wiki anchor (if present).
-    The anchor is resolved via `resolve_wiki_citation()` (see above) so the
-    emitted pointer resolves for the reader wherever they are, not only from
-    this source repo's own cwd."""
     parts = [message.prose]
     if message.alternative:
         parts.append("")
@@ -524,18 +323,6 @@ def _measurement_record(message: Message) -> str:
 
 
 def _write_measurement_record(message: Message) -> None:
-    """Write the structured measurement record for `message` to fd 3, or a
-    documented fallback when fd 3 is not open (the common case outside the
-    harness -- fd 3 is not a channel any process is guaranteed to inherit).
-
-    Windows-safe: this never assumes POSIX fd semantics hold. The `os.write`
-    call is wrapped so a closed/unavailable fd 3 (any `OSError`, including
-    the Windows "bad file descriptor" shape) degrades to the fallback
-    instead of crashing the hook. The fallback is stdout: under measurement
-    mode this module never also writes the flattened channel output (see
-    `emit`), so stdout is free for the harness to read the SAME structured
-    line from instead. Never silently swallows the record -- one of the two
-    writes always happens."""
     line = _measurement_record(message)
     try:
         os.write(3, (line + "\n").encode("utf-8"))
@@ -546,11 +333,6 @@ def _write_measurement_record(message: Message) -> None:
 
 
 def _write_stdout_envelope(envelope: dict) -> None:
-    """Write a PreToolUse envelope to stdout, degrading to silence on any
-    `OSError` (including `BrokenPipeError`). Both PreToolUse channels this
-    module serves are advisory -- their hooks' own docstrings promise ALWAYS
-    exit 0 -- so an undeliverable write must never propagate and turn that
-    promise into a non-zero exit; the caller still returns 0 either way."""
     try:
         sys.stdout.write(json.dumps(envelope, separators=(",", ":")))
     except OSError:
@@ -593,11 +375,6 @@ def emit(message: Message, channel: str) -> Optional[int]:
     text = render(message)
 
     if channel == CHANNEL_STOP:
-        # Review: code-reviewer -- .buffer.write bypasses Python's Windows
-        # text-mode newline translation (stderr in text mode would silently
-        # turn every LF into CRLF, breaking byte-fidelity with the bash
-        # oracle's stderr output). Mirrors coordinator-reminder.py /
-        # ue-knowledge-distrust.py; this seam is the one home for the
         # contract every CHANNEL_STOP caller inherits.
         sys.stderr.buffer.write(text.encode("utf-8"))
         return 2

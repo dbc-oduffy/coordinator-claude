@@ -92,11 +92,6 @@ _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _resolve_session_id(cwd: str) -> str:
-    """Import + call coordinator_core.session.core.resolve_session_id(cwd).
-
-    Raises RuntimeError on engine-root/import failure (caller maps to exit 1,
-    matching the bash oracle's fail-loud coordinator-root-unresolved path).
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     import cc_invoke
 
@@ -130,11 +125,8 @@ def _resolve_repo_root(explicit_root: str | None = None) -> tuple[str | None, st
     if verdict["verdict"] == "MISMATCH":
         return None, verdict["message"]
     if not root:
-        # No git root resolved from cwd at all -- distinct from the
         # MISMATCH identity gate above (positive evidence of a DIFFERENT
-        # real repo). This is "nowhere to write"; refusing at the call
         # site below is not the AC4 "UNRESOLVED never refuses" carve-out
-        # being violated. mismatch_message stays None so the caller prints
         # its own generic no-repo message rather than a MISMATCH string.
         return None, None
     return root, None
@@ -145,7 +137,6 @@ def _now_iso() -> str:
 
 
 def _yaml_escape_scalar(v: str) -> str:
-    """Emit a single-quoted YAML scalar value (safe for arbitrary strings)."""
     return "'" + v.replace("'", "''") + "'"
 
 
@@ -153,8 +144,6 @@ def _slugify(name: str) -> str:
     slug = re.sub(r"[^a-zA-Z0-9_-]", "-", name)
     slug = slug.strip("-")
     if not slug:
-        # F6 parity: a degenerate all-punctuation name (e.g. "!!!") strips to
-        # empty or a bare "-" — fall back to the default slug.
         slug = "completeness-checklist"
     return slug
 
@@ -232,7 +221,7 @@ def cmd_update(repo_root: str, sid: str, name: str, title: str, state: str) -> i
 
         if in_matching_item and re.match(r"^[ \t]+updated_at:", line):
             out_lines.append(f"    updated_at: {now}")
-            in_matching_item = False  # reset after last per-item field we mutate
+            in_matching_item = False
             continue
 
         if in_matching_item and (re.match(r"^[ \t]*-[ \t]", line) or re.match(r"^\S", line)):
@@ -240,7 +229,6 @@ def cmd_update(repo_root: str, sid: str, name: str, title: str, state: str) -> i
 
         out_lines.append(line)
 
-    # Also update the top-level updated_at timestamp.
     for i, line in enumerate(out_lines):
         if line.startswith("updated_at:"):
             out_lines[i] = f"updated_at: {now}"
@@ -255,9 +243,6 @@ def cmd_update(repo_root: str, sid: str, name: str, title: str, state: str) -> i
             f"WARN: item title not found in mirror — no update applied. Title: {title}",
             file=sys.stderr,
         )
-        # F2 parity: exit 1 (not 0) so callers using $? can distinguish
-        # "update applied" from "title not found" — a silent 0 leaves the
-        # disk mirror out of sync with the Task state.
         return 1
 
     print(f"mirror: updated '{title}' -> {state} in {mirror_file}")
@@ -265,17 +250,6 @@ def cmd_update(repo_root: str, sid: str, name: str, title: str, state: str) -> i
 
 
 def _extract_repo_root_flag(args: list[str]) -> tuple[list[str], str | None, str | None]:
-    """Strip a `--repo-root PATH` flag out of args wherever it appears.
-
-    Only the literal token "--repo-root" is treated as a flag; every other
-    token — including one starting with "-" — is left untouched in the
-    returned positional list, so a free-form title beginning with "-" is
-    never swallowed as an unrecognized flag.
-
-    Returns (remaining_positional_args, repo_root_or_None, error_or_None).
-    On error, remaining_positional_args and repo_root_or_None are
-    meaningless and the caller must print error_or_None to stderr and exit 1.
-    """
     out: list[str] = []
     repo_root: str | None = None
     i = 0

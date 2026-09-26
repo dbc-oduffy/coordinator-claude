@@ -83,15 +83,15 @@ import time
 from pathlib import Path, PurePath
 
 _BIN_DIR = Path(__file__).resolve().parent
-_REPO_ROOT = _BIN_DIR.parent.parent  # coordinator/bin -> coordinator -> repo root
+_REPO_ROOT = _BIN_DIR.parent.parent
 
 _SETTINGS_PATH = _REPO_ROOT / "coordinator" / "settings.json"
 _DEBUG_ENV_VAR = "COORDINATOR_STATUSLINE_DEBUG"
 
 _BOOTSTRAP_DONE = False
 
-_GROUP_EM_GLYPH = "\U0001F9ED"  # 🧭 -- ported from the DoE fork, unchanged.
-_UHURA_GLYPH = "\U0001F4DE"  # 📞 -- one codepoint, no variation selector, like the glyph above.
+_GROUP_EM_GLYPH = "\U0001F9ED"
+_UHURA_GLYPH = "\U0001F4DE"
 _GOLD = "\033[38;5;220m"
 _SCARLET = "\033[38;5;196m"
 _RESET = "\033[0m"
@@ -344,9 +344,6 @@ def _own_status_line(raw_stdin: bytes) -> str:
 
     standing = _group_em_glyph(payload, session_id)
     holds_uhura = _holds_uhura(payload, session_id)
-    # Uhura outranks the Group EM ON THE LABEL ONLY, matching the DoE fork's
-    # own reasoning: a session can hold both, and scarlet answers "will a PM
-    # message come from this window", the scarcer fact a reader scans for.
     if holds_uhura:
         colored_label = _colorize_scarlet(label)
     elif standing:

@@ -65,14 +65,6 @@ _VALID_INVOKERS = (
 
 
 def _import_orientation_module():
-    """Resolve the engine root, put it on sys.path, and import the ported module.
-
-    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
-    settings-home pointer file -> coordinator-claude-klabauter-root.sh) — this is a plain
-    in-process import, not an RPC invoke, so cc_invoke's subprocess-spawn
-    transport (cc_invoke()/route()) is deliberately NOT used here (same shape
-    as `normalize-snippet`, per the recipe's explicit disposition for this script).
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 
@@ -125,11 +117,6 @@ def main(argv: "list[str] | None" = None) -> int:
     repo_root = mod.resolve_repo_root(Path.cwd())
 
     if args.pinboard_only is not None:
-        # sweep-boot is deliberately NOT admitted here even though it shares the
-        # mid-session tier with workstream-complete/handoff: the async self-heal
-        # always does a FULL regen (it is re-deriving a cache it just found stale,
-        # not patching a single pinboard line), so --pinboard-only has no caller on
-        # this invoker. Do not "fix" this to look like an oversight.
         if args.invoker not in ("workstream-complete", "handoff"):
             print(
                 "ERROR: --pinboard-only is a mid-session fast path; invoker must be "

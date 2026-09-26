@@ -43,41 +43,23 @@ call site -- move the argv computation inside the existing try and the handler
 absorbs it for free.
 """
 
+
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 from typing import Optional
 
-# Probe order. Extensionless first so a POSIX install (and any Windows box still
-# carrying a pre-migration script) resolves to exactly what it resolved to before,
-# leaving `.exe` as pure additive coverage rather than a behaviour change.
 _FORWARDER_SUFFIXES = ("", ".exe")
 
-# Suffixes whose file is a native executable, launched bare. A suffix is a
 # SUFFICIENT tell and never a necessary one -- see `_is_native_image`.
 _NATIVE_SUFFIXES = (".exe",)
 
-# The native-image predicate has ONE definition in this package, in
-# `_bin_impl_drift`, whose local magic tuple is already pinned against the
 # engine's `coordinator_core.install.door_install.NATIVE_IMAGE_MAGIC` by
-# `test_bin_impl_drift`. Importing it here rather than carrying a second copy
-# means that existing pin covers this module too; a copy would need its own pin
-# and could still drift in the window between them.
-#
-# A sibling import, not an engine import: `_bin_impl_drift` is a peer in this
-# directory with no module-scope side effects, and `sessionstart-bin-drift-refresh`
-# already imports from it the same way. The no-engine-import constraint in this
-# package reaches `coordinator_core`, never the module beside this one.
 from _bin_impl_drift import _is_native_image  # noqa: E402
 
 
 def resolve_forwarder(bin_dir: Path, name: str) -> Optional[Path]:
-    """Return the installed forwarder for `name` under `bin_dir`, or None.
-
-    Pair the result with `forwarder_argv` -- the two are a unit, because which
-    variant resolved determines whether an interpreter prefix is required.
-    """
     for suffix in _FORWARDER_SUFFIXES:
         candidate = bin_dir / f"{name}{suffix}"
         try:

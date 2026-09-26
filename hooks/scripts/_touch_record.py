@@ -37,11 +37,6 @@ def _touch_path(line: str):
 
 
 def _touch_record_jsonl_paths(session_dir: str) -> list[str]:
-    """Return repo-relative paths from `touch-record.jsonl`, append order
-    (oldest first). Split out of `_touch_lines` so a caller that must
-    reason about which FILE a match came from -- see
-    `_newest_touched_sizing_path` -- can query the new-file source alone
-    without re-deriving this parse."""
     paths: list[str] = []
     try:
         with open(
@@ -69,9 +64,6 @@ def _touch_record_jsonl_paths(session_dir: str) -> list[str]:
 
 
 def _touched_txt_paths(session_dir: str) -> list[str]:
-    """Return repo-relative paths from the legacy `touched.txt`, append
-    order (oldest first). Sibling split of `_touch_record_jsonl_paths` --
-    see that function's docstring."""
     paths: list[str] = []
     try:
         with open(

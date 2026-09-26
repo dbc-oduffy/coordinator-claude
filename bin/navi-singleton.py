@@ -100,8 +100,6 @@ def _resolve_session_id(explicit: Optional[str]) -> Optional[str]:
 
 
 def read_claim(atomic_record, directory: Optional[Path] = None) -> Optional[dict]:
-    """The claim record, or None if absent or unparseable -- never a directory scan; the path is
-    deterministic (one key, one box)."""
     path = directory / "singleton.json" if directory else _claim_path(atomic_record)
     return atomic_record.read_json_tolerant(path)
 
@@ -178,7 +176,6 @@ def who(
     *,
     directory: Optional[Path] = None,
 ) -> ClaimResult:
-    """The current claim, with liveness resolved fresh -- never cached."""
     record = read_claim(atomic_record, directory)
     if record is None:
         return ClaimResult(False, "no Navi singleton claim on record", 3, None)
@@ -196,12 +193,6 @@ def release(
     *,
     directory: Optional[Path] = None,
 ) -> ClaimResult:
-    """Remove the claim record.
-
-    If `session_id` is given it must match the current holder -- a release attempt from a
-    non-holder is refused (exit 5), never silently accepted. Omitting `session_id` releases
-    whichever session currently holds the claim (operator override).
-    """
     path = directory / "singleton.json" if directory else _claim_path(atomic_record)
     with atomic_record.holder_lock(path):
         existing = read_claim(atomic_record, directory)
@@ -226,14 +217,6 @@ def release(
     )
 
 
-# --- poke ledger -------------------------------------------------------------------------------
-#
-# A separate record, sharing only the record home. Each entry is keyed by (session_id, peer),
-# scoped to the writing instance: an entry written by a different session_id never reads as
-# poked for THIS session. No entry here is ever checked against is_live(), and nothing here
-# participates in the claim's last-writer-wins displacement.
-
-
 def _ledger_key(session_id: str, peer: str) -> str:
     return f"{session_id}\x1f{peer}"
 
@@ -253,7 +236,6 @@ def poke_mark(
     *,
     directory: Optional[Path] = None,
 ) -> ClaimResult:
-    """Record that `session_id` poked `peer` for the current unbroken stall occurrence."""
     path = directory / "poke-ledger.json" if directory else _ledger_path(atomic_record)
     ledger = read_ledger(atomic_record, directory)
     ledger["entries"][_ledger_key(session_id, peer)] = {
@@ -272,7 +254,6 @@ def poke_check(
     *,
     directory: Optional[Path] = None,
 ) -> ClaimResult:
-    """Whether `session_id` already poked `peer` for the current unbroken stall occurrence."""
     ledger = read_ledger(atomic_record, directory)
     entry = ledger["entries"].get(_ledger_key(session_id, peer))
     already = entry is not None
@@ -361,8 +342,6 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(result.message)
         return result.exit_code
 
-    # Unreachable: `sub.add_parser(..., required=True)` above guarantees `args.verb` is one of
-    # the verbs handled; argparse itself exits 2 before `main()` ever sees anything else.
     raise AssertionError(f"unhandled verb {args.verb!r}")
 
 

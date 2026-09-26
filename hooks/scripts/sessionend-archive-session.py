@@ -58,8 +58,6 @@ from pathlib import Path
 
 
 def _read_stdin(timeout: float = 2.0) -> str:
-    """Bounded stdin read (Windows hang guard) -- same pattern as the other
-    hooks in this directory (e.g. track-dispatched-agents.py._read_stdin)."""
     box = {"data": ""}
 
     def _read() -> None:
@@ -85,23 +83,6 @@ except Exception:
 
 
 def _note_degradation(payload: dict, note: str) -> None:
-    """Append one line recording a condition under which this hook archived
-    NOTHING, so the "this hook silently never ran" failure mode is
-    discoverable by grep instead of being invisible.
-
-    Two callers, both silent-no-op seams on the SOLE archival occasion for a
-    session's claim directory (the 24h reap is a backstop, not a second
-    occasion): a payload with no usable `session_id`, and an absent archival
-    CLI. The second is the one the engine plane can cause -- the CLI path is
-    hardcoded against the resolved engine root, so a rename on that side stops
-    every session archiving on this host with nothing erroring and nothing
-    logged. A line here is what turns that into something someone can find.
-
-    Deliberately does NOT use the per-session dir (one caller has no session
-    key -- that is its whole problem) and does NOT raise: a diagnostics write
-    that could itself break session teardown would be worse than the blind
-    spot it documents. Every failure here is swallowed.
-    """
     try:
         cwd = payload.get("cwd")
         probe = Path(cwd).resolve() if isinstance(cwd, str) and cwd else Path.cwd()
@@ -140,15 +121,6 @@ def main() -> int:
 
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id:
-        # Never guess a session key -- but do NOT vanish either. `session_id`
-        # is documented as a common field present on every hook type rather
-        # than shown in a SessionEnd-specific payload example, so its presence
-        # here is inferred from the general contract, not observed. If that
-        # inference is wrong this hook would no-op on EVERY session forever,
-        # archival would silently never happen, and the only symptom would be
-        # slow directory growth reaped 24h later -- a failure indistinguishable
-        # from healthy operation. Leave a breadcrumb so that case is
-        # discoverable instead of invisible.
         _note_degradation(
             payload,
             "SessionEnd payload carried no usable session_id; archival skipped.",
@@ -157,15 +129,10 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open -- engine repo unresolvable on this machine
+        return 0
 
     archive_cli = Path(root) / "coordinator" / "bin" / "archive-session-scope.py"
     if not archive_cli.is_file():
-        # Fail-open, but never silently. This path is hardcoded against a tree
-        # this repo does not own, so a rename on that side degrades the sole
-        # archival occasion in the system to a no-op with nothing erroring --
-        # and the 24h reap hides the consequence, leaving slow directory growth
-        # that looks exactly like health.
         _note_degradation(
             payload,
             f"archival CLI absent at {archive_cli}; claim dir NOT archived this "
@@ -183,7 +150,7 @@ def main() -> int:
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except Exception:
-        pass  # any subprocess failure (missing interpreter, timeout, ...) -- fail-open
+        pass
 
     return 0
 

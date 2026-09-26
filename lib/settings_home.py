@@ -50,24 +50,10 @@ from pathlib import Path
 
 
 class MachineLocalDivergence(Exception):
-    """Raised when both machine-local homes exist and their realpaths diverge."""
+    pass
 
 
 def _require_rooted(var: str, raw: str) -> str:
-    """Return *raw* unchanged, or raise ValueError if it would anchor at the cwd.
-
-    A rooted path ('/srv/x', '<drive>:\\Users\\x', '\\\\server\\share') is accepted;
-    a relative one ('foo', 'C:foo') is not. On Windows a drive letter alone is
-    NOT absolute — 'C:foo' means "foo relative to the cwd on that drive" — so the
-    check is `is_absolute() or root`, which accepts a POSIX-style rooted path
-    under a Windows interpreter while still rejecting the drive-relative form.
-
-    Ported from lib/claude-home/_claude_home.py::home_dir/settings_home, which
-    already validated both overrides. Empty is NOT an error here: an empty
-    override is treated as unset by every caller of this module and is pinned
-    that way by coordinator_core/tests/test_settings_home.py — that contract is
-    deliberately left alone; only the cwd-relative foot-gun is closed.
-    """
     p = Path(raw)
     if not (p.is_absolute() or p.root):
         raise ValueError(
@@ -110,19 +96,10 @@ def settings_home() -> str:
 
 
 def settings_home_realpath(path: str) -> str:
-    """Resolve a path to its canonical (fully symlink-resolved) form."""
     return os.path.realpath(path)
 
 
 def _is_absent_or_empty_husk(path: str) -> bool:
-    """True when `path` carries no machine-local state — absent, or a directory
-    left behind empty by a completed migration.
-
-    An empty directory is not a second content home: nothing can be read from
-    it, so treating it as one turns a finished migration into a fail-loud.
-    An unreadable directory counts as no-state too — it yields no content to
-    diverge over.
-    """
     try:
         if not os.path.exists(path):
             return True
@@ -149,7 +126,6 @@ def check_machine_local_divergence() -> None:
     legacy = os.path.join(home_dir(), ".claude", "machine-local")
     new = os.path.join(settings_home(), "machine-local")
 
-    # Fast path: if either side holds no state there is no divergence.
     if _is_absent_or_empty_husk(legacy) or _is_absent_or_empty_husk(new):
         return
 

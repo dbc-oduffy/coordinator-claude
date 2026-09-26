@@ -3,6 +3,7 @@ name: warp-speed-execute
 description: "The wide run. Forwards to /mise-en-place, which carries the same ceremony's body."
 allowed-tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "Agent", "Skill"]
 argument-hint: "[baton-path [AND baton-path]...] [--hibernate]"
+disable-model-invocation: true
 ---
 
 # Warp-Speed-Execute

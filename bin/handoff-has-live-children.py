@@ -61,10 +61,6 @@ PROG = "handoff-has-live-children.py"
 
 
 def _no_console_kw() -> dict:
-    """Lazily resolve the engine root onto sys.path (self-location-first via
-    cc_invoke.ensure_engine_on_path — see that function's docstring), then
-    splat the canonical no-console-window kwarg. ``{}`` on any resolution/
-    import failure (fail-open)."""
     try:
         import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
         import cc_invoke
@@ -89,13 +85,6 @@ def _no_fallback():
 
 
 def _resolve_repo_root(candidate_abs: str) -> str | None:
-    """Resolve repo root from candidate's directory (git -C <candidate-parent>).
-
-    Candidate-first discovery mirrors the retired bash veneer: production handoffs live
-    in <repo>/state/handoffs/, so candidate-dir discovery always resolves the correct
-    per-repo git root, and it also lets the test harness point candidates at fixture
-    repos with their own .git.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     import cc_invoke
 
@@ -123,9 +112,6 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = _build_parser().parse_args(argv)
     except SystemExit:
-        # argparse's own usage-error path already wrote a message; normalize to the
-        # veneer's fail-closed exit code (2), not argparse's default (2 happens to match,
-        # but pin it explicitly rather than depending on that coincidence).
         return 2
 
     if not args.candidate:
@@ -161,8 +147,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{PROG}: engine returned a non-object result -- fail-closed", file=sys.stderr)
         return 2
 
-    # Frozen contract: print each live child path to stdout, one per line, mirroring the
-    # retired bash veneer's per-path echo.
     for child in result.get("children", []) or []:
         print(child)
 

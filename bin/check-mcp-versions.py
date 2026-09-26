@@ -1,25 +1,4 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
-"""check-mcp-versions.py — Compare pinned MCP server versions against npm latest.
-
-Reads pinned versions from settings.json and reports available updates.
-Designed to be called manually or from a session-orientation ceremony
-(Tool Availability section).
-
-Respects a 7-day cooldown via a marker file to avoid hammering npm.
-Pass --force to skip the cooldown.
-
-Port backlink: docs/plans/2026-07-19-debash-coordinator-windows.md § E3-b
-
-KNOWN GAP (self-claim scope-drop, NOT reproduced in this port): the bash
-oracle registered the marker-file write with the active coordinator session
-via lib/coordinator-session.sh::cs_self_claim (best-effort, no-op if the lib
-or an active session is absent). No general-purpose Python "register this
-path with the current session" call exists yet (mirrors the same documented
-gap in coordinator/bin/refresh-queries.py's port header). Until a Python
-self-claim port lands, files this script writes during an active session
-will not appear in touched.txt. Flagged here per DR-059, not silently
-dropped.
-"""
 from __future__ import annotations
 
 import datetime
@@ -30,7 +9,7 @@ import shutil
 import subprocess
 import sys
 
-GENERATES = []  # writes only ~/.claude/.mcp-version-check (cooldown marker), outside claude-klabauter's own tracked tree
+GENERATES = []
 
 COOLDOWN_DAYS = 7
 

@@ -78,12 +78,6 @@ from typing import Optional
 
 
 def _bootstrap_engine() -> None:
-    """The engine root must be on sys.path before a `coordinator_core`
-    import runs: this file is also published into the claude-klabauter
-    mirror, where `coordinator_core` is NOT pip-installed and the
-    interpreter's `sys.path[0]` is this bin/ directory, not the checkout
-    root. Same bootstrap as coordinator/bin/coordinator-lesson-add
-    (9b979ee5f)."""
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_engine_on_path
 
@@ -91,13 +85,6 @@ def _bootstrap_engine() -> None:
 
 
 def _bounded(secs: float, cmd: list[str]) -> Optional[str]:
-    """Run cmd with a wall-clock cap; return stdout text, or None on any failure.
-
-    See module docstring's Fix-in-port note: subprocess.run's own `timeout=`
-    is the portable bound here — a wedged driver or slow cold-start raises
-    TimeoutExpired, caught below and folded into the same "no signal on this
-    axis" None return every other failure mode on this probe leg produces.
-    """
     from coordinator_core.win_portability import no_console_creationflags
 
     try:
@@ -116,18 +103,9 @@ def _bounded(secs: float, cmd: list[str]) -> Optional[str]:
 
 
 def _fmt_mb(mb: int) -> str:
-    """Render an MB integer as a compact human magnitude.
-
-    "~N GB" at >=1 GB, "~N MB" below (integer GB truncation would print "~0 GB"
-    for a memory-starved machine — exactly the case the headroom-tight signal
-    exists to surface).
-    """
     if mb >= 1024:
         return f"~{mb // 1024} GB"
     return f"~{mb} MB"
-
-
-# --- RAM: Linux / WSL — /proc/meminfo is authoritative and cheap -------------
 
 
 def _ram_from_proc() -> tuple[Optional[int], Optional[int]]:
@@ -151,9 +129,6 @@ def _ram_from_proc() -> tuple[Optional[int], Optional[int]]:
         m = re.match(r"^MemTotal:\s*(\d+)", line)
         if m:
             total_kb = int(m.group(1))
-    # MemAvailable is the kernel's reclaim-aware estimate; fall back to
-    # MemFree on pre-3.14 kernels that lack it (conservative — undercounts
-    # true headroom).
     if avail_kb is None:
         avail_kb = free_kb
     if avail_kb is None:
@@ -162,18 +137,7 @@ def _ram_from_proc() -> tuple[Optional[int], Optional[int]]:
     return avail_kb // 1024, total_mb
 
 
-# --- RAM: Windows — PowerShell CIM (wmic is deprecated on Win11) ------------
-
-
 def _ram_from_windows() -> tuple[Optional[int], Optional[int]]:
-    """Windows available/total RAM via psutil (no shell spawn).
-
-    `psutil.virtual_memory().available` is the reclaim-aware "available"
-    estimate (same semantic as Linux MemAvailable) — a closer analogue to
-    the other platform legs here than the old PowerShell path's
-    FreePhysicalMemory (which was "free", not "available"). `.total` is
-    total physical RAM. Returns `(None, None)` on any failure; never raises.
-    """
     try:
         import psutil  # type: ignore[import-not-found]
     except ImportError:  # pragma: no cover - psutil is a declared dependency
@@ -185,9 +149,6 @@ def _ram_from_windows() -> tuple[Optional[int], Optional[int]]:
     except Exception:  # pragma: no cover - psutil internals, defensive only
         return None, None
     return avail_bytes // (1024 * 1024), total_bytes // (1024 * 1024)
-
-
-# --- RAM: macOS — sysctl for total, vm_stat pages for available ------------
 
 
 def _ram_from_macos() -> tuple[Optional[int], Optional[int]]:
@@ -229,15 +190,9 @@ def _ram_from_macos() -> tuple[Optional[int], Optional[int]]:
     inactive = _pages("Pages inactive") or 0
     spec = _pages("Pages speculative") or 0
     avail_pages = free + inactive + spec
-    # Divide before multiplying: avail_pages * pagesize can reach ~32e9 on a
-    # large-RAM box; (pagesize // 1024) is exact for all real Apple page
-    # sizes (4096, 16384).
     avail_mb = (avail_pages // 1024) * (pagesize // 1024)
     total_mb = int(total_bytes_s) // 1024 // 1024 if total_bytes_s.isdigit() else None
     return avail_mb, total_mb
-
-
-# --- VRAM: NVIDIA only, any platform — sum free/total across GPUs ----------
 
 
 def _vram_from_nvidia() -> tuple[Optional[int], Optional[int]]:
@@ -245,8 +200,6 @@ def _vram_from_nvidia() -> tuple[Optional[int], Optional[int]]:
 
     if not shutil.which("nvidia-smi"):
         return None, None
-    # Bounded: a wedged NVIDIA driver makes nvidia-smi hang indefinitely
-    # (known issue).
     out = _bounded(
         3,
         [
@@ -274,8 +227,6 @@ def _vram_from_nvidia() -> tuple[Optional[int], Optional[int]]:
             saw_total = True
     if not saw_free:
         return None, None
-    # Only report a total if at least one GPU gave a numeric one — never a
-    # misleading 0.
     return free_sum, (total_sum if saw_total else None)
 
 

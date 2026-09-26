@@ -1,27 +1,3 @@
-"""
-register-discovered-repos.py — CLI trampoline over claude-klabauter
-coordinator_core.ops.register_discovered_repos.
-
-Finish-strangler port (bash→pure-Python clean-slate migration): the bash
-implementation (F16 fix — bridges tier-gated discovery output into the
-machine-local `repos.*` registry) has been fully ported to
-coordinator_core/ops/register_discovered_repos.py in the claude-klabauter sibling repo. This
-file is now a thin DoE-side (contract) trampoline over that claude-klabauter (engine) module,
-per DR-047 (DoE owns contract/generator, claude-klabauter owns engine).
-
-De-bash rename (2026-07-21, chunk I-a): this trampoline itself started life as
-a `.sh`-suffixed pure-Python file (a bash-invocation-tax artifact, not genuine
-bash) and has been renamed to its natural `.py` extension; a co-located
-`.cmd` launcher (`register-discovered-repos.cmd`, regenerated via
-`coordinator/bin/gen-launcher-shim.py`) still carries Windows invocation.
-
-Never-block contract (preserved from the bash oracle): almost every failure mode is
-a silent skip that exits 0 — this bridge is advisory best-effort registration
-during install, never a gate. If the claude-klabauter link itself cannot be resolved
-(engine root unresolvable, module not importable), this trampoline also exits 0
-rather than blocking install — matching the oracle's "skip with a stderr note"
-shape for every other failure mode it already handles.
-"""
 
 from __future__ import annotations
 

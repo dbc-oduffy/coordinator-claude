@@ -62,14 +62,6 @@ DEAD = "dead"
 
 
 def _resolve_modules():
-    """Bootstrap and return `coordinator_core.group_em.session_registry` -- the "engine" class
-    resolution (§ Path resolution): this module's own tree, via the standard
-    `require_dispatch_engine_on_path` trampoline `group-em-nomination.py`/`navi-singleton.py` share,
-    never a DoE-side `bin/lib` sys.path shim. Resolved lazily, inside a function body, so importing
-    this module stays module-body-inert -- a module-scope `from coordinator_core... import ...` is
-    exactly the `coordinator_core.warm.serve_classifier` "module-scope non-stdlib import" violation
-    (see that module's docstring, delta 3) this port must not reintroduce.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 
@@ -88,28 +80,19 @@ class Resolution(NamedTuple):
     """
 
     outcome: str
-    row: Optional[Any]  # coordinator_core.group_em.session_registry.RegistryRow, resolved lazily
+    row: Optional[Any]
 
     @property
     def address(self) -> str:
-        """Bare `SendMessage` address, or `""` for any non-resolved outcome."""
         return self.row.name if (self.outcome == RESOLVED and self.row) else ""
 
 
 def read_rows(directory: Optional[Any] = None) -> list:
-    """Every parseable record in the registry with a resolvable name, live or not.
-
-    Unreadable and malformed files are skipped rather than raised on: the directory is written by
-    concurrent sessions, so a torn or half-written record is an expected transient, not an error
-    worth failing a caller's lookup over. A row with no `name` is unaddressable over SendMessage,
-    so it is skipped here even though the shared reader parses it.
-    """
     session_registry = _resolve_modules()
     return [row for row in session_registry.read_rows(directory) if row.name]
 
 
 def resolve(session_id: str, directory: Optional[Any] = None) -> Resolution:
-    """Resolve one session id to an addressable peer name."""
     if not session_id:
         return Resolution(NO_RECORD, None)
     session_registry = _resolve_modules()
@@ -120,12 +103,6 @@ def resolve(session_id: str, directory: Optional[Any] = None) -> Resolution:
 
 
 def live_rows_near(path: str, directory: Optional[Any] = None) -> list:
-    """Live sessions whose cwd matches `path`, case-insensitively on Windows.
-
-    The follow-up to an unresolved sid. A session that resumed or `/clear`ed is still working the
-    same tree under the same name with a NEW sid, so a live row here is the likely holder even
-    though the recorded sid resolved to nothing.
-    """
     session_registry = _resolve_modules()
     target = os.path.normcase(os.path.normpath(path)) if path else ""
     hits = []

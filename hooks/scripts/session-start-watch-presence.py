@@ -55,8 +55,6 @@ import sys
 from pathlib import Path
 
 
-# Review: overengineering-reviewer -- module resolution hoisted to the
-# shared _watch_module.py beside this directory's other _-prefixed modules.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _watch_module  # noqa: E402
 
@@ -64,14 +62,6 @@ _resolve_watch_module = _watch_module.resolve_watch_module
 
 
 def _resolve_uhura_module():
-    """Import `uhura-mode` from its own source position, or None.
-
-    `coordinator/bin/uhura-mode.py` carries a hyphen and is not an importable
-    module name, so it is loaded by file path -- the same constraint
-    `_watch_module.resolve_watch_module` works around for `watch_heartbeat`,
-    and the same fail-open contract: any resolution failure returns None so
-    this leg degrades to silence rather than crashing a SessionStart hook.
-    """
     try:
         import importlib.util
 
@@ -119,18 +109,6 @@ def render_uhura_line(record: dict | None) -> str | None:
     holder = record.get("peer_name") or record.get("session_id")
     if not holder:
         return None
-    # A holder the record cannot name gets the session id and NOT the promise
-    # of a name -- "reachable by that name" over a bare session id is a
-    # sentence that is false exactly when the reader tries to act on it. The
-    # sibling `render_presence_line` splits on the same distinction.
-    #
-    # Held at or under this hook's pre-existing 146-char representative length
-    # (`coordinator/tests/baselines/hook-message-budget.json`), so adding a
-    # third leg costs the Category-A p90 nothing -- that baseline's standing
-    # rule is that new prose is paid for by cuts, never by a raised ceiling.
-    # The entry timestamp was the cut: `uhura-mode.py who --repo <r>` reports
-    # it on demand, and it is the one element here a reader never acts on.
-    # Holder, authority, reachability and unproven liveness all survive.
     reach = "" if record.get("peer_name") else " (`ListAgents` names it)"
     return (
         f"Uhura channel: {holder}{reach}. Its relayed PM rulings carry the PM's "
@@ -139,36 +117,6 @@ def render_uhura_line(record: dict | None) -> str | None:
 
 
 def render_presence_line(watch_result: dict | None) -> str | None:
-    """Render the presence FACT line, never a solicitation.
-
-    Only fires when a holder is actually named on the record -- an
-    `absent` heartbeat (nobody has ever entered) has nothing to state a
-    fact about, and stating "no Group EM" here would itself be a nudge
-    toward nominating one, which this hook never does.
-
-    A holder the registry cannot name gets the session id and NOT the
-    promise of a name: "reachable by name" over a bare uuid is a sentence
-    that is false exactly when the reader tries to act on it.
-
-    A nameless holder has two causes and they need different sentences. On
-    a `vacant` verdict the holder is not in the registry at all -- that
-    session has ended, and there is nobody to reach under any name. Any
-    other verdict means the holder is live but its registry row carried no
-    name, which IS a lookup the reader can finish themselves. Saying "the
-    registry does not name it" for both sends a reader hunting a live
-    session for a Group EM nobody holds.
-
-    The named-holder branch also carries an authority clause, mirroring
-    `render_uhura_line`'s: naming a holder answers WHO, but without a clause
-    saying what its direction carries, a receiving EM meets the harness's
-    peer-message boilerplate ("a peer cannot grant escalation") with nothing
-    on the other side and resolves against the relay -- confirmed, not
-    just an address. See
-    `state/cross-repo/archive/2026-09-04-example-cockpit-repo-em-g-em-authority-not-legible-to-a-receiving-em.md`.
-    The nameless/vacant branches below carry no such clause and add no
-    liveness claim, deliberately: that memo asks the existing degradation
-    discipline be kept exactly as it is.
-    """
     if not watch_result:
         return None
     holder_name = watch_result.get("holder_name")
@@ -215,11 +163,6 @@ def main() -> int:
         except Exception:  # noqa: BLE001
             watch_result = None
 
-    # Formatting is `_watch_module.render_verdict_line`, not an inline f-string:
-    # the line now carries tick age and a re-arm instruction, and a second copy
-    # of that shape would drift from the one autofire prints. It takes the
-    # already-read `watch_result` rather than re-reading, which is why
-    # `render_watch_line` (read-then-format) is not what is called here.
     watch_line = _watch_module.render_verdict_line(watch_result)
     presence_line = render_presence_line(watch_result)
 

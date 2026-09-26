@@ -69,7 +69,6 @@ def main(argv: "list[str] | None" = None) -> int:
     try:
         run_op_main = _import_runner()
     except RuntimeError as exc:
-        # Advisory-only scan -- never block repo-setup on a claude-klabauter-link failure.
         print(f"detect-project-runtime.py: engine-root resolution failed: {exc}", file=sys.stderr)
         return 0
     except ImportError as exc:

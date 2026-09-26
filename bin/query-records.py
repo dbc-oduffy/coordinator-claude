@@ -77,10 +77,6 @@ import re
 import sys
 
 
-# Closed list — enumeration is constitutive, not illustrative (per this repo's
-# CLAUDE.md carve-out discipline). A flag NOT named here that is also not in
-# the supported set below falls through to argparse's own unrecognized-
-# argument rejection, which already fails loud.
 _UNPORTED_FLAGS = (
     "--validate-all",
     "--fleet",
@@ -112,7 +108,6 @@ def _reject_unported_flags(argv: list[str]) -> None:
 
 
 def _list_schemas() -> int:
-    """Print the engine's queryable record types, one per line, sorted."""
     from cc_invoke import require_dispatch_engine_on_path
 
     try:
@@ -173,24 +168,10 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-# `--status` must be a bare token — a value containing " AND "/" and " would
-# compose into a second where-clause conjunct (coordinator_core/ops/
-# records_query.py::_parse_where splits on `\s+and\s+`), silently narrowing
-# the query instead of failing loud. Review: code-reviewer — Finding 1.
 _STATUS_TOKEN_RE = re.compile(r"^[\w-]+$")
 
 
 def _compose_where(where: str, status: str | None) -> str:
-    """AND a `--status` value into `where` as a `status=<value>` conjunct.
-
-    `--status` is DoE-fence sugar (e.g. `--type debt --status open`) for what
-    the engine's own grammar already expresses via `--where "status=open"`;
-    this trampoline does not invent a new op-side param, it composes onto the
-    existing `where` string before dispatch.
-
-    Fails loud (rather than silently sanitizing) if `status` is not a bare
-    token, since a raw value is interpolated into the composed where-string.
-    """
     if not status:
         return where
     if not _STATUS_TOKEN_RE.match(status):
@@ -210,15 +191,6 @@ def main(argv: list[str] | None = None) -> int:
 
     require_dispatch_engine_on_path()
     # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
-    # what BINDS coordinator_core, and binding it HERE is the whole fix.
-    # require_dispatch_engine_on_path() above only mutates sys.path -- it imports
-    # nothing. Without this line the next import below (a binder module that
-    # resolves on the LOCATOR axis) wins the race and binds coordinator_core off
-    # the working tree instead of the dispatch root, and no later sys.path insert
-    # can rebind an already-imported package. Removing it restores a silent
-    # wrong-tree divergence that require_dispatch_engine_on_path now raises on.
-    # Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
-    # docs/research/engine-provenance-carrier-dependence.md
     import coordinator_core  # noqa: F401
 
     from records_query import _no_legacy, _resolve_repo_root, route_mutation
@@ -238,9 +210,7 @@ def main(argv: list[str] | None = None) -> int:
     where = _compose_where(args.where or "", args.status)
     repo_root = os.path.abspath(args.root) if args.root else _resolve_repo_root()
 
-    # Closed param set — mirrors coordinator_core.ops.records_query.py's own
     # _KNOWN_PARAM_KEYS (snake_case only; no kebab aliasing). Only send keys
-    # this trampoline's flags actually populate.
     params: dict[str, object] = {
         "type": args.type_,
         "where": where,
@@ -254,11 +224,6 @@ def main(argv: list[str] | None = None) -> int:
         params["include_archived"] = True
     if args.include_body:
         params["include_body"] = True
-    # `is not None`, NOT truthiness: --limit 0 is the documented way to ask
-    # for unlimited results (op default is 50). A bare `if args.limit:`
-    # guard would silently drop 0 back to the default. Mirrors
-    # lib/records_query.query_records()'s own `is not None` guard, not
-    # lib/records_query.main()'s raw-string truthiness pattern.
     if args.limit is not None:
         params["limit"] = args.limit
 
@@ -273,9 +238,6 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.format_ == "json":
-        # Trailing newline is deliberate here (unlike lib/records_query.py's
-        # `--format json`, which writes json.dumps() verbatim with no
-        # trailing newline) — harmless for any JSON-parsing consumer.
         records_json = result.get("records", []) if isinstance(result, dict) else []
         sys.stdout.write(json.dumps(records_json))
         sys.stdout.write("\n")

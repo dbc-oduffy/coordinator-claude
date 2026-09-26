@@ -140,7 +140,6 @@ if str(_HOOKS_DIR) not in sys.path:
 
 
 class Ctx:
-    """Computed ONCE per SessionStart event."""
 
     def __init__(self, raw: str) -> None:
         self.raw = raw
@@ -158,14 +157,9 @@ class StartGuard:
     module_key: str
     filename: str
     sources: FrozenSet[str]
-    # None -> invoke bare main(); a list -> invoke main(that_list) explicitly
-    # (never relies on this dispatcher's own sys.argv).
     argv: Optional[List[str]] = None
 
 
-#: Emitted when a non-empty `source` matches no guard's set at all -- the
-#: harness-drift tell described in the module docstring. Skipping stays the
-#: behaviour; going quiet about it does not.
 _UNMATCHED_SOURCE_BREADCRUMB = (
     "[sessionstart-dispatch] source={source!r} matches no guard in REGISTRY -- "
     "every guard skipped for this boot. If the harness added a source value, "
@@ -182,32 +176,13 @@ REGISTRY: Tuple[StartGuard, ...] = (
                frozenset({"startup", "clear", "compact"})),
     StartGuard("session_start_write_bump_anchor", "session-start-write-bump-anchor.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
-    # `startup` only: what it watches changes when someone edits a template, not
-    # when a session compacts or clears, and its own daily stamp makes extra
-    # firings no-ops anyway. Narrowest set that still reaches every machine.
-    # Placed after the guards and before the self-probe: it emits at most one
-    # informational line and gates nothing, so nothing here should wait on it.
     StartGuard("bin_drift_refresh", "sessionstart-bin-drift-refresh.py",
                frozenset({"startup"})),
-    # `startup` ONLY, and this one is load-bearing rather than merely narrow:
     # this is the fan-in's one genuinely git-MUTATING leg (it cuts the day
-    # branch when the tree sits on `main`, per the PM ruling of 2026-08-18).
-    # `compact`, `resume` and `fork` all fire mid-execution, and a cut on
-    # `compact` is the mid-execution mutation doctrine keeps out of bounds.
-    # See the negative-spec in `day-branch-assert.py`; widening this set turns
-    # `test_sessionstart_day_branch_assert_registered.py` red.
     StartGuard("day_branch_assert", "day-branch-assert.py",
                frozenset({"startup"})),
-    # `startup` ONLY: `job_mode` is a property of the environment a human
-    # launched the session in -- it cannot change mid-session, so announcing
-    # again on `resume`/`clear`/`compact`/`fork` would repeat a fact that has
-    # not changed since boot. See session-start-announce-job-mode.py's own
-    # module docstring for the two-output-channel rationale.
     StartGuard("job_mode_announce", "session-start-announce-job-mode.py",
                frozenset({"startup"})),
-    # Every source: the boot payload is re-read on each of them, and the check
-    # is one in-process tree walk. Silent unless uncommitted governed-surface
-    # text fails admission -- see session-start-governed-surface-drift.py.
     StartGuard("governed_surface_drift", "session-start-governed-surface-drift.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
     # LAST, deliberately -- see module docstring "INCREMENTAL FLUSH".
@@ -240,13 +215,6 @@ class _ByteSink:
 
 
 class _BufferedTextCapture(io.StringIO):
-    """Same shim `stop-dispatch.py`/`_stop_family_runner` use: some folded
-    guards emit through `sys.stderr.buffer.write()`, which a plain StringIO
-    has no attribute for. Both channels land in ONE ordered `io.BytesIO` --
-    `write(str)` encodes into it, `.buffer.write(bytes)` writes into it
-    unmodified -- so `combined()`/`combined_bytes()` are order-preserving AND
-    byte-exact, rather than concatenating two separately-accumulated
-    buffers."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -320,9 +288,6 @@ def main() -> int:
         sys.__stderr__.flush()
 
     for guard in REGISTRY:
-        # An empty source runs every guard (fail-open on a missing signal);
-        # a non-empty one gates to that guard's own set. See the module
-        # docstring on the unrecognised-source case and its breadcrumb.
         if ctx.source and ctx.source not in guard.sources:
             continue
         try:
@@ -336,27 +301,12 @@ def main() -> int:
             skipped.append(guard.module_key)
             continue
         # INCREMENTAL FLUSH -- see module docstring. Written to the real
-        # stdout/stderr immediately, never accumulated for a final join.
-        # `out`/`err` are raw bytes (`_invoke`'s `combined_bytes()`); written
-        # through `.buffer`, never the text wrapper, so a guard's raw
-        # sys.stdout.buffer.write()/sys.stderr.buffer.write() bytes (Windows
-        # CRLF-translation fix) survive re-emission unmodified.
         if out:
             sys.__stdout__.buffer.write(out)
             sys.__stdout__.buffer.flush()
         if err:
             sys.__stderr__.buffer.write(err)
             sys.__stderr__.buffer.flush()
-        # Exit code carries no signal for any guard here. Every guard is
-        # banner-only EXCEPT `day_branch_assert`, which genuinely mutates git
-        # (it cuts the day branch on `main`) — PM-authorised 2026-08-18, see
-        # that guard's docstring. It still reports through the banner channel
-        # like the rest, so this loop's contract is unchanged; what changed is
-        # that "banner-only" is no longer true of the whole set.
-        # Review: coordinator:code-reviewer -- day_branch_assert's exit code
-        # is deliberately still ignored here too: the guard is fail-open by
-        # design (see its own module docstring, "Fails open, always"), so a
-        # nonzero exit from it never signals a real failure to surface.
         del rc
 
     if skipped:

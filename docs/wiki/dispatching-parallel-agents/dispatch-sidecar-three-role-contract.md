@@ -567,6 +567,65 @@ every other agent class in the table has one. Applying this rule before adding a
 Generalizing the write-owner table above keeps the sidecar convention from becoming boilerplate
 that gets attached to every new agent class by default rather than by actual need.
 
+## Return payload — proceed on the lead line
+
+Every dispatched agent returns one of four shapes, and each shape has exactly one delivering
+snippet or mechanism:
+
+- **`pointer`** — a terse pointer, `done: <path>`, never a full dump. Delivered by
+  `subagent-sandbox-preamble.md` (the 17 resident consumers, the G1 personas, the G2 checkers,
+  parallel-review-synthesizer) and by `disk-first-protocol.md` (the disk-first agents, including
+  the three synthesizers). `test-runner` is also `pointer`: its own body already replies exactly
+  `DONE: <sidecar-path>`, which is a complete run-report lead line with line 2 omitted, so it
+  needs no separate injected rule.
+- **`run-report-lead`** — `<STATUS>: <ref>` then `Sidecar: <path>` (or `Sidecar: none — <why>`),
+  with the agent's existing inline body unchanged below those two lines. Delivered by
+  `run-report-citizenship.md`'s lead-line paragraph, and mirrored directly into the bodies of
+  `executor.md` and `review-integrator.md` so their reports open with the same two lines rather
+  than relying on the injected snippet alone. `enricher` gets no body edit; its coverage rests on
+  the injected rule.
+- **`inline-capped`** — line 1 is the agent's own verdict or status, the whole reply is at most 40
+  lines, and overflow gives the first lines plus `… <N> more lines omitted — reproduce with:
+  <command>`. Delivered by `inline-return-cap.md`, for the nine sidecar-less exploration agents
+  that cannot hold a sidecar (they fail `dispatch_tier` clause (1)).
+- **`structured-output`** — `blitz-em` and `plan-author` return `StructuredOutput` to a workflow
+  script, never to EM chat. Exempt by construction; no snippet applies.
+
+**The EM reads the payload and proceeds.** The lead line — the pointer, or the two `run-report-lead`
+lines, or the inline-capped line 1 plus its cap — is a complete answer on its own. The EM opens the
+named sidecar only when it disputes the reported status, needs detail beyond the lead to act, or
+the payload itself says to look: a `BLOCKED` status, a `DONE_WITH_CONCERNS` status, or an
+omitted-lines marker (`… <N> more lines omitted`) each name a reason to read further. Absent one of
+those, the lead line is the answer, and re-opening every sidecar by default defeats the reason the
+lead line exists.
+
+**The once-per-session sidecar advisory is a recovery pointer, not a mandate.** The advisory
+surfaced by `postuse_advisory_dispatch.py`'s `_check_first_agent_dispatch_sync` exists so an EM
+that lost or received a truncated reply has a durable place to recover the full record — it is not
+an instruction to read every sidecar produced in a session, and firing once does not obligate a
+sidecar-open on every subsequent dispatch.
+
+**The run-report carve-out, and why.** `executor`, `review-integrator` and `enricher` keep their
+inline-body return rather than inverting to a bare pointer — the EM ruled to keep this carve-out
+because the inline body is the EM-facing channel and the sidecar copy is what survives a truncated
+reply. This section's lead lines make that body status-led without removing it: the EM can act on
+the two lead lines alone, and the body remains below them as detail for the dispute/need-more-detail
+cases above.
+
+**R3 owns sync/async; this section owns shape only.** The sibling plan
+`docs/plans/2026-09-26-coordinator-remedies-slate-tier-1.md` (R3) is the home for whether a
+dispatch blocks the EM synchronously or reports by background notification. Nothing in this
+section changes that — it only fixes what the payload looks like once it arrives, however it
+arrives.
+
+**Coverage here is mechanically checked, not machine-enforced for content.**
+`coordinator/tests/test_agent_return_payload_contract.py` asserts every agent's resolved contract
+text (body plus injected `contract_blocks`) carries the literal marker for its class — it verifies
+the *instruction* is present. It does not and cannot verify that a given reply is actually light:
+`review-integrator`'s Triage Table stays inline and unbounded by design (see the carve-out above),
+so a future reader must not mistake this test's green for evidence that every reply obeys the cap
+in practice — only that the instruction to do so is wired.
+
 ### Why the reviewer's write carve-out exists — context management, not a safety boundary
 
 The review-persona write carve-out — able to write into its own sidecar and the subagent-share

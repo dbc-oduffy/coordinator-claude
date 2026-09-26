@@ -90,58 +90,16 @@ if _HOOKS_DIR not in sys.path:
 
 from _message_envelope import compose, render  # noqa: E402
 
-#: Wiki section carrying the relocated full rationale for the `strip`
-#: offer (why naming Explore/Plan loses its read-only restriction, system
-#: prompt, and omitClaudeMd; the ~31k-token cost breakdown) -- see this
-#: module's own relocation fragment at state/relocations/guard-message-cap/
-#: enforce-agent-dispatch-mode.py.md (the site is measured via
-#: `enforce-agent-dispatch-mode.py`'s imported `_compute_named_dispatch`
-#: alias, per docs/plans/2026-08-02-guard-message-character-cap.md § C6).
 _WIKI_ANCHOR = "coordinator/docs/wiki/guards/guard-message-concision.md#named-dispatch-strip"
 
 #: CONFINEMENT reason. Naming one of these discards a read-only tool
-#: restriction (`tools` falls back to `"*"`), so a rewrite this module cannot
 #: build faithfully fails CLOSED -- see `_DENY_MESSAGE` and the FAIL-CLOSED
-#: contract in the module docstring.
 _RESTRICTED_SUBAGENT_TYPES = ("Explore", "Plan")
 
 #: DELIVERY reason. These are the agent definitions that report by returning
-#: a pointer line -- naming one converts it into an Agent-teams teammate whose
-#: final text is never delivered to the dispatcher, so the report is silently
-#: voided (claude-klabauter-em, 2026-08-25, transcript-backed; filed at
-#: state/improvement-queue/2026-08-25-named-dispatch-voids-a-reporting-agents-report.yaml).
-#: Stripping `name` restores ordinary tool-result delivery.
-#:
 #: FORMER THREE-CLASS TAXONOMY, COLLAPSED (DR-190 § 2, 2026-09-02). Until
-#: 2026-09-02 this tuple declared only "class 2 + class 3" of a three-class
-#: partition (named-dispatch-three-class-partition, 2026-08-25 C1/C2), with
-#: a "class 1" of 16 types (declares `SendMessage`, or named-by-driver per
-#: the namer census: research-scout, repo-scout, notebooklm-research-scout)
-#: deliberately excluded on the theory that naming them does not silently
-#: void the report. DR-190 § 2 ruled to extend the strip to the full
-#: 32-type reporting population instead -- one module, uniform, no
-#: tool-surface change -- over adding the clause as text to the ~32 files
-#: (which would additionally need granting `SendMessage` to the 3 types
-#: that lack it) or accepting the gap. The former class 1 is folded into
-#: this tuple below; nothing in this module distinguishes it from the
-#: former class 2/3 any longer.
-#:
 #: NEGATIVE SPEC: this tuple is not a hand-curated taste list. It is the
-#: full reporting-typed population under `coordinator/agents/*.md` minus (a)
-#: the non-reporting utility definitions (git-commit-agent, atlassian-worker,
-#: drive-worker, group-em-assistant, exit-criterion-falsifier)
-#: that are never dispatched for a report, and (b) `/staff-session`'s six
 #: named-on-purpose debate personas (`_STAFF_SESSION_NAMING_CARVE_OUT`
-#: below). DR-190 § 2 named the reporting population 32 as of the ruling;
-#: two agent definitions (apm, overengineering-reviewer) were added
-#: afterward and are included here for consistency with the same principle.
-#: The whole tuple is hardcoded rather than derived because this module is
-#: on the PreToolUse path and must not read 25+ files per dispatch.
-#:
-#: COUNTS GO STALE; THE ORACLE DOES NOT. Do not reason from any count
-#: written in prose above. `test_reporting_type_set_matches_the_agent_
-#: definitions` is the live oracle, and a red run of it means this tuple
-#: drifted from `coordinator/agents/*.md`, never that the test is stale.
 _REPORTING_SUBAGENT_TYPES = (
     "coordinator:apm",
     "coordinator:atlas-clarity-reviewer",
@@ -162,7 +120,6 @@ _REPORTING_SUBAGENT_TYPES = (
     "coordinator:plan-coverage-checker",
     "coordinator:premise-checker",
     "coordinator:prior-art-checker",
-    "coordinator:review-integrator",
     "coordinator:security-audit-worker",
     "coordinator:subtractive-adjudicator",
     "coordinator:test-evidence-parser",
@@ -171,19 +128,7 @@ _REPORTING_SUBAGENT_TYPES = (
 )
 
 #: CARVE-OUT, not an oversight. `/staff-session`'s debate ceremony
-#: (`skills/staff-session/`) names these six on purpose so its synthesizer
-#: can address each persona -- naming is how the ceremony works, not a
-#: delivery hazard. `test_staff_session_named_types_survive_dispatch_with_name_intact`
-#: pins that a named dispatch of any of these six must pass through
-#: untouched. DR-190 § 2 ruled to extend the strip from the former Class 2/3
-#: to the full reporting population, but did not have this ceremony's
-#: concrete dependency in view -- discovered executing § 2, filed as a
-#: deviation rather than pushed through, since stripping these six would
-#: silently break `/staff-session` (an unaddressable, undebatable teammate)
-#: rather than merely cost a maintenance surface. Every other former
-#: Class-1 type (declared `SendMessage` or named-by-driver, no concrete
 #: naming dependency found) is folded into `_REPORTING_SUBAGENT_TYPES` above
-#: per the ruling.
 _STAFF_SESSION_NAMING_CARVE_OUT = (
     "coordinator:staff-eng",
     "coordinator:eng-director",
@@ -194,33 +139,8 @@ _STAFF_SESSION_NAMING_CARVE_OUT = (
 )
 
 #: CARVE-OUT, not an oversight. Four shipped deep-research ceremonies
-#: dispatch these nine types BY NAME so their teammates can address each
-#: other and the synthesizer via `SendMessage`/`ListAgents` -- naming is
-#: how the ceremony wakes a blocked peer, not a delivery hazard:
-#:   - `coordinator/pipelines/deep-research/repo-driver.md` (lines 277, 284, 318, 351)
-#:     (`coordinator:repo-scout`, `coordinator:research-synthesizer`,
-#:     `coordinator:repo-specialist`)
-#:   - `coordinator/pipelines/deep-research/web-driver.md` (lines 121, 140, 153)
-#:     (`coordinator:research-scout`, `coordinator:research-specialist`,
-#:     `coordinator:research-synthesizer`)
-#:   - `coordinator/pipelines/deep-research/structured-driver.md` (lines 188, 206, 223)
-#:     (`coordinator:research-scout`, `coordinator:research-specialist`,
-#:     `coordinator:structured-synthesizer`)
-#:   - `coordinator/commands/notebooklm-research.md:96-97`
-#:     (`coordinator:notebooklm-research-scout`, `coordinator:research-worker`,
-#:     `coordinator:research-sweep`)
-#: DR-190 § 2 recorded this naming route as a use case a driver *might*
-#: want and did not have these four ceremonies' concrete dependency in
-#: view; restored by docs/plans/2026-09-12-restore-deep-research-teammate-
-#: naming.md. Each agent definition's protocol paragraphs (e.g.
-#: `agents/repo-specialist.md:111`) call addressing a blocked teammate "a
-#: protocol obligation, not a courtesy" -- stripping `name` here would make
-#: that text false, not merely stale.
-#:
 #: NEGATIVE SPEC: membership is earned by a driver dispatching that type BY
-#: NAME, per the census above -- never by taste, and never merged into
 #: `_STAFF_SESSION_NAMING_CARVE_OUT` (a different ceremony's exemption). A
-#: type whose driver stops naming it comes back out of this tuple and into
 #: `_REPORTING_SUBAGENT_TYPES`.
 _DEEP_RESEARCH_NAMING_CARVE_OUT = (
     "coordinator:repo-scout",
@@ -234,20 +154,7 @@ _DEEP_RESEARCH_NAMING_CARVE_OUT = (
     "coordinator:notebooklm-research-scout",
 )
 
-# The complete set of keys this module knows how to carry forward into a
-# stripped `tool_input`. A key outside this set is a schema drift neither
-# caller has been taught about -- see the fail-closed discussion above.
-#
 # NEGATIVE SPEC: this set is reconciled against the LIVE Agent tool schema,
-# never against the keys a dispatch happens to use. A key the harness accepts
-# but this set omits is not caught by the fail-closed contract -- it IS the
-# failure: `compute_named_dispatch_result` denies the whole tool call, so a
-# harness-legal dispatch dies at the guard. `mode` and `team_name` are here
-# for that reason and no other; both are accepted by the Agent schema, both
-# are carried forward verbatim by the `dict(tool_input)` copy below, and
-# neither encodes a confinement property that stripping `name` discards --
-# which is the only thing the deny leg exists to protect. When the Agent
-# schema gains a key, add it here in the same pass.
 _KNOWN_AGENT_TOOL_INPUT_KEYS = frozenset(
     {
         "subagent_type",
@@ -264,16 +171,12 @@ _KNOWN_AGENT_TOOL_INPUT_KEYS = frozenset(
 
 
 #: Why a given type is in scope. `_REASON_CONFINEMENT` fails CLOSED on a
-#: rewrite it cannot build (naming discards a real read-only restriction, so
 #: allowing it through unchecked is the worse outcome). `_REASON_DELIVERY`
-#: fails OPEN -- see `compute_named_dispatch_result`'s asymmetry note.
 _REASON_CONFINEMENT = "confinement"
 _REASON_DELIVERY = "delivery"
 
 
 def _reason_for(subagent_type: Any) -> Optional[str]:
-    """Which leg, if any, this `subagent_type` is in scope for. `None` means
-    out of scope entirely -- an ordinary pass, never a failure."""
     if subagent_type in _RESTRICTED_SUBAGENT_TYPES:
         return _REASON_CONFINEMENT
     if subagent_type in _REPORTING_SUBAGENT_TYPES:

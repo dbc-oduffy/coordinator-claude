@@ -1,5 +1,4 @@
 # guard-not-a-hook-entrypoint: folded into preuse-bash-dispatch.py's _BASH_GUARD_REGISTRY, the
-# single PreToolUse(Bash|PowerShell) registration -- hooks.json names the dispatcher, not this file.
 """PreToolUse(Bash) hook: make a host's subagent Bash ban executable, not prose.
 
 THE DEFECT THIS CLOSES. This host bans the Bash tool for dispatched work, and that ban was
@@ -70,7 +69,6 @@ _WIKI_ANCHOR = (
 
 
 def _repo_config(cwd: str | None) -> Path | None:
-    """`coordinator.local.md` at or above `cwd`. None when it cannot be located."""
     if not cwd:
         return None
     try:
@@ -85,12 +83,6 @@ def _repo_config(cwd: str | None) -> Path | None:
 
 
 def _policy_is_deny(config: Path) -> bool:
-    """True only when the frontmatter explicitly declares the deny policy.
-
-    Deliberately a narrow string scan over the frontmatter block rather than a YAML parse: this
-    runs on the PreToolUse path for every Bash call, a YAML import is not free, and an unparseable
-    config must read as "no policy declared" (allow) rather than raising.
-    """
     try:
         text = config.read_text(encoding="utf-8")
     except OSError:
@@ -109,8 +101,6 @@ def _policy_is_deny(config: Path) -> bool:
 
 
 def _compose_deny_message() -> Message:
-    # Kept <=280 chars (CEILING, `_message_envelope.py`); the full rationale
-    # lives in this module's docstring and the wiki anchor, not the deny text.
     prose = (
         "BLOCKED: this host denies Bash to dispatched agents "
         f"({_CONFIG_NAME}: {_POLICY_KEY}: {_DENY_VALUE}) -- reads included, the cost is "
@@ -133,7 +123,7 @@ def main() -> int:
 
     agent_id = data.get("agent_id")
     if not isinstance(agent_id, str) or not agent_id.strip():
-        return 0  # the EM itself -- out of scope by design
+        return 0
 
     cwd = data.get("cwd") if isinstance(data.get("cwd"), str) else os.getcwd()
     config = _repo_config(cwd)

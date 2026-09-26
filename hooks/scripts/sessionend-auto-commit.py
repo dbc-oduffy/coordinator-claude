@@ -95,44 +95,21 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-# The "timeout" this script's SessionEnd entry carried while registered, kept as
-# the ceiling any re-arming registration must restore (comment-only mirror for
-# humans tracing the budget; NOT read at runtime, and with the registration
-# retired there is no live hooks.json value to mirror). Review:
-# coordinator:code-reviewer 604caa04 -- the internal terminate/grace/kill budget
-# below must stay comfortably under this ceiling, or the harness kills the hook
-# process itself before the soft-terminate/hard-kill sequence can finish,
-# reproducing one layer up the exact "cleanup never ran" failure this sequence
-# exists to prevent.
 _HOOKS_JSON_REGISTERED_TIMEOUT_SECS = 30
 
 _SUBPROCESS_TIMEOUT_SECS = 22
 
 # Grace window between the soft terminate and the hard kill. NEGATIVE SPEC:
-# `subprocess.run(timeout=)` hard-kills (SIGKILL / TerminateProcess) the moment
-# the bound expires, so no frame in the child ever runs -- including the
-# `try/finally` in `run_commit_pipeline` whose whole job is to unstage the
-# residue it staged. Staged-and-abandoned is the worst of the three possible
-# states on a shared `work/*` branch: the next bare `git commit` from any
-# concurrent session absorbs those paths into an unrelated commit. Untracked
-# would be inert; committed would be a paper trail. Hence terminate-then-wait-
-# then-kill rather than a bare `run(timeout=)`.
 _TERMINATE_GRACE_SECS = 4
 
 # Post-kill pipe-drain wait. Deliberately smaller than _TERMINATE_GRACE_SECS:
-# after a hard kill() the child is gone and its pipes close immediately, so
-# this only needs to cover the OS's own teardown latency, not the grace period
-# a still-alive child gets to actually run its cleanup.
 _POST_KILL_DRAIN_SECS = 2
 
 # Worst case: _SUBPROCESS_TIMEOUT_SECS + _TERMINATE_GRACE_SECS +
 # _POST_KILL_DRAIN_SECS == 22 + 4 + 2 == 28s, comfortably under the 30s
-# ceiling mirrored above.
 
 
 def _read_stdin(timeout: float = 2.0) -> str:
-    """Bounded stdin read (Windows hang guard) -- same pattern as the other
-    hooks in this directory (e.g. sessionend-archive-session.py._read_stdin)."""
     box = {"data": ""}
 
     def _read() -> None:
@@ -158,13 +135,6 @@ except Exception:
 
 
 def _log_diagnostic(payload: dict, note: str) -> None:
-    """Append one best-effort line so a genuinely unexpected failure mode
-    (not "nothing to commit", not "no session_id", not a push-retry
-    exhaustion — those are all expected outcomes) is discoverable by grep
-    instead of invisible. Never raises; a diagnostics-write failure must not
-    itself break session teardown. Mirrors
-    `sessionend-archive-session.py._note_missing_session_id`.
-    """
     try:
         cwd = payload.get("cwd")
         probe = Path(cwd).resolve() if isinstance(cwd, str) and cwd else Path.cwd()
@@ -202,21 +172,16 @@ def main() -> int:
 
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id:
-        # Never guess a session key -- silent no-op is the correct
-        # disposition (no session_id means nothing to rescue), but leave a
-        # breadcrumb the same way sessionend-archive-session.py does for
-        # its own identical situation, in case this payload shape is wrong
-        # on this Claude Code version.
         _log_diagnostic(payload, "SessionEnd payload carried no usable session_id; auto-commit skipped.")
         return 0
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open -- engine plane unresolvable on this machine
+        return 0
 
     cli = Path(root) / "coordinator" / "bin" / "safe-commit-offer.py"
     if not cli.is_file():
-        return 0  # fail-open -- CLI not present on this checkout
+        return 0
 
     try:
         proc = subprocess.Popen(
@@ -230,12 +195,7 @@ def main() -> int:
         _log_diagnostic(payload, f"safe-commit-offer subprocess failed to spawn: {exc}")
         return 0
 
-    # Popen + communicate(timeout=) rather than subprocess.run(timeout=) --
     # see the `_TERMINATE_GRACE_SECS` negative-spec block above for why.
-    # NOTE (Windows): `Popen.terminate()` IS `TerminateProcess` on Windows --
-    # there is no softer signal to send, so the soft-terminate path degrades
-    # to the same hard-kill behaviour there. That is a platform limit, not a
-    # bug this hook can work around.
     try:
         _stdout, stderr = proc.communicate(timeout=_SUBPROCESS_TIMEOUT_SECS)
         returncode = proc.returncode
@@ -261,9 +221,6 @@ def main() -> int:
             try:
                 proc.communicate(timeout=_POST_KILL_DRAIN_SECS)
             except Exception:
-                # Draining the pipes is best-effort here -- the child is
-                # already killed; a still-blocked pipe read must not itself
-                # raise out of a SessionEnd hook.
                 pass
             _log_diagnostic(
                 payload,
@@ -279,13 +236,7 @@ def main() -> int:
         _log_diagnostic(payload, f"safe-commit-offer subprocess failed: {exc}")
         return 0
 
-    # Exit 0 (ran, nothing-to-commit-is-a-valid-outcome included) and exit 1
-    # (session id unresolvable -- shouldn't happen here since we pass
-    # --session explicitly, but the CLI degrades to it rather than raising)
-    # are both expected outcomes, never worth a diagnostic. Exit 2 (usage
-    # error -- would indicate a bug in THIS hook's own invocation) and exit 3
     # (transport failure -- CLAUDE_KLABAUTER_ROOT resolvable here but not inside the
-    # trampoline, or the engine import failed) are genuinely unexpected.
     if returncode not in (0, 1):
         _log_diagnostic(
             payload,

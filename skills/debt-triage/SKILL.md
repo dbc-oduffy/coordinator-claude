@@ -41,7 +41,7 @@ presenting overlaps to the PM for a dedup decision (populate `evidence:` on both
 
 **Improvement-queue triage is emitted, not EM classification.** Pick an appetite (`hunt`,
 `standard` or `sweep` — values in `coordinator/queue-profiles/improvement.yaml`). Emit with
-`emit-dispatch-workflow.py --queue state/improvement-queue --profile improvement --appetite <a>
+`emit-dispatch-workflow --queue state/improvement-queue --profile improvement --appetite <a>
 --out state/scratch/debt-triage/{run-id}/improvement.workflow.mjs --repo-root <abs repo root>`, per
 `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`. There is no commit-readiness gate
 to resolve for this leg. Fire with `Workflow({scriptPath})`, never `--fire` — firing authorizes

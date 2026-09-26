@@ -38,6 +38,7 @@ skill-tool-entry.md chunk C1, the private copies in the consumer hooks are
 retired in favor of importing this one.
 """
 
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -47,17 +48,6 @@ import json
 
 
 def normalize_command_name(name: object) -> str:
-    """Normalize a raw command-name value to its bare verb.
-
-    Strips any `<namespace>:` prefix by taking the segment after the LAST
-    `:` -- a plugin-slash-command payload delivers `command_name` namespaced
-    as `<plugin>:<command>` (e.g. `"coordinator:pickup"`) on the
-    `command_source: "plugin"` path, while `projectSettings`/typed sources
-    (and a model-invoked `Skill` call's `tool_input.skill`/`.command`) may
-    deliver either the bare verb or the namespaced spelling directly.
-
-    Returns `""` for `None`/non-`str` input, never raises.
-    """
     if not isinstance(name, str):
         return ""
     return name.rsplit(":", 1)[-1]
@@ -73,15 +63,6 @@ def _as_optional_str(value: object) -> Optional[str]:
 
 @dataclass(frozen=True)
 class Invocation:
-    """The one shape a computed-input consumer reads, regardless of which of
-    the two hook events actually fired.
-
-    `command_name` is always the normalized bare verb (`normalize_command_name`
-    already applied) -- a consumer never re-normalizes. `command_args` is
-    always a stripped `str` (never `None`). `agent_id` is the one field
-    genuinely optional in the underlying payload: present only inside a
-    dispatched subagent.
-    """
 
     command_name: str
     command_args: str
@@ -119,17 +100,6 @@ def _read_pre_tool_use_skill(payload: dict) -> Optional[Invocation]:
 
 
 def read_invocation(payload: dict) -> Optional[Invocation]:
-    """Adapt a `UserPromptExpansion` or a `PreToolUse(Skill)` hook payload
-    to one `Invocation` shape.
-
-    Dispatch: `command_name` key present -> `UserPromptExpansion` reading
-    (today's fields, verbatim). Otherwise `tool_name == "Skill"` ->
-    `PreToolUse` reading. Anything else -- a different `PreToolUse` tool, a
-    payload with neither key, a non-`dict`, garbage -- returns `None`.
-
-    Never raises: any lookup here is a plain `dict.get`/`isinstance` check,
-    and this function does not touch the environment or the filesystem.
-    """
     if not isinstance(payload, dict):
         return None
 
@@ -145,11 +115,6 @@ def read_invocation(payload: dict) -> Optional[Invocation]:
 
 
 def context_envelope(event: str, text: str) -> str:
-    """Render the one-line `hookSpecificOutput` JSON envelope consumers print
-    to stdout, with `hookEventName` set to `event` -- so a `PreToolUse`-fired
-    consumer never echoes the wrong event name (a risk once two events feed
-    the same rendering path).
-    """
     return json.dumps(
         {"hookSpecificOutput": {"hookEventName": event, "additionalContext": text}}
     )

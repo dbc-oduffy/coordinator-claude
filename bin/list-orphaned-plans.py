@@ -122,20 +122,11 @@ def __getattr__(name: str):
 
 _USAGE_FAIL = 2
 
-#: Cap on `unrecognized_status` lines printed — mirrors
 #: `readers_handoff_triage._UNRECOGNIZED_STATUS_LINE_CAP`; this diagnostic
-#: bucket is not spec'd "loud, one line per plan" the way P1
-#: `authorized_orphan` is, and grows with disk contents (Review:
-#: code-reviewer — Finding 3).
 _UNRECOGNIZED_STATUS_LINE_CAP = 10
 
 
 def _resolve_repo_root(positional: str | None) -> str | None:
-    """Repo root — accept as positional arg or resolve from the CWD's own
-    git toplevel. cwd-relative resolution is acceptable for this one-shot
-    CLI (see module docstring); the registered op and the orient-assemble
-    reader both keep the explicit-repo_root discipline instead.
-    """
     _bootstrap_engine()
     if positional:
         return positional
@@ -184,12 +175,6 @@ def main(argv: list[str] | None = None) -> int:
     result = list_orphaned(Path(repo_root), threshold_days)
 
     lines: list[str] = []
-    # P1 authorized_orphan is spec'd "loud, one line per plan, no age gate"
-    # (list_orphaned's own docstring) — deliberately left uncapped/
-    # untruncated-in-count here; P1 orphans are expected to stay rare, and
-    # capping this tier would defeat its whole purpose (Review:
-    # code-reviewer — Finding 3). Its external string field is still routed
-    # through truncate_external_text() below (size bound only, not count).
     for entry in result["authorized_orphan"]:
         lines.append(
             f"P1 authorized_orphan: {entry['path']} "

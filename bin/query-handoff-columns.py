@@ -66,12 +66,6 @@ import sys
 
 
 def _no_legacy() -> None:
-    """State-1 fallback — the engine-repo control-plane seam is absent on disk.
-
-    `handoff.columns` has no bash predecessor and no fallback body; this
-    raises unconditionally, and `cc_invoke.route()` wraps the raise in the
-    standardized four-rung remediation message on State-1 (seam absent).
-    """
     raise RuntimeError("query-handoff-columns: native seam required (no bash fallback)")
 
 
@@ -79,13 +73,6 @@ _BOOTSTRAP_NAMES = ("cc_invoke", "resolve_checked_repo_root")
 
 
 def _bootstrap_imports() -> None:
-    """Bind every non-stdlib dependency this door needs at module scope
-    (C6k import-motion: the module body stays inert on both the warm door
-    and the un-bootstrapped settings-home forwarder load routes). Idempotent
-    by construction: a name already bound (via a prior call, or a test
-    reaching for `mod.resolve_checked_repo_root` ahead of calling `main()`)
-    is left alone rather than clobbered by a real import.
-    """
     if all(n in globals() for n in _BOOTSTRAP_NAMES):
         return
 
@@ -208,7 +195,6 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result = cc_invoke.route("handoff.columns", params, repo_root, _no_legacy)
     except RuntimeError as exc:
-        # Transport failure (State-3) or legacy-seam-absent raise (State-1).
         print(f"query-handoff-columns: {exc}", file=sys.stderr)
         return 1
 

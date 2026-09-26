@@ -68,15 +68,8 @@ import sys
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Mirrors the bash originals' extraction shape:
-#   sed 's/.*--for-date[[:space:]]\{1,\}\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\).*/\1/'
-#   sed 's/--for-date[[:space:]]\{1,\}[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}[[:space:]]*//'
-# A single regex here does both jobs: group(1) is the extracted date, and the
-# full match (including trailing whitespace) is what gets stripped.
 _FOR_DATE_RE = re.compile(r"--for-date\s+(\d{4}-\d{2}-\d{2})\s*")
-# Mirrors: sed 's/--only[[:space:]]*//'
 _ONLY_RE = re.compile(r"--only\s*")
-# Mirrors: sed 's/.*--machine[[:space:]]\{1,\}\([^[:space:]]*\).*/\1/'
 _MACHINE_RE = re.compile(r"--machine\s+(\S+)")
 
 
@@ -85,13 +78,6 @@ def _err(msg: str) -> None:
 
 
 def cmd_parse_front_door(arguments: str) -> int:
-    """Port of § Argument Parsing (Front Door) — extracts --for-date/--only,
-    leaving the remaining prose as the scope summary forwarded to Step 9.
-
-    Negative-spec: --only without --for-date is NOT silently defaulted to
-    today — it fails loud, because a near-no-op ceremony with no diagnostic
-    is a worse failure mode than an explicit error.
-    """
     args_tmp = arguments
 
     for_date = ""
@@ -123,22 +109,6 @@ def cmd_parse_front_door(arguments: str) -> int:
 
 
 def _current_machine() -> str:
-    """In-process compute_machine() resolution.
-
-    The bash original shelled out to `python3 -c '...'` to reach
-    coordinator_core.machine_resolver.compute_machine — a subprocess spawn to
-    invoke Python from inside a Python-adjacent bash block. Since this CLI
-    already runs under Python, that spawn collapses to a plain import.
-
-    Deliberately uses `require_engine_on_path` (env-first ladder, raises
-    RuntimeError with remediation text on total miss), not
-    `ensure_engine_on_path` (swallows to None) — this function is unguarded by
-    design; its only caller,
-    `cmd_check_cross_machine`, prints the raised exception's message verbatim
-    to the operator, so a resolution failure must keep the "machine-local set
-    repos.claude_klabauter ..." remediation text intact rather than degrading
-    to a bare, non-actionable ImportError.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     import cc_invoke
     cc_invoke.require_engine_on_path(__file__)
@@ -148,19 +118,12 @@ def _current_machine() -> str:
 
 
 def cmd_check_cross_machine(arguments: str) -> int:
-    """Port of § Argument Parsing (Front Door), "Cross-machine restriction".
-
-    Self-contained: re-derives --for-date presence from the raw arguments
-    string rather than depending on parse-front-door having already run in
-    this process (each subcommand is an independent subprocess call from the
-    DoE ceremony fence).
-    """
     if not _FOR_DATE_RE.search(arguments):
-        return 0  # no --for-date present; restriction is not applicable
+        return 0
 
     m = _MACHINE_RE.search(arguments)
     if not m:
-        return 0  # no --machine flag alongside --for-date; nothing to check
+        return 0
 
     arg_machine = m.group(1)
 
@@ -181,32 +144,15 @@ def cmd_check_cross_machine(arguments: str) -> int:
 
 
 def cmd_run_step1(extra: list[str]) -> int:
-    """Port of § Step 1: Validate's stdout-eval-with-separate-rc-capture
-    pattern. subprocess.run() gives stdout and returncode natively — no eval
-    trick needed in Python; this just re-emits the sub-CLI's stdout line
-    verbatim and propagates its exit code as-is (never silently discarded,
-    which was the entire bug the bash original's separate-capture dance
-    existed to avoid)."""
     step1_path = os.path.join(_BIN_DIR, "workday-complete-step1-validate.py")
     if not os.path.isfile(step1_path):
-        # foreign-identity: SUBJECT — invoked from the DoE ceremony fence (a third-repo
-        # session); the name tells the reader it is the resolved claude-klabauter engine
-        # checkout that is stale/partial, not their own working repo, so they know what to fix.
         _err(
             f"ERROR: {step1_path} not found — stale or partial claude-klabauter "
             "checkout."
         )
         return 1
 
-    # P055-C1 conversion: was a `[python, step1_path, *extra]` sibling-script
-    # spawn. workday-complete-step1-validate.py's `main()` takes no argv (it
-    # never reads sys.argv -- confirmed by grep, so `extra` was always
-    # discarded by the spawned child too), so this loads that module by path
-    # (importlib -- its filename is not import-statement-friendly) and calls
-    # `main()` in-process. stderr is left unredirected here, exactly
-    # preserving the spawn form's `stderr=None` passthrough; only stdout is
-    # captured, to re-emit verbatim below.
-    del extra  # step1's main() has never read argv; the spawn form discarded it too
+    del extra
 
     import contextlib
     import importlib.util

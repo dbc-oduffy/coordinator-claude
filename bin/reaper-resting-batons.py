@@ -84,14 +84,6 @@ from pathlib import Path
 
 
 def _bootstrap_engine_root() -> None:
-    """Put the engine root on `sys.path` before any `coordinator_core`
-    import — same idiom as the sweep's other 8 fixed CLIs
-    (`resolve_engine_root(__file__)` via the colocated `cc_invoke`), so
-    the mirror case (`coordinator_core` not pip-installed, `sys.path[0]`
-    is this file's own `bin/`) resolves rather than silently degrading.
-    Best-effort: `cc_invoke` itself, or engine-root resolution, failing
-    is left to the caller's own except clause to handle.
-    """
     bin_dir = os.path.dirname(os.path.abspath(__file__))
     lib_dir = os.path.join(bin_dir, "lib")
     if lib_dir not in sys.path:
@@ -102,13 +94,6 @@ def _bootstrap_engine_root() -> None:
 
 
 def _no_console_creationflags() -> dict:
-    # `no_console_creationflags` is
-    # always importable (POSIX and Windows alike; see
-    # coordinator_core/win_portability.py's own docstring), so an import
-    # failure here is never a legitimate "absent on non-Windows installs"
-    # case — it is the mirror's unresolved-engine-root case, the exact
-    # defect class this file's docstring names. Bootstrap first so that
-    # case resolves instead of silently degrading to `{}`.
     try:
         _bootstrap_engine_root()
         from coordinator_core.win_portability import no_console_creationflags
@@ -126,21 +111,10 @@ def _resolve_repo_root(explicit: str | None) -> str | None:
 
         return show_toplevel(cwd=os.getcwd())
     except Exception:  # noqa: BLE001 — mirrors `_no_console_creationflags`'s
-        # best-effort bootstrap posture; an unresolvable engine root here
-        # degrades to None (caller reports "cannot resolve"), not a raise.
         return None
 
 
 def _import_read_meta():
-    # Was its own ad hoc partial
-    # bootstrap (the older private `cc_invoke._resolve_claude_klabauter_root`,
-    # exception-swallowed on resolution only), now the same
-    # `resolve_engine_root` idiom `_no_console_creationflags` and the
-    # sweep's other 8 fixed CLIs use, so this file carries one bootstrap
-    # strategy, not two. `read_handoff_meta` itself stays unwrapped: an
-    # unresolvable engine root here is genuinely fatal (there's nothing
-    # this script can report without it), so it should raise loud, not
-    # degrade silently — see `main`'s caller, which lets it propagate.
     try:
         _bootstrap_engine_root()
     except Exception:  # noqa: BLE001 — fall through to a bare import attempt
@@ -150,8 +124,6 @@ def _import_read_meta():
 
 
 def _age_days(created: object) -> int | None:
-    """`created:` may already be a YAML-parsed date/datetime, or a plain
-    string — best-effort parse either shape; unparseable returns None."""
     if isinstance(created, datetime.datetime):
         created_date = created.date()
     elif isinstance(created, datetime.date):

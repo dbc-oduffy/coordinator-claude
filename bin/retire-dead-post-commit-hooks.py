@@ -55,9 +55,6 @@ import argparse
 import sys
 from pathlib import Path
 
-# This script lives at `<engine-root>/coordinator/bin/`, so both paths are
-# structural, not resolved: `lib/` for the hook module itself and the engine
-# root for the `coordinator_core` imports that module makes at import time.
 _HERE = Path(__file__).resolve()
 for _p in (_HERE.parent / "lib", _HERE.parents[2]):
     if str(_p) not in sys.path:
@@ -65,28 +62,15 @@ for _p in (_HERE.parent / "lib", _HERE.parents[2]):
 
 import git_hook_install  # noqa: E402
 
-#: The retired hook's own label, as `ensure_post_commit_hook` passed it to
-#: `_append_markers` before that function was deleted. Carried here as a
-#: literal because the deletion took the constant with it: an appended block
-#: on disk is bounded by markers derived from this exact string, and the two
-#: cannot be re-derived from any surviving call site.
 _RETIRED_HEADER = "coordinator auto-push (crash insurance)"
 
-#: First comment line of every fresh body the generator ever wrote. Positive
-#: identification, never "mentions auto-push therefore ours" -- a foreign
-#: hook is free to mention the name.
 _FRESH_MARKER = "# coordinator coordinator-auto-push hook — installed by git_hook_install."
 
-#: Last executable line of a fresh body. Checked together with the header so
-#: a truncated or hand-edited body fails identification rather than being
-#: deleted on the strength of a comment alone.
 _FRESH_TAIL = 'exec "$_PY" "$SCRIPT" "$@"'
 
-#: Where a removed body is preserved. A sibling of the hook it came from, so
-#: the undo is a rename in place with no path to reconstruct.
 _BACKUP_SUFFIX = ".retired"
 
-GENERATES = []  # every write (_retire_one's backup + excise/unlink) targets <repo>/.git/hooks/post-commit and its .retired sibling, in each registered repo's own untracked .git dir -- never a fixed artifact tracked in this repo
+GENERATES = []
 
 
 def _hooks_dir(root: Path) -> "Path | None":
@@ -169,14 +153,8 @@ def _retire_one(root: Path, apply: bool) -> str:
     if apply:
         backup = hook.with_name(hook.name + _BACKUP_SUFFIX)
         try:
-            # `newline="\n"`: a post-commit hook is a POSIX shell script, and
-            # Windows' default text-mode translation would rewrite every
-            # line ending on the way out -- including the shebang.
             backup.write_text(text, encoding="utf-8", newline="\n")
         except OSError as exc:
-            # The undo leg is the reason this removal is allowed to happen
-            # at all; without it the action is one-way. Refuse rather than
-            # proceed unbacked.
             print(f"[retire-post-commit] REFUSED {root}: cannot write {backup}: {exc}",
                   file=sys.stderr)
             return "refused-no-backup"
@@ -187,8 +165,6 @@ def _retire_one(root: Path, apply: bool) -> str:
     assert extent is not None
     remainder = _excise(text, extent[0], extent[1])
     if apply:
-        # Same reason as the backup write above: the hook this rewrites is
-        # a shell script, not prose.
         hook.write_text(remainder, encoding="utf-8", newline="\n")
     return "block-excised" if apply else "would-excise-block"
 

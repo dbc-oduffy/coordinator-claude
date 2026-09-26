@@ -1,190 +1,21 @@
-# session-claim-cli — CLI trampoline over claude-klabauter
-# coordinator_core.session.claims (the claim-lock primitives: claim_artifact /
-# release_artifact / clear_claim_if_dead / claim_plan). Direct-import variant,
-# mirroring coordinator/bin/archive-stamp-cli.py's resolve/import/dispatch/exit
-# shape (template-variant #1: a plain in-process function call after
-# resolving the engine root, no cc_invoke/IPC hop — these functions are plain
-# module functions in claims.py, NOT registered coordinator_core.invoke ops).
-#
 # is-session-live / list-stale-claim-handoffs (2026-07-23) are a SEPARATE
-# exposure of coordinator_core.session.liveness / coordinator_core.session.
-# stale_claims. They were built for a sibling repo's bash skill (DoE's
-# workstream-complete Step 0 crash-recovery fix, DoE fd5d61ccb) — that
-# consumer NO LONGER EXISTS: DoE removed it at ada28dbe5 when their
-# workstream-complete converted to the computed-skill shape and session-shape
-# became assembler-computed. Verified 2026-08-10: no DoE surface invokes
-# is-session-live, and DoE calls this CLI only for claim-plan and
-# release-artifact. Do NOT read the exit-code contract below as a foreign
-# contract needing cross-repo coordination to change. It still needs to be
-# right: who-claims-path shares these arms and was named as an operator
-# inspection instrument in `ops/ceremony/scoped_git_commit.py`'s refusal
 # remedy (`_CLAIM_CONFLICT_REMEDY`, a human-facing string). That module, its
 # `_check_claim_conflicts` gate, and `_CLAIM_CONFLICT_REMEDY` were all deleted
-# `40ff424f5` (2026-08-13, PM ruling: path-touch claims are advisory, not
-# hard-denying); its advisory successor `_warn_recent_edits` was itself
-# deleted `e96b7601` (2026-08-19, latency). Nothing on the commit path gates
-# on path-touch claims today, and no live successor symbol names this CLI as
-# its inspection instrument. grep does not support any automated in-repo
-# stdout consumer of this CLI as of 2026-08-10 (Review: staff-eng slice-A).
-# claude-klabauter owns liveness FACTS only; it does NOT decide chain-terminal
-# disposition (see coordinator_core/session/stale_claims.py's module
 # docstring BOUNDARY note).
-#
-# Subcommands (argv[1] selects; remaining argv forwarded to the mapped
-# coordinator_core.session function):
-#   claim-artifact <class> <basename> [baton_repo_root] -> claims.claim_artifact(...)
-#   release-artifact <class> <basename> [baton_repo_root] -> claims.release_artifact(...)
-#   clear-claim-if-dead <class> <basename> [baton_repo_root] -> claims.clear_claim_if_dead(...)
-#     AC5 (docs/plans/2026-08-13-liveness-stops-conflating-dead-with-
-#     elsewhere.md): for the three classed forms (handoff/memo/plan — NOT
-#     the artifact/path-touch plane), a target that cannot be found is
-#     self-diagnosing rather than silent. Before dispatching, the CLI
-#     resolves the SAME claim directory claims.clear_claim_if_dead itself
-#     resolves (claims.claim_dir_for — the identical public path-arithmetic,
-#     never a second parser) and, if absent, emits a stderr note naming the
-#     class/basename/path looked up and stating plainly this is NOT a
-#     refusal, plus a hint when basename ends in ".md" (the claim key
 #     carries no extension). Exit code is UNCHANGED (idempotent no-op ->
-#     0, same as before) — the note is additive output only, distinct in
-#     BOTH output and exit code from a live-holder refusal (which prints
-#     "refusing to clear claim ... holder is live" and exits 1).
-#   claim-plan <slug> [--for-execution] -> claims.claim_plan(slug, for_execution=...)
-#     --for-execution is passed ONLY by /execute-plan Step 0 (DoE SKILL.md) —
-#     it gates claims.claim_plan's stamp-executing status flip (C4,
-#     docs/plans/2026-08-20-the-rungs-get-writers.md); the other two
-#     production callers (coordinator-doc-new.py, wsc-coverage-gate-
-#     runner.py cmd_claim_plan) never pass it and never flip status.
-#   list-claims-by-session <sid> [cwd] -> claims.list_claims_by_session(sid, cwd)
-#     stdout: one line per match, TAB-delimited "<class>-claims\t<basename>"
-#       (e.g. "handoff-claims\thb-1.md") — reads the claim-record store
-#       directly (each claim dir's own session_id file), NEVER the
-#       claimed_by/consumed_by frontmatter mirror.
-#     exit 0   -> enumeration completed (0 or more matches printed) — an
-#                 empty result is success, not failure, same contract as
-#                 list-stale-claim-handoffs.
-#     exit 3   -> transport failure (the engine root unresolvable / ImportError).
-#   is-session-live <SID> [cwd] -> liveness.session_live(SID, cwd)
-#     stdout line 1: exactly one word — "live" | "live-elsewhere" | "dead" |
 #       "indeterminate". "live" | "dead" | "indeterminate" are UNCHANGED
-#       position/spelling from before liveness_basis was added (AC9) — an
-#       existing caller that parses only this first token/line sees no
-#       difference. "live-elsewhere" (Review: staff-eng-review, C1's ripple)
-#       is the exit-1 arm's basis carrying "harness-registry-elsewhere": the
-#       session has no dir in THIS repo but the harness registry confirms it
-#       live in another one — printing "dead" over that basis reproduced
-#       this plan's own Problem statement in this CLI.
-#     stdout line 2 (live/dead/live-elsewhere verdicts ONLY, i.e. exit 0 or
-#       exit 1 below):
-#       "liveness_basis:<value>", where <value> is holder_evidence.
-#       liveness_basis()'s vocabulary ("harness-registry" | "stable-pid" |
-#       "stable-pid-shared" | "recency-window" | "recency-window-mtime" |
-#       "no-record" | "harness-registry-elsewhere" | "unknown") — additive
-#       output (AC7/AC8), never emitted
-#       on the malformed-SID or transport-failure paths since those carry no
-#       decided verdict to attach a basis to. A basis-derivation failure
-#       degrades to "unknown" on this line; it never changes the line-1
-#       token or the exit code.
-#     exit 0   -> live.
-#     exit 1   -> NOT live in THIS repo (dead, or live-elsewhere) — see line
 #                 1 to distinguish; exit code is UNCHANGED for compat.
-#     exit 2   -> usage error (missing SID arg).
-#     exit 3   -> transport failure (the engine root unresolvable / ImportError),
-#                 OR liveness.session_live itself raised unexpectedly (e.g.
-#                 MissingPsutilError propagating past a Layer-1 arm) — reused
-#                 rather than a new code (Review: staff-eng-review A): 3
-#                 already means "the claude-klabauter engine could not be reached,
-#                 never silently degraded", and an uncaught raise here is
-#                 exactly that, not a determinate dead verdict. Line 1 prints
-#                 "indeterminate" on this path.
-#     exit 4   -> malformed/absent SID (empty, whitespace-only, or containing
-#                 any character outside the sid allowlist — see
 #                 _sid_looks_valid) — COULD NOT DETERMINE liveness;
-#                 a bash caller MUST treat this distinctly from exit 1. Reading
-#                 an infra/input error as "dead" is exactly the fail-open shape
-#                 this exposure exists to close (see the stub's spec backlink).
-#   who-claims-path <path> [cwd] -> claim_index.lookup([path], cwd=cwd) +
-#     liveness.session_live(sid, cwd) per claimant
 #     Reads the PATH-TOUCH plane (coordinator_core.session.claim_index --
-#     `T/R <iso8601> <path>` lines in each session's/agent's touched.txt),
 #     a DIFFERENT plane and a DIFFERENT question than
 #     `list-claims-by-session` above (which reads the ARTIFACT-CLAIM RECORD
-#     STORE -- each <class>-claims/<basename>/session_id file). A session
-#     can hold zero artifact claims and still have touched a path; the two
-#     subcommands legitimately disagree and neither is wrong. This is the
-#     ONLY instrument exposing claim_index.lookup() -- previously it had
-#     exactly one consumer in the whole repo (scoped_git_commit.py's commit
-#     gate, since deleted `40ff424f5`, 2026-08-13) and no CLI, so an EM hit
-#     by that gate's refusal had no way to ask "who touched this path, and
-#     are they live?" without reading touched.txt files by hand.
-#     stdout: one line per claimant, TAB-delimited
-#     "<sid>\t<live|dead>\t<name>\t<write|read|unknown-kind>".
-#     The FOURTH column (2026-09-20) says whether that claimant MUTATED the
-#     path or merely observed it, and is appended rather than inserted so a
-#     consumer splitting on TAB and reading columns 1-3 is unaffected. It
-#     exists because this CLI is what the safe-commit refusal sends an
-#     operator to, and until the touch record carried the distinction that
-#     refusal named readers as holders: the filed incident
-#     (state/bug-queue/2026-09-20-the-touch-record-cannot-distinguish-a-read-
-#     touch-from-a-write-touch.yaml) had an operator message two sessions by
-#     name over a file only one of them had written. "unknown-kind" is a
-#     line predating the axis -- NOT a synonym for read; see
-#     touch_record.kind_blocks_a_peer_commit for why it still blocks.
-#     Reads never block a peer commit, but they ARE listed here: this is the
-#     inspection instrument, and "nobody is reading this" and "somebody is
-#     reading this and it does not block you" are different answers.
-#     The third column (C2, docs/plans/2026-09-01-the-claim-record-carries-
 #     the-name.md) is PROVENANCE, not an address ready for SendMessage --
-#     see _render_claimant_name's docstring for the three-rung resolution
-#     ladder (recorded name on the claim -> live harness_registry.lookup(sid)
-#     -> an explicit unnamed marker) and why rendering it as reachable would
-#     repeat the exact fail-open shape a stale sid already produces. Existed
-#     because this CLI was the human-facing inspection instrument
-#     scoped_git_commit.py's own commit-conflict refusal named
 #     (_CLAIM_CONFLICT_REMEDY) -- a blocked EM sent here by that refusal was,
-#     before this column, handed the identical unresolvable sid the refusal
-#     already gave them. That gate and remedy string are deleted (`40ff424f5`,
-#     2026-08-13); nothing on the commit path names this CLI today.
-#     exit 0   -> enumeration completed (0 or more claimant lines printed);
-#                 no claimant is empty output + exit 0, same "empty ==
-#                 success" convention as list-claims-by-session.
 #     exit 1   -> the path's claim-index entry is claim_index.UNANSWERABLE
-#                 (an aborted/unresolvable index rebuild) -- printed to
-#                 stderr as "could not determine", NEVER read as
-#                 "unclaimed" (an unanswerable index entry authorizing a
-#                 silent pass-through would repeat the exact fail-open
-#                 shape the commit gate itself refuses to allow). A second
-#                 stderr line names WHICH of the three abort causes fired
 #                 (claim_index.ABORT_CAUSE_EMPTY_BASE / _CAP_EXCEEDED /
 #                 _IO_ERROR, or "unknown" if the lookup result carries none)
-#                 -- additive only; the refusal sentence above and this exit
-#                 code are unchanged (C1/C2, docs/plans/2026-08-11-claim-
-#                 index-abort-cause-and-cli-blindness.md).
-#     exit 3   -> transport failure (the engine root unresolvable / ImportError),
-#                 OR liveness.session_live raised unexpectedly for one of the
-#                 claimants (same reused code as is-session-live above).
-#   list-stale-claim-handoffs [repo_root] -> stale_claims.list_stale_claim_handoffs(repo_root)
-#     stdout: one line per stale entry, TAB-delimited
-#       "<absolute handoff path>\t<dead claimer session id>" — TAB chosen
-#       because neither a filesystem path nor a session id can contain one.
-#       Zero lines + exit 0 means "no stale claims found", not "could not tell".
-#     exit 0   -> enumeration completed (0 or more stale entries printed).
-#     exit 3   -> transport failure (the engine root unresolvable / ImportError).
-#
-# Exit codes: the claim-* subcommands' mapped functions return bool, not an
-# int exit code (unlike archive-stamp-cli's archive_stamp functions, which
-# return ints passed through verbatim) — this CLI maps bool->exit: True->0,
-# False->1. A missing/unresolvable engine root or an ImportError (this
 # trampoline's own transport failure) exits 3 (_TRANSPORT_FAIL, same
-# dedicated code archive-stamp-cli uses — "the claude-klabauter engine could not be
-# reached," never silently degraded to 0). A usage error (missing/unknown
-# subcommand, wrong arity) exits 2. claim-artifact / release-artifact /
-# clear-claim-if-dead additionally route through ``_call_claim_bool``, which
 # catches the REQUIRED-arg ``ValueError`` those three claims.py functions
-# raise on an empty ``class``/``basename`` (a syntactically-complete argv
-# that still carries an empty string — usage validation above only checks
-# arity) and reports it exit 1 with a clean stderr line, never a raw Python
-# traceback. claim-plan needs no such wrapping — its own boundary check
-# already returns bool on every input.
 from __future__ import annotations
 """session-claim-cli — see the # comment block above for the RAG-bait purpose
 text (the polyglot shebang line above makes THIS triple-quoted string a
@@ -317,17 +148,7 @@ def _liveness_basis_for(sid: str, cwd) -> str:
 _UNNAMED_MARKER = "<unnamed>"
 
 #: Rung 3 split into its two DISTINGUISHABLE outcomes (doe-claude-em,
-#: 2026-08-31, `who-claims-path-hands-back-an-unroutable-sid`): "the registry
-#: has no record for this sid" and "the registry could not be asked" are
-#: different facts, and a single `<unnamed>` for both is a degradation wearing
-#: a fact's clothes -- the caller cannot tell whether to re-check with a
-#: workstream path or to distrust the column entirely. The distinction mirrors
-#: `resolve-peer-address.py`'s own exit codes, which the memo asked be kept
-#: intact here: rc 3 (no live-session record -- NOT proof the session ended,
-#: since a resume or /clear mints a new sid while the name and pid persist)
 #: and rc 4 (record found, process gone). `_UNNAMED_MARKER` is retained above
-#: for the third case it always meant: a record that resolved and simply
-#: carries no name.
 _NO_REGISTRY_RECORD_MARKER = "<no registry record -- not proof the session ended>"
 _NAME_UNRESOLVED_MARKER = "<name unresolved: registry lookup failed>"
 
@@ -342,17 +163,8 @@ def _format_claim_age(seconds: float) -> str:
     return f"held {max(seconds, 0.0) / 60.0:.0f}m"
 
 
-#: Rendered spellings for the kind column. Words, not the record's own single
-#: letters: this column is read by an operator deciding whether to go and talk
-#: to someone, and `w`/`r` beside a session id and a name is three tokens of
-#: cryptic and one of plain.
 _KIND_LABELS = {"w": "write", "r": "read"}
 
-#: A claimant whose line predates the kind axis, or whose channel could not
-#: tell. Deliberately NOT "read" and deliberately not blank: blank reads as a
-#: missing column to a TAB-splitting consumer, and "read" would be a claim
-#: this record cannot support. It blocks a peer commit exactly as "write"
-#: does -- see `touch_record.kind_blocks_a_peer_commit`.
 _UNKNOWN_KIND_MARKER = "unknown-kind"
 
 
@@ -377,8 +189,6 @@ def _render_claimant_kind(sid: str, path: str, lookup_result) -> str:
 
 
 def _render_claimant_name(sid: str, path: str, lookup_result) -> str:
-    # Dropped unused `cwd` param, carried
-    # only because the neighbouring `_liveness_basis_for` takes one.
     """The three-rung resolution ladder (C2, docs/plans/2026-09-01-the-claim-
     record-carries-the-name.md): (1) the name RECORDED on the claim at write
     time -- survives the writer exiting, re-pointing its session id, or the
@@ -420,13 +230,6 @@ def _render_claimant_name(sid: str, path: str, lookup_result) -> str:
     additive display output on an already-decided claimant row and must
     never take down the row's ``sid``/``live|dead`` columns.
     """
-    # This is the exact import that fired the filed incident (state/bug-
-    # backlog/2026-09-01-a-new-engine-module-breaks-fleet-wide-claim-
-    # queries-until-publish.yaml): `name_ladder` landed in source and was
-    # absent from the published mirror, and this bare `from coordinator_
-    # core.session import name_ladder` surfaced a raw ImportError with no
-    # indication publishing was the fix. Routed through `_dispatch_import`
-    # so that failure now arrives as a diagnosed StaleEngineImportError.
     name_ladder = _dispatch_import("coordinator_core.session.name_ladder")
 
     recorded = getattr(lookup_result, "recorded_name", None) or {}
@@ -500,25 +303,25 @@ def _sid_looks_valid(sid: str) -> bool:
     return all(ch in _SID_ALLOWED_CHARS for ch in s)
 
 
-#: Advertised verb list. The ``<class>`` enumeration on the first three is
 #: load-bearing, not decoration: ``artifact`` is the PATH-TOUCH plane
-#: (``who-claims-path``'s own answer space), so ``release-artifact artifact
-#: <repo-relative-path>`` IS the release-path verb for a path claim. Naming
-#: only the verbs made that unreachable by reading — a peer EM enumerated
-#: this exact string, concluded "there is no ``release-path``", and reported
-#: a ledger-derived path claim as having no exit at all while holding one
-#: (cross-repo/inbox/2026-08-20-project-rag-em-ledger-derived-path-claim-
-#: {has-no-release,narrowed}.md). Keep the classes here when editing.
 _SUBCOMMANDS = (
     "subcommands: claim-artifact <class> | release-artifact <class> | "
-    "clear-claim-if-dead <class> | claim-plan | is-session-live | "
+    "release-or-relinquish <class> | clear-claim-if-dead <class> | "
+    "claim-plan | take-over-claim plan | is-session-live | "
     "list-stale-claim-handoffs | list-claims-by-session | who-claims-path\n"
     "  <class>: handoff | memo | plan (basename-keyed claim records), or "
     "'artifact' (path-touch plane — basename is a repo-relative PATH; this "
     "is how a path claim who-claims-path reports is released)\n"
     "  'artifact' is valid on release-artifact and clear-claim-if-dead ONLY. "
     "claim-artifact refuses it: a touch-claim is recorded by touching the "
-    "path, never declared ahead of one."
+    "path, never declared ahead of one.\n"
+    "  release-or-relinquish <class> <basename> [baton_repo_root]: releases "
+    "like release-artifact, and additionally writes a DR-205 relinquishment "
+    "marker for a plan claim this process's own identity still recognises.\n"
+    "  take-over-claim plan <basename> --justification <text> "
+    "[baton_repo_root]: DR-205's fail-loud takeover verb. 'plan' is the ONLY "
+    "valid class token here (D2) -- any other value is a usage error, not a "
+    "runtime refusal, and calls no claims function."
 )
 
 _HELP_FLAGS = ("--help", "-h", "help")
@@ -563,19 +366,6 @@ def _bool_to_exit(result: bool) -> int:
     return 0 if result else 1
 
 
-# AC5 — clear-claim-if-dead's classed forms (mkdir-based claim-record store,
-# NOT the artifact/path-touch plane, which is a different lookup entirely).
-#
-# "artifact" WAS listed here, contradicting the line above it. The two arms
-# this set gates (`release-artifact`, `clear-claim-if-dead`) then resolved a
-# `<base>/artifact-claims/<path>` directory that no code path consults for
-# this class -- `release_artifact` routes `artifact` to
-# `_release_path_claim_artifact` before any classed lookup runs -- and, on
-# finding it absent as it always is, printed "no claim at ..." over a
-# release that was in fact about to succeed. Measured 2026-09-20 releasing a
-# real live touch claim: the note fired, the release landed, and the two
-# disagreed. That is the worst possible moment for a false negative, since
-# this is the route the safe-commit refusal now sends a blocked holder to.
 _CLASSED_CLAIM_CLASSES = ("handoff", "memo", "plan")
 
 
@@ -699,8 +489,8 @@ def _dispatch(argv: list[str]) -> int:
         return 0
 
     _CLAIM_SUBCOMMANDS = (
-        "claim-artifact", "release-artifact", "clear-claim-if-dead", "claim-plan",
-        "list-claims-by-session",
+        "claim-artifact", "release-artifact", "release-or-relinquish",
+        "clear-claim-if-dead", "claim-plan", "list-claims-by-session",
     )
     if subcmd in _CLAIM_SUBCOMMANDS:
         try:
@@ -739,6 +529,22 @@ def _dispatch(argv: list[str]) -> int:
                 _emit_claim_not_found_note("release-artifact", class_, basename, claim_dir)
         return _call_claim_bool("release-artifact", mod.release_artifact, class_, basename, baton_repo_root)
 
+    if subcmd == "release-or-relinquish":
+        if len(rest) < 2:
+            return _usage("session-claim-cli release-or-relinquish <class> <basename> [baton_repo_root]")
+        _flagged = _reject_flag_like_positionals("session-claim-cli release-or-relinquish <class> <basename> [baton_repo_root]", rest)
+        if _flagged is not None:
+            return _flagged
+        class_, basename = rest[0], rest[1]
+        baton_repo_root = rest[2] if len(rest) > 2 else ""
+        if class_ in _CLASSED_CLAIM_CLASSES:
+            claim_dir = _claim_lookup_dir(mod, class_, basename, baton_repo_root)
+            if claim_dir is not None and not claim_dir.is_dir():
+                _emit_claim_not_found_note("release-or-relinquish", class_, basename, claim_dir)
+        return _call_claim_bool(
+            "release-or-relinquish", mod.release_or_relinquish_artifact, class_, basename, baton_repo_root
+        )
+
     if subcmd == "clear-claim-if-dead":
         if len(rest) < 2:
             return _usage("session-claim-cli clear-claim-if-dead <class> <basename> [baton_repo_root]")
@@ -761,6 +567,70 @@ def _dispatch(argv: list[str]) -> int:
         if not positional:
             return _usage("session-claim-cli claim-plan <slug> [--for-execution]")
         return _bool_to_exit(mod.claim_plan(positional[0], for_execution=for_execution))
+
+    if subcmd == "take-over-claim":
+        _usage_line = (
+            "session-claim-cli take-over-claim plan <basename> "
+            "--justification <text> [baton_repo_root]"
+        )
+        if not rest:
+            return _usage(_usage_line)
+        class_token = rest[0]
+        if class_token != "plan":
+            print(
+                f"session-claim-cli: take-over-claim: only the 'plan' class "
+                f"supports takeover (D2) — {class_token!r} is not valid here",
+                file=sys.stderr,
+            )
+            return _usage(_usage_line)
+
+        remaining = rest[1:]
+        justification = None
+        positionals = []
+        i = 0
+        while i < len(remaining):
+            arg = remaining[i]
+            if arg == "--justification":
+                if i + 1 >= len(remaining):
+                    print(
+                        "session-claim-cli: take-over-claim: --justification "
+                        "requires a value",
+                        file=sys.stderr,
+                    )
+                    return _usage(_usage_line)
+                justification = remaining[i + 1]
+                i += 2
+                continue
+            if isinstance(arg, str) and arg.startswith("--"):
+                print(
+                    f"session-claim-cli: take-over-claim: unrecognised flag "
+                    f"{arg!r}",
+                    file=sys.stderr,
+                )
+                return _usage(_usage_line)
+            positionals.append(arg)
+            i += 1
+        if not positionals:
+            return _usage(_usage_line)
+        basename = positionals[0]
+        baton_repo_root = positionals[1] if len(positionals) > 1 else ""
+        if justification is None:
+            justification = ""
+
+        try:
+            mod = _import_module()
+        except _cc_invoke().StaleEngineImportError as exc:
+            print(f"session-claim-cli: {exc}", file=sys.stderr)
+            return _TRANSPORT_FAIL
+        except RuntimeError as exc:
+            print(f"session-claim-cli: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+            return _TRANSPORT_FAIL
+        except ImportError as exc:
+            print(f"session-claim-cli: coordinator_core.session.claims not importable: {exc}", file=sys.stderr)
+            return _TRANSPORT_FAIL
+        return _call_claim_bool(
+            "take-over-claim", mod.take_over_claim, basename, justification, baton_repo_root
+        )
 
     if subcmd == "list-claims-by-session":
         if not rest:
@@ -816,11 +686,6 @@ def _dispatch(argv: list[str]) -> int:
             )
             return _TRANSPORT_FAIL
         basis = _liveness_basis_for(sid, cwd)
-        # A live-elsewhere peer has no session
-        # dir in this repo, so `live` is False here (AC1, session_live's
-        # boolean is untouched); printing "dead" over that basis reproduces
-        # this plan's own Problem statement in this sibling CLI. "dead" is
-        # reserved for every OTHER not-live basis.
         if live:
             print("live")
         elif basis == "harness-registry-elsewhere":
@@ -863,12 +728,6 @@ def _dispatch(argv: list[str]) -> int:
                 file=sys.stderr,
             )
             return _TRANSPORT_FAIL
-        # This lookup sits on the same arm
-        # the commit hardened for session_live below; an unguarded raise here
-        # (OSError on the claim store, a JSON/parse error, a partially-
-        # importable module) would escape main() and exit 1 via a raw
-        # traceback, indistinguishable from a determinate "confirmed dead"-
-        # shaped exit on this CLI. Same three-line guard as its sibling.
         try:
             lookup_result = claim_index_mod.lookup([path], cwd=cwd)
             claimants = lookup_result.get(path, [])
@@ -882,11 +741,6 @@ def _dispatch(argv: list[str]) -> int:
             )
             return _TRANSPORT_FAIL
         if claim_index_mod.UNANSWERABLE in claimants:
-            # C1 (docs/plans/2026-08-11-claim-index-abort-cause-and-cli-
-            # blindness.md) adds `abort_cause` alongside `.complete` on the
-            # lookup() result -- additive to this refusal line, never a
-            # replacement: the "NOT a verdict that the path is unclaimed"
-            # sentence below is unchanged verbatim, and the exit code stays 1.
             abort_cause = getattr(lookup_result, "abort_cause", None) or "unknown"
             print(
                 f"session-claim-cli: who-claims-path: claim ownership for {path!r} "
@@ -896,14 +750,6 @@ def _dispatch(argv: list[str]) -> int:
             )
             print(f"session-claim-cli: who-claims-path: abort cause: {abort_cause}", file=sys.stderr)
             return 1
-        # Collect every claimant's verdict
-        # before printing any of them. Printing per-claimant inside the loop
-        # meant a raise on claimant k emitted k-1 well-formed "sid\tstate"
-        # rows followed by a bare TAB-less "indeterminate" line — a TAB-
-        # splitting consumer parses that as a claimant literally named
-        # "indeterminate" with an empty state, not an abort marker. Buffering
-        # keeps the failure path's stdout exactly ["indeterminate"], matching
-        # is-session-live's own single-line failure contract.
         rows = []
         for sid in claimants:
             try:
@@ -920,6 +766,18 @@ def _dispatch(argv: list[str]) -> int:
             name_col = _render_claimant_name(sid, path, lookup_result)
             kind_col = _render_claimant_kind(sid, path, lookup_result)
             rows.append(f"{sid}\t{'live' if live else 'dead'}\t{name_col}\t{kind_col}")
+        if not rows:
+            # A5/DD4 -- SC-DR-023's own caveat, cited verbatim rather than
+            # paraphrased (Review: coordinator:staff-eng -- register is one
+            # fact, once): empty output here reports no RECORDED claimant,
+            # never that the path was never written.
+            print(
+                "session-claim-cli: who-claims-path: no claimant recorded -- "
+                "no holder is not evidence no one wrote it: a write through "
+                "a subprocess or an unrecognised shape records no claim "
+                "(SC-DR-023).",
+                file=sys.stderr,
+            )
         for row in rows:
             print(row)
         return 0

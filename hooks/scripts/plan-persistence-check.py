@@ -382,7 +382,8 @@ def _compose_idempotent_context(commit_cmd: str):
     `_WIKI_ANCHOR` -- see this hook's relocation fragment
     (state/relocations/guard-message-cap/plan-persistence-check.py.md).
     Returns a `Message`, not flattened text -- `main()` calls `render()` at
-    the emit call site, mirroring guard-review-integrator-sidecar-intake.py."""
+    the emit call site, mirroring the same-cap conversion pattern used across
+    this fold's other hooks."""
     return compose(
         "PLAN ALREADY PERSISTED (byte-identical) -- commit if not "
         "yet done, route the body through coordinator:sizing to close "

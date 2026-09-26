@@ -70,11 +70,6 @@ from typing import Dict, List, Optional, Set
 _BIN_DIR = Path(__file__).resolve().parent
 
 def _win_portability_flags() -> dict:
-    """The engine root must be on sys.path before a `coordinator_core` import:
-    this file is also published into the claude-klabauter mirror, where
-    coordinator_core is NOT pip-installed and the interpreter's sys.path[0] is
-    this bin/ directory, not the checkout root. Same bootstrap as
-    coordinator/bin/coordinator-lesson-add (9b979ee5f)."""
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_engine_on_path
 
@@ -109,11 +104,6 @@ def _frontmatter_field(text: str, key: str) -> Optional[str]:
     return val
 
 
-# ---------------------------------------------------------------------------
-# flip-tags
-# ---------------------------------------------------------------------------
-
-
 def _tag_sha(tag: str) -> Optional[str]:
     r = _git("rev-list", "-n", "1", tag)
     return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
@@ -125,11 +115,6 @@ def _tag_date(tag: str, sha: Optional[str], merge_date: str) -> str:
 
 
 def _tag_ancestor_shas(tag: str) -> Set[str]:
-    """Single `git rev-list <tag>` in place of a per-commit `merge-base
-    --is-ancestor` spawn -- "c is an ancestor of tag" is equivalent to "c is
-    in tag's rev-list", so `_contains_all` can check the whole commits list
-    against one spawn's output. A tag that fails to resolve yields an empty
-    set, same as every per-commit ancestor check failing did before."""
     r = _git("rev-list", tag)
     if r.returncode != 0:
         return set()
@@ -141,17 +126,6 @@ def _contains_all(
     commits: List[str],
     _cache: Optional[Dict[str, Set[str]]] = None,
 ) -> bool:
-    # Membership is by PREFIX, not equality: completion-log `commits:` entries
-    # carry abbreviated shas (8 chars today) while `git rev-list` emits full
-    # 40-char ones, so equality would be False for every real entry and silently
-    # collapse every lookup to the release-tag-cut fallback -- no exception, no
-    # failing test. `merge-base --is-ancestor` resolved the abbreviation itself.
-    #
-    # `_cache`, keyed by tag, is an across-entries memo for `_tag_ancestor_shas`
-    # (one `git rev-list` per tag instead of one per (entry, tag) pair) -- see
-    # `cmd_flip_tags`'s own comment for why this was the measured 2.6s/entry
-    # cost on a multi-tag repo. Left `None` (the default) for direct unit
-    # callers, which keep their existing one-shot-per-call contract.
     if _cache is not None:
         if tag not in _cache:
             _cache[tag] = _tag_ancestor_shas(tag)
@@ -259,13 +233,6 @@ def cmd_flip_tags(args: argparse.Namespace) -> int:
     if release_tag_cut not in tags:
         tags.append(release_tag_cut)
 
-    # Shared across every entry in this call: without it, an N-entry run
-    # against T existing tags re-runs `git rev-list <tag>` up to N*T times
-    # (once per (entry, tag) pair the containment walk visits) instead of
-    # once per tag -- measured 2026-09-06 at ~2.6s/entry over 64 entries and
-    # 7 tags, ~5x the 500ms brightline. Scoped to this call (not a module
-    # global) so concurrent/sequential invocations never see a stale tag's
-    # ancestor set from a prior repo state.
     tag_ancestor_cache: Dict[str, Set[str]] = {}
 
     flipped = []
@@ -278,11 +245,6 @@ def cmd_flip_tags(args: argparse.Namespace) -> int:
 
     print("\n".join(flipped) if flipped else "no pending-release entries to flip")
     return 0
-
-
-# ---------------------------------------------------------------------------
-# CLI plumbing
-# ---------------------------------------------------------------------------
 
 
 def _build_parser() -> argparse.ArgumentParser:

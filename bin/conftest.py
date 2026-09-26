@@ -40,20 +40,9 @@ import pytest
 
 from coordinator_core.testing.registry_sandbox import fail_on_live_registry_write_fixture
 
-# Shared implementation: see
-# ``coordinator_core.testing.registry_sandbox.fail_on_live_registry_write_fixture``
-# (Review: code-reviewer, Finding 3, 2026-07-28 — was a byte-identical copy
-# duplicated with ``coordinator/tests/conftest.py``; factored into one place).
-# No opt-out marker by design: writing live machine config from a test is
-# never correct. The remediation the failure names is
-# ``coordinator_core.testing.registry_sandbox.sandbox_registry_dir``.
 _fail_on_live_registry_write = pytest.fixture(autouse=True)(fail_on_live_registry_write_fixture)
 
 
 @pytest.fixture(autouse=True)
 def _pin_warm_disabled_for_subprocess_clis(monkeypatch):
-    """Force every CLI subprocess spawned from this tree onto the cold route.
-
-    See the module docstring's 2026-09-18 addition for the leak this closes.
-    """
     monkeypatch.setenv("COORDINATOR_WARM", "0")

@@ -180,27 +180,17 @@ import sys
 import threading
 from pathlib import Path
 
-# Review: coordinatorcode-reviewer -- _session_hub import moved above the
-# charset-guard/_ensure_session_cursor_dir block (below) so the wrapper is
-# never a forward reference to a name bound ~100 lines later; safe today
-# either way (both call sites fire well after module load) but this ordering
-# reads correctly on a skim too.
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 try:
     from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir  # noqa: E402
 except Exception:
-    # Defensive fallback -- a deploy missing its sibling _git_common_dir.py
-    # must still fail open (empty common dir -> callers skip) rather than
-    # crash on import.
     def _resolve_git_common_dir(git_root: str) -> str:
         return ""
 try:
     from _session_hub import ensure_session_dir as _ensure_session_dir  # noqa: E402
 except Exception:
-    # Defensive fallback -- a deploy missing its sibling _session_hub.py must
-    # still fail open to the pre-gate behaviour, not crash on import.
     def _ensure_session_dir(session_dir: str, session_id: object) -> bool:
         try:
             os.makedirs(session_dir, exist_ok=True)
@@ -208,61 +198,20 @@ except Exception:
             return False
         return True
 
-# ---------------------------------------------------------------------------
-# Charset guard -- mirrors the bash oracle's path-traversal rejection.
 # Canonical charset: [A-Za-z0-9_@-]. Any id (SESSION_ID or agentId) deviating
-# from this is neutralized to empty / skipped, never used in path construction.
-# ---------------------------------------------------------------------------
 _ID_CHARSET_RE = re.compile(r"^[A-Za-z0-9_@-]+$")
 
-# ---------------------------------------------------------------------------
 # Session-hub creation gate. `_ID_CHARSET_RE` above is a path-traversal guard
-# and nothing more -- it admits `hookperf-3ee8b3f4a1d1`, `probe`, `test-sid`
-# and every other synthetic id a benchmark or probe hands a hook. This hook's
-# two per-session cursors used to create `<git common dir>/
-# coordinator-sessions/<id>/` unconditionally, so any invocation driven with a
-# made-up session id materialised a hub directory that no registrar ever
-# claimed and no reaper will ever collect. 176 such directories accumulated in
-# this repo's hub, none carrying `meta.json` -- the creator here is not the
-# thing that writes session metadata, which is why they are indistinguishable
-# from litter by inspection.
-#
-# The shape gate, its uuid4 rationale, and the reason an existence gate is the
-# wrong instrument all live in `_session_hub`, which the other hub-directory
-# creators in this tree share. This hook keeps its own named wrapper because
-# both call sites read as cursor writes, not directory creation.
-# ---------------------------------------------------------------------------
 
 
 def _ensure_session_cursor_dir(cursor_dir: str, session_id: str) -> bool:
-    """Create this session's hub directory for a per-session cursor write.
-
-    Returns True when `cursor_dir` exists and is safe to write a cursor into,
-    False when the caller must skip its cursor write entirely -- the callers'
-    baseline writes are fail-open paths, so a refusal is a silent no-op, never
-    a broken tool call.
-    """
     return _ensure_session_dir(cursor_dir, session_id)
 
 
 # AUTO-PUSH-MID-SESSION-DETECT: matches only a genuine, exhausted-retry
-# failure row written by auto_push.py's `log_failure()` -- `[<ts>] PUSH
-# FAILED on ...`. XB-12 made the writer stop appending a row at all for a
-# non-fast-forward race that resolves (peer's push landed our commit, or our
-# own out-of-order async sibling did) -- info-level only, printed to stderr,
-# never persisted here. This pattern is belt-and-suspenders on the reader
-# side: count unrecovered failures by what the line SAYS, not by treating
-# every new line the log happens to grow by as one -- so a future writer
-# change that appends any other line shape to this file (a resolved-race
-# audit trail, say) can't silently inflate this count again.
 _PUSH_FAILED_LINE_RE = re.compile(r"\]\s*PUSH FAILED\b")
 
 
-# ---------------------------------------------------------------------------
-# stdin read w/ hang guard (A-F8: copied verbatim from
-# runtime-tripwire-stop-watcher.py::_read_stdin -- threaded join, mirrors
-# bash's `timeout 2 cat` Windows Git-Bash guard).
-# ---------------------------------------------------------------------------
 def _read_stdin(timeout: float = 2.0) -> str:
     box = {"data": ""}
 
@@ -278,19 +227,7 @@ def _read_stdin(timeout: float = 2.0) -> str:
     return box["data"]
 
 
-# ---------------------------------------------------------------------------
-# resolve_subagent_identity -- pure function, byte-faithful port of the
-# retired bash identity-resolution logic / the engine repo's
-# postuse_advisory_dispatch.py::_resolve_subagent_identity.
-# ---------------------------------------------------------------------------
 def _resolve_subagent_identity(agent_id: str, session_id: str) -> str:
-    """Translate a subagent-side agent_id to the canonical EM-side id.
-
-    Three paths:
-        (a) Bare hex  ^[a-f0-9]{12,}$  -- unnamed agent fast path; return unchanged.
-        (b) Named teammate  ^a(.+)-[a-f0-9]{16}$  -- build "<name>@session-<short8>".
-        (c) Anything else -> "" (fail-closed).
-    """
     if re.match(r"^[a-f0-9]{12,}$", agent_id):
         return agent_id
 
@@ -312,9 +249,6 @@ try:
         warn_on_engine_import_divergence as _warn_engine_divergence,
     )
 except Exception:
-    # Defensive fallback -- a hook script copied/deployed WITHOUT its
-    # sibling _engine_root.py (e.g. an isolated test harness, or a
-    # partial deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -326,42 +260,14 @@ except Exception:
 try:
     from _message_envelope import resolve_wiki_citation  # noqa: E402
 except Exception:
-    # Same fail-open shape as the `_engine_root` import above -- a
-    # deployment missing its `_message_envelope.py` sibling must not crash
-    # this hook's import; it degrades to the un-resolved repo-relative
-    # citation instead (C2, `_message_envelope.py` module docstring).
     def resolve_wiki_citation(text: str) -> str:
         return text
 
-# Armed once at module import, not just at the mint call site below --
-# `_arm_lazy_ops()` sets an in-process `sys` attribute read by
 # `coordinator_core.ops.__init__` at PACKAGE-INIT time, so whichever of this
-# file's engine-importing legs runs first (push-failure verdict, zero-tool-use
-# surface, subagent-arrival check, or the session-baton mint) decides the mode
-# for the rest of the process -- arming only inside `_mint_session_baton` left
-# the other three legs racing it eager. `arm_lazy_ops()` never raises (see its
-# own docstring) and costs nothing beyond the attribute set -- no engine
-# import, no env var, no leak to child processes. Do not delete this as
-# "redundant" with the call inside `_mint_session_baton`: that call stays as
-# the leg's own documentation of intent, but THIS is the one that actually
-# wins the race on every prompt.
 _arm_lazy_ops()
 
 
 def _fail_open(fn, *args, default=None):
-    """Run one detector, yielding `default` on any exception.
-
-    Every advisory leg in `main()` is independently wrapped so that a bug in one
-    can never take down another -- the module's fail-open contract. This is that
-    wrapper, once, rather than once per leg.
-
-    Negative spec: catches `Exception`, NOT `BaseException` -- a KeyboardInterrupt
-    or SystemExit must still terminate the hook rather than be swallowed into an
-    advisory that silently goes missing. Do not widen it. Do not add logging on
-    the failure path either: this runs on every session event across every live
-    session, and a detector that fails on every fire would write a stderr line
-    every time.
-    """
     try:
         return fn(*args)
     except Exception:
@@ -369,16 +275,6 @@ def _fail_open(fn, *args, default=None):
 
 
 def _resolve_zero_tool_use_sessions_dir(git_root: str) -> str:
-    """Zero-tool-use-specific session-scoped directory, rooted at the git
-    COMMON dir (`_resolve_git_common_dir`), never `<git_root>/.git`.
-
-    Returns "" on any resolution failure. Callers MUST treat "" as "nothing
-    to do here" rather than falling back to the separately-computed
-    `sessions_dir` in `main()` -- both are now common-dir-rooted (portability
-    fix), but they remain two independent resolutions on purpose: this one is
-    scoped to zero-tool-use-specific reads/writes, and conflating the two
-    would misdirect them to a location the engine op never touches.
-    """
     try:
         common_dir = _resolve_git_common_dir(git_root)
         if not common_dir:
@@ -389,18 +285,6 @@ def _resolve_zero_tool_use_sessions_dir(git_root: str) -> str:
 
 
 def _git_root() -> str:
-    """Repo root as `git rev-parse --show-toplevel` would report it, fail-open to "".
-
-    Resolved by an in-process parent walk for a `.git` entry (directory in a normal
-    clone, file in a linked worktree or submodule) rather than by spawning git. This
-    hook is registered on PostToolUse(Agent) and UserPromptSubmit, so a spawn
-    here is paid several times per turn by every session on the box; the walk is
-    ~0.15ms against ~25ms and one process for the subprocess form.
-
-    Negative spec: do NOT reintroduce a `git rev-parse` spawn here as a routine path.
-    The subprocess below is a fallback for the case the walk cannot resolve (a bare
-    repo, or a `GIT_DIR`-driven invocation with no `.git` above cwd), not a default.
-    """
     try:
         start = Path.cwd().resolve()
         for candidate in (start, *start.parents):
@@ -412,11 +296,6 @@ def _git_root() -> str:
     try:
         import subprocess
 
-        # popup-intentional-last-resort
-        # C8: internal budget must stay under this hook's 5s hooks.json timeout
-        # (git rev-parse --show-toplevel is a local millisecond op; 3s is generous
-        # and leaves headroom for python cold-start ~140ms). 10s exceeded the 5s
-        # hook timeout — the harness would kill the hook before this budget elapsed.
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
             capture_output=True,
@@ -430,20 +309,6 @@ def _git_root() -> str:
 
 
 def _resolve_git_dir_no_commondir(git_root: str) -> str:
-    """Resolve the git dir that actually holds `git_root`'s own PRIVATE,
-    per-worktree state (HEAD, index) -- WITHOUT following the `commondir`
-    indirection `_resolve_git_common_dir` applies. No subprocess. Fail-open
-    to "" on any error.
-
-    In an ordinary clone, `<git_root>/.git` IS both the private dir and the
-    common dir (a directory) -- identical to `_resolve_git_common_dir` in
-    that topology, so this is a no-op there. In a linked worktree,
-    `<git_root>/.git` is a FILE containing a `gitdir: <path>` pointer to
-    the worktree's own private dir under `<main>/.git/worktrees/<name>/`;
-    THAT directory (not the `commondir`-substituted MAIN dir) is where
-    per-worktree state like HEAD actually lives. Sibling of
-    `_resolve_git_common_dir` -- see that function's docstring for the
-    portability-defect background this shares."""
     try:
         dot_git = os.path.join(git_root, ".git")
         if os.path.isdir(dot_git):
@@ -468,33 +333,6 @@ def _resolve_git_dir_no_commondir(git_root: str) -> str:
 
 
 def _current_branch_cheap(git_root: str) -> str:
-    """Current branch name via a raw `.git/HEAD` file read -- NOT `git
-    rev-parse --abbrev-ref HEAD` (no subprocess spawn). This hook already
-    fires multiple times per turn (Stop + UserPromptSubmit + one PostToolUse
-    matcher; see hooks.json), so a git subprocess on this path would recreate
-    the exact per-call spawn-tax hazard `docs/wiki/windows-process-spawn-and-
-    console.md` warns against. Detached HEAD (raw SHA, no `ref:` prefix) and
-    any read failure both degrade to "" -- never a crash, never mistaken for
-    a `work/*` branch (the caller gates on the `work/` prefix).
-
-    HEAD is rooted via the resolved (private) git dir, not a naive
-    `git_root + ".git"` join -- Review: code-reviewer (Finding 4). Under a
-    linked worktree `<git_root>/.git` is a FILE, so the naive join's
-    `open()` raised, this function failed open to "", and the caller's
-    `"".startswith("work/")` gate silently disabled the push-failure
-    advisory for the whole session rather than merely mis-rooting it.
-
-    Deliberately does NOT route through `_resolve_git_common_dir` (which
-    follows a worktree's `commondir` indirection to the MAIN checkout's
-    shared dir) -- HEAD, unlike refs/objects, is per-worktree PRIVATE
-    state: the commondir substitution would silently return the MAIN
-    checkout's currently-checked-out branch instead of the branch actually
-    checked out in `git_root`'s own worktree, corrupting the very fact this
-    function exists to report. `_resolve_git_dir_no_commondir` stops one
-    step short, at the private gitdir, exactly like an ordinary clone
-    (isdir(.git) case, where the private dir IS the common dir -- a no-op
-    there). An unresolvable git dir still degrades to "" exactly as
-    before."""
     try:
         git_dir = _resolve_git_dir_no_commondir(git_root)
         if not git_dir:
@@ -511,11 +349,6 @@ def _current_branch_cheap(git_root: str) -> str:
 
 
 def _configured_day_branch_cheap(git_root: str) -> str:
-    """`coordinator.dayBranch` off `.git/config` via a raw file read -- the
-    same zero-spawn posture as `_current_branch_cheap`. Mirrors the engine's
-    own `coordinator_core.daily_branch.read_configured_day_branch` tolerant
-    scan without importing `coordinator_core` (this script is dependency-
-    free by design). "" on any read failure or absent key."""
     try:
         common_dir = _resolve_git_common_dir(git_root)
         if not common_dir:
@@ -575,16 +408,9 @@ def _unpushed_commit_count(git_root: str, session_id: str | None = None) -> int 
         session_count = _own_session_unpushed_commit_count(git_root, session_id)
         if session_count is not None:
             return session_count
-        # Fall through to the branch-wide count on any failure reading
-        # trailers -- fail-toward-firing, same contract as the rest of this
-        # function.
     try:
         import subprocess
 
-        # popup-intentional-last-resort
-        # 3s ceiling for the same reason as `_git_root` above: this hook's
-        # hooks.json timeout is 5s, and rev-list against a local ref is a
-        # millisecond op.
         result = subprocess.run(
             ["git", "rev-list", "--count", "@{upstream}..HEAD"],
             cwd=git_root,
@@ -602,18 +428,9 @@ def _unpushed_commit_count(git_root: str, session_id: str | None = None) -> int 
 
 
 def _own_session_unpushed_commit_count(git_root: str, session_id: str) -> int | None:
-    """Count of `@{upstream}..HEAD` commits carrying THIS session's own
-    `Session-Id:` trailer (DR-190 § 40) -- the rescope
-    `_unpushed_commit_count` applies when it has a session id to filter by.
-
-    Returns None on any failure (git error, timeout, unparseable output) so
-    the caller falls back to the branch-wide count -- fail-toward-firing,
-    never fail-silent."""
     try:
         import subprocess
 
-        # popup-intentional-last-resort -- same 3s ceiling as
-        # `_unpushed_commit_count`'s own subprocess, for the same reason.
         result = subprocess.run(
             [
                 "git",
@@ -689,7 +506,7 @@ def _push_failure_verdict(git_root: str) -> tuple[dict | None, str | None]:
         from coordinator_core.ops import push_failure_verdict as _op  # noqa: F401
         from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
     except Exception:
-        return None, "unreachable"  # root unresolvable/unimportable -> caller falls back
+        return None, "unreachable"
 
     try:
         result = dispatch_from_hook(
@@ -718,8 +535,6 @@ def _push_failure_verdict(git_root: str) -> tuple[dict | None, str | None]:
 
 
 # Trailing reference line every AUTO-PUSH-MID-SESSION-DETECT advisory carries,
-# regardless of which of the five op verdicts (or the pre-op fallback path)
-# produced it.
 _PUSH_FAILURE_REFERENCE_LINE = (
     resolve_wiki_citation("Reference: docs/wiki/coordinator-tripwires/tripwire-registry/auto-push-mid-session-detector-auto-push-mid-session-detect.md")
 )
@@ -728,26 +543,6 @@ _PUSH_FAILURE_REFERENCE_LINE = (
 def _render_push_failure_verdict(
     verdict_result: dict, n_new: int, branch: str, last_line: str
 ) -> str | None:
-    """Render one of the op's five verdicts into advisory text, building each
-    sentence from `evidence` fields (never from the op's own `remedy_hint`,
-    which the origin memo names a convenience string, not the contract --
-    final rendering is ours to own). Returns None only if `verdict` is
-    somehow not one of the five known strings (unreachable given
-    `_push_failure_verdict`'s own validation, kept here as defense-in-depth
-    matching this file's belt-and-braces posture elsewhere).
-
-    `n_new`/`last_line` are this session's own log-growth reading (the same
-    ones the pre-op fallback renders from) -- kept for parity across both
-    text shapes and because the op's own `push_failures_log_count`/
-    `push_failures_log_newest` evidence fields describe the WHOLE log, not
-    just this session's new-growth delta, which is the more useful number to
-    show a human mid-session.
-
-    `indeterminate` never suggests a recovery command, per the origin memo's
-    explicit standing contract: a fast route out of a stuck merge destroys
-    work when the peer-staged reading is true, so this state only names
-    itself and stops.
-    """
     verdict = verdict_result.get("verdict")
     evidence = verdict_result.get("evidence") or {}
     ref = _PUSH_FAILURE_REFERENCE_LINE
@@ -769,13 +564,6 @@ def _render_push_failure_verdict(
     if verdict == "simple_lag":
         ahead = evidence.get("ahead")
         behind = evidence.get("behind")
-        # SCOPE OF THE CLAIM. `ahead`/`behind` are BRANCH facts, not session facts.
-        # On a shared day-branch every unpushed commit may belong to a peer, in which
-        # case this session's own work is fully pushed and its crash insurance is
-        # intact. Reported by claude-klabauter-em 2026-08-23: 3 unpushed commits, none
-        # theirs, all 8 of their own already ancestors of upstream -- and this line
-        # told them their insurance might not be insuring. It must not assert
-        # anything about whose work is at risk, because it does not know.
         if behind:
             return (
                 "AUTO-PUSH MID-SESSION FAILURE — " + header +
@@ -845,53 +633,10 @@ def _render_push_failure_verdict(
             "peer-staged reading is true.\n" + ref
         )
 
-    return None  # unreachable -- `_push_failure_verdict` already validated `verdict`
+    return None
 
 
-# ---------------------------------------------------------------------------
 # PLUGIN-HOOKS-JSON-RESTART-GATED (added 2026-08-07) -- detects when THIS
-# session's own hook registrations are stale relative to
-# `coordinator/hooks/hooks.json` on disk. Established by a three-probe
-# control sweep (`state/audits/2026-08-07-bx17-piece3-observed-block-
-# discharge.md` § Finding 1): the plugin's own `hooks.json` is snapshotted
-# at session boot -- a matcher edit landing after boot is NOT live in that
-# session, while the same matcher loaded from `.claude/settings.local.json`
-# takes effect on the next tool call. Nothing detected this before now: a
-# session that edits `hooks.json`, probes its own guard, and sees no block
-# reads that as "the guard is broken" when the only thing wrong is that its
-# own snapshot predates the edit -- a false-bug-filing engine already
-# measured to have burned real time on the BX-17 campaign.
-#
-# Idiom deliberately mirrors `_check_push_failures` above rather than
-# inventing a second one: a per-session cursor file at
-# `<git COMMON dir>/coordinator-sessions/<session_id>/hooks-json-boot-hash.txt`
-# (rooted via `_resolve_git_common_dir`, worktree-safe -- see that helper's
-# docstring). First check this session records the current on-disk content
-# hash as baseline and never alarms (this session's OWN boot snapshot is,
-# by definition, not stale relative to itself). A later check compares the
-# current hash against that baseline; a mismatch means `hooks.json` changed
-# since this session's registrations were captured, so this session's own
-# guard observations are invalid until restart. The cursor advances on
-# alarm (mirrors `_check_push_failures`' cursor-advance-on-report contract)
-# so the SAME edit is never re-reported -- only further-new changes fire
-# again.
-#
-# Cost: content hash (sha256), not mtime -- mtime is unreliable across the
-# ~11 peer sessions sharing this tree (a peer's unrelated checkout/rebase
-# can bump mtime without changing content, and vice versa across
-# filesystems). No subprocess: a single `open().read()` + hashlib digest
-# against a small (few-KB) JSON file, run at this hook's existing
-# Stop/UserPromptSubmit/PostToolUse cadence -- no new hook registration, no
-# per-call spawn added.
-#
-# Fail-open, never a crash: an unresolvable common dir, unreadable
-# hooks.json, or an unwritable cursor file on the baseline-establishing
-# write all degrade to None (silent no-op). The alarm-path cursor-advance
-# write is separate: if IT fails, the already-built alert text is still
-# returned (never dropped), which is the safer failure -- but it means an
-# unwritable cursor there causes the same alarm to re-fire on the next
-# call instead of degrading to None, not a false alarm but a repeating one.
-# ---------------------------------------------------------------------------
 
 _HOOKS_JSON_STALE_REFERENCE_LINE = (
     resolve_wiki_citation("Reference: docs/wiki/coordinator-tripwires/related.md")
@@ -899,13 +644,10 @@ _HOOKS_JSON_STALE_REFERENCE_LINE = (
 
 
 def _hooks_json_path(git_root: str) -> str:
-    """Path to the plugin's own hooks.json, relative to the repo root."""
     return os.path.join(git_root, "coordinator", "hooks", "hooks.json")
 
 
 def _hash_file_sha256(path: str) -> str | None:
-    """sha256 hex digest of `path`'s contents, or None on any read failure
-    (missing file, permission error, IO error) -- fail-open, never raises."""
     try:
         import hashlib
 
@@ -933,14 +675,14 @@ def _check_hooks_json_staleness(git_root: str, session_id: str, common_dir: str)
     the next call instead of being absorbed.
     """
     if not common_dir:
-        return None  # fail-open: cannot resolve the common dir, nothing to do
+        return None
 
     if not session_id or not _ID_CHARSET_RE.match(session_id):
-        return None  # same charset guard as the rest of this hook
+        return None
 
     current_hash = _hash_file_sha256(_hooks_json_path(git_root))
     if current_hash is None:
-        return None  # hooks.json unreadable -- nothing to compare, fail-open
+        return None
 
     cursor_dir = os.path.join(common_dir, "coordinator-sessions", session_id)
     cursor_path = os.path.join(cursor_dir, "hooks-json-boot-hash.txt")
@@ -955,9 +697,6 @@ def _check_hooks_json_staleness(git_root: str, session_id: str, common_dir: str)
             baseline = None
 
     if baseline is None:
-        # First check this session -- record this session's own boot-time
-        # baseline. Never alarms here: a session's own snapshot cannot be
-        # stale relative to itself.
         if not _ensure_session_cursor_dir(cursor_dir, session_id):
             return None
         try:
@@ -968,10 +707,8 @@ def _check_hooks_json_staleness(git_root: str, session_id: str, common_dir: str)
         return None
 
     if current_hash == baseline:
-        return None  # unchanged since this session's own baseline
+        return None
 
-    # Changed since baseline -- advance the cursor so the SAME change is
-    # never re-reported (only further-new changes fire again), then emit.
     try:
         with open(cursor_path, "w", encoding="utf-8") as fh:
             fh.write(current_hash)
@@ -1087,35 +824,18 @@ def _check_push_failures(git_root: str, session_id: str):
 
     `work/*`-only, mirroring the ceremony predicate's own scope note.
     """
-    # Rooted at the git COMMON dir (see `_resolve_git_common_dir`'s
-    # docstring), never `<git_root>/.git` -- that path is a FILE in a
-    # worktree / `--separate-git-dir` clone / submodule topology, so a
-    # literal join there silently never persists. This reader was
-    # deliberately kept byte-identical to the WRITER's own (then-literal)
-    # join while the writer built `<repo_root>/.git/push-failures.log` the
-    # same way and silently never created the log in those topologies
-    # (`open()` on a path nested under a regular FILE raises
-    # `NotADirectoryError`, caught, degraded to stderr-only). The writer op
-    # that appends a push-failure line was fixed 2026-08-01 (sibling
-    # engine, commit `a6daf112e98d`) to target the git COMMON dir instead --
-    # ruling: one shared log per repo, matching common-dir-keyed session
-    # bookkeeping elsewhere in this hook. This reader now points at the
-    # same target so reader/writer parity holds by construction in every
-    # topology. See `docs/wiki/coordinator-tripwires/` §
     # AUTO-PUSH-MID-SESSION-DETECT.
     common_dir = _resolve_git_common_dir(git_root)
     if not common_dir:
-        return None, None  # fail-open: cannot resolve the common dir, nothing to do
+        return None, None
     log_path = os.path.join(common_dir, "push-failures.log")
     try:
         log_size = os.path.getsize(log_path)
     except OSError:
-        return None, None  # no log on disk -- nothing has ever failed here (this
-        # topology's writer never created one, or this session's repo has
-        # simply never had a push fail)
+        return None, None
 
     if not session_id or not _ID_CHARSET_RE.match(session_id):
-        return None, None  # same charset guard as the rest of this hook
+        return None, None
 
     cursor_dir = os.path.join(common_dir, "coordinator-sessions", session_id)
     cursor_path = os.path.join(cursor_dir, "push-failures-cursor.txt")
@@ -1131,10 +851,6 @@ def _check_push_failures(git_root: str, session_id: str):
             baseline = None
 
     if baseline is None:
-        # First check this session -- establish baseline, no alarm (the log
-        # is append-only historic state, not session-scoped). Nothing here
-        # is ever surfaced as text, so writing the baseline inline (rather
-        # than deferring it) loses nothing.
         if not _ensure_session_cursor_dir(cursor_dir, session_id):
             return None, None
         try:
@@ -1145,9 +861,8 @@ def _check_push_failures(git_root: str, session_id: str):
         return None, None
 
     if log_size <= baseline:
-        return None, None  # no NEW growth since we last looked this session
+        return None, None
 
-    # New line(s) landed since baseline -- read only the delta.
     new_lines: list = []
     try:
         with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
@@ -1157,10 +872,6 @@ def _check_push_failures(git_root: str, session_id: str):
         pass
 
     def _advance_cursor() -> None:
-        # This growth interval has been SEEN (by us, or deferred to a
-        # ceremony regen that already reported it), so the next call only
-        # reports further-new growth -- what keeps a steady trickle of
-        # already-surfaced failures from re-firing every turn.
         try:
             with open(cursor_path, "w", encoding="utf-8") as fh:
                 fh.write(str(log_size))
@@ -1170,11 +881,6 @@ def _check_push_failures(git_root: str, session_id: str):
     branch = _current_branch_cheap(git_root)
     designated = _configured_day_branch_cheap(git_root)
     if not (branch.startswith("work/") or (designated and branch == designated)):
-        # Mirrors the ceremony predicate's day-branch scope: work/* by
-        # default, or the exact `coordinator.dayBranch` designation (a cloud
-        # harness's branch is the day branch, whatever its shape). No alarm
-        # text is produced on this path, so advancing inline loses nothing --
-        # only a path that returns real text defers to `advance_fn`.
         _advance_cursor()
         return None, None
 
@@ -1185,18 +891,11 @@ def _check_push_failures(git_root: str, session_id: str):
             cache_mtime = os.path.getmtime(cache_path)
             if cache_mtime >= log_mtime:
                 _advance_cursor()
-                return None, None  # ceremony already surfaced this backlog
+                return None, None
     except Exception:
         pass
 
     # XB-12: count UNRECOVERED failures, not lines. New growth in this file
-    # may include a malformed/unrecognized row (still worth surfacing, since
-    # something appended to a failure log is not nothing) but must not be
-    # inflated by any non-failure row a future writer change might add here
-    # (auto_push.py itself never has -- resolved races are stderr-only, per
-    # log_race_resolved()'s docstring -- this is the reader-side half of that
-    # same guarantee). A growth interval containing zero recognizable
-    # PUSH FAILED rows is not a failure signal and does not fire.
     failed_lines = [ln for ln in new_lines if _PUSH_FAILED_LINE_RE.search(ln)]
     if not failed_lines:
         _advance_cursor()
@@ -1205,30 +904,13 @@ def _check_push_failures(git_root: str, session_id: str):
     n_new = len(failed_lines)
     last_line = failed_lines[-1]
 
-    # Primary path: render the engine's five-state classification. A
-    # well-formed result renders unconditionally distinct text per verdict
-    # (see `_render_push_failure_verdict`) -- never the prior binary split.
     verdict_result, degrade_reason = _push_failure_verdict(git_root)
     if verdict_result is not None:
         rendered = _render_push_failure_verdict(verdict_result, n_new, branch, last_line)
         if rendered is not None:
             return rendered, _advance_cursor
 
-    # Fallback path: engine round-trip unresolvable/unimportable/malformed,
-    # or (defensively) an unrecognized verdict slipped past
-    # `_push_failure_verdict`'s own validation -- reproduce the pre-op
-    # two-string behaviour rather than going silent. The alarm text below
-    # asserts a CURRENT condition; log growth alone only evidences a
     # HISTORICAL one. Ask the question the text claims to answer before
-    # making it in the present tense. None (unresolvable upstream, offline
-    # repo, git error) falls through to the full alarm on purpose.
-    #
-    # A `"contract"` degrade is not an outage and must not read as one: the op
-    # answered that OUR envelope was wrong (-32602). That is a defect in this
-    # file, invisible for as long as the fallback looks identical to a sick
-    # engine -- which is exactly how a dropped `origin_worktree` kwarg survived
-    # here undetected. Name it in the text so the next dropped field is caught
-    # on its first firing, not by a peer repo reading our source.
     contract_note = (
         "\n(The five-state classifier did not run: `git.push_failure_verdict` "
         "rejected this hook's envelope as invalid params (JSON-RPC -32602). "
@@ -1270,31 +952,11 @@ def _check_push_failures(git_root: str, session_id: str):
     return text, _advance_cursor
 
 
-# ---------------------------------------------------------------------------
 # ZERO-TOOL-USE-DETECT-SURFACE (Stage 2, added 2026-07-25; folded onto this
-# same UserPromptSubmit-gated seam per DEC-6 -- see module docstring). Reads
-# Stage 1's ("subagent-zero-tool-use-detect.py", SubagentStop) durable
-# records via a thin engine op and surfaces this session's unsurfaced ones
-# on the EM's next turn. See docs/wiki/coordinator-tripwires/
 # § ZERO-TOOL-USE-DETECT for the two-stage design.
-# ---------------------------------------------------------------------------
 
 
 def _zero_tool_use_paths(zt_sessions_dir: str, session_id: str) -> tuple[str, str]:
-    """Per-session (store, cursor) paths, both rooted at the git COMMON dir
-    via `zt_sessions_dir` (see `_resolve_zero_tool_use_sessions_dir`) --
-    NEVER the separately-computed `sessions_dir` in `main()` (both are now
-    common-dir-rooted, but stay independent resolutions -- see
-    `_resolve_zero_tool_use_sessions_dir`'s docstring).
-
-    Integration fix, this pass: an earlier draft had this shim stat its own
-    redundant sibling "unsurfaced" sentinel, independently name-guessed from
-    the actual engine store. The landed engine op writes ONE durable store,
-    already append-only and already exactly the stat target this
-    precondition needs -- `store_path` below IS that store, read directly,
-    no sentinel in between. See `subagent-zero-tool-use-detect.py`'s module
-    docstring for the removal rationale from the writer side.
-    """
     session_dir = os.path.join(zt_sessions_dir, session_id)
     store_path = os.path.join(session_dir, "subagent-zero-tool-use.jsonl")
     cursor_path = os.path.join(session_dir, "subagent-zero-tool-use-surfaced-cursor.txt")
@@ -1302,16 +964,6 @@ def _zero_tool_use_paths(zt_sessions_dir: str, session_id: str) -> tuple[str, st
 
 
 def _read_zero_tool_use_cursor(cursor_path: str) -> dict:
-    """Tolerant cursor read -- malformed/absent/wrong-shape content all
-    degrade to the zero-state `{"surfaced": 0, "size": 0}` rather than
-    raising, per the contract's explicit tolerance rule.
-
-    `surfaced` is an INDEX into the store's append-ordered record list (how
-    many of this session's records have already been surfaced-or-skipped);
-    `size` is the store's `os.path.getsize` as observed the last time
-    `surfaced` was advanced -- used only as this function's own cheap
-    precondition input, never re-derived from `surfaced` itself.
-    """
     try:
         with open(cursor_path, "r", encoding="utf-8") as fh:
             data = json.loads(fh.read())
@@ -1361,40 +1013,18 @@ def _write_zero_tool_use_cursor(cursor_path: str, surfaced: int, size: int) -> N
 
 
 def _zero_tool_use_local_evidence(store_path: str, cursor: dict) -> int | None:
-    """Cheap stat-only precondition (ordered-body step 1/2 of the pinned
-    contract). Returns the store's current size when it has grown past this
-    session's own recorded cursor `size`, else None -- callers must skip
-    straight to contributing nothing on None, without resolving the engine repo at
-    all.
-
-    Deliberately NOT the `_check_push_failures` baseline-on-first-call
-    shape: `push-failures.log` is a persistent CROSS-session log, so a
-    fresh session must not alarm on pre-existing backlog. This store is
-    written only by THIS session's own Stage-1 detections (AC4 scoping via
-    the engine op's own session filtering), so anything present on the very
-    first check this session is new-to-this-session and must be considered,
-    not silently adopted as a baseline.
-    """
     try:
         store_size = os.path.getsize(store_path)
     except OSError:
-        return None  # store absent -- Stage 1 has recorded nothing this session
+        return None
 
     if store_size <= cursor.get("size", 0):
-        return None  # no growth since we last looked
+        return None
 
     return store_size
 
 
 def _extract_zero_tool_use_records(result) -> list:
-    """Tolerant extraction of the op's response payload. The landed op
-    returns `{"records": [...], "record_count": N, "skipped_lines": N,
-    "store_present": bool}` in append order -- this also tolerates a bare
-    list for defense-in-depth, and degrades to empty (nothing to surface)
-    on anything else rather than guessing further. AC7: no transcript
-    parsing and no zero-vs-unknown determination happens doctrine-plane-side, here or
-    anywhere in this file -- this only relays fields the engine op already
-    resolved."""
     if isinstance(result, list):
         return result
     if isinstance(result, dict):
@@ -1405,21 +1035,6 @@ def _extract_zero_tool_use_records(result) -> list:
 
 
 def _is_zero_tool_use_detection(rec) -> bool:
-    """AC1-mirrored filter (integration fix, this pass): the landed
-    `hooks.subagent_zero_tool_use` op has NO zero-gate of its own -- it
-    appends a record for EVERY verified `tool_use_count`, healthy agents
-    included -- and the landed surface op returns every `kind ==
-    "zero-tool-use"` record unfiltered. Left unfiltered here, EVERY
-    completed subagent would read as a zero-tool-use detection: the exact
-    cry-wolf inversion AC1 exists to prevent, fleet-wide, on every prompt.
-
-    `tool_use_count` missing, `None`, or not an `int` is treated as NOT a
-    detection (skipped, never surfaced) rather than as zero -- mirroring
-    this whole plan's fail-toward-UNKNOWN bias (AC1) applied to this local
-    filter instead of the engine's own zero-vs-unknown determination. `bool`
-    is explicitly excluded even though it is an `int` subclass in Python --
-    a stray `True`/`False` in the field must never be read as 1/0.
-    """
     if not isinstance(rec, dict):
         return False
     count = rec.get("tool_use_count")
@@ -1429,10 +1044,6 @@ def _is_zero_tool_use_detection(rec) -> bool:
 
 
 def _format_zero_tool_use_records(records: list) -> str:
-    """Compose already-filtered (AC1: `tool_use_count == 0` only) Stage-1
-    records into advisory text. Returns "" when nothing formattable is
-    present. Callers must filter via `_is_zero_tool_use_detection` before
-    calling this -- it performs no filtering of its own."""
     lines = []
     for rec in records:
         if not isinstance(rec, dict):
@@ -1460,37 +1071,14 @@ def _format_zero_tool_use_records(records: list) -> str:
 def _check_zero_tool_use_surface(
     git_root: str, session_id: str, zt_sessions_dir: str, hook_event: str
 ):
-    """Stage-2 surfacer. Returns (text, advance_fn) when there is something
-    new to surface this call, else (None, None).
-
-    `advance_fn` must be invoked ONLY after a successful stdout write of the
-    returned text -- never at this function's own op-read point, never
-    speculatively -- see `_emit_advisory`'s `on_success` parameter and the
-    mutation-before-emit data-loss hazard this ordering closes: up to ~200
-    lines and four possible exit sites separate this call from the eventual
-    write, so mutating surfaced-state here and then losing the write to an
-    exception or early return would burn the detection (surfaced-once means
-    it never surfaces again).
-
-    Records that are NOT detections (healthy agents, or malformed/missing
-    counts) are still counted past by the cursor on this call -- see the
-    inline comment at the no-detections return below -- otherwise every
-    subsequent fire would re-read and re-filter the same healthy records
-    forever and the cheap precondition would never settle.
-
-    Every fallible step is wrapped narrowly here so a bug in this part can
-    never take down the pre-existing runtime-tripwire / push-failure
-    advisories -- mirrors the isolation `_check_push_failures` already gets
-    at its own call site in `main()`.
-    """
     if hook_event != "UserPromptSubmit":
-        return None, None  # gated hard to the human's own prompt path (DEC-6)
+        return None, None
 
     if not session_id or not _ID_CHARSET_RE.match(session_id):
         return None, None
 
     if not zt_sessions_dir:
-        return None, None  # git-common-dir unresolvable this call -- fail open
+        return None, None
 
     store_path, cursor_path = _zero_tool_use_paths(zt_sessions_dir, session_id)
 
@@ -1504,9 +1092,6 @@ def _check_zero_tool_use_surface(
     except Exception:
         store_size = None
     if store_size is None:
-        # Cheap precondition, hard requirement: no engine-repo resolve, no
-        # coordinator_core import, no dispatch_message round-trip when
-        # there is no local evidence of anything unsurfaced.
         return None, None
 
     try:
@@ -1527,23 +1112,12 @@ def _check_zero_tool_use_surface(
                 "hook_event_name": hook_event,
             },
         }
-        # Review: code-reviewer -- Finding 5. `git_root` is always truthy at
-        # this call site (main() already returns 0 on a falsy git_root
-        # before reaching here), so this conditional is always-true.
-        # Deliberate parity kept anyway: Stage 1's own IPC assembly
-        # (subagent-zero-tool-use-detect.py's `if isinstance(cwd, str) and
-        # cwd: msg["_origin_worktree"] = cwd`) uses the same guarded-
-        # assignment shape per the plan's "Shared, both stages" pinned
-        # contract (docs/plans/2026-07-25-zero-tool-use-detection.md:562) --
-        # matching that shape here, even though this call site's own
-        # precondition makes the guard unreachable-false, keeps the two
-        # IPC-assembly blocks visually identical for anyone diffing them.
         if git_root:
             msg["_origin_worktree"] = git_root
 
         response = asyncio.run(dispatch_message(msg))
     except Exception:
-        return None, None  # engine unresolvable/unimportable/erroring -> fail-open
+        return None, None
 
     result = response.get("result") if isinstance(response, dict) else None
     all_records = _extract_zero_tool_use_records(result)
@@ -1554,15 +1128,9 @@ def _check_zero_tool_use_surface(
         surfaced_so_far = 0
     new_records = all_records[surfaced_so_far:]
 
-    # AC1/Fix-3: the engine op has no zero-gate of its own -- filter to
-    # actual detections here before composing any advisory text.
     detections = [rec for rec in new_records if _is_zero_tool_use_detection(rec)]
 
     if not detections:
-        # Nothing to surface this call, but the growth we just read (healthy
-        # or malformed records) must still be marked seen -- advance now,
-        # not deferred to a stdout write that will never happen for an empty
-        # result. Safe: there is no detection text to lose here.
         _write_zero_tool_use_cursor(cursor_path, total_seen, store_size)
         return None, None
 
@@ -1571,13 +1139,6 @@ def _check_zero_tool_use_surface(
     except Exception:
         return None, None
     if not text:
-        # Review: code-reviewer -- Finding 3. Currently unreachable:
-        # `detections` is non-empty here (guarded above) and every entry is
-        # a dict (`_is_zero_tool_use_detection`'s own isinstance check), so
-        # `_format_zero_tool_use_records` always emits at least one line.
-        # Retained as defense-in-depth per this file's belt-and-braces
-        # posture -- a future change to either helper's contract degrades
-        # safely through this branch instead of surfacing an empty advisory.
         _write_zero_tool_use_cursor(cursor_path, total_seen, store_size)
         return None, None
 
@@ -1587,126 +1148,27 @@ def _check_zero_tool_use_surface(
     return text, _advance
 
 
-# ---------------------------------------------------------------------------
 # SESSION-BATON-MINT (added 2026-08-19, folded onto this existing
-# UserPromptSubmit-gated seam per the same no-second-registration constraint
 # ZERO-TOOL-USE-DETECT-SURFACE above already follows -- AC5,
-# `_hook_spawn_budget.py` pins `UserPromptSubmit: 1`.
-#
-# Spec backlink: docs/plans/2026-08-19-promoted-baton-born-status-and-mint-hook.md § C4
-# Spike verdict: docs/research/spike-verdicts/2026-08-19-session-baton-mint-from-userpromptsubmit.md
-#
-# Captures a session's FIRST prompt into the engine's lazy session-baton
-# record via the `session_baton.mint` op, so a later `session_baton.promote`
-# ceremony has a record to promote. mint only needs the session's FIRST
-# prompt, so every prompt after it has nothing to do -- but UserPromptSubmit
-# has no matcher support, so this leg short-circuits itself rather than
-# being registered narrowly. Gate: one small JSON read of the session's own
-# `baton.json` (rooted at the git COMMON dir, the same `sessions_dir` main()
-# already resolves for the dispatch-tracking loop below), checked against the
-# FIELD the leg cares about, never mere file existence -- an existence-only
-# gate here would return immediately off a `baton.json` a pickup session's
-# adoption writer already created, and silently never capture a prompt for
-# the rest of that session (history and the specific finding: spike verdict
-# above, "Finding 0"). Absent record, or present with `first_prompt is None`
-# and no `adopted_artifacts` -> pays the mint cost. Present with
-# `adopted_artifacts` set -> return immediately, no matter what
-# `first_prompt` says: a pickup session's identity is already named by the
-# handoff it adopted, and capturing the pickup invocation itself would
-# overwrite that with junk (PM ruling, same review -- see spike verdict).
-# Present with `first_prompt` already captured and no `adopted_artifacts` ->
-# return immediately: no op call, no `coordinator_core` import, no
-# read-modify-write (AC7, AC10 -- see spike verdict for AC7's superseded
-# "one stat" wording; the field it protects is unchanged). The op's own
-# idempotence
-# (`session_baton_mint.py`'s `existing.get("first_prompt") is None` guard)
-# stays the correctness backstop for the race where two prompts land together
-# or the read lies (AC9) -- this gate is an optimization layered on top of
-# it, never a substitute for it. Cost ceiling cited from
-# `docs/wiki/hook-best-practices.md:279,287` rather than re-derived.
-#
-# Entry path is pinned by the spike verdict above, not a design choice
-# reopened here: `_engine_root.arm_lazy_ops()` sets the in-process
-# `sys._coordinator_core_lazy_ops` attribute -- NEVER the
 # `COORDINATOR_CORE_LAZY_OPS` env var, which leaks to every child spawned
-# without an explicit `env=` -- BEFORE importing
-# `coordinator_core.ops.session_baton_mint`, then its `_handler` is called
 # DIRECTLY, with `first_prompt` preservation intact, never routed through
-# `coordinator_core.ipc.dispatch_message` -- its registry-miss fallback
-# force-imports the whole op surface, reproducing the cold-import cost this
-# entry path exists to avoid (measured numbers: spike verdict above). Do not
 # "simplify" to that shape. Lazy mode leaves `ipc._REGISTRY` unpopulated;
-# harmless here since only this one op module is ever imported in this leg.
-#
 # Calling `store.merge_baton(...)` directly is FORBIDDEN even though it
-# measures ~3 ms cheaper: it silently overwrites `first_prompt` on every
-# call (`_UNSET` sentinel semantics -- an explicitly-passed value always
-# wins), which is exactly the guarantee `_handler`'s own
-# `existing.get("first_prompt") is None` check exists to protect. See the
-# spike verdict's "the trap in the cheap path."
-#
-# Fails open on every path -- this hook's UserPromptSubmit registration
-# BLOCKS the user; a raise here rejects the prompt outright. Contributes at
-# most one line to the additionalContext envelope, and only where the baton
-# demonstrably exists on disk (a confirmed mint, or an observed adoption) --
-# never on a short-circuit that did neither. Every step is wrapped so a bug
-# here can never take down the pre-existing advisories in main().
-# ---------------------------------------------------------------------------
 
-# Finding 8, mint leg review 2026-08-19: the captured prompt is unbounded --
-# a large paste would otherwise land verbatim in baton.json and be
-# re-serialized in full on every later merge_baton (promotion, commit
-# appends) under a 2s lock. Capped at the hook boundary, not the op, so the
-# bound holds even if a future caller of the op skips this leg. The
-# truncation is stamped into the stored value itself rather than silent, so
-# a reader of baton.json can tell a short prompt from a truncated one.
 _PROMPT_CAPTURE_CAP = 8192
 _PROMPT_TRUNCATION_MARKER = "...[truncated]"
 
-# Adoption fires the mint leg's early return on EVERY UserPromptSubmit of a
-# picked-up session, not just the first (`adopted_artifacts` never clears) --
-# unlike the mint path, where the op's own `first_prompt` write makes the
-# next call's field-read gate the once-only signal for free. A sibling
-# marker file supplies the same once-only signal for adoption specifically;
-# it is deliberately NOT a `baton.json` field (no op exposes writing one,
-# and this hook does not call `store.merge_baton` outside the mint leg
-# above) and NOT the throttle sentinel's tempdir (a repo-scoped record next
-# to the baton it announces, not a host-tempdir one).
 _BATON_ADOPTED_ANNOUNCED_SUFFIX = ".adopted-announced"
 
-# Mint is the opposite event from adoption: `minted_artifacts` (dedup-extended
-# by the engine, same semantics as `adopted_artifacts`) names handoffs the
-# ENGINE created for this session unasked, never something the operator
-# chose. It can grow more than once in a session, so a bare once-per-session
 # flag (as `_BATON_ADOPTED_ANNOUNCED_SUFFIX` uses) would silently swallow a
-# second mint -- this marker instead holds the newline-delimited set of
-# artifact paths already announced, so each call can announce only the
-# paths not yet in that set.
 _BATON_MINTED_ANNOUNCED_SUFFIX = ".minted-announced"
 
 
 def _baton_advisory_text(baton_path: str, git_root: str) -> str:
-    """One-line, event-scoped advisory naming the session baton this EM now
-    owns. Callers emit this only where the baton demonstrably exists on
-    disk this call -- see `_mint_session_baton`'s two emit sites.
-
-    Wording is PM-specified verbatim (cross-repo/inbox/
-    2026-08-21-claude-klabauter-em-baton-advisory-names-the-journal.md), trimmed
-    from a longer draft by the PM themselves: the prior "SESSION BATON —
-    <path> — already recording this session" noun didn't say what the
-    artifact IS, and an EM read straight past it and spent twenty minutes
-    investigating the wrong artifact. `.git/coordinator-sessions/` is
-    dropped from the rendered path (it earns nothing) while the full
-    session id and `baton.json` tail are kept (that's the EM identity being
-    pointed at). No imperative, no reassurance wrapper -- there is no
-    action the EM should take here, and the register doctrine bans the
-    wrapper. Deliberately asserts nothing about ancestry/predecessor: that
-    is not true in the engine's tree yet, and this line must not
-    foreshadow it."""
     try:
         display_path = os.path.relpath(baton_path, git_root)
     except Exception:
-        display_path = baton_path  # e.g. different drives on Windows
+        display_path = baton_path
     display_path = display_path.replace(os.sep, "/")
     prefix = ".git/coordinator-sessions/"
     if display_path.startswith(prefix):
@@ -1715,13 +1177,10 @@ def _baton_advisory_text(baton_path: str, git_root: str) -> str:
 
 
 def _minted_advisory_text(artifact_path: str, git_root: str) -> str:
-    """One-line advisory naming a handoff the engine minted for this session
-    without the operator asking for it. Deliberately worded as news, not as
-    something the operator picked up -- see `_handoff_mint_advisory`."""
     try:
         display_path = os.path.relpath(artifact_path, git_root)
     except Exception:
-        display_path = artifact_path  # e.g. different drives on Windows
+        display_path = artifact_path
     display_path = display_path.replace(os.sep, "/")
     return (
         f"HANDOFF MINTED — {display_path} — created for this session by "
@@ -1754,7 +1213,7 @@ def _handoff_mint_advisory(minted_artifacts, baton_path: str, git_root: str) -> 
     except FileNotFoundError:
         announced = set()
     except Exception:
-        return None  # fail-open: corrupt/unreadable marker -- never guess
+        return None
 
     new_paths = []
     seen = set()
@@ -1767,8 +1226,7 @@ def _handoff_mint_advisory(minted_artifacts, baton_path: str, git_root: str) -> 
 
     try:
         if not _symlink_safe_marker(marker_path):
-            return None  # symlink at the marker name -- do not announce
-            # off an unverified write
+            return None
         with open(marker_path, "a", encoding="utf-8") as fh:
             for p in new_paths:
                 fh.write(p + "\n")
@@ -1779,9 +1237,6 @@ def _handoff_mint_advisory(minted_artifacts, baton_path: str, git_root: str) -> 
 
 
 def _combine_baton_advisories(baton_line, mint_block) -> str | None:
-    """Join whichever of the two per-call advisory strings are present --
-    session baton first (it names the session), mint block last (it is the
-    news). Either or both may be `None`."""
     parts = [p for p in (baton_line, mint_block) if p]
     if not parts:
         return None
@@ -1791,67 +1246,29 @@ def _combine_baton_advisories(baton_line, mint_block) -> str | None:
 def _mint_session_baton(
     git_root: str, session_id: str, sessions_dir: str, hook_event: str, prompt
 ) -> str | None:
-    """Mint (once per session) or no-op the session's lazy baton record --
-    see the module comment block immediately above for the full design.
-    Disk side effect, plus a session-baton advisory line on the two events
-    where the baton newly demonstrable exists this call -- a confirmed
-    mint, or an observed adoption -- and separately, on ANY return path, a
-    handoff-mint advisory line for each not-yet-announced path in the
-    record's `minted_artifacts`. When both fire on the same call they are
-    newline-joined, mint last. `None` when neither has anything to say,
-    including the already-announced steady state. Never raises -- every
-    fallible step is caught locally.
-    """
     if hook_event != "UserPromptSubmit":
-        return  # gated hard to the human's own prompt path (mirrors DEC-6's
+        return
         # ZERO-TOOL-USE-DETECT-SURFACE gate immediately above)
 
     if not sessions_dir:
-        return  # git-common-dir unresolvable this call -- fail open
+        return
 
     if not session_id or not _ID_CHARSET_RE.match(session_id):
-        return  # unreachable in practice: main()'s own charset guard
-        # (:2028-2033) already neutralizes a non-conforming session_id to ""
-        # and returns before this leg is ever called. Kept as defense in
-        # depth only -- do not mistake this for the live guard.
+        return
 
     baton_path = os.path.join(sessions_dir, session_id, "baton.json")
 
-    # Gate on the FIELD, not the FILE: `baton.json` has a second writer --
-    # `pickup_assemble._adopt_into_baton` creates the record (via
-    # `merge_baton(..., adopted_artifacts=[...])`, no `first_prompt` kwarg)
-    # at UserPromptExpansion, BEFORE this UserPromptSubmit leg ever runs. An
-    # existence-only gate here would return immediately off that
-    # pre-existing file and never capture a prompt for the rest of the
-    # session (history and the specific finding: spike verdict above,
-    # "Finding 0"). One small JSON read replaces the old single stat; still
-    # no op call, no `coordinator_core` import, no read-modify-write in the
-    # settled case.
     try:
         with open(baton_path, "r", encoding="utf-8") as fh:
             record = json.load(fh)
     except FileNotFoundError:
-        record = None  # never minted -- fall through to the mint below
+        record = None
     except Exception:
-        return  # fail-open: unreadable, truncated, or non-JSON record is
-        # treated as "nothing to do", exactly as the pre-Finding-0 stat gate
-        # treated an unstattable path. This leg blocks the human's prompt --
-        # a malformed file on disk must never raise into it.
+        return
 
     if record is not None and not isinstance(record, dict):
-        return  # malformed: valid JSON but not an object (e.g. a bare list
-        # or scalar) -- same "nothing to do" treatment as an unparseable
-        # file; a non-dict record carries no `first_prompt`/
-        # `adopted_artifacts` fields to gate on, so it is never a signal to
-        # mint.
+        return
 
-    # Computed once, from the record already on hand, and threaded through
-    # every return below -- a mint can land mid-session on ANY of this
-    # function's paths (adopted, steady-state, or the mint attempt itself),
-    # and none of them may swallow it just because they were about to
-    # return early for their own reason. `record.get` on a possibly-`None`
-    # record would raise; the ternary keeps this call as cheap as the
-    # existing truthiness gate inside it when there is nothing to report.
     mint_advisory = (
         _handoff_mint_advisory(record.get("minted_artifacts"), baton_path, git_root)
         if isinstance(record, dict)
@@ -1859,39 +1276,22 @@ def _mint_session_baton(
     )
 
     if isinstance(record, dict):
-        # PM ruling, same review: check `adopted_artifacts` BEFORE
-        # `first_prompt`, not merely alongside it. A pickup session's
-        # operator already named this session's work via the handoff they
-        # adopted -- capturing the pickup slash-command invocation itself as
-        # `first_prompt` would overwrite that identity with junk. This
-        # ordering is the fix for Finding 0's gate WITHOUT reintroducing the
-        # regression the PM already rejected once; do not delete it as a
-        # redundant check merely because `first_prompt` is also `None` here.
         if record.get("adopted_artifacts"):
-            # settled: identity already named by the adopted handoff -- no
-            # mint, but the baton is real and this session now owns it.
-            # Announce once, gated on the sibling marker (see
             # `_BATON_ADOPTED_ANNOUNCED_SUFFIX` above), not on this branch
-            # being reached -- every later prompt of the same session hits
-            # this same branch and must stay silent.
             announced_marker = baton_path + _BATON_ADOPTED_ANNOUNCED_SUFFIX
             if os.path.isfile(announced_marker):
                 return mint_advisory
             try:
                 if not _symlink_safe_marker(announced_marker):
-                    return mint_advisory  # symlink at the marker name --
-                    # do not announce off an unverified write
+                    return mint_advisory
             except Exception:
                 return mint_advisory
             return _combine_baton_advisories(
                 _baton_advisory_text(baton_path, git_root), mint_advisory
             )
         if record.get("first_prompt") is not None:
-            return mint_advisory  # STEADY STATE (AC7, AC10): already
-            # captured -- no op call
+            return mint_advisory
 
-    # Absent, or present-but-never-captured -- this is, at most once per
-    # session, the mint cost.
     try:
         root = _resolve_claude_klabauter_root()
         if not root:
@@ -1899,15 +1299,9 @@ def _mint_session_baton(
         from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
         _place_engine_root_on_path(root)
 
-        _arm_lazy_ops()  # sys attribute, in-process only -- see comment block above
+        _arm_lazy_ops()
         from coordinator_core.ops.session_baton_mint import _handler
 
-        # The insert above states an intent; this checks whether it took. It is
-        # defeated whenever something earlier in THIS process did a bare
-        # `import coordinator_core` -- on a box carrying an editable install of
-        # the engine, that binds the module cache to the engine's WORKING TREE
-        # and every later insert is a no-op. Once per session, stderr only,
-        # never raises: see `_engine_root.warn_on_engine_import_divergence`.
         _warn_engine_divergence("session-baton-mint")
 
         params: dict = {"session_id": session_id, "cwd": git_root}
@@ -1920,14 +1314,6 @@ def _mint_session_baton(
                 params["prompt"] = prompt
         result = _handler(params)
 
-        # Divergence detector, not a new advisory channel: this is the one
-        # place the leg still has both paths in hand (the hook's own
-        # `baton_path` above, and the op's authoritative one) before the
-        # steady-state field-read gate above takes over on every later
-        # prompt and hides a failed mint forever. Costs one string compare,
-        # once per session; zero in steady state. stderr only -- mirrors
-        # `_symlink_safe_marker`'s own anomaly surfacing elsewhere in this
-        # file, and never touches the additionalContext envelope.
         if isinstance(result, dict):
             engine_baton_path = result.get("baton_path")
             if isinstance(engine_baton_path, str) and os.path.normcase(
@@ -1945,53 +1331,21 @@ def _mint_session_baton(
                     f"error={result.get('error')!r}",
                     file=sys.stderr,
                 )
-                return mint_advisory  # e.g. no session directory for this
-                # session_id -- nothing was minted, so nothing to announce
-                # (Finding, mint leg review 2026-08-20: an advisory naming a
-                # file that was never written is a lie about disk state).
-                # `mint_advisory` was already computed from the disk record
-                # read above and is independent of this op call's outcome.
+                return mint_advisory
             if not os.path.isfile(baton_path):
-                return mint_advisory  # the op reported success and the file
-                # is not there: `exit_code` is absent from the reply shape,
-                # or `baton_path` came back `None` on an otherwise-ok reply,
-                # or the write lost a race. The advisory names a path the
-                # reader will open, so it is gated on the path existing
-                # rather than on the reply being well-formed -- one stat, on
-                # the mint call only, never in steady state. The adoption
-                # branch above needs no equivalent: it already read this
-                # file to get its record.
+                return mint_advisory
             return _combine_baton_advisories(
                 _baton_advisory_text(baton_path, git_root), mint_advisory
-            )  # confirmed mint -- the only other session-baton emit site,
-            # see the adoption branch above
-        return mint_advisory  # `result` wasn't a dict -- no exit_code to
-        # confirm success against; stay silent on the session baton rather
-        # than assert a mint we cannot verify. The handoff-mint advisory is
-        # unaffected -- it comes from the disk record, not this op result.
+            )
+        return mint_advisory
     except Exception:
-        return mint_advisory  # fail-open: import error, op error, malformed
-        # engine, anything -- the prompt must still submit. The handoff-mint
-        # advisory was already computed from disk before this try block and
-        # survives an op-side failure.
+        return mint_advisory
 
 
-# The two events this script is registered on (hooks.json: UserPromptSubmit,
-# PostToolUse:Agent -- the Stop registration went with the 2026-07-31
-# subagent-overrun stand-down). Claude Code validates that the emitted
-# hookSpecificOutput.hookEventName matches the event that fired the hook and
-# hard-errors the hook otherwise ("Hook returned incorrect event name:
-# expected 'Stop' but got 'PostToolUse'") -- so the envelope must echo the
-# incoming event, never a hardcoded one. "Stop" stays in the accepted set
-# below as defense in depth for a payload replayed from before the
-# stand-down; unknown/absent values fall back to PostToolUse (the
-# pre-2026-07-20 hardcoded value), which is also what the bin/tests/
-# harnesses feed (they omit hook_event_name from stdin).
 _VALID_HOOK_EVENTS = ("Stop", "UserPromptSubmit", "PostToolUse")
 
 
 def _hook_event_name(payload) -> str:
-    """Echo-safe event name for the hookSpecificOutput envelope."""
     name = payload.get("hook_event_name") if isinstance(payload, dict) else None
     if isinstance(name, str) and name in _VALID_HOOK_EVENTS:
         return name
@@ -1999,18 +1353,8 @@ def _hook_event_name(payload) -> str:
 
 
 # --- SYMLINK-SAFE MARKER CREATE/TOUCH ---
-#
-# Bug: state/bug-backlog/2026-08-07-o-creat-o-excl-follows-a-dangling-symlin-13c1e12b3ccc.yaml.
-# POSIX `open(O_CREAT | O_EXCL)` already refuses a symlinked leaf outright --
-# EEXIST fires whether the link is dangling or resolves, per POSIX open(2).
 # Windows does NOT: `os.open(path, O_CREAT | O_EXCL)` on a DANGLING symlink
-# follows it and creates the FILE THE LINK POINTS AT, succeeding with no
-# exception -- so every predictable-tempdir marker in this module was
-# reachable for attacker-chosen-path file creation by a local actor who
-# pre-plants a dangling symlink at the marker's known name before the
 # session starts. `O_NOFOLLOW` does not exist on Windows, so the fix cannot
-# be a flag; it is a post-open identity check that costs nothing on POSIX
-# (it can only ever agree there).
 def _symlink_safe_marker(path: str) -> bool:
     """Create-or-refresh an empty marker file at `path` without ever
     resolving a symlink planted at that name. Returns True if `path` now
@@ -2055,15 +1399,10 @@ def _symlink_safe_marker(path: str) -> bool:
     worst causes an mtime bump on a file that already existed -- never a
     creation, never content.
     """
-    # Review: code-reviewer (Finding 3, nit) -- a detected hijack degrades
-    # the marker's feature to permanently-not-firing for the session with
-    # nothing surfaced; a stderr line at each detection point makes that
-    # visible without disturbing the fail-open/fail-safe return contract
-    # any call site relies on.
     try:
         if os.path.islink(path):
             print(f"symlink-safe-marker: hijack detected at {path!r} (pre-open)", file=sys.stderr)
-            return False  # never open through a pre-planted symlinked leaf
+            return False
     except OSError:
         return False
     try:
@@ -2172,12 +1511,9 @@ def main() -> int:
         session_id = ""
 
     # Security: reject SESSION_IDs with path-traversal characters before any
-    # path construction. Non-empty ids that deviate are neutralized to empty
-    # and fall through to the absent-id exit-0 below -- same no-op path.
     if session_id and not _ID_CHARSET_RE.match(session_id):
         session_id = ""
 
-    # Fail-open: no session id means we cannot do anything useful.
     if not session_id:
         return 0
 
@@ -2189,12 +1525,6 @@ def main() -> int:
     if not git_root:
         return 0
 
-    # Rooted at the git COMMON dir, never `<git_root>/.git` (see
-    # `_resolve_git_common_dir`'s docstring) -- in a worktree that path is a
-    # FILE, so the pre-fix `git_root + ".git"` join silently never persisted.
-    # Fail-open: an unresolvable common dir degrades `sessions_dir`/
-    # `agents_dir` to "" below, and every consumer guards on that emptiness
-    # rather than building a path from it.
     common_dir = _resolve_git_common_dir(git_root)
     sessions_dir = os.path.join(common_dir, "coordinator-sessions") if common_dir else ""
     agents_dir = os.path.join(sessions_dir, ".agents") if sessions_dir else ""
@@ -2203,7 +1533,6 @@ def main() -> int:
     if agents_dir and os.path.isfile(os.path.join(agents_dir, session_id, "em-session-id.txt")):
         return 0
 
-    # --- Resolver-based fallback for named teammates (additive, not replacement) ---
     if agent_id:
         canonical = _resolve_subagent_identity(agent_id, session_id)
         if (
@@ -2213,49 +1542,22 @@ def main() -> int:
         ):
             return 0
 
-    # Zero-tool-use-specific session dir, rooted at the git COMMON dir
     # (worktree-safe) -- a SEPARATE resolution from `sessions_dir` above,
-    # never a repoint of that shared variable (which the pre-existing
-    # dispatch-tracking loop, `_check_push_failures`, and the `.agents`
-    # lookups above all still use byte-identically). See
-    # `_resolve_zero_tool_use_sessions_dir`'s docstring.
-    #
-    # Review: code-reviewer -- Finding 4. Resolved here, below the two
-    # subagent-detect early returns above, not before them -- this
-    # git-common-dir walk is wasted work on every Stop fire from inside a
-    # subagent's own session, the common case those early returns exist to
-    # short-circuit.
     zero_tool_use_sessions_dir = _fail_open(
         _resolve_zero_tool_use_sessions_dir, git_root, default=""
     )
 
     # --- AUTO-PUSH-MID-SESSION-DETECT (see _check_push_failures docstring) ---
-    # Computed here, once EM-session-ness is confirmed, independently of the
-    # runtime-tripwire dispatch-tracking logic below (this repo may have zero
-    # dispatched agents this session and still have a mid-session push-failure
-    # flood to surface). Wrapped so a bug here can never take down the
-    # existing runtime-tripwire advisory -- fail-open per module contract.
     push_failure_msg, _push_failure_advance = _fail_open(
         _check_push_failures, git_root, session_id, default=(None, None)
     )
 
     # --- PLUGIN-HOOKS-JSON-RESTART-GATED (see _check_hooks_json_staleness
-    # docstring + the module-level comment block above that function).
-    # Independently wrapped, same as the push-failure block above -- a bug
-    # here must never take down any other advisory. Not gated to a single
-    # hook_event: this session's registrations can be stale relative to a
-    # matcher edit regardless of which of Stop/UserPromptSubmit/PostToolUse
-    # fired, and the read is cheap (one file hash, no subprocess). ---
     hooks_json_stale_msg = _fail_open(
         _check_hooks_json_staleness, git_root, session_id, common_dir
     )
 
     # --- ZERO-TOOL-USE-DETECT-SURFACE (see module docstring + the section
-    # immediately above _emit_advisory). Independently wrapped, same as the
-    # push-failure block above -- a bug here must never take down either
-    # pre-existing advisory. Gated to UserPromptSubmit inside the function
-    # itself (checked first, before any stat call), so this costs nothing
-    # extra on Stop/PostToolUse:Agent fires. ---
     zero_tool_use_msg, _zero_tool_use_advance = _fail_open(
         _check_zero_tool_use_surface,
         git_root,
@@ -2266,15 +1568,7 @@ def main() -> int:
     )
 
     # --- SESSION-BATON-MINT (see module comment block above
-    # _mint_session_baton). Independently wrapped, same as the checks above --
-    # a bug here must never take down any other advisory, and must never
-    # reject the prompt. Steady-state cost is exactly one os.path.isfile stat
-    # (AC7); only this session's first UserPromptSubmit pays the mint cost.
-    # Contributes at most one line to _emit_advisory, and only on the call
-    # where the baton newly demonstrably exists (confirmed mint, or observed
-    # adoption) -- see `_mint_session_baton`'s docstring. ---
     # --- REPLY-CAP-ESCAPE-FOLD-IN (C3, see block above _check_reply_cap_
-    # escape). Independently wrapped, same as the checks above -- a bug here
     baton_msg = _fail_open(
         _mint_session_baton,
         git_root,
@@ -2284,16 +1578,8 @@ def main() -> int:
         payload.get("prompt"),
     )
 
-    # --- Subagent-overrun tripwire: REMOVED (PM ruling 2026-07-31 stood it
-    # down; excised on the finding the gate had been False since -- see the
     # module docstring's SUBAGENT-ARRIVAL-CHECK note for the restore
-    # pointer). Only the surviving advisories emit now. ---
     def _on_success() -> None:
-        # Both deferred cursor-advances ride the SAME stdout write -- both
-        # texts (if present) are joined into one `_emit_advisory` call, so
-        # there is exactly one write event to gate on, not one per advisory.
-        # Each is independently best-effort: one raising must never suppress
-        # the other (mirrors this file's fail-open-per-leg posture).
         if _push_failure_advance is not None:
             try:
                 _push_failure_advance()
@@ -2316,6 +1602,4 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception:
-        # Absolute fail-open floor -- an advisory hook must never non-zero-exit
-        # or crash the harness on an unforeseen error.
         sys.exit(0)

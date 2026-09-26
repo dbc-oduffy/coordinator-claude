@@ -71,7 +71,7 @@ from __future__ import annotations
 import os
 import sys
 
-GENERATES = []  # writes only to the caller-supplied --out path (or stdout when omitted) — no fixed tracked artifact
+GENERATES = []
 
 _PROG = "coordinator-compute-layer-scaffold.py"
 
@@ -80,14 +80,6 @@ cc_invoke_bare = None  # type: ignore  # bound by _bootstrap_cc_invoke()
 
 
 def _bootstrap_cc_invoke() -> None:
-    """Import `StructuralPinError`/`cc_invoke_bare` and bind them at module
-    scope, called from `_cc_invoke()` (module body stays inert on both the
-    warm door and the un-bootstrapped settings-home forwarder load routes).
-
-    `cc_invoke_bare` alone is guarded on its own current value so a
-    caller's `mod.cc_invoke_bare = stub` monkeypatch set BEFORE the first
-    call is never clobbered by a same-process bootstrap that runs after it.
-    """
     global StructuralPinError, cc_invoke_bare
 
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
@@ -99,25 +91,14 @@ def _bootstrap_cc_invoke() -> None:
 
 
 class _TransportError(Exception):
-    """Raised on a genuine transport/engine failure — timeout, ImportError/
-    ModuleNotFoundError-shaped stderr, engine-root resolution failure, empty
-    stdout, or unparseable invoke output. Maps to exit 3.
-    """
+    pass
 
 
 class _OpError(Exception):
-    """Raised when coordinator_core.invoke started and exited nonzero with what
-    looks like an op-level (business/param) error rather than a transport
-    failure — the engine dispatched, the op rejected the params. Maps to exit 2;
-    message carries the op's actual stderr verbatim.
-    """
+    pass
 
 
 def _cc_invoke(op: str, params: dict, repo_root: str) -> dict:
-    """Dispatch via cc_invoke.py's shared cc_invoke_bare() transport, reclassifying
-    its single RuntimeError-shaped failure surface into this script's own
-    _TransportError (exit 3) vs _OpError (exit 2) exit-code contract.
-    """
     _bootstrap_cc_invoke()
 
     try:
@@ -176,11 +157,6 @@ def main(argv: list[str]) -> int:
             modules.append(argv[i + 1] if i + 1 < len(argv) else "")
             i += 2
         elif arg == "--repo":
-            # compute_layer.scaffold is
-            # scoped "none" (op_scopes.py); --repo is meaningless for it and used
-            # to be silently accepted and dropped. Refuse loud instead, matching
-            # DR-279's shape for the underlying op
-            # (docs/decisions/DR-279-repo-on-a-none-scoped-op-fails-loud.md).
             print(
                 f"{_PROG}: --repo is meaningless for compute_layer.scaffold "
                 "(scope=\"none\"): this op accesses no repo-specific state and "
@@ -219,9 +195,6 @@ def main(argv: list[str]) -> int:
         result_key = "report"
 
     try:
-        # compute_layer.scaffold is scoped "none" — cc_invoke_bare's
-        # _should_pass_repo() gate suppresses forwarding --repo for it, so this
-        # empty string is never read; see the --repo refusal above.
         result = _cc_invoke("compute_layer.scaffold", params, "")
     except _TransportError as exc:
         print(str(exc), file=sys.stderr)

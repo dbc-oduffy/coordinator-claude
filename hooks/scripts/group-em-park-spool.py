@@ -65,29 +65,14 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
-#: The drain owns this filename; it sits beside `state/group-em-watch.json`
-#: (`watch_heartbeat.watch_path`) and `state/group-em-watch-parked.json`
-#: (`watch.parked_state_path`), which is why `state/` is the anchor and why a
-#: repo without that directory has no watch line and is skipped rather than
-#: scaffolded.
 SPOOL_RELPATH = ("state", "group-em-watch-spool.jsonl")
 
-#: The ladder's bare tag for a parked session. Only this verdict spools.
 _PARKED_VERDICT = "PAUSED"
 
-#: Diagnostic only -- names the producing guard so a spool line can be traced
-#: back here. The drain never branches on it.
 _WRITER = "receiver-state-sensor"
 
 
 def _git_root() -> str:
-    """Overwritten by `stop-dispatch.py`'s shared-context injection.
-
-    The dispatcher rebinds this name to a closure over the root it already
-    resolved with its own zero-spawn parent walk, so the standalone body below
-    runs only when this file is invoked directly (tests, manual probe). It
-    never spawns `git`.
-    """
     here = Path(__file__).resolve()
     for parent in here.parents:
         if (parent / ".git").exists():
@@ -96,13 +81,6 @@ def _git_root() -> str:
 
 
 def _load_receiver_state_reader() -> Optional[Any]:
-    """Import `lib/receiver_state_reader.py` BY PATH, not by package.
-
-    `read_pass.py` reaches it as a package import, which needs the repo root
-    on `sys.path` -- true in a skill process, not guaranteed in a hook one.
-    Resolving from `__file__` works under both plugin-root layouts without
-    depending on cwd or on any package being importable.
-    """
     lib_path = Path(__file__).resolve().parents[2] / "lib" / "receiver_state_reader.py"
     spec = importlib.util.spec_from_file_location(
         "_group_em_park_spool_rsr", str(lib_path)
@@ -125,23 +103,12 @@ def spool_path(repo_root: str) -> str:
 
 
 def build_record(session_id: str, verdict: dict) -> Optional[dict]:
-    """The ladder's verdict in, one spool record out -- or None to not spool.
-
-    `state` is the ladder's own two fields joined and otherwise untouched.
-    `at` is the record's OWN `stamped_at`, never `now()`: the drain compares
-    it against `last_tick_at`, so it must be the instant the ladder decided,
-    and it already carries the naive-UTC `%Y-%m-%dT%H:%M:%SZ` shape both
-    planes parse.
-    """
     if verdict.get("verdict") != _PARKED_VERDICT:
         return None
     stamped_at = verdict.get("stamped_at")
     if not isinstance(stamped_at, str) or not stamped_at:
         return None
     reason = verdict.get("reason")
-    # Review: coordinator:code-reviewer (finding 3) -- narrow to str before
-    # the join, so a malformed carrier degrades to the bare PAUSED tag rather
-    # than embedding a non-string repr; this file still never classifies.
     reason = reason if isinstance(reason, str) and reason else None
     state = f"{_PARKED_VERDICT}:{reason}" if reason else _PARKED_VERDICT
     return {
@@ -153,22 +120,12 @@ def build_record(session_id: str, verdict: dict) -> Optional[dict]:
 
 
 def append_record(path: str, record: dict) -> None:
-    """One `open(..., "a")`, one `write()` of one line. Create-on-append.
-
-    Mode `"a"` creates the file when absent; there is deliberately no lock, no
-    read-modify-write, and no `os.replace`.
-    """
     line = json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n"
     with open(path, "a", encoding="utf-8") as fh:
         fh.write(line)
 
 
 def main() -> int:
-    # Review: coordinator:code-reviewer (finding 1) -- the whole body is
-    # wrapped, not just the tail half, so the docstring's "exit 0 on EVERY
-    # path" is actually total: `_git_root()` and the `isdir` check can raise
-    # too (e.g. a broken symlink loop, a permission error), and this file's
-    # contract has no room for "normally they don't".
     try:
         payload = _read_payload()
 
@@ -183,12 +140,6 @@ def main() -> int:
         if not os.path.isdir(os.path.join(root, SPOOL_RELPATH[0])):
             return 0
 
-        # Review: coordinator:code-reviewer (finding 4) -- the carrier file
-        # is deliberately NOT re-checked here after stop-dispatch.py's own
-        # precondition passed. That's a designed TOCTOU tolerance (there is
-        # no locking anywhere in this pipeline), not an omission: a vanished
-        # carrier between precondition and invocation just falls through
-        # `read_receiver_state` into the `except` below.
         rsr = _load_receiver_state_reader()
         if rsr is None:
             return 0
@@ -197,7 +148,7 @@ def main() -> int:
             return 0
         append_record(spool_path(root), record)
     except Exception:
-        return 0  # every failure degrades to silence; never block a Stop
+        return 0
 
     return 0
 

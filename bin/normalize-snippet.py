@@ -55,11 +55,6 @@ def main(argv: "list[str] | None" = None) -> int:
 
     text = sys.stdin.read()
     if not text:
-        # No piped stdin content: this is the bare/no-input invocation, not a
-        # legitimate empty-snippet normalize call. Fail loud on stderr rather
-        # than silently succeeding with empty output on exit 0 — a quiet
-        # success here previously read as "checked, clean" to an operator or
-        # agent that forgot to pipe anything in.
         sys.stderr.write(__doc__ or "")
         return 1
 

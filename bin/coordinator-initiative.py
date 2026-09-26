@@ -1,39 +1,4 @@
-# coordinator-initiative — mint, attach, and list unattached initiatives.
-#
-# Spec backlink: docs/plans/2026-07-04-initiative-govern-sweep-prioritize-doe-d.md § C2 (AC3)
-#
-# Purpose: authoring-side CLI for the initiative governing discipline.
-#   create          Mint state/initiatives/<id>.yaml. Fail-loud on existing id; atomic write.
-#   attach          Write initiative: <id> FK to an artifact's YAML frontmatter. Also
-#                   accepts `attach --pairs-file <path>`: N (artifact-path,
-#                   initiative-id) pairs in ONE process invocation instead of N —
-#                   the batch form callers like coordinator_core.ops.backfill_initiative_fk
-#                   use to collapse a per-pair subprocess spawn loop into one spawn.
-#                   Pairs-file is TSV (`artifact_path<TAB>initiative_id` per line,
-#                   blank/`#`-comment lines skipped); output is one JSON line per
-#                   pair on stdout for per-pair attribution, in pairs-file line order.
-#   list-unattached Narrow CLI (--format/--limit only) over the native
-#                   records_query.query_records(unattached=True) union lens
-#                   (in-process call, no node/query-records.js spawn).
-#
-# Central-seam resolution: state/initiatives/ is resolved via
-# coordinator_core.state_root.coordinator_state_root(central=True), imported
-# in-process (P055-C1: was a spawn of lib/coordinator-state-root.py, itself a
-# thin bridge over the same native call). NOT coordinator-session.sh.
-# Spec backlink: docs/plans/2026-07-04-initiative-govern-sweep-prioritize-doe-d.md § C2
-#
-# Port: de-bash campaign, extensionless entrypoint keeps its exact
-# name (callers depend on it) and becomes a python3-shebang script. No bash
-# version guard is needed any more (CPython, not bash 3.2/4 discrimination).
-#
 # Test override: COORDINATOR_INITIATIVE_ROOT bypasses coordinator_state_root
-# resolution (for unit tests that do not have a configured claude-klabauter/central
-# state root).
-#
-# Negative-spec: does NOT auto-create initiatives from detector output (surface-and-confirm only).
-# Negative-spec: does NOT build the interactive attach UI.
-# Negative-spec: does NOT use coordinator-session.sh for state root resolution.
-# Negative-spec: does NOT write any file outside state/initiatives/<id>.yaml or the named artifact.
 
 from __future__ import annotations
 
@@ -42,44 +7,34 @@ import os
 import re
 import sys
 
+import yaml
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# records_query.py lives under bin/lib/ (coordinator/bin/lib/). Mirrors the
-# import preamble in coordinator/bin/detect-initiative-candidates, the other
-# native consumer of this trampoline.
 _BIN_LIB_DIR = os.path.join(SCRIPT_DIR, "lib")
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
 def _bootstrap_imports() -> None:
-    """Engine-root bootstrap: `_resolve_initiatives_dir` below (reached from
-    `create`/`attach`) imports `coordinator_core.win_portability`. Without
-    this, the import dies with ModuleNotFoundError on the mirror
-    (coordinator_core not pip-installed). Called from main() so module import
-    never touches sys.path (C6d import-motion).
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     import cc_invoke
 
     cc_invoke.ensure_engine_on_path(__file__)
 
 
-# ── Central-seam resolution ────────────────────────────────────────────────────
-# Resolves state/initiatives/ via coordinator_state_root --central.
 # Respects COORDINATOR_INITIATIVE_ROOT env override for test isolation.
-# Negative-spec: does NOT fall back silently if the seam fails — returns None (fail-loud).
+#
+# central=False (not True) is deliberate: coordinator_state_root(central=True)
+# is Rule 4, a hardcoded backward-compat default that always resolves to
+# claude-klabauter's own engine install location (_claude_klabauter_state()) regardless
+# of which repo invoked this CLI. A consumer repo (e.g. Example-market-data-repo)
+# running `coordinator-initiative create` would silently mint its initiative
+# under claude-klabauter's state tree instead of its own. central=False (Rule 5) resolves
+# from the invoking repo's own git root instead -- falling through to the
+# shared engine root only when that root IS the meta-repo, which is the
+# correct "central" case.
 def _resolve_initiatives_dir() -> str | None:
-    """P055-C1 conversion: was a
-    `[<python>, lib/coordinator-state-root.py, "--central"]` spawn. That
-    script is itself a thin bridge over `coordinator_core.state_root`
-    (its own docstring: "delegates entirely to coordinator_core.state_root")
-    -- `_bootstrap_imports()` (called from `main()` before any dispatch
-    reaches here) already puts coordinator_core on this process's sys.path,
-    so call the native module directly rather than hopping through the
-    bridge script a second time.
-    """
-    # Test-isolation override: bypasses central-seam resolution entirely.
     override = os.environ.get("COORDINATOR_INITIATIVE_ROOT", "")
     if override:
         return override
@@ -98,10 +53,10 @@ def _resolve_initiatives_dir() -> str | None:
         return None
 
     try:
-        state_root = coordinator_state_root(central=True)
+        state_root = coordinator_state_root(central=False)
     except (CrossCuttingStateRoot, StateRootError):
         print(
-            "coordinator-initiative: failed to resolve central state root via "
+            "coordinator-initiative: failed to resolve the invoking repo's state root via "
             "coordinator_core.state_root.",
             file=sys.stderr,
         )
@@ -114,7 +69,7 @@ def _resolve_initiatives_dir() -> str | None:
     state_root = state_root.strip()
     if not state_root:
         print(
-            "coordinator-initiative: coordinator_state_root --central returned empty path.",
+            "coordinator-initiative: coordinator_state_root returned empty path.",
             file=sys.stderr,
         )
         return None
@@ -122,21 +77,14 @@ def _resolve_initiatives_dir() -> str | None:
     return f"{state_root}/initiatives"
 
 
-# ── YAML quoting ───────────────────────────────────────────────────────────────
-# Wrap a value in YAML double-quoted string, escaping embedded \ and ".
-# Used for id, label, owner, target_date to produce spec-compliant YAML.
 def _yaml_dquote(val: str) -> str:
-    val = val.replace("\\", "\\\\")  # escape backslashes
-    val = val.replace('"', '\\"')  # escape double-quotes
-    # Escape control characters so a newline or carriage
-    # return in --label/--id (e.g. from a value containing a literal newline) produces valid
-    # YAML \n/\r, not a literal newline inside the double-quoted string (which is invalid YAML).
-    val = val.replace("\n", "\\n")  # escape newlines
-    val = val.replace("\r", "\\r")  # escape carriage returns
+    val = val.replace("\\", "\\\\")
+    val = val.replace('"', '\\"')
+    val = val.replace("\n", "\\n")
+    val = val.replace("\r", "\\r")
     return f'"{val}"'
 
 
-# ── Usage ──────────────────────────────────────────────────────────────────────
 def _usage() -> None:
     print("Usage:", file=sys.stderr)
     print(
@@ -169,10 +117,6 @@ def _usage() -> None:
     )
 
 
-# ── create ─────────────────────────────────────────────────────────────────────
-# Mint state/initiatives/<id>.yaml.
-# Fail-loud (non-zero exit + remediation message) when the id already exists and --force is absent.
-# Write is atomic via temp-file + rename to prevent partial writes on crash.
 def _cmd_create(args: list[str]) -> int:
     id_ = ""
     label = ""
@@ -219,8 +163,6 @@ def _cmd_create(args: list[str]) -> int:
         print("coordinator-initiative create: --id is required.", file=sys.stderr)
         return 1
 
-    # parse-time slug validation to prevent path-traversal writes.
-    # Accept only ^[a-z0-9][a-z0-9-]*$ — reject any id containing /, \, .., or a leading dot.
     if not _ID_RE.match(id_):
         print(f"coordinator-initiative create: invalid --id '{id_}'", file=sys.stderr)
         print(
@@ -257,7 +199,6 @@ def _cmd_create(args: list[str]) -> int:
         print("  To overwrite the initiative definition: re-run create with --force", file=sys.stderr)
         return 1
 
-    # Atomic write: temp-file + rename prevents partial content on crash.
     tmp = f"{target}.tmp.{os.getpid()}"
     lines = [
         f"id: {_yaml_dquote(id_)}\n",
@@ -280,24 +221,64 @@ def _cmd_create(args: list[str]) -> int:
     return 0
 
 
-# ── attach ─────────────────────────────────────────────────────────────────────
-# Write initiative: <id> to the artifact's YAML frontmatter (plain FK write).
-# If the artifact already has an initiative: key it is replaced; otherwise inserted
-# before the closing --- of the frontmatter block.
-# Verifies the initiative YAML exists before writing (fail-loud if not).
-# Write is atomic via temp-file + rename.
-#
-# `_attach_one` holds the rewrite core (initiative-yaml existence check + frontmatter
-# rewrite), shared by the single-pair CLI path (`_cmd_attach`) and the
-# `--pairs-file` batch path (`_cmd_attach_batch`) below — both call it once
-# `initiatives_dir` is resolved and `artifact_path` is known to exist, so N pairs in
-# one invocation run the identical rewrite logic as N separate invocations.
+# A plain-YAML record (no `---` frontmatter fence) is a whole file that IS a
+# single YAML mapping document, e.g. state/initiatives/*.yaml itself. Parsed
+# to confirm it is a mapping, then FK-injected by a top-level line rewrite
+# (matching the frontmatter branch's approach) rather than a full
+# load-then-dump round-trip, which would reformat quoting/ordering the record
+# author chose.
+def _attach_one_plain_yaml(
+    artifact_path: str,
+    initiative_id: str,
+    content: str,
+    original_lines: list[str],
+) -> tuple[bool, list[str], list[str]]:
+    try:
+        parsed = yaml.safe_load(content)
+    except yaml.YAMLError as exc:
+        return False, [], [
+            f"coordinator-initiative attach: artifact is not valid YAML: {artifact_path}",
+            f"  {exc}",
+        ]
+
+    if not isinstance(parsed, dict):
+        return False, [], [
+            f"coordinator-initiative attach: artifact has no YAML frontmatter block and is not "
+            f"a plain-YAML mapping document: {artifact_path}",
+            "  The file must either begin with a --- frontmatter opening line, or be a whole "
+            "  YAML document whose top level is a mapping.",
+        ]
+
+    found = False
+    out_lines: list[str] = []
+    for line in original_lines:
+        stripped = line.rstrip("\r\n")
+        if re.match(r"^initiative:", stripped):
+            out_lines.append(f"initiative: {initiative_id}\n")
+            found = True
+            continue
+        out_lines.append(line)
+
+    if not found:
+        if out_lines and not out_lines[-1].endswith("\n"):
+            out_lines[-1] = out_lines[-1] + "\n"
+        out_lines.append(f"initiative: {initiative_id}\n")
+
+    new_content = "".join(out_lines)
+
+    if not re.search(rf"^initiative: {re.escape(initiative_id)}", new_content, re.MULTILINE):
+        return False, [], [
+            f"coordinator-initiative attach: failed to inject initiative FK into {artifact_path}",
+        ]
+
+    tmp = f"{artifact_path}.tmp.{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+        f.write(new_content)
+    os.replace(tmp, artifact_path)
+    return True, [f"attached: {artifact_path} -> initiative: {initiative_id}"], []
+
+
 def _attach_one(artifact_path: str, initiative_id: str, initiatives_dir: str) -> tuple[bool, list[str], list[str]]:
-    """Attach a single pair given an already-resolved `initiatives_dir` and a
-    caller-verified-to-exist `artifact_path`. Returns `(ok, stdout_lines,
-    stderr_lines)` — the exact message lines the single-pair CLI path prints
-    verbatim on success/failure, and the batch path folds into its own per-pair
-    JSON attribution."""
     initiative_yaml = os.path.join(initiatives_dir, f"{initiative_id}.yaml")
     if not os.path.isfile(initiative_yaml):
         return False, [], [
@@ -311,21 +292,10 @@ def _attach_one(artifact_path: str, initiative_id: str, initiatives_dir: str) ->
         content = f.read()
     original_lines = content.splitlines(keepends=True)
 
-    # fail-loud if artifact has no YAML frontmatter block.
-    # The awk strategy silently no-ops (copies file unchanged, exits 0) when no opening --- exists,
-    # producing a false-success signal. Guard at the boundary before the rewrite runs.
     first_line = original_lines[0].rstrip("\r\n") if original_lines else ""
     if first_line != "---":
-        return False, [], [
-            f"coordinator-initiative attach: artifact has no YAML frontmatter block: {artifact_path}",
-            "  The file must begin with a --- frontmatter opening line.",
-            "  Ensure the artifact has a valid YAML frontmatter block before attaching.",
-        ]
+        return _attach_one_plain_yaml(artifact_path, initiative_id, content, original_lines)
 
-    # Rewrite the frontmatter — scan inside the frontmatter block (between opening
-    # and closing ---).
-    #   - Update an existing initiative: line to the new id.
-    #   - If no initiative: line exists, inject one before the closing ---.
     in_front = False
     found = False
     out_lines: list[str] = []
@@ -349,8 +319,6 @@ def _attach_one(artifact_path: str, initiative_id: str, initiatives_dir: str) ->
 
     new_content = "".join(out_lines)
 
-    # Detect unterminated-frontmatter / not-found case to
-    # prevent false success. Verify the FK line was actually written to the new content.
     if not re.search(rf"^initiative: {re.escape(initiative_id)}", new_content, re.MULTILINE):
         return False, [], [
             f"coordinator-initiative attach: failed to inject initiative FK into {artifact_path}",
@@ -388,7 +356,6 @@ def _cmd_attach(args: list[str]) -> int:
         print(f"coordinator-initiative attach: artifact not found: {artifact_path}", file=sys.stderr)
         return 1
 
-    # Verify the target initiative exists (fail-loud).
     initiatives_dir = _resolve_initiatives_dir()
     if initiatives_dir is None:
         return 1
@@ -401,32 +368,7 @@ def _cmd_attach(args: list[str]) -> int:
     return 0 if ok else 1
 
 
-# ── attach --pairs-file ──────────────────────────────────────────────────────────
-# Batch form of attach: N (artifact-path, initiative-id) pairs processed in ONE
-# process invocation instead of N. Exists to let a caller looping over a mapping
-# (coordinator_core.ops.backfill_initiative_fk) collapse a per-pair subprocess
-# spawn into a single spawn — the amplification-gate fix this flag was added for.
-#
-# Pairs-file format mirrors backfill_initiative_fk's own TSV mapping file:
-# `artifact_path<TAB>initiative_id` per line; blank lines and `#`-prefixed comment
-# lines are skipped (never counted, never emitted as a result line) — the caller is
-# expected to have already applied its own comment/blank/malformed-row filtering,
-# same as it would for the single-pair path.
-#
-# initiatives_dir is resolved ONCE for the whole batch (collapsing the single-pair
-# path's per-call coordinator_state_root subprocess spawn too), then each pair is
-# attached via the shared `_attach_one` core, in pairs-file line order.
-#
-# Emits exactly one JSON line per non-blank/non-comment pairs-file line, in that
-# same order, to stdout — {"artifact_path", "initiative_id", "ok": true, "message"}
-# on success, {"artifact_path", "initiative_id", "ok": false, "error"} on failure.
-# A caller needing per-pair attribution matches its own pair list against these
 # JSON lines POSITIONALLY (one result per input line, same order) rather than by
-# re-parsing message text.
-#
-# Exit code: 0 only if every pair succeeded (matches the single-pair path's
-# fail-loud contract); 1 if any pair failed. The exit code alone does not say WHICH
-# pair failed — that is what the JSON lines are for.
 def _cmd_attach_batch(pairs_file: str) -> int:
     if not os.path.isfile(pairs_file):
         print(
@@ -485,37 +427,7 @@ def _cmd_attach_batch(pairs_file: str) -> int:
     return 1 if any_failed else 0
 
 
-# ── list-unattached ────────────────────────────────────────────────────────────
-# In-process call into the native `unattached` union lens (coordinator/bin/lib/
-# records_query.py -> coordinator_core records.query op, claude-klabauter commit 5709969b).
-# De-bash/de-node campaign: this was the last live `node` spawn on the initiative
-# surface (execvp into the now-retired query-records.js CLI); repointed to call
-# records_query.query_records() directly instead of shelling out.
-#
-# Flag surface is intentionally NARROW, not a passthrough: the retired wrapper
-# forwarded arbitrary query-records.js flags via `*args` to `exec`, but an
-# in-process function call cannot honor an open-ended flag list. Caller-set
-# verification (grepped every commands/skills/docs/test caller of
-# `list-unattached` in this repo, 2026-07-22) found NO production caller passes
-# ANY flag to this subcommand — only --format and --limit are supported here,
-# matching the retired CLI's own two most load-bearing options and the two
-# params query_records() exposes without ambiguity. Any other flag (--root,
-# --type, --where, --sort, --since, --older-than, or an unrecognized flag)
-# FAILS LOUD rather than being silently dropped or silently mis-mapped — a
-# silently-dropped --format would hand a caller `markdown-list` while it
-# parses the output as JSON; a silently-dropped filter is worse. See
 # records_query.py's own "SILENT-DROP TRAP" docstring section for the exact
-# failure mode this guards against.
-#
-# Defaults (--format markdown-list, --limit 50) are chosen to byte-match the
-# retired `node query-records.js --unattached` CLI's own defaults (EM-verified
-# 2026-07-22: stdout identical across default/--limit N/--format json/--format
-# paths --limit 0 invocations, back-to-back against the same corpus).
-#
-# Negative-spec: does NOT filter, transform, or re-implement the lens logic —
-# the engine (claude-klabauter's records.query op, reached via records_query.py) still
-# owns the union/lens computation; this function only shapes the CLI surface
-# around a single in-process call.
 _LIST_UNATTACHED_FORMATS = ("paths", "json", "markdown-list")
 
 
@@ -624,7 +536,6 @@ def _cmd_list_unattached(args: list[str]) -> int:
     return 0
 
 
-# ── Main dispatch ──────────────────────────────────────────────────────────────
 def main(argv: list[str]) -> int:
     _bootstrap_imports()
     if not argv:

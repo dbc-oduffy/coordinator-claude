@@ -58,11 +58,7 @@ import sys
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-#: Every bin-shape name (besides `main`, handled separately below) a caller
-#: may reach for on this module before `_bootstrap_engine()` has run —
-#: `__getattr__` triggers a lazy bootstrap for any of these, matching
 #: `coordinator/bin/close-origin-stub-on-ship.py`'s `_BOOTSTRAPPED_NAMES`
-#: idiom (that file's own PEP 562 hook).
 _BOOTSTRAPPED_NAMES = (
     "InterpreterMissing",
     "MalformedValue",
@@ -149,15 +145,6 @@ def __getattr__(name: str):
 
 
 def main(argv: list) -> int:
-    """CLI entrypoint — bootstraps the engine lazily, then delegates
-    verbatim to `coordinator_core.resolve_validation_cmd.main(argv)` (the
-    consolidated implementation of the --fast/--full/--read-key CLI
-    contract; see that function's own docstring for the exit-code
-    contract). A REAL module-level function (not a runtime-bound name) so
-    the warm-serve classifier's structural `def main` check
-    (`coordinator_core/warm/serve_classifier.py :: _is_main_def`) finds it
-    by AST inspection alone, with no import required.
-    """
     _bootstrap_engine()
     return _core_main(argv)
 

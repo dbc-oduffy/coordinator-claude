@@ -61,10 +61,6 @@ _PROBE_PATH = Path(__file__).parent / "_hook_cost_probe.py"
 
 _PROBE_TIMEOUT_S = 30
 
-# Cited verbatim in the indistinguishable-arms refusal (AC3) -- claude-klabauter's own precedent
-# for why "the two arms look the same" is a failed control, not a clean result: a confirmed warm
-# hit measured no faster than cold (221ms vs 224ms CLI ping) until the module-count delta, not
-# wall-clock, exposed that the two arms were not yet structurally distinguishable.
 D450109AB_PRECEDENT = (
     "claude-klabauter d450109ab: a confirmed warm hit measured no faster than cold "
     "(221ms vs 224ms, CLI ping) because the structural cost dominated and the two arms were "
@@ -74,12 +70,11 @@ D450109AB_PRECEDENT = (
 
 
 class MeasurementRefused(RuntimeError):
-    """Raised when this harness's own guard-rails refuse to emit a wall-clock figure (AC3)."""
+    pass
 
 
 @dataclass(frozen=True)
 class StructuralCost:
-    """One arm's structural counters, aggregated across `n` fresh-interpreter trials."""
 
     label: str
     module_count: int
@@ -101,12 +96,6 @@ class StructuralCost:
 
 @dataclass(frozen=True)
 class RoundTripDistribution:
-    """The transport round-trip term -- the thing the structural instrument cannot see.
-
-    Reported as a full sample distribution, never a mean (see module docstring). `platform` and
-    `timer_resolution_ms` are required fields (AC3): the harness refuses to emit a round-trip
-    figure that does not record the platform it was measured on.
-    """
 
     samples_ms: tuple
     platform: str
@@ -127,8 +116,6 @@ class RoundTripDistribution:
 
 @dataclass(frozen=True)
 class ClassCostReport:
-    """One class's full C2 report: both structural arms, plus the round-trip term as its own
-    named line -- never folded into either arm."""
 
     class_name: str
     arm_a: StructuralCost
@@ -170,9 +157,6 @@ def _run_probe_once(entrypoint: str, python: Optional[str] = None) -> dict:
 
 
 def _aggregate_structural(label: str, samples: Sequence[dict]) -> StructuralCost:
-    """Structural counters are deterministic for a fixed dependency graph -- assert every trial
-    agrees rather than averaging, so a flaky probe surfaces as a refusal rather than a silently
-    smoothed number."""
     first = samples[0]
     for other in samples[1:]:
         if other != first:
@@ -201,10 +185,6 @@ def measure_structural_arms(
     n: int = 1,
     python: Optional[str] = None,
 ) -> tuple:
-    """Measure both arms, interleaved trial-by-trial within one load window (A, B, A, B, ...)
-    rather than batched (A x n then B x n) -- the shape claude-klabauter's own prior harness did
-    NOT use, and whose absence (COLD at n=8 against WARM at n=200 in one table) this harness's
-    N-equality guard-rail exists to catch."""
     a_samples = []
     b_samples = []
     for _ in range(n):
@@ -220,8 +200,6 @@ def _timer_resolution_ms() -> float:
 
 
 def measure_round_trip(call_fn: Callable[[], None], n: int = 200) -> RoundTripDistribution:
-    """Measure the transport round trip -- the term the structural instrument cannot see -- as
-    `n` samples, reported as a distribution (see module docstring; never averaged here)."""
     samples = []
     for _ in range(n):
         t0 = time.perf_counter()
@@ -242,9 +220,6 @@ def guard_wall_clock_report(
     concurrent_session_count: Optional[int],
     round_trip: Optional[RoundTripDistribution] = None,
 ) -> None:
-    """Enforce AC3: refuse to emit a wall-clock figure under any of the four named conditions.
-    Raises `MeasurementRefused`; callers that want a report must catch this and print the
-    refusal, never suppress it and fall back to reporting anyway."""
     if arm_a.n != arm_b.n:
         raise MeasurementRefused(
             "refusing to emit a wall-clock figure: arm N differs "
@@ -296,8 +271,6 @@ def measure_class(
     round_trip_call: Optional[Callable[[], None]] = None,
     round_trip_n: int = 200,
 ) -> ClassCostReport:
-    """Run one class's full C2 measurement: both structural arms (interleaved), plus the
-    round-trip term as its own named line when `round_trip_call` is supplied."""
     arm_a, arm_b = measure_structural_arms(
         class_name, arm_a_label, arm_a_entrypoint, arm_b_label, arm_b_entrypoint, n=n, python=python
     )
@@ -315,9 +288,6 @@ def measure_class(
 
 
 def render_report(report: ClassCostReport) -> dict:
-    """Render `report` to a plain dict, running the AC3 guard-rail first. On refusal, the
-    returned dict carries `refused: true` and the refusal message -- never a wall-clock figure
-    alongside it."""
     try:
         guard_wall_clock_report(
             report.arm_a,

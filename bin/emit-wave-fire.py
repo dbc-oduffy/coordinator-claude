@@ -69,7 +69,6 @@ import shlex
 import shutil
 import subprocess
 import sys
-from datetime import datetime
 from pathlib import Path
 
 # § Fire the wave: "Batons come from waves[0], at most 8 per fire."
@@ -639,47 +638,31 @@ def _trail_provenance(trail_dir: Path, fresh_ref: dict) -> list[str]:
 
 
 def _write_fire_receipt(script_path: Path) -> None:
-    """Write `<script_path>.emitted.json` beside a just-written fire, in the
-    SAME shape `coordinator_core.ops.dispatch_emit.op._write_emission_receipt`
-    writes (module docstring "The receipt is a property of emitting, not of
-    one repo's wrapper") — same keys, same raw-bytes sha256, same
-    `isoformat(timespec="seconds")`, same `json.dumps(..., indent=2,
-    sort_keys=True) + "\\n"`. `hooks.block_workflow_foreign_emission` reads
-    receipts by shape alone, never by which emitter wrote them, so a
-    matching receipt here is what makes a fire's `Workflow({scriptPath})`
-    sanctioned exactly like a `dispatch.emit`/`emit-dispatch-workflow.py`
-    emission.
+    """Write `<script_path>.emitted.json` beside a just-written fire, via the
+    engine's own `dispatch_emit.op._write_emission_receipt` — the ONE writer,
+    so this CLI's receipt and `dispatch.emit`'s can never drift in shape
+    (module docstring "The receipt is a property of emitting, not of one
+    repo's wrapper"). `hooks.block_workflow_foreign_emission` reads receipts
+    by shape alone, never by which emitter wrote them.
 
-    Reimplemented, not imported: this script runs as a bare CLI (no bound
-    per-request session identity), so `session_id` is read straight off
-    `coordinator_core.session.core.resolve_session_id`'s own env-var tiers
-    (`COORDINATOR_SESSION_ID`, `CLAUDE_SESSION_ID`, `CLAUDE_CODE_SESSION_ID`)
-    — the same ladder the op uses, minus the ContextVar tier that only a
-    bound warm-request carries.
+    This script already bootstraps the engine and imports from
+    `coordinator_core` elsewhere in this module (`_bind`, `_slot_order_fn`),
+    so calling the op's writer in-process costs nothing extra; `params={}`
+    makes it fall back to `resolve_session_id`'s own env-var ladder, same as
+    a bare-CLI caller with no bound per-request session identity gets.
 
     Best-effort, mirroring the op's own contract: a receipt that fails to
     write narrates on stderr and never fails the emit — the script is the
     deliverable, the receipt is evidence about it.
     """
-    receipt_path = script_path.with_name(script_path.name + ".emitted.json")
     try:
         import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
         from cc_invoke import require_colocated_engine_on_path
 
         require_colocated_engine_on_path(__file__)
-        from coordinator_core.session.core import resolve_session_id
+        from coordinator_core.ops.dispatch_emit.op import _write_emission_receipt
 
-        receipt = {
-            "sha256": hashlib.sha256(script_path.read_bytes()).hexdigest(),
-            "session_id": resolve_session_id() or "",
-            "emitted_at": datetime.now().isoformat(timespec="seconds"),
-            "plan": None,
-        }
-        receipt_path.write_text(
-            json.dumps(receipt, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-            newline="\n",
-        )
+        _write_emission_receipt(script_path, None, {})
     except Exception as exc:  # noqa: BLE001 -- best-effort; must never fail the emit
         print(f"  WARNING: could not write emission receipt for {script_path.name}: {exc}", file=sys.stderr)
 
@@ -762,13 +745,13 @@ def _settings_home_bin(name: str) -> str | None:
 def _engine_env_prefix(engine_root: Path) -> str:
     """`COORDINATOR_ENGINE_ROOT=<engine> `, or empty. Part of the injected literal.
 
-    `append-integrator-dispositions` resolves CLAUDE_KLABAUTER_ROOT before it does anything, and on a
+    `review-findings-ledger` resolves CLAUDE_KLABAUTER_ROOT before it does anything, and on a
     box with no machine-local registry that resolution fails outright — the CLI exits 3
     with a bootstrap message naming this variable as one of its remedies. The integrator
     then reports the op refused and correctly declines to hand-author around it, so the
     wave runs every review and records not one disposition. Silent by construction: the
     refusal loses only the RECORD. Measured 2026-09-10 on example-cockpit-repo, wave 4 — three
-    sidecars, no `## Integrator Dispositions` block on any of them.
+    sidecars, no verified `findings_ledger` stamp on any of them.
 
     The dispatching side already resolved an engine root to bind the fire with; the agent
     running the CLI cannot. Same rung-3 reasoning as the interpreter and DOE_ROOT.
@@ -984,7 +967,7 @@ def _default_sidecar_cli(
     A reviewer cannot resolve `<machinery_root>` or `<your session id>` from inside its
     brief — both are facts about this box. An agent handed those placeholders invents
     them, and the invention is silent: the path it picks still carries the
-    `subagent-share` segment `append-integrator-dispositions` checks for, so the findings
+    `subagent-share` segment `review-findings-ledger` checks for, so the findings
     are written, accepted, and simply kept somewhere the repo does not track.
     """
     return _settings_home_bin("provision-sidecar") or _engine_bin(
@@ -995,7 +978,7 @@ def _default_sidecar_cli(
 def _default_dispositions_cli(
     engine_root: Path | None, plugin_root: Path | None = None
 ) -> str | None:
-    """`append-integrator-dispositions`, resolved the way rung 3 says the CALLER must.
+    """`review-findings-ledger`, resolved the way rung 3 says the CALLER must.
 
     The op ships no launcher on a stock install, so a bareword exits 127 and the
     integrator reports the tool ABSENT — a misdiagnosis that gets escalated rather than
@@ -1003,8 +986,8 @@ def _default_dispositions_cli(
     filesystem, and inject the literal. Returning None is honest: the workflow's brief
     then says the caller omitted it, rather than letting the integrator guess.
     """
-    return _settings_home_bin("append-integrator-dispositions") or _engine_bin(
-        engine_root, "append-integrator-dispositions", plugin_root
+    return _settings_home_bin("review-findings-ledger") or _engine_bin(
+        engine_root, "review-findings-ledger", plugin_root
     )
 
 
@@ -1012,7 +995,7 @@ def _emit_repair(args, repo_root: Path, trail_dir: Path, plugin_root: Path, engi
     """Emit one repair fire, bound the same way a wave fire is — identity resolution included.
 
     A repair reaches only the integrator, and a confined integrator cannot run
-    `append-integrator-dispositions` at all, so an unresolved identity costs a repair its entire
+    `review-findings-ledger` at all, so an unresolved identity costs a repair its entire
     point just as silently as it costs a wave its plans.
 
     Repair existed only as a shape the caller was told to assemble by hand — which is the one act
@@ -1049,7 +1032,7 @@ def _emit_repair(args, repo_root: Path, trail_dir: Path, plugin_root: Path, engi
         # `withRole` writes the agent's declared identity ONLY when it is true, so a repair emitted
         # without it dispatches as `workflow-subagent` — a non-empty type on no roster, which the
         # sandbox guard confines, and the confined integrator cannot run
-        # `append-integrator-dispositions` at all, "regardless of path spelling". Measured on
+        # `review-findings-ledger` at all, "regardless of path spelling". Measured on
         # example-store-repo-fb's repair: the op never executed, so every disposition record silently
         # stayed at whatever an earlier pass wrote. `spineCheckCli`'s absence is quieter and also
         # real — the integrator brief calls a missing one a CALLER defect and correctly refuses to
@@ -1127,7 +1110,7 @@ def main(argv=None) -> int:
     )
     ap.add_argument("--plugin-root", help="resolved CLAUDE_PLUGIN_ROOT (default: this file's plugin root)")
     ap.add_argument("--engine-root", help="claude-klabauter root (default: $COORDINATOR_ENGINE_ROOT)")
-    ap.add_argument("--dispositions-cli", help="absolute append-integrator-dispositions invocation")
+    ap.add_argument("--dispositions-cli", help="absolute review-findings-ledger invocation")
     ap.add_argument("--provision-sidecar-cli", help="absolute provision-sidecar invocation")
     ap.add_argument(
         "--spine-check-cli",
@@ -1428,7 +1411,7 @@ def main(argv=None) -> int:
         print(
             "  WARNING: non-POSIX host with no settings home. The injected CLI literals "
             "carry no environment prefix (`VAR=x cmd` is not a command here), so "
-            "`append-integrator-dispositions` may fail CLAUDE_KLABAUTER_ROOT resolution inside a "
+            "`review-findings-ledger` may fail CLAUDE_KLABAUTER_ROOT resolution inside a "
             "dispatched agent, where its diagnostic is not read. Resolve the CLIs "
             "explicitly with --dispositions-cli / --provision-sidecar-cli.",
             file=sys.stderr,
@@ -1553,7 +1536,7 @@ def main(argv=None) -> int:
     )
     if not dispositions:
         print(
-            "  WARNING: no append-integrator-dispositions resolved. The integrator brief "
+            "  WARNING: no review-findings-ledger resolved. The integrator brief "
             "will say the caller omitted it; dispositions for this wave go unrecorded.",
             file=sys.stderr,
         )

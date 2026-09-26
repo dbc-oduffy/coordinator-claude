@@ -121,32 +121,18 @@ from _engine_root import (  # noqa: E402
     place_engine_root_on_path as _place_engine_root_on_path,
 )
 
-#: Wiki section carrying the full remedy explanations and the escape hatch
 #: (COORDINATOR_NEW_FILE_RATCHET_NUDGE_OFF=1) this hook's message used to
-#: state inline -- see docs/plans/2026-08-02-guard-message-character-cap.md
-#: § C6 and state/relocations/guard-message-cap/
-#: nudge-new-file-zero-budget-ratchets.py.md.
 _WIKI_ANCHOR = (
-    # Review: code-reviewer -- bare fragment produced an unresolvable
-    # `render()` citation. Full path matches every other converted hook.
     "coordinator/docs/wiki/guards/guard-message-concision.md"
     "#new-file-zero-budget-ratchet-remedies"
 )
 
-#: Mirrors `_oss_payload.py::_oss_payload.py`'s own module-level constant
-#: shape: resolved once, degrades to a no-op on any load failure rather
-#: than raising, matching every other carve-out loader in this tree.
 _LOCAL_ROOT = _oss_payload.REPO_ROOT.resolve()
 
-#: Byte-for-byte the same test `check_posix_exec_assumptions.scan()` runs
-#: (`head.startswith(b"#!/usr/bin/env")`) -- a fixed byte literal, not a
-#: re-derivation of any classification logic, so there is nothing here to
-#: drift out of sync with the gate it predicts.
 _ENV_SHEBANG_PREFIX = b"#!/usr/bin/env"
 
 
 def _git_ls_files_error_unmatch(repo_root: str, relpath: str) -> bool:
-    """True iff `relpath` is already tracked in `repo_root`'s git index."""
     try:
         proc = subprocess.run(
             ["git", "-C", repo_root, "ls-files", "--error-unmatch", "--", relpath],
@@ -156,18 +142,11 @@ def _git_ls_files_error_unmatch(repo_root: str, relpath: str) -> bool:
             creationflags=_NO_WINDOW,
         )
     except Exception:
-        # Fail open toward "treat as new" -- an unresolvable git call means
-        # we cannot prove this file is a pre-existing, already-baselined
-        # one, and a false-positive nudge is far cheaper than a missed one.
         return False
     return proc.returncode == 0
 
 
 def _classify_leg(candidate: Path):
-    """`(leg, root, rel)` for `candidate` if it resolves inside this
-    repo's own tree ("local") or a resolvable engine-plane checkout
-    ("engine"); `None` if neither -- fail-open, no nudge for a path this
-    hook can't place."""
     try:
         rel_local = candidate.relative_to(_LOCAL_ROOT)
         return "local", _LOCAL_ROOT, rel_local
@@ -187,14 +166,6 @@ def _classify_leg(candidate: Path):
 
 
 def _payload_shaped(leg: str, rel: Path) -> "str | None":
-    """The `coordinator/...`-rooted relpath (string, POSIX form) the file
-    would occupy in ITS OWN repo's payload accounting if `candidate` is
-    shaped like an admitted OSS-payload entry -- the same
-    `setup/publish-targets.portable` allowlist/source_map and
-    `coordinator/.percolate-ignore` exclusions `_oss_payload.py` already
-    parses, just tested against the candidate's PATH SHAPE rather than its
-    git-tracked status (see module docstring). `None` if not payload-shaped
-    or on any parse failure (fail-open)."""
     try:
         row = _oss_payload.parse_mirror_row()
         patterns = _oss_payload.excluded_patterns()
@@ -253,13 +224,6 @@ def _posix_exec_findings(repo_root: Path, relpath_str: str, candidate: Path) -> 
         return []
     # STOP-FAMILY-RUNNER-CONTRACT clause 8 (sys.path ordering, mirroring
     # GUARD-ON-RUNNER-CONTRACT's identical clause): append, never insert at
-    # index 0 -- the hooks dir (inserted at the top of this module, before
-    # this point) must stay AHEAD of the sibling engine root on sys.path,
-    # so a module-name collision resolves toward the doctrine-plane-local helper.
-    # Index-1 placement via the shared primitive: hooks dir stays at 0, engine root
-    # outranks site-packages. A bare append put it BEHIND an editable install of the
-    # engine, so the resolver answered the mirror and the import returned the working
-    # tree -- see _engine_root.place_engine_root_on_path.
     _place_engine_root_on_path(engine_root_str)
     try:
         import coordinator_core.ops.check_posix_exec_assumptions as posix_check
@@ -305,25 +269,12 @@ def _posix_exec_findings(repo_root: Path, relpath_str: str, candidate: Path) -> 
     return findings
 
 
-#: Short remedy PROSE for the first locality violation kind found -- the
-#: full explanation (why, and the DR-047 rationale) relocates to
 #: `_WIKI_ANCHOR`, per state/relocations/guard-message-cap/
-#: nudge-new-file-zero-budget-ratchets.py.md.
-#:
-#: Review: code-reviewer, Finding 3 -- these are noun-phrase remedy
-#: descriptions, not runnable commands or paths, so they belong in the
-#: counted `prose`, not the char-cap-EXEMPT `alternative` slot (that slot
-#: is reserved for a copy-pasteable command/diff/path; some of these
-#: strings only dodged `validate_alternative_shape`'s cheap heuristic by
-#: accident -- see the sibling `_message_envelope.py` fix for the
-#: heuristic gap itself). Folded into prose here rather than reshaped into
-#: fake commands.
 _LOCALITY_SHORT_ALT = {
     "private sibling-repo-name attribution": "use IRREDUCIBLE_LITERALS in _oss_operative_strings.py",
     "drive-rooted windows path": "use pathlib.Path instead of a raw backslash path",
 }
 
-#: Short remedy PROSE for the first POSIX-exec-assumption class found --
 #: the full explanation (including the EXEMPTIONS-file escape hatch for a
 #: genuine direct-exec entrypoint) relocates to `_WIKI_ANCHOR`. See the
 #: Finding-3 note above `_LOCALITY_SHORT_ALT` -- same reasoning applies.
@@ -419,7 +370,7 @@ def main() -> int:
         return 0
 
     if _git_ls_files_error_unmatch(str(repo_root), relpath_str):
-        return 0  # already tracked -- not a new file, out of scope
+        return 0
 
     locality = _locality_findings(content, candidate)
     posix_hits = _posix_exec_findings(repo_root, relpath_str, candidate)

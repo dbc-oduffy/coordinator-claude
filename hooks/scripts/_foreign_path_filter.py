@@ -25,14 +25,12 @@ plane both match (multi-os-first-class: this must never degenerate into a
 literal path list).
 """
 
+
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-#: The `repos.*` registry keys naming the two planes: this doctrine repo, and
-#: the engine plane's two own working trees (authoring vs. published-and-
-#: shipped) — see this module's docstring.
 _PLANE_REGISTRY_KEYS = (
     "repos.doe_claude",
     "repos.claude_klabauter",
@@ -41,14 +39,6 @@ _PLANE_REGISTRY_KEYS = (
 
 
 def session_repo_is_plane(cwd: str | Path) -> bool:
-    """Is `cwd` (the session's own repo root) one of the two planes?
-
-    Fail-open to False: an unreadable registry or an unregistered key means
-    "not determinably a plane repo", never a raise. Callers on the hot
-    SessionStart path need a plain bool, not a tri-state — the cost of a
-    false negative here is one more foreign-path line suppressed-as-shown
-    (status quo), never a crash.
-    """
     try:
         _hooks_dir = str(Path(__file__).resolve().parent)
         if _hooks_dir not in sys.path:

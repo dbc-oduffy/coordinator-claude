@@ -77,13 +77,6 @@ _BOOTSTRAPPED_NAMES = ("resolve_claude_klabauter_root_or_exit", "resolve_repo_ro
 
 
 def _bootstrap_op_trampoline() -> None:
-    """Import `coordinator/bin/lib/op_trampoline.py`'s two Shape-A
-    resolvers into this module's globals, deferred out of module scope so
-    a warm-serve import of this file stays inert until `main()` runs.
-    Idempotent by construction: each name is published via
-    `globals().setdefault(...)`, so a name a caller already bound (e.g. a
-    `mock.patch.object` of just one of the two resolvers) is left alone
-    rather than clobbered when the other name is still missing."""
     if all(n in globals() for n in _BOOTSTRAPPED_NAMES):
         return
 
@@ -101,14 +94,6 @@ def _bootstrap_op_trampoline() -> None:
 
 
 def __getattr__(name: str):
-    """PEP 562 hook serving the two op_trampoline resolvers to a test or
-    sibling importer that reads them off this module without calling
-    `main()` first (e.g. `mock.patch.object(mod,
-    "resolve_repo_root_or_exit", ...)`).
-
-    Negative-spec: does NOT serve any other name -- an unrelated
-    AttributeError still raises normally.
-    """
     if name in _BOOTSTRAPPED_NAMES:
         _bootstrap_op_trampoline()
         try:
@@ -118,7 +103,6 @@ def __getattr__(name: str):
                 f"module {__name__!r} has no attribute {name!r}"
             ) from None
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
 
 
 _HONESTY_DISCLOSURES = """\
@@ -136,9 +120,6 @@ Two honesty disclosures a consumer of this CLI needs and must not lose:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """No flags beyond the automatic -h/--help -- this CLI takes no
-    arguments (see module docstring's Negative-spec: no filtering, no
-    caching, no signals-abstraction layer)."""
     return argparse.ArgumentParser(
         prog="query-routine-signals.py",
         description=_HONESTY_DISCLOSURES,
@@ -154,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
 
     argv = sys.argv[1:] if argv is None else argv
     parser = build_parser()
-    parser.parse_args(argv)  # exits 2 on any unrecognized argument
+    parser.parse_args(argv)
 
     repo_root = resolve_repo_root_or_exit()
     if isinstance(repo_root, int):

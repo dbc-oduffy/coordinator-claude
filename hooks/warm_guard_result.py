@@ -48,11 +48,8 @@ __all__ = [
     "interpret",
 ]
 
-#: A real verdict: the warm guard evaluated and objects.
 DENY = "deny"
-#: A real verdict: the warm guard evaluated and does not object.
 NO_OBJECTION = "no_objection"
-#: NOT a verdict. The caller MUST run the cold in-process guard. Never treat as permission.
 GUARD_DID_NOT_RUN = "guard_did_not_run"
 
 
@@ -73,7 +70,6 @@ def interpret(hit: bool, response: Optional[Any]) -> "Tuple[str, Optional[str]]"
     if not isinstance(response, dict):
         return GUARD_DID_NOT_RUN, None
 
-    # THE TRAP. hit=True with an error envelope means the engine failed, not that it permitted.
     if response.get("error") is not None:
         return GUARD_DID_NOT_RUN, None
 
@@ -87,17 +83,12 @@ def interpret(hit: bool, response: Optional[Any]) -> "Tuple[str, Optional[str]]"
     decision = result.get("permissionDecision")
 
     if decision is None:
-        # {} with no permissionDecision -- the contract's no-objection shape.
         return NO_OBJECTION, None
 
     if decision == "deny":
         reason = result.get("permissionDecisionReason")
         if not isinstance(reason, str) or not reason.strip():
-            # A deny we cannot explain is still a deny -- never downgrade it to a pass.
             reason = "warm guard denied this command but supplied no reason"
         return DENY, reason
 
-    # Anything else -- including a literal "allow", which this contract never sends. Receiving
-    # one means the peer is not the op we think it is, so decline to propagate a permission we
-    # cannot account for and let the cold guard decide.
     return GUARD_DID_NOT_RUN, None

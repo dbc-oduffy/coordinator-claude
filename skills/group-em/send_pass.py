@@ -56,49 +56,24 @@ import re
 import time
 from typing import Any, Optional
 
-#: Reader/fallback `reason` strings a nudge may be offered for. Both spell the
-#: same condition -- the peer's turn closed -- on the two `read_pass` legs
-#: (`turn-ended` from the receiver-state ladder, `tail-turn-duration` from the
-#: bounded transcript-tail marker). Enumerated, never pattern-matched.
 SEND_ELIGIBLE_REASONS = frozenset({"turn-ended", "tail-turn-duration"})
 
-#: Excluded by name so the exclusion is greppable rather than implied by the
-#: allow-list. 17 of 23 paused sessions in the durable 30-row dataset are
-#: `away`, and no Director prods an `away` session (roadmap §5.2).
 NEVER_SEND_REASONS = frozenset({"away"})
 
-#: Per-peer cooldown: a peer offered in one digest is suppressed from later
-#: digests in this session until it elapses. Throttle, not a classifier.
 DEFAULT_COOLDOWN_SECONDS = 3600
 
-#: Rate ceiling: the most entries one digest may carry, whatever the roster
-#: size. A digest at the ceiling is reported truncated rather than silently
-#: cut, so the Group EM knows the population exceeded it.
 DEFAULT_MAX_ENTRIES = 5
 
 _SEND_LOG_FILENAME = "group-em-send-log.jsonl"
 _LEDGER_FILENAME = "next-move-ledger.jsonl"
 
-#: A session id arrives from `claude agents --json` (peers) and the
-#: environment (the caller), and is joined straight into a path
-#: `_record_offer` will `makedirs`. The sibling reader
-#: (`receiver_state_reader.receiver_state_path`) rejects an unsafe component,
-#: a bare `.`/`..` the character class alone would pass included; the same
-#: guard applies here rather than trusting the producer.
 _SAFE_SID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
-#: Per-field character cap on the free-text values a peer/verdict producer
-#: hands us -- `entries[].state`, `entries[].source`, `suppressed[].reason`.
-#: `entries[].session_id` and `entries[].reason` are excluded: both are
 #: already bounded in shape (`_safe_session_id`/`_SAFE_SID_RE`, and the
 #: two-literal `SEND_ELIGIBLE_REASONS` frozenset) and are not the exposure.
-#: Counted in characters, never bytes or a mid-multibyte-sequence slice --
-#: Python string indexing is by code point, so a plain `value[:N]` already
-#: satisfies that.
 MAX_FIELD_CHARS = 500
 
 #: Appended to a value cut at `MAX_FIELD_CHARS`, so a truncated string is
-#: recognisable in place, not just in the sidecar `truncated_fields` record.
 _ELISION_MARKER = "...[truncated]"
 
 
@@ -137,24 +112,10 @@ def _safe_session_id(session_id: Any) -> bool:
 
 
 def _session_share_dir(repo_root: str, session_id: str) -> str:
-    # `.coordinator-local/subagent-share/` is the machinery root the engine
-    # relocated to on 2026-09-02 (`coordinator_core/session/machinery_paths.py`
-    # `share_dir`); the retired root was `state/subagent-share/`. This module
-    # is a stdlib-only surface invoked from a PM-gated skill body, not a hook,
-    # but it still must not import `coordinator_core` (see `_next_move_ledger.py`'s
-    # module docstring for the same constraint) -- so the leaf spelling is
-    # duplicated here rather than imported.
     return os.path.join(repo_root, ".coordinator-local", "subagent-share", session_id)
 
 
 def undischarged_obligations(repo_root: str, session_id: str) -> Optional[int]:
-    """Count this peer's open, unfired obligations; `None` if it has no ledger.
-
-    `None` (no ledger file at all) and `0` (a ledger saying nothing is owed)
-    are deliberately distinct -- the first is a producer coverage gap.
-    Unparseable lines are skipped: a malformed ledger degrades to a lower
-    count, never to a crash or an inferred obligation.
-    """
     if not _safe_session_id(session_id):
         return None
     path = os.path.join(_session_share_dir(repo_root, session_id), _LEDGER_FILENAME)
@@ -181,13 +142,6 @@ def undischarged_obligations(repo_root: str, session_id: str) -> Optional[int]:
 
 
 def send_suppression_reason(verdict: dict[str, Any]) -> Optional[str]:
-    """Why the send path must not offer this verdict, or `None` to admit it.
-
-    The single admission rule, the one `build_send_digest` itself calls, so the
-    pins bind what entries actually have. Doubles as the `suppressed[].why`
-    label. Takes no clock and no obligation count -- the ledger ranks, never
-    admits. Fails closed on every unrecognised shape.
-    """
     if not verdict.get("candidate"):
         return "not-a-candidate"
     reason = verdict.get("reason")
@@ -199,32 +153,18 @@ def send_suppression_reason(verdict: dict[str, Any]) -> Optional[str]:
 
 
 def send_log_path(repo_root: str, caller_session_id: str) -> str:
-    """This session's own record of which peers it has already offered.
-
-    Per-session bookkeeping beside `advisory-fire-counts.jsonl`. Session-
-    scoped: a new Group EM starts with an empty cooldown, matching the DACI
-    ruling that the Driver role ends with the session.
-    """
     return os.path.join(
         _session_share_dir(repo_root, caller_session_id), _SEND_LOG_FILENAME
     )
 
 
 def offer_key(caller_session_id: str, peer_session_id: str) -> str:
-    """The cooldown's key: a salted digest, never the peer's session id.
-
-    A peer session id IS an address here -- its receiver-state path, share
-    directory, and transcript path are all built from that string -- so
-    storing one would breach `SKILL.md`'s no-persisted-address rule. The
-    caller's own id salts it; the log answers only "did I offer this, when".
-    """
     return hashlib.sha256(
         (caller_session_id + "|" + peer_session_id).encode("utf-8")
     ).hexdigest()
 
 
 def read_send_log(repo_root: str, caller_session_id: str) -> list[dict[str, Any]]:
-    """Every offer this session has recorded. `[]` when there is no log yet."""
     path = send_log_path(repo_root, caller_session_id)
     if not os.path.exists(path):
         return []
@@ -252,12 +192,6 @@ def _record_offer(
     peer_session_id: str,
     now: Optional[float] = None,
 ) -> bool:
-    """Append one offer, starting its cooldown. `False` if the write failed.
-
-    Internal: `build_send_digest` calls this per emitted entry, so the cooldown
-    arms itself rather than depending on the caller. Failure is reported, never
-    raised -- the caller must be able to say so.
-    """
     now = time.time() if now is None else now
     if not _safe_session_id(caller_session_id) or not _safe_session_id(peer_session_id):
         return False
@@ -281,12 +215,6 @@ def _cooldown_remaining(
     now: float,
     cooldown_seconds: int,
 ) -> float:
-    """Seconds left on this peer's cooldown; `0.0` when it may be offered.
-
-    Degenerate timestamps are neutralised, not trusted: non-numeric ignored,
-    future (skew, ms-epoch) ignored, result clamped to the window. A corrupt
-    log must not silently suppress a peer forever -- nothing would surface it.
-    """
     remaining = 0.0
     for record in records:
         if record.get("offer_key") != key:
@@ -336,25 +264,6 @@ def build_send_digest(
     cooldown_seconds: int = DEFAULT_COOLDOWN_SECONDS,
     max_entries: int = DEFAULT_MAX_ENTRIES,
 ) -> dict[str, Any]:
-    """One digest per invocation -- the batching discipline itself (AC5).
-
-    The only shape this module emits, and the only route to an entry: no
-    per-peer entry point exists, so the firehose is unreachable from this API
-    rather than discouraged by it. **Emitting an entry IS the offer and arms
-    its cooldown here** -- a throttle left to the actor it throttles is not
-    one. A cooldown that could not be written is named in `unrecorded` and its
-    entry still stands, so the caller learns the throttle is unarmed.
-
-    Entries carry `gate1`/`gate2` as `None`; both are checked per send, in
-    prose. `suppressed` says why each held peer was held, verdict reasons
-    ahead of bookkeeping ones -- `away` is never filed under a ledger detail.
-
-    Known limitation -- no lock spans the log read and the per-entry appends,
-    so this assumes one caller at a time per `caller_session_id`. Violate it
-    and two calls both read the pre-write log, both see zero cooldown for the
-    same peer, and both offer it. Bounded: the log path is caller-scoped, so
-    it cannot cross sessions.
-    """
     if max_entries < 1:
         raise ValueError("max_entries must be >= 1; got %r" % (max_entries,))
     now = time.time() if now is None else now
@@ -383,9 +292,6 @@ def build_send_digest(
             )
             continue
 
-        # Corroboration, not a gate. `None` is a producer coverage gap, never
-        # evidence the peer owes nothing; gating on it emptied the digest on
-        # absence (5 of 5 measured) and shipped the feature inert.
         obligations = undischarged_obligations(repo_root, peer_session_id)
 
         remaining = _cooldown_remaining(
@@ -421,9 +327,6 @@ def build_send_digest(
             }
         )
 
-    # Deterministic before the ceiling cuts: most-owed first, then session id.
-    # `claude agents --json` order is arbitrary and unstable between ticks, so
-    # an unsorted cut makes ceiling survival random between digests.
     eligible.sort(
         key=lambda e: (-(e["undischarged_obligations"] or 0), e["session_id"])
     )

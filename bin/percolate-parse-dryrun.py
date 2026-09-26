@@ -61,12 +61,6 @@ _BOOTSTRAP_DONE = False
 
 
 def _bootstrap_engine() -> None:
-    """Put the repo root on sys.path so `coordinator_core` imports resolve.
-
-    Moved out of module scope: this used to mutate sys.path on every import
-    of this file, a process global ~50 warm-server sessions share. Only the
-    trigger moved.
-    """
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
         return
@@ -76,24 +70,15 @@ def _bootstrap_engine() -> None:
 
 
 #: Step 3's sensitive-path predicate (L214-219 / Step 2's L102-106) — same
-#: four categories in both places, kept as one constant so the two checks
-#: can't drift apart.
 _SENSITIVE_MARKERS = ("CLAUDE.md", "settings.json", "hooks/", "agents/")
 
-#: Step 3's file-count threshold.
 _GATE_FILE_COUNT_THRESHOLD = 10
 
 _UPDATE_OR_NEW = re.compile(r"^(?:UPDATE|NEW): (?P<path>.+)$")
-#: The deletion token `publish_sync.py :: sync_mirror` prints (`REMOVE: <path> (not in source)`).
 _DELETING = re.compile(r"^\s*REMOVE: ")
 
 
 def _touched_paths(stdout_text: str) -> List[str]:
-    """Every `UPDATE: <path>` / `NEW: <path>` rel-path from rsync's
-    dry-run stdout, in stdout order. Relative to a `--- <subdir> ---` header
-    this does not track, so never a path to open -- a count and a shape only;
-    the round's scan list comes from its manifest (`percolate-round.py ::
-    _dest_scan_list`)."""
     paths: List[str] = []
     for line in stdout_text.splitlines():
         match = _UPDATE_OR_NEW.match(line.strip())
@@ -107,20 +92,6 @@ def _has_deletions(stdout_text: str) -> bool:
 
 
 def _read_changes_file(path: Path) -> "tuple[List[str], List[str]]":
-    """`(changed, removed)` from a `--changes-file`: one `<TAG>\\t<path>` line
-    per change, `TAG` being `REMOVE` for a removal and anything else for an
-    add/update -- the round writes it from the `RoundManifest` its real run
-    persisted, i.e. repo-relative paths, each counted once.
-
-    WHY THE GATE READS THIS AND NOT STDOUT. A real run's stdout carries far
-    more `UPDATE:`/`NEW:` lines than files it changed: every staged row's sync
-    dispatch prints its pre-transform comparison, which mismatches by
-    construction on any transformed file (§ `publish.py ::
-    _report_published_diff`), and each row prints its own report again, so a
-    file two rows touch counts twice. Measured at claude-klabauter 2026-09-11:
-    2464 lines for a round whose manifest named 105 paths, so "files touched"
-    fired on noise and the sensitive-path and deletion checks read phantom
-    lines too."""
     changed: List[str] = []
     removed: List[str] = []
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -149,8 +120,6 @@ def _ignore_missing(stdout_text: str) -> bool:
 
 
 def _top_dirs(paths: List[str], limit: int = 5) -> List[List[Any]]:
-    """Step 2b's top-5-by-file-count directory summary, at
-    `<top-level>/<second-level>` granularity."""
     counts: dict[str, int] = {}
     for path in paths:
         parts = Path(path).parts
@@ -161,7 +130,6 @@ def _top_dirs(paths: List[str], limit: int = 5) -> List[List[Any]]:
 
 
 def _file_types(paths: List[str]) -> dict[str, int]:
-    """Step 2b's extension breakdown: md / sh / py / other."""
     counts = {"md": 0, "sh": 0, "py": 0, "other": 0}
     for path in paths:
         suffix = Path(path).suffix.lstrip(".").lower()

@@ -60,9 +60,6 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
-    # Defensive fallback -- a hook script copied/deployed WITHOUT its
-    # sibling _engine_root.py (e.g. an isolated test harness, or a partial
-    # deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -83,9 +80,9 @@ def main() -> int:
     try:
         root = _resolve_claude_klabauter_root()
     except Exception:
-        return 0  # fail-open -- resolver contract is never-raise, belt+braces
+        return 0
     if not root:
-        return 0  # fail-open -- engine unresolvable on this machine
+        return 0
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
@@ -93,12 +90,12 @@ def main() -> int:
     try:
         from coordinator_core.hooks import em_report_altitude as _op
     except Exception:
-        return 0  # engine unimportable -> fail-open
+        return 0
 
     try:
         result = _op.op(payload)
     except Exception:
-        return 0  # any engine failure -> fail-open (never brick the Stop turn)
+        return 0
 
     try:
         if result and isinstance(result, dict):

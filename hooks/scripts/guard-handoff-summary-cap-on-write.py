@@ -1,9 +1,4 @@
-# guard-not-a-hook-entrypoint -- invoked via the in-process guard runner's
 # REAL_GUARD_REGISTRY (coordinator/hooks/scripts/_guard_runner.py), which
-# preuse-write-dispatch.py's own hooks.json PreToolUse(Write|Edit|MultiEdit)
-# registration calls in-process. This basename is deliberately never
-# referenced literally in hooks.json text -- that IS the mechanism, not an
-# omission.
 """PreToolUse hook (matcher: Write|Edit|MultiEdit): warns on a write that
 would leave a handoff's `summary:` frontmatter field over its 140-char cap.
 
@@ -94,19 +89,12 @@ except Exception:  # pragma: no cover -- exercised only in a PyYAML-less env
 
 _GUARDED_TOOLS = ("Write", "Edit", "MultiEdit")
 
-#: Directory substring, not a suffix restriction beyond `.md` -- matches
-#: `state/handoffs/` anywhere in the resolved path, including the
-#: `archive/` subtree (see module docstring, "Scope").
 _SCOPE_DIR = "state/handoffs/"
 
-#: Transcribed from `coordinator/schemas/handoff.schema.json`'s `summary`
-#: property description ("One-line session summary (<=140 chars)"). See
-#: module docstring, "Schema is the source of the cap".
 _HANDOFF_SUMMARY_CAP = 140
 
 
 def is_in_scope(target: Path) -> bool:
-    """A `.md` file somewhere under a `state/handoffs/` directory."""
     if target.suffix != ".md":
         return False
     posix = target.as_posix()
@@ -114,14 +102,6 @@ def is_in_scope(target: Path) -> bool:
 
 
 def _split_frontmatter(text: str) -> "tuple[dict | None, str]":
-    """Split a `---\\n<yaml>\\n---\\n<body>` document into
-    `(frontmatter_dict, body)`. Returns `(None, text)` on ANY shape
-    mismatch (no leading `---` fence, fewer than two fences, unparseable
-    YAML, a non-dict parsed value, or PyYAML unavailable) -- fail-open,
-    mirroring `handoff-segment-inject.py`'s own `_split_frontmatter`
-    (a self-contained copy here rather than a shared import: that module's
-    purpose is unrelated, and this guard's only dependency on it would be
-    this one small, stable parsing shape)."""
     if not text.startswith("---"):
         return None, text
     parts = text.split("---", 2)
@@ -142,8 +122,6 @@ def _split_frontmatter(text: str) -> "tuple[dict | None, str]":
 
 
 def _warn_reason(target: str, length: int) -> str:
-    """The prose diagnosis (the only part `_message_envelope.CEILING`
-    counts)."""
     return (
         f"summary-cap: {target}'s `summary:` frontmatter is {length} chars, "
         f"over the {_HANDOFF_SUMMARY_CAP}-char cap "

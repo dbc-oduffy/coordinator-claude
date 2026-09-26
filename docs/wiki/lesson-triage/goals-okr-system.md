@@ -221,8 +221,8 @@ ethos: lead with the better path, not the violation.
      are reclassified as "later impact."
 3. **EM + PM integrate the VP-Product Reviewer's critique in-dialogue** — the goal artifact does not
    yet exist on disk; the converged shape is written into the artifact at scaffold
-   time (not via review-integrator machinery, because the artifact doesn't exist
-   yet).
+   time (not via the reviewer-applies-own-findings contract, because the artifact
+   doesn't exist yet).
 
    **A reviewer's framing is a shaping input, not a PM ruling — never let it harden into
    pre-decided scope.** When the VP-Product Reviewer's critique includes a phrase like "X is deferred" or "Y is

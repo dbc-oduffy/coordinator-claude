@@ -1,61 +1,10 @@
-# review-exec-auth-stamp — CLI trampoline over claude-klabauter
-# coordinator_core.review_assemble.exec_auth_stamp (the mutating assembler
-# that collapses /review's ordinal-narrated execution-authorization stamp
-# sequence into one named op). Direct-import variant (template-variant #1,
-# mirrors coordinator/bin/pickup-assemble and archive-stamp-cli): a plain
-# in-process function call after resolving the engine root, no cc_invoke/IPC hop.
-#
-# Contract: DoE-claude coordinator/docs/wiki/computed-skills.md
-# Spec backlink: DoE-claude:pln-computed-skills-b8-review-ci-c-ffa5ad,
-# chunk C6
-# Registration seam: a new engine capability registers by shipping a thin
-# bin/ trampoline over an in-process coordinator_core module — same shape as
-# every other direct-import CLI in this tree (pickup-assemble,
-# archive-stamp-cli, baton-assemble).
-#
-# Subcommands:
-#   authorize-invocation <plan-path> --typed-command </command>
 #       [--utterance <PM's verbatim words>] [--at <YYYY-MM-DD>]
-#     The PM-invocation mint: the command that means "execute this" is the
-#     command that authorizes it. --typed-command is the only required flag;
-#     --utterance is optional — a bare invocation with no accompanying words
-#     still mints, and the note then records the typed command itself as the
-#     authorizing act. When supplied, the utterance is embedded verbatim.
-#     Writes the same four fields through the same single stamping surface,
 #     always with execution_authorized_by: PM. MUTATING. Convergent —
-#     re-invoking against unchanged plan content is a no-op, including
-#     across a date boundary. Refuses a non-slash-command trigger.
 #   stamp <plan-path> --by <who> --note <verbatim-note> [--at <YYYY-MM-DD>]
-#     Computes the plan-body hash and writes all four
-#     execution_authorized_{by,at,sha,note} fields onto the plan's own
 #     frontmatter, atomically. MUTATING. Idempotent — re-stamping with
-#     identical values is a no-op.
-#   mark-reviewed <plan-path>
-#     The review-integration rung advance: flips the plan draft -> reviewed
-#     and writes no execution_authorized_* field. Runs when review
-#     integration completes, BEFORE the PM is asked about execution — the
-#     `reviewed` rung the `stamp` verb's own fire could never leave a plan
 #     sitting at. MUTATING (plan status only). Convergent — a plan already
-#     at or past `reviewed` is an rc-0 no-op. Unlike the `stamp` verb's
-#     side-effect fire, a failed rung advance here IS this subcommand's
-#     exit code.
 #   restamp <plan-path> --by <witness> --reason <one line> [--at <YYYY-MM-DD>]
-#     Records a non-PM witness of the CURRENT body (an EM correction after
-#     PM authorization) without disturbing the PM's own
-#     execution_authorized_{by,at,note} words. Rebinds execution_authorized_sha
-#     to the live body and writes/updates the execution_restamped_{by,at,
 #     from_sha,note} quartet. MUTATING. Fires no rung. Refuses a PM-shaped
-#     --by, a newline in --reason (exit 2), and a plan with no prior
-#     authorization (exit 1).
-#
-# Exit codes (locally scoped to this CLI, NOT inherited — see the contract's
-# own § Exit-code contract):
-#   0 — OK (stamped or already-converged no-op).
-#   1 — business failure (plan unreadable/absent, no parseable frontmatter,
-#       lock timeout, mutate abort).
-#   2 — usage error (malformed arguments).
-#   3 — transport failure (the engine root unresolvable, coordinator_core import
-#       failure, or no enclosing git worktree).
 from __future__ import annotations
 """review-exec-auth-stamp — see the # comment block above for the RAG-bait
 purpose text (the polyglot shebang line above makes THIS triple-quoted

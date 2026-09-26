@@ -57,15 +57,10 @@ try:
         place_engine_root_on_path as _place_engine_root_on_path,
     )
 except Exception:
-    # Defensive fallback -- a hook script copied/deployed WITHOUT its
-    # sibling _engine_root.py (e.g. an isolated test harness, or a
-    # partial deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
     def _place_engine_root_on_path(root):
-        # Fallback mirrors the primitive's placement rule: never index 0 when the
-        # hooks dir holds it, never the tail where site-packages outranks us.
         if root and root not in sys.path[:2]:
             sys.path.insert(1 if sys.path else 0, root)
         return root
@@ -73,17 +68,6 @@ except Exception:
 try:
     import _message_envelope as _envelope  # noqa: E402
 except Exception:
-    # Defensive fallback -- mirrors the `_resolve_claude_klabauter_root` fallback
-    # above: a hook script copied/deployed WITHOUT its `_message_envelope.py`
-    # sibling (e.g. `test_family_d_fail_open_coverage.py`'s isolated-copy
-    # harness, which copies only this file plus `_engine_root.py`) must
-    # still compose and emit its nudge rather than crash on import.
-    # Reimplements only the exact shape this hook uses -- not the full
-    # envelope surface (no measurement-mode fd-3 hook, no alternative-shape
-    # validation) -- since a copied-sibling deploy is never what C1's
-    # in-process measurement harness runs against (that harness imports the
-    # real hook from its real on-disk location, alongside its real
-    # `_message_envelope.py`).
     from dataclasses import dataclass as _dataclass
     from typing import Optional as _Optional
 
@@ -110,14 +94,6 @@ except Exception:
             if message.anchor:
                 parts.append("")
                 parts.append("See {}.".format(message.anchor))
-            # Review: code-reviewer, Finding 2/6 -- .buffer.write bypasses
-            # Python's Windows text-mode newline translation (stderr in
-            # text mode would silently turn every LF into CRLF, breaking
-            # byte-fidelity with the bash oracle's stderr output). This
-            # fallback copy doesn't inherit the real envelope's fix (it
-            # exists only for an isolated-copy deploy that lacks
-            # `_message_envelope.py`, per the comment above), so it must
-            # carry the fix independently.
             sys.stderr.buffer.write("\n".join(parts).encode("utf-8"))
             return 2
 
@@ -160,24 +136,13 @@ def _git_toplevel(cwd: str) -> str:
     return (proc.stdout or "").strip()
 
 
-#: See state/relocations/guard-message-cap/nudge-initiative-goals-ladder.py.md
-#: for the full explanation this hook's message used to spell out inline
-#: (docs/plans/2026-08-02-guard-message-character-cap.md § C6).
 _WIKI_ANCHOR = (
-    # Review: code-reviewer -- bare fragment produced an unresolvable
-    # `render()` citation. Full path matches every other converted hook.
     "coordinator/docs/wiki/guards/guard-message-concision.md"
     "#initiative-goals-nudge-remedies"
 )
 
 
 def _resolve_goal_candidates(repo_root: str, text: str) -> list:
-    """In-process call into the engine repo's `goal.match_candidates` op.
-
-    Fail-open at every step (unresolvable seam / import error / handler
-    exception) -> [] — a nudge with no suggestions is still a valid, safe
-    nudge.
-    """
     if not text:
         return []
 
@@ -186,12 +151,6 @@ def _resolve_goal_candidates(repo_root: str, text: str) -> list:
         return []
 
     # STOP-FAMILY-RUNNER-CONTRACT clause 8 (sys.path ordering): append,
-    # never insert at index 0 -- the hooks dir (inserted at the top of this
-    # module) must stay ahead of the sibling engine root on sys.path.
-    # Index-1 placement via the shared primitive: hooks dir stays at 0, engine root
-    # outranks site-packages. A bare append put it BEHIND an editable install of the
-    # engine, so the resolver answered the mirror and the import returned the working
-    # tree -- see _engine_root.place_engine_root_on_path.
     _place_engine_root_on_path(root)
 
     try:
@@ -205,18 +164,9 @@ def _resolve_goal_candidates(repo_root: str, text: str) -> list:
         if handler is None:
             return []
 
-        # goal.match_candidates is keyed on git_common_dir (coordinator_core/ipc.py
         # WORKTREE_SCOPED_OPS comment: "goal.match_candidates -- keyed on
-        # git_common_dir: reads state/goals/ under main_worktree_root(common_dir)").
-        # The handler derives the worktree root as common_dir.parent -- passing the
-        # worktree root itself here (what git rev-parse --show-toplevel gives us)
-        # would make it look one directory too high and always return [].
         common_dir = git_common_dir(Path(repo_root))
 
-        # A-F2 (P2 C8): bound the goal-match op with its own timeout,
-        # independent of the two _git_toplevel calls above -- fail-open to
-        # [] on timeout rather than let an unbounded op exhaust the
-        # remainder of this hook's 10s hooks.json budget.
         result = asyncio.run(
             asyncio.wait_for(handler({"text": text}, repo_root=common_dir), timeout=3.0)
         )
@@ -264,31 +214,18 @@ def _compose_nudge_message(
 
 
 def _compose_nudge_text(initiative_id: str, candidate_ids: "list[str]", candidate_ids_str: str) -> str:
-    """Back-compat shim for `message_measurement_harness.
-    _adapt_nudge_initiative_goals_ladder`, which calls this exact name and
-    measures its raw string return directly (not via the shared harness's
-    `_capture_envelope_messages` context, unlike this wave's other
-    conversions) -- so it must keep returning a plain string. Returns
-    `_compose_nudge_message(...).prose`: the counted diagnosis only, the
-    same value the ceiling/median/p90 legs measure. `main()` itself calls
-    `_compose_nudge_message` directly and emits the fuller Message (prose +
-    alternative + anchor) via `_message_envelope.emit`."""
     return _compose_nudge_message(initiative_id, candidate_ids, candidate_ids_str).prose
 
 
 def main() -> int:
-    # -- Silence switch for autonomous mode --------------------------------
     if os.environ.get("COORDINATOR_INITIATIVE_GOALS_NUDGE_OFF", "0") == "1":
         return 0
 
-    # -- Safe stdin read ------------------------------------------------------
     try:
         raw = sys.stdin.read()
     except Exception:
         raw = ""
 
-    # -- Parse fields (direct json.loads -- always available in naked Python,
-    #    the strongest tier of the bash oracle's jq/python3/sed ladder) --------
     tool_name = ""
     file_path = ""
     content = ""
@@ -307,10 +244,8 @@ def main() -> int:
         if not content_raw:
             content_raw = tool_input.get("new_string")
         if isinstance(content_raw, str) and content_raw:
-            # Mirrors `head -60` (first 60 lines of the extracted content).
             content = "\n".join(content_raw.splitlines()[:60])
 
-    # -- Only fire on Write or Edit -------------------------------------------
     if tool_name not in ("Write", "Edit"):
         return 0
 
@@ -319,7 +254,6 @@ def main() -> int:
 
     file_path_norm = file_path.replace("\\", "/")
 
-    # -- Only fire on state/initiatives/*.yaml paths --------------------------
     base = os.path.basename(file_path_norm)
     dirpart = file_path_norm[: -len(base)] if base else file_path_norm
     is_initiative_yaml = base.endswith(".yaml") and (
@@ -328,15 +262,9 @@ def main() -> int:
     if not is_initiative_yaml:
         return 0
 
-    # -- First-class suppression: initiative already has goals ----------------
-    # Matches: "goals:" followed by a non-empty value on the same line, OR a
-    # list item on the next line starting with "  -" (YAML list form). A bare
-    # "goals: null", "goals: []", or absent "goals:" is treated as empty --
-    # trigger the nudge.
     if content:
         lines = content.split("\n")
 
-        # Inline value form: goals: something-non-empty (not null, not [], not "").
         inline_re = re.compile(r"^goals:[ \t]*[^ \t#\[]")
         goals_line_re = re.compile(r"^goals:")
         for line in lines:
@@ -344,19 +272,16 @@ def main() -> int:
                 goals_val = goals_line_re.sub("", line, count=1)
                 goals_val = goals_val.lstrip(" \t")
                 if goals_val not in ("null", "", "[]", "~"):
-                    return 0  # non-empty value -- suppress
-                break  # only the first "goals:" line is considered (head -1)
+                    return 0
+                break
 
-        # List form: goals: followed by a "  - " item on the next line.
         list_item_re = re.compile(r"^[ \t]+-")
         for i, line in enumerate(lines):
             if goals_line_re.match(line):
                 if i + 1 < len(lines) and list_item_re.match(lines[i + 1]):
                     return 0
-                break  # -A1 semantics: only the (first) matched block matters here
+                break
 
-    # -- Resolve repo root for goals/ lookup -----------------------------------
-    # Prefer git rev-parse from the file's directory; fall back to PWD.
     repo_root = ""
     dir_of_file = os.path.dirname(file_path_norm)
     if dir_of_file and os.path.isdir(dir_of_file):
@@ -364,10 +289,8 @@ def main() -> int:
     if not repo_root:
         repo_root = _git_toplevel(os.getcwd())
     if not repo_root:
-        # Cannot resolve repo -- fail-open: no nudge (can't check goals/ either).
         return 0
 
-    # -- Suppress if no goals exist under state/goals/ -------------------------
     goals_dir = Path(repo_root) / "state" / "goals"
     if not goals_dir.is_dir():
         return 0
@@ -375,7 +298,6 @@ def main() -> int:
     if goal_count == 0:
         return 0
 
-    # -- Derive match text from the initiative label/description --------------
     match_text = ""
     if content:
         label_re = re.compile(r"^label:[ \t]+(.*)$")
@@ -392,13 +314,11 @@ def main() -> int:
                     match_text = m.group(1).replace('"', "")[:120]
                     break
     if not match_text:
-        # Fall back to filename stem (e.g. "my-initiative" from my-initiative.yaml).
         stem = base
         if stem.endswith(".yaml"):
             stem = stem[: -len(".yaml")]
         match_text = stem
 
-    # -- Resolve candidate goal-ids ---------------------------------------------
     candidates = _resolve_goal_candidates(repo_root, match_text)
     candidate_ids = []
     for c in candidates[:3]:
@@ -408,7 +328,6 @@ def main() -> int:
                 candidate_ids.append(gid)
     candidate_ids_str = " or ".join(candidate_ids)
 
-    # -- Build the offer-shaped nudge message ------------------------------------
     initiative_id = base[: -len(".yaml")] if base.endswith(".yaml") else base
 
     message = _compose_nudge_message(initiative_id, candidate_ids, candidate_ids_str)

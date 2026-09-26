@@ -1,29 +1,7 @@
-# coordinator/bin/install-sentinel-write
-#
-# Separable sentinel-writer for the agentic install integrity primitive.
-# Writes <path>/version.txt containing one line of 40-hex git SHA + LF.
-#
-# Paired with coordinator/bin/check-install-divergence.py (reader). See
-# docs/wiki/agentic-install-integrity.md for the format spec and
-# docs/wiki/cross-repo-handshake-doctrine.md § Carve-out for the
-# doctrinal justification of the bare-SHA format.
-#
-# Usage:
-#   install-sentinel-write --path <target-dir> [--source <git-root>] [--sha <40-hex>]
-#
-# Semantics:
-#   - With --sha: validate matches ^[0-9a-f]{40}$ and write to <target>/version.txt.
-#   - Without --sha: git -C <source> rev-parse HEAD (default --source .), validate, write.
-#   - Idempotent: always overwrites; never reads-then-writes.
-#   - File contents: ONE line of 40-hex SHA + trailing LF. UTF-8.
-#
-# Exit codes:
-#   0  success
-#   1  validation failure (non-hex --sha, malformed git HEAD), bad path, or git error
 
 from __future__ import annotations
 
-INSTALL_CLASS = True  # writes the install sentinel; see door_install.declared_install_class
+INSTALL_CLASS = True
 
 import argparse
 import re
@@ -31,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-GENERATES = []  # writes <--path>/version.txt to a caller-supplied install-target directory outside claude-klabauter's own tracked tree
+GENERATES = []
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 

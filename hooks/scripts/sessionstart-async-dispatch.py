@@ -82,8 +82,6 @@ class StartGuard:
     sources: FrozenSet[str]
 
 
-#: Counterpart to the sync dispatcher's constant of the same name -- a
-#: non-empty `source` matching no guard here skips the cohort, but loudly.
 _UNMATCHED_SOURCE_BREADCRUMB = (
     "[sessionstart-async-dispatch] source={source!r} matches no guard in "
     "REGISTRY -- every guard skipped for this boot. If the harness added a "
@@ -99,56 +97,23 @@ REGISTRY: Tuple[StartGuard, ...] = (
     StartGuard("session_start_repair_prepare_commit_msg_hook",
                "session-start-repair-prepare-commit-msg-hook.py",
                frozenset({"startup"})),
-    # Published-engine registry self-heal -- the `repos.claude_klabauter` half
-    # of the same missing-install gap the doe_claude self-heal above covers for
-    # `engine.working_repos.doe_claude`. Folded here rather than given its own
-    # registration for the reason that fold exists: it is side-effect-only, it
-    # emits nothing on any path, and it must not sit on boot latency.
-    #
-    # ALL FIVE SOURCES, matching the doe_claude self-heal beside it and for the
-    # same reason: the registry is a property of the BOX, so the session that
-    # finds it unwritten is whichever one starts next, and narrowing this set
-    # would leave a container whose sessions all resume/fork resolving an
-    # unstamped engine forever. Idempotent by construction -- a healthy box
-    # costs one zero-spawn ladder resolution and returns.
     StartGuard("session_start_register_published_engine",
                "session-start-register-published-engine.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
     # LIFECYCLE OWNER FOR THE http FORWARDER, folded here rather than given its
     # own registration. Its module docstring said "NOT REGISTERED HERE ... the
-    # DR's own Consequences section defers that wiring to a later chunk" -- this
-    # is that chunk (C10). Left unregistered it was inert: the resident forwarder
-    # on this box was started once by hand and nothing revived it.
-    #
     # THIS IS LOAD-BEARING THE MOMENT ANY ENTRY IS type: "http". A dead forwarder
     # is not a deny, it is a CONNECTION REFUSAL at the harness -- a transport
-    # error, which the http path FAILS OPEN on. Every guard behind that transport
-    # then goes silently inert fleet-wide, which is a worse shape than the outage
-    # 084654c8b reverted: an outage announces itself, a silent disarm does not.
-    #
     # All five sources deliberately. The forwarder is a MACHINE-WIDE resident, so
-    # the session that finds it missing is whichever one starts next -- there is
-    # no reason that should be a `startup` in particular, and narrowing this set
-    # would leave a box whose sessions all resume/fork with no forwarder at all.
-    # Costs nothing on the overwhelmingly common path: the guard probe-binds,
-    # loses to the incumbent, and treats losing as success (its own "ENSURE, NOT
     # SPAWN-BLINDLY" contract). Async and never-waits, per its own "NEVER WAIT".
     StartGuard("sessionstart_ensure_http_forwarder",
                "sessionstart-ensure-http-forwarder.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
     # PLUGIN-ROOT BREADCRUMB -- see `session-start-write-plugin-root-breadcrumb.py`'s own
-    # module docstring for what this is and why it exists.
-    #
-    # All five sources. The breadcrumb is a property of the BOX, not of a particular boot,
-    # so the session that finds it absent or pointing at another checkout is whichever one
-    # starts next -- narrowing the set would leave a box whose resume/fork sessions render
-    # default rows forever. A healthy box pays one small read and returns.
     StartGuard("session_start_write_plugin_root_breadcrumb",
                "session-start-write-plugin-root-breadcrumb.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
     # PRE-COMMIT GATE CHAIN SELF-HEAL -- see `session-start-ensure-precommit-hook.py`.
-    # All five sources: `.git/hooks` is a property of the clone, so the session
-    # that finds it missing is whichever one starts next.
     StartGuard("session_start_ensure_precommit_hook",
                "session-start-ensure-precommit-hook.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
@@ -178,13 +143,6 @@ class _ByteSink:
 
 
 class _BufferedTextCapture(io.StringIO):
-    """Same shim `stop-dispatch.py`/`_stop_family_runner` use: some folded guards
-    emit through `sys.stdout.buffer.write()`/`sys.stderr.buffer.write()`, which a
-    plain StringIO has no attribute for. Both channels land in ONE ordered
-    `io.BytesIO` -- `write(str)` encodes into it, `.buffer.write(bytes)` writes
-    into it unmodified -- so `combined()`/`combined_bytes()` are order-preserving
-    AND byte-exact, rather than concatenating two separately-accumulated
-    buffers."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -224,10 +182,6 @@ def _import_guard(guard: StartGuard) -> Any:
 
 
 def _invoke(main_fn: Callable[[], int], stdin_text: str) -> Tuple[int, bytes, bytes]:
-    """Returns RAW BYTES for both channels (`combined_bytes()`, not
-    `combined()`) -- this dispatcher has no string-specific logic downstream
-    (only truthiness checks before re-emission), so there is no reason to
-    decode-then-re-encode a guard's captured output."""
     old_stdin = sys.stdin
     out_buf = _BufferedTextCapture()
     err_buf = _BufferedTextCapture()
@@ -263,18 +217,10 @@ def main() -> int:
             skipped.append(guard.module_key + " (import)")
             continue
         try:
-            # Incremental flush, same rationale as sessionstart-dispatch.py:
-            # a future guard folded here that ever exits via os._exit would
-            # otherwise risk discarding an earlier guard's already-captured
-            # output if this dispatcher accumulated instead of flushing.
             _rc, out, err = _invoke(getattr(mod, "main"), raw)
         except BaseException:
             skipped.append(guard.module_key)
             continue
-        # `out`/`err` are raw bytes (`_invoke`'s `combined_bytes()`); written
-        # through `.buffer`, never the text wrapper, so a guard's raw
-        # sys.stdout.buffer.write()/sys.stderr.buffer.write() bytes (Windows
-        # CRLF-translation fix) survive re-emission unmodified.
         if out:
             sys.__stdout__.buffer.write(out)
             sys.__stdout__.buffer.flush()

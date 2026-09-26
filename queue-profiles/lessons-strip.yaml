@@ -1,18 +1,4 @@
-# coordinator/queue-profiles/lessons-strip.yaml — the lessons strip grind
-# profile, validated by coordinator/schemas/queue-grind-profile.schema.json
-# and by that schema's test_every_queue_profile_validates, and pushed
-# through the engine's own load_profile/validate_graph/resolve_appetite
-# seam by coordinator/tests/test_lessons_queue_profile.py.
-#
-# The strip run is launched from a repository's own root (a sibling, or DoE
-# for its own promoted rows) with --queue state/lessons and this profile
-# from DoE's coordinator/queue-profiles/, after the central apply run. It
-# writes only that repository. It closes a local row only once the row's
-# promoted_to outbox record has settled centrally -- no fix node, since a
-# strip run never edits a row's body, only its closure.
-#
-# Spec backlink: docs/plans/2026-09-21-canonical-learn-lessons-emitted-workflow.md
-# Tasks section C6.
+
 
 row_id_key: "@stem"
 
@@ -27,9 +13,7 @@ verdicts:
   - drifted
   - not-applied
 
-# A drifted or not-applied row hands back under its own named type rather
-# than a universal one -- the strip triage record names which repo/outbox
-# record it checked.
+
 hand_back_types:
   - strip-drift
   - strip-pending
@@ -47,9 +31,8 @@ graph:
     kind: refute-close
     edges:
       confirmed: commit
-    # A refuted promoted claim hands back rather than closing on an
-    # unconfirmed claim. A back-edge to triage would close a loop through
-    # this on_fail, which validate_graph refuses.
+    
+    
     on_fail: needs-judgment
 
   commit:

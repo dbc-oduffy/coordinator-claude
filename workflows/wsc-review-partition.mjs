@@ -87,9 +87,7 @@ export const meta = {
   ],
 }
 
-// Order pinned by C2's own spec: dispatch framing, the frozen diff path, a literal
-// `sidecar_path:` marker on its own newline-preceded line (the exact marker
-// coordinator/agents/code-reviewer.md keys off), then contractBlocks appended verbatim.
+
 function reviewerPrompt(slice) {
   return [
     'You are the coordinator:code-reviewer instance dispatched as part of a wsc-review-partition Workflow.',
@@ -109,9 +107,7 @@ function reviewerPrompt(slice) {
   ].join('\n')
 }
 
-// Same marker convention as the reviewer prompt above; carries the reviewer's own return text
-// (its `DONE: ...` pointer) so the integrator knows where the review dispatch above landed
-// before it opens the sidecar itself.
+
 function integratorPrompt(slice, reviewerReturn) {
   return [
     'You are the coordinator:review-integrator instance dispatched as part of a wsc-review-partition Workflow.',
@@ -141,9 +137,8 @@ function integratorPrompt(slice, reviewerReturn) {
 
 const parsedArgs = (typeof args === 'string') ? JSON.parse(args) : args
 if (!parsedArgs || typeof parsedArgs !== 'object') {
-  // A caller whose composer step died hands us null. Unguarded, that surfaces
-  // as a null dereference on the next line and reads as a defect in the review
-  // partition -- when in fact the partition never ran. Name it instead.
+  
+  
   throw new Error(
     'wsc-review-partition received no args object (got ' + String(parsedArgs) + '). ' +
     'The caller composes this payload with coordinator/bin/compose-review-wave.py; ' +
@@ -152,9 +147,7 @@ if (!parsedArgs || typeof parsedArgs !== 'object') {
 }
 const slices = Array.isArray(parsedArgs.slices) ? parsedArgs.slices : JSON.parse(parsedArgs.slices)
 
-// Reviewer stage: NO schema — a review dispatch returns the DONE pointer string and persists
-// its findings body to disk; review-integrator's intake hard-stops on inline findings, so an
-// inline-return mechanism here would be actively harmful, not merely redundant.
+
 async function reviewStage(prevResult, slice, index) {
   return await agent(reviewerPrompt(slice), {
     agentType: 'coordinator:code-reviewer',
@@ -164,9 +157,7 @@ async function reviewStage(prevResult, slice, index) {
   })
 }
 
-// Integrator stage: 1:1 with the reviewer stage above, receiving the same slice as
-// `originalItem` — pipeline hands each stage exactly one item, so this is structurally a
-// one-reviewer-to-one-integrator dispatch, never a union across slices.
+
 async function integrateStage(prevResult, slice, index) {
   return await agent(integratorPrompt(slice, prevResult), {
     agentType: 'coordinator:review-integrator',
@@ -177,27 +168,13 @@ async function integrateStage(prevResult, slice, index) {
 }
 
 // NEGATIVE SPEC -- there is no trail stage, and adding one back is a regression.
-// `review_trail.write` and `coordinator-write-review-trail` are a K-060 gravestone
-// (DR-372/DR-374). The replacement is the `review_receipt:` block the dispatched reviewer
-// stamps into its own sidecar, which `gates.review_receipt` reads: dispatching the reviewer
-// IS recording the review, and nobody writes a trail record. The op id still dials, so a
-// re-added stage would not fail loudly -- it would collect refusals and report them as an
-// unrecordable partition.
 
-// pipeline(), not parallel() barriers: a slice's integrator dispatch starts the moment
-// that slice's reviewer dispatch finishes, so a fast slice never idles behind the slowest
-// reviewer, and there is no cross-slice context an integrator needs before starting. The
-// trail stage rides the same per-slice chain for the same reason.
+
 const sliceResults = await pipeline(slices, reviewStage, integrateStage)
 
 log('wsc-review-partition complete: slices=' + slices.length)
 
-// pipeline() returns results index-stable to its input `slices` array, not in
-// completion order, even though each slice's stages run independently and can
-// finish out of order -- so `sliceResults[index]` below always lines up with
-// `slices[index]`. pipeline() surfaces only each item's FINAL stage, which is
-// the integrator; its own deliverable is its sidecar on disk, which is where
-// the close reads it from and always was.
+
 return slices.map((slice, index) => ({
   id: slice.id,
   integrateResult: sliceResults[index],

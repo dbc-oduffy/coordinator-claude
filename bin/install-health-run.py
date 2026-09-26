@@ -34,7 +34,7 @@ narrower entrypoint contract than the one it already calls).
 
 from __future__ import annotations
 
-INSTALL_CLASS = False  # writes only its health report; see door_install.declared_install_class
+INSTALL_CLASS = False
 
 import os
 import sys

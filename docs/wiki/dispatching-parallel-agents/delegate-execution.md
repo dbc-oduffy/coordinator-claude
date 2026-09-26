@@ -55,7 +55,7 @@ Each wave is a checkpoint. Prefer to never batch multiple waves before committin
 
 #### Model Selection Rubric
 
-**Default: Sonnet. Always.** The enrichment pipeline exists precisely so execution can be cheap. By the time a stub reaches this phase, it has been through enrichment (exact code sketches, line numbers, file paths) and domain review (the Game Dev Reviewer/the Data Science Reviewer/the Front-End Reviewer corrections). The Opus judgment has already been spent — the executor is a typist following a blueprint.
+**Default: Sonnet. Always.** The enrichment pipeline exists precisely so execution can be cheap. By the time a stub reaches this phase, it has been through enrichment (exact code sketches, line numbers, file paths) and domain review (the Game Dev Reviewer/the Data Science Reviewer/the Front-End Reviewer corrections). The Opus judgment has already been spent: the executor is a collaborator who reads the whole plan and delivers its chunk against that blueprint.
 
 | Stub character | Model | Rationale |
 |---|---|---|
@@ -214,7 +214,7 @@ Agent(
    - If validation fails after 2 re-dispatches: escalate to coordinator for diagnosis. The failures may indicate a spec problem, not an execution problem.
    - If validation passes: proceed to step 5.
 5. If spec-compliant and validation passes: route to code quality review via `/review-code`
-   - Post-execution review findings flow through the review-integrator for application, not the EM manually. This requires an on-disk sidecar — the reviewer writes to its provisioned `state/subagent-share/<session>/<provision_key>.md` sidecar (pre-provisioned by the dispatching EM in the common case, self-scaffolded into that same home otherwise) and returns the path; the integrator reads that path, not an inline finding list.
+   - The dispatched reviewer applies its own findings — there is no separate integration step, and the EM does not fold findings manually. This requires an on-disk sidecar — the reviewer writes its `## Findings Ledger` to its provisioned `state/subagent-share/<session>/<provision_key>.md` sidecar (pre-provisioned by the dispatching EM in the common case, self-scaffolded into that same home otherwise) and the EM checks it via `review-findings-ledger verify --sidecar <path>` (`review-integration-doctrine.md`).
 6. If not spec-compliant: re-dispatch executor with specific gap list (this is distinct from validation failure — this is missing work, not broken work)
 7. Update tracker status to "Done" with commit hash if applicable
 
@@ -357,23 +357,23 @@ The subagent destructive-action EM-lock denies all git verbs, `git rm` included,
 
 A copy/merge executor that writes files into a destination can overwrite a same-basename, different-content file the destination already owned. The tell is in `git --no-optional-locks status`: a **genuinely new** write lands as `??` (untracked); an **`M`** (modified) on a path you expected to be new means the write clobbered an existing file. Before committing a copy/merge dispatch, verify each expected-new file shows `??`, not `M` — an unexpected `M` means revert and re-scope. (DR→coordinator merge: a copy-executor overwrote coordinator's OWN `test_prereq_probe.sh` / `test_repo_root_resolution.sh` with the same-named DR versions; `git status` showed them `M`, not `??`.)
 
-## Review-Integrator as Mandatory Next Step
+## The Reviewer Applies Its Own Findings — No Integration Dispatch
 
-After every review (plan, code, or architectural), the next action MUST be dispatching the review-integrator agent. Manual integration ("go through findings line-by-line") is prohibited except for explicit PM-override items.
+After every review (plan, code, or architectural), the reviewer that found each defect fixes it in the same pass. There is no separate integrator agent and no "next step" dispatch to fold findings — manual integration by the EM ("go through findings line-by-line") is prohibited except for explicit PM-override items, same as before, but the party that now applies tradeoff-free fixes is the reviewer itself, not a downstream agent.
 
-**Reviewer self-persists; dispatch the integrator with the returned path.** The review-integrator hard-stops on inline-relayed finding lists (`agents/review-integrator.md` § Intake precondition).
+**Reviewer self-persists and self-applies.** The reviewer writes a `## Findings Ledger` to its own sidecar and applies every finding in place, then the EM (or the reviewer itself) runs `review-findings-ledger verify --sidecar <path>` (`review-integration-doctrine.md`).
 
 The required sequence:
 
 1. **Dispatch `coordinator:code-reviewer`** (UNNAMED) or a persona reviewer. The sidecar is spawn-provisioned by the engine — no sentinel-append instruction is needed in the brief.
 2. **Read the returned pointer line**: `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`, which `coordinator:code-reviewer` extends with a trailing `| executed: <yes|no>` — a persona reviewer's line carries no such field. The sidecar is already on disk at `state/subagent-share/<session>/<provision_key>.md` — provisioned at spawn, not self-scaffolded.
-3. **Dispatch the review-integrator pointing at the on-disk sidecar path** — never an inline finding list.
+3. **Run `review-findings-ledger verify --sidecar <path>`** against the reviewer's own ledger — never an inline finding list.
 
-The review-integrator dispatched as a subagent handles:
+The dispatched reviewer's pass itself handles:
 - Applying tradeoff-free correctness fixes silently
 - Writing an escalation list for the EM (items needing PM input or genuine disagreement)
 
-EM spot-checks the diff after integration; does not re-do the integration manually.
+EM spot-checks the diff after the reviewer's pass; does not re-do the fold manually.
 
 ## Executor brief compliance — out-of-scope file edits are structural, not instructional
 

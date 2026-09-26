@@ -89,54 +89,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-# Named for what it SELECTS -- the environment about which nothing could be
-# determined, and so which gets the story that omits nothing -- never for
 # the failure that reaches it. A `_FAIL_CLOSED_` prefix would name the
-# mechanism, not the selection, and read as the opposite of what a reader
-# scanning for the default actually wants to find.
 STRICTEST_STORY_NAME = "strictest"
 
-# The core is exactly two members, admitted by argument, never by default.
-#
-# Admission discriminator (stated here, in prose, so a later addition is
-# argued against a bar rather than a remembered one):
-#
-#   Core-admission asks: "is there any selectable environment where the
-#   harmed party is ABSENT?" -- a question universally quantified over the
-#   whole story space. A member is admitted only when the answer is no for
-#   every story this switch could ever select.
-#
-#   Omission-list admission asks a different, environment-relative
-#   question: "is the harmed party absent HERE?" -- true for one specific
-#   story, irrelevant to whether the rule belongs in every other one.
-#
-#   A rule that CAN name a party but is found present in every candidate
-#   story is not omittable either -- but for the opposite reason from an
-#   omission-list rule (universal presence, not unnameability).
-#
-# The two founding members, each argued from its own real party:
-#
-#   "naked-python-mandate" -- code authored inside a VM is not quarantined
-#   to that VM; it is committed, reviewed, and merged into the same tree
-#   every workstation checks out. The harmed party is this fleet's
-#   maintainers on every host, and that party is present regardless of
-#   which host authored the diff -- no selectable story removes them.
-#
-#   "cross-repo-write-gating" -- its stated premise (sibling checkouts,
-#   other teams' live sessions) is genuinely false in an isolated VM, and
-#   its real party is the PR reviewer, present and the entire safety model
-#   in a cloud session. That party is renamed there, never absent, so no
 #   story omits this member. Its ENFORCEMENT MODE is venue-conditional and
-#   that is not an omission: on a managed-remote host the write-confinement
-#   guards stand down from blocking to an after-the-fact warning, and the
-#   reviewer is served instead by the warning, the scoped pathspec, and one
-#   repo's work per commit stream. The reasoning is recorded in the doctrine repo's
-#   own decision record for the managed-remote stand-down; that path is cited
-#   by name nowhere here because `docs/decisions/` is outside every publish
-#   row's source, so a reader of the published mirror would chase a directory
-#   the mirror does not carry. The rule above stands on its own text.
-#   A story that DROPPED the id would remove protection for a party that is
-#   not absent at all.
 CORE_RULE_IDS: frozenset[str] = frozenset(
     {"naked-python-mandate", "cross-repo-write-gating"}
 )
@@ -160,30 +116,14 @@ class CoreOmissionError(Exception):
     rule the story dropped."""
 
 
-# Review: overengineering-reviewer -- RegistryUnreadableError and
-# SentinelMissingError each had exactly one raise-site and one catch-site
-# (the resolver's own bare `except Exception`), which discriminated on
-# nothing; collapsed to one internal signal. `ProbeTimeoutError` stays
-# distinct: its raise-site is the one genuinely not an ambient exception,
-# since the timeout seam it guards is spec-mandated (failure mode 4).
 class _ResolutionFailure(Exception):
-    """Internal signal, never raised out of `resolve_environment_story`.
-    Covers the registry (missing/unreadable/unparseable/torn-write) and
-    sentinel-missing classes -- both are read failures the resolver answers
-    identically, via its own `except Exception`."""
+    pass
 
 
 class ProbeTimeoutError(Exception):
-    """Internal signal, never raised out of `resolve_environment_story`.
-    Raised when a caller-supplied probe exceeds its bounded timeout."""
+    pass
 
 
-# Environment-neutral prose: this is the story an OSS/container/CI consumer
-# receives via the one-way percolation mirror, with no selector and no
-# install conversation -- it must read as true of them, not as
-# workstation-flavoured doctrine addressed to someone else. No second
-# person, no "on your workstation", no "in the cloud" -- only what holds
-# everywhere this switch could ever place a reader.
 _STRICTEST_PROSE = (
     "Every rule in the doctrine corpus applies, in full, with no omission "
     "and no environment-scoped exception. Code is authored for every host "
@@ -217,30 +157,11 @@ def validate_story(story: Story) -> None:
 
 
 def register_story(story: Story) -> None:
-    """Validate `story`, then admit it to the in-process registry keyed on
-    `story.name`. Refuses (raises, does not admit) any story that fails
-    `validate_story` -- there is no override parameter and no partial
-    admission."""
     validate_story(story)
     _registry[story.name] = story
 
 
 def _read_registry_entry(registry_path: str, environment_id: str) -> Optional[str]:
-    """Read `environment_id -> story_name` from a flat `key: value` file at
-    `registry_path`. Returns the story name, or None when the file is
-    readable but carries no entry for `environment_id`.
-
-    Raises `_ResolutionFailure` on the whole missing/unreadable/
-    unparseable/torn-write class, which this module names as ONE failure
-    mode. That exception is caught by `resolve_environment_story`'s own
-    `except Exception`, which is the single place the fall-to-strictest
-    decision is made -- this function never decides it.
-
-    Duplicate keys: FIRST match wins, deliberately, and a duplicate is not
-    treated as a torn write. There is no recoverable reading of two entries
-    for one id, and a first-match rule that resolves to an admitted story
-    still passes `validate_story` at the resolver's exit -- so the worst
-    case is a wrong-but-valid story, never a core-omitting one."""
     try:
         with open(registry_path, "r", encoding="utf-8") as handle:
             lines = handle.readlines()
@@ -257,8 +178,6 @@ def _read_registry_entry(registry_path: str, environment_id: str) -> Optional[st
         if stripped.startswith(prefix):
             value = stripped[len(prefix):].strip()
             if not value:
-                # A torn write can leave a key with no value -- treated as
-                # unreadable, never as "story name is empty string".
                 raise _ResolutionFailure(
                     f"torn registry entry for {environment_id!r}"
                 )
@@ -267,8 +186,6 @@ def _read_registry_entry(registry_path: str, environment_id: str) -> Optional[st
 
 
 def _read_sentinel(sentinel_path: str) -> str:
-    """Return the environment id recorded at `sentinel_path`, or raise
-    `_ResolutionFailure` if the file is absent, unreadable, or empty."""
     try:
         with open(sentinel_path, "r", encoding="utf-8") as handle:
             content = handle.read().strip()
@@ -330,36 +247,13 @@ def resolve_environment_story(
         if story is None:
             return STRICTEST_STORY
 
-        # `register_story` already validated this story on the way in. Re-checking
-        # on the way out costs a set difference and makes "the resolver can never
-        # return a story omitting a core member" true by construction, rather than
-        # true only while every writer goes through `register_story`.
         validate_story(story)
         return story
     except Exception:
         return STRICTEST_STORY
 
 
-# Review: overengineering-reviewer -- the prior version relayed a probe's
-# own exception across the thread boundary and distinguished "no value"
-# from "timed out" as a third failure branch. The resolver's own
-# `except Exception` around this call discards both distinctions on
-# arrival, so neither earned its bytes; `ProbeTimeoutError` now covers
-# every way `probe` can fail to produce a value in time.
 def _run_probe_with_timeout(probe: Callable[[], str], timeout_s: float) -> str:
-    """Run `probe` with a bounded wall-clock timeout. Raises
-    `ProbeTimeoutError` if `probe` does not return a value within
-    `timeout_s`, whether because it is still running, it raised, or it
-    finished without one -- the resolver's own `except Exception` around
-    this call answers all three identically, so this function's only
-    contract is: never block past `timeout_s`, and never distinguish a
-    failure the caller cannot observe.
-
-    Zero-spawn, thread-based (no subprocess): a daemon thread runs `probe`,
-    and `Thread.join(timeout_s)` bounds the wait. A probe that never
-    returns leaves its thread running in the background (daemon, so it
-    never blocks process exit) but the resolver itself is unblocked at
-    `timeout_s` regardless."""
     import threading
 
     result: list[str] = []

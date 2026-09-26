@@ -11,7 +11,7 @@ distilled_run: 2026-05-06-13h00
 
 ## Overview
 
-**Reviewer-routed workers** add mechanical leverage to the agent hierarchy without inflating persona count. Reviewers (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer) name workers in a `## Worker Dispatch Recommendations` block; the review-integrator preserves the block verbatim; the EM dispatches in a follow-up. This avoided the alternative draft (3 new Opus personas + 10-12 workers + classifier rewrite ≈ 15-18 new dispatch surfaces).
+**Reviewer-routed workers** add mechanical leverage to the agent hierarchy without inflating persona count. Reviewers (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer) name workers in a `## Worker Dispatch Recommendations` block, which the reviewer's own findings-ledger fold preserves verbatim (there is no separate integration pass); the EM dispatches in a follow-up. This avoided the alternative draft (3 new Opus personas + 10-12 workers + classifier rewrite ≈ 15-18 new dispatch surfaces).
 
 **Roster doctrine (canonical):** Personas are for distinct **judgment** styles. Workers are for **mechanical leverage** with structured output. Threat-modeling and test-pyramid are absorbable as lenses, not new personas.
 
@@ -42,9 +42,9 @@ Each worker spec includes:
 
 The Staff Engineer, the Game Dev Reviewer, and the Data Science Reviewer each get a `## Worker Dispatch Recommendations` section in their prompt. Reviewers do **not** dispatch directly — they surface a recommendation to the EM with a one-line rationale per worker. They recommend a worker only when its analysis would add evidence the findings don't already cover.
 
-### Integrator preserves the block verbatim
+### The reviewer preserves the block verbatim
 
-The review-integrator preserves the `Worker Dispatch Recommendations` block verbatim and **does not act on it**. The EM reads it after integration and dispatches in a follow-up step.
+The reviewer preserves its own `Worker Dispatch Recommendations` block verbatim when applying its findings and **does not act on it**. The EM reads it after the reviewer's pass and dispatches in a follow-up step.
 
 ### Delta-vs-baseline acceptance
 

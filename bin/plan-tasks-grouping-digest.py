@@ -7,7 +7,7 @@ grouping (every member of `schema_validate._PLAN_TASKS_GROUPING_ORDER` —
 prospective close (`--cut`) would produce — the value a PM approving a cut
 records as `digest` in that grouping's `grouping_approvals` block. Read-only:
 never writes the plan, never takes the file lock. Same "plain local read,
-direct import" shape as append-integrator-dispositions.py's trampoline — no
+direct import" shape as review-findings-ledger.py's trampoline — no
 JSON-RPC round-trip needed for an in-process Python caller.
 
 This tool computes a value; it does not grant an approval. It never checks or
@@ -40,13 +40,6 @@ EXIT_TRANSPORT_FAILURE = 3
 
 
 def _import_runner():
-    """In-process import, not an RPC invoke — pure local read + compute, same
-    rationale as append-integrator-dispositions.py's own trampoline.
-
-    DR-276: routed through `coordinator_core.cli_entry.run_op_main` for
-    baseline consistency — this op never writes the plan and never takes the
-    file lock (see module docstring), so it declares nothing and this
-    conversion changes no observable behavior."""
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 

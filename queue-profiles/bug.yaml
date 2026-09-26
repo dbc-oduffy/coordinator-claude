@@ -1,25 +1,5 @@
-# coordinator/queue-profiles/bug.yaml — the bug-backlog grind profile,
-# validated by coordinator/schemas/queue-grind-profile.schema.json and by
-# that schema's test_every_queue_profile_validates, and pushed through the
-# engine's own load_profile/validate_graph/resolve_appetite seam by
-# coordinator/tests/test_bug_queue_profile.py.
-#
-# /bug-blitz emits and fires this profile through emit-dispatch-workflow.py
-# --queue state/bug-backlog --profile bug --appetite <a>, replacing
-# EM-driven waves and a hand-authored script. Every executable step below
-# is a named engine op or agent verify -- no field accepts a command line
-# (DR-queue-grinds-run-on-shared-primitives Negative spec). The operative
-# Phase 1 triage policy lives ONLY here, inline as data, transcribed from
-# coordinator/commands/bug-blitz.md at the ref C6 reads before removing the
-# operative text there.
-#
-# Spec backlink: docs/plans/2026-09-21-canonical-bug-blitz-emitted-workflow.md
-# Tasks section C9.
 
-# Bug rows carry no id field (bug-backlog.schema.json 1.2.0) -- the file
-# stem is the row's identity, and it survives the archive rename. TF-*
-# rows in the run-scratch queue directory get stems that cannot collide
-# with backlog stems (TF-<run-id>-<n>), and emit refuses any collision.
+
 row_id_key: "@stem"
 
 batch_key: [severity]
@@ -40,8 +20,7 @@ verdicts:
   - unclear-direction
   - needs-judgment
 
-# Profile hand-back types, added to the universal set (DR-404 § 3). Each
-# ends a row's path and reaches the PM in the run's hand-back.
+
 hand_back_types:
   - park
   - wont-do
@@ -69,8 +48,8 @@ graph:
     kind: refute-close
     edges:
       confirmed: commit
-    # Refuted means the row still reproduces, so it goes back through fix
-    # rather than closing on an unconfirmed already-fixed/file-removed claim.
+    
+    
     on_fail: fix
 
   fix:
@@ -83,9 +62,8 @@ graph:
     kind: verify
     edges:
       pass: commit
-    # A failed verify hands back. A back-edge to triage or fix would close a
-    # loop through this same on_fail, which validate_graph refuses as a
-    # second on_fail traversal.
+    
+    
     on_fail: verify-failed
     verify:
       default: agent
@@ -102,7 +80,6 @@ closure:
     refute-close: closed
   stamp_fields: [closed_at, closed_by]
 
-# No absent_sentinels -- the bug schema's enums admit no placeholder value.
 
 triage_policy: |
   defer_requires_evidence:
@@ -147,8 +124,7 @@ triage_policy: |
   tradeoff_marks_needs_judgment:
     - "A record carrying a non-empty tradeoff statement goes to needs-judgment, regardless of size."
 
-# batch_size, limit, window and max_agent_calls below are the engine defaults, chosen
-# deliberately; recalibrate only against a tally confirmed to the run it measures.
+
 appetite:
   hunt:
     where: [[["status", "==", "open"], ["severity", "==", "P0"]]]

@@ -111,9 +111,6 @@ _NUDGE_ANCHOR = (
 
 
 def _compose_advisory(posture: str):
-    """The single unconditional advisory emitted at every firing posture.
-    Renders no verdict on the question at hand -- it does not classify,
-    match, or inspect `tool_input.questions` at all -- and blocks nothing."""
     prose = (
         f"[first-officer posture: {posture}]\n"
         "Structure, naming, sequencing, break-class fixes: decide, report.\n"
@@ -127,57 +124,38 @@ def main() -> int:
     try:
         raw = sys.stdin.read()
     except Exception:
-        return 0  # fail-open -- stdin unreadable
+        return 0
 
     try:
         payload = json.loads(raw) if raw else {}
         if not isinstance(payload, dict):
             payload = {}
     except Exception:
-        payload = {}  # fail-open -- malformed JSON; bash oracle's substring
-        # check would also miss a non-JSON blob, so an empty dict here is
-        # behaviorally equivalent (no agent_id -> bypass 1 falls through).
+        payload = {}
 
-    # --- Bypass 1: subagent fire -- not the EM's own AskUserQuestion ---
     if payload.get("agent_id"):
         return 0
 
-    # --- Bypass 2: irreversible-external override ---
     if os.environ.get("COORDINATOR_AUTONOMOUS_ASK_OK", "") == "1":
         return 0
 
-    # --- Extract session_id ---
     session_id = payload.get("session_id") or ""
     if not isinstance(session_id, str):
         session_id = ""
 
-    # --- Bypass 3: fail-open -- no session_id extracted ---
     if not session_id:
         return 0
 
-    # --- Bypass 4: sentinel gate OR standing posture -- fire inside an
-    # active autonomous run, OR when the resolved engagement_posture is
-    # "default"/"substrate-free" (the ask-bar disposition is standing at
-    # those postures, not gated behind a manual sentinel toggle).
-    # The bash oracle hardcodes "/tmp/autonomous-run-<sid>". A naive literal
-    # port ("/tmp/...") is WRONG under a Windows-native python3.exe: Git
-    # Bash's /tmp is an MSYS mount, not a real filesystem root -- MSYS bash
-    # resolves it to %TEMP% (confirmed via `cygpath -w /tmp`), but a
-    # Windows-native Python process has no MSYS path-translation layer and
-    # would instead treat "/tmp/..." as drive-relative (e.g. tmp/...),
-    # silently missing every sentinel the bash hook can see. tempfile.gettempdir()
-    # resolves to the same %TEMP% directory Git Bash's /tmp is mounted to,
-    # so this is the portable equivalent, not a behavior change.
     sentinel_path = os.path.join(tempfile.gettempdir(), f"autonomous-run-{session_id}")
     try:
         sentinel_present = os.path.isfile(sentinel_path)
     except Exception:
-        sentinel_present = False  # fail-open -- stat failure
+        sentinel_present = False
 
     try:
         posture = resolve_posture()
     except Exception:
-        posture = "precision"  # fail-open -- posture resolution failure
+        posture = "precision"
 
     if not sentinel_present and posture not in ("default", "substrate-free"):
         return 0

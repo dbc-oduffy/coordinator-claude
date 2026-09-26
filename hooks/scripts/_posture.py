@@ -39,53 +39,25 @@ import os
 import sys
 
 _VALID_POSTURES = frozenset({"precision", "default", "substrate-free"})
-# Named for what it SELECTS, not for the failure mode that reaches it: resolution
-# fails open (never blocks), and the value it falls back to is the most cautious
 # posture in the enum. A `_FAIL_OPEN_` prefix would read as the opposite.
 _MOST_CAUTIOUS_POSTURE = "precision"
 
 _cached_posture: str | None = None
-# Cache lifetime is the hook process; do not import this module into a
-# long-lived process without adding a TTL or invalidation path. Serves ONLY
-# `resolve_posture()`'s no-explicit-`repo_root` call shape -- kept as a bare
-# scalar (not folded into `_cached_posture_by_root` below) so the existing
-# test suite's `monkeypatch.setattr(_posture, "_cached_posture", None)` reset
-# idiom keeps working unchanged.
 _cached_posture_by_root: dict[str, str] = {}
-# Serves `resolve_posture(repo_root=...)`'s explicit-`repo_root` call shape,
-# keyed on the exact `repo_root` string passed in -- a call with a different
-# `repo_root` must never be served a value cached under a prior one.
-# Same process-lifetime-only contract as `_cached_posture` above: this dict
-# is safe only for the life of ONE hook process. Do not import this module
-# into a long-lived process without adding a TTL or invalidation path --
-# an unbounded per-root cache in a resident process never re-reads a repo's
-# `coordinator.local.md` after its first call for that root.
 
 # Reuse the existing root-resolution PRIMITIVE (`_engine_root._session_repo_root`
 # -- CLAUDE_PROJECT_DIR when set and real, else a zero-spawn upward walk for a
-# `.git` entry) rather than writing a fourth copy of that walk. This is NOT the
 # families-spanning shared READER/TRANSPORT module DR-047/DR-118 decline for
-# this class of tiny, independently-failing-open helper (see
-# `_next_move_ledger._find_repo_root`'s docstring for that ruling) -- this
-# module still resolves and caches `engagement_posture` entirely on its own;
-# it borrows only the root-finding primitive underneath.
 _SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 try:
     from _engine_root import _session_repo_root as _resolve_consuming_repo_root  # noqa: E402
 except Exception:
-    # Defensive fallback -- a hook script copied/deployed WITHOUT its sibling
-    # _engine_root.py (e.g. an isolated test harness, or a partial deploy)
-    # must still fail-open (this rung simply never resolves) rather than
-    # crash on import.
     _resolve_consuming_repo_root = None  # type: ignore[assignment]
 
 
 def _extract_key_from_lines(lines, key: str) -> str | None:
-    """Scan flat `key: value` lines and return the first value for `key`,
-    or None if absent. Tolerates a leading `---` frontmatter fence and
-    trailing inline comments; does not attempt general YAML parsing."""
     prefix = key + ":"
     for line in lines:
         stripped = line.strip()
@@ -138,10 +110,6 @@ def _find_repo_root() -> str | None:
 
 
 def _resolve_posture_from(repo_root: str | None) -> str:
-    """Resolution body shared by both `resolve_posture()` call shapes:
-    `repo_root` is the already-decided consuming root (explicit-argument
-    call), or None to fall back to `_find_repo_root()`'s own anchoring
-    (default no-argument call, and the shape every existing caller uses)."""
     try:
         root = repo_root if repo_root is not None else _find_repo_root()
         if root is not None:
@@ -153,8 +121,6 @@ def _resolve_posture_from(repo_root: str | None) -> str:
                 return value
 
         # WS-2 home-resolution shape: CLAUDE_HOME first, `Path.home()` as the terminal
-        # rung. A bare `expanduser("~")` yields the literal "~" when every home rung is
-        # unset, which silently reads a posture file that is not the operator's.
         from pathlib import Path
         claude_home = os.environ.get("CLAUDE_HOME") or Path.home()
         identity_path = os.path.join(claude_home, ".claude", "coordinator-identity.yaml")

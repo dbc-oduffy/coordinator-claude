@@ -55,7 +55,7 @@ If you find yourself writing a specialist brief that includes "then consolidate 
 
 **Any autonomous agent expected to run >2 minutes must run backgrounded.** The EM gets notified on completion and processes results then — it doesn't need to block watching agent output scroll by.
 
-**Mechanism is harness-dependent — and the `run_in_background` param's presence has flip-flopped across builds, so pass it explicitly.** It was absent in the 2.1.176 fork/async-by-default window (dispatches returned a poll handle immediately; nothing to pass) and **re-exposed in 2.1.178**. Don't rely on an implicit default: where the `Agent` tool exposes `run_in_background`, pass `run_in_background: true`. The foreground-dispatch deny hook (`nudge-foreground-agent-dispatch.sh`) handles the flip-flop by **learning the build's capability per session**: it always denies a present-and-`false` value; it denies an absent key once any dispatch this session has carried the param (proving the build exposes it — recorded at `.git/coordinator-sessions/<sid>/.harness-bg-capable`); and it passes an absent key only in an uncalibrated session, so a genuinely param-less build is never bricked. Either way the EM gets the same non-blocking, notify-on-completion behaviour described below.
+**Mechanism is harness-dependent — and the `run_in_background` param's presence has flip-flopped across builds, so pass it explicitly.** It was absent in the 2.1.176 fork/async-by-default window (dispatches returned a poll handle immediately; nothing to pass) and **re-exposed in 2.1.178**. Don't rely on an implicit default: where the `Agent` tool exposes `run_in_background`, pass `run_in_background: true`. The foreground-dispatch deny hook (`enforce-agent-dispatch-mode.py` Concern G) handles the flip-flop by **learning the build's capability per session**: it always denies a present-and-`false` value; it denies an absent key once any dispatch this session has carried the param (proving the build exposes it — recorded at `.git/coordinator-sessions/<sid>/.harness-bg-capable`); and it passes an absent key only in an uncalibrated session, so a genuinely param-less build is never bricked. Either way the EM gets the same non-blocking, notify-on-completion behaviour described below.
 
 This applies to:
 - Enricher agents (10-15 min each)
@@ -66,6 +66,7 @@ This applies to:
 **Exceptions** (keep foreground):
 - Agents whose results you need *immediately* to make the next decision (e.g., a quick Haiku lookup before choosing an approach)
 - Agents in a strictly sequential pipeline where the next dispatch depends on the previous result AND you have no other work to do while waiting
+- Cheap, bounded agent types named in `SYNC_RETURN_TYPES` (`_foreground_dispatch_strip.py`) — the commit agent and the single-pass checkers. The foreground gate honours an explicit foreground dispatch for these and returns `None` (no reroute, no notice) rather than backgrounding them. `A-BOUNDED-AGENT-REROUTED-TO-BACKGROUND-COSTS-A-TURN`.
 
 When dispatching N independent agents in background, you'll be notified as each completes. Process results as they arrive — don't wait for all N before starting.
 

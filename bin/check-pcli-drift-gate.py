@@ -39,7 +39,6 @@ Spec backlink: state/debt-backlog/2026-08-13-pcli-04-drift-gate-dispatch-feed-vs
 """
 
 
-# --- routing half: this file is now a thin shim over entry_point_shim.run_gate_target ---
 from __future__ import annotations
 
 import sys

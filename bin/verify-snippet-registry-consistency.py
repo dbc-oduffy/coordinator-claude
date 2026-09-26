@@ -1,38 +1,7 @@
 from __future__ import annotations
-# verify-snippet-registry-consistency — CLI trampoline over claude-klabauter
-# coordinator_core.snippet_sync.verify_registry_consistency.
-#
-# Sync-of-syncs verifier for snippets/registry.toml. Confirms registry.toml
 # is consistent with the 4 HARDCODED-shape verify-<X>-sync.sh scripts
-# (reviewer-calibration, docs-checker-consumption,
-# plan-coverage-check-consumption, prior-art-check-consumption).
-#
-# Usage:
-#   verify-snippet-registry-consistency          Run all checks. Exit 0 on success.
-#   verify-snippet-registry-consistency --list    Print one line per check in execution order.
-#
-# Exit codes:
-#   0 — all checks pass
-#   1 — consistency violation (printed to stderr)
-#   2 — missing dep or file not found (ALSO: missing schema_version — a
-#       faithfully-reproduced oracle quirk, see the claude-klabauter module's own
-#       negative-spec docstring)
-#   3 — schema_version present but unsupported. The supported set is
 #       coordinator_core.snippet_sync.registry._SUPPORTED_SCHEMA_VERSIONS and is
-#       not restated here — a second statement of it is what let this gate sit
-#       six weeks behind the registry it verifies.
 #   4 — DEDICATED transport-failure code (PORTER-BRIEF-ADDENDUM § 3b): the
-#       coordinator-root / engine-root resolution failed, the DoE-claude repo
-#       root (which owns snippets/registry.toml) was unresolvable, or
-#       coordinator_core.snippet_sync.verify_registry_consistency was not
-#       importable. Distinct from business code 2 ("missing dep or file not
-#       found" — a repo-content problem) so a caller can tell "claude-klabauter link is
-#       down" apart from "registry.toml is missing on disk".
-#
-# Port of: verify-snippet-registry-consistency.sh (DoE 93887f6f, 2026-07-17)
-# Spec backlinks:
-#   - docs/plans/2026-06-15-snippet-sync-consumer-registry.md § Dispatch Ledger C4, C8
-#   - docs/decisions/2026-06-15-snippet-registry-shape.md § Schema amendments — the Staff Engineer C2
 
 import os
 import sys
@@ -78,20 +47,10 @@ def _resolve_plugin_root() -> str:
             file=sys.stderr,
         )
         sys.exit(_TRANSPORT_FAILURE_EXIT)
-    # Either content layout — the published flat mirror carries snippets/ and its registry at its
-    # own root, with no "coordinator" segment to join — routed through the
-    # promoted content_root_or_private wrapper (overengineering-reviewer finding 2).
     return content_root_or_private(root)
 
 
 def _bootstrap_engine() -> str:
-    """Put coordinator/bin/lib and the resolved claude-klabauter engine on sys.path.
-
-    Order is load-bearing: `import lib` first (so `cc_invoke` is importable),
-    then `require_dispatch_engine_on_path()` to resolve and bind the engine
-    root. Every function in this file that imports a `lib/`-dir module or
-    `coordinator_core.*` calls this first.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 
@@ -105,14 +64,7 @@ def _import_main():
 
 
 def main(argv: "list[str] | None" = None) -> int:
-    # Business codes 0/1/2/3 are all already spoken
-    # for here (2 = "missing dep or file not found", a repo-content problem);
-    # a claude-klabauter-link failure is an architecturally distinct failure mode (a
-    # coordinator/claude-klabauter packaging problem) and gets its OWN dedicated
     # transport-failure code (4), per PORTER-BRIEF-ADDENDUM § A3b's
-    # never-reuse-a-business-rc rule — matching the other two trampolines in
-    # this slice (coordinator-complete-entry.py, platform-localize.sh), which
-    # both correctly mint a previously-unused dedicated code for this case.
     try:
         op_main = _import_main()
     except RuntimeError as exc:

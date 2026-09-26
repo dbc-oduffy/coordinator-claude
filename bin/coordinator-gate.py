@@ -1,36 +1,4 @@
-# coordinator-gate.py — one dispatcher, a subcommand per current
-# `check-*`/`verify-*`/`assert-*` entry point, batching multiple predicates
-# into ONE interpreter invocation.
-#
-# Why this file exists (docs/plans/2026-08-16-a-process-per-predicate.md,
-# chunk C10): this is the 60-entry-point family that produces the "a
-# ceremony running eight of them pays 16 processes" figure the plan's §
-# Problem opens with, and the family C7's fan-in measurement (8 predicates
-# as 8 separate processes at p90 6337.80ms vs the same 8 in ONE process at
-# 883.83ms, 7.17x) was made against. A dispatcher that can only run one
-# predicate per invocation reproduces today's per-process cost exactly while
-# adding indirection — that is a fail against this chunk's requirement, not
-# a partial credit. An 8-gate ceremony goes from 16 processes to 2 (one
-# `coordinator-gate` invocation carrying all 8, plus the caller). Usage:
-#
-#   coordinator-gate.py <name> [-- <args for name>] [<name2> [-- <args>] ...]
-#
 # Each `<name>` must be one of entry_point_shim.GATE_TARGETS. Args for a
-# given subcommand run from the token after its name up to (but not
-# including) the next recognized subcommand name, OR up to a literal `--`
-# token immediately following the name (the `--` itself is consumed, not
-# forwarded) — the `--` form disambiguates an argument that happens to
-# collide with another target's bare name. All subcommands run in this same
-# process, in argv order, each via `entry_point_shim.run_gate_target`.
-#
-# Exit code: 0 iff every subcommand returned 0. Otherwise the exit code of
-# the FIRST subcommand that returned non-zero (matches shell `&&`-chained
-# semantics of running the same names as separate processes) — every
-# subcommand still runs; this dispatcher does not abort early on a mid-batch
-# failure, since the 60 targets are independent reads over disjoint
-# artifacts, not a pipeline.
-#
-# Spec backlink: docs/plans/2026-08-16-a-process-per-predicate.md, chunk C10
 from __future__ import annotations
 
 import os
@@ -43,7 +11,6 @@ _USAGE_FAIL = 2
 
 
 def _parse_batch(argv: List[str]) -> List[Tuple[str, List[str]]]:
-    """Split argv into (subcommand_name, subcommand_argv) groups."""
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from entry_point_shim import GATE_TARGETS, UnknownTargetError
 
@@ -84,7 +51,6 @@ def main(argv: List[str]) -> int:
             "\n"
             f"known names:\n  {names}\n"
         )
-        # --help is a successful query, not a usage error; `<no args>` is not.
         if argv:
             print(usage)
             return 0

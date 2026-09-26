@@ -168,7 +168,6 @@ def _run(cmd, **kwargs) -> subprocess.CompletedProcess:
 
 
 def _resolve_tree() -> Optional[str]:
-    """`repos.claude_klabauter`, or `None` if unset."""
     _bootstrap_engine()
     return cli_shared.machine_local_get(_REPOS_KEY)
 
@@ -179,8 +178,6 @@ def _is_git_repo(tree: str) -> bool:
 
 
 def _current_ref(tree: str) -> Optional[str]:
-    """The tree's actual checked-out ref: the branch name, or a short sha
-    on detached HEAD. `None` if it could not be determined."""
     branch = _run(["git", "-C", tree, "symbolic-ref", "--short", "-q", "HEAD"])
     if branch.returncode == 0 and branch.stdout.strip():
         return branch.stdout.strip()
@@ -191,9 +188,6 @@ def _current_ref(tree: str) -> Optional[str]:
 
 
 def _dirty_refusal(tree: str) -> Optional[str]:
-    """`None` when the tree is clean; a refusal message otherwise. Fails
-    CLOSED: a non-zero `git status` refuses rather than being read as
-    clean."""
     result = _run(
         ["git", "-C", tree, "--no-optional-locks", "status", "--porcelain=v2", "--untracked-files=normal"]
     )
@@ -217,11 +211,6 @@ def _branch_exists_on_remote(tree: str, branch: str) -> bool:
 
 
 def _is_publish_mirror(tree: str) -> bool:
-    # in-process, matching the doctor
-    # probe added in this same chunk -- Finding 7's sys.path insert makes
-    # coordinator_core importable, so the CLI shell-out this replaced was
-    # an added process spawn for no reason (machine load norm:
-    # docs/wiki/machine-load-norm.md).
     _bootstrap_engine()
     mirror_path = registry_get(_PUBLISH_MIRROR_PATH_KEY)
     if not mirror_path:
@@ -230,8 +219,6 @@ def _is_publish_mirror(tree: str) -> bool:
 
 
 def _declared_track_ref_branch() -> Optional[str]:
-    """The local branch `_expected_local_branch` derives from the declared
-    `publish.mirrors.claude_klabauter.track_ref`, or `None` if undeclared."""
     _bootstrap_engine()
     track_ref = registry_get(_TRACK_REF_KEY)
     if not track_ref:
@@ -274,11 +261,6 @@ def _cmd_report(args: argparse.Namespace) -> int:
     if actual == declared:
         print(f"klabauter-channel: agrees — the box is on {declared!r}.")
     else:
-        # Fold Finding 3's narrowed
-        # predicate into the recommendation too. On a publish mirror,
-        # `--set <declared>` is only permitted when it agrees with
-        # `track_ref` -- recommend it only then; otherwise name the
-        # track_ref lever instead of pointing at a command that refuses.
         if _is_publish_mirror(tree) and _declared_track_ref_branch() != declared:
             print(
                 f"klabauter-channel: MISMATCH — declared {declared!r}, actual "
@@ -321,12 +303,7 @@ def _cmd_set(args: argparse.Namespace) -> int:
 
     # Narrowed from tree-IDENTITY to
     # intent-CONFLICT. On a normal claude-klabauter developer box the discovered
-    # `repos.claude_klabauter` IS the publish mirror, so a blanket refusal
-    # here had zero mutating capability on the only box class that can
-    # reach this path. `--set X` that agrees with the declared `track_ref`
-    # is reconciliation -- the case this verb exists for -- and proceeds;
     # only a `--set X` that CONTRADICTS the declaration refuses, at which
-    # point naming `track_ref` as the lever is finally true.
     if _is_publish_mirror(tree):
         declared_branch = _declared_track_ref_branch()
         if declared_branch != target:

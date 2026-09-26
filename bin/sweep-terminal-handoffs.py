@@ -100,20 +100,13 @@ _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 _USAGE = "usage: python sweep-terminal-handoffs.py [-h] [--dry-run]"
 _DRY_RUN_FLAG = "--dry-run"
 
-# Mirrors coordinator_core/ops/fleet/archive_terminal_handoffs.py's own
 # `_RECOMMENDED_CAP_CHOICE` -- see module docstring "Cap" section for why
-# this is a cited literal, not an import.
 _CAP = 150
 
 
 def _ensure_claude_klabauter_on_path() -> str:
-    """Idempotently put the engine root on sys.path; returns it.
-
-    The file's ONE claude-klabauter-root path-resolution site, mirroring the retired
-    predecessor's own `_ensure_claude_klabauter_on_path` helper.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    import cc_invoke  # pyright: ignore[reportMissingImports] — added to sys.path at runtime by the _LIB_DIR injection above, not statically resolvable
+    import cc_invoke
 
     return cc_invoke.require_engine_on_path(__file__)
 
@@ -136,10 +129,6 @@ def _import_housekeeping_seam():
 
 
 def _stamp_archive_sweeps_liveness(repo_root: str) -> None:
-    """Best-effort stamp the shared `archive_sweeps` housekeeping-liveness key.
-
-    Called from the sweep-processing tail only (never on the internal-error exit).
-    """
     seam = _import_housekeeping_seam()
     if seam is None:
         return
@@ -150,37 +139,12 @@ def _stamp_archive_sweeps_liveness(repo_root: str) -> None:
         pass
 
 
-#: The ONE scan family whose members stay a bare count. It is the whole live
-#: non-terminal corpus (77 records on example-cockpit-repo the day this was written)
-#: and enumerating it drowns every other line. Every OTHER family is named
-#: record-by-record: those are few, and each one is a record that LOOKED
-#: archivable and was held back, which is the only part an operator can act on.
 _BULK_SCAN_FAMILY = "not-terminal"
 
 
 def _bootstrap_repo_identity() -> None:
-    """Bind `resolve_checked_repo_root` as a module global, never clobbering a patch.
-
-    `globals().setdefault`, not a bare `from X import Y` rebind, and NOT a
-    renamed private seam: this is the convention two siblings already carry
-    (`reap-stale-subagent-sidecars.py :: _bootstrap_reaper`,
-    `prune-closed-bugs.py :: _bootstrap_pcb`), both of which document the same
-    hazard. Keeping their spelling is the point -- a test copied from either
-    sibling patches `mod.resolve_checked_repo_root`, and under a differently
-    named seam that patch would be inert again, which is the exact bug this
-    replaced.
-
-    `main()` used to reach the resolver through an import inside its own body.
-    A function-local import binds a LOCAL name, so the three tests in
-    `coordinator/bin/tests/test_sweep_terminal_handoffs_cli.py` setting
-    `mod.resolve_checked_repo_root` patched an attribute nothing ever read:
-    the CLI resolved the REAL repo and each fixture repo went unused. One of
-    those drives the ACT path, so a test run held archive-and-commit authority
-    over the live corpus and nothing said so. `test_the_repo_root_seam_is_the_
-    one_the_cli_actually_calls` fails if a future edit re-inlines the import.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from repo_identity import resolve_checked_repo_root as _resolve_checked_repo_root  # pyright: ignore[reportMissingImports] — same runtime lib-bootstrap sys.path injection as elsewhere in this file
+    from repo_identity import resolve_checked_repo_root as _resolve_checked_repo_root
 
     globals().setdefault("resolve_checked_repo_root", _resolve_checked_repo_root)
 
@@ -224,13 +188,6 @@ def _no_fallback() -> None:
 
 
 def _print_planned_moves(moves) -> None:
-    """Print the records a `--dry-run` census would move, oldest-first.
-
-    Deliberately prints the id AND the destination: "what would move" is only
-    half the operator's question, and a destination already occupied by a
-    different file is refused later by `plan_sweep` under
-    `archive-dest-conflict` rather than moved.
-    """
     if not moves:
         print("dry run: no terminal handoffs would be archived")
         return
@@ -240,14 +197,8 @@ def _print_planned_moves(moves) -> None:
 
 
 def main(argv: "list[str] | None" = None) -> int:
-    """`argv` carries one flag, `--dry-run` (see the module docstring's Usage
-    section); everything else is delegated to `plan_sweep` +
-    `archive_and_commit`, called directly in-process. The sibling
-    sweep-script test harnesses call `mod.main(argv if argv is not None else
-    [])` uniformly, so the default must stay `None`-meaning-`sys.argv[1:]`.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from sweep_argv import parse_repo_root_argv  # pyright: ignore[reportMissingImports] — same runtime lib-bootstrap sys.path injection as above
+    from sweep_argv import parse_repo_root_argv
 
     argv = sys.argv[1:] if argv is None else argv
     _positional, flags, early_exit = parse_repo_root_argv(
@@ -273,28 +224,12 @@ def main(argv: "list[str] | None" = None) -> int:
     dispatch_failed = False
     archived = 0
 
-    # ONE process, ONE pass, straight against the shared sweep primitives --
-    # no op-handler dispatch route, no cc_invoke.route() round trip. This
-    # script used to reach the op through two cc_invoke.route() round trips
-    # (T1 preview, then T3 act), each spawning a fresh cold interpreter for
-    # `-m coordinator_core.invoke`. Measured through that shape the sweep
-    # cost 1046.875ms process time across 30 processes (state/audits/
-    # 2026-08-25-the-handoff-archive-op-earns-its-way-back.md section C5b)
-    # against DR-344's 500ms brightline -- and the cost was the round trips,
-    # not the work.
     _ensure_claude_klabauter_on_path()
     from coordinator_core.ops.fleet.archive_terminal_handoffs import plan_sweep
     from coordinator_core.ops.fleet._common import main_worktree_root
     from coordinator_core.git.repo_root import git_common_dir
 
     # `plan_sweep` is now SYNCHRONOUS (C2, docs/plans/2026-08-26-the-sweep-
-    # stops-paying-for-a-room-it-nev.md); `archive_and_commit` (a separate,
-    # out-of-scope module under active rewrite elsewhere -- staff-eng
-    # Finding 9) remains a coroutine, so `asyncio` is imported below on the
-    # ACT path only, for the single `asyncio.run(...)` boundary that still
-    # drives it. A `--dry-run` census reaches neither, so it must not pay the
-    # ~31ms `import asyncio` (which drags ssl/socket) to classify records —
-    # the same cost C2 deleted from the op module's classification path.
 
     try:
         common_dir = Path(git_common_dir(cwd=str(repo_root)))
@@ -362,9 +297,6 @@ def main(argv: "list[str] | None" = None) -> int:
     if archived == 0:
         print("no terminal handoffs archived")
     else:
-        # Name what moved. A bare count is the one thing an operator cannot
-        # check without re-running the sweep, and the re-run is what caused
-        # the damage the census above exists to prevent.
         print(f"{archived} terminal handoffs archived:")
         for item in result.get("acted", []):
             print(f"  {item.get('id')}")

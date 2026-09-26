@@ -64,9 +64,9 @@ already carries as an engine-repo op, not the "resolves the doctrine repo root
 to read doctrine working-data" shape the plan's Anti-scope forbids porting.
 Verdict: CANDIDATE for a net-new `common_dir`-scoped engine-repo op,
 tracked under C6b's DR-127 gate -- not a doctrine-repo-runner fold (contrast
-`guard-review-integrator-sidecar-intake.py`, which reads a genuine
-doctrine-repo-authored sidecar file and therefore stays doctrine-repo-resident on
-`preuse-agent-dispatch.py`'s runner). Actual porting is out of C6c's scope
+a hook that reads a genuine doctrine-repo-authored sidecar file and
+therefore stays doctrine-repo-resident on `preuse-agent-dispatch.py`'s
+runner). Actual porting is out of C6c's scope
 per that row's own body ("Porting any of them means writing new engine
 logic, not attaching existing logic"); this hook remains un-registered in
 `hooks.json` pending that future engine-side work.
@@ -89,16 +89,11 @@ from _message_envelope import CHANNEL_ADDITIONAL_CONTEXT, compose, emit  # noqa:
 try:
     from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir  # noqa: E402
 except Exception:
-    # Defensive fallback -- a deploy missing its sibling _git_common_dir.py
-    # must still fail open (empty common dir -> callers skip) rather than
-    # crash on import.
     def _resolve_git_common_dir(git_root: str) -> str:
         return ""
 try:
     from _session_hub import session_id_is_real, ensure_session_dir  # noqa: E402
 except Exception:
-    # Defensive fallback -- a deploy missing its sibling _session_hub.py must
-    # still fail open to the pre-gate behaviour, not crash on import.
     def session_id_is_real(session_id: object) -> bool:
         return bool(session_id)
 
@@ -109,15 +104,8 @@ except Exception:
             return False
         return True
 
-# Two agent types the harness itself exempts from the CLAUDE.md corpus --
-# offering "use Explore" to a dispatch that IS Explore/Plan is meaningless,
-# and both must be excluded case-insensitively (dispatch call sites vary
-# on capitalization in practice).
 _EXEMPT_TARGETS = {"explore", "plan"}
 
-# Read-only-shaped signal: find / locate / search / inventory / survey /
-# list / identify / "which files" / "where is" / "does X exist". Kept as
-# a single alternation so the predicate is one pass over the prompt.
 _READ_ONLY_RE = re.compile(
     r"\b(find|locate|search|inventory|survey|list|identify)\b"
     r"|which\s+files?"
@@ -126,19 +114,6 @@ _READ_ONLY_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Write-shaped instruction: presence anywhere disqualifies the offer,
-# unconditionally -- no negation-scrubbing (see module docstring: a false
-# offer on real write-work is worse than a missed offer on read-only
-# work). Covers the verbs the brief names plus their common inflections,
-# widened to the fuller everyday write-verb vocabulary. Each stem carries
-# an optional leading `(?:re-?)?` INSIDE the outer `\b`, not a `\b`
-# immediately before the stem itself -- a bare `\bwrit(?:e|...)` never
-# matches "rewrite" because "e" and "w" are both word characters with no
-# boundary between them, and that gap recurs across every stem here
-# (reinstall, remerge, remodify, ...), so it is handled once, generally,
-# rather than special-cased per verb. Widening this set only ever
-# suppresses more offers -- the safe direction for a hook that must fail
-# toward silence.
 _WRITE_VERB_RE = re.compile(
     r"\b(?:re-?)?(edit|editing|edits|"
     r"writ(?:e|es|ing|ten)|"
@@ -171,10 +146,6 @@ _WRITE_VERB_RE = re.compile(
 
 _MARKER_NAME = "exploration-tier-dispatch-offered"
 
-#: Wiki section carrying the relocated cost/guarantee explanation this
-#: message used to state in full -- see this hook's relocation fragment,
-#: state/relocations/guard-message-cap/offer-exploration-tier-dispatch.py.md,
-#: and docs/plans/2026-08-02-guard-message-character-cap.md § C6.
 _WIKI_ANCHOR = (
     "coordinator/docs/wiki/guards/guard-message-concision.md"
     "#unnamed-explore-dispatch-cost-and-guarantee"
@@ -196,10 +167,6 @@ def _compose_offer_message():
 
 
 def _is_doctrine_carrying(subagent_type: Any) -> bool:
-    """True iff `subagent_type` names a real, non-exempt dispatch target.
-
-    Pure predicate -- no I/O, directly unit-testable.
-    """
     if not isinstance(subagent_type, str):
         return False
     normalized = subagent_type.strip().lower()
@@ -209,9 +176,6 @@ def _is_doctrine_carrying(subagent_type: Any) -> bool:
 
 
 def _is_read_only_shaped(prompt: Any) -> bool:
-    """True iff `prompt` carries a read-only signal and no write-shaped
-    instruction anywhere. Pure predicate -- no I/O, directly unit-testable.
-    """
     if not isinstance(prompt, str) or not prompt.strip():
         return False
     if _WRITE_VERB_RE.search(prompt):
@@ -220,9 +184,6 @@ def _is_read_only_shaped(prompt: Any) -> bool:
 
 
 def _git_root(start: str) -> str:
-    """No-subprocess walk-up from `start` (falls back to os.getcwd()) --
-    same idiom as the sibling C10 offer hook's helper of the same name.
-    Fails open to "" on any error."""
     try:
         base = start if isinstance(start, str) and start else os.getcwd()
         if not base:
@@ -240,20 +201,6 @@ def _git_root(start: str) -> str:
 
 
 def _claim_offer_marker(cwd: str, session_id: str) -> bool:
-    """Atomically claim the once-per-session marker via exclusive create
-    (`O_CREAT | O_EXCL`), replacing a check-then-act `isfile()` gate that
-    let two concurrent `Agent` dispatches in the same session (this
-    repo's own scoped-parallel fan-out shape is the norm, not an edge
-    case) both observe "not yet offered" and both emit.
-
-    Returns True iff THIS call is the one that should emit the offer --
-    either it won the exclusive create, or the marker path could not be
-    resolved at all (fails open toward offering, the same bias the
-    missing-`session_id` leg in `main()` already documents: an
-    unresolvable marker means dedup is impossible, so offering
-    unconditionally is the cheap failure mode this hook is built
-    around). Returns False iff the marker already exists -- someone else,
-    earlier or concurrently, already claimed it."""
     try:
         git_root = _git_root(cwd)
         if not git_root:
@@ -262,16 +209,8 @@ def _claim_offer_marker(cwd: str, session_id: str) -> bool:
         if not common_dir:
             return True
         session_dir = os.path.join(common_dir, "coordinator-sessions", session_id)
-        # A session id the hub gate will not accept gets no directory minted
-        # for its marker (see `_session_hub`), which leaves dedup impossible
-        # -- the same state an unresolvable marker path above lands in, and
-        # it takes the same fail-open-toward-offering exit.
         if not session_id_is_real(session_id):
             return True
-        # Review: coordinatorcode-reviewer -- creation call site now routes
-        # through the shared gate itself (`ensure_session_dir`), not just the
-        # upstream guard above; a False here is the same fail-open-toward-
-        # offering exit as the guard and the outer `except Exception` below.
         ensure_session_dir(session_dir, session_id)
         marker = os.path.join(session_dir, _MARKER_NAME)
         try:
@@ -322,9 +261,6 @@ def main() -> int:
         cwd = ""
     session_id = data.get("session_id")
     if not isinstance(session_id, str) or not session_id:
-        # No session_id -> the once-per-session marker cannot dedupe;
-        # offering unconditionally on every qualifying call without it
-        # would spam rather than nudge -- fail toward silent.
         return 0
 
     if not _claim_offer_marker(cwd, session_id):

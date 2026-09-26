@@ -34,10 +34,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Iterable, Optional
 
-#: `git diff --cached --name-status -z` status letters this module reasons
-#: about. A rename arrives as `R<score>` and is NOT a deletion: measured, a
-#: sanctioned `git mv` of a queue entry into `archive/<queue>/<YYYY-MM>/` is
-#: reported `R100`, so it never reaches the deletion branch at all.
 STATUS_DELETE = "D"
 STATUS_ADD = "A"
 STATUS_RENAME = "R"
@@ -45,13 +41,8 @@ STATUS_RENAME = "R"
 
 @dataclass(frozen=True)
 class Finding:
-    """One staged deletion that would erase a path still present on disk."""
 
     path: str
-    #: True when the on-disk bytes equal HEAD's blob for this path. The
-    #: stale-index phantom always looks like this -- nobody edited the file,
-    #: an old index simply forgot it. A deliberate untrack of a file the
-    #: author has since modified would not.
     disk_matches_head: bool
 
     def render(self) -> str:
@@ -102,20 +93,6 @@ def classify(
     exists_on_disk: Callable[[str], bool],
     disk_matches_head: Callable[[str], Optional[bool]],
 ) -> "list[Finding]":
-    """Returns the staged deletions that would erase a still-present file.
-
-    `rows` is the staged change set for THE COMMIT BEING MADE -- not the
-    repository's whole dirty state. That distinction is what keeps this quiet:
-    measured on a real armed tree, a `git commit -- <pathspec>` that excludes
-    the armed path builds a temporary index without it, so the hook never sees
-    it and never fires. Firing on an armed path the commit does not touch
-    would make this noise on a tree where the state is common, and noise gets
-    disabled.
-
-    `exists_on_disk` and `disk_matches_head` are injected so the whole
-    predicate is testable without a repository -- this module runs inside a
-    git hook, where the suite cannot follow it without spawning.
-    """
     rows = list(rows)
     added = {path for status, path in rows if status == STATUS_ADD}
 
@@ -124,19 +101,17 @@ def classify(
         if status != STATUS_DELETE:
             continue
         if not exists_on_disk(path):
-            continue  # an ordinary deletion: the file really is gone
+            continue
         if path in added:
-            continue  # deleted and re-added in one commit; not a disappearance
+            continue
         same = disk_matches_head(path)
         if same is None:
-            continue  # not in HEAD, so this commit cannot remove it from HEAD
+            continue
         findings.append(Finding(path=path, disk_matches_head=same))
     return findings
 
 
 def render_report(findings: "list[Finding]", override_env: str) -> str:
-    """The message the hook prints. Says what will happen, not what is wrong --
-    a guard that only names a rule gets overridden without being read."""
     lines = [
         "BLOCKED: this commit stages the deletion of "
         f"{len(findings)} path(s) that are still in HEAD and still on disk.",

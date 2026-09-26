@@ -96,6 +96,18 @@ sidecar before concluding a lost reply's work was lost. That promise was true fo
 reply was truncated found a template and reasonably concluded nothing had been written. The
 obligation is what makes the advisory true here rather than narrowing it to exclude you.
 
+**Lead lines.** Your inline return opens with two lead lines the EM can proceed on without reading
+further: line 1 is `<STATUS>: <stub-id | sidecar-path>`, where STATUS is `DONE`,
+`DONE_WITH_CONCERNS`, `PARTIAL` or `BLOCKED`; line 2 is `Sidecar: <path>` (or `Sidecar: none — <why
+no sidecar was provisioned>`), present whenever line 1's ref is not the sidecar path itself. The
+body below the two lead lines stays inline exactly as your own agent file defines it — detail the
+EM reads when it disputes the status or needs more, never replaced by the lead lines. This
+paragraph reaches four agents: executor, review-integrator, enricher, and test-runner. For an
+emitted-path brief whose own contract says "Reply EXACTLY `<STATUS>: <path>`", that reply already
+is the lead line alone — the two paths agree. A reply of `DONE: <sidecar-path>` is already a
+complete lead: line 1 with ref = the sidecar path, line 2 omitted. test-runner's own file already
+mandates that pointer reply, so it keeps it unchanged and adds no inline body.
+
 **Do not invert your return contract to satisfy this.** `review-findings` citizens return a
 pointer *instead of* the body; you return the body inline *and* write it to disk. Replacing your
 inline completion report with a bare pointer breaks the dispatching EM's read of your run.

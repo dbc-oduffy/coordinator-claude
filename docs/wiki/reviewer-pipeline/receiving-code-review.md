@@ -5,7 +5,7 @@ type: doctrine
 related:
   - plugins/coordinator/skills/review/SKILL.md (§ A.3 — Sequencing)
   - plugins/coordinator/snippets/reviewer-calibration.md
-  - plugins/coordinator/agents/review-integrator.md
+  - docs/wiki/reviewer-pipeline/review-integration-doctrine.md
   - docs/wiki/reviewer-pipeline/docs-checker-pre-review.md
   - docs/wiki/reviewer-pipeline/prior-art-checker.md
 ---
@@ -18,7 +18,7 @@ Code review requires technical evaluation, not emotional performance.
 
 **Core principle:** Verify before implementing. Ask before assuming. Technical correctness over social comfort.
 
-The mechanical implementation lives in `snippets/reviewer-calibration.md` (synced into every reviewer prompt) and the review-integrator agent. This wiki carries the human-facing reception doctrine: how the EM (and the PM) treat review output.
+The mechanical implementation lives in `snippets/reviewer-calibration.md` (synced into every reviewer prompt) and the reviewer-applies-own-findings contract (`review-integration-doctrine.md`). This wiki carries the human-facing reception doctrine: how the EM (and the PM) treat review output.
 
 ## The Response Pattern
 
@@ -104,7 +104,7 @@ FORBIDDEN:
 
 - **Reverse a premature disposition when a later reviewer surfaces stronger evidence.** Dispositions in the triage table are not write-once. When Reviewer 2 (or a worker like test-evidence-parser) returns evidence that contradicts a `Dismissed` or `Captured` verdict from Reviewer 1, reopen the row — change the disposition, record the evidence, apply the fix. Stale disposition entries strand bugs under "addressed" framing. Single-reviewer high-confidence verdicts are most-likely to need reversal; flag `Dismissed` rows for re-check when the next reviewer's domain overlaps.
 
-- **Post-review plan body sweep — grep for old framing, not just patch the cited line.** When a structural reviewer finding lands (renamed abstraction, inverted default, removed phase, reframed objective), grep the plan body for the OLD framing before declaring the integration done. Integrator patches the cited line; the rest of the plan body still quotes the pre-finding vocabulary. Body sweep is a one-grep step per structural finding — cheap insurance against half-applied edits that surface as confusion three sessions later.
+- **Post-review plan body sweep — grep for old framing, not just patch the cited line.** When a structural reviewer finding lands (renamed abstraction, inverted default, removed phase, reframed objective), grep the plan body for the OLD framing before declaring the fold done. The reviewer patches the cited line; the rest of the plan body still quotes the pre-finding vocabulary. Body sweep is a one-grep step per structural finding — cheap insurance against half-applied edits that surface as confusion three sessions later.
 
 - **Retroactive escalation framings need forward reframing, not mechanical application.** When a reviewer or PM escalates an item retroactively — "this should have been a ceremony / blocking gate / staff-session topic" — the finding's value is the anchor pattern for *future* work, not a mechanical patch to the artifact already in flight. Capture the doctrine update (wiki/skill edit, queue entry), reframe the anchor for forward use; do not retroactively rewrite the in-flight artifact to satisfy a ceremony that wasn't load-bearing when the work started.
 

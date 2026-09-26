@@ -1,57 +1,15 @@
-# percolate-published-unscanned-exceptions.yaml — deliberate exclusions for
-# dispatch_end_of_run_unscanned_published_check (coordinator/bin/publish.py).
-#
-# NOT setup/percolate-hooks/percolate-store.yaml -- deliberately a separate,
-# harness-owned file. That file is parked pending a cross-repo naming
-# decision (state/audits/2026-08-05-first-full-payload-identity-findings.md);
-# this file has no such dependency and is safe to edit independently of it.
-#
+
+
 # A published file this list names is EXPECTED to sit outside the transform
-# sweep's surface, ON PURPOSE, for the stated reason. Every entry requires
-# BOTH `path` and `reason` -- an entry with no reason is refused at load
-# time (coordinator/bin/publish.py::_load_unscanned_exceptions), because an
-# exclusion with no stated reason is exactly the "looks identical to an
-# accident" shape this mechanism exists to close.
-#
-# `path`: POSIX-style, relative to the destination repo root -- the same
-# form check-persona-names.py / check-install-doc-payload.py already report
-# paths in, so a finding from any of the three end-of-run legs can be
-# cross-referenced by the same string.
-#
-# state/audits/2026-08-05-first-full-payload-identity-findings.md Group B named
-# a second live candidate (published as `bin/depersonalize-identity.example.yaml`,
-# excluded from the sweep by an existing file_surface exclude_globs entry) and
+
+
 # left whether the exclusion was ever a DELIBERATE decision as unverified. That
-# ratification has since ARRIVED -- DoE-claude's EM and PM confirm the exclusion
-# is deliberate and correct -- see
-# cross-repo/inbox/2026-08-05-doe-claude-em-three-publish-gates-block-the-4-0-0-percolate.md
-# -- so the entry below is now present and this file has no outstanding
-# un-ratified candidate.
-#
+
+
 # ADMITTING AN ENTRY (PM ruling, 2026-09-02, replacing a human-ratification-
-# per-entry rule that was never going to hold). An entry is admitted by the EM,
+
 # on the record, and the bar is a STRUCTURAL claim rather than a signature:
-# name why the sweep could not have visited this file, in terms that survive
-# the file being renamed. Two shapes qualify so far, and both are about the
-# file's KIND, not its name:
-#
-#   - the sweep would CORRUPT it (it is a transform template, or the identity
-#     checker itself, whose body is worked substitution examples), or
-#   - the sweep has NOTHING TO VISIT (a compiled binary, or a generated
-#     artifact that cannot exist until after the sweep that produces it).
-#
-# "Unswept and I could not see why" is not a reason and is not admissible.
-# Key the disposition on the KIND, never on a filename list -- a list keyed on
-# names re-litigates the same question per artifact until it becomes the thing
-# nobody dares prune, and a POSIX twin of an already-admitted binary would hit
-# this gate again for no new reason.
-#
-# The old rule required a human to review and ratify each entry personally. It
-# is retired, not softened: it was unenforceable in substance -- an entry could
-# be added with no signature and nothing would know -- and in practice it left
-# a load-bearing entry sitting unmarked, holding a publish round open while
-# nobody was available to be the required human. What replaces it is a bar an
-# agent can actually meet and a reader can actually check.
+
 
 exceptions:
   - path: ".github/scripts/check-persona-names.py"

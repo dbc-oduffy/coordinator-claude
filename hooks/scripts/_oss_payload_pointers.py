@@ -151,10 +151,6 @@ import _prompt_surface_citations as _surfaces  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
-#: Reused verbatim from the sibling citation detector rather than re-derived —
-#: same five percolating trees, same tests/fixtures exemption. See that
-#: module's own docstring for why `templates/`/`schemas/`/`dist/` are
-#: deliberately excluded.
 iter_prompt_surface_files = _surfaces.iter_prompt_surface_files
 is_in_scope = _surfaces.is_in_scope
 
@@ -168,10 +164,7 @@ class Violation:
     line_fingerprint: str = ""
 
 
-# ---------------------------------------------------------------------------
-# The engine-resident skip manifest — derived from the allowlist, never
 # hand-maintained. See module docstring "THE MANIFEST'S ENTRY RULE".
-# ---------------------------------------------------------------------------
 
 
 def _skip_entries() -> frozenset:
@@ -188,15 +181,6 @@ def _skip_entries() -> frozenset:
 
 
 def _ignore_patterns() -> tuple:
-    """`coordinator/.percolate-ignore`'s parsed exclusion patterns, reused
-    verbatim from `_oss_payload.py` (the module that already owns this parse)
-    rather than re-parsed here — a second hand-maintained copy is exactly the
-    drifting-duplicate failure that module's own composition exists to
-    prevent. This is the THIRD layer the manifest is missing without this
-    call: allowlist + `source_map` alone overstate what ships, because
-    `.percolate-ignore` then excludes specific subtrees (`bin/tests/`,
-    `hooks/scripts/tests/`, `lib/tests/`, `snippets/registry.toml`, …) from
-    entries that are otherwise allowlisted and source_map-routed."""
     return _oss_payload.excluded_patterns()
 
 
@@ -227,29 +211,13 @@ def _coarse_dir_entries() -> frozenset:
 
 
 def _excluded_from_payload(rel_str: str, ignore_patterns: tuple) -> bool:
-    """True if a `coordinator/`-relative candidate (e.g. `coordinator/bin/
-    tests/foo.py`) falls inside a `.percolate-ignore`-excluded subtree — i.e.
-    it never ships even though it is tracked/allowlisted. `rel_str` already
-    carries its leading `coordinator/`; `.percolate-ignore` patterns are
-    matched relative to that same root, so the prefix is stripped before
-    reusing `_oss_payload`'s own matcher. Callers must first confirm the
-    candidate's top-level entry is a coarse directory admission (see
-    `_coarse_dir_entries`) — this function has no knowledge of that
-    restriction itself."""
     rel_to_coordinator = rel_str[len("coordinator/") :]
     return _oss_payload._is_excluded(rel_to_coordinator, ignore_patterns)
 
 
 #: Observed citation-form PREFIXES that precede `coordinator/{entry}/` in the
-#: corpus for `source_map`-routed entries — kept explicit and exercised by the
-#: ratchet test (not just implicitly relied upon by `_normalize_citation`'s
-#: anchor-strip below) so a reader can see the five forms this detector is
-#: actually proven against. `_normalize_citation` is a strict superset of
-#: this list (it anchors on ANY prefix before a literal `coordinator/`), so a
-#: sixth unlisted form still classifies correctly — this tuple documents and
-#: tests the corpus's actual shapes, it does not gate the mechanism.
 _OBSERVED_ENGINE_CITATION_PREFIXES = (
-    "",  # bare `coordinator/{entry}/...`
+    "",
     "$CLAUDE_PLUGIN_ROOT/",
     "<claude-klabauter-root>/",
     "<claude-klabauter-root>/",
@@ -257,52 +225,23 @@ _OBSERVED_ENGINE_CITATION_PREFIXES = (
 )
 
 
-# ---------------------------------------------------------------------------
-# Token classification
-# ---------------------------------------------------------------------------
-
 _PLACEHOLDER_CHARS = ("<", ">", "*", "{", "}", "$", "[", "]")
-#: A trailing segment that is only an ellipsis marks prose elision, not a
-#: citation target — `coordinator/lib/…` names the shape of a path, never a
-#: file. Prose about citations is not itself a citation.
 _ELISION_SEGMENTS = ("…", "...")
-#: Derived from extensions actually observed among `coordinator/`-anchored
-#: citations in the corpus (measured alongside the other narrowing decisions
-#: in this module) — not a general-purpose extension allowlist.
 _FILE_EXTENSION = re.compile(r"\.(md|ya?ml|py|json|jsonl|sh|txt|js|toml)(?![\w-])")
 _URL = re.compile(r"^\w+://")
 _GIT_REV_REF = re.compile(r"[0-9a-f]{6,40}[\^~]*:")
 _PLUGIN_ROOT_PREFIX = re.compile(r"^\"?\$\{?CLAUDE_PLUGIN_ROOT\}?/")
 
-#: A trailing `:38` or `:62-76` line-locator anchor on an otherwise-real
-#: file citation (`coordinator/skills/plan/SKILL.md:38`) — stripped before
-#: the existence check, which must resolve the FILE, not the anchored
-#: substring. Left in place would make every line-anchored cross-reference
-#: to a real, existing sibling file misclassify as dangling.
 _LINE_LOCATOR_SUFFIX = re.compile(r":\d+(?:-\d+)?$")
 
-#: A pytest node-id suffix (`::TestClass::test_method`) on an otherwise-real
-#: file citation — same shape of false positive as the line-locator above,
-#: from a `pytest: path.py::Class::test` cell in a test-surface table.
 _PYTEST_NODE_ID_SUFFIX = re.compile(r"::.*$")
 
-#: `coordinator/CLAUDE.md` was retired 2026-07-27 and is cited ~40 times in
-#: changelog-voice parentheticals ("(coordinator/CLAUDE.md retired
-#: 2026-07-27)"). That population belongs to the existing provenance gate
-#: (`test_prompt_surfaces_carry_no_provenance.py`), which already refuses
-#: changelog voice naming a retired file — routing it there rather than
-#: re-handling the same finding under a second mechanism (per this plan's
-#: own AC8c). Excluded here so this module's baseline doesn't duplicate a
-#: population another gate already owns.
 _ROUTED_TO_PROVENANCE_GATE = frozenset({"coordinator/CLAUDE.md"})
 
 _LEADING_STRIP = "\"'([{"
 _TRAILING_STRIP = "\"'.,;:)]}"
 
-#: The one non-`coordinator/`-anchored citation class this module validates —
 #: see module docstring "SCOPE IS ALSO NARROW ON TARGET VOCABULARY". This is
-#: the known-answer corpus (`test_oss_payload_pointers_resolve.py`'s
-#: round-trip against the commits that repointed these).
 _MIGRATED_FLAT_FILES = frozenset(
     {
         "state/lessons.md",
@@ -316,9 +255,6 @@ _CODE_SPAN = re.compile(r"`([^`\n]+)`")
 _MD_LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 _FENCE = re.compile(r"^\s*```")
 
-#: A citation on a line carrying one of these phrases is a correctly-hedged
-#: conditional read ("if it exists"), not an unconditional assertion the
-#: target is resolvable — see module docstring.
 _HEDGE_PHRASES = (
     "if it exists",
     "if present",
@@ -366,24 +302,6 @@ def classify_token(
     ignore_patterns: "tuple | None" = None,
     coarse_dir_entries: "frozenset | None" = None,
 ) -> str:
-    """Classify one already-extracted (backtick or markdown-link) citation
-    token. Returns one of:
-      - "not-a-citation" — a directory convention, a placeholder-bearing
-        template, a URL, a home-dir path, a historical git-revision
-        reference, or anything else that is not a concrete file citation.
-      - "resolved-engine" — under an allowlisted + source_map-routed tree
-        AND not `.percolate-ignore`-excluded; ships from the engine repo,
-        never checked for local existence.
-      - "resolved-local" — exists in this working tree and is not
-        `.percolate-ignore`-excluded.
-      - "dangling" — looks like a concrete file citation, and either is not
-        engine-resident-and-shipped, does not exist locally, or falls inside
-        a `.percolate-ignore`-excluded subtree of an otherwise-shipping tree.
-
-    `ignore_patterns` and `coarse_dir_entries` each default to a fresh read
-    when omitted — callers classifying many tokens in one pass (e.g.
-    `iter_violations`) should compute both once and pass them through.
-    """
     if ignore_patterns is None:
         ignore_patterns = _ignore_patterns()
     if coarse_dir_entries is None:
@@ -432,11 +350,6 @@ def _excerpt(line: str) -> str:
 
 
 def _extract_tokens(line: str) -> "list[str]":
-    """Every backtick-span word and markdown-link target on `line` —
-    the two citation SHAPES this module deliberately limits itself to (see
-    module docstring "SCOPE"). A backtick span is split on whitespace so a
-    multi-word span (`` `python3 coordinator/scripts/foo.py` ``) still
-    yields its path-shaped word."""
     tokens: "list[str]" = []
     for m in _CODE_SPAN.finditer(line):
         tokens.extend(m.group(1).split())
@@ -448,9 +361,6 @@ def _extract_tokens(line: str) -> "list[str]":
 
 
 def iter_violations(text: str) -> "list[Violation]":
-    """Every dangling-pointer violation in `text`, in line order. Pure
-    function over already-loaded text, mirroring
-    `_prompt_surface_citations.iter_violations`'s shape."""
     skip_entries = _skip_entries()
     ignore_patterns = _ignore_patterns()
     coarse_dir_entries = _coarse_dir_entries()
@@ -513,14 +423,6 @@ def _violation_key(v: Violation) -> str:
 
 
 def new_violations(before: str, after: str) -> "list[Violation]":
-    """Violations present in `after` that were not already present in
-    `before`, as a multiset difference — same contract as the sibling
-    detectors' `new_violations`. Used by the mirror-vantage check to ask a
-    content-level question ("does the mirror carry a dangling pointer this
-    source snapshot does not?") rather than a raw before/after count
-    comparison, which cannot distinguish an unchanged violation that merely
-    shifted lines (or was rewritten by a publish-time text transform) from a
-    genuinely new one."""
     before_counts = Counter(_violation_key(v) for v in iter_violations(before))
     after_violations = iter_violations(after)
     after_counts = Counter(_violation_key(v) for v in after_violations)

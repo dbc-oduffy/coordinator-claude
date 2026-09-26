@@ -45,15 +45,10 @@ import re
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
-#: `git diff --cached --name-status -z -M` status letters this module reasons
-#: about. Unlike `_phantom_staged_deletion.parse_name_status_z`, a rename row
-#: keeps BOTH paths here -- the old path is exactly the fact this guard needs.
 STATUS_DELETE = "D"
 STATUS_RENAME = "R"
 
-#: Same token this repo's own registration-parity tests scan for
 #: (`test_hook_registrations_fail_open.py`'s `_SCRIPT_TOKEN_RE`) -- not a
-#: second parser, the identical regex over hooks.json's raw text.
 _SCRIPT_TOKEN_RE = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT\}(/[\w./-]+\.py)")
 
 #: `${CLAUDE_PLUGIN_ROOT}` resolves to `coordinator/` (the plugin root) --
@@ -63,8 +58,6 @@ _PLUGIN_ROOT_REPO_RELATIVE = "coordinator"
 
 @dataclass(frozen=True)
 class Finding:
-    """One hook script this commit removes from disk while HEAD's hooks.json
-    still registers it, with no matching deregistration staged alongside."""
 
     path: str
 
@@ -73,15 +66,6 @@ class Finding:
 
 
 def parse_name_status_z(raw: str) -> "list[tuple[str, str, Optional[str]]]":
-    """Parses `git diff --cached --name-status -z -M` into
-    `(status, old_path, new_path_or_None)` rows.
-
-    NUL-delimited by construction, same reasoning as
-    `_phantom_staged_deletion.parse_name_status_z`: a path with a space or a
-    newline in it is exactly what a naive line split would mangle. Unlike
-    that sibling parser, a rename/copy row's OLD path is kept here rather
-    than discarded -- this guard's whole job is noticing a vacated old name.
-    """
     fields = [f for f in raw.split("\0") if f != ""]
     rows: "list[tuple[str, str, Optional[str]]]" = []
     i = 0
@@ -105,9 +89,6 @@ def parse_name_status_z(raw: str) -> "list[tuple[str, str, Optional[str]]]":
 
 
 def vacated_paths(rows: Iterable["tuple[str, str, Optional[str]]"]) -> "list[str]":
-    """The paths this commit removes from the tree under their current name:
-    every straight deletion, plus a rename's OLD path (a copy's source
-    stays on disk, so it is never vacated)."""
     vacated: "list[str]" = []
     for status, old, new in rows:
         if status == STATUS_DELETE:
@@ -137,20 +118,6 @@ def classify(
     hooks_json_touched: bool,
     staged_hooks_json_text: Optional[str],
 ) -> "list[Finding]":
-    """Returns the vacated scripts that HEAD registered and this commit does
-    not deregister.
-
-    `head_hooks_json_text` is None when hooks.json does not exist at HEAD
-    (nothing was ever registered, so nothing to protect -- e.g. the repo's
-    first commit). `hooks_json_touched` says whether THIS commit's staged
-    diff includes hooks.json at all; when it does not, hooks.json's
-    post-commit content is HEAD's, unchanged, so any vacated-and-registered
-    script is a bare violation. When hooks.json IS touched,
-    `staged_hooks_json_text` is what the commit is about to make it read
-    (None if hooks.json itself is being deleted in this commit, treated as
-    "nothing left registered") -- a script dropped from that text in the
-    same commit is a sanctioned deregistration, not a violation.
-    """
     if not head_hooks_json_text:
         return []
 
@@ -175,8 +142,6 @@ def classify(
 
 
 def render_report(findings: "list[Finding]", override_env: str) -> str:
-    """The message the hook prints. Names the remediation, not just the
-    rule -- a guard that only states a policy gets overridden unread."""
     lines = [
         f"BLOCKED: this commit removes {len(findings)} hook script(s) that "
         "HEAD's coordinator/hooks/hooks.json still registers, without also "

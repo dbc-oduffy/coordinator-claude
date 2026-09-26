@@ -43,12 +43,6 @@ from _guard_runner_contract import GuardScopeDescriptor  # noqa: E402
 
 @dataclass(frozen=True)
 class RegisteredStopFamilyGuard:
-    """One enrolled Stop-family guard: where its `main()` lives, its
-    import-free `GuardScopeDescriptor`, and the `sys.modules` key it is
-    registered under on import. Mirrors `_guard_runner.RegisteredGuard`'s
-    shape (same fields, same purpose) without importing that class --
-    see this module's own docstring for why the two runners stay
-    independent."""
 
     module_key: str
     module_path: str
@@ -85,28 +79,6 @@ class _ByteSink:
 
 
 class _BufferedTextCapture(io.StringIO):
-    """Stand-in for `sys.stderr` under `contextlib.redirect_stderr` that
-    also exposes a `.buffer` (a `_ByteSink`) -- see
-    `_invoke_stop_guard_main`'s own docstring for why this is required
-    (the two `nudge-*.py` guards write via `sys.stderr.buffer.write()`,
-    which a plain `io.StringIO` has no attribute for). Both channels land in
-    ONE ordered `io.BytesIO` -- `write(str)` (the `print()`/`sys.stderr.write()`
-    path) encodes into it, `.buffer.write(bytes)` (the raw-bytes path) writes
-    into it unmodified -- so `combined()`/`combined_bytes()` return whatever a
-    guard emitted across either channel, in true emission order and byte-exact,
-    rather than concatenating two separately-accumulated buffers (which
-    silently reordered mixed-channel output -- every `.buffer`-written line
-    relocated after every `print()`-written line regardless of actual order).
-    A folded guard that only ever uses one channel per invocation is
-    unaffected either way; this fix is what keeps a guard that mixes both
-    channels correct too.
-    Reuses the identical fix `coordinator/tests/fixtures/hook-message-
-    sweeps/message_measurement_harness.py`'s own `_BufferedTextCapture`
-    class already applies for the same reason, in a different context
-    (that one measures message length; this one aggregates for combined
-    dispatch) -- duplicated rather than imported because that module lives
-    under `coordinator/tests/fixtures/`, a test-fixture tree this
-    production runner module must not depend on."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -124,23 +96,10 @@ class _BufferedTextCapture(io.StringIO):
         return self._bytes.getvalue()
 
     def getvalue(self) -> str:
-        """Defensive override: the base `io.StringIO.getvalue()` would read this
-        instance's OWN internal text buffer, which `write()` above deliberately
-        never populates (everything routes through `self._bytes` instead, so
-        both channels share one ordered sink). Nothing in this module calls
-        `getvalue()` directly today -- `combined()`/`combined_bytes()` are the
-        contract -- but leaving the inherited method unrouted would silently
-        return empty text to any future caller that reaches for it out of
-        `io.StringIO` habit."""
         return self.combined()
 
 
 def _target_path_from_payload(payload: Any) -> Optional[str]:
-    """Cheap, import-free extraction of the edited path from a raw
-    PostToolUse payload dict. Identical shape to `_guard_runner.
-    _target_path_from_payload` (Write/Edit/MultiEdit/NotebookEdit all nest
-    the path under `tool_input`), reimplemented locally rather than
-    imported for the same independence reason as the rest of this module."""
     if not isinstance(payload, dict):
         return None
     tool_input = payload.get("tool_input")
@@ -154,11 +113,6 @@ def _target_path_from_payload(payload: Any) -> Optional[str]:
 
 
 def _import_guard_module(guard: RegisteredStopFamilyGuard):
-    """Stage-two import (contract clause 6): only reached once
-    `guard.descriptor.matches(target_path)` is already `True`. Same
-    `importlib.util.spec_from_file_location` technique as `_guard_runner.
-    _import_guard_module`, for the same reason (hyphenated filenames are
-    not valid dotted-import identifiers)."""
     if guard.module_key in sys.modules:
         return sys.modules[guard.module_key]
     spec = importlib.util.spec_from_file_location(guard.module_key, guard.module_path)
@@ -222,10 +176,6 @@ def build_stop_family_entries(
     raw_payload_text: str,
     payload: Any,
 ) -> List[Tuple[str, Callable[[], Tuple[int, str]]]]:
-    """Two-stage lazy import (contract clause 6), realised as a list of
-    `(name, callable)` entries `run_stop_family_guards` invokes directly. A
-    guard whose descriptor does NOT match `payload`'s target path never
-    appears here -- its module is never imported."""
     target_path = _target_path_from_payload(payload)
     entries: List[Tuple[str, Callable[[], Tuple[int, str]]]] = []
     for guard in registry:
@@ -279,11 +229,8 @@ def run_stop_family_guards(
     return combined_exit, combined_text
 
 
-#: C4b enrolment registry: the four Stop-family guards
 #: `_stop_family_runner_contract.ENROLLED_GUARD_MODULES` names, each paired
 #: with its descriptor from `STOP_FAMILY_SCOPE_DESCRIPTORS` (imported, never
-#: copied -- the object `postuse-stop-family-dispatch.py` wires is the SAME
-#: object `test_stop_family_runner_contract.py` verifies).
 REAL_STOP_FAMILY_REGISTRY: Tuple[RegisteredStopFamilyGuard, ...] = tuple(
     RegisteredStopFamilyGuard(
         module_key=name.replace("-", "_").replace(".py", ""),
@@ -300,10 +247,5 @@ def run_registered_stop_family_guards(
     payload: Any,
     skipped_out: Optional[List[str]] = None,
 ) -> Tuple[int, str]:
-    """The dispatcher-facing entrypoint: two-stage lazy import
-    (`build_stop_family_entries`) feeding the concatenate-all aggregation
-    core (`run_stop_family_guards`). `postuse-stop-family-dispatch.py`
-    writes `combined_text` to stderr and exits with `combined_exit_code`
-    exactly once, regardless of how many of the four guards fired."""
     entries = build_stop_family_entries(registry, raw_payload_text, payload)
     return run_stop_family_guards(entries, skipped_out=skipped_out)

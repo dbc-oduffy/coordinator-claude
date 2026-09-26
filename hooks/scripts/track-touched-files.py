@@ -94,14 +94,6 @@ from pathlib import Path
 
 
 def _read_stdin(timeout: float = 2.0) -> str:
-    """Bounded stdin read (Windows hang guard) -- copied from
-    runtime-tripwire-stop-watcher.py._read_stdin (~186-201).
-
-    A bare sys.stdin.read() blocks forever if the harness never closes
-    stdin's write end (observed Windows failure mode), backstopped with a 2s
-    threaded-join timeout, returning "" (the same fail-open value a
-    JSON-decode failure already produces) instead of hanging the hook chain.
-    """
     box = {"data": ""}
 
     def _read() -> None:
@@ -122,9 +114,6 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
-    # Defensive fallback -- a hook script copied/deployed WITHOUT its
-    # sibling _engine_root.py (e.g. an isolated test harness, or a
-    # partial deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -134,23 +123,16 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open -- engine repo unresolvable on this machine
+        return 0
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
 
     try:
-        # Importing coordinator_core.hooks.track_touched_files triggers the
-        # coordinator_core.hooks package __init__ (registers all 7 advisory ops +
-        # 4 bookkeeping ops via register_op side-effects at import time -- the
-        # hooks package has no lazy-skip guard, unlike coordinator_core.ops).
-        # One-time-per-invocation cost, in-process, still zero subprocess
-        # spawns from this stub -- but each hook fire is a fresh process, so
-        # this import cost recurs every fire, not just once per session.
         from coordinator_core.hooks import track_touched_files as _op  # noqa: F401
         from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
     except Exception:
-        return 0  # engine unimportable -> fail-open
+        return 0
 
     try:
         payload = json.loads(raw)
@@ -172,11 +154,6 @@ def main() -> int:
     }
 
     # scope "common_dir" (coordinator_core/ipc.py _OP_KEY_SCOPE) -- REQUIRED.
-    # Handed through raw; the engine resolves git-common-dir itself from
-    # whatever cwd the harness reports (no subprocess spawn in this stub).
-    # dispatch_from_hook builds the {"jsonrpc", "id", "method", "params"}
-    # envelope itself and stamps _origin_worktree only when non-empty --
-    # matches this stub's own payload.get("cwd", "") semantics unchanged.
     try:
         dispatch_from_hook(
             "hooks.track_touched_files",
@@ -184,13 +161,9 @@ def main() -> int:
             origin_worktree=payload.get("cwd", ""),
         )
     except HookDispatchError:
-        return 0  # any engine failure -> fail-open (never brick an edit)
+        return 0
 
     # No stdout relay: this op is MUTATING bookkeeping (dedup-append into
-    # touched.txt), never advisory -- it always returns no_advisory() == {}.
-    # The contract is "stdout NOTHING" (see module docstring), enforced
-    # structurally here by never inspecting/relaying the response, not
-    # incidentally via `{}`'s falsiness under `if result:`.
     return 0
 
 

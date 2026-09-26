@@ -19,19 +19,9 @@ from coordinator_core.locked_write import contended_lock_wait_secs
 #: Falsy-string set for `COORDINATOR_ALLOW_PERCOLATE_QUEUE`'s truthiness read below.
 _FALSY_ENV_VALUES = ("", "0", "false", "no", "off")
 
-#: D1 fix — inherited-holder handoff env var. `percolate-round.py` writes
-#: `"<its own pid>=<realpath>"` (pathsep-joined for multiple roots);
-#: `publish.py::main` reads it, verifying the PID against `os.getppid()`
-#: before honouring the skip. See each module's own call site for the
-#: full mechanism/rationale.
 INHERITED_LOCK_ROOTS_ENV = "PERCOLATE_ROUND_INHERITED_LOCK_ROOTS"
 
 #: A second EM reaching a publish DESTINATION already held by a round used to
-#: sleep on the lock and then fail — the wait, not the failure, was the
-#: defect (a session asleep for minutes on a box where 50-70 peers are
-#: queued). Default posture: deny at once. Set truthy to opt back into the
-#: wait, which then resolves through `contended_lock_wait_secs()` — same
-#: clamp, same 180s ceiling, no second source of truth for that number.
 COORDINATOR_ALLOW_PERCOLATE_QUEUE_ENV = "COORDINATOR_ALLOW_PERCOLATE_QUEUE"
 
 def lock_busy_message(dest: str, exc: Exception) -> str:

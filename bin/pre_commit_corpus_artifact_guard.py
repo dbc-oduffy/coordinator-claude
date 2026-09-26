@@ -64,10 +64,6 @@ import os
 import subprocess
 import sys
 
-# A console-subsystem child with no console of its own allocates a fresh
-# conhost on Windows -- with a visible window. Every git spawn below is
-# short-lived and output-captured, so without this each one flashes.
-# 0 on POSIX, where the flag does not exist.
 _NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 _CORPUS_PREFIXES = (
@@ -91,11 +87,6 @@ def _git(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def _staged_paths() -> list[str]:
-    """Paths introducing new content: added, modified, renamed. Deletes introduce no blob.
-
-    A rename counts — `git mv` then `git add -f` records as R, and the destination is a
-    real blob that would be pushed.
-    """
     proc = _git(["diff", "--cached", "--name-only", "--diff-filter=AMR"])
     if proc.returncode != 0:
         return []
@@ -103,12 +94,6 @@ def _staged_paths() -> list[str]:
 
 
 def _staged_size(path: str) -> int | None:
-    """Size of the staged blob, or None when it cannot be measured.
-
-    None is deliberately distinct from 0: an unmeasurable path is skipped rather than
-    passed, so a concurrent index write on this shared tree never converts an oversized
-    blob into a silent pass.
-    """
     proc = _git(["cat-file", "-s", f":{path}"])
     if proc.returncode != 0:
         return None
@@ -130,10 +115,6 @@ def _max_bytes() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    # The warm door hands `main` the caller's argv (including argv[0]); this CLI
-    # takes no flags or positional arguments (bypass/threshold are env-only, per
-    # the module docstring), so argparse's sole job here is to reject anything
-    # unexpected rather than silently ignoring it.
     parser = argparse.ArgumentParser(
         prog="pre_commit_corpus_artifact_guard.py",
         description="Refuse a commit that stages a project-rag corpus artifact or an oversized blob.",

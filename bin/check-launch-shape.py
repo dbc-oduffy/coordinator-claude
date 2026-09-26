@@ -70,17 +70,6 @@ def _shim_path() -> "Path | None":
 
 
 def _check_no_shadow(failures: "list[str]") -> "Path | None":
-    """The first PATH directory offering a `claude-doe` must be the one that
-    also carries `claude-doe.ps1`.
-
-    This is the defect that actually shipped: claude-klabauter's substrate generated a
-    generic `claude-doe` + `claude-doe.cmd` forwarder pair into settings-home
-    bin, which is PATH-prepended ahead of ~/.local/bin, so it shadowed the
-    purpose-built launcher and every bare `claude-doe` ran the TUI three hops
-    deep. Fixed at source, but PATH order is machine state — it can regress
-    from a reordering that touches no coordinator file at all, which is exactly
-    why this is a live probe and not a template assertion.
-    """
     real: "Path | None" = None
     for d in _path_dirs():
         try:
@@ -142,7 +131,6 @@ def _enclosing_group(text: str, anchor: str) -> "str | None":
 
 
 def _group_after(text: str, anchor: str) -> "str | None":
-    """The first balanced ``(...)`` group at or after ``anchor``."""
     i = text.find(anchor)
     if i < 0:
         return None
@@ -187,11 +175,6 @@ def _check_shim_scans(shim: Path, failures: "list[str]") -> None:
 def _check_launcher_consumes_doe_root(launcher_dir: Path, failures: "list[str]") -> None:
     ps1 = launcher_dir / _LAUNCHER_PS1
     text = ps1.read_text(encoding="utf-8", errors="replace")
-    # The balanced group, not a split on the first ")". The array is routinely
-    # written one element per line with trailing comments, and any ")" in a
-    # comment truncated the old split early — which silently dropped the tail of
-    # the array, including the element being looked for. Measured: a multi-line
-    # $selfFlags carrying --doe-root reported PASS.
     group = _group_after(text, "$selfFlags")
     if group is not None and "--doe-root" in group:
         failures.append(

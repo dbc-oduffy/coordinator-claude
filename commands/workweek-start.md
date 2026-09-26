@@ -3,6 +3,7 @@ name: workweek-start
 description: "Weekly orient — review last week, set this week's priorities."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
 argument-hint: ""
+disable-model-invocation: true
 ---
 
 # Workweek Start — Weekly Strategic Orient

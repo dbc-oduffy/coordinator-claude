@@ -64,7 +64,7 @@ unresolvable machine-local CLI).
 """
 from __future__ import annotations
 
-INSTALL_CLASS = True  # writes machine-local registry keys; see door_install.declared_install_class
+INSTALL_CLASS = True
 
 import argparse
 import os
@@ -75,7 +75,7 @@ from pathlib import Path
 
 _BIN_DIR = Path(__file__).resolve().parent
 
-_CLAUDE_KLABAUTER_ROOT = _BIN_DIR.parent.parent  # coordinator/bin/.. .. == claude-klabauter checkout root
+_CLAUDE_KLABAUTER_ROOT = _BIN_DIR.parent.parent
 
 _BOOTSTRAP_DONE = False
 
@@ -100,9 +100,6 @@ def _bootstrap_engine() -> None:
         sys.path.insert(0, str(_CLAUDE_KLABAUTER_ROOT))
     _BOOTSTRAP_DONE = True
 
-# ---------------------------------------------------------------------------
-# resolve-target-root
-# ---------------------------------------------------------------------------
 
 _ROOT_ARG_RE = re.compile(r".*--(?:root|target) (\S+)")
 
@@ -176,11 +173,6 @@ def cmd_resolve_target_root(args: argparse.Namespace) -> int:
     return 0
 
 
-# ---------------------------------------------------------------------------
-# whoami-status
-# ---------------------------------------------------------------------------
-
-
 def cmd_whoami_status(args: argparse.Namespace) -> int:
     """The `coordinator_whoami` import-or-install 3-way gate:
 
@@ -245,11 +237,6 @@ def cmd_whoami_status(args: argparse.Namespace) -> int:
     print("whoami_status: failed")
     print(f"pip_stderr: {install.stderr.strip()}")
     return 0
-
-
-# ---------------------------------------------------------------------------
-# resolve-exec-summary-generator
-# ---------------------------------------------------------------------------
 
 
 def _resolve_claude_klabauter_root_for_exec_summary(settings_home: "str | None") -> "str | None":
@@ -354,41 +341,14 @@ def cmd_resolve_exec_summary_generator(args: argparse.Namespace) -> int:
     return 0
 
 
-# ---------------------------------------------------------------------------
-# register-repo
-# ---------------------------------------------------------------------------
-
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 
 
 def derive_repo_key(repo_name: str) -> str:
-    """Lowercase basename, non-alnum runs collapsed to a single `_`,
-    leading/trailing `_` stripped. Mirrors:
-
-        tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '_' | sed 's/^_//;s/_$//'
-
-    and matches cross-repo-memo's `_receiver_repo_key` resolution
-    (`shortname.replace("-", "_")` generalized to any non-alnum run).
-    """
     return _NON_ALNUM_RE.sub("_", repo_name.lower()).strip("_")
 
 
 def cmd_register_repo(args: argparse.Namespace) -> int:
-    """Idempotent `repos.<key>` machine-local registration:
-
-        _repo_name="$(basename "$(pwd)")"
-        _repo_key="$(... derive_repo_key ...)"
-        if machine-local has "repos.$_repo_key" >/dev/null 2>&1; then
-          echo "repos.$_repo_key already registered — leaving as-is."
-        else
-          machine-local set "repos.$_repo_key" "$(pwd)"
-        fi
-
-    Only-if-absent — never clobbers an existing `repos.<key>` entry. Exits
-    0 on success (registered, already-registered, or would-register under
-    `--check-only`). Exits 2 when no machine-local CLI can be resolved
-    (an infra/transport failure, not a routine registry miss).
-    """
     _bootstrap_engine()
     from coordinator_core.install._shared import ml_get, ml_set, resolve_machine_local_cli
 
@@ -422,11 +382,6 @@ def cmd_register_repo(args: argparse.Namespace) -> int:
 
     print(f"{registry_key} registered -> {path}")
     return 0
-
-
-# ---------------------------------------------------------------------------
-# argv wiring
-# ---------------------------------------------------------------------------
 
 
 def build_parser() -> argparse.ArgumentParser:

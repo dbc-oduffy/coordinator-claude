@@ -77,9 +77,6 @@ def _bootstrap_engine() -> None:
         return
     if _REPO_ROOT not in sys.path:
         sys.path.insert(0, _REPO_ROOT)
-    # `records_query` is the trampoline at coordinator/bin/lib/, not a
-    # repo-root package: the repo root alone leaves `from records_query import
-    # query_records` unresolvable, which killed the self-query branch outright.
     _lib_dir = os.path.join(_SCRIPT_DIR, "lib")
     if _lib_dir not in sys.path:
         sys.path.insert(0, _lib_dir)
@@ -119,39 +116,11 @@ def __getattr__(name: str):
             raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from None
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
 
-# NOTE: no longer the query driver. `_query_unattached_all()` now issues a
-# single native `unattached=True` call (see module docstring § Self-query)
-# and the engine owns the authoritative FK-carrying type set (DR-226 —
-# holding a client-side copy of engine-owned schema knowledge goes stale the
-# moment a new FK-carrying type is added, with no signal to this copy).
-#
-# Retained only because coordinator/tests/test_detect_initiative_candidates_port.py
-# still iterates it to assert per-type parity between the union and a direct
-# per-type `query_records()` call — it documents the type set this module
-# was historically responsible for spanning, not a set this module computes
-# or drives queries from any more.
-#
-# Spec backlink: docs/plans/2026-07-04-initiative-govern-sweep-prioritize-doe-d.md § C3 (AC4)
 UNATTACHED_TYPES = ["bug", "debt", "improvement", "roadmap", "handoff", "plan"]
 
-# ---------------------------------------------------------------------------
-# Core clustering logic
-# ---------------------------------------------------------------------------
-#
 # detect_candidates() and its STOP_WORDS/_extract_keywords/_normalize_tags/
-# _parent_dir/_dedupe_preserve_order/_humanize/_item helpers moved to
-# coordinator_core/clustering/candidates.py (2026-07-23 C2 extraction) —
 # this module now only imports detect_candidates/MIN_CLUSTER_SIZE (see the
-# import block above) and calls it from _emit() below; it is no longer a
-# clustering-logic owner.
-
-# ---------------------------------------------------------------------------
-# Native self-query — multi-type unattached union lens
-# ---------------------------------------------------------------------------
 
 
 def _query_unattached_all(root: str | None) -> list[dict]:
@@ -204,11 +173,6 @@ def _query_unattached_all(root: str | None) -> list[dict]:
             os.chdir(prior_cwd)
 
 
-# ---------------------------------------------------------------------------
-# CLI argument parser
-# ---------------------------------------------------------------------------
-
-
 def _parse_args(argv: list[str]) -> dict:
     """Parse CLI arguments. Hard-errors on any --output / --out flag to enforce the
     read-only contract structurally.
@@ -230,15 +194,9 @@ def _parse_args(argv: list[str]) -> dict:
             opts["root"] = arg[len("--root="):]
             i += 1
         elif arg == "--no-stdin":
-            # Negative spec: an in-process ceremony directive has no pipe on
-            # stdin, but stdin is not a tty either, so the isatty() probe below
-            # would take the pipe branch and block forever on read(). Callers
-            # that dispatch this CLI without a producer pass --no-stdin to
-            # select the self-query branch structurally instead of guessing.
             opts["no_stdin"] = True
             i += 1
         elif arg.startswith("--output") or arg.startswith("--out=") or arg == "--out":
-            # Structural backstop: reject any attempt to specify an output path.
             sys.stderr.write(
                 "ERROR: detect-initiative-candidates is a read-only surface — --output is not supported.\n"
                 "       Output is written to stdout only.\n"
@@ -247,11 +205,6 @@ def _parse_args(argv: list[str]) -> dict:
         else:
             i += 1
     return opts
-
-
-# ---------------------------------------------------------------------------
-# Text renderer
-# ---------------------------------------------------------------------------
 
 
 def _render_text(candidates: list[dict]) -> str:
@@ -272,11 +225,6 @@ def _render_text(candidates: list[dict]) -> str:
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-# CLI entry point
-# ---------------------------------------------------------------------------
-
-
 def _emit(records: list[dict], format_: str) -> None:
     _bootstrap_clustering()
 
@@ -288,9 +236,6 @@ def _emit(records: list[dict], format_: str) -> None:
 
 
 def main(argv: "list[str] | None" = None) -> int:
-    # argv threading: this CLI reads sys.argv at depth (argparse and helpers),
-    # so the warm-call path swaps it for the duration rather than rewriting every read.
-    # NOT re-entrant: a threaded server must serialise calls into this entrypoint.
     _bootstrap_engine()
     _prev_argv = sys.argv
     if argv is not None:
@@ -298,23 +243,14 @@ def main(argv: "list[str] | None" = None) -> int:
     try:
         argv = sys.argv[1:]
         if "--help" in argv or "-h" in argv:
-            # Handled before any stdin touch (§ entrypoint gate contract: every
-            # scanned entrypoint is launched with `--help` and stdin=DEVNULL —
-            # `sys.stdin.isatty()` is False for DEVNULL too, so without this
-            # early exit `--help` would fall through to the stdin-pipe branch
-            # below and fail on an empty read, misreporting a clean-launch CLI
-            # as broken). No prior code path in this file handled `--help` at
-            # all; this closes that gap the same way every other CLI here does.
             sys.stdout.write(__doc__ or "")
             return 0
     
         opts = _parse_args(argv)
     
-        # Determine input source: stdin pipe or direct native self-query.
         stdin_is_pipe = not opts["no_stdin"] and not sys.stdin.isatty()
     
         if stdin_is_pipe:
-            # Read JSON from stdin (supports: query-records --unattached | detect-initiative-candidates)
             buf = sys.stdin.read()
             try:
                 records = json.loads(buf)
@@ -323,7 +259,6 @@ def main(argv: "list[str] | None" = None) -> int:
                 return 1
             _emit(records, opts["format"])
         else:
-            # Self-query the native records surface directly (see module docstring § Self-query).
             try:
                 records = _query_unattached_all(opts["root"])
             except Exception as e:  # noqa: BLE001 — CLI boundary: any failure -> diagnostic + exit 1

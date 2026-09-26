@@ -57,28 +57,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-#: `coordinator/bin/publish_refusal_record.py` -> `coordinator/bin` -> `coordinator` -> repo root.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-#: Under THIS repo — never the dest clone being published, which is mid-
-#: rewrite of its own tree during a swap and would destroy or publish a
-#: record written into it as a side effect of the very operation that
 #: produced it (§ EVIDENCE, dispatch brief C1).
 AUDITS_DIR = _REPO_ROOT / "state" / "audits" / "publish-swap-refusals"
 
 #: ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION — never `.errno`, which
-#: CPython maps identically to `EACCES` for both codes and so cannot
-#: discriminate a real holder refusal from any other `PermissionError`.
 _HOLDER_WINERRORS = (5, 32)
 
 
 def is_holder_refusal(exc: BaseException) -> bool:
-    """True only for the discriminated holder shape this plan exists to
-    record: a `PermissionError` whose `.winerror` is 5 or 32. Any other
-    exception (`FileExistsError`, `NotADirectoryError`, a `PermissionError`
-    with a different `.winerror`) is not a holder refusal — a blanket
-    `except OSError` would mint junk records for refusals with no holder at
-    all, diluting the corpus this plan exists to build."""
     return isinstance(exc, PermissionError) and getattr(exc, "winerror", None) in _HOLDER_WINERRORS
 
 
@@ -115,11 +103,6 @@ def record_publish_swap_refusal(
     record_path = AUDITS_DIR / f"{timestamp.strftime('%Y%m%dT%H%M%S.%f')}Z-{pid}.json"
     record_path.write_text(json.dumps(record, indent=2), encoding="utf-8", newline="\n")
 
-    # Two lines, the second `Remediation:`-prefixed — the guard's check is
-    # scoped by `stripped.startswith(("Remediation:", "Then:"))`, so a
-    # remediation sentence folded into the first line is never inspected
-    # (§ FAILURE TEXT, dispatch brief C1). `python` not `python3`: a stock
-    # Windows install has no `python3` on PATH.
     print(
         f"Publish swap refused: {exc}. Diagnostic recorded to {record_path}.",
         file=sys.stderr,
@@ -130,12 +113,6 @@ def record_publish_swap_refusal(
 
 
 def main(argv: list[str]) -> int:
-    """This module is a library — `record_publish_swap_refusal` is called
-    only from `publish.py`'s own `except` handlers (§ CALL SITES above), and
-    ships no standalone CLI behavior of its own. This entrypoint exists so
-    the name resolves on the warm door like every other allowlisted
-    `coordinator/bin` name; it has nothing to route to and always reports a
-    usage error."""
     print(
         "publish_refusal_record: library module, no standalone CLI — "
         "invoked only via record_publish_swap_refusal() from publish.py's "

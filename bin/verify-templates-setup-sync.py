@@ -3,9 +3,10 @@
 verify-templates-setup-sync.py — CLI trampoline over claude-klabauter
 coordinator_core.ops.verify_templates_setup_sync.
 
-Byte-identity check between live ~/.claude/setup helpers and their
-coordinator/templates/setup/ mirrors. Inspect-only: reports drift per
-tracked pair, exits non-zero on any mismatch/missing pair. There is no
+Drift oracle over the setup/ tracked set: template<->live byte parity,
+template<->repo-root byte parity, and (for publish_sync.py) the claude-klabauter
+dispatch contract. Inspect-only: reports drift per tracked relpath, exits
+non-zero on any leg's failure. There is no
 --fix flag — recovery is manual and template-as-authoritative (`cp
 coordinator/templates/setup/<file> ~/.claude/setup/<file>`); a prior
 live->template --fix path was removed because it directly contradicted
@@ -18,20 +19,13 @@ Port target: claude-klabauter coordinator_core/ops/verify_templates_setup_sync.p
 
 from __future__ import annotations
 
-INSTALL_CLASS = False  # read-only check; see door_install.declared_install_class
+INSTALL_CLASS = False
 
 import os
 import sys
 
 
 def _import_run_op_main():
-    """Resolve the engine root and import `run_op_main`.
-
-    DR-276: the op is run through `coordinator_core.cli_entry.run_op_main`
-    rather than by calling its `main` directly, so any path it declares via
-    `declare_write` becomes a session scope-touch claim instead of an
-    unclaimed orphan at the `scoped_git_commit` sink.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 
@@ -77,22 +71,11 @@ def _resolve_plugin_root() -> str:
             file=sys.stderr,
         )
         sys.exit(1)
-    # Either content layout — the published flat mirror carries templates/setup/ at its
-    # own root, with no "coordinator" segment to join — routed through the
-    # promoted content_root_or_private wrapper (overengineering-reviewer finding 2).
     return content_root_or_private(root)
 
 
 def main(argv: "list[str] | None" = None) -> int:
     # Set CLAUDE_PLUGIN_ROOT (if unset) so the ported op — which cannot
-    # locate the DoE coordinator/ tree via its own __file__ or a cwd()
-    # fallback (see coordinator_core.ops.verify_templates_setup_sync's
-    # _resolve_plugin_root()) — resolves the same templates/setup/
-    # directory this trampoline resolves. The op module reads the env var
-    # rather than taking an explicit argument, so mutating os.environ here
-    # is the seam, not a workaround; other callers (e.g.
-    # coordinator_core.plugin_health.sentinel's in-process probe P-11) set
-    # the same env var directly before invoking the op's main().
     if not os.environ.get("CLAUDE_PLUGIN_ROOT"):
         os.environ["CLAUDE_PLUGIN_ROOT"] = _resolve_plugin_root()
 

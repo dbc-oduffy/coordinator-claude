@@ -101,15 +101,6 @@ _TRANSPORT_FAIL = 3
 _DROPPED_JOIN_FAIL = 4
 _DIVERGENT_JOIN_FAIL = 5
 
-# Pre-resolve the engine root and import the cascade eagerly (same
-# _resolve_claude_klabauter_root() ladder _import_ops() below reuses for the remaining
-# ops) so `resolve_deliverable_and_initiative` / `DroppedDeliverableJoinError`
-# are real, directly callable module attributes for in-process callers —
-# matching how the cascade's own home module exposes them. Any resolution
-# failure is stashed rather than raised here, so the CLI's tidy transport-
-# failure reporting in main() (exit 3, no traceback) is unchanged. The
-# actual import now runs lazily inside `_import_ops()` (called from `main()`)
-# — these module-level names are placeholders until that call fills them in.
 _IMPORT_ERROR: Exception | None = None
 DivergentDeliverableIdError = RuntimeError
 DroppedDeliverableJoinError = RuntimeError
@@ -117,15 +108,6 @@ resolve_deliverable_and_initiative = None
 
 
 def _import_ops():
-    """Resolve the engine root, put it on sys.path, and import the two composed ops.
-
-    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
-    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
-    re-deriving it — this is a plain in-process import, not an RPC invoke, so
-    cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is deliberately
-    NOT used here (same convention as archive-stamp-cli, read-frontmatter-field.py,
-    mint-deliverable-id.py).
-    """
     global _IMPORT_ERROR, DivergentDeliverableIdError, DroppedDeliverableJoinError
     global resolve_deliverable_and_initiative
 
@@ -156,15 +138,7 @@ def _import_ops():
 
 def _cmd_resolve(args: argparse.Namespace, read_frontmatter_field, mint) -> int:
     # `work_slug` is passed CONDITIONALLY, not unconditionally with a None
-    # default, because this CLI resolves its engine through
     # `require_dispatch_engine_on_path` — the PUBLISHED mirror, not the live
-    # tree this file sits in (the doc-new entrypoint's self-location walk-up
-    # ladder is a different one and does land live). Between a live edit here
-    # and the next publish round the mirror's cascade has no `work_slug`
-    # parameter, and an unconditional kwarg would TypeError every existing
-    # invocation for a value none of them supply. Passing it only when the
-    # caller actually asked confines the skew window to the new flag, where
-    # failing loud is correct.
     _extra_kwargs = {"work_slug": args.work_slug} if args.work_slug else {}
     dlvr_id, initiative_id = resolve_deliverable_and_initiative(
         read_frontmatter_field,

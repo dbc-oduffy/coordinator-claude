@@ -1,13 +1,4 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
-# coordinator-doctor-sentinel.py — pure-Python CLI; no sh/python polyglot
-# trampoline. Wave 4a (2026-07-20) dropped the .sh suffix and the trampoline
-# entirely — this used to be coordinator-doctor-sentinel.sh, kept on .sh
-# because callers referenced it by literal name; that call is reversed by the
-# Wave 4a PM amendment, and every caller (workday-start.md,
-# workday-start-cross-repo-memo-outbox-surface.py, and the test suites — see
-# recipe § Callers/parity net) has been repointed to .py in the same wave.
-# Invoke via the generated launcher (coordinator-doctor-sentinel.cmd/.ps1) or
-# `python coordinator-doctor-sentinel.py` directly.
 """
 coordinator-doctor-sentinel.py — CLI trampoline over claude-klabauter
 coordinator_core.plugin_health.sentinel.

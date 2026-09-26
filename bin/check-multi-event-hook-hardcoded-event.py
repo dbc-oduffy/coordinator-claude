@@ -92,18 +92,10 @@ def _default_hooks_json() -> str:
     from coordinator_data_root import data_root
 
     return str(data_root("hooks") / "hooks.json")
-# NOTE: the scripts dir is resolved per-run in main() as a sibling of the
-# *effective* hooks.json (so an explicit --hooks-json fixture resolves its own
-# scripts/), not from a module-level constant.
 
-# Matches the script's basename as it appears embedded in a hooks.json
 # command string, e.g. "...${CLAUDE_PLUGIN_ROOT}/hooks/scripts/foo.py ...".
 _SCRIPT_REF_RE = re.compile(r"hooks/scripts/([A-Za-z0-9_.-]+)")
 
-# Assignment-target-is-a-literal shape: a quoted or bare `hookEventName` key
-# (JSON/Python dict key, or a shell/python variable name), followed by `:`
-# or `=`, followed directly by a QUOTED STRING LITERAL value. Deliberately
-# anchored on the key text immediately adjacent to the separator — this is
 # what keeps `_VALID_HOOK_EVENTS = ("Stop", ...)` from matching: the
 # assignment target there is `_VALID_HOOK_EVENTS`, not `hookEventName`.
 _HARDCODED_ASSIGN_RE = re.compile(
@@ -168,7 +160,7 @@ def _build_script_event_map(hooks_data):
                     continue
                 m = _SCRIPT_REF_RE.search(command)
                 if not m:
-                    continue  # no script/ reference in this command — skip
+                    continue
                 script_name = m.group(1)
                 script_events.setdefault(script_name, set()).add(event_name)
 
@@ -233,9 +225,6 @@ def main(argv):
 
     script_events = _build_script_event_map(hooks_data)
 
-    # scripts/ is always a sibling of hooks.json's own directory
-    # (coordinator/hooks/hooks.json -> coordinator/hooks/scripts/), whether
-    # the default path or an explicit --hooks-json fixture is in play.
     scripts_dir = os.path.join(os.path.dirname(os.path.abspath(hooks_json_path)), "scripts")
 
     multi_event_scripts = {

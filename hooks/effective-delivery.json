@@ -1246,11 +1246,6 @@
             "tool_names": []
           },
           {
-            "id": "guard_review_integrator_sidecar_intake",
-            "script": "scripts/guard-review-integrator-sidecar-intake.py",
-            "tool_names": []
-          },
-          {
             "id": "enforce_agent_dispatch_mode",
             "script": "scripts/enforce-agent-dispatch-mode.py",
             "tool_names": []

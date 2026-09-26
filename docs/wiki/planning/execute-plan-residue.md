@@ -411,13 +411,13 @@ chunk's own brief names; thematic affinity ("they're all docs") does not meet it
 
 ## Routing plan-body-amendment chunks
 
-Not `coordinator:executor` work. Route by what the input actually is, never reflexively to
-`coordinator:review-integrator`:
+Not `coordinator:executor` work. Route by what the input actually is:
 
-- **`coordinator:review-integrator`** — only when the input is reviewer findings already on disk in
-  a sidecar. Findings handed inline in the dispatch prompt (not read from a sidecar) are an intake
-  violation review-integrator must refuse — a mechanical guard now denies that dispatch shape
-  outright.
+- **Reviewer findings already on disk in a sidecar** — there is no separate integration dispatch;
+  the reviewer that produced the sidecar applies its own findings and runs
+  `review-findings-ledger verify --sidecar <path>` (`review-integration-doctrine.md`). Findings
+  handed inline in the dispatch prompt (not read from a sidecar) are an intake violation the
+  verify step must refuse — a mechanical guard denies that dispatch shape outright.
 - **`coordinator:enricher`** — default for plan-body maintenance that is not sidecar-findings
   application: recording measured results, PM decisions, verified corrections into a live plan body
   or register. Execute-time enrichment, the same gather-don't-decide discipline enricher runs

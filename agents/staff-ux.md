@@ -1,6 +1,7 @@
 ---
 name: staff-ux
 description: "Personas are Opus-only. The UX Reviewer reviews user-facing flows for clarity, trust signals, and intuitive design."
+persona: the UX Reviewer
 model: opus
 effort: low
 access-mode: read-write

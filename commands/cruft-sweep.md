@@ -3,6 +3,7 @@ name: cruft-sweep
 description: "Scan for reclaimable scratch and orphans; apply only if confirmed."
 allowed-tools: ["Read", "Bash", "Glob", "Grep", "Agent", "AskUserQuestion"]
 argument-hint: "[--dry-run|--apply] [--class harness|scratch|orphans|empty-dirs|all]"
+disable-model-invocation: true
 ---
 
 # Cruft Sweep — Layer 2 Skill

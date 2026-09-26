@@ -71,7 +71,7 @@ Spec backlink: coordinator/commands/install.md (DoE-claude) § 1a.3 (git-lfs
 """
 from __future__ import annotations
 
-INSTALL_CLASS = True  # runs `git lfs install`; see door_install.declared_install_class
+INSTALL_CLASS = True
 
 import argparse
 import json
@@ -95,17 +95,6 @@ def _ensure_repo_root() -> Path:
 
 
 def _run(argv: List[str], *, timeout: float = 10.0) -> Optional[subprocess.CompletedProcess]:
-    """Uniform subprocess.run wrapper matching
-    coordinator_core.install.prereq_probe's own `_run` shape: text-mode
-    capture, stdin closed, no console flash on Windows, None on any
-    transport-level failure (binary absent, timeout, OSError).
-
-    Deliberate isolation boundary — do not convert to an in-process
-    import. This is crash containment: a prereq probe of arbitrary
-    external binaries must not be able to take this process down with
-    it. Reason recorded in
-    state/audits/2026-08-06-self-spawn-isolation-boundary-classification.md.
-    """
     _ensure_repo_root()
     from coordinator_core.win_portability import no_console_creationflags
 
@@ -134,15 +123,6 @@ def _cmd_python3(args: argparse.Namespace) -> int:
 
 
 def _cmd_git_lfs_enable(args: argparse.Namespace) -> int:
-    """Check, and idempotently enable, git-lfs; emit `probe_git_lfs()` either way.
-
-    Both spawns go through `_run`, so both are bounded and both are captured.
-    `git lfs install` previously ran bare: no timeout (a hung git on a cold
-    install path blocks the installer with nothing to report) and no capture
-    (its "Git LFS initialized." line landed on the same stdout as the JSON
-    result line below, which callers parse). The install's own return is
-    discarded on purpose — `probe_git_lfs()` is the oracle for whether it took.
-    """
     _ensure_repo_root()
     from coordinator_core.install import prereq_probe
 

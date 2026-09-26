@@ -1,7 +1,4 @@
-# debt.yaml — debt-backlog grind profile for /debt-triage's debt leg,
-# derived from bug.yaml (same graph and verdict set). Authored in-session:
-# DoE ships no debt profile yet. Every executable step is a named engine
-# op or agent verify, as in bug.yaml.
+
 
 row_id_key: "@stem"
 
@@ -23,8 +20,7 @@ verdicts:
   - unclear-direction
   - needs-judgment
 
-# Profile hand-back types, added to the universal set (DR-404 § 3). Each
-# ends a row's path and reaches the PM in the run's hand-back.
+
 hand_back_types:
   - park
   - wont-do
@@ -52,8 +48,8 @@ graph:
     kind: refute-close
     edges:
       confirmed: commit
-    # Refuted means the row still reproduces, so it goes back through fix
-    # rather than closing on an unconfirmed already-fixed/file-removed claim.
+    
+    
     on_fail: fix
 
   fix:
@@ -66,9 +62,8 @@ graph:
     kind: verify
     edges:
       pass: commit
-    # A failed verify hands back. A back-edge to triage or fix would close a
-    # loop through this same on_fail, which validate_graph refuses as a
-    # second on_fail traversal.
+    
+    
     on_fail: verify-failed
     verify:
       default: agent
@@ -85,7 +80,6 @@ closure:
     refute-close: closed
   stamp_fields: [closed_at, closed_by]
 
-# No absent_sentinels -- the bug schema's enums admit no placeholder value.
 
 triage_policy: |
   relevance_first:

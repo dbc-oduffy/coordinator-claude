@@ -91,29 +91,17 @@ from typing import Any, Callable, Mapping, Optional
 
 from coordinator.lib import receiver_state_reader as rsr
 
-#: The peer is actively producing -- either `status == "busy"` directly, or
-#: an `idle` peer whose transcript tail shows live conversational activity.
 STATE_PRODUCING = "PRODUCING"
 
-#: The peer's last recognised transcript-tail marker is a closed turn. A
-#: candidate. Serialized as `state="PAUSED", reason="turn-ended"` on both
-#: legs (see `classify_peer`/`classify_transcript_tail`) -- this constant
-#: names the internal classification outcome, not the wire shape.
 STATE_TURN_ENDED = "PAUSED:turn-ended"
 
-#: The reader-leg spelling of a paused verdict -- kept distinct from
 #: `STATE_TURN_ENDED` (the fallback-leg internal spelling) so both legs can
-#: be normalised to the same `{state, reason}` shape at serialization time.
 STATE_PAUSED = "PAUSED"
 
-#: Neither the reader, nor the status leg, nor the transcript tail could
-#: place this peer. First-class and expected -- never a paused-like guess.
 STATE_UNKNOWN = "UNKNOWN"
 
 _CLAUDE_AGENTS_CMD = ["claude", "agents", "--json"]
 
-#: Bounded transcript-tail read window (AC-adjacent -- see the "No
-#: whole-transcript reads" negative-spec entry above).
 TAIL_MAX_LINES = 40
 TAIL_MAX_BYTES = 65536
 
@@ -121,12 +109,6 @@ _PATH_SEP_RE = re.compile(r"[/\\:]")
 
 
 def caller_session_id(env: Optional[Mapping[str, str]] = None) -> Optional[str]:
-    """This session's own id, so it can be excluded from its own roster.
-
-    Never resolved from `claude agents --json` itself -- that would require
-    guessing which entry is "us" from shape alone. The harness exports it
-    directly.
-    """
     env = os.environ if env is None else env
     return env.get("CLAUDE_CODE_SESSION_ID")
 
@@ -134,11 +116,6 @@ def caller_session_id(env: Optional[Mapping[str, str]] = None) -> Optional[str]:
 def fetch_live_agents(
     run: Callable[..., "subprocess.CompletedProcess[str]"] = subprocess.run,
 ) -> list[dict[str, Any]]:
-    """Re-invoke `claude agents --json` fresh. Never cache this list.
-
-    Returns `[]` on any parse or invocation failure -- a read pass with no
-    peers to show is a legitimate, quiet outcome, not a raised exception.
-    """
     try:
         result = run(
             _CLAUDE_AGENTS_CMD,
@@ -168,12 +145,6 @@ def enumerate_repo_peers(
     repo_root: str,
     exclude_session_id: Optional[str] = None,
 ) -> list[dict[str, Any]]:
-    """Filter the raw enumeration to this repo's peers, caller excluded.
-
-    `exclude_session_id` is the only mechanism that removes an entry from the
-    roster -- there is no "shouldn't be here" inference, only a repo-cwd
-    match plus the caller's own exclusion.
-    """
     peers = []
     for agent in agents:
         session_id = agent.get("sessionId")
@@ -203,12 +174,6 @@ def read_transcript_tail(
     max_lines: int = TAIL_MAX_LINES,
     max_bytes: int = TAIL_MAX_BYTES,
 ) -> list[str]:
-    """Read only the trailing `max_bytes` of `path`, bounded to `max_lines`.
-
-    Never reads a whole transcript (see module negative spec). Returns `[]`
-    on any I/O failure -- a missing or unreadable transcript is `UNKNOWN`
-    upstream, never an exception.
-    """
     try:
         size = os.path.getsize(path)
     except OSError:
@@ -228,11 +193,6 @@ def read_transcript_tail(
 
 
 def _content_kinds(record: dict) -> set:
-    """The `type` of every content block on a transcript record.
-
-    Tolerates the three shapes seen in live transcripts: a block list, a bare
-    string (rendered as `text`, which is what it is), and no message at all.
-    """
     message = record.get("message")
     if not isinstance(message, dict):
         return set()
@@ -326,13 +286,6 @@ def classify_fallback_status(
     status: Any,
     tail_lines: Optional[list[str]] = None,
 ) -> tuple[str, str]:
-    """Map a raw harness `status` string (plus, for `idle`, a transcript
-    tail) to the fallback ladder's `(state, reason)`.
-
-    Reads `status` and the injected tail only -- never `state`/`waitingFor`
-    (background-agent-only, see module docstring) and never a CPU-delta
-    (Resolution 1 clause 4).
-    """
     if status == "busy":
         return STATE_PRODUCING, "status-busy"
     if status == "idle":
@@ -384,12 +337,6 @@ def classify_peer(
         reason = (
             "live-busy-contradicts-paused" if contradicted else reader_verdict["reason"]
         )
-        # `busy` is not the only status that contradicts a stale PAUSED. A working session can
-        # sit at `idle` for minutes -- the status field lags, which is why the fallback leg below
-        # never treats `idle` as terminal either. Trusting a PAUSED verdict merely because the
-        # status is not literally `busy` is what puts a peer mid-pytest on a nudge list, and it
-        # made the two legs disagree while this module's docstring claimed they matched. The tail
-        # is the same instrument the fallback leg uses, read only where the answer is in doubt.
         if reader_verdict["verdict"] == STATE_PAUSED and live_status == "idle":
             cwd = peer.get("cwd") or repo_root
             tail = (
@@ -438,20 +385,6 @@ def build_roster(
     run: Callable[..., "subprocess.CompletedProcess[str]"] = subprocess.run,
     read_tail: Optional[Callable[[str, str], list[str]]] = None,
 ) -> list[dict[str, Any]]:
-    """Every classified peer in this repo, candidates and non-candidates alike.
-
-    The population, not the shortlist. `candidate` is a field on each verdict
-    here, never a filter applied before the caller sees it -- so a caller can
-    tell "no peer is paused" (a roster of 12, none candidate) from "no peer is
-    here" (a roster of 0). Those are different states and an instrument that
-    returns the same value for both is the failure this roster exists to
-    prevent.
-
-    This is the shape the send pass wants: `send_pass.send_suppression_reason`
-    declines a non-candidate itself, under the label `not-a-candidate`, and
-    that declination is the visible record of a peer having been considered.
-    Filtering before the digest deletes that record rather than producing it.
-    """
     if agents is None:
         agents = fetch_live_agents(run=run)
     if caller_session_id_value is None:
@@ -499,9 +432,6 @@ def build_candidate_roster(
     ]
 
 
-#: Every refusal reason `resolve_addressee` can return. Closed set: a caller
-#: that branches on these has covered the surface, and a new reason is a
-#: deliberate contract change rather than a string that quietly appears.
 ADDRESSEE_NO_NAME = "no-name"
 ADDRESSEE_UNRESOLVED = "name-resolves-to-no-live-session"
 ADDRESSEE_AMBIGUOUS = "name-resolves-to-more-than-one-live-session"
@@ -562,10 +492,7 @@ def resolve_addressee(
         for agent in agents
         if isinstance(agent, dict) and agent.get("name") == name and agent.get("sessionId")
     ]
-    # Dedupe by sessionId: two records for the same live session (a harness
-    # double-listing artifact) must not trip the ambiguity refusal below --
     # that refusal exists for two DIFFERENT sessions sharing a name, not for
-    # duplicate rows describing the one session.
     seen_session_ids: set = set()
     matches = []
     for candidate in candidates:
@@ -583,9 +510,6 @@ def resolve_addressee(
             "agent": None,
         }
     if len(matches) > 1:
-        # Never "pick the first". Two live sessions answering to one name is
-        # the re-point hazard caught mid-flight; guessing between them sends
-        # to a coin toss.
         return {
             "ok": False,
             "session_id": None,
@@ -598,9 +522,6 @@ def resolve_addressee(
     session_id = agent.get("sessionId")
 
     if repo_root is not None and not _same_repo(agent.get("cwd"), repo_root):
-        # The roster is this repo's peers. A name that now answers from
-        # another repo's checkout is a different session by any measure the
-        # Group EM's remit recognises.
         return {
             "ok": False,
             "session_id": session_id,

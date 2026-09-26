@@ -76,19 +76,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 BIN_DIR = REPO_ROOT / "coordinator" / "bin"
 COUNTS_PATH = REPO_ROOT / "state" / "engine-provenance-counts.jsonl"
 
-#: The four `*_on_path` wrappers `_front_insert_on_path` funnels through.
-#: `_seam_present` deliberately excluded here -- the spike's static
-#: order-hazard shape is specific to these four (its own bootstrap call is
-#: what the "runs from inside a function" check below looks for);
-#: `_seam_present` is a fifth, separately-reported call site (see the
-#: spike's Addendum) that this script's runtime aggregation still counts
-#: by wrapper name via C6's counter records. A file whose ONLY
-#: bootstrap-shaped call is `_seam_present()` is therefore invisible to
 #: `classify_carrier` (no match in `BOOTSTRAP_WRAPPER_NAMES` -> no
-#: bootstrap_calls -> returns None, out of `static`'s population) even
-#: though C6 still counts its calls at runtime -- see NOTE below, which
-#: discloses this so `static.total_carriers` is not read as comparable to
-#: the spike's 201 without this caveat.
 BOOTSTRAP_WRAPPER_NAMES = (
     "ensure_engine_on_path",
     "require_engine_on_path",
@@ -96,9 +84,6 @@ BOOTSTRAP_WRAPPER_NAMES = (
     "require_dispatch_engine_on_path",
 )
 
-#: The four binder modules the spike named as transitively binding
-#: `coordinator_core` when imported at module level ahead of the bootstrap
-#: call. Dotted names as they would appear in an `import` statement.
 BINDER_MODULES = (
     "repo_identity",
     "records_query",
@@ -106,10 +91,6 @@ BINDER_MODULES = (
     "coordinator_core.win_portability",
 )
 
-#: Historical reference only -- the spike's own measurement on the tree as
-#: it stood 2026-08-26. Never compared for equality against this run's
-#: static count; drift between the two is expected and reported, not
-#: treated as an error.
 SPIKE_MEASURED_TOTAL_CARRIERS = 201
 SPIKE_MEASURED_DIVERGENT_CARRIERS = 15
 
@@ -127,9 +108,6 @@ def _imported_module_names(node: ast.Import | ast.ImportFrom) -> list[str]:
     names = []
     module = node.module or ""
     if module:
-        # `from repo_identity import X` transitively binds (and therefore
-        # imports) the `repo_identity` module itself -- the bound alias
-        # name (`X`) is a different, and for this check irrelevant, name.
         names.append(module)
     for alias in node.names:
         if module:
@@ -139,23 +117,6 @@ def _imported_module_names(node: ast.Import | ast.ImportFrom) -> list[str]:
 
 
 def _module_level_binder_imports(tree: ast.Module) -> dict[str, int]:
-    """`{binder_module: earliest_line}` for module-level imports -- an
-    import still executes at module-import time (and so still carries the
-    hazard) whether it is a bare top-level statement OR nested inside a
-    module-level `try:`/`except:`/`else:`/`finally:` or `if:`/`elif:`/
-    `else:` block (a common guarded-import idiom; this workstream's own
-    `workday-start-step0.py` crash-guard `try:` block is exactly this
-    shape). Walking stops at a `FunctionDef`/`AsyncFunctionDef`/`ClassDef`
-    boundary -- an import nested inside one of those is a genuinely
-    different (deferred, not eager-at-import-time) shape and is not what
-    the spike's confirmed-divergent reading names.
-
-    Negative spec: an `importlib.import_module(...)` call is not detected
-    (no static import statement to see) and a function-level *alias* of a
-    binder import contributes only the module's own binding, never a
-    fabricated one -- this walk is exhaustive over Python's static import
-    statement, not over every way a name can end up bound at runtime.
-    """
     found: dict[str, int] = {}
 
     def _walk(stmts: list[ast.stmt]) -> None:
@@ -174,8 +135,6 @@ def _module_level_binder_imports(tree: ast.Module) -> dict[str, int]:
                     _walk(handler.body)
                 _walk(stmt.orelse)
                 _walk(stmt.finalbody)
-            # FunctionDef/AsyncFunctionDef/ClassDef bodies are deliberately
-            # not recursed into -- deferred-at-call-time, not eager.
 
     _walk(tree.body)
     return found
@@ -204,14 +163,6 @@ def _bootstrap_calls(tree: ast.Module) -> list[tuple[int, bool]]:
 
         def visit_Call(self, node: ast.Call) -> None:
             func = node.func
-            # BOTH call forms count. Matching only `ast.Name` saw the bare
-            # `require_dispatch_engine_on_path()` and was blind to the
-            # attribute form `cc_invoke.require_dispatch_engine_on_path()`,
-            # which several carriers use. A carrier whose real bootstrap is
-            # the attribute form read as having no bootstrap at that line,
-            # so a later in-function call became its "earliest" one and a
-            # correctly-ordered file was reported divergent
-            # (query-record-history.py, whose actual bootstrap is line 76).
             if isinstance(func, ast.Name):
                 name = func.id
             elif isinstance(func, ast.Attribute):
@@ -222,32 +173,13 @@ def _bootstrap_calls(tree: ast.Module) -> list[tuple[int, bool]]:
                 calls.append((node.lineno, self.depth > 0))
             self.generic_visit(node)
 
-    # Negative spec: a bootstrap call reached only via a *function-level*
-    # alias (`from cc_invoke import require_dispatch_engine_on_path as
-    # bootstrap; bootstrap()`) is invisible here -- `func.id` resolves to
     # the aliased name, not a `BOOTSTRAP_WRAPPER_NAMES` member, and this
-    # scan does not resolve `ast.alias.asname` bindings back to their
-    # original name. Accepted limitation, same class as the
-    # `importlib.import_module(...)` gap: a candidate scan over the static
-    # shapes the spike named, not an exhaustive resolver of every runtime
-    # binding.
 
     _Visitor().visit(tree)
     return calls
 
 
 def classify_carrier(path: Path) -> dict | None:
-    """Read one `coordinator/bin/*.py` file and classify it, or return
-    `None` if it does not carry the dispatch bootstrap at all (out of the
-    201-carrier population entirely).
-
-    Never raises on an unparseable file -- a `SyntaxError` degrades to
-    `None` (out of population) rather than aborting the whole scan; this
-    script reports carriers, it does not gate on the tree being fully
-    parseable. `ast.parse` also raises a bare `ValueError` for a source
-    string containing a null byte -- caught here for the same reason, not
-    just `SyntaxError`/`UnicodeDecodeError`.
-    """
     try:
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(path))
@@ -258,26 +190,6 @@ def classify_carrier(path: Path) -> dict | None:
     if not bootstrap_calls:
         return None
 
-    # The ONLY thing that decides the hazard is textual order: does a
-    # module-level binder import run before the earliest bootstrap call.
-    # Whether that call sits inside a function is irrelevant and must not
-    # filter here.
-    #
-    # This scan previously took `min(... if in_function)`, on the reasoning
-    # that "a module-level call runs at import time, before any later
-    # module-level import could apply". That is false -- a module body
-    # executes top to bottom, so a module-level bootstrap call positioned
-    # BELOW a binder import is the hazard in its purest form. The filter
-    # silently excluded that entire class and under-counted the population
-    # by three: coordinator-harvest-deferrals.py (binder at 178, bootstrap
-    # at 228), percolate-mirror.py, and workday-start-step0.py. All three
-    # raised at startup once C9's hardening landed against this scan's
-    # count, which is the flag day the plan's hard constraint 1 forbids.
-    #
-    # Negative spec: do not reintroduce an in-function condition here. An
-    # in-function bootstrap is ALSO a hazard (the function runs after
-    # module-level imports either way), so it is not the discriminator in
-    # any direction.
     earliest_bootstrap = min((line for line, _ in bootstrap_calls), default=None)
     binder_imports = _module_level_binder_imports(tree)
 
@@ -296,24 +208,12 @@ def classify_carrier(path: Path) -> dict | None:
         "carrier": carrier_name,
         "carries_bootstrap": True,
         "earliest_bootstrap_line": earliest_bootstrap,
-        # Named for the shape detected, not a confirmed runtime fact -- a
-        # static textual-order candidate, per NOTE below. Was
-        # `confirmed_divergent`, which read as settled ground truth to any
-        # JSON consumer (a future script, a dashboard) even though the
-        # prose note beside it always disclaimed exactly that; six real
-        # carriers were measured statically-flagged-but-runtime-clean the
-        # same day this field was renamed.
         "order_hazard_candidate": bool(order_hazard_binders),
         "binder_modules": order_hazard_binders,
     }
 
 
 def static_scan(bin_dir: Path = BIN_DIR) -> dict:
-    """Fresh static re-derivation of the spike's confirmed-divergent shape
-    across every `coordinator/bin/*.py` file, never a transcription of the
-    spike's own 15-filename list (this script does not have one -- see
-    module docstring).
-    """
     carriers = []
     for path in sorted(bin_dir.glob("*.py")):
         result = classify_carrier(path)
@@ -331,23 +231,6 @@ def static_scan(bin_dir: Path = BIN_DIR) -> dict:
 
 
 def _read_counter_records(counts_path: Path = COUNTS_PATH) -> list[dict]:
-    """Every well-formed JSON line in C6's sink, in file order. A
-    malformed line is skipped, not fatal -- this is a read-only reducer
-    over an append-only file another process may be writing concurrently
-    (see `engine_provenance_counter.py`'s own concurrency note: each
-    record is one atomic line-write, so a torn read is not expected, but a
-    reducer should still not abort the whole report over one bad line).
-    Absent file (counter never fired, or fired outside this repo's git
-    root) is not an error -- returns `[]`.
-
-    Reads line-by-line (`for line in path.open()`) rather than
-    `read_text().splitlines()` -- this file is C6's forever-growing
-    append-only sink (per that module's own docstring), so buffering the
-    whole thing in memory before iterating is an unbounded-growth hazard
-    against this repo's hard 500ms process-time brightline
-    (`docs/decisions/DR-344-...`) as the fleet's runtime accumulates
-    records; streaming bounds peak memory to one line at a time instead.
-    """
     if not counts_path.exists():
         return []
     records = []
@@ -364,11 +247,6 @@ def _read_counter_records(counts_path: Path = COUNTS_PATH) -> list[dict]:
 
 
 def runtime_aggregate(counts_path: Path = COUNTS_PATH) -> dict:
-    """Aggregate C6's counter by `(caller, axis, verdict)` -- `caller` here
-    is the WRAPPER name (see module docstring), not a per-CLI carrier
-    identity; that is the entire reason this view stays separate from
-    `static_scan`'s per-file rows rather than being merged into them.
-    """
     records = _read_counter_records(counts_path)
     tally: Counter[tuple[str, str, str]] = Counter()
     for record in records:

@@ -117,10 +117,6 @@ import sys
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# coordinator_core is co-located in this same repo (claude-klabauter) -- resolve
-# the repo root via the same cc_invoke helper the sibling CLIs use and put it
-# on sys.path, so `coordinator_core.session.tier_u_gate` (R3+R4 shape gate)
-# imports cleanly regardless of the caller's own cwd/sys.path.
 import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
 from cc_invoke import require_colocated_engine_on_path, child_env  # noqa: E402
 
@@ -136,21 +132,13 @@ from coordinator_core.diff_scoped_tests import (  # noqa: E402
     compute_diff_scoped_paths,
 )
 
-# Aliased deliberately: ``run_fast`` binds a LOCAL ``diag`` to the resolver's
-# captured stderr string (``diag = diag_buf.getvalue()``), which would shadow
-# a bare ``diag`` import for the whole function and make every call site a
-# ``TypeError: 'str' object is not callable``.
 from coordinator_core.diff_scoped_tests import diag as diff_diag  # noqa: E402
+from coordinator_core.session import gate_budget  # noqa: E402
 from coordinator_core.session.tier_u_gate import enforce_tier_u_gate  # noqa: E402
 from coordinator_core.testing import suite_mutex  # noqa: E402
 from coordinator_core.win_portability import no_console_passthrough_kwargs  # noqa: E402
 from coordinator_core.testing.suite_mutex import MUTEX_WAIT_SECS, mutex_owner  # noqa: E402
 
-# coordinator-resolve-validation-cmd.py is co-located in this same bin/ dir.
-# Its on-disk filename is hyphenated (a bin/-resident CLI, not an importable
-# package member) -- a hyphen is not a valid Python identifier character, so
-# a bareword `import` can never resolve it regardless of sys.path. Load by
-# explicit file path instead.
 _RVC_PATH = os.path.join(_BIN_DIR, "coordinator-resolve-validation-cmd.py")
 _rvc_spec = importlib.util.spec_from_file_location("coordinator_resolve_validation_cmd", _RVC_PATH)
 _resolver = importlib.util.module_from_spec(_rvc_spec)
@@ -160,38 +148,14 @@ _rvc_spec.loader.exec_module(_resolver)  # noqa: E402
 _VALIDATE_INSTALL_CONTRACT = os.path.join(_BIN_DIR, "validate-install-contract.py")
 
 
-# --------------------------------------------------------------------------
-# fast subcommand
-# --------------------------------------------------------------------------
-
-# Any one of these implies real shell semantics (pipe, chain, redirect,
-# command substitution) that a direct-exec argv vector cannot express -- a
-# single `|`, `&`, `;`, `<`, `>`, backtick, or `$(` already tells the story
-# (`&&`/`||` contain `&`/`|` and so match too; no need to spell them out).
 _SHELL_METACHAR_RE = re.compile(r"[|&;<>`]|\$\(")
 
 
 class AmbiguousShellSyntax(Exception):
-    """Raised when a configured fast-test command carries shell metacharacters
-    this direct-exec caller cannot honor (see _fail_on_ambiguous_shell_syntax)."""
+    pass
 
 
 def _fail_on_ambiguous_shell_syntax(cmd: str) -> None:
-    """Fail loud when `cmd` carries shell syntax `shlex.split` cannot express.
-
-    The resolved fast-test command used to run via `bash -c`, which happily
-    gave pipe/chain/redirect/substitution syntax real shell meaning. It now
-    runs as a direct argv vector (no shell interposed) via `shlex.split`, so
-    that same syntax would silently degrade into a literal token handed to
-    the resolved program -- `pytest -m x && pytest -m y` would invoke pytest
-    with a literal `&&` argument instead of chaining two runs, exactly the
-    quiet-corruption-wearing-a-costume shape that motivated
-    coordinator-resolve-validation-cmd.py's own exit-126 escaped-quote guard.
-    Matches that module's fail-loud-on-ambiguous-value posture rather than
-    inventing a second convention. Raises AmbiguousShellSyntax; run_fast maps
-    it to `Validation: shell-metachar` / exit 1 (a CONFIG defect, not a
-    test/build failure).
-    """
     m = _SHELL_METACHAR_RE.search(cmd)
     if not m:
         return
@@ -208,20 +172,6 @@ def _fail_on_ambiguous_shell_syntax(cmd: str) -> None:
         file=sys.stderr,
     )
     raise AmbiguousShellSyntax(cmd)
-
-
-# --------------------------------------------------------------------------
-# Process-group teardown on abort (docs/plans/2026-08-13-reap-orphaned-
-# execnet-gateways.md, chunk C1) -- when the resolved fast-test command
-# spawns `pytest -n auto`, execnet's worker pool are grandchildren of this
-# process. subprocess.run's own KeyboardInterrupt path (and a bare SIGTERM
-# with no handler) reaps only the direct child, orphaning the pool; execnet
-# does register an atexit cleanup (execnet/multi.py:62) but atexit never
-# runs on an uncatchable abort. Proven on this host (docs/research/
-# spike-verdicts/2026-08-13-execnet-gateway-reap-on-abort.md): putting the
-# child in its own process group and killpg-ing that group on a catchable
-# signal reaps 2 of 2 orphaned gateways (spike scenarios 2 and 3a).
-# --------------------------------------------------------------------------
 
 
 def _add_process_group_spawn_kwargs(spawn_kwargs: dict) -> None:
@@ -251,28 +201,6 @@ def _add_process_group_spawn_kwargs(spawn_kwargs: dict) -> None:
 
 
 def _teardown_process_group(proc: "subprocess.Popen") -> None:
-    """Kill ONLY the process group `proc` itself created -- never anything
-    else. `_add_process_group_spawn_kwargs` makes `proc`'s pgid equal its
-    own pid (POSIX `start_new_session`), so `os.killpg(proc.pid, ...)`
-    reaps exactly this runner's pool. Deliberately never matches on the
-    execnet command-line signature: 50-70 concurrent LLM sessions share
-    this box and peers run xdist here too, and the spike observed four
-    gateways under a live peer controller that a signature match would
-    have killed.
-
-    Swallows any failure (AC3): a reap that raises must never change the
-    run's exit code, and the caller's own `except OSError` rc=127 contract
-    for a missing-executable spawn stays byte-identical.
-
-    Defense-in-depth: confirms `proc` is still its own process-group leader
-    before signaling. Correct today only because the paired spawn always
-    sets `start_new_session=True` (pgid == pid); if a future edit drops
-    that kwarg while this teardown stays wired, `proc` would otherwise
-    inherit the runner's own pgid and `killpg` would self-kill the
-    runner's whole process group. Fails closed: any doubt (including
-    `os.getpgid` itself raising because the child already exited) skips
-    the signal rather than risking it.
-    """
     if os.name == "nt":
         return
     try:
@@ -284,21 +212,6 @@ def _teardown_process_group(proc: "subprocess.Popen") -> None:
 
 
 def _install_group_teardown(proc: "subprocess.Popen"):
-    """Install SIGTERM/SIGINT handlers that tear down `proc`'s process
-    group before this process itself terminates -- the proven POSIX abort
-    path (spike scenarios 2/3a). Returns a `restore()` callable that
-    reinstates whatever handler was previously installed; call it in a
-    `finally` around the wait so the handler installed here never outlives
-    the single spawn it guards.
-
-    After tearing the group down, the handler restores the prior
-    disposition and re-raises the same signal at itself -- SIGTERM then
-    terminates normally (its default disposition), and SIGINT resumes
-    whatever the previous handler did (ordinarily Python's own
-    `default_int_handler`, raising `KeyboardInterrupt`), so the run's own
-    abort semantics are unchanged; only the orphaned pool is now reaped
-    first.
-    """
     if os.name == "nt":
         return lambda: None
 
@@ -399,14 +312,10 @@ def _assign_windows_job_object(proc: "subprocess.Popen"):
             return None
         return job
     except Exception:
-        # AC3: teardown plumbing must never change the run's exit code.
         return None
 
 
 def _close_windows_job_object(job_handle) -> None:
-    """Release a job handle returned by `_assign_windows_job_object`.
-    Swallows any failure -- matches AC3, and matches that function's own
-    unproven-on-this-host status."""
     if os.name != "nt" or job_handle is None:
         return
     try:
@@ -418,58 +327,20 @@ def _close_windows_job_object(job_handle) -> None:
 
 
 def _run_resolved_command(cmd: str) -> int:
-    """Execute the resolved fast-test command as a direct argv vector
-    (`shlex.split`, no shell) -- the metacharacter guard already refused any
-    value shlex.split cannot faithfully express, so parsing here matches the
-    shell-quoting the value is written with, minus the shell itself.
-
-    Deliberate isolation boundary -- do not convert to an in-process
-    import. This is pytest process isolation: the resolved validation
-    command must run as its own process, not be imported and called
-    in-line. Reason recorded in
-    state/audits/2026-08-06-self-spawn-isolation-boundary-classification.md.
-
-    NOT wired to state/test-red/<machine>.yaml (deliberate, not forgotten).
-    stdout/stderr are inherited with no pipe (see `spawn_kwargs` below), so
-    this site has no captured output to parse into a test-red record --
-    piping it would be a live-streaming change to a hot path, ruled out by
-    this module's own negative-spec. The sibling site,
-    `coordinator/bin/workday-complete-step1-validate.py`, IS wired (commit
-    e0fc9a2fd) because it already captures the run's own output. The
-    cross-repo test-red commitment (state/cross-repo-commitments/2026-07-25-
-    claude-klabauter-to-answer-the-test-red-record-con-bff3653a45f8.yaml) stays OPEN
-    as long as this site remains one of the two live callers and is unwired
-    -- a /validate cadence run through THIS CLI still writes nothing.
-
-    Spawned in its own process group (`_add_process_group_spawn_kwargs`)
-    with a SIGTERM/SIGINT teardown installed for the duration of the wait
-    (`_install_group_teardown`) and, on Windows, a kill-on-close Job
-    Object (`_assign_windows_job_object`) -- see the module section above
-    this function for why (docs/plans/2026-08-13-reap-orphaned-execnet-
-    gateways.md, chunk C1).
-    """
     argv = shlex.split(cmd)
     # env=child_env(): kept for its settings-home propagation (COORDINATOR_
     # SETTINGS_HOME), not for stripping anything. Until the `import-path-
-    # costs-nothing` sprint (C8) this comment described child_env() stripping
     # COORDINATOR_CORE_LAZY_OPS -- cc_invoke's own child_env() no longer
-    # writes or strips that var (see coordinator/bin/lib/cc_invoke.py), and
-    # lazy op registration is unconditional now, so an inherited value would
-    # have zero effect on this repo's own pytest suite's collection (see
-    # commit 5943ec01 / coordinator_core/ops/__init__.py for the retired
-    # history of that leak).
     spawn_kwargs = dict(
         env=child_env(),
         **no_console_passthrough_kwargs(),
     )
     _add_process_group_spawn_kwargs(spawn_kwargs)
+    children_before = gate_budget.snapshot_children_times()
     try:
         proc = subprocess.Popen(argv, **spawn_kwargs)
     except OSError as exc:
-        # `bash -c` used to report an unresolvable first token as rc=127;
-        # direct exec instead raises (FileNotFoundError on both POSIX and
         # Windows for CreateProcess ERROR_FILE_NOT_FOUND). Preserve the rc=127
-        # contract rather than letting this escape as an uncaught traceback.
         print(f"command not found: {argv[0]!r} ({exc})", file=sys.stderr)
         return 127
 
@@ -479,7 +350,13 @@ def _run_resolved_command(cmd: str) -> int:
         return proc.wait()
     finally:
         restore_signals()
+        suite_ms = gate_budget.suite_process_ms(
+            before=children_before,
+            after=gate_budget.snapshot_children_times(),
+            job_handle=job_handle,
+        )
         _close_windows_job_object(job_handle)
+        gate_budget.emit_budget_lines(gate_budget.self_process_ms(), suite_ms)
 
 
 def run_fast(repo_root: str | None) -> tuple[str, int]:
@@ -503,22 +380,16 @@ def run_fast(repo_root: str | None) -> tuple[str, int]:
     diag = diag_buf.getvalue()
 
     if result.returncode == 2:
-        # skip-with-notice
         if diag:
             print(diag, end="", file=sys.stderr)
         return "skipped", 0
 
     if result.returncode == 126:
-        # Malformed configured value -- a CONFIG defect, not a test/build
-        # failure. Blocking (SKILL.md's mapping table).
         if diag:
             print(diag, end="", file=sys.stderr)
         return "config-malformed", 1
 
     if result.returncode != 0:
-        # Any OTHER resolver non-zero (canonical: 127, bare `python` token
-        # with no python3/python on PATH) is a HARD environment failure,
-        # NOT a skip. Blocking.
         if diag:
             print(diag, end="", file=sys.stderr)
         return "interp-missing", 1
@@ -526,25 +397,11 @@ def run_fast(repo_root: str | None) -> tuple[str, int]:
     cmd = result.stdout.rstrip("\n")
 
     # Shell-metachar guard runs on the CONFIGURED command, before any
-    # diff-scoping -- it is a config-validity check (can this value even be
-    # run without a shell?), independent of which test paths this run gets
-    # scoped to.
     try:
         _fail_on_ambiguous_shell_syntax(cmd)
     except AmbiguousShellSyntax:
         return "shell-metachar", 1
 
-    # Diff-scoping: when the working tree has changed test files, and/or
-    # changed SOURCE files that map to covering tests via
-    # coordinator_core.source_test_map, append the union onto the resolved
-    # command so this gate runs only those files instead of the whole
-    # configured fast tier. A changed source file that does NOT fully map
-    # (fully_mapped=False) forces this run back to the unscoped command --
-    # the conjunctive fail-safe (AC9) -- never a partial narrowing. Empty
-    # scoped-path set -> behaviour unchanged (scoped_cmd == cmd). See
-    # coordinator_core/diff_scoped_tests.py for the "changed test file"
-    # definition and the append-only (never rebuild) contract that keeps
-    # the `-m '...'` marker selector intact.
     diff_paths, fully_mapped = compute_diff_scoped_paths(repo_root)
     if not fully_mapped:
         diff_diag(
@@ -558,14 +415,6 @@ def run_fast(repo_root: str | None) -> tuple[str, int]:
     else:
         scoped_cmd = cmd
 
-    # Resolver succeeded -- classify the resolved command's SHAPE before
-    # running it (R3+R4: this is the process-boundary seam the ruling memo
-    # asked to be closed -- the resolved command never appears as
-    # PreToolUse(Bash) text, so Layer 3 alone would never see it). Refuse
-    # rather than execute when the shape is Tier U and the calling session
-    # holds no live Tier-U grant; this CLI only READS a grant, never writes
-    # one (enforce_tier_u_gate's own negative-spec). Gated on scoped_cmd --
-    # the command actually about to execute -- not the unscoped cmd.
     gate = enforce_tier_u_gate(scoped_cmd, repo_root=repo_root)
     if not gate.proceed:
         print(gate.refusal_message, file=sys.stderr)
@@ -583,13 +432,7 @@ def run_fast(repo_root: str | None) -> tuple[str, int]:
         cmd_exit = _run_resolved_command(scoped_cmd)
 
     if diff_paths and cmd_exit == PYTEST_NO_TESTS_COLLECTED:
-        # The diff-scoped run named a changed test file the `-m` marker
-        # filter then deselected entirely (e.g. it carries only
-        # designed_red-marked tests) -- pytest's own "no tests collected"
-        # exit code. That is neither a pass nor a failure; fall back to
         # the full configured fast tier so the gate still runs SOMETHING
-        # (fail-safe: always toward more testing, never toward silently
-        # running zero tests).
         diff_diag(
             "diff-scoped run collected zero tests (pytest rc="
             f"{PYTEST_NO_TESTS_COLLECTED}) -- falling back to the full "
@@ -618,26 +461,8 @@ def _cmd_fast(args: argparse.Namespace) -> int:
     return exit_code
 
 
-# --------------------------------------------------------------------------
-# packageability subcommand
-# --------------------------------------------------------------------------
-
-
 def run_packageability(passthrough: list[str]) -> tuple[int, str | None]:
-    """Run the co-located validate-install-contract.py, or loud-skip when
-    absent. Returns (packageability_exit, warn_message_or_none).
-
-    Deliberate isolation boundary -- do not convert to an in-process
-    import. This is a distinct interpreter plus clean import state:
-    packageability is only meaningful in a fresh interpreter, so
-    validate-install-contract.py must run as its own process. Reason
-    recorded in
-    state/audits/2026-08-06-self-spawn-isolation-boundary-classification.md.
-    """
     if not os.path.isfile(_VALIDATE_INSTALL_CONTRACT):
-        # coordinator/bin itself is where THIS script lives -- this guard is
-        # ONLY about validate-install-contract.py specifically being absent
-        # (a partial/older checkout). Loud SKIP, never a silent
         # PACKAGEABILITY_EXIT=0-and-say-nothing.
         warn = (
             "WARN: Packageability check SKIPPED -- "
@@ -662,11 +487,6 @@ def _cmd_packageability(args: argparse.Namespace) -> int:
     packageability_exit, _warn = run_packageability(args.passthrough)
     print(f"Packageability: {packageability_exit}")
     return packageability_exit
-
-
-# --------------------------------------------------------------------------
-# CLI wiring
-# --------------------------------------------------------------------------
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -704,8 +524,6 @@ def main(argv: list[str]) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     # argparse.REMAINDER can leave a leading "--" separator -- strip it so
-    # `packageability -- --manifest-path X` and `packageability --manifest-path X`
-    # forward identically.
     if getattr(args, "passthrough", None) and args.passthrough[0] == "--":
         args.passthrough = args.passthrough[1:]
     return args.func(args)

@@ -34,15 +34,6 @@ from pathlib import Path
 
 
 def git_root_walk() -> str | None:
-    """Repo root as `git rev-parse --show-toplevel` would report it, fail-open to None.
-
-    In-process parent walk for a `.git` entry (a directory in an ordinary clone, a FILE in a
-    linked worktree or submodule) -- no subprocess spawn. Returns `str(candidate)` (a
-    `pathlib`-resolved path, which on Windows carries backslash separators, NOT the
-    forward-slash form `git rev-parse` prints) -- callers that need byte-parity with git's own
-    output string must not assume separator style; compare via `Path(...).resolve()` equality
-    instead, matching this module's own verification approach. Never raises.
-    """
     try:
         start = Path.cwd().resolve()
         for candidate in (start, *start.parents):

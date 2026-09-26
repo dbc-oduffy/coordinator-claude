@@ -1,5 +1,3 @@
-# guard-not-a-hook-entrypoint: deregistered; its logic runs as Concern F inside
-# enforce-agent-dispatch-mode.py, carried by preuse-agent-dispatch.py.
 """guard-named-dispatch-tool-restriction.py -- standalone script, formerly a
 registered PreToolUse hook on matcher: Agent.
 
@@ -156,8 +154,6 @@ def main() -> int:
     try:
         raw = sys.stdin.read()
     except Exception:
-        # Cannot even read stdin -- there is no dispatch to classify, so
-        # this is a genuine pass, not a guard failure.
         return 0
     if not raw:
         return 0
@@ -165,7 +161,6 @@ def main() -> int:
     try:
         data: Any = json.loads(raw)
     except Exception:
-        # Unparsable payload -- same as above, nothing to classify.
         return 0
     if not isinstance(data, dict):
         return 0
@@ -178,10 +173,6 @@ def main() -> int:
     if not isinstance(tool_input, dict):
         return 0
 
-    # Delegate the decision to the shared, pure computation (see module
-    # docstring above, and `_named_dispatch_strip.py`) -- `None` means
-    # nothing to do (ordinary pass), `("deny", ...)` and `("strip", ...)`
-    # mirror the exact two decisions this script used to make inline.
     result = compute_named_dispatch_result(tool_input)
     if result is None:
         return 0

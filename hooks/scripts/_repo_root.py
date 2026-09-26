@@ -16,18 +16,13 @@ Zero subprocess: `.git` is a directory in a primary checkout and a file in a lin
 `Path.exists()` covers both without spawning `git rev-parse` (25.3ms, per DR-344) to answer it.
 """
 
+
 from __future__ import annotations
 
 from pathlib import Path
 
 
 def repo_root(fallback: Path) -> Path:
-    """Walk `cwd` and its parents for a `.git` entry; `fallback` when none is found or `cwd`
-    itself cannot be read.
-
-    Never spawns a process. `fallback` is always a path the caller already trusts, so degrading to
-    it on an unreadable `cwd` is always safe — the walk fails closed, not silently wide.
-    """
     try:
         cwd = Path.cwd().resolve()
     except OSError:

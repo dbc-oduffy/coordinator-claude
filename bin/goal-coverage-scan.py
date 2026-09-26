@@ -65,56 +65,13 @@ import sys
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
 
-# Record types that may carry origin_goal_id (the work->goal edge).
-#
 # CURRENTLY WIRED: only `handoff` — handoff.schema.json declares
-# origin_goal_id (array<string>|null). This is the only leg that returns
-# real coverage data today.
-#
 # FORWARD-LOOKING / INERT: `plan`, `debt`, `bug`, `improvement` are named in
-# the plan's DEC-3/AC4 as intended origin_goal_id bearers, but their schemas
-# do not yet declare an origin_goal_id field — nothing on the current
-# producer surface writes one onto those types, so these four legs of the
-# coverage scan always return [] until their schemas are extended. Included
-# here so the scan is ready to pick up real data the moment those schemas
-# are wired, at the cost of four no-op query calls per goal in the meantime.
-#
-# Spec backlink: DoE-claude:pln-close-the-weekly-goal-loop-yam-d31316 § C4/AC4, § C5/DEC-3
 COVERAGE_TYPES = ["handoff", "plan", "debt", "bug", "improvement"]
 
 
-# ---------------------------------------------------------------------------
-# Core coverage logic
-# ---------------------------------------------------------------------------
-
-
 def compute_coverage(goals, lookup_coverage):
-    """Compute per-goal coverage for a set of active goals.
-
-    Purpose: backward-teeth surface — given an active goal, checks whether
-    any current handoff/plan/queue-entry actually advances it, and flags
-    zero-coverage goals so a human can spin off a stub. Never writes
-    anything.
-
-    goals: list of {"path": str, "frontmatter": dict} active goal records
-        (status=active).
-    lookup_coverage: callable(goal_id) -> either a bare list (legacy shape —
-        query_errors defaults to 0) or {"items": [...], "queryErrors": int}
-        (queryErrors is a count of per-type query failures encountered while
-        gathering items). Both shapes are accepted so existing unit tests
-        passing a bare-list lookup_coverage keep working.
-
-    Returns a list of dicts, one per active goal, ordered as given:
-        {goalId, title, path, count, zeroCoverage, items, queryErrors}
-    zeroCoverage is True when count == 0. queryErrors is threaded through so
-    a scan-level query-error count can distinguish "confirmed zero
-    coverage" from "coverage query degraded" in the rendered output, rather
-    than silently collapsing both to the same zeroCoverage=True signal.
-    """
     results = []
     for goal in goals:
         frontmatter = goal.get("frontmatter") or {}
@@ -141,34 +98,8 @@ def compute_coverage(goals, lookup_coverage):
     return results
 
 
-# ---------------------------------------------------------------------------
-# records.query invocation helpers
-# ---------------------------------------------------------------------------
-
-
 def _query_records(record_type, where_expr):
-    """Invoke records_query.query_records(type, where, format="json") and
-    return the parsed record list. Errors are surfaced to stderr and treated
-    as an empty result set for that type (a missing/misconfigured type must
-    not abort the whole scan — other goals/types may still be scannable).
-
-    Returns {"records": list, "failed": bool} — `failed: True` on a
-    swallowed query error (records is [] in that case) — lets callers that
-    need to distinguish "confirmed zero coverage" from "coverage query
-    degraded" thread that signal through. Callers that don't care (e.g. goal
-    enumeration) just read ["records"].
-
-    The `lib`/`records_query` bootstrap itself does NOT live here: see
-    `main()`'s call to `_bootstrap_query_records()` before this function is
-    ever reached (2026-08-29 review-finding sweep, Finding 7 — restores a
-    2026-07-22 code-review fix, Finding 1, that the lazy-bootstrap sweep
-    silently regressed by moving the import back into this function, ahead
-    of the `try:` below where an import failure would again escape as a raw
-    unhandled traceback mid-scan on an arbitrary call instead of failing
-    loudly and legibly once at process start).
-    """
     import lib  # noqa: F401 — no-op via main()'s bootstrap; carries the direct-
-    # call route (`_load_cli_module` and friends enter here, never through main).
     from records_query import query_records
 
     try:
@@ -183,14 +114,6 @@ def _query_records(record_type, where_expr):
 
 
 def _fetch_active_goals():
-    """Fetch all active goals (status=active) via records.query type=goal.
-
-    Raises RuntimeError when the query fails outright OR returns zero
-    goals — this tool's entire job is flagging zero-coverage active goals,
-    so a silently-empty enumeration is indistinguishable from a healthy
-    all-clear and must FAIL LOUD instead (see module docstring negative-
-    spec).
-    """
     result = _query_records("goal", "status=active")
     if result["failed"]:
         raise RuntimeError(
@@ -229,28 +152,7 @@ def _fetch_coverage_for_goal(goal_id):
     return {"items": items, "queryErrors": query_errors}
 
 
-# ---------------------------------------------------------------------------
-# CLI argument parser
-# ---------------------------------------------------------------------------
-
-
 def _parse_args(argv):
-    """Parse CLI arguments. Hard-errors on any --output / --out flag to
-    enforce the read-only contract structurally. Also hard-errors on --root
-    (either spelling): the native records.query op self-resolves the repo
-    root from cwd and has no root-override parameter, so honouring --root
-    is not possible — recognising the flag only to silently no-op it would
-    be the exact wrong-answer-quiet failure shape this tool exists to flag
-    (see module docstring negative-spec), so it fails loud instead.
-
-    2026-07-22. --format is hard-error
-    validated the same way (same exit code, same stderr-then-exit shape) as
-    --root/--output: a missing value (--format as the last argv token) or an
-    unrecognized value (--format quux) previously fell through silently to
-    the "text" default rather than erroring, the one flag in this parser
-    without input validation. Valid values text/json are unaffected --
-    byte-parity on normal runs is preserved.
-    """
     fmt = "text"
     i = 0
     while i < len(argv):
@@ -277,7 +179,6 @@ def _parse_args(argv):
             )
             sys.exit(2)
         if arg.startswith("--output") or arg.startswith("--out=") or arg == "--out":
-            # Structural backstop: reject any attempt to specify an output path.
             sys.stderr.write(
                 "ERROR: goal-coverage-scan is a read-only surface — --output is not supported.\n"
                 "       Output is written to stdout only.\n"
@@ -290,11 +191,6 @@ def _parse_args(argv):
         )
         sys.exit(2)
     return {"format": fmt}
-
-
-# ---------------------------------------------------------------------------
-# Text renderer
-# ---------------------------------------------------------------------------
 
 
 def render_text(coverage):
@@ -357,31 +253,7 @@ def render_text(coverage):
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-# CLI entry point
-# ---------------------------------------------------------------------------
-
-
 def _bootstrap_query_records() -> None:
-    """Bootstrap `coordinator/bin/lib` onto `sys.path` and prove
-    `records_query` is importable, once, at process start.
-
-    Restores a 2026-07-22 code-review fix (Finding 1): a genuine import
-    failure (missing records_query.py, wrong _LIB_DIR, a transitive import
-    error) must fail loudly and legibly once here, rather than escaping as a
-    raw unhandled traceback mid-scan on an arbitrary `_query_records()` call
-    — that call sits inside a `try/except Exception` that intentionally
-    swallows per-type QUERY failures (a missing/misconfigured record type
-    must not abort the whole scan), and an unguarded import failure landing
-    inside that same function, ahead of its `try:`, would escape uncaught on
-    whichever call happened to be first, unpredictably.
-
-    Called from `main()` only — module bodies stay inert on the warm door
-    and the un-bootstrapped settings-home forwarder load route (C6a-C6j
-    import-motion); this is the deferred-import replacement for the former
-    module-scope `import lib` / `from records_query import query_records`
-    pair, not a restoration of the module-scope form itself.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     import records_query  # noqa: F401
 

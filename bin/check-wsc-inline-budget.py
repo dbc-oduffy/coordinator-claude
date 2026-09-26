@@ -41,19 +41,6 @@ import sys
 
 
 def _import_run_op_main():
-    """Resolve the engine root, put it on sys.path, and import `run_op_main`.
-
-    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
-    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
-    re-deriving it — this is a plain in-process import, not an RPC invoke, so
-    cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
-    deliberately NOT used here.
-
-    DR-276: the op is run through `coordinator_core.cli_entry.run_op_main`
-    rather than by calling its `main` directly, so any path it declares via
-    `declare_write` becomes a session scope-touch claim instead of an
-    unclaimed orphan at the `scoped_git_commit` sink.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 
@@ -112,7 +99,7 @@ def _resolve_default_paths() -> tuple[str, str]:
 
 
 def main(argv: "list[str] | None" = None) -> int:
-    del argv  # this CLI takes no arguments; argv accepted for the warm-call contract
+    del argv
     try:
         run_op_main = _import_run_op_main()
     except RuntimeError as exc:

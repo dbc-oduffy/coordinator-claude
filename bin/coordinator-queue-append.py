@@ -145,6 +145,7 @@ _BOOTSTRAPPED_NAMES = (
     "_CLAUDE_KLABAUTER_ROOT_ENV",
     "_claude_home",
     "_claude_klabauter_root",
+    "_claude_klabauter_data_home",
     "_machine_local_impl",
     "_resolve_python",
     "_machine_local_get",
@@ -207,7 +208,7 @@ def _bootstrap_imports() -> None:
     global yaml, _REPO_KEY_ALIASES, _repo_key_to_em_id, _same_path
     global _cc_route, cli_shared, resolve_checked_repo_root
     global _MACHINE_LOCAL_IMPL_ENV, _CLAUDE_HOME_ENV, _CLAUDE_KLABAUTER_ROOT_ENV
-    global _claude_home, _claude_klabauter_root, _machine_local_impl, _resolve_python
+    global _claude_home, _claude_klabauter_root, _claude_klabauter_data_home, _machine_local_impl, _resolve_python
     global _machine_local_get, _machine_local_repos_keys, _resolve_from_repo
 
     import yaml
@@ -246,6 +247,12 @@ def _bootstrap_imports() -> None:
     # sites below without a mass rename.
     _claude_home = cli_shared.claude_home
     _claude_klabauter_root = cli_shared.claude_klabauter_root
+    # DATA-home resolver (repos.claude_klabauter, refusing a stamped published
+    # mirror) — distinct from _claude_klabauter_root() above, which is the engine
+    # CODE-root resolver used only for sys.path insertion. Used by
+    # _output_path()'s central-scope / meta-repo branches below, never for
+    # locating coordinator_core itself.
+    _claude_klabauter_data_home = cli_shared.claude_klabauter_data_home
     _machine_local_impl = cli_shared.machine_local_impl
     _resolve_python = cli_shared.resolve_python
     _machine_local_get = cli_shared.machine_local_get
@@ -731,11 +738,13 @@ def _output_path(
         # plan's proposal to route this branch to DoE was never ratified: that plan is `status: draft`,
         # AC1/AC2 are `pending`, and its own C3 is HELD with recorded disk proof
         # the flip never took effect on the production path.)
-        # _claude_klabauter_root() raises _ClaudeKlabauterUnresolvable when repos.claude_klabauter is
-        # unregistered and the engine-root env var is not set — legacy_fn() catches and
-        # degrades gracefully (WARN + skip, exit 0) per the graceful-degradation
-        # contract, mirroring the meta-repo per-project branch below.
-        claude_klabauter_root = _claude_klabauter_root()
+        # _claude_klabauter_data_home() (NOT _claude_klabauter_root(), the engine code-root
+        # resolver) resolves the DATA home: repos.claude_klabauter, refusing a
+        # stamped published mirror even under an env override. legacy_fn()
+        # catches None and degrades gracefully (WARN + skip, exit 0) per the
+        # graceful-degradation contract, mirroring the meta-repo per-project
+        # branch below.
+        claude_klabauter_root = _claude_klabauter_data_home()
         if claude_klabauter_root is None:
             raise _ClaudeKlabauterUnresolvable(
                 "repos.claude_klabauter not set; cannot route central-scope write to claude-klabauter"
@@ -749,8 +758,9 @@ def _output_path(
         git_root = _current_repo_root()
         home = _claude_home()
         if git_root and _same_path(git_root, home):
-            # Meta-repo cwd → route to claude-klabauter via seam.
-            claude_klabauter_root = _claude_klabauter_root()
+            # Meta-repo cwd → route to claude-klabauter via seam (DATA home, not the
+            # engine code-root resolver — see central-scope branch above).
+            claude_klabauter_root = _claude_klabauter_data_home()
             if claude_klabauter_root is None:
                 raise _ClaudeKlabauterUnresolvable(
                     "repos.claude_klabauter not set; cannot route meta-repo per-repo state to claude-klabauter"
@@ -1567,7 +1577,7 @@ Spec backlink: docs/plans/2026-06-25-example-initiative-tc-2-queues-lessons-cons
         help=(
             "(improvement-queue) Classification of the target change. "
             "Valid: script-edit, skill-edit, wiki-append, wiki-new, hook-edit, "
-            "agent-prompt-edit, doc-edit, test-edit, code-edit."
+            "agent-prompt-edit, doc-edit, test-edit, code-edit, config-edit, verification."
         ),
     )
 
@@ -2253,7 +2263,20 @@ def main(argv: "list[str] | None" = None) -> int:
         # and a resolvable-but-live-source root is just as much a second
         # writer as a mirror one; the row's fix is closing the ROUTE, not
         # detecting the mirror case.
-        if queue_scope == "central":
+        # The refusal below is for GENUINE State-1 (native seam absent) only.
+        # QUEUE_APPEND_OUTPUT_ROOT under test isolation is a DIFFERENT case:
+        # the test-isolation gate above (`isolation_root_if_under_test`) calls
+        # legacy_fn() directly, bypassing route()/State-1 detection entirely,
+        # specifically so a caller can pin the write target regardless of
+        # native-seam state. Refusing here unconditionally defeated that —
+        # `_output_path`'s override branch wins over the central-scope branch
+        # (see its own precedence docstring), so the write target is exactly
+        # known and safe; only a genuine State-1 with no override needs the
+        # refusal (this dispatch tool's own `test_second_run_idempotent_
+        # end_to_end` dedup-scan/write-seam parity net).
+        if queue_scope == "central" and not cli_shared.isolation_root_if_under_test(
+            _QUEUE_APPEND_OUTPUT_ROOT_ENV, caller_name="coordinator-queue-append"
+        ):
             print(
                 "warn: coordinator-queue-append: native coordinator_core.invoke seam "
                 "absent — central-scope writes require the native queue.append op "

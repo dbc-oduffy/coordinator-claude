@@ -77,14 +77,7 @@ import subprocess
 import sys
 
 
-
 def _no_console_kw() -> dict:
-    """Splat-ready Windows console-suppression kwarg. Falls back to the same
-    suppression kwargs computed inline (zero imports beyond ``subprocess``) on
-    any resolution failure, rather than silently dropping console suppression —
-    a resolution failure must never turn a quiet spawn into a visible console
-    window (Review: code-reviewer P2 — matched to the pattern ccbdbecc2 applied
-    to sweep-boot.py/standup.py/render-project-tracker/refresh-plugin-live-install.py)."""
     try:
         import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
         from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path
@@ -94,19 +87,10 @@ def _no_console_kw() -> dict:
 
         return no_console_creationflags()
     except Exception:  # noqa: BLE001 -- fail-open, matches this file's transport posture
-        # `{}` off Windows, matching the primitive's own POSIX contract exactly --
-        # `{"creationflags": 0}` splats harmlessly too, but a substitute that
-        # disagrees with the thing it substitutes for is a trap for any caller
-        # comparing against `no_console_creationflags()`.
         if os.name != "nt":
             return {}
         return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
-
-# --------------------------------------------------------------------------
-# Dispatch briefs -- the three non-negotiable clauses live HERE, in the text
-# actually handed to a dispatched agent, not in ceremony prose.
-# --------------------------------------------------------------------------
 
 _VERIFICATION_CLAUSE = """
 VERIFICATION IS MANDATORY, NOT OPTIONAL. Every file, symbol, constant, line
@@ -129,12 +113,7 @@ Write your report to `{report_path}` verbatim -- the verify pass reads that
 exact path.
 """.strip()
 
-# Framing is deliberately claim-shaped rather than finding-shaped: this brief is
-# shared across all three buckets, and `fyi` produces routes, never break-class
-# findings. Naming only findings let a verify pass read a route-only report as
-# having nothing to check — on the run this stage split came from, that bucket's
 # ESCALATEs were the ones most needing verification and three of five were
-# refuted. Keep the route vocabulary here if the brief is reworded.
 _VERIFY_BRIEF = """
 You are verifying the claims recorded in the triage report at
 `{report_path}` -- whatever shape this bucket's triage pass actually
@@ -295,7 +274,6 @@ _PLAN_WEIGHT_NOTE = (
 
 
 def _fetch_result(repo_root: str) -> dict:
-    """Return the bare memo.blitz_buckets result dict, or {} on any failure/skip."""
     seam = os.environ.get("COORDINATOR_INBOX_BLITZ_JSON", "")
     if seam:
         try:
@@ -325,7 +303,6 @@ def _fetch_result(repo_root: str) -> dict:
 
 
 def _partition(candidates: list) -> tuple[list, dict, list, dict]:
-    """Split the op's flat kind-discriminated candidate list into its four parts."""
     buckets, summary, supersessions, trigger = [], {}, [], {}
     for candidate in candidates:
         kind = candidate.get("kind")
@@ -341,22 +318,6 @@ def _partition(candidates: list) -> tuple[list, dict, list, dict]:
 
 
 def _unused_report_path(today: str, bucket_name: str) -> str:
-    """Return a `state/audits/` report path for this bucket that no earlier
-    run has already written.
-
-    First run of a day keeps the plain `{today}-inbox-blitz-{bucket}.md`
-    name, so the ordinary case is unchanged and stays greppable. A same-day
-    re-run takes `-run2`, `-run3`, and so on -- never the occupied name. See
-    `_build_dispatches`' docstring for the 2026-08-31 loss this closes.
-
-    Deliberately probes the filesystem rather than minting a uuid or
-    timestamp suffix: the report path appears in the dispatch brief a model
-    reads and in the EM's own report, so a name a human can recognise and
-    type is worth one stat per bucket. Bounded at 99 attempts, then falls
-    back to the timestamped form rather than looping or raising -- this
-    module promises "Always exit 0", and an assemble that dies because a
-    directory is crowded would be a worse failure than an ugly filename.
-    """
     base = f"state/audits/{today}-inbox-blitz-{bucket_name}"
     candidate = f"{base}.md"
     if not os.path.exists(candidate):
@@ -369,16 +330,6 @@ def _unused_report_path(today: str, bucket_name: str) -> str:
     return f"{base}-{stamp}.md"
 
 def _memo_bytes_total(repo_root: str, memo_paths: list) -> int:
-    """Sum each memo's on-disk byte size, relative to `repo_root`.
-
-    Best-effort and never raises: a memo the op named but that is no longer
-    on disk (archived mid-run, a stale candidate) contributes 0 rather than
-    crashing the assembler, which promises "Always exit 0". This is the
-    pre-dispatch overrun signal state/bug-backlog/2026-08-20-inbox-blitz-
-    assembler-emits-briefs-excee-84e18c928f57.yaml names as the minimum
-    fix: the assembler emits no byte/size total anywhere, so neither it nor
-    the dispatching EM can see a bucket exceeding an agent's read budget
-    before agents are spawned."""
     total = 0
     for memo_path in memo_paths:
         try:
@@ -451,10 +402,6 @@ def _build_dispatches(buckets: list, supersessions: list, repo_root: str) -> tup
                 if newer in memo_ids or older in memo_ids:
                     relevant.append(s)
             if relevant:
-                # Fold `advisory` into the rendered
-                # basis label so AC4's demotion of `same-sender-same-locus` is
-                # observable to the ceremony reading this brief, not merely
-                # structurally present in the candidate's own shape.
                 rendered = "\n".join(
                     f"  - {s['newer']} may supersede {s['older']} "
                     f"[basis: {s['basis']}"
@@ -525,10 +472,7 @@ def _resolve_repo_root() -> str:
         require_dispatch_engine_on_path()
         from coordinator_core.git.repo_root import show_toplevel
 
-        # `show_toplevel`'s own spawn fallback bounds its wait at 2s (see
         # `coordinator_core.git.repo_root._TIMEOUT_SECS`), tighter than this
-        # site's prior 10s — still bounded, still never blocks the morning
-        # ceremony (see docstring above).
         resolved = show_toplevel()
     except Exception:  # noqa: BLE001 -- fail-open, matches this file's transport posture
         resolved = None
@@ -538,7 +482,7 @@ def _resolve_repo_root() -> str:
 
 
 def main(argv: "list[str] | None" = None) -> int:
-    del argv  # this CLI takes no arguments; argv accepted for the warm-call contract
+    del argv
     repo_root = _resolve_repo_root()
     result = _fetch_result(repo_root)
     candidates = result.get("candidates")
@@ -575,15 +519,6 @@ def main(argv: "list[str] | None" = None) -> int:
 
 
 if __name__ == "__main__":
-    # `main()` takes no argv (see its own `del argv` above) and this
-    # `__main__` guard historically called it with none at all, so a
-    # direct `python <this file> --help` never had anywhere to be seen --
-    # it fell straight through to the real op. `run_target`'s own `--help`
-    # interception (coordinator/bin/lib/entry_point_shim.py) covers the
-    # launcher/forwarder door; this is the second, direct-execution door,
-    # and the smallest guard that closes it without touching `main()` or
-    # relocating any ceremony logic. Spec backlink: docs/plans/2026-09-02-
-    # the-loader-fires-the-assembly-not-the-em.md, chunk C1 (amended).
     if any(_arg in ("--help", "-h") for _arg in sys.argv[1:]):
         print("usage: workday-start-inbox-blitz-assemble.py [--help]")
         sys.exit(0)

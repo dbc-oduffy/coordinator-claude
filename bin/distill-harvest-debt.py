@@ -47,11 +47,6 @@ from dataclasses import asdict
 from pathlib import Path
 
 def _bootstrap_engine() -> None:
-    """Bootstrap coordinator/bin/lib onto sys.path and resolve the engine root.
-
-    Moved out of module scope so this file carries no non-stdlib import at
-    module scope — same failure/exit behavior preserved.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_colocated_engine_on_path
 

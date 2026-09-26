@@ -1,45 +1,8 @@
-"""target_wiki_canon.py — shared `target_wiki` canonicalization for the lessons-outbox pair.
-
-Purpose: `coordinator-lesson-promote` (writer) and `lessons-outbox-drain.py` (reader/
-deduper) both need to collapse equivalent spellings of a central-wiki `target_wiki`
-value ('foo', 'foo.md', 'docs/wiki/foo.md', ...) to one canonical string — the writer
-so a normalized value is what actually lands on disk, the drain so its dedupe key
-treats those spellings as the same target. Before this module existed the two tools
-carried independently-drifting copies of "the" canonicalization (promote's collapsed
-the directory prefix; drain's collapsed only the `.md` suffix), so a value promote
-wrote as `docs/wiki/foo.md` and a legacy bare `foo.md` entry in the corpus still
-deduped as two distinct keys downstream — the A9 fix did not actually compose across
-the two tools. This module is the single canonicalization both now import.
-
-`target_wiki` is NOT always a wiki path — it is the generic promotion-target field for
-every `change_kind` in the lessons-outbox schema (docs/wiki/lessons-outbox-schema.md
-§ Change-kind enum). Only `wiki-new` and `wiki-append` are wiki-targeting by the
-schema's own semantics (a new wiki file / an append to an existing wiki section);
-every other accepted change_kind (`doctrine-edit`, `agent-prompt-edit`, `hook-edit`,
-`script-edit`, `snippet-sync-update`, `skill-edit`) stores a non-wiki path in this
-same field (a `SKILL.md`, a `bin/` script, a hook file, ...). Collapsing the directory
-prefix on those values is unsafe: every skill file shares the basename `SKILL.md`, so
-a basename-only collapse would silently merge unrelated skills' entries into one
-dedupe group. `canonical_target_wiki_for_kind` resolves that by making the full
-collapse conditional on `change_kind` — non-wiki kinds keep their raw value as the
-comparison/storage key; only wiki-targeting kinds get the full canonical form.
-
-Spec backlink: cross-repo/inbox/2026-07-23-example-cockpit-repo-em-learn-lessons-dogfood-2026-07-23.md
-(findings A7/A9)
-"""
 
 from __future__ import annotations
 
-# The two schema-enum members whose semantics are unambiguously wiki-targeting
-# (docs/wiki/lessons-outbox-schema.md § Change-kind enum: `wiki-new` = "A new wiki
-# file under docs/wiki/"; `wiki-append` = "An append to an existing wiki section").
-# Every other accepted change_kind stores a non-wiki path in `target_wiki` and must
-# NOT be run through the directory-collapsing normalization below.
 WIKI_TARGETING_CHANGE_KINDS = frozenset({"wiki-new", "wiki-append"})
 
-# Public (no leading underscore) — both `coordinator-lesson-promote` and
-# `lessons-outbox-drain.py` import these directly rather than re-declaring their
-# own private copies, closing the exact drift shape this module exists to end.
 TARGET_WIKI_UNKNOWN = "unknown"
 TARGET_WIKI_PREFIX = "docs/wiki/"
 

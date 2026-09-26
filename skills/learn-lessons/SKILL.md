@@ -68,6 +68,10 @@ this skill runs with cwd set to the consuming repo, where that path does not exi
 
 ## Phase Flow (invocation pointers — mechanics: wiki)
 
+`coordinator_core.learn_lessons_pipeline`'s `brief`/`apply` entrypoints now emit the Phase 4.5
+cutoff derivation and the Phase 8 `COMPLETE` stamp as engine directives, not hand-run EM steps —
+read them from the fired decision object rather than deriving them by hand.
+
 Discovery roots: `learn-lessons-roots` (machine-registry-derived, never a
 committed list). Baton lift source: batons joined to the plan under distillation by
 `deliverable_id`; each baton's `## What I Learned` section is a flat bullet list, one standalone
@@ -81,7 +85,7 @@ directive`:
 
 - **local:** the `learn_lessons_pipeline` brief's age-sweep directive as the only pre-run step —
   never write routing records under `state/lessons/`; the grind writes them under
-  `<run_dir>/records/`. Emit with `emit-dispatch-workflow.py --queue state/lessons --profile
+  `<run_dir>/records/`. Emit with `emit-dispatch-workflow --queue state/lessons --profile
   lessons --appetite <a> --out <scratch>`, fire with the `Workflow({scriptPath, args})` call it prints, never `--fire`.
 - **central route:** drain the outbox, then assert cross-plane emptiness first (a FAIL stops the
   run and goes to the PM). Emit `--queue state/lessons-outbox --profile lessons-central-route`,

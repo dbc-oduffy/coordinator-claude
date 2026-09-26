@@ -693,6 +693,7 @@ def sync_mirror(
     sweep_top_level_orphans: bool = False,
     renamed_file_names: "frozenset[str] | None" = None,
     foreign_dir_names: "frozenset[str] | None" = None,
+    injected_paths: "frozenset[str] | None" = None,
 ) -> tuple[int, int]:
     """`sweep_top_level_orphans` (default `False` -- 100% behavior-preserving
     for every existing caller): when True, destination top-level FILES absent
@@ -813,6 +814,17 @@ def sync_mirror(
     # presence preflight and the rmtree loop both read) -- never the per-plugin phase-2
     # loop, whose scope is inside a directory this row does own.
     foreign_dir_names = foreign_dir_names or frozenset()
+    # Every plugin-qualified dst rel_path (`f"{plugin_name}/{rel_path}"`) an `inject`
+    # entry (coordinator_core/percolate/inject.py `run_inject`) copied into this
+    # destination with no source-dir analog by construction. Phase 2 below has no
+    # other way to tell "injected, source-analog-less" apart from "genuinely stray" --
+    # both are present at dst, absent from src. Left unexempted, this sweep would
+    # delete injected content immediately after `inject` restores it, or (worse,
+    # depending on pipeline ordering) right before, making the restore look like it
+    # never ran. Matched on the FULL qualified path, never basename alone, because an
+    # inject entry's `dst` is caller-declared and may collide in basename with
+    # unrelated source content elsewhere in the tree.
+    injected_paths = injected_paths or frozenset()
 
     synced += _sync_mirror_top_level_files(
         src_dir, dst_dir, ignore, dry_run, copier, changed_paths=changed_paths
@@ -900,6 +912,13 @@ def sync_mirror(
                 # renames them again immediately after), but a preview nobody can read
                 # is what the exemption exists to prevent.
                 if Path(rel_path).name in renamed_file_names:
+                    continue
+                # Same present-by-construction contract as the rename exemption
+                # above, for a different provenance (§ `injected_paths` param
+                # docstring): an inject entry's dst has no source-dir analog by
+                # design, so it must never read as a dropped file here.
+                if f"{plugin_name}/{rel_path}" in injected_paths:
+                    print(f"    KEEP:   {rel_path} (injected, no source analog)")
                     continue
                 if (src_plugin / rel_path).is_file():
                     continue
@@ -1218,6 +1237,8 @@ def sync_flat_mirror(
     copy_file: CopyFileFn | None = None,
     changed_paths: "set[str] | None" = None,
     manifest_layout_rewrite: "ManifestLayoutRewrite | None" = None,
+    renamed_file_names: "frozenset[str] | None" = None,
+    injected_paths: "frozenset[str] | None" = None,
 ) -> tuple[int, int]:
     """`changed_paths` — see `sync_mirror`'s own parameter docstring for the
     full contract (structured copy-decision sink, `None`-default no-op,
@@ -1230,10 +1251,21 @@ def sync_flat_mirror(
     only, to a copied file whose basename equals `manifest_layout_rewrite.
     filename` AND whose `src_dir` ends with `manifest_layout_rewrite.
     src_dir_suffix` — both caller-supplied, so this module never names a row
-    or a layout itself."""
+    or a layout itself.
+
+    `renamed_file_names` and `injected_paths` (both default `None`, treated
+    as empty -- 100% behavior-preserving for every existing caller) are the
+    same present-by-construction exemptions `sync_mirror`'s per-plugin Phase 2
+    carries (basenames from the store's `basename_rename` section, and full
+    top-level rel_paths an `inject` entry copied with no source-dir analog).
+    Flat-mirror has no plugin prefix, so `renamed_file_names` matches on the
+    top-level basename exactly as `sync_mirror`'s does, and `injected_paths`
+    matches on the bare rel_path rather than a plugin-qualified one."""
     synced = 0
     removed = 0
     copier = copy_file or _default_copy_file
+    renamed_file_names = renamed_file_names or frozenset()
+    injected_paths = injected_paths or frozenset()
 
     _guard_against_empty_source_mass_delete(
         dst_dir.name or str(dst_dir),
@@ -1291,6 +1323,11 @@ def sync_flat_mirror(
             if _archived_or_orphan(rel_path):
                 continue
             if ignore.matches(rel_path):
+                continue
+            if rel_path in renamed_file_names:
+                continue
+            if rel_path in injected_paths:
+                print(f"    KEEP:   {rel_path} (injected, no source analog)")
                 continue
             if (src_dir / rel_path).is_file():
                 continue

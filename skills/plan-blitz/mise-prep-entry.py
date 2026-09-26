@@ -102,6 +102,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -152,16 +153,21 @@ _REPAIR = {
     "MALFORMED": "hand-written stamp — repair the four mise_prepped_* fields in {target}",
 }
 
-#: The authoring bar every repair above routes to. A PLUGIN-LOCAL sibling, so it self-resolves off
-#: the plugin root — rung 3 of `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` — rather than through the
+#: The authoring bar every repair above routes to. Served from the settings-home launcher (no
+#: DoE-local copy as of the slice-1 fence-switch, coordinator-claude#47) — resolved the same way
+#: every coordinator CLI is, per `snippets/resolve-coordinator-bin.md`, rather than through the
 #: engine seam the bar itself uses for ITS forward reference. Absolute by construction, because
 #: this read's whole purpose is running over a CONSUMER repo (`--repo-root`), and the DoE-relative
-#: literal `coordinator/bin/mise-prep-gate.py` these repairs used to print resolves nowhere there.
+#: literal `coordinator/bin/mise-prep-gate.py` these repairs used to print resolved nowhere there.
 #: Measured on project-rag-ue-addon: 4 of 4 excluded plans routed to a path absent both in that
 #: repo and in the `~/.claude` plugin mirror. Same defect, same repair, one surface over from
 #: `mise-prep-gate.py :: _mise_prep_upgrade_fix_line` — which is why the pin below is the
 #: generalising one, not another dead-literal assertion.
-_GATE_PATH = _PLUGIN_ROOT / "bin" / "mise-prep-gate.py"
+_SETTINGS_HOME = Path(
+    os.environ.get("COORDINATOR_SETTINGS_HOME")
+    or str(Path(os.environ.get("CLAUDE_HOME") or Path.home()) / ".coordinator-claude-settings")
+)
+_GATE_PATH = _SETTINGS_HOME / "bin" / "mise-prep-gate"
 
 
 def _gate_cmd(plan: str, repo_root: Optional[Path]) -> str:
@@ -171,11 +177,12 @@ def _gate_cmd(plan: str, repo_root: Optional[Path]) -> str:
     from inside the very repo the reader may not be standing in, which is the same unresolvable
     remediation one argument along. Fail-open, and never a silent guess — an absent bar is
     reported as unnamed rather than papered over with a path that is not there."""
-    if not _GATE_PATH.is_file():
-        return ("[cannot name the authoring bar — mise-prep-gate.py is not present beside this "
+    gate_path = _GATE_PATH.with_suffix(".exe") if _GATE_PATH.with_suffix(".exe").is_file() else _GATE_PATH
+    if not gate_path.is_file():
+        return ("[cannot name the authoring bar — mise-prep-gate is not present beside this "
                 "read; reinstall coordinator-claude, then rerun]")
     root = f"--repo-root {repo_root} " if repo_root else ""
-    return f"python {_GATE_PATH} {root}{plan}"
+    return f'"{gate_path}" {root}{plan}'
 
 
 def _repair_line(state: str, plan: str, repo_root: Optional[Path]) -> Optional[str]:

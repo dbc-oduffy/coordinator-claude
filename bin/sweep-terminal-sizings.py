@@ -84,26 +84,13 @@ _MODE = "already-terminal"
 
 
 def _ensure_claude_klabauter_on_path() -> str:
-    """Idempotently put the engine root on sys.path; returns it.
-
-    The file's ONE claude-klabauter-root path-resolution site, mirroring
-    `sweep-terminal-handoffs.py`'s own `_ensure_claude_klabauter_on_path` helper.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    import cc_invoke  # pyright: ignore[reportMissingImports] — added to sys.path at runtime by the _LIB_DIR injection above, not statically resolvable
+    import cc_invoke
 
     return cc_invoke.require_engine_on_path(__file__)
 
 
 def _stamp_archive_sweeps_liveness(repo_root: str) -> None:
-    """Best-effort stamp the shared `archive_sweeps` housekeeping-liveness key.
-
-    Called from the sweep-processing tail only (never on the internal-error
-    exit). One swallow point, not two: engine-root resolution, the seam
-    import, and the stamp call itself are all best-effort together — a
-    failure anywhere in this chain means "no liveness stamp this run", never
-    a reason to mask the real sweep result the caller already computed.
-    """
     try:
         _ensure_claude_klabauter_on_path()
         from coordinator_core.ops.ceremony.housekeeping_liveness import (
@@ -117,13 +104,6 @@ def _stamp_archive_sweeps_liveness(repo_root: str) -> None:
 
 
 def _print_planned_moves(candidates: "list[dict]") -> None:
-    """Print the records a `--dry-run` census would move.
-
-    Mirrors `sweep-terminal-handoffs.py :: _print_planned_moves` — prints the
-    id, since that is the whole of what the op's preview candidate carries
-    that identifies the record (unlike the handoffs sweep, this op's preview
-    response does not carry a pre-computed destination path).
-    """
     if not candidates:
         print("dry run: no terminal sizings would be archived")
         return
@@ -133,18 +113,6 @@ def _print_planned_moves(candidates: "list[dict]") -> None:
 
 
 def _print_refusal_census(scan_skipped: "list[dict]", act_skipped: "list[dict]") -> None:
-    """Print every id refused at T1 scan time and every id refused at T3 act
-    time, grouped by reason FAMILY.
-
-    Mirrors `sweep-terminal-handoffs.py :: _print_refusal_census`'s two-half
-    shape. This op's T1 preview WIRE envelope still carries no skip list
-    (`build_dry_run_result` hardcodes `skipped: []` — see
-    `archive_sizings._handle_preview`'s own docstring); `scan_skipped` here
-    is fed by that function's own out-param instead, so a run where every
-    terminal sizing is excluded at T1 (leaving `candidates` empty, and the
-    T3 act call never firing) still surfaces WHY, rather than printing only
-    "no terminal sizings archived".
-    """
     if scan_skipped:
         print(f"scan refused {len(scan_skipped)} record(s):")
         for item in scan_skipped:
@@ -156,13 +124,9 @@ def _print_refusal_census(scan_skipped: "list[dict]", act_skipped: "list[dict]")
 
 
 def main(argv: "list[str] | None" = None) -> int:
-    """`argv` carries one flag, `--dry-run` — mirrors `sweep-terminal-
-    handoffs.py :: main`'s own contract, including the `None`-means-
-    `sys.argv[1:]` default the sibling sweep-script test harnesses rely on.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from repo_identity import resolve_checked_repo_root  # pyright: ignore[reportMissingImports] — same runtime lib-bootstrap sys.path injection as above
-    from sweep_argv import parse_repo_root_argv  # pyright: ignore[reportMissingImports] — same runtime lib-bootstrap sys.path injection as above
+    from repo_identity import resolve_checked_repo_root
+    from sweep_argv import parse_repo_root_argv
 
     argv = sys.argv[1:] if argv is None else argv
     _positional, flags, early_exit = parse_repo_root_argv(

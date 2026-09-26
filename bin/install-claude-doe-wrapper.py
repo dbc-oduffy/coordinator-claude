@@ -19,7 +19,7 @@ Spec backlink: docs/plans/2026-07-23-skills-carry-no-code-extirpation.md § M3/D
 
 from __future__ import annotations
 
-INSTALL_CLASS = True  # writes the claude-doe launcher; see door_install.declared_install_class
+INSTALL_CLASS = True
 
 import os
 import sys
@@ -29,11 +29,6 @@ def _default_wrapper_src() -> str:
 
 
 def _resolve_run_op_main():
-    """DR-276: routed through `coordinator_core.cli_entry.run_op_main` rather
-    than a bare `main` import, so any paths the op declares become a session
-    scope-touch claim instead of an unclaimed orphan at the
-    `scoped_git_commit` sink.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 

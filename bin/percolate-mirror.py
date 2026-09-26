@@ -45,9 +45,6 @@ _LIB_DIR = _BIN_DIR.parent / "lib"
 
 
 def _load_round_module():
-    """`percolate-round.py`'s helpers, loaded by path. Reused rather than
-    re-derived so this entry point can never drift from the round's own
-    lock/pre-flight/pathspec semantics."""
     if str(_BIN_DIR) not in sys.path:
         sys.path.insert(0, str(_BIN_DIR))
     spec = importlib.util.spec_from_file_location(
@@ -59,15 +56,6 @@ def _load_round_module():
 
 
 def __getattr__(name: str):
-    """PEP 562 module `__getattr__` -- lets a caller that reaches for
-    `<this module>._round` BEFORE `main()` has run (e.g. this file's own
-    test suite, which monkeypatches `_mod._round`'s attributes ahead of
-    calling `_mod.main()`) trigger `_bootstrap_engine()` lazily on first
-    access, instead of requiring `_round` to already be a module global at
-    import time. Only fires when the name is NOT already present in this
-    module's `__dict__` -- once `_bootstrap_engine()` has run once (via this
-    hook or via `main()`), the plain global wins on every later lookup and
-    this function is not called again for that name."""
     if name in ("_round",):
         _bootstrap_engine()
         try:
@@ -146,43 +134,24 @@ def _bootstrap_engine() -> None:
     `coordinator/bin/lib`. They are different directories.
     """
     if all(n in globals() for n in ("_round",)):
-        # Already bootstrapped (via `main()` or a prior `__getattr__` hit) --
-        # re-running would call `_load_round_module()` again and rebind
-        # `_round` to a BRAND NEW module object (`importlib.util.module_
-        # from_spec` + `exec_module` builds a fresh module every call), which
-        # would silently orphan any monkeypatch a caller already applied to
-        # the first-bootstrapped `_round`. Idempotent by construction.
         return
 
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import _front_insert_on_path, require_colocated_engine_on_path
 
-    # Rung 1 is the LOCATOR variable itself, ahead of `require_colocated_
-    # engine_on_path`'s own ladder, because that helper does not read it: its
     # rung 2 falls through to `_resolve_claude_klabauter_root()`, the DISPATCH ladder,
-    # which on a conformant box answers with the published mirror. Consulting
-    # the locator variable here is what makes the remediation this module
     # prints ("set COORDINATOR_ENGINE_SOURCE_ROOT") true rather than advice
-    # nothing honours.
     source_override = (os.environ.get("COORDINATOR_ENGINE_SOURCE_ROOT") or "").strip()
     if source_override and os.path.isdir(source_override):
         root = _front_insert_on_path(source_override)
     else:
         root = require_colocated_engine_on_path(__file__)
     # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
-    # what BINDS coordinator_core, and binding it HERE is what makes the LOCATOR
-    # answer win. `require_colocated_engine_on_path` above only mutates sys.path --
-    # it imports nothing -- and `_load_round_module()` below binds coordinator_core
-    # off ITS own bare self-location insert, so whichever runs first wins for the
-    # life of the process and no later insert can rebind an already-imported
-    # package.
     import coordinator_core  # noqa: F401
 
     _require_percolate_engine(root)
 
     _round_ = _load_round_module()
-    # Puts `coordinator/lib` (the `percolate` package `_mirror_groups` imports)
-    # on sys.path and binds the round's engine names; exec_module alone does not.
     _round_._bootstrap_engine()
 
     for _name, _value in (
@@ -210,11 +179,6 @@ def _mirror_groups(percolate_root: str) -> Optional[Dict[str, List[str]]]:
     try:
         rows = load_targets(setup_dir, target_filter=None)
     except TargetsError as exc:
-        # `None`, never `{}`. The two mean opposite things to the caller and
-        # collapsing them printed "no registered publish targets" over a
-        # resolution that ABORTED with a named, fixable cause -- an operator
-        # reading that last line goes looking for a missing topology file
-        # instead of the registry key the line above just named.
         print(exc.message, file=sys.stderr)
         return None
 
@@ -231,11 +195,6 @@ def _mirror_groups(percolate_root: str) -> Optional[Dict[str, List[str]]]:
 
 
 def _row_paths(percolate_root: str) -> Dict[str, tuple]:
-    """`{target: (source_dir, dest)}` straight off the resolved targets table
-    (fields 2 and 3). The gate legs need both per row and must not re-derive
-    them through Branch 0, which answers a different question (is this target
-    set up for a standalone round) and fails on rows only ever published as
-    part of a mirror's set."""
     from percolate.targets import TargetsError, load_targets  # noqa: E402
 
     try:
@@ -252,10 +211,6 @@ def _row_paths(percolate_root: str) -> Dict[str, tuple]:
 
 
 def _select_mirror(selector: str, groups: Dict[str, List[str]]) -> Optional[str]:
-    """Resolve `selector` to exactly one mirror worktree root. Accepts the root
-    path itself, its basename in either separator form (`claude-klabauter` /
-    `claude_klabauter`), or any registered target name landing in it — a caller
-    who knows only a row name should not have to learn the path."""
     if selector in groups:
         return selector
 
@@ -289,25 +244,6 @@ def _run_gate_legs(
     percolate_root: str,
     tmp: Path,
 ) -> Optional[int]:
-    """Steps 2 and 2b — the content-leak scan and the inverse-drift check —
-    run over the dest copies of the files the real run's manifest names.
-    Returns an exit code to return, or
-    `None` when every leg passed.
-
-    These are the reason a publish to a PUBLIC mirror is allowed to land at
-    all: `scan-secrets` exit 2 is a HIGH-tier credential shape and aborts
-    before any commit, and `inverse-drift` surfaces commits authored directly
-    in dest that this publish is about to overwrite. Omitting them (as this
-    module did when first written) makes the entry point cheaper than
-    `percolate-round` by removing the safety, not the cost.
-
-    Scanned per target, each over ITS OWN row's files (`_rows_scan_lists`). `scan-secrets` is
-    target-scoped (peer-repo pattern, `registry_codenames` guard), so a row
-    needs its own pass — and must not be handed another row's sources, which
-    would judge them under the wrong ruleset. An earlier revision fed every
-    row the whole run's list on an "over-inclusive is safe" reading; that is
-    wrong in this direction, and the failure is recorded at the call site.
-    """
     _bootstrap_engine()
     identity_file = Path(percolate_root) / "setup" / ".percolate-identity"
     peer_repos_file = _round._resolve_central_state()
@@ -318,15 +254,8 @@ def _run_gate_legs(
 
     row_paths = _row_paths(percolate_root)
     for target in targets:
-        # Source/dest come from the resolved targets table, NOT `_branch0_gate`.
         # Branch 0 is a per-target FIRST-RUN SETUP check (it fails
         # MISSING_IGNORE on a row with no `.percolate-ignore` of its own).
-        # `percolate-round` runs it once, for the single target its caller
-        # named and therefore set up. Running it across every row of a mirror
-        # fails on rows that are only ever published as part of the set —
-        # observed live 2026-08-18 on `claude-klabauter-toplevel-reference`,
-        # which aborted the gate legs AFTER a clean 9/9 publish and left the
-        # dest synced but uncommitted.
         paths = row_paths.get(target)
         if paths is None:
             print(
@@ -346,8 +275,6 @@ def _run_gate_legs(
         source_dir, dest = row_paths[target]
         scan_file_list = scan_lists[target]
         if not scan_file_list:
-            # The manifest names nothing under this row's dest — it changed
-            # nothing this run, so it has nothing of its own to scan.
             continue
 
         scan_files_path = tmp / f"scan-files-{target}.txt"
@@ -506,10 +433,6 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     args = _build_parser().parse_args(argv)
 
-    # `_resolve_percolate_root` owns the override precedence itself (it returns
-    # `override` unchanged when truthy), so the override is passed IN rather than
-    # short-circuited around with `or` — the latter called it with no argument on
-    # the no-override path, which is a TypeError, not a fallback.
     percolate_root = _round._resolve_percolate_root(args.percolate_root)
     if not percolate_root:
         print("percolate-mirror: could not resolve PERCOLATE_ROOT.", file=sys.stderr)
@@ -563,36 +486,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             holder_label=f"percolate-mirror:{Path(mirror_root).name}",
             timeout=_round.publish_contention_wait_secs(),
         ):
-            # The destination-dirtiness preflight is GONE (plan AC5). It existed
-            # only because a stdout-derived pathspec could not tell this round's
-            # bytes from a crashed predecessor's; the manifest read below names
-            # them, and its freshness check does the job the preflight did.
             print(f"=== percolate-mirror {mirror_root} — publish ({len(targets)} rows, one invocation) ===")
-            # Inherited-holder handoff. This process already holds the dest
-            # lock, and `publish.py::main` acquires the SAME key
-            # (`held_lock`'s `sha1(realpath(target))`) for every row's resolved
-            # root — without this token the child contends against its own
-            # parent and FATALs on a lock it can never win. The token names
-            # THIS process's pid (the child's direct parent) and the root this
-            # frame holds, and is scoped to the child's own env, never the
-            # ambient one.
             real_env = dict(os.environ)
             real_env[_round._INHERITED_LOCK_ROOTS_ENV] = (
                 f"{os.getpid()}={os.path.realpath(mirror_root)}"
             )
-            # `--no-commit`: this module owns the commit and the push. Left to
-            # commit itself, publish.py lands the round before the gate legs run
-            # and the manifest pathspec below then finds nothing, so the round
-            # exits "nothing to commit" with its commit never pushed.
             real_cmd = [sys.executable, str(_round._PUBLISH), joined, "--no-commit"]
             if not args.delta:
-                # publish.py defaults delta ON (PM ruling 2026-08-19) — the
-                # engine owns that, not each caller. Only an explicit opt-out
-                # is forwarded.
                 real_cmd.append("--no-delta")
-            # Stamped BEFORE the run so `_read_fresh_round_manifest` can reject a
-            # manifest this round did not write (a crashed predecessor's, or a
-            # prior round's leftover when this one is a no-op).
             manifest_not_before = time.time()
             real = _round._run(
                 real_cmd,
@@ -608,11 +509,6 @@ def main(argv: Optional[List[str]] = None) -> int:
                 )
                 return _round._EXIT_FAIL
 
-            # The commit pathspec and the gate legs' scan lists both come from
-            # the manifest publish.py persisted, never from parsing its printed
-            # NEW:/UPDATE:/REMOVE: lines. Same fix as percolate-round.py's
-            # `_cmd_round_default`; this file carried a structurally identical
-            # copy of that defect.
             manifest = _round._read_fresh_round_manifest(
                 Path(repo_root), manifest_not_before
             )
@@ -658,27 +554,13 @@ def main(argv: Optional[List[str]] = None) -> int:
                 )
                 return _round._EXIT_CONFIRM_REQUIRED
 
-            # Third leg of the same mirror history, so it carries the same
-            # currency stamp the other two do -- a signal present on only
-            # SOME publish commits is worse than none, because a consumer
-            # reading an unstamped one cannot tell "old publisher" from
-            # "this leg never stamps".
             subject = (
                 f"percolate publish: {Path(mirror_root).name} "
                 f"({len(targets)} row(s), {len(pathspec)} file(s))"
                 f"{_round._source_sha_suffix()}"
             )
             print(f"=== percolate-mirror {mirror_root} — commit ({len(pathspec)} file(s)) ===")
-            # `ceremony.scoped_git_commit` was KILLED 2026-08-23 (DR-344) and
             # `_round._SCOPED_GIT_COMMIT` went with it, so this leg raised
-            # AttributeError the moment it was reached -- dead from the day of the
-            # kill, and invisible because the tests above it never got past
-            # "nothing to commit". Routed onto the same in-process seam
-            # percolate-round's own commit leg uses (§ C6, 2026-08-25).
-            # C3 (docs/plans/2026-08-29-the-push-subsystem-leaves-and-then-the-
-            # pipeline-can-go.md): repointed off the killed
-            # `commit_pipeline.run_commit_pipeline` onto the sanctioned
-            # zero-spawn shape, `coordinator_core.git.commit.commit_paths`.
             from functools import partial  # noqa: PLC0415
 
             from coordinator_core.git.commit import (  # noqa: PLC0415

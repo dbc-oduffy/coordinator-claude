@@ -1,60 +1,3 @@
-# coordinator-delegation — the only sanctioned human write path to the
-# fleet-delegation grant (`<settings-home>/fleet-delegation.json`,
-# `coordinator_core.session.fleet_delegation`). C3 (write_guards) and C4
-# (bash_guards) make that file unwritable through Write/Edit and through a
-# shell — this CLI, invoked by the human at a terminal, is what C3's guard
-# message points at (`coordinator-delegation grant ...`). Without this row
-# the capability shipped by C1/C2 has no usable write path at all.
-#
-# Subcommands (argv[1] selects; remaining argv is this CLI's own flag set —
-# it does NOT forward raw argv to `fleet_delegation.write_fleet_delegation`,
-# unlike tier-u-grant-cli's `grant_directive` forwarding, because this
-# writer's argument shape (designated pid/create_time resolution, the
-# lease-to-expires_at conversion) is owned here, not by C2):
-#   grant --pid <pid> --classes <c1,c2,...> --lease-hours <N>
-#         (--note <text> | --note-file <path>)
-#       -> resolves the designated (pid, create_time) pair via a direct
-#          psutil probe of --pid, converts --lease-hours into an
-#          `expires_at` measured from THIS CALL's wall clock, and rejects
-#          a lease over 12h locally (before ever reaching
-#          `fleet_delegation.write_fleet_delegation`, so the human sees the
-#          rejection immediately rather than after a round trip through the
-#          writer's own ceiling check) -> write_fleet_delegation(...)
-#          bool->exit. Prints the ceiling sentence verbatim on every call,
-#          success or rejection.
-#   show                          -> check_fleet_delegation-backed read:
-#                                     prints the live grant's fields, or
-#                                     "no live grant" when absent (any
-#                                     reason: missing, expired, malformed,
-#                                     non-human authorship, dead designated
-#                                     process — check_fleet_delegation
-#                                     itself does not distinguish, and this
-#                                     CLI does not either).
-#   revoke                        -> hand the grant back: unlink the grant
-#                                     file via `fleet_delegation`'s own
-#                                     `_grant_file()` location-naming seam
-#                                     (mirrors `session.grant.revoke_tier_u_
-#                                     grant`'s unlink shape) — never a
-#                                     back-dated `granted_at` smuggled past
-#                                     the writer's own +/-5min tolerance.
-#                                     Idempotent: revoking an absent grant
-#                                     is success, not an error. bool->exit.
-#
-# Exit codes: 0 success, 1 the mapped writer/predicate returned False, 2 a
-# usage error (missing/unknown subcommand, missing/malformed flag), 3 a
-# transport failure (engine root unresolvable / `coordinator_core` not
-# importable — this trampoline's own failure, never silently degraded to
-# 0/1). Matches coordinator/bin/tier-u-grant-cli.py's convention.
-#
-# The ceiling sentence — "this raises the cost of forgery and does not
-# prevent it" — is mandatory in this CLI's own output per the plan's
-# section (1): a grant read as unforgeable is worse than no grant, because
-# every correct refusal it converts into an acceptance then rests on it.
-# This is a LAYER, never a boundary: no in-harness guard constrains an
-# agent that spawns out of harness (WMI/`schtasks`/service control), and
-# this CLI does not claim otherwise anywhere in its own text.
-#
-# Spec backlink: docs/plans/2026-08-28-the-ask-the-pm-step-gets-an-artifact-to-check.md § chunk C7
 from __future__ import annotations
 """coordinator-delegation — see the # comment block above for the RAG-bait
 purpose text (the polyglot shebang line above makes THIS triple-quoted
@@ -68,15 +11,9 @@ from datetime import datetime, timedelta, timezone
 _TRANSPORT_FAIL = 3
 _USAGE_FAIL = 2
 
-#: Mandatory in this CLI's own output on every `grant` call — see the
-#: header comment block. Never call this a boundary anywhere near it.
 CEILING_SENTENCE = "this raises the cost of forgery and does not prevent it"
 
 #: Mirrors `fleet_delegation._MAX_LEASE` — checked here FIRST so a human
-#: sees the rejection without a round trip through the writer, and again
-#: inside the writer itself (the writer's own check is the one that
-#: actually protects a caller that imports `write_fleet_delegation`
-#: directly rather than going through this CLI).
 _MAX_LEASE_HOURS = 12
 
 _SUBCOMMANDS = "subcommands: grant --pid <pid> --classes <c1,c2,...> --lease-hours <N> (--note <text> | --note-file <path>) | show | revoke"
@@ -193,12 +130,6 @@ def _cmd_grant(mod, rest: list[str]) -> int:
     classes = [c for c in flags["--classes"].split(",") if c]
 
     # `NEVER_DELEGABLE` is declared once, in `fleet_delegation.py` (C2), and
-    # imported here rather than restated — this early check exists so the
-    # human sees the rejection immediately, the same reason the 12h ceiling
-    # is checked above before the writer is ever called. The writer's own
-    # identical check (module docstring's "Write-time validation") is what
-    # actually protects a caller that imports `write_fleet_delegation`
-    # directly rather than going through this CLI.
     never_delegable_hit = mod.NEVER_DELEGABLE.intersection(classes)
     if never_delegable_hit:
         print(

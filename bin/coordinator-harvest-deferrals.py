@@ -164,16 +164,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Import the SAME doe_root() the
-# write seams (coordinator-queue-append / coordinator-lesson-promote) call,
-# instead of re-deriving a partial (env-var-only) approximation of its
-# resolution chain. Mirrors the _LIB_DIR sys.path pattern used by both seams.
 _LIB_DIR = os.path.join(_BIN_DIR, "lib")
 
 _CLI_CMD_CACHE: dict[tuple[str, bool], list[str] | None] = {}
@@ -213,80 +206,25 @@ def _bootstrap_engine() -> None:
     try:
 
         # Bootstrap on the DISPATCH axis before anything below can bind
-        # `coordinator_core` on the LOCATOR axis first. `cli_shared` (imported
-        # below) transitively imports `repo_identity`, which resolves and imports
         # `coordinator_core` at ITS OWN module level via the LOCATOR-axis
-        # `require_engine_on_path(__file__)` — on a conformant box the two axes can
-        # return different roots (see `require_dispatch_engine_on_path`'s own
-        # docstring), and once a package is bound in `sys.modules` no later
-        # `sys.path` insert can rebind it. Must run before `import cli_shared` /
-        # `from coordinator_registry import ...` below.
         import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
         from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path  # noqa: F401
         
         require_dispatch_engine_on_path()
         # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
-        # what BINDS coordinator_core, and binding it HERE is the whole fix.
-        # require_dispatch_engine_on_path() above only mutates sys.path -- it imports
-        # nothing. Without this line the next module-level import below (a binder module
-        # that resolves on the LOCATOR axis) wins the race and binds coordinator_core off
-        # the working tree instead of the dispatch root, and no later sys.path insert can
-        # rebind an already-imported package. Removing it restores a silent wrong-tree
-        # divergence that require_dispatch_engine_on_path now raises on.
-        # Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
-        # docs/research/engine-provenance-carrier-dependence.md
         import coordinator_core  # noqa: F401
         
         from coordinator_registry import doe_root, _DoeUnresolvable
         
         # cli_shared.claude_klabauter_root() resolves repos.claude_klabauter (CLAUDE_KLABAUTER_ROOT env ->
-        # machine-local registry) — the SAME function coordinator-queue-append's
-        # _output_path() central branch calls for improvement-queue since commit
-        # 5b908173 ("central scope routes to claude-klabauter, not DoE — reconcile the two
         # implementations", 2026-07-23). doe_root() resolves the DIFFERENT
-        # repos.doe_claude key and is the correct root ONLY for lessons-outbox
-        # (coordinator-lesson-promote's _outbox_root() was not touched by that
-        # commit). Importing both, distinctly, is deliberate — do not conflate them.
         import cli_shared
         
-        # coordinator-queue-append / coordinator-lesson-promote are extensionless
-        # Python scripts — CreateProcess can't exec them directly on Windows
-        # (WinError 193). find_cli_cmd() resolves each to a Windows-safe argv
-        # prefix (PATH probe, then sys.executable + sibling-path fallback);
-        # resolution is memoized per CLI per process (below) since _harvest()
-        # calls these once per row and the probe itself spawns subprocesses.
-        #
-        # `_queue_append_locator` is a sibling module in THIS script's own
-        # directory (`coordinator/bin/`, not `lib/`) — running this script directly
-        # (`python3 coordinator-harvest-deferrals`) implicitly puts `_BIN_DIR` on
-        # `sys.path[0]`, but the in-process dispatch every consumes-manifest CLI is
-        # ALSO invoked through (`workstream_complete.apply._load_cli_module`, via
-        # `importlib.util.spec_from_file_location`) never gets that implicit entry
-        # — only an actual `__main__` script does. `import lib` (above) only puts
-        # `_LIB_DIR` on `sys.path`, never `_BIN_DIR` itself, so it does not cover
-        # this import. Left unguarded, this import always raised
-        # `ModuleNotFoundError` under in-process dispatch, so every
-        # `d-harvest-deferrals-*` directive (workstream_complete/directives_lessons_
-        # plan.py's `build_deferral_harvest_directives`, ungated, fires once per
-        # governing plan) always landed in `report["failed"]` (2026-07-27
-        # arg-mismatch audit — a load-time defect found alongside, not caused by,
-        # the prog-slot mismatch this audit chunk targets). The lazy-bootstrap
-        # sweep (2026-08) deleted the `_BIN_DIR` sys.path insert that fixed this
-        # while moving the import into this function, silently reintroducing the
-        # regression; restored here, guarded and idempotent, scoped to this one
-        # sibling-module import (NOT a general per-file `sys.path` preamble —
-        # `import lib` above already covers everything under `_LIB_DIR`).
         if _BIN_DIR not in sys.path:
             sys.path.insert(0, _BIN_DIR)
         from _queue_append_locator import find_cli_cmd
         
         # Grouping-approval contract (2026-07-29). Selection on a GOVERNED plan keys
-        # on the plan's approved `defer` grouping rather than each row's pm_approved
-        # boolean — see `_select_harvest_candidates`.
-        #
-        # `coordinator_core` is already bound on the dispatch axis by the bootstrap
-        # above (moved ahead of `cli_shared`/`coordinator_registry` — see the comment
-        # there); this import just reaches into the now-established package.
         from coordinator_core.frontmatter.schema_validate import (
             compute_grouping_digest,
             is_governed_plan,
@@ -295,55 +233,24 @@ def _bootstrap_engine() -> None:
 
         _claude_klabauter_root = cli_shared.claude_klabauter_root
 
-        # Optional PyYAML — degrade to the stdlib-only fallback parser
-        # (`_minimal_yaml_list_parse`) on an install without it, same
-        # graceful-degrade posture this bootstrap already applies to every
-        # other name here. A bare `try/except ImportError: yaml = None`
-        # used to sit at MODULE scope; moved in here for the same reason as
-        # every other import in this function (see module docstring).
         try:
             import yaml  # type: ignore  # noqa: F401
         except ImportError:
             yaml = None  # type: ignore
 
-        # Publish LAST, once every name is bound -- a publish placed mid-function
-        # silently omits everything imported after it, and the omission surfaces as a
-        # KeyError from `__getattr__` rather than as anything pointing here.
-        #
-        # NEVER overwrite a name a caller already installed: a test that monkeypatches
-        # `doe_root` on this module and then calls a function that triggers the
-        # bootstrap would otherwise have its patch replaced by the real resolver on
-        # the first call, and the failure reads as "the patch never applied".
     finally:
-        # Publish whatever bound, EVEN IF a later import raised. A bootstrap that
-        # dies partway would otherwise lose the names that did bind, and the next
-        # caller sees a missing name instead of the original exception -- which is
-        # a strictly worse error than the one that actually happened.
         _resolved = locals()
         for _name in _BOOTSTRAPPED_NAMES:
             if _name not in globals() and _name in _resolved:
                 globals()[_name] = _resolved[_name]
 
-    # Only on a clean run: a partial bootstrap must stay retryable.
     _BOOTSTRAP_DONE = True
 
 
 def __getattr__(name: str):
-    """PEP 562 hook: a consumer that imports this module rather than executing it
-    -- its own test suite, or `workstream_complete.apply._load_cli_module`'s
-    in-process dispatch -- reaches these names before `main()` runs. Without this,
-    deferring the bootstrap leaves them simply absent, which is what forced an
-    earlier repair pass to hoist the whole block back to module scope. A
-    `global`-bound name is module-visible only after its binder has been called;
-    this hook is what calls it.
-    """
     if name in _BOOTSTRAPPED_NAMES:
         _bootstrap_engine()
         if name not in globals():
-            # The sentinel says bootstrapped, yet this name is absent: a prior
-            # partial run published some names and set nothing else. Force one
-            # re-run rather than surfacing a KeyError from the line below, which
-            # names the symptom and hides which import actually failed.
             global _BOOTSTRAP_DONE
             _BOOTSTRAP_DONE = False
             _bootstrap_engine()
@@ -357,14 +264,6 @@ def __getattr__(name: str):
 
 
 def _resolve_cli_cmd(cli_name: str) -> list[str] | None:
-    """Resolve `cli_name` to a subprocess argv prefix, once per process.
-
-    Under an active write-seam isolation redirect the child is pinned to THIS
-    tree rather than the PATH launcher — see `_child_cli_must_come_from_tree`
-    for why a redirect and the launcher cannot both be honoured. The cache is
-    keyed on that decision as well as the name, so one process cannot serve a
-    pinned answer to an unpinned caller or the reverse.
-    """
     _bootstrap_engine()
     sibling_only = _child_cli_must_come_from_tree()
     cache_key = (cli_name, sibling_only)
@@ -374,26 +273,6 @@ def _resolve_cli_cmd(cli_name: str) -> list[str] | None:
         )
     return _CLI_CMD_CACHE[cache_key]
 
-# The 11-value project-tier improvement-queue-eligible change_kind subset.
-# SSOT: coordinator/docs/wiki/lessons-outbox-schema.md § Change-kind enum
-# (the universal enum); this is the improvement-queue-eligible slice of it.
-# Hand-maintained mirror of a DoE-owned enum — when the SSOT gains a
-# project-tier member, it must be added here too or the harvest treats it as
-# unroutable (and, since 2026-07-29, fails loud on a pm_approved row rather
-# than dropping it silently).
-#
-# `verification` (added 2026-07-29, DoE 1239761c1) is the one member whose
-# deliverable is evidence rather than a diff — a hardware- or
-# environment-gated re-run, a manual dogfood. It is the only member naming no
-# surface to edit, which is the point: this shape gets deferred precisely
-# because the gating resource is not to hand at plan time. A defect the
-# verification finds gets its own row with a change-shaped kind.
-#
-# Negative-spec: `script-port` is NOT a member and does not become one. These
-# values name the SURFACE changed, not the flavour of the change — a
-# bash-to-Python port of a `bin/` utility is `script-edit`. A coined
-# work-shape token routes nowhere by design (DoE 1239761c1 decided this
-# explicitly after such a token dropped a pm_approved row here).
 _QUEUE_ELIGIBLE_CHANGE_KINDS = frozenset(
     {
         "script-edit",
@@ -410,14 +289,8 @@ _QUEUE_ELIGIBLE_CHANGE_KINDS = frozenset(
     }
 )
 
-# The doctrine-class change_kind values routed to coordinator-lesson-promote
-# instead of coordinator-queue-append (rejected by improvement-queue at
-# project scope per its schema's change_kind enum).
 _LESSON_PROMOTE_CHANGE_KINDS = frozenset({"doctrine-edit", "snippet-sync-update"})
 
-# "deferred" is deliberately NOT in this set (C5b, D8) — it is optional per
-# plan-tasks.schema.json now that disposition is the authoring surface; a
-# disposition: backlogged row may carry no `deferred` field at all.
 _REQUIRED_ROW_FIELDS = ("id", "title", "change_kind", "surface")
 
 _VALID_QUEUE_SCOPES = ("project", "central")
@@ -445,35 +318,15 @@ def _child_identity_env() -> dict:
     return subprocess_identity_env()
 
 
-# Write-seam env-override names — MUST mirror the write seams' own resolution
-# precedence exactly (see _candidate_search_dirs' write-seam-parity comment
-# below for the failure mode this guards against).
 _QUEUE_APPEND_OUTPUT_ROOT_ENV = "QUEUE_APPEND_OUTPUT_ROOT"
 
 
 def _isolation_root(env_var: str, caller_name: str) -> str | None:
-    """Local twin of `bin/lib/cli_shared.isolation_root_if_under_test` — see that
-    docstring for the defect this closes.
-
-    Deliberately dependency-free (stdlib only, no `cli_shared` import) rather than
-    delegating: this module's bootstrap is order-sensitive, and forcing it early
-    just to read an env var re-resolves the registry inside a caller's
-    env-stripped window and changes which roots resolve. The predicate is four
-    lines; the ordering hazard is not worth sharing them.
-    """
     value = (os.environ.get(env_var) or "").strip()
     if not value:
         return None
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return value
-    # WARNS EVERY TIME, not once. The dedup set that used to live at module
-    # scope made this warn-once-per-PROCESS, and this name warm-serves: in a
-    # warm server the process outlives the request, so the first caller
-    # consumed the warning and every later caller was silently redirected with
-    # no signal at all. Per-request is the semantic that was wanted and module
-    # state cannot express it. The path is rare (an inherited isolation env var
-    # outside a test run), so repeating it costs a line on stderr and buys back
-    # the signal.
     print(
         f"{caller_name}: ignoring inherited {env_var}={value} — a test-isolation "
         f"redirect outside a test run. Writing to the resolved repo path instead.",
@@ -522,24 +375,7 @@ def _child_cli_must_come_from_tree() -> bool:
     )
 
 
-# ---------------------------------------------------------------------------
-# Minimal fallback YAML-list parser (no PyYAML on the machine) — reused shape
-# from the coordinator's stdlib-only convention. Handles the specific shape
-# the ## Tasks block requires: a top-level YAML list of flat-ish task objects
-# with optional `body: |` literal block scalars. Falls back only when the
-# `yaml` module is unavailable; PyYAML is preferred when present.
-# ---------------------------------------------------------------------------
-
-
 def _minimal_yaml_list_parse(text: str) -> list[dict]:
-    """Parse a YAML list of task-spine row objects without PyYAML.
-
-    Handles: `- id: X` list-item starts, `key: value` scalar fields (quoted or
-    bare), `key: |` literal block scalars (indented continuation lines), and
-    `#` full-line comments between items. This is intentionally narrow — it
-    only needs to round-trip the task-spine row shape defined in
-    plan-tasks.schema.json, not general YAML.
-    """
     rows: list[dict] = []
     current: dict | None = None
     in_block_key: str | None = None
@@ -580,7 +416,6 @@ def _minimal_yaml_list_parse(text: str) -> list[dict]:
             stripped = stripped[2:].strip()
             if not stripped:
                 continue
-            # falls through to key: value parsing below on the remainder
 
         if current is None:
             continue
@@ -593,12 +428,9 @@ def _minimal_yaml_list_parse(text: str) -> list[dict]:
         if value == "|" or value == "|-" or value.startswith("|"):
             in_block_key = key
             block_lines = []
-            # Block indent is determined by the first continuation line.
             block_indent = None
             continue
 
-        # Strip a trailing inline comment (space/tab preceded '#'), matching
-        # the queue-append/_lesson-promote quoting convention's negative-spec.
         if not (value.startswith('"') or value.startswith("'")):
             value = re.split(r"\s+#", value, maxsplit=1)[0].strip()
 
@@ -617,21 +449,8 @@ def _minimal_yaml_list_parse(text: str) -> list[dict]:
     if current is not None:
         rows.append(current)
 
-    # Second pass: block continuation lines need their leading-indent computed
-    # from the first non-empty continuation line, not the key line itself.
-    # The single-pass loop above sets block_indent=None: fix up by re-deriving
-    # indentation from the raw block text captured. Since this is a narrow
-    # fallback (only exercised when PyYAML is absent) we recompute using a
-    # simpler two-pass strategy: re-run block extraction using regex per row
-    # is unnecessary — the primary path (PyYAML present) is exercised in
-    # normal operation; this fallback only needs to not crash and to
-    # best-effort recover fields other than deeply-nested block scalars.
     return rows
 
-
-# ---------------------------------------------------------------------------
-# ## Tasks fenced-block location (parser-locate rule)
-# ---------------------------------------------------------------------------
 
 _TASKS_HEADING_RE = re.compile(r"^##\s+Tasks\s*$", re.MULTILINE)
 _FENCE_RE = re.compile(r"```yaml plan-tasks\n(.*?)\n```", re.DOTALL)
@@ -676,9 +495,6 @@ def _locate_tasks_block(plan_text: str) -> str | None:
 
     after_heading = scan_text[heading_match.end():]
 
-    # Containment, not adjacency: the fence must live INSIDE the '## Tasks'
-    # section, bounded at the next '## ' heading (or end of document). Same
-    # section-bounding shape as _tasks_section_has_deferred_marker below.
     next_heading = re.search(r"^##\s+\S", after_heading, re.MULTILINE)
     section_text = (
         after_heading[: next_heading.start()] if next_heading else after_heading
@@ -688,11 +504,7 @@ def _locate_tasks_block(plan_text: str) -> str | None:
     if fence_in_section is None:
         return None
 
-    # Offsets are identical between scan_text and plan_text (comment
-    # blanking is length-preserving), so re-slice plan_text with the same
     # span to return the ORIGINAL (un-blanked) block body. The yaml block
-    # itself contains no HTML comments, so this is a no-op for well-formed
-    # plans — the returned body is byte-identical either way.
     start, end = fence_in_section.span(1)
     heading_offset = heading_match.end()
     return plan_text[heading_offset + start : heading_offset + end]
@@ -702,13 +514,6 @@ _DEFERRED_TRUE_RE = re.compile(r"^\s*deferred:\s*true\s*$", re.MULTILINE)
 
 
 def _tasks_section_has_deferred_marker(plan_text: str) -> bool:
-    """Belt-and-suspenders silent-data-loss guard: does the '## Tasks'
-    region (heading to next '## ' heading, or end of document) contain a
-    `deferred: true` line, even though `_locate_tasks_block` could not
-    locate a well-formed fenced block? If so, this is the exact silent-loss
-    shape this fix targets — the caller escalates to a loud, non-zero-exit
-    error instead of the default soft warn-and-skip.
-    """
     heading_match = _TASKS_HEADING_RE.search(plan_text)
     if heading_match is None:
         return False
@@ -719,7 +524,6 @@ def _tasks_section_has_deferred_marker(plan_text: str) -> bool:
 
 
 def _parse_plan_id(plan_text: str) -> str | None:
-    """Extract `plan_id: "..."` from the plan's YAML frontmatter block."""
     fm_match = re.match(r"^---\n(.*?)\n---\n", plan_text, re.DOTALL)
     if fm_match is None:
         return None
@@ -730,19 +534,7 @@ def _parse_plan_id(plan_text: str) -> str | None:
     return m.group(1).strip()
 
 
-# ---------------------------------------------------------------------------
-# Row parsing + validation
-# ---------------------------------------------------------------------------
-
-
 def _parse_rows(tasks_yaml_text: str) -> tuple[list[dict], int]:
-    """Parse the fenced block body into a list of row dicts.
-
-    Returns (rows, parse_error_count). A top-level parse failure (the whole
-    block is not a YAML list) yields ([], 1) — treated by the caller as
-    "nothing to harvest, warn and skip" rather than a hard crash, since a
-    plan mid-authoring may have a transiently malformed spine.
-    """
     _bootstrap_engine()
     if yaml is not None:
         try:
@@ -761,13 +553,11 @@ def _parse_rows(tasks_yaml_text: str) -> tuple[list[dict], int]:
             return [], 1
         return [row for row in data if isinstance(row, dict)], 0
 
-    # Fallback: no PyYAML available.
     rows = _minimal_yaml_list_parse(tasks_yaml_text)
     return rows, 0
 
 
 def _row_is_well_formed(row: dict) -> str | None:
-    """Return None if row has all required fields, else a warning string."""
     missing = [f for f in _REQUIRED_ROW_FIELDS if f not in row or row[f] in (None, "")]
     if missing:
         row_id = row.get("id", "<unknown>")
@@ -826,18 +616,10 @@ def _select_harvest_candidates(
     warnings: list[str] = []
     malformed_count = 0
 
-    # Plan-level, computed once: is the `defer` grouping approved over a
-    # cut-set matching this spine's CURRENT membership? On a governed plan
-    # this replaces the per-row pm_approved boolean entirely.
     defer_approved = False
     if governed and isinstance(plan_fm, dict):
         blocks = plan_fm.get("grouping_approvals")
         if not isinstance(blocks, dict):
-            # Presence-only is_governed_plan already set governed=True; a
-            # non-dict grouping_approvals is malformed frontmatter, not an
-            # absent one. Never crash and never select — same skip-with-
-            # warning discipline as a malformed row (see _row_is_well_formed
-            # below), just at plan level instead of row level.
             warnings.append(
                 "plan frontmatter 'grouping_approvals' is present but not a "
                 "mapping — treating the 'defer' grouping as unapproved"
@@ -857,14 +639,6 @@ def _select_harvest_candidates(
         disposition = row.get("disposition")
 
         if governed:
-            # Only the disposition arm exists on a governed plan. The legacy
-            # `deferred: true` arm is deliberately NOT reachable here: a row
-            # with no disposition defaults to `open`, which lands in the `do`
-            # grouping and is not a deferral at all. Honouring the legacy arm
-            # on a governed plan would harvest a row into the queue without
-            # any grouping ever having been approved — the exact hole DoE
-            # warned about in "Vocabulary — deferred: true is legacy on both
-            # sides". Gate on disposition; read-tolerate deferred.
             is_candidate = disposition == "backlogged" and defer_approved
         elif disposition:
             is_candidate = disposition == "backlogged" and row.get("pm_approved") is True
@@ -877,66 +651,17 @@ def _select_harvest_candidates(
     return candidates, warnings, malformed_count
 
 
-# ---------------------------------------------------------------------------
-# Idempotency — dedup key + already-harvested check
-# ---------------------------------------------------------------------------
-
-
 def _path_harvest_id(plan_path: Path) -> str | None:
-    """The idempotency id for a plan whose frontmatter carries no `plan_id`.
-
-    A blitz-minted S-lane spec never carries one, so before this fallback the
-    harvest of every such plan returned 0 after a warning — indistinguishable,
-    in the "Queued N deferred items" line a close-out reader carries, from a
-    plan that had nothing to defer. A deferral that is never queued and leaves
-    no trace is lost work (project-rag-ue-addon F20).
-
-    The plan's filename stem is the key that is actually available: unique
-    within a plans directory, stable for the life of the file, and colon-free
-    by the same naming convention `_harvest_key` relies on. It is prefixed
-    `plan-path-` so a reader can never mistake one for a minted `plan_id`.
-
-    Negative spec: NOT a substitute for `plan_id`. A plan harvested on this
-    fallback and later given a real `plan_id` keys differently on a re-run, so
-    its already-harvested rows would not dedup — `_already_harvested` is told
-    about both keys for exactly that case (see `_harvest`'s `legacy_key`).
-    Renaming a plan file has the same effect and has no such mitigation.
-    """
     stem = plan_path.stem.strip()
     return f"plan-path-{stem}" if stem else None
 
 
 def _harvest_key(plan_id: str, row_id: str) -> str:
-    """Stable dedup key embedded in the written entry's `evidence` field.
-
-    Assumes `row_id` (and `plan_id`) contain no ':' — the key is later matched
-    via a plain substring/line scan in `_already_harvested`, not parsed back
-    apart, so an embedded ':' would not corrupt matching but would make the key
-    ambiguous to a human reader distinguishing plan_id from row_id. Current
-    task-spine `id` conventions (short slugs like `D1`) are colon-free; if this
-    assumption is ever violated, prefer a JSON-safe delimiter (e.g. `::`).
-    (Review: code-reviewer slice2 Finding 3 — nit, documented per suggested fix.)
-    """
     return f"harvest-key: {plan_id}:{row_id}"
 
 
-# Memoization for _repo_root() / _resolved_doe_root() / _resolved_claude_klabauter_root():
-# each is a pure read whose answer cannot change within one process's harvest
-# run, but _candidate_search_dirs() previously called all three (git
-# subprocess + registry-ladder resolution, each potentially its own
 # subprocess) once PER CANDIDATE ROW inside _harvest()'s loop — N redundant
-# spawns for an answer computed once. This mirrors the existing
 # _CLI_CMD_CACHE pattern above (also a per-process, first-call memo). Never
-# invalidated mid-process: repo root / doe root / claude-klabauter root are read-only
-# machine/worktree facts for the lifetime of a single CLI invocation. Does
-# NOT touch the actual per-row write dispatch (_run_queue_append /
-# _run_lesson_promote) — each row's mutating write stays one-spawn-per-row so
-# one row's failure (a non-zero rc, or a hung child now caught as
-# `TimeoutExpired`, both surfaced as a `False` return) never blocks another's;
-# there is no per-row `try` inside `_harvest()` itself — the isolation is
-# entirely the `_run_*` helpers' return-False contract (Review: staff review
-# refuted an earlier revision of this comment that pointed at a "per-row try
-# shape" in `_harvest()` that does not exist).
 _repo_root_cache: dict[str, str | None] = {}
 _resolved_doe_root_cache: dict[str, str | None] = {}
 _resolved_claude_klabauter_root_cache: dict[str, str | None] = {}
@@ -985,20 +710,6 @@ def _collect_evidence_lines(search_dirs: list[str]) -> list[str]:
 
 
 def _already_harvested(key: str, evidence_lines: list[str]) -> bool:
-    """Best-effort text scan for `key` inside any pre-collected `evidence:`
-    line (see `_collect_evidence_lines`, called ONCE per `_harvest()` run,
-    not once per row). Returns True on first match.
-
-    Scoped to lines whose stripped text starts with `evidence:` (Review:
-    code-reviewer slice2 Finding 4 — an earlier revision scanned the entire
-    file content, which could false-positive-match a `body`/other field that
-    happens to quote the literal harvest-key string, e.g. documentation prose
-    discussing a specific harvest-key example; scoping to the evidence line
-    tightens the match to the field this key is actually written into, per
-    _harvest()/_run_queue_append()/_run_lesson_promote()'s `--evidence key`
-    call site). This substring-match semantics is preserved exactly by the
-    2026-08-15 hoist — only the file I/O moved, not the match rule.
-    """
     return any(key in line for line in evidence_lines)
 
 
@@ -1028,27 +739,9 @@ def _resolved_doe_root() -> str | None:
 
 
 def _resolved_claude_klabauter_root() -> str | None:
-    """Call the SAME cli_shared.claude_klabauter_root() coordinator-queue-append's
-    _output_path() central branch calls (repos.claude_klabauter), never raising
-    (mirrors that function's own None-on-unresolvable contract — see its
-    docstring's Negative-spec).
-
-    Deliberately distinct from _resolved_doe_root() above: commit 5b908173
-    ("central scope routes to claude-klabauter, not DoE — reconcile the two
-    implementations", 2026-07-23) repointed coordinator-queue-append's central
-    improvement-queue write (both its legacy _output_path() branch and the
-    native queue.append op) from doe_root() (repos.doe_claude) to
-    _claude_klabauter_root() (repos.claude_klabauter). This function was NOT updated at
-    that time — a latent dedup-scan/write-seam root mismatch for the
-    central-scope improvement-queue leg, closed here.
-
-    Memoized (see _repo_root_cache block above) for the same reason as
-    _resolved_doe_root(): its own resolution ladder can spawn a subprocess
-    and was previously re-run once per harvested row.
-    """
     _bootstrap_engine()
     if _UNSET not in _resolved_claude_klabauter_root_cache:
-        _resolved_claude_klabauter_root_cache[_UNSET] = _claude_klabauter_root()
+        _resolved_claude_klabauter_root_cache[_UNSET] = cli_shared.claude_klabauter_data_home()
     return _resolved_claude_klabauter_root_cache[_UNSET]
 
 
@@ -1108,24 +801,17 @@ def _candidate_search_dirs(row: dict) -> list[str]:
     # coordinator-lesson-promote's _outbox_root() returns LESSON_PROMOTE_OUTBOX_ROOT
     # VERBATIM when set (it IS the lessons-outbox dir itself, unlike
     # QUEUE_APPEND_OUTPUT_ROOT which is a root that "state/improvement-queue" is
-    # joined onto) — do not append "state/lessons-outbox" onto it here.
     lessons_override = _isolation_root(
         _LESSON_PROMOTE_OUTBOX_ROOT_ENV, "coordinator-harvest-deferrals"
     )
     if lessons_override:
         dirs.append(lessons_override)
 
-    # Central-scope improvement-queue routes through cli_shared.claude_klabauter_root()
-    # (repos.claude_klabauter) when its env override is unset — call the real
-    # seam function (not a partial re-derivation) so this can never drift.
     if not queue_override:
         resolved_claude_klabauter_root = _resolved_claude_klabauter_root()
         if resolved_claude_klabauter_root:
             dirs.append(os.path.join(resolved_claude_klabauter_root, "state", "improvement-queue"))
 
-    # Lessons-outbox routes through coordinator_registry.doe_root()
-    # (repos.doe_claude) when its env override is unset — unaffected by
-    # 5b908173, which touched improvement-queue only.
     if not lessons_override:
         resolved_doe_root = _resolved_doe_root()
         if resolved_doe_root:
@@ -1134,32 +820,12 @@ def _candidate_search_dirs(row: dict) -> list[str]:
     return dirs
 
 
-# ---------------------------------------------------------------------------
-# Row routing + dispatch
-# ---------------------------------------------------------------------------
-
-# A sentence terminator must be preceded by a non-space char (so a lone "."
-# doesn't match) and followed by whitespace-or-end (so a dotted filename or
-# version like "boot_sweep.py" or "v1.2" is never split mid-token).
 _SENTENCE_TERMINATOR_RE = re.compile(r"(?<=\S)[.!?](?=\s|$)")
 
 _PROPOSED_ACTION_MAX_LEN = 200
 
 
 def _derive_proposed_action(body: str, title: str, surface: str) -> str:
-    """Derive a queue row's proposed_action from its intent-carrying text.
-
-    coordinator-queue-append previously received `str(row["surface"])` for
-    both --surface and --proposed-action, so every harvested row landed with
-    proposed_action byte-identical to a bare file path (DoE cross-repo memo,
-    measured 15/32 example-cockpit-repo, 11/493 DoE-claude, 12/605 here).
-    proposed_action is the field that makes a queue entry actionable to a
-    session that did not author it — a duplicated path reads as populated, so
-    nothing ever prompts anyone to fill it in. This derives an actual action
-    sentence from the row's body (first sentence) or title instead, falling
-    back to surface only as a last resort, since proposed_action is a
-    required improvement-queue field and must never come back empty.
-    """
     for candidate in (body, title):
         text = " ".join((candidate or "").split())
         if not text:
@@ -1175,16 +841,6 @@ def _derive_proposed_action(body: str, title: str, surface: str) -> str:
 
 
 def _body_argv(body: object) -> tuple[list[str], "str | None"]:
-    """Return the body's argv pair for a write CLI, plus any temp file to unlink.
-
-    `--body` is single-line ONLY: coordinator-queue-append and
-    coordinator-lesson-promote both refuse a newline outright ("--body contains
-    a newline; pass --body-file instead"). A harvested row's body is prose and
-    routinely multi-line, so the single-arg form failed every such row.
-    `rstrip("\n")` was never enough: it clears the trailing newline and leaves
-    every interior one. A multi-line body is spilled to a temp file and passed
-    as `--body-file`; the caller unlinks the returned path once the child exits.
-    """
     body_text = str(body).rstrip("\n")
     if "\n" not in body_text:
         return ["--body", body_text], None
@@ -1197,8 +853,6 @@ def _body_argv(body: object) -> tuple[list[str], "str | None"]:
 
 
 def _unlink_body_file(body_file: "str | None") -> None:
-    # The child has read it by the time run() returns on either path,
-    # including the timeout one -- run() has already killed the child.
     if body_file:
         try:
             os.unlink(body_file)
@@ -1207,10 +861,6 @@ def _unlink_body_file(body_file: "str | None") -> None:
 
 
 def _run_queue_append(row: dict, key: str, dry_run: bool) -> bool:
-    """Route one row to coordinator-queue-append --schema improvement-queue.
-
-    Returns True on success (or on a dry-run no-op), False on a non-zero rc or a subprocess.TimeoutExpired (a hung child) — both degrade to a per-row failure, never propagating past this row.
-    """
     queue_scope = row.get("queue_scope") or "project"
     if queue_scope not in _VALID_QUEUE_SCOPES:
         print(
@@ -1260,11 +910,6 @@ def _run_queue_append(row: dict, key: str, dry_run: bool) -> bool:
         "--evidence",
         key,
     ]
-    # Carry-through (DoE cross-repo memo, leg 3): a row with no case_against
-    # (legitimately possible — the ~84 already-stamped plans are not
-    # retro-fitted) harvests cleanly with the field simply omitted — never an
-    # empty string or a placeholder. Only append the flag when the row
-    # actually carries a truthy value.
     if case_against:
         cmd.extend(["--case-against", str(case_against)])
 
@@ -1297,10 +942,6 @@ def _run_queue_append(row: dict, key: str, dry_run: bool) -> bool:
 
 
 def _run_lesson_promote(row: dict, key: str, dry_run: bool) -> bool:
-    """Route one row to coordinator-lesson-promote --target-wiki <surface>.
-
-    Returns True on success (or on a dry-run no-op), False on a non-zero rc or a subprocess.TimeoutExpired (a hung child) — both degrade to a per-row failure, never propagating past this row.
-    """
     body = row.get("body") or row.get("title") or ""
 
     if dry_run:
@@ -1394,28 +1035,13 @@ def _harvest(
     failed = 0
     skipped_unroutable: list[dict] = []
 
-    # `{}` is a throwaway `row` — `_candidate_search_dirs` doesn't vary by row
-    # content (see docstring above), so the literal empty dict just satisfies
-    # the pre-existing signature. Review: code-reviewer (F5, nit).
     search_dirs = _candidate_search_dirs({}) if candidates else []
     evidence_lines = _collect_evidence_lines(search_dirs)
 
     for row in candidates:
         row_id = str(row["id"])
         key = _harvest_key(plan_id, row_id)
-        # A row harvested under this plan's OTHER key (see `_path_harvest_id`)
-        # is already queued; writing it again under the new key would duplicate
-        # it, which is the failure the key exists to prevent.
-        #
         # The window is PROSPECTIVE, not historical. Kira (2026-09-11, F6) read
-        # `legacy_plan_id` as dead on the grounds that no row can have been
-        # harvested under the path key before the commit that introduced it —
-        # true, and not the case it covers. The refusal this commit added tells
-        # authors to add a `plan_id` to a plan that has none; the moment one
-        # does, that plan's rows flip from the path key to the minted key, and
-        # any row harvested under the path key in between is the duplicate.
-        # `legacy_plan_id` is set exactly when a minted id exists AND a path id
-        # would also have resolved, which is that transition and nothing else.
         prior_keys = [key]
         if legacy_plan_id:
             prior_keys.append(_harvest_key(legacy_plan_id, row_id))
@@ -1498,11 +1124,6 @@ def _refuse_if_live_foreign_plan_holder(plan_path: Path) -> str | None:
     return _refuse_if_live_foreign_holder(plan_path, Path(root), None)
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="coordinator-harvest-deferrals",
@@ -1531,14 +1152,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _resolve_archived_plan(plan: str) -> str:
-    """A `docs/plans/<name>` path that no longer exists resolves to its
-    `archive/specs/<YYYY-MM>/<name>` home when that exists, else unchanged.
-
-    Trap: workstream_complete's `d-stamp-plan-implemented` archives the plan
-    before `d-harvest-deferrals-<n>` dispatches with the path captured at build
-    time, and a replay re-fires the harvest after the move landed. The harvest
-    only reads the plan and keys on its stem, so the archived copy is equivalent.
-    """
     path = Path(plan)
     if path.exists() or path.parent.parts[-2:] != ("docs", "plans"):
         return plan
@@ -1592,9 +1205,6 @@ def main(argv: list[str] | None = None) -> int:
     minted_plan_id = _parse_plan_id(plan_text)
     path_plan_id = _path_harvest_id(Path(args.plan))
     plan_id = minted_plan_id or path_plan_id
-    # When the plan carries a minted id, its rows may still have been harvested
-    # under the path key by an earlier run (or the reverse) -- both are checked
-    # before anything is written. See `_path_harvest_id`'s negative spec.
     legacy_plan_id = path_plan_id if minted_plan_id else None
     if not minted_plan_id and plan_id:
         print(
@@ -1616,7 +1226,6 @@ def main(argv: list[str] | None = None) -> int:
 
     rows, parse_error_count = _parse_rows(tasks_block)
     if parse_error_count:
-        # _parse_rows already printed the warning; nothing left to harvest.
         print("Queued 0 deferred items: (none)")
         return 0
 
@@ -1630,8 +1239,6 @@ def main(argv: list[str] | None = None) -> int:
     queued_ids, deduped, failed, skipped_unroutable = _harvest(plan_id, candidates, args.dry_run, legacy_plan_id)
 
     id_list = ", ".join(queued_ids) if queued_ids else "(none)"
-    # A partial failure must not print the same headline as a plan with
-    # nothing to defer -- the headline is the line a close-out reader carries.
     if failed:
         attempted = len(queued_ids) + failed
         print(
@@ -1648,9 +1255,6 @@ def main(argv: list[str] | None = None) -> int:
         skipped_list = ", ".join(f"{s['id']} ({s['change_kind']})" for s in skipped_unroutable)
         print(f"  ({len(skipped_unroutable)} unroutable row(s) skipped: {skipped_list})")
 
-    # Emitted BEFORE the pm_approved-unroutable exit below: both conditions can
-    # hold at once, and an early return there would swallow this line entirely --
-    # the exact quiet-diagnostic loss this whole change set exists to remove.
     if failed:
         print(f"  ({failed} row(s) failed to write — see warnings above)", file=sys.stderr)
 

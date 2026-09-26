@@ -49,14 +49,6 @@ CHECKER_PATH = SCRIPT_DIR / "_validate-code-comparison-record-checker.py"
 
 
 def _load_checker_module():
-    """Import `_validate-code-comparison-record-checker.py` (same directory) by file path.
-
-    Hyphenated, underscore-prefixed filename, so `import _validate-code-comparison-record-checker`
-    is not valid Python — same by-path-sibling idiom as `corpus-currency-probe.py`'s
-    `_load_tier_last_run_module()`. Raises on failure rather than failing open: an absent or
-    broken checker means this CLI cannot validate anything, which `main()` reports as an error
-    (mirroring DoE's own "checker script not found" early-exit), not a silent pass.
-    """
     spec = importlib.util.spec_from_file_location(
         "_validate_code_comparison_record_checker", CHECKER_PATH
     )

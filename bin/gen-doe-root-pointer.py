@@ -20,13 +20,6 @@ import os
 import sys
 
 def _import_runner():
-    """Resolve the engine root and import the in-process runner.
-
-    DR-276: routes through `coordinator_core.cli_entry.run_op_main` rather
-    than calling the op's `main` directly, so the pointer file this op
-    writes becomes a session scope-touch claim instead of an orphan at the
-    `scoped_git_commit` sink.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 

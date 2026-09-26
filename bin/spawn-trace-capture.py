@@ -53,11 +53,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def run_capture(command: list[str], keep_log: bool = False) -> dict:
-    """Run `command` under the spawn tracer; return a summary dict.
-
-    `command` must be a full argv list (no shell). The tracer's log lives in
-    a fresh tmp file per call so concurrent captures never collide.
-    """
     if command and command[0] == "--":
         command = command[1:]
     if not command:
@@ -65,7 +60,7 @@ def run_capture(command: list[str], keep_log: bool = False) -> dict:
 
     log_fd, log_path = tempfile.mkstemp(prefix="spawn-trace-", suffix=".jsonl")
     os.close(log_fd)
-    os.unlink(log_path)  # tracer appends; start from a clean, non-existent path
+    os.unlink(log_path)
 
     env = os.environ.copy()
     existing_pp = env.get("PYTHONPATH", "")

@@ -81,15 +81,6 @@ import sys
 
 
 def _import_main():
-    """Resolve the engine root, put it on sys.path, and import the ported CLI entry.
-
-    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
-    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
-    re-deriving it — this is a plain in-process import, not an RPC invoke, so
-    cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
-    deliberately NOT used here (variant-#1 direct-import trampoline — see
-    tasks/2026-07-16-clean-slate-recon/r1-doe-port-template.md § 1).
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 

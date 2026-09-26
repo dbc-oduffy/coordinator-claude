@@ -32,11 +32,7 @@ No authorization? Surface a one-line proposal — "Candidate spinoff: `<slug>` �
 
 **Do NOT add interactive AskUserQuestion ceremony.** The EM (you) writes the body from current session context. The PM has just told you what the spinoff covers; you have everything you need. A skill that auto-fills the body from heuristics will produce shallow spinoffs the picking-up EM can't act on.
 
-Frontmatter and the canonical body-section skeleton are scaffolded for you; fill each section's content via Edit — the body is the value, never a placeholder stub. End the file with a single-line HTML comment marker for greppability:
-
-```html
-<!-- spinoff: <YYYY-MM-DD> by current EM during <authoring_session> -->
-```
+Frontmatter and the canonical body-section skeleton are scaffolded for you; fill each section's content via Edit — the body is the value, never a placeholder stub. `coordinator-doc-new.py`'s `_spinoff_marker` already stamps the trailing greppability marker at scaffold time — do not hand-type it.
 
 Keep a hand-written `summary:` at or under 140 characters, or pass the title through `baton-assemble` instead. `handoff_author_fork.py` truncates `summary` ahead of the claim gate, so an over-cap value does not make the baton unclaimable — but a hand-edit after scaffolding lands untruncated.
 

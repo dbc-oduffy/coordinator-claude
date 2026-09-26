@@ -46,25 +46,17 @@ from typing import Optional
 from coordinator.lib.percolate.targets import raw_dest_sigil_by_name
 from coordinator_core.percolate.store import load_store, resolve_target
 
-#: The transform-kind's hook name (`hooks` membership) and its section key. Both are
-#: required for a strip to fire; see module docstring.
 STRIP_HOOK = 'sentinel-strip'
 STRIP_SECTION = 'sentinel_strip'
 
-#: Per-row verdicts. `STRIPS` is the only state in which a declared marker pair is
-#: actually removed from this row's published bytes.
 STRIPS = 'strips'
 PUBLISHES_RAW = 'publishes-raw'
 DEAD_DECLARATION = 'dead-declaration'
 EMPTY_HOOK = 'empty-hook'
 NO_STORE_SECTION = 'no-store-section'
 
-#: States that are a defect regardless of what the row's declaration says: config
-#: exists, reads as protection, and protects nothing.
 MISCONFIGURED_STATES = (DEAD_DECLARATION, EMPTY_HOOK)
 
-#: One line per state, for the CLI and for a failing test's message — the remedy is
-#: the part a reader needs, and it differs per state.
 STATE_MEANING = {
     STRIPS: 'declares a marker pair AND activates the hook — the block is removed',
     PUBLISHES_RAW: 'no marker pair, no hook — every byte of this row publishes verbatim',

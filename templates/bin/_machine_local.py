@@ -69,15 +69,10 @@ import datetime
 import difflib
 from pathlib import Path
 
-# Read-path exit-code contract (see module docstring). Operational failure MUST be
-# distinguishable from a cleanly-absent key so a consumer swallowing non-zero does
-# not mask a broken reader as "key not found" (2026-06-24 daemon read-path bug).
 EXIT_OK = 0
-EXIT_NOT_FOUND = 1      # get: key not found | has: key not set — a clean negative
-EXIT_OPERATIONAL = 2    # reader could not answer: version guard, malformed TOML
+EXIT_NOT_FOUND = 1
+EXIT_OPERATIONAL = 2
 
-# Hard requirement: fail loud on Python < 3.11 rather than silently degrade.
-# coordinator requires Python 3.11+ for TOML parsing via stdlib tomllib.
 # Exits OPERATIONAL (not NOT_FOUND): a guard trip is a broken reader, not absence.
 if sys.version_info < (3, 11):
     print(
@@ -87,12 +82,8 @@ if sys.version_info < (3, 11):
     )
     sys.exit(EXIT_OPERATIONAL)
 
-import tomllib  # stdlib, 3.11+
+import tomllib
 
-# A console-subsystem child with no console of its own allocates a fresh
-# conhost on Windows -- with a visible window. Every git spawn below is
-# short-lived and output-captured, so without this each one flashes.
-# 0 on POSIX, where the flag does not exist.
 _NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 SCHEMA_EXPECTED = 1
@@ -126,20 +117,13 @@ def _settings_home() -> str:
     if override:
         return override
     # Path.home(), not os.path.expanduser("~") -- both honour USERPROFILE on
-    # Windows, but expanduser silently returns the literal string "~" when
     # every rung (USERPROFILE, HOMEDRIVE+HOMEPATH, HOME) is unset, which
-    # yields a cwd-relative settings-home and writes artifacts at the drive
-    # root. Path.home() raises RuntimeError in that case instead.
     home = os.environ.get("CLAUDE_HOME") or str(Path.home())
     return os.path.join(home, ".coordinator-claude-settings")
 
 
 class AmbiguousRepoMatch(Exception):
-    """Raised when marker-autodiscovery finds ≥2 distinct directories for the same slug.
-
-    The operator must set REPO_<SLUG> (rung 1 env override) to resolve the ambiguity.
-    Spec backlink: docs/plans/2026-06-30-cross-machine-path-resolution-ladder.md §C1
-    """
+    pass
 
 
 def _registry_dir() -> str:
@@ -166,18 +150,6 @@ def _registry_dir() -> str:
 
 
 def _load_toml(path: str) -> dict:
-    """Load a TOML file and return its contents as a dict.
-
-    Errors loudly on malformed TOML — no silent degradation.
-    Returns empty dict when file is absent (missing .local files are fine).
-
-    Fatal-on-malformed is deliberate here and stays the DEFAULT for every
-    existing caller (registry.toml/registry.local.toml, search-roots.toml,
-    path-exceptions.toml, and the pre-write reads in the set/array-* writers):
-    those files are either the root namespace itself or feed a write path that
-    must fail loud. Concern-file reads during layer-building are the one
-    exception — see _load_toml_isolated.
-    """
     if not os.path.exists(path):
         return {}
     try:
@@ -189,32 +161,10 @@ def _load_toml(path: str) -> dict:
             "Remediation: fix the TOML syntax in the file above.",
             file=sys.stderr,
         )
-        # Operational failure, not absence: the reader could not parse its input.
         sys.exit(EXIT_OPERATIONAL)
 
 
 def _load_toml_isolated(path: str) -> dict | None:
-    """Load a TOML file for the per-concern-file read-isolation seam.
-
-    Fail-soft counterpart to _load_toml, scoped ONLY to concern-file reads in
-    _build_resolution_layers. Returns {} when the file is absent (same as
-    _load_toml), the parsed dict on success, or None on a TOMLDecodeError —
-    None is the drop-this-layer sentinel, distinct from {} (absent/empty),
-    so the caller can tell "nothing here" from "something here I couldn't read".
-
-    On parse failure, warns to stderr naming the file, the parse error, and
-    the remediation, then returns None instead of exiting — one malformed
-    concern file must not take down every other concern's keys or the
-    registry layers (blast-radius defect, cross-repo memo
-    cross-repo/inbox/2026-08-03-project-rag-ue-addon-em-machine-local-rulings-still-outstanding.md,
-    doctrine-plane ruling (a): "fail soft on read, loud on write").
-
-    Registry files (registry.toml / registry.local.toml) deliberately do NOT
-    route through this function — they stay on the fatal _load_toml path.
-    There is nothing to isolate them from: they ARE the root namespace, and
-    degrading them would silently produce a reader that answers with a
-    partial registry. That asymmetry is intentional, not an oversight.
-    """
     if not os.path.exists(path):
         return {}
     try:
@@ -279,21 +229,6 @@ def _scan_marketplace_marker(candidate_dir: str) -> str | None:
 
 
 def _scan_dev_repo_marker(candidate_dir: str) -> str | None:
-    """Scan a candidate directory for its .coordinator-dev-repo identity marker.
-
-    The dev-repo shape (the doctrine-repo authoring clone: no marketplace manifest,
-    identified instead by a repo-root `.coordinator-dev-repo` sentinel) — see that
-    file's own header for why its location is load-bearing.
-
-    Reads <candidate_dir>/.coordinator-dev-repo line by line, looking for a
-    non-comment `slug: <value>` line, and returns value.replace("-", "_") as the
-    registry slug — matching the marketplace-name convention above.
-
-    Returns None if the file is absent, unreadable, or carries no `slug:` key
-    (a keyless sentinel is a valid dev-repo marker for every OTHER reader, which
-    are presence-only; this leg alone needs the key, and its absence must not
-    crash or guess — it is simply not a rung-2 hit).
-    """
     marker_path = os.path.join(candidate_dir, ".coordinator-dev-repo")
     if not os.path.isfile(marker_path):
         return None
@@ -312,42 +247,6 @@ def _scan_dev_repo_marker(candidate_dir: str) -> str | None:
 
 
 def _scan_marker(candidate_dir: str) -> str | None:
-    """Scan a candidate directory for its installation-shape identity marker.
-
-    Two first-class, mutually-exclusive marker shapes, each resolved by its own
-    helper:
-      - marketplace shape — _scan_marketplace_marker: .claude-plugin/marketplace.json,
-        at either the repo-root or one-level-nested placement (unchanged behaviour
-        and precedence from before this function split in two).
-      - dev-repo shape — _scan_dev_repo_marker: the repo-root .coordinator-dev-repo
-        sentinel's `slug:` line. This is the doctrine-repo authoring clone's shape —
-        it carries no marketplace manifest at all.
-
-    A candidate carrying BOTH marker kinds is an identity contradiction, not a
-    precedence question: this returns None, the same way an unreadable or
-    slug-less marker of either single kind resolves to None — never a silent
-    pick of one shape over the other.
-
-    Returns None if neither shape resolves, or both do.
-
-    Negative-spec: does NOT infer a slug from the directory basename in either
-    shape — a locally-renamed clone must resolve to nothing, not a
-    wrong-but-plausible guess. Does NOT prefer one shape when both are present;
-    "return None on both-present" is itself the contract, not a fallback.
-
-    This is the stable, documented entrypoint for callers that only need the
-    single collapsed slug (or None) and have no use for a both-present
-    contradiction beyond "not a match". `_autodiscover_repo` is NOT such a
-    caller — a both-present candidate is exactly the case it must hold and
-    surface at the resolution boundary (AC4), which needs the raw
-    marketplace/dev-repo pair this function's `str | None` contract collapses
-    away. It therefore calls `_scan_marketplace_marker`/`_scan_dev_repo_marker`
-    directly instead of this function — see its docstring.
-
-    Spec backlink: project-rag/docs/wiki/cross-machine-path-resolution-contract.md
-                   § The 4-Rung Resolution Ladder
-    Spec backlink: docs/plans/2026-08-03-doe-claude-as-a-first-class-installation.md § C2
-    """
     marketplace_slug = _scan_marketplace_marker(candidate_dir)
     dev_repo_slug = _scan_dev_repo_marker(candidate_dir)
 
@@ -404,9 +303,6 @@ def _autodiscover_repo(slug: str, reg_dir: str) -> str | None:
     """
     roots_by_platform = _load_search_roots(reg_dir)
     platform_roots = roots_by_platform.get(sys.platform, [])
-    # Review: code-reviewer (F2) — bare-string value (e.g. darwin = "~/X") would iterate
-    # over characters, yielding 0 candidates with no error. Fail loud to match the
-    # fail-loud-on-malformed contract — same style as _load_toml's TOML error handling.
     if not isinstance(platform_roots, list):
         print(
             f"machine-local: search-roots.toml: platform key '{sys.platform}' must be a list "
@@ -417,8 +313,6 @@ def _autodiscover_repo(slug: str, reg_dir: str) -> str | None:
         sys.exit(EXIT_OPERATIONAL)
 
     candidates: list[str] = []
-    # Held, not raised — a both-present candidate relevant to this slug (see
-    # docstring). (path, marketplace_slug, dev_repo_slug) triples.
     contradictions: list[tuple[str, str, str]] = []
     for root in platform_roots:
         expanded_root = os.path.expanduser(str(root))
@@ -428,7 +322,7 @@ def _autodiscover_repo(slug: str, reg_dir: str) -> str | None:
             child_names = os.listdir(expanded_root)
         except OSError:
             continue
-        for child in sorted(child_names):  # sorted for determinism
+        for child in sorted(child_names):
             child_path = os.path.join(expanded_root, child)
             if not os.path.isdir(child_path):
                 continue
@@ -436,26 +330,15 @@ def _autodiscover_repo(slug: str, reg_dir: str) -> str | None:
             dev_repo_slug = _scan_dev_repo_marker(child_path)
             if marketplace_slug is not None and dev_repo_slug is not None:
                 if slug in (marketplace_slug, dev_repo_slug):
-                    # realpath, not the raw child_path: `expanded_root` may carry
-                    # forward slashes (search-roots.toml is written POSIX-
-                    # normalized, see search_roots.py) while `child` is appended
-                    # via os.path.join's native separator, so the raw join mixes
-                    # '/' and '\' on Windows -- neither the operator's own path
-                    # string nor os.path.realpath(their_path) then substring-
-                    # matches it in the composed error message below.
-                    # os.path.realpath resolves to one native, unambiguous form.
                     contradictions.append((os.path.realpath(child_path), marketplace_slug, dev_repo_slug))
                 continue
             found_slug = marketplace_slug if marketplace_slug is not None else dev_repo_slug
             if found_slug == slug:
                 candidates.append(child_path)
 
-    # Deduplicate by realpath so symlinks to the same directory don't count as distinct.
     distinct: list[str] = []
     seen_real: set[str] = set()
     for c in candidates:
-        # Review: code-reviewer (F3) — try/except OSError removed; realpath(strict=False)
-        # (the default) never raises OSError, making the except branch dead code.
         real = os.path.realpath(c)
         if real not in seen_real:
             seen_real.add(real)
@@ -501,18 +384,6 @@ def _autodiscover_repo(slug: str, reg_dir: str) -> str | None:
 
 
 def _git_common_dir(cand: str) -> str | None:
-    """Resolve <cand>'s git common-dir to an absolute realpath, or None if <cand>
-    is not inside a git repository (or git is unavailable / errors / times out).
-
-    The common-dir is shared by a primary working tree and all of its linked
-    worktrees (`git worktree add`), making it the correct grouping key for
-    worktree-collapse: `git rev-parse --git-common-dir` returns a path
-    (relative to <cand> or absolute, depending on whether the common-dir lives
-    inside or outside <cand>) that resolves to the primary tree's .git
-    directory.
-    # Review: code-reviewer (F4) — reworded to state both cases git can emit
-    # (relative-inside vs absolute-outside), not relative-only.
-    """
     try:
         proc = subprocess.run(
             ["git", "-C", cand, "rev-parse", "--git-common-dir"],
@@ -534,27 +405,6 @@ def _git_common_dir(cand: str) -> str | None:
 
 
 def _collapse_git_worktree_duplicates(distinct: list[str]) -> list[str]:
-    """Collapse realpath-distinct candidates that are actually the SAME underlying
-    git repository (a primary working tree plus one or more linked worktrees) into
-    ONE representative — the primary working tree.
-
-    A linked worktree's marker-bearing directory shares its parent repo's
-    marketplace.json (same slug), so without this step it counts as a second,
-    spuriously-distinct candidate and triggers a false AmbiguousRepoMatch.
-
-    Non-git candidates (git missing, rev-parse fails/errors/times out) are never
-    collapsed — each such candidate forms its own singleton group, preserving
-    genuinely-distinct standalone marker directories as distinct candidates.
-    Genuinely-distinct git repos (different common-dirs) are likewise preserved
-    as distinct — only candidates sharing a common-dir collapse.
-
-    Spec backlink: project-rag/docs/wiki/cross-machine-path-resolution-contract.md
-                   § The 4-Rung Resolution Ladder
-    Negative-spec: a linked worktree living inside a search-root previously caused
-    AmbiguousRepoMatch for its parent repo's slug (e.g. a linked worktree of the
-    engine repo, both it and its parent carrying the same repo name
-    under ~/X) — this function is the fix for that incident.
-    """
     groups: dict[str, list[str]] = {}
     order: list[str] = []
     for cand in distinct:
@@ -575,12 +425,6 @@ def _collapse_git_worktree_duplicates(distinct: list[str]) -> list[str]:
         if len(primaries) == 1:
             representatives.append(primaries[0])
         else:
-            # No primary found under the search-root (main tree lives elsewhere),
-            # or an unexpected >1 primaries — fall back to deterministic first.
-            # Review: code-reviewer (F5) — >1 primaries sharing one common-dir key
-            # is structurally unexpected (should be unreachable in normal git
-            # usage) and worth a debuggability note; 0-primaries is the mundane
-            # case and stays silent.
             if len(primaries) > 1:
                 print(
                     f"machine-local: warning: {len(primaries)} primary working trees "
@@ -607,20 +451,6 @@ def _load_path_exceptions(reg_dir: str) -> dict:
 
 
 def _to_native_drive_path(s: str) -> str:
-    """Convert an MSYS/Cygwin mount-form path ('/x/...' or '/cygdrive/x/...') to
-    native Windows drive form (drive letter, colon, forward slash, then the
-    rest) so native-Windows consumers (node, py.exe, claude.exe, Path.exists)
-    resolve it. No-op on POSIX (os.name != 'nt') and on paths already in that
-    native drive form (forward- or back-slashed).
-
-    This is the MSYS-mount-form companion to the as_posix() backslash-drive fix
-    below: as_posix() repairs a backslashed native drive path to the
-    forward-slashed form but does NOT touch '/x/...', which a native-Windows
-    process resolves as drive-relative (doubled drive, drive-letter directory
-    repeated) — the .doe-root / repos.doe_claude mis-resolution bug. Mirrors
-    the bash `cygpath -m` normalization on the write side
-    (gen-doe-root-pointer.py, install-maximalist.py).
-    """
     if os.name != "nt":
         return s
     m = re.match(r"^/(?:cygdrive/)?([A-Za-z])(/.*)?$", s)
@@ -630,80 +460,25 @@ def _to_native_drive_path(s: str) -> str:
 
 
 class SiblingRepoNotFoundError(Exception):
-    """Raised when resolve_sibling_repo_required cannot locate a sibling repo.
-
-    The error message includes a standardized remediation string (verbatim from
-    the contract) naming machine-local set as the last-resort fallback action.
-
-    This exact name is pinned by the cross-machine path-resolution contract;
-    conformers catching this error must import or mirror it by this name.
-
-    Spec backlink: project-rag/docs/wiki/cross-machine-path-resolution-contract.md
-                   § Fail-Loud Seam — Two-Function Contract
-    """
+    pass
 
 
 def resolve_sibling_repo(name: str) -> "Path | None":
-    """Walk the 4-rung cross-machine resolution ladder; return first resolved path or None.
-
-    Optional variant — never raises on *absence*; AmbiguousRepoMatch propagates
-    through (it is a misconfig, not absence) but only AFTER the whole ladder has been
-    walked. A rung-1 set-but-nonexistent env var also propagates (EnvironmentError)
-    because it is a misconfig, not absence.
-
-    Rung order:
-      1. REPO_<SLUG> env var — if set AND path exists, return it.
-             If set AND path does NOT exist → EnvironmentError (misconfig).
-      2. Autodiscovery — _autodiscover_repo. An ambiguous scan is held, not raised:
-             rungs 3 and 4 still get their turn, and the exception surfaces only if
-             neither resolves. An explicit operator declaration must stay reachable
-             past an ambiguous guess.
-      3. path-exceptions.toml OS-keyed table — expanduser; existence-checked.
-      4. registry.local.toml direct read — empty-string → None (not a hit).
-
-    Review: code-reviewer — this ordering guarantee (rungs 3/4 outrank a deferred
-    rung-2 ambiguity) is exercised at the CLI-contract level, not by a direct call
-    to this function: see test_machine_local.py's
-    TestAmbiguousScanDoesNotOutrankExplicitDeclaration, and that file's own
-    negative-spec for why its tests shell out to the CLI instead of importing this
-    module directly.
-
-    Slug = name (underscored form); SLUG = name.upper() (env var prefix).
-
-    Negative-spec: does NOT fall through to the generic _resolve_key /
-    _build_resolution_layers stack; that stack's lowest layer (registry.toml)
-    carries `repos.x = ""` sentinel placeholders that _resolve_key would return
-    as hits, silently defeating fail-loud. Rung 4 reads only registry.local.toml
-    directly and treats empty-string as not-found.
-
-    Spec backlink: project-rag/docs/wiki/cross-machine-path-resolution-contract.md
-                   § Fail-Loud Seam — Two-Function Contract
-    """
     slug = name
     env_var = f"REPO_{slug.upper()}"
     reg_dir = _registry_dir()
 
-    # Rung 1 — explicit env override
     env_val = os.environ.get(env_var)
     if env_val is not None:
         p = Path(env_val)
         if p.exists():
             return p
-        # Set but absent: this is a misconfig (not a clean absence) — hard error.
-        # Review: code-reviewer (F1) — prefix stripped here; cmd_get catch site (~:587)
-        # already prepends "machine-local: ", so keeping it here would double-prefix.
         raise EnvironmentError(
             f"{env_var} is set to {env_val!r} but that path does not exist. "
             f"Fix or unset {env_var} to allow autodiscovery to proceed."
         )
 
     # Rung 2 — search-roots autodiscovery. An ambiguous scan is a rung-2 NON-RESULT,
-    # not a ladder-terminating error: the contract says stop at the first rung that
-    # produces a result, and two candidates produce none. Hold the exception and keep
-    # walking so an explicit operator declaration at rung 3/4 stays reachable; re-raise
-    # only if nothing further resolves. Letting it propagate here made a correct,
-    # unambiguous registry.local.toml pin unreachable whenever any stray copy of the
-    # repo appeared under a search root.
     deferred_ambiguity: AmbiguousRepoMatch | None = None
     try:
         discovered = _autodiscover_repo(slug, reg_dir)
@@ -713,7 +488,6 @@ def resolve_sibling_repo(name: str) -> "Path | None":
     if discovered is not None:
         return Path(discovered)
 
-    # Rung 3 — path-exceptions.toml OS-keyed table
     exceptions = _load_path_exceptions(reg_dir)
     platform_exc = exceptions.get(sys.platform, {})
     if isinstance(platform_exc, dict):
@@ -723,20 +497,15 @@ def resolve_sibling_repo(name: str) -> "Path | None":
             if exc_path.exists():
                 return exc_path
 
-    # Rung 4 — registry.local.toml direct read; empty-string → not a hit
     reg_local_path = os.path.join(reg_dir, "registry.local.toml")
     reg_local_data = _load_toml(reg_local_path)
     if reg_local_data:
         flat = _flatten_nested(reg_local_data)
         key = f"repos.{slug}"
         val = flat.get(key)
-        # Empty-string is a sentinel placeholder (registry.toml carries repos.x = "")
-        # and MUST NOT be treated as a resolved path — return None so the caller
-        # can degrade gracefully or raise SiblingRepoNotFoundError.
         if val is not None and str(val) != "":
             return Path(str(val))
 
-    # Nothing was declared anywhere — now the rung-2 ambiguity is the real answer.
     if deferred_ambiguity is not None:
         raise deferred_ambiguity
 
@@ -744,18 +513,6 @@ def resolve_sibling_repo(name: str) -> "Path | None":
 
 
 def resolve_sibling_repo_required(name: str) -> "Path":
-    """Walk the 4-rung resolution ladder; raise SiblingRepoNotFoundError if no rung resolves.
-
-    Required variant — the fail-loud counterpart to resolve_sibling_repo. Callers
-    that need a missing sibling to be a hard error MUST use this function, not test
-    the optional variant for None and raise themselves (which would bypass the
-    standardized remediation string that operators depend on).
-
-    AmbiguousRepoMatch propagates from the inner call — it is a misconfig, not absence.
-
-    Spec backlink: project-rag/docs/wiki/cross-machine-path-resolution-contract.md
-                   § Fail-Loud Seam — Two-Function Contract
-    """
     result = resolve_sibling_repo(name)
     if result is None:
         slug = name
@@ -770,7 +527,6 @@ def resolve_sibling_repo_required(name: str) -> "Path":
 
 
 def _warn_schema(data: dict, path: str) -> None:
-    """Emit a warning if schema version doesn't match expected."""
     schema_val = data.get("schema")
     if schema_val is not None and schema_val != SCHEMA_EXPECTED:
         print(
@@ -782,23 +538,6 @@ def _warn_schema(data: dict, path: str) -> None:
 
 
 def _flatten_nested(data: dict, _prefix: str = "") -> dict:
-    """Recursively flatten nested dicts in a registry file into dotted keys.
-
-    Companion to _flatten_concern, but for registry.toml / registry.local.toml
-    where there is no concern-name prefix (the file is the root namespace).
-    This makes natural TOML table syntax (``[unreal]\\ninstall_root = "..."``)
-    or dotted-key syntax (``unreal.install_root = "..."``) visible to
-    ``machine-local get`` for keys whose namespace is NOT promoted to a
-    concern file. Belt-and-suspenders: keeps the registry reader robust to
-    hand-edits and to namespaces not yet (or no longer) promoted to concerns.
-
-    Supported namespaces resolved via this path (non-exhaustive):
-      - ``repos.*``                  — working repo sibling-discovery paths
-      - ``publish.mirrors.<k>.path`` — publish-target mirror destinations
-      - ``publish.mirrors.<k>.owner``— mirror owning EM id
-      - ``publish.targets``          — per-machine publish topology array
-    Spec backlink: docs/plans/2026-06-30-registry-publish-vs-working-targets.md § D1
-    """
     result = {}
     for k, v in data.items():
         if k in ("schema", "concerns"):
@@ -812,70 +551,24 @@ def _flatten_nested(data: dict, _prefix: str = "") -> dict:
 
 
 def _flatten_concern(concern_name: str, data: dict, _prefix: str = "") -> dict:
-    """Prefix all keys in a concern file with '<concern_name>.<prefix>'.
-
-    Recursively flattens nested dicts into dotted subkeys so every nested
-    table (not just 'versions') is reachable.  Native types are stored as-is
-    so _resolve_key's isinstance(val, list) branch handles list→newline
-    uniformly at resolve time rather than at flatten time.
-
-    Self-named top-level table elision: when the concern file uses
-    ``[<concern_name>]`` as the top-level table (e.g. ``[unreal]`` inside
-    ``unreal.local.toml``), the matching prefix is NOT doubled. The contents
-    of that table are merged into the concern's flat namespace. This lets
-    operators write the natural TOML form (``[unreal]\\ninstall_root = "..."``)
-    and have it resolve as ``unreal.install_root`` instead of
-    ``unreal.unreal.install_root``. Top-level keys placed directly (without
-    the self-named table) still work — they are auto-prefixed by concern_name.
-
-    Recursive flatten ensures arbitrary nesting is reachable. Native types (not
-    str()) preserved so list→newline join at resolve time handles arrays uniformly.
-    """
     result = {}
-    # Strip sentinel prefix ("\x00") before using in key construction.
-    # The sentinel is used only to disable self-named-table elision on
-    # recursive calls — it must not appear in the output key strings.
     effective_prefix = _prefix if _prefix != "\x00" else ""
     base = f"{concern_name}.{effective_prefix}" if effective_prefix else f"{concern_name}."
     for k, v in data.items():
         if k == "schema":
-            continue  # meta-key, not a user key
-        # Self-named top-level table elision: at the root of the concern file
-        # (_prefix=""), a sub-table named after the concern itself collapses
-        # so that [unreal] inside unreal.local.toml produces unreal.<key>, not
-        # unreal.unreal.<key>. Below the root, table names are kept as-is —
-        # nested [unreal.versions] etc. still produce the natural dotted path.
-        # Sentinel prefix ("\x00") on the recursive call ensures the elision
-        # condition (not _prefix) is False for all nested levels — prevents
-        # double-elision if a hand-crafted file has [unreal]\nunreal = {...}.
+            continue
         if not _prefix and isinstance(v, dict) and k == concern_name:
             result.update(_flatten_concern(concern_name, v, _prefix="\x00"))
             continue
         full_key = f"{base}{k}"
         if isinstance(v, dict):
-            # Recurse: flatten nested table with dotted subkeys.
             result.update(_flatten_concern(concern_name, v, _prefix=f"{effective_prefix}{k}." if effective_prefix else f"{k}."))
         else:
-            # Store native type; _resolve_key handles list→newline join.
             result[full_key] = v
     return result
 
 
 def _build_resolution_layers(reg_dir: str, _registry_local_data: dict | None = None) -> list[dict]:
-    """Build the ordered list of dicts representing the resolution stack.
-
-    Spec: resolution order is concern.local → concern → registry.local → registry.
-    Returns layers in priority order (index 0 = highest priority).
-
-    `_registry_local_data`, if given, is an already-parsed registry.local.toml
-    dict, reused instead of re-parsing the file from disk. No current call site
-    passes it — cmd_get now avoids the double-parse this parameter was meant
-    for by building the layers once, up front, and passing them into
-    resolve_one directly (see cmd_get), rather than by pre-parsing just
-    registry.local.toml and threading it through here. The parameter is kept
-    as a general escape hatch for a future caller that legitimately has a
-    pre-parsed registry.local.toml dict on hand and nothing else.
-    """
     reg_path = os.path.join(reg_dir, "registry.toml")
     reg_local_path = os.path.join(reg_dir, "registry.local.toml")
 
@@ -889,23 +582,12 @@ def _build_resolution_layers(reg_dir: str, _registry_local_data: dict | None = N
     if registry_local:
         _warn_schema(registry_local, reg_local_path)
 
-    # Concern-namespace exclusivity (the Director of Engineering F5): when a concern is listed in
-    # `concerns`, keys in registry.toml whose first segment matches the concern
-    # prefix emit a warning and are dropped from the registry layer.
     concerns_list = registry.get("concerns", [])
     if not isinstance(concerns_list, list):
         concerns_list = []
 
-    # Build set of concern prefixes for namespace exclusivity check.
     concern_prefixes = {c.lower() for c in concerns_list}
 
-    # Clean registry dict: flatten nested dicts to dotted keys, drop meta-keys,
-    # then enforce namespace exclusivity on the flattened key set. Flattening
-    # first lets natural TOML table syntax (`[unreal]\ninstall_root = "..."`)
-    # and dotted-key syntax (`unreal.install_root = "..."`) both produce the
-    # canonical dotted key the resolver looks up. Belt-and-suspenders: concern
-    # files own promoted namespaces, but registry hand-edits or future
-    # namespaces should still resolve cleanly.
     def _clean_registry(data: dict, source_label: str) -> dict:
         flat = _flatten_nested(data)
         cleaned = {}
@@ -922,7 +604,6 @@ def _build_resolution_layers(reg_dir: str, _registry_local_data: dict | None = N
             cleaned[k] = v
         return cleaned
 
-    # Load concern layers (highest priority first within each concern).
     concern_local_layers = []
     concern_base_layers = []
 
@@ -931,9 +612,6 @@ def _build_resolution_layers(reg_dir: str, _registry_local_data: dict | None = N
         c_path = os.path.join(reg_dir, f"{concern}.toml")
         c_local_path = os.path.join(reg_dir, f"{concern}.local.toml")
 
-        # Per-file isolation (doctrine-plane ruling (a), see _load_toml_isolated): a malformed
-        # concern file warns and drops ONLY its own layer, None distinguishes that
-        # from "absent/empty" ({}) so the two don't collapse into one warning below.
         c_data = _load_toml_isolated(c_path)
         c_local_data = _load_toml_isolated(c_local_path)
         c_data_malformed = c_data is None
@@ -948,10 +626,6 @@ def _build_resolution_layers(reg_dir: str, _registry_local_data: dict | None = N
         if c_local_data:
             _warn_schema(c_local_data, c_local_path)
 
-        # "Neither loadable" only when BOTH are cleanly absent/empty — not when
-        # one or both are malformed. A malformed file already got its own warning
-        # from _load_toml_isolated; repeating this generic warning on top of it
-        # would be a confusing, duplicated diagnosis for the operator.
         if not c_data and not c_local_data and not c_data_malformed and not c_local_data_malformed:
             print(
                 f"machine-local: warning: concern '{concern}' is registered in "
@@ -968,21 +642,17 @@ def _build_resolution_layers(reg_dir: str, _registry_local_data: dict | None = N
         if c_data:
             concern_base_layers.append(_flatten_concern(concern, c_data))
 
-    # Registry layers: flatten + enforce namespace exclusivity via the same helper.
     reg_local_clean = _clean_registry(registry_local, "registry.local.toml")
     reg_clean = _clean_registry(registry, "registry.toml")
 
-    # Priority order: concern.local > concern > registry.local > registry
     layers = concern_local_layers + concern_base_layers + [reg_local_clean, reg_clean]
     return layers
 
 
 def _resolve_key(key: str, layers: list[dict]) -> str | None:
-    """Walk resolution layers and return first match, or None."""
     for layer in layers:
         if key in layer:
             val = layer[key]
-            # TOML arrays are stored as Python lists; join with newlines.
             if isinstance(val, list):
                 return "\n".join(str(i) for i in val)
             return str(val)
@@ -990,12 +660,10 @@ def _resolve_key(key: str, layers: list[dict]) -> str | None:
 
 
 def _env_key(key: str) -> str:
-    """Convert a dotted key to its env-var override name."""
     return "MACHINE_LOCAL_" + key.upper().replace(".", "_")
 
 
 def _all_keys(layers: list[dict]) -> list[str]:
-    """Return deduplicated, ordered list of all keys visible across layers."""
     seen = {}
     for layer in layers:
         for k in layer:
@@ -1005,35 +673,10 @@ def _all_keys(layers: list[dict]) -> list[str]:
 
 
 def _normalize_key_separators(key: str) -> str:
-    """Collapse '-', '.', '_' to one canonical separator for near-miss comparison.
-
-    Registry keys mix separators inconsistently: underscore is the dominant house
-    style but is NOT enforced -- some live keys are hyphenated. A caller reading a
-    hyphenated repo/directory name off disk and reaching for its registry key has
-    no in-context signal for which separator the registry chose, so the miss is
-    structurally 50/50. This normalizer exists ONLY to power a suggestion (see
-    `_did_you_mean`) -- it is never used to resolve a lookup.
-    """
     return key.translate(str.maketrans({"-": "_", ".": "_"})).lower()
 
 
 def _did_you_mean(key: str, candidates: list[str]) -> list[str]:
-    """Return suggestion-only near-miss candidates for a missed registry key.
-
-    Separator-insensitive matching runs first and is load-bearing: it catches the
-    exact class of miss (a key that differs from a real one only by separator)
-    deterministically, with no edit-distance cutoff to miss a long key whose sole
-    difference is one separator. Falls back to `difflib.get_close_matches` for
-    genuine typos only when no separator-normalized match exists.
-
-    Because both separators are legal registry syntax, a normalized lookup can
-    hit more than one candidate (e.g. two keys differing only by '-' vs '_'
-    coexisting) -- ALL separator-normalized matches are returned, sorted for
-    deterministic, test-assertable ordering, rather than picking a winner. This
-    is suggestion-only, mirroring this fleet's existing near-miss "did you mean"
-    convention for identifier resolution elsewhere: callers MUST NOT auto-resolve
-    a near-miss.
-    """
     normalized_key = _normalize_key_separators(key)
     others = [c for c in candidates if c != key]
     sep_matches = sorted(c for c in others if _normalize_key_separators(c) == normalized_key)
@@ -1084,65 +727,18 @@ def _print_key_miss(key: str, layers: list[dict]) -> None:
 
 
 def resolve_one(key: str, layers: list[dict] | None = None) -> tuple[int, str | None]:
-    """Resolve ONE key to (rc, value) without printing — the single read-path kernel.
-
-    Returns an rc from the §4.1 tri-state (0 found / 1 cleanly absent / 2 operational
-    failure) plus the resolved value on rc=0, or the operator-facing failure message
-    on rc=2.  `--default` handling and all stdout/stderr emission stay with the
-    callers, so this stays usable from both the CLI verbs and in-process consumers.
-
-    `layers` is an optional pre-built resolution stack (see _build_resolution_layers).
-    Pass it when resolving many keys in one process — cmd_dump does — so the TOML
-    layers are parsed once rather than once per key.  It is only consulted on the
-    generic (non-`repos.<slug>`) path; the repos ladder reads its own rungs by
-    contract and must not be short-circuited through the generic stack (see
-    resolve_sibling_repo's negative-spec).
-
-    Negative-spec: this function is the ONLY place the routing decision between the
-    repos 4-rung ladder and the generic resolution stack is made.  cmd_get and
-    cmd_dump both call it precisely so a batch read cannot answer differently from
-    a single read — a second reader that re-derived the routing would drift, and the
-    drift would be silent (a repos.* sentinel resolving as a hit in one verb but not
-    the other).
-    """
-    # Route repos.<slug> keys through the 4-rung sibling-repo resolver.
-    # Only exact two-segment repos.* keys (repos.<single-slug>) are routed here;
-    # deeper keys like repos.something.sub fall through to generic resolution.
     key_parts = key.split(".")
     if len(key_parts) == 2 and key_parts[0] == "repos":
         slug = key_parts[1]
         try:
             resolved = resolve_sibling_repo(slug)
         except (AmbiguousRepoMatch, EnvironmentError) as exc:
-            # AmbiguousRepoMatch = detect-then-silently-pick footgun (misconfig).
-            # EnvironmentError   = REPO_<SLUG> set but path absent (misconfig).
             # Both are EXIT_OPERATIONAL: the reader could not produce a clean answer.
             return EXIT_OPERATIONAL, f"machine-local: {exc}"
 
         if resolved is not None:
-            # Emit forward-slash (POSIX) form for repos.* paths, unconditionally.
-            # str(Path(...)) on a native Windows drive path yields the OS-native
-            # backslashed form on Windows; that backslash-drive form breaks the
-            # moment it reaches a bash-executed consumer (a leading backslash
-            # letter is an escape → drive-relative doubling) — the F4
-            # install-breaking hook-path bug. Forward slashes are accepted by
-            # bash, py.exe, node, claude.exe, AND the Windows path APIs alike, so
-            # this is the single canonical seam that fixes the hook-path bake (F4),
-            # claude-doe's clone resolution + regen grep-gate (F6), and any shell
-            # consumer doing `cd "$(machine-local get repos.x)"`.
-            # _to_native_drive_path additionally repairs the MSYS mount form
-            # ('/x/...' -> native drive form), which as_posix() leaves untouched
-            # and which a native-Windows consumer would resolve as drive-relative
-            # (doubled drive-letter directory).
             return EXIT_OK, _to_native_drive_path(resolved.as_posix())
 
-        # resolve_sibling_repo returns None for both "absent key" and "key explicitly
-        # set to empty string" (rung 4 maps empty→None to prevent registry.toml
-        # sentinel placeholders from resolving as hits).  Distinguish the two cases
-        # by reading registry.local.toml directly: if the key is present there (even
-        # as ""), the user explicitly stored it and it must round-trip with rc=0.
-        # Only registry.local.toml is checked here — NOT registry.toml, which carries
-        # repos.* = "" sentinels for undiscovered slugs.
         reg_local_path = os.path.join(_registry_dir(), "registry.local.toml")
         reg_local_data = _load_toml(reg_local_path)
         if reg_local_data:
@@ -1152,14 +748,11 @@ def resolve_one(key: str, layers: list[dict] | None = None) -> tuple[int, str | 
 
         return EXIT_NOT_FOUND, None
 
-    # Generic resolution for non-repos keys.
     if layers is None:
         layers = _build_resolution_layers(_registry_dir())
 
-    # Walk resolution order: concern.local → concern → registry.local → registry
     val = _resolve_key(key, layers)
 
-    # Env override is BELOW all .toml layers (the Director of Engineering F1 / plan §4.3).
     if val is None:
         val = os.environ.get(_env_key(key))
 
@@ -1183,11 +776,6 @@ def cmd_get(args: argparse.Namespace) -> int:
     key = args.key
     reg_dir = _registry_dir()
 
-    # repos.<slug> keys route through the 4-rung sibling ladder inside resolve_one
-    # and never touch the generic layers -- pre-building here would add a TOML
-    # parse to the single hottest call in the CLI for no benefit. Every other key
-    # builds the layers once, up front, and reuses them for both the resolve and
-    # (on miss) the hint -- avoiding the double-parse this fix addresses.
     key_parts = key.split(".")
     is_repos_key = len(key_parts) == 2 and key_parts[0] == "repos"
     layers = None if is_repos_key else _build_resolution_layers(reg_dir)
@@ -1213,20 +801,6 @@ def cmd_get(args: argparse.Namespace) -> int:
 
 
 def _repos_shell_var_name(key: str) -> str | None:
-    """Normalize a repos.<slug> key to its shell variable name: REPO_<SLUG>.
-
-    Strips the "repos." prefix, uppercases the suffix, and maps both "." and
-    "-" to "_" -- the transform claude-machine-local.sh/.ps1 used to each
-    implement themselves before dump grew a --format sh emitter; this is now
-    the one implementation both indirectly share (they consume the emitter's
-    output rather than re-deriving the name).
-
-    Returns None for anything the shell exporter must not emit: a key that
-    is not a two-segment repos.<slug> key, or one whose normalized name is
-    not a valid POSIX shell identifier (^[A-Z_][A-Z0-9_]*$) -- callers skip
-    and warn in that case, mirroring the identifier guard the shell wrappers
-    used to apply themselves.
-    """
     parts = key.split(".")
     if len(parts) != 2 or parts[0] != "repos":
         return None
@@ -1237,13 +811,6 @@ def _repos_shell_var_name(key: str) -> str | None:
 
 
 def _shell_single_quote(value: str) -> str:
-    """Escape `value` for a POSIX single-quoted shell literal, eval-safe.
-
-    Closes the quote, emits a literal escaped quote, reopens -- the standard
-    '\\'' idiom. Registry values are local paths today, but dump's `--format
-    sh` output is `eval`'d by its caller, so this must hold for arbitrary
-    content, not just the paths currently stored.
-    """
     return "'" + value.replace("'", "'\\''") + "'"
 
 
@@ -1409,11 +976,6 @@ def cmd_dump(args: argparse.Namespace) -> int:
 
 
 def cmd_has(args: argparse.Namespace) -> int:
-    """Implement: machine-local has <key> — exit 0 if set, 1 if not (no output).
-
-    Operational failures (version guard, malformed TOML) exit 2 before reaching
-    this return, so a 1 here is always a clean "not set", never a broken reader.
-    """
     reg_dir = _registry_dir()
     layers = _build_resolution_layers(reg_dir)
     key = args.key
@@ -1447,9 +1009,6 @@ def cmd_keys(args: argparse.Namespace) -> int:
     reg_dir = _registry_dir()
     layers = _build_resolution_layers(reg_dir)
     all_keys = _all_keys(layers)
-    # Review: code-reviewer (Finding 5) — args.prefix is guaranteed present
-    # (default None) by the argparse `--prefix` declaration on every path that
-    # reaches cmd_keys via main(); getattr's defensive fallback was dead code.
     prefix = args.prefix
     if prefix:
         all_keys = [k for k in all_keys if k == prefix or k.startswith(f"{prefix}.")]
@@ -1459,7 +1018,6 @@ def cmd_keys(args: argparse.Namespace) -> int:
 
 
 def cmd_path(args: argparse.Namespace) -> int:
-    """Implement: machine-local path — print absolute path to active registry.toml."""
     reg_dir = _registry_dir()
     abs_path = os.path.abspath(os.path.join(reg_dir, "registry.toml"))
     print(abs_path)
@@ -1492,20 +1050,12 @@ def cmd_dir(args: argparse.Namespace) -> int:
 
 
 def _build_header_pats(prefix_parts):
-    """Build (header_pat, aot_pat) for a given table prefix.
-
-    # Review: code-reviewer (F1) — hoisted from inner closures in both
-    # _locate_existing_definition and _locate_existing_array_span to eliminate
-    # verbatim duplication. Both locators call this module-level function.
-    """
     table_path = ".".join(prefix_parts)
-    # Review: code-reviewer (F1) — OR bare-key and quoted-segment forms.
     quoted_segs = r'\s*\.\s*'.join(f'"{re.escape(p)}"' for p in prefix_parts)
     h_pat = re.compile(
         r"^\[\s*(?:" + re.escape(table_path) + r"|" + quoted_segs + r")\s*\][ \t]*(?:#[^\n]*)?$",
         re.MULTILINE,
     )
-    # Review: code-reviewer (F7) — detect [[table.path]] array-of-tables.
     aot_pat = re.compile(
         r"^\[\[\s*(?:" + re.escape(table_path) + r"|" + quoted_segs + r")\s*\]\][ \t]*(?:#[^\n]*)?$",
         re.MULTILINE,
@@ -1514,35 +1064,6 @@ def _build_header_pats(prefix_parts):
 
 
 def _locate_existing_definition(content: str, key: str) -> dict | None:
-    """Find an existing definition of `key` in TOML content.
-
-    Returns a dict describing how the key is currently defined, or None if no
-    matching structure exists. Three shapes:
-
-      - {"kind": "flat", "match": <re.Match>}
-          Found as `"key.with.dots" = "value"` anywhere in the file (the form
-          machine-local set has historically written).
-      - {"kind": "table-leaf", "leaf_match": <re.Match>, "abs_start": int,
-         "abs_end": int}
-          Found as a bare-leaf assignment inside an existing `[table.path]`
-          header (the form natural TOML uses for grouped config — and the form
-          that triggered the 2026-05-23 duplicate-write bug when set only knew
-          about the flat shape).
-      - {"kind": "table-header-only", "section_start": int, "section_end": int,
-         "leaf_path": str}
-          The `[table.path]` header exists but the leaf is absent inside it.
-          cmd_set inserts the new leaf into the existing section body — a flat
-          append below subsequent `[other.section]` headers would be a TOML
-          parse error.
-      - {"kind": "array-of-tables-detected", "table_path": str}
-          The key's table path is defined as an array-of-tables ([[table.path]]).
-          cmd_set cannot modify this shape — surface an actionable error.
-
-    The search tries the longest table-path prefix first so that, for a key
-    like `a.b.c.d`, it prefers an existing `[a.b.c]\nd = …` over `[a.b]\nc.d = …`
-    if both exist (the registry only uses one form per key in practice).
-    """
-    # Review: code-reviewer (F11) — re and datetime moved to module-level imports.
 
     flat_pat = re.compile(
         r'^(\s*"' + re.escape(key) + r'"\s*=\s*)(?:"[^"]*"|\'[^\']*\')([ \t]*(?:#[^\n]*)?)',
@@ -1552,19 +1073,6 @@ def _locate_existing_definition(content: str, key: str) -> dict | None:
     if fm:
         return {"kind": "flat", "match": fm}
 
-    # Hand-authored top-level scalar with a QUOTED string value, matched only
-    # within the preamble (before the first `[section]`) so a same-named leaf
-    # in an unrelated table cannot be mistaken for it.
-    #
-    # Negative-spec: deliberately does NOT match an unquoted (int/bool/float)
-    # value — `machine-local set` only ever writes string values, so matching
-    # `schema = 1` here would let `set --global schema 2` rewrite it to
-    # `schema = "2"`, silently changing a reader-visible TOML type on a
-    # git-tracked, cross-machine file. That case falls through to the
-    # "unmodifiable shape" refusal below (or, for meta-keys `_flatten_nested`
-    # itself excludes from resolution, to the post-build round-trip's
-    # duplicate-key parse failure) — a hard refusal, not a type-changing
-    # rewrite or a silent no-op. See TestCmdSetGlobalTopLevelScalarBlock case D.
     if "." not in key:
         next_section_pat_preamble = re.compile(r"^\[", re.MULTILINE)
         nm_preamble = next_section_pat_preamble.search(content)
@@ -1581,17 +1089,11 @@ def _locate_existing_definition(content: str, key: str) -> dict | None:
     parts = key.split(".")
     next_section_pat = re.compile(r"^\[", re.MULTILINE)
 
-    # Review: code-reviewer (F2) — two-pass approach: first pass finds table-leaf
-    # matches (longest prefix first); second pass finds table-header-only matches.
-    # This prevents returning table-header-only for [a.b.c] when [a.b] already
-    # has c.d = "..." as a dotted-leaf assignment inside it.
 
-    # Pass 1: look for table-leaf matches only (longest prefix first).
     for i in range(len(parts) - 1, 0, -1):
         prefix_parts = parts[:i]
         leaf_path = ".".join(parts[i:])
         h_pat, aot_pat = _build_header_pats(prefix_parts)
-        # Array-of-tables check is done in pass 1 so it still exits early.
         if aot_pat.search(content):
             return {"kind": "array-of-tables-detected", "table_path": ".".join(prefix_parts)}
         hm = h_pat.search(content)
@@ -1614,7 +1116,6 @@ def _locate_existing_definition(content: str, key: str) -> dict | None:
                 "abs_end": section_start + leaf_m.end(),
             }
 
-    # Pass 2: look for table-header-only matches (longest prefix first).
     for i in range(len(parts) - 1, 0, -1):
         prefix_parts = parts[:i]
         leaf_path = ".".join(parts[i:])
@@ -1636,59 +1137,14 @@ def _locate_existing_definition(content: str, key: str) -> dict | None:
 
 
 def _locate_existing_array_span(content: str, key: str) -> dict | None:
-    """Find an existing flat-array definition of `key` in TOML content.
-
-    Spec backlink: docs/plans/2026-06-17-publish-targets-machine-local-migration.md § C1
-    Purpose: Locate the byte span of an existing multi-line flat array assignment so
-    array-append / array-set can replace the whole span atomically.
-
-    The array-write commands (array-append / array-set) only write and read
-    quoted-dotted-key multi-line flat arrays:
-        "publish.targets" = [
-          'row1',
-          'row2',
-        ]
-    This function detects that shape plus the degenerate single-line / empty forms.
-
-    Returns a dict on match:
-        {"kind": "flat-array", "span_start": int, "span_end": int,
-         "comment_start": int | None}
-    where span_start..span_end covers the `"key" = [\n...\n]` block (plus the
-    trailing newline, if any), and comment_start, if not None, points to the start
-    of a provenance-comment line immediately above the array assignment (preserved
-    on replace per F5).
-
-    Returns None if no array assignment is found for this key (caller then creates
-    one fresh).
-
-    Uses module-level _build_header_pats (shared with _locate_existing_definition):
-    if the key's table path appears as [[array-of-tables]], this function returns
-    {"kind": "array-of-tables-detected", "table_path": str} so the caller can emit
-    a specific error.
-
-    Negative-spec: does NOT handle inline-table form (`key = {...}`) — the caller
-    detects that via the round-trip pre-check (same as cmd_set's inline-table path).
-    """
-    # Review: code-reviewer (F4) — removed dead next_section_pat local (unused in this
-    # function) and removed the inner _build_header_pats closure (now module-level per F1).
     parts = key.split(".")
 
-    # Check for array-of-tables collision on the full key and any prefix.
-    # [[publish.targets]] means the key itself is an array-of-tables table path.
-    # [[publish]] with targets as a leaf would also be a collision (a prefix match).
     for i in range(len(parts), 0, -1):
         prefix_parts = parts[:i]
         _, aot_pat = _build_header_pats(prefix_parts)
         if aot_pat.search(content):
             return {"kind": "array-of-tables-detected", "table_path": ".".join(prefix_parts)}
 
-    # Match the flat quoted-dotted-key array form:
-    #   "key.with.dots" = [
-    #     'row1',
-    #     ...
-    #   ]
-    # The opening bracket may be on the same line or the closing may be on the same
-    # line (degenerate []). We match from the `"key"` assignment to the closing `]`.
     array_open_pat = re.compile(
         r'^(\s*"' + re.escape(key) + r'"\s*=\s*\[)',
         re.MULTILINE,
@@ -1697,7 +1153,6 @@ def _locate_existing_array_span(content: str, key: str) -> dict | None:
     if not m:
         return None
 
-    # Find the closing `]` that matches the opening `[`.
     open_pos = m.start() + m.group(0).index("[")
     depth = 0
     close_pos = None
@@ -1710,16 +1165,13 @@ def _locate_existing_array_span(content: str, key: str) -> dict | None:
                 close_pos = i
                 break
     if close_pos is None:
-        # Malformed (unclosed bracket) — let the round-trip check catch it.
         return None
 
-    # span_end: include the trailing newline after `]` if present.
     span_start = m.start()
     span_end = close_pos + 1
     if span_end < len(content) and content[span_end] == "\n":
         span_end += 1
 
-    # Detect a provenance comment immediately above the assignment (F5).
     comment_start = None
     line_before_start = content.rfind("\n", 0, m.start())
     if line_before_start != -1:
@@ -1741,40 +1193,17 @@ def _locate_existing_array_span(content: str, key: str) -> dict | None:
 
 
 def _reject_single_quote_element(element: str) -> bool:
-    """Return True (reject) if element contains a single quote.
-
-    TOML literal strings (single-quoted) have no escape mechanism.
-    Negative-spec: no fallback encoding — refuse rather than guess.
-    """
     return "'" in element
 
 
 def _build_array_content(key: str, elements: list[str], date_tag: str,
                          provenance_comment: str | None = None) -> str:
-    """Render a quoted-dotted-key multi-line flat TOML array block.
-
-    Write shape per spec:
-        # array-append <date>
-        "publish.targets" = [
-          'row1',
-          'row2',
-        ]
-
-    If provenance_comment is provided (non-None), it replaces the fresh
-    `# array-append <date>` comment (F5: preserve leading comment on replace).
-    If elements is empty, renders an empty array.
-    """
     comment = provenance_comment if provenance_comment is not None else f"# array-append {date_tag}"
     rows = "".join(f"  '{e}',\n" for e in elements)
     return f'{comment}\n"{key}" = [\n{rows}]\n'
 
 
 def _write_registry_file(target_path: str, new_content: str, is_new: bool) -> int:
-    """Atomic tmp+rename write of registry content.
-
-    Returns 0 on success, 1 on failure (prints error to stderr).
-    Preserves file mode when replacing an existing file.
-    """
     tmp_path = target_path + f".tmp.{os.getpid()}"
     try:
         os.makedirs(os.path.dirname(target_path), exist_ok=True)
@@ -1798,7 +1227,6 @@ def _write_registry_file(target_path: str, new_content: str, is_new: bool) -> in
 
 
 def _load_registry_target(reg_dir: str, write_global: bool) -> tuple[str, str, str, bool]:
-    """Return (target_file, target_path, content, is_new) for set/array commands."""
     target_file = "registry.toml" if write_global else "registry.local.toml"
     target_path = os.path.join(reg_dir, target_file)
     if os.path.exists(target_path):
@@ -1807,8 +1235,6 @@ def _load_registry_target(reg_dir: str, write_global: bool) -> tuple[str, str, s
         is_new = False
     else:
         is_new = True
-        # Review: code-reviewer (F5) — header says "machine-local" not "machine-local set"
-        # because array commands also create new files via this helper.
         content = (
             f"# {target_file}  (created by `machine-local`)\n"
             "#\n"
@@ -1821,7 +1247,6 @@ def _load_registry_target(reg_dir: str, write_global: bool) -> tuple[str, str, s
 
 
 def _check_concern_namespace(reg_dir: str, key: str) -> int:
-    """Return 1 (with error) if key belongs to a loaded concern namespace, else 0."""
     reg_path = os.path.join(reg_dir, "registry.toml")
     reg_local_path = os.path.join(reg_dir, "registry.local.toml")
     concerns_set = set()
@@ -1844,19 +1269,6 @@ def _check_concern_namespace(reg_dir: str, key: str) -> int:
 
 
 def cmd_array_append(args: argparse.Namespace) -> int:
-    """Implement: machine-local array-append <key> <element> [--global] [--dry-run]
-
-    Append element to the TOML array at key.  Idempotent: skip if element is
-    already present (exact-string dedup).  Create the array if key is absent.
-
-    Spec backlink: docs/plans/2026-06-17-publish-targets-machine-local-migration.md § C1
-    Note: the current sole consumer is publish.targets, but the API is keyed on the
-    dotted key, not hardcoded to that name.
-
-    Fail loud if key already exists as a scalar (not an array), as an
-    array-of-tables, or as an inline table.  Reject elements containing a
-    single quote (TOML literal strings have no escape).
-    """
     reg_dir = _registry_dir()
 
     rc = _check_concern_namespace(reg_dir, args.key)
@@ -1878,30 +1290,20 @@ def cmd_array_append(args: argparse.Namespace) -> int:
     _target_file, target_path, content, is_new = _load_registry_target(reg_dir, args.write_global)
     date_tag = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # Review: code-reviewer (F2) — removed dead pre_parsed/pre_flat/pre_val block; pre_val
-    # was never used. The real collision check is the segment-walking parse below.
 
-    # Detect scalar collision — key exists but resolves to a string (not a list).
-    # Note: _flatten_nested stores the native Python type; lists come through as list.
-    # For the pre-check we read the raw parsed value, not _flatten_nested, because
-    # _resolve_key joins lists with \n (losing the list type we need here); _flatten_nested
-    # itself stores non-dict values, including lists, unchanged.
     try:
         pre_raw = tomllib.loads(content)
-        # Walk dotted key segments into the parsed dict.
         _cursor = pre_raw
         for seg in key.split("."):
             if isinstance(_cursor, dict) and seg in _cursor:
                 _cursor = _cursor[seg]
             else:
-                # Also check quoted-dotted flat key form.
                 if isinstance(_cursor, dict) and key in _cursor:
                     _cursor = _cursor[key]
                     break
                 _cursor = None
                 break
         raw_existing = _cursor
-        # Also try quoted-dotted flat key form at top level.
         if raw_existing is None and key in pre_raw:
             raw_existing = pre_raw[key]
     except tomllib.TOMLDecodeError:
@@ -1923,7 +1325,6 @@ def cmd_array_append(args: argparse.Namespace) -> int:
         )
         return 1
 
-    # Detect array-of-tables shape via locator.
     array_span = _locate_existing_array_span(content, key)
     if array_span is not None and array_span["kind"] == "array-of-tables-detected":
         print(
@@ -1933,33 +1334,25 @@ def cmd_array_append(args: argparse.Namespace) -> int:
         )
         return 1
 
-    # Read current elements from the existing flat-array span (if any).
     current_elements: list[str] = []
     provenance_comment: str | None = None
 
     if array_span is not None and array_span["kind"] == "flat-array":
-        # Parse existing array via tomllib to get the current elements.
         try:
             parsed_existing = tomllib.loads(content)
-            # Navigate to the key value — may be a flat quoted-dotted key or
-            # nested table, so use _flatten_nested's list-preserving sibling.
-            # _resolve_key joins lists with \n, so read from the raw parsed dict instead.
             flat_raw = _get_raw_list(parsed_existing, key)
             if isinstance(flat_raw, list):
                 current_elements = [str(e) for e in flat_raw]
         except tomllib.TOMLDecodeError:
             pass
 
-        # Retrieve provenance comment (F5).
         if array_span["comment_start"] is not None:
-            # Find end of comment line.
             cstart = array_span["comment_start"]
             cend = content.find("\n", cstart)
             if cend == -1:
                 cend = len(content)
             provenance_comment = content[cstart:cend]
 
-    # Idempotent dedup: skip if element already present.
     if element in current_elements:
         if dry_run:
             print(f"[dry-run] '{key}': element already present (no-op): {element!r}")
@@ -1971,13 +1364,11 @@ def cmd_array_append(args: argparse.Namespace) -> int:
     array_block = _build_array_content(key, new_elements, date_tag, provenance_comment)
 
     if array_span is not None and array_span["kind"] == "flat-array":
-        # Replace the existing span (including provenance comment if we captured it).
         replace_start = array_span["comment_start"] if array_span["comment_start"] is not None else array_span["span_start"]
         replace_end = array_span["span_end"]
         new_content = content[:replace_start] + array_block + content[replace_end:]
         action = "updated"
     else:
-        # Insert before first [section] header, or at EOF.
         section_pat = re.compile(r"^\[", re.MULTILINE)
         m = section_pat.search(content)
         if m:
@@ -1987,9 +1378,6 @@ def cmd_array_append(args: argparse.Namespace) -> int:
             new_content = content.rstrip("\n") + "\n" + array_block
         action = "added"
 
-    # Post-build round-trip sanity: parse new_content and verify the array
-    # contains the expected elements.  Also verifies correct top-level scope
-    # (a key appended after a [table] header would scope INTO that table).
     try:
         parsed_new = tomllib.loads(new_content)
     except tomllib.TOMLDecodeError as exc:
@@ -2024,16 +1412,6 @@ def cmd_array_append(args: argparse.Namespace) -> int:
 
 
 def cmd_array_set(args: argparse.Namespace) -> int:
-    """Implement: machine-local array-set <key> <element>... [--global] [--dry-run]
-
-    Replace the entire array at key with the given elements (order-preserving
-    dedup).  Same scalar-collision fail-loud and single-quote rejection as
-    array-append.
-
-    Spec backlink: docs/plans/2026-06-17-publish-targets-machine-local-migration.md § C1
-    Note: the current sole consumer is publish.targets, but the API is keyed on the
-    dotted key, not hardcoded to that name.
-    """
     reg_dir = _registry_dir()
 
     rc = _check_concern_namespace(reg_dir, args.key)
@@ -2056,7 +1434,6 @@ def cmd_array_set(args: argparse.Namespace) -> int:
     _target_file, target_path, content, is_new = _load_registry_target(reg_dir, args.write_global)
     date_tag = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # Same pre-check as array-append: fail loud on scalar / inline-table.
     try:
         pre_raw = tomllib.loads(content)
         _cursor = pre_raw
@@ -2100,7 +1477,6 @@ def cmd_array_set(args: argparse.Namespace) -> int:
         )
         return 1
 
-    # Order-preserving dedup of supplied elements.
     seen: set[str] = set()
     deduped: list[str] = []
     for e in elements:
@@ -2108,7 +1484,6 @@ def cmd_array_set(args: argparse.Namespace) -> int:
             seen.add(e)
             deduped.append(e)
 
-    # Retrieve provenance comment from existing span (F5).
     provenance_comment: str | None = None
     if array_span is not None and array_span["kind"] == "flat-array":
         if array_span["comment_start"] is not None:
@@ -2135,7 +1510,6 @@ def cmd_array_set(args: argparse.Namespace) -> int:
             new_content = content.rstrip("\n") + "\n" + array_block
         action = "created"
 
-    # Post-build round-trip sanity.
     try:
         parsed_new = tomllib.loads(new_content)
     except tomllib.TOMLDecodeError as exc:
@@ -2170,17 +1544,8 @@ def cmd_array_set(args: argparse.Namespace) -> int:
 
 
 def _get_raw_list(parsed: dict, key: str) -> object:
-    """Navigate parsed TOML dict to retrieve the native value for a dotted key.
-
-    Handles both quoted-dotted-key flat form (where the literal dot is in the
-    top-level dict key) and nested-table form.  Returns the raw Python object
-    (list, str, dict, etc.) so callers can isinstance-check the type.
-    Returns None if the key is not found.
-    """
-    # Try quoted-dotted flat key first (the form array-write uses).
     if key in parsed:
         return parsed[key]
-    # Try walking nested dicts via split(".").
     cursor: object = parsed
     for seg in key.split("."):
         if isinstance(cursor, dict) and seg in cursor:
@@ -2209,7 +1574,6 @@ def _emit_concern_scalar(key: str, value: object) -> str:
     int-only), so this stays a documented edge rather than a guard.
     """
     if isinstance(value, str):
-        # TOML literal string; the caller rejects embedded single quotes.
         return f"{key} = '{value}'"
     if isinstance(value, bool):
         return f"{key} = {str(value).lower()}"
@@ -2274,19 +1638,6 @@ def _serialize_concern_file(concern_name: str, body: dict, provenance: dict,
 
 
 def _cmd_set_concern(args: argparse.Namespace) -> int:
-    """Implement: machine-local set --concern <name> <key> <value> [--dry-run]
-
-    The general-purpose writer for namespaced concern keys (`unreal.*`,
-    `hardware.*`, ...) — the namespace that the registry `set` refuses by
-    concern-exclusivity. Resolves the concern file at `<name>.local.toml`,
-    validates the key is under the `<name>.` namespace (no cross-concern
-    pollution), performs an atomic read-merge-write that preserves every other
-    key/table, and stamps provenance under `[provenance.<bare_key>]`.
-
-    Spec backlink: cross-repo memo 2026-06-23-machine-local-concern-set-writer.md
-    (project-rag-ue-addon-em ask; dogfood finding #3). Replaces the workaround of
-    hand-editing the concern TOML, which loses atomicity + provenance.
-    """
     reg_dir = _registry_dir()
     raw_concern = args.concern.strip()
     name = raw_concern.lower()
@@ -2301,13 +1652,7 @@ def _cmd_set_concern(args: argparse.Namespace) -> int:
         )
         return 1
 
-    # Concern names AND keys are lowercase by contract (the reader's self-named-table
-    # resolution and the addon serializer both use lowercase). Reject mixed-case
-    # fail-loud rather than silently normalizing it — detect-then-fail-loud
     # (coordinator doctrine) applied UNIFORMLY to both the --concern arg and the key
-    # (code-reviewer F2: silently lowercasing the concern while rejecting the key was
-    # an inconsistent footgun). Avoids a confusing round-trip-None refusal on a write
-    # the operator believes is valid.
     if raw_concern != name:
         print(
             f"machine-local: concern names must be lowercase — got '{raw_concern}'. "
@@ -2323,7 +1668,6 @@ def _cmd_set_concern(args: argparse.Namespace) -> int:
         )
         return 1
 
-    # Namespace validation: the key's first segment must equal the concern name.
     first_seg = key.split(".")[0].lower()
     if first_seg != name:
         print(
@@ -2357,9 +1701,6 @@ def _cmd_set_concern(args: argparse.Namespace) -> int:
         )
         return 1
 
-    # Soft offer (not a block): if the concern is not registered in `concerns`,
-    # the written value will not resolve via `get` until it is — surface the gap
-    # with the remediation rather than silently writing an unreadable file.
     registered = set()
     for p in (os.path.join(reg_dir, "registry.toml"),
               os.path.join(reg_dir, "registry.local.toml")):
@@ -2377,9 +1718,6 @@ def _cmd_set_concern(args: argparse.Namespace) -> int:
 
     target_path = os.path.join(reg_dir, f"{name}.local.toml")
 
-    # Read-merge: parse existing concern file (fail loud on malformed) into a
-    # body dict (the self-named table contents + any top-level scalars folded in)
-    # and a provenance dict.
     schema_val: object = 1
     body: dict = {}
     provenance: dict = {}
@@ -2400,8 +1738,6 @@ def _cmd_set_concern(args: argparse.Namespace) -> int:
         named = existing.get(name)
         if isinstance(named, dict):
             body = dict(named)
-        # Fold any top-level scalar/table keys (the auto-prefixed form the reader
-        # also accepts) into the canonical self-named table.
         for k, v in existing.items():
             if k in ("schema", "provenance", name):
                 continue
@@ -2410,7 +1746,6 @@ def _cmd_set_concern(args: argparse.Namespace) -> int:
         if isinstance(prov, dict):
             provenance = dict(prov)
 
-    # Upsert the bare key (dotted bare keys → nested sub-tables).
     segs = bare.split(".")
     cursor = body
     for seg in segs[:-1]:
@@ -2439,10 +1774,6 @@ def _cmd_set_concern(args: argparse.Namespace) -> int:
         )
         return 1
 
-    # Round-trip sanity: the new content must parse and the key must resolve to
-    # the requested value through the same `_flatten_concern` the reader uses.
-    # `name` and `key` are both lowercase here (the mixed-case guard above rejected
-    # any uppercase), so the literal `key` is the canonical resolution form.
     try:
         parsed = tomllib.loads(new_content)
     except tomllib.TOMLDecodeError as exc:
@@ -2454,9 +1785,6 @@ def _cmd_set_concern(args: argparse.Namespace) -> int:
         )
         return 1
     resolved = _flatten_concern(name, parsed).get(key)
-    # str() both sides intentionally (code-reviewer F7): `value` is always a str
-    # from argparse, while `resolved` may come back typed (e.g. an int the reader
-    # parsed). This check validates the key we just WROTE landed; type-fidelity of
     # PRESERVED co-writer scalars is covered by _emit_concern_scalar, not here.
     if str(resolved) != str(value):
         print(
@@ -2495,21 +1823,6 @@ def _cmd_set_concern(args: argparse.Namespace) -> int:
 
 
 def cmd_set(args: argparse.Namespace) -> int:
-    """Implement: machine-local set <key> <value> [--global] [--dry-run]
-                  machine-local set --concern <name> <key> <value> [--dry-run]
-
-    Writes a string key=value pair to registry.local.toml (default) or
-    registry.toml (--global).  Atomic, idempotent, concern-aware.
-
-    With --concern <name>, routes to the concern-file writer (_cmd_set_concern)
-    which writes the namespaced key into <name>.local.toml — the path the bare
-    registry writer refuses by concern-exclusivity.
-
-    Use this instead of editing registry files by hand — direct edits are
-    fragile: they do not reproduce on reinstall or transfer to a new machine,
-    and may be clobbered by a concurrent session.
-    """
-    # Review: code-reviewer (F11) — re and datetime moved to module-level imports.
 
     if getattr(args, "concern", None):
         return _cmd_set_concern(args)
@@ -2522,13 +1835,10 @@ def cmd_set(args: argparse.Namespace) -> int:
     value = args.value
     dry_run = args.dry_run
 
-    # Review: code-reviewer (F7) — replaced inline concern-namespace check with
-    # _check_concern_namespace helper (same behavior, matches array commands).
     rc = _check_concern_namespace(reg_dir, key)
     if rc != 0:
         return rc
 
-    # Read existing content or seed a new file.
     if os.path.exists(target_path):
         with open(target_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -2546,9 +1856,6 @@ def cmd_set(args: argparse.Namespace) -> int:
 
     date_tag = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # Refuse to write values containing a single quote — TOML literal strings
-    # (single-quoted) have no escape mechanism. This matches the example-game-repo
-    # write_unreal_concern.py policy: refuse rather than guess.
     if "'" in value:
         print(
             f"machine-local: refusing to write value containing single quote: {value!r}. "
@@ -2557,23 +1864,10 @@ def cmd_set(args: argparse.Namespace) -> int:
         )
         return 1
 
-    value_literal = f"'{value}'"  # TOML literal string (no escape processing)
+    value_literal = f"'{value}'"
 
-    # Existing-definition detection has four shapes:
-    #   1. Flat:  "key.with.dots" = "old"   anywhere in file
-    #   2. Table-form leaf:  [table.path]\nleaf = "old"  — leaf inside an existing table
-    #   3. Table-form header without leaf:  [table.path] exists but no matching leaf
-    #   4. Array-of-tables / inline table — detected but not modifiable by this writer
-    # We try (1) → (2) → (3) → inline-table pre-check → append-as-flat, in order.
-    # The dispatch covers the 2026-05-23 bug where set saw only (1) and appended a
-    # duplicate when the existing definition was (2), creating a TOML where the
-    # table-form silently won on read.
     update_result = _locate_existing_definition(content, key)
 
-    # Guard F1: if the key resolves (via _flatten_nested on the parsed file) to a
-    # list, it is an array — fail loud before touching it.  This fires BEFORE the
-    # array-of-tables branch and inline-table check so the operator gets the
-    # actionable array-command message rather than a generic shape error.
     try:
         _pre_parsed_for_guard = tomllib.loads(content)
         _pre_flat_for_guard = _flatten_nested(_pre_parsed_for_guard)
@@ -2582,9 +1876,6 @@ def cmd_set(args: argparse.Namespace) -> int:
         _pre_val_for_guard = None
 
     if isinstance(_pre_val_for_guard, list):
-        # _flatten_nested stores the list unchanged (it only recurses into dicts), so
-        # this branch fires on a genuine list — but raw pre-parse check is more
-        # reliable.  Re-check via _get_raw_list to confirm it is genuinely a list.
         _raw_for_guard = _get_raw_list(_pre_parsed_for_guard, key)
         if isinstance(_raw_for_guard, list):
             print(
@@ -2594,7 +1885,6 @@ def cmd_set(args: argparse.Namespace) -> int:
             return 1
 
     if update_result is not None and update_result["kind"] == "array-of-tables-detected":
-        # Review: code-reviewer (F7) — array-of-tables detected; route to actionable error.
         print(
             f"machine-local: key '{key}' resolves in '{target_path}' but its "
             "definition shape (inline table, array-of-tables, or other) is not "
@@ -2604,16 +1894,11 @@ def cmd_set(args: argparse.Namespace) -> int:
         return 1
 
     if update_result is None:
-        # Review: code-reviewer (F3) — inline-table pre-check before falling through to
-        # flat-append. If the key resolves via tomllib but no regex shape matched it,
-        # the definition is an inline table, array-of-tables, or other unmodifiable form.
-        # The round-trip check below would also catch this, but surfacing the specific
-        # diagnosis here is far more actionable.
         try:
             pre_parsed = tomllib.loads(content)
             pre_resolved = _flatten_nested(pre_parsed).get(key)
         except tomllib.TOMLDecodeError:
-            pre_resolved = None  # malformed — let write proceed, round-trip check will catch it
+            pre_resolved = None
 
         if pre_resolved is not None:
             print(
@@ -2624,8 +1909,6 @@ def cmd_set(args: argparse.Namespace) -> int:
             )
             return 1
 
-        # No existing definition anywhere — append a flat quoted-dotted-key line
-        # before the first [<section>] header (or at EOF if none).
         section_pat = re.compile(r"^\[", re.MULTILINE)
         m = section_pat.search(content)
         new_line = f'"{key}" = {value_literal}  # set {date_tag}\n'
@@ -2656,18 +1939,10 @@ def cmd_set(args: argparse.Namespace) -> int:
             )
             action = "updated"
         elif kind == "table-header-only":
-            # Table header exists but the leaf is absent inside it. Inject the
-            # leaf at the end of the table's body (before the next section header
-            # or EOF). Flat-append would be a TOML error if subsequent
-            # [<other.section>] headers follow this one — TOML forbids reopening
-            # a closed table from outside any table.
             section_start = update_result["section_start"]
             section_end = update_result["section_end"]
             leaf_path = update_result["leaf_path"]
             section_body = content[section_start:section_end]
-            # Review: code-reviewer (F6) — match sibling key indentation rather than
-            # always injecting unindented. Standard registry TOML has no indentation,
-            # so this falls back to no-indent for the common case.
             indent_match = re.search(r"^([ \t]+)\S", section_body, re.MULTILINE)
             indent = indent_match.group(1) if indent_match else ""
             trimmed = section_body.rstrip("\n")
@@ -2683,12 +1958,6 @@ def cmd_set(args: argparse.Namespace) -> int:
             print(f"machine-local: internal error: unknown match kind {kind!r}", file=sys.stderr)
             return 1
 
-    # Post-build round-trip sanity check: the new content must parse and the
-    # requested key must resolve to the requested value via _flatten_nested.
-    # Review: code-reviewer (F4) — this check verifies parse+flatten correctness
-    # for the file being written. It does NOT verify the full resolution stack:
-    # concern-namespace exclusivity is already handled by the guard above; env-var
-    # resolution is below all TOML layers and irrelevant for write verification.
     try:
         parsed = tomllib.loads(new_content)
     except tomllib.TOMLDecodeError as exc:
@@ -2700,11 +1969,6 @@ def cmd_set(args: argparse.Namespace) -> int:
         )
         return 1
 
-    # Resolve via the same flatten logic the reader uses so a quoted-dotted-key
-    # (`"repos.example-game-repo" = ...` parses as a single flat key) and a nested table
-    # (`[repos]\nexample_game_repo = ...` parses as `{"repos": {"example-game-repo": ...}}`) both
-    # resolve to the dotted key the operator typed. Walking parsed with split(".")
-    # mishandles the quoted-key shape because TOML keeps the literal dot in the key.
     resolved = _flatten_nested(parsed).get(key)
     if resolved != value:
         print(
@@ -2721,7 +1985,6 @@ def cmd_set(args: argparse.Namespace) -> int:
         print(f"[dry-run] would {action} {key!r} = {value!r} in {target_path}")
         return 0
 
-    # Atomic write via tmp + rename.
     tmp_path = target_path + f".tmp.{os.getpid()}"
     try:
         os.makedirs(os.path.dirname(target_path), exist_ok=True)
@@ -2747,27 +2010,6 @@ def cmd_set(args: argparse.Namespace) -> int:
 
 
 def _remove_key(content: str, key: str) -> tuple[str, str | None]:
-    """Remove a TOML scalar key from content, preserving surrounding keys and comments.
-
-    Handles the flat quoted-dotted form (the form cmd_set writes) and the
-    table-leaf form (bare leaf inside a [table.path] section).
-
-    Also removes an immediately-preceding standalone comment line (a line whose
-    stripped form starts with '#', with no blank line between it and the key
-    assignment) since that comment belongs to the removed key, not its neighbours.
-    Mirrors the F5 provenance-comment detection in cmd_array_append (~:617).
-
-    Returns (new_content, old_value_str) when the key is found and removed.
-    Returns (content, None) when the key is absent, not a string scalar, or in a
-    shape this helper cannot surgically remove (array, inline table, array-of-tables).
-
-    Spec backlink: docs/plans/2026-06-30-registry-publish-vs-working-targets.md § D4
-    Negative-spec: does NOT remove [table] section headers left empty by leaf removal
-    — only the leaf line (and its provenance comment) are excised.
-    Negative-spec: does NOT modify registry.toml (tracked) — callers pass only the
-    local-file content string.
-    """
-    # Resolve current value from the file so we can return it to the caller.
     try:
         parsed = tomllib.loads(content)
         flat = _flatten_nested(parsed)
@@ -2778,7 +2020,6 @@ def _remove_key(content: str, key: str) -> tuple[str, str | None]:
     if old_value is None:
         return content, None
     if not isinstance(old_value, str):
-        # Arrays, inline tables, etc. are not handled here.
         return content, None
 
     locate = _locate_existing_definition(content, key)
@@ -2788,10 +2029,8 @@ def _remove_key(content: str, key: str) -> tuple[str, str | None]:
     kind = locate["kind"]
 
     def _excise(line_start: int, match_end: int) -> str:
-        """Remove line [line_start, line_end), optionally its preceding comment."""
         line_end_pos = content.find("\n", match_end)
         line_end = line_end_pos + 1 if line_end_pos != -1 else len(content)
-        # Check for an immediately-preceding provenance comment (# line, no gap).
         remove_start = line_start
         if line_start > 0:
             prev_nl = content.rfind("\n", 0, line_start - 1)
@@ -2807,68 +2046,15 @@ def _remove_key(content: str, key: str) -> tuple[str, str | None]:
         return _excise(m.start(), m.end()), old_value
 
     if kind == "table-leaf":
-        # abs_start = section_start + leaf_m.start(). leaf_pat's leading
         # whitespace class is [ \t]* (horizontal only, never \s*) so MULTILINE
-        # ^ + leaf_m.start() lands on the first character of the leaf's own
-        # line — never on the newline terminating the [section] header above
-        # it, which \s* would have swallowed for a leaf immediately after the
-        # header (the first-leaf-under-a-header corruption case).
         abs_start = locate["abs_start"]
         abs_end = locate["abs_end"]
         return _excise(abs_start, abs_end), old_value
 
-    # table-header-only: section exists but leaf absent — nothing to remove.
-    # array-of-tables-detected or other: not safely handled here.
     return content, None
 
 
 def cmd_unset(args: argparse.Namespace) -> int:
-    """Implement: machine-local unset <key> [--global] [--dry-run] [--concern NAME]
-
-    Removes a string-scalar key from ONE target file: registry.local.toml
-    (default) or registry.toml (--global). Target-file-scoped, NOT
-    resolution-stack-scoped — it does not consult or mutate other layers.
-    Consequence: after unsetting from registry.local.toml, `machine-local has
-    <key>` may still exit 0 because registry.toml (or a concern layer, or the
-    env layer) still supplies it. That is correct behavior, not a bug.
-
-    Exit-code contract — the read-path tri-state, NOT cmd_set's 0/non-zero
-    convention. unset is the one write verb with a clean-absence outcome:
-        0  key was present in the target file and was removed (or, under
-           --dry-run, would be).
-        1  key was already absent from the target file — a clean no-op, no
-           write, no stderr noise. Makes the verb idempotent while still
-           distinguishing "removed" from "was already absent".
-        2  operational failure: every refusal path (malformed target TOML,
-           array-valued key, non-string-scalar key, an unhandled definition
-           shape, round-trip failure, atomic-write failure, --concern) — never
-           1, which is reserved for the clean negative.
-
-    --concern is deliberately NOT supported: accepted by argparse, refused at
-    runtime (exit 2) with an actionable message, rather than omitted (which
-    would surface argparse's bare "unrecognized arguments"). Concern-file leaf
-    removal is unimplemented because _cmd_set_concern also writes a per-key
-    [provenance.<key>] table that a leaf-only removal would strand; remediation
-    is to hand-edit <NAME>.local.toml.
-
-    No concern-namespace guard (deliberate divergence from cmd_set): removing
-    a stale concern-namespace key still sitting in a registry file is exactly
-    the cleanup this verb exists for, so _check_concern_namespace is NOT
-    called here.
-
-    Empty [table] headers are left in place — inherits _remove_key's negative-
-    spec. A generic header sweep is unsafe (comments, sibling tooling), and an
-    empty table resolves to nothing, so an operator note is printed instead of
-    an automatic sweep.
-
-    Review: code-reviewer (F2) — the read-then-write here is not compare-and-
-    swap: a concurrent writer's change landing between the read at file open
-    and the `os.replace` in _write_registry_file is silently lost. The atomic
-    write narrows the race window from the minutes a hand-edit takes to the
-    milliseconds this verb runs in; it does not eliminate the race.
-
-    Spec backlink: state/handoffs/2026-08-12-machine-local-toml-and-unset-verb.md
-    """
     if getattr(args, "concern", None):
         print(
             "machine-local: unset does not support --concern: the concern-file "
@@ -2934,19 +2120,9 @@ def cmd_unset(args: argparse.Namespace) -> int:
         )
         return EXIT_OPERATIONAL
 
-    # Review: code-reviewer (F3) — only note a possibly-empty header when the
-    # section body is actually now empty (whitespace/comments only), not
-    # merely because the removed leaf's original shape was table-leaf; a
-    # table with sibling leaves remaining must not print the note.
     empty_header_note = False
-    # Review: code-reviewer (F5) — `content` is immutable and unchanged by
-    # _remove_key above; re-reading it here (rather than new_content) is
-    # deliberate, to see the pre-removal shape/position for detection.
     removed_kind = (_locate_existing_definition(content, key) or {}).get("kind")
     if removed_kind == "table-leaf":
-        # Find the header line immediately preceding the key's original
-        # position, then check whether that same section in new_content is
-        # now whitespace/comment-only up to the next header (or EOF).
         key_pos = content.find(key)
         preceding_headers = list(re.finditer(r"^\[[^\]]+\]\s*$", content[:key_pos], re.MULTILINE))
         if preceding_headers:
@@ -3003,21 +2179,6 @@ def cmd_unset(args: argparse.Namespace) -> int:
 
 def _insert_mirror_path(content: str, mirror_key: str, path_value: str,
                         date_tag: str) -> str:
-    """Write path = '<path_value>' into [publish.mirrors.<mirror_key>] in content.
-
-    Prefers injecting into an existing [publish.mirrors.<mirror_key>] section if
-    one is present (table-header-only or table-leaf update). When no such section
-    exists, appends a new one at EOF (the common case for registry.local.toml on
-    a machine that has never set publish.mirrors.* keys).
-
-    Mirrors the table-header-only injection logic in cmd_set for the update path.
-
-    Spec backlink: docs/plans/2026-06-30-registry-publish-vs-working-targets.md § D4
-    Negative-spec: operates only on the content string supplied by the caller
-    (registry.local.toml); does not read or modify registry.toml (tracked).
-    """
-    # Review: code-reviewer (F5) — TOML literal strings (single-quoted) have no
-    # escape mechanism; a path containing a single quote would produce malformed TOML.
     if "'" in path_value:
         raise ValueError(
             f"_insert_mirror_path: path_value {path_value!r} contains a single quote; "
@@ -3029,7 +2190,6 @@ def _insert_mirror_path(content: str, mirror_key: str, path_value: str,
     locate = _locate_existing_definition(content, full_key)
 
     if locate is None:
-        # No existing section — append a fresh [publish.mirrors.<key>] block.
         block = (
             f"\n[publish.mirrors.{mirror_key}]\n"
             f"path = {value_literal}  # migrate-publish-mirrors {date_tag}\n"
@@ -3053,11 +2213,9 @@ def _insert_mirror_path(content: str, mirror_key: str, path_value: str,
         )
 
     if kind == "table-header-only":
-        # Section header exists but 'path' leaf is absent — inject it inside.
-        # Mirrors cmd_set's table-header-only injection (match sibling indentation).
         section_start = locate["section_start"]
         section_end = locate["section_end"]
-        leaf_path = locate["leaf_path"]  # e.g. "path"
+        leaf_path = locate["leaf_path"]
         section_body = content[section_start:section_end]
         indent_m = re.search(r"^([ \t]+)\S", section_body, re.MULTILINE)
         indent = indent_m.group(1) if indent_m else ""
@@ -3070,7 +2228,6 @@ def _insert_mirror_path(content: str, mirror_key: str, path_value: str,
         )
         return content[:section_start] + new_section + content[section_end:]
 
-    # array-of-tables-detected or unknown shape — fall back to appending.
     block = (
         f"\n[publish.mirrors.{mirror_key}]\n"
         f"path = {value_literal}  # migrate-publish-mirrors {date_tag}\n"
@@ -3078,55 +2235,23 @@ def _insert_mirror_path(content: str, mirror_key: str, path_value: str,
     return content.rstrip("\n") + "\n" + block
 
 
-# Review: code-reviewer (F6) — hoisted from inside cmd_migrate_publish_mirrors to
-# module-level so the migration contract is greppable without reading the full function.
 _MIRROR_SOURCES = [
-    # (old_key, canonical_mirror_key, is_legacy_alias)
-    # Canonical keys first so the legacy alias sees the target already set.
     ("repos.coordinator_claude",   "coordinator_claude",   False),
     ("repos.deep_research_claude", "deep_research_claude", False),
-    ("repos.deep_research",        "deep_research_claude", True),  # legacy alias
+    ("repos.deep_research",        "deep_research_claude", True),
 ]
 
 _ARRAY_TOKEN_REPLACEMENTS = [
-    # (old_token, new_token) — rewrites repo:<mirror> → publish-mirror:<key>
-    # in publish.targets array rows so D3 removal of repos.* doesn't break them.
     ("repo:coordinator_claude",   "publish-mirror:coordinator_claude"),
     ("repo:deep_research_claude", "publish-mirror:deep_research_claude"),
-    ("repo:deep_research",        "publish-mirror:deep_research_claude"),  # legacy alias
+    ("repo:deep_research",        "publish-mirror:deep_research_claude"),
 ]
 
 
 def cmd_migrate_publish_mirrors(args: argparse.Namespace) -> int:
-    """Implement: machine-local migrate-publish-mirrors
-
-    Idempotently migrate publish-mirror destination paths from the deprecated
-    repos.* namespace into the correct publish.mirrors.* tables in
-    registry.local.toml (per-machine, gitignored).
-
-    Keys migrated (registry.local.toml → publish.mirrors.*.path):
-      repos.coordinator_claude   → publish.mirrors.coordinator_claude.path
-      repos.deep_research_claude → publish.mirrors.deep_research_claude.path
-      repos.deep_research        → publish.mirrors.deep_research_claude.path (legacy alias)
-
-    Also rewrites any 'publish.targets' registry-array rows whose field-3 contains
-    a 'repo:<mirror>' reference to the new 'publish-mirror:<key>' prefix, so that
-    D3 (removal of repos.* mirror keys from the tracked registry.toml) does not
-    rc1-fail those rows at resolve time.
-
-    For the legacy setup/publish-targets.sh fallback (gitignored, per-machine),
-    this command cannot safely auto-edit it — instead it emits a loud
-    operator-remediation block naming exactly what to change.
-
-    Idempotent: re-running after a successful migration is a no-op (no write).
-    Fresh clean-install (absent or empty registry.local.toml): no-op, exit 0.
-
-    Spec backlink: docs/plans/2026-06-30-registry-publish-vs-working-targets.md § D4
-    """
     reg_dir = _registry_dir()
     local_path = os.path.join(reg_dir, "registry.local.toml")
 
-    # Fresh clean-install: absent file → no-op.
     if not os.path.exists(local_path):
         print("machine-local migrate-publish-mirrors: registry.local.toml absent — nothing to migrate.")
         return EXIT_OK
@@ -3142,12 +2267,9 @@ def cmd_migrate_publish_mirrors(args: argparse.Namespace) -> int:
     changed = False
 
     # Migration table: see module-level _MIRROR_SOURCES (hoisted F6).
-    # Processed in order: canonical keys first so the legacy alias sees the target
-    # already set and only removes the stale key (not overwriting the canonical value).
     for old_key, mirror_key, is_alias in _MIRROR_SOURCES:
         target_path_key = f"publish.mirrors.{mirror_key}.path"
 
-        # Re-parse after every step — content may have changed in prior iterations.
         try:
             cur_parsed = tomllib.loads(content)
             cur_flat = _flatten_nested(cur_parsed)
@@ -3160,7 +2282,6 @@ def cmd_migrate_publish_mirrors(args: argparse.Namespace) -> int:
 
         old_value = cur_flat.get(old_key)
         if old_value is None:
-            # Key absent from this file — skip.
             continue
 
         if is_alias:
@@ -3172,8 +2293,6 @@ def cmd_migrate_publish_mirrors(args: argparse.Namespace) -> int:
         target_already = cur_flat.get(target_path_key)
 
         if target_already is not None:
-            # Target path already set (canonical key was migrated earlier in this
-            # run or in a previous run). Only remove the stale old key.
             new_content, _ = _remove_key(content, old_key)
             if new_content != content:
                 content = new_content
@@ -3189,7 +2308,6 @@ def cmd_migrate_publish_mirrors(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
         else:
-            # Migrate: remove old key, write path into publish.mirrors.<key>.
             new_content, removed_val = _remove_key(content, old_key)
             if removed_val is not None:
                 content = _insert_mirror_path(new_content, mirror_key, removed_val, date_tag)
@@ -3205,10 +2323,6 @@ def cmd_migrate_publish_mirrors(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
 
-    # --- Rewrite repo:<mirror> → publish-mirror:<key> in publish.targets array ---
-    # Machines that registered publish topology via the registry array keep stale
-    # 'repo:coordinator_claude' / 'repo:deep_research_claude' rows after D3 removes
-    # those keys from repos.*.  Rewrite them now so they resolve via publish.mirrors.*.
     # Token replacements defined at module-level as _ARRAY_TOKEN_REPLACEMENTS (hoisted F6).
     try:
         arr_parsed = tomllib.loads(content)
@@ -3253,9 +2367,6 @@ def cmd_migrate_publish_mirrors(args: argparse.Namespace) -> int:
                     "repo:<mirror> → publish-mirror:<key>."
                 )
             else:
-                # Review: code-reviewer (F3) — rows need rewriting but the array span could
-                # not be located (None) or is array-of-tables (not rewritable by this writer).
-                # A partial migration reported as success would leave stale repo:<mirror> rows.
                 span_kind = array_span["kind"] if array_span is not None else "not found"
                 print(
                     f"machine-local: WARNING: {rows_rewritten} publish.targets row(s) "
@@ -3267,8 +2378,6 @@ def cmd_migrate_publish_mirrors(args: argparse.Namespace) -> int:
                 )
                 return EXIT_OPERATIONAL
 
-    # --- Legacy publish-targets.sh operator remediation ---
-    # The legacy file is gitignored and per-machine; auto-edit is not safe.
     repo_root = os.path.dirname(os.path.abspath(reg_dir))
     legacy_sh = os.path.join(repo_root, "setup", "publish-targets.sh")
     if os.path.exists(legacy_sh):
@@ -3292,7 +2401,6 @@ def cmd_migrate_publish_mirrors(args: argparse.Namespace) -> int:
         )
         return EXIT_OK
 
-    # Final round-trip sanity: ensure the modified content is valid TOML before writing.
     try:
         tomllib.loads(content)
     except tomllib.TOMLDecodeError as exc:
@@ -3309,10 +2417,6 @@ def cmd_migrate_publish_mirrors(args: argparse.Namespace) -> int:
         return rc
 
     print(f"machine-local: migrate-publish-mirrors: updated {local_path}")
-    # Review: code-reviewer (F8) — operator note: _remove_key does NOT remove empty
-    # [table] section headers left behind after leaf removal (negative-spec of _remove_key).
-    # An empty [repos] section header may remain — this is harmless valid TOML; remove
-    # it manually if desired (e.g. delete the [repos] line from registry.local.toml).
     print(
         "machine-local: Note: an empty [repos] header may remain in registry.local.toml "
         "after migration — this is harmless valid TOML; remove it manually if desired."
@@ -3321,13 +2425,7 @@ def cmd_migrate_publish_mirrors(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    # Windows: Python text-mode stdout translates '\n' -> '\r\n', so a captured
-    # `$(machine-local get repos.x)` carries a trailing '\r'. That stray CR
-    # silently breaks downstream string/path comparisons — notably claude-doe's
     # regen grep-gate (friction F6: the CR made `grep -qF "$DOE_COORDINATOR/hooks"`
-    # never match settings.json, forcing a full hook-block regen + "clobbered"
-    # noise on every launch). Emit LF-only output on every platform. Guarded for
-    # stream objects that don't expose reconfigure (non-TextIOWrapper).
     for _stream in (sys.stdout, sys.stderr):
         try:
             _stream.reconfigure(newline="\n")
@@ -3340,24 +2438,20 @@ def main() -> int:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # get
     get_p = subparsers.add_parser("get", help="Print value for a key")
     get_p.add_argument("key", help="Dotted key name (e.g. repos.example_game_workbench_repo)")
     get_p.add_argument("--default", metavar="VALUE", default=None,
                        help="Value to print if key is missing (always exits 0)")
 
-    # has
     has_p = subparsers.add_parser("has", help="Exit 0 if key is set, 1 if not set, 2 on operational failure (see machine-local-registry.md §4.1)")
     has_p.add_argument("key", help="Dotted key name")
 
-    # keys
     keys_p = subparsers.add_parser("keys", help="List all known keys, one per line")
     keys_p.add_argument(
         "--prefix", metavar="PREFIX", default=None,
         help="Only list keys equal to, or nested under (dotted), PREFIX (e.g. repos)",
     )
 
-    # dump
     dump_p = subparsers.add_parser(
         "dump",
         help=(
@@ -3393,10 +2487,8 @@ def main() -> int:
         ),
     )
 
-    # path
     subparsers.add_parser("path", help="Print absolute path to active registry.toml")
 
-    # dir
     subparsers.add_parser(
         "dir",
         help=(
@@ -3406,7 +2498,6 @@ def main() -> int:
         ),
     )
 
-    # set
     set_p = subparsers.add_parser(
         "set",
         help="Write a key=value pair to the registry (prefer over hand-editing)",
@@ -3433,7 +2524,6 @@ def main() -> int:
         help="Print what would be written without making changes",
     )
 
-    # unset
     unset_p = subparsers.add_parser(
         "unset",
         help="Remove a key from ONE target file (registry.local.toml by default, "
@@ -3461,7 +2551,6 @@ def main() -> int:
              "instead of a bare argparse 'unrecognized arguments' error.",
     )
 
-    # array-append
     aa_p = subparsers.add_parser(
         "array-append",
         help="Append an element to a TOML array key (idempotent; current sole consumer: publish.targets)",
@@ -3480,7 +2569,6 @@ def main() -> int:
         help="Print what would be written without making changes",
     )
 
-    # array-set
     as_p = subparsers.add_parser(
         "array-set",
         help="Replace a TOML array key with the given elements (order-preserving dedup; current sole consumer: publish.targets)",
@@ -3499,7 +2587,6 @@ def main() -> int:
         help="Print what would be written without making changes",
     )
 
-    # migrate-publish-mirrors
     subparsers.add_parser(
         "migrate-publish-mirrors",
         help=(

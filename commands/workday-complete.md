@@ -3,6 +3,7 @@ name: workday-complete
 description: "End-of-day wrap — validate, consolidate branches, review, changelog."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill"]
 argument-hint: "[optional summary of the day]"
+disable-model-invocation: true
 ---
 
 # Workday Complete — End-of-Day Orchestration

@@ -61,12 +61,6 @@ import re
 import subprocess
 import sys
 
-# ---------------------------------------------------------------------------
-# Machine-absolute-path patterns for the settings.json HARD block: the macOS
-# and Linux home roots, the Windows user-profile root, and the two catalog
-# drive roots this fleet mounts cross-machine. Each predicate keys on what
-# FOLLOWS the separator; the drive letter is never the discriminator.
-# ---------------------------------------------------------------------------
 
 _SETTINGS_PATTERNS = [
     re.compile(r"^/Users/[^/]+/"),
@@ -117,15 +111,10 @@ def _read_file_or_index(path):
         rc, out = _git(["show", ":{}".format(path)])
         if rc == 0:
             return out
-        # Deleted from index — nothing to check.
         return None
     sys.stderr.write("{}: WARN — {} not found on disk\n".format(PROG, path))
     return None
 
-
-# ---------------------------------------------------------------------------
-# JSON structural scan — collect leaf string values matching a machine-abs path.
-# ---------------------------------------------------------------------------
 
 def _walk_json(obj, path=""):
     if isinstance(obj, dict):
@@ -169,14 +158,7 @@ def _check_settings_json(file, state):
         state["hard_violation"] = True
 
 
-# ---------------------------------------------------------------------------
 # YAML structural scan — collect leaf string values rooted at CURRENT_HOME only.
-#
-# Catalog drive roots and another operator's home directory are intentional
-# cross-machine catalog content and must NOT be flagged here. When PyYAML is
-# unavailable, fall back to a conservative line-scan that only flags a leaf
-# VALUE starting with $HOME.
-# ---------------------------------------------------------------------------
 
 def _walk_yaml(obj, current_home, path=""):
     if isinstance(obj, dict):
@@ -252,7 +234,6 @@ def _check_working_repos_yaml_linescan(file, content, current_home):
             m = kv_re.search(line)
             if m:
                 value_part = m.group(1)
-        # Strip inline comments and surrounding quotes.
         value_part = value_part.split("#", 1)[0]
         value_part = value_part.strip()
         if len(value_part) >= 2 and value_part[0] == value_part[-1] and value_part[0] in ("'", '"'):
@@ -267,10 +248,6 @@ def _check_working_repos_yaml_linescan(file, content, current_home):
             sys.stderr.write("  Note  : If this is an intentional catalog entry, no action needed.\n")
             sys.stderr.write("          If newly introduced, consider moving to machine-local registry.\n")
 
-
-# ---------------------------------------------------------------------------
-# Argument parsing + candidate collection.
-# ---------------------------------------------------------------------------
 
 def _print_help():
     sys.stdout.write(__doc__.strip() + "\n")
@@ -320,8 +297,6 @@ def main(argv):
     for sf in settings_files:
         _check_settings_json(sf, state)
 
-    # $HOME is POSIX-only; stock Windows (cmd.exe/
-    # PowerShell without Git Bash/WSL) doesn't set it — falls back to os.path.expanduser
     # (which honors USERPROFILE on Windows) instead of silently no-oping the soft-warn.
     current_home = os.environ.get("HOME") or os.path.expanduser("~")
     for wf in working_repos_files:

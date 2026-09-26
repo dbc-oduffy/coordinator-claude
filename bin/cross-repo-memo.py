@@ -3221,9 +3221,30 @@ def _cmd_send(args: argparse.Namespace) -> int:
             "cannot be replied to by message.",
             file=sys.stderr,
         )
+        # AC4 (docs/plans/2026-09-07-a-claim-is-written-twice-and-nothing-
+        # compares-them.md): the cause is MEASURED, not asserted -- one
+        # hardcoded sentence used to claim "engine env and caller both
+        # unresolved" regardless of which of the three distinguishable
+        # cases actually held. `attributable_session_id_with_source` is the
+        # one instrument that reports source (carried / env-tier /
+        # unresolved), warm-vs-cold, and the resolving pid, so the notice
+        # states only what that resolution actually measured.
+        from coordinator_core.session.core import attributable_session_id_with_source
+
+        resolution = attributable_session_id_with_source()
+        if resolution.warm:
+            cause = (
+                f"warm-served request carried no session id (pid {resolution.pid})."
+            )
+        elif resolution.source == "unresolved":
+            cause = f"no session id resolved in the cold env-tier chain (pid {resolution.pid})."
+        else:
+            cause = (
+                f"a session id resolved via {resolution.source!r} (pid "
+                f"{resolution.pid}) but was not carried through to the send."
+            )
         print(
-            "  cause: no session id resolved at send time (engine env and "
-            "caller both unresolved).",
+            f"  cause: {cause}",
             file=sys.stderr,
         )
     if not acted_item.get("sender_committed", True):

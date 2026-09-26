@@ -1,28 +1,3 @@
-"""lib/coordinator_safe_name.py — cross-platform safe filename component primitives.
-
-Port of: coordinator-safe-name.sh (DoE 721a71f4, 2026-07-21). Defines the canonical NTFS-illegal charset and
-three pure functions (csn_timestamp, csn_slug, csn_check) plus a `main()` CLI
-dispatcher, importable by any consumer so the NTFS-illegal-charset logic
-lives in exactly one place. Known importers: the `coordinator-safe-name` CLI
-(this directory's sibling bin/ entrypoint) and
-check-no-illegal-paths.py (sibling chunk E3-b), which imports `csn_check`
-directly in-process rather than shelling out.
-
-Spec backlink: docs/plans/2026-06-30-cross-platform-file-naming-helper.md § seam 1
-Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md (Wave E3-c)
-
-PURPOSE: canonical single source of truth for the NTFS-illegal charset a
-filename component must avoid to survive a `git checkout` on Windows (NTFS /
-VFAT). `U+F03A` (private-use full-width colon) exists precisely because the
-real colon `:` (U+003A) is the Windows ADS separator. Trailing dot and
-trailing space are also NTFS-illegal even though they are not characters per
-se — NTFS silently strips them, breaking the path.
-
-Negative-spec: does NOT resolve its own file location for path-derivation
-purposes (no path-resolution side effects beyond `__file__` module import
-machinery) — pure functions + constants only, mirroring the bash oracle's
-no-self-location contract.
-"""
 from __future__ import annotations
 
 import datetime
@@ -30,12 +5,6 @@ import os
 import re
 import sys
 
-# ---------------------------------------------------------------------------
-# Canonical NTFS-illegal charset (the SoT for every consumer)
-# ---------------------------------------------------------------------------
-# Illegal chars: : ? * < > | " \ /
-# Also illegal: ASCII control chars (0x00-0x1F, 0x7F DEL)
-# Also illegal: trailing dot or trailing space (not chars, but structural rules)
 CSN_ILLEGAL_CHARS = ':?*<>|"\\/'
 
 
@@ -69,13 +38,6 @@ def csn_timestamp(mode: str = "--now", file: str | None = None) -> str:
 
 
 def csn_slug(text: str) -> str:
-    """Emit a [a-z0-9-]-only slug, <=40 chars, no leading/trailing hyphen.
-
-    Mirrors coordinator-doc-new._slug_from_title and
-    coordinator-lesson-promote._slug_from_title (independent, pre-existing
-    Python impls — not refactored by this port). This function is the
-    canonical SoT for shell/subprocess-style slug generation.
-    """
     slug = text.lower()
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
     slug = slug.strip("-")
@@ -85,12 +47,6 @@ def csn_slug(text: str) -> str:
 
 
 def csn_check(component: str) -> tuple[bool, str]:
-    """Returns (ok, reason). ok=True when `component` is safe for NTFS,
-    macOS HFS+, Linux ext4, and Git-Bash checkout. ok=False + a reason string
-    naming the offending char/rule otherwise. This is the canonical predicate
-    reused by the illegal-filename guard and the check-no-illegal-paths
-    commit/merge backstop.
-    """
     if component.endswith("."):
         return False, f'trailing dot in "{component}"'
     if component.endswith(" "):
@@ -155,16 +111,6 @@ def main(argv: list[str]) -> int:
         return 0
 
     if subcommand == "check-paths":
-        # Batch mode: one process for an entire path list (stdin, newline-
-        # delimited), not one subprocess per component. Not currently wired
-        # to any caller — check-no-illegal-paths.py (chunk E3-b, the commit/
-        # merge backstop that scans every tracked+staged path in the repo)
-        # imports csn_check directly in-process instead, which is even
-        # cheaper than this CLI batch mode. Kept as a general-purpose primitive
-        # for any future bash/non-Python caller that needs to check many
-        # components without a per-component subprocess spawn (a per-
-        # component spawn was measured as a multi-minute regression on a
-        # multi-thousand-file tree during this port, chunk E3-c).
         found = False
         for raw_path in sys.stdin:
             path = raw_path.rstrip("\n")

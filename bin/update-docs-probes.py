@@ -115,20 +115,10 @@ def _bootstrap_engine() -> None:
 
 
 def _gates():
-    """Import and return the `updatedocs_gates` module lazily.
-
-    Keeps this file's module body pure (no coordinator_core import at
-    interpreter-load time) -- called from each `_cmd_*` function below.
-    """
     _bootstrap_engine()
     import coordinator_core.ops.updatedocs_gates as _mod
 
     return _mod
-
-
-# ---------------------------------------------------------------------------
-# fresh-scaffold-probe — Pre-flight: Fresh-Repo Precondition Probe
-# ---------------------------------------------------------------------------
 
 
 def _cmd_fresh_scaffold_probe(args: argparse.Namespace) -> int:
@@ -160,20 +150,7 @@ def _cmd_fresh_scaffold_probe(args: argparse.Namespace) -> int:
     return 1
 
 
-# ---------------------------------------------------------------------------
-# repomap-gate — Phase 9b: Repomap Regeneration (RAG-gated)
-# ---------------------------------------------------------------------------
-
-
 def _cmd_repomap_gate(args: argparse.Namespace) -> int:
-    """Delegates to `updatedocs_gates._gate_repomap`.
-
-    Exit codes (unchanged legacy contract):
-      0 — gate resolved cleanly (fresh-skip, generation succeeded, or
-          generation was skipped because the generator script is missing).
-      1 — the generator was invoked and returned non-zero
-          (GateVerdict.FINDING).
-    """
     overrides = {
         "rag_state": args.rag_state,
         "check_rag_state_cli": args.check_rag_state_cli,
@@ -181,7 +158,6 @@ def _cmd_repomap_gate(args: argparse.Namespace) -> int:
     }
     gates = _gates()
     settings_home = gates._settings_home(None)
-    # repomap-gate resolves sibling CLIs from THIS bin/ dir, not
     # $COORDINATOR_SETTINGS_HOME/bin — override defaults directly when unset.
     if not overrides["check_rag_state_cli"]:
         overrides["check_rag_state_cli"] = str(_BIN_DIR / "check-rag-state.py")
@@ -193,11 +169,6 @@ def _cmd_repomap_gate(args: argparse.Namespace) -> int:
     if result.verdict == gates.GateVerdict.FINDING:
         return 1
     return 0
-
-
-# ---------------------------------------------------------------------------
-# queue-prune-sweep — Phase 11i: Prune resolved-state bloat from queues
-# ---------------------------------------------------------------------------
 
 
 def _cmd_queue_prune_sweep(args: argparse.Namespace) -> int:
@@ -215,11 +186,6 @@ def _cmd_queue_prune_sweep(args: argparse.Namespace) -> int:
         "prune_cli": args.prune_cli or str(_BIN_DIR / "prune-resolved-queue-entries.py"),
         "queues": args.queue,
     }
-    # `_gate_queue_prune_sweep` computes `bin_dir = settings_home / "bin"`
-    # internally (its YAML-family leg has no per-CLI override, unlike the
-    # legacy leg's `prune_cli`) -- pass `_BIN_DIR`'s PARENT here, not
-    # `_BIN_DIR` itself, so that internal join resolves back to this file's
-    # own `bin/` dir instead of double-nesting into `bin/bin/`.
     gates = _gates()
     result = gates._gate_queue_prune_sweep(Path(args.repo_root), _BIN_DIR.parent, overrides)
     print(result.summary)
@@ -228,18 +194,7 @@ def _cmd_queue_prune_sweep(args: argparse.Namespace) -> int:
     return 1 if result.severity == gates.Severity.BLOCKING else 0
 
 
-# ---------------------------------------------------------------------------
-# distill-threshold — Phase 13: Artifact Distillation (Conditional), steps 1-2
-# ---------------------------------------------------------------------------
-
-
 def _cmd_distill_threshold(args: argparse.Namespace) -> int:
-    """Delegates to `updatedocs_gates._gate_distill_threshold`.
-
-    Exit codes (unchanged legacy contract):
-      0 — threshold NOT met (GateVerdict.CLEAN; distillation not needed).
-      1 — threshold met (GateVerdict.FINDING; caller should chain /distill).
-    """
     overrides = {"log_path": args.log_path}
     gates = _gates()
     result = gates._gate_distill_threshold(Path(args.repo_root), Path(), overrides)
@@ -248,19 +203,6 @@ def _cmd_distill_threshold(args: argparse.Namespace) -> int:
 
 
 def _cmd_snippet_sync_sweep_retired(_args: argparse.Namespace) -> int:
-    """Accept the retired `snippet-sync-sweep` verb and do nothing. Exit 0.
-
-    Exit 0 is the point: the sweep's contract was "0 when every verifier
-    passed, and 0 when none matched the glob". None have matched anywhere in
-    the fleet since the `verify-*-sync.sh` leg was retired, so a no-op returns
-    exactly what a live sweep would have returned on this tree — the caller
-    cannot tell the difference, which is what makes removing the body safe
-    ahead of removing the call.
-
-    Says so on stderr rather than silently: a Phase 11b that prints nothing at
-    all reads as a probe that ran and found nothing, and the next person
-    debugging a snippet-sync drift deserves to know this stopped checking.
-    """
     print(
         "[update-docs] snippet-sync-sweep is retired (the verify-*-sync.sh leg it "
         "swept no longer exists fleet-wide; the native coordinator_core/snippet_sync/ "
@@ -269,11 +211,6 @@ def _cmd_snippet_sync_sweep_retired(_args: argparse.Namespace) -> int:
         file=sys.stderr,
     )
     return 0
-
-
-# ---------------------------------------------------------------------------
-# argument parsing
-# ---------------------------------------------------------------------------
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -305,7 +242,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p_distill.add_argument("--log-path", default=None)
     p_distill.set_defaults(func=_cmd_distill_threshold)
 
-    # Retirement shim, not a subcommand — see _cmd_snippet_sync_sweep_retired.
     p_retired = sub.add_parser("snippet-sync-sweep", help=argparse.SUPPRESS)
     p_retired.add_argument("--glob-root", default=None)
     p_retired.set_defaults(func=_cmd_snippet_sync_sweep_retired)

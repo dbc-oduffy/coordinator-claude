@@ -190,7 +190,7 @@ For each match the reviewer asks two questions:
 1. **Installer coverage** — does the clean-install path reproduce the state this diff requires? Missing coverage is P1.
 2. **Cross-repo coordination** — does this diff write to a sibling repo's install surface without PM authorization? Missing provenance is P1.
 
-This lens runs as a structural check; the reviewer need not have domain context on the specific surface. Findings surface as `WARN` or `BLOCKED` verdict entries and feed the review-integrator pass.
+This lens runs as a structural check; the reviewer need not have domain context on the specific surface. Findings surface as `WARN` or `BLOCKED` verdict entries and are applied by the reviewer itself, per `review-integration-doctrine.md`.
 
 ## Greppability for prior-art-checker
 

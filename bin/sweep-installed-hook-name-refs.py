@@ -1,26 +1,4 @@
-# coordinator/bin/sweep-installed-hook-name-refs.py
-#
-# Answers "which coordinator/bin entrypoint names do the git hooks installed on
-# this machine actually name?" by reading every co-located repo's `.git/hooks/`
-# directly.
-#
-# Why this exists: `.git/hooks` is untracked state living in peer working trees,
-# so no repo grep, cross-repo memo, or reference census reaches it. The C6
-# rename chunk of docs/plans/2026-08-13-grind-the-posix-exec-baseline-to-zero.md
-# names it as a blind spot and reasons about it indirectly, via the installer's
 # `_GATE_REGISTRY` version stamp. That indirection is unnecessary on a machine
-# where the sibling trees are co-located: the hooks are readable, so the
-# question has a direct answer. Renaming a name this script reports breaks the
-# installed hook in every tree listed beside it, until that tree re-runs the
-# installer.
-#
-# The failure is not uniform, and the quiet one is the dangerous one:
-# `prepare-commit-msg` and `post-commit` end their resolution chain with a
-# warning and `exit 0`, so a rename silently stops annotating and auto-pushing;
-# `pre-commit` exits 1 on a missing gate script, which at least announces
-# itself. Read the hook body before deciding a hit is survivable.
-#
-# Exit 0 always -- this reports, it does not gate. Callers decide.
 
 from __future__ import annotations
 
@@ -50,9 +28,6 @@ def _default_sibling_root() -> Path:
 
 
 def _extensionless_bin_names(baseline: Path) -> set[str]:
-    """The population a rename wave draws from: entries under coordinator/bin/
-    whose basename carries no extension. Read off the baseline rather than the
-    filesystem so the answer tracks what the POSIX-exec gate still counts."""
     data = json.loads(baseline.read_text(encoding="utf-8"))
     names: set[str] = set()
     for value in data.values():
@@ -76,11 +51,6 @@ def _hook_files(sibling_root: Path):
 
 
 def sweep(names: set[str], sibling_root: Path) -> dict[str, list[str]]:
-    """Maps each named entrypoint to the `<repo>/<hook>` bodies naming it.
-
-    Matching is word-boundary-ish on both sides but treats `.` and `-` as name
-    characters, so `foo` does not match an already-renamed `foo.py`: a hit means
-    the hook names the OLD extensionless form and would break on the rename."""
     patterns = {n: re.compile(r"(?<![\w.-])" + re.escape(n) + r"(?![\w.-])") for n in names}
     hits: dict[str, set[str]] = {}
     for repo_name, hook in _hook_files(sibling_root):
@@ -127,12 +97,6 @@ def main(argv: list[str]) -> int:
     names = _extensionless_bin_names(args.baseline)
     hooks_scanned = sum(1 for _ in _hook_files(args.sibling_root))
     if hooks_scanned == 0:
-        # Zero hook files is not a clean result, it is a broken sweep: this tool
-        # is used as a pre-rename gate, so "found nothing" and "looked nowhere"
-        # must never render the same. They did once — a sibling-root off by one
-        # directory scanned a repo instead of the repo's parent, found no
-        # `.git/hooks` anywhere beneath it, and printed a confident all-clear to
-        # six executors. Exit 2, loudly, rather than clearing anything.
         print(
             f"sweep-installed-hook-name-refs: no git hooks found under {args.sibling_root} — "
             "this is a broken sweep, not a clean one. Point --sibling-root at the directory "

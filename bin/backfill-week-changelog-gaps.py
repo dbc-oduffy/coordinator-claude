@@ -91,9 +91,6 @@ def _import_runner():
 def main(argv: "list[str] | None" = None) -> int:
     argv = (sys.argv[1:] if argv is None else argv)
     if "-h" in argv or "--help" in argv:
-        # Intercept BEFORE run_op_main -- see item 1 in the spec-backlinked
-        # memo. Without this, --help was forwarded straight through as an
-        # ignored positional and the backfill ran for real.
         print(__doc__)
         return 0
 

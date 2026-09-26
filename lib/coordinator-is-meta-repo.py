@@ -74,9 +74,6 @@ from typing import Optional
 
 
 def _claude_home_module():
-    """Import this repo's own claude-home resolver module (DoE-local, no
-    engine-root dependency) — mirrors the bash oracle's own lib-relative
-    resolution of `${_cimr_lib_dir}/claude-home/claude-home`."""
     _lib_dir = os.path.dirname(os.path.abspath(__file__))
     _claude_home_dir = os.path.join(_lib_dir, "claude-home")
     if _claude_home_dir not in sys.path:
@@ -87,10 +84,6 @@ def _claude_home_module():
 
 
 def _resolve_git_root(git_root: Optional[str]) -> str:
-    """Resolve the git root from cwd if not provided by the caller.
-
-    Raises RuntimeError (fail-loud) on an unresolvable/empty git root.
-    """
     if git_root:
         return git_root
 
@@ -100,13 +93,6 @@ def _resolve_git_root(git_root: Optional[str]) -> str:
             capture_output=True,
             text=True,
             check=False,
-            # The "git.exe is GUI-subsystem" premise this escape used to rest
-            # on was measured and refuted 2026-08-07 (see
-            # state/audits/2026-08-07-git-console-allocation-measurement.md,
-            # the engine repo): a console-subsystem git.exe from a
-            # console-less parent allocates a visible ConsoleWindowClass
-            # window in ~50ms, and pipe redirection does not suppress it.
-            # Applying the real fix instead of the escape.
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except OSError as exc:
@@ -129,9 +115,6 @@ def _resolve_git_root(git_root: Optional[str]) -> str:
 
 
 def _canonicalize(path: Path) -> str:
-    """Canonicalize via realpath; falls back to the literal path if the
-    directory does not exist on disk (mirrors the shell original's
-    `cd ... && pwd -P || echo "$path"` fallback)."""
     try:
         return str(path.resolve(strict=False))
     except OSError:

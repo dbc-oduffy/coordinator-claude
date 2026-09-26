@@ -60,61 +60,23 @@ _LEGACY_INJECTOR_TAIL = '_hook_venv_inject.py'
 if sys.argv and sys.argv[-1].endswith(_LEGACY_INJECTOR_TAIL):
     sys.argv.pop()
 
-# NO HOOK MAY EVER SIT IN THE ENGINE'S BOUNDED BOOT WAIT.
-#
-# The engine's op door polls a just-spawned warm server for a bounded interval
-# (`_wait_for_warm_boot`, 15s by default) rather than refusing a call the
-# respawn it triggered is already healing. That is right where a human is
-# already waiting on one result. It is catastrophic on a hook path: hooks fire
-# on every tool call, and a 15s stall per fire is a far worse outage than the
-# refusal it replaced.
-#
-# THE PARENT IS THE ONLY THING THAT KNOWS IT IS A HOOK. The spawned child cannot
-# tell, and must not guess. This trampoline is that parent for EVERY hook by
-# construction -- every registration routes through it -- so pinning the bound
-# here also covers hooks that do not exist yet, which per-caller discipline in
-# each script would not. Leaving it to each caller is the same trust-the-author
-# hole the http registration gates exist to close.
-#
 # UNCONDITIONAL, not a setdefault: an operator's exported value is a preference
-# about their own shell, never a licence for a hook to block, and a var
-# arriving here already set to 15 is exactly the case this must survive.
-# Anything that needs a waiting engine call is not a hook.
-#
-# Set to '0' rather than deleted, so it crosses the engine-invoke spawn
-# boundary explicitly: the invoke wrapper passes this environment through, and
-# an unset var would restore the default bound in the child.
 os.environ['COORDINATOR_WARM_BOOT_WAIT_SECS'] = '0'
 
 
 def _detect_hook_seam_drift():
-    """Banner once per session if this process's snapshotted `-c` payload no longer matches the
-    current on-disk `fail_open_launcher.LOADER`.
-
-    NEVER RAISES. NEVER TOUCHES `sys.argv`. NEVER CHANGES THE TARGET HOOK'S EXIT CODE OR OUTPUT.
-    The whole body is one `try/except Exception: return` for exactly that reason -- an unreadable
-    launcher file, an unexpected `sys.orig_argv` shape, or a permission error on the sentinel must
-    degrade to "did not check" rather than to a broken hook fire.
-    """
     try:
         orig_argv = getattr(sys, 'orig_argv', None)
         if not orig_argv or len(orig_argv) < 4:
-            return  # too old for sys.orig_argv (< 3.10), or a shape we don't recognize
+            return
         snapshotted_loader = orig_argv[2]
         script_arg = orig_argv[3]
         if not isinstance(snapshotted_loader, str) or not isinstance(script_arg, str):
             return
         if '${' in script_arg:
-            return  # an unexpanded PATH token means "cannot determine", not drift.
-        # NOT applied to `snapshotted_loader`: that text is the `-c` payload's own SOURCE, not a
-        # path -- an older generation's real payload legitimately contains the literal substring
-        # '${' as part of its own inline unexpanded-token check. Guarding on it here made the
-        # detector bail before the comparison ever ran (found live). Do not re-broaden it.
+            return
 
-        # `script_arg` is always `<plugin_root>/hooks/scripts/<script>.py` -- the one argv
         # position with production evidence of `${CLAUDE_PLUGIN_ROOT}` expansion across every
-        # generation of this trampoline. Its grandparent directory is `<plugin_root>/hooks`,
-        # where fail_open_launcher.py lives.
         hooks_dir = os.path.dirname(os.path.dirname(os.path.abspath(script_arg)))
         launcher_path = os.path.join(hooks_dir, 'fail_open_launcher.py')
         if not os.path.isfile(launcher_path):
@@ -128,18 +90,12 @@ def _detect_hook_seam_drift():
         spec.loader.exec_module(mod)
         current_loader = getattr(mod, 'LOADER', None)
         if not isinstance(current_loader, str) or current_loader == snapshotted_loader:
-            return  # current, or the source no longer defines LOADER at all -- not our call
+            return
 
         session_id = os.environ.get('CLAUDE_CODE_SESSION_ID')
         if not session_id:
-            return  # no session key to suppress on -- skip rather than risk repeating
+            return
 
-        # WS-2 home-resolution shape: `Path.home()` as the terminal rung, never a bare
-        # `expanduser('~')`. This ladder feeds a sentinel-file WRITE, so a rung that silently
-        # yields the literal '~' does not merely misreport -- it creates a stray `~` tree
-        # wherever the hook happens to be cwd'd. `Path.home()` raises instead, and the
-        # enclosing try/except turns that into "no banner this session", which is the correct
-        # degradation for a best-effort notice.
         settings_home = os.environ.get('COORDINATOR_SETTINGS_HOME')
         if settings_home:
             home = settings_home
@@ -150,7 +106,7 @@ def _detect_hook_seam_drift():
         sentinel_dir = os.path.join(home, 'hook-seam-drift-notified')
         sentinel = os.path.join(sentinel_dir, session_id + '.flag')
         if os.path.isfile(sentinel):
-            return  # already bannered once this session
+            return
 
         sys.stderr.write(
             'COORDINATOR HOOK SEAM: this session snapshotted its hook registration payload '

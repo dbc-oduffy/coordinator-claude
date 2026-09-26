@@ -73,8 +73,6 @@ _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _no_console_kw() -> dict:
-    """Lazily resolve claude_klabauter_root onto sys.path, then splat the canonical
-    no-console-window kwarg. ``{}`` on any resolution failure (fail-open)."""
     try:
         import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
         from cc_invoke import require_dispatch_engine_on_path
@@ -86,10 +84,6 @@ def _no_console_kw() -> dict:
     except Exception:
         return {}
 
-# Fallback LoE fields, mirroring the bash block's error-handling ladder:
-# `LOE=$(... 2>/dev/null || echo '{"agent_dispatches":0,"opus_dispatches":0,
-# "em_tokens":null,"tshirt":"XS"}')`. A handoff must never fail to write
-# because LoE computation broke, so any failure below degrades to this.
 _FALLBACK_LOE = {
     "agent_dispatches": 0,
     "opus_dispatches": 0,
@@ -104,14 +98,6 @@ _BOOTSTRAPPED_NAMES = ("_resolve_claude_klabauter_root",)
 
 
 def _bootstrap_claude_klabauter_root_resolver() -> None:
-    """Bind `cc_invoke._resolve_claude_klabauter_root` as a module-level global,
-    idempotent; safe to call more than once.
-
-    `main()` calls this and then reads the bare global `_resolve_claude_klabauter_root`
-    rather than doing its own local `from cc_invoke import _resolve_claude_klabauter_root`
-    -- a local import would create a name scoped to `main()`'s own frame,
-    shadowing (and defeating) a test's `mock.patch.object(module,
-    "_resolve_claude_klabauter_root", ...)` on the module object itself."""
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
         return
@@ -153,11 +139,6 @@ def __getattr__(name: str):
 
 
 def _load_session_loe_module() -> ModuleType:
-    """Load the co-located coordinator-session-loe.py by file path (its
-    hyphenated filename precludes `import coordinator_session_loe`) and
-    return the loaded module object, giving access to its
-    _resolve_git_root/_count_session/_sum_children/_resolve_em_tokens/
-    _compute_tshirt helpers without a subprocess spawn."""
     path = os.path.join(_BIN_DIR, "coordinator-session-loe.py")
     spec = importlib.util.spec_from_file_location("coordinator_session_loe", path)
     if spec is None or spec.loader is None:
@@ -209,10 +190,6 @@ def _loe_metrics(session_id: str, include_children: bool) -> dict:
 
 
 def _recent_commits(limit: int) -> str:
-    """Best-effort last-`limit` commit short SHAs, space-separated. Mirrors
-    `git log --oneline -N --format="%h" | tr '\\n' ' ' | sed 's/ $//'`;
-    returns "" (never raises) on any git failure — no repo, no commits yet,
-    or git itself missing."""
     try:
         result = subprocess.run(
             ["git", "log", "--oneline", f"-{limit}", "--format=%h"],
@@ -228,8 +205,6 @@ def _recent_commits(limit: int) -> str:
 
 
 def _utc_now_iso() -> str:
-    """Mirrors `date -u +"%Y-%m-%dT%H:%M:%SZ" || date +"%Y-%m-%dT%H:%M:%SZ"`
-    — Python's UTC clock needs no BSD-vs-GNU `date` fallback ladder."""
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -244,18 +219,6 @@ def _format_oneline_row(
     opus_dispatches: int,
     created: str,
 ) -> str | None:
-    """Best-effort emit of the ready-to-paste Session Ledger row via
-    `coordinator_core.session_ledger.aggregate_chain_loe.format_oneline_row`
-    (the single authoritative formatter — see that function's docstring;
-    this CLI does NOT hand-format a second copy of the grammar).
-
-    Returns `None` (never raises) if `claude_klabauter_root` is unresolved or the
-    formatter module isn't importable — mirrors `_loe_metrics`'s "never
-    fail a handoff over a convenience field" fallback philosophy. The
-    caller decides how to surface a `None` (the default JSON output emits
-    it as `null`; `--row-only` mode treats it as a hard usage error, since
-    printing nothing at all would be silently unhelpful there).
-    """
     if not claude_klabauter_root:
         return None
     if claude_klabauter_root not in sys.path:
@@ -355,13 +318,6 @@ def main(argv: list[str]) -> int:
             print(f"handoff-loe-summary: unknown argument {tok!r}", file=sys.stderr)
             return 1
 
-    # Resolved once, unconditionally, non-fatally — needed both for the
-    # session-id auto-resolution ladder below (only when no explicit
-    # --session-id) and for `_format_oneline_row`'s dotted import of
-    # aggregate_chain_loe (needed regardless of how session_id was
-    # obtained). A failure here degrades both to their own fallbacks
-    # (empty session_id -> "unknown"; oneline_row -> None) rather than
-    # aborting the whole command.
     try:
         _bootstrap_claude_klabauter_root_resolver()
         claude_klabauter_root = _resolve_claude_klabauter_root()

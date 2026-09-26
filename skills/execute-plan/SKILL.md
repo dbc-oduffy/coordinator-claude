@@ -57,7 +57,8 @@ boundaries: ship Phase N green, dispatch Phase N+1 immediately, no checkpoint of
 ## Phase 1: Load, Authorize, Review
 
 1. Read the plan in full.
-2. Unless `/autonomous`: run `pickup-assemble stamp-check <plan-path>` FIRST, before minting —
+2. Unless `/autonomous`: run `pickup-assemble brief <plan-path>` FIRST, before minting — it emits
+   `gates.execution_stamp_match`, the check this step needs (the CLI has no `stamp-check` verb) —
    minting takes a fresh timestamp when the body sha differs from a prior stamp, so minting first
    would erase the staleness signal this check exists to catch. FRESH or STALE-bookkeeping →
    proceed, and on STALE-bookkeeping proceed **without re-stamping**: the stamp is correct and
@@ -67,9 +68,12 @@ boundaries: ship Phase N green, dispatch Phase N+1 immediately, no checkpoint of
    `execution_authorized_sha`" means there is nothing to compare yet → proceed, not a refusal.
    STALE-substantive surfaces the delta and STOPS. THEN mint the record from this invocation:
    `review-exec-auth-stamp authorize-invocation <plan-path> --typed-command /execute-plan
-   [--utterance "<PM's verbatim words>"]` — `--utterance` is optional, a bare `/execute-plan`
-   mints just as well, and the verb always writes `execution_authorized_by: PM`, convergent across
-   re-invocation and date boundaries. Under `/autonomous`, skip both legs.
+   [--utterance "<PM's verbatim words>"]`. Pass `--utterance "<PM's verbatim words>"` whenever the
+   PM's invocation carries words. Emit refuses a plan whose PM words resolve nowhere: it walks the
+   chain once — the plan's `## PM brief` section, then `execution_authorized_note`, then the
+   baton's `summary:` plus `## What this covers` — and names the remedy, which is to re-stamp with
+   `--utterance` or add a `## PM brief` section. Under `/autonomous` the stamp is skipped, so the
+   plan's own `## PM brief` section or its baton is the only source; skip both legs.
    **`mise_prepped_*` is a different axis; neither it nor the quartet substitutes for the other.**
    A plan arriving by `plan-blitz → mise-prep` carries both, and this step writes only the
    quartet — the attest survives that, because `mise_prepped_sha` hashes the plan BODY. Tripwire:
@@ -183,9 +187,10 @@ hand-authored wave map, or a chat emission of a wave table.
 <!-- engine-gap: field=execute_plan.wave_map_validation.violations producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 
 **Emit and dispatch are ONE action, and the dispatch leg is not optional.** In an interactive
-session the EM runs `python <plugin-root>/bin/emit-dispatch-workflow.py --plan <plan-path>`
-(plugin-local, no settings-home launcher — resolve per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`
-§ CLIs with no launcher; never cwd-relative), then
+session the EM runs
+`"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/emit-dispatch-workflow" --plan <plan-path>`
+(settings-home launcher — resolve per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`;
+never cwd-relative), then
 calls `Workflow({scriptPath: "<emitted path>", args: {repoRoot: "<absolute repo root>"}})` in this
 session, using the exact `fire with: Workflow(...)` line the emitter prints on stderr. The
 emitter's output is already a valid `scriptPath` input — no flag, no re-authoring. That call
@@ -262,9 +267,9 @@ re-committing or halting on an already-clean pathspec — fix what the refusal n
 run id comes back in the `Workflow` tool result, not from anything the script can read about
 itself. The re-stamp is not a formality: `block-workflow-foreign-emission.py` denies a fire whose
 bytes differ from the receipt beside the script, and the edit is exactly that difference.
-`emit-dispatch-workflow.py --restamp <script>` re-stamps it and prints the phase spine it
+`emit-dispatch-workflow --restamp <script>` re-stamps it and prints the phase spine it
 authorizes, refusing unless the receipt already names this session. A second
-`emit-dispatch-workflow.py` is not the recovery: `read_spine` excludes rows whose `disposition` is
+`emit-dispatch-workflow` is not the recovery: `read_spine` excludes rows whose `disposition` is
 closed, so an emit against a plan whose early chunks have landed silently produces a narrowed
 one-wave script, indistinguishable on disk from an emit that was always meant to be partial, and
 re-pays the preflight and every phase that already succeeded. An `--out` naming a chunk id

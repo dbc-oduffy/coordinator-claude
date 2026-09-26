@@ -3,6 +3,7 @@ name: workweek-complete
 description: "Weekly release ceremony — validate, docs, release notes, merge."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill"]
 argument-hint: ""
+disable-model-invocation: true
 ---
 
 # Workweek Complete — Weekly Release Ceremony

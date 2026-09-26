@@ -61,8 +61,6 @@ from typing import Optional
 try:
     from _git_root_walk import git_root_walk as _git_root_walk
 except Exception:
-    # Defensive fallback -- a deploy missing its sibling _git_root_walk.py
-    # must still fail open to the subprocess rung below, not crash on import.
     def _git_root_walk() -> "str | None":
         return None
 
@@ -76,13 +74,6 @@ _STRIP_NOTE = (
 
 
 def _git_root() -> "str | None":
-    """Repo root as `git rev-parse --show-toplevel` would report it -- same idiom as
-    block-workflow-unmodeled-agent.py's `_git_root()`: an in-process parent walk
-    (`_git_root_walk`) first, no subprocess on the routine path, with the 1s-timeout
-    `git rev-parse --show-toplevel` subprocess below kept only as a fallback for the case the
-    walk cannot resolve. Any failure (not a git repo, git missing, timeout) returns None and
-    the sentinel check below is skipped -- fails toward "no override", never toward a crash.
-    """
     walked = _git_root_walk()
     if walked:
         return walked
@@ -103,11 +94,6 @@ def _git_root() -> "str | None":
 
 
 def sentinel_override_active() -> bool:
-    """Repo-root sentinel file override, ONLY leg -- no env-var leg by
-    design (see module docstring: a subagent can set its own env, which
-    would defeat a guard that must bind subagents too). Fails toward "no
-    override" (returns False) on any resolution failure.
-    """
     root = _git_root()
     if not root:
         return False
@@ -118,18 +104,6 @@ def sentinel_override_active() -> bool:
 
 
 def compute_strip(tool_input: dict) -> Optional[tuple[dict, str]]:
-    """Pure computation, no I/O beyond the override-sentinel git-root check.
-
-    Returns `(merged_tool_input, note)` when `tool_input["isolation"] ==
-    "worktree"` and no override sentinel is active -- `merged_tool_input` is
-    a FULL COPY of `tool_input` with the `isolation` key removed (never a
-    partial object), and `note` is the fixed advisory string every caller
-    surfaces via `hookSpecificOutput.additionalContext`.
-
-    Returns `None` when there is nothing to strip: `isolation` absent, any
-    non-"worktree" value (including "remote", which passes through
-    byte-identical), or the override sentinel is active.
-    """
     if tool_input.get("isolation") != "worktree":
         return None
     if sentinel_override_active():

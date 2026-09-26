@@ -1,5 +1,4 @@
 # guard-not-a-hook-entrypoint: folded into preuse-bash-dispatch.py's _BASH_GUARD_REGISTRY, the
-# single PreToolUse(Bash|PowerShell) registration -- hooks.json names the dispatcher, not this file.
 """PreToolUse(Bash|PowerShell) hook: make the repo-setup precondition
 "never target ~/.claude" an executable refusal, not prose.
 
@@ -124,37 +123,20 @@ from _message_envelope import Message, compose, render  # noqa: E402
 
 _COMMAND_TOOL_NAMES = ("Bash", "PowerShell")
 
-#: Identifiers naming the engine-plane scaffold mechanism (see module
-#: docstring "SEAM CHOICE"). Review: code-reviewer (Finding 3) -- a bare
 #: substring test denied a command that merely MENTIONS one of these
-#: strings (a `grep scaffold_structure ...`, a `git log --grep=...`) without
-#: invoking it, when cwd happened to be Claude Home. `_names_scaffold_
 #: mechanism` below requires the marker to appear in an INVOKED-program-ish
-#: position, not merely anywhere in the text.
 _SCAFFOLD_MECHANISM_MARKERS = (
     "repo-setup-args-and-register",
     "coordinator_core.install.scaffold_structure",
     "scaffold_structure",
 )
 
-#: ``--root <val>`` / ``--target <val>`` (also ``--root=val``), tolerating a
-#: single- or double-quoted value. Mirrors SKILL.md's own documented flag
-#: pair (``--root``, alias ``--target``).
 _ROOT_FLAG_RE = re.compile(r"--(?:root|target)(?:=|\s+)(\"[^\"]*\"|'[^']*'|\S+)")
 
-#: ``--dry-run`` is the scaffold CLI's own no-write mode: it prints the
-#: ``create``/``skip (exists)`` plan and touches nothing. This guard exists to
-#: keep a WRITE off Claude Home, so a dry run has nothing to refuse -- and the
-#: `coordinator-doctor` P-12 probe reads Claude Home's structure through exactly
-#: that flag. Denying it turned a read-only health probe into a refusal.
 #: NEGATIVE-SPEC: this is a no-write exemption, never a bypass -- drop the flag
-#: and the write is denied again, which is the whole of its safety argument.
 _DRY_RUN_RE = re.compile(r"(?:^|\s)--dry-run(?:[=\s]|$)")
 
-#: A leading ``cd <path> &&``/``cd <path> ;`` or PowerShell
-#: ``Set-Location``/``sl`` (optionally ``-Path``) prefix -- see module
 #: docstring "LEADING cd/Set-Location HANDLING". Must anchor the START of
-#: the command (modulo leading whitespace); only ONE such prefix is
 #: recognized (see NEGATIVE-SPEC).
 _LEADING_CD_RE = re.compile(
     r"""^\s*(?:cd|Set-Location|sl)\s+(?:-Path\s+)?
@@ -163,11 +145,6 @@ _LEADING_CD_RE = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
-#: A drive-letter (``<drive>:\``, ``<drive>:/``) or UNC (``\\server``) path. Recognized
-#: on EVERY host, not only Windows: the payload and env may carry a
-#: Windows-spelled path while the guard runs on POSIX (the cold/warm parity
-#: oracle, a cross-host fixture), where ``pathlib.Path`` treats ``\`` as an
-#: ordinary character and a drive-letter path as relative.
 _WINDOWS_SPELLED_RE = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
 
 
@@ -176,8 +153,6 @@ def _is_windows_spelled(path: str) -> bool:
 
 
 def _join_onto_cwd(raw: str, cwd: "str | None") -> str:
-    """``raw`` made absolute against ``cwd`` in ``cwd``'s own path flavour,
-    or ``raw`` unchanged when it is already absolute or there is no cwd."""
     if _is_windows_spelled(raw) or Path(raw).is_absolute() or not cwd:
         return raw
     if _is_windows_spelled(cwd):
@@ -186,11 +161,6 @@ def _join_onto_cwd(raw: str, cwd: "str | None") -> str:
 
 
 def _canonical(path: str) -> str:
-    """The comparison key for a path. A Windows-spelled path is compared
-    by Windows rules (separators and ``..`` normalized, case folded); off
-    Windows it is never handed to ``Path.resolve()``, which would root it
-    under the process cwd. Everything else is ``Path.resolve()``d. Raises
-    ``OSError`` as ``resolve`` does."""
     if not (_is_windows_spelled(path) and os.name != "nt"):
         path = str(Path(path).resolve())
     if _is_windows_spelled(path):
@@ -296,10 +266,6 @@ def _extract_candidate_root(cmd: str, cwd: "str | None", env: "dict[str, str]") 
 def is_denied_repo_setup_claude_home(
     cmd: str, cwd: "str | None", env: "dict[str, str]"
 ) -> bool:
-    """The whole predicate, isolated from stdin/exit-code plumbing so it is
-    directly unit-testable. Returns True (deny) iff ``cmd`` invokes the
-    scaffold mechanism AND its resolved candidate target root is Claude
-    Home."""
     if not _names_scaffold_mechanism(cmd):
         return False
 
@@ -308,41 +274,25 @@ def is_denied_repo_setup_claude_home(
 
     claude_home = _resolve_claude_home(env)
     if not claude_home:
-        return False  # cannot resolve what to compare against -- fail open
+        return False
 
     candidate = _extract_candidate_root(cmd, cwd, env)
     if not candidate:
-        return False  # no cwd and no explicit flag -- nothing to compare
+        return False
 
     try:
         resolved_candidate = _canonical(candidate)
     except OSError:
-        return False  # unresolvable candidate path -- fail open
+        return False
 
     return resolved_candidate == claude_home
 
 
-#: No wiki anchor. The obvious target (`docs/wiki/doe-altitude-and-shared-
 #: infra.md`) is a fleet-private page outside `SEED_WIKIS`, so it 404s for
-#: every reader this hook actually reaches -- a sibling repo's checkout or an
-#: OSS install, which is where `repo-setup` runs. The prose below therefore
-#: carries the whole diagnosis inline (what ~/.claude is, why it is not a
-#: target, and the command that IS) rather than pointing at further reading
-#: the denied caller cannot open. Do not re-add a citation here without first
-#: promoting its target into the seed allowlist; a pointer that 404s is worse
-#: than none, because it reads as an answer.
 
 
 def _compose_deny_message() -> Message:
     prose = (
-        # Names no repo, deliberately. Every repo name this text used to carry
-        # was an unreachable pointer for the dispatched agent reading it --
-        # including the one hiding in the remedy line, which named a specific
-        # clone the reader may not have. Pointing at the reader's OWN clone
-        # path clears them all at once, and "not a working tree" is the
-        # operative fact, which stands without the names that explained it.
-        # Byte-parity with the engine-plane port's deny text is this text's
-        # contract: reword both paths in one change, never one alone.
         "BLOCKED: repo-setup's scaffold cannot target ~/.claude -- it is not "
         "a working tree. Run repo-setup against the project clone you mean to "
         "set up: /repo-setup --root <path-to-that-clone>."
@@ -354,7 +304,7 @@ def main() -> int:
     try:
         data = json.load(sys.stdin)
     except Exception:
-        return 0  # nothing to classify -- fail open
+        return 0
 
     if data.get("tool_name") not in _COMMAND_TOOL_NAMES:
         return 0
@@ -369,7 +319,7 @@ def main() -> int:
     try:
         denied = is_denied_repo_setup_claude_home(cmd, cwd, dict(os.environ))
     except Exception:
-        return 0  # any resolution failure -- fail open, never brick the call
+        return 0
 
     if not denied:
         return 0

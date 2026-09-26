@@ -1,36 +1,4 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
-"""
-check-registry-codename-leak.sh — CLI trampoline over claude-klabauter
-coordinator_core.ops.check_registry_codename_leak.
-
-Finish-strangler port: the bash implementation (registry-derived novel-leak
-guard — greps a target dir for private-repo codenames from the machine-local
-registry's repos.* keys, after subtracting the D1 keep-set) has been fully
-ported to coordinator_core/ops/check_registry_codename_leak.py (co-located
-pytest: test_check_registry_codename_leak.py). This file is now a thin
-DoE-side (contract) trampoline over that claude-klabauter (engine) module, per DR-047
-(DoE owns contract/generator, claude-klabauter owns engine).
-
-Fail-loud exit convention: this is a gate script (publish-tree leak guard) —
-on claude-klabauter-link failure, exit 2 (usage/internal-error code, matching the
-original script's own convention for "could not run the check"), NOT 0.
-A silent exit 0 here would mean a percolate publish proceeds without the leak
-check ever running — the opposite of what a fail-closed gate must do.
-
-Shebang note: the SHEBANG line above is `#!/usr/bin/env python3`, generator-
-owned by `gen-launcher-shim.py --ensure-unix`, and correct for this shape. On
-Windows, this file's co-located `.cmd` twin wins via `PATHEXT` when invoked as
-a bareword, so the shebang is never read there; on macOS/Linux `python3` is the
-right interpreter. Caution: callers must invoke via the extensionless name or a
-resolved-interpreter prefix, never a bareword `.py` through git-bash — git-bash
-DOES honor the shebang and would exec-127 with no `python3` present. See the
-carve-out in DoE-claude's coordinator/docs/wiki/bash-on-windows-gotchas.md §
-Carve-out (cross-repo — this wiki lives in the DoE-claude repo, not
-here).
-
-Spec backlink: docs/plans/2026-06-27-genericize-provenance-sweeper.md § C4 / AC11
-               docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
-"""
 
 from __future__ import annotations
 
@@ -39,10 +7,6 @@ import sys
 
 
 def _import_runner():
-    """DR-276: routed through `coordinator_core.cli_entry.run_op_main` for
-    baseline consistency — this op is a pure read/grep gate (see module
-    docstring), so it declares nothing and this conversion changes no
-    observable behavior."""
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 

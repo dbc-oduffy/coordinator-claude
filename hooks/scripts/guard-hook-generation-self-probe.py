@@ -99,9 +99,6 @@ try:
         resolve_claude_klabauter_root as _resolve_claude_klabauter_root,
     )
 except Exception:
-    # Defensive fallback -- a hook script copied/deployed WITHOUT its
-    # sibling _engine_root.py (e.g. an isolated test harness, or a
-    # partial deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -110,8 +107,6 @@ except Exception:
 try:
     from _git_root_walk import git_root_walk as _git_root_walk  # noqa: E402
 except Exception:
-    # Defensive fallback -- a deploy missing its sibling _git_root_walk.py
-    # must still fail open to the subprocess rung below, not crash on import.
     def _git_root_walk() -> str | None:
         return None
 
@@ -120,18 +115,6 @@ _SELF_PROBE_TIMEOUT_SECS = 5
 
 
 def _resolve_this_repo_root() -> str | None:
-    """Resolve the repo THIS hook is running in (cwd-based) — the destination
-    for the housekeeping-failures log, NOT the engine root. Mirrors
-    sweep-boot.py's own `_resolve_this_repo_root` exactly (same rationale:
-    `__file__` lives under the doctrine-plane source tree regardless of which
-    consumer repo's session invoked it via live `--plugin-dir` resolution, so
-    a `__file__`-based root would mis-file every non-doctrine-plane session's
-    failure record).
-
-    In-process parent walk (`_git_root_walk`, cwd-based like this function's own contract)
-    first -- no subprocess on the routine path; `git rev-parse --show-toplevel` below is kept
-    only as a fallback for the case the walk cannot resolve.
-    """
     walked = _git_root_walk()
     if walked:
         return walked
@@ -154,20 +137,6 @@ def _resolve_this_repo_root() -> str | None:
 
 
 def _write_raw_failure_record(repo_root: str, detail: str) -> None:
-    """Hand-rolled fallback append, format-matched to
-    `coordinator_core.ops.ceremony.detached_spawn.record_child_failure`'s own
-    ``CHILD FAILED script=<path> :: <detail>`` line shape. Used only on the
-    one failure path where that real writer is structurally unreachable: an
-    unresolved engine root means there is no known `coordinator_core` to
-    import in the first place.
-
-    `script=` is the basename, never `os.path.abspath(__file__)` — this hook
-    runs from the doctrine-plane source tree regardless of which repo's
-    session invoked it (`--plugin-dir` resolution), so an absolute path here
-    would write a DoE-claude host path into a THIRD repo's own tracked
-    `state/housekeeping-failures.log`, the same leak class
-    `_compose_missing_snippet_banner` (assert-em-role.py) already closes for
-    its own banner."""
     from datetime import datetime, timezone
 
     try:
@@ -182,17 +151,6 @@ def _write_raw_failure_record(repo_root: str, detail: str) -> None:
 
 
 def _record_failure(claude_klabauter_root: str | None, detail: str) -> None:
-    """Best-effort, defensive-by-construction failure recorder shared by every
-    fail-open path below. NEVER raises — a broken observability path must
-    never become the thing that wedges SessionStart boot.
-
-    `script=` passed to `record_child_failure` is the basename, never
-    `os.path.abspath(__file__)` — the same leak class `_write_raw_failure_record`
-    below already closes. `record_child_failure` re-applies `os.path.abspath`
-    to whatever it is given (`coordinator_core.ops.ceremony.detached_spawn`),
-    so passing the basename here resolves it against the CALLING repo's cwd
-    at record time instead of hard-coding the doctrine-plane source tree's own
-    absolute path into a third repo's tracked `state/housekeeping-failures.log`."""
     try:
         repo_root = _resolve_this_repo_root()
         if not repo_root:
@@ -212,14 +170,13 @@ def _record_failure(claude_klabauter_root: str | None, detail: str) -> None:
                 )
                 return
             except Exception:
-                pass  # fall through to the hand-rolled writer below
+                pass
         _write_raw_failure_record(repo_root, detail)
     except Exception:
         pass
 
 
 def main() -> int:
-    # --- Drain stdin (mirror the sibling guards' stdin-drain pattern). ---
     try:
         sys.stdin.read()
     except Exception:
@@ -228,13 +185,11 @@ def main() -> int:
     root = _resolve_claude_klabauter_root()
     if not root:
         _record_failure(None, "claude-klabauter root unresolved — skipping self-probe")
-        return 0  # fail-open — engine repo unresolvable on this machine
+        return 0
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
 
-    # Skip the ~80-module eager op-registry population; this stub reaches
-    # exactly one engine function by direct import (see module docstring).
     _arm_lazy_ops()
 
     try:
@@ -243,30 +198,16 @@ def main() -> int:
         )
     except Exception as exc:
         _record_failure(root, f"engine module unimportable — {exc}")
-        return 0  # engine unimportable -> fail-open (never block SessionStart)
+        return 0
 
-    # Path.home() (not os.path.expanduser) fails loud -- RuntimeError, not a
-    # silent literal "~" -- when every home rung is unset. Caught here and
-    # degraded to the same fail-open 0 this hook already returns for an
-    # unimportable engine, matching its never-block-SessionStart posture.
     try:
         home = str(Path.home())
     except RuntimeError:
         _record_failure(root, "home directory unresolvable (no USERPROFILE/HOME)")
-        return 0  # fail-open — home unresolvable on this machine
+        return 0
     config_dir_raw = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(home, ".claude")
     config_dir = Path(config_dir_raw)
 
-    # NOT `with ThreadPoolExecutor(...)`, and NOT a plain `return` on timeout.
-    # Both of those defeat the timeout completely, which was observed rather
-    # than reasoned: the context manager's __exit__ calls shutdown(wait=True),
-    # so after the timeout fires the process blocks forever on the very worker
-    # the timeout just gave up on -- main() never returns at all. Even after
-    # dropping the context manager, concurrent.futures registers an interpreter
-    # -shutdown hook that JOINS its worker threads, so a normal `return`/
-    # sys.exit would still wedge at process exit. os._exit is the only portable
-    # way to leave a hung non-daemon worker behind. Wedging here is not a slow
-    # boot -- this is a synchronous SessionStart hook, so it hangs the session.
     executor = ThreadPoolExecutor(max_workers=1)
     try:
         future = executor.submit(run_self_probe, config_dir)
@@ -280,12 +221,10 @@ def main() -> int:
             executor.shutdown(wait=False)
             sys.stdout.flush()
             sys.stderr.flush()
-            os._exit(0)  # fail-open — never block SessionStart on a hung probe
+            os._exit(0)
         executor.shutdown(wait=False)
     except Exception as exc:
         executor.shutdown(wait=False)
-        # run_self_probe is itself blanket-wrapped and documented never to
-        # raise, but this stub does not trust that contract unconditionally.
         _record_failure(root, f"run_self_probe raised — {exc}")
         return 0
 
@@ -293,7 +232,7 @@ def main() -> int:
         _record_failure(
             root, f"run_self_probe returned non-string output type {type(text).__name__}"
         )
-        return 0  # malformed output -> fail-open, nothing forwarded
+        return 0
 
     if text:
         sys.stdout.write(text)

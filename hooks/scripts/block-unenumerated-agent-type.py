@@ -55,9 +55,7 @@ from typing import Optional
 
 
 #: See module docstring "HARNESS-SHAPE CARVE-OUT" -- harness-owned dispatch shapes the
-#: engine roster does not yet enumerate. Provisional; removed once the
 #: engine plane's `_HARNESS_BUILTIN_TYPES` carries the entry. NEVER grows to hold
-#: coordinator-authored or plugin agent types.
 _HARNESS_SHAPES_NOT_IN_ENGINE_ROSTER = frozenset({"fork"})
 
 
@@ -67,17 +65,11 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
-    # Defensive fallback -- a hook script copied/deployed WITHOUT its
-    # sibling _engine_root.py must still resolve to a callable that
-    # returns None (driving the loud-pass leg below), never crash on
-    # import.
     def _resolve_claude_klabauter_root() -> Optional[str]:
         return None
 
 
 def _guard_did_not_run(what_failed: str) -> None:
-    """Emit the loud pass: no permission decision, so the dispatch proceeds,
-    but the operator and the model both see that this guard did not run."""
     sys.stdout.write(json.dumps(
         {
             "systemMessage": f"coordinator: unenumerated-agent-type guard did not run ({what_failed})",

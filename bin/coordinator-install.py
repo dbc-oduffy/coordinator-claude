@@ -37,7 +37,7 @@ Shape ruling:  cross-repo/inbox/2026-08-17-doe-claude-em-coordinator-install-ent
 
 from __future__ import annotations
 
-INSTALL_CLASS = True  # installs the engine and forwarders; see door_install.declared_install_class
+INSTALL_CLASS = True
 
 import os
 import sys

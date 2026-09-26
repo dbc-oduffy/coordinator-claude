@@ -23,53 +23,8 @@ coordinator_data_root.data_root() split-repo ladder — this file no longer
 walks its own on-disk location to find templates/, since templates/ moved
 to DoE-claude in the 2026-07-22 executable-surface migration.
 """
-# render-posture-overlay.py — CLI trampoline over claude-klabauter
-# coordinator_core.ops.render_posture_overlay.
-#
-# Finish-strangler port (DR-059 / bash-clean-slate residual migration): the
-# bash implementation (idempotent managed-section merge of a Posture overlay
-# block into a target CLAUDE.md — marker-delimited insert/swap, collision
-# detection against markerless legacy '## Posture'/'## Working Style'
-# headings, size-guard enforcement against the check-claude-md-size.py hook's
-# HARD threshold) has been fully ported to
-# coordinator_core/ops/render_posture_overlay.py (see
-# test_render_posture_overlay.py). This file is now a thin DoE-side
-# (contract) trampoline over that claude-klabauter (engine) module, per DR-047 (DoE
-# owns contract/generator, claude-klabauter owns engine).
-#
-# coordinator_root is resolved HERE (DoE-side) and passed into the op's
-# main() explicitly — the anchor templates (templates/postures/<anchor>.md)
-# are DoE-resident, not claude-klabauter-resident, so the op cannot re-derive this root
-# itself the way a claude-klabauter-native op would. The op no longer reads a
-# size-guard SSOT at all; templates/ is now the only DoE-resident input.
-#
-# Post-2026-07-22 executable-surface migration, this file's own on-disk
-# location (coordinator/bin/ under claude-klabauter) is no longer a valid
-# anchor for templates/ or hooks/ (those stayed in DoE-claude, per DR-047).
-# coordinator_root is now resolved via the shared
-# coordinator_data_root.data_root() split-repo ladder (co-located rung 1 ->
-# DoE-resident rung 2 via coordinator_registry.doe_root()), with a
 # CLAUDE_PLUGIN_ROOT env override taking precedence first — the same
-# override convention every other bin/ trampoline honors (see
-# coordinator/bin/snippet-registry's _resolve_plugin_root).
-#
-# Exit codes (parity-critical — forwarded verbatim from the op's own
-# contract, see that module's docstring):
-#   0 — success (insert/swap performed, or --check-only report printed)
-#   1 — usage error / validation failure / collision
-#   2 — engine-root resolution failure OR coordinator_core.ops.
-#       render_posture_overlay not importable (transport/claude-klabauter-link
 #       failure) — a DEDICATED code, distinct from both business codes
-#       above, per the porter-brief addendum §3b rule that a transport
-#       failure must never collide with a business exit code. This is a
-#       fail-loud validator/gate script (its rc is consumed by install
-#       flows to decide whether the merge happened), so — unlike
-#       coordinator-auto-push's never-block posture — a claude-klabauter-link failure
-#       here degrades to a loud, distinguishable exit 2, not a silent 0.
-#
-# Spec backlink: DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
-# Prior bash implementation: see git log (render-posture-overlay.py, 262
-#   lines pre-port, retired on this cutover)
 import os
 import sys
 
@@ -82,12 +37,6 @@ _BOOTSTRAP_DONE = False
 
 
 def _bootstrap_engine() -> None:
-    """Bind `require_dispatch_engine_on_path` and `data_root`.
-
-    Idempotent. Moved out of module scope: this used to mutate `sys.path`
-    (via `import lib`) on every import of this file, a process global ~50
-    warm-server sessions share. Only the trigger moved.
-    """
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
         return
@@ -96,7 +45,6 @@ def _bootstrap_engine() -> None:
         from cc_invoke import require_dispatch_engine_on_path
         from coordinator_data_root import data_root
     finally:
-        # Publish whatever bound, EVEN IF a later import raised.
         _resolved = locals()
         for _name in _BOOTSTRAPPED_NAMES:
             if _name not in globals() and _name in _resolved:
@@ -106,8 +54,6 @@ def _bootstrap_engine() -> None:
 
 
 def __getattr__(name: str):
-    """PEP 562 hook: a consumer that imports this module rather than executing
-    it -- its own test suite -- reaches these names before `main()` runs."""
     if name in _BOOTSTRAPPED_NAMES:
         _bootstrap_engine()
         if name not in globals():
@@ -124,25 +70,6 @@ def __getattr__(name: str):
 
 
 def _import_main():
-    """Resolve the engine root, put it on sys.path, and import the ported entrypoint.
-
-    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
-    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
-    re-deriving it -- this is a plain in-process import, not an RPC invoke, so
-    cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
-    deliberately NOT used here.
-
-    DR-276: the op's `main(argv, coordinator_root=...)` signature carries a
-    keyword this trampoline resolves itself (the anchor templates are
-    DoE-resident, not derivable by the op) — `run_op_main`'s contract is
-    `entrypoint(argv)` only, with no room for an extra caller-supplied
-    keyword, so this CLI cannot route through it. Instead this file's own
-    `main()` wraps the op call in `coordinator_core.cli_entry
-    .recording_declared_writes`, the sanctioned path for a CLI that owns its
-    own orchestration and cannot delegate to `run_op_main` wholesale — see
-    that context manager's docstring for the `workday-complete-step9-append-
-    changelog.py` precedent this follows.
-    """
     _bootstrap_engine()
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.render_posture_overlay import main as _op_main

@@ -49,9 +49,6 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
-    # Defensive fallback -- a hook script copied/deployed WITHOUT its
-    # sibling _engine_root.py (e.g. an isolated test harness, or a
-    # partial deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -60,11 +57,11 @@ def main() -> int:
     try:
         raw = sys.stdin.read()
     except Exception:
-        return 0  # fail-open — cannot even drain stdin, nothing to do
+        return 0
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open: engine repo unresolvable on this machine
+        return 0
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
@@ -72,18 +69,14 @@ def main() -> int:
     try:
         from coordinator_core.hooks.context_pressure_precompact import run
     except Exception:
-        return 0  # engine unimportable → fail-open, no-op
+        return 0
 
     try:
         run(raw)
     except Exception:
-        # `run()` already contains its own errors (see its docstring), but a
-        # bare backstop here matches the philosophy of every other Shape-P1
-        # stub in this cohort: a hook body must NEVER be able to brick the
-        # PreCompact event, no matter what regressed inside the engine.
         pass
 
-    return 0  # non-zero here BLOCKS the compaction — see the Contract note
+    return 0
 
 
 if __name__ == "__main__":

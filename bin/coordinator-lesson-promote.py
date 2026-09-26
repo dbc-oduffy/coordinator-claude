@@ -53,8 +53,9 @@ exit 0. A caller checking only `returncode == 0` must be able to trust that outc
 exit 0 means an entry was actually written.
 
 --target-wiki validation (A7): validated against the real central wiki inventory
-(<doe_root>/coordinator/docs/wiki/*.md) unless the literal value 'unknown' is passed,
-or --allow-new-wiki is given (escape hatch for a genuine change_kind: wiki-new
+(<doe_root>/coordinator/docs/wiki/**/*.md, enumerated recursively — nested pages such
+as coordinator-tripwires/ count) unless the literal value 'unknown' is passed, or
+--allow-new-wiki is given (escape hatch for a genuine wiki-new OR wiki-append
 promotion, where the target intentionally does not exist yet). An unresolvable
 DoE-claude root during this check is the SAME exit 3 as the write-skip case above —
 never a silently-skipped validation.
@@ -92,38 +93,17 @@ import uuid
 
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
 
-# Maximum slug length (chars) for the filename component.
 _SLUG_MAX_CHARS = 40
 
-# Env var for test isolation — overrides the outbox root directory.
-# Tests chdir into a temp dir; the CLI resolves state/lessons-outbox/ relative to
-# cwd by default. This env var allows absolute override without chdir.
 _OUTBOX_ROOT_ENV = "LESSON_PROMOTE_OUTBOX_ROOT"
 
-# Env var for test isolation — overrides the central wiki inventory directory used
 # by --target-wiki validation (A7). Mirrors _OUTBOX_ROOT_ENV's override shape: when
 # set, points DIRECTLY at a directory of .md files (not the DoE repo root), so tests
-# never need a real DoE-claude checkout on disk to exercise validation.
-# Spec backlink: cross-repo/inbox/2026-07-23-example-cockpit-repo-em-learn-lessons-dogfood-2026-07-23.md
-# (finding A7)
 _WIKI_ROOT_ENV = "LESSON_PROMOTE_WIKI_ROOT"
 
-# Exit code for a write (or --target-wiki validation) SKIPPED because the DoE-claude
-# root could not be resolved. Deliberately distinct from 0 (success) and 1 (generic
-# error) so a caller checking only `returncode == 0` can trust that outcome (A13
-# negative-spec: a skipped write is never exit 0).
 _EXIT_DOE_UNRESOLVABLE = 3
 
-# Path segments that mark a resolved doe_root() as an OSS publish-mirror install
-# rather than the private DoE-claude source repo (klabauter#39). The lessons-outbox
-# is DoE-claude's private central corpus, drained by /learn-lessons --central against
-# the private tree; a write landing under a marketplace/mirror install instead is a
-# duplicate the drain procedure never reads back from — never correct, regardless of
-# which resolution rung produced it.
 _PUBLISH_MIRROR_MARKERS = (
     os.path.join("plugins", "coordinator-claude"),
     os.path.join("plugins", "cache", "coordinator-claude"),
@@ -131,20 +111,10 @@ _PUBLISH_MIRROR_MARKERS = (
 
 
 def _is_publish_mirror_root(resolved_root: str) -> bool:
-    """True if resolved_root looks like an OSS publish-mirror install path.
-
-    Conservative substring match on normalized path segments, not an exhaustive
-    identity check — good enough to refuse the known marketplace/mirror layouts
-    (`coordinator_registry.doe_root()` rungs 5-8) rather than silently writing
-    a duplicate outbox entry into one.
-    """
     normalized = os.path.normpath(resolved_root)
     return any(marker in normalized for marker in _PUBLISH_MIRROR_MARKERS)
 
 # Env var for DOE_ROOT override — mirrors CLAUDE_KLABAUTER_ROOT §4b idempotency gate.
-# Honoured by coordinator_registry.doe_root() (bound by _bootstrap_imports()) —
-# kept here as a local constant for documentation and error-message reference.
-# Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1
 _DOE_ROOT_ENV = "DOE_ROOT"
 
 
@@ -198,15 +168,6 @@ def _bootstrap_engine() -> None:
 
         require_dispatch_engine_on_path()
         # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
-        # what BINDS coordinator_core, and binding it HERE is the whole fix.
-        # require_dispatch_engine_on_path() above only mutates sys.path -- it imports
-        # nothing. Without this line the next module-level import below (a binder module
-        # that resolves on the LOCATOR axis) wins the race and binds coordinator_core off
-        # the working tree instead of the dispatch root, and no later sys.path insert can
-        # rebind an already-imported package. Removing it restores a silent wrong-tree
-        # divergence that require_dispatch_engine_on_path now raises on.
-        # Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
-        # docs/research/engine-provenance-carrier-dependence.md
         import coordinator_core
 
         import cli_shared
@@ -218,24 +179,14 @@ def _bootstrap_engine() -> None:
             TARGET_WIKI_PREFIX as _TARGET_WIKI_PREFIX,
         )
 
-        # Env var overrides for test isolation. Canonical spellings now live in
-        # bin/lib/cli_shared.py (T2-g2a consolidation) — aliased here so existing
-        # doc/error-message references in this file don't need a rename.
         _MACHINE_LOCAL_IMPL_ENV = cli_shared.MACHINE_LOCAL_IMPL_ENV
 
         # Env var for CLAUDE_HOME override (mirrors cross-repo-memo pattern).
         _CLAUDE_HOME_ENV = cli_shared.CLAUDE_HOME_ENV
 
         # Env var for CLAUDE_KLABAUTER_ROOT override — mirrors coordinator-claude-klabauter-root.sh §4b
-        # idempotency gate. Set to the claude-klabauter repo root to bypass machine-local resolution.
-        # Spec backlink: pln-stop-the-rot-claude-klabauter-state-home-placement-4cc787 § AC1 / AC13
         _CLAUDE_KLABAUTER_ROOT_ENV = cli_shared.CLAUDE_KLABAUTER_ROOT_ENV
 
-        # _claude_home / _claude_klabauter_root / _machine_local_impl / _resolve_python /
-        # _machine_local_get / _machine_local_repos_keys: extracted to
-        # bin/lib/cli_shared.py (T2-g2a consolidation, ~150 LoC dup with
-        # coordinator-queue-append). Thin aliases preserve the pre-consolidation
-        # call sites below without a mass rename.
         _claude_home = cli_shared.claude_home
         _claude_klabauter_root = cli_shared.claude_klabauter_root
         _machine_local_impl = cli_shared.machine_local_impl
@@ -243,28 +194,14 @@ def _bootstrap_engine() -> None:
         _machine_local_get = cli_shared.machine_local_get
         _machine_local_repos_keys = cli_shared.machine_local_repos_keys
 
-        # _resolve_from_repo: extracted to bin/lib/cli_shared.py (T2-g2a
-        # consolidation) — same cwd git-root -> machine-local reverse-lookup ->
-        # doe_claude -> unregistered -> "unknown-sender-em" ladder, byte-identical
-        # to the pre-consolidation body.
         _resolve_from_repo = cli_shared.resolve_from_repo
 
-        # Publish LAST, once every name is bound; a publish placed mid-function
-        # silently omits everything imported after it. NEVER overwrite a name a
-        # caller already installed -- a test monkeypatching `doe_root` on this module
-        # before triggering the bootstrap would otherwise see its patch replaced by
-        # the real resolver, and the failure would read as "the patch never applied".
     finally:
-        # Publish whatever bound, EVEN IF a later import raised. A bootstrap that
-        # dies partway would otherwise lose the names that did bind, and the next
-        # caller sees a missing name instead of the original exception -- which is
-        # a strictly worse error than the one that actually happened.
         _resolved = locals()
         for _name in _BOOTSTRAPPED_NAMES:
             if _name not in globals() and _name in _resolved:
                 globals()[_name] = _resolved[_name]
 
-    # Only on a clean run: a partial bootstrap must stay retryable.
     _BOOTSTRAP_DONE = True
 
 
@@ -282,10 +219,6 @@ def __getattr__(name: str):
     if name in _BOOTSTRAPPED_NAMES:
         _bootstrap_engine()
         if name not in globals():
-            # The sentinel says bootstrapped, yet this name is absent: a prior
-            # partial run published some names and set nothing else. Force one
-            # re-run rather than surfacing a KeyError from the line below, which
-            # names the symptom and hides which import actually failed.
             global _BOOTSTRAP_DONE
             _BOOTSTRAP_DONE = False
             _bootstrap_engine()
@@ -332,36 +265,10 @@ def _claude_klabauter_resolution_error_class() -> type[Exception] | None:
 
 
 class _ClaudeKlabauterUnresolvable(RuntimeError):
-    """Raised when the engine root cannot be resolved via env var or machine-local registry.
-
-    Callers in the central write loop catch this and degrade gracefully (WARN + skip,
-    exit 0) per AC13. The low-level resolver itself fails loud; this is the caller-layer
-    resilience wrapper.
-
-    Spec backlink: pln-stop-the-rot-claude-klabauter-state-home-placement-4cc787 § AC13
-    """
-
-# ---------------------------------------------------------------------------
-# Native schema seam — replaces schema_loader.load_schema, then the deleted
-# schema-cli.js Node bridge (removed 480ad8f8).
-# Spec backlink: dual-yaml-parser option-d, C4 (original Node-CLI bridge)
-# Spec backlink: coordinator_core/frontmatter/schema_cli.py (parity port + op
-#   dual-registration this seam routes to)
-# ---------------------------------------------------------------------------
+    pass
 
 
 def _describe_schema_node(schema_name: str) -> dict:
-    """Call the native "schema.describe" op and return its result dict.
-
-    Routes via cc_invoke.route(): State-2 (native seam present) calls the op;
-    State-1 (seam absent) raises a hard, actionable error — schema-cli.js (the
-    former Node bridge) was deleted in 480ad8f8 and there is no legacy
-    implementation to fall back to, so the legacy_fn passed to route() always
-    raises rather than degrading schema introspection to a fake-valid result.
-
-    Raises RuntimeError on any route()/transport failure or "unknown schema"
-    op-level error — caller (main()) catches this and exits 1.
-    """
     _bootstrap_engine()
     def _no_legacy() -> dict:
         raise RuntimeError(
@@ -374,21 +281,7 @@ def _describe_schema_node(schema_name: str) -> dict:
     return _cc_route("schema.describe", {"schema_name": schema_name}, repo_root, _no_legacy)
 
 
-# ---------------------------------------------------------------------------
-# from_repo resolution — mirrors cross-repo-memo._sender_em_id pattern
-# ---------------------------------------------------------------------------
-
-# Registry aliases: stable doctrine EM names that diverge from the repo's
-# machine-local shortname convention. Derived from schemas/coordinator-registry.manifest.json
 # via coordinator_registry.REPO_ALIASES (loaded above). Mirrors cross-repo-memo RECEIVER_EM_ALIASES.
-
-
-# _claude_home / _claude_klabauter_root / _machine_local_impl / _resolve_python /
-# _machine_local_get / _machine_local_repos_keys / _current_repo_root: extracted
-# to bin/lib/cli_shared.py (T2-g2a consolidation, ~150 LoC dup with
-# coordinator-queue-append). Thin aliases preserve the pre-consolidation call
-# sites below without a mass rename — bound in _bootstrap_imports() (C6d
-# import-motion).
 
 
 def _current_repo_root() -> str | None:
@@ -412,15 +305,6 @@ def _current_repo_root() -> str | None:
         )
     return root
 
-# _resolve_from_repo: extracted to bin/lib/cli_shared.py (T2-g2a consolidation) —
-# same cwd git-root -> machine-local reverse-lookup -> doe_claude -> unregistered
-# -> "unknown-sender-em" ladder, byte-identical to the pre-consolidation body.
-# Bound in _bootstrap_imports() (C6d import-motion).
-
-
-# ---------------------------------------------------------------------------
-# Output path helpers
-# ---------------------------------------------------------------------------
 
 def _outbox_root() -> str:
     """Return the lessons-outbox directory path.
@@ -449,10 +333,7 @@ def _outbox_root() -> str:
     )
     if override:
         return override
-    # Central state (lessons-outbox) routes to DoE — doctrine class.
-    # doe_root() raises _DoeUnresolvable when repos.doe_claude is unregistered and
     # DOE_ROOT env var is not set; _DoeUnresolvable propagates to legacy_fn() catch.
-    # Spec backlink: gate2-w23-state-seam-caller-switch.md § C1 / AC2
     resolved_doe_root = doe_root()
     if _is_publish_mirror_root(resolved_doe_root):
         raise RuntimeError(
@@ -464,10 +345,6 @@ def _outbox_root() -> str:
         )
     return os.path.join(resolved_doe_root, "state", "lessons-outbox")
 
-
-# ---------------------------------------------------------------------------
-# --target-wiki normalization and validation (A9, A7)
-# ---------------------------------------------------------------------------
 
 def _wiki_inventory_dir() -> str:
     """Return the directory of central wiki .md files to validate --target-wiki against.
@@ -488,28 +365,22 @@ def _wiki_inventory_dir() -> str:
     if override:
         return override
     resolved = doe_root()
-    # Either content layout — the published flat mirror carries docs/wiki/ at
-    # its own root, with no "coordinator" segment to join (overengineering-
-    # reviewer finding 2 — routed through the promoted wrapper).
     return os.path.join(content_root_or_private(resolved), "docs", "wiki")
 
 
 def _list_central_wiki_targets(wiki_dir: str) -> frozenset[str]:
-    """Return the canonical 'docs/wiki/<name>.md' form of every .md file in wiki_dir.
-
-    Raises RuntimeError if wiki_dir does not exist — a resolvable DoE root with a
-    missing coordinator/docs/wiki/ directory is an install-integrity problem, not a
-    graceful-skip case (contrast the DoE-root-unresolvable case, which IS a
-    graceful-skip via _DoeUnresolvable).
-    """
     _bootstrap_engine()
     if not os.path.isdir(wiki_dir):
         raise RuntimeError(f"central wiki directory not found: {wiki_dir!r}")
-    return frozenset(
-        f"{_TARGET_WIKI_PREFIX}{name}"
-        for name in os.listdir(wiki_dir)
-        if name.endswith(".md")
-    )
+    targets = []
+    for dirpath, _dirnames, filenames in os.walk(wiki_dir):
+        for name in filenames:
+            if not name.endswith(".md"):
+                continue
+            rel = os.path.relpath(os.path.join(dirpath, name), wiki_dir)
+            rel = rel.replace(os.sep, "/")
+            targets.append(f"{_TARGET_WIKI_PREFIX}{rel}")
+    return frozenset(targets)
 
 
 def _validate_target_wiki(
@@ -582,29 +453,36 @@ def _validate_target_wiki(
         "to skip this check."
     )
     parser.error("\n".join(lines))
-    return 2  # unreachable — parser.error() always calls sys.exit(2); kept for type-checkers.
+    return 2
+
+
+def _repo_relative_outbox_path(path: str) -> str:
+    """Best-effort convert an absolute lessons-outbox PATH into a
+    'state/lessons-outbox/<file>'-style path relative to the resolved DoE
+    root (23c: printing an absolute host path is a portability trap for a
+    local EM who stamps the printed line verbatim into a `promoted_to`
+    field, per the 2026-09-24 example-game-repo-em memo).
+
+    Falls back to PATH unchanged when the DoE root is unresolvable (e.g.
+    `_DoeUnresolvable`) or PATH does not resolve under it (a
+    LESSON_PROMOTE_OUTBOX_ROOT test-isolation override pointing somewhere
+    unrelated to the resolved DoE root) — never raises, this is a display
+    nicety only, never a gate on the write that already succeeded."""
+    _bootstrap_engine()
+    try:
+        root = doe_root()
+    except _DoeUnresolvable:
+        return path
+    try:
+        rel = os.path.relpath(path, root)
+    except ValueError:
+        return path
+    if rel.startswith(".."):
+        return path
+    return rel.replace(os.sep, "/")
 
 
 def _write_path_excl(out_path: str, content: str) -> str:
-    """Write content to out_path using an exclusive-create + retry-with-suffix loop.
-
-    Thin wrapper over bin/lib/cli_shared.write_path_excl (T2-g2a consolidation,
-    ~150 LoC dup with coordinator-queue-append) — pins caller_name so the
-    exhausted-retry error message still names this CLI. Byte-identical retry/cap/
-    fail-loud-after-cap-exhausted behavior to the pre-consolidation body.
-
-    Negative-spec: do NOT swap this for a plain open(path, "w") — that silently
-    clobbers a same-key concurrent write. Do NOT swap this for a bare fail-loud
-    FileExistsError (the cross-repo-memo shape) either — legacy_fn() here is a
-    terminal caller with no retry path, so failing loud on the FIRST collision
-    would drop the entry rather than preserve it; retry-with-suffix is required.
-
-    Counter-pattern (deliberate divergence): coordinator/bin/cross-repo-memo.py's
-    _write_file FAILS LOUD (FileExistsError, no retry) on collision because its
-    caller is interactive and retries with a new --topic.
-
-    Spec backlink: F1/F2 legacy-fallback silent-overwrite collision guard (chunk C1).
-    """
     _bootstrap_engine()
     return cli_shared.write_path_excl(
         out_path, content, caller_name="coordinator-lesson-promote"
@@ -620,14 +498,10 @@ def _slug_from_title(title: str) -> str:
     slug = title.lower()
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
     slug = slug.strip("-")
-    # strip("-") before truncation, but truncation can
-    # leave a trailing hyphen (e.g. "foo-bar-" at char 40). rstrip("-") after
-    # truncation, matching coordinator-queue-append and migrate-queues-to-base.py:292.
     return slug[:_SLUG_MAX_CHARS].rstrip("-")
 
 
 def _now_iso() -> str:
-    """Return current UTC datetime as ISO 8601 string (seconds precision)."""
     return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 
 
@@ -640,24 +514,10 @@ def _ts_for_filename(iso_ts: str) -> str:
     return re.sub(r"[:+]", "-", iso_ts)
 
 
-# ---------------------------------------------------------------------------
-# YAML serialization (minimal, no external deps)
-# ---------------------------------------------------------------------------
-
 def _yaml_str(value: str) -> str:
-    """Serialize a string value for YAML.
-
-    Uses block scalar (|) for multi-line values; quoted scalar for single-line
-    values that contain YAML-special characters.
-    """
     if "\n" in value:
-        # Block scalar — indent each line by 2 spaces.
-        # Changed | (clip chomping) to |- (strip
-        # chomping) for byte-fidelity parity with coordinator-queue-append._yaml_block_scalar.
-        # Clip chomping adds a trailing newline on round-trip; strip chomping preserves exact bytes.
         indented = "\n".join("  " + line if line.strip() else "" for line in value.splitlines())
         return "|-\n" + indented
-    # Single-line: quote if it contains YAML-special characters or leading/trailing whitespace.
     needs_quoting = any(c in value for c in ('"', "'", ":", "#", "{", "}", "[", "]", ",", "&", "*", "?", "|", ">", "!", "%", "@", "`"))
     needs_quoting = needs_quoting or value != value.strip() or value.lower() in ("true", "false", "null", "yes", "no")
     if needs_quoting:
@@ -667,10 +527,6 @@ def _yaml_str(value: str) -> str:
 
 
 def _compose_yaml(fields: dict[str, str | list[str] | None]) -> str:
-    """Compose a YAML document from an ordered dict of fields.
-
-    Handles str and list[str] values. None values are serialized as empty string.
-    """
     lines = ["---"]
     for key, value in fields.items():
         if value is None:
@@ -683,17 +539,10 @@ def _compose_yaml(fields: dict[str, str | list[str] | None]) -> str:
                 for item in value:
                     lines.append(f"  - {_yaml_str(item)}")
         else:
-            # Collapsed the former "\n" in str(value) elif and
-            # this else branch: both emitted byte-identical code since _yaml_str already
-            # internally branches on newline presence (block scalar vs. quoted scalar).
             lines.append(f"{key}: {_yaml_str(str(value))}")
     lines.append("---")
     return "\n".join(lines) + "\n"
 
-
-# ---------------------------------------------------------------------------
-# Core write logic
-# ---------------------------------------------------------------------------
 
 def _write_entry(
     *,
@@ -707,7 +556,6 @@ def _write_entry(
     created: str,
     from_repo: str,
 ) -> str:
-    """Write a lessons-outbox YAML entry. Returns the path written."""
     outbox = _outbox_root()
     os.makedirs(outbox, exist_ok=True)
 
@@ -731,20 +579,10 @@ def _write_entry(
         fields["evidence"] = evidence
 
     content = _compose_yaml(fields)
-    # Collision guard (C1, legacy-fallback silent-overwrite fix): plain open(path, "w")
-    # is a silent overwrite when path already exists — a same-timestamp+slug collision
-    # from a concurrent second write would destroy the first entry with no error.
-    # _write_path_excl replaces this with an exclusive-create + retry-with-suffix loop
-    # so BOTH entries persist under distinct filenames.
     return _write_path_excl(path, content)
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
 def _build_parser(change_kind_values: tuple[str, ...]) -> argparse.ArgumentParser:
-    """Build the argument parser. change_kind_values is derived at runtime from the schema."""
     parser = argparse.ArgumentParser(
         prog="coordinator-lesson-promote",
         description=(
@@ -841,14 +679,7 @@ def _build_parser(change_kind_values: tuple[str, ...]) -> argparse.ArgumentParse
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Entry point. Returns exit code."""
     _bootstrap_engine()
-    # Derive the valid change_kind enum from the lessons-outbox schema at runtime
-    # via the native "schema.describe" op (schema='lessons-outbox').
-    # Fails loud (non-zero exit + stderr) if the schema cannot be loaded.
-    # Spec backlink: docs/plans/2026-06-25-example-initiative-tc-2-queues-lessons-consolidation.md § C1
-    # Rewired from schema_loader.load_schema → node CLI (dual-yaml-parser option-d C4)
-    # → native coordinator_core op seam (schema-cli.js deleted 480ad8f8)
     try:
         _cli_output = _describe_schema_node("lessons-outbox")
         change_kind_values: tuple[str, ...] = tuple(_cli_output["enums"]["change_kind"])
@@ -861,45 +692,16 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = _build_parser(change_kind_values)
     args = parser.parse_args(argv)
-    # Deleted unreachable dead block that re-validated
-    # change_kind after argparse; argparse choices= already rejects invalid values with exit 2
-    # naming the valid set, so the explicit check was dead code.
 
-    # coordinator_core is not on sys.path here by construction on the
-    # published mirror (not pip-installed there) — the _LIB_DIR insert at the
-    # top of this file only reaches coordinator/bin/lib, never the engine root.
-    #
     # A fresh machine with repos.claude_klabauter unregistered (no CLAUDE_KLABAUTER_ROOT
-    # env override either) is the reachable, production case this guards:
-    # `_resolve_engine_root()` walks all the way to
-    # `coordinator_core.engine_root.coordinator_engine_root_with_class()`,
-    # whose own resolve-claude-klabauter shim fails loud with `ClaudeKlabauterResolutionError`
-    # (its documented, correct contract — see that module's own docstring;
-    # NOT touched here). Prior to this fix that propagated as an unhandled
-    # traceback instead of the same graceful WARN+skip degrade this CLI
-    # already gives an unresolvable DoE-claude root. Caught narrowly (never
-    # a bare `except Exception`) via `_claude_klabauter_resolution_error_class()`,
-    # because the exception class this raises has no import-stable identity
-    # this CLI can name ahead of time — see that helper's docstring.
     try:
         require_dispatch_engine_on_path()
     except RuntimeError as exc:
         _resolution_err_cls = _claude_klabauter_resolution_error_class()
         if _resolution_err_cls is None or not isinstance(exc, _resolution_err_cls):
             raise
-        # Same remediation vocabulary the resolver itself already names —
-        # do not invent a second one (message-register doctrine, one fact
         # once). Reuses _EXIT_DOE_UNRESOLVABLE: the one caller in this tree
-        # that shells out to this CLI (coordinator-harvest-deferrals.py)
-        # only ever branches on `returncode != 0`, never on the specific
-        # code, so a distinct exit code would buy no caller anything today.
-        # foreign-identity: SUBJECT — names WHICH prerequisite failed to
-        # resolve, context the appended {exc} resolver diagnostic needs to be
-        # actionable, and this is reachable from any repo via routine lesson
         # capture. It names it by REGISTRY KEY, not by repo name: a reader
-        # standing in a third repo cannot navigate to the bare name, and the
-        # key is what they type back (`_codename_classes` pins the family and
-        # exempts the `repos.<key>` form for exactly that reason).
         print(
             f"warn: coordinator-lesson-promote: engine root unresolvable "
             f"(repos.claude_klabauter) — skipping central lessons-outbox "
@@ -917,28 +719,16 @@ def main(argv: list[str] | None = None) -> int:
     except ArgvFidelityError as exc:
         parser.error(str(exc))
 
-    # --allow-new-wiki is documented (and only sound) as an escape hatch for a genuine
-    # change_kind: wiki-new promotion, where the target intentionally does not exist yet.
-    # wiki-append targets an EXISTING wiki section by schema semantics (see
-    # docs/wiki/lessons-outbox-schema.md § Change-kind enum) — an append target should
-    # always be inventory-validated. Reject the mismatch here, at argparse time, rather
-    # than threading change_kind into _validate_target_wiki, so a caller combining the
-    # flag with wiki-append (or any other change_kind) fails loud and early instead of
-    # silently skipping the inventory check.
-    if args.allow_new_wiki and args.change_kind != "wiki-new":
+    # --allow-new-wiki is an escape hatch for --target-wiki validation and is not
+    # wiki-new-only: a wiki-append promotion can also legitimately target a wiki
+    # page that does not exist in the central inventory yet (e.g. the page is
+    # being created by a sibling change in the same batch).
+    if args.allow_new_wiki and args.change_kind not in _WIKI_TARGETING_CHANGE_KINDS:
         parser.error(
-            f"--allow-new-wiki is only valid with --change-kind wiki-new "
-            f"(got --change-kind {args.change_kind!r})"
+            f"--allow-new-wiki is only valid with --change-kind wiki-new or "
+            f"wiki-append (got --change-kind {args.change_kind!r})"
         )
 
-    # A9: normalize BEFORE the A7 inventory check, so 'foo' and 'foo.md' validate
-    # (and later write) identically instead of diverging into two dedup keys.
-    # Gated on change_kind (A7/A9 scope fix): --target-wiki is the generic
-    # promotion-target field for every change_kind, not only wiki entries — a
-    # skill-edit promotion stores a SKILL.md path here, not a central-wiki name.
-    # Only wiki-new/wiki-append (the schema's wiki-targeting change_kinds — see
-    # docs/wiki/lessons-outbox-schema.md § Change-kind enum) run the directory
-    # collapse and the central-wiki-inventory check; every other change_kind's
     # --target-wiki passes through UNCHANGED and UNVALIDATED.
     if args.change_kind in _WIKI_TARGETING_CHANGE_KINDS:
         args.target_wiki = _normalize_target_wiki(args.target_wiki)
@@ -950,18 +740,10 @@ def main(argv: list[str] | None = None) -> int:
 
     entry_id = str(uuid.uuid4())
     created = _now_iso()
-    # Hoist _current_repo_root() so git rev-parse
-    # spawns exactly once per invocation; pass resolved root to _resolve_from_repo and reuse
-    # for _cc_route repo_root arg below.
     _raw_root = _current_repo_root()
     repo_root = _raw_root or ""
     from_repo = _resolve_from_repo(root=_raw_root)
 
-    # ── routing gate ─────────────────────────────────────────────────────────
-    # Capture the legacy write body as a closure; byte-identical to pre-swap HEAD.
-    # State-1 (seam absent): _cc_route calls legacy_fn() and returns its int exit code.
-    # State-2 (seam present): _cc_route returns the bare result dict from queue.promote.
-    # Spec backlink: docs/plans/2026-07-06-strang-08-arm-queue-facade-invoke-retarget.md § C4
     def legacy_fn() -> int:
         try:
             path = _write_entry(
@@ -978,13 +760,7 @@ def main(argv: list[str] | None = None) -> int:
         except _DoeUnresolvable as exc:
             # A13 fix: graceful-skip on unresolvable DOE_ROOT is WARN + skip, but the
             # skip is NEVER silent success — exit _EXIT_DOE_UNRESOLVABLE (3), not 0.
-            # A coordinator install without repos.doe_claude registered (pre-fleet-clone
-            # or non-DoE machine) WARNs, writes nothing, and reports that honestly via
-            # a non-zero exit code — a caller checking only `returncode == 0` must be
             # able to trust that outcome. Negative-spec: this was PREVIOUSLY `return 0`
-            # (A13 defect) — every promotion on a machine without repos.doe_claude
-            # registered evaporated while the exit code claimed success.
-            # Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1 / AC2
             print(
                 f"warn: coordinator-lesson-promote: DOE_ROOT unresolvable — "
                 f"skipping central lessons-outbox write: {exc}",
@@ -998,28 +774,18 @@ def main(argv: list[str] | None = None) -> int:
             )
             return _EXIT_DOE_UNRESOLVABLE
         except RuntimeError as exc:
-            # klabauter#39: _outbox_root()'s publish-mirror refusal — the resolved
-            # doe_root() is a scrubbed/marketplace mirror install, not the private
-            # DoE-claude source repo. Never silently write the duplicate; report loud.
             print(f"error: {exc}", file=sys.stderr)
             return 1
         except OSError as exc:
             print(f"error: could not write outbox entry: {exc}", file=sys.stderr)
             return 1
 
-        print(f"Lesson outbox entry written: {path}")
+        print(f"Lesson outbox entry written: {_repo_relative_outbox_path(path)}")
         print(f"  id:          {entry_id}")
         print(f"  from_repo:   {from_repo}")
         print(f"  change_kind: {args.change_kind}")
         print(f"  target_wiki: {args.target_wiki}")
-        # C5 floor (docs/plans/2026-08-14-cli-authored-writes-get-claimed.md):
-        # this genuine dual-path CLI's State-1 body writes in-process, so the
-        # write must be declared, not just printed. Guarded import: `route()`
-        # only calls legacy_fn() when coordinator_core.invoke was already
-        # unresolvable, so coordinator_core is usually unimportable here too —
         # this degrades to a no-op except under the LESSON_PROMOTE_OUTBOX_ROOT
-        # test-isolation gate below, which forces legacy_fn with a live engine
-        # still on sys.path.
         try:
             require_dispatch_engine_on_path()
             from coordinator_core.session.declared_writes import declare_write  # noqa: PLC0415
@@ -1058,9 +824,6 @@ def main(argv: list[str] | None = None) -> int:
         with recording_declared_writes(cwd=repo_root):
             return legacy_fn()
 
-    # Build queue.promote params from validated fields; from_repo passed explicitly
-    # so the op does not fall to its basename+"-em" default (provenance parity, AC11).
-    # repo_root already computed above (F3 hoist — single git rev-parse per invocation).
     params: dict = {
         "title": args.title,
         "body": args.body,
@@ -1070,21 +833,13 @@ def main(argv: list[str] | None = None) -> int:
         "evidence": args.evidence if args.evidence else None,
         "from_repo": from_repo,
     }
-    # The native op must write under the SAME DoE root --target-wiki was validated
     # against (DOE_ROOT honoured), not re-resolve it from the warm server's own env
-    # and registry (claude-klabauter#33). Unresolvable here → omit, and the op's own
-    # resolution reports the skip.
     try:
         params["doe_root"] = doe_root()
     except _DoeUnresolvable:
         pass
     # Test isolation gate: LESSON_PROMOTE_OUTBOX_ROOT redirects the outbox path (see
-    # _outbox_root() above), which the native queue.promote op honours only for an
-    # in-process caller (queue_promote._outbox_root_override). Routed to a warm
-    # server, the override would be dropped and the write would land in the real
-    # DoE outbox — mirrors
     # coordinator-queue-append's identical QUEUE_APPEND_OUTPUT_ROOT gate immediately
-    # above _cc_route("queue.append", ...) in that sibling CLI. In production,
     # LESSON_PROMOTE_OUTBOX_ROOT is NEVER set, so this check is a no-op.
     if cli_shared.isolation_root_if_under_test(
         _OUTBOX_ROOT_ENV, caller_name="coordinator-lesson-promote"
@@ -1093,13 +848,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # DOE_ROOT gate (klabauter#33): DOE_ROOT is documented (module docstring, § from_repo
     # resolution / _DOE_ROOT_ENV) as this CLI's steering lever for the DoE-claude root, and
-    # this CLI's OWN doe_root() (coordinator_registry.doe_root(), used by --target-wiki
-    # validation above and by the legacy write path) trusts it as rung 1a. The NATIVE
     # queue.promote op's resolver (coordinator_core.ops.coordinator_doe_root) has no DOE_ROOT
     # rung at all — only REPO_DOE_CLAUDE — so an operator who set DOE_ROOT (without also
     # setting REPO_DOE_CLAUDE) would see --target-wiki validation obey it while the native
-    # write silently fell through to a different resolution (up to and including an OSS
-    # publish-mirror install — see _is_publish_mirror_root). Force the legacy in-process
     # write, which resolves through THIS module's own DOE_ROOT-aware doe_root(), whenever
     # DOE_ROOT is the only lever the operator has pulled.
     if os.environ.get(_DOE_ROOT_ENV, "").strip() and not os.environ.get("REPO_DOE_CLAUDE", "").strip():
@@ -1107,15 +858,10 @@ def main(argv: list[str] | None = None) -> int:
 
     result = _cc_route("queue.promote", params, repo_root, _run_legacy_with_write_declaration)
 
-    # Native path: result is the bare dict from queue.promote.
     if isinstance(result, dict):
         if result.get("skipped"):
-            # A13 fix (native-op mirror of the legacy_fn _DoeUnresolvable handler
             # above): skipped:true → WARN + exit _EXIT_DOE_UNRESOLVABLE (3), never 0.
             # Negative-spec: this was PREVIOUSLY `return 0` (A13 defect) — identical
-            # silent-success hole to the legacy path, just reached via the native
-            # queue.promote op's {"skipped": true, "reason": ...} result shape instead
-            # of a raised _DoeUnresolvable exception.
             reason = result.get("reason", "DOE_ROOT unresolvable")
             print(
                 f"warn: coordinator-lesson-promote: DOE_ROOT unresolvable — "
@@ -1129,8 +875,6 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return _EXIT_DOE_UNRESOLVABLE
-        # Guard out_path access; bare KeyError
-        # on unexpected op result shape (missing both out_path and skipped) gives a misleading
         # traceback instead of a clean error. TWO-SIGNAL contract lives in the op, not here.
         out_path = result.get("out_path")
         if not out_path:
@@ -1140,17 +884,13 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 1
-        # Echo the write destination on success (claude-klabauter#33) — the one
         # cheap check that would have made the DOE_ROOT/native-write mismatch
-        # self-evident in a single invocation, matching legacy_fn's own labelled
-        # stdout contract below.
-        print(f"Lesson outbox entry written: {out_path}")
+        print(f"Lesson outbox entry written: {_repo_relative_outbox_path(out_path)}")
         print(f"  id:          {result.get('entry_id', entry_id)}")
         print(f"  from_repo:   {result.get('from_repo', from_repo)}")
         print(f"  change_kind: {result.get('change_kind', args.change_kind)}")
         print(f"  target_wiki: {result.get('target_wiki', args.target_wiki)}")
         return 0
-    # Legacy path: legacy_fn() returned an int exit code.
     return int(result)
 
 

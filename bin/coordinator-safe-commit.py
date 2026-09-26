@@ -271,21 +271,23 @@ _DESTRUCTIVE_SHAPE_REF_RE = re.compile(
 )
 
 
-#: Cache for `_bare_trailer_keys()` below -- `None` until first resolved.
-_BARE_TRAILER_KEYS_CACHE: Optional[frozenset] = None
+#: Cache for `_subject_is_trailer_shaped()` below -- `None` until first
+#: resolved.
+_MESSAGE_MISSING_SUBJECT_CACHE = None
 
 
-def _bare_trailer_keys() -> frozenset:
-    """The engine's `BARE_TRAILER_KEYS`, imported on first use because
-    `coordinator_core` is not on `sys.path` at module import."""
-    global _BARE_TRAILER_KEYS_CACHE
-    if _BARE_TRAILER_KEYS_CACHE is None:
+def _subject_is_trailer_shaped(subject: str) -> bool:
+    """True iff `subject` is a trailer line. Uses the same check as
+    commit_v2, imported on first use (`coordinator_core` is off `sys.path`
+    at module import)."""
+    global _MESSAGE_MISSING_SUBJECT_CACHE
+    if _MESSAGE_MISSING_SUBJECT_CACHE is None:
         _bootstrap_engine()
         require_engine_on_path(__file__)
-        from coordinator_core.git.commit_trailers import BARE_TRAILER_KEYS
+        from coordinator_core.git.commit_trailers import message_missing_subject
 
-        _BARE_TRAILER_KEYS_CACHE = BARE_TRAILER_KEYS
-    return _BARE_TRAILER_KEYS_CACHE
+        _MESSAGE_MISSING_SUBJECT_CACHE = message_missing_subject
+    return _MESSAGE_MISSING_SUBJECT_CACHE(subject)
 
 
 class UsageError(RuntimeError):
@@ -500,20 +502,8 @@ def parse_args(argv: Sequence[str]) -> Args:
             "bisect output -- write a subject that names the change."
         )
 
-    # a background committer landed a commit whose message
-    # was ONLY trailers (no subject line) -- the positional slot this
-    # function fills with `args.subject` had been given a trailer line
-    # (e.g. "Session-Id: <uuid>") instead of prose. That reads as an
-    # ordinary, non-degenerate string to the length check above, so it needs
-    # its own refusal: a subject whose key half exactly matches a KNOWN
-    # trailer name is refused here, before any mode dispatch. Keyed on a
-    # fixed key list rather than the generic "key: value" shape
-    # (`coordinator_core.git.commit_trailers._TRAILER_LINE_RE`) so an
-    # ordinary conventional-commit subject ("fix: frobnicator", "grind(p):
-    # row-1 committed") is never refused -- only the specific keys this repo
-    # actually appends as trailers.
-    _subject_key = args.subject.strip().split(":", 1)[0].strip().lower()
-    if _subject_key in _bare_trailer_keys() and ":" in args.subject:
+    # A trailer standing in as the subject passes the length check above.
+    if _subject_is_trailer_shaped(args.subject):
         raise UsageError(
             f"Commit subject {args.subject!r} is a trailer line, not a "
             "subject -- trailers are appended automatically; write a real "
@@ -688,15 +678,14 @@ def do_pathspec(args: "Args") -> None:
     # "never considered it".
     if args.declared_reverts:
         params["declared_reverts"] = args.declared_reverts
-    # a ledger-only commit failed outright on
-    # `.git/index.lock: File exists` under the ~50-session load norm, with no
-    # retry -- the caller only ever saw "commit-failed" once. Bounded retry
-    # (2 extra attempts, short fixed backoff -- never an unbounded loop):
-    # `preflight_reap_stale_lock` (`coordinator_core.lock_preflight`,
-    # ALREADY the repo's shared orphaned-lock self-heal every other commit
-    # seam calls) runs before each retry, and only a lock-contention-shaped
-    # failure is retried -- any other `RuntimeError` falls straight through
-    # to the existing indeterminate-outcome/error handling below, unchanged.
+    # Bounded retry (2 extra attempts, short fixed backoff -- never an
+    # unbounded loop) on `.git/index.lock` contention, expected under the
+    # ~50-session load norm: `preflight_reap_stale_lock`
+    # (`coordinator_core.lock_preflight`, the repo's shared orphaned-lock
+    # self-heal every other commit seam calls) runs before each retry, and
+    # only a lock-contention-shaped failure is retried -- any other
+    # `RuntimeError` falls straight through to the existing
+    # indeterminate-outcome/error handling below, unchanged.
     result = None
     _lock_retry_backoffs = (0.1, 0.3)
     for _attempt in range(len(_lock_retry_backoffs) + 1):
@@ -1139,7 +1128,10 @@ def _refuse_contested_pathspec(paths: Sequence[str], worktree_root: str) -> None
     )
     print(
         "Drop the named path(s) from the pathspec, or coordinate with the "
-        "holder(s) BY NAME -- a session id re-points, a name does not. "
+        "holder(s) BY NAME -- a session is IDENTIFIED by its sid and "
+        "ADDRESSED by the name resolved from the registry at refusal time "
+        "(printed above): neither a sid nor a name is a permanently stable "
+        "address on its own. "
         "READ claims are not listed here and never block. "
         "A holder releases its own claim with `session-claim-cli "
         "release-artifact artifact <path>` -- landed or still in flight, "

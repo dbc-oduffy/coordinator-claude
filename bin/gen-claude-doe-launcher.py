@@ -42,14 +42,6 @@ import os
 import sys
 
 def _default_template_dir() -> str:
-    """Mirror the bash oracle's `${_script_dir}/../templates/bin` default.
-
-    Resolved via `coordinator_data_root.data_root()`'s co-located/DoE-resident
-    two-rung chain, not a bare `__file__`-relative walk: the 2026-07-22
-    executable-surface migration moved this trampoline into claude-klabauter
-    while `templates/` stayed in DoE-claude (DR-047 contract/engine split), so
-    a `${script_dir}/../templates` walk no longer lands anywhere.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from coordinator_data_root import data_root
 
@@ -57,21 +49,6 @@ def _default_template_dir() -> str:
 
 
 def _import_runner():
-    """Resolve the engine root, put it on sys.path, and import the shared
-    in-process runner.
-
-    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
-    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
-    re-deriving it -- this is a plain in-process import, not an RPC invoke, so
-    cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
-    deliberately NOT used here.
-
-    DR-276: the op is run through `coordinator_core.cli_entry.run_op_main`
-    rather than by importing and calling its `main` directly, so the launcher
-    files it declares become a session scope-touch claim. Without that, the
-    launchers this generator writes are orphans at the `scoped_git_commit`
-    sink.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 

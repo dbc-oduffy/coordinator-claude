@@ -101,28 +101,12 @@ from pathlib import Path
 from typing import Any
 
 
-# ---------------------------------------------------------------------------
-# One-time warning helpers for legacy machine-local homes
-# ---------------------------------------------------------------------------
-
-# Split into two independent once-guards so that a divergence
-# warning from _check_machine_local_divergence() cannot consume the once-guard for the
 # legacy-fallback DEPRECATED warning emitted by machine_local_dir(). The two warning types
-# have distinct semantics and must suppress independently.
 _legacy_machine_local_divergence_warned: bool = False
 _legacy_machine_local_deprecated_warned: bool = False
 
 
 def _warn_machine_local_divergence_once(message: str) -> None:
-    """Write *message* to stderr at most once per process lifetime.
-
-    Used by _check_machine_local_divergence() to emit a loud-but-non-fatal
-    warning when both machine-local homes exist with divergent realpaths.
-    Silenced after the first call so repeated divergence checks do not flood
-    stderr.
-
-    Spec backlink: DoE-claude:pln-relocate-durable-coordinator-s-d48415 § C1
-    """
     global _legacy_machine_local_divergence_warned
     if not _legacy_machine_local_divergence_warned:
         sys.stderr.write(message)
@@ -130,24 +114,10 @@ def _warn_machine_local_divergence_once(message: str) -> None:
 
 
 def _warn_machine_local_deprecated_once(message: str) -> None:
-    """Write *message* to stderr at most once per process lifetime.
-
-    Used by machine_local_dir() to emit a loud-but-non-fatal deprecation
-    warning when the legacy ~/.claude/machine-local home is still in play.
-    Silenced after the first call so repeated machine_local_dir() lookups
-    do not flood stderr.
-
-    Spec backlink: DoE-claude:pln-relocate-durable-coordinator-s-d48415 § C1
-    """
     global _legacy_machine_local_deprecated_warned
     if not _legacy_machine_local_deprecated_warned:
         sys.stderr.write(message)
         _legacy_machine_local_deprecated_warned = True
-
-
-# ---------------------------------------------------------------------------
-# Path resolution
-# ---------------------------------------------------------------------------
 
 
 def home_dir() -> Path:
@@ -168,15 +138,12 @@ def home_dir() -> Path:
     claude_home = os.environ.get("CLAUDE_HOME")
     if claude_home is not None:
         # empty-string CLAUDE_HOME (e.g. from `CLAUDE_HOME=` in CI)
-        # is set-but-malformed; treat as config error, not silent fallthrough.
         if not claude_home:
             raise ValueError(
                 "CLAUDE_HOME is set but empty; unset it or provide an absolute path"
             )
         p = Path(claude_home)
         if not p.is_absolute():
-            # drive-relative paths (e.g. "C:foo") are not
-            # absolute on Windows; mention explicitly for operator clarity.
             raise ValueError(
                 f"CLAUDE_HOME must be an absolute path; got {claude_home!r}. "
                 "(On Windows, drive letter alone is insufficient — use 'C:\\\\...' form.)"
@@ -199,37 +166,14 @@ def home_dir() -> Path:
 
 
 def resolve_home_base() -> Path:
-    """Return the resolved $HOME analog — an importable alias for home_dir().
-
-    Identical resolution to home_dir() (see its docstring for the precedence
-    chain); this name exists so consumers that only need the base directory
-    have a self-describing import target next to claude_home_dir() /
-    claude_config_path() / settings_home(), without reaching for the more
-    ambiguously-named home_dir(). Additive — home_dir() is unchanged and
-    remains the canonical implementation; this function is a one-way alias
-    that delegates to it (home_dir() itself delegates to nothing).
-
-    No production caller imports resolve_home_base() (or the
-    claude_home_shim re-export) yet — every existing home-resolution site in
-    coordinator_core/ and coordinator/ still hand-rolls its own
-    `os.environ.get(...) or ... or expanduser(...)` ladder inline. Until
-    those sites are migrated onto this seam, "no order left to get wrong" is
-    aspirational for this export specifically: the rung-order lint is
-    currently the only thing guarding those ~30 hand-rolled sites, not this
-    function.
-
-    Spec backlink: pln-home-resolution-gate-family-ma-e5c146 § C6
-    """
     return home_dir()
 
 
 def claude_home_dir() -> Path:
-    """Return the resolved ~/.claude/ directory (Claude Central install)."""
     return home_dir() / ".claude"
 
 
 def claude_config_path() -> Path:
-    """Return the resolved ~/.claude.json path (Claude Code config file)."""
     return home_dir() / ".claude.json"
 
 
@@ -275,28 +219,6 @@ def settings_home() -> Path:
 
 
 def machine_local_dir() -> Path:
-    """Return the resolved machine-local registry directory path.
-
-    Prefers the new settings-home location; falls back to the legacy
-    ~/.claude/machine-local path if only that location exists on disk.
-    Never returns a non-existent legacy path — callers validate existence,
-    as today.
-
-    Resolution order (WORKING ALIAS with prefer-new-fallback-to-legacy):
-      1. <settings-home>/machine-local (new)  — if it exists on disk.
-      2. ~/.claude/machine-local (legacy)      — if it exists and new does not;
-         emits a one-time deprecation warning naming both paths and the
-         remediation script.
-      3. <settings-home>/machine-local         — canonical, even if absent.
-
-    The CLI path also runs a divergence check via _check_machine_local_divergence()
-    before calling this function; on divergence (both exist, different realpaths)
-    a warning is emitted there and this function then returns new (step 1).
-
-    Use settings_home() for the settings-home root itself.
-
-    Spec backlink: DoE-claude:pln-relocate-durable-coordinator-s-d48415 § C1
-    """
     new = settings_home() / "machine-local"
     legacy = claude_home_dir() / "machine-local"
     if new.exists():
@@ -320,7 +242,6 @@ def machine_local_dir() -> Path:
 
 
 def plugins_dir() -> Path:
-    """Return the resolved ~/.claude/plugins/ path."""
     return claude_home_dir() / "plugins"
 
 
@@ -362,19 +283,7 @@ def coordinator_root() -> Path:
     return plugins_dir() / "coordinator-claude" / "coordinator"
 
 
-# ---------------------------------------------------------------------------
-# Divergence guard for machine-local homes
-# ---------------------------------------------------------------------------
-
-
 def _is_absent_or_empty_husk(path: Path) -> bool:
-    """True when `path` carries no machine-local state — absent, or a directory
-    left behind empty by a completed migration.
-
-    An empty directory is not a second content home: nothing can be read from
-    it, so warning about it turns a finished migration into recurring noise.
-    A dangling symlink and an unreadable directory both count as no-state too.
-    """
     try:
         if not path.exists():
             return True
@@ -412,7 +321,7 @@ def _check_machine_local_divergence() -> None:
     new = settings_home() / "machine-local"
 
     if _is_absent_or_empty_husk(legacy) or _is_absent_or_empty_husk(new):
-        return  # one or both hold no state — no divergence possible
+        return
 
     rp_legacy = legacy.resolve()
     rp_new = new.resolve()
@@ -436,30 +345,7 @@ def _check_machine_local_divergence() -> None:
         )
 
 
-# ---------------------------------------------------------------------------
-# JSON read / write for ~/.claude.json
-# ---------------------------------------------------------------------------
-#
-# These are generic primitives that any install script touching ~/.claude.json
-# needs (atomic write, BOM-tolerant read, JSONDecodeError enriched with the
-# file path). They live here, not in each consumer, so the read/write contract
-# stays consistent across the coordinator install chain.
-#
-# Higher-level operations (e.g., updating a specific mcpServers entry) stay
-# in the consumer — they have shape-specific logic (global vs per-project,
-# key-collision policy) that doesn't generalize.
-
-
 def read_config() -> dict[str, Any]:
-    """Read and parse ~/.claude.json; return empty dict if the file is absent.
-
-    UTF-8 BOM is tolerated (common from Windows editors that prepend U+FEFF).
-
-    Raises:
-        json.JSONDecodeError: if the file exists but contains malformed JSON.
-            The exception message is enriched with the file path to aid
-            diagnosis — the stdlib error alone names line+column but not file.
-    """
     cfg = claude_config_path()
     if not cfg.exists():
         return {}
@@ -475,21 +361,6 @@ def read_config() -> dict[str, Any]:
 
 
 def write_config(data: dict[str, Any]) -> None:
-    """Atomically write *data* to ~/.claude.json via tempfile + rename.
-
-    The parent directory is created if it does not exist. The write is
-    atomic on POSIX (os.replace is rename(2)); on Windows the same call
-    replaces the destination atomically when both paths are on the same
-    volume (which they always are here — both live in the same directory).
-
-    Temp files are cleaned up on failure so no `.claude.json.*.tmp` files
-    accumulate from interrupted writes.
-
-    Args:
-        data: The complete config dict to serialise as JSON. Whole-file
-            overwrite — the caller is responsible for read-modify-write
-            if preserving existing keys matters.
-    """
     cfg = claude_config_path()
     cfg.parent.mkdir(parents=True, exist_ok=True)
 
@@ -507,11 +378,6 @@ def write_config(data: dict[str, Any]) -> None:
         except OSError:
             pass
         raise
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 
 
 _USAGE = (
@@ -546,9 +412,6 @@ def _main(argv: list[str]) -> int:
         print(claude_home_dir())
         return 0
     if cmd == "machine-local":
-        # Delegate to the settings-home seam with divergence guard.
-        # Updated to reflect post-softening behavior.
-        # Warns loud and continues if both homes exist with different realpaths; deterministically prefers new.
         _check_machine_local_divergence()
         print(machine_local_dir())
         return 0

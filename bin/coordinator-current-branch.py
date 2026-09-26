@@ -42,10 +42,7 @@ import sys
 
 
 def main(argv: "list[str] | None" = None) -> int:
-    del argv  # this CLI takes no arguments; argv accepted for the warm-call contract
-    # Late import, matching every other bin CLI that suppresses a console:
-    # this module has no engine bootstrap, so a module-scope
-    # `coordinator_core` import would break running it as a plain script.
+    del argv
     from coordinator_core.win_portability import no_console_creationflags
 
     try:

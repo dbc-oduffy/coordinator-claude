@@ -101,13 +101,6 @@ _BOOTSTRAPPED_NAMES = ("resolve_claude_klabauter_root_or_exit", "resolve_repo_ro
 
 
 def _bootstrap_op_trampoline() -> None:
-    """Import `coordinator/bin/lib/op_trampoline.py`'s two Shape-A resolvers
-    into this module's globals, deferred out of module scope so a warm-serve
-    import of this file stays inert until `main()` runs. Idempotent by
-    construction: each name is published via `globals().setdefault(...)`, so a
-    name a caller already bound (e.g. a `mock.patch.object` of just one of the
-    two resolvers) is left alone rather than clobbered when the other name is
-    still missing."""
     if all(n in globals() for n in _BOOTSTRAPPED_NAMES):
         return
 
@@ -125,13 +118,6 @@ def _bootstrap_op_trampoline() -> None:
 
 
 def __getattr__(name: str):
-    """PEP 562 hook serving the two op_trampoline resolvers to a test or
-    sibling importer that reads them off this module without calling `main()`
-    first (e.g. `mock.patch.object(mod, "resolve_repo_root_or_exit", ...)`).
-
-    Negative-spec: does NOT serve any other name -- an unrelated AttributeError
-    still raises normally.
-    """
     if name in _BOOTSTRAPPED_NAMES:
         _bootstrap_op_trampoline()
         try:
@@ -159,8 +145,6 @@ TWO coverage limits a consumer of this CLI must not lose:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """One required flag, `--roadmap-id`. No list/batch mode -- see the module
-    docstring's Negative-spec."""
     parser = argparse.ArgumentParser(
         prog="query-roadmap-serve.py",
         description=_HONESTY_DISCLOSURES,
@@ -176,13 +160,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _apply_unsubstantiated_zero_rule(payload: dict) -> dict:
-    """Null out a `roll_up` whose zero we cannot substantiate.
-
-    See the module docstring: a scan that failed AND found nothing cannot tell
-    an empty roadmap from an unreadable one, so it reports `null`. A scan that
-    failed but still found nodes keeps its (real, possibly short) roll-up --
-    `scan_incomplete` is what flags that.
-    """
     roll_up = payload.get("roll_up")
     if (
         payload.get("scan_incomplete")
@@ -201,7 +178,7 @@ def main(argv: list[str] | None = None) -> int:
 
     argv = sys.argv[1:] if argv is None else argv
     parser = build_parser()
-    args = parser.parse_args(argv)  # exits 2 on a missing/unrecognized argument
+    args = parser.parse_args(argv)
 
     repo_root = resolve_repo_root_or_exit()
     if isinstance(repo_root, int):
@@ -219,11 +196,6 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        # `central_state_root.parent` is the SAME worktree root the live
-        # producer resolves in `ops/emit/context.py :: assembler_dag`. Resolved
-        # through `resolve_context` rather than re-derived here so the two
-        # callers cannot drift, and so a raw `common_dir`/.git path is never
-        # reachable (lesson: common-dir-keyed-ops-must-derive-the-wor).
         ctx = resolve_context(Path(repo_root))
         dag = assemble_roadmap_dag(args.roadmap_id, worktree_root=ctx.central_state_root.parent)
     except Exception as exc:  # noqa: BLE001 -- any failure on this path is exit 1.

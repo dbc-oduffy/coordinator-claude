@@ -77,18 +77,6 @@ _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _no_console_kw() -> dict:
-    """Lazily resolve claude_klabauter_root onto sys.path, then splat the canonical
-    no-console-window kwarg (mirrors ``_resolve_read_frontmatter_field``'s
-    own lazy-import posture).
-
-    Unguarded here by design: this function has no local try/except, so a
-    resolution failure propagates as `resolve_engine_root`'s own RuntimeError
-    (carrying its remediation text) to the caller — both call sites
-    (`_resolve_repo_root`, `_derive_repo_slug`) already catch `RuntimeError`
-    as part of a broader except tuple. `ensure_engine_on_path` would swallow
-    that RuntimeError into a silent None here, losing the remediation text
-    before either caller's except clause ever saw it.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     import cc_invoke
 
@@ -106,17 +94,10 @@ _STATUS_MAP = {
 
 
 def _map_status(artifact_status: str) -> str:
-    # Pass through unknown values; append-goal-event.py will validate or route.
     return _STATUS_MAP.get(artifact_status, artifact_status)
 
 
 def _resolve_read_frontmatter_field():
-    """Import coordinator_core.ops.read_frontmatter_field.read_frontmatter_field.
-
-    Raises RuntimeError on engine-root/import failure — mapped to a fatal
-    precondition (exit 1) by main(), matching the bash oracle's jq-absent /
-    helper-not-found fatal-precondition class.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     import cc_invoke
 
@@ -159,19 +140,12 @@ def _derive_repo_slug(git_root: str, repo_override: str) -> str:
     url = result.stdout.strip()
     if not url:
         return "local"
-    # Mirrors the bash oracle's `sed -E 's#.*github.com[/:]##; s#\.git$##'`.
     slug = re.sub(r"^.*github\.com[/:]", "", url)
     slug = re.sub(r"\.git$", "", slug)
     return slug or "local"
 
 
 def _extract_key_results_block(text: str) -> str:
-    """Extract the key_results[] YAML block from a whole-document goal artifact.
-
-    Mirrors the bash oracle's awk block-scan: everything from a `key_results:`
-    top-level key up to (but not including) the next top-level (non-indented)
-    key.
-    """
     lines = text.splitlines()
     out: list[str] = []
     in_kr = False
@@ -195,14 +169,6 @@ def _unquote(value: str) -> str:
 
 
 def _strip_inline_comment(raw: str) -> str:
-    """Strip a trailing YAML inline comment, quote-aware.
-
-    Mirrors the YAML spec's comment-indicator rule: `#` starts a comment only
-    outside quotes and only when preceded by whitespace or line-start — so
-    `kind: output  # output | outcome` loses the comment but
-    `text: "a # b"` keeps its quoted hash verbatim. A naive `value.split('#')[0]`
-    would corrupt the latter.
-    """
     in_single = in_double = False
     prev_ws = True
     for i, ch in enumerate(raw):
@@ -271,7 +237,6 @@ def _project_key_results_status(file_path: str, basename: str) -> str:
                 kr_kind = field_val
             elif field_name == "status":
                 kr_status = field_val
-            # evidence_source, weekly_perceptible: intentionally dropped (C11 field map)
 
     _flush()
 
@@ -341,7 +306,7 @@ def main(argv: list[str]) -> int:
     print(f"[emit-goal] found {len(goal_files)} goal artifact(s) in {goals_dir}", file=sys.stderr)
 
     emit_fail = False
-    batch: list[tuple[str, dict]] = []  # (basename, event) for every valid, non-dry-run goal
+    batch: list[tuple[str, dict]] = []
 
     for goal_file in goal_files:
         basename = os.path.basename(goal_file)
@@ -371,13 +336,7 @@ def main(argv: list[str]) -> int:
             continue
 
         text = objective if objective else artifact_id
-        # 2026-07-25: the artifact->wire status mapping is now live.
-        # append-goal-event.py exposes --status (added alongside this fix);
-        # _map_status() is called here and its result forwarded below. The
         # bash oracle's other dead computation, _PROV_PATH
-        # ("state/goals/<file>.yaml" for --provenance), remains deferred —
-        # append-goal-event.py still does not expose --provenance (see
-        # module docstring negative-spec, unchanged for that half).
         wire_status = _map_status(artifact_status) if artifact_status else None
 
         wire_text = f"{artifact_id}: {text}"
@@ -418,11 +377,6 @@ def main(argv: list[str]) -> int:
         print("[emit-goal] all goals emitted successfully", file=sys.stderr)
         return 0
 
-    # One spawn of append-goal-event.py for the WHOLE batch (amplification-gate
-    # fix — see module docstring). --events-file carries every valid goal's
-    # event as one JSON array; --repo/--root stay CLI-level, shared by every
-    # event in the batch exactly as they would across N separate per-file
-    # spawns of the same script.
     events_fh = tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", prefix="emit-goal-events-", delete=False, encoding="utf-8"
     )
@@ -473,9 +427,6 @@ def main(argv: list[str]) -> int:
         return 2
 
     if result.stderr:
-        # append-goal-event.py's own per-event RuntimeError text (from
-        # _main_batch's failure branch) lands here — relayed verbatim rather
-        # than re-derived, matching the single-event path's prior posture.
         print(result.stderr, file=sys.stderr, end="" if result.stderr.endswith("\n") else "\n")
 
     for (basename, _event), outcome in zip(batch, outcomes):

@@ -15,7 +15,7 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // dark-only is deliberate — terminal aesthetic; add next-themes if light mode is ever needed.
+  
   return (
     <html lang="en" className="dark">
       <body className="antialiased bg-background text-foreground min-h-screen">

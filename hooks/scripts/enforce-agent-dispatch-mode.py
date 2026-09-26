@@ -155,20 +155,6 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
-# --- Concern I: teammate-name path-segment refusal ---
-#
-# `name` feeds the engine's canonical-agent-id builder downstream, which
-# formats it directly into the teammate's canonical agent id and, from
-# there, its sidecar path segment -- with no sanitization step of its own.
-# A name containing a path separator (e.g. "feature/auth-review", the shape
-# anyone doing branch-scoped review naturally reaches for) resolves a type
-# and passes provisioning eligibility while defeating the engine's
-# named-teammate-agent-id predicate (the canonical-id shape it expects never
-# matches an id carrying an embedded `/`). This is NOT the same failure mode
-# `_named_dispatch_strip.py` guards against (Explore/Plan confinement loss,
-# reporting-agent report loss) -- it applies regardless of subagent_type,
-# to any dispatch carrying a `name` at all, and refuses rather than
-# sanitizes: silently mangling the name would let the dispatch through under
 # a DIFFERENT name than the one asked for, which is worse than refusing.
 _TEAMMATE_NAME_PATH_UNSAFE_RE = re.compile(r"[\\/]")
 
@@ -186,8 +172,6 @@ def _teammate_name_deny_message(name: str) -> Optional[str]:
     ).format(char=offending_char)
     return render(compose(prose))
 
-# --- Autonomy rank table (least -> most) ---
-# plan=0 < default=manual=1 < acceptEdits=2 < auto=3 < dontAsk=4 < bypassPermissions=5
 _MODE_RANK = {
     "plan": 0,
     "default": 1,
@@ -209,11 +193,8 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _message_envelope import compose, render  # noqa: E402
 except Exception:
-    # Same defensive fallback as the strips below -- a copied/deployed hook
-    # without its sibling _message_envelope.py must still fail-open (Concern
-    # I simply never fires) rather than crash on import.
     def compose(prose, alternative=None, anchor=None):  # type: ignore[no-redef]
-        class _Message:  # minimal stand-in, unused beyond render() below
+        class _Message:
             pass
 
         msg = _Message()
@@ -226,9 +207,6 @@ except Exception:
 try:
     from _worktree_isolation_strip import compute_strip as _compute_worktree_strip  # noqa: E402
 except Exception:
-    # Same defensive fallback as _engine_root above -- a copied/deployed
-    # hook without its sibling _worktree_isolation_strip.py must still
-    # fail-open (Concern E simply never fires) rather than crash on import.
     def _compute_worktree_strip(tool_input: dict):  # type: ignore[no-redef]
         return None
 
@@ -237,13 +215,6 @@ try:
         compute_named_dispatch_result as _compute_named_dispatch,
     )
 except Exception:
-    # Same defensive fallback as above -- a copied/deployed hook without its
-    # sibling _named_dispatch_strip.py must still fail-open (Concern F
-    # simply never fires) rather than crash on import. NOTE: this is a
-    # fail-open for THIS hook's own missing-sibling deploy failure, distinct
-    # from the module's own internal fail-closed contract (an unrecognised
-    # tool_input key on a real named Explore/Plan dispatch) which only
-    # applies once the module is actually importable and running.
     def _compute_named_dispatch(tool_input: dict):  # type: ignore[no-redef]
         return None
 
@@ -253,9 +224,6 @@ try:
         record_plan_path as _record_plan_path,
     )
 except Exception:
-    # Same defensive fallback as the strips below -- a copied/deployed hook
-    # without its sibling _plan_path_bridge.py must still fail-open (Concern H
-    # simply never fires) rather than crash on import.
     def _extract_plan_path(prompt: str) -> Optional[str]:  # type: ignore[no-redef]
         return None
 
@@ -269,17 +237,10 @@ try:
         compute_foreground_reroute as _compute_foreground_reroute,
     )
 except Exception:
-    # Same defensive fallback as above -- a copied/deployed hook without its
-    # sibling _foreground_dispatch_strip.py must still fail-open (Concern G
-    # simply never fires) rather than crash on import.
     def _compute_foreground_reroute(run_in_background, session_id, tool_input, cwd):  # type: ignore[no-redef]
         return None
 
 def main() -> int:
-    # Fail-open: a stdin read failure (e.g. undecodable bytes under a
-    # non-UTF-8 console codepage) must degrade to an empty payload, not
-    # propagate -- matching the sibling hook block-dispatch-suite-invocation.py
-    # and this file's own documented contract to exit 0 unconditionally.
     try:
         raw = sys.stdin.read()
     except Exception:
@@ -295,13 +256,7 @@ def main() -> int:
     tool_input = data.get("tool_input")
     tool_input_dict = tool_input if isinstance(tool_input, dict) else {}
 
-    # --- Concern I: teammate-name path-segment refusal. Computed
-    # unconditionally, before anything else -- it is not a mode-elevation
     # concern, must not be gated by COORDINATOR_AGENT_MODE_OK, and applies
-    # regardless of subagent_type (unlike Concern F, which only strips/denies
-    # for the Explore/Plan/reporting-type populations). A non-None result is
-    # this hook's own fail-closed leg and wins outright over every other
-    # concern -- checked first in the precedence chain below.
     teammate_name_deny_message: Optional[str] = None
     _name_value = tool_input_dict.get("name")
     if isinstance(_name_value, str):
@@ -310,13 +265,7 @@ def main() -> int:
         except Exception:
             teammate_name_deny_message = None
 
-    # --- Escape hatch: deliberate down-scope dispatch (e.g. read-only scout
-    # from YOLO session). Short-circuits Concern A computation only, matching
-    # the oracle's early-exit placement for that concern (before any Concern
-    # A computation). It deliberately does NOT short-circuit Concerns E/F/G
     # below: COORDINATOR_AGENT_MODE_OK is a permission-mode escape hatch, not
-    # a doctrine/rewrite one, and letting it suppress those strips would
-    # silently un-strip every session that sets it.
     mode_ok_escape = bool(os.environ.get("COORDINATOR_AGENT_MODE_OK"))
 
     parent_mode = data.get("permission_mode") or ""
@@ -325,7 +274,6 @@ def main() -> int:
     need_mode_elevation = False
 
     if not mode_ok_escape:
-        # --- Concern A gate: mode-elevation-needed ---
         if parent_mode:
             parent_rank = _mode_rank(parent_mode)
             child_effective = child_mode or "acceptEdits"
@@ -333,46 +281,19 @@ def main() -> int:
             if parent_rank >= 0 and child_rank >= 0 and parent_rank >= 3 and child_rank < parent_rank:
                 need_mode_elevation = True
 
-    # --- Concern E: worktree-isolation strip (single-emitter fix, see module
-    # docstring). Computed unconditionally -- it is not a
-    # mode-elevation concern and must not be gated by the
     # COORDINATOR_AGENT_MODE_OK escape hatch. Pure computation; None when
-    # there is nothing to strip (isolation absent, any non-"worktree" value,
-    # or the override sentinel is active).
-    # Review: code-reviewer -- the three _compute_* call sites relied entirely
-    # on callee-internal fail-open discipline with no defensive try/except at
-    # the call site; an uncaught exception here would produce no valid JSON
-    # on stdout (fail-CLOSED on a hook whose whole design is fail-open).
-    # Degrade to None on any exception, matching the ImportError fallback's
-    # own contract.
     try:
         worktree_strip_result = _compute_worktree_strip(tool_input_dict)
     except Exception:
         worktree_strip_result = None
 
-    # --- Concern F: named-dispatch (`name` key) strip (single-emitter
-    # fold-in, see module docstring). Computed unconditionally, like Concern
-    # E -- it is not a mode-elevation concern and must not be gated by the
     # COORDINATOR_AGENT_MODE_OK escape hatch. A "deny" result is this
-    # module's own fail-closed leg (unrecognised tool_input key, or an
-    # internal failure, on a genuinely named Explore/Plan dispatch) and MUST
-    # win outright over every other concern -- short-circuit immediately,
-    # before folding anything else into `merged`, exactly as the standalone
-    # guard used to (its deny was never conditional on the other concerns'
-    # state).
     try:
         named_dispatch_result = _compute_named_dispatch(tool_input_dict)
     except Exception:
         named_dispatch_result = None
 
-    # --- Concern G: foreground-dispatch reroute (single-emitter fold-in,
-    # RE-LAND, see module docstring). Computed unconditionally, like Concern
-    # E/F -- it is not a mode-elevation concern and must not be gated by the
     # COORDINATOR_AGENT_MODE_OK escape hatch (its own, distinct escape hatch
-    # is the `.foreground-ok` sentinel, checked inside the pure computation).
-    # A "deny" result (no safely rewritable tool_input) MUST win outright
-    # over every other concern, same precedence tier as Concern F's own
-    # fail-closed leg.
     try:
         foreground_result = _compute_foreground_reroute(
             tool_input_dict.get("run_in_background"),
@@ -383,16 +304,6 @@ def main() -> int:
     except Exception:
         foreground_result = None
 
-    # --- Concern H: plan-path record for a plan-derivable lens dispatch.
-    # Pure side effect, deliberately outside the emit-gate below: this event is
-    # the only one that sees the child's prompt, and SubagentStart -- the only
-    # event that caters -- carries no prompt at all, so the `plan_path` the
-    # provisioning engine's plan-derivable leg gates on has to cross between
-    # them on disk. Nothing about this leg reaches `updatedInput` or the
-    # decision, so it neither joins nor widens the emit-gate. Fail-open: the
-    # recorder swallows every failure and returns False, and a miss means the
-    # lens's sidecar falls through to the session-keyed home exactly as it does
-    # without this leg.
     try:
         _record_plan_path(
             str(data.get("session_id") or ""),
@@ -403,19 +314,9 @@ def main() -> int:
     except Exception:
         pass
 
-    # --- Single-emitter invariant: exactly ONE hookSpecificOutput object is
-    # ever built and written, at the single write call site at the bottom of
-    # this function -- a "deny" (Concern F's or Concern G's own
-    # fail-closed leg) and an "allow" (every other concern) are mutually
-    # exclusive outcomes of the SAME decision, computed into `out` below,
-    # never two independent write sites racing to be the last one out.
     out: Optional[dict[str, Any]] = None
 
     if teammate_name_deny_message is not None:
-        # Concern I's own fail-closed leg -- wins outright over every other
-        # concern, checked before Concern F/G's denies since a name that
-        # cannot be a path segment is a structural defect regardless of
-        # subagent_type or what Concern F would otherwise decide about it.
         out = {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
@@ -424,12 +325,6 @@ def main() -> int:
             }
         }
     elif named_dispatch_result is not None and named_dispatch_result[0] == "deny":
-        # A "deny" result is this module's own fail-closed leg (unrecognised
-        # tool_input key, or an internal failure, on a genuinely named
-        # Explore/Plan dispatch) and MUST win outright over every other
-        # concern -- built here, before anything else is folded into a
-        # merged `tool_input`, exactly as the standalone guard used to (its
-        # deny was never conditional on the other concerns' state).
         _, _, deny_message = named_dispatch_result
         out = {
             "hookSpecificOutput": {
@@ -439,10 +334,6 @@ def main() -> int:
             }
         }
     elif foreground_result is not None and foreground_result[0] == "deny":
-        # Concern G's own fail-closed leg (a provably-foreground dispatch
-        # with no safely rewritable tool_input) -- same precedence tier as
-        # Concern F's deny above: built before anything else is folded into
-        # `merged`, never silently absorbed into an allow.
         _, _, deny_message = foreground_result
         out = {
             "hookSpecificOutput": {
@@ -457,21 +348,7 @@ def main() -> int:
         or named_dispatch_result is not None
         or foreground_result is not None
     ):
-        # --- Combined emit-gate (single-emitter fold-in, FOUR independent
-        # legs): mode-elevation-needed OR worktree-isolation-stripped OR
-        # named-dispatch-stripped OR foreground-dispatch-rerouted. Each leg
-        # is independent -- the worktree strip must fire even when Concern A
-        # doesn't apply (an ordinary dispatch that only happens to carry
-        # isolation: "worktree"), the named-dispatch strip must fire even
-        # when neither Concern A nor E apply (an ordinary named Explore/Plan
-        # dispatch with no other trigger), and the foreground reroute must
-        # fire even when none of Concerns A/E/F apply (an ordinary
-        # foreground Agent dispatch with no other trigger).
 
-        # --- Emit: permissionDecision "allow" + updatedInput (full merge,
-        # whichever mutations apply). Type guard mirrors the oracle's jq path
-        # ("object" type check only -- an empty {} tool_input still
-        # qualifies) rather than the oracle's stricter python-fallback
         # truthy check, since jq is the oracle's PREFERRED path.
         if not isinstance(tool_input, dict):
             return 0
@@ -480,24 +357,6 @@ def main() -> int:
         if need_mode_elevation:
             merged["mode"] = parent_mode
 
-        # Concern E: worktree-isolation strip lands on the SAME merged dict
-        # as every other concern above -- single object, single emission.
-        # Surfaced via a sibling additionalContext string (the same shape
-        # strip-worktree-isolation.py uses for Workflow) rather than
-        # appended into tool_input.prompt, so it composes independently of
-        # whether Concern A's mode overwrite also fired on this call.
-        #
-        # Concern F: named-dispatch strip lands on the SAME merged dict too
-        # -- `name` removal, plus its own additionalContext note. Concern G:
-        # foreground reroute lands on the SAME merged dict too -- sets
-        # `run_in_background: true`, plus its own additionalContext note.
-        # All three notes are additionalContext strings (tool_input.prompt is
-        # untouched by this hook now that catering is retired -- see module
-        # docstring); when several fire on the same dispatch they are
-        # concatenated in a fixed order -- worktree, named-dispatch,
-        # foreground-reroute -- deterministic, never a last-writer-wins
-        # clobber, since this is one hook building one string, not several
-        # hooks racing.
         additional_context_parts: list[str] = []
         if worktree_strip_result is not None:
             _, worktree_note = worktree_strip_result
@@ -510,8 +369,6 @@ def main() -> int:
                 del merged["name"]
             additional_context_parts.append(name_offer)
         if foreground_result is not None and foreground_result[0] == "reroute":
-            # Review: code-reviewer -- consume the callee's returned value
-            # rather than re-hardcoding the literal it stands for.
             merged["run_in_background"] = foreground_result[1]
             additional_context_parts.append(foreground_result[2])
         additional_context = "\n\n".join(additional_context_parts) if additional_context_parts else None

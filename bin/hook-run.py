@@ -1,8 +1,3 @@
-# Unix shebang not required here: never installed by byte copy (see
-# claude-doe.py's own header for that contract); this file is invoked
-# either as `coordinator/bin/hook-run.py` directly (python3 <path>) or
-# resolved as the door's cold fall-through image, which always execs it
-# under an explicit interpreter, never relies on execve(2).
 """
 coordinator/bin/hook-run.py — the ONE command-door entrypoint for every
 `hooks.<name>` op DoE registers (W4-C16, docs/plans/2026-09-18-doe-holds-no-
@@ -104,15 +99,6 @@ import sys
 
 
 def _read_event() -> dict:
-    """Parse the harness's hook event JSON off stdin.
-
-    An empty or unparsable stdin degrades to `{}` rather than raising —
-    the payload-building translation below (`payload_from_event`) already
-    tolerates a missing field per-key (`setdefault(key, None)`), so a
-    malformed event still reaches the op as a mostly-empty payload instead
-    of taking the whole dispatch down before the op gets a chance to answer
-    with its own `unreachable_response`-shaped verdict.
-    """
     raw = sys.stdin.read()
     if not raw.strip():
         return {}
@@ -146,12 +132,6 @@ def _engine_down_pass(event_name: "str | None", detail: str) -> dict:
 
 
 def _read_check_all_names(args: "list[str]") -> "tuple[list[str], int]":
-    """Read the batch of op names for `--check-all`: stdin, or `@<file>` when
-    argv[1] names one. Returns `(names, 0)` on success or `([], 3)` on a
-    read failure (infrastructure, not a finding -- an unreadable `@<file>`
-    is treated the same as a probe failure, never as "0 names, all resolve").
-    Blank lines and `#`-prefixed comments are dropped.
-    """
     if args and args[0].startswith("@"):
         path = args[0][1:]
         try:
@@ -173,12 +153,6 @@ def _read_check_all_names(args: "list[str]") -> "tuple[list[str], int]":
 
 
 def _resolve_engine_identity() -> "tuple[str, str | None]":
-    """Resolve the dispatch engine root and its sha, for attributing a
-    `--check-all` failure to a tree. Import-local: this module's own
-    top-level import block only reaches the engine on a real `hooks.*`
-    dispatch, and `--check-all` must resolve identity even when the engine
-    root itself is the thing that fails to resolve.
-    """
     import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 
@@ -195,12 +169,6 @@ def _engine_identity_line(root: str, sha: "str | None") -> str:
 
 
 def _check_all(args: "list[str]") -> int:
-    """`--check-all`: resolve every `hooks.<name>` op name given on stdin or
-    `@<file>` against the installed engine's registry, WITHOUT dispatching
-    any of them -- no op body runs. See the module docstring's `--check-all`
-    section for the exit-code contract and the registration-vs-execution
-    boundary this verb deliberately does not cross.
-    """
     names, rc = _read_check_all_names(args)
     if rc:
         return rc
@@ -283,22 +251,13 @@ def main(argv: "list[str] | None" = None) -> int:
 
     event = _read_event()
     event_name = event.get("hook_event_name")
-    # The event carries no env; this process's env is the caller's on both
-    # legs (cold: the hook's own process; served: the isolated borrow bound
-    # the caller's prefixed names -- see entry_seam._environ_identity_borrow).
     if not isinstance(event.get("env"), dict):
         event = {**event, "env": dict(os.environ)}
     params = {"payload": payload_from_event(event)}
 
     # A worktree-scoped op REQUIRES `_origin_worktree` and refuses (-32602)
-    # without it; `coordinator_core/invoke/__main__.py` injects it for the
-    # cold path, so this door must too or it fails open instead of running.
-    #
     # NEGATIVE SPEC: `show_toplevel` WALKS ONLY, never spawns -- a spawn here
-    # would be break-class on a PreToolUse hot path. Inject ONLY for ops in
     # `WORKTREE_SCOPED_OPS` (that set's parity-check contract clause (1)) --
-    # never stamp a central/none-scoped op. An unresolvable worktree passes
-    # None, which `dispatch_from_hook` omits rather than carrying as "".
     origin_worktree = None
     if op_name in WORKTREE_SCOPED_OPS:
         event_cwd = event.get("cwd")
@@ -311,11 +270,6 @@ def main(argv: "list[str] | None" = None) -> int:
         sys.stderr.write("hook-run: %s: %s\n" % (op_name, exc))
         if advisory:
             return 0
-        # Same obligation `hook_http.py` itself carries for its own transport:
-        # a guard that could not run must never read as one that passed.
-        # `is_blocking_event` is consulted for parity with that module's own
-        # accounting only -- the response shape (and the exit code) are the
-        # same either way, per this file's own docstring.
         _ = is_blocking_event(event_name)
         sys.stdout.write(json.dumps(unreachable_response(event_name, str(exc))))
         sys.stdout.write("\n")
@@ -329,16 +283,6 @@ def main(argv: "list[str] | None" = None) -> int:
 
 
 def _ask_for_the_engine_back() -> None:
-    """Cold only: the warm door fell through to this process because it could
-    not reach the engine, so ask for it back, or every later hook pays this
-    interpreter start too. Served in-engine there is nothing to ask for.
-
-    A ping through `warm.client.try_warm_dispatch` rather than a spawn of our
-    own: that seam already owns the whole policy (spawn only on an absent
-    server, debounced across processes, never on a contended one, never from
-    test traffic), and a second copy of it here would drift. Best-effort:
-    the verdict is already written, so nothing here may fail the hook.
-    """
     if os.environ.get("COORDINATOR_EXECUTION_ROUTE") == "warm_server":
         return
     try:

@@ -60,6 +60,20 @@ Dispatch `coordinator:review-integrator` on the on-disk sidecar path (never inli
 findings) plus affected file paths. It applies inline fixes and annotations. Findings needing 3+
 interacting files or new abstractions go to Step 5 instead. No findings: skip to Step 6.
 
+## Step 4.5: Commenting Lint Sweep
+
+Non-blocking. Run alongside the reviewer dispatch, never as a gate: `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" ci.run_commenting_sweep '{"repo_root":"<repo-root>"}'`.
+Passing no `paths` (this call) scopes the sweep to files changed against the default branch plus
+untracked files — the right size for a nightly pass, never the whole tracked tree. Its `findings`
+(a changelog, attribution, task-ref, narration or grep-bait comment shape) file to the debt
+backlog the same way Step 5 files a reviewer finding, `source: daily-health/commenting-sweep/{date}`.
+No findings: skip. This is reporting only — no hook, no gate, no pre-commit leg.
+
+**Audit-cadence (whole-repo) form**, for `/architecture-audit` or a periodic full sweep only —
+never the nightly default above: `... ci.run_commenting_sweep '{"repo_root":"<repo-root>","paths":[<every tracked path from "git ls-files">]}'`.
+Passing an explicit `paths` list is what scans the whole tree; this is a heavier, occasional pass,
+not the per-run default.
+
 ## Step 5: Debt Backlog
 
     `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-queue-append.exe" --schema debt-backlog`

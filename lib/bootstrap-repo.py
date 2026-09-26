@@ -8,40 +8,10 @@ COORDINATOR_ROOT so the op's sibling-script resolver
 (check-install-divergence.py) finds this DoE clone. Called per-repo by
 bootstrap-orchestrate.py.
 """
-# coordinator/lib/bootstrap-repo.py — CLI trampoline over claude-klabauter
-# coordinator_core.ops.bootstrap_repo.
-#
 # Full port (DR-059/BIG_PORT wave): the bash implementation (git-as-revert
-# bootstrap primitive — ensure-git/assert-clean/scaffold/conflict-warn/commit
-# pipeline) has been fully ported to coordinator_core/ops/bootstrap_repo.py
-# (claude-klabauter-resident, 16 co-located tests in test_bootstrap_repo.py). This file is
-# now a thin DoE-side (contract) trampoline over that claude-klabauter (engine) module,
-# per DR-047 (DoE owns contract/generator, claude-klabauter owns engine).
-#
-# Sibling-script resolution: the ported op needs to find a DoE-resident
-# sibling (bin/check-install-divergence.py; canonical structure scaffolding
-# now routes to the claude-klabauter coordinator_core.install.scaffold_structure CLI)
-# that is NOT part of this port. This trampoline computes its own coordinator
-# root (it lives at coordinator/lib/bootstrap-repo.py, so coordinator/ is one
 # level up) and sets COORDINATOR_ROOT in the environment (if not already set)
-# before importing the op — the op's own rung-1 resolver reads that var, mirroring
-# the convention already used by coordinator_core.ops.learn_lessons_roots /
-# coordinator_doe_root.
-#
-# Usage / flags / exit codes: unchanged from the bash oracle — see the op
-# module's own docstring (coordinator_core/ops/bootstrap_repo.py) for the full
-# business-code table; `--help` on this trampoline prints the identical text
 # via the op. TRANSPORT failure (engine-root resolution or op-import failure,
 # below) is a DEDICATED exit code 5, distinct from the op's business codes
-# 0-4 — a caller checking rc==1 for "usage error / git not available" must
-# not conflate that with "the claude-klabauter link is down and nothing ran at all."
-# 0-4 are all business codes; reusing 1 for
-# transport failure violates the porter addendum's A3/A3b exit-code-collision
-# rule. Matches the sibling trampolines' (verify-no-console-flash.py,
-# migrate-state-to-claude-klabauter.sh, parse-completeness-item.py) dedicated-code
-# convention.
-#
-# Spec backlink: docs/plans/2026-05-29-it-just-works-agentic-install-currency.md § Chunk 2
 #              + docs/plans/2026-07-16-bash-clean-slate-residual-migration.md (BIG_PORT wave)
 
 from __future__ import annotations
@@ -50,8 +20,8 @@ import os
 import sys
 
 _THIS_FILE = os.path.abspath(__file__)
-_LIB_DIR_SELF = os.path.dirname(_THIS_FILE)  # coordinator/lib
-_COORDINATOR_ROOT = os.path.dirname(_LIB_DIR_SELF)  # coordinator/
+_LIB_DIR_SELF = os.path.dirname(_THIS_FILE)
+_COORDINATOR_ROOT = os.path.dirname(_LIB_DIR_SELF)
 _BIN_LIB_DIR = os.path.join(_COORDINATOR_ROOT, "bin", "lib")
 
 if _BIN_LIB_DIR not in sys.path:

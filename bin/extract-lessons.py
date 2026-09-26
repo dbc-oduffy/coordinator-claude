@@ -41,14 +41,10 @@ import re
 import sys
 from pathlib import Path
 
-GENERATES = []  # writes only to the caller-supplied -o/--out path (or stdout when omitted) — no fixed tracked artifact
+GENERATES = []
 
 
-# ---------------------------------------------------------------------------
-# Extraction from per-entry YAML directory
-# ---------------------------------------------------------------------------
-
-_TITLE_OVERLAP_MIN = 25  # min chars of title that must appear verbatim in routing summary
+_TITLE_OVERLAP_MIN = 25
 
 
 def _lesson_date(fm: dict) -> str | None:
@@ -88,7 +84,7 @@ def _load_lesson_file(path: Path) -> tuple[dict | None, str]:
     Returns `(None, "")` and warns when the file genuinely cannot be parsed, so the
     caller skips it rather than emitting a record with invented content.
     """
-    import yaml  # PyYAML — available in coordinator venv
+    import yaml
 
     text = path.read_text(encoding="utf-8")
     trailing = ""
@@ -99,7 +95,6 @@ def _load_lesson_file(path: Path) -> tuple[dict | None, str]:
 
     if text.startswith("---"):
         parts = re.split(r"^---[ \t]*$", text, flags=re.MULTILINE)
-        # parts[0] is the empty string before the opening fence.
         if len(parts) >= 3:
             head, trailing = parts[1], "---".join(parts[2:])
         elif len(parts) == 2:
@@ -214,7 +209,7 @@ def extract(lessons_dir: Path, shortname: str, since: str | None,
     Without the flag a `.md` entry is invisible to extraction and therefore to every
     routing and verify step downstream — silently, with no warning and no count.
     """
-    import yaml  # PyYAML — available in coordinator venv
+    import yaml
 
     yaml_files = sorted(lessons_dir.glob("*.yaml"))
     records: list[dict] = []
@@ -224,8 +219,6 @@ def extract(lessons_dir: Path, shortname: str, since: str | None,
         "total_blocks_seen": len(yaml_files),
         "malformed_skipped": 0,
         "malformed_files": [],
-        # Visible even when include_md is False, so the blind spot is a reported
-        # count rather than a silent absence — see `main()`'s post-extract warning.
         "md_files_present": len(sorted(lessons_dir.glob("*.md"))) if not include_md else 0,
     }
 
@@ -299,7 +292,6 @@ def extract(lessons_dir: Path, shortname: str, since: str | None,
 def _emit(records: list[dict], fmt: str, meta: dict) -> str:
     if fmt == "json":
         return json.dumps({"meta": meta, "records": records}, indent=2, ensure_ascii=False)
-    # Minimal YAML emitter (no external dep). Bodies are block scalars to stay verbatim.
     out: list[str] = ["# extract-lessons.py — deterministic verbatim extraction"]
     for k, v in meta.items():
         out.append(f"# {k}: {v}")
@@ -312,25 +304,13 @@ def _emit(records: list[dict], fmt: str, meta: dict) -> str:
         out.append(f"    date: {json.dumps(r['date'])}")
         out.append(f"    undated: {str(r['undated']).lower()}")
         out.append(f"    title: {json.dumps(r['title'])}")
-        # Verbatim body as a literal block scalar.
         out.append("    body: |")
         for bl in r["body"].splitlines():
             out.append(f"      {bl}")
     return "\n".join(out) + "\n"
 
 
-# ---------------------------------------------------------------------------
-# Verify gate — id-primary / source-advisory grounding (A6 fix, 2026-07-23).
-# The gate now grounds on `id` (unconditional, hard failure on mismatch) as the
 # PRIMARY key; `source` is ADVISORY metadata — missing, stripped, or rewritten
-# `:N` is re-attached/noted, never a failure. A present-but-disagreeing `source`
-# is a warning. Title-overlap remains a hard failure (catches summary-swap).
-# Negative-spec: do NOT reinstate a hard failure on `source`'s `:N` shape — that
-# shape is a synthetic enumeration index, not a real line number, and treating
-# it as load-bearing produced a 29/29 false-failure on honest records whose
-# `source` had merely been reformatted by a routing LLM. See verify()'s
-# docstring for the full incident writeup.
-# ---------------------------------------------------------------------------
 
 _ID_LINE = re.compile(r'^\s*-\s+id:\s*["\']?([^"\']+?)["\']?\s*$')
 _LIST_FIELD = re.compile(r'^\s{2,}(\w+):\s*["\']?(.*?)["\']?\s*$')
@@ -376,7 +356,6 @@ def _parse_records_file(path: Path) -> list[dict]:
         m_f = _LIST_FIELD.match(line)
         if m_f:
             k, v = m_f.group(1), m_f.group(2)
-            # Only first occurrence wins (avoid `destinations: -` nested `target:` etc.).
             if k in ("source", "summary", "title", "source_line") and k not in cur:
                 cur[k] = v
     if cur:
@@ -460,12 +439,9 @@ def _discover_extractions(extraction_dir: Path) -> dict[str, Path]:
     return {shortname: path}. Multiple matches for the same shortname is a fail-loud
     condition the caller surfaces — never silently pick one."""
     by_shortname: dict[str, list[Path]] = {}
-    # Sort by name (not by Path) so duplicate-detection error messages are deterministic
-    # across POSIX/Windows — Path.__lt__ folds in drive-prefix casing on Windows.
     for p in sorted(extraction_dir.iterdir(), key=lambda x: x.name):
         if not p.is_file():
             continue
-        # Match `<shortname>-extracted-full.{yaml,json}` (the canonical verify-oracle name).
         m = re.match(r"(.+)-extracted-full\.(yaml|json)$", p.name)
         if not m:
             continue
@@ -473,7 +449,6 @@ def _discover_extractions(extraction_dir: Path) -> dict[str, Path]:
     out: dict[str, Path] = {}
     for shortname, paths in by_shortname.items():
         if len(paths) > 1:
-            # Multiple full extractions for one shortname is operator error — surface, do not pick.
             raise RuntimeError(
                 f"multiple `{shortname}-extracted-full.*` files in {extraction_dir}: "
                 f"{[p.name for p in paths]}"
@@ -541,7 +516,6 @@ def verify(extraction_path: Path, routing_path: Path) -> int:
     notes: list[str] = []
 
     if extraction_path.is_dir():
-        # Multi-repo mode: discover extractions and route each routing record by shortname.
         try:
             extractions = _discover_extractions(extraction_path)
         except RuntimeError as e:
@@ -551,7 +525,6 @@ def verify(extraction_path: Path, routing_path: Path) -> int:
             print(f"verify: no `*-extracted-full.{{yaml,json}}` files found in {extraction_path}",
                   file=sys.stderr)
             return 2
-        # Pre-load per-shortname maps once.
         per_shortname: dict[str, tuple[dict, dict]] = {}
         for shortname, ext_path in extractions.items():
             ext_records = _load_extraction(ext_path)
@@ -574,7 +547,6 @@ def verify(extraction_path: Path, routing_path: Path) -> int:
         src = r.get("source", "")
         ln = _line_from_source(src)
 
-        # Pick which (by_line, by_id) maps to use.
         if extraction_path.is_dir():
             shortname = _shortname_from_id(rid)
             if shortname is None:
@@ -593,8 +565,6 @@ def verify(extraction_path: Path, routing_path: Path) -> int:
         else:
             by_line, by_id = per_shortname["__single__"]
 
-        # (1) PRIMARY, HARD — id must exist in the extraction, unconditionally.
-        # No shape carve-out: a fabricated id in ANY shape is real fabrication.
         if rid not in by_id:
             suspects.append(f"  {rid}: id not in extraction — fabricated id "
                             f"(cited source was `{src}`)")
@@ -602,7 +572,6 @@ def verify(extraction_path: Path, routing_path: Path) -> int:
         ext_rec = by_id[rid]
 
         # (2) ADVISORY, SOFT — source is re-attached/note-only when missing or
-        # malformed; a present-but-disagreeing source is a warning, never a failure.
         if ln is None:
             canonical_source = ext_rec.get("source", "(none in extraction)")
             notes.append(
@@ -619,8 +588,6 @@ def verify(extraction_path: Path, routing_path: Path) -> int:
                     f"(possible content drift; not a grounding failure)"
                 )
 
-        # (3) HARD — title overlap catches the summary-swap fabrication shape that
-        # an honest id+source pair does not.
         summary = r.get("summary", "")
         if summary and not _title_overlap(ext_rec.get("title", ""), summary):
             suspects.append(
@@ -701,7 +668,6 @@ def main(argv: list[str]) -> int:
     if args.cmd == "verify":
         return verify(args.extraction, args.routing)
 
-    # extract
     if not args.directory.exists():
         print(f"error: {args.directory} does not exist", file=sys.stderr)
         return 2
@@ -713,9 +679,6 @@ def main(argv: list[str]) -> int:
         )
         return 2
 
-    # Shortname default: infer from state/lessons/ parent chain.
-    # Fail loud rather than silently pick a garbage shortname when the heuristic doesn't
-    # hold — detect-then-silently-pick is the documented footgun (the Staff Engineer F3).
     if args.shortname:
         shortname = args.shortname
     else:
@@ -733,10 +696,6 @@ def main(argv: list[str]) -> int:
 
     records, stats = extract(args.directory, shortname, args.since, args.include_md)
 
-    # Visibility fix (klabauter#31): a `.md` capture is invisible to every downstream
-    # consumer unless `--include-md` is passed, and that absence previously carried no
-    # count and no warning — a smaller corpus with nothing to say why. Report it loudly
-    # whenever it would otherwise pass unremarked.
     if not args.include_md and stats["md_files_present"]:
         print(
             f"warning: {stats['md_files_present']} `.md` lesson file(s) in "
@@ -745,11 +704,6 @@ def main(argv: list[str]) -> int:
             file=sys.stderr,
         )
 
-    # Fail-loud fix (klabauter#32): a malformed record previously warned to stderr and
-    # vanished from the corpus with exit 0 — indistinguishable from "no such file
-    # existed". A record that cannot be parsed is a defect in the source, not a file
-    # to silently exclude, so it must fail the run rather than the run succeeding over
-    # a smaller, unexplained count.
     if stats["malformed_skipped"]:
         print(
             f"error: {stats['malformed_skipped']} lesson file(s) could not be parsed "

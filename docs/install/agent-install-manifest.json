@@ -83,7 +83,7 @@
       },
       "install": {
         "mode": "manual",
-        "remediation": "set statusLine in ~/.claude/settings.json to a `type: command` entry invoking <repo>/coordinator/bin/statusline.py by absolute path through a real python (e.g. {\"type\": \"command\", \"command\": \"python /absolute/path/to/coordinator/bin/statusline.py\"}). If statusLine already carries a different value, relocate it -- do not clobber an existing registration."
+        "remediation": "if statusLine already carries a value, move that object verbatim into $COORDINATOR_SETTINGS_HOME/statusline-inner.json (falls back to ~/.coordinator-claude-settings/statusline-inner.json when unset). Then run: S=\"$(cat \"$HOME/.claude/.coordinator-plugin-root\" 2>/dev/null)/bin/statusline.py\"; python3 \"$S\" --selftest || python \"$S\" --selftest -- and confirm it prints a sidecar: line and an inner: line. Only then set statusLine in ~/.claude/settings.json to {\"type\": \"command\", \"command\": \"S=\\\"$(cat \\\"$HOME/.claude/.coordinator-plugin-root\\\" 2>/dev/null)/bin/statusline.py\\\"; python3 \\\"$S\\\" || python \\\"$S\\\"\"}."
       },
       "reference": "coordinator/docs/wiki/claude-md-surfaces/anthropic-harness-capability-map.md"
     }

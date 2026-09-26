@@ -43,39 +43,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Baseline recount from MASTER-disposition.md (2026-07-15), so the scorecard
-# shows direction of travel rather than a bare current number.
 BASELINE = {"all": 666, "tests": 278, "runtime": 388}
 
-# Clean-slate floor: files that stay bash because no Python equivalent can
-# exist, not because a bash caller happens to want them.
-#
-# Emptied of resolve-python.sh 2026-07-22. Its chicken-egg rationale did not
-# survive inspection: every .cmd launcher states in its own header that it
-# CANNOT defer to resolve-python.sh "because that is bash", and carries an
-# independent resolution ladder — so the file was never on the Windows
-# bootstrap path it claimed to serve. gen-launcher-shim.py reimplements its
-# pinned-interpreter tier in Python, which is proof by construction that
-# Python can do the job. Its only remaining sourcers were three bash test
-# files, deleted with it. spawn-hidden.sh left this floor the same day for a
 # similar reason (a Python parent can set CREATE_NO_WINDOW directly).
-#
-# The surviving irreducibles are NOT tracked here because they are not under
-# the runtime-bash count: interrogating the invoking shell's own version
-# (invoking-shell-bash4-probe.sh) and exporting env into a parent shell via
-# `source` (claude-machine-local.sh). Both are things a child process cannot
-# do by construction — the only defensible shape for this list.
 FLOOR = ()
 
 
 def repo_root() -> Path:
-    """Resolve the DoE repo root from git, falling back to this file's tree.
-
-    Resolves through ``coordinator_core.git.repo_root.show_toplevel`` rather
-    than spawning (chunk C5, docs/plans/2026-08-16-a-process-per-predicate.md)
-    — that seam walks for a `.git` entry and spawns only if the walk finds
-    none, so the ordinary case costs a parent walk instead of a process.
-    """
     try:
         from coordinator_core.git.repo_root import show_toplevel
 
@@ -84,12 +58,10 @@ def repo_root() -> Path:
             return Path(top)
     except (ImportError, OSError):
         pass
-    # bin/ -> coordinator/ -> repo root
     return Path(__file__).resolve().parents[2]
 
 
 def is_polyglot(path: Path) -> bool:
-    """True if the file is a `#!/bin/sh` trampoline over a Python body."""
     try:
         with path.open("r", encoding="utf-8", errors="replace") as fh:
             return fh.readline().startswith("#!/bin/sh")
@@ -98,16 +70,6 @@ def is_polyglot(path: Path) -> bool:
 
 
 def is_ported(path: Path) -> bool:
-    """True if the file is fully-native Python already, `.sh` suffix kept only
-    for caller-path back-compat (e.g. detect-hardware.sh, spawn-hidden.sh).
-
-    Distinct from `is_polyglot`: a polyglot's *shebang line* is `#!/bin/sh`
-    (bash still runs first and re-execs into Python); a ported file's shebang
-    is already `#!/usr/bin/env python3` (or `python`) — no bash involved at
-    all. Conflating the two previously miscounted every ported `.sh`-suffixed
-    file as "real bash" (the `else` branch below), inflating the debash
-    scorecard's remaining-effort number for work already done.
-    """
     try:
         with path.open("r", encoding="utf-8", errors="replace") as fh:
             first = fh.readline()
@@ -127,13 +89,8 @@ def collect(coordinator: Path) -> dict:
         if not path.is_file():
             continue
         rel = path.relative_to(coordinator).as_posix()
-        # A `tests/` or `test/` path component marks the held-out test stream.
         if any(part in ("tests", "test") for part in path.relative_to(coordinator).parts):
             tests.append(rel)
-        # Co-located `*.test.sh` sit next to their target rather than under a
-        # tests/ dir. MASTER-disposition.md scores them separately because they
-        # follow their target's disposition — counting them as runtime real-bash
-        # overstates the porting effort.
         elif path.name.endswith(".test.sh"):
             colocated_tests.append(rel)
         elif is_polyglot(path):
@@ -163,7 +120,6 @@ def collect(coordinator: Path) -> dict:
 
 
 def delta(now: int, was: int) -> str:
-    """Render movement against the baseline, e.g. '666 -> 513  (-153, -23%)'."""
     if not was:
         return str(now)
     diff = now - was
@@ -189,7 +145,7 @@ def main(argv: "list[str] | None" = None) -> int:
     coordinator = repo_root() / "coordinator"
     if not coordinator.is_dir():
         print(f"ERROR: no coordinator/ tree at {coordinator}", file=sys.stderr)
-        return 0  # report-only: never gate a caller
+        return 0
 
     data = collect(coordinator)
 

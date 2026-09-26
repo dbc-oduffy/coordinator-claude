@@ -66,8 +66,6 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import run_stop_hook_pointer_shim as _run_stop_hook_pointer_shim  # noqa: E402
 except Exception:
-    # A hook script deployed WITHOUT its sibling _engine_root.py must still
-    # fail-open rather than crash on import.
     def _run_stop_hook_pointer_shim(module_name: str) -> int:
         return 0
 

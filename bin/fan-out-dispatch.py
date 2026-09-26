@@ -98,17 +98,9 @@ def _resolve_plugin_root() -> str:
 
 # Module ATTRIBUTE, restored as a lazy one. `PLUGIN_ROOT` was a module-scope
 # constant (`PLUGIN_ROOT = _resolve_plugin_root()`) until c992b99f7 deferred this
-# module's body to keep it inert on the warm-serve path. That call is not an
-# inert body statement, so it could not stay -- but external readers of
 # `fan_out_dispatch.PLUGIN_ROOT` were never considered, and
-# `provision-sidecar.py` is one: it died with `module has no attribute
 # PLUGIN_ROOT`, taking every review-dispatch sidecar with it.
-#
-# PEP 562 resolves both constraints at once: the body stays inert because
-# nothing runs at import, and the attribute exists again because the lookup is
-# what triggers the resolve. Not cached -- `_resolve_plugin_root` reads
 # CLAUDE_PLUGIN_ROOT, and a cached value would pin the first reader's
-# environment for the life of a warm process shared by ~50 sessions.
 def __getattr__(name: str) -> str:
     if name == "PLUGIN_ROOT":
         return _resolve_plugin_root()
@@ -171,18 +163,6 @@ def _strip_html_comment_header(template: str) -> str:
 
 
 def _resolve_claude_klabauter_root_silent() -> Optional[str]:
-    """Resolve the engine root via the shared cc_invoke resolver (self-location-first —
-    engine-root env -> walk-up to this script's own enclosing checkout -> the
-    pointer-file/registry ladder) and put it on sys.path; None on any failure
-    (fail-open).
-
-    This puts the root on sys.path itself, but every
-    caller (`_no_console_kw`, `_generate_candidate_restatements`,
-    `_provision_sidecars`) still performs its own guarded
-    `if claude_klabauter_root not in sys.path: sys.path.insert(...)` afterward. That
-    redundancy is harmless (idempotent) and intentionally left in place, not
-    removed by this conversion — do not read this docstring as claiming
-    callers dropped it."""
     try:
         sys.path.insert(0, os.path.join(SCRIPT_DIR, "lib"))
         import cc_invoke  # noqa: E402  (path injected above)
@@ -193,8 +173,6 @@ def _resolve_claude_klabauter_root_silent() -> Optional[str]:
 
 
 def _no_console_kw() -> Dict[str, Any]:
-    """Splat-ready Windows console-suppression kwarg; ``{}`` on any resolution
-    failure (fail-open, mirrors ``_resolve_claude_klabauter_root_silent``)."""
     try:
         claude_klabauter_root = _resolve_claude_klabauter_root_silent()
         if claude_klabauter_root and claude_klabauter_root not in sys.path:
@@ -212,20 +190,6 @@ _WIKI_CHANGE_KINDS = ("wiki-append", "wiki-new")
 def _generate_candidate_restatements(
     target_path: str, incoming_text: str
 ) -> "List[Dict[str, Any]]":
-    """Push-not-pull hook onto `coordinator_core.learn_lessons_assemble.generate_candidates`
-    (claude-klabauter-resident, morning's producer for the `candidate_restatements` field the executor's
-    dispatch contract already promises — see `coordinator/agents/executor.md` §
-    Candidate-Restatement Disposition). Trims each candidate to the pinned
-    `{line, excerpt}` shape only — the generator's `signal`/`shared_ngrams`/etc. fields are its
-    own internal narration, not part of this compiler's frozen field contract.
-
-    Fails open, mirroring `_provision_sidecars`'s own discipline for an optional computed
-    field: an unresolvable claude-klabauter root, a missing module, or any exception from the call
-    itself all degrade to an empty list rather than raising — a candidate generator failing
-    must never block a real dispatch. Callers distinguish "computed, none found" (empty list,
-    called cleanly) from "not computed" (field omitted entirely) by change_kind alone; this
-    function's return value is always the former once invoked.
-    """
     try:
         claude_klabauter_root = _resolve_claude_klabauter_root_silent()
         if not claude_klabauter_root or not os.path.isdir(claude_klabauter_root):
@@ -268,16 +232,6 @@ def _provision_sidecars(
     chunk_ids: List[str],
     plugin_root: str,
 ) -> "tuple[str, List[str]]":
-    """Derive plan-slug and provision per-chunk run-report sidecars in-process.
-
-    Returns (plan_slug, sidecar_paths) where sidecar_paths[i] parallels chunk_ids[i]
-    (empty string when a chunk's provisioning failed open). Raises SystemExit(2) only
-    on an empty-after-strip plan-slug, matching the bash oracle's hard error.
-
-    Fail-open (mirrors provision_report's own discipline): unresolvable claude-klabauter root,
-    missing module, absent git root, or any per-chunk exception leaves that chunk's
-    sidecar path empty and emits no sidecar_path: line — never bricks the wave.
-    """
     plan_slug = _derive_plan_slug(plan_path)
     if not plan_slug:
         _err(f"fan-out-dispatch.py: ERROR — could not derive plan-slug from: {plan_path}")
@@ -311,7 +265,6 @@ def _provision_sidecars(
     except Exception:
         return plan_slug, sidecar_paths
 
-    # Precedence: coordinator-set > harness-legacy > harness-current (mirrors the bash oracle).
     session_id = (
         os.environ.get("COORDINATOR_SESSION_ID")
         or os.environ.get("CLAUDE_SESSION_ID")
@@ -321,9 +274,6 @@ def _provision_sidecars(
     policy_path = os.path.join(plugin_root, "subagent-sandbox-policy.yaml")
 
     for i, cid in enumerate(chunk_ids):
-        # Pre-flatten the key call-site-side (DEC-6): join plan-slug and chunk-id on a
-        # literal '.' so the engine sanitizer keeps the mapping injective (a '/' would be
-        # dropped, flattening two distinct keys into a collision).
         provision_key = f"{plan_slug}.{cid}"
         payload = {
             "agent_type": "coordinator:executor",
@@ -384,27 +334,10 @@ def _machine_local_get(key: str) -> str:
 
 
 def _memory_probe() -> str:
-    """Run probe-memory-headroom.py best-effort with a wall-clock cap; empty on any failure.
-
-    Deliberate isolation boundary — do not convert to an in-process
-    import. This is crash containment plus clean measurement: the
-    memory-headroom probe must not measure the parent's own RSS, and a
-    probe crash must not take the dispatcher down with it. Reason
-    recorded in
-    state/audits/2026-08-06-self-spawn-isolation-boundary-classification.md.
-    """
     probe = os.path.join(SCRIPT_DIR, "probe-memory-headroom.py")
     if not os.path.isfile(probe):
         return ""
     try:
-        # `lib` is injected by `_resolve_claude_klabauter_root_silent`, which this path
-        # does not call -- so bootstrap here too rather than depend on call
-        # order. `import lib` (coordinator/bin/lib/__init__.py is the ONE
-        # place that directory is put on sys.path), not a per-file
-        # sys.path.insert -- the latter was a genuinely NEW per-file insert
-        # introduced during the 2026-08 lazy-bootstrap sweep (Finding 6,
-        # 2026-08-29 review-finding sweep), the one case in this file's slice
-        # without a matching deletion elsewhere.
         import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
         from cc_invoke import child_env  # noqa: E402
 
@@ -422,7 +355,6 @@ def _memory_probe() -> str:
 
 
 def _probe_field(probe_out: str, key: str) -> str:
-    """Return the value after the first '=' for `key=...` in probe_out (forward-compatible)."""
     for line in probe_out.split("\n"):
         idx = line.find("=")
         if idx >= 0 and line[:idx] == key:
@@ -449,7 +381,6 @@ def main(argv: List[str]) -> int:
     spec_file = ""
     plan_path = ""
 
-    # ----- Argument parsing (preserve exit-2 usage/environment contract) -----
     args = list(argv)
     i = 0
     while i < len(args):
@@ -472,7 +403,6 @@ def main(argv: List[str]) -> int:
             _err(f"fan-out-dispatch.py: unknown argument: {a}")
             return 2
 
-    # ----- Git repo check (AC8) -----
     try:
         inside = subprocess.run(
             ["git", "rev-parse", "--is-inside-work-tree"],
@@ -499,7 +429,6 @@ def main(argv: List[str]) -> int:
         _err("  Remediation: checkout a named branch before running fan-out-dispatch.")
         return 2
 
-    # ----- Read spec input -----
     if spec_file:
         if not os.path.isfile(spec_file):
             _err(f"fan-out-dispatch.py: spec file not found: {spec_file}")
@@ -513,7 +442,6 @@ def main(argv: List[str]) -> int:
         _err("fan-out-dispatch.py: empty spec — no chunks to process")
         return 2
 
-    # ----- Load snippets -----
     for path, label in (
         (peer_scope_snippet, "peer-scope"),
         (plan_doc_oos_snippet, "plan-doc-oos"),
@@ -522,8 +450,6 @@ def main(argv: List[str]) -> int:
         if not os.path.isfile(path):
             _err(f"fan-out-dispatch.py: ERROR — {label} snippet not found: {path}")
             return 2
-    # Bash `$(cat file)` strips trailing newlines; rstrip("\n") mirrors that so the emitted
-    # blocks stay byte-faithful (the emission adds exactly one trailing newline per snippet).
     with open(peer_scope_snippet, "r", encoding="utf-8") as f:
         peer_scope_template = f.read().rstrip("\n")
     with open(plan_doc_oos_snippet, "r", encoding="utf-8") as f:
@@ -531,7 +457,6 @@ def main(argv: List[str]) -> int:
     with open(text_only_snippet, "r", encoding="utf-8") as f:
         text_only_preamble = f.read().rstrip("\n")
 
-    # ----- Parse and validate spec rows (AC1) -----
     chunk_ids: List[str] = []
     chunk_briefs: List[str] = []
     chunk_files_raw: List[str] = []
@@ -547,13 +472,6 @@ def main(argv: List[str]) -> int:
 
         row_num += 1
 
-        # Validate at the RAW line (pre-collapse) that a
-        # row supplying a 5th (change_kind) field also supplies a non-empty 4th (pin-or-`-`)
-        # field. Once tabs collapse below, a genuinely-empty 4th field is indistinguishable
-        # from an absent one — a caller who leaves the 4th field empty instead of using the
-        # `-` sentinel would otherwise have change_kind silently misread as pin_raw and
-        # change_kind_raw silently dropped, producing a wrong "malformed pin" NOTE instead of
-        # a clean failure. Detect-then-fail-loud, not detect-then-document.
         raw_fields = line.split("\t")
         if len(raw_fields) >= 5 and raw_fields[3] == "":
             _err(
@@ -567,8 +485,6 @@ def main(argv: List[str]) -> int:
             _err("  No output emitted.")
             return 1
 
-        # IFS=$'\t' read -ra semantics: tab is IFS-whitespace, so leading/trailing tabs
-        # are stripped and runs of tabs collapse — equivalent to dropping empty fields.
         fields = [f for f in line.split("\t") if f != ""]
 
         if len(fields) < 3 or len(fields) > 5:
@@ -616,8 +532,6 @@ def main(argv: List[str]) -> int:
                 _err("  No output emitted.")
                 return 1
             with open(brief_file, "r", encoding="utf-8") as bf:
-                # Bash `$(cat file)` strips trailing newlines; match that so the emptiness
-                # check and emitted brief are byte-faithful.
                 brief = bf.read().rstrip("\n")
             if brief == "":
                 _err(
@@ -638,12 +552,9 @@ def main(argv: List[str]) -> int:
         _err("fan-out-dispatch.py: no valid chunk rows found in spec")
         return 2
 
-    # ----- Build per-chunk file lists (split on comma, trim whitespace) -----
     chunk_files_lists: List[List[str]] = []
     for idx, chunk_id in enumerate(chunk_ids):
         raw = chunk_files_raw[idx]
-        # NOTE — format limitation: comma is the field-3 delimiter, so a path containing a
-        # literal comma silently becomes two path entries (documented known behaviour; test B6).
         joined: List[str] = []
         for p in raw.split(","):
             p = p.strip()
@@ -658,14 +569,10 @@ def main(argv: List[str]) -> int:
             joined.append(p)
         chunk_files_lists.append(joined)
 
-    # ----- Pinned-interface existence check (offer-shaped — exit 0, NOTE to stderr) -----
     for idx in range(chunk_count):
         pin = chunk_pins[idx]
-        # "-" is the documented "no pin" sentinel — used to reach the 5th (change_kind)
-        # field without declaring a pinned interface; skipped silently, no NOTE.
         if pin == "" or pin == "-":
             continue
-        # Split on FIRST '@' only.
         at = pin.find("@")
         pin_symbol = pin[:at] if at >= 0 else pin
         pin_path = pin[at + 1:] if at >= 0 else ""
@@ -704,7 +611,6 @@ def main(argv: List[str]) -> int:
                 "docs/wiki/dispatching-parallel-agents.md § Dispatch-Gate Taxonomy."
             )
 
-    # ----- File-overlap intersection pass (AC1) — pairwise, fail-loud -----
     overlap_found = False
     overlap_report = ""
     for a in range(chunk_count):
@@ -731,23 +637,11 @@ def main(argv: List[str]) -> int:
         _err("  No output emitted.")
         return 1
 
-    # ----- Candidate-restatement push (wiki-append / wiki-new rows only) -----
-    # None means "not computed" (change_kind isn't wiki-append/wiki-new — no field emitted);
-    # a list (possibly empty) means "computed" — always emitted, even when empty, so the
-    # executor can tell "computed, none found" from "not computed" (§ dispatch design notes).
     chunk_candidate_restatements: "List[Optional[List[Dict[str, Any]]]]" = [None for _ in chunk_ids]
     for idx in range(chunk_count):
         if chunk_change_kinds[idx] not in _WIKI_CHANGE_KINDS:
             continue
         target_path = chunk_files_lists[idx][0]
-        # "First in-scope file is the wiki target" is a
-        # convention this compiler assumes, not something the row proves — a multi-file
-        # wiki-append/wiki-new chunk that lists a supporting code/test file first would
-        # otherwise compute candidates against the wrong file with no error, no NOTE, just
-        # a silently wrong (or empty) candidate_restatements list that the executor
-        # contract reads as authoritative "nothing to dispose of." Enforce the convention
-        # here: advise (don't gate — offer-shaped, matching the pin-check precedent above)
-        # when the first file doesn't look like a markdown wiki target.
         if not target_path.endswith(".md"):
             _err(
                 f"NOTE: chunk '{chunk_ids[idx]}' has change_kind '{chunk_change_kinds[idx]}' "
@@ -761,13 +655,11 @@ def main(argv: List[str]) -> int:
             target_path, incoming_text
         )
 
-    # ----- Derive plan-slug + provision per-chunk run-report sidecars (when --plan) -----
     plan_slug = ""
     chunk_sidecar_paths: List[str] = ["" for _ in chunk_ids]
     if plan_path:
         plan_slug, chunk_sidecar_paths = _provision_sidecars(plan_path, chunk_ids, plugin_root)
 
-    # ----- Large-wave ramp reminder (soft NOTE — env → machine-local → 16) -----
     large_wave_threshold_raw = os.environ.get("LARGE_WAVE_THRESHOLD", "")
     if large_wave_threshold_raw == "":
         large_wave_threshold_raw = _machine_local_get("fan_out.large_wave_threshold")
@@ -776,7 +668,6 @@ def main(argv: List[str]) -> int:
     else:
         large_wave_threshold = int(large_wave_threshold_raw)
 
-    # ----- Memory-headroom probe (best-effort) -----
     probe_out = _memory_probe()
     ram_avail_mb = _probe_field(probe_out, "ram_available_mb")
     vram_free_mb = _probe_field(probe_out, "vram_free_mb")
@@ -801,7 +692,6 @@ def main(argv: List[str]) -> int:
 
     out = sys.stdout
 
-    # Cores-proxy signal — keeps the "large wave" phrase the regression net asserts on.
     if chunk_count >= large_wave_threshold:
         cores_note = (
             f"NOTE: {chunk_count} concurrent agents is a large wave (≈3× cores) — a speed "
@@ -814,7 +704,6 @@ def main(argv: List[str]) -> int:
             cores_note += f" Live headroom now: {headroom_readout}."
         out.write(cores_note + "\n")
 
-    # Memory-pressure signal — fires whenever the machine is already tight, independent of wave size.
     ram_tight = _is_uint(ram_avail_mb) and int(ram_avail_mb) < ram_floor_mb
     vram_tight = _is_uint(vram_free_mb) and int(vram_free_mb) < vram_floor_mb
     if ram_tight or vram_tight:
@@ -827,7 +716,6 @@ def main(argv: List[str]) -> int:
             "FAN_OUT_MIN_{RAM,VRAM}_HEADROOM_MB). Your call, not a PM gate. See § Concurrency Budget.\n"
         )
 
-    # ----- Fat-chunk NOTE (per-chunk, soft/offer-shaped) -----
     fat_chunk_threshold_raw = os.environ.get("FAT_CHUNK_THRESHOLD", "4")
     fat_chunk_threshold = int(fat_chunk_threshold_raw) if _is_uint(fat_chunk_threshold_raw) else 4
     for idx in range(chunk_count):
@@ -841,7 +729,6 @@ def main(argv: List[str]) -> int:
                 "docs/wiki/dispatching-parallel-agents.md, Step 0.5 of the fan-out methodology.\n"
             )
 
-    # ----- EM reminders → stderr (AC3) -----
     sys.stderr.write(
         "\n"
         "--- fan-out-dispatch.py: EM REMINDERS (not for executor prompts) ---\n"
@@ -868,17 +755,14 @@ def main(argv: List[str]) -> int:
         "\n"
     )
 
-    # ----- Strip HTML comment headers from templates -----
     peer_scope_body = _strip_html_comment_header(peer_scope_template)
     plan_doc_oos_body = _strip_html_comment_header(plan_doc_oos_template)
 
-    # ----- Emit N paste-ready dispatch blocks (AC2) -----
     for idx in range(chunk_count):
         chunk_id = chunk_ids[idx]
         brief = chunk_briefs[idx]
         own_files = chunk_files_lists[idx]
 
-        # Build peer chunks block.
         peer_lines_parts: List[str] = []
         for j in range(chunk_count):
             if j == idx:
@@ -938,7 +822,6 @@ if __name__ == "__main__":
     except SystemExit:
         raise
     except BrokenPipeError:
-        # Downstream closed the pipe (e.g. `| head`) — exit cleanly like a well-behaved filter.
         try:
             sys.stdout.close()
         except Exception:

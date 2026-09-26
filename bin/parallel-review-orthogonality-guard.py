@@ -79,15 +79,7 @@ from pathlib import Path
 _PROG = "parallel-review-orthogonality-guard.py"
 _BIN_DIR = Path(__file__).resolve().parent
 
-#: The .cmd launcher's own basename — used by `recover_windows_argv` to locate
 #: where this invocation's own arguments begin within the raw `%CMDCMDLINE%`
-#: capture. `snapshot --range` takes a git rev/range typed directly at the
-#: CLI (e.g. the `sha^..sha` predecessor-range shape), which cmd.exe's `%*`
-#: batch-parameter population silently strips a literal `^` from — see
-#: `coordinator/bin/lib/raw_cmdline_recovery.py`'s module docstring. Refuses
-#: on an unvouchable capture (coordinator-write-review-trail.py's C2
-#: posture — this is a low-traffic weekly-gate CLI, not scoped-git-commit's
-#: ~40-concurrent-session hot path).
 _LAUNCHER_CMD_NAME = "parallel-review-orthogonality-guard.cmd"
 _VERIFY_CLI = _BIN_DIR / "verify-parallel-review-lens-orthogonality.py"
 _FREEZE_CLI = _BIN_DIR / "freeze-review-diff.py"
@@ -95,22 +87,10 @@ _FREEZE_CLI = _BIN_DIR / "freeze-review-diff.py"
 _STATIC_REFUSAL = "Lens-orthogonality assertion failed; refusing to dispatch."
 _CHUNK_REFUSAL = "Chunk partitions are not disjoint by file-scope; refusing to dispatch."
 
-#: The verify CLI's own terminal line for a failing STATIC check. `--chunk-manifest`
-#: runs the static check FIRST and short-circuits on it (that CLI's § RUNTIME), so
-#: mode alone does not identify which check refused — keying the refusal on the mode
-#: told an operator their partitions overlapped when the manifest table was simply
-#: missing, and the manifest was never opened.
 _STATIC_FAILURE_MARKER = "Lens-orthogonality (static) check failed."
 
 
 def _run(argv: list[str]) -> subprocess.CompletedProcess:
-    """
-    Deliberate isolation boundary — do not convert to an in-process
-    import. This is crash containment: runs an arbitrary
-    reviewer-supplied argv, which must not be able to take this process
-    down with it. Reason recorded in
-    state/audits/2026-08-06-self-spawn-isolation-boundary-classification.md.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_engine_on_path
 

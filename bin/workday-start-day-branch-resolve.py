@@ -115,17 +115,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Generator-provenance declaration (generator_provenance.py). cmd_reap_log's
-# only write is a best-effort append to ~/.claude/logs/coordinator-reap.log --
-# outside the tracked repo tree; span-assert is read-only.
 GENERATES = []
 
 _GIT_TIMEOUT = 10
 
 
 def _ensure_claude_klabauter_on_path() -> str:
-    """Resolve+push this checkout's own root onto sys.path (self-colocated —
-    this file lives at coordinator/bin/ inside the claude-klabauter checkout itself)."""
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_colocated_engine_on_path
 
@@ -133,36 +128,18 @@ def _ensure_claude_klabauter_on_path() -> str:
 
 
 def _no_console_kw() -> dict:
-    """Splat-ready Windows console-suppression kwarg. Falls back to the same
-    suppression kwargs computed inline (zero imports beyond ``subprocess``) on
-    any resolution failure, rather than silently dropping console suppression —
-    a resolution failure must never turn a quiet spawn into a visible console
-    window (Review: code-reviewer P2 — matched to the pattern ccbdbecc2 applied
-    to sweep-boot.py/standup.py/render-project-tracker/refresh-plugin-live-install.py)."""
     try:
         _ensure_claude_klabauter_on_path()
         from coordinator_core.win_portability import no_console_creationflags
 
         return no_console_creationflags()
     except Exception:  # noqa: BLE001 -- fail-open, matches this file's transport posture
-        # `{}` off Windows, matching the primitive's own POSIX contract exactly --
-        # `{"creationflags": 0}` splats harmlessly too, but a substitute that
-        # disagrees with the thing it substitutes for is a trap for any caller
-        # comparing against `no_console_creationflags()`.
         if os.name != "nt":
             return {}
         return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 
-# ---------------------------------------------------------------------------
-# reap-log
-# ---------------------------------------------------------------------------
-
-
 def _run_reap_sessions() -> str:
-    """Invoke the co-located reap-sessions.py and return its stripped stdout
-    ("" on any failure — best-effort, mirrors the bash fragment's `2>/dev/null`
-    discard of stderr and its non-zero-exit-continues contract)."""
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import child_env
 
@@ -198,16 +175,10 @@ def cmd_reap_log(_args: argparse.Namespace) -> int:
         ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         with open(log_dir / "coordinator-reap.log", "a", encoding="utf-8", newline="\n") as f:
             f.write(f"{ts}  {reap_log}\n")
-    return 0  # best-effort hygiene — never blocks session start
-
-
-# ---------------------------------------------------------------------------
-# span-assert
-# ---------------------------------------------------------------------------
+    return 0
 
 
 def _current_branch() -> str:
-    """`git branch --show-current` — empty string on detached HEAD or failure."""
     try:
         result = subprocess.run(
             ["git", "branch", "--show-current"],
@@ -224,16 +195,12 @@ def _current_branch() -> str:
 
 
 def _span_assert(branch: str, today: str, parse_branch_span, format_span_suffix, compute_machine) -> str | None:
-    """Core comparison — pure function of its inputs (unit-test seam). Returns
-    the assertion message when the branch is a work/{machine}/{span} shape whose
-    end-date does not cover `today`; None on every silent-pass path (unparseable
-    shape, or already covers today)."""
     span = parse_branch_span(branch)
     if span is None:
-        return None  # named long-lived / main / detached — Check 3.5 covers it
+        return None
     start, end = span
     if end == today:
-        return None  # branch already covers today
+        return None
     expected = "work/" + compute_machine() + "/" + format_span_suffix(start, today)
     return (
         f"Active branch `{branch}` does not cover today ({today}) — end={end}, "
@@ -258,17 +225,7 @@ def cmd_span_assert(args: argparse.Namespace) -> int:
     return 1
 
 
-# ---------------------------------------------------------------------------
-# day-branch-assert — C6, AC-6: the /workweek-start branch leg
-# ---------------------------------------------------------------------------
-
-
 def cmd_day_branch_assert(args: argparse.Namespace) -> int:
-    """Invoke the SAME `assert_day_branch` dispatch C4b's SessionStart shim
-    calls, from a mid-session CLI entry point instead of a `startup`-sourced
-    hook. See the module docstring's `day-branch-assert` block for why this
-    is the seam (orient-assemble's spine is read-only by construction) and
-    what its exit codes mean."""
     _ensure_claude_klabauter_on_path()
     from coordinator_core.daily_day import local_day
     from coordinator_core.hooks.day_branch_assert import FAILED, assert_day_branch
@@ -281,33 +238,6 @@ def cmd_day_branch_assert(args: argparse.Namespace) -> int:
     if result.message:
         print(result.message)
 
-    # The publish leg. `assert_day_branch` runs `session_ensure_branch` with
-    # `caller="boot"`, whose whole contract is NO NETWORK CALL -- it cuts the
-    # branch and leaves the upstream to someone else. Until this leg existed,
-    # nobody was that someone: the comment in `_cut_or_adopt`'s boot arm names
-    # `auto_push.push_once`, and the per-commit push that reached it was
-    # deleted by C6/C7 of docs/plans/2026-08-30-who-pushes-and-when.md. The
-    # cadence that replaced it pushes with a bare `git push`, which a branch
-    # with no upstream refuses outright. So a boot-cut day branch got an
-    # upstream from no path at all, and on 2026-09-02 carried 102 commits with
-    # no remote copy until a human published it by hand.
-    #
-    # It lives HERE, in the ceremony CLI, and not in `assert_day_branch`,
-    # because the two entry points have different budgets for the same
-    # dispatch: this subcommand is invoked by `/workday-start` and
-    # `/workweek-start`, ceremonies an operator is already waiting on, where
-    # one round trip to the remote is affordable; `assert_day_branch`'s other
-    # caller is the SessionStart fan-in, which runs under a single shared 10s
-    # timeout with no per-guard budget and must stay local (see
-    # `day_branch_assert`'s own boot-cost negative-spec). Putting the publish
-    # in the shared function would have put a cold-connection push inside that
-    # budget on every one of ~50 daily session boots.
-    #
-    # Not a nudge and not conditional on the operator noticing anything: the
-    # ceremony publishes, or says why it could not. `publish_day_branch` is
-    # idempotent and costs two config reads plus zero spawns once the day's
-    # first ceremony has run, and it will only ever publish a branch
-    # `daily_branch.is_canonical_branch` accepts.
     outcome, detail = publish_day_branch(repo_root)
     if outcome == "published":
         print(f"day-branch: published {detail}")
@@ -315,11 +245,6 @@ def cmd_day_branch_assert(args: argparse.Namespace) -> int:
         print(f"day-branch: publish FAILED -- {detail}", file=sys.stderr)
 
     return 1 if result.outcome == FAILED else 0
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 
 
 def _build_parser() -> argparse.ArgumentParser:

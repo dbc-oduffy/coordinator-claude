@@ -59,7 +59,7 @@ import sys
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-GENERATES = []  # writes only to DoE-side cutover records (state/roadmap/lifecycle-vocab/cutovers/), never under this claude-klabauter checkout — see _repo_root_for's docstring
+GENERATES = []
 
 _TRANSPORT_FAIL = 3
 
@@ -91,16 +91,6 @@ def _repo_root_for(record_path: str) -> str:
     """
     abs_record = os.path.abspath(record_path)
     start_dir = os.path.dirname(abs_record) if os.path.isfile(abs_record) else abs_record
-    # pre-conversion this whole resolution was
-    # wrapped in `try/except (subprocess.CalledProcessError, OSError): return
-    # os.getcwd()`. The conversion dropped the wrapper, leaving only the
-    # trailing `or os.getcwd()` to catch `show_toplevel()` returning `None`
-    # -- an import/path-resolution failure (missing engine root, broken
-    # coordinator_core install) now propagated as an unhandled exception
-    # instead of degrading to cwd. Restored to match every sibling
-    # converted `bin/*.py` site in this same commit (reap-sessions.py,
-    # sweep-boot.py, reaper-resting-batons.py, etc.), which all wrap this
-    # exact resolution in `try/except Exception` for the same reason.
     try:
         import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
         from cc_invoke import _resolve_claude_klabauter_root
@@ -116,12 +106,6 @@ def _repo_root_for(record_path: str) -> str:
 
 
 def _run_gate_shaped_op(op_key: str, record_path: str) -> int:
-    """Shared trampoline for `show` (cutover.gate) and `advance` (cutover.advance) —
-    both return the same coverage_gate-shaped verdict envelope (plan § C4b/C5:
-    `verdict_line`, `notes[]`, `exit_code` in {0, 1, 2}), so both subcommands
-    share this single call-and-render path. Mirrors
-    `review-coverage-gate.py`'s result handling exactly.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     import cc_invoke
 

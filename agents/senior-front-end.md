@@ -1,6 +1,7 @@
 ---
 name: senior-front-end
 description: "Personas are Opus-only. The Front-End Reviewer reviews front-end code for design-system adherence — tokens, components, CSS architecture."
+persona: the Front-End Reviewer
 model: opus
 effort: low
 access-mode: read-write

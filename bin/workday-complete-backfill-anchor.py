@@ -290,10 +290,6 @@ def _cmd_run(argv: list[str]) -> int:
 
     gap_text = sys.stdin.read()
     if not gap_text.strip() and not args.allow_empty:
-        # Same silent-success shape as backfill-dispatch-rows: no rows meant an
-        # empty loop and a clean exit 0 with nothing anchored. The scan prints
-        # nothing for a gapless window, so this seam cannot tell that from
-        # stdin never having been wired — the caller can, and says so.
         print(
             "ERROR: backfill-anchor run: no gap rows on stdin. Pipe "
             "workday-complete-backfill-scan's output in, or pass --allow-empty "
@@ -317,9 +313,6 @@ def _cmd_run(argv: list[str]) -> int:
             true_gap_dates.append(date)
             continue
 
-        # Divergence (see module docstring): machine is left empty here and
-        # resolved by inject-anchor's own _derive_machine() fallback, since
-        # the current scan TSV carries no machine column to forward.
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             rc = inject_mod.main([root, date, desc_tip, today, ""])

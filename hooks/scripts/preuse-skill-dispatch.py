@@ -146,18 +146,11 @@ if str(_HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(_HOOKS_DIR))
 
 from _skill_invocation import context_envelope, read_invocation  # noqa: E402
-# Channel-agnostic despite its home module's stderr framing: it captures this
-# dispatcher's stdout.
 from _stop_family_runner import _BufferedTextCapture  # noqa: E402
 
-# Strictly below C6's 45s PreToolUse(Skill) registration timeout -- see this
-# module's docstring "Concurrency" section for the arithmetic/rationale.
 _INTERNAL_DEADLINE_SECONDS = 40.0
 
 # Verb sets -- see this module's docstring "REGISTRY rows" section. Kept as
-# named constants (not inline tuple literals) so
-# `test_preuse_skill_dispatch.py` can import and pin each one directly
-# against the owning module's own frozenset without re-deriving it from
 # REGISTRY first.
 _TRAMPOLINE_VERBS: FrozenSet[str] = frozenset({"workflow-authoring"})
 _PICKUP_AUTOFIRE_VERBS: FrozenSet[str] = frozenset(
@@ -173,9 +166,6 @@ class SkillLeg:
     module_key: str
     filename: str
     verbs: FrozenSet[str]
-    # True for the one leg with no `compute_context` entry point -- it must
-    # run through the stdin-swap-and-capture wrapper instead of being called
-    # directly.
     is_trampoline: bool = False
 
 
@@ -276,14 +266,6 @@ def _import_leg(leg: SkillLeg) -> Any:
 
 
 def _invoke_trampoline(main_fn, stdin_text: str) -> Tuple[int, str, str]:
-    """Run the trampoline's `main()` with stdin swapped and BOTH stdout and
-    stderr captured -- byte-for-byte modelled on
-    `preuse-agent-dispatch.py::_invoke`, this fan-in's own cited precedent
-    for the exact pattern a no-`compute_context` leg needs. Catches
-    `SystemExit` (the trampoline's own `sys.exit(main())` guard, and any
-    `main_fn` that exits rather than returns) so it never escapes this
-    leg's own isolation.
-    """
     old_stdin = sys.stdin
     out_buf = _BufferedTextCapture()
     err_buf = _BufferedTextCapture()
@@ -301,25 +283,12 @@ def _invoke_trampoline(main_fn, stdin_text: str) -> Tuple[int, str, str]:
 
 
 def _extract_context_text(raw: Optional[str]) -> Optional[str]:
-    """Strip a `compute_context` leg's bare `additionalContext` return
-    value; returns `None` for an empty/`None`/whitespace-only value. All
-    three `compute_context` legs return bare prose (F1), so no
-    envelope-unwrapping happens here -- see this module's own docstring
-    "Extraction" section.
-    """
     if not raw or not raw.strip():
         return None
     return raw.strip()
 
 
 def _unwrap_trampoline_envelope(raw: Optional[str]) -> Optional[str]:
-    """Unwrap the trampoline's captured stdout -- the one leg with no
-    `compute_context` entry point, whose captured output is still the full
-    `hookSpecificOutput` JSON envelope `_message_envelope.emit` renders --
-    to the same bare `additionalContext` text shape the other three legs
-    return. Falls back to the raw stripped text if unparseable, so a shape
-    change here degrades to visible text rather than disappearing.
-    """
     if not raw or not raw.strip():
         return None
     text = raw.strip()
@@ -337,11 +306,6 @@ def _unwrap_trampoline_envelope(raw: Optional[str]) -> Optional[str]:
 
 
 def _run_leg(leg: SkillLeg, stdin_text: str) -> Optional[str]:
-    """Import and run ONE matched leg to completion, returning its extracted
-    `additionalContext` text or `None`. Any exception raised anywhere in
-    this function (import failure, a leg's own crash) propagates into this
-    leg's own `Future`, isolating it from every sibling leg's future.
-    """
     mod = _import_leg(leg)
     if leg.is_trampoline:
         _rc, out, _err = _invoke_trampoline(getattr(mod, "main"), stdin_text)
@@ -362,17 +326,16 @@ def main() -> int:
 
     inv = read_invocation(payload)
     if inv is None:
-        return 0  # unrecognized payload shape -- silent pass, nothing imported
+        return 0
 
     matched = [leg for leg in REGISTRY if inv.command_name in leg.verbs]
     if not matched:
-        return 0  # a Skill call naming no leg's verb -- silent pass, nothing imported
+        return 0
 
     parts: List[str] = []
     results, skipped = _run_legs_concurrently(matched, raw)
 
     # REGISTRY order, not completion order -- a deterministic render
-    # regardless of which leg happened to finish first.
     for leg in matched:
         text = results.get(leg.leg_id)
         if text:

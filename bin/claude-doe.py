@@ -88,8 +88,10 @@
 # "coordinator" segment — see rung 2.5) so a machine that only set live_path still
 # resolves to the same clone root rung 2 would have returned.
 #
-# NEVER falls back to bare `claude` without --plugin-dir — a coordinator-less session is
-# the footgun this wrapper exists to prevent.
+# NEVER falls back to bare `claude` without --plugin-dir on its own — a coordinator-less
+# session is the footgun this wrapper exists to prevent. `--vanilla` is the operator's
+# explicit choice of exactly that session, and every failure below names it: a launch
+# wrapper that fails must never leave the operator without a working `claude`.
 #
 # REMEDIATION TEXT IS A RUNNABLE SCRIPT, NEVER A SLASH COMMAND. Every failure in this
 # module fires BEFORE a Claude Code session exists — that is the whole point of a launch
@@ -694,8 +696,12 @@ def _resolve_doe_clone(cli_doe_root: str = "") -> str | None:
     return None
 
 
+#: Appended to every failure that stops a launch. The wrapper shadows `claude`, so a
+#: failure here without this line leaves the operator with no way to start Claude Code.
+_VANILLA_HINT = "  To start Claude Code without coordinator: claude --vanilla\n"
+
 _USAGE = """\
-claude-doe [--doe-root <path>] [--dry-run] [--print-plugin-dir] [claude args...]
+claude-doe [--vanilla] [--doe-root <path>] [--dry-run] [--print-plugin-dir] [claude args...]
 
 Launch wrapper for the DoE-maximalist coordinator delivery shape: resolves
 the DoE clone (see resolution order in this file's module header), then
@@ -704,6 +710,9 @@ coordinator/ sub-directory. Any arguments not consumed below are forwarded
 to `claude` unchanged.
 
 Wrapper-only flags (consumed here, never forwarded to claude):
+  --vanilla               Launch the real `claude` binary with no coordinator
+                           plugin and no resolution at all; remaining args are
+                           forwarded unchanged.
   --doe-root <path>       Explicit DoE clone root override (highest-priority
                            resolution rung; also accepts --doe-root=<path>).
   --dry-run               Print the resolved exec line and exit 0 without
@@ -722,6 +731,68 @@ binary's own help text, resolve --print-plugin-dir yourself and invoke
 """
 
 
+def _launch(exec_prefix: list[str], full_argv: list[str]) -> int:
+    """Hand the terminal to `claude`: exec where the OS has exec(2), a waited child otherwise."""
+    if os.name == "nt" or len(exec_prefix) > 1:
+        # Windows has no exec(2). CPython maps `os.execv` onto the CRT's
+        # P_OVERLAY spawn, which does NOT replace this process: it starts
+        # `claude` as a separate process and terminates the parent
+        # IMMEDIATELY, without waiting. That unblocks every caller up the
+        # launch chain (python3 -> claude-doe.cmd -> the PowerShell `claude`
+        # shim), so the interactive shell returns to its PROMPT while the
+        # claude TUI is still live on the same console — two readers draining
+        # one console input buffer. Keystrokes misroute between the TUI and
+        # the shell, and the terminal's xterm focus-reporting events (DECSET
+        # 1004: ESC[I focus-in / ESC[O focus-out) leak through as literal
+        # `[I`/`[O` text, corrupting both the TUI and the shell prompt. The
+        # same non-waiting spawn also DISCARDS the child's exit status: the
+        # shell observes 0 no matter how claude exited.
+        #
+        # Measured on Windows 11 / PowerShell 7.6: the execv parent returns in
+        # ~40ms against a 4s child, and reports rc=0 for a child that exits 42.
+        #
+        # `subprocess.run` waits, keeps this process as the console-owning
+        # parent for claude's whole lifetime, and propagates the real exit
+        # code. It also quotes argv correctly, which matters for the
+        # shebang-interpreter case below on every platform.
+        #
+        # Negative-spec: do NOT "restore" os.execv on Windows as a
+        # process-count optimisation — the extra frame is load-bearing.
+        # Guard: coordinator/tests/test_claude_doe_launch_waits.py.
+        #
+        # Negative-spec: do NOT add `timeout=` to this call, and do not count it
+        # as an unbounded spawn during a timeout-dial sweep. `subprocess.run`'s
+        # timeout is a KILL instrument — on expiry it kills the child and raises
+        # — so any value here is "terminate the operator's interactive session
+        # after N seconds". An interactive session legitimately runs for hours,
+        # so every finite N either kills live work or bounds nothing. Worse, the
+        # kill path does not run claude's own terminal restore, leaving the
+        # console in the raw/alternate-screen mode the TUI set: the exact
+        # corruption class this branch exists to prevent.
+        #
+        # There is no unattended failure mode to bound. This frame is not a
+        # mechanism occupying the box (CLAUDE.md § Load norm) — it is the
+        # console-owning parent of the process a human is typing into, and it
+        # runs exactly as long as they do. The headless `claude -p` path, which
+        # DOES need a kill ceiling, does not come through here: it is
+        # `coordinator/bin/lib/cc_invoke.py`, which carries its own.
+        #
+        # len(exec_prefix) > 1 keeps the POSIX shebang case on subprocess.run
+        # too: `os.execv` there builds its command line via a raw, unquoted
+        # join, so a resolved interpreter path containing a space in one of
+        # its directory components (a stock Git-for-Windows install path is
+        # one common example) gets split mid-path and the launch fails ("No
+        # such file or directory" from the misparsed remainder).
+        result = subprocess.run(full_argv)
+        return result.returncode
+
+    # POSIX, direct binary: exec(2) is a genuine process replacement — the
+    # shell's child IS claude, so there is no second console reader and no
+    # exit code to propagate.
+    os.execv(exec_prefix[0], full_argv)
+    return 1  # pragma: no cover - unreachable, execv replaces the process on success
+
+
 def main(argv: list[str]) -> int:
     # -------------------------------------------------------------------
     # --help/-h answered here, first, before ANY clone/registry resolution
@@ -732,6 +803,16 @@ def main(argv: list[str]) -> int:
     if "--help" in argv or "-h" in argv:
         print(_USAGE, end="")
         return 0
+
+    # Before any resolution: `--vanilla` must work on a box where every rung
+    # below is broken, since that is the box that needs it.
+    if "--vanilla" in argv:
+        claude_bin = _resolve_claude_bin()
+        if not claude_bin:
+            sys.stderr.write("claude-doe: claude: command not found\n")
+            return 127
+        exec_prefix = _claude_exec_argv(claude_bin)
+        return _launch(exec_prefix, [*exec_prefix, *(a for a in argv if a != "--vanilla")])
 
     # -------------------------------------------------------------------
     # Parse --doe-root / --dry-run from args BEFORE clone resolution (both
@@ -779,15 +860,15 @@ def main(argv: list[str]) -> int:
 
     doe_clone = _resolve_doe_clone(cli_doe_root)
     if doe_clone is None:
+        sys.stderr.write(_VANILLA_HINT)
         return 1
 
     # -------------------------------------------------------------------
     # Validate clone and coordinator sub-directory
     # -------------------------------------------------------------------
     if not os.path.isdir(doe_clone):
-        sys.stderr.write(f'claude-doe: DoE clone not found at "{doe_clone}"\n')
-        sys.stderr.write(f'  Remediation: git clone <DoE-repo-url> "{doe_clone}"\n')
-        sys.stderr.write("  Then: python3 <engine-clone>/scripts/setup.py\n")
+        sys.stderr.write(f'claude-doe: coordinator plugin source not found at "{doe_clone}"\n')
+        sys.stderr.write(_VANILLA_HINT)
         return 1
 
     # Marker-based, not path-shape: a nested DoE dev-clone nests the plugin
@@ -814,6 +895,7 @@ def main(argv: list[str]) -> int:
                 "(payload under coordinator/) or a flat OSS/marketplace clone (payload at the "
                 "clone root)\n"
             )
+        sys.stderr.write(_VANILLA_HINT)
         return 1
 
     if dry_run:
@@ -998,64 +1080,7 @@ def main(argv: list[str]) -> int:
     except Exception:  # noqa: BLE001 -- never block a launch on the credential
         pass
 
-    if os.name == "nt" or len(exec_prefix) > 1:
-        # Windows has no exec(2). CPython maps `os.execv` onto the CRT's
-        # P_OVERLAY spawn, which does NOT replace this process: it starts
-        # `claude` as a separate process and terminates the parent
-        # IMMEDIATELY, without waiting. That unblocks every caller up the
-        # launch chain (python3 -> claude-doe.cmd -> the PowerShell `claude`
-        # shim), so the interactive shell returns to its PROMPT while the
-        # claude TUI is still live on the same console — two readers draining
-        # one console input buffer. Keystrokes misroute between the TUI and
-        # the shell, and the terminal's xterm focus-reporting events (DECSET
-        # 1004: ESC[I focus-in / ESC[O focus-out) leak through as literal
-        # `[I`/`[O` text, corrupting both the TUI and the shell prompt. The
-        # same non-waiting spawn also DISCARDS the child's exit status: the
-        # shell observes 0 no matter how claude exited.
-        #
-        # Measured on Windows 11 / PowerShell 7.6: the execv parent returns in
-        # ~40ms against a 4s child, and reports rc=0 for a child that exits 42.
-        #
-        # `subprocess.run` waits, keeps this process as the console-owning
-        # parent for claude's whole lifetime, and propagates the real exit
-        # code. It also quotes argv correctly, which matters for the
-        # shebang-interpreter case below on every platform.
-        #
-        # Negative-spec: do NOT "restore" os.execv on Windows as a
-        # process-count optimisation — the extra frame is load-bearing.
-        # Guard: coordinator/tests/test_claude_doe_launch_waits.py.
-        #
-        # Negative-spec: do NOT add `timeout=` to this call, and do not count it
-        # as an unbounded spawn during a timeout-dial sweep. `subprocess.run`'s
-        # timeout is a KILL instrument — on expiry it kills the child and raises
-        # — so any value here is "terminate the operator's interactive session
-        # after N seconds". An interactive session legitimately runs for hours,
-        # so every finite N either kills live work or bounds nothing. Worse, the
-        # kill path does not run claude's own terminal restore, leaving the
-        # console in the raw/alternate-screen mode the TUI set: the exact
-        # corruption class this branch exists to prevent.
-        #
-        # There is no unattended failure mode to bound. This frame is not a
-        # mechanism occupying the box (CLAUDE.md § Load norm) — it is the
-        # console-owning parent of the process a human is typing into, and it
-        # runs exactly as long as they do. The headless `claude -p` path, which
-        # DOES need a kill ceiling, does not come through here: it is
-        # `coordinator/bin/lib/cc_invoke.py`, which carries its own.
-        #
-        # len(exec_prefix) > 1 keeps the POSIX shebang case on subprocess.run
-        # too: `os.execv` there builds its command line via a raw, unquoted
-        # join, so a resolved interpreter path containing a space in one of
-        # its directory components (a stock Git-for-Windows install path is
-        # one common example) gets split mid-path and the launch fails ("No
-        # such file or directory" from the misparsed remainder).
-        result = subprocess.run(full_argv)
-        return result.returncode
-
-    # POSIX, direct binary: exec(2) is a genuine process replacement — the
-    # shell's child IS claude, so there is no second console reader and no
-    # exit code to propagate.
-    os.execv(exec_prefix[0], full_argv)
-    return 1  # pragma: no cover - unreachable, execv replaces the process on success
+    return _launch(exec_prefix, full_argv)
 
 
 if __name__ == "__main__":

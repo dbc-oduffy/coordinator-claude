@@ -64,7 +64,7 @@ Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md § Pinned pat
 """
 from __future__ import annotations
 
-INSTALL_CLASS = False  # re-lands bare-name forwarders against a warm engine that survives, never the engine; see door_install.declared_install_class
+INSTALL_CLASS = False
 
 import os
 import sys
@@ -86,11 +86,6 @@ def main(argv: list[str] | None = None) -> int:
     if early_exit is not None:
         return early_exit
 
-    # Best-effort, and deliberately so: the forwarder self-heal is worth doing at
-    # boot but is not worth failing boot over, and this entrypoint's exit-0
-    # contract predates it. A divergent engine root (the common case in a
-    # test interpreter that already bound `coordinator_core` from a working tree)
-    # raises here and is not this file's problem to resolve.
     try:
         require_dispatch_engine_on_path()
         from coordinator_core.install.forwarder_self_heal import self_heal_forwarders

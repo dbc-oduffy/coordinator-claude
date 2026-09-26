@@ -1,6 +1,7 @@
 ---
 name: staff-eng
 description: "Personas are Opus-only. The Staff Engineer — uncompromising staff-engineer review of code, plans, architecture, docs. The generalist reviewer."
+persona: the Staff Engineer
 model: opus
 effort: low
 color: red

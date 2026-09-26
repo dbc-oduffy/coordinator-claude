@@ -127,21 +127,11 @@ from pathlib import Path
 from typing import Any
 
 
-# Path-traversal guard for session_id / agent_id before they are used to
-# build filesystem paths -- mirrors runtime-tripwire-em-check.py's
 # _ID_CHARSET_RE.
 _ID_CHARSET_RE = re.compile(r"^[A-Za-z0-9_@-]+$")
 
 
 def _read_stdin(timeout: float = 2.0) -> str:
-    """Bounded stdin read (Windows hang guard) -- shape copied from
-    `track-dispatched-agents.py:107-127` / `runtime-tripwire-stop-watcher.py`.
-
-    A bare `sys.stdin.read()` blocks forever if the harness never closes
-    stdin's write end (observed Windows failure mode). Falls back to "" on a
-    2s join timeout -- the same fail-open value a JSON-decode failure already
-    produces.
-    """
     box = {"data": ""}
 
     def _read() -> None:
@@ -162,17 +152,11 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
-    # Defensive fallback -- a hook script copied/deployed WITHOUT its
-    # sibling _engine_root.py (e.g. an isolated test harness, or a partial
-    # deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 try:
     from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir  # noqa: E402
 except Exception:
-    # Defensive fallback -- a deploy missing its sibling _git_common_dir.py
-    # must still fail open (empty common dir -> callers skip) rather than
-    # crash on import.
     def _resolve_git_common_dir(git_root: str) -> str:
         return ""
 
@@ -228,16 +212,6 @@ def _git_root(start: str) -> str:
 
 
 def _is_dispatched_this_session(git_root: str, session_id: str, agent_id: str) -> bool:
-    """AC4/DEC-3 own-session filter.
-
-    Reads `.git/coordinator-sessions/<session_id>/dispatched-agents.txt` (the
-    sanctioned shared 4-column TSV oracle -- `agentId | model | subagent_type
-    | dispatched-at`) and returns True only when `agent_id` appears as the
-    first column of some row. Any failure to resolve git_root, read the file,
-    or parse a row fails CLOSED here (not a member) -- this filter's whole
-    purpose is to exclude peer-session agents, so an unreadable ledger must
-    not be treated as "everything belongs to me."
-    """
     if not git_root or not session_id or not agent_id:
         return False
     if not _ID_CHARSET_RE.match(session_id):
@@ -273,7 +247,6 @@ def main() -> int:
     except Exception:
         payload = {}
 
-    # --- Gate 1 (AC2): agent_type first, before any other work. ---
     agent_type = payload.get("agent_type")
     if not isinstance(agent_type, str) or not agent_type:
         return 0
@@ -289,16 +262,10 @@ def main() -> int:
     if not isinstance(cwd, str):
         cwd = ""
 
-    # --- Gate 2 (AC4/DEC-3): own-session filter. `_git_root` resolves from
-    # the payload's own `cwd` (the subagent's worktree), not ambient process
-    # cwd -- see `_git_root`'s docstring (Findings 1+2). ---
     git_root = _git_root(cwd)
     if not _is_dispatched_this_session(git_root, session_id, agent_id):
         return 0
 
-    # --- AC10: agent_transcript_path is authoritative; transcript_path is a
-    # decoy (the PARENT session's transcript) and must never be read here,
-    # not even as a fallback. ---
     agent_transcript_path = payload.get("agent_transcript_path")
     if not isinstance(agent_transcript_path, str):
         agent_transcript_path = ""
@@ -307,30 +274,21 @@ def main() -> int:
     if not isinstance(hook_event_name, str):
         hook_event_name = ""
 
-    # Review: code-reviewer -- Finding 5 (defense-in-depth; the resolved
-    # function already guarantees fail-open/never-raise per its own
-    # docstring, but this matches the belt-and-braces style the rest of
-    # this file uses for `_git_root`/`_is_dispatched_this_session`).
     try:
         root = _resolve_claude_klabauter_root()
     except Exception:
         root = None
     if not root:
-        return 0  # fail-open -- engine repo unresolvable on this machine
+        return 0
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
 
     try:
-        # Importing coordinator_core.hooks.subagent_zero_tool_use triggers
-        # the coordinator_core.hooks package __init__ (registers every
-        # advisory + bookkeeping op via register_op side-effects at import
-        # time) -- one-time-per-invocation cost, in-process, zero subprocess
-        # spawns.
         from coordinator_core.hooks import subagent_zero_tool_use as _op  # noqa: F401
         from coordinator_core.ipc import dispatch_ops_from_hook
     except Exception:
-        return 0  # engine unimportable -> fail-open
+        return 0
 
     ops: list[tuple[str, dict]] = [
         (
@@ -354,26 +312,6 @@ def main() -> int:
             },
         ),
         # RECEIVER-STATE FOLD -- the SubagentStop half of the producer trigger
-        # the engine's receiver-state sensor has been waiting on. Its Stop half
-        # is `receiver-state-sensor.py`, riding the `stop-dispatch.py` fan-in.
-        # Folded here for the same reason the review mark is: a third
-        # SubagentStop entry in hooks.json would buy a third permanent
-        # interpreter cold start on every subagent stop fleet-wide, where an
-        # extra tuple in this list adds no process at all.
-        #
-        # `agent_transcript_path`, NEVER `transcript_path` -- AC10 above binds
-        # this op exactly as it binds the zero-tool-use op, and for the same
-        # reason: the decoy is the PARENT session's transcript, valid and
-        # tool-call-rich, so reading it would write a confident ladder verdict
-        # about the wrong session rather than failing loudly.
-        #
-        # `pid` is omitted (a stop payload carries none, and this hook's own
-        # pid is not the session's) and `delegation_evidence` is passed false
-        # rather than derived -- the op declines to derive it and the ask to
-        # widen it is out to the engine team. Both dispositions, and why
-        # neither is a design, are in `receiver-state-sensor.py`'s docstring;
-        # the two legs must stay in step, which is why they are pinned to each
-        # other by `test_both_receiver_state_legs_pass_the_same_params`.
         (
             "hooks.receiver_state_sensor",
             {
@@ -384,38 +322,16 @@ def main() -> int:
         ),
     ]
 
-    # dispatch_ops_from_hook builds the envelope itself and omits
-    # _origin_worktree when origin_worktree is None/empty, matching this
-    # stub's prior isinstance(cwd, str) and cwd guard unchanged. ONE
-    # origin_worktree is stamped onto every op's envelope (a shared kwarg,
-    # not a per-op field) -- correct here because both ops are common_dir
-    # scoped (coordinator_core/op_scopes.py), so both key off the same
-    # resolved common dir.
     try:
         # Per-op errors are RETURNED (HookDispatchError instances), never
-        # raised, so neither op can suppress the other: on any install whose
-        # published engine mirror lags `hooks.subagent_review_mark`, the mark
         # op resolves to a returned METHOD_NOT_FOUND and the zero-tool-use
-        # detection it rides with keeps landing untouched. That isolation is
-        # the seam's own contract (`coordinator_core.ipc` ::
-        # `dispatch_ops_from_hook`, Returns clause plus negative spec), not a
-        # local try/except.
         dispatch_ops_from_hook(
             ops,
             origin_worktree=cwd if isinstance(cwd, str) and cwd else None,
         )
     except Exception:
-        # Widened from `except HookDispatchError` as part of this fold: any
-        # other exception from the dispatch call would have propagated
-        # uncaught and violated this file's own exit-0-always invariant.
-        return 0  # any engine failure -> fail-open (never brick a tool call)
+        return 0
 
-    # The op response IS the durable-record write (its disk-append
-    # side-effect is this shim's entire product) -- no local write of any
-    # kind happens here on success or failure. Stage 2 discovers new records
-    # by stating the engine's own durable store directly; see this module's
-    # docstring for why a separate sentinel was removed rather than kept in
-    # step with it.
     return 0
 
 

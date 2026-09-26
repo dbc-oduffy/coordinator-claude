@@ -59,14 +59,6 @@ from pathlib import Path
 
 
 def _read_stdin(timeout: float = 2.0) -> str:
-    """Bounded stdin read (Windows hang guard) -- copied from
-    runtime-tripwire-stop-watcher.py._read_stdin (~186-201).
-
-    A bare sys.stdin.read() blocks forever if the harness never closes
-    stdin's write end (observed Windows failure mode), backstopped with a 2s
-    threaded-join timeout, returning "" (the same fail-open value a
-    JSON-decode failure already produces) instead of hanging the hook chain.
-    """
     box = {"data": ""}
 
     def _read() -> None:
@@ -87,9 +79,6 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
-    # Defensive fallback -- a hook script copied/deployed WITHOUT its
-    # sibling _engine_root.py (e.g. an isolated test harness, or a
-    # partial deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -99,23 +88,16 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open -- engine repo unresolvable on this machine
+        return 0
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
 
     try:
-        # Importing coordinator_core.hooks.suggest_sonnet_research triggers the
-        # coordinator_core.hooks package __init__ (registers all 7 advisory ops +
-        # 4 bookkeeping ops via register_op side-effects at import time -- the
-        # hooks package has no lazy-skip guard, unlike coordinator_core.ops).
-        # One-time-per-invocation cost, in-process, still zero subprocess
-        # spawns -- but each hook fire is a fresh process, so this import
-        # cost recurs every fire, not just once per session.
         from coordinator_core.hooks import suggest_sonnet_research as _op  # noqa: F401
         from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
     except Exception:
-        return 0  # engine unimportable -> fail-open
+        return 0
 
     try:
         payload = json.loads(raw)
@@ -129,14 +111,12 @@ def main() -> int:
     }
 
     # scope "none" (coordinator_core/ipc.py _OP_KEY_SCOPE) -- no
-    # _origin_worktree required; this op accesses no repo-specific state
-    # (only an in-process coordinator content-root resolution, self-contained).
     try:
         result = dispatch_from_hook("hooks.suggest_sonnet_research", params)
     except HookDispatchError:
-        return 0  # any engine failure -> fail-open (never brick a tool call)
+        return 0
 
-    if result:  # {} (no_advisory) and None both fall through to no-output
+    if result:
         sys.stdout.write(json.dumps(result))
         sys.stdout.write("\n")
     return 0

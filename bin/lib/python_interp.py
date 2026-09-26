@@ -1,22 +1,3 @@
-"""
-Shared console-CPython interpreter resolver.
-
-Single source of truth for "is this path a real console CPython, not a
-pythonw-style GUI-subsystem build or a non-python forwarder exe" and for the
-`sys.executable` / `sys._base_executable` / `shutil.which` ladder that
-resolves one. Extracted verbatim from
-`coordinator/bin/_queue_append_locator.py` (`_is_console_python_basename` /
-`_resolve_python_interpreter`) so every swept caller shares one ladder
-instead of re-deriving it -- see
-docs/plans/2026-08-31-the-sys-executable-class-one-shared-inte.md.
-
-Stdlib-only, `subprocess`-free by design: the absence of a `subprocess`
-import is itself the "zero spawns" enforcement for this module, checkable
-by `ast` rather than by timing.
-
-Not a CLI entry point -- no shebang, no sh/python polyglot trampoline.
-Import only; never invoked directly.
-"""
 from __future__ import annotations
 
 import os
@@ -25,27 +6,7 @@ import sys
 
 
 def is_console_python_basename(path: str) -> bool:
-    """True if `path`'s basename names a console CPython interpreter.
-
-    Negative spec: `pythonw`/`pythonw3` (any extension) are excluded even
-    though they start with "python". `pythonw.exe` is the GUI-subsystem
-    build with no usable stdout by default -- a caller whose whole contract
-    depends on reading a child's stdout would reproduce the exact
-    silent-loss class this predicate exists to close, just one level down: a
-    plausible exit code with nothing on stdout. Console-flash avoidance
-    (`coordinator_core/win_portability.py`, `verify-no-console-flash.py`) is
-    an active pattern in this repo, so a launcher chosen specifically to
-    avoid a console flash is exactly the context where `sys.executable`
-    would be `pythonw.exe` -- do not "simplify" this back to a bare
-    `startswith("python")`.
-    # pythonw.exe/pythonw3.exe silently accepted.
-    """
     stem = os.path.splitext(os.path.basename(path))[0].lower()
-    # nit: `startswith("python")` would also accept a
-    # hypothetical non-python `pythonstub.exe` on PATH with no further
-    # validation here. Defended in depth by each caller's own liveness probe
-    # (e.g. a `--help` subprocess check gating the value before it is ever
-    # handed back as the final argv) -- this is not a live hole there.
     return stem.startswith("python") and not stem.startswith("pythonw")
 
 
@@ -81,12 +42,6 @@ def resolve_console_python() -> str | None:
 
 
 def python_argv(script: str, *args: str) -> list[str] | None:
-    """Build `[interpreter, script, *args]` over `resolve_console_python()`.
-
-    Returns None when nothing resolves so callers keep their existing
-    degrade-gracefully contracts (skip/fallback) rather than inheriting a
-    raise from this helper.
-    """
     interpreter = resolve_console_python()
     if interpreter is None:
         return None

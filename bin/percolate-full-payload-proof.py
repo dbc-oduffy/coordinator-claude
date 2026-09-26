@@ -202,41 +202,10 @@ _BIN_DIR = Path(__file__).resolve().parent
 _TOPLEVEL_ROW_NAME = "claude-klabauter-publish-repo-toplevel"
 _ROW_NAME_PREFIX = "claude-klabauter"
 
-# `publish.py`'s "Skipping {name}." line has two printed shapes (§ grep of
-# `Skipping {` across publish.py): a bare "Skipping {name}."
-# (identity-file, gate failures) and "Skipping {name} (<reason>...)"
-# (version-regression family). The lookahead stops at whichever terminator
-# comes first so both shapes yield a clean row name, never a name plus
-# trailing punctuation or a truncated reason fragment.
 _SKIPPING_LINE_RE = re.compile(r"Skipping (\S+?)(?=\.|\s\()")
 
-# The exact marker substrings `dispatch_end_of_run_identity_check` and
-# `dispatch_end_of_run_install_doc_payload_check` (coordinator/bin/publish.py)
-# print to stderr -- kept here as named constants, not re-derived per parse
-# call, so a wording change in either function is a one-line diff to find,
-# not a silent drift between what they print and what this script greps for.
 _IDENTITY_RAN_CLEAN_MARKER = "end-of-run identity check"
 _IDENTITY_FAIL_MARKER = "end-of-run identity check FAILED"
-# Deliberately "end-of-run identity checker not found at" (§
-# `dispatch_end_of_run_identity_check`'s `target_filtered=True` advisory
-# WARNING), NOT the bare "identity checker not found at" substring that
-# phrase contains -- that shorter substring is ALSO present in
-# `dispatch_percolate_pre_ci`'s PER-ROW advisory skip WARNING (§ that
-# function's docstring: a row with a non-empty `dest_subdir` can legitimately
-# run, and print that exact skip warning, BEFORE its sibling toplevel row has
-# published `.github/` -- the expected shape on a full, unfiltered run into a
-# virgin destination, since row declaration order puts the engine row first).
-# A bare substring match collided the two: on pass 1 of a virgin-destination
-# publish, the per-row warning fires (and is expected to), the end-of-run leg
-# runs afterward and finds `.github/` (published later in the SAME pass by
-# the toplevel row) and exits clean -- printing nothing -- yet the collision
-# made this parser misreport the end-of-run leg itself as `skipped-advisory`
-# purely because of leftover per-row stderr chatter from earlier in the same
-# pass. Traced live: `dispatch_end_of_run_identity_check` already fails
-# closed unconditionally when `target_filtered=False` and the checker is
-# absent (`test_full_unfiltered_run_into_virgin_destination_fails`,
-# `coordinator/bin/tests/test_percolate_identity_check_gate.py`) -- the
-# defect was in THIS harness's classification, not in the gate it measures.
 _IDENTITY_SKIP_MARKER = "end-of-run identity checker not found at"
 _INSTALL_DOC_FAIL_MARKER = "end-of-run install-doc payload check FAILED"
 _INSTALL_DOC_ADVISORY_MARKER = "end-of-run install-doc payload check found"
@@ -245,11 +214,6 @@ _UNSCANNED_NOTE_MARKER = "DELIBERATE exclusion"
 
 
 def _load_publish_module():
-    """Import `coordinator/bin/publish.py` under a private module name --
-    same idiom this repo's own test suite uses (e.g.
-    `coordinator/bin/tests/test_percolate_identity_check_gate.py`), so this
-    harness's import never collides with, or is confused for, a `pytest`
-    collection of the real module."""
     spec = importlib.util.spec_from_file_location(
         "publish_full_payload_proof", _BIN_DIR / "publish.py"
     )
@@ -316,46 +280,18 @@ def _rewrite_rows_dest_root(rows: List[str], scratch_dest_root: Path) -> List[st
 
 
 def _declared_row_names(rows: List[str]) -> List[str]:
-    """Every `claude-klabauter*` row name `load_targets()` actually declared
-    for this run -- derived from the resolved rows themselves (never a
-    constant this script maintains separately), so a row added to or
-    removed from `setup/publish-targets.portable` changes what this harness
-    expects to see processed without anyone having to remember to update a
-    second list here."""
     return sorted(
         {r.split("|", 1)[0] for r in rows if r.split("|", 1)[0].startswith(_ROW_NAME_PREFIX)}
     )
 
 
 def _parse_skipped_row_names(stdout_text: str) -> List[str]:
-    """Every row name `publish.py` printed a "Skipping {name}[.( ]" line for
-    in this pass's captured stdout -- the same signal this harness's own
-    end-of-run-leg parsing already trusts over a bare exit code (§ module
-    docstring's `_parse_end_of_run_leg_status`): a row silently absent from
-    the processed set is exactly the "skipped gate reads as clean" failure
-    class this workstream exists to close, just one level up, at the ROW
-    rather than the leg."""
     return sorted(
         {name for name in _SKIPPING_LINE_RE.findall(stdout_text) if name.startswith(_ROW_NAME_PREFIX)}
     )
 
 
 def _git_init_scratch_dest(scratch_dest_root: Path) -> None:
-    """`git init` the scratch destination -- a plain `tempfile.mkdtemp()`
-    directory has no `.git` marker at all, which is NOT the shape a real
-    destination clone has (the real klabauter clone is a git checkout with
-    an unborn HEAD and zero commits, per `state/audits/2026-08-05-klabauter
-    -scrub-and-gate-both-silent.md` § Q1's live reproduction). Without this,
-    `_ensure_dest_ready`'s (coordinator/bin/publish.py) git-ancestor
-    bootstrap check refuses every row whose `dest_subdir` names a directory
-    that does not already exist under the scratch root -- a false failure
-    of the SCRATCH FIXTURE, not of the pipeline under test. `git init`
-    alone (no commit, no remote) reproduces the real clone's actual git
-    shape without ever touching a remote or creating history the
-    convergence proof does not need.
-
-    Purely local and disposable -- never a remote, never
-    `$HOME/X/claude-klabauter` (see module docstring)."""
     import subprocess
 
     from coordinator_core.win_portability import no_console_creationflags
@@ -394,8 +330,6 @@ def _hash_tree(root: Path) -> Dict[str, str]:
 
 
 def _diff_trees(before: Dict[str, str], after: Dict[str, str]) -> List[str]:
-    """Human-readable diff lines between two `_hash_tree` results -- added,
-    removed, and changed paths. Empty list means byte-identical trees."""
     lines: List[str] = []
     before_keys, after_keys = set(before), set(after)
     for path in sorted(after_keys - before_keys):
@@ -409,16 +343,7 @@ def _diff_trees(before: Dict[str, str], after: Dict[str, str]) -> List[str]:
 
 
 class PinNotHonoredError(RuntimeError):
-    """Raised whenever this harness cannot make both passes publish from the
-    same resolved commit sha(s) (§ module docstring 'SOURCE PIN') -- either
-    up front, before either pass runs (`_resolve_pinned_commit_shas` cannot
-    resolve some contributing root's toplevel or HEAD), or mid-run (a pass's
-    own `_git_rev_parse` wrapper, `_make_pinned_rev_parse`, is asked to
-    resolve HEAD for a toplevel the pre-run pin walk never covered). Always
-    a loud, unhandled-by-default abort -- a convergence verdict measured
-    against a source pin that quietly failed to hold is worse than no
-    verdict at all, exactly the failure class this whole mechanism exists to
-    close."""
+    pass
 
 
 _PROVENANCE_LINE_RE = re.compile(
@@ -427,13 +352,6 @@ _PROVENANCE_LINE_RE = re.compile(
 
 
 def _parse_provenance_lines(stdout_text: str) -> Dict[str, str]:
-    """Every `Provenance: <root> shipped from <sha>` line `publish.py`'s
-    `run_pre_sync_gates` already prints per contributing root, per pass --
-    the cheapest independent verification hook for the source pin this
-    harness applies (§ module docstring 'SOURCE PIN'). Compared pass 1
-    against pass 2 in the verdict, in addition to and independent of the
-    byte-level `_hash_tree` comparison: if the two maps are not identical,
-    the pin did not hold even though this harness intended it to."""
     return dict(_PROVENANCE_LINE_RE.findall(stdout_text))
 
 
@@ -534,14 +452,6 @@ def _make_pinned_rev_parse(real_rev_parse, pinned_shas: Dict[str, str], head_mov
 
 
 def _parse_end_of_run_leg_status(stderr_text: str) -> Dict[str, str]:
-    """Classify each end-of-run leg's outcome for one pass as one of
-    'ran-clean', 'ran-failed', 'skipped-advisory', or 'unknown' (never
-    silently absorbed into a bare pass/fail) by matching the EXACT marker
-    strings `dispatch_end_of_run_identity_check` /
-    `dispatch_end_of_run_install_doc_payload_check` (coordinator/bin/
-    publish.py) print -- not by inferring behavior from the process exit
-    code alone, which is exactly how a skipped gate read as clean in the
-    original defect this whole workstream is closing."""
     status = {
         "identity_check": "unknown",
         "install_doc_payload_check": "unknown",
@@ -553,11 +463,7 @@ def _parse_end_of_run_leg_status(stderr_text: str) -> Dict[str, str]:
     elif _IDENTITY_SKIP_MARKER in stderr_text:
         status["identity_check"] = "skipped-advisory"
     elif _IDENTITY_RAN_CLEAN_MARKER not in stderr_text:
-        # Neither a failure line nor a skip line printed at all -- absence
         # of stderr chatter for a leg that ran clean is the EXPECTED shape
-        # (dispatch_end_of_run_identity_check only prints on skip or
-        # nonzero exit), so this is the "ran and found nothing to say"
-        # case, not evidence it never ran.
         status["identity_check"] = "ran-clean-silent"
 
     if _INSTALL_DOC_FAIL_MARKER in stderr_text:
@@ -583,47 +489,6 @@ def _run_one_pass(
     pinned_shas: Dict[str, str],
     head_movement_notes: List[str],
 ) -> "PassResult":
-    """Run one `publish.main([])` invocation with `load_targets` rewired to
-    the REAL resolved rows, dest-root-rewritten onto `scratch_dest_root`
-    (§ `_rewrite_rows_dest_root`). Captures stdout/stderr via monkeypatched
-    `sys.stdout`/`sys.stderr` around the call.
-
-    `publish._git_rev_parse` is ALSO rewired here, per pass, to
-    `_make_pinned_rev_parse(..., pinned_shas, ...)` (§ module docstring
-    'SOURCE PIN') -- both passes publish from the SAME pre-resolved commit
-    sha(s), never a freshly re-resolved live HEAD, so a peer's concurrent
-    commit landing between pass 1 and pass 2 cannot manufacture a false
-    convergence failure.
-
-    `publish.py`'s own row-level prints (`=== name (mode) ===` headers,
-    "Skipping", "Synced:", "Provenance:") go through functions declared as
-    `def foo(..., out: IO[str] = sys.stdout)` -- a REGULAR Python default
-    parameter, bound ONCE at function-definition time (i.e. at module
-    import), not re-resolved per call. `main()` never passes `out=`
-    explicitly at these call sites (verified: `process_target(...)` at its
-    one call site in `main()` carries no `out=` kwarg), so if the module
-    were imported once and reused across both passes (as an earlier version
-    of this harness did), every one of those prints would be bound to
-    whatever `sys.stdout` object existed at THAT single import moment --
-    forever after, regardless of any later `sys.stdout = captured_out`
-    reassignment here. That is not a hypothetical: verified live by adding
-    row-completeness parsing (§ `_processed_rows`/`_parse_skipped_row_names`)
-    and finding it saw zero rows despite `Synced:` lines being visibly
-    present in the real terminal output -- the captured text was missing
-    every row-level print, silently, while OTHER prints (bare `print(...)`
-    calls with no `file=` argument, which DO look up `sys.stdout`
-    dynamically per call, e.g. the per-file NEW/UPDATE diff lines) came
-    through fine. Same escape path exists for `err: IO[str] = sys.stderr`,
-    which the end-of-run leg markers this harness's own `_parse_end_of_run_
-    leg_status` depends on are printed through.
-
-    Fixed at the root, without editing `publish.py`: `_load_publish_module()`
-    is called HERE, fresh, per pass, AFTER the stream swap below -- so every
-    `out=sys.stdout`/`err=sys.stderr` default binds to `captured_out`/
-    `captured_err` at THIS import, not to the process's real streams. A
-    second import per pass is by construction the only way to make a
-    stale-default-bound print in an unmodified sibling module observe a
-    stream swap performed by its caller."""
     from percolate.targets import load_targets as _real_load_targets  # noqa: E402
 
     captured_out, captured_err = io.StringIO(), io.StringIO()
@@ -632,18 +497,6 @@ def _run_one_pass(
     try:
         publish = _load_publish_module()
 
-        # § module docstring 'SOURCE PIN' -- rewire THIS pass's freshly
-        # -imported `_git_rev_parse` so every HEAD resolution answers from
-        # `pinned_shas` (captured once, before either pass ran) instead of
-        # re-invoking live `git rev-parse HEAD`. No try/finally restore here
-        # by design, not oversight: `publish` is guaranteed fresh-per-call
-        # (`_load_publish_module()` above does a private-name `importlib`
-        # load, never a cached/memoized import), so this mutated attribute
-        # dies with the module object at the end of THIS pass. If
-        # `_load_publish_module()` is ever changed to cache or memoize its
-        # result, this line becomes a cross-pass leak -- restore
-        # `publish._git_rev_parse` to its pre-mutation value in a `finally`
-        # at that point.
         publish._git_rev_parse = _make_pinned_rev_parse(
             publish._git_rev_parse, pinned_shas, head_movement_notes, pass_number
         )
@@ -745,24 +598,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_engine_on_path
 
-    # The engine root must be on sys.path before `_git_init_scratch_dest`'s
-    # coordinator_core import runs: this file is also published into the
-    # claude-klabauter mirror, where coordinator_core is NOT pip-installed and
-    # the interpreter's sys.path[0] is this bin/ directory, not the checkout
-    # root. Same bootstrap as coordinator/bin/coordinator-lesson-add (9b979ee5f).
     require_engine_on_path(__file__)
 
     args = build_arg_parser().parse_args(argv)
 
-    pin_module = _load_publish_module()  # preflight: fail fast on an import error before touching disk
+    pin_module = _load_publish_module()
 
-    # § module docstring 'SOURCE PIN' -- resolve the commit sha every
-    # contributing root is at RIGHT NOW, ONCE, before either pass runs, so
-    # both passes publish from the exact same source bytes regardless of any
-    # commit a peer lands on this shared branch in between. Deliberately
-    # done here (before the scratch destination even exists) rather than
-    # lazily inside pass 1 -- the pin is a precondition of both passes, not
-    # a side effect of running the first one.
     from percolate.targets import load_targets as _real_load_targets_for_pin
 
     percolate_root, _percolate_root_rung = pin_module._resolve_percolate_root_and_rung()
@@ -852,10 +693,6 @@ def main(argv: Optional[List[str]] = None) -> int:
             for note in head_movement_notes:
                 print(f"    {note}")
         # foreign-identity: NOT-REACHABLE — basis: DELIBERATE INVOCATION, not true
-        # unreachability. Publish payload-proof/verify CLI (same shape as
-        # verify_dist_publish_repo_sync.py, audit row 16); a third-repo session cannot
-        # hit this ambiently, but a maintainer CAN reach it by deliberately verifying a
-        # publish.
         for pass_result in (pass1, pass2):
             declared_n = len(pass_result.declared_rows)
             not_processed = sorted(set(pass_result.skipped_rows) | set(pass_result.missing_rows))

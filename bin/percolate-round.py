@@ -2062,7 +2062,10 @@ def _published_seed_names(percolate_root: str, target: str, seed: "set[str]") ->
         if not str(pair["src"]).endswith("/")
     }
     # Pairs are basenames and the transform renames at any depth, so map the
-    # basename and keep the directory.
+    # basename and keep the directory. Invariant: `seed` and `renames` keys
+    # use `/` (percolate store / JSON manifest convention, matched by the
+    # `path.as_posix()` published side) -- a `\`-separated name would not
+    # split here and would pass through unrenamed.
     def _published(name: str) -> str:
         head, _, base = name.rpartition("/")
         new = renames.get(base, base)

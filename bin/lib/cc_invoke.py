@@ -98,7 +98,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable, NamedTuple, Optional, cast
 
-GENERATES = []  # writes only tempfile.mkstemp() params files (cc_invoke + cc_invoke_bare), always unlinked; no tracked artifact
+GENERATES = []
 
 
 class StructuralPinError(RuntimeError):
@@ -222,32 +222,11 @@ class AppliedReportUndecodableError(RuntimeError):
     """
 
 
-#: The ledger lives under the user-local runtime base, NOT inside any repo.
-#:
-#: It was repo-relative for its first hours and that was wrong in a way worth
-#: recording, because the failure renders as silence. The path resolved through
-#: the registry key `repos.claude_klabauter`, on the reasoning that every session
 #: should append to one registered checkout. The publish transform REWRITES
-#: that key when mirroring source to twin -- the published copy in
-#: `claude-klabauter` asks for `repos.claude_klabauter` and gets it -- so the
-#: mirror wrote its own `state/` file. Since this box resolves its hooks to the
-#: published engine, that was most of the traffic: 8.4KB in the mirror against
-#: five rows in the source, and a reader looking only at the source rendered
-#: nothing. Silence here is indistinguishable from health, which is the exact
-#: failure `test_the_writer_and_reader_agree_on_the_path` exists to catch --
-#: and it could not, because both halves agreed on a relative tuple that two
-#: clones resolved differently.
-#:
-#: A per-box location has no source/mirror to disagree about. Same three-
-#: candidate ladder as `warm.breadcrumb._runtime_base` (env override, then
 #: `%LOCALAPPDATA%`, then `~/.cache`) -- recomputed rather than imported
-#: because this module deliberately carries no `coordinator_core` dependency,
-#: and pinned against the reader's copy by full resolved path, not by relpath.
 _ROUTE_UNREACHABLE_LEDGER = ("coordinator", "sanctioned-route-unreachable.jsonl")
 
 #: Test-isolation seam, shared with `warm.breadcrumb.RUNTIME_BASE_ENV` by name
-#: so one `monkeypatch.setenv` moves warm runtime state and this ledger
-#: together. Read at call time, never cached. Not an operator knob.
 _ROUTE_UNREACHABLE_BASE_ENV = "COORDINATOR_WARM_RUNTIME_BASE"
 
 
@@ -329,19 +308,6 @@ def _utc_now_iso_seconds() -> str:
     import datetime
 
     return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
-
-
-# ---------------------------------------------------------------------------
-# Lazy op registration is unconditional as of 2026-08-22 (the
-# import-path-costs-nothing sprint): coordinator_core.ops never eagerly
-# imports its op modules at package-init time, so this seam no longer needs
-# to arm anything before `from coordinator_core.ops.<name> import main` — the
-# ~108ms eager op-module load this used to kill on the cold-trampoline path
-# simply no longer happens by default. Formerly armed `sys._coordinator_core_
-# lazy_ops` here (via the now-retired two-channel flag); see
-# coordinator_core/ops/__init__.py.
-# Spec backlink: DoE-claude:pln-decouple-coordinator-s-own-bin-42d50a § C8
-# ---------------------------------------------------------------------------
 
 
 def _no_console_kw(claude_klabauter_root: str) -> dict:
@@ -433,14 +399,8 @@ def child_env(overrides: dict[str, str] | None = None) -> dict[str, str]:
     return env
 
 
-# ---------------------------------------------------------------------------
-# DEC-1..3 op-timeout-budget session cache (module-global, mirrors the shell
 # transport's _CC_OP_TIMEOUTS_* session vars). Populated at most ONCE per Python
-# process by _resolve_op_timeouts — a facade process is short-lived, so this is
-# the per-process analogue of the shell's per-shell-session cache.
 #   _OP_TIMEOUTS_STATE: None (unresolved) | "ok" | "absent" | "error"
-# Mirrors the retired bash transport's _cc_resolve_op_timeouts (DEC-1..3).
-# ---------------------------------------------------------------------------
 _OP_TIMEOUTS_STATE: str | None = None
 _OP_TIMEOUTS_MAP: dict[str, float] = {}
 _OP_TIMEOUTS_BREADCRUMB_SHOWN: bool = False
@@ -457,19 +417,6 @@ def _reset_op_timeout_cache() -> None:
     _OP_TIMEOUTS_MAP = {}
     _OP_TIMEOUTS_BREADCRUMB_SHOWN = False
 
-
-# ---------------------------------------------------------------------------
-# Engine-root resolution — native Python ladder, no bash subprocess.
-# _resolve_claude_klabauter_root() below is a from-scratch reimplementation mirroring
-# coordinator-claude-klabauter-root.sh's four-rung discovery chain; it does not shell out
-# to that script. The bash file remains on disk pending its own delete+repoint
-# (Plan C de-bash wave R — see state/debt-backlog/ for the tracked entry); this
-# comment previously claimed the opposite (subprocess-into-bash) and drifted
-# from the code four lines below it.
-# Stale docstring at cc_invoke.py:116-119 contradicted
-# _resolve_claude_klabauter_root()'s own docstring ("no bash subprocess anywhere in the
-# ladder"); corrected to describe the native ladder it introduces.
-# ---------------------------------------------------------------------------
 
 _MLIR_MODULE = None
 
@@ -505,16 +452,7 @@ def _claude_home() -> str:
     return _machine_local_impl_resolver().claude_home()
 
 
-# Cross-reference (C11, pln-an-engine-root-is-not-named-for-the-repo-...):
-# coordinator_core/engine_root.py's `coordinator_engine_root_env`/
-# `coordinator_engine_root_env_exports` (C10) are the dual-read/dual-write seam
-# for this rename everywhere coordinator_core CAN be imported. This module sits
-# on the far side of the same one-way no-import boundary as
 # `_REGISTRY_READ_TIMEOUT_TOKEN` (imported from engine_bootstrap below) — its
-# own engine-root-resolution ladder exists to LOCATE coordinator_core in the
-# first place, so it cannot depend on importing coordinator_core.engine_root
-# to do it — this literal is duplicated by hand in engine_root.py for the
-# same reason, not an oversight.
 _ENGINE_ROOT_OLD_VAR = "CLAUDE_KLABAUTER_ROOT"
 
 _IN_PROCESS_REGISTRY_MEMO: dict[str, str | None] = {}
@@ -574,36 +512,7 @@ def _machine_local_get_in_process(key: str) -> str | None:
     return value
 
 
-# ---------------------------------------------------------------------------
-# Engine-root resolution — split into the sibling `engine_bootstrap` module
-# (docs/plans/2026-08-21-the-cli-bootstrap-tax-dies-at-the-interpreter-floor.md
-# § C2): `_resolve_engine_root` (+ its nested `_delegate_to_gate`) and every
 # helper/constant EXCLUSIVE to it now live there, os+sys-only at module top,
-# so a caller that needs only the bootstrap need not pay this module's own
-# 27-module import cost. `_machine_local_get`, `_machine_local_impl_resolver`,
-# `_walk_up_to_checkout`, and the resolution constants/exceptions moved
-# alongside it because `_resolve_engine_root`'s bare-name references to them
-# bind against THAT module's globals now — imported back here so every OTHER
-# function in THIS file that also references them (route(), resolve_engine_root(),
-# _state1_remediation_message(), _machine_local_get_in_process())
-# keeps resolving them through cc_invoke's own globals, unchanged.
-#
-# `_resolve_claude_klabauter_root = _resolve_engine_root` immediately below is a PLAIN
-# NAME ALIAS, never a wrapper — see that assignment's own comment and
-# engine_bootstrap.py's module docstring condition (b)/(c)/(d).
-# ---------------------------------------------------------------------------
-# `engine_bootstrap` is a SIBLING module, so this bare-name import resolves
-# only while this file's own directory is on `sys.path`. That holds for the
-# CLI entrypoints, which put it there -- and NOT for the several callers that
-# load this module BY PATH via `importlib.util.spec_from_file_location`, a
-# loader that deliberately does not touch `sys.path`. Those callers got a
-# bare `ModuleNotFoundError: engine_bootstrap` the moment the split landed
-# (2026-08-21), from a file that had always been by-path loadable.
-#
-# Self-locating rather than requiring every by-path caller to prepend the
-# directory itself: the requirement would be invisible at every call site and
-# rediscovered the same way each time. Appended, never prepended, so this can
-# never shadow an earlier entry a caller chose deliberately.
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 if _LIB_DIR not in sys.path:
     sys.path.append(_LIB_DIR)
@@ -621,33 +530,9 @@ from engine_bootstrap import (  # noqa: E402 -- see module-top note on this file
 )
 
 
-
-
-# Back-compat alias for the C17 rename (docs/plans/2026-08-20-an-engine-root-
-# is-not-named-for-the-repo.md § C17): `_resolve_claude_klabauter_root` is the
-# pre-rename spelling. This is a PLAIN NAME ALIAS, not a wrapper function --
-# both names reference the exact same function object, so
-# `inspect.getsource(_resolve_claude_klabauter_root)` call-site guards and
-# `unittest.mock.patch.object(module, "_resolve_claude_klabauter_root")` callers
-# elsewhere in this tree keep working unchanged: every bare call site in
-# THIS module still spells the call `_resolve_claude_klabauter_root()`, so a patch on
-# that name intercepts it (Python resolves a bare name against module
-# globals at call time, not at def time). Bucket-4 callers
-# (docs/reference/engine-vs-locator-resolver-routing.md, ENGINE verdict,
-# ~53 files) that import this name directly also keep working. Remove only
-# once every caller — internal and external — has been routed to
-# `_resolve_engine_root` directly.
 _resolve_claude_klabauter_root = _resolve_engine_root
 
-# Dual-read window for the engine-root rename (docs/plans/2026-08-20-an-engine-
 # root-is-not-named-for-the-repo.md). The PUBLISHED engine is transformed on the
-# way out -- every `claude-klabauter` identifier becomes `claude_klabauter` -- but it still
-# imports THIS module from the live tree, which is not transformed. So a published
-# workstream_complete asks for `_resolve_claude_klabauter_root` and finds only
-# `_resolve_claude_klabauter_root`, and the ceremony tail dies on ImportError for every
-# session on the box. Exporting both names costs nothing and closes that window.
-# In the mirror this line transforms into a self-assignment, which is a harmless
-# no-op. Remove it only once no published engine references the old spelling.
 _resolve_claude_klabauter_root = _resolve_claude_klabauter_root
 def resolve_colocated_claude_klabauter_root(script_file: str) -> str:
     """Resolve the engine root for a CLI that lives INSIDE the engine checkout itself.
@@ -677,12 +562,6 @@ def resolve_colocated_claude_klabauter_root(script_file: str) -> str:
     if (_candidate / "coordinator_core").is_dir() and (_candidate / "pyproject.toml").is_file():
         return str(_candidate)
     return _resolve_claude_klabauter_root()
-
-
-# `_walk_up_to_checkout` moved to engine_bootstrap.py (imported above) — it is
-# a dependency of BOTH `_resolve_engine_root` (Rung 3, now defined there) and
-# `resolve_engine_root` below (still defined here, on the LOCATOR axis), so it
-# lives in the sibling module and both sides import the one function object.
 
 
 def resolve_engine_root(script_file: str) -> str:
@@ -748,7 +627,6 @@ def resolve_engine_root(script_file: str) -> str:
     THIS function, not on ``ensure_engine_on_path`` — see that function's
     docstring for why the degrading form is the wrong choice there.
     """
-    # C14 closed the dual-read window: the NEW name only (see
     # _ENGINE_ROOT_NEW_VAR/_ENGINE_ROOT_OLD_VAR's module-level note above).
     env_root = os.environ.get(_ENGINE_ROOT_NEW_VAR) or ""
     if env_root and os.path.isdir(env_root):
@@ -898,15 +776,7 @@ def _report_provenance(caller: str, root: str, axis: str) -> ProvenanceReport:
             return report
         from coordinator_core.engine_provenance_counter import record_engine_provenance
 
-        # Omitting cwd left resolve_git_root_cheap's
-        # `if not cwd: return None` guard firing on every call, so the sink
-        # silently never wrote a record (indistinguishable at the call site
-        # from an intentional unresolvable-root degrade). os.getcwd() is a
         # MISS-MODE-appropriate cwd for this sink: a symlinked-ancestor
-        # divergence between this and resolve_git_root's realpath answer only
-        # changes WHERE the append-only record lands, never a VERDICT (no
-        # guard decision rides on it), matching resolve_git_root_cheap's own
-        # documented caller contract.
         record_engine_provenance(
             caller,
             axis,
@@ -1134,9 +1004,6 @@ def _announce_engine_cli_split(dispatch_root: str) -> None:
         )
         if same:
             return
-        # Plain-quoted, never `!r`, for the same reason the divergence error
-        # below gives: on Windows `repr()` doubles every backslash, so the path
-        # an operator would paste back is not the path they were shown.
         sys.stderr.write(
             "engine split: CLI from '" + cli_root + "', engine from '"
             + dispatch_root + "' -- a fix in the CLI tree does not run "
@@ -1229,8 +1096,6 @@ def require_dispatch_engine_on_path() -> str:
     root = _front_insert_on_path(_resolve_claude_klabauter_root())
     report = _report_provenance("require_dispatch_engine_on_path", root, "dispatch")
     if report.verdict == PROVENANCE_DIVERGENT and not _is_source_twin(report):
-        # Plain-quoted, never `!r`: on Windows `repr()` doubles every backslash,
-        # so the path an operator would paste back is not the path they are shown.
         raise ProvenanceDivergenceError(
             "require_dispatch_engine_on_path: coordinator_core already bound "
             f"from '{report.imported_file}', diverges from dispatch root "
@@ -1396,15 +1261,6 @@ def _is_source_twin(report: "ProvenanceReport") -> bool:
     return True
 
 
-# ---------------------------------------------------------------------------
-# Seam gate — disk-presence check via find_spec. Note: find_spec on a dotted name
-# imports the parent package (coordinator_core) as a side-effect — sys.path is
-# restored after the probe, sys.modules is not. Intentional improvement over the
-# retired shell facade's full-import probe: a broken-but-present
-# engine routes native → ImportError → hard error rather than silently falling to
-# legacy.
-# ---------------------------------------------------------------------------
-
 def _seam_present(claude_klabauter_root: str) -> bool:
     """Return True if coordinator_core.invoke is importable from claude_klabauter_root.
 
@@ -1418,12 +1274,7 @@ def _seam_present(claude_klabauter_root: str) -> bool:
     Negative-spec: does NOT execute the module or probe liveness; a broken module
     that find_spec can locate routes to the native path and raises hard on import.
     """
-    # find_spec on a dotted name imports the parent pkg as a side-effect; sys.modules
-    # is not restored, only sys.path (see the docstring above).
 
-    # Module-hijack defense-in-depth: the registry-resolved root is trusted, but an
-    # un-validated relative or non-directory path on sys.path[0] is the hijack vector —
-    # treat it as seam-absent and route to the safe legacy default.
     if not os.path.isabs(claude_klabauter_root) or not os.path.isdir(claude_klabauter_root):
         return False
 
@@ -1441,17 +1292,9 @@ def _seam_present(claude_klabauter_root: str) -> bool:
                 sys.path.remove(claude_klabauter_root)
             except ValueError:
                 pass
-    # Reported AFTER the find_spec probe completes (never before): reporting
-    # before the probe returns `unimported` in exactly the case the probe is
-    # about to create, and this site would report nothing useful, forever.
     _report_provenance("_seam_present", claude_klabauter_root, "dispatch")
     return result
 
-
-# ---------------------------------------------------------------------------
-# Shared transport helpers — used by BOTH cc_invoke() (envelope-parse convention)
-# and cc_invoke_bare() (--bare convention) so the fail-closed ladder lives once.
-# ---------------------------------------------------------------------------
 
 _SHOULD_PASS_REPO_FAIL_OPEN_EMITTED: set[tuple[str, str]] = set()
 
@@ -1680,7 +1523,6 @@ def _settings_home_env(base_env: dict[str, str], claude_klabauter_root: str | No
     if base_env.get("COORDINATOR_SETTINGS_HOME"):
         return base_env
 
-    # C14 closed the dual-read window: the NEW name only (see
     # _ENGINE_ROOT_NEW_VAR/_ENGINE_ROOT_OLD_VAR's module-level note above).
     _root = claude_klabauter_root if claude_klabauter_root is not None else os.environ.get(_ENGINE_ROOT_NEW_VAR)
     _injected = bool(_root) and _root not in sys.path
@@ -1702,27 +1544,14 @@ def _settings_home_env(base_env: dict[str, str], claude_klabauter_root: str | No
 
 _IMPORT_ERROR_TOKENS = ("importerror", "modulenotfounderror", "no module named")
 
-#: Cap on the raw-stdout tail `_op_error_detail` falls back to when the child's
 #: stdout is not a parseable JSON-RPC envelope. A traceback or a debug dump can
-#: run to megabytes; the raised message has to stay readable in a terminal.
 _OP_ERROR_DETAIL_CAP = 2000
 
 #: Cap on the raw-stdout prefix `cc_invoke()` includes when the JSON-RPC envelope
-#: itself fails to decode (rung (4), a process-succeeded-but-unparseable-stdout
-#: case distinct from `_op_error_detail`'s nonzero-exit rung above). Without this,
-#: a decode failure reported only `json.JSONDecodeError`'s "line 1 column 1"
-#: text — discarding the bytes that would classify it (stdout pollution ahead of
-#: the envelope vs. a genuinely malformed one) and forcing a fresh repro.
 _JSON_DECODE_FAILURE_PREFIX_CAP = 500
 
 
 #: `warm.client.WARM_DISPATCH_INDETERMINATE`, restated rather than imported.
-#: `_raise_on_process_failure` runs on a path that is ALREADY failing and whose
-#: docstring forbids it acquiring a second failure mode of its own, so it may not
-#: pay an import that can raise. Kept honest by
-#: `coordinator/bin/tests/test_cc_invoke_indeterminate.py`, which asserts this
-#: equals the engine's own constant — if the engine renumbers, that test fails
-#: rather than this rung silently ceasing to match.
 _WARM_DISPATCH_INDETERMINATE_CODE = -32004
 
 
@@ -1917,14 +1746,6 @@ def _raise_on_process_failure(
         if any(tok in detail.lower() for tok in _IMPORT_ERROR_TOKENS):
             raise _engine_wont_start("stdout")
         if _stdout_error_code(stdout_text, _parsed_stdout) == _WARM_DISPATCH_INDETERMINATE_CODE:
-            # THE COLD SPAWN IS HOW THIS SHAPE USUALLY ARRIVES, which is not
-            # obvious and is why the rung is here rather than only on the warm
-            # branch. `cc_invoke` warm-reaches first; on a miss it spawns
-            # `coordinator_core.invoke`, and THAT child warm-reaches again
-            # (`invoke/__main__ :: _wait_for_warm_boot`). A server that takes the
-            # child's bytes and never answers produces the -32004 envelope
-            # THERE, printed to stdout with exit 1 per `_exit_code_for_response`
-            # -- so it lands on this ladder, never on rung (4).
             message = (
                 f"cc_invoke: warm dispatch indeterminate (op={op}, rc={rc}) — the "
                 "request was delivered and never answered; the op MAY have "
@@ -1946,26 +1767,10 @@ def _raise_on_process_failure(
         )
 
 
-#: Additive client-side allowance over the engine's OWN published budget, covering the
-#: only part of the wait that budget does not: the child's cold interpreter start plus
-#: the `coordinator_core` import it pays before its dispatch clock starts. Sized from
-#: what that costs, not from the 10s it replaced — the engine's measured cold-start
-#: floor is 57.1ms (CoV 1.5%, `docs/wiki/misc-harvest-2026-08-06-13h-corrected.md`), and
-#: a spawn under the declared 50-70-concurrent-LLM load norm runs 0.076s min / 0.219s
-#: median (`_machine_local_get_in_process`'s own 2026-08-20 measurement). 2s is ~34x the
-#: unloaded floor and ~9x the loaded median, and is simultaneously the ceiling CLAUDE.md
-#: § Load norm puts on any single process: budgeting a client margin above 2s would be
-#: budgeting for a defect rather than for a cold start.
 _CLIENT_START_MARGIN_SECS = 2
 
-#: The wait when the engine publishes no budget at all — an engine too old for
-#: `--dump-op-timeouts` ("absent"), or a dump that failed/was malformed ("error"). Not a
-#: floor under the derived ceiling: on the "ok" branch the engine's budget is the sole
-#: term, and this constant is not consulted.
 _NO_BUDGET_FALLBACK_SECS = 10
 
-#: Bound on the one-shot `--dump-op-timeouts` probe. Its own cold start is the whole cost
-#: of that spawn, so it is bounded by the same fallback the probe's failure resolves to.
 _DUMP_PROBE_TIMEOUT_SECS = _NO_BUDGET_FALLBACK_SECS
 
 
@@ -2001,7 +1806,7 @@ def _resolve_op_timeouts(claude_klabauter_root: str, env: dict[str, str], probe_
 
     try:
         proc = subprocess.run(
-            [sys.executable, "-m", "coordinator_core.invoke", "--dump-op-timeouts"],  # popup-safe-env-suppressed
+            [sys.executable, "-m", "coordinator_core.invoke", "--dump-op-timeouts"],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -2011,13 +1816,10 @@ def _resolve_op_timeouts(claude_klabauter_root: str, env: dict[str, str], probe_
             **_no_console_kw(claude_klabauter_root),
         )
     except subprocess.TimeoutExpired:
-        # A timeout means the surface responded (or was expected to) and wedged — DEC-2b.
         _OP_TIMEOUTS_STATE = "error"
         return
 
     if proc.returncode != 0:
-        # DEC-2 split: an argparse-style "unrecognized" error is an older engine repo without
-        # the dump surface (2a, silent); any other failure shape is a real fault (2b).
         _argparse_absent = any(
             tok in proc.stderr.lower()
             for tok in (
@@ -2041,7 +1843,6 @@ def _resolve_op_timeouts(claude_klabauter_root: str, env: dict[str, str], probe_
         _OP_TIMEOUTS_STATE = "error"
         return
 
-    # Require a flat {op: number} object carrying the "__default__" key.
     if not isinstance(parsed, dict) or "__default__" not in parsed:
         _OP_TIMEOUTS_STATE = "error"
         return
@@ -2120,10 +1921,6 @@ def _op_timeout_ceiling(op: str, claude_klabauter_root: str, env: dict[str, str]
         if op in _OP_TIMEOUTS_MAP:
             budget = _OP_TIMEOUTS_MAP[op]
         elif is_ceremony:
-            # The dump's projection is driven by the engine's op-keying table, while
-            # its dispatcher prefix-matches; a `ceremony.*` op the table omits is
-            # still clamped server-side, so "__default__" would overstate it by 15x.
-            # This is the bound "__ceremony_budget__" is published FOR.
             budget = _OP_TIMEOUTS_MAP.get(
                 "__ceremony_budget__", _OP_TIMEOUTS_MAP["__default__"]
             )
@@ -2136,7 +1933,7 @@ def _op_timeout_ceiling(op: str, claude_klabauter_root: str, env: dict[str, str]
         if read_deadline is not None:
             budget = max(budget, read_deadline)
 
-        budget_int = int(budget)  # integer-truncate a float budget (e.g. 30.0 -> 30)
+        budget_int = int(budget)
         miss_wait = math.ceil(_OP_TIMEOUTS_MAP.get("__warm_miss_wait__", 0.0))
         return budget_int + miss_wait + _CLIENT_START_MARGIN_SECS
 
@@ -2150,10 +1947,6 @@ def _op_timeout_ceiling(op: str, claude_klabauter_root: str, env: dict[str, str]
     return _NO_BUDGET_FALLBACK_SECS
 
 
-# Stable literal prefix of every TimeoutExpired-derived RuntimeError this module raises
-# (both cc_invoke() and cc_invoke_bare()) — the discriminator `is_timeout_error` matches
-# on. Kept as a named constant rather than inlined so the two places that must agree on
-# it (the builder below and the discriminator) cannot drift independently.
 _TIMEOUT_MESSAGE_PREFIX = "cc_invoke: engine timeout after "
 
 
@@ -2243,12 +2036,7 @@ def _timeout_exceeded_message(op: str, timeout: int) -> str:
     The returned text always starts with `_TIMEOUT_MESSAGE_PREFIX` — `is_timeout_error`
     depends on that invariant, on every branch.
     """
-    # A ceremony op's budget is a ratchet, not a knob: naming
     # COORDINATOR_DISPATCH_TIMEOUT_SECS here would hand the reader a remedy that
-    # provably cannot work (the engine clamps ceremony ops with `min()` AFTER
-    # reading that var) and would point them at the one door the ratchet exists
-    # to close. The ratchet is stated as a FACT, last, so it forecloses the knob
-    # without being read as this breach's cause.
     if _is_ceremony_op(op):
         budget_txt = ""
         if _OP_TIMEOUTS_STATE == "ok":
@@ -2285,10 +2073,6 @@ def _timeout_exceeded_message(op: str, timeout: int) -> str:
 
 
 #: Mirror of `coordinator_core.telemetry.op_latency.ROUTE_ENV` / `WARM_SERVER`.
-#: Spelled here, not imported: this module carries no `coordinator_core` import
-#: at module scope, and every coordinator CLI on the box pays its import cost.
-#: Pinned against the engine's own constants by
-#: `coordinator/bin/tests/test_cc_invoke_in_process_reentry.py`.
 _ROUTE_ENV = "COORDINATOR_EXECUTION_ROUTE"
 _ROUTE_WARM_SERVER = "warm_server"
 
@@ -2341,18 +2125,11 @@ def _try_in_engine_dispatch(
         from coordinator_core.invoke.dispatch import dispatch_message
         from coordinator_core.op_scopes import WORKTREE_SCOPED_OPS
     except Exception:  # noqa: BLE001 -- pre-dispatch: fall through, see docstring
-        # Falling through promises the ladder an untouched process; the
-        # front-insert above is the one mutation this attempt made.
         sys.path[:] = path_before
         return None
 
-    # Unique per CLI process, so anything that logs by id can tell two
-    # in-engine calls apart.
     msg: dict[str, Any] = {"jsonrpc": "2.0", "id": f"in-engine-{os.getpid()}", "method": op, "params": params}
     if op in WORKTREE_SCOPED_OPS:
-        # `show_toplevel` WALKS ONLY and never spawns; the cold path's
-        # `_resolve_repo_root` would add a git spawn to a function whose whole
-        # purpose is removing one.
         worktree = show_toplevel(repo_root)
         if not worktree:
             return None
@@ -2429,12 +2206,6 @@ def _try_in_process_warm_reach(
     try:
         from coordinator_core.warm.settings import is_warm_enabled
     except ImportError:
-        # `coordinator_core` is not on this interpreter's import graph. Warmth
-        # is an optimisation with a cold spawn underneath it, and the cold
-        # spawn resolves the engine for itself — so an interpreter that cannot
-        # import the engine in-process takes that path rather than aborting the
-        # caller. Narrowed to ImportError, and to the import alone: anything
-        # `is_warm_enabled()` itself raises is a real defect and propagates.
         return None
 
     if not is_warm_enabled():
@@ -2548,7 +2319,6 @@ def _apply_warm_envelope(
         except Exception:  # noqa: BLE001 -- fail-open, see docstring
             WARM_DISPATCH_INDETERMINATE = None
         if WARM_DISPATCH_INDETERMINATE is not None and code == WARM_DISPATCH_INDETERMINATE:
-            # (1a) delivered-but-unanswered mutation -- refuse, never spawn.
             _record_route_unreachable(op, "warm-hit")
             raise WarmDispatchIndeterminate(
                 f"cc_invoke: warm dispatch indeterminate (op={op}): {message}",
@@ -2581,10 +2351,6 @@ def _apply_warm_envelope(
         _stderr_sink.append(stderr_text)
     return envelope["result"]
 
-
-# ---------------------------------------------------------------------------
-# Public: cc_invoke(op, params, repo_root) -> dict
-# ---------------------------------------------------------------------------
 
 def cc_invoke(
     op: str,
@@ -2644,15 +2410,8 @@ def cc_invoke(
             point, so this always means the op already succeeded and the failure is
             confined to parsing its report. See that type's own docstring.
     """
-    # An already-resolved root is accepted from route() to avoid a double resolution
-    # on the State-2 path.
     claude_klabauter_root = _claude_klabauter_root if _claude_klabauter_root is not None else _resolve_claude_klabauter_root()
 
-    # Warm-first (C2, this module's dispatch brief): spawn only on a miss.
-    # None -> fall through to the unchanged cold-spawn block below. Non-None
-    # -> a warm-served response, handled by the SAME rung-(2)/(4) logic the
-    # cold-spawn's own parsed stdout gets below, applied to this envelope
-    # instead (see `_apply_warm_envelope`'s own docstring for the mapping).
     _in_engine = _try_in_engine_dispatch(op, params, repo_root, claude_klabauter_root)
     if _in_engine is not None:
         return _apply_warm_envelope(op, _in_engine, "", _stderr_sink)
@@ -2673,29 +2432,20 @@ def cc_invoke(
     env = _build_subprocess_env(claude_klabauter_root)
 
     # Per-op timeout ceiling (DEC-1..3): _t = engine_budget(op) + _CLIENT_START_MARGIN_SECS,
-    # resolved once-per-process from the engine's --dump-op-timeouts map
     # (_NO_BUDGET_FALLBACK_SECS when absent/errored). Shares the ceiling path with
-    # cc_invoke_bare so a composite op (e.g. session.boot_sweep, engine budget 30s) never
     # gets a facade timeout tighter than its engine-side DISPATCH_TIMEOUT_SECS budget.
     timeout = _op_timeout_ceiling(op, claude_klabauter_root, env)
 
-    # Spawn invoke with timeout cap.
-    # stderr captured to distinguish ImportError from op-error (same purpose as _stderr_tmp in sh).
     rc: int = 0
     stdout_text: str = ""
     stderr_text: str = ""
 
     # params ride a temp file (--params-file), NOT argv — ARG_MAX-immune (see the
-    # docstring's Params transport note above). Written, closed, passed by path,
-    # and unlinked in finally so a large payload never overflows argv. Mirrors
-    # cc_invoke_bare()'s identical --params-file handling below.
     _params_fd, _params_path = tempfile.mkstemp(prefix="cc-invoke-params-")
     try:
         try:
             _pf = os.fdopen(_params_fd, "w", encoding="utf-8", newline="\n")
         except Exception:
-            # fdopen failed before taking ownership of the fd — close it
-            # directly or mkstemp's descriptor leaks for the process lifetime.
             os.close(_params_fd)
             raise
         with _pf:
@@ -2709,9 +2459,7 @@ def cc_invoke(
 
         try:
             proc = subprocess.run(
-                # cross-slice (DR-148) — sys.executable ensures the same interpreter that
-                # loaded cc_invoke.py is used; hardcoded "python3" breaks on Windows.
-                argv,  # popup-safe-env-suppressed
+                argv,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -2724,7 +2472,6 @@ def cc_invoke(
             stdout_text = proc.stdout
             stderr_text = proc.stderr
         except subprocess.TimeoutExpired:
-            # (1) Timeout — mirrors the retired bash transport's cs_timeout exit 124 branch.
             raise RuntimeError(_timeout_exceeded_message(op, timeout))
     finally:
         try:
@@ -2732,13 +2479,9 @@ def cc_invoke(
         except OSError:
             pass
 
-    # (2) Nonzero process exit — distinguish engine-start failure from op-level error.
-    # (3) Empty stdout — invoke always produces output on success.
-    # Shared fail-closed rungs (used identically by cc_invoke_bare).
     _raise_on_process_failure(rc, stdout_text, stderr_text, op, claude_klabauter_root)
 
     # (4) Parse the JSON-RPC envelope and extract the bare result object.
-    #     Mirrors the inline python3 -c '...' parse in the retired bash transport.
     try:
         envelope = json.loads(stdout_text)
     except json.JSONDecodeError as exc:
@@ -2759,7 +2502,6 @@ def cc_invoke(
             f"got {type(envelope).__name__!r}"
         )
 
-    # Error envelope: op returned {"error": {...}} with any exit code.
     if "error" in envelope and "result" not in envelope:
         err = envelope["error"]
         if isinstance(err, dict):
@@ -2771,7 +2513,6 @@ def cc_invoke(
             f"cc_invoke: op returned JSON-RPC error envelope (op={op}): {err!r}"
         )
 
-    # Missing result key (and no error key detected above).
     if "result" not in envelope:
         top_keys = list(envelope.keys())
         raise RuntimeError(
@@ -2779,17 +2520,10 @@ def cc_invoke(
             f"top-level keys={top_keys!r}"
         )
 
-    # SUCCESS — return bare result dict.
-    # Callers read top-level keys directly (e.g. result['out_path']).
-    # NEVER result['result']['X'] — cc_invoke already stripped the wrapper.
     if _stderr_sink is not None and stderr_text.strip():
         _stderr_sink.append(stderr_text)
     return envelope["result"]
 
-
-# ---------------------------------------------------------------------------
-# Public: cc_invoke_bare(op, params, repo_root) -> dict
-# ---------------------------------------------------------------------------
 
 def cc_invoke_bare(
     op: str,
@@ -2830,13 +2564,6 @@ def cc_invoke_bare(
     """
     claude_klabauter_root = _claude_klabauter_root if _claude_klabauter_root is not None else _resolve_claude_klabauter_root()
 
-    # Warm-first (C2, this module's dispatch brief): spawn only on a miss.
-    # None -> fall through to the unchanged cold-spawn block below. Non-None
-    # -> a warm-served response, handled by the SAME rung-(2)/(4) logic the
-    # cold-spawn's own parsed --bare stdout gets below, applied to this
-    # envelope instead (see `_apply_warm_envelope`'s own docstring for the
-    # mapping; its unwrap-to-`result` return is the warm-hit analogue of the
-    # already-bare `--bare` stdout this function otherwise parses).
     _in_engine = _try_in_engine_dispatch(op, params, repo_root, claude_klabauter_root)
     if _in_engine is not None:
         return _apply_warm_envelope(op, _in_engine, "", _stderr_sink)
@@ -2853,8 +2580,6 @@ def cc_invoke_bare(
         ) from exc
     env = _build_subprocess_env(claude_klabauter_root)
 
-    # Per-op timeout ceiling (DEC-1..3) — may spawn the op-budget dump once per process.
-    # Resolved BEFORE the op spawn so the ceiling reflects the engine's budget for this op.
     timeout = _op_timeout_ceiling(op, claude_klabauter_root, env)
 
     rc: int = 0
@@ -2862,14 +2587,11 @@ def cc_invoke_bare(
     stderr_text: str = ""
 
     # params ride a temp file (--params-file), NOT argv — ARG_MAX-immune. Written, closed,
-    # passed by path, and unlinked in finally so a large payload never overflows argv.
     _params_fd, _params_path = tempfile.mkstemp(prefix="cc-invoke-params-")
     try:
         try:
             _pf = os.fdopen(_params_fd, "w", encoding="utf-8", newline="\n")
         except Exception:
-            # fdopen failed before taking ownership of the fd — close it
-            # directly or mkstemp's descriptor leaks for the process lifetime.
             os.close(_params_fd)
             raise
         with _pf:
@@ -2882,7 +2604,7 @@ def cc_invoke_bare(
             _argv += ["--repo", repo_root]
         try:
             proc = subprocess.run(
-                _argv,  # popup-safe-env-suppressed
+                _argv,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -2895,7 +2617,6 @@ def cc_invoke_bare(
             stdout_text = proc.stdout
             stderr_text = proc.stderr
         except subprocess.TimeoutExpired:
-            # (1) Timeout — mirrors the retired bash transport's cs_timeout exit 124 branch.
             raise RuntimeError(_timeout_exceeded_message(op, timeout))
     finally:
         try:
@@ -2903,13 +2624,9 @@ def cc_invoke_bare(
         except OSError:
             pass
 
-    # (2) nonzero exit + (3) empty stdout — shared fail-closed rungs.
     _raise_on_process_failure(rc, stdout_text, stderr_text, op, claude_klabauter_root)
 
-    # (4) --bare: stdout IS the bare result object already (no jsonrpc/id/result wrapper,
-    #     no second strip-the-envelope spawn). The engine only reaches rc0 on a success
     #     response (a JSON-RPC error always exits nonzero, caught by rung (2)), so on this
-    #     path stdout is json.dumps(response["result"]). Parse to a dict for the caller.
     try:
         result = json.loads(stdout_text)
     except json.JSONDecodeError as exc:
@@ -2926,19 +2643,7 @@ def cc_invoke_bare(
     return result
 
 
-# ---------------------------------------------------------------------------
-# State-1 remediation — W0.5 Option B+C (PM-ratified 2026-07-19): the engine repo
 # is a MANDATORY prerequisite of coordinator in every environment. A seam-absent
-# route() call is not a legitimate "no engine installed, degrade gracefully"
-# outcome anymore — it is a broken install. Prior to this, State-1 silently
-# delegated to legacy_fn(), and under the big-bang bash-cutover legacy_fn is
-# almost always a thin per-caller stub that raises a generic, non-actionable
-# "native seam required (no bash fallback)" message (see e.g.
-# the retired bash sweep-shipped-handoffs.sh's _no_fallback). This wraps any legacy_fn
-# failure on the seam-absent path with the SAME four-rung remediation ladder
-# _resolve_claude_klabauter_root() itself walks, so every caller gets one consistent,
-# actionable error instead of N different bespoke stub messages.
-# ---------------------------------------------------------------------------
 
 def _state1_remediation_message(
     op: str,
@@ -2960,10 +2665,6 @@ def _state1_remediation_message(
     own text instead of sharing the generic one.
     """
     if registry_read_timed_out:
-        # foreign-identity: SUBJECT — same function/reader as the unconditional remediation
-        # below; the reader must resolve claude-klabauter to act on either branch, so naming
-        # it here (to distinguish a transient timeout from genuine non-registration) is part
-        # of the same axis-3 subject-class remedy, not incidental noise.
         return (
             f"cc_invoke: native seam resolution unavailable for op={op!r} — "
             f"{_REGISTRY_READ_TIMEOUT_TOKEN} ({_MACHINE_LOCAL_READ_TIMEOUT_SECS}s bound) "
@@ -2980,8 +2681,6 @@ def _state1_remediation_message(
         if attempted_claude_klabauter_root
         else "  COORDINATOR_ENGINE_ROOT could not be resolved via any rung below.\n"
     )
-    # foreign-identity: SUBJECT — reader must clone/register claude-klabauter; the repo name
-    # and clone URL/registry key are the remedy itself, not incidental context (C3 ruling).
     return (
         f"cc_invoke: native seam unavailable for op={op!r} — claude-klabauter is a mandatory "
         "coordinator dependency in every environment (W0.5 Option B+C, 2026-07-19); there is "
@@ -2999,10 +2698,6 @@ def _state1_remediation_message(
         "See docs/install/AGENT.md § Fail-loud claude-klabauter resolution, or run /coordinator:setup."
     )
 
-
-# ---------------------------------------------------------------------------
-# Public: route(op, params, repo_root, legacy_fn) — two-state gate
-# ---------------------------------------------------------------------------
 
 def route(
     op: str,
@@ -3034,22 +2729,16 @@ def route(
         _stderr_sink: forwarded to cc_invoke() unchanged (see its docstring); no effect
             on the State-1/legacy_fn path. Keyword-only; most callers omit it.
     """
-    # Resolve the engine root; unresolvable root → treat as seam-absent (State-1).
-    # Rationale: if the registry doesn't know about the engine repo, the seam is definitely absent.
     claude_klabauter_root: str | None
     _registry_read_timed_out = False
     try:
         claude_klabauter_root = _resolve_claude_klabauter_root()
     except _RegistryReadTimeout:
-        # Caught ahead of the general RuntimeError below (subclass) — threads the
-        # distinguishable outcome (AC1/AC3) to _state1_remediation_message instead
-        # of collapsing to the same "unresolvable root" the absent-key case gets.
         claude_klabauter_root = None
         _registry_read_timed_out = True
     except RuntimeError:
         claude_klabauter_root = None
 
-    # Disk-presence gate (State-1 check).
     if claude_klabauter_root is None or not _seam_present(claude_klabauter_root):
         try:
             return legacy_fn()
@@ -3060,16 +2749,8 @@ def route(
                 )
             ) from exc
 
-    # State-2: seam confirmed present — route native; propagate or raise.
-    # HARD contract: do NOT catch exceptions and fall to legacy_fn here.
-    # Forward the already-resolved claude_klabauter_root to avoid a second _resolve_claude_klabauter_root()
-    # call inside cc_invoke() on this path.
     return cc_invoke(op, params, repo_root, _claude_klabauter_root=claude_klabauter_root, _stderr_sink=_stderr_sink)
 
-
-# ---------------------------------------------------------------------------
-# Public: route_mutation(op, params, repo_root, legacy_fn) — mutation-aware transport
-# ---------------------------------------------------------------------------
 
 class RouteMutationError(RuntimeError):
     """route_mutation refusal — carries the full offending result payload.
@@ -3113,13 +2794,6 @@ def mutation_refusal_message(op: str, result: Any, *, op_stderr: str = "") -> st
 
     exit_code = result.get("exit_code")
     exit_code_int: int | None
-    # Negative-spec: a non-castable `exit_code` is NOT evidence of success. The
-    # retired bash oracle's `int()/except -> 0` fallback was bug-compatibility
-    # and is deliberately dropped — coercing it manufactured a false-positive
-    # success envelope for every caller of this shared transport at once. A
-    # genuine `"0"` string is unaffected (`int("0")` still casts); see
-    # `test_exit_code_noncastable_refuses` and its benign sibling
-    # `test_exit_code_string_zero_does_not_false_positive`.
     exit_code_uncastable = False
     if exit_code is None:
         exit_code_int = None
@@ -3153,12 +2827,6 @@ def mutation_refusal_message(op: str, result: Any, *, op_stderr: str = "") -> st
     elif failed_truthy:
         detail_parts.append(f"failed={failed!r} (non-list shape)")
     else:
-        # A composite result (e.g. sweep-boot's) carries no top-level `failed`
-        # at all — its failures live one level down, in per-family sub-buckets
-        # like result["shipped_handoffs"]["failed"] / result["sizings"]["failed"].
-        # Without this walk, `failed_is_list=False, failed_truthy=False` left
-        # detail_parts with nothing but exit_code/error, so a composite refusal
-        # reported zero detail about which family actually failed.
         family_failed_parts = []
         for family, sub in result.items():
             if isinstance(sub, dict):
@@ -3171,11 +2839,6 @@ def mutation_refusal_message(op: str, result: Any, *, op_stderr: str = "") -> st
         detail_parts.append(f"error={error_field!r}")
     message = f"route_mutation: op={op!r} refused ({', '.join(detail_parts)})"
     if op_stderr:
-        # _stderr_sink accumulates ALL captured stderr from the child process
-        # across every internal leg/family, regardless of which leg produced
-        # it or whether that leg succeeded — a succeeding leg's own stderr
-        # output lands here just as readily as the refusing leg's. Label it
-        # as such rather than implying it explains the refusal.
         message += f"\n  child stderr (may include non-fatal/succeeding-leg output): {op_stderr}"
     return message
 

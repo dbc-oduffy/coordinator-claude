@@ -31,7 +31,6 @@ contract's own § Exit-code contract):
 """
 
 
-# --- routing half: this file is now a thin shim over entry_point_shim.run_target ---
 from __future__ import annotations
 
 import sys

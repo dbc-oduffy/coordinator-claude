@@ -40,7 +40,7 @@ Three reasons the external triage belongs in a separate agent rather than an ext
 prior-art-checker's `Silent` verdict is load-bearing: it tells the EM and reviewer "we have no established doctrine here — decide fresh." If prior-art-checker sometimes fetches external context when claims are Silent, the Silent verdict becomes ambiguous: does it mean "no internal prior art and no external signal" or "no internal prior art but I didn't check external"? The signal degrades. A separate agent preserves the clean semantics.
 
 **2. Lens confusion compounds across the pipeline.**
-docs-checker verifies facts. prior-art-checker recalls doctrine. A prior-art-checker that also fetches web context blurs the boundary with both docs-checker (factual verification) and the `general-purpose` Sonnet scout (open research). Downstream consumers — Opus reviewers, the review-integrator, future EM sessions — rely on the lens boundary to know what kind of trust to place in each sidecar.
+docs-checker verifies facts. prior-art-checker recalls doctrine. A prior-art-checker that also fetches web context blurs the boundary with both docs-checker (factual verification) and the `general-purpose` Sonnet scout (open research). Downstream consumers — Opus reviewers applying their own findings, future EM sessions — rely on the lens boundary to know what kind of trust to place in each sidecar.
 
 **3. Latency creep on a default-on agent.**
 prior-art-checker runs by default on every plan. Adding bounded web calls to a default-on agent turns a 2–5K token scan into a 10–25K token scan on every plan review. Opt-in is the correct default: pay the cost only when the two-condition trigger gate is met.

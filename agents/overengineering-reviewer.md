@@ -1,6 +1,7 @@
 ---
 name: overengineering-reviewer
 description: "Personas are Opus-only. Waste — Kira: is this code too much? Overengineering, spaghetti, redundant work, structures that survived because they existed. Never correctness."
+persona: Kira
 model: opus
 effort: low
 color: yellow

@@ -95,35 +95,6 @@ def extract_target_path(tool_input: dict) -> str:
 
 
 def is_sentinel_write(target_path: str, sentinel_name: str) -> bool:
-    """True if `target_path` resolves to `sentinel_name`, case-folded.
-
-    Two hardenings beyond a plain basename `==`:
-
-    - Resolved before comparison via `os.path.realpath(os.path.abspath(...))`,
-      so a write through a symlink whose own name is NOT the sentinel but
-      which POINTS AT the sentinel path still matches. `os.path.realpath`
-      on a not-yet-existing leaf component is safe -- it normalizes the
-      path without raising, which matters here because the sentinel
-      usually does not exist yet (that is the whole point of a guard that
-      denies its creation).
-    - Compared case-folded (`.lower()`), because the read side that grants
-      the override this guard exists to prevent (`block-worktree-tool.py`
-      ::`_sentinel_override_active`, and the doctrine guard's own approval
-      lookup) checks presence via `os.path.isfile()`, which is effectively
-      case-insensitive on the fleet's primary hazard filesystem (macOS
-      APFS, default case-insensitive-but-case-preserving). A case-varied
-      write that a case-sensitive check here would silently allow still
-      round-trips into a live override on that filesystem.
-
-    Basename match only (never substring/prefix) -- a near-miss filename
-    (e.g. a `-typo` suffix) or an unrelated file must never be caught by
-    this check.
-
-    Safe to call on a path a caller has already resolved itself (e.g.
-    `guard-doctrine-surface-edits.py`'s own `_norm()`): `os.path.realpath`
-    is idempotent, so resolving an already-resolved absolute path a second
-    time is a harmless no-op, not a correctness concern.
-    """
     if not target_path:
         return False
     try:
@@ -136,13 +107,6 @@ def is_sentinel_write(target_path: str, sentinel_name: str) -> bool:
 def sentinel_write_denial(
     target_path: str, sentinel_name: str, reason: str
 ) -> "dict | None":
-    """Returns a PreToolUse deny `hookSpecificOutput` dict if `target_path`
-    targets `sentinel_name`, else None.
-
-    Caller is responsible for invoking this BEFORE any approval-state
-    lookup that also consults the same sentinel (see module docstring,
-    "Ordering contract").
-    """
     if not is_sentinel_write(target_path, sentinel_name):
         return None
     return {
@@ -155,10 +119,6 @@ def sentinel_write_denial(
 
 
 def _reconstruct_after_stub(tool_name: str, tool_input: dict, before: str) -> "str | None":
-    """Fail-open fallback bound to `reconstruct_after` when the engine
-    implementation cannot be imported. See the module docstring's
-    "`reconstruct_after` re-export" section for why `None` unconditionally
-    is the correct fallback rather than a local reimplementation."""
     return None
 
 

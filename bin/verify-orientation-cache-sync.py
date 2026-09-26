@@ -9,43 +9,8 @@ regexes, UE-detector-regression guard) lives in the claude-klabauter op module. 
 --fix mode — violations are structural, fixed by regenerating via
 bin/regenerate-orientation-cache.
 """
-# verify-orientation-cache-sync.py — Schema verifier for state/orientation_cache.md.
-#
-# Trampoline over claude-klabauter coordinator_core.ops.verify_orientation_cache_sync
-# (DR-047: DoE owns contract/generator, claude-klabauter owns engine).
-#
-# Spec backlink: docs/plans/2026-05-18-orientation-cache-authoring-discipline.md
-# Schema:       plugins/coordinator/pipelines/workday-start-internals.md § 5.5
-# Producer:     plugins/coordinator/bin/regenerate-orientation-cache (still DoE bash)
-# Port source:  coordinator/bin/verify-orientation-cache-sync.py (this file, prior bash body; see git log)
-# Spec backlink (port): DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
-#
 # Division of labor: this trampoline resolves REPO_ROOT / STATE_ROOT / CACHE_FILE
-# (reusing the native 5-rule resolver `coordinator_core.state_root`, imported
-# in-process once the engine root is on sys.path — de-bash campaign,
-# docs/plans/2026-07-16-bash-clean-slate-residual-migration.md; the bash
-# sourced-lib oracle this used to shell out to is retired) and owns `--list` /
-# the no-cache-file no-op. The actual schema-check logic (frontmatter, heading
-# allowlist, per-section shape regexes, UE-detector-regression guard) lives in
-# coordinator_core.ops.verify_orientation_cache_sync, imported directly
-# in-process (template-variant #1 — no @register_op, no IPC round trip; this
-# is a CLI, not a hot per-commit path, but the check is pure/local and gains
-# nothing from an RPC envelope).
-#
-# Usage:
-#   verify-orientation-cache-sync.py           Verify the cache. Exit non-zero on violation.
-#   verify-orientation-cache-sync.py --list    Print the cache path that would be checked.
-#
-# Exit codes:
-#   0 — OK: no violations found, OR --list, OR no cache file present (nothing to verify)
-#   1 — one or more schema violations found (violation list on stderr)
 #   2 — transport failure: REPO_ROOT/STATE_ROOT resolution or the claude-klabauter
-#       import failed (dedicated code — never collides with the 0/1 business
-#       outcomes above; this is a fail-loud validator, so a claude-klabauter-link outage
-#       must not be misread as "cache is schema-clean").
-#
-# No --fix mode by design. Violations are structural — fix by regenerating via
-# bin/regenerate-orientation-cache, not by patching the file in place.
 from __future__ import annotations
 
 import os
@@ -151,11 +116,6 @@ def main(argv: "list[str] | None" = None) -> int:
         print(f"verify-orientation-cache-sync: no cache file at {cache_file} — nothing to verify")
         return 0
 
-    # _resolve_repo_root() re-resolves the engine root
-    # unguarded; safe today only because _resolve_state_root() above already
-    # proved resolution succeeds, but the redundant call sat outside any
-    # try/except, inconsistent with this file's own established pattern of
-    # catching RuntimeError at every other engine-root-touching call site.
     try:
         repo_root = _resolve_repo_root()
     except RuntimeError as exc:

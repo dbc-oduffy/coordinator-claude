@@ -54,15 +54,8 @@ from typing import List, Optional, TextIO
 from coordinator_core.git.run import GitResult, run_git
 
 
-
 @dataclass(frozen=True)
 class RefreshResult:
-    """The outcome of one destination's refresh.
-
-    `ok=False` is a refusal the caller must honour by not publishing into
-    `repo_root`; `reason` is the sentence to print. `warnings` carries the
-    non-blocking findings (the `main` leg), which are printed either way.
-    """
 
     repo_root: Path
     ok: bool
@@ -103,13 +96,6 @@ def _last_line(text: str, fallback: str) -> str:
 
 
 def _branch_and_upstream(repo_root: Path) -> "tuple[Optional[str], Optional[str], Optional[str]]":
-    """`(branch, upstream, error)` for `repo_root`'s checked-out branch.
-
-    One spawn for both names: `rev-parse` accepts several revs and prints one
-    line each, so the branch and its tracking ref cost the same process. A
-    detached HEAD prints `HEAD` for the first rev, and an untracked branch
-    fails the whole invocation -- both are refusals, distinguished by message.
-    """
     proc = _git(
         repo_root,
         ["rev-parse", "--abbrev-ref", "HEAD", "@{u}"],
@@ -143,29 +129,20 @@ def _ahead_behind(
 
 
 def _refresh_local_main(repo_root: Path, checked_out: Optional[str]) -> Optional[str]:
-    """Fast-forward a local, non-checked-out `main` to `origin/main`.
-
-    Returns a warning sentence, or `None` when there was nothing to say. The
-    fetch source is the repository itself, so `refs/remotes/origin/main` is
-    read from the tip the caller's network fetch just wrote -- no second round
-    trip. `git fetch` refuses a non-fast-forward branch update by default, and
-    that default is the guarantee this leg rests on: nothing here can rewrite a
-    local `main` that carries commits origin does not have.
-    """
     if checked_out == "main":
-        return None  # already handled as the landing branch
+        return None
     have_remote = _git(
         repo_root,
         ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/main"],
     )
     if have_remote.returncode != 0:
-        return None  # this remote has no `main` -- nothing to be level with
+        return None
     have_local = _git(
         repo_root,
         ["rev-parse", "--verify", "--quiet", "refs/heads/main"],
     )
     if have_local.returncode != 0:
-        return None  # no local `main` to keep current
+        return None
     proc = _git(
         repo_root,
         ["fetch", "--no-tags", ".", "refs/remotes/origin/main:refs/heads/main"],
@@ -249,20 +226,10 @@ def _no_upstream_base(
 
 
 def refresh_dest_from_origin(repo_root: Path, *, out: TextIO, err: TextIO) -> RefreshResult:
-    """Fetch `origin` and fast-forward `repo_root`'s landing branch (and `main`).
-
-    The one entry point. Callers hold `repo_root`'s destination lock across
-    this call, so the refresh and the round that follows cannot be interleaved
-    with a peer's write to the same clone.
-    """
     repo_root = Path(repo_root)
     branch, upstream, name_err = _branch_and_upstream(repo_root)
     if name_err is not None or upstream is None:
         if branch == "HEAD":
-            # Detached HEAD stays a refusal, and the asymmetry with the
-            # no-upstream case below is the point: a round cannot tell which
-            # branch it would land on, so there is no landing branch to
-            # measure, let alone bring level.
             return RefreshResult(
                 repo_root,
                 ok=False,
@@ -374,36 +341,9 @@ def refresh_dest_from_origin(repo_root: Path, *, out: TextIO, err: TextIO) -> Re
 
 
 def reconcile_dest_before_push(repo_root: Path, *, out: TextIO, err: TextIO) -> RefreshResult:
-    """Bring `repo_root` level with origin again, immediately before its push.
-
-    `refresh_dest_from_origin` closes the window BEFORE a round; this closes
-    the one DURING it. A full round takes minutes, and a peer box landing in
-    that window turns the push into a non-fast-forward rejection with a
-    finished, committed round stranded in the mirror -- observed on the very
-    first run of the pre-round refresh (2026-09-02).
-
-    The reconciliation here is a MERGE, not a fast-forward, and that asymmetry
-    with `refresh_dest_from_origin` is forced rather than chosen: by this point
-    the round's own commit is on the landing branch, so the branch is ahead as
-    well as behind and no fast-forward exists. A merge is nonetheless the right
-    shape for this repo specifically -- both sides are projections of the same
-    published surface from two boxes' sources, so they agree except where the
-    sources do. Where they do NOT agree, git says so: a conflicted merge is
-    aborted here and refused, never resolved by picking a side, because
-    picking a side is precisely the overwrite this whole mechanism exists to
-    prevent.
-
-    `ok=True` with `fast_forwarded=True` means a merge commit was made and the
-    caller should push. `ok=True` with `fast_forwarded=False` means there was
-    nothing to reconcile.
-    """
     repo_root = Path(repo_root)
     branch, upstream, name_err = _branch_and_upstream(repo_root)
     if name_err is not None or upstream is None:
-        # Same base substitution as `refresh_dest_from_origin`, for the same
-        # reason: a branch with no upstream is checked against the remote's
-        # DEFAULT branch, which is the tip a peer's landed work is on. Only a
-        # clone that can name no remote branch at all is refused here.
         upstream, refusal = _no_upstream_base(repo_root, branch, out=out)
         if refusal is not None:
             return RefreshResult(repo_root, ok=False, reason=refusal, branch=branch)

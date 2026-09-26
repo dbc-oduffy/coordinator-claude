@@ -1,42 +1,19 @@
-# coordinator-settings-home.ps1 — PowerShell twin of the Python
-# `coordinator-settings-home` resolver. Mirrors the resolution semantics of
-# coordinator/bin/coordinator-settings-home (a python3-shebang script, ported off bash by
-# the 2026-07-22 de-bash campaign; and its installed twin
-# coordinator/templates/bin/coordinator-settings-home) exactly, so a .ps1-seeder consumer
-# (project-rag, cockpit, ue-addon, example-game-repo) resolves the SAME settings-home path a
-# POSIX-shell consumer on the same machine would.
-#
-# Precedence (most-specific first) — matches the Python resolver's _resolve():
+
+
 #   $env:COORDINATOR_SETTINGS_HOME  — explicit override (sandboxes/CI/XDG users)
 #   ($env:CLAUDE_HOME or $env:HOME or $env:USERPROFILE or $HOME) + '\.coordinator-claude-settings'
-#     — sibling to ~/.claude, PowerShell-native fallback (no bash `${VAR:-default}`
-#       parameter expansion — PowerShell has neither that form nor `~`/`$HOME` tilde
-#       resolution the same way bash does).
-#
-# Usage (invoke with PowerShell 7+):
-#   coordinator-settings-home.ps1          — print settings-home root (with divergence check)
-#   coordinator-settings-home.ps1 check    — run divergence check only (exit 1 if divergent)
-#
-# Exit codes (parity with the Python resolver):
-#   0   success
-#   1   divergent machine-local homes detected (with remediation on stderr)
-#   2   usage error (unknown subcommand)
-#
-# Spec backlink: docs/plans/2026-07-08-install-baton-rendezvous-off-dotclaude.md § C4b
+
+
 # RAG-bait: coordinator settings-home PowerShell CLI resolver; COORDINATOR_SETTINGS_HOME
 
 function Resolve-ClaudeHomeBase {
-    # The home-resolution ladder, defined ONCE for this file. Rung-for-rung
+    
     # identical to the Python resolver's: CLAUDE_HOME -> HOME -> USERPROFILE,
-    # terminating on the automatic $HOME.
-    #
-    # The HOME rung reads $env:HOME and NOT the automatic $HOME: on Windows,
+    
+    
     # PowerShell derives $HOME from USERPROFILE and ignores $env:HOME entirely,
-    # so reading the automatic variable here would silently skip the HOME rung
-    # and resolve a different base than the Python resolver on any host where an
-    # operator sets HOME deliberately (git-bash is the common case). The
-    # automatic $HOME is correct only as the terminal rung, where it stands in
-    # for Python's Path.home().
+    
+    
     if ($env:CLAUDE_HOME)   { return $env:CLAUDE_HOME }
     if ($env:HOME)          { return $env:HOME }
     if ($env:USERPROFILE)   { return $env:USERPROFILE }
@@ -44,7 +21,7 @@ function Resolve-ClaudeHomeBase {
 }
 
 function Resolve-SettingsHome {
-    # Print the settings-home root. No side effects. Mirrors bash _resolve().
+    
     if ($env:COORDINATOR_SETTINGS_HOME) {
         return $env:COORDINATOR_SETTINGS_HOME
     }
@@ -52,21 +29,35 @@ function Resolve-SettingsHome {
 }
 
 function Resolve-CanonicalPath {
-    # Resolve a path to its canonical (symlink-resolved) form, mirroring the
-    # bash resolver's _do_realpath(). Returns the literal path if it doesn't exist
-    # (Resolve-Path -ErrorAction SilentlyContinue leaves $resolved null in that case).
+    # Mirrors the Python resolver's os.path.realpath: follows symlinks/junctions
+    # to their target. Resolve-Path .ProviderPath does NOT do this -- it only
+    # normalises the path, so a compat symlink reads as a false divergence.
     param([Parameter(Mandatory)][string]$Path)
-    $resolved = Resolve-Path -Path $Path -ErrorAction SilentlyContinue
-    if ($resolved) {
-        return $resolved.ProviderPath
+    if (-not (Test-Path -LiteralPath $Path)) { return $Path }
+
+    # [System.IO.Directory]::ResolveLinkTarget is .NET 6+ (pwsh 7+) and is not
+    # present under Windows PowerShell 5.1. Probe before calling it.
+    $resolveLinkTarget = [System.IO.Directory].GetMethod('ResolveLinkTarget')
+    if ($resolveLinkTarget) {
+        $target = [System.IO.Directory]::ResolveLinkTarget($Path, $true)
+        if ($target) {
+            return $target.FullName
+        }
+        return (Get-Item -Force -LiteralPath $Path).FullName
     }
-    return $Path
+
+    # PS 5.1 fallback: read the link's actual target rather than silently
+    # returning the link's own FullName, which would reintroduce the bug.
+    $item = Get-Item -Force -LiteralPath $Path
+    if ($item.Target) {
+        return (Get-Item -Force -LiteralPath $item.Target[0]).FullName
+    }
+    return $item.FullName
 }
 
 function Test-Divergence {
-    # Check for divergent machine-local homes. Mirrors bash _check_divergence().
-    # Returns $true (OK) when homes are absent or share a canonical path (compat symlink).
-    # Returns $false (fail-loud) when both exist with different canonical paths.
+    
+    
     $settingsHome = Resolve-SettingsHome
     $claudeHomeBase = Resolve-ClaudeHomeBase
     $legacy = Join-Path (Join-Path $claudeHomeBase '.claude') 'machine-local'
@@ -97,9 +88,6 @@ function Test-Divergence {
     return $true
 }
 
-# ---------------------------------------------------------------------------
-# CLI dispatch
-# ---------------------------------------------------------------------------
 
 $cmd = $args[0]
 

@@ -120,15 +120,6 @@ from typing import Any, Dict, List, Optional
 
 
 def _render(response: Any) -> List[str]:
-    """Render result.surfaced[] as one '[auto-reconcile] ...' line per entry,
-    PLUS one dry-run would-flip line per qualifying result.gates_cleared[]
-    entry (clear/narrow verdicts computed under dry_run=true never reach
-    surfaced[] -- see handoff_reconcile.py's D1/gate_evidence docstring
-    sections -- so this second pass is the only operator-visible signal a
-    dry-run gate-clear produces at all).
-
-    Self-contained (no engine import) -- see module docstring.
-    """
     if not isinstance(response, dict):
         return []
     if "error" in response:

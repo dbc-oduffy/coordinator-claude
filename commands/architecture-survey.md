@@ -3,6 +3,7 @@ name: architecture-survey
 description: "Build or refresh the architecture atlas via scout, analyst, synth."
 allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Grep", "Glob"]
 argument-hint: "[--refresh]"
+disable-model-invocation: true
 ---
 
 # Architecture Survey — Deep System Discovery
@@ -82,13 +83,24 @@ Out of scope for every agent here: `gh pr create/merge`, `git push origin main`,
 `gh release create`, any `git commit` to `main` — surface a merge question to `/merging-to-main`.
 
 1. Verify completeness (every system has a page + index row, atlas-wide artifacts present,
-   frontmatter complete).
+   frontmatter complete — including that `last_attested` was left untouched, checked by step 5).
 2. RAG drift (RAG-present only): `project_subsystem_profile` vs. `systems-index.md`.
 3. Flag any `last_mapped` >90 days old as narrative-drift risk.
 4. Write `Last full audit` in `state/health-ledger.md` — full passes only, never the targeted
    path.
 5. Atomic commit, two scoped calls, never `git add -A`:
    `git add -- docs/architecture/ state/health-ledger.md`
+   A survey write is not attestation (`coordinator/docs/wiki/coordinator-tripwires/a-survey-write-is-not-an-attestation.md`):
+   `git diff HEAD -G '^last_attested:' --diff-filter=AMR --name-only -- docs/architecture/systems/`
+   must print nothing. Diffing against `HEAD` (not `--cached`) covers a late worktree edit made
+   after the `git add` above but before the commit, since the pathspec `git commit` below commits
+   the worktree contents of those paths, not the index. `--diff-filter=AMR` excludes a page the
+   survey legitimately deletes (retired/merged system) or renames from matching on its old
+   `last_attested` line — a deleted page, or a renamed page carrying an unchanged
+   `last_attested` value forward, must never be listed. Any page still listed means this run
+   wrote or bumped the audit clock: for a listed modified page, restore its `last_attested` line
+   to its `HEAD` value; for a listed new page, remove the line; re-stage and re-run this check
+   before committing.
    `git commit -m "deep-architecture-survey: [first run|refresh] — [N] systems mapped; Last full audit bumped" -- docs/architecture/ state/health-ledger.md`
 6. Rotation target (Shape W, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
    `& "$env:COORDINATOR_SETTINGS_HOME\bin\query-completions.exe" --since "30d" --where "nature=roadmap" --format json`

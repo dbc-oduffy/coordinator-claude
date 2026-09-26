@@ -68,9 +68,6 @@ _BOOTSTRAPPED_NAMES = ("resolve_checked_repo_root",)
 
 
 def _bootstrap_cos() -> None:
-    """Bind `resolve_checked_repo_root` at module scope, guarded so a caller
-    that already set the name on this module (a test's `mock.patch.object`)
-    is never clobbered by a later real import."""
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
 
     global resolve_checked_repo_root
@@ -102,14 +99,6 @@ def __getattr__(name: str):
 
 
 def _legacy_fn():
-    """Big-bang cutover: no bash fallback. Always raises.
-
-    Mirrors the plan's pinned pattern (`docs/plans/2026-07-19-debash-coordinator-windows.md`
-    § Canonical native call shape): "Under big-bang the legacy_fn RAISES (no bash
-    fallback)". The retired bash veneer this replaces was itself already the SOLE
-    path (its own legacy join+scan+stamp engine had already been removed) — this
-    preserves that same fail-loud-only contract at the Python layer.
-    """
     raise RuntimeError(
         "close-origin-stub-on-ship.py: handoff.close_origin_stub has no legacy "
         "fallback under big-bang de-bash cutover — the native op transport must "
@@ -183,9 +172,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    # Success — print a concise summary from the op's result.
-    # {"exit_code":0,"closed":[{"stub_path","roadmap_id","stub_id","join_source",
-    #  "close_basis"}],"skipped":[...],"pairs_resolved":int,"message":str}
     closed = result.get("closed", []) if isinstance(result, dict) else []
     skipped = result.get("skipped", []) if isinstance(result, dict) else []
     message = result.get("message", "") if isinstance(result, dict) else ""

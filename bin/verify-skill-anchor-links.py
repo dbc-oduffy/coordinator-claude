@@ -22,49 +22,11 @@ report 1 — a gate that could not load reporting a DEAD-anchor finding is the
 false-signal class this gate exists to catch.
 """
 from __future__ import annotations
-#
-# Shebang note: the SHEBANG line above is `#!/usr/bin/env python3`, generator-
-# owned by `gen-launcher-shim.py --ensure-unix`, and correct for this shape. On
-# Windows, this file's co-located `.cmd` twin wins via `PATHEXT` when invoked
-# as a bareword, so the shebang is never read there; on macOS/Linux `python3`
-# is the right interpreter. Caution: callers must invoke via the extensionless
-# name or a resolved-interpreter prefix, never a bareword `.py` through git-
-# bash — git-bash DOES honor the shebang and would exec-127 with no `python3`
-# present. See the carve-out in DoE-claude's coordinator/docs/wiki/bash-on-
-# windows-gotchas.md § Carve-out (cross-repo — this wiki lives in the
-# DoE-claude repo, not here).
-#
-# Exit-code convention: this is a fail-loud verification gate, and its three
-# outcomes are load-bearing contract for `/update-docs` Phase 11h — 0 checked/
-# clean, 1 checked/DEAD anchors found, 2 COULD NOT CHECK. 1 and 2 are NOT
-# severity tiers of one thing: a 1 is a real finding about the citations, a 2
-# says the gate never got to look (manifest present but unparseable, plugin root
-# unresolvable) and carries no verdict about the citations at all. Unlike
-# `coordinator-auto-push` (a never-block hook), a claude-klabauter-link failure here must
-# NOT be silently swallowed into exit 0 — this trampoline's own engine-root-
-# resolution and import failures exit 2, so a broken link surfaces as "the gate
-# could not run" rather than a false "clean" report OR a fabricated finding.
-#
-# Spec backlink: DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
-#
-# DR-276: routed through `coordinator_core.cli_entry.run_op_main` rather than a
-# plain in-process `import ... as _op_main` + `sys.exit(op_main(argv))` tail, so
-# any paths the op declares via `declare_write` become a session scope-touch
-# claim (this op is a read-only anchor-link checker — it writes nothing — so
-# it declares none; routing it is a baseline-shrink, not a behavior change).
 import os
 import sys
 
 
 def _import_run_op_main():
-    """Resolve the engine root, put it on sys.path, and import `run_op_main`.
-
-    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
-    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
-    re-deriving it -- this is a plain in-process import, not an RPC invoke, so
-    cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
-    deliberately NOT used here.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 

@@ -123,7 +123,7 @@ import json
 import os
 import sys
 
-GENERATES = []  # writes nothing of its own; the goal.append write happens inside the in-process coordinator_core.invoke dispatch this trampoline calls
+GENERATES = []
 
 _BOOTSTRAPPED_NAMES = (
     "resolve_checked_repo_root",
@@ -132,12 +132,6 @@ _BOOTSTRAPPED_NAMES = (
 
 
 def _bootstrap_age() -> None:
-    """Bind the deferred cc_invoke/repo_identity names this module's own
-    functions read as globals, each guarded independently so a caller (a
-    test's `mock.patch.object`/plain assignment ahead of `main()`) that has
-    already set one of these names on the module is never clobbered by a
-    later real import -- only a name still absent from `__dict__` is bound.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
 
     global resolve_checked_repo_root
@@ -177,31 +171,10 @@ def __getattr__(name: str):
 
 
 def _cc_invoke_bare(op: str, params: dict[str, object], repo_root: str) -> dict[str, object]:
-    """Dispatch coordinator_core.invoke in-process, in --bare mode, and return
-    the bare result dict.
-
-    P055-C1 conversion: was a `[<python>, "-m", "coordinator_core.invoke", ...]`
-    spawn (fail-closed ladder: nonzero exit / empty stdout / non-JSON stdout).
-    Same failure ladder now runs against `_dispatch_argv`'s in-process return
-    tuple instead of a `subprocess.CompletedProcess`. --bare means a successful
-    dispatch's stdout IS the result object directly -- no jsonrpc/id/result
-    envelope to unwrap.
-
-    Raises RuntimeError on any transport/op failure (never returns on failure).
-
-    Deliberately drops the `subprocess.run(timeout=...)` kill guard the spawn
-    form had: that guard fired against the CHILD PROCESS, not the op itself, and
-    every other consumer of `_dispatch_argv`/`dispatch_message` (the warm server,
-    `invoke.from_argv`) already runs the same call with no such external timeout
-    wrapper. Reintroducing one here would be new infrastructure this call site
-    alone would carry.
-    """
     _bootstrap_age()
 
     claude_klabauter_root = _resolve_claude_klabauter_root()
     # `sys.path`, not the child-env PYTHONPATH the spawn form used: this call
-    # is in-process now, so coordinator_core must resolve from claude_klabauter_root
-    # for the interpreter already running this file, not a future child's.
     if claude_klabauter_root not in sys.path:
         sys.path.insert(0, claude_klabauter_root)
     os.environ["CLAUDE_KLABAUTER_ROOT"] = claude_klabauter_root
@@ -231,15 +204,6 @@ def _cc_invoke_bare(op: str, params: dict[str, object], repo_root: str) -> dict[
         ) from exc
 
 
-# ---------------------------------------------------------------------------
-# CLI parsing — mirrors the pre-port bash body's for/case loop shape (value
-# flags consume a following token), EXCEPT for the unrecognized-token case:
-# the bash body (and this script, until this fix) silently skipped an
-# unrecognized token, which let a typo'd or not-yet-wired flag (--status was
-# exactly this case — silently dropped for the goal artifact-status gap to
-# go undetected) look accepted when it was actually a no-op. An unrecognized
-# token is now a loud, non-zero-exit error (see _parse_args below).
-# ---------------------------------------------------------------------------
 _FLAGS_WITH_VALUE = frozenset(
     {
         "--period",
@@ -324,23 +288,6 @@ def _parse_args(argv: list[str]) -> dict[str, object]:
 
 
 def _resolve_text(parsed: dict[str, object]) -> str | None:
-    """Resolve --text/--text-file losslessly via the shared argv-fidelity seam.
-
-    A goal-event text is prose forwarded through a `.cmd` launcher's un-re-quoted
-    `%*` expansion (see module docstring / docs/wiki/windows-first-class.md): a
-    newline-bearing inline value is silently truncated to its first line before
-    this process's argv parse ever sees it. `refuse_newline_argv` catches that
-    case loud (naming `--text-file`) instead of letting a short record land;
-    `resolve_body`'s `-` sentinel reads stdin, matching the sibling CLIs already
-    on this pattern (archive-stamp-cli, coordinator-queue-append.py).
-
-    Neither flag supplied returns None unchanged (the pre-existing "let the
-    op raise ValueError: text is required" contract, exit code 2 per the
-    module's Exit codes section) -- this function only tightens the newline
-    and mutual-exclusion cases, both of which raise ArgvFidelityError, caught
-    by the caller and turned into a client-side exit 1 (mirrors the
-    --key-results-status parse-error precedent immediately below).
-    """
     inline = parsed["text"]
     from_file = parsed["text_file"]
     if inline is None and from_file is None:
@@ -357,7 +304,6 @@ def _resolve_text(parsed: dict[str, object]) -> str | None:
 
 
 def _build_params(parsed: dict[str, object]) -> dict[str, object]:
-    """Build the goal.append params dict, matching the bash body's jq filter (D9 nullability)."""
     params: dict[str, object] = {
         "period": parsed["period"],
         "period_value": parsed["period_value"],
@@ -380,31 +326,6 @@ def _build_params(parsed: dict[str, object]) -> dict[str, object]:
 
 
 def _main_batch(parsed: dict[str, object]) -> int:
-    """Batch entry point for --events-file.
-
-    ONE process (this one) makes exactly ONE goal.append dispatch — i.e. one
-    _cc_invoke_bare() call, one coordinator_core.invoke spawn — carrying
-    every event in the file as the op's `events` list param (2026-08-19
-    amplification-gate fix, second pass: the first pass moved the per-item
-    fan-out from emit-goal-from-artifact.py's N `sys.executable` spawns down
-    into N _cc_invoke_bare() spawns inside this process, which the
-    amplification-gate measurement caught as the SAME defect one level
-    lower. `events` batching on the op itself (see
-    coordinator_core/ops/goal_append.py::_goal_append_batch) is what
-    actually collapses the whole run to one process spawn: this script's
-    own subprocess call, period. The op fans out into N in-process
-    append_goal() calls on the engine side — zero further subprocess
-    spawns — and returns one {"events": [...]} envelope carrying a
-    per-event ok/error outcome in input order, which this function
-    reprints verbatim to stdout.
-
-    Exit codes: 1 for a malformed --events-file (client-side, mirrors the
-    --key-results-status JSON-parse precedent in _build_params) OR a
-    malformed response envelope (missing/non-list "events" — an engine-side
-    contract violation this script cannot recover from); 2 if the dispatch
-    itself failed transport/op-side, OR any individual event's outcome came
-    back ok=False; 0 only when every event succeeded.
-    """
     events_path = parsed["events_file"]
     try:
         with open(events_path, "r", encoding="utf-8") as fh:

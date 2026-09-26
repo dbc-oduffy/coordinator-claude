@@ -32,6 +32,7 @@ Windows-safe throughout: paths built via `os.path.join`/`pathlib`, no `/tmp`
 literal, home resolution via `os.path.expanduser("~")` where needed.
 """
 
+
 from __future__ import annotations
 
 import json
@@ -46,21 +47,13 @@ _LEDGER_FILENAME = "next-move-ledger.jsonl"
 
 # Reuse the existing root-resolution PRIMITIVE (`_engine_root._session_repo_root`
 # -- CLAUDE_PROJECT_DIR when set and real, else a zero-spawn upward walk for a
-# `.git` entry) rather than writing a fourth copy of that walk. This is NOT
 # the families-spanning shared READER/TRANSPORT module DR-047/DR-118 decline
-# (see `_find_repo_root`'s own docstring below, kept verbatim) -- that ruling
-# is about collapsing the three coordinator.local.md READERS into one shared
-# transport, not about sharing the tiny root-finding primitive beneath them.
 _SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 try:
     from _engine_root import _session_repo_root as _resolve_consuming_repo_root  # noqa: E402
 except Exception:
-    # Defensive fallback -- a hook script copied/deployed WITHOUT its sibling
-    # _engine_root.py (e.g. an isolated test harness, or a partial deploy)
-    # must still fail-open (this rung simply never resolves) rather than
-    # crash on import.
     _resolve_consuming_repo_root = None  # type: ignore[assignment]
 
 
@@ -94,9 +87,6 @@ def _find_repo_root() -> Optional[str]:
 
 
 def ledger_path(session_id: str) -> Optional[str]:
-    """Return the absolute ledger path for `session_id`, or None if the
-    repo root cannot be resolved (fail-open caller contract: no repo root
-    means no ledger, never a crash)."""
     if not isinstance(session_id, str) or not session_id:
         return None
     repo_root = _find_repo_root()
@@ -108,9 +98,6 @@ def ledger_path(session_id: str) -> Optional[str]:
 
 
 def read_records(session_id: str) -> list:
-    """Return the list of obligation records for `session_id`, oldest
-    first. Missing/unreadable/malformed file -> []. Malformed individual
-    lines are skipped rather than aborting the whole read."""
     path = ledger_path(session_id)
     if path is None or not os.path.isfile(path):
         return []
@@ -133,21 +120,6 @@ def read_records(session_id: str) -> list:
 
 
 def _write_records(session_id: str, records: list) -> bool:
-    """Serialise `records` and atomically replace the ledger file.
-
-    Writes to a temp file in the SAME directory as the ledger, then
-    `os.replace()`s it onto the ledger path -- atomic on both POSIX and
-    Windows (unlike `os.rename`, which raises on Windows if the
-    destination already exists). This closes a read-modify-write race
-    between concurrent hook processes: a reader never observes a
-    partially-written file, and a losing writer's obligation record is at
-    worst a missed fire (Anti-scope: cheaper than a repeat fire), never a
-    corrupted ledger. No cross-process lock -- see module docstring; a
-    lock file would add a wedged-lock risk this defect class does not
-    justify. `_write_records` itself does not decide who "won" a race
-    between two racing read-modify-write callers -- `mark_fired` below
-    layers its own post-replace confirmation read on top for that.
-    """
     path = ledger_path(session_id)
     if path is None:
         return False
@@ -162,9 +134,6 @@ def _write_records(session_id: str, records: list) -> bool:
             try:
                 handle = os.fdopen(tmp_fd, "w", encoding="utf-8")
             except Exception:
-                # `os.fdopen` failing (fd exhaustion, odd encoding failure)
-                # leaves `tmp_fd` unwrapped by any context manager -- close
-                # it directly so the raw fd is never leaked.
                 try:
                     os.close(tmp_fd)
                 except OSError:
@@ -192,14 +161,10 @@ def _now_iso() -> str:
 
 
 def open_obligation(session_id: str, obligation_id: str, seam: str, next_action: str) -> bool:
-    """Append a new open obligation, UNLESS one with the same
-    `obligation_id` is already open (never discharged, regardless of
-    `fired`) -- idempotent against a re-observed seam-opening call.
-    Returns True if a record was written, False on any failure or no-op."""
     records = read_records(session_id)
     for record in records:
         if record.get("obligation_id") == obligation_id and record.get("discharged_at") is None:
-            return False  # already open -- do not duplicate
+            return False
     records.append(
         {
             "obligation_id": obligation_id,
@@ -284,7 +249,6 @@ def block_obligation(
 
 
 def _clear_block(record: dict) -> None:
-    """A block is cleared by the obligation moving, never by its own age."""
     record["blocked_at"] = None
     record["blocked_on_session_id"] = None
     record["blocked_on_name"] = None
@@ -315,8 +279,6 @@ def progress_obligation(session_id: str, obligation_id: str) -> bool:
 
 
 def discharge_obligation(session_id: str, obligation_id: str) -> bool:
-    """Stamp `discharged_at` on the open record matching `obligation_id`.
-    No-op (returns False) if no such open record exists."""
     records = read_records(session_id)
     changed = False
     for record in records:
@@ -364,69 +326,12 @@ def mark_fired(session_id: str, obligation_id: str) -> bool:
     return False
 
 
-# ---------------------------------------------------------------------------
-# Obligations-inbound intake -- the engine->doctrine-plane fold
-# ---------------------------------------------------------------------------
-#
-# The doctrine plane is the SOLE WRITER of this ledger. The engine plane (`coordinator_core`)
-# resolves obligations of its own and must not write these files: both planes
-# writing the same peer's ledger on the same Stop event is a read-modify-
-# whole-file-rewrite collision, the race `mark_fired` above already documents.
-# So the engine APPENDS rows to a separate, append-only intake file and this plane
-# folds them in. One writer, one rewrite path, no shared file.
-#
-#   producer (engine) --append--> obligations-inbound.jsonl
-#   consumer (here)   --claim---> obligations-inbound.jsonl.draining
-#                     --fold----> next-move-ledger.jsonl
-#                     --delete--> (only after the fold committed)
-#
-# Row shape, one JSON object per line. The producing plane's copy of this
-# table lives at `coordinator/docs/wiki/cross-repo-communication/obligations-inbound-intake.md`:
-#
-#   schema         int, must be 1
-#   session_id     str, the session the obligation belongs to; must equal the
-#                  session directory the file sits in
-#   op             "open" | "progress" | "blocked" | "discharge"
-#   obligation_id  str, the producer's stable id for this obligation
 #   emitted_at     str, ISO-8601 Z; provenance only, never used for ordering
 #   seam           str, REQUIRED for op="open", ignored otherwise
 #   next_action    str, REQUIRED for op="open", ignored otherwise
-#   blocked_on_session_id
 #                  str, REQUIRED for op="blocked" -- a SESSION ID, never a bare
-#                  peer name (see `block_obligation`); ignored otherwise
-#   blocked_on_name
-#                  str, optional companion to the id, for a human reading the
-#                  row; never used to identify anything
-#   producer       str, optional free-form provenance
-#
-# Unknown keys are ignored, so the producer can add fields without a lockstep
-# release here.
-#
 # THREE FAILURE-PATH RULES, each load-bearing:
-#
 # 1. A TRAILING partial line is tolerated; a malformed line MID-FILE is not.
-#    A torn last line is a producer caught mid-append and costs one row. A
-#    malformed line with rows after it is a producer BUG, and silently
-#    skipping it would keep that bug invisible for as long as it kept
-#    shipping. Such lines are quarantined verbatim to
-#    `obligations-inbound.rejected.jsonl` and counted in the drain report --
-#    visible on disk, without stalling the fold behind a row nobody is coming
-#    to fix.
-#
-# 2. The claim uses a FIXED `.draining` suffix, drained on startup. A
-#    timestamped or pid-stamped name would leave a fold that died partway
-#    orphaning its rows under a name nothing ever looks for again; a fixed
-#    name means the next drain finds them.
-#
-# 3. The drained file is deleted only AFTER the fold has committed. Deleting
-#    first means a failed write loses the rows outright; deleting after costs
-#    at worst a replay, and every fold op is idempotent -- `open_obligation`
-#    dedupes on `obligation_id` and the stamps re-stamp.
-#
-# No cross-process lock. Concurrent drainers are safe by that same
-# idempotence: the `O_EXCL` claim below serialises the common case, and a
-# drainer that cannot claim defers to the next drain rather than replacing an
-# unread `.draining` file.
 
 _INTAKE_FILENAME = "obligations-inbound.jsonl"
 _DRAINING_SUFFIX = ".draining"
@@ -436,7 +341,6 @@ _INTAKE_OPS = ("open", "progress", "blocked", "discharge")
 
 
 def intake_path(session_id: str) -> Optional[str]:
-    """Absolute path of the append-only intake file the engine plane writes."""
     ledger = ledger_path(session_id)
     if ledger is None:
         return None
@@ -444,7 +348,6 @@ def intake_path(session_id: str) -> Optional[str]:
 
 
 def _validate_intake_row(row: Any, session_id: str) -> Optional[str]:
-    """None if `row` is foldable, else a short reason string."""
     if not isinstance(row, dict):
         return "not a JSON object"
     if row.get("schema") != _INTAKE_SCHEMA:
@@ -465,21 +368,11 @@ def _validate_intake_row(row: Any, session_id: str) -> Optional[str]:
     if op == "blocked":
         blocked_on = row.get("blocked_on_session_id")
         if not isinstance(blocked_on, str) or not blocked_on:
-            # A bare name is not accepted in its place. A row naming who it
-            # waits on with an address that re-points says something wrong
-            # later, which is worse than saying nothing now.
             return "op=blocked missing blocked_on_session_id"
     return None
 
 
 def parse_intake(text: str, session_id: str) -> tuple:
-    """Split raw intake text into (foldable rows, rejected raw lines).
-
-    An unterminated final line that does not PARSE is the tolerated trailing
-    partial -- dropped silently, per rule 1. A final line that parses is a
-    whole line and a real record: position does not excuse it from
-    validation. Every other bad line anywhere in the file is rejected.
-    """
     if not text:
         return [], []
     lines = text.split("\n")
@@ -497,7 +390,7 @@ def parse_intake(text: str, session_id: str) -> tuple:
             row = json.loads(line)
         except Exception:  # noqa: BLE001
             if has_trailing_partial and index == last_index:
-                continue  # producer caught mid-append -- tolerated
+                continue
             rejected.append(raw)
             continue
         if _validate_intake_row(row, session_id) is not None:
@@ -508,13 +401,6 @@ def parse_intake(text: str, session_id: str) -> tuple:
 
 
 def _apply_intake_row(session_id: str, row: dict) -> bool:
-    """Apply one row; return whether it actually mutated the ledger.
-
-    `open_obligation`/`progress_obligation`/`block_obligation`/
-    `discharge_obligation` all return this already -- a no-op read (the
-    referenced `obligation_id` isn't a currently-open record) is not a raise,
-    so it must not be folded into a "committed" count silently.
-    """
     op = row["op"]
     obligation_id = row["obligation_id"]
     if op == "open":
@@ -528,21 +414,11 @@ def _apply_intake_row(session_id: str, row: dict) -> bool:
             row["blocked_on_session_id"],
             row.get("blocked_on_name"),
         )
-    else:  # op == "discharge" -- the only value _validate_intake_row admits here
+    else:
         return discharge_obligation(session_id, obligation_id)
 
 
 def _quarantine(directory: str, rejected: list) -> bool:
-    """Append rejected lines verbatim to the per-session rejected file.
-
-    Idempotent against a replay of the SAME `.draining` file: if this exact
-    block of rejected lines is already the tail of the rejected file, skip
-    the write rather than doubling every rejected row. That replay is the
-    one rule-3 promises -- a committed fold whose subsequent `os.remove`
-    failed -- and nothing else appends to a given session's rejected file
-    between one drain and the next, so a tail match is a safe, cheap proxy
-    for "already quarantined this batch", not a general content dedupe.
-    """
     if not rejected:
         return True
     path = os.path.join(directory, _REJECTED_FILENAME)
@@ -562,7 +438,6 @@ def _quarantine(directory: str, rejected: list) -> bool:
 
 
 def _drain_one_file(session_id: str, draining: str) -> dict:
-    """Fold one claimed `.draining` file, then delete it. Rule 3."""
     report = {"folded": 0, "noop": 0, "rejected": 0, "deleted": False}
     try:
         with open(draining, "r", encoding="utf-8") as handle:
@@ -574,10 +449,6 @@ def _drain_one_file(session_id: str, draining: str) -> dict:
         try:
             mutated = _apply_intake_row(session_id, row)
         except Exception:  # noqa: BLE001
-            # A fold that cannot commit keeps the file (below): rows survive
-            # to the next drain, where the replay is idempotent.
-            # `drain_intake` promises never to raise, and its caller is a
-            # Stop hook.
             return report
         if mutated:
             report["folded"] += 1
@@ -585,8 +456,6 @@ def _drain_one_file(session_id: str, draining: str) -> dict:
             report["noop"] += 1
     report["rejected"] = len(rejected)
     if not _quarantine(os.path.dirname(draining), rejected):
-        # The fold committed but the quarantine did not. Keep the file: a
-        # replay is idempotent, a silently dropped producer bug is not.
         return report
     try:
         os.remove(draining)
@@ -597,17 +466,6 @@ def _drain_one_file(session_id: str, draining: str) -> dict:
 
 
 def _merge_drained(report: dict, drained: dict) -> bool:
-    """Fold one `_drain_one_file` result into the running `drain_intake`
-    report; return whether the drained file is actually gone.
-
-    The one place both the orphan claim and the fresh claim decide what a
-    fold outcome means for the caller-facing report -- written once so the
-    two paths cannot drift the way primary/orphan handling did before (a
-    `deleted` check present on one and missing on the other). Anything that
-    is not `deleted` is `deferred`, no exceptions: a delete failure after a
-    committed fold is exactly as undrained, from the next drain's point of
-    view, as a fold that never committed at all.
-    """
     report["folded"] += drained["folded"]
     report["noop"] += drained["noop"]
     report["rejected"] += drained["rejected"]
@@ -618,11 +476,6 @@ def _merge_drained(report: dict, drained: dict) -> bool:
 
 
 def drain_intake(session_id: str) -> dict:
-    """Fold `obligations-inbound.jsonl` for `session_id` into the ledger.
-
-    Drains any orphaned `.draining` file FIRST (rule 2), then claims the
-    current intake file and drains that. Returns a report dict; never raises.
-    """
     report = {"folded": 0, "noop": 0, "rejected": 0, "deferred": False}
     path = intake_path(session_id)
     if path is None:
@@ -632,9 +485,6 @@ def drain_intake(session_id: str) -> dict:
     if os.path.isfile(draining):
         orphan = _drain_one_file(session_id, draining)
         if not _merge_drained(report, orphan):
-            # Still there -- the fold could not commit, or a peer drainer owns
-            # it. Leave the fresh intake for the next drain rather than
-            # replacing a claim nobody has read.
             return report
 
     if not os.path.isfile(path):
@@ -665,15 +515,6 @@ def drain_intake(session_id: str) -> dict:
 
 
 def drain_all_intakes(repo_root: Optional[str] = None) -> dict:
-    """Drain every session's intake under `.coordinator-local/subagent-share/`.
-
-    The Group EM's read is the one that matters for a peer whose turn has
-    ended: that peer's own Stop hook is not going to fire again to fold its
-    own rows, so a fold that only ever ran session-locally would leave exactly
-    the sessions the watch exists to notice unfolded. No predicate here reads
-    that state -- the sweep visits every session with an intake file, and it
-    is the presence of the FILE, never any peer-state judgement, that selects.
-    """
     totals = {"sessions": 0, "folded": 0, "noop": 0, "rejected": 0, "deferred": 0}
     root = repo_root if repo_root else _find_repo_root()
     if not root:
@@ -699,10 +540,6 @@ def drain_all_intakes(repo_root: Optional[str] = None) -> dict:
 
 
 def find_undischarged_unfired(session_id: str) -> Optional[dict]:
-    """Return the first record that is open (discharged_at is None) and
-    not yet fired (fired is False/absent), or None. This is the ENTIRE
-    read surface the Stop hook consults -- no other signal, per module
-    docstring."""
     for record in read_records(session_id):
         if record.get("discharged_at") is None and not record.get("fired"):
             return record

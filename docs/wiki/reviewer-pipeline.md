@@ -31,7 +31,7 @@ This wiki is the single authoritative source for the phases that run identically
 **Sequencing — between plan-draft and prior-art-check:**
 
 ```
-plan.write → comprehensiveness-auditor (Sonnet) → docs-checker (Sonnet) → prior-art-checker (Sonnet) → Opus reviewer → integrator
+plan.write → comprehensiveness-auditor (Sonnet) → docs-checker (Sonnet) → prior-art-checker (Sonnet) → Opus reviewer (applies its own findings)
 ```
 
 The auditor runs BEFORE docs-checker and prior-art-checker because gap findings often reshape the plan body (the EM adds a Rollback section, a Migration section), which means docs-checker and prior-art-checker should run on the AMENDED body, not the original. Running comprehensiveness-auditor last (post-Opus) is the wrong shape — it would force a second Opus pass after gap-fill.
@@ -124,7 +124,7 @@ _Last calibrated: 2026-05-03 against Claude Opus 4.7 (1M context) training distr
 
 **On docs-checker failure:** Proceed to Phase 2.8 and Phase 3 without the report. Reviewers fall back to their own verification. This phase is additive, not blocking.
 
-**Phase 2.8 integrator note:** The review-integrator does NOT review docs-checker auto-fixes — those are pre-applied before the Opus reviewer sees the artifact. The integrator continues to handle Opus reviewer findings as today. The docs-checker changelog is part of the review record archived alongside the review findings.
+**Phase 2.8 note:** The Opus reviewer does not re-review docs-checker auto-fixes — those are pre-applied before the Opus reviewer sees the artifact. The reviewer applies and logs its own findings as normal (`reviewer-pipeline/review-integration-doctrine.md`). The docs-checker changelog is part of the review record archived alongside the review findings.
 
 ### docs-checker AUTO-FIX scope, cap, and changelog schema
 
@@ -132,7 +132,7 @@ _Last calibrated: 2026-05-03 against Claude Opus 4.7 (1M context) training distr
 
 **AUTO-FIX allowlist is narrow — artifact text only:** wrong API/method/header/signature/enum/module-placement claims. Hard prohibitions: prose, design-rationale, comments, structural changes, "legacy+new coexist" patterns, and Motivation/Decision/Risks sections. docs-checker corrects factual API claims, never argues with the plan's reasoning.
 
-**Scope constraint — edits the artifact under review ONLY, never the referenced files.** If a plan cites the wrong header for a symbol, docs-checker corrects the citation in the plan/stub, not the `.cpp`/`.h` it's citing. This constraint is load-bearing for the integrator-bypass design: docs-checker's blast radius is provably confined to the one artifact the reviewer is about to read.
+**Scope constraint — edits the artifact under review ONLY, never the referenced files.** If a plan cites the wrong header for a symbol, docs-checker corrects the citation in the plan/stub, not the `.cpp`/`.h` it's citing. This constraint is load-bearing: docs-checker's blast radius is provably confined to the one artifact the reviewer is about to read.
 
 **Edit-budget cap:** `max(10, claims_count / 3)` edits per artifact. Beyond the cap, remaining INCORRECT items report as findings instead of auto-applying — this bounds blast radius if the verification source itself turns out to be inconsistent, and mitigates oscillation risk from giving a pre-flight agent inline-edit authority.
 
@@ -168,11 +168,11 @@ Before dispatching expensive Opus reviewers, decide whether to run the **prior-a
 3. Sidecar verdict is `COMPATIBLE`, `WARN`, or `BLOCKED-SURFACE-TO-PM`.
 4. **EM reads the sidecar before dispatching the Opus reviewer.** This step is mandatory — the verdict determines whether to proceed or escalate to PM. It does NOT require EM pre-disposition of Conflicts; the Opus reviewer's judgment is the primary input on direction-of-correction (per `snippets/prior-art-check-consumption.md` and `docs/wiki/reviewer-pipeline/prior-art-checker.md § Bidirectional resolution`).
    - **COMPATIBLE:** include the sidecar path in the Opus reviewer's dispatch prompt and proceed.
-   - **WARN:** include the sidecar in the Opus reviewer's dispatch prompt and proceed. The reviewer recommends a direction-of-correction per Conflict (`update-plan` / `update-prior-art` / `both` / `override-and-document` / `PM-input-needed`). EM pre-disposition in the dispatch brief is OPTIONAL — use it when the right direction is mechanically obvious (e.g., a Conflict against load-bearing doctrine that's already settled), and leave it for the reviewer when the call is architectural. A reviewer recommendation contrary to an EM pre-disposition escalates as ASK in the integrator pass (see `agents/review-integrator.md § Prior-Art Conflict Resolution`).
+   - **WARN:** include the sidecar in the Opus reviewer's dispatch prompt and proceed. The reviewer recommends a direction-of-correction per Conflict (`update-plan` / `update-prior-art` / `both` / `override-and-document` / `PM-input-needed`). EM pre-disposition in the dispatch brief is OPTIONAL — use it when the right direction is mechanically obvious (e.g., a Conflict against load-bearing doctrine that's already settled), and leave it for the reviewer when the call is architectural. A reviewer recommendation contrary to an EM pre-disposition escalates as ASK to the EM directly (see `reviewer-pipeline/review-integration-doctrine.md`).
    - **BLOCKED-SURFACE-TO-PM:** STOP. Surface to PM with the sidecar quote(s). Do NOT dispatch the Opus reviewer until PM has decided fold-in or authorized override.
 5. Include the following verbatim in the Opus reviewer's dispatch prompt:
 
-   > A prior-art-check pre-flight ran on this plan. Sidecar: [path]. Verdict: [verdict]. The sidecar is unintegrated — your judgment is the primary input on direction-of-correction per Conflict. Recommend `update-plan` / `update-prior-art` / `both` / `override-and-document` / `PM-input-needed` per Conflict with one-sentence reasoning. Use the Compatible-but-relevant section to identify wikis the plan should cite; flag missing citations as findings if they would aid maintainability. (Any EM pre-disposition appears in this dispatch brief; if your judgment differs, say so — the integrator will escalate as ASK.)
+   > A prior-art-check pre-flight ran on this plan. Sidecar: [path]. Verdict: [verdict]. The sidecar is unapplied — your judgment is the primary input on direction-of-correction per Conflict. Recommend `update-plan` / `update-prior-art` / `both` / `override-and-document` / `PM-input-needed` per Conflict with one-sentence reasoning, then apply the resolution yourself and log it in your findings ledger. Use the Compatible-but-relevant section to identify wikis the plan should cite; flag missing citations as findings if they would aid maintainability. (Any EM pre-disposition appears in this dispatch brief; if your judgment differs, say so — escalate ASK to the EM.)
 
 **On prior-art-checker failure:** Proceed to Phase 2.8 and Phase 3 without the sidecar. Reviewers fall back to their own doctrine recall (which is the pre-2026-05-06 baseline). This phase is additive, not blocking.
 
@@ -180,7 +180,7 @@ Before dispatching expensive Opus reviewers, decide whether to run the **prior-a
 
 **Fleet-capability-index input (cross-repo capability lens).** The prior-art-checker dispatch may optionally carry a `fleet_capability_index:` input — the path to the claude-klabauter-aggregated, persisted fleet-capability index, resolved and TTL-checked by the SKILL at dispatch time. When present, the Platform-capability bucket ("consume, don't rebuild") is consumed by the checker alongside the other buckets in the same pre-flight pass. Failure to resolve/read the index is additive and non-blocking — the checker proceeds without the bucket, matching the existing Phase 2.7b failure posture above. See `docs/wiki/reviewer-pipeline/prior-art-checker.md § Cross-repo capability lens` for the substrate and matching rationale.
 
-**Phase 2.7b integrator note:** The review-integrator processes prior-art-side edits AFTER the Opus reviewer pass, per the direction-of-correction the reviewer (and optionally the EM) named. No integrator pass runs *between* the prior-art-checker and the first named reviewer — pre-flight sidecars are not a sequential reviewer. See `agents/review-integrator.md § Prior-Art Conflict Resolution` for the integrator's authority on wiki/registry/lessons edits. The prior-art-check sidecar is archived alongside the review findings. Note: this contract applies to prior-art-checker WARN (Conflicts with five valid directions, passing through the reviewer unintegrated); plan-coverage-checker INCOMPLETE has a different contract — see Phase 2.7d.
+**Phase 2.7b note:** The reviewer applies prior-art-side edits itself AFTER its own pass, per the direction-of-correction it (and optionally the EM) named — including wiki/registry/lessons edits, logged in its own findings ledger like any other finding. No application pass runs *between* the prior-art-checker and the first named reviewer — pre-flight sidecars are not a sequential reviewer. The prior-art-check sidecar is archived alongside the review findings. Note: this contract applies to prior-art-checker WARN (Conflicts with five valid directions, passing through the reviewer unapplied); plan-coverage-checker INCOMPLETE has a different contract — see Phase 2.7d.
 
 ---
 
@@ -329,44 +329,41 @@ All reviewer output is wrapped in a `ReviewOutput` envelope: `reviewer`, `verdic
 
 These schemas are what Phase 3.5's JSON-block parser expects; the field-drift normalization table in Phase 3.5 step 3 exists precisely because reviewers occasionally emit near-miss field names against this canonical shape.
 
-**Sidecar-path note — integrator intake vs. human/audit artifact.** The JSON written to `state/review-findings/{timestamp}-{reviewer}.json` (step 2 above) is a **human/audit artifact and is NOT the intake path for the review-integrator**. The integrator reads from the reviewer-scaffolded on-disk sidecar.
+**Sidecar-path note — findings ledger vs. human/audit artifact.** The JSON written to `state/review-findings/{timestamp}-{reviewer}.json` (step 2 above) is a **human/audit artifact, not the reviewer's own findings ledger**. The reviewer applies its findings and logs them in its own reviewer-scaffolded on-disk sidecar (`## Findings Ledger`, verified by `review-findings-ledger verify`) — see `reviewer-pipeline/review-integration-doctrine.md`.
 All findings-producing reviewers persist to the `state/subagent-share/<session>/<provision_key>.md` home by default — no EM pre-scaffold in the common case, no claim marker:
 
 - **Sonnet `code-reviewer`** (the one reviewer — no `-selfpersist` variant): writes to itsprovisioned sidecar — pre-provisioned by the dispatching EM in the common case, self-scaffolded into that same home via `coordinator-doc-new --type review-findings` only when no path arrived pre-provisioned — edits the `<!-- FINDINGS -->` sentinel with its findings, and returns: `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N> | executed: <yes|no>`. The EM reads the returned path.
 
-- **Persona reviewers** (the Staff Engineer, the Director of Engineering, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Game Dev Reviewer): are dual-use (advisory OR sidecar-review). When dispatched for a review that feeds an integrator, the invoking skill injects the provisioned `state/subagent-share/<session>/<provision_key>.md` path into the dispatch brief — the engine's `provision_report` step has already created the sidecar at spawn — and the persona writes its findings into that path and returns the same pointer line. No sentinel-append self-scaffold, no EM pre-scaffold, no claim marker. The review-integrator intake fails loud (BLOCKED) if the returned sidecar is a trivial/unfilled scaffold — the intake fill-guard, not a per-dispatch-site check.
+- **Persona reviewers** (the Staff Engineer, the Director of Engineering, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Game Dev Reviewer): are dual-use (advisory OR sidecar-review). When dispatched for a review, the invoking skill injects the provisioned `state/subagent-share/<session>/<provision_key>.md` path into the dispatch brief — the engine's `provision_report` step has already created the sidecar at spawn — and the persona applies its findings, writes the `## Findings Ledger`, runs `review-findings-ledger verify`, and returns the same pointer line. No sentinel-append self-scaffold, no EM pre-scaffold, no claim marker. `verify` fails loud (non-zero) if the returned sidecar's ledger is trivial/unfilled.
 
-**No inline return is a valid reviewer mode.** An EM walking Phases 3.5 and 3.7 never hands the integrator an inline finding list — the on-disk sidecar is the integrator's intake contract (`agents/review-integrator.md § Intake precondition`). If a reviewer returns inline, re-dispatch it — do not transcribe.
+**No inline return is a valid reviewer mode.** An EM walking Phase 3.5 never accepts an inline finding list from a reviewer — the reviewer's own on-disk sidecar, with its verified findings ledger, is the record (`reviewer-pipeline/review-integration-doctrine.md`). If a reviewer returns inline, re-dispatch it — do not transcribe.
 
 ---
 
-## Phase 3.7: Review Integration (replaces manual feedback application)
+## Phase 3.7: Review Application (reviewer applies its own findings)
 
-After each reviewer completes (and Phase 3.5 runs):
+After each reviewer completes (and Phase 3.5 runs), the reviewer has already applied every
+finding and logged it — there is no separate integration dispatch. The EM:
 
-> **Sidecar pre-condition.** The reviewer writes to itsprovisioned sidecar at `state/subagent-share/<session>/<provision_key>.md` and returns a pointer line. Phase 3.5's `state/review-findings/{timestamp}-{reviewer}.json` is a human/audit render, NOT the integrator intake. See Phase 3.5 § Sidecar-path note for the full contract.
-
-1. Dispatch the review-integrator agent with:
-   - The **on-disk sidecar path** returned by the reviewer in its pointer line (`DONE: <sidecar-path> | verdict: … | findings: …`). Never an inline finding list; the integrator hard-stops on inline-relayed findings (`agents/review-integrator.md § Intake precondition`).
-   - The artifact path(s)
-   - The reviewer name (for annotation attribution)
-2. Review-integrator applies all findings, annotates changes, returns completion report
-3. EM reviews:
-   - Escalation list (usually 0 items) — resolve any disagreements
-   - Spot-check the diff (verify integrator applied findings correctly)
-   - If escalations exist: EM resolves directly or escalates to PM
+1. Reads the reviewer's pointer line (`DONE: <sidecar-path> | verdict: … | findings: …`) and
+   confirms `review-findings-ledger verify` passed (stamped in the sidecar frontmatter).
+2. Spot-checks the diff against the ledger's `before`/`after` rows.
+3. If any row needs rejecting, runs `review-findings-ledger reject --sidecar <p> --finding
+   finding-<N> --reason "<one line>"` — the only actor who may. Escalates any tradeoff to the PM
+   per `reviewer-pipeline/review-integration-doctrine.md`.
 
 **Reviewer 2 (Generalist) — if routing calls for one:**
 
-4. Dispatch Reviewer 2 with the EVOLVED artifact (post-review-integrator changes)
-5. Reviewer 2 catches novel issues AND regressions from the integration pass
-6. Dispatch review-integrator again for Reviewer 2's findings (same Phase 3.7 protocol)
+4. Dispatch Reviewer 2 with the artifact as Reviewer 1 left it (findings already applied)
+5. Reviewer 2 catches novel issues AND regressions from Reviewer 1's applied findings, applies and
+   logs its own findings the same way
+6. EM runs the same verify/spot-check/reject steps against Reviewer 2's ledger
 
 ---
 
 ## Phase 4: Backstop Handling
 
-This phase applies when the primary reviewer (the Staff Engineer or a domain reviewer) has run and the chain calls for a backstop pass. It does NOT apply when the Director of Engineering was the standalone primary reviewer — in that case, those findings flow through the normal integrator path (Phase 3.7) and Phase 4 is a no-op.
+This phase applies when the primary reviewer (the Staff Engineer or a domain reviewer) has run and the chain calls for a backstop pass. It does NOT apply when the Director of Engineering was the standalone primary reviewer — in that case, those findings flow through the normal reviewer-applies-own-findings path (Phase 3.7) and Phase 4 is a no-op.
 
 When effort level is High AND a primary reviewer (not standalone the Director of Engineering) ran:
 1. Verify that the reviewer invoked their backstop partner (the Director of Engineering for the Staff Engineer; the Staff Engineer for domain reviewers; the UX Reviewer for the Front-End Reviewer; the Staff Engineer for the UX Reviewer)
@@ -433,7 +430,7 @@ Pass 0 runs before the Staff Engineer's normal 4-pass review and answers one que
 
 **Four hard guardrails** keep Pass 0 from mission-creeping into a second planning pass: it does NOT investigate alternatives in depth, does NOT pick a winner among them, does NOT run planning itself (it is a backstop, not a substitute), and does NOT rank or compare — the list stays flat.
 
-**`REJECTED` verdict.** When `premise_review: refuted`, the Staff Engineer may return verdict `REJECTED`. This is **advisory only** — the review-integrator surfaces it to the EM for routing, never applies it as a blocking gate on its own authority. The EM may override a `REJECTED` verdict **iff the PM explicitly agrees**, and the override must be recorded verbatim: `"PM-overridden REJECT. PM said: <verbatim quote>. Reasoning: <reasoning>."` A paraphrase is not a valid override — proceeding without the verbatim PM quote is a doctrine violation, same class as any other silent-override anti-pattern.
+**`REJECTED` verdict.** When `premise_review: refuted`, the Staff Engineer may return verdict `REJECTED`. This is **advisory only** — findings are logged for the EM to route, never applied as a blocking gate on the reviewer's own authority (`REJECTED`/`PIVOT` suspends every finding, per `reviewer-pipeline/review-integration-doctrine.md`). The EM may override a `REJECTED` verdict **iff the PM explicitly agrees**, and the override must be recorded verbatim: `"PM-overridden REJECT. PM said: <verbatim quote>. Reasoning: <reasoning>."` A paraphrase is not a valid override — proceeding without the verbatim PM quote is a doctrine violation, same class as any other silent-override anti-pattern.
 
 ### Architectural review chain — the Staff Engineer, the Game Dev Reviewer, enricher catch different bugs
 
@@ -457,7 +454,7 @@ When a cohort of stubs is enriched in parallel from a shared spec, **two pipelin
 - **Per-cohort coherence:** one reviewer across the whole cohort. Catches contradictions between stubs, shared-API gaps, sibling-surface drift, cross-stub seam violations.
 - **docs-check pre-flight:** every external-API claim verified across the cohort, once.
 
-Composition beats picking one. The per-cohort lens routinely re-edits stubs that the per-stub lens already marked "complete" — that is the value, not a defect. Stub completion is conditional on cohort settle, never on per-stub verdict alone. Integrator sweeps cohort-wide findings back across already-applied stubs before declaring the wave done.
+Composition beats picking one. The per-cohort lens routinely re-edits stubs that the per-stub lens already marked "complete" — that is the value, not a defect. Stub completion is conditional on cohort settle, never on per-stub verdict alone. The per-cohort reviewer applies its own cohort-wide findings back across already-applied stubs, logging them in its own ledger, before declaring the wave done.
 
 ### Reviewers false-positive on import-fallback seams
 
@@ -465,7 +462,7 @@ A common false positive: reviewers flag `try: import X / except ImportError: ...
 
 **EM disposition discipline:** when a reviewer flags an `ImportError` fallback, **read both arms** before applying. If the except-arm is a structural seam (not error-swallowing), dismiss the finding with a one-line reasoning ("intentional fallback for optional X"). Same shape for try/except `ModuleNotFoundError`, `AttributeError` on capability probes, and platform-conditional imports.
 
-The integrator does not auto-apply import-fallback findings — they always land in the EM disposition table.
+A reviewer does not auto-apply import-fallback findings — they always land in the EM disposition table.
 
 ---
 
@@ -692,7 +689,7 @@ Neither lens-of-author (re-reading the draft) would have caught either; only a f
 
 **The architectural review chain — the Staff Engineer catches structure, the Game Dev Reviewer catches existing-codebase patterns, enricher catches callsite reality — is not interchangeable. All three are needed for cross-module refactors.**
 **Why:** A plan that survives the Staff Engineer's architectural review can still hide (a) duplication of an existing project pattern the Staff Engineer can't see from the diff (the Game Dev Reviewer territory), and (b) callsite-level multi-tenancy bugs that look correct in spec but break adjacent functionality (enricher territory). In one case, a CRITICAL spec bug (multi-tenancy) and a design-duplication smell (existing registry pattern) both survived two the Staff Engineer passes.
-**How to apply:** for architecturally-loaded stubs with real stakes, run the full chain — the Staff Engineer → integrator → the Game Dev Reviewer → integrator → enricher → integrator → the Staff Engineer. Each layer targets a qualitatively different class of defect; skipping any layer leaves that class uncovered.
+**How to apply:** for architecturally-loaded stubs with real stakes, run the full chain — the Staff Engineer (applies its own findings) → the Game Dev Reviewer (applies its own findings) → enricher → the Staff Engineer. Each layer targets a qualitatively different class of defect; skipping any layer leaves that class uncovered.
 
 *Source: example-game-repo `state/lessons/` (example-game-repo-L117).*
 

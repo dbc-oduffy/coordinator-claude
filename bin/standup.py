@@ -1,29 +1,3 @@
-"""standup.py — Deterministic daily inventory for /workday-complete Step 4a
-and /workday-start Step 1 reconciliation.
-
-Spec backlink: archive/specs/2026-05-05-script-first-deterministic-ops.md §T1
-
-Purpose: Produce a deterministic inventory for /workday-complete Step 4a.
-Emits raw inventory (commits, file-change summary, touched handoffs/todos,
-active handoffs) to stdout. Step 4b (Sonnet analyst) clusters and narrates.
-
-Output sections (in order):
-  > Baseline: <sha> (<ISO-timestamp>)   <- parsed by Phase B for git diff baseline
-  == Commits today ==
-  == Files changed by dir ==
-  == Handoffs touched today ==
-  == Todo files touched today ==
-  == Active handoffs ==
-
-Exit codes: 0 on success (including empty-inventory); 1 only on tool failure
-(not inside a git repository / state-root seam unresolvable).
-
-Windows-first de-bash: zero bash anywhere on the reporter's critical path.
-State-root resolution shells out to `python3 -m coordinator_core.state_root`,
-not bash. git is a native cross-platform binary, invoked directly.
-
-Negative-spec: does NOT cluster, narrate, or write files. Stdout only.
-"""
 
 import os
 import re
@@ -31,17 +5,8 @@ import subprocess
 import sys
 from datetime import date, datetime, time
 
-# standup.py had regressed behind its own bash
-# oracle, reintroducing a `bash <seam>.sh` shell-out the oracle had already
-# removed (raises uncaught FileNotFoundError on a bash-less Windows box — the
-# exact audience this campaign exists for). Replaced with the improved oracle's
-# own call shape: `python3 -m coordinator_core.state_root`, the engine root resolved
-# natively via the shared cc_invoke ladder (zero bash anywhere in the chain).
-
 
 def _resolve_claude_klabauter_root_silent() -> str | None:
-    """Resolve the engine root via the shared cc_invoke resolver (self-location-first);
-    None on any failure."""
     try:
         lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
         if lib_dir not in sys.path:
@@ -54,11 +19,6 @@ def _resolve_claude_klabauter_root_silent() -> str | None:
 
 
 def _no_console_window() -> dict:
-    """Splat-ready Windows console-suppression kwarg, via the shared cc_invoke
-    helper; on any resolution failure, falls back to the same suppression
-    kwargs computed inline (zero imports beyond ``subprocess``) rather than
-    silently dropping console suppression -- a resolution failure must never
-    turn a quiet spawn into a visible console window."""
     try:
         lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
         if lib_dir not in sys.path:
@@ -72,11 +32,6 @@ def _no_console_window() -> dict:
 
 
 def _resolve_state_root(*args: str) -> str:
-    """Invoke `python3 -m coordinator_core.state_root` natively; return its stdout path.
-
-    Fail-loud (exit 1/2) on failure — a failed state-root resolution must
-    never be silently swallowed.
-    """
     claude_klabauter_root = _resolve_claude_klabauter_root_silent()
     if not claude_klabauter_root:
         sys.stderr.write(
@@ -107,7 +62,6 @@ def _git(args, cwd):
 
 
 def _heading(path: str) -> str:
-    """First line with leading hashes/spaces stripped; '(no heading)' on read error."""
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
             first = fh.readline()
@@ -117,9 +71,8 @@ def _heading(path: str) -> str:
 
 
 def main(argv: "list[str] | None" = None) -> int:
-    del argv  # this CLI takes no arguments; argv accepted for the warm-call contract
+    del argv
     # Resolve repo root via the checked resolver. READER (AC10): a MISMATCH
-    # verdict is warned to stderr and the resolved root used anyway (DR-277);
     # UNRESOLVED never refuses either (AC4).
     lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
     if lib_dir not in sys.path:
@@ -135,10 +88,6 @@ def main(argv: "list[str] | None" = None) -> int:
 
     state_root = _resolve_state_root()
 
-    # -----------------------------------------------------------------------
-    # Baseline detection: last workday-complete / workday-start commit within
-    # the past 3 days; fallback 24 hours ago.
-    # -----------------------------------------------------------------------
     baseline_sha = _git(
         ["log", "--oneline", "-E",
          "--grep=^(workday-complete|workday-start):",
@@ -150,7 +99,6 @@ def main(argv: "list[str] | None" = None) -> int:
         r = _git(["log", "-1", "--format=%ai", baseline_sha], repo_root)
         baseline_ts = r.stdout.strip() if r.returncode == 0 else "unknown"
     else:
-        # Fallback: oldest commit in the last 24h (tail of newest-first list).
         out = _git(["log", "--since=24 hours ago", "--format=%H"], repo_root).stdout
         shas = [ln for ln in out.splitlines() if ln.strip()]
         if shas:
@@ -164,9 +112,6 @@ def main(argv: "list[str] | None" = None) -> int:
     print(f"> Baseline: {baseline_sha} ({baseline_ts})")
     print()
 
-    # -----------------------------------------------------------------------
-    # Section 1: Commits since baseline
-    # -----------------------------------------------------------------------
     print("== Commits today ==")
     if baseline_sha == "HEAD":
         print("  (no commits since baseline)")
@@ -178,9 +123,6 @@ def main(argv: "list[str] | None" = None) -> int:
             print("  (git log failed)")
     print()
 
-    # -----------------------------------------------------------------------
-    # Section 2: Files changed by top-level directory
-    # -----------------------------------------------------------------------
     print("== Files changed by dir ==")
     if baseline_sha != "HEAD":
         r = _git(["diff", "--name-only", f"{baseline_sha}..HEAD"], repo_root)
@@ -192,8 +134,6 @@ def main(argv: "list[str] | None" = None) -> int:
                 parts = path.split("/")
                 key = parts[0] if len(parts) == 1 else parts[0] + "/"
                 counts[key] = counts.get(key, 0) + 1
-            # `sort -rn` (BSD) breaks count-ties by reverse-lexical dir order:
-            # reverse=True on (count, dir) reproduces both keys descending.
             for dir_, cnt in sorted(counts.items(), key=lambda kv: (kv[1], kv[0]), reverse=True):
                 print(f"  {dir_:<20} {cnt}")
         else:
@@ -211,9 +151,6 @@ def main(argv: "list[str] | None" = None) -> int:
         except OSError:
             return False
 
-    # -----------------------------------------------------------------------
-    # Section 3: Handoffs modified since start of today (recursive)
-    # -----------------------------------------------------------------------
     print("== Handoffs touched today ==")
     handoffs_dir = os.path.join(state_root, "handoffs")
     if os.path.isdir(handoffs_dir):
@@ -225,7 +162,6 @@ def main(argv: "list[str] | None" = None) -> int:
                     if _touched_today(p):
                         hits.append(p)
         if hits:
-            # find(1) emits unsorted; sort by basename for reproducibility.
             for p in sorted(hits, key=os.path.basename):
                 print(f"  {os.path.basename(p):<50}  # {_heading(p)}")
         else:
@@ -234,9 +170,6 @@ def main(argv: "list[str] | None" = None) -> int:
         print("  (state/handoffs/ not found)")
     print()
 
-    # -----------------------------------------------------------------------
-    # Section 4: tasks/*/todo.md files modified since start of today
-    # -----------------------------------------------------------------------
     print("== Todo files touched today ==")
     tasks_dir = os.path.join(repo_root, "tasks")
     if os.path.isdir(tasks_dir):
@@ -255,9 +188,6 @@ def main(argv: "list[str] | None" = None) -> int:
         print("  (tasks/ not found)")
     print()
 
-    # -----------------------------------------------------------------------
-    # Section 5: Active handoffs (top-level only) — filename + line-1 heading
-    # -----------------------------------------------------------------------
     print("== Active handoffs ==")
     if os.path.isdir(handoffs_dir):
         files = sorted(

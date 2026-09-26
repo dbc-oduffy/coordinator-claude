@@ -56,11 +56,6 @@ import sys
 from pathlib import Path
 
 def _bootstrap_engine() -> None:
-    """Bootstrap coordinator/bin/lib onto sys.path and resolve the engine root.
-
-    Moved out of module scope so this file carries no non-stdlib import at
-    module scope — same failure/exit behavior preserved.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_colocated_engine_on_path
 
@@ -72,9 +67,6 @@ def _bootstrap_engine() -> None:
 
 
 def _load_batch_rows(batch_arg: str, default_run_id: str | None) -> list[dict[str, str]]:
-    """Parse a JSON Lines batch from a file path (or stdin via '-') into row dicts,
-    applying `default_run_id` to rows that omit "run_id". Raises ValueError on a
-    malformed line — before anything is written."""
     if batch_arg == "-":
         raw = sys.stdin.read()
     else:

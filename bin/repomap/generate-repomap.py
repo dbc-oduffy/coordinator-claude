@@ -38,7 +38,6 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-# tree-sitter (optional — graceful fallback to stdlib parsers)
 _TS_AVAILABLE = False
 try:
     from tree_sitter import Query, QueryCursor
@@ -47,19 +46,11 @@ try:
 except ImportError:
     pass
 
-# ---------------------------------------------------------------------------
-# File filtering
-# ---------------------------------------------------------------------------
 
-GENERATES = []  # writes only to the caller-supplied --output path and the parse cache_dir — no fixed artifact
+GENERATES = []
 
 MAX_LINES_FOR_PARSING = 10_000
 
-# Scoring profiles for different repo types.
-# Each profile specifies weights for score components and a centrality cap.
-# "infra" mirrors the original hardcoded weights (git activity heavy).
-# "code" emphasizes structural centrality for code-heavy repos.
-# "balanced" is the new default — blends both signals.
 SCORING_PROFILES = {
     "infra": {
         "recency": 0.35, "frequency": 0.25, "centrality": 0.30,
@@ -77,30 +68,20 @@ SCORING_PROFILES = {
 
 EXCLUDED_DIRS = {".git", "node_modules", "__pycache__", ".venv", "build", "dist"}
 
-# High-signal files that should appear near the top of the map regardless of
-# git recency.  Inspired by Aider's filter_important_files() but focused on
-# what a dispatched LLM agent most needs to orient itself.
 
-# Files that are only important at the repo root — not nested copies.
-# e.g., README.md is important at root but not docs/foo/README.md.
 ROOT_ONLY_IMPORTANT = {
     "README.md", "README", "README.rst", "README.txt",
     "CLAUDE.md", "ARCHITECTURE.md", "CONTRIBUTING.md",
 }
 
 IMPORTANT_FILES = {
-    # Build / packaging
     "pyproject.toml", "setup.py", "setup.cfg", "package.json",
     "Cargo.toml", "go.mod", "Makefile", "CMakeLists.txt",
-    # Containerisation
     "Dockerfile", "docker-compose.yml", "docker-compose.yaml",
-    # CI / CD
-    ".github/workflows",  # prefix match handled in is_important_file()
-    # Config / environment
+    ".github/workflows",
     ".env.example", ".gitignore",
 }
 
-# UE-specific important file patterns (glob syntax, checked when UE mode active)
 UE_IMPORTANT_PATTERNS = {
     "Source/*/DIRECTORY.md",
     "Source/*/*.Build.cs",
@@ -108,7 +89,6 @@ UE_IMPORTANT_PATTERNS = {
 
 
 def load_repomapignore(project_root: Path) -> list[str]:
-    """Load .repomapignore patterns from project root."""
     ignore_path = project_root / ".repomapignore"
     if not ignore_path.exists():
         return []
@@ -122,27 +102,15 @@ def load_repomapignore(project_root: Path) -> list[str]:
 
 
 def filter_repomapignore(files: list[str], patterns: list[str]) -> list[str]:
-    """Filter files using .repomapignore patterns.
-
-    Supports:
-    - Directory patterns (trailing /): "vendor/" matches "vendor/foo/bar.py"
-    - Glob patterns: "*.jsonl" matches any .jsonl file
-    - Basename matching: "fix_*.py" matches "fix_something.py" at any depth
-    """
     if not patterns:
         return files
 
     def is_ignored(rel_path: str) -> bool:
-        # Normalize to forward slashes for consistent matching
         normalized = rel_path.replace("\\", "/")
         for pattern in patterns:
-            # Directory pattern: "vendor/" matches any file under vendor/
             if pattern.endswith("/"):
                 prefix = pattern.rstrip("/")
                 if "*" in prefix or "?" in prefix:
-                    # Glob-style directory pattern: match each path component prefix
-                    # e.g., "control/plugin/*/Packaged/" matches
-                    #        "control/plugin/Foo/Packaged/bar.cpp"
                     parts = normalized.split("/")
                     prefix_parts = prefix.split("/")
                     n = len(prefix_parts)
@@ -153,7 +121,6 @@ def filter_repomapignore(files: list[str], patterns: list[str]) -> list[str]:
                 else:
                     if normalized.startswith(prefix + "/") or normalized == prefix:
                         return True
-            # Glob pattern — match against full path and basename
             elif fnmatch.fnmatch(normalized, pattern) or fnmatch.fnmatch(
                 os.path.basename(normalized), pattern
             ):
@@ -170,19 +137,15 @@ def is_important_file(rel_path: str, ue_mode: bool = False) -> bool:
     Source/*/DIRECTORY.md, Source/*/*.Build.cs).
     """
     name = os.path.basename(rel_path)
-    # Root-only files: only important when at the repo root (no path separator)
     if name in ROOT_ONLY_IMPORTANT:
         return "/" not in rel_path and "\\" not in rel_path
     if name in IMPORTANT_FILES:
         return True
-    # Prefix matches for directory-scoped patterns
     for pattern in IMPORTANT_FILES:
         if rel_path.startswith(pattern):
             return True
-    # UE-specific patterns
     if ue_mode:
         norm = rel_path.replace("\\", "/")
-        # .uproject at root only
         if "/" not in norm and norm.endswith(".uproject"):
             return True
         for pattern in UE_IMPORTANT_PATTERNS:
@@ -194,12 +157,6 @@ def is_important_file(rel_path: str, ue_mode: bool = False) -> bool:
 def _apply_profile_injection(
     ranked: list[str], profile: str, ue_mode: bool,
 ) -> list[str]:
-    """Reorder ranked files based on profile's important-file injection policy.
-
-    - infra: all important files front-injected
-    - balanced: root-level orientation files only (README, CLAUDE.md, etc.)
-    - code: no injection — pure score-based ranking
-    """
     if profile == "infra":
         important = [f for f in ranked if is_important_file(f, ue_mode)]
         rest = [f for f in ranked if not is_important_file(f, ue_mode)]
@@ -210,12 +167,10 @@ def _apply_profile_injection(
                        and "/" not in f and "\\" not in f]
         rest = [f for f in ranked if f not in set(root_orient)]
         return root_orient + rest
-    # profile == "code": no injection
     return ranked
 
 
 def get_git_tracked_files(project_root: Path) -> list[str] | None:
-    """Return list of git-tracked file paths relative to project_root, or None if not a git repo."""
     try:
         result = subprocess.run(
             ["git", "ls-files"],
@@ -238,7 +193,6 @@ def get_git_tracked_files(project_root: Path) -> list[str] | None:
 
 
 def is_binary_file(path: Path) -> bool:
-    """Check if a file is binary by attempting UTF-8 decode of its first 8KB."""
     try:
         with open(path, "rb") as f:
             chunk = f.read(8192)
@@ -249,7 +203,6 @@ def is_binary_file(path: Path) -> bool:
 
 
 def count_lines(path: Path) -> int:
-    """Count lines in a file. Returns 0 on error."""
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             return sum(1 for _ in f)
@@ -257,16 +210,7 @@ def count_lines(path: Path) -> int:
         return 0
 
 
-# ---------------------------------------------------------------------------
-# UE project detection
-# ---------------------------------------------------------------------------
-
-
 def detect_ue_project(project_root: Path) -> bool:
-    """Check for .uproject at project root (root-level only).
-
-    Known limitation: Subdirectory .uproject files are not detected.
-    """
     return any(project_root.glob("*.uproject"))
 
 
@@ -287,7 +231,6 @@ def detect_ue_api_macros(project_root: Path, files: list[str]) -> dict[str, str]
 
 
 def get_api_macro_for_file(rel_path: str, module_macros: dict[str, str]) -> str | None:
-    """Get the API export macro for a file based on its module directory."""
     norm = rel_path.replace("\\", "/")
     for prefix, macro in module_macros.items():
         if norm.startswith(prefix):
@@ -295,13 +238,7 @@ def get_api_macro_for_file(rel_path: str, module_macros: dict[str, str]) -> str 
     return None
 
 
-# ---------------------------------------------------------------------------
-# Parsers
-# ---------------------------------------------------------------------------
-
-
 def parse_python(path: Path) -> list[str]:
-    """Extract structural info from a Python file using ast.parse."""
     try:
         source = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
@@ -315,7 +252,6 @@ def parse_python(path: Path) -> list[str]:
 
     entries = []
 
-    # Collect imports
     imports = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -324,13 +260,11 @@ def parse_python(path: Path) -> list[str]:
         elif isinstance(node, ast.ImportFrom) and node.module:
             imports.add(node.module.split(".")[0])
 
-    # Collect top-level classes and functions with signatures
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.ClassDef):
             bases = ", ".join(_unparse_safe(b) for b in node.bases)
             base_str = f"({bases})" if bases else ""
             entries.append(f"class {node.name}{base_str}")
-            # Methods within the class
             for item in ast.iter_child_nodes(node):
                 if isinstance(item, ast.FunctionDef) or isinstance(
                     item, ast.AsyncFunctionDef
@@ -348,7 +282,6 @@ def parse_python(path: Path) -> list[str]:
 
 
 def _unparse_safe(node) -> str:
-    """Unparse an AST node to string, with fallback."""
     try:
         return ast.unparse(node)
     except Exception:
@@ -356,28 +289,22 @@ def _unparse_safe(node) -> str:
 
 
 def _format_func_sig(node) -> str:
-    """Format a function/async function definition signature."""
     prefix = "async def" if isinstance(node, ast.AsyncFunctionDef) else "def"
     args = []
-    # Positional-only args (before /)
     for arg in getattr(node.args, 'posonlyargs', []):
         ann = f": {_unparse_safe(arg.annotation)}" if arg.annotation else ""
         args.append(f"{arg.arg}{ann}")
     if getattr(node.args, 'posonlyargs', []):
         args.append("/")
-    # Regular args
     for arg in node.args.args:
         ann = f": {_unparse_safe(arg.annotation)}" if arg.annotation else ""
         args.append(f"{arg.arg}{ann}")
-    # *args
     if node.args.vararg:
         ann = f": {_unparse_safe(node.args.vararg.annotation)}" if node.args.vararg.annotation else ""
         args.append(f"*{node.args.vararg.arg}{ann}")
-    # Keyword-only args (after *)
     for arg in node.args.kwonlyargs:
         ann = f": {_unparse_safe(arg.annotation)}" if arg.annotation else ""
         args.append(f"{arg.arg}{ann}")
-    # **kwargs
     if node.args.kwarg:
         ann = f": {_unparse_safe(node.args.kwarg.annotation)}" if node.args.kwarg.annotation else ""
         args.append(f"**{node.args.kwarg.arg}{ann}")
@@ -386,7 +313,6 @@ def _format_func_sig(node) -> str:
 
 
 def parse_markdown(path: Path) -> list[str]:
-    """Extract headings and frontmatter key-value pairs from Markdown."""
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
@@ -395,22 +321,18 @@ def parse_markdown(path: Path) -> list[str]:
     entries = []
     lines = text.splitlines()
 
-    # Frontmatter extraction (single-line key: value between --- fences)
     if lines and lines[0].strip() == "---":
         for i, line in enumerate(lines[1:], 1):
             if line.strip() == "---":
-                # Extract key-value pairs from frontmatter
                 for fm_line in lines[1:i]:
                     m = re.match(r"^([a-zA-Z_-]+):\s*(.+)$", fm_line)
                     if m:
                         key, value = m.group(1), m.group(2).strip().strip('"\'')
-                        # Truncate long values
                         if len(value) > 80:
                             value = value[:77] + "..."
                         entries.append(f"{key}: {value}")
                 break
 
-    # Headings (h1-h3)
     for line in lines:
         m = re.match(r"^(#{1,3})\s+(.+)$", line)
         if m:
@@ -420,7 +342,6 @@ def parse_markdown(path: Path) -> list[str]:
 
 
 def parse_json_file(path: Path) -> list[str]:
-    """Extract top-level keys and their value types from JSON."""
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -443,7 +364,6 @@ def parse_json_file(path: Path) -> list[str]:
 
 
 def parse_shell(path: Path) -> list[str]:
-    """Extract function definitions from shell scripts."""
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
@@ -451,12 +371,10 @@ def parse_shell(path: Path) -> list[str]:
 
     entries = []
     for line in text.splitlines():
-        # function name() or function name {
         m = re.match(r"^\s*function\s+(\w+)", line)
         if m:
             entries.append(f"function {m.group(1)}")
             continue
-        # name() {
         m = re.match(r"^(\w+)\s*\(\)\s*\{", line)
         if m:
             entries.append(f"function {m.group(1)}")
@@ -470,11 +388,6 @@ PARSERS = {
     ".json": parse_json_file,
     ".sh": parse_shell,
 }
-
-
-# ---------------------------------------------------------------------------
-# UE C++ parser (regex-based state machine)
-# ---------------------------------------------------------------------------
 
 
 def parse_cpp_ue(path: Path, api_macro: str | None = None) -> list[str]:
@@ -507,10 +420,8 @@ def parse_cpp_ue(path: Path, api_macro: str | None = None) -> list[str]:
     lines = text.splitlines()
     entries = []
 
-    # Build API macro regex fragment
     api_pat = re.escape(api_macro) if api_macro else r"\w+_API"
 
-    # Single-line construct patterns
     _re_delegate = re.compile(
         r"DECLARE_DYNAMIC_MULTICAST_DELEGATE\w*\(\s*(\w+)"
     )
@@ -521,13 +432,11 @@ def parse_cpp_ue(path: Path, api_macro: str | None = None) -> list[str]:
         rf"^class\s+{api_pat}\s+(\w+)"
     )
 
-    # Macro detection patterns
     _re_uclass = re.compile(r"\bUCLASS\s*\(")
     _re_ustruct = re.compile(r"\bUSTRUCT\s*\(")
     _re_uenum = re.compile(r"\bUENUM\s*\(")
     _re_ufunction = re.compile(r"\bUFUNCTION\s*\(")
 
-    # Declaration line patterns (applied on the line AFTER the macro)
     _re_class_decl = re.compile(
         rf"class\s+(?:{api_pat}\s+)?(\w+)(?:\s*:\s*public\s+(\w+))?"
     )
@@ -555,9 +464,6 @@ def parse_cpp_ue(path: Path, api_macro: str | None = None) -> list[str]:
         line = lines[i]
         stripped = line.strip()
 
-        # ---------------------------------------------------------------
-        # Single-line constructs (no state machine needed)
-        # ---------------------------------------------------------------
         m = _re_delegate.search(stripped)
         if m:
             entries.append(f"delegate {m.group(1)}")
@@ -573,11 +479,7 @@ def parse_cpp_ue(path: Path, api_macro: str | None = None) -> list[str]:
             prev_line_had_uclass_macro = False
             continue
 
-        # ---------------------------------------------------------------
-        # Pending macro: we are waiting for the declaration line
-        # ---------------------------------------------------------------
         if pending_macro is not None:
-            # Skip blank lines while waiting
             if not stripped:
                 i += 1
                 continue
@@ -626,7 +528,6 @@ def parse_cpp_ue(path: Path, api_macro: str | None = None) -> list[str]:
                         params = m.group(3).strip()
                         entries.append(f"fn {func_name}({params}) -> {ret_type}")
                     else:
-                        # Simpler fallback: just extract the function name
                         m2 = re.search(r"(\w+)\s*\(", stripped)
                         if m2 and m2.group(1) not in {"UFUNCTION", "UCLASS", "USTRUCT", "UENUM"}:
                             entries.append(f"fn {m2.group(1)}(...)")
@@ -636,9 +537,6 @@ def parse_cpp_ue(path: Path, api_macro: str | None = None) -> list[str]:
                 i += 1
                 continue
 
-        # ---------------------------------------------------------------
-        # Detect new macro openings
-        # ---------------------------------------------------------------
 
         if _re_ufunction.search(stripped):
             macro_text = stripped
@@ -682,9 +580,7 @@ def parse_cpp_ue(path: Path, api_macro: str | None = None) -> list[str]:
             i += 1
             continue
 
-        # ---------------------------------------------------------------
         # Bare API-exported class (no preceding UCLASS macro)
-        # ---------------------------------------------------------------
         if not prev_line_had_uclass_macro:
             m = _re_bare_class.match(stripped)
             if m:
@@ -696,11 +592,6 @@ def parse_cpp_ue(path: Path, api_macro: str | None = None) -> list[str]:
     return entries
 
 
-# ---------------------------------------------------------------------------
-# tree-sitter enhanced parsing
-# ---------------------------------------------------------------------------
-
-# Extension to tree-sitter language name mapping
 TS_LANG_MAP = {
     ".py": "python",
     ".pyi": "python",
@@ -712,34 +603,26 @@ TS_LANG_MAP = {
     ".cc": "cpp",
     ".cxx": "cpp",
     ".c": "c",
-    ".h": "cpp",  # Assume C++ for headers — tree-sitter-cpp handles C subset
+    ".h": "cpp",
     ".hpp": "cpp",
 }
 
-# Directory containing .scm query files
 _QUERY_DIR = Path(__file__).parent / "treesitter-queries"
 
 
 class TreeSitterParser:
-    """tree-sitter based parser with stdlib fallback.
-
-    Extracts both definitions and references from source files.
-    Falls back to PARSERS dict when tree-sitter is unavailable or
-    the language is not supported.
-    """
 
     def __init__(self):
-        self._parsers: dict[str, object] = {}  # lang -> tree_sitter.Parser
-        self._queries: dict[str, object] = {}  # lang -> Query
+        self._parsers: dict[str, object] = {}
+        self._queries: dict[str, object] = {}
         if _TS_AVAILABLE:
             self._load_queries()
 
     def _load_queries(self) -> None:
-        """Load .scm query files for all supported languages."""
         if not _QUERY_DIR.is_dir():
             return
         for scm_file in _QUERY_DIR.glob("*.scm"):
-            lang_name = scm_file.stem  # e.g., "python" from "python.scm"
+            lang_name = scm_file.stem
             try:
                 language = get_language(lang_name)
                 query_source = scm_file.read_text(encoding="utf-8")
@@ -751,23 +634,15 @@ class TreeSitterParser:
                       file=sys.stderr)
 
     def parse(self, path: Path, ext: str) -> tuple[list[str], list[str]]:
-        """Parse a file, returning (definitions, references).
-
-        Uses tree-sitter if available for this language, otherwise falls
-        back to stdlib parsers (which return definitions only, refs=[]).
-        """
         lang_name = TS_LANG_MAP.get(ext)
 
-        # Try tree-sitter path
         if _TS_AVAILABLE and lang_name and lang_name in self._queries:
             try:
                 return self._parse_treesitter(path, lang_name)
             except Exception as e:
                 print(f"  warn: tree-sitter parse failed for {path}: {e}",
                       file=sys.stderr)
-                # Fall through to stdlib
 
-        # Stdlib fallback — definitions only
         stdlib_parser = PARSERS.get(ext)
         if stdlib_parser:
             return (stdlib_parser(path), [])
@@ -775,10 +650,6 @@ class TreeSitterParser:
         return ([], [])
 
     def parse_refs_only(self, path: Path, ext: str) -> list[str]:
-        """Parse a file for references only (UE mode — defs come from regex parser).
-
-        Returns references list. Falls back to empty list if tree-sitter unavailable.
-        """
         lang_name = TS_LANG_MAP.get(ext)
         if not (_TS_AVAILABLE and lang_name and lang_name in self._queries):
             return []
@@ -789,7 +660,6 @@ class TreeSitterParser:
             return []
 
     def _parse_treesitter(self, path: Path, lang_name: str) -> tuple[list[str], list[str]]:
-        """Parse using tree-sitter. Returns (definitions, references)."""
         source_bytes = path.read_bytes()
         parser = self._parsers[lang_name]
         tree = parser.parse(source_bytes)
@@ -797,7 +667,6 @@ class TreeSitterParser:
 
         cursor = QueryCursor(query)
         captures = cursor.captures(tree.root_node)
-        # captures is dict[str, list[Node]] in tree-sitter 0.25.x
 
         defs = []
         refs = []
@@ -816,22 +685,12 @@ class TreeSitterParser:
         return (defs, refs)
 
 
-# ---------------------------------------------------------------------------
-# Git-based ranking
-# ---------------------------------------------------------------------------
-
-
 def get_git_log_data(
     project_root: Path, files: list[str]
 ) -> dict[str, dict]:
-    """Get git recency and frequency data for files.
-
-    Returns dict mapping filepath to {last_change_days: float, commits_90d: int}.
-    """
     now = datetime.now(timezone.utc)
     result = {}
 
-    # Get last change date per file using a single git log call
     try:
         log_output = subprocess.run(
             [
@@ -857,7 +716,6 @@ def get_git_log_data(
         line = line.strip()
         if not line:
             continue
-        # Commit line: hash + ISO date
         first_token = line.split()[0] if line.split() else ""
         if " " in line and len(first_token) in (40, 64) and all(c in '0123456789abcdef' for c in first_token):
             parts = line.split(" ", 1)
@@ -866,7 +724,6 @@ def get_git_log_data(
             except (ValueError, IndexError):
                 current_date = None
             continue
-        # File name line
         if line in file_set and current_date:
             if line not in last_change:
                 last_change[line] = current_date
@@ -875,7 +732,7 @@ def get_git_log_data(
                 commits_90d[line] = commits_90d.get(line, 0) + 1
 
     for f in files:
-        days = 365.0  # default: old
+        days = 365.0
         if f in last_change:
             days = max(0.0, (now - last_change[f]).total_seconds() / 86400)
         result[f] = {
@@ -887,7 +744,6 @@ def get_git_log_data(
 
 
 def get_filesystem_ranking(project_root: Path, files: list[str]) -> dict[str, dict]:
-    """Fallback ranking using filesystem modification time."""
     now = datetime.now(timezone.utc).timestamp()
     result = {}
     for f in files:
@@ -920,31 +776,24 @@ def compute_scores(
     scores = {}
 
     for f, data in ranking_data.items():
-        # Recency: exponential decay, half-life ~14 days
         recency = math.exp(-0.05 * data["last_change_days"])
 
-        # Frequency: log-scaled commits in 90 days
         freq = math.log1p(data["commits_90d"]) / math.log1p(50)
         freq = min(freq, 1.0)
 
-        # Size: inverse — smaller files score higher
         lines = line_counts.get(f, 100)
         size_inv = 1.0 / (1.0 + math.log1p(lines / 100))
 
         if use_refs:
             centrality = ref_centrality.get(f, 0.0)
-            # Base score WITHOUT centrality
             base_score = (recency * p["recency"] + freq * p["frequency"]
                          + size_inv * p["size_inv"])
-            # Centrality contribution, capped
             cap = p["centrality_cap"]
             centrality_part = centrality * p["centrality"]
-            # Derived from: centrality_part / (base_score + centrality_part) <= cap
             max_centrality = base_score * (cap / (1.0 - cap))
             centrality_part = min(centrality_part, max_centrality)
             scores[f] = base_score + centrality_part
         else:
-            # No reference graph — redistribute centrality weight proportionally
             non_cent = p["recency"] + p["frequency"] + p["size_inv"]
             if non_cent > 0:
                 scores[f] = (recency * p["recency"] / non_cent
@@ -956,38 +805,22 @@ def compute_scores(
     return scores
 
 
-# ---------------------------------------------------------------------------
-# Cross-file reference graph
-# ---------------------------------------------------------------------------
-
-
 def _symbol_edge_weight(symbol: str, def_count: int) -> float:
-    """Compute edge weight for a symbol reference.
-
-    Long project-specific identifiers (camelCase/snake_case, 8+ chars) get
-    boosted. Private symbols (underscore prefix) and generic/overloaded
-    symbols (defined in 5+ files) get dampened. Multiple definitions split
-    the weight via inverse square root.
-    """
     weight = 1.0
 
-    # Long identifiers with naming conventions = project-specific
     if (len(symbol) >= 8
         and symbol != symbol.upper()  # exclude ALL_CAPS_CONSTANTS
-        and ("_" in symbol  # snake_case
-             or any(c.isupper() for c in symbol[1:]))  # camelCase/PascalCase
+        and ("_" in symbol
+             or any(c.isupper() for c in symbol[1:]))
     ):
         weight *= 10.0
 
-    # Private symbols
     if symbol.startswith("_"):
         weight *= 0.1
 
-    # Generic/overloaded symbols
     if def_count >= 5:
         weight *= 0.1
 
-    # Multiple definitions: spread weight
     if def_count > 1:
         weight /= math.sqrt(def_count)
 
@@ -998,26 +831,13 @@ def build_reference_graph(
     parsed_defs: dict[str, list[str]],
     parsed_refs: dict[str, list[str]],
 ) -> dict[str, dict[str, float]]:
-    """Build file-to-file reference graph with weighted edges.
-
-    Returns: {source_file: {target_file: weighted_edge_sum}}
-
-    Algorithm:
-    1. Build symbol -> defining files index from all definitions
-    2. For each file's references, look up which file defines that symbol
-    3. Create edge with weight computed by _symbol_edge_weight() — long
-       project-specific identifiers contribute more than generic ones
-    """
-    # Symbol index: symbol_name -> list of defining files
-    # Multiple files may define the same symbol (e.g., `main`, `setup`, `Config`)
     symbol_index: dict[str, list[str]] = {}
     for filepath, defs in parsed_defs.items():
         if not defs and not parsed_refs.get(filepath, []):
-            continue  # No structural signal — don't add to graph
+            continue
         for symbol in defs:
             symbol_index.setdefault(symbol, []).append(filepath)
 
-    # Build weighted edges
     graph: dict[str, dict[str, float]] = {}
     for filepath, refs in parsed_refs.items():
         edges = graph.setdefault(filepath, {})
@@ -1027,7 +847,7 @@ def build_reference_graph(
                 continue
             w = _symbol_edge_weight(ref, len(targets))
             for target in targets:
-                if target != filepath:  # No self-edges
+                if target != filepath:
                     edges[target] = edges.get(target, 0.0) + w
 
     return graph
@@ -1038,13 +858,6 @@ def pagerank(
     damping: float = 0.85,
     iterations: int = 20,
 ) -> dict[str, float]:
-    """Simplified PageRank on dict-based directed graph.
-
-    Returns: {file: score} rank-normalized to (0, 1].
-    Rank-based normalization distributes signal evenly across all files,
-    avoiding collapse when one file is an extreme outlier.
-    """
-    # Collect all nodes (sources and targets)
     nodes = set(graph.keys())
     for targets in graph.values():
         nodes.update(targets.keys())
@@ -1055,7 +868,6 @@ def pagerank(
 
     scores = {node: 1.0 / n for node in nodes}
 
-    # Build reverse graph for efficient iteration
     in_edges: dict[str, list[tuple[str, float]]] = {node: [] for node in nodes}
     out_degree: dict[str, float] = {node: 0.0 for node in nodes}
     for src, targets in graph.items():
@@ -1075,27 +887,10 @@ def pagerank(
             new_scores[node] = (1 - damping) / n + damping * rank_sum
         scores = new_scores
 
-    # Rank-based normalization: convert absolute scores to rank percentiles
     sorted_nodes = sorted(scores.keys(), key=lambda nd: scores[nd])
     return {node: (rank + 1) / n for rank, node in enumerate(sorted_nodes)}
 
 
-# ---------------------------------------------------------------------------
-# Include graph centrality (UE projects)
-# ---------------------------------------------------------------------------
-
-#: Emitted into every generated map's own header, because this file is
-#: gitignored and regenerated -- no tracked file in any repo can carry the
-#: warning on its behalf.
-#:
-#: `.claude/repomap.md` and `docs/architecture/file-index.md` are confusable by
-#: name and by description, and they share neither writer, gating, nor
-#: freshness guarantee. An EM once resolved the second artifact's generator by
-#: name similarity to the first and briefed a subagent to run this tool against
-#: it; only that subagent's refusal prevented a wrong-artifact write. The
-#: reader most likely to make that mistake is holding this output, so the
-#: correction belongs here rather than only in a wiki they have no reason to
-#: open.
 _CONFUSABLE_ARTIFACT_NOTE = (
     "Not to be confused with docs/architecture/file-index.md, a different map "
     "artifact with a different writer "
@@ -1121,7 +916,6 @@ _ENGINE_HEADER_PREFIXES = {
 
 
 def _is_engine_header(include_path: str) -> bool:
-    """Return True if this include is an engine/external header to skip."""
     for prefix in _ENGINE_HEADER_PREFIXES:
         if include_path == prefix or include_path.startswith(prefix):
             return True
@@ -1131,16 +925,6 @@ def _is_engine_header(include_path: str) -> bool:
 
 
 def build_include_graph(project_root: Path, files: list[str]) -> dict[str, float]:
-    """Build C++ include graph and return normalized in-degree centrality.
-
-    Scans .h and .cpp files for #include "..." directives, resolves them to
-    project-relative paths, and computes in-degree centrality in [0.0, 1.0].
-
-    Resolution order:
-    1. Path as-is relative to project_root (#include "FDM/DGFDMTypes.h")
-    2. Relative to the including file's directory (#include "DGFDMTypes.h")
-    3. Skip if neither resolves (engine/external header)
-    """
     re_include = re.compile(r'#include\s+"([^"]+)"')
     file_set = {f.replace("\\", "/") for f in files}
     in_degree: dict[str, int] = {}
@@ -1169,13 +953,11 @@ def build_include_graph(project_root: Path, files: list[str]) -> dict[str, float
             if _is_engine_header(inc):
                 continue
 
-            # Resolution 1: as-is relative to project root
             candidate = inc.replace("\\", "/")
             if candidate in file_set:
                 in_degree[candidate] = in_degree.get(candidate, 0) + 1
                 continue
 
-            # Resolution 2: relative to including file's directory
             if rel_dir:
                 candidate2 = (rel_dir + "/" + inc).replace("\\", "/")
             else:
@@ -1202,11 +984,6 @@ def _blend_centralities(
     pagerank_centrality: dict[str, float] | None,
     all_files: list[str],
 ) -> dict[str, float] | None:
-    """Blend include-graph and PageRank centrality via max() per file.
-
-    Returns None if neither source has data. Otherwise returns a dict
-    mapping each file to max(include_score, pagerank_score).
-    """
     if not include_centrality and not pagerank_centrality:
         return None
 
@@ -1221,13 +998,7 @@ def _blend_centralities(
     return blended if blended else None
 
 
-# ---------------------------------------------------------------------------
-# Cache
-# ---------------------------------------------------------------------------
-
-
 def file_content_hash(path: Path) -> str:
-    """SHA-256 hash of file content."""
     h = hashlib.sha256()
     try:
         with open(path, "rb") as f:
@@ -1239,7 +1010,6 @@ def file_content_hash(path: Path) -> str:
 
 
 def load_cache(cache_path: Path) -> dict:
-    """Load parse cache from JSON file."""
     if cache_path.exists():
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
@@ -1250,7 +1020,6 @@ def load_cache(cache_path: Path) -> dict:
 
 
 def save_cache(cache_path: Path, cache: dict):
-    """Save parse cache atomically."""
     os.makedirs(cache_path.parent, exist_ok=True)
     tmp_fd, tmp_path = tempfile.mkstemp(dir=cache_path.parent, suffix=".tmp")
     try:
@@ -1265,22 +1034,11 @@ def save_cache(cache_path: Path, cache: dict):
         raise
 
 
-# ---------------------------------------------------------------------------
-# Token budget fitting
-# ---------------------------------------------------------------------------
-
-
 def estimate_tokens(text: str) -> int:
-    """Estimate token count: word_count * 1.3."""
     return int(len(text.split()) * 1.3)
 
 
 def render_file_entry(rel_path: str, entries: list[str], max_entries: int = 20) -> str:
-    """Render a single file's map entry as Markdown.
-
-    Caps at max_entries definitions per file at render time with (+N more) suffix.
-    Full parse is preserved in cache for task-scoped maps with higher caps.
-    """
     lines = [f"## {rel_path}"]
     if len(entries) > max_entries:
         for entry in entries[:max_entries]:
@@ -1295,11 +1053,6 @@ def render_file_entry(rel_path: str, entries: list[str], max_entries: int = 20) 
 def budget_fit(
     ranked_files: list[tuple[str, list[str]]], budget: int
 ) -> list[tuple[str, list[str]]]:
-    """Select files that fit within the token budget, in rank order.
-
-    Uses iterative addition rather than binary search — simpler and adequate
-    since we process in rank order and stop when full.
-    """
     selected = []
     header = "# Repository Map\nGenerated: ... | Files: ... | Budget: ...\n\n"
     current_tokens = estimate_tokens(header)
@@ -1308,7 +1061,6 @@ def budget_fit(
         entry_text = render_file_entry(rel_path, entries)
         entry_tokens = estimate_tokens(entry_text)
 
-        # Allow ~30% overshoot on the last entry
         if current_tokens + entry_tokens > budget * 1.3 and selected:
             break
 
@@ -1318,50 +1070,28 @@ def budget_fit(
     return selected
 
 
-# ---------------------------------------------------------------------------
-# Task-scoped selective loading
-# ---------------------------------------------------------------------------
-
-
 def compute_focus_boosts(
     focus_files: list[str],
     task_context: str,
     ref_graph: dict[str, dict[str, int]],
     all_files: list[str],
 ) -> dict[str, float]:
-    """Compute score boost multipliers based on task focus.
-
-    Boost tiers:
-    - Files in focus_files: x5.0
-    - Files 1-hop from focus_files in reference graph: x2.5
-    - Files 2-hops from focus_files: x1.5
-    - Files whose paths appear in task_context: x2.0
-    - All other files: x1.0 (no boost)
-
-    Boosts are multiplicative — a file that's both 1-hop and mentioned in
-    task_context gets max(2.5, 2.0) = 2.5, not 2.5 * 2.0.
-    """
     boosts: dict[str, float] = {}
 
-    # Exact focus files
     focus_set = set(focus_files)
     for f in focus_files:
         boosts[f] = 5.0
 
-    # Build reverse graph for backward walks
     reverse_graph: dict[str, set[str]] = {}
     for src, targets in ref_graph.items():
         for tgt in targets:
             reverse_graph.setdefault(tgt, set()).add(src)
 
-    # 1-hop: files that import focus files (reverse) or are imported by focus files (forward)
     one_hop = set()
     for f in focus_set:
-        # Forward: files that f references
         for tgt in ref_graph.get(f, {}):
             if tgt not in focus_set:
                 one_hop.add(tgt)
-        # Reverse: files that reference f
         for src in reverse_graph.get(f, set()):
             if src not in focus_set:
                 one_hop.add(src)
@@ -1369,7 +1099,6 @@ def compute_focus_boosts(
     for f in one_hop:
         boosts[f] = max(boosts.get(f, 1.0), 2.5)
 
-    # 2-hop: files one hop from 1-hop files
     two_hop = set()
     for f in one_hop:
         for tgt in ref_graph.get(f, {}):
@@ -1382,11 +1111,9 @@ def compute_focus_boosts(
     for f in two_hop:
         boosts[f] = max(boosts.get(f, 1.0), 1.5)
 
-    # Task context: extract path-like tokens and match against known files
     if task_context:
         path_tokens = re.findall(r'[\w/.\\-]+\.[\w]+', task_context)
         for token in path_tokens:
-            # Normalize separators
             token_normalized = token.replace("\\", "/")
             for f in all_files:
                 if token_normalized in f or f.endswith(token_normalized):
@@ -1404,15 +1131,8 @@ def generate_task_scoped_map(
     output_path: Path,
     profile: str = "balanced",
 ) -> None:
-    """Generate a repo map scoped to a specific task step.
-
-    Same pipeline as generate_repomap() but with score boosting based on
-    task context and focus files. The reference graph enables neighborhood
-    discovery — files structurally related to the focus files get boosted.
-    """
     project_root = project_root.resolve()
 
-    # Reuse the standard pipeline for steps 1-4
     git_files = get_git_tracked_files(project_root)
     is_git = git_files is not None
 
@@ -1431,7 +1151,6 @@ def generate_task_scoped_map(
         print("  warn: no files found", file=sys.stderr)
         return
 
-    # Apply .repomapignore filtering
     ignore_patterns = load_repomapignore(project_root)
     if ignore_patterns:
         before = len(files)
@@ -1442,7 +1161,6 @@ def generate_task_scoped_map(
             file=sys.stderr,
         )
 
-    # Filter
     valid_files = []
     line_counts = {}
     for rel in files:
@@ -1459,13 +1177,11 @@ def generate_task_scoped_map(
         line_counts[rel] = lc
         valid_files.append(rel)
 
-    # Detect UE project
     ue_mode = detect_ue_project(project_root)
     ue_module_macros: dict[str, str] = {}
     if ue_mode:
         ue_module_macros = detect_ue_api_macros(project_root, valid_files)
 
-    # Parse (read-only on cache — piggybacks on standard map's cache, does not write)
     cache_path = cache_dir / "cache.json"
     cache = load_cache(cache_path)
     parsed_defs: dict[str, list[str]] = {}
@@ -1488,7 +1204,6 @@ def generate_task_scoped_map(
             continue
 
         content_hash = file_content_hash(full)
-        # UE mode uses separate cache namespace
         cache_prefix = "ue:" if (ue_mode and ext in (".h", ".cpp")) else ""
         cache_key = f"{cache_prefix}{rel}:{content_hash}"
 
@@ -1499,7 +1214,6 @@ def generate_task_scoped_map(
             else:
                 defs, refs = (cached, []) if isinstance(cached, list) else ([], [])
         elif ue_mode and ext in (".h", ".cpp"):
-            # UE mode: regex parser for defs, tree-sitter for refs only
             api_macro = get_api_macro_for_file(rel, ue_module_macros)
             defs = parse_cpp_ue(full, api_macro)
             refs = ts_parser.parse_refs_only(full, ext)
@@ -1509,11 +1223,8 @@ def generate_task_scoped_map(
         parsed_defs[rel] = defs
         parsed_refs[rel] = refs
 
-    # Save any newly parsed entries back to the shared cache.
-    # Cache keys are content-addressed ({rel}:{content_hash}), so task-scoped
-    # writes can only add entries — they never clobber standard map results.
     new_cache = {"_version": 2}
-    new_cache.update(cache)  # preserve existing entries
+    new_cache.update(cache)
     for rel in valid_files:
         full = project_root / rel
         ext = full.suffix.lower()
@@ -1526,10 +1237,9 @@ def generate_task_scoped_map(
         cache_key = f"{cache_prefix}{rel}:{content_hash}"
         if cache_key not in cache:
             new_cache[cache_key] = {"defs": parsed_defs.get(rel, []), "refs": parsed_refs.get(rel, [])}
-    if len(new_cache) > len(cache) + 1:  # +1 for _version key
+    if len(new_cache) > len(cache) + 1:
         save_cache(cache_path, new_cache)
 
-    # Build reference graph (tree-sitter symbol refs)
     ref_graph: dict[str, dict[str, float]] = {}
     pagerank_centrality = None
     if any(parsed_refs.values()):
@@ -1537,17 +1247,14 @@ def generate_task_scoped_map(
         if ref_graph:
             pagerank_centrality = pagerank(ref_graph)
 
-    # Include-graph centrality (UE projects)
     include_centrality = None
     if ue_mode:
         include_centrality = build_include_graph(project_root, valid_files)
 
-    # Blend centralities
     blended_centrality = _blend_centralities(
         include_centrality, pagerank_centrality, valid_files
     )
 
-    # Compute base scores
     if is_git:
         ranking_data = get_git_log_data(project_root, valid_files)
     else:
@@ -1555,12 +1262,10 @@ def generate_task_scoped_map(
 
     scores = compute_scores(ranking_data, line_counts, blended_centrality, profile)
 
-    # Apply focus boosts
     boosts = compute_focus_boosts(focus_files, task_context, ref_graph, valid_files)
     for f in scores:
         scores[f] *= boosts.get(f, 1.0)
 
-    # Sort, budget-fit, render (same as standard)
     ranked = sorted(valid_files, key=lambda f: scores.get(f, 0), reverse=True)
 
     ranked = _apply_profile_injection(ranked, profile, ue_mode)
@@ -1568,7 +1273,6 @@ def generate_task_scoped_map(
     ranked_with_entries = [(f, parsed_defs.get(f, [])) for f in ranked]
     selected = budget_fit(ranked_with_entries, budget)
 
-    # Render with task-scoped header
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     focus_str = ", ".join(focus_files[:5])
     if len(focus_files) > 5:
@@ -1609,11 +1313,6 @@ def generate_task_scoped_map(
     )
 
 
-# ---------------------------------------------------------------------------
-# Main pipeline
-# ---------------------------------------------------------------------------
-
-
 def generate_repomap(
     project_root: Path,
     budget: int,
@@ -1621,11 +1320,9 @@ def generate_repomap(
     output_path: Path,
     profile: str = "balanced",
 ) -> None:
-    """Main entry point: parse, rank, budget-fit, render, write."""
 
     project_root = project_root.resolve()
 
-    # 1. Get file list
     git_files = get_git_tracked_files(project_root)
     is_git = git_files is not None
 
@@ -1635,7 +1332,6 @@ def generate_repomap(
         print("  info: not a git repo, using filesystem walk", file=sys.stderr)
         files = []
         for root, dirs, filenames in os.walk(project_root):
-            # Prune excluded dirs
             dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS]
             for fn in filenames:
                 full = Path(root) / fn
@@ -1646,7 +1342,6 @@ def generate_repomap(
         print("  warn: no files found", file=sys.stderr)
         return
 
-    # 1b. Apply .repomapignore filtering
     ignore_patterns = load_repomapignore(project_root)
     if ignore_patterns:
         before = len(files)
@@ -1657,13 +1352,12 @@ def generate_repomap(
             file=sys.stderr,
         )
 
-    # 2. Filter: skip binary, symlinks
     valid_files = []
     line_counts = {}
     for rel in files:
         full = project_root / rel
         if full.is_symlink():
-            valid_files.append(rel)  # include by path only
+            valid_files.append(rel)
             line_counts[rel] = 0
             continue
         if not full.is_file():
@@ -1674,7 +1368,6 @@ def generate_repomap(
         line_counts[rel] = lc
         valid_files.append(rel)
 
-    # 2b. Detect UE project
     ue_mode = detect_ue_project(project_root)
     ue_module_macros: dict[str, str] = {}
     if ue_mode:
@@ -1685,7 +1378,6 @@ def generate_repomap(
             file=sys.stderr,
         )
 
-    # 3. Parse files (with caching)
     cache_path = cache_dir / "cache.json"
     cache = load_cache(cache_path)
     new_cache = {}
@@ -1693,20 +1385,17 @@ def generate_repomap(
     parsed_refs: dict[str, list[str]] = {}
     ts_parser = TreeSitterParser()
 
-    # Cache version migration: v1 stored flat lists, v2 stores {defs, refs}
     cache_version = cache.get("_version", 1)
 
     for rel in valid_files:
         full = project_root / rel
         ext = full.suffix.lower()
 
-        # Symlinks or very large files: path only
         if full.is_symlink() or line_counts.get(rel, 0) > MAX_LINES_FOR_PARSING:
             parsed_defs[rel] = []
             parsed_refs[rel] = []
             continue
 
-        # Check if any parser can handle this extension
         has_parser = ext in TS_LANG_MAP or ext in PARSERS
         if not has_parser:
             parsed_defs[rel] = []
@@ -1714,24 +1403,17 @@ def generate_repomap(
             continue
 
         content_hash = file_content_hash(full)
-        # UE mode uses separate cache namespace to avoid stale defs from
-        # tree-sitter being served when regex parser is expected
         cache_prefix = "ue:" if (ue_mode and ext in (".h", ".cpp")) else ""
         cache_key = f"{cache_prefix}{rel}:{content_hash}"
 
         if cache_key in cache and cache_key != "_version":
             cached = cache[cache_key]
             if isinstance(cached, dict) and "defs" in cached:
-                # v2 cache entry
                 defs, refs = cached["defs"], cached["refs"]
             else:
-                # v1 cache entry (flat list) — treat as defs-only
                 defs, refs = (cached, []) if isinstance(cached, list) else ([], [])
         elif ue_mode and ext in (".h", ".cpp"):
-            # UE mode: regex parser for defs, tree-sitter for refs only.
             # Tree-sitter @def.name captures are DISCARDED in UE mode to
-            # prevent duplicate/conflicting entries (e.g., bare "ADGDronePawn"
-            # vs rich "class ADGDronePawn (APawn)").
             api_macro = get_api_macro_for_file(rel, ue_module_macros)
             defs = parse_cpp_ue(full, api_macro)
             refs = ts_parser.parse_refs_only(full, ext)
@@ -1743,10 +1425,8 @@ def generate_repomap(
         parsed_refs[rel] = refs
 
     new_cache["_version"] = 2
-    # Evict stale cache entries (only keep current files)
     save_cache(cache_path, new_cache)
 
-    # 4. Build reference graph (tree-sitter symbol refs)
     ref_graph: dict[str, dict[str, float]] = {}
     pagerank_centrality = None
     if any(parsed_refs.values()):
@@ -1754,17 +1434,14 @@ def generate_repomap(
         if ref_graph:
             pagerank_centrality = pagerank(ref_graph)
 
-    # 4b. Build include-graph centrality (UE projects)
     include_centrality = None
     if ue_mode:
         include_centrality = build_include_graph(project_root, valid_files)
 
-    # 4c. Blend centralities: max(include, pagerank) per file
     blended_centrality = _blend_centralities(
         include_centrality, pagerank_centrality, valid_files
     )
 
-    # 5. Rank
     if is_git:
         ranking_data = get_git_log_data(project_root, valid_files)
     else:
@@ -1772,17 +1449,14 @@ def generate_repomap(
 
     scores = compute_scores(ranking_data, line_counts, blended_centrality, profile)
 
-    # Sort by score descending
     ranked = sorted(valid_files, key=lambda f: scores.get(f, 0), reverse=True)
 
     ranked = _apply_profile_injection(ranked, profile, ue_mode)
 
     ranked_with_entries = [(f, parsed_defs.get(f, [])) for f in ranked]
 
-    # 6. Budget fit
     selected = budget_fit(ranked_with_entries, budget)
 
-    # 7. Render
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     stamp_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     frontmatter = (
@@ -1804,7 +1478,6 @@ def generate_repomap(
 
     output_text = "\n\n".join(sections) + "\n"
 
-    # 8. Write atomically
     os.makedirs(output_path.parent, exist_ok=True)
     tmp_fd, tmp_path = tempfile.mkstemp(dir=output_path.parent, suffix=".tmp")
     try:
@@ -1834,28 +1507,9 @@ def generate_repomap(
     )
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-
 def find_git_root(start: Path) -> Path | None:
-    """Find the git root directory from start path.
-
-    Resolves through ``coordinator_core.git.repo_root.show_toplevel`` rather
-    than spawning (chunk C5, docs/plans/2026-08-16-a-process-per-predicate.md)
-    — that seam walks for a `.git` entry and spawns only if the walk finds
-    none. Falls through to ``None`` on any failure, including the engine not
-    being importable: this script ships with its own tree-sitter requirements
-    and is runnable standalone, so an absent engine degrades rather than
-    raises.
-    """
     try:
-        # Without this the import cannot succeed on the published mirror,
-        # where coordinator_core is not pip-installed. RuntimeError joins the
         # except tuple so an unresolvable root still DEGRADES rather than
-        # raises — this script ships standalone-runnable, per the docstring
-        # above.
         require_dispatch_engine_on_path()
         from coordinator_core.git.repo_root import show_toplevel
 
@@ -1916,7 +1570,6 @@ def main():
 
     args = parser.parse_args()
 
-    # Resolve project root
     if args.project_root:
         project_root = args.project_root.resolve()
     else:
@@ -1930,7 +1583,6 @@ def main():
     cache_dir = args.cache_dir or (project_root / ".claude" / "repomap-cache")
 
     if args.task or args.focus_files:
-        # Task-scoped mode
         output_path = args.output or (project_root / ".claude" / "repomap-task.md")
         focus_files = []
         if args.focus_files:
@@ -1940,7 +1592,6 @@ def main():
             args.profile,
         )
     else:
-        # Standard mode
         output_path = args.output or (project_root / ".claude" / "repomap.md")
         generate_repomap(project_root, args.budget, cache_dir, output_path, args.profile)
 

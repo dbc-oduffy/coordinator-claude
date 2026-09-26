@@ -1,38 +1,3 @@
-"""claims-emit — CLI trampoline over the engine repo's coordinator_core.claims_emit
-(writer for the atomic `<stem>.claims.json` + `<stem>.claims.meta.json`
-pair). Direct-import variant (template-variant #1, per
-tasks/2026-07-16-clean-slate-recon/r1-doe-port-template.md § 1): a plain
-in-process function call after resolving the engine root, no cc_invoke/IPC hop
-— the coordinator/bin/archive-stamp-cli.py precedent, chosen here specifically
-because no op registration is needed (see the plan's Anti-scope for why).
-
-Spec backlink:
-  docs/plans/2026-08-06-claims-emit-writer-atomic-pair.md — chunk C3.
-
-Usage:
-  claims-emit --producer <slug> --out <stem> --ran-at <rfc3339> --pipeline <token>
-    Reads a bare top-level JSON array of claim records from STDIN — the
-    caller-supplied claims list itself, not a producer run selector
-    (enumerating a producer's run is explicitly out of scope for this
-    writer; see the plan's "Out of scope" section). `--ran-at` and
-    `--pipeline`, the two facts only the producer knows at emit time, are
-    ordinary required flags — this verb's caller is a sibling repo's
-    landing CLI invoking it programmatically via subprocess, so there is
-    no shell-history exposure to avoid, and flags match the frozen
-    contract's own flag-table idiom (see the sibling repo's
-    docs/decisions/2026-08-06-claims-emit-verb-surface-contract.md § 1).
-    Missing either flag is an invalid invocation (exit 2), exactly like a
-    missing --producer/--out.
-
-Exit codes: propagates coordinator_core.claims_emit.emit_claims's own
-taxonomy verbatim — 0 both files written, 1 producer-side failure
-(malformed claim record(s) or a write failure), 2 invalid invocation
-(missing/malformed flags or STDIN payload). A missing/unresolvable
-the engine root (this trampoline's own transport failure, distinct from the
-module's business exit code) exits 3 — the dedicated code below, since
-that failure means "the engine repo could not be reached," never
-silently degraded to 0.
-"""
 
 from __future__ import annotations
 

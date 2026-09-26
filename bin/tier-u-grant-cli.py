@@ -1,57 +1,5 @@
-# tier-u-grant-cli — CLI trampoline over claude-klabauter
-# coordinator_core.session.grant (the Tier-U full-suite authorization-grant
-# writer/reader — DR-088 layer 5: "Authorization grant — Tier U requires a
-# live token; qualifying ceremonies write an implicit one."). Direct-import
-# variant, mirroring coordinator/bin/session-liveness-cli's resolve/import/
-# dispatch/exit shape (this CLI's reader leg calls straight through to
-# coordinator_core.session.liveness the same way that CLI does, so the two
-# stay structurally identical).
-#
-# DoE's ceremonies (/workday-complete, /workweek-complete, /merging-to-main)
-# and skills invoke this BY NAME as an entrypoint — per the 2026-07-22 ruling
-# that a skill links to an entrypoint rather than carrying a command payload
-# (see the memo this CLI is specced from). The DR-088 layer-5 PreToolUse(Bash)
-# guard (coordinator_core/bash_guards/check_test_suite_invocation.py's
 # `_tier_u_grant` grant leg) is wired via DIRECT IN-PROCESS IMPORT of
-# `coordinator_core.session.grant.check_tier_u_grant` — it does not shell out
-# to this CLI's `check` subcommand. This CLI's `check` subcommand remains the
-# entrypoint for shell callers (e.g. a skill or a human at a terminal) that
-# need the same predicate outside a Python process — see
-# coordinator_core/session/grant.py's module docstring for the ownership
-# split.
-#
-# Subcommands (argv[1] selects; remaining argv forwarded to the mapped
-# coordinator_core.session.grant function):
-#   grant <granted_by> <note> [--ceremony <name>]
-#                                              -> grant.write_tier_u_grant(...) bool->exit
-#   read                                       -> grant.read_tier_u_grant(): prints the
-#                                                  raw grant record as one line of JSON if
-#                                                  present, prints nothing if absent/
-#                                                  unreadable/malformed; always exit 0
-#                                                  (informational — this is NOT the
-#                                                  authorization predicate, see `check`)
-#   check                                      -> grant.check_tier_u_grant(): the
-#                                                  liveness-gated authorization boolean —
-#                                                  the one a guard calls. bool->exit
-#   revoke [--only-ceremony <name>]            -> grant.revoke_tier_u_grant(): hands the
-#                                                  calling session's own grant back
-#                                                  (unlink, never a glob). Idempotent —
-#                                                  revoking an absent grant is success.
-#                                                  --only-ceremony is the GUARDED handback
-#                                                  every ceremony must use: unlinks only a
-#                                                  grant whose granted_by == "ceremony" and
-#                                                  whose ceremony names <name>, leaving a PM
-#                                                  grant (or another ceremony's, under
-#                                                  workweek->merge nesting) alone and still
-#                                                  exiting 0. bool->exit
-#
-# Exit codes: the mapped bool-returning function maps True->0, False->1
-# (matches session-liveness-cli's / session-claim-cli's convention). A
-# a missing/unresolvable engine root or an ImportError (this trampoline's own
 # transport failure) exits 3 (_TRANSPORT_FAIL — "the claude-klabauter engine could not
-# be reached," never silently degraded to 0/1). A usage error (missing/
-# unknown subcommand, wrong arity, an invalid `grant` enum/cross-field value
-# caught as ValueError) exits 2.
 from __future__ import annotations
 """tier-u-grant-cli — see the # comment block above for the RAG-bait purpose
 text (the polyglot shebang line above makes THIS triple-quoted string a
@@ -98,10 +46,6 @@ def _grant_directive_module():
     try:
         import coordinator_core.session.grant_directive as _mod
     except ImportError:
-        # Cold shell call: coordinator_core is not on the path yet. The
-        # in-process callers (workweek_complete.apply loads this file as a
-        # module and calls main()) already have it imported, so they never
-        # pay the engine-root resolution below.
         import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
         from cc_invoke import require_dispatch_engine_on_path
 

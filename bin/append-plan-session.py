@@ -83,9 +83,6 @@ _BOOTSTRAPPED_NAMES = ("resolve_checked_repo_root",)
 
 
 def _bootstrap_aps() -> None:
-    """Bind `resolve_checked_repo_root` at module scope, guarded so a caller
-    that already set the name on this module (a test's `mock.patch.object`)
-    is never clobbered by a later real import."""
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
 
     global resolve_checked_repo_root
@@ -126,7 +123,7 @@ def _no_console_creationflags() -> dict:
         from coordinator_core.win_portability import (
             no_console_creationflags as _impl,
         )
-    except ImportError:  # engine root unresolvable — see the negative-spec block above
+    except ImportError:
         if os.name != "nt":
             return {}
         return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
@@ -140,7 +137,6 @@ _SESSION_ID_ENV_TIERS = (
 
 
 def _resolve_session_id() -> str:
-    """Tiers 1-3 of the 4-tier chain — see module docstring for the tier-4 carve-out."""
     for var in _SESSION_ID_ENV_TIERS:
         val = os.environ.get(var, "")
         if val:
@@ -166,13 +162,6 @@ def _resolve_repo_root() -> str | None:
 
 
 def legacy_append_plan_session() -> None:
-    """Fail-loud stand-in for the deleted legacy body (T2-g1 finish-strangler).
-
-    Only reached when coordinator_core.invoke is NOT importable on disk
-    (State-1 dispatch target) — route_mutation still requires a legacy_fn
-    argument, but the pre-facade bash implementation is gone, so a
-    genuinely-absent seam is now a hard error, not a legacy fallback.
-    """
     raise RuntimeError(
         "append-plan-session.py: coordinator_core.invoke seam absent — legacy "
         "path removed (T2-g1 finish-strangler); cannot dispatch plan.append_session"
@@ -219,9 +208,6 @@ def main(argv: list[str]) -> int:
         print(f"append-plan-session.py: {exc}", file=sys.stderr)
         return exit_code
     except RuntimeError as exc:
-        # Transport failure (State-3) or legacy-seam-absent raise (State-1) —
-        # both converge on rc=2, mirroring the retired bash facade's
-        # _append_plan_session_seam_absent stand-in / cc_invoke's transport-fail rc.
         print(f"append-plan-session.py: {exc}", file=sys.stderr)
         return 2
 

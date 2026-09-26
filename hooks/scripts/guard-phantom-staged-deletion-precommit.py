@@ -1,9 +1,3 @@
-# guard-not-a-hook-entrypoint
-# Native git pre-commit hook, not a hooks.json entrypoint. Same shape and same
-# reasoning as guard-doctrine-surface-ratio-precommit.py: a PreToolUse guard
-# fires before any commit exists and sees one tool call, so it cannot know
-# which paths the commit will actually carry. At pre-commit time the staged set
-# for THIS commit exists and is directly readable.
 """Native git pre-commit hook: refuse a commit that would delete a path still
 present in HEAD and on disk.
 
@@ -76,8 +70,6 @@ def _git(*args: str) -> "subprocess.CompletedProcess[bytes]":
         ["git", "--no-optional-locks", *args],
         capture_output=True,
         check=False,
-        # A git hook runs on every commit, including from headless Windows
-        # shells where a console-spawning child flashes a window each time.
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
 
@@ -88,9 +80,6 @@ def main() -> int:
 
     staged = _git("diff", "--cached", "--name-status", "-z")
     if staged.returncode != 0:
-        # An unreadable staged set is not evidence of a phantom. Fail OPEN and
-        # say so: a pre-commit hook that blocks whenever git hiccups gets
-        # uninstalled, and this guard is worth more alive than strict.
         print(
             "[phantom-deletion-guard] could not read the staged set "
             f"(git exited {staged.returncode}); allowing the commit",
@@ -106,8 +95,6 @@ def main() -> int:
         return Path(path).exists()
 
     def disk_matches_head(path: str):
-        """None when the path is not in HEAD -- then this commit cannot be
-        removing it from HEAD, whatever the index says."""
         head = _git("cat-file", "blob", f"HEAD:{path}")
         if head.returncode != 0:
             return None

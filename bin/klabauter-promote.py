@@ -87,11 +87,6 @@ _EXIT_USAGE = 2
 
 
 def _load_percolate_push_module():
-    """Import `coordinator/bin/percolate-push.py` under a private module
-    name — same idiom `percolate-full-payload-proof.py::_load_publish_module`
-    already uses for a sibling hyphenated entrypoint — so this import never
-    collides with, or is confused for, a `pytest` collection of the real
-    module."""
     spec = importlib.util.spec_from_file_location(
         "percolate_push_for_klabauter_promote", _PERCOLATE_PUSH_PATH
     )
@@ -118,16 +113,6 @@ _BOOTSTRAP_DONE = False
 
 
 def _bootstrap_engine() -> None:
-    """Load `percolate-push.py` and re-publish its reused helpers as module
-    attributes of THIS module -- byte-for-byte the former module-scope
-    sequence, only the trigger moved.
-
-    What moved and what did not: `_percolate_push = _load_percolate_push_module()`
-    plus the six attribute pulls below it used to run at MODULE scope, which
-    made every import of this file execute `percolate-push.py`'s body on a
-    warm server ~50 sessions share. Only the trigger moved; the value bound
-    for each name is byte-for-byte the same.
-    """
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
         return
@@ -142,39 +127,16 @@ def _bootstrap_engine() -> None:
         _check_round_failure_marker = _percolate_push._check_round_failure_marker
         _resolve_default_branch = _percolate_push._resolve_default_branch
 
-        # Publish LAST, once every name is bound -- a publish placed mid-function
-        # silently omits everything imported after it, and the omission surfaces
-        # as a KeyError from `__getattr__` rather than as anything pointing here.
-        #
-        # NEVER overwrite a name a caller already installed: a test that
-        # monkeypatches one of these names and then calls a function that
-        # triggers the bootstrap would otherwise have its patch replaced by the
-        # real resolver on the first call, and the failure reads as "the patch
-        # never applied".
     finally:
         _resolved = locals()
         for _name in _BOOTSTRAPPED_NAMES:
             if _name not in globals() and _name in _resolved:
                 globals()[_name] = _resolved[_name]
 
-    # Only on a clean run: a partial bootstrap must stay retryable.
     _BOOTSTRAP_DONE = True
 
 
 def __getattr__(name: str):
-    """PEP 562 hook for the reused `percolate-push.py` helpers.
-
-    `test_klabauter_promote.py` reaches `_mod._percolate_push`,
-    `_mod._resolve_dest`, `_mod._check_dest_state`,
-    `_mod._round_failure_marker_path`, and `_mod._resolve_default_branch` as
-    plain module attributes WITHOUT calling `main()` first (see e.g.
-    `test_reused_helpers_are_the_same_objects_as_percolate_push` and the
-    `monkeypatch.setattr(_mod._percolate_push.subprocess, "run", spy)` calls).
-    Deferring the load into a function -- which is what the sweep did -- left
-    those names simply absent from the module and broke every such test.
-    Routing them through the bootstrap restores the module attribute while
-    keeping the module body inert.
-    """
     if name in _BOOTSTRAPPED_NAMES:
         _bootstrap_engine()
         if name not in globals():
@@ -194,18 +156,6 @@ _CANDIDATE_BRANCH = "candidate"
 
 
 def _check_fast_forward(dest: str, candidate_branch: str, main_branch: str) -> Optional[str]:
-    """Predicate 3 — `main` must be an ancestor of `candidate` (a
-    fast-forward). Uses `git merge-base --is-ancestor main candidate`,
-    resolved against the dest's local refs for `main`
-    (`refs/remotes/origin/<main_branch>`) and the currently checked-out
-    `candidate` branch (HEAD, since `_check_dest_state` has already
-    confirmed the dest is clean and its `branch_head` is `candidate`).
-
-    Fails CLOSED: a non-zero, non-1 `git merge-base --is-ancestor` exit
-    (i.e. neither "is an ancestor" (0) nor "is not an ancestor" (1) but a
-    real error — unknown ref, corrupt repo, etc.) refuses rather than
-    being read as "not an ancestor" or "is an ancestor" by guesswork.
-    """
     _bootstrap_engine()
     main_ref = f"refs/remotes/origin/{main_branch}"
     result = _run(
@@ -232,7 +182,7 @@ def _check_fast_forward(dest: str, candidate_branch: str, main_branch: str) -> O
     )
 
 
-_CROSS_MACHINE_SOAK_FLOOR_SECONDS = 6 * 60 * 60  # 6 hours — see C6 note below.
+_CROSS_MACHINE_SOAK_FLOOR_SECONDS = 6 * 60 * 60
 
 
 def _check_cross_machine_observed(dest: str, target: str) -> Optional[str]:
@@ -332,15 +282,6 @@ def _check_cross_machine_observed(dest: str, target: str) -> Optional[str]:
 def _evaluate_promotion_bar(
     dest: str, target: str, percolate_root: str, candidate_branch: str, main_branch: str
 ) -> List[str]:
-    """Evaluate all four promotion predicates WITHOUT short-circuiting on
-    each other's failures — every failing predicate is collected and
-    reported, so a `--confirm` invocation (and a dry-run) always names the
-    FULL set of what is blocking promotion, not just the first predicate
-    hit. Exception: predicate 3 (fast-forward) requires predicate 1 (clean
-    dest) to pass first — a dirty dest makes `branch_head` untrustworthy,
-    so predicate 3 is skipped rather than evaluated against a possibly-wrong
-    ref; it will surface on the next run once predicate 1 is fixed.
-    Returns the list of refusal messages (empty when all four pass)."""
     _bootstrap_engine()
     refusals: List[str] = []
 
@@ -352,8 +293,6 @@ def _evaluate_promotion_bar(
     if marker_refusal:
         refusals.append(f"klabauter-promote: predicate 2 (no round-failure marker) FAILED —\n{marker_refusal}")
 
-    # Predicate 3 needs the dest to be clean to trust HEAD == candidate_branch;
-    # only evaluate it when predicate 1 passed.
     if not dest_refusal:
         if branch_head != candidate_branch:
             refusals.append(

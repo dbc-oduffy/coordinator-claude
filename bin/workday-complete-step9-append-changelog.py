@@ -1,5 +1,4 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
-# Spec backlink: DoE-claude:pln-wire-claude-klabauter-fleet-archive-prun-8fd552 § strang-10
 """
 workday-complete-step9-append-changelog.py -- Step 9 of /workday-complete: append the
 daily block to the week-changelog.
@@ -307,10 +306,6 @@ def _parse_args(argv):
                 raise _ArgError(f"--for-date requires a YYYY-MM-DD argument (got '{for_date}')")
             i += 2
         elif arg == "--":
-            # Byte-parity quirk carried over from the bash oracle: "--" ends
-            # option parsing and the loop simply stops -- any remaining argv
-            # is dropped, never treated as positional. Not a bug this port
-            # introduces; preserved for exact CLI-contract parity.
             break
         elif arg.startswith("-"):
             raise _ArgError(f"Unknown option: {arg}")
@@ -404,7 +399,6 @@ def _resolve_coordinator_root():
     if override:
         # Explicit root (AC3): resolve_checked_repo_root returns EXPLICIT
         # and gates nothing on it -- the cwd-derived identity MISMATCH gate
-        # below is precisely what this override exists to sidestep.
         coordinator_root, _verdict = resolve_checked_repo_root(explicit_root=override)
         if not warn_suppress:
             cwd_root, _cwd_verdict = resolve_checked_repo_root(explicit_root=None)
@@ -445,9 +439,7 @@ def _resolve_coordinator_root():
     if not coordinator_root:
         # No git root resolved from cwd at all -- distinct from the MISMATCH
         # identity gate above (which fires on POSITIVE evidence of a
-        # different real repo). This is "nowhere to write", not an identity
         # mismatch; UNRESOLVED-with-no-root refusing here is not the AC4
-        # carve-out being violated (see repo_identity.py's own no-root leg).
         print("ERROR: cwd is not a git repo and COORDINATOR_ROOT is not set", file=sys.stderr)
         sys.exit(1)
     return coordinator_root
@@ -471,14 +463,7 @@ def _get_branch(coordinator_root):
             if out:
                 return out
     except (OSError, subprocess.TimeoutExpired, RuntimeError):
-        # subprocess.run(timeout=...) raises
-        # TimeoutExpired (a SubprocessError, not an OSError); the bare
-        # OSError clause left a hang uncaught and crashed the ceremony.
-        # RuntimeError added (P3) — _resolve_claude_klabauter_root() inside the
-        # _no_console_kw() call can raise RuntimeError, uncovered by the
-        # prior tuple; low risk in practice since main() already resolves
         # and exits(2) on CLAUDE_KLABAUTER_ROOT failure before _get_branch is reached,
-        # but this is the same unguarded-re-resolution shape worth covering.
         pass
     try:
         r = subprocess.run(
@@ -496,9 +481,6 @@ def _get_branch(coordinator_root):
 
 def main(argv):
     if "-h" in argv or "--help" in argv:
-        # Intercepted before _parse_args, whose byte-parity loop would reject
-        # these as unknown options. Mirrors the sibling backfill-week-changelog-
-        # gaps.py, so both CLIs in this family answer --help the same way.
         print(__doc__)
         return 0
 
@@ -516,39 +498,14 @@ def main(argv):
 
     coordinator_root = _resolve_coordinator_root()
 
-    # Snapshot the index BEFORE step9 does anything of its own. On a working
-    # tree used by exactly one session this would be the "already-staged-by-
-    # someone-else" set the 2.6/4.5 pre-stage contract describes; on the
-    # SHARED tree this repo actually runs on, `git diff --cached` returns the
-    # union of every concurrent session's staged work, with no way to tell
-    # them apart from the snapshot alone. `_filter_pre_staged_by_ownership`
-    # (called below, once coordinator_core is importable) is what narrows
-    # this raw union down to paths this ceremony may actually fold in.
-    # Anything staged by a peer AFTER this snapshot point is, by
-    # construction, not in this snapshot and will not be committed either way.
     pre_staged_paths = _get_staged_paths(coordinator_root)
 
-    # ---------------------------------------------------------------------
     # Dependency resolution: CLAUDE_KLABAUTER_ROOT + coordinator_core (Call 1/Call 2's
-    # engine home). Exit 1 mirrors the bash oracle's lib-sourcing/`_cc_resolve_deps`
-    # failure class (dependency resolution), distinct from an op-level failure (exit 2).
-    # ---------------------------------------------------------------------
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import _resolve_claude_klabauter_root
 
     try:
         claude_klabauter_root = _resolve_claude_klabauter_root()
-        # Verify coordinator_core actually LIVES at the resolved claude_klabauter_root
-        # before trusting the imports below. sys.path.insert(0, claude_klabauter_root)
-        # alone does not guarantee this: if claude_klabauter_root is empty (or lacks
-        # coordinator_core) but coordinator_core is ALSO reachable elsewhere
-        # on this interpreter's sys.path -- e.g. a developer's ambient
-        # `pip install -e .` of the engine, ahead or behind the inserted
-        # entry -- the bare import below silently succeeds against that
-        # OTHER install instead of failing. That is a dependency-resolution
-        # failure wearing a success's clothes: the operator asked for the
-        # engine at claude_klabauter_root and got a possibly-different one with no
-        # signal. Fail loud here instead, before either import is attempted.
         if not os.path.isdir(os.path.join(claude_klabauter_root, "coordinator_core")):
             raise RuntimeError(
                 f"coordinator_core not found under resolved CLAUDE_KLABAUTER_ROOT={claude_klabauter_root!r}"
@@ -567,9 +524,6 @@ def main(argv):
         print(f"ERROR: coordinator_core dependency not importable: {exc}", file=sys.stderr)
         return 1
 
-    # Resolve per-repo state root through the seam (AC4 — coordinator_state_root
-    # adoption). No subject/artifact = Rule 5 (default, non-central): claude-klabauter state
-    # root when cwd git root is the meta-repo, otherwise <git_root>/state.
     try:
         repo_state_root = coordinator_state_root(git_root=coordinator_root)
     except Exception as exc:  # noqa: BLE001 — mirror bash's blanket fail-loud on this call
@@ -580,7 +534,6 @@ def main(argv):
 
     # LOCAL_TODAY: the actual local day at ceremony time, regardless of --for-date.
     # _LOCAL_TODAY_ANCHOR_LINE (retargeted structural-grep proof, replaces the bash
-    # oracle's literal `coordinator_local_day` shell-assignment text):
     local_today = coordinator_local_day()  # noqa: F841 (kept as its own statement for the grep proof)
     today = for_date or local_today
     is_backfill = bool(for_date) and for_date != local_today
@@ -588,13 +541,7 @@ def main(argv):
     changelog_file = os.path.join(repo_state_root, "week-changelog", f"{today}.md")
     daily_summary = os.path.join(coordinator_root, "archive", "daily-summaries", f"{today}-{machine}.md")
 
-    # -----------------------------------------------------------------------
-    # Call 1 — changelog.compute_day_fields (native, read-only). Direct
     # in-process call (no cc_invoke/JSON-RPC hop) — matches the
-    # backfill-week-changelog-gaps.py direct-import precedent for this same
-    # op family. repo_root = coordinator_root (the already-resolved,
-    # already-warned-about repo root this whole ceremony targets).
-    # -----------------------------------------------------------------------
     try:
         fields = changelog_ops.compute_day_fields(
             worktree=Path(coordinator_root),
@@ -617,13 +564,6 @@ def main(argv):
     header_stale = bool(fields["header_stale"])
     header_stale_days = fields["header_stale_days"]
 
-    # -------------------------------------------------------------------
-    # Staleness guard: HEADER.md Week starting: must be <=14 days ago.
-    # compute_day_fields reports header_stale/header_stale_days
-    # report-only; this wrapper still owns the skip-or-proceed decision
-    # (unchanged from the prior Zone-A behaviour). Backfill (--for-date)
-    # bypasses the staleness guard.
-    # -------------------------------------------------------------------
     if not for_date and header_stale:
         print(
             f"WARN: HEADER.md is stale (week started {header_stale_days} days ago, >14). "
@@ -633,22 +573,13 @@ def main(argv):
         print("[step9] SKIPPED (HEADER stale)")
         return 3
 
-    # Scope field (C4 — omit-by-default). An explicit override wins unconditionally.
     scope = scope_arg
 
     branch = _get_branch(coordinator_root) or "unknown"
 
-    # Unset default is `not-run` (Step 1 never emitted), NOT `skipped` — `skipped`
-    # is a positive Step 1 emission meaning "validation ran, nothing configured".
     validate_val = os.environ.get("RC_VALIDATE") or "not-run"
     plugin_suite_val = os.environ.get("RC_PLUGIN_SUITE") or "n/a"
 
-    # Compose the block via the SAME function the real write (append_day) uses
-    # internally (changelog_ops._compose_block) — single source of truth, so the
-    # --dry-run preview is byte-identical to what a real write produces (a strict
-    # improvement over the retired bash oracle's own hand-duplicated compose_block(),
-    # which was NOT byte-identical to append_day's write on a backfill day per its
-    # own header comment).
     new_block = changelog_ops._compose_block(
         date=today,
         machine=machine,
@@ -673,18 +604,6 @@ def main(argv):
         print("[step9] OK")
         return 0
 
-    # -----------------------------------------------------------------------
-    # Call 2 — changelog.append_day (native, mutating). Unconditional native
-    # dispatch (no disk-presence gate, no legacy fallback): an op-level
-    # exception fails loud (exit 2), never falls back to a legacy write.
-    # -----------------------------------------------------------------------
-    # DR-276: this trampoline calls changelog_ops.append_day() directly (Zone
-    # A/B, not a `main(argv)` passthrough), so it cannot route through
-    # `coordinator_core.cli_entry.run_op_main` the way a pure trampoline
-    # does. It uses `cli_entry.recording_declared_writes` around this one
-    # write call instead, so the changelog path append_day declares still
-    # becomes a session scope-touch claim rather than an orphan at the
-    # `scoped_git_commit` sink, without forking a second recorder dialect.
     try:
         with recording_declared_writes(cwd=coordinator_root):
             append_result = changelog_ops.append_day(
@@ -715,16 +634,9 @@ def main(argv):
 
     print(f"[step9] block written: {changelog_file}")
 
-    # ---------------------------------------------------------------------
-    # Zone C: Commit. DR-216 D2(v): caller retains commit responsibility.
-    # ---------------------------------------------------------------------
     files_to_commit = [changelog_file]
     if os.path.isfile(daily_summary):
-        # covered_tip_sha is emitted by the analyst agent (Step 4b) — not
-        # computed here. Step9 commits the analyst-authored summary as-is;
-        # the backfill scan detects a missing field as a GAP (fail-loud).
         files_to_commit.append(daily_summary)
-    # Legacy read-compat: a pre-machine-naming <date>.md may also exist.
     legacy_daily_summary = os.path.join(coordinator_root, "archive", "daily-summaries", f"{today}.md")
     if os.path.isfile(legacy_daily_summary):
         files_to_commit.append(legacy_daily_summary)
@@ -734,15 +646,7 @@ def main(argv):
         capture_output=True, text=True,
     )
 
-    # Second guard: refuse to commit at all when this ceremony's OWN output
-    # (the changelog block, plus the daily summary if present) has no actual
-    # staged diff of its own -- e.g. an idempotent re-run against an already-
     # up-to-date changelog. Without this check, a non-empty PRE-STAGED set
-    # (this session's or a filtered-in peer path) would still make
-    # `_commit_frozen_paths`'s own union-scoped diff check pass, producing a
-    # commit whose subject claims a "daily block" it does not itself contain
-    # -- the exact shape seen in d721e7b3e / 9822a595f (a peer's file
-    # committed alone, under this ceremony's own commit message).
     own_rel = [_to_repo_relative(coordinator_root, f) for f in files_to_commit]
     own_diff = subprocess.run(
         ["git", "-C", coordinator_root, "diff", "--cached", "--name-only", "--", *own_rel],
@@ -757,16 +661,10 @@ def main(argv):
         print("[step9] block unchanged (idempotent no-op)")
         return 0
 
-    # Frozen intended set: step9's own outputs, UNIONED with whatever was already
-    # staged BEFORE step9 ran and this session may safely fold in -- filtered by
     # ownership (see `_filter_pre_staged_by_ownership`) so a DIFFERENT live
-    # session's in-flight staged work is never swept into this commit. Never
-    # "whatever happens to be in the index right now", which would also absorb
-    # anything a concurrent peer staged mid-run in this shared working tree.
     filtered_pre_staged = _filter_pre_staged_by_ownership(coordinator_root, pre_staged_paths)
     commit_paths = sorted(set(filtered_pre_staged) | set(own_rel))
 
-    # Prefix with [backfill] when wrapping a past day (C2).
     if is_backfill:
         commit_msg = f"chore(week-changelog): [backfill] daily block {today} {machine}"
     else:
@@ -783,9 +681,6 @@ def main(argv):
         return 0
     print(f"[step9] commit: {commit_sha}")
 
-    # ---------------------------------------------------------------------
-    # Push
-    # ---------------------------------------------------------------------
     if no_push:
         print("[step9] push: skipped (--no-push)")
         print("[step9] OK")
@@ -812,13 +707,6 @@ def main(argv):
         print("[step9] OK")
         return 0
 
-    # This repo's coordinator-auto-push hook fires on every commit on work/*
-    # and feature/* branches and may already have pushed this exact HEAD --
-    # racing step9's own explicit push for the ref lock and losing it looks
-    # identical to a genuine push failure (same "! [remote rejected] ...
-    # cannot lock ref" text) but is not one. Verify against the remote before
-    # reporting a failure: only a HEAD that is genuinely absent from origin
-    # after the hook has had its chance is a real problem.
     remote_has_head = _head_on_remote(coordinator_root, push_branch)
     if remote_has_head:
         print(

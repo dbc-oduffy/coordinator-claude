@@ -135,45 +135,15 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# The commit/date C1's terminal-stamp contract lands at -- see the module
 # docstring's CONTRACT_EPOCH section. Delete this constant and
-# `_postdates_epoch` once no session predating 2026-08-30 can still close.
 _CONTRACT_EPOCH_ISO = "2026-08-30T00:00:00Z"
 
-# Pinned against a REAL provisioned sidecar's stamped `agent_type`, not a
-# hand-typed literal (review-integrator, 2026-08-30, staff-eng finding 0):
-# state/subagent-share/0f81c1a3-9826-441e-9e0a-08e80f92b2fc/
-# coordinatoroverengineering-reviewer.a21590e6fcf0df433.md stamps
-# `agent_type: coordinator:overengineering-reviewer` -- every real sidecar
-# on disk carries the `coordinator:` namespace prefix (16/16 checked). The
-# bare form is compared too, in case an unnamespaced provisioner ever
-# exists, via `_normalize_agent_type` below.
 _KIRA_AGENT_TYPE = "overengineering-reviewer"
 
-# Both machinery roots are read, union-of-filenames, first root wins on a
-# duplicate name -- the same two the engine's own reader-side accessor
-# consults, current root first (`coordinator_core/session/machinery_paths.py
-# :: share_dirs`), reimplemented here because this hook is stdlib-only. A
-# scan of one root alone cannot see a verdict or an `integrated_from` stamp
-# written under the other, and the guard then blocks a session that did
-# exactly what its own remedy prescribes -- the one state where blocking is
-# wrong.
-#
-# Session-directory naming is not one convention across the two: an
-# engine-provisioned sidecar is named by the coordinator session-id, a
-# self-scaffolded one -- written where provisioning failed -- by the harness
-# session-id. A Stop payload carries one id, so every (root, id) pair is
-# tried rather than inferring which naming this session holds.
-# `guard-review-integrator-sidecar-intake.py`'s path regex admits the same
-# two roots for the same reason.
 _SHARE_ROOTS = (".coordinator-local", "state")
 
 
 def _record_fire(repo_root: str, session_id: str, guard: str, reason: str) -> str | None:
-    """Mint a block-discharge nonce through the engine's ledger writer
-    (`coordinator_core.block_discharge.record_fire`). None when the engine is
-    unresolvable or the write fails; the caller reports that as an unrecorded
-    fire, never as a clean check."""
     try:
         from _engine_root import place_engine_root_on_path, resolve_claude_klabauter_root
 
@@ -236,8 +206,6 @@ def _read_frontmatter(path: str) -> dict:
             i += 1
             continue
         if line[0].isspace():
-            # Indented -- belongs to a nested block (e.g. `divergence:`'s
-            # own sub-keys), never a top-level fact. Skip it.
             i += 1
             continue
         if ":" not in line:
@@ -254,19 +222,10 @@ def _read_frontmatter(path: str) -> dict:
             i += 1
             continue
         if rest in ("", "{}"):
-            # Possible block-list continuation (`key:` then `  - item`
-            # lines) -- distinct from an empty scalar or an inline `{}`
-            # mapping, which `integrated_from` never uses.
             items: list[str] = []
             j = i + 1
             while j < len(body):
                 candidate = body[j]
-                # Blank and comment lines are skipped here for the same
-                # reason the top-level loop skips them: they are YAML
-                # nothing. Collecting only on `- ` and stopping otherwise
-                # ended the list at the first comment, recording an empty
-                # scalar for a key that HAS items -- so a routed verdict
-                # read as unrouted and blocked its own close.
                 if not candidate.strip() or candidate.lstrip().startswith("#"):
                     j += 1
                     continue
@@ -287,10 +246,6 @@ def _read_frontmatter(path: str) -> dict:
 
 
 def _handoff_field_values(meta: dict, key: str) -> list[str]:
-    """Normalize `consumed_by`/`claimed_by` to a list of session-id
-    strings -- both fields are conventionally a bare scalar, but
-    `_read_frontmatter` already parses an inline `[a, b]` or block-list
-    shape into a list, and this reads whichever shape is on disk."""
     val = meta.get(key)
     if isinstance(val, list):
         return [v for v in val if isinstance(v, str) and v.strip()]
@@ -300,12 +255,6 @@ def _handoff_field_values(meta: dict, key: str) -> list[str]:
 
 
 def _pickup_chain_session_ids(repo_root: str, session_id: str) -> list[str]:
-    """The other session-ids named on the ONE handoff record under
-    `state/handoffs/` whose `consumed_by` or `claimed_by` contains this
-    Stop's own `session_id` -- see the module docstring's BOUNDED PICKUP
-    CHAIN section. `[]` when no such record exists, or the record names no
-    other session-id: the reachable set is bounded to that single record,
-    never a directory scan or fanout past it."""
     handoffs_dir = os.path.join(repo_root, "state", "handoffs")
     try:
         names = sorted(os.listdir(handoffs_dir))
@@ -355,10 +304,6 @@ def _kira_stem(filename: str) -> str:
 
 
 def _normalize_agent_type(agent_type) -> str | None:
-    """Strip an optional `<namespace>:` prefix (every real sidecar stamps
-    `coordinator:overengineering-reviewer`, never the bare form) so the
-    comparison in `_is_kira` matches production data. Not a general parser
-    -- just the one leading `word:` segment real stamps carry."""
     if not isinstance(agent_type, str) or not agent_type:
         return None
     if ":" in agent_type:
@@ -395,19 +340,10 @@ def _reviewed_a_plan(meta: dict) -> bool:
 
 
 def _is_plan_review(meta: dict) -> bool:
-    """True when this sidecar reviews a PLAN, not a code diff -- Kira
-    reviews the code diff at /workstream-complete; a plan review never owes
-    her a run (module docstring, BLOCK condition 1). Two frontmatter shapes
-    name the target as a plan: a `plan:` field pointing at
-    `docs/plans/*.md` (staff-eng-review and the other plan-review
-    personas), or an `apm` agent_type (Autonomous Plan Module runs plan
-    review only)."""
     return _reviewed_a_plan(meta) or _normalize_agent_type(meta.get("agent_type")) == "apm"
 
 
 def _integrated_from_list(meta: dict) -> list[str]:
-    """Normalize `integrated_from` to a list of sidecar-name strings --
-    same dual scalar-or-list shape `_find_answers` reads it in."""
     integrated = meta.get("integrated_from")
     if isinstance(integrated, str):
         return [integrated] if integrated.strip() else []
@@ -417,11 +353,6 @@ def _integrated_from_list(meta: dict) -> list[str]:
 
 
 def _is_review_activity(filename: str, meta: dict) -> bool:
-    """Broader than `_is_kira` -- any OTHER review-shaped sidecar (a
-    code-reviewer slice, a staff-eng review, a review-integrator run).
-    Used only for BLOCK condition 1 ('reviewed something, but never ran
-    Kira'). A plan-review sidecar (`_is_plan_review`) never counts -- Kira
-    is not owed a run for one."""
     if _is_plan_review(meta):
         return False
     if "findings_count" in meta:
@@ -440,13 +371,6 @@ def _block_condition_1(in_scope: list[tuple[str, dict]]) -> bool:
     if kira_present:
         return False
 
-    # Names (both the on-disk filename and its `.md`-stripped stem --
-    # `integrated_from` is stamped in either shape, see `_find_answers`) of
-    # every plan-review sidecar in scope. A review-integrator run that
-    # answered ONLY entries in this set is itself plan-review activity Kira
-    # is not owed for, even though its own frontmatter carries neither a
-    # `plan:` pointing at `docs/plans/` nor an `apm` agent_type (module
-    # docstring: "review-integrator run against a plan").
     plan_review_names: set[str] = set()
     for f, m in in_scope:
         if _is_plan_review(m):
@@ -467,15 +391,6 @@ def _block_condition_1(in_scope: list[tuple[str, dict]]) -> bool:
 
 
 def _find_answers(kira_filename: str, in_scope: list[tuple[str, dict]]) -> list[str]:
-    """Return the filenames of sibling sidecars whose `integrated_from`
-    names this Kira sidecar.
-
-    Both stamped shapes count. `integrated_from` names ONE sidecar in the
-    common case, so the scalar is the likelier thing an agent writes, and
-    nothing in the block message asks for a list -- a list-only membership
-    test reads on the receiving end as "the routing never happened" and
-    invites a re-dispatch of findings that are already discharged
-    (claude-klabauter-em FYI, 2026-08-30)."""
     stem = _kira_stem(kira_filename)
     answers: list[str] = []
     for f, m in in_scope:
@@ -493,13 +408,10 @@ def _find_answers(kira_filename: str, in_scope: list[tuple[str, dict]]) -> list[
 
 
 #: The heading `append-integrator-dispositions` writes onto the REVIEWER's own
-#: sidecar (`coordinator_core/ops/append_integrator_dispositions.py`).
 _DISPOSITIONS_HEADING = "## Integrator Dispositions"
 
 
 def _body_lines(path: str) -> list[str]:
-    """Body lines below the frontmatter block. `[]` on any read failure — a
-    guard that cannot read a file must never block on what it did not see."""
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
             lines = fh.read().splitlines()
@@ -514,20 +426,6 @@ def _body_lines(path: str) -> list[str]:
 
 
 def _has_recorded_dispositions(path: str) -> bool:
-    """True when this sidecar carries its own `## Integrator Dispositions`
-    block with content under it.
-
-    That block IS the routing record when the integrator never ran to write a
-    sibling: `append-integrator-dispositions` writes it onto the reviewer's
-    sidecar, and stamps `integrated_from` on an integrator run-report only
-    when one exists. A fire killed before its integrators land leaves none,
-    and then every honest route to a sibling is closed — hand-authoring one is
-    refused by `block_hand_authored_sidecar_creation`, and
-    `coordinator-doc-new --type run-report` demands a plan and chunk asserting
-    an execution that never happened. Reported twice on example-market-data-repo
-    (nonces 2f8c15b2, 48e0aed6). The alternative to reading this block is an
-    EM stamping a receipt on an agent that never ran, which is the false
-    attestation the stamp exists to prevent."""
     lines = _body_lines(path)
     for i, line in enumerate(lines):
         if line.strip() != _DISPOSITIONS_HEADING:
@@ -543,14 +441,6 @@ def _has_recorded_dispositions(path: str) -> bool:
 
 
 def _is_untouched_scaffold(path: str) -> bool:
-    """True when nothing has been written into this sidecar's body.
-
-    A provisioned scaffold carries headings and nothing under them. Its
-    `integrator_receipt` is spliced AT SPAWN, so an integrator killed before it
-    read anything is indistinguishable, by frontmatter alone, from one that ran
-    and skipped its stamp — and the guard then tells the EM to wait for a
-    corpse. Headings and HTML comments are the scaffold; one line of anything
-    else means the agent wrote."""
     for line in _body_lines(path):
         stripped = line.strip()
         if not stripped or stripped.startswith("#") or stripped.startswith("<!--"):
@@ -604,10 +494,6 @@ def _unstamped_integrators(
     ]
 
 
-#: How many integrator filenames the message prints before summarising the rest.
-#: A session that has run fifty integrators printed fifty names per unrouted
-#: verdict, three times over — and a list that long tells the reader nothing
-#: about WHICH sidecar to stamp, which is the one thing the remedy needs.
 _NAMES_SHOWN = 5
 
 
@@ -622,15 +508,6 @@ def _name_a_few(names: list[str]) -> str:
 def _integrators_that_could_have_received(
     kira_meta: dict, unstamped: list[str], in_scope: list[tuple[str, dict]]
 ) -> list[str]:
-    """Narrow the named integrators to those spawned at or after this review.
-
-    `spawned_at` is engine-written on every sidecar, so an integrator that
-    spawned BEFORE the review existed cannot have been given it — naming one
-    sends the EM to stamp a sidecar whose agent never saw these findings. The
-    filter is skipped whole when either timestamp is missing or unparseable:
-    a narrowing that silently drops every candidate would flip the message to
-    the "never dispatched" branch and invite a re-dispatch of discharged work,
-    which is the more expensive error of the two."""
     reviewed_at = _spawned_at(kira_meta)
     if reviewed_at is None:
         return unstamped
@@ -653,19 +530,10 @@ def _spawned_at(meta: dict):
         return None
 
 
-#: A journal untouched this long is a run that died, not one still working.
 _LIVE_JOURNAL_SECONDS = 2 * 60 * 60
 
 
 def _live_workflow_runs(transcript_path) -> list[str]:
-    """Workflow runs of this session with an agent still in flight.
-
-    A review inside a Workflow fire is unrouted by construction until that fire's integrator
-    runs, minutes to an hour later, so condition 2 read every in-flight wave as an unrouted
-    verdict and blocked each turn close with a nonce the EM could only discharge as "wait".
-    A run is live when its journal holds a `started` agent with no `result`, and the journal
-    was written recently: a killed run leaves a started agent forever and must not suppress
-    the check forever. The first Stop after the run lands evaluates everything it deferred."""
     if not isinstance(transcript_path, str) or not transcript_path.endswith(".jsonl"):
         return []
     base = os.path.join(transcript_path[: -len(".jsonl")], "subagents", "workflows")
@@ -729,10 +597,6 @@ def _emit_block(reasons: list[str], repo_root: str, session_id: str) -> int:
 
 
 def _emit_could_not_evaluate(reason: str) -> None:
-    """A fail-OPEN advisory breadcrumb (stdout, exit stays 0) -- fail-open
-    on the block itself is correct and stays, but a silent could-not-
-    evaluate path is byte-identical to a clean close and therefore
-    unfalsifiable in the field (staff-eng finding 4, 2026-08-30)."""
     sys.stdout.write(f"[guard] guard-kira-verdict-routed could not evaluate: {reason}\n")
 
 
@@ -751,11 +615,6 @@ def main() -> int:
         _emit_could_not_evaluate("stdin was not valid JSON")
         return 0
 
-    # Trigger scope, verbatim per the C5 brief and matching
-    # `_pre_manufactured_blocker` -- a subagent's own Stop (Kira's included)
-    # and a re-entrant Stop replay must never see this guard evaluate at
-    # all. This is the platform contract for a blocking Stop hook, not this
-    # module's own design choice (claude-code-platform-gotchas.md:790).
     if payload.get("agent_id"):
         return 0
     if payload.get("stop_hook_active"):
@@ -810,15 +669,12 @@ def main() -> int:
         return 0
 
     # CONTRACT_EPOCH scoping applies uniformly across every condition below
-    # -- see module docstring. A pre-epoch sidecar is invisible to this
-    # guard entirely, not merely exempt from one condition.
     in_scope = [(f, m) for f, m in entries if _postdates_epoch(m)]
     if not in_scope:
         return 0
 
     reasons: list[str] = []
 
-    # Condition 1: session reviewed something but never ran Kira at all.
     if _block_condition_1(in_scope):
         reasons.append(
             "- Other review activity ran this session, but no Kira "
@@ -839,11 +695,6 @@ def main() -> int:
         findings_count = _to_int(kira_meta.get("findings_count"))
         answers = _find_answers(kira_file, in_scope)
 
-        # Condition 2: a findings-bearing Kira verdict nobody answered. The
-        # owed route is named unconditionally -- an unanswered ordinary
-        # verdict and an unanswered rebuild verdict are the same failure:
-        # an unrouted Kira sidecar (staff-eng review, 2026-08-30).
-        # A dispositions block recorded on the verdict itself IS an answer.
         if _has_recorded_dispositions(paths.get(kira_file, "")):
             continue
 

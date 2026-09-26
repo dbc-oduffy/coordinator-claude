@@ -55,7 +55,7 @@ _STAMP_VERSION_RE = re.compile(r"^schema_version:\s*([1-9][0-9]*)\s*$")
 
 
 class CurrencyError(Exception):
-    """Raised on a write failure (unreadable schema constant, I/O error)."""
+    pass
 
 
 def _stamp_path(repo_root: str) -> str:
@@ -76,11 +76,6 @@ def _read_schema_version(plugin_root: str) -> str | None:
 
 
 def coordinator_currency_read(repo_root: str) -> str | None:
-    """Read the stamped schema_version from repo_root's stamp file.
-
-    Returns the version string, or None when the stamp is absent or its
-    schema_version line is missing/unparseable.
-    """
     stamp_path = _stamp_path(repo_root)
     try:
         with open(stamp_path, "r", encoding="utf-8") as fh:
@@ -119,7 +114,7 @@ def coordinator_currency_write(repo_root: str, plugin_root: str) -> None:
     if os.path.isfile(stamp_path):
         existing_version = coordinator_currency_read(repo_root)
         if existing_version == current_version:
-            return  # already current — no file change
+            return
 
     try:
         os.makedirs(stamp_dir, exist_ok=True)
@@ -151,10 +146,6 @@ def coordinator_currency_write(repo_root: str, plugin_root: str) -> None:
             pass
         raise CurrencyError(f"failed to write stamp '{stamp_path}': {exc}") from exc
 
-
-# ---------------------------------------------------------------------------
-# CLI trampoline — for bash/markdown-doc callers (install.md, repo-setup SKILL.md)
-# ---------------------------------------------------------------------------
 
 def main(argv: list[str]) -> int:
     if len(argv) < 2:

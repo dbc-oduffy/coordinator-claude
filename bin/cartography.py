@@ -125,9 +125,6 @@ def _cartography_ops() -> list[str]:
 
 
 def _resolve_op_name(raw: str, known_ops: list[str]) -> str:
-    """Accept either a bare op suffix ("file_index") or the full wire name
-    ("cartography.file_index"); exits 1 with the known-op list on a miss.
-    """
     if raw in known_ops:
         return raw
     qualified = f"cartography.{raw}"
@@ -209,13 +206,6 @@ def main(argv: list[str]) -> int:
         return 1
 
     if args.repo:
-        # Every cartography.* op is scope "none" (D3,
-        # docs/plans/2026-08-20-a-refusal-cannot-exit-zero.md § C16):
-        # cc_invoke_bare's _should_pass_repo() gate suppresses forwarding
-        # --repo on argv for it, and the spawn itself always runs
-        # cwd=claude_klabauter_root, so a caller-computed root is discarded before
-        # transmission regardless of how it was obtained. Refuse loud
-        # instead of resolving/validating a value nothing downstream reads.
         from cc_invoke import none_scoped_repo_refusal
 
         print(none_scoped_repo_refusal("cartography", "cartography.*"), file=sys.stderr)
@@ -244,9 +234,6 @@ def main(argv: list[str]) -> int:
         return 1
 
     try:
-        # Every cartography.* op is scope "none" — cc_invoke_bare's
-        # _should_pass_repo() gate suppresses forwarding --repo for it, so
-        # this empty string is never read; see the --repo refusal above.
         _bootstrap_cc_invoke_bare()
 
         result = cc_invoke_bare(op, params, "")

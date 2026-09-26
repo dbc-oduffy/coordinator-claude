@@ -83,59 +83,27 @@ export const meta = {
   ],
 }
 
-// ---------------------------------------------------------------------------------------------
-// Inputs
-// ---------------------------------------------------------------------------------------------
-// `args` arrives as a JSON string even when the caller passes a JSON array/object
-// (state/lessons/2026-07-09-workflow-args-arrives-as-a-json-string — guard unconditionally).
+
 const INPUT = typeof args === 'string' ? JSON.parse(args) : args
 
-// Expected INPUT shape (produced by the /architecture-survey skill's Phase 0 preface — repo
-// detection, mode selection, scale-tier selection per C2 all happen BEFORE this Workflow is
-// invoked; this script owns dispatch+poll+condense+synthesize only, not mode/tier selection):
-// {
+
 //   runId: 'YYYY-MM-DD-HHhMM',
-//   repoRoot: '/absolute/path/to/repo',
-//   mode: 'first-run' | 'refresh' | 'targeted',
-//   scaleTier: 'narrative' | 'full' | 'hybrid',
-//   censusBuckets: [ { bucketId: 'bin-cli', description: '...', dirs: ['coordinator/bin', ...] }, ... ],
-//   existingAtlas: { systemName: { path: 'docs/architecture/systems/<name>.md', content: '...' }, ... } | {},
-//     Full page bodies do not survive above the tool-call arg budget — a 486 KB atlas already
-//     forced one caller to pass {}. The honest options above that ceiling are supplying a subset
-//     of systems (accepting regeneration for the rest) or accepting full regeneration outright;
-//     there is no shape that carries a large atlas whole. A caller under the ceiling should
-//     always supply the full map — see the coverage check at the top of Orchestration below,
-//     which surfaces the tradeoff loudly on '--refresh' the moment it is made, not after the spend.
-//   resumeFromRunId: '<prior-run-id>' | null,  // caller-supplied; the Workflow tool itself
-//                                               // consumes this at invocation time, not in-script
+
+
 //   since: 'YYYY-MM-DD' | null,        // no longer read by this script — duplicated onto
-//                                       // coordinator/bin/survey-consume-gate.py's own stdin
-//                                       // config, which invokes cartography.churn itself
+
+
 //   systemDirs: ['<dir>', ...] | null, // RETAINED here (not moved off INPUT): the existingAtlas
-//                                       // coverage check below consumes it independently of the
-//                                       // consume-gate script's own duplicated copy
-//   excludedDirs: ['<dir>', ...] | null, // no longer read by this script — duplicated onto the
-//                                         // consume-gate script's own stdin config, same as `since`
-//   consumeGate: { rag_present, rag_predicate, chunk_table, churn_result } | null, // stdout of
-//     coordinator/bin/survey-consume-gate.py, passed through by the caller as a pure pass-through
-//     (Phase 0 does not branch on it). chunk_table is either null (rag_present true, no
-//     cartography extraction attempted), { ok: false, declined_reason } (a declined
-//     consumer-side check), or { ok: true, censusShapedResults, chunkTablePath, counts,
-//     oversizedSignalAvailable, oversizedCount } on success. Absent, malformed, or declined ->
-//     this Workflow falls back to the agentic census wave — see phaseZeroFiveConsumeGate().
-// }
+
+
 const RUN_ID = INPUT.runId
 const REPO_ROOT = INPUT.repoRoot
 const MODE = INPUT.mode || 'first-run'
 const SCALE_TIER = INPUT.scaleTier || 'full'
 const CENSUS_BUCKETS = INPUT.censusBuckets || []
 const EXISTING_ATLAS = INPUT.existingAtlas || {}
-// Absolute path to a claude-klabauter checkout — required transport for Phase 1's
-// `cartography.symbols` invocation below (coordinator_core is only importable from inside that
-// checkout). The Phase-0.5 cartography.* op invocations moved to
-// coordinator/bin/survey-consume-gate.py and no longer read this; `invokeSymbolsExtraction`
-// (Phase 1) is this constant's sole remaining consumer. Caller-supplied, no default, no
-// filesystem inference: see invokeSymbolsExtraction's fail-loud check.
+
+
 const CLAUDE_KLABAUTER_ROOT = INPUT.claude_klabauterRoot
 const SCRATCH_DIR = `${REPO_ROOT}/state/scratch/deep-architecture-survey/${RUN_ID}`
 
@@ -373,11 +341,9 @@ async function phaseZeroCensus() {
   return results
 }
 
-// In-JS clustering — group census files into 8-12-file Phase-1 sub-chunks by directory/prefix,
-// mirroring the skill's current manual bucketing (coordinator/commands/architecture-survey.md
-// § Phase 0 step 3) but computed deterministically instead of by hand. Zero agent cost.
+
 function buildChunkTable(censusResults) {
-  const SUBCHUNK_SIZE = 10 // midpoint of the 8-12-file sub-chunk rule
+  const SUBCHUNK_SIZE = 10 
   const chunks = []
   for (const bucket of censusResults) {
     const files = (bucket.files || []).map((f) => f.path)
@@ -386,7 +352,7 @@ function buildChunkTable(censusResults) {
     const subChunkCount = Math.ceil(files.length / SUBCHUNK_SIZE)
     for (let i = 0; i < subChunkCount; i += 1) {
       const slice = files.slice(i * SUBCHUNK_SIZE, (i + 1) * SUBCHUNK_SIZE)
-      const subChunkLabel = subChunkCount > 1 ? String.fromCharCode(65 + i) : '—' // A, B, C... or — for single-chunk systems
+      const subChunkLabel = subChunkCount > 1 ? String.fromCharCode(65 + i) : '—' 
       chunks.push({
         systemName: bucket.bucket_id,
         subChunkLabel,
@@ -398,7 +364,7 @@ function buildChunkTable(censusResults) {
   return chunks
 }
 
-// Groups Phase-1 chunks back up by systemName for the Phase-2 one-analyst-per-system dispatch.
+
 function groupChunksBySystem(chunks) {
   const bySystem = new Map()
   for (const c of chunks) {
@@ -408,34 +374,6 @@ function groupChunksBySystem(chunks) {
   return [...bySystem.entries()].map(([systemName, systemChunks]) => ({ systemName, chunks: systemChunks }))
 }
 
-// ---------------------------------------------------------------------------------------------
-// Phase "inventory" — deterministic `cartography.symbols` consumer (replaces the Phase-1 Haiku
-// per-sub-chunk inventory wave). One op invocation for the whole run: the invoking command's own
-// stdout redirect writes the symbol table straight to an artifact file — never through an
-// agent() return, which is the transport that truncated a ~515 KB cartography.tree reply to `{}`
-// with `ok: true` (see coordinator/bin/survey-consume-gate.py's `_run_cartography_extraction`,
-// the former truncation this consumer avoids) and would carry
-// 5,815,908 bytes for a 1,931-file TypeScript tree (the plan's own verified measurement: one
-// invocation, 10,967 symbols, exit 0, 9.1 s — superseding the ~14.9 MB draft figure, which was a
-// linear extrapolation from a body-heavy 25-file sample and overshot by 2.5x). This consumer reads
-// the artifact back to cross-check coverage before any downstream phase spends anything.
-//
-// PM-ratified degrade policy, binding: NO agentic fallback. A file the producer does not claim
-// (coordinator_core/ops/cartography_symbols.py's three-way partition: `.py` -> the AST path, a
-// claimed extension -> the foreign_symbols adapter, everything else -> an in-band
-// `{"unsupported": true}` marker) or a file the adapter could not attempt (`symbol_extract` not
-// installed -> an in-band `{"unavailable": true}` marker plus a top-level `coverage_note`) means
-// the run STOPS loudly, naming the uncovered files, and writes no atlas. There is no Haiku wave
-// left to fall back to.
-//
-// A file returning an EMPTY symbol list is NOT uncovered — cartography_symbols.py returns a real
-// (if empty) entry for a file it successfully parsed but that declares no top-level symbols
-// (type-only modules, re-export barrels: 266 of 1,931 files in the verified run). Only
-// `unsupported`/`unavailable` — the op's own in-band non-coverage markers — gate the stop below.
-//
-// Spec backlink: archive/specs/2026-08/2026-08-19-survey-phase1-consumes-cartography-symbols.md
-// § chunk C3 (delivered and archived; the measurement above is its § verification table).
-// ---------------------------------------------------------------------------------------------
 
 const SYMBOLS_EXTRACTION_SCHEMA = {
   type: 'object',
@@ -648,12 +586,7 @@ async function phaseOneSymbolsExtraction(chunkTable) {
     return null
   }
 
-  // Disjointness of unavailable/unsupported per file is a verified producer-side invariant, not
-  // re-derived here: claude-klabauter's coordinator_core/ops/cartography_symbols.py partitions the
-  // request into disjoint py_files/other_files/unsupported_files sets up front and each branch
-  // ASSIGNS a fresh dict into entries_by_rel[rel] (~lines 277, 309, 347) rather than merging flags
-  // onto an existing entry, so no file can carry both. Combined with the early return above on
-  // unavailable_count > 0, this arithmetic only runs when unavailable_count === 0.
+  
   const inventoriedCount = header.total_files - header.unsupported_count
   if (header.unsupported_count > 0) {
     const breakdown = (header.unsupported_extensions || []).map((e) => `${e.ext} x${e.count}`).join(', ')
@@ -803,8 +736,9 @@ coordinator/pipelines/deep-architecture-survey/agent-prompts.md: validate cross-
 connections bidirectionally (flag one-sided ones), then write systems-index.md,
 cross-system-map.md, connectivity-matrix.md, file-index.md, and one systems/{name}.md per
 system, all under docs/architecture/. Follow the YAML-frontmatter conventions in that template
-exactly (last_mapped:, mode:, per-system last_attested:/entry_points:/cross_system_connections:/
-dependencies:). No grade or status fields — this is discovery, not weekly-architecture-audit.
+exactly (last_mapped:, mode:, per-system entry_points:/cross_system_connections:/dependencies:).
+last_attested is carried forward from the existing page if present and never written by the
+survey. No grade or status fields — this is discovery, not weekly-architecture-audit.
 
 Every system must appear in systems-index.md and have a per-system file. Every tracked file must
 appear in file-index.md. Do NOT write any code or modify any source files — produce markdown

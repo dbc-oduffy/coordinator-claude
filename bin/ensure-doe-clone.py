@@ -19,13 +19,6 @@ import os
 import sys
 
 def _import_runner():
-    """Resolve the engine root and import `run_op_main`.
-
-    DR-276: routed through `coordinator_core.cli_entry.run_op_main` rather
-    than importing the op's `main` directly, so the resolved DoE-clone path
-    it declares (on an actual `git clone`) becomes a session scope-touch
-    claim instead of an unclaimed orphan at the `scoped_git_commit` sink.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 

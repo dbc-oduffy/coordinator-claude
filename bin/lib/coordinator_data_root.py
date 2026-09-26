@@ -108,51 +108,25 @@ import os
 import sys
 from pathlib import Path
 
-# Defensive self-locate — mirrors the sys.path.insert convention every bin/
-# entrypoint already uses (see coordinator/bin/snippet-registry's own
-# `_LIB_DIR` insertion) so this module resolves its `coordinator_registry`
-# sibling import regardless of whether the caller already inserted bin/lib.
-#
-# NOTE: this insertion is safe to do at import time (pure sys.path mutation,
-# no subprocess, no env read) — it is the actual `coordinator_registry`
-# import, below in `data_root()`, that is NOT safe at import time. See the
-# module docstring's "Import-time purity" negative-spec.
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 if _THIS_DIR not in sys.path:
     sys.path.insert(0, _THIS_DIR)
 
-# F6 fix (2026-08-08, hermetic-ac-reverify) — `claude_home()` is pure
-# (module docstring: only imports `os`, no subprocess), safe at module top
-# level like coordinator_registry.py's own `_mlir_claude_home` import.
-# Converges this module's home derivation onto the SAME semantics
-# `coordinator_registry.py::_mp_marketplace_cache_rung`/
-# `_mp_flat_layout_probe_rung` already use — `claude_home()` treats
 # `CLAUDE_HOME` as a `$HOME` substitute (Convention A) and returns
 # `<CLAUDE_HOME>/.claude`, agreeing with
-# `check_install_singularity._claude_base_dir()`. This module's own rungs
 # previously inlined `CLAUDE_HOME or HOME or USERPROFILE` and then
 # unconditionally joined `.claude`, so with `CLAUDE_HOME` set the two
-# modules probed different directories — see F6 in
-# state/review-findings/2026-08-08-successor-partitioned/hermetic-ac-reverify.md.
 from machine_local_impl_resolve import claude_home as _mlir_claude_home
 
-# coordinator/lib — sibling of coordinator/bin/lib (this file's own dir),
-# hosting the shared coordinator_read_doe_root_pointer() substrate. Two
 # dirname()s up from _THIS_DIR (bin/lib -> bin -> coordinator), then down
 # into lib/. Mirrors coordinator_registry.py's own _COORDINATOR_LIB_DIR.
 _CDR_COORDINATOR_LIB_DIR = os.path.join(os.path.dirname(os.path.dirname(_THIS_DIR)), "lib")
 
-# Published payload flattens: the mirror ships helper at "<repo root>/lib"
 # with no "coordinator/" segment. Three dirname()s up from _THIS_DIR
-# (bin/lib -> bin -> coordinator -> repo root), then down into lib/. Probed
-# as a fallback below — private tree wins first.
 _CDR_COORDINATOR_LIB_DIR_FLAT = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(_THIS_DIR))), "lib"
 )
 
-# Published-manifest relpath (OSS flat layout). The private DoE-repo layout
-# nests the same relpath under `coordinator/`. Shared by the rung-1.5
-# codename-free ladder's acceptance gate below — see module docstring.
 _CDR_MANIFEST_RELPATH = os.path.join("schemas", "coordinator-registry.manifest.json")
 
 
@@ -198,9 +172,6 @@ def _cdr_doe_root_pointer_rung() -> str:
 
         return coordinator_read_doe_root_pointer()
     except Exception:
-        # Swallows: helper missing at both probed dirs, import error inside
-        # the helper itself, or any runtime failure in the read — all
-        # collapse to "no pointer configured" by contract (never-raise).
         return ""
     finally:
         if added:
@@ -281,20 +252,6 @@ def _cdr_flat_layout_probe_rung() -> str:
 
 
 def _cdr_marketplace_cache_rung() -> str:
-    """Rung 1.5b — Claude Code's REAL marketplace-install location,
-    `<claude_home>/plugins/cache/coordinator-claude/coordinator/<version>/`,
-    newest version wins (numeric compare, DR-148-safe). Ported from
-    `coordinator_registry.py::_mp_marketplace_cache_rung()` (same
-    `_cdr_flat_layout_probe_rung()`'s
-    candidate is not where a marketplace clone actually installs; this is).
-    Resolves to the repo root directly, gated by `_cdr_manifest_present`
-    like every other candidate in this ladder — no normalization needed
-    before that gate.
-
-    Home resolution delegates to `_mlir_claude_home()` (F6 fix, 2026-08-08)
-    — see `_cdr_flat_layout_probe_rung()`'s docstring and the module import
-    comment for why.
-    """
     home = _mlir_claude_home()
     if not home:
         return ""
@@ -412,16 +369,6 @@ def data_root(dir_name: str) -> Path:
 
 
 def data_file(dir_name: str, *parts: str) -> Path:
-    """Resolve one FILE under a data dir, falling through rung 1 when the
-    co-located dir exists but does not carry it.
-
-    `data_root` answers at directory level, so a partial co-located dir
-    shadows the DoE-resident one entirely: the engine tree ships
-    `coordinator/templates/bin/` of its own, and every DoE-owned template
-    lookup (`templates/shell/...`) from the engine tree resolved to a path
-    that cannot exist. Same rungs, same order, first candidate holding the
-    file wins. Raises RuntimeError naming every candidate tried.
-    """
     colocated = _colocated_root() / dir_name
     tried = [colocated.joinpath(*parts)]
     if tried[0].is_file():
@@ -438,14 +385,9 @@ def data_file(dir_name: str, *parts: str) -> Path:
 
 
 def _doe_resident_candidates(dir_name: str, colocated: Path) -> "tuple[Path, Path]":
-    """Rungs 1.5 and 2's DoE root, joined in private-then-OSS-flat order.
-    Raises RuntimeError when no DoE root resolves."""
     doe = _cdr_codename_free_root()
 
     if not doe:
-        # Lazy import — see module docstring's "Import-time purity" negative-spec.
-        # Paid only on this rung-2 path, which already needs the subprocess/env
-        # dependent `coordinator_registry.doe_root()` resolution anyway.
         from coordinator_registry import _DoeUnresolvable, doe_root
 
         try:
@@ -457,57 +399,18 @@ def _doe_resident_candidates(dir_name: str, colocated: Path) -> "tuple[Path, Pat
                 f"Rung 2 (DoE-resident) failed: {exc}"
             ) from exc
 
-    # F2 fix (2026-08-08, hermetic-ac-reverify) -- the codename-free ladder's
-    # gate (`_cdr_manifest_present`/`_mp_candidate_manifest_path`) accepts
-    # EITHER published manifest layout: private DoE-repo shape
-    # (`<root>/coordinator/schemas/...`) AND OSS-flat shape
-    # (`<root>/schemas/...`, no `coordinator/` segment). This terminal join
-    # previously ALWAYS inserted `coordinator/`, so a correctly-resolved
-    # OSS-flat root (e.g. a real marketplace-cache install) produced a path
-    # that cannot exist. Try the private-shape join first (unchanged default
-    # for every existing caller/test resolving a private-layout root), then
-    # the OSS-flat shape -- see F2 in
-    # state/review-findings/2026-08-08-successor-partitioned/hermetic-ac-reverify.md.
-    # Must stay behaviourally identical to coordinator_core/data_root.py's
-    # own data_root() (AC4) -- same two-candidate order there.
     return Path(doe) / "coordinator" / dir_name, Path(doe) / dir_name
 
 
-#: The marker that makes a FLAT directory a coordinator content root. A flat
-#: clone without its own plugin manifest is not one, and must keep failing —
-#: the same gate `resolve_coordinator_clone` uses for its flat-layout rung, not
-#: a second spelling of the concept.
 FLAT_CONTENT_ROOT_MARKER = (".claude-plugin", "plugin.json")
 
 
 def content_root_for(doe_root) -> Path | None:
-    """The coordinator CONTENT root inside a resolved DoE root, either layout.
-
-    THE ONE PLACE THIS JOIN BELONGS on the bin/ side. Two live layouts hold
-    coordinator content, and a caller that knows only one is broken on the other:
-
-      <doe_root>/coordinator/     the private authoring tree
-      <doe_root>/ (flat)          the published mirror
-
-    Returns the content root, or None when `doe_root` is empty or holds neither
-    layout. Never raises and never returns a path that does not exist.
-
-    Behaviourally identical to `coordinator_core.data_root.content_root_for` —
-    same two-candidate order, same marker — for the same reason `data_root()`
-    here carries that constraint (AC4). This tree's bin/ CLIs cannot import
-    coordinator_core, which is why the twin exists at all.
-    """
     if not doe_root:
         return None
     if isinstance(doe_root, Path):
         base = doe_root
     else:
-        # rstrip("/\\") alone collapses "/" or
-        # "//" to "", and Path("") resolves to the process cwd, silently
-        # probing cwd instead of failing closed on a degenerate root. Fall
-        # back to the un-stripped string when stripping empties it, so an
-        # all-slash root stays anchored at the filesystem root (where the
-        # marker/private-dir checks below correctly find nothing).
         raw = str(doe_root)
         base = Path(raw.rstrip("/\\") or raw)
     private = base / "coordinator"
@@ -519,19 +422,6 @@ def content_root_for(doe_root) -> Path | None:
 
 
 def content_root_or_private(doe_root) -> str:
-    """`content_root_for`, falling back to the private-shape join.
-
-    The shape every bin/ CLI that
-    needs "content root, or the private-shape join to keep naming a path when
-    neither layout resolves" actually needed was previously re-derived by hand
-    at each call site. Promoted here as the one public spelling, mirroring
-    `coordinator_core._content_root_primitive.content_root_or_private` (AC4 —
-    same fallback, same order).
-
-    The fallback is a REAL requirement: it preserves each caller's own
-    "candidate does not exist on disk" diagnostic rather than regressing to a
-    bare `None` with no path to name.
-    """
     content = content_root_for(doe_root)
     if content is not None:
         return str(content)

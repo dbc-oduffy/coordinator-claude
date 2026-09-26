@@ -59,36 +59,19 @@ from typing import Callable
 
 _SCRIPTS = Path(__file__).resolve().parent
 
-#: dispatcher filename -> the `hooks.json` key its carried guards are delivered under.
 FANIN_DISPATCHERS = {
     "sessionstart-dispatch.py": "SessionStart",
     "sessionstart-async-dispatch.py": "SessionStart",
     "stop-dispatch.py": "Stop",
     "preuse-write-dispatch.py": "PreToolUse",
     "postuse-stop-family-dispatch.py": "PostToolUse",
-    # `preuse-bash-dispatch.py` is deliberately absent from BOTH this map and
     # `_CARRIER_SOURCES`, and the two must stay in step: it is a PreToolUse
-    # dispatcher, but it fans nothing in any more -- its guards live in the
     # engine's chain. Listing it here without a `_CARRIER_SOURCES` entry raises
-    # "not an enrolled fan-in carrier" from `carried_guards`; adding one back
-    # would reinstate the deleted fold. See that dict's own note.
     "preuse-agent-dispatch.py": "PreToolUse",
 }
 
 
 def load_dispatcher(filename: str):
-    """Import a fan-in-layer module (a dispatcher OR one of the sibling runner
-    modules it delegates to) by path -- its filename is not a legal module name
-    and it is not on any import path.
-
-    Registered in `sys.modules` BEFORE exec: these modules define their guard
-    row as a `@dataclass`, and dataclasses resolve string annotations through
-    `sys.modules[cls.__module__].__dict__`. Exec'ing an unregistered module makes
-    that lookup return None and the decorator dies with an AttributeError that looks
-    nothing like the cause. See
-    `test_sessionstart_day_branch_assert_registered.py::_load_dispatcher`, which
-    documented this trap first.
-    """
     path = _SCRIPTS / filename
     spec = importlib.util.spec_from_file_location(
         "_fanin_" + filename.replace("-", "_").removesuffix(".py"), path
@@ -120,25 +103,14 @@ def _rows_via_module_path(rows) -> "list[tuple[str, str]]":
     return [(row.module_key, Path(row.module_path).name) for row in rows]
 
 
-#: dispatcher filename -> (source filename to load, attribute name on that
-#: module, row-shape extractor). The source is the dispatcher itself for the
 #: four dispatchers whose own `REGISTRY`-shaped attribute is directly usable;
-#: for the two `_REAL_*`-backed dispatchers it is the sibling runner module
-#: that publicly defines the registry the dispatcher only imports a private
-#: alias of. The attribute may be a tuple (read directly) or a zero-arg
-#: callable (called to obtain the tuple), per `_load_carrier_rows`.
 _CARRIER_SOURCES: "dict[str, tuple[str, str, Callable]]" = {
     "sessionstart-dispatch.py": ("sessionstart-dispatch.py", "REGISTRY", _rows_direct),
     "sessionstart-async-dispatch.py": ("sessionstart-async-dispatch.py", "REGISTRY", _rows_direct),
     "stop-dispatch.py": ("stop-dispatch.py", "REGISTRY", _rows_direct),
     "preuse-agent-dispatch.py": ("preuse-agent-dispatch.py", "REGISTRY", _rows_direct),
     # `preuse-bash-dispatch.py` is DELIBERATELY ABSENT and must not be re-added: it carries no
-    # guard registry any more. Its four folded guards were rehomed into the control-plane
-    # engine's own guard chain, which evaluates them on every transport, and the dispatcher
     # became a pure relay. A carrier entry here would resolve `_BASH_GUARD_REGISTRY` on a module
-    # that no longer defines it and raise, and re-adding one to "fix" that would be reinstating
-    # the fold this deletion removed. The guard SCRIPTS remain on disk and independently
-    # invocable; their deregistration reasons are in `baselines/hook-registration-roster.json`.
     "preuse-write-dispatch.py": ("_guard_runner.py", "REAL_GUARD_REGISTRY", _rows_via_module_path),
     "postuse-stop-family-dispatch.py": (
         "_stop_family_runner.py", "REAL_STOP_FAMILY_REGISTRY", _rows_via_module_path,
@@ -171,12 +143,6 @@ def carried_guards(filename: str):
 
 
 def all_carried_guards():
-    """`{guard_filename: dispatcher_filename}` across every fan-in dispatcher.
-
-    Fails loud on a guard carried by two dispatchers: that is a double-delivery, the
-    same defect class `x-effective-delivery`'s own exhaustiveness invariant exists to
-    catch, and it must never be resolved silently by last-writer-wins.
-    """
     seen = {}
     for dispatcher in FANIN_DISPATCHERS:
         for _, guard_filename in carried_guards(dispatcher):

@@ -97,7 +97,7 @@ If two or more checkboxes can't be filled honestly, the plan isn't ready. Surfac
 
 **A "name your biggest uncertainty" plan-time data-flow question is resolvable NOW — do not make the fix conditional on a trace deferred to execution.** When a plan names its biggest uncertainty as a data-flow question ("do these three lanes serve raw content or covered?") and hedges the fix as conditional on it ("fix C1 *if* found to serve raw"), the call-graph trace that answers the question is almost always tractable at plan-review time — cheaper than deferring it into an execution-time branch the executor has to re-derive. Trace it across the producing / serializing / consuming files during review and make the fix unconditional. A fix gated on a deferred trace is an undelegated decision wearing a conditional; it composes with the `UNCERTAIN`-as-status rule above. (Empirically, a plan-review trace across four files resolved a "biggest uncertainty" the plan had made C1 conditional on.)
 
-**Plan over brainstorm when the PM has set the architectural axiom.** Once the axiom is PM-set, remaining ambiguity is classification-with-rationale work that belongs in plan Decision blocks for PM ratification — not open-ended brainstorm dialogue. Heuristic: if (a) axiom is set, (b) scouts have produced an evidence base, and (c) ambiguous calls are classification-shaped (not architecture-shaped), skip directly to plan. The review pipeline (prior-art-checker → named reviewer → integrator) catches real substrate failures and scope refinements that brainstorming wouldn't surface any faster.
+**Plan over brainstorm when the PM has set the architectural axiom.** Once the axiom is PM-set, remaining ambiguity is classification-with-rationale work that belongs in plan Decision blocks for PM ratification — not open-ended brainstorm dialogue. Heuristic: if (a) axiom is set, (b) scouts have produced an evidence base, and (c) ambiguous calls are classification-shaped (not architecture-shaped), skip directly to plan. The review pipeline (prior-art-checker → named reviewer, who applies its own findings) catches real substrate failures and scope refinements that brainstorming wouldn't surface any faster.
 
 **Handoff prose is a sketch; an acceptance criterion is a contract — re-derive an inherited phrase against disk before promoting it into an AC.** A handoff, memo, or prior plan is written at speed by a session under context pressure, describing a DIRECTION — its phrasing is evocative, not tested. When the next session lifts that phrasing near-verbatim into an AC, the phrase silently changes status from a gesture at what is wanted to a checkable contract an executor will optimize against, and nobody re-reads the artifact the phrase governs — especially when that artifact is good and draws no attention. Two concrete failure shapes: an inherited prohibition can be unsatisfiable for the very artifact it governs (a rule saying "no fail-open ladder" can outlaw a degrade path that exists precisely because the thing it fails open for may be unreachable), and a negatively-phrased rule invites an executor to delete whatever isn't on an explicit permit list, where a positively-phrased rule ("the artifact MAY contain…") does not. Practice: before promoting an inherited phrase into an AC, write a line-by-line conformance walkthrough of the artifact it will govern; if the shipped, already-reviewed artifact cannot be shown to conform, the *phrase* is wrong, not the artifact — and the walkthrough at authoring time is how you find that out before ratification instead of after. State rules positively where possible, and place a corrective doctrine edit in the surface its actual audience reads, not merely a surface that mentions the topic.
 
@@ -580,6 +580,13 @@ consumers disagree deliberately on severity:
   spine yet — the harvest should not hard-fail an in-progress plan that simply hasn't
   reached the point of drafting `## Tasks` yet.
 
+**A plan carrying a `## PM brief` body section owes every non-deferred, open/coded row a
+`traces_to_brief`** — a verbatim substring of that section quoting the phrase the row serves,
+never a paraphrase. `plan-spine-check.py` enforces this: a missing or paraphrased trace is
+STRUCTURAL, naming the row id and the offending value. A plan with no `## PM brief` section is
+exempt and reports informational `NO-BRIEF` instead — see the `traces_to_brief` field row below
+for its shape.
+
 ### Authoring the block
 
 Each list item is a task object with the following fields:
@@ -606,6 +613,7 @@ Each list item is a task object with the following fields:
 | `reads` | array of strings | optional | Repo-relative paths this task reads without writing. Same string-array shape as `writes`. Participates in wave ordering: the wave-builder computes the write-overlap gate from `writes`/`reads` together (see the `depends_on` row below), not from `writes` alone. |
 | `depends_on` | array of objects | optional; **absence is a positive claim of no non-computable gate on this row** | One entry per predecessor row this task's execution is gated on — object shape `{chunk, gate_kind, note?}`, never a bare chunk-id list. Required wherever the author imposes a gate the write-overlap graph cannot derive on its own (never for write-overlap itself — the wave-builder computes that from `writes`/`reads`). Full field shape, valid `gate_kind` values, and a worked example: § Substrate-Migration Sequencing below. |
 | `external_gate` | array of objects | optional | Declared blockers on work owned by ANOTHER repo — one entry per blocking party. Each entry: `owner_repo` (required, bare hyphenated repo shortname; confirm the spelling with `machine-local keys | grep '^repos\.'`; never this repo's own shortname — that's an intra-plan blocker, belongs on `depends_on` — and never a session id), `condition` (required, prose — what must become true before this row executes), `closure_evidence` (optional — memo path, commit SHA, or probe naming HOW closure is or will be verified; clears nothing on its own), `cleared` (optional bool — asserts the gate IS discharged; `cleared: true` clears it outright, `cleared: false` is an explicit negative that overrides a truthy `closure_evidence`), `closure_key` (optional object, `{kind, id}` — the machine-matchable IDENTITY of what discharges the gate, `kind` one of `deliverable`\|`memo-thread`; a reader matches it against a `discharges.closure_key` block on a cross-repo memo from `owner_repo` and may propose the `cleared: true` flip, never perform it), `blocks` (optional, enum `execution`\|`ac-closure`, default `execution` — whether the gate blocks the row's execution or only a named acceptance criterion's closure). A sibling field to `depends_on`, not nested in it: an external blocker has no local predecessor row, so it cannot fill `depends_on[].chunk`. NOT for intra-plan edges (use `depends_on`) and NOT a substitute for the write-overlap gate the wave-builder computes from `writes`/`reads`. |
+| `traces_to_brief` | string | **required on every non-`deferred`, open/coded row when the plan body carries a `## PM brief` section** | A substring of that section's text, after whitespace normalisation, naming the brief phrase this row serves. Checked by `plan-spine-check.py` (`trace_ok`), which reports STRUCTURAL for a row that omits it or whose value paraphrases rather than quotes. A plan with no `## PM brief` section is exempt — the checker reports an informational `NO-BRIEF` line instead. A row that can quote no phrase is scope growth: surface it in the row body rather than inventing a trace. |
 
 **Which closure field to write.** Three fields on an `external_gate` entry look related and
 answer different questions: `condition` is reader-facing prose, never machine-evaluated —
@@ -835,6 +843,13 @@ engine's frontmatter layer, not by an EM's own judgment that a cut was reasonabl
 `## Branch C — Compose the plan body` in `coordinator/skills/plan/SKILL.md` (the "soon = now" deferral row
 and the YAGNI row) for the authoring-time version of this same discipline, and `## Branch A` in
 the same skill for the triage-time scoping check this section extends.
+
+**Complete means the brief's problem, not every artifact it could spawn.** ADR, lineage, and
+docs chunks are not execution-wave rows — list them under a `## Distill pass` body heading
+instead of the spine. An item there is not a spine row and not a cut, so it needs no PM
+deferral-approval, but it is still tracked: a non-empty `## Distill pass` must be referenced
+from the closing handoff or the `/workstream-complete` step, which is what hands its items to
+`/distill`. An empty or absent `## Distill pass` owes nothing.
 
 **Adoption note.** The machine-parseable spine (`## Machine-Parseable Task Spine` above)
 is built for the executing EM's ease, not as process overhead bolted on top of planning —
@@ -1144,7 +1159,7 @@ When a plan declares "VERBATIM parity" with a source mechanism, it MUST copy ALL
 
 ### (p) A plan-body conflict resolution must reach the executor brief's VERBATIM/hard-constraints block, with a grep-AC
 
-When review or prior-art-checker surfaces a conflict over a canonical form and the plan body is edited to resolve it, that edit alone does not change what ships: the executor reads its own brief's VERBATIM/hard-constraints block, not the surrounding narrative. The integrator (or plan author) must also edit that block — or the already-shipped code directly — to match the resolved canonical form. Any plan that states a canonical form MUST carry a grep-based AC asserting shipped code matches it; a narrative-only resolution with no grep-AC lets a stale brief or unreviewed code re-ship the flagged anti-pattern. Empirical case: a resolver-shim re-shipped the corrected `CLAUDE_HOME` anti-pattern despite a prior-art flag and a plan-body fix, because neither the executor brief nor an AC was updated to match.
+When review or prior-art-checker surfaces a conflict over a canonical form and the plan body is edited to resolve it, that edit alone does not change what ships: the executor reads its own brief's VERBATIM/hard-constraints block, not the surrounding narrative. The reviewer applying its own finding (or the plan author) must also edit that block — or the already-shipped code directly — to match the resolved canonical form. Any plan that states a canonical form MUST carry a grep-based AC asserting shipped code matches it; a narrative-only resolution with no grep-AC lets a stale brief or unreviewed code re-ship the flagged anti-pattern. Empirical case: a resolver-shim re-shipped the corrected `CLAUDE_HOME` anti-pattern despite a prior-art flag and a plan-body fix, because neither the executor brief nor an AC was updated to match.
 
 ## Anti-Literal-Tripwire Chunks Must Grep-and-Mark Scoped Docstrings In-Chunk
 
@@ -1185,11 +1200,11 @@ The Branch B doubt-check in `coordinator:plan` can surface recommendations that 
 After saving the plan, it MUST go through one review cycle before execution. This catches structural problems while they're cheap to fix — before enrichment and execution invest real work.
 
 1. Route the plan through `/review` — the plan document is the artifact
-2. **Dispatch the review-integrator agent** to apply findings to the plan. Do not integrate findings manually — the review-integrator handles this. Your job after dispatch:
-   - Review the integrator's escalation list (usually 0 items)
+2. **The dispatched reviewer applies its own findings to the plan.** Do not apply findings manually on the reviewer's behalf. Your job after the reviewer's pass:
+   - Review the reviewer's escalation list (usually 0 items)
    - Spot-check the diff to verify findings were applied correctly
-   - If you disagree with how a finding was applied, change that specific part — don't re-integrate the whole review yourself
-   - Only skip integration of an item if: (a) requires PM input, or (b) you genuinely disagree (flag to PM with reasoning)
+   - If you disagree with how a finding was applied, change that specific part — don't redo the whole review yourself
+   - Only skip applying an item if: (a) requires PM input, or (b) you genuinely disagree (flag to PM with reasoning)
 3. Add a review status marker to the plan document header:
 
 ```markdown
@@ -1280,9 +1295,9 @@ A fallback to static analysis is often correct given substrate constraints (comm
 
 ## Post-review plan edits need a body sweep, not just a patch
 
-**When a reviewer finding renames a section header, resequences chunks, or restructures a scope, grep the rest of the plan for the old framing after applying the finding — don't trust the integrator to surface all residual instances.**
+**When a reviewer finding renames a section header, resequences chunks, or restructures a scope, grep the rest of the plan for the old framing after applying the finding — don't trust the reviewer's own pass to surface all residual instances.**
 **Why:** A the Staff Engineer sequencing finding was applied to the Sequencing block, but the plan body still said "phase 1 / phase 2" — the enricher inherited the phase split from body text and surfaced it as an open question, requiring the EM to fold a step back in mid-stub.
-**How to apply:** after applying any structural reviewer finding (sequencing, scoping, decomposition, rename), grep the plan body for the old terminology and sweep — the integrator's brief is "apply this finding," not "audit the plan for residual implications."
+**How to apply:** after applying any structural reviewer finding (sequencing, scoping, decomposition, rename), grep the plan body for the old terminology and sweep — the reviewer's remit is "apply this finding," not "audit the plan for residual implications."
 
 ## Durability Assertions Must Cover ALL Writers of a File
 
@@ -1385,9 +1400,9 @@ Heuristic: the EM holds one mental model per plan. Two entries belong in the sam
 
 Condition-gated holdouts are a legitimate fourth outcome, distinct from backlog-hedging: an entry is held when its dispatch is gated on an observable not yet present (an in-flight refactor, a pending review, a missing reproduction). Gate criteria must be calendarable.
 
-## Synthesizer / integrator discipline — read-in-full before append
+## Synthesizer discipline — read-in-full before append
 
-Plan synthesizers and review integrators read the target wiki in full before writing. The 2026-05-27 Pass-2 S1/S4 sprints both surfaced a recurring failure mode: 6/N (S1) and 8/N (S4) of assigned entries were ALREADY-COVERED by a morning sprint. Appending without reading produces guide drift — each cycle subtly rewords existing prose and the wiki bloats without new information.
+Plan synthesizers and reviewers applying their own findings read the target wiki in full before writing. The 2026-05-27 Pass-2 S1/S4 sprints both surfaced a recurring failure mode: 6/N (S1) and 8/N (S4) of assigned entries were ALREADY-COVERED by a morning sprint. Appending without reading produces guide drift — each cycle subtly rewords existing prose and the wiki bloats without new information.
 
 **Rule.** Before any ADD_SECTION / UPDATE_SECTION op, the synthesizer Reads the target wiki in full and emits a per-nugget disposition: NEW / ALREADY-COVERED / SUPERSEDES-EXISTING. Phase 2 outputs include disposition manifests for exactly this reason — coverage contract is enforced at the seam, not after the fact.
 

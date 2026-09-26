@@ -64,15 +64,6 @@ from typing import Optional, Tuple
 
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Two named bounds, not eight literals — the shape hitlist G7 prescribes, kept
-# module-local (this module deliberately touches coordinator_core only through
-# a deferred, ImportError-tolerant import, so it cannot reach for a shared
-# engine constant eagerly). Mirrors the live twin,
-# `coordinator_core/plugin_health/release_currency.py`, value for value —
-# these two files are the same probe and their dials had already drifted:
-# `_rc_is_git_worktree` bounded a local `rev-parse --is-inside-work-tree` at 5s
-# where the twin bounds the identical call at 2s. A local git read is process
-# creation plus a plumbing query (25.3ms, DR-344 § 4); 5s marked nothing.
 _LOCAL_GIT_TIMEOUT_SECS: float = 2.0
 _REMOTE_GIT_TIMEOUT_SECS: float = 3.0
 _REMOTE_FETCH_TIMEOUT_SECS: float = 5.0
@@ -83,13 +74,6 @@ _TAG_REF_RE = re.compile(r"refs/tags/(v[^^]*)$")
 _COUNT_RE = re.compile(r"^[0-9]+$")
 
 
-# ---------------------------------------------------------------------------
-# Subprocess helper — Python's native timeout= replaces the bash
-# cs_timeout/_rc_timeout_cmd portable-timeout wrapper (that machinery existed
-# only to work around bash lacking a built-in bounded-subprocess primitive on
-# stock macOS; subprocess.run(timeout=...) is cross-platform out of the box).
-# Returns stdout on a zero exit within the deadline, else None.
-# ---------------------------------------------------------------------------
 def _run(args: list, timeout: float) -> Optional[str]:
     """Bounded git spawn. Windows-first-class: every child here is created
     with `CREATE_NO_WINDOW`, without which each `git` spawn allocates a
@@ -124,32 +108,7 @@ def _force_offline() -> bool:
     return os.environ.get("RELEASE_CURRENCY_FORCE_OFFLINE", "0") == "1"
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
 def _rc_registry_live_path() -> str:
-    """Return live_path for coordinator-claude from the settings-home registry,
-    or "" when the registry/entry is absent/unreadable/coordinator_core is not
-    importable.
-
-    Used by the contributor-clone guard in release_currency_probe (the Staff Engineer F3).
-    Mirrors resolve-coordinator-clone.py::_registry_live_path.
-
-    Delegates to `coordinator_core.machine_resolver.registry_get` — the
-    canonical registry.local.toml-before-registry.toml reader with
-    empty-string-is-a-miss semantics — rather than a hand-rolled TOML parse.
-    A plain `try/except ImportError` (no engine-root sys.path bootstrap) is
-    correct here: this is an importable library module consumed in-process by
-    callers that already share coordinator_core's interpreter/venv (see
-    session_ensure_branch.py::_parses_as_branch_span for the same pattern),
-    not a bin/ trampoline that might run under a foreign Python.
-
-    Negative-spec: this function used to hand-parse
-    `<settings-home>/machine-local/registry.local.toml` directly and never
-    fall through to the tracked `registry.toml` — `.local`-only, silently
-    degrading to "" on every miss (parse error, absent entry, tracked-only
-    declaration). Do not re-introduce that inline TOML read.
-    """
     try:
         from coordinator_core.machine_resolver import registry_get
     except ImportError:
@@ -158,7 +117,6 @@ def _rc_registry_live_path() -> str:
 
 
 def _rc_resolve_version_txt(install_root: str) -> Optional[str]:
-    """Return the 40-hex SHA from <install_root>/version.txt, or None."""
     vtxt = os.path.join(install_root, "version.txt")
     if not os.path.isfile(vtxt):
         return None
@@ -174,11 +132,6 @@ def _rc_resolve_version_txt(install_root: str) -> Optional[str]:
 
 
 def _semver_key(tag: str) -> Tuple[int, int, int, str]:
-    """Numeric (major, minor, patch) key + the raw tag as a tie-break — mirrors
-    the bash %010d.%010d.%010d zero-padded-key + full-line `sort` tie-break
-    (tags sharing a numeric prefix, e.g. a prerelease suffix, break on the raw
-    string so selection is deterministic, not iteration-order-dependent).
-    """
     t = tag[1:] if tag.startswith("v") else tag
     parts = re.split(r"[.+-]", t)
 
@@ -192,12 +145,6 @@ def _semver_key(tag: str) -> Tuple[int, int, int, str]:
 
 
 def _rc_fetch_latest_release_tag(owner_repo: str) -> Optional[str]:
-    """Return the highest-semver `v*` tag name for owner_repo's remote, or None.
-
-    Lists the remote's `v*` tags via `git ls-remote --tags` and selects the
-    highest by SEMVER, not lexically (v2.10.0 > v2.9.0). The Release *object*
-    is never consulted — the latest git tag is the currency anchor.
-    """
     if _force_offline():
         return None
     if not _git_available():
@@ -220,13 +167,6 @@ def _rc_fetch_latest_release_tag(owner_repo: str) -> Optional[str]:
 
 
 def _rc_resolve_tag_sha(owner_repo: str, tag: str) -> Optional[str]:
-    """Resolve `tag` to its COMMIT SHA via `git ls-remote`, or None.
-
-    Dereferences annotated tags with the `^{}` peel suffix (an annotated tag's
-    own object SHA is NOT the commit SHA). Falls back to the bare ref for
-    lightweight tags. NEVER uses the Release API target_commitish — it is a
-    ref name (often a branch), not a resolvable SHA.
-    """
     if _force_offline():
         return None
     if not _git_available():
@@ -308,18 +248,12 @@ def _rc_git_clone_behind_count(install_root: str) -> Optional[Tuple[int, str]]:
 
 
 def _rc_check_ancestry(install_root: str, local_sha: str, tag_sha: str) -> bool:
-    """True iff local_sha is an ancestor of tag_sha. Requires a git checkout at
-    install_root. Used only to enrich the "behind" case.
-    """
     if not os.path.isdir(os.path.join(install_root, ".git")):
         return False
     return _run(["git", "-C", install_root, "merge-base", "--is-ancestor", local_sha, tag_sha], timeout=_LOCAL_GIT_TIMEOUT_SECS) is not None
 
 
 def _rc_local_describe_tag(install_root: str, local_sha: str) -> str:
-    """Return a human-readable tag ref for local_sha, or the first 12 chars of
-    the SHA when no describable tag is found.
-    """
     if os.path.isdir(os.path.join(install_root, ".git")):
         desc = _run(["git", "-C", install_root, "describe", "--tags", "--exact-match", local_sha], timeout=_LOCAL_GIT_TIMEOUT_SECS)
         if desc and desc.strip():
@@ -330,19 +264,7 @@ def _rc_local_describe_tag(install_root: str, local_sha: str) -> str:
     return local_sha[:12]
 
 
-# ---------------------------------------------------------------------------
-# Public: release_currency_probe
-# ---------------------------------------------------------------------------
 def release_currency_probe(plugin: str, owner_repo: str, install_root: str) -> str:
-    """Classify install_root's release currency against owner_repo's latest
-    published `v*` tag. Advisory-only — never raises for a network/git
-    failure; returns one of the status strings documented at module top.
-
-    Args:
-        plugin       — plugin name (e.g. "coordinator" — informational, logging only)
-        owner_repo   — "owner/repo" (e.g. "dbc-oduffy/coordinator-claude")
-        install_root — e.g. "$HOME/.claude/plugins/coordinator-claude/coordinator"
-    """
     if not plugin:
         raise ValueError("plugin required")
     if not owner_repo:
@@ -350,48 +272,19 @@ def release_currency_probe(plugin: str, owner_repo: str, install_root: str) -> s
     if not install_root:
         raise ValueError("install_root required")
 
-    # ------------------------------------------------------------------
-    # 1. source_is_live detection
-    # ------------------------------------------------------------------
     source_is_live = os.environ.get("COORDINATOR_CURRENCY_SOURCE_IS_LIVE", "0") == "1"
     if not source_is_live:
-        # Auto-detect: if install-root has no version.txt AND this module is
-        # running from inside that install-root's tree, it is the source machine.
         script_norm = _LIB_DIR.rstrip("/")
         install_norm = install_root.rstrip("/")
-        # `/`-terminated prefix (code-reviewer F4 parity): a bare prefix match
-        # would fire on a shared path stem (install_root=/opt/coord matching
-        # lib /opt/coord-staging/lib).
         if (script_norm + "/").startswith(install_norm + "/"):
             source_is_live = True
 
     if source_is_live:
         return "source_is_live"
 
-    # ------------------------------------------------------------------
-    # 2. Resolve local installed version
-    # ------------------------------------------------------------------
     local_sha = _rc_resolve_version_txt(install_root)
     if local_sha is None:
-        # No version.txt — check whether the install-root is a git work-tree.
-        # A bare/junctioned git clone has no version.txt but IS a git
-        # work-tree and MUST NOT be silently exempt — it may be many commits
-        # behind origin/main.
-        #
-        # negative-spec: returning source_is_live here was the pre-fix
-        # behaviour that caused a false "not shipped" blocker (a stale clone
-        # got no "you're behind" warning). Do NOT revert to unconditional
-        # source_is_live for the no-version.txt case.
-        #
         # CONTRIBUTOR-CLONE GUARD (the Staff Engineer F3): before counting behind-ness,
-        # check whether this clone is registered as
-        # propagation_mode=source_is_live in the machine-local registry. An
-        # authoring/contributor box has a git clone but no version.txt and IS
-        # source_is_live — its live_path is the very content root the
-        # resolver returns. On a contributor's feature/work branch a
-        # behind-count would produce a false "N commits behind origin/main"
-        # nag during normal development. source_is_live-registered clones are
-        # silent.
         reg_live = _rc_registry_live_path()
         if reg_live and reg_live.rstrip("/") == install_root.rstrip("/"):
             return "source_is_live"
@@ -399,52 +292,31 @@ def release_currency_probe(plugin: str, owner_repo: str, install_root: str) -> s
         if _rc_is_git_worktree(install_root):
             behind = _rc_git_clone_behind_count(install_root)
             if behind is None:
-                # Fetch failed → treat as offline (no 3-day sentinel; retry next boot)
                 return "offline"
             count, ref = behind
             if count > 0:
                 return f"behind-clone {count} {ref}"
             return "current"
 
-        # Not a git work-tree and no version.txt — genuinely no managed
-        # install; treat as source_is_live (e.g. a standalone tool with no install).
         return "source_is_live"
 
-    # ------------------------------------------------------------------
-    # 3. Fetch latest published release tag
-    # ------------------------------------------------------------------
     latest_tag = _rc_fetch_latest_release_tag(owner_repo)
     if latest_tag is None:
         return "offline"
 
-    # Security (sec-audit HIGH+MEDIUM 2026-06-01): the tag is a
-    # network-controlled string that flows into a `git ls-remote` refspec and
-    # the return value. Validate it at this single chokepoint before any
-    # further use — must start alphanumeric (blocks a leading '-' being read
-    # as a git option) and contain only tag-legal chars, bounded length. A tag
-    # that fails the allowlist is untrustworthy → treat as offline (no false
-    # current/behind).
     if not _TAG_ALLOWLIST_RE.match(latest_tag):
         return "offline"
 
-    # ------------------------------------------------------------------
-    # 4. Resolve tag → commit SHA via git ls-remote (NEVER use target_commitish)
-    # ------------------------------------------------------------------
     tag_sha = _rc_resolve_tag_sha(owner_repo, latest_tag)
     if tag_sha is None:
         return "offline"
 
-    # ------------------------------------------------------------------
-    # 5. Classify
-    # ------------------------------------------------------------------
     if local_sha == tag_sha:
         return "current"
 
-    # SHAs differ — check ancestry when install-root is a git checkout
     if _rc_check_ancestry(install_root, local_sha, tag_sha):
         # local SHA is a TRUE ANCESTOR of tag SHA → directional "behind"
         from_label = _rc_local_describe_tag(install_root, local_sha)
         return f"behind {from_label} {latest_tag}"
 
-    # ahead / diverged / ancestry unverifiable → NEUTRAL "differs"
     return f"differs {latest_tag}"

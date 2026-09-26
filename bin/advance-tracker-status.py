@@ -62,11 +62,6 @@ _TRANSPORT_FAIL = 3
 
 
 def _resolve_repo_root(positional: str | None) -> str | None:
-    """Repo root — accept as positional arg or resolve from git.
-
-    Returns None (never raises) on resolution failure, mirroring
-    archive-paper-trail.py's own posture.
-    """
     if positional:
         return positional
     from coordinator_core.git.repo_root import show_toplevel

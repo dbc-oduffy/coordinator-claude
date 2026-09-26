@@ -96,21 +96,10 @@ def _derive_plugin_root() -> str:
             file=sys.stderr,
         )
         sys.exit(1)
-    # Either content layout: the published flat mirror holds lib/ and templates/
-    # at its own root, with no "coordinator" segment to join (overengineering-
-    # reviewer finding 2 — routed through the promoted wrapper).
     return content_root_or_private(resolved)
 
 
 def _import_main():
-    """Resolve the engine root, put it on sys.path, and import the ported entrypoint.
-
-    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
-    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
-    re-deriving it -- this is a plain in-process import, not an RPC invoke, so
-    cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
-    deliberately NOT used here.
-    """
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.install.substrate import main as _op_main
 
@@ -119,9 +108,6 @@ def _import_main():
 
 def main() -> None:
     # Resolve CLAUDE_PLUGIN_ROOT, then validate the resolved root has the
-    # expected layout BEFORE touching claude-klabauter at all — a silently bad root is
-    # worse than no root, and the claude-klabauter module's own `run()` guard (which
-    # requires the env var pre-set) is not a substitute for this pre-flight.
     plugin_root = _derive_plugin_root()
     if not os.path.isdir(os.path.join(plugin_root, "lib")) or not os.path.isdir(
         os.path.join(plugin_root, "templates")

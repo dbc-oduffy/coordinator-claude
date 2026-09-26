@@ -29,22 +29,6 @@ _BOOTSTRAP_DONE = False
 
 
 def _bootstrap_engine() -> None:
-    """Put the repo root on ``sys.path`` before ``git_hook_install`` is
-    imported.
-
-    git_hook_install.py imports from the coordinator_core package
-    (win_portability, py_probe_sh) at module level -- that package is
-    resolvable only from the repo root, not from _LIB_DIR, so it must be on
-    sys.path too or the import below raises ModuleNotFoundError every time
-    this entrypoint runs as a subprocess (which is how it is invoked from
-    `coordinator-ensure-hooks-fleet`, cloud pre-boot, and the test suite).
-
-    Idempotent; safe to call more than once. Moved out of module scope
-    (2026-08-28) -- unconditionally mutating `sys.path` at import time made
-    every import of this file mutate the `sys.path` of a warm server ~50
-    sessions share. Only the trigger moved; the effect is byte-for-byte the
-    same.
-    """
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
         return
@@ -54,9 +38,6 @@ def _bootstrap_engine() -> None:
 
 
 def main(argv: "list[str] | None" = None) -> int:
-    # argv threading: this CLI reads sys.argv at depth (argparse and helpers),
-    # so the warm-call path swaps it for the duration rather than rewriting every read.
-    # NOT re-entrant: a threaded server must serialise calls into this entrypoint.
     _bootstrap_engine()
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from git_hook_install import ensure_prepare_commit_msg_hook
@@ -65,16 +46,6 @@ def main(argv: "list[str] | None" = None) -> int:
     if argv is not None:
         sys.argv = [sys.argv[0], *argv]
     try:
-        # `--fleet` was hand-parsed here between 2026-08-08 (b66dec143) and
-        # 2026-08-11; fleet-wide healing now has its own named entrypoint,
-        # `coordinator-ensure-hooks-fleet`. The flag is answered rather than
-        # ignored: a caller that still passes it would otherwise get a
-        # single-repo heal reported as a fleet heal -- the accepted-and-ignored
-        # shape doe-claude-em refused to write into /workday-start Step -0.45
-        # (cross-repo/inbox/2026-08-11-doe-claude-em-fleet-flag-request-is-not-
-        # actionable-entrypoints-read-no-argv.md). Redirect is stderr-only and
-        # still exits 0 via the cwd heal below: this runs on the session-boot
-        # path and must never block a session start.
         if "--fleet" in sys.argv[1:]:
             print(
                 "coordinator-ensure-prepare-commit-msg-hook: --fleet is no longer "
@@ -84,7 +55,7 @@ def main(argv: "list[str] | None" = None) -> int:
             )
         try:
             return ensure_prepare_commit_msg_hook(_BIN_DIR)
-        except Exception as exc:  # never block a session start
+        except Exception as exc:
             print(f"coordinator-ensure-prepare-commit-msg-hook: {exc}", file=sys.stderr)
             return 0
     finally:

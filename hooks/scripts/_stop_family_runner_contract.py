@@ -102,18 +102,8 @@ from typing import Tuple
 
 from _guard_runner_contract import GuardScopeDescriptor
 
-#: Greppable registry token for this contract, registered in
-#: coordinator/docs/wiki/coordinator-tripwires.md in the same commit as
-#: this module.
 TRIPWIRE_TOKEN = "STOP-FAMILY-RUNNER-CONTRACT"
 
-#: The four PostToolUse write-path guards that speak the Stop-family
-#: protocol (stderr text + `return 2`, or silent `return 0`) -- the
-#: residual set left after C4 phase 1 folded `track-touched-files.py` into
-#: `postuse-advisory-dispatch.py` instead (it has no advisory text to
-#: aggregate, so it needed no new aggregation mechanism at all). Filenames
-#: only (no directory prefix) -- each is a sibling of this module under
-#: coordinator/hooks/scripts/.
 ENROLLED_GUARD_MODULES: Tuple[str, ...] = (
     "derive-global-doctrine-live-copy.py",
     "derive-setup-copies.py",
@@ -122,51 +112,22 @@ ENROLLED_GUARD_MODULES: Tuple[str, ...] = (
 )
 
 #: Each descriptor deliberately OVERAPPROXIMATES its guard's own real
-#: scope predicate (still applied, correctly, once the guard body is
-#: imported) -- see each guard's own module docstring for the authoritative
-#: scope. Keyed by filename so `postuse-stop-family-dispatch.py` and the
-#: conformance test can both source from THIS one dict rather than either
-#: re-declaring a copy.
 STOP_FAMILY_SCOPE_DESCRIPTORS = {
-    # Real scope: file_path resolves to exactly the tracked
-    # `global-doctrine/CLAUDE.md` path (see `_tracked_path()`), or a
-    # `hook_event_name == "SessionStart"` payload (not reachable via this
-    # guard's current PostToolUse-only hooks.json registration -- see this
-    # module's own docstring section on C4b -- so path-shape is the only
-    # discriminant a Write|Edit|MultiEdit-scoped descriptor needs).
     "derive-global-doctrine-live-copy.py": GuardScopeDescriptor(
         guard_module="derive-global-doctrine-live-copy.py",
         path_suffixes=frozenset({"CLAUDE.md"}),
         directory_substrings=("global-doctrine/",),
     ),
-    # Real scope: file_path resolves to one of six canonical/derived rows,
-    # all under a `setup/` tree (either `<repo>/setup/...` or
-    # `coordinator/templates/setup/...` -- see `_resolved_rows()`). No
-    # suffix restriction: the three tracked pairs are `.yaml`, `.md`, `.py`.
     "derive-setup-copies.py": GuardScopeDescriptor(
         guard_module="derive-setup-copies.py",
         directory_substrings=("setup/",),
     ),
-    # Real scope: file_path is a `state/initiatives/*.yaml` write (see
-    # `is_initiative_yaml` in `main()`).
     "nudge-initiative-goals-ladder.py": GuardScopeDescriptor(
         guard_module="nudge-initiative-goals-ladder.py",
         path_suffixes=frozenset({".yaml"}),
         directory_substrings=("state/initiatives/",),
     ),
-    # Real scope: a NEW (untracked) file under either this repo's own
-    # `coordinator/` tree ("local" leg) or a resolvable sibling engine
-    # checkout's root ("engine" leg -- see `_classify_leg()`). KNOWN,
     # DOCUMENTED GAP: the "engine" leg has no fixed directory substring a
-    # cheap descriptor can name without resolving the engine root itself
-    # (exactly the import this descriptor exists to defer paying) -- an
-    # engine-leg write to a path that does not also contain "coordinator/"
-    # under-matches. Accepted for the same reason `guard-oss-payload-
-    # locality.py`'s own descriptor (C2) is scoped to "coordinator/" only:
-    # the "local" leg is the common, load-bearing case; the "engine" leg
-    # is a rare cross-repo edge the guard's own real predicate (still
-    # authoritative once imported) already fails open on when this repo's
-    # OWN write path is what fires -- see that guard's descriptor in
     # `_guard_runner.REAL_GUARD_REGISTRY` for the identical precedent.
     "nudge-new-file-zero-budget-ratchets.py": GuardScopeDescriptor(
         guard_module="nudge-new-file-zero-budget-ratchets.py",

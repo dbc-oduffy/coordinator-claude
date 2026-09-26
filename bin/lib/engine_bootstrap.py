@@ -60,25 +60,12 @@ from __future__ import annotations
 import os
 import sys
 
-# ---------------------------------------------------------------------------
-# Engine-root resolution constants/exceptions — moved alongside the resolver
-# that owns them because `_resolve_engine_root`'s bare-name references to
-# these bind against THIS module's globals once the function lives here.
-# cc_invoke.py imports these back (see its own module-top import block) so
-# its OTHER functions (route(), engine_source_root(), _state1_remediation_message(),
-# etc.) that also reference them keep resolving through cc_invoke's own
-# globals unchanged.
-# ---------------------------------------------------------------------------
 
-# Cross-reference: coordinator_core/engine_root.py defines this same literal
-# (plan pln-the-ceremony-tail-stops-lying-b58fb3 AC3b). The two rungs sit on
-# opposite sides of a declared one-way no-import boundary and cannot share a
-# symbol; the constant is duplicated deliberately and each side asserts the literal.
 _REGISTRY_READ_TIMEOUT_TOKEN = "machine-local registry read timed out"
 
 _ENGINE_ROOT_NEW_VAR = "COORDINATOR_ENGINE_ROOT"
 
-_MACHINE_LOCAL_READ_TIMEOUT_SECS = 10  # bound on the subprocess.run() call below
+_MACHINE_LOCAL_READ_TIMEOUT_SECS = 10
 
 
 class _RegistryReadTimeout(RuntimeError):
@@ -111,26 +98,10 @@ _CLAUDE_KLABAUTER_ROOT_REMEDIATION = (
     "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c"
 )
 
-# Back-compat alias, same shape as `cc_invoke._resolve_claude_klabauter_root`
-# (C17, docs/plans/2026-08-20-an-engine-root-is-not-named-for-the-repo.md): a
-# published CLI puts this LIVE (untransformed) module on sys.path but imports
 # it under the TRANSFORMED name, since the published tree's own cc_invoke.py
 # re-exports `_CLAUDE_KLABAUTER_ROOT_REMEDIATION` as `_CLAUDE_KLABAUTER_ROOT_REMEDIATION`
-# post-transform. Exporting both spellings here closes that cross-tree seam
-# without touching the mirror.
 _CLAUDE_KLABAUTER_ROOT_REMEDIATION = _CLAUDE_KLABAUTER_ROOT_REMEDIATION
 
-# The engine-root module's own basename and entry-point name both carry the
-# repo token (`claude_klabauter_root.py` / `coordinator_claude_klabauter_root_with_class`), and the
-# publish transform rewrites that token throughout — so the mirror spells them
-# `claude_klabauter_root.py` / `coordinator_claude_klabauter_root_with_class`.
-# This pattern is deliberately token-FREE, which makes it the one spelling
-# that survives the transform byte-identically in both trees. Do not "fix" it
-# to name the module directly; that is the defect, not the style.
-#
-# Compiled lazily inside `_load_foreign_gate_entry_point` (not here at module
-# top) — `re` is not on this module's os+sys-only import budget, and this
-# pattern is only ever consulted on the rare foreign-tree rung.
 _GATE_ENTRY_POINT_PATTERN = r"^def (coordinator_\w+_root_with_class)\s*\("
 
 
@@ -329,10 +300,6 @@ def _load_foreign_gate_entry_point(candidate: str):
     try:
         spec.loader.exec_module(module)
     except Exception:
-        # Deliberately broader than ImportError. A candidate whose module
-        # matches by path but raises on load (partial checkout, mid-publish
-        # state) is a BROKEN candidate, not this loader's problem to
-        # re-raise.
         sys.modules.pop(synthetic_name, None)
         return None
     found = getattr(module, entry_name, None)
@@ -357,8 +324,6 @@ def _claude_klabauter_root_gate_empty_remediation(candidate: str, *, source: str
     """
     if source == "machine-local repos.claude_klabauter":
         return _CLAUDE_KLABAUTER_ROOT_REMEDIATION
-    # foreign-identity: SUBJECT — remedy names the candidate/checkout the reader must
-    # confirm or register (machine-local set repos.claude_klabauter); the name is the fix.
     return (
         f"cc_invoke: cannot resolve the engine root — candidate {candidate!r} (from {source}) "
         "imported coordinator_core.engine_root but the gated ladder returned no root.\n"
@@ -569,13 +534,6 @@ def _resolve_engine_root(caller_file: str | None = None) -> str:
                         f"not define coordinator_engine_root_with_class "
                         f"(import failed: {exc})"
                     ) from exc
-                # Published-engine rung: coordinator_engine_root_with_class() runs the
-                # DR-132 two-tier gate (published-engine-mirror vs. live-working-tree)
-                # instead of the classless coordinator_engine_root(), which always
-                # answered live-working-tree. The (root, resolution_class) pair is
-                # returned; this rung only needs root — cc_invoke does not branch on
-                # the class (that belongs to a future consumer, not this resolution
-                # rung: engine.target is a read-site default, never diverted on here).
                 resolved, _resolution_class = coordinator_engine_root_with_class()
             finally:
                 if _injected:
@@ -598,33 +556,13 @@ def _resolve_engine_root(caller_file: str | None = None) -> str:
 
     # Rung 1: already in environment — CANDIDATE only now, delegated through
     # the gate (see docstring's "DELEGATION" note) rather than answered here.
-    # C14 closed the dual-read window: the NEW name is the only one that
-    # answers here. This is an AC13 bootstrap carve-out site — it cannot import
-    # the accessor, because resolving the engine is what it does — so the
-    # precedence is duplicated by hand and MUST move in lockstep with
-    # coordinator_engine_root_env(). Pinned equal by test; see cc_invoke's own
     # literal duplication note near _ENGINE_ROOT_NEW_VAR/_ENGINE_ROOT_OLD_VAR.
     existing = os.environ.get(_ENGINE_ROOT_NEW_VAR, "")
     if existing:
         return _delegate_to_gate(existing, source=f"{_ENGINE_ROOT_NEW_VAR} environment variable")
 
-    # Rung 1.5 (NEW): cheap direct-file-read pointer, checked ahead of the
-    # expensive bash-spawn resolver below. On Windows this avoids spawning a
-    # bash subprocess on the per-invoke resolution hot path (fleet-wide
-    # hook-latency fix). Plain file read only — never spawns a subprocess.
-    # Writer follows reader: the install surface is expected to write
-    # <settings-home>/machine-local/.claude-klabauter-root; absence here is a normal
-    # fallback state, not an error — falls through to the bash resolver below.
-    #
-    # Settings-home precedence mirrors _machine_local.py::_settings_home()
-    # (Port of: settings-home.sh's _coordinator_settings_home, DoE b644d5a9,
-    # 2026-07-22) inline (kept inline here for the same single-file-module
-    # reason _machine_local.py documents — no cross-file import hack across
-    # the source/install-tree split):
     #   COORDINATOR_SETTINGS_HOME (explicit override) →
     #   ${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings
-    #
-    # Spec backlink: pln-claude-klabauter-windows-portability-a48fac § C1
     _settings_home = os.environ.get("COORDINATOR_SETTINGS_HOME") or os.path.join(
         os.environ.get("CLAUDE_HOME") or os.path.expanduser("~"),
         ".coordinator-claude-settings",
@@ -644,49 +582,18 @@ def _resolve_engine_root(caller_file: str | None = None) -> str:
             return ""
 
     # DR-326: engine dispatch resolves to the PUBLISHED build, never to the live
-    # working tree. The live tree is reachable here only via Rung 1's explicit
     # COORDINATOR_ENGINE_ROOT, which is what "claude-klabauter holds live processes only for testing"
-    # means in practice. `.claude-klabauter-root` is written by the same install
-    # pass that registers the mirror, so its presence IS the dual-boot signal —
-    # and reading it costs one more `open()`, honouring the no-subprocess bound
-    # that made this rung gate-blind in the first place.
     _published_pointer_val = _read_pointer(".claude-klabauter-root")
     if _published_pointer_val and os.path.isfile(
         os.path.join(_published_pointer_val, "coordinator_core", "_engine_stamp")
     ):
         return _published_pointer_val
 
-    # Single-tree box (no published mirror installed): the live tree is the only
-    # engine there is, and this rung keeps its pre-DR-326 behaviour byte-identical.
-    #
-    # The `isdir` guard mirrors the intent of the published arm above (C4, AC7;
-    # tightened by C3 to a stamp check for that arm -- see below). Without it a
-    # bare truthiness check returns whatever the pointer file holds -- a stale
-    # path, or a path naming a FILE -- verbatim as the engine root, with no
-    # fall-through to Rung 2. That was unreachable in the live tree only
     # because the published arm answers first; in the PUBLISHED MIRROR it is
-    # reachable and live, because the publish transform's bare 'claude-klabauter' ->
-    # 'claude-klabauter' row rewrote the string literal ".claude-klabauter-root" too,
-    # leaving the mirror reading the same pointer file on both arms and unable
-    # to fall back at all.
-    #
-    # This live arm deliberately stays `isdir`, not a stamp check: DR-331
-    # makes `compute_client_token` RAISE on a single-tree (unstamped-by-design)
-    # box rather than fall back, and `test_rung1_5_pointer_file_no_spawn` pins
-    # this arm's isdir-only behaviour. The published arm above admits only a
-    # STAMPED root (C3, docs/plans/2026-08-21-the-cli-bootstrap-tax-dies-at-
-    # the-interpreter-floor.md § C3) -- `isfile(<root>/coordinator_core/
-    # _engine_stamp)` strictly subsumes the prior `isdir` check there, so it
-    # was dropped rather than added to.
     _pointer_val = _read_pointer(".claude-klabauter-root")
     if _pointer_val and os.path.isdir(_pointer_val):
         return _pointer_val
 
-    # Rung 2: native bootstrap — locate a candidate root via the machine-local
-    # registry (no bash), then delegate to coordinator_core.engine_root itself
-    # once it's importable, so the FINAL answer (and any future rung additions
-    # to that module) come from the single native oracle, not a re-derivation
-    # duplicated here.
     _registry_read_timed_out = False
     try:
         _candidate = _machine_local_get("repos.claude_klabauter")
@@ -697,24 +604,8 @@ def _resolve_engine_root(caller_file: str | None = None) -> str:
     if _candidate and os.path.isdir(_candidate):
         return _delegate_to_gate(_candidate, source="machine-local repos.claude_klabauter")
 
-    # Rung 3 (terminal): self-locate from cc_invoke's OWN __file__ before
-    # raising. Reached only when env, pointer, and registry all missed — see
     # the docstring's "Rung 3 (TERMINAL)" note for the limitation this rung
-    # knowingly carries. Delegated the same way as every other candidate rung
     # (see docstring's "DELEGATION" note) — hard constraint 2 (a script run by
-    # name must still find its own tree) is preserved by self-location still
-    # supplying the candidate; only the final answer is no longer verbatim.
-    #
-    # This module (engine_bootstrap.py) is a sibling of cc_invoke.py, not
-    # cc_invoke itself — a bare `__file__` here would answer with THIS file's
-    # own location, never cc_invoke's, silently breaking the "cc_invoke's OWN
-    # __file__" contract above and every `unittest.mock.patch.object(cc_invoke,
-    # "__file__", ...)` test that relies on it. `caller_file` lets a caller
-    # thread its own `__file__` through explicitly (e.g. `_resolve_engine_root(
-    # __file__)`); when omitted, cc_invoke's already-imported module is looked
-    # up by name in `sys.modules` and its CURRENT `__file__` attribute is read
-    # at call time (so a patched `__file__` is honoured), falling back to this
-    # module's own `__file__` only if cc_invoke has not been imported at all.
     _self_file = caller_file
     if _self_file is None:
         _cc_invoke_mod = sys.modules.get("cc_invoke")
@@ -726,9 +617,6 @@ def _resolve_engine_root(caller_file: str | None = None) -> str:
         return _delegate_to_gate(_self_located, source="self-location (__file__)")
 
     if _registry_read_timed_out:
-        # A transient reader timeout, not a genuinely absent/unregistered
-        # checkout — propagate the distinguishable outcome (AC1/AC3)
-        # instead of the clone/register text below, which is wrong here.
         raise _RegistryReadTimeout(
             f"{_REGISTRY_READ_TIMEOUT_TOKEN} ({_MACHINE_LOCAL_READ_TIMEOUT_SECS}s bound) "
             "resolving repos.claude_klabauter, and self-location also missed."

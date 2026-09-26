@@ -73,11 +73,6 @@ _BOOTSTRAPPED_NAMES = ("cc_invoke",)
 
 
 def _bootstrap_engine() -> None:
-    """Bootstrap `coordinator/bin/lib` onto `sys.path` and bind `cc_invoke`
-    as a module global -- `main()` used to `import cc_invoke` locally,
-    which left it absent from this module's `__dict__` for a test that
-    monkeypatches `_cli_mod.cc_invoke.route` before calling `main()`.
-    """
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
         return
@@ -126,11 +121,6 @@ _KEY_REQUIRED_VERBS = ("launch", "teardown")
 
 
 def _resolve_repo_root(explicit: str | None) -> str | None:
-    """Repo root — accept as an explicit --repo-root value or resolve from git.
-
-    Returns None (never raises) on resolution failure, mirroring
-    advance-tracker-status.py's own posture.
-    """
     if explicit:
         return explicit
     from coordinator_core.git.repo_root import show_toplevel

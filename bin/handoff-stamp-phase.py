@@ -93,10 +93,6 @@ PROG = "handoff-stamp-phase.py"
 
 
 def _no_console_kw() -> dict:
-    """Lazily resolve the engine root onto sys.path (self-location-first via
-    cc_invoke.ensure_engine_on_path — see that function's docstring), then
-    splat the canonical no-console-window kwarg. ``{}`` on any resolution/
-    import failure (fail-open)."""
     try:
         import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
         import cc_invoke
@@ -110,10 +106,7 @@ def _no_console_kw() -> dict:
         return {}
 
 
-# Duplicated from coordinator_core/ops/handoff_phase_stamp.py's own
 # _VALID_PHASES on purpose: this local tuple drives argparse's `choices=`,
-# giving a fast pre-op exit-2 usage error instead of a round-trip through the
-# engine. Keep in sync with the op's tuple if a phase value is ever added.
 _VALID_PHASES = ("continuation", "execution")
 
 
@@ -126,14 +119,6 @@ def _no_fallback():
 
 
 def _resolve_repo_root(handoff_path: str) -> str | None:
-    """Resolve repo root from the handoff's own directory, not the process cwd.
-
-    Mirrors handoff-archive-transition.py's `_resolve_repo_root` technique —
-    candidate-dir discovery always resolves the correct per-repo git root
-    regardless of where this CLI happens to be invoked from. This is the
-    load-bearing behavior for the cross-repo case this port exists to cover
-    (see module docstring).
-    """
     handoff_abs = os.path.abspath(handoff_path)
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     import cc_invoke

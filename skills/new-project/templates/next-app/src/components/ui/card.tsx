@@ -3,10 +3,10 @@ import { cn } from "@/lib/utils/cn";
 interface CardProps {
   children: React.ReactNode;
   className?: string;
-  /** Padding size variant. Defaults to "default" (p-6). */
+  
   size?: "default" | "compact";
-  // Interactive variant not provided: a bare onClick div is not keyboard-accessible.
-  // Add a dedicated interactive variant (button role + keyboard handler) before using click-triggered cards.
+  
+  
 }
 
 const CARD_PADDING = {
@@ -14,9 +14,7 @@ const CARD_PADDING = {
   compact: "p-4",
 } as const;
 
-/**
- * Card container with background, border, and rounded corners.
- */
+
 export function Card({ children, className, size = "default" }: CardProps) {
   return (
     <div

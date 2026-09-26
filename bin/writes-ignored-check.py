@@ -83,13 +83,6 @@ EXIT_UNREADABLE_SPINE = 5
 
 
 def _load_spine_reader():
-    """Import ``read_spine`` from this engine's own tree.
-
-    This script lives inside the engine it reads (§ Path resolution, "engine" class): the
-    module's own `__file__` parent chain is the engine root, not a sibling checkout to search
-    for. This tool reads the engine's own spine reader on purpose — a second parser here would
-    disagree with the emitter about which rows are dispatchable, which is the whole question.
-    """
     if str(_REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(_REPO_ROOT))
     from coordinator_core.ops.dispatch_emit import spine_read  # type: ignore  # noqa: E402
@@ -112,12 +105,7 @@ def declared_write_paths(spine_read, plan_path: pathlib.Path):
         rows = spine_read.read_spine(plan_path)
     except Exception as exc:
         message = str(exc)
-        # The reader raises ONE error type for both situations and names which
-        # inside the message, so branch on that rather than on the type. ABSENT
-        # is the ordinary case — most plans in a corpus are prose — and must not
         # report as a defect; MALFORMED means a spine is there and a YAML fault
-        # made it unreadable. Getting this backwards makes the tool cry wolf on
-        # every prose plan, which is how a check stops being run.
         if "is ABSENT" in message:
             return {}, None
         return {}, f"{type(exc).__name__}: {message}"
@@ -132,12 +120,6 @@ def declared_write_paths(spine_read, plan_path: pathlib.Path):
 
 
 def ignored_paths(repo_root: pathlib.Path, paths: list) -> set:
-    """Return the subset of *paths* git refuses to track.
-
-    One `git check-ignore --stdin` per plan, never one per path: the spawn is the
-    cost here, and a per-path loop over a corpus of plans is how a cheap check
-    becomes one nobody runs.
-    """
     if not paths:
         return set()
     result = subprocess.run(
@@ -151,18 +133,6 @@ def ignored_paths(repo_root: pathlib.Path, paths: list) -> set:
 
 
 def directory_paths(repo_root: pathlib.Path, paths: list) -> set:
-    """Return the subset of *paths* that are directories on disk.
-
-    The engine's own refusal is syntactic — ``path.endswith("/")`` — so a declared
-    write of ``tests`` or ``docs/decisions`` passes emit and is caught only at
-    preflight, by the commit agent that looks at the real filesystem, after a run
-    has already been launched. Asking ``is_dir()`` here catches it before emit,
-    which is the whole point of doing it in a checker rather than in a string test.
-
-    A path that does not exist yet is NOT a finding: most declared writes are files
-    a row has not created yet, and treating absence as a defect would fire on every
-    healthy spine.
-    """
     return {p for p in paths if (repo_root / p).is_dir()}
 
 

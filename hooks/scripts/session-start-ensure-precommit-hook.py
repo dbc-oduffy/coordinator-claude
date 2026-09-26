@@ -27,6 +27,7 @@ Negative-spec:
     Does NOT touch a repo other than the session's own working directory.
 """
 
+
 from __future__ import annotations
 
 import contextlib

@@ -1,34 +1,6 @@
-"""fleet-env-cutover.py — one-time cutover of the fleet shared environment
-from a real directory to the junction layout (C4).
-
-Purpose: the named runnable fallback `_cutover_to_junction_layout`
-(`coordinator_core/install/fleet_env.py`) points operators at when its
-bounded retry is exhausted — a fleet session was importing the whole
-`retry_budget_secs` window, so the caller stopped rather than looping
-unboundedly or forcing the rename. Re-running this script IS the retry:
-`_cutover_to_junction_layout` is idempotent (already-junction is a no-op),
-so running it again costs nothing if a prior attempt already succeeded.
-
-Why a script and not a slash command: this can run before any Claude Code
-session exists (cold path) — a slash command names a remedy that cannot run
-at that moment. See CLAUDE.md § Runtime conventions "Cold-path remediation
-text names a runnable script, never a slash command" and
-`coordinator/tests/test_cold_path_remediation_is_runnable.py`.
-
-Usage:
-    python3 coordinator/bin/fleet-env-cutover.py           # perform the cutover
-    python3 coordinator/bin/fleet-env-cutover.py --check   # report layout only, no mutation
-    python3 coordinator/bin/fleet-env-cutover.py --help
-
-Exit codes: 0 — already a junction, or cutover succeeded. 1 — resolution or
-provisioning error (`FleetEnvError`). 2 — retry budget exhausted
-(`FleetEnvCutoverBlocked`) — a fleet session is still importing; retry later.
-
-Spec backlink: docs/plans/2026-08-20-the-fleet-env-publishes-through-a-juncti.md § C4
-"""
 from __future__ import annotations
 
-INSTALL_CLASS = True  # rewrites the fleet environment; see door_install.declared_install_class
+INSTALL_CLASS = True
 
 import argparse
 import sys
@@ -40,12 +12,6 @@ _RETRY_EXHAUSTED = 2
 
 
 def _bootstrap_engine() -> None:
-    """Put coordinator/bin/lib and the resolved claude-klabauter engine on sys.path.
-
-    Every function in this file that imports `coordinator_core.*` calls this
-    first — `import lib` before `require_colocated_engine_on_path` mirrors
-    the order `main()` already ran this in before the sweep.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_colocated_engine_on_path
 

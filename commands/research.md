@@ -1,4 +1,5 @@
 ---
+name: research
 description: "PM-GATED, never from a subagent. Deep research — web, repo, or structured."
 allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Glob", "Grep", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
 argument-hint: "--mode={web,repo,structured} <args> [--deepest]"

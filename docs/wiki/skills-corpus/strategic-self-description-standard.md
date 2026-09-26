@@ -61,16 +61,6 @@ be able to render three distinct visual/trust treatments, and squashing `asserte
 overstates its reliability while squashing it into `generated` understates the human's role in typing
 it.
 
-<!-- Review: code-reviewer Finding 2 (nit) — the AC1 fixture named binary-provenance.json proves the
-     enum is CLOSED (any value outside curated|generated|asserted is rejected) but cannot, by itself,
-     distinguish a correctly-3-valued schema from an incorrectly-collapsed-to-2-valued one — a schema
-     that had actually shipped `enum: ["curated", "generated"]` would reject that same fixture too.
-     DEC-2's binary-collapse defense is STRUCTURAL, not fixture-provable in isolation: it is verified
-     by reading `$defs.provenance.enum` in strategic-self-description.schema.json and confirming it
-     literally lists 3 values, not by any single instance the schema rejects. -->
-
-
-
 > **Disambiguation — this is NOT the RAG-embedding `curated` category.** `docs/wiki/addon-protocol/addon-chunker-categories.md`
 > already uses `curated` to mean "human-authored content intended for direct embedding in a
 > user-facing knowledge base" (a chunker-ingest classification). The provenance-marker sense here is
@@ -126,16 +116,14 @@ Two properties every consumer of this artifact can rely on, enforced at the sche
   envelope wrapping a semantically malformed payload. This forecloses the validate-then-trust
   anti-pattern (a consumer trusting schema-validity alone and then acting on a malformed payload) and
   gives a consumer's validate-then-degrade posture a real schema decision to degrade on.
-  <!-- Review: code-reviewer Finding 3 (P2) — plan chunk C1 named only `url` and `claude-session` as
-       worked examples ("e.g." framing); `none` (label-only, no payload key) was added by the executor
-       beyond those two, for a repo with genuinely no call-to-action (confirmed use case:
-       `self-description.yaml`-shaped instances under `state/strategic/` that predate a CTA decision). It does
-       not weaken DEC-5's closed-union guarantee — a consumer switching on `kind` still gets a hard
-       validation failure on any unrecognized value, and `none` degrades trivially (render the label,
-       no action). Noted here for plan/executed-diff provenance traceability. -->
   The CTA is a security boundary (spawn-boundary command/argument-injection class) — this standard does not standardize any
   one consumer's execution mechanics (e.g. Cockpit's `shell:false` arg-vector posture is cockpit's own
   detail), only the shape that lets a consumer implement degrade-to-inert safely.
+- **`call_to_action.payload.cwd` is `"$FLEET_ROOT/<repo>"`, never an absolute path.** An
+  absolute, authoring-machine path (`X:/<repo>`, `/Users/<name>/.../<repo>`) resolves on no other
+  box, so a consumer's loader finds no such directory and disables the action there. `$FLEET_ROOT`
+  is the portable per-machine fleet root every consumer already binds (registry
+  `repos.fleet_root`, then the `FLEET_ROOT` env var, then that platform's own root convention).
 
 ## Lifecycle enum — DoE-canonical, consumer-projected (DEC-3)
 

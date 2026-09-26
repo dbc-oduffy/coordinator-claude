@@ -1,50 +1,3 @@
-"""workday-complete-step3-consolidate.py — Step 3 Branch Consolidation for /workday-complete.
-
-Encapsulates the deterministic branch-consolidation procedure from
-commands/workday-complete.md § Step 3 so it is independently invokable, testable, and
-not skippable by EM discretion.
-
-Spec backlink: commands/workday-complete.md § Step 3
-
-Stdout: one-line-per-action summary (machine-readable prefix [step3])
-Stderr: detailed git command output and warnings
-
-Exit codes:
-  0 — full success
-  1 — sync-main aborted; OR detached HEAD / running on main/master branch (guard)
-  2 — merge conflict during sibling merge (halt; PM resolves)
-  3 — reconcile with origin/main hit a conflict
-  4 — push rejected twice (PM surface)
-  5 — cs_compute_machine unavailable (lib missing)
-
-Negative-spec: does NOT touch feature/* branches (intentionally long-lived).
-Does NOT modify sync-main.py or coordinator-current-branch.py.
-
-History-rewrite safety (F4): before the reconcile/push steps, consults
-coordinator_core.session.worktree_safety.history_rewrite_verdict() for a live
-local-peer-session check (a rebase or force-push mutates the local HEAD every live
-peer's uncommitted diff is anchored to — --force-with-lease alone only protects the
-remote). A non-"ok" verdict ("refused" or "unknown" — treated identically) degrades
-reconcile to a fast-forward-only merge (never a rebase) and push to a plain
-`git push` (never --force-with-lease, never a rebase retry); this is a SAFE, non-error
-outcome and does not change the exit code by itself. The verdict is a point-in-time
-read, so it is re-resolved immediately before EACH destructive site — once at 3.2b
-for the up-front operator-visible line, again immediately before the reconcile
-step's rebase/ff-only decision, and again immediately before the push step's
-force-with-lease/plain decision — rather than one snapshot reused across the whole
-script body, since sibling discovery/merging (3.3-3.4) between the first read and
-the destructive sites can take arbitrarily long (conflict-laden, PM-attended) and a
-peer session going live in that window must not be invisible to the gate.
-
-Port of: workday-complete-step3-consolidate.sh (DoE 091c0f3e, 2026-07-19).
-`today` is natively imported from coordinator_core.daily_day.local_day (de-bash campaign,
-2026-07-21 — Port of: coordinator-daily-day.sh, DoE c6d97219, 2026-07-22).
-cs_compute_machine / cs_parse_branch_span are natively imported from
-coordinator_core.machine_resolver / coordinator_core.daily_branch (de-bash campaign,
-unit "daily-branch" — Port of: coordinator-daily-branch.sh, DoE 2fbe0e77, 2026-07-19, see
-cc_invoke._resolve_claude_klabauter_root for the engine-root ladder this import rides). sync-main.py
-is invoked as a subprocess.
-"""
 from __future__ import annotations
 
 import os
@@ -85,13 +38,6 @@ def _bootstrap_engine() -> None:
 
 
 def __getattr__(name: str):
-    """PEP 562 module `__getattr__` — lazily resolves `wc` (`workday_ceremony_lib`)
-    on attribute access rather than a module-scope import statement, so the
-    module body stays inert for warm-serve purposes while `mod.wc` (and
-    `monkeypatch.setattr(mod.wc, "git", ...)` against the SAME cached
-    `sys.modules` singleton every in-function `import workday_ceremony_lib as wc`
-    also binds to) still resolves for the test suite.
-    """
     if name == "wc":
         _bootstrap_engine()
         import workday_ceremony_lib
@@ -118,7 +64,6 @@ def _err(msg: str) -> None:
 
 
 def _git_stream(*args: str) -> int:
-    """Run `git <args>`, forwarding stdout+stderr to our stderr; return exit code."""
     _bootstrap_engine()
     import workday_ceremony_lib as wc
 
@@ -132,7 +77,6 @@ def _git_stream(*args: str) -> int:
 
 
 def _compute_machine() -> str:
-    """Native cs_compute_machine equivalent — coordinator_core.machine_resolver.compute_machine."""
     _bootstrap_engine()
     from cc_invoke import require_dispatch_engine_on_path
 
@@ -142,11 +86,6 @@ def _compute_machine() -> str:
 
 
 def _parse_branch_span(branch: str) -> str | None:
-    """cs_parse_branch_span equivalent — coordinator_core.daily_branch.parse_branch_span.
-
-    Returns 'start end' (space-joined) or None on parse failure, matching the retired
-    bash bridge's stdout shape so downstream .split() call sites are unchanged.
-    """
     _bootstrap_engine()
     from cc_invoke import require_dispatch_engine_on_path
 
@@ -169,8 +108,6 @@ def _branch_covers_today(branch: str, today: str) -> bool:
 
 
 def _matching_work_branches(list_args: list[str], machine: str) -> list[str]:
-    """Run `git branch <list_args>`, filter to work/<machine>/ lines (case-insensitive),
-    return the stripped branch names."""
     _bootstrap_engine()
     import workday_ceremony_lib as wc
 
@@ -210,7 +147,6 @@ def main(argv: list[str]) -> int:
             return 1
         i += 1
 
-    # Native-module availability guard.
     try:
         claude_klabauter_root = require_dispatch_engine_on_path()
         from coordinator_core.daily_day import local_day
@@ -220,15 +156,10 @@ def main(argv: list[str]) -> int:
 
     from coordinator_core.win_portability import no_console_creationflags, run_forwarding
 
-    # Step 3.0 — sync-main
     if dry_run:
         _err("[step3] DRY-RUN: would run sync-main.py")
         _out("[step3] sync-main: ok")
     else:
-        # run_forwarding, not subprocess.run: this directive is reachable
-        # in-process through coordinator_core.workday_complete.apply's
-        # capture-buffer dispatch, where sys.stderr is an io.StringIO with
-        # no fileno() — see run_forwarding's own docstring.
         sm = run_forwarding(
             [sys.executable, _BIN_SYNC_MAIN], stdout=sys.stderr, stderr=sys.stderr,
             env=child_env(),
@@ -239,13 +170,11 @@ def main(argv: list[str]) -> int:
             return 1
         _out("[step3] sync-main: ok")
 
-    # Step 3.1 — machine and today
     machine = _compute_machine()
     today = local_day()
     _out(f"[step3] machine: {machine}")
     _out(f"[step3] today: {today}")
 
-    # Step 3.2 — current branch
     current_branch = ""
     if os.path.isfile(_BIN_CURRENT_BRANCH):
         try:
@@ -255,8 +184,6 @@ def main(argv: list[str]) -> int:
             )
             current_branch = cb.stdout.strip() if cb.returncode == 0 else ""
         except (OSError, subprocess.TimeoutExpired):
-            # Parity with step9's _get_branch fail-open
-            # guard; falls through to the existing git-show-current fallback below.
             current_branch = ""
     if not current_branch:
         current_branch = wc.git_out("branch", "--show-current")
@@ -268,19 +195,6 @@ def main(argv: list[str]) -> int:
         _err(f"[step3] ERROR: current branch is '{current_branch}' — Step 3 must run on a workstream branch")
         return 1
 
-    # Step 3.2b — history-rewrite safety verdict (F4). A rebase or force-push
-    # mutates the local HEAD that every live peer session's uncommitted diff is
-    # anchored to; this gate is about local shared-worktree peers, not the
-    # remote (--force-with-lease already covers the remote). "unknown" is
-    # treated identically to "refused" everywhere below — see
-    # coordinator_core.session.worktree_safety's module docstring. The verdict
-    # is a point-in-time read (see that module's negative-spec on not
-    # memoizing live_session_ids), so this early call is for the up-front
-    # operator line only; the reconcile and push steps below each re-resolve
-    # it immediately before their own destructive git call, since sibling
-    # discovery/merging (3.3-3.4) between here and there can take arbitrarily
-    # long and a peer session going live in that window must not be invisible
-    # to the gate.
     from coordinator_core.session.worktree_safety import history_rewrite_verdict
 
     def _resolve_rewrite_verdict():
@@ -291,7 +205,6 @@ def main(argv: list[str]) -> int:
 
     rewrite_verdict, rewrite_ok = _resolve_rewrite_verdict()
 
-    # Step 3.3 — discover sibling workstream branches
     sibling_branches = []
     for name in _matching_work_branches(["--list"], machine):
         if name == current_branch:
@@ -302,7 +215,6 @@ def main(argv: list[str]) -> int:
     siblings_display = ",".join(sibling_branches) if sibling_branches else "none"
     _out(f"[step3] siblings discovered: {siblings_display}")
 
-    # Step 3.4 — merge siblings into current branch
     merged_count = 0
     for sibling in sibling_branches:
         if dry_run:
@@ -318,7 +230,6 @@ def main(argv: list[str]) -> int:
         merged_count += 1
     _out(f"[step3] siblings merged: {merged_count}")
 
-    # Step 3.5 — reconcile with origin/main
     reconcile_status = "no-op (origin/main missing)"
     if dry_run:
         _err("[step3] DRY-RUN: would reconcile with origin/main")
@@ -337,10 +248,6 @@ def main(argv: list[str]) -> int:
                 _err("[step3] branch already contains origin/main — no rebase needed")
                 reconcile_status = "no-op (ahead-only)"
         else:
-            # Re-resolve immediately before the rebase-vs-ff-only decision —
-            # sibling merging (3.3-3.4) may have taken arbitrarily long since
-            # the 3.2b read, and a peer session going live in that window must
-            # not be invisible to the gate.
             rewrite_verdict, rewrite_ok = _resolve_rewrite_verdict()
             if not rewrite_ok:
                 _err(
@@ -367,20 +274,6 @@ def main(argv: list[str]) -> int:
                         return 3
     _out(f"[step3] reconcile: {reconcile_status}")
 
-    # Step 3.6 — push current branch, via push_outstanding() (C4b, AC8): the
-    # canonical primitive the C4-registered `push.outstanding` op wraps for
-    # every cadence surface (coordinator_core.ops.push_outstanding).
-    # The plan's own anti-scope forbids new hand-rolled `git push` call
-    # sites, so this delegates entirely to `push_outstanding()` rather than
-    # re-implementing push-with-retry/branch_gate here the way the prior
-    # hand-rolled `_git_stream("push", "--force-with-lease", ...)` retry
-    # ladder did. `push_summary` (not `push_status`) is this script's own
-    # local variable name deliberately -- `push_status` is
-    # `commit_pipeline.py`'s canonical vocabulary
-    # (pushed/push-failed/declined/no-remote/not-attempted/unconfirmed) and
-    # this script's own strings ("ok"/"skipped (--no-push)"/etc.) are not
-    # that vocabulary, so a later name-based sweep must not mistake this for
-    # a fourth spelling of it (F8).
     push_summary = ""
     if no_push:
         push_summary = "skipped (--no-push)"
@@ -442,7 +335,6 @@ def main(argv: list[str]) -> int:
                 push_summary = "ok"
     _out(f"[step3] push: {push_summary}")
 
-    # Step 3.7 — delete merged sibling branches
     deleted_count = 0
     if dry_run:
         _err("[step3] DRY-RUN: would delete merged sibling branches")

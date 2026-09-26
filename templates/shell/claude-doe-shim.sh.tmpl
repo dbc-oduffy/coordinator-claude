@@ -21,11 +21,10 @@
 # Machine-independent: the pointer is read at call-time, never baked.
 # POSIX-sh safe: no bashisms — safe to source from any interactive shell.
 
-# Source-time guard: if the pointer is absent when this file is sourced (e.g., a
-# fresh install where gen-doe-root-pointer.py has not yet run), skip defining
-# claude() and emit a one-time warning.  The function will appear on the next
-# shell start after coordinator:install (or the SessionStart self-heal) creates
-# the pointer.  This is a graceful skip, not an error — do not set -e around it.
+# Source-time guard: if the pointer is absent when this file is sourced, skip
+# defining claude() SILENTLY. An absent pointer means this box never opted into
+# the dev-clone launcher; a shell start is no place to announce that, and the
+# bare `claude` must stay untouched. Do not set -e around it.
 #
 # Durable-first (DR-072): check the settings-home pointer first, falling back
 # to the legacy ~/.claude pointer during the transition window. No
@@ -51,8 +50,6 @@
 export COORDINATOR_SETTINGS_HOME
 
 if [ ! -f "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.doe-root" ] && [ ! -f "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" ]; then
-  printf 'claude-doe shim: .doe-root pointer absent (settings-home or %s/.claude) — claude() not defined; run <engine-clone>/scripts/setup.py\n' \
-    "${CLAUDE_HOME:-$HOME}" >&2
   return 0 2>/dev/null || true
 fi
 
@@ -60,22 +57,30 @@ fi
 #
 # Reads the DoE repo root from the cold-readable pointer file at invocation
 # time (not at source time) so that a self-healed pointer is picked up without
-# re-sourcing the rc.  Fails loud if the pointer is absent or empty at
-# call-time (belt-and-suspenders: the source-time guard above already skipped
-# definition when the pointer was absent, but the pointer can be removed later).
-# Durable-first (DR-072): settings-home pointer, then legacy ~/.claude fallback.
+# re-sourcing the rc. Durable-first (DR-072): settings-home pointer, then
+# legacy ~/.claude fallback.
+#
+# Invariant: this function never stands between the operator and a working
+# `claude`. `claude --vanilla` always reaches the real binary, and a pointer
+# that is empty, names a directory that is gone, or a claude-doe that is not
+# on PATH falls through to the real binary silently — the launcher is an
+# opt-in overlay, never a gate.
 #
 # Negative-spec: does NOT call machine-local, does NOT require coordinator bins
 # on PATH — zero tool dependency beyond cat(1) and claude-doe on PATH.
 claude() {
+  if [ "${1:-}" = "--vanilla" ]; then
+    shift
+    command claude "$@"
+    return
+  fi
   _r="$(cat "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.doe-root" 2>/dev/null)"
   if [ -z "$_r" ]; then
     _r="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)"
   fi
-  if [ -z "$_r" ]; then
-    printf 'claude-doe shim: .doe-root pointer missing (settings-home or %s/.claude) — run <engine-clone>/scripts/setup.py\n' \
-      "${CLAUDE_HOME:-$HOME}" >&2
-    return 1
+  if [ -z "$_r" ] || [ ! -d "$_r" ] || ! command -v claude-doe >/dev/null 2>&1; then
+    command claude "$@"
+    return
   fi
   command claude-doe --doe-root "$_r" "$@"
 }

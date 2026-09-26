@@ -77,9 +77,6 @@ try:
         place_engine_root_on_path as _place_engine_root_on_path,
     )
 except Exception:
-    # Defensive fallback -- a hook script copied/deployed WITHOUT its
-    # sibling _engine_root.py (e.g. an isolated test harness, or a
-    # partial deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> "str | None":
         return None
 
@@ -92,11 +89,6 @@ except Exception:
         return None
 
 
-#: The durable log's filename, under this settings-home's `state/` subtree
-#: (see the state-placement-law wiki's install-baton-rendezvous row for the
-#: precedent of machine-shared install substrate living at
-#: `<settings-home>/state/...`). Picked to name the artifact class plainly:
-#: one line per SessionStart boot that resolved a job mode.
 _LOG_FILENAME = "job-mode-announce.log"
 
 
@@ -120,8 +112,6 @@ def resolve_settings_home() -> Path:
 
 
 def _append_durable_line(line: str) -> None:
-    """Best-effort append -- raises on any failure; `main()` catches it so a
-    durable-write failure never costs the stdout leg its own line."""
     log_path = resolve_settings_home() / "state" / _LOG_FILENAME
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with open(log_path, "a", encoding="utf-8") as fh:
@@ -148,12 +138,10 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open -- engine repo unresolvable on this machine
+        return 0
 
     _place_engine_root_on_path(root)
 
-    # Must precede the first coordinator_core.* import -- see
-    # _engine_root.arm_lazy_ops for the eager package-init cost this avoids.
     _arm_lazy_ops()
 
     try:
@@ -163,29 +151,18 @@ def main() -> int:
             resolve_mode,
         )
     except Exception:
-        return 0  # engine unimportable -> fail-open
+        return 0
 
     env = dict(os.environ)
     session_id = _extract_session_id(raw)
 
     try:
-        # session_id is unused by the `job_mode` key today (its
-        # `session_pair` is None -- see mode_resolution.py's own
         # `MODE_KEYS["job_mode"]`), but `resolve_mode`'s signature requires
-        # one; passing the session's own id (falling back to "") keeps this
-        # call honest against a future key that does read it.
         mode = resolve_mode("job_mode", session_id if session_id != "unknown" else "", env=env)
     except Exception:
-        return 0  # any engine failure -> fail-open
+        return 0
 
     # Whether the value was explicitly ASSERTED via COORDINATOR_JOB_MODE, or
-    # fell through to the conservative anchor -- read the same public wire
-    # name and enum the engine repo exports (never re-spelled here; see this
-    # module's own docstring and mode_resolution.py's "ONE place the wire
-    # name is spelled fleet-wide"). `job_mode` is `environment-wins`, so a
-    # raw value inside the declared enum always IS the resolved value;
-    # anything else (absent, empty, mis-cased, or otherwise unrecognised)
-    # fell through past the environment rung.
     raw_env_value = env.get(COORDINATOR_JOB_MODE)
     if isinstance(raw_env_value, str) and raw_env_value in JOB_MODE_VALUES:
         provenance = f"asserted via {COORDINATOR_JOB_MODE}"
@@ -199,9 +176,6 @@ def main() -> int:
     except Exception:
         pass
 
-    # Durable leg is independent of the stdout leg above -- a failure here
-    # (unwritable path, permissions, ...) must never retract or suppress
-    # the stdout line already written.
     try:
         timestamp = datetime.now(timezone.utc).isoformat()
         _append_durable_line(f"{timestamp} session={session_id} job_mode={mode} ({provenance})")

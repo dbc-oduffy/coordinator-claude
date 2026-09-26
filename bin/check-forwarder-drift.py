@@ -61,7 +61,7 @@ Port of: coordinator/bin/check-plugin-drift.py (trampoline pattern)
 
 from __future__ import annotations
 
-INSTALL_CLASS = False  # read-only probe; see door_install.declared_install_class
+INSTALL_CLASS = False
 
 import os
 import sys
@@ -69,20 +69,6 @@ from pathlib import Path
 
 
 def _import_module():
-    """Resolve the engine root, put it on sys.path, and import the ported op
-    module (name axis + the pieces the CONTENT axis below reuses:
-    `_PROG`, `_REMEDY`, `_resolve_settings_bin`).
-
-    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
-    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
-    re-deriving it — this is a plain in-process import, not an RPC invoke, so
-    cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
-    deliberately NOT used here.
-
-    Returns (claude_klabauter_root, module) — `claude_klabauter_root` is also the CONTENT axis'
-    resolution of the source-of-truth checkout, so it is returned rather than
-    re-resolved a second time via a separate ladder call.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 
@@ -92,25 +78,13 @@ def _import_module():
     return claude_klabauter_root, _op_module
 
 
-# Path-loaded libs substrate installs into settings-home/bin alongside every
-# generated forwarder (see module docstring's CONTENT axis section). Derived
-# from substrate's own install surface rather than hardcoded here (plan
 # C2 body) — `_RM_FAMILY_FILES` is substrate.py's own hand-maintained tuple
-# naming the resolve-claude-klabauter family (the same tuple `_install_bin_resolvers`'
-# `rm_family` writer reads), so this stays in sync with whatever substrate
-# actually installs into that family without re-deriving substrate's own
-# install policy here.
 def _content_axis_lib_names() -> tuple:
     try:
         from coordinator_core.install.substrate import _RM_FAMILY_FILES
 
         return tuple(_RM_FAMILY_FILES)
     except ImportError:
-        # substrate.py exposes no reachable lib-family surface on this
-        # checkout (unexpected — verified reachable as of 2026-08-12) —
-        # fall back to the one file with proven blast radius (the incident
-        # this plan's Problem section documents) rather than skipping the
-        # CONTENT axis entirely.
         return ("_resolve_claude_klabauter.py",)
 
 
@@ -164,12 +138,6 @@ _CONTENT_AXIS_FALLBACK_EMITTED = False
 
 
 def _warn_content_axis_fell_back(dispatch_root: str) -> None:
-    """Say so, once per process, when the CONTENT axis borrowed the dispatch
-    answer because no locator variable was exported at all.
-
-    Mirrors the accessor's own advisory for the one case it cannot cover —
-    neither variable set — so the misread is never silent whichever branch
-    produced it."""
     global _CONTENT_AXIS_FALLBACK_EMITTED
     if _CONTENT_AXIS_FALLBACK_EMITTED:
         return
@@ -219,8 +187,6 @@ def _check_content_axis(fd_module, claude_klabauter_root: str) -> "tuple[list, b
     for name in _content_axis_lib_names():
         dst = settings_bin / name
         if not dst.exists():
-            # NAME axis already reports this as derived-but-not-installed —
-            # nothing further to say on the content axis.
             continue
         src = source_dir / name
         if not src.exists():
@@ -235,7 +201,7 @@ def _check_content_axis(fd_module, claude_klabauter_root: str) -> "tuple[list, b
             same = dst.read_bytes() == src.read_bytes()
         except OSError as exc:
             unresolved += 1
-            checked -= 1  # counted above the try; this comparison never completed
+            checked -= 1
             lines.append(f"[warn] {fd_module._PROG} ({label}): could not read {name} for comparison: {exc}")
             continue
         if not same:
@@ -250,10 +216,6 @@ def _check_content_axis(fd_module, claude_klabauter_root: str) -> "tuple[list, b
             "docstring's CITED-VS-UNCITED SPLIT)."
         )
     elif unresolved:
-        # code-reviewer 2026-08-12 (nit): a file that could not be
-        # checked (missing source-of-truth or unreadable) must not be folded
-        # into "0 drifted" as if it were cleared — say so explicitly instead
-        # of letting the summary line imply full coverage.
         lines.append(
             f"[ok] {fd_module._PROG} ({label}): {checked} checked, 0 drifted, "
             f"{unresolved} could not be compared (see [warn] above)"
@@ -268,9 +230,6 @@ def main(argv: "list[str] | None" = None) -> int:
         claude_klabauter_root, op_module = _import_module()
     except RuntimeError as exc:
         print(f"check-forwarder-drift.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
-        # Unresolvable engine root is a clean skip for this probe, not a
-        # failure (see forwarder_drift.py's own resolution-ladder contract) —
-        # never fail the calling ceremony.
         return 0
     except ImportError as exc:
         print(
@@ -285,9 +244,6 @@ def main(argv: "list[str] | None" = None) -> int:
     for line in _check_content_axis(op_module, claude_klabauter_root)[0]:
         print(line)
 
-    # AC7: the CONTENT axis never changes the CLI's exit code — see
-    # _check_content_axis's docstring and this module's own docstring
-    # ("Exit codes:" block).
     return rc
 
 

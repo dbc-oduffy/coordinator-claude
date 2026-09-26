@@ -47,9 +47,6 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
-    # Defensive fallback -- a hook script copied/deployed WITHOUT its
-    # sibling _engine_root.py (e.g. an isolated test harness, or a
-    # partial deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -57,7 +54,7 @@ except Exception:
 def main() -> int:
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open silent exit -- engine repo unresolvable on this machine
+        return 0
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
@@ -65,22 +62,16 @@ def main() -> int:
     try:
         from coordinator_core.hooks.coordinator_reminder import render_reminder
     except Exception:
-        return 0  # engine unimportable -> fail-open silent exit
+        return 0
 
-    # Capability catalog lives at the doctrine-plane plugin root -- mirrors the bash
     # PLUGIN_ROOT ($SCRIPT_DIR/../..) resolution and preuse-write-dispatch.py's
-    # policy_path convention. __file__ parents: [0]=scripts [1]=hooks
-    # [2]=coordinator (plugin root).
     catalog_path = Path(__file__).resolve().parents[2] / "capability-catalog.md"
 
     try:
         text = render_reminder(catalog_path)
     except Exception:
-        return 0  # any engine failure -> fail-open silent exit
+        return 0
 
-    # Write raw bytes, not sys.stdout.write() -- on Windows, text-mode stdout
-    # translates LF to CRLF, which would diverge byte-for-byte from the bash
-    # oracle's LF-only heredoc/grep output (golden-diff parity requirement).
     sys.stdout.buffer.write(text.encode("utf-8"))
     return 0
 

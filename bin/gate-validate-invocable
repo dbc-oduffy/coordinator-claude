@@ -5,10 +5,13 @@ coordinator/bin/gate-validate-invocable — operator-invocable CLI entry for the
 run this" precedent.
 
 WHY THIS EXISTS
-    DR-233 (engine-native, advisory-only, no GHA/pre-commit authority layer)
-    removed both automatic invocation points this design ever had. Without an
-    explicit invocation site the op is a library nobody calls (C1). This is
-    that site: `python3 coordinator/bin/gate-validate-invocable <changed-file>...`.
+    DR-233 (engine-native, advisory-only, no GHA/pre-commit authority layer),
+    superseded by DR-375, removed both automatic invocation points this
+    design's local check ever had. Without an explicit invocation site the op
+    is a library nobody calls (C1). This is that site: `python3
+    coordinator/bin/gate-validate-invocable <changed-file>...`. (DR-375 put a
+    separate remote-authority layer behind `git push`; it does not restore
+    an invocation point here.)
 
 USAGE
     python3 coordinator/bin/gate-validate-invocable [--diff-base REF] <path> [<path> ...]

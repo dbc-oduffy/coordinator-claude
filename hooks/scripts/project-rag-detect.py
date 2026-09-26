@@ -41,16 +41,6 @@ from pathlib import Path
 
 
 def _read_stdin(timeout: float = 2.0) -> str:
-    """Bounded stdin read (Windows hang guard) -- copied from
-    runtime-tripwire-stop-watcher.py._read_stdin (~186-201).
-
-    A bare sys.stdin.read() blocks forever if the harness never closes
-    stdin's write end (observed Windows failure mode); this backstops with a
-    2s threaded-join timeout, returning "" (the same fail-open value a
-    drained-but-empty payload would produce) instead of hanging the whole
-    hook chain -- SessionStart is a PRE-tool-call gate, so a hang here stalls
-    session start, not just one tool call.
-    """
     box = {"data": ""}
 
     def _read() -> None:
@@ -71,23 +61,16 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
-    # Defensive fallback -- a hook script copied/deployed WITHOUT its
-    # sibling _engine_root.py (e.g. an isolated test harness, or a
-    # partial deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
 
 def main() -> int:
-    # This hook needs only cwd (exactly as the bash/ps1 oracles used `pwd` /
-    # `Get-Location`, not the SessionStart JSON payload) - but SessionStart
-    # hooks are invoked with a JSON payload on stdin regardless of whether the
-    # hook consumes it; drain it so the harness never sees a broken pipe.
     _read_stdin()
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open - engine repo unresolvable on this machine
+        return 0
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
@@ -95,19 +78,14 @@ def main() -> int:
     try:
         from coordinator_core.hooks.project_rag_detect import detect_banner
     except Exception:
-        return 0  # engine unimportable -> fail-open
+        return 0
 
     try:
         banner = detect_banner(os.getcwd())
     except Exception:
-        return 0  # any detection failure -> fail-open, silent
+        return 0
 
     if banner:
-        # Route through the binary buffer, not text-mode sys.stdout.write():
-        # text mode translates "\n" to the platform line separator, which on
-        # Windows means every embedded newline in a multi-line banner (incl.
-        # the wrapped <system-reminder> block) comes out CRLF -- a needless
-        # divergence from the bash/ps1 oracles' LF-only output.
         sys.stdout.buffer.write(banner.encode("utf-8"))
         sys.stdout.buffer.write(b"\n")
     return 0

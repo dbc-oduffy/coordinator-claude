@@ -52,20 +52,6 @@ import sys
 
 
 def _import_runner():
-    """Resolve the engine root, put it on sys.path, and import the run-op runner.
-
-    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
-    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
-    re-deriving it -- this is a plain in-process import, not an RPC invoke, so
-    cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
-    deliberately NOT used here.
-
-    DR-276: the op is run through `coordinator_core.cli_entry.run_op_main`
-    rather than by calling its `main` directly, so the paths it declares
-    become a session scope-touch claim. Without that, everything this CLI
-    writes (the `.gitignore` append) is an orphan at the `scoped_git_commit`
-    sink.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 
@@ -79,15 +65,12 @@ def main(argv: "list[str] | None" = None) -> int:
     try:
         run_op_main = _import_runner()
     except RuntimeError as exc:
-        # rc=3 is a dedicated transport-failure code,
-        # distinct from the module's own business codes (0/1/2), per A3b.
         print(
             f"workday-complete-step2_5-dirty-tree.py: engine-root resolution failed: {exc}",
             file=sys.stderr,
         )
         return 3
     except ImportError as exc:
-        # Same dedicated transport-failure code as above.
         print(
             "workday-complete-step2_5-dirty-tree.py: "
             f"coordinator_core.cli_entry not importable: {exc}",

@@ -97,8 +97,6 @@ def _resolve_plugin_root() -> str | None:
         resolved = doe_root()
     except _DoeUnresolvable:
         return None
-    # Either content layout — the published flat mirror carries
-    # coordinator-schema-version at its own root, no "coordinator" segment.
     content = content_root_for(resolved)
     return str(content) if content is not None else None
 
@@ -112,9 +110,6 @@ def _import_main():
 
 
 def main(argv: "list[str] | None" = None) -> int:
-    # Contract fact only the trampoline can supply — its own directory, used
-    # by the engine module ONLY to auto-detect source_is_live (plugin_root is
-    # resolved explicitly below, not defaulted from this).
     os.environ.setdefault("COORDINATOR_CURRENCY_SCRIPT_DIR", _SCRIPT_DIR)
 
     plugin_root = _resolve_plugin_root()

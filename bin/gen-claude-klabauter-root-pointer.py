@@ -59,17 +59,10 @@ import subprocess
 import sys
 import tempfile
 
-GENERATES = []  # writes only <settings-home>/machine-local/.claude-klabauter-root, outside claude-klabauter's tracked tree
+GENERATES = []
 
-# ---------------------------------------------------------------------------
-# Settings-home resolution — inline mirror of cc_invoke.py::_resolve_claude_klabauter_root.
-# Kept inline (no cross-module import) for the same single-file-module reason
-# _machine_local.py documents.
-#
-# Precedence (most-specific first):
 #   COORDINATOR_SETTINGS_HOME (explicit override) →
 #   ${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings
-# ---------------------------------------------------------------------------
 
 
 def _settings_home() -> str:
@@ -84,12 +77,6 @@ def _settings_home() -> str:
     )
     return os.path.join(home, ".coordinator-claude-settings")
 
-
-# ---------------------------------------------------------------------------
-# machine-local registry access — direct subprocess to _machine_local.py via
-# sys.executable. Mirrors coordinator_registry.py::_registry_machine_local_get.
-# No shell=True, no bash — portable to Windows/macOS/Linux alike.
-# ---------------------------------------------------------------------------
 
 _CLAUDE_HOME_ENV = "CLAUDE_HOME"
 _MACHINE_LOCAL_IMPL_ENV = "MACHINE_LOCAL_IMPL"
@@ -151,18 +138,11 @@ def _machine_local_get(key: str) -> str | None:
 
 
 def _resolve_claude_klabauter_root() -> str:
-    """Resolve the claude-klabauter repo root: env override, then machine-local registry.
-
-    Raises SystemExit(1) with a remediation message on stderr if unresolvable.
-    """
-    # Tier 1: explicit env override (mirrors gen-doe-root-pointer.py's
     # REPO_DOE_CLAUDE tier; REPO_CLAUDE_KLABAUTER is also the rung-1 override
-    # inside machine-local's own resolve_sibling_repo ladder for repos.claude_klabauter).
     override = os.environ.get("REPO_CLAUDE_KLABAUTER")
     if override:
         return override
 
-    # Tier 2: machine-local registry (repos.claude_klabauter).
     resolved = _machine_local_get("repos.claude_klabauter")
     if not resolved:
         print(
@@ -219,8 +199,6 @@ def main(argv: "list[str] | None" = None) -> int:
     pointer_file = os.path.join(_settings_home(), "machine-local", ".claude-klabauter-root")
 
     if args.check_only:
-        # Dry-run safety: write to a temp file, validate, discard. The live
-        # pointer_file is never touched.
         fd, tmp_path = tempfile.mkstemp(prefix="gen-claude-klabauter-root-pointer.")
         try:
             with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
@@ -246,8 +224,6 @@ def main(argv: "list[str] | None" = None) -> int:
             except OSError:
                 pass
 
-    # Live write path: idempotent — skip if the pointer already holds the
-    # correct value (no mtime churn, no race).
     if os.path.isfile(pointer_file):
         try:
             with open(pointer_file, "r", encoding="utf-8") as f:
@@ -260,8 +236,6 @@ def main(argv: "list[str] | None" = None) -> int:
     pointer_dir = os.path.dirname(pointer_file)
     os.makedirs(pointer_dir, exist_ok=True)
 
-    # Atomic write: write to a sibling temp file then os.replace into place
-    # (same-filesystem rename is atomic on POSIX and Windows alike).
     fd, tmp_live = tempfile.mkstemp(prefix=".claude-klabauter-root.tmp.", dir=pointer_dir)
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:

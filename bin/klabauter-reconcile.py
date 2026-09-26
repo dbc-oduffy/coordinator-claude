@@ -84,19 +84,12 @@ _EXIT_OK = 0
 _EXIT_FAIL = 1
 _EXIT_USAGE = 2
 
-#: Prefix every reconcile clone is created under, and the pattern the startup
-#: sweep matches. Narrow on purpose: the sweep must never match a directory
-#: this module did not create.
 _CLONE_PREFIX = "klabauter-reconcile-"
 
 _PERCOLATE_PUSH = None
 
 
 def _percolate_push():
-    """Load `percolate-push.py` under a private module name — the idiom
-    `klabauter-promote.py::_load_percolate_push_module` already uses for this
-    same sibling — lazily, so importing this file never executes that module's
-    body on a warm server ~50 sessions share."""
     global _PERCOLATE_PUSH
     if _PERCOLATE_PUSH is None:
         spec = importlib.util.spec_from_file_location(
@@ -124,18 +117,12 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
 
 
 def _on_rm_error(func, path, exc):
-    """`shutil.rmtree` error hook: git's object store is read-only on Windows,
-    which makes `unlink` raise `PermissionError` on files that are genuinely
-    ours to remove. Clear the read-only bit and retry once."""
     del exc
     Path(path).chmod(stat.S_IWRITE)
     func(path)
 
 
 def _rmtree(path: Path) -> None:
-    """`shutil.rmtree` with the read-only retry hook, under whichever keyword
-    the running interpreter accepts. `onerror` is deprecated from 3.12 and
-    `onexc` does not exist before it, so the repo's 3.11+ floor needs both."""
     if sys.version_info >= (3, 12):
         shutil.rmtree(path, onexc=_on_rm_error)
     else:
@@ -143,15 +130,6 @@ def _rmtree(path: Path) -> None:
 
 
 def _is_disposable_clone(path: Path, remote_url: Optional[str]) -> Optional[str]:
-    """Return None if `path` is safe to delete, else the sentence saying why
-    it is not.
-
-    Every predicate fails CLOSED: a git command that does not run at all
-    leaves the directory in place. The bar is the one the interactive
-    `destructive-rm` guard names for removing a clone — a git root, fully
-    pushed, no stashes — plus an identity check that the clone is of the
-    target's own remote, so a mistyped path cannot reach an unrelated repo.
-    """
     if not path.is_dir():
         return "'{}' is not a directory".format(path)
 
@@ -204,9 +182,6 @@ def _remove_clone(path: Path, remote_url: Optional[str], label: str) -> bool:
 
 
 def _sweep_orphans(scratch_root: Path, remote_url: Optional[str]) -> None:
-    """Remove reconcile clones a previous run leaked. A run killed outright
-    never reaches its own `finally`, so without this a leak is permanent and
-    silent."""
     for leftover in sorted(scratch_root.glob(_CLONE_PREFIX + "*")):
         if leftover.is_dir():
             _remove_clone(leftover, remote_url, "orphaned reconcile clone")
@@ -218,22 +193,6 @@ def _remote_url(dest: str) -> Optional[str]:
 
 
 def _published_paths(dest: str) -> Optional[Set[str]]:
-    """The repo-relative paths the percolate rounds actually write, read from
-    the mirror's own round manifest.
-
-    A conflicted path INSIDE this set is regenerated from claude-klabauter source every
-    round, so the channel's side is authoritative and taking it loses nothing.
-    A conflicted path OUTSIDE it is mirror-native (`.gitignore` is the live
-    example) and has no source-side original — resolving that toward the
-    channel would silently delete content nothing rebuilds, so it is refused.
-    Returns None when the manifest cannot be read, which refuses every
-    auto-resolution rather than guessing.
-
-    `dest` is the target's dest dir, which may sit below the mirror root
-    (klabauter's resolves to `<mirror>/coordinator_core`); the manifest and
-    its repo-relative paths live at the root, so the nearest ancestor holding
-    one is the mirror.
-    """
     start = Path(dest)
     manifest = next(
         (
@@ -278,11 +237,6 @@ def _reconcile(
     take_candidate: bool,
     published: Optional[Set[str]],
 ) -> Tuple[int, bool]:
-    """Merge `origin/<main_branch>` into `<channel>` inside `clone`.
-
-    Returns `(exit_code, merged)`. `merged` is False when the branches were
-    already contained, which is a success with nothing to push.
-    """
     contained = _git(
         clone,
         "merge-base",

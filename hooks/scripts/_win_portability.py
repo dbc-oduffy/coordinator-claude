@@ -49,9 +49,6 @@ __all__ = ["no_console_creationflags"]
 
 
 def _is_windows() -> bool:
-    """Platform check as a seam, not an inline `os.name` read at every call
-    site -- lets a test exercise both branches on one host by monkeypatching
-    `os.name` rather than the real platform."""
     return os.name == "nt"
 
 

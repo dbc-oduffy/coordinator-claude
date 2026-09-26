@@ -66,10 +66,6 @@ from datetime import datetime, timedelta, timezone
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Tracked dependency-manifest globs — subset of dep-cve-auditor's own
-# detection table (kept in sync manually; dep-cve-auditor is the source of
-# truth for the full list, this is only the "does this repo have ANY dep
-# surface at all" pre-filter).
 _CVE_MANIFESTS = (
     "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
     "requirements.txt", "requirements.lock", "pyproject.toml", "uv.lock",
@@ -80,8 +76,6 @@ _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 def _run(cmd: list[str], cwd: str | None = None) -> tuple[int, str]:
-    """Run cmd, merging stdout+stderr (mirrors the bash `2>&1` capture the
-    ported logic used), and return (rc, combined_output)."""
     proc = subprocess.run(
         cmd,
         cwd=cwd,
@@ -97,14 +91,7 @@ def _sibling(name: str) -> str:
     return os.path.join(_BIN_DIR, name)
 
 
-# ---------------------------------------------------------------------------
-# Step 4d: description-length advisory
-# ---------------------------------------------------------------------------
-
 def cmd_description_length(_args: argparse.Namespace) -> int:
-    """Informational — never blocks. Always exits 0; the rc of the underlying
-    check is reported IN the banner text, not propagated, matching the DoE
-    ceremony's own `set +e` / never-fail-the-step framing."""
     script = _sibling("check-description-length.py")
     rc, out = _run([sys.executable, script])
     print("---")
@@ -114,13 +101,7 @@ def cmd_description_length(_args: argparse.Namespace) -> int:
     return 0
 
 
-# ---------------------------------------------------------------------------
-# Step 4f: enabledPlugins drift audit advisory
-# ---------------------------------------------------------------------------
-
 def cmd_enabled_plugins(args: argparse.Namespace) -> int:
-    """Per-repo advisory — never blocks. Skips cleanly (rc=0, no dispatch)
-    when .claude/settings.json is absent from the target repo root."""
     repo_root = args.repo_root or os.getcwd()
     settings_path = os.path.join(repo_root, ".claude", "settings.json")
     if os.path.isfile(settings_path):
@@ -135,17 +116,7 @@ def cmd_enabled_plugins(args: argparse.Namespace) -> int:
     return 0
 
 
-# ---------------------------------------------------------------------------
-# Step 4h: CVE recheck (change-aware)
-# ---------------------------------------------------------------------------
-
 def cmd_cve_recheck(args: argparse.Namespace) -> int:
-    """Change-aware — dispatch is a *report*, not an in-process auditor run
-    (dep-cve-auditor is a Sonnet worker the EM dispatches on the dispatch
-    verdict below). Always exits 0 — advisory, never blocks merge; the
-    skip-vs-dispatch distinction is carried in stdout for the EM to read.
-    14-day window (not 7): covers slipped workweeks — a double-audit is a
-    cheap no-op report, a missed audit is a silently-unscanned CVE."""
     repo_root = args.repo_root or os.getcwd()
 
     rc, out = _run(["git", "ls-files", "--", *_CVE_MANIFESTS], cwd=repo_root)
@@ -170,19 +141,9 @@ def cmd_cve_recheck(args: argparse.Namespace) -> int:
     return 0
 
 
-# ---------------------------------------------------------------------------
 # pcli-04 drift gate (BLOCKING)
-# ---------------------------------------------------------------------------
 
 def cmd_pcli_drift_gate(_args: argparse.Namespace) -> int:
-    """Blocking gate. Three-way exit-code branch — a release gate must never
-    conflate "ran and found drift" with "could not run":
-        0 PASS  — dispatch_feed-vs-capture, staleness, and C7 hash legs all
-                  clean (see sibling CLI's own stdout).
-        1 FAIL  — at least one leg fired; halt the release.
-        2 ERROR — the gate could not run at all; halt and surface, NOT a pass.
-        other   — unexpected rc from the sibling CLI; treated as ERROR (2).
-    """
     script = _sibling("check-pcli-drift-gate.py")
     if not os.path.isfile(script):
         print(f"ERROR: check-pcli-drift-gate CLI not found at {script} — halt and surface", file=sys.stderr)
@@ -202,15 +163,7 @@ def cmd_pcli_drift_gate(_args: argparse.Namespace) -> int:
     return 2
 
 
-# ---------------------------------------------------------------------------
-# Step 6: console-flash guard
-# ---------------------------------------------------------------------------
-
 def cmd_console_flash_guard(args: argparse.Namespace) -> int:
-    """Thin dispatcher over verify-no-console-flash.py. Reports OK/issues,
-    or a clean skip if the sibling guard is missing (install-surface gap,
-    not a ceremony failure). Always exits 0 — the DoE ceremony step reports
-    and offers to fix, it does not hard-block on this guard."""
     target = args.target or os.path.join(os.path.expanduser("~"), ".claude", "plugins")
     guard = _sibling("verify-no-console-flash.py")
     if not os.path.isfile(guard):
@@ -226,13 +179,7 @@ def cmd_console_flash_guard(args: argparse.Namespace) -> int:
     return 0
 
 
-# ---------------------------------------------------------------------------
-# Step 6: multi-event hook hookEventName guard
-# ---------------------------------------------------------------------------
-
 def cmd_multi_event_hook_guard(_args: argparse.Namespace) -> int:
-    """Thin dispatcher over check-multi-event-hook-hardcoded-event.py. Same
-    report-and-offer shape as the console-flash guard above; always exits 0."""
     guard = _sibling("check-multi-event-hook-hardcoded-event.py")
     if not os.path.isfile(guard):
         print(f"Multi-event hookEventName guard: guard not found at {guard} — install or check CLAUDE_PLUGIN_ROOT")

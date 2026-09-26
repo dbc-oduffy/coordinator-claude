@@ -35,15 +35,13 @@ that as "skip, do not build a path from empty string" -- never as "already fired
 present".
 """
 
+
 from __future__ import annotations
 
 import os
 
 
 def resolve_git_common_dir(git_root: str) -> str:
-    """Resolve the git COMMON dir for `git_root` without spawning a subprocess. Fails open to
-    "" on any error, including the plain-clone case where `.git` is simply a directory. Never
-    raises."""
     try:
         dot_git = os.path.join(git_root, ".git")
         if os.path.isdir(dot_git):

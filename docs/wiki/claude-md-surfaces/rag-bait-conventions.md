@@ -85,6 +85,47 @@ A SKILL.md whose `description:` auto-routes and could match tangential prompts c
 `## Do not use for` section bounding the trigger. Prompt surface, not source — the source rules
 above don't apply to it.
 
+### 6. Never Comment Out Code
+
+Delete it; git history is the record. A commented-out block is a lint hit, not a style choice.
+
+### 7. State the Invariant, Not the Current Value
+
+A comment that would be wrong in six months is a comment about the wrong thing. State what
+callers can always assume, not today's fact:
+
+Not: `// as of the Sept migration, this is UTC` — good: `// callers assume UTC`.
+
+### 8. No Grep-Bait in Code
+
+A comment's job is never to be a searchable token, tripwire name, or task marker for another tool
+to `grep`. A tripwire's grep target is its wiki filename and its enforcing test — never a code
+comment. Cite the wiki page or test in the commit message and plan, not as a token in source.
+
+### 9. Silence Is the Default Review Outcome
+
+A reviewer flags a *missing* contract comment on a public surface, or a *misleading* one. "This
+function has no comments" is not itself a finding.
+
+---
+
+## Per-Language Contract Comments
+
+Where §2's contract goes, per language:
+
+- **Python:** the docstring *is* the contract comment (PEP 257) — one-line summary, then
+  behavior/args/returns/raises when non-obvious. No inline comment duplicating a type hint.
+- **TypeScript:** TSDoc (`/** */`) on exported symbols carries the contract; internal `//`
+  comments follow rules 1–3 only. A private helper whose name already states its purpose gets no
+  TSDoc.
+- **C++/UE:** header comments carry ownership, lifetime, and threading contracts — who owns the
+  pointer, which thread calls this — the facts C++ hides that a well-named `UPROPERTY` or function
+  doesn't already say. `.cpp`-local comments follow the universal rules.
+- **Rust:** `///` doc-comments on public items carry the contract; `//!` module-level docs state
+  the module's one job. Same restraint on inline `//`.
+- **Shell:** a top-of-script comment stating what invokes it and why it's shell, given the fleet's
+  bash-is-a-defect default, is often the one comment worth keeping.
+
 ---
 
 ## Vocabulary Discipline — CONTEXT.md
@@ -110,3 +151,6 @@ general engineering vocabulary (`function`, `module`) needs no policing.
 | Behaviour-level docstrings | "Calls validate(), then store()" — lies once the implementation changes. |
 | Copy-pasted purpose blocks | Wrong signal for both chunks. |
 | Vocabulary drift | "enrichment worker" for "enricher" — fragments recall on coined terms. |
+| Commented-out code | Never a style choice; delete it, git history is the record. |
+| Current-value comments | `// as of the Sept migration, this is UTC` ages out; state the invariant instead. |
+| Grep-bait tokens | A comment whose body is a search anchor for another tool — cite the wiki/test in the commit and plan, never in source. |

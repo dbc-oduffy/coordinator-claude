@@ -48,13 +48,6 @@ import sys
 from pathlib import Path
 
 def _bootstrap_repo_root() -> Path:
-    """Bootstrap coordinator/bin/lib onto sys.path and resolve the engine root.
-
-    Moved out of module scope (was a module-load-time `import lib` + engine-root
-    resolution) so this file carries no non-stdlib import at module scope —
-    the sys.path mutation and engine-root resolution now happen at call time,
-    same failure/exit behavior preserved.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_colocated_engine_on_path
 
@@ -66,17 +59,6 @@ def _bootstrap_repo_root() -> Path:
 
 
 def _sha_shaped_realized_by_values(candidate_paths: list[Path]) -> set[str]:
-    """Pre-scan every candidate's `realized_by:` value and return the SHA-shaped
-    subset (lower-cased), mirroring `resolve_realized_by`'s own shape dispatch
-    (inline sentinel -> skip, SHA-shaped -> collect, path-shaped -> skip) WITHOUT
-    re-deriving its resolution semantics — this only classifies shape so the
-    batched `_git_objects_exist` primitive (C29) can be warmed with the exact
-    set `resolve_realized_by` would otherwise resolve one spawn at a time.
-
-    A candidate that fails to read/parse is silently skipped here (not
-    resolved as a SHA) — `evaluate_candidate` re-reads the file itself during
-    the real evaluation pass below and is the sole source of truth for
-    outcomes; this function only feeds the batch-warm cache."""
     from coordinator_core.distill import delete_guard as _delete_guard
 
     shas: set[str] = set()
@@ -125,28 +107,13 @@ def main(argv: list[str] | None = None) -> int:
     repo_root = Path(args.repo_root).resolve()
     basis_refs = tuple(args.basis_ref)
 
-    # Validate ALL candidate paths
-    # up front, before running any guard. Previously a bad path at position k>1
-    # discarded already-computed results for candidates 1..k-1 (the function
-    # returned before reaching json.dump). Validating up front means one typo'd
-    # path in a batch never throws away already-computed work.
     candidate_paths = [Path(candidate_arg) for candidate_arg in args.candidates]
     for candidate_path in candidate_paths:
         if not candidate_path.is_file():
             print(f"error: not a file: {candidate_path}", file=sys.stderr)
             return 1
 
-    # Batch-warm the git-object-existence prefetch: one `git cat-file --batch-check`
-    # spawn (C29's `_git_objects_exist`) for the SHA-shaped `realized_by:` subset
-    # across ALL candidates, instead of one `_git_object_exists` spawn per
-    # candidate inside `resolve_realized_by`. Inline sentinels and path-shaped
-    # values never spawn git either way (see the docstring on
-    # `_sha_shaped_realized_by_values`) — this only reduces the SHA-shaped
-    # subset, conditionally, per candidate corpus composition. Passed down as
     # `existence_map` (an OPTIONAL parameter on `resolve_realized_by` and its
-    # callers, C31) — a miss in the map still falls through to the scalar
-    # `_git_object_exists`, never treated as "does not exist" (see that
-    # function's docstring for the fail-closed-on-miss contract).
     shas = _sha_shaped_realized_by_values(candidate_paths)
     existence_map = _delete_guard._git_objects_exist(list(shas), repo_root)
 

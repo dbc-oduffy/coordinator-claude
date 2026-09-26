@@ -31,9 +31,6 @@ import sys
 
 
 def _prepare_claude_klabauter_root() -> None:
-    """DR-276: routes through `coordinator_core.cli_entry.run_op_main` so any
-    `declare_write()`d paths become a session scope-touch claim rather than an
-    unclaimed orphan at the `scoped_git_commit` sink."""
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 

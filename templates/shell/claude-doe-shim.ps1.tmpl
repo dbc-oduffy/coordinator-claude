@@ -63,9 +63,24 @@ $__claudeDoeShimLegacyPointer = Join-Path (Join-Path $__claudeDoeShimHome ".clau
 # resolved one line above, so this adds no second resolution mechanism.
 if (-not $env:COORDINATOR_SETTINGS_HOME) { $env:COORDINATOR_SETTINGS_HOME = $__claudeDoeShimSettingsHome }
 
+# An absent pointer means this box never opted into the dev-clone launcher:
+# leave the bare `claude` untouched and say nothing.
 if (-not (Test-Path -LiteralPath $__claudeDoeShimPointer) -and -not (Test-Path -LiteralPath $__claudeDoeShimLegacyPointer)) {
-  Write-Warning "claude-doe shim: .doe-root pointer absent (settings-home or $__claudeDoeShimHome\.claude) — claude() not defined; run <engine-clone>/scripts/setup.py"
   return
+}
+
+# Invariant: `claude` never stands between the operator and a working Claude
+# Code. `claude --vanilla` always reaches the real binary, and an unusable
+# pointer or a missing claude-doe falls through to it silently. The real
+# binary is launched as a direct child of this shell (the console-integrity
+# shape explained below), never through claude-doe.
+function __claudeDoeShimVanilla {
+  $_real = Get-Command claude -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($null -eq $_real) {
+    Write-Error "claude: command not found"
+    return
+  }
+  & $_real.Source @args
 }
 
 # claude() — pointer-reading wrapper around claude-doe
@@ -89,6 +104,11 @@ if (-not (Test-Path -LiteralPath $__claudeDoeShimPointer) -and -not (Test-Path -
 # distinctly-named `claude-doe` command — the function below is named `claude`,
 # not `claude-doe`, so this cannot recurse into itself.
 function claude {
+  if ($args.Count -gt 0 -and $args[0] -eq '--vanilla') {
+    $_rest = if ($args.Count -gt 1) { $args[1..($args.Count - 1)] } else { @() }
+    __claudeDoeShimVanilla @_rest
+    return
+  }
   $__claudeDoeShimHome = if ($env:CLAUDE_HOME) { $env:CLAUDE_HOME } else { $HOME }
   $__claudeDoeShimSettingsHome = if ($env:COORDINATOR_SETTINGS_HOME) { $env:COORDINATOR_SETTINGS_HOME } else { Join-Path $__claudeDoeShimHome ".coordinator-claude-settings" }
   $__claudeDoeShimPointer = Join-Path $__claudeDoeShimSettingsHome "machine-local\.doe-root"
@@ -101,8 +121,9 @@ function claude {
   if ([string]::IsNullOrEmpty($_r) -and (Test-Path -LiteralPath $__claudeDoeShimLegacyPointer)) {
     $_r = (Get-Content -LiteralPath $__claudeDoeShimLegacyPointer -ErrorAction SilentlyContinue | Select-Object -First 1)
   }
-  if ([string]::IsNullOrEmpty($_r)) {
-    Write-Error "claude-doe shim: .doe-root pointer missing (settings-home or $__claudeDoeShimHome\.claude) — run <engine-clone>/scripts/setup.py"
+  if ([string]::IsNullOrEmpty($_r) -or -not (Test-Path -LiteralPath $_r -PathType Container) -or
+      $null -eq (Get-Command claude-doe -ErrorAction SilentlyContinue)) {
+    __claudeDoeShimVanilla @args
     return
   }
 

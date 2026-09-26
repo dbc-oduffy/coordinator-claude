@@ -39,31 +39,9 @@ import sys
 from pathlib import Path
 from typing import Callable, Iterable
 
-# ---------------------------------------------------------------------------
-# .percolate-ignore — delegates to coordinator/lib/percolate/ignore.py so
 # there is exactly one implementation of the (SECURITY-LOAD-BEARING) matcher
-# semantics; two independent copies of a leak-gate WILL drift — this file
-# used to carry its own parallel `IgnoreMatcher` class with NO root-anchored
-# `/dir/` branch, a silent false-negative that would have let a root-anchored
-# ignore pattern through unmatched (see
-# state/bug-backlog/2026-07-21-templates-setup-publish-sync-py-still-ca-c753beadf718.yaml
-# and docs/plans/2026-07-21-percolate-python-port.md § C-W4b).
-#
 # THIS FILE IS A DEPLOYED COPY, not a checkout-sibling of coordinator/. It is
-# delivered by install-substrate.sh / dist/publish-repo-setup/install.sh into
-# <install-root>/setup/publish_sync.py — unlike the repo-root
-# setup/publish_sync.py (which sits directly next to coordinator/ in a
-# doctrine-repo checkout and can reach ignore.py via a simple parent.parent
-# relative path), this copy's install destination is NOT a sibling of
-# coordinator/lib: the live plugin's coordinator/ tree lives one level
-# further down, at <install-root>/plugins/coordinator/
-# (see the doctrine repo's root `CLAUDE.md` § Architecture: "the live plugin root
-# under ~/.claude/plugins/coordinator-claude/ is one level above a
-# coordinator/ subdirectory"; not coordinator/CLAUDE.md, which was retired
-# 2026-07-27). _locate_percolate_lib() below resolves that, mirroring the
 # 2-rung CLAUDE_PLUGIN_ROOT / known-layout precedent already established by
-# coordinator/bin/publish.py's _locate_cc_invoke().
-# ---------------------------------------------------------------------------
 def _locate_machine_local_cli() -> Path | None:
     """Return the `machine-local` registry-reader CLI, or None if unresolvable.
 
@@ -200,11 +178,6 @@ def _locate_percolate_lib() -> Path:
                     return registry_candidate.parent.parent
 
     try:
-        # This file's own checkout root, assuming the fixed dev-tree depth
-        # <checkout-root>/coordinator/templates/setup/publish_sync.py. A
-        # deployed copy lives shallower (<install-root>/setup/publish_sync.py)
-        # so this index either lands outside the real checkout or raises
-        # IndexError on a filesystem root — both are caught below.
         checkout_root = Path(__file__).resolve().parents[3]
         sibling_candidate = (
             checkout_root.parent
@@ -246,10 +219,6 @@ from percolate.publish_modes import (  # noqa: E402  (path setup must precede th
     argparse_mode_choices,
 )
 
-# A console-subsystem child with no console of its own allocates a fresh
-# conhost on Windows -- with a visible window. Every git spawn below is
-# short-lived and output-captured, so without this each one flashes.
-# 0 on POSIX, where the flag does not exist.
 _NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 
@@ -259,27 +228,7 @@ def load_ignore(path: Path | None) -> IgnoreMatcher:
     return IgnoreMatcher(_load_percolate_ignore_patterns(path))
 
 
-# ---------------------------------------------------------------------------
-# Skip rules common to both modes
-# ---------------------------------------------------------------------------
-# Structural build-artifact exclusion — the twin of `coordinator/bin/publish.py::
-# _is_structurally_never_published`'s `__pycache__`/`.pyc`/`.pyo` handling
 # (that function's own `_STRUCTURAL_NEVER_PUBLISHED_DIR_NAMES`/`_SUFFIXES`
-# comment carries the full rationale: these are locally-generated Python
-# bytecode artifacts, recreated by anything that RUNS Python in a
-# destination clone, never present in a restricted source tree, and never
-# something any row's sync copies — treating their mere presence at the
-# destination as an orphan-sweep signal is a false positive by construction.
-# Deliberately NOT sharing one Python object with publish.py's copy: that
-# function is keyed to a `(path, repo_root)` pair walking a FULL repo tree
-# (including `.git/`, which this module never syncs to/from and which
-# `_archived_or_orphan`'s dotfile-adjacent callers already keep out of scope
-# — see `_sync_mirror_top_level_files`'s `not p.name.startswith(".")` and the
-# orphan-sweep's own `non_dot_dst` filter), while this module's callers pass
-# POSIX-relative rel_path strings (sub-plugin-relative or bare top-level
-# names) with no `repo_root` in scope. Same `__pycache__`/`.pyc`/`.pyo`
-# vocabulary, kept identical char-for-char below; `.git` is intentionally
-# absent here because it can never appear as sync input in this module.
 _STRUCTURAL_BUILD_ARTIFACT_DIR_NAMES = ("__pycache__",)
 _STRUCTURAL_BUILD_ARTIFACT_SUFFIXES = (".pyc", ".pyo")
 
@@ -316,9 +265,6 @@ def _archived_or_orphan(rel_path: str) -> bool:
     return False
 
 
-# ---------------------------------------------------------------------------
-# Copy / compare primitives
-# ---------------------------------------------------------------------------
 def _needs_copy(src: Path, dst: Path) -> bool:
     """Decide whether dst needs (re)copying from src.
 
@@ -349,17 +295,11 @@ def _needs_copy(src: Path, dst: Path) -> bool:
         s_src = src.stat()
         s_dst = dst.stat()
     except OSError as exc:
-        # Fail-safe to copy; log so a permission error doesn't hide silently
-        # behind a downstream shutil.copy2 error. The forced copy may also
-        # fail at copy2 time — this log is for diagnostic continuity, not
-        # an assertion that recovery will succeed.
         print(f"WARNING: stat failed on {src} or {dst}: {exc} — forcing copy attempt (may also fail)",
               file=sys.stderr)
         return True
     if s_src.st_size != s_dst.st_size:
         return True
-    # Size-equal: bounded byte compare.
-    # Zero-byte short-circuit: two empty files are always byte-equal.
     if s_src.st_size == 0:
         return False
     return not filecmp.cmp(str(src), str(dst), shallow=False)
@@ -375,28 +315,9 @@ def _walk_files(root: Path) -> Iterable[Path]:
             yield entry
 
 
-# ---------------------------------------------------------------------------
-# Empty-source mass-delete guard — see EmptySourceMassDeleteError docstring.
-#
 # BACKGROUND (2026-07-26): when an allowlist-declared (or otherwise resolved)
-# source directory exists on disk but has been emptied of real content — e.g.
-# `coordinator-claude|mirror`'s `bin`/`lib` allowlist entries, hollowed by the
-# 2026-07-22 executable-surface migration (commit b644d5a9) — Phase 2 below
-# (delete dst files not in src) reads "nothing in source" as "everything at
-# the destination was intentionally removed" and deletes it. That is the
-# WRONG inference for the common case (a misrouted/stale source_path config)
-# and correct only for the rare deliberate-full-prune case. This guard makes
-# the common case fail loud instead of silently deleting; the rare case gets
 # an explicit, intent-recording escape hatch (`COORDINATOR_OVERRIDE_EMPTY_
 # SOURCE_PRUNE`) rather than a permanent wall — see its docstring below.
-#
-# Companion regression doc: coordinator/tests/test_publish_allowlist_source_
-# populated.py documents the SAME hazard from the authoring-time angle (an
-# allowlist entry resolving to an empty dir on THIS repo's own root); this
-# guard is the runtime backstop that fires regardless of how the empty
-# source came about (allowlist narrowing, a misrouted source_path, a
-# multi-source design gap, etc.) — it does not depend on that test running.
-# ---------------------------------------------------------------------------
 class EmptySourceMassDeleteError(RuntimeError):
     """Raised by `sync_mirror`/`sync_flat_mirror` when a directory (mirror:
     one per-plugin subdir; flat-mirror: the whole src_dir) resolves to ZERO
@@ -576,19 +497,7 @@ def _guard_against_empty_source_mass_delete(
     raise EmptySourceMassDeleteError(diagnostic)
 
 
-# ---------------------------------------------------------------------------
-# Copy-time transform seam — `copy_file`, optional on both sync_mirror and
-# sync_flat_mirror. Default (None) is a plain byte-for-byte shutil.copy2,
 # i.e. today's behavior, unchanged — this is a MANDATORY backward-compat
-# contract, not a convenience default: this module's own `main()` below and
-# any other caller that does not pass copy_file must see identical behavior
-# to before this parameter existed. Threading a caller-supplied transform
-# through here (rather than duplicating a strip implementation in this file)
-# is deliberate — see `<this-repo-root>/coordinator/bin/publish.py`'s
-# `strip_fleet_only_fences` / `_publish_copy_file` docstrings for why a
-# security-sensitive copy-time transform is single-sourced there and injected
-# down, not re-derived per copy engine.
-# ---------------------------------------------------------------------------
 CopyFileFn = Callable[[Path, Path, bool], None]
 
 
@@ -778,9 +687,6 @@ def _sweep_mirror_top_level_orphans(
     return removed
 
 
-# ---------------------------------------------------------------------------
-# Mirror mode — per-plugin subdir sync
-# ---------------------------------------------------------------------------
 def sync_mirror(
     src_dir: Path,
     dst_dir: Path,
@@ -899,16 +805,7 @@ def sync_mirror(
     removed = 0
     copier = copy_file or _default_copy_file
     renamed_dir_names = renamed_dir_names or frozenset()
-    # Normalised once for BOTH consumers: the top-level orphan sweep below and the
-    # per-plugin phase-2 delete loop further down. `None` collapses to empty here
-    # deliberately -- unlike `sweep_top_level_orphans` (which the caller fails CLOSED on
-    # an unknown exemption set, because that sweep is opt-in and its blast radius is a
-    # row's whole top level), the per-plugin loop has always deleted unconditionally, so
-    # "unknown" must keep meaning "behave exactly as before", never "stop reaping".
     renamed_file_names = renamed_file_names or frozenset()
-    # Exempts the top-level dir sweep ONLY (the `orphans` list below, which the
-    # presence preflight and the rmtree loop both read) -- never the per-plugin phase-2
-    # loop, whose scope is inside a directory this row does own.
     foreign_dir_names = foreign_dir_names or frozenset()
 
     synced += _sync_mirror_top_level_files(
@@ -944,15 +841,11 @@ def sync_mirror(
                 dst_plugin.mkdir(parents=True)
                 print(f"    NEW DIR: {plugin_name}/")
 
-        # Phase 1: copy new/changed
         for src_file in _walk_files(src_plugin):
             rel_path = src_file.relative_to(src_plugin).as_posix()
             if _archived_or_orphan(rel_path):
                 continue
             # .percolate-ignore patterns are SOURCE_DIR-relative (plugin-qualified):
-            # the file is authored as `coordinator/bin/tests/`, `data/`, etc. rel_path
-            # here is sub-plugin-relative, so qualify with plugin_name before matching —
-            # otherwise every plugin-prefixed pattern silently no-ops and leaks. (2026-05-30)
             if ignore.matches(f"{plugin_name}/{rel_path}"):
                 continue
             dst_file = dst_plugin / rel_path
@@ -971,31 +864,14 @@ def sync_mirror(
                 changed_paths.add(f"{plugin_name}/{rel_path}")
             per_plugin_synced += 1
 
-        # Phase 2: delete dst files not in src
         if dst_plugin.is_dir():
             for dst_file in _walk_files(dst_plugin):
                 rel_path = dst_file.relative_to(dst_plugin).as_posix()
                 if _archived_or_orphan(rel_path):
                     continue
-                # Plugin-qualify before matching — see the Phase-1 copy-loop
-                # comment above. Keeps ignored files untouched on the destination
-                # (neither copied nor deleted).
                 if ignore.matches(f"{plugin_name}/{rel_path}"):
                     continue
-                # Same exemption, same reason, as `_sweep_mirror_top_level_orphans`'s
-                # (see that function's `renamed_file_names` paragraph) -- applied here
-                # too because a row's renamed files are not all top-level: 15 of
-                # `claude-klabauter-bin`'s 16 renamed basenames live under `tests/`,
-                # where only this loop sees them. Basename, not rel_path: the exemption
-                # set is basenames (a rename never moves a file between directories), and
-                # rel_path here is plugin-relative and may carry directory components.
-                # Read as a bug in the wild first (state/bug-backlog/2026-08-26-publish-
-                # dry-run-wants-to-un-rename-test-*.yaml): the two legs disagreeing made
                 # a preview report a rename running BACKWARDS -- top-level renames
-                # exempt and silent, nested ones listed as REMOVE + re-added under their
-                # pre-rename names. Convergence was never at risk (the transform pass
-                # renames them again immediately after), but a preview nobody can read
-                # is what the exemption exists to prevent.
                 if Path(rel_path).name in renamed_file_names:
                     continue
                 if (src_plugin / rel_path).is_file():
@@ -1013,9 +889,6 @@ def sync_mirror(
         synced += per_plugin_synced
         removed += per_plugin_removed
 
-    # Orphan plugin dirs (present in dst, absent in src) — preserve dotfiles.
-    # Distinct local name (orphan_name) so the outer loop's plugin_name is never
-    # shadowed if this block is ever moved inside it.
     if dst_dir.is_dir():
         non_dot_dst = [
             p for p in sorted(dst_dir.iterdir())
@@ -1028,30 +901,7 @@ def sync_mirror(
             and p.name not in foreign_dir_names
         ]
 
-        # Top-level presence preflight (2026-07-26): the mass-deletion guard below
-        # only fires above a >50%-of-dst-top-level-dirs threshold, so a SINGLE
-        # dropped top-level entry (e.g. `bin`, `lib` out of 8 top-level dirs = 25%)
-        # sails under it and is deleted outright by the orphan sweep with no abort
-        # at all — this is the exact mechanism that made a previously-investigated
-        # multi-source (source_map) publish shape destructive (2/8 orphaned = 25%,
-        # under the 50% guard). Statement of the invariant this closes: for a
-        # mirror-mode target, the restricted source tree must contain a top-level
-        # directory entry for every top-level directory the destination contains
-        # that this target owns — a top-level dir present at dst and absent from
-        # src is deleted by the sweep below regardless of .percolate-ignore, which
-        # the sweep does not consult. This preflight fires on ANY orphan (not just
-        # a large fraction), aborting before either guard below or the sweep touches
         # disk. Reuses COORDINATOR_OVERRIDE_ORPHAN_SWEEP=1 deliberately — a second,
-        # differently-named escape hatch for the same underlying action (permit the
-        # orphan sweep to proceed) would just be a second knob an operator has to
-        # remember exists. Preserves the dry-run-never-aborts contract used
-        # throughout this module (WARNING instead of FATAL, never a real delete).
-        # Does NOT replace the 50%-threshold guard immediately below — belt and
-        # braces on a destructive path is cheap, and that guard still independently
-        # covers the wholly-misconfigured-src_dir case (which this preflight also
-        # catches, redundantly, on the non-override path).
-        # Spec: state/subagent-share/5bae563a-448a-4c5e-96ef-2de84498bd09/
-        #       coordinatorstaff-eng-dfffb96b.md § 6 (The orphan-sweep invariant).
         if orphans:
             override = _orphan_sweep_override()
             exempt = [p for p in orphans if _orphan_sweep_overridden(p.name, override)]
@@ -1103,16 +953,8 @@ def sync_mirror(
                     print(f"FATAL: {diagnostic}", file=sys.stderr)
                     raise SystemExit(3)
 
-        # Mass-deletion guard: a misconfigured src_dir makes EVERY dst plugin look
-        # orphaned, so an unguarded rmtree loop would wipe the whole destination.
-        # Fail loud when orphans would remove >50% of dst plugin dirs (and there are
         # ≥2 of them). Override with COORDINATOR_OVERRIDE_ORPHAN_SWEEP=1 for the rare
-        # legitimate mass-prune. Dry-run reports but never aborts.
         if orphans and len(non_dot_dst) >= 2 and len(orphans) > len(non_dot_dst) / 2:
-            # `at_risk`/`exempt` (§ the top-level presence preflight above) —
-            # an exempted top-level name is pre-approved and must not be
-            # blocked by this threshold; only the non-exempt orphans can
-            # trigger a FATAL here.
             if at_risk:
                 names = ", ".join(p.name for p in at_risk)
                 if not dry_run:
@@ -1125,8 +967,6 @@ def sync_mirror(
                         file=sys.stderr,
                     )
                     raise SystemExit(3)
-                # Preview only — report the would-be-fatal condition, never abort
-                # (the dry-run contract is non-aborting; a real run would SystemExit(3)).
                 print(
                     f"    WARNING: orphan sweep WOULD remove {len(orphans)}/{len(non_dot_dst)} "
                     f"plugin dirs ({names}) — a real run would FATAL here without an "
@@ -1155,41 +995,11 @@ def sync_mirror(
     return synced, removed
 
 
-# ---------------------------------------------------------------------------
-# Coordinator install-manifest layout transform
-# ---------------------------------------------------------------------------
-# A documented no-op. `standalone_setup_script.{posix,windows}` and
-# `programmatic_entry_point.posix` resolve against the engine dependency's
-# root (claude-klabauter / claude-klabauter), not coordinator-claude's own
-# nested-vs-flat layout, so they must publish byte-identical; any rewrite would
-# corrupt them. The function stays as the seam for a future field that is
-# coordinator-claude-tree-relative.
-#
-# TRAP: do not re-add a pair keyed on `scripts/setup.*` or
-# `coordinator/scripts/...` for either declared field — the published value
-# then differs from the source and `_needs_copy` reports the manifest changed
-# on every publish round.
-#
-# See also: agent-install-contract.md § install-manifest layout transform
-#
-# DO NOT extend this transform to other files or targets without a named plan section.
-# DO NOT apply this transform when operating in dry-run (dst file is not written).
-# DO NOT modify the source manifest — read src, write only dst.
-
 _INSTALL_MANIFEST_FILENAME = "agent-install-manifest.json"
-# The src_dir suffix that identifies the coordinator nested-layout install dir.
-# Normalised to POSIX for cross-platform matching.
-# Review: code-reviewer (F4) — leading slash anchors `coordinator` to a path-segment
-# boundary, preventing a hypothetical `.../notcoordinator/docs/install` false-match.
-# Real source path `plugins/coordinator/docs/install` has a `/`
-# before `coordinator`, so the match is unaffected.
 _COORDINATOR_INSTALL_SRC_SUFFIX = "/coordinator/docs/install"
 
-# Path rewrite pairs: (nested-layout value, publish-root value). Empty by
-# design — see the block above.
 _COORDINATOR_MANIFEST_PATH_REWRITES: list[tuple[str, str]] = []
 
-# Engine-root-relative manifest fields; never a rewrite target.
 _EXCLUDED_ENGINE_ROOT_RELATIVE_FIELDS: tuple[str, ...] = (
     "standalone_setup_script",
     "programmatic_entry_point",
@@ -1230,9 +1040,6 @@ def _apply_coordinator_install_manifest_transform(dst_file: Path) -> None:
         )
 
 
-# ---------------------------------------------------------------------------
-# Flat-mirror mode — top-level files only, no subdirs
-# ---------------------------------------------------------------------------
 def sync_flat_mirror(
     src_dir: Path,
     dst_dir: Path,
@@ -1260,7 +1067,6 @@ def sync_flat_mirror(
         recursive=False,
     )
 
-    # Phase 1: top-level files from src → dst
     for src_file in sorted(src_dir.iterdir()):
         if not src_file.is_file():
             continue
@@ -1279,10 +1085,6 @@ def sync_flat_mirror(
         else:
             dst_dir.mkdir(parents=True, exist_ok=True)
             copier(src_file, dst_file, False)
-            # Coordinator install-manifest layout transform — see the long comment
-            # block above _apply_coordinator_install_manifest_transform for rationale.
-            # Applied ONLY when copying agent-install-manifest.json from the
-            # coordinator nested-layout docs/install/ source directory.
             if (
                 rel_path == _INSTALL_MANIFEST_FILENAME
                 and _is_coordinator_install_src(src_dir)
@@ -1294,7 +1096,6 @@ def sync_flat_mirror(
             changed_paths.add(rel_path)
         synced += 1
 
-    # Phase 2: delete top-level files from dst that src no longer has
     if dst_dir.is_dir():
         for dst_file in sorted(dst_dir.iterdir()):
             if not dst_file.is_file():
@@ -1316,16 +1117,7 @@ def sync_flat_mirror(
     return synced, removed
 
 
-# ---------------------------------------------------------------------------
-# `repo-cut` one-shot bootstrap (docs/plans/2026-08-10-repo-cut-the-fourth-
-# mode-and-the-table.md, chunk C7b). NOT part of the source-repo port this
-# module otherwise is (see module docstring's "Three cuts... nothing else") —
-# a genuinely new addition, authored here because `check_publish_sync_
-# contract` (`publish.py`) validates every mode's `entry_point` as an
 # attribute of WHICHEVER module wins the `_import_publish_sync` seam, exactly
-# like `sync_mirror`/`sync_flat_mirror` (AC7); a bootstrap function living
-# only in `publish.py` would never be reachable through that seam.
-# ---------------------------------------------------------------------------
 class RepoCutBootstrapError(RuntimeError):
     """Raised by `sync_repo_cut` when a `git` step of the one-shot bootstrap
     (init / config / add / commit) exits non-zero. Fatal by design — a
@@ -1343,12 +1135,6 @@ def _run_git(dest_dir: Path, *args: str) -> None:
         **_NO_CONSOLE,
     )
     if result.returncode != 0:
-        # Bounded — an unbounded git stderr blob (a looping hook, a credential
-        # helper prompt) would otherwise fold in full, uncapped, to this
-        # exception's message, which propagates through publish.py into
-        # whatever surface reports it. No existing truncation convention in
-        # this module to match; this is a fresh, conservative cap, not a
-        # widening of one already in place elsewhere.
         stderr = result.stderr.strip()
         if len(stderr) > 2000:
             stderr = stderr[:2000] + f"... [{len(result.stderr.strip()) - 2000} more chars truncated]"
@@ -1455,9 +1241,6 @@ def sync_repo_cut(dest_dir: Path, dry_run: bool) -> bool:
     return True
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("mode", choices=argparse_mode_choices())

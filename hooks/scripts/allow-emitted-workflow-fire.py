@@ -3,7 +3,7 @@ carries a VERIFYING emission receipt, warn on a hand-rolled one, and stay
 silent for everything else.
 
 The friction this removes. `/execute-plan` derives a `.mjs` from a ratified
-plan spine with `emit-dispatch-workflow.py` (or the engine's `dispatch.emit`
+plan spine with `emit-dispatch-workflow` (or the engine's `dispatch.emit`
 op, which writes the same receipt), then fires it with
 `Workflow({scriptPath})`. That fire raises an interactive permission prompt
 every time -- on the one path the whole pipeline exists to make routine. The
@@ -103,7 +103,7 @@ def _warn(context: str) -> None:
 def _compose_hand_rolled_warning() -> str:
     """The warning's one prose site, pure so the message-budget harness can
     measure it by direct call."""
-    return "Hand-rolled Workflow, no receipt. Emit it: `emit-dispatch-workflow.py --plan <plan>`."
+    return "Hand-rolled Workflow, no receipt. Emit it: `emit-dispatch-workflow --plan <plan>`."
 
 
 def _is_hand_rolled(payload: dict) -> bool:

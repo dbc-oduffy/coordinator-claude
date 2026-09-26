@@ -17,7 +17,7 @@ Non-negotiable.
    the work a refused or unemittable chunk describes is the exact failure this surface exists to
    prevent. → § When A Chunk Will Not Emit.
 2. **Never hand-author a workflow script.** Every script you fire comes out of
-   `coordinator/bin/emit-dispatch-workflow.py`. A hand-written script costs ~4× the plan-execution
+   `emit-dispatch-workflow`. A hand-written script costs ~4× the plan-execution
    path and is invisible to the emission-receipt guard. → § The Emitter Is The Only Author.
 3. **Never commit or stage.** You leave the tree; the EM commits. → § Reporting.
 4. **Never edit a plan's chunk bodies to make them emit.** A spine that will not emit is a spine
@@ -37,13 +37,13 @@ The whole authoring surface is:
 Emit (or re-emit) a plan's script:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/emit-dispatch-workflow.py" --plan <plan-path> [--out <script>] [--fire]
+"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/emit-dispatch-workflow" --plan <plan-path> [--out <script>] [--fire]
 ```
 
 Re-stamp an already-emitted script:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/emit-dispatch-workflow.py" --restamp <script>
+"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/emit-dispatch-workflow" --restamp <script>
 ```
 
 - Without `--fire` the script is written and **nothing runs it**. Emit first, read the wave map,

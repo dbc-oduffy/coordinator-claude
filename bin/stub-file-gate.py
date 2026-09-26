@@ -39,12 +39,6 @@ from pathlib import Path
 
 
 def _count_lines(path: Path) -> int:
-    """Return the number of lines in *path*'s text content.
-
-    A non-empty file with no trailing newline still counts its final line
-    (splitlines() semantics), matching the intent of "how many lines of
-    real content does this file hold" rather than a strict newline count.
-    """
     text = path.read_text(encoding="utf-8", errors="replace")
     if text == "":
         return 0
@@ -52,7 +46,6 @@ def _count_lines(path: Path) -> int:
 
 
 def _check_one(path_str: str, min_lines: int) -> tuple[bool, str]:
-    """Check a single path. Returns (passed, message)."""
     path = Path(path_str)
     if not path.exists():
         return False, f"GATE FAIL: {path_str} does not exist"

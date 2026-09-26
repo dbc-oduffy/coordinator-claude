@@ -41,9 +41,12 @@ left as a no-op seam: `dispatch_percolate_pre_rsync` / `_post_rsync` /
 `PercolateEngineContext` (see `main`). AC15 fail-closed (hard requirement):
 an unreachable/unimportable engine, a bad/skewed store, an undeclared
 target, or any phase-call raise/guard-failure aborts — this driver never
-publishes a target's content unscrubbed. `--dry-run` skips engine-phase
-dispatch entirely (the engine has no non-mutating preview mode; dispatching
-it under `--dry-run` would mutate the destination, defeating the preview).
+publishes a target's content unscrubbed. `--dry-run` runs every engine
+phase against a throwaway staging copy of the destination (§ `process_target`
+staging fork, P079-C1) rather than skipping the engine outright; only the
+swap of that staging copy into the real destination is withheld under
+`--dry-run`, so the destination itself stays byte-identical across a
+preview run.
 The 14 legacy hook `.sh` scripts + their `_lib/` are deleted (this chunk);
 `setup/percolate-hooks/README.md` and the store's own header remain the
 authoritative behavioral spec. Allowlist enforcement (`coordinator/lib/
@@ -2058,7 +2061,7 @@ def _synthetic_registry_manifest_overrides():
         entrypoints()` returns, which is BARE (extensionless) files under
         `coordinator/bin` and `coordinator/scripts` only -- `.py`-suffixed
         CLIs (e.g. `sync-cockpit-contract.py`, `verify-schema-registry-
-        sync.py`, `fan-out-integrator.py`, `doctor-catalog-gen.py`, `gen-
+        sync.py`, `review-findings-ledger.py`, `doctor-catalog-gen.py`, `gen-
         claude-doe-shim.py`) are explicitly out of that gate's scan scope
         (§ `enumerate_gate_entrypoints` docstring), so whatever data dirs
         THEY touch at startup is irrelevant here even though several of
@@ -10246,6 +10249,170 @@ def _remove_empty_publish_staging_parent(dest_dir: Path) -> None:
         pass
 
 
+#: Matches the dot-prefixed mint shape `_create_publish_staging_dir` gives
+#: EVERY row's staging tree (`.{dest_dir.name}.publish-staging-<suffix>`), for
+#: any `dest_dir.name` — not just the row currently being assembled. All rows
+#: in a round ordinarily share one destination repo root (census row 2, plan
+#: 2026-09-11-publish-build-verify-swap-one-staging-pa), so up to N-1 sibling
+#: staging trees can be live inside that root's own tree while a per-root view
+#: is assembled from it, and each must be excluded from the untouched-
+#: remainder walk below — it is already represented via its own contributing
+#: row's `staging_dir`, and copying it a second time from the live tree would
+#: duplicate that row's payload in the assembled view.
+_PUBLISH_STAGING_LIVE_NAME_RE = re.compile(r"^\..+\.publish-staging-")
+
+
+def _is_live_publish_staging_name(name: str) -> bool:
+    """True for a name matching `_create_publish_staging_dir`'s exact mint
+    shape (§ `_PUBLISH_STAGING_LIVE_NAME_RE`)."""
+    return bool(_PUBLISH_STAGING_LIVE_NAME_RE.match(name))
+
+
+def _hardlink_else_copy(src: str, dst: str) -> None:
+    """`copytree`'s `copy_function` hook: hardlink where source and target
+    share a volume (the common case — the assembled view is rooted at the
+    destination repo root's own parent, § `assemble_per_root_artifact_view`,
+    the same volume `_create_publish_staging_dir`'s staging trees already
+    live on), falling back to a real copy on `OSError` (typically
+    cross-device — the case that must be MEASURED on Windows, not assumed,
+    per this chunk's plan body) rather than failing the assembly outright."""
+    try:
+        os.link(src, dst)
+    except OSError:
+        shutil.copy2(src, dst)
+
+
+def _copy_tree_hardlink_else_copy(
+    src: Path,
+    dst: Path,
+    *,
+    skip_top_level_names: "tuple[str, ...]" = (),
+) -> None:
+    """Merges `src` into `dst` (`dirs_exist_ok=True`, so this may be called
+    more than once against the same `dst` to overlay several source trees —
+    § `assemble_per_root_artifact_view`'s remainder-then-overlay sequence),
+    hardlinking each file where possible (§ `_hardlink_else_copy`) and
+    excluding every live sibling publish-staging directory (§
+    `_is_live_publish_staging_name`) at every level, plus `skip_top_level_names`
+    at `src`'s own top level only (mirrors `_create_publish_staging_dir`'s own
+    `_ignore` shape for `.git`)."""
+    if not src.is_dir():
+        return
+
+    def _ignore(directory: str, names: "list[str]") -> "set[str]":
+        skip = {name for name in names if _is_live_publish_staging_name(name)}
+        if Path(directory) == src:
+            skip |= {name for name in names if name in skip_top_level_names}
+        return skip
+
+    dst.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(
+        src,
+        dst,
+        ignore=_ignore,
+        symlinks=True,
+        dirs_exist_ok=True,
+        copy_function=_hardlink_else_copy,
+    )
+
+
+def assemble_per_root_artifact_view(
+    dest_repo_root: Path,
+    row_contributions: "List[tuple[Path, str]]",
+) -> Path:
+    """Chunk C3 (docs/plans/2026-09-11-publish-build-verify-swap-one-staging-
+    pa.md) — materialises ONE per-destination-root artifact view for the 7
+    wired end-of-run legs (C4), assembled from the contributing rows' own
+    staging trees, never by re-running the transform pass those staging
+    trees already paid for (Anti-scope § "Do not run a second TRANSFORM
+    pass").
+
+    `row_contributions` is `[(staging_dir, rel_root), ...]` — one entry per
+    row whose `staging_dir` (§ `_create_publish_staging_dir`) and `rel_root`
+    (§ `_dest_prefix_for(target.dest_dir)`) resolve under `dest_repo_root`;
+    the caller (this row loop's own group-by, reusing the same keys
+    `end_of_run_rows_by_repo_root` already produces) owns the grouping, this
+    function owns only the materialisation.
+
+    THE VIEW LIVES OUTSIDE `dest_repo_root`'s own working tree — rooted at
+    `dest_repo_root.parent` (prior art: `_extract_git_archive`'s
+    `claude-klabauter-publish-materialize-` mkdtemp), never at `dest_dir.parent` for a
+    subdir row, which is commonly INSIDE the shared repo root (9 of 10 rows,
+    census row 2) and would put the verification view in the very tree it
+    verifies. Same volume as `dest_repo_root` by construction, so the overlay
+    below can hardlink.
+
+    Built in two passes, in order:
+
+      1. The untouched remainder of `dest_repo_root` itself, `.git` and every
+         LIVE sibling publish-staging tree excluded (§
+         `_is_live_publish_staging_name`) — the parts of the destination no
+         row in this round's staging touches at all.
+      2. Each contributing row's OWN staging tree, overlaid at its `rel_root`
+         under the view root — this is what makes the view reflect the
+         round's actual changes rather than the pre-round destination.
+
+    A toplevel row (`rel_root == ""`) overlays directly onto the view root.
+
+    Discarded on every exit path via `discard_per_root_artifact_view`, in
+    both run modes — the caller's responsibility, not this function's; this
+    function only creates and returns the path, so a caller that raises
+    before discarding still names precisely where to clean up."""
+    view_root = Path(
+        tempfile.mkdtemp(
+            prefix=f".{dest_repo_root.name}.publish-view-", dir=str(dest_repo_root.parent)
+        )
+    )
+    try:
+        _copy_tree_hardlink_else_copy(
+            dest_repo_root, view_root, skip_top_level_names=(".git",)
+        )
+        for staging_dir, rel_root in row_contributions:
+            target_dir = (view_root / rel_root) if rel_root else view_root
+            _copy_tree_hardlink_else_copy(staging_dir, target_dir)
+    except BaseException:
+        shutil.rmtree(view_root, onerror=_rmtree_clear_readonly_onerror)
+        raise
+    return view_root
+
+
+def discard_per_root_artifact_view(view_root: Path) -> None:
+    """Reclaims a view `assemble_per_root_artifact_view` returned. A no-op if
+    already gone (double-discard on an exception path that already cleaned
+    up must never raise)."""
+    if view_root.exists():
+        shutil.rmtree(view_root, onerror=_rmtree_clear_readonly_onerror)
+
+
+def assemble_per_root_artifact_views(
+    rows_by_repo_root: "dict[Path, List[ResolvedTarget]]",
+    staging_dir_by_target_name: "dict[str, Path]",
+) -> "dict[Path, Path]":
+    """The group-by this chunk's plan body names: reuses
+    `end_of_run_rows_by_repo_root`'s own keys (never a re-derived parallel
+    enumeration) to build one `assemble_per_root_artifact_view` call per
+    distinct destination repo root. A row with no entry in
+    `staging_dir_by_target_name` (refused before staging, § `process_target`'s
+    early-return gates) contributes nothing — its dest content is still
+    covered by the untouched-remainder pass, since it never left the real
+    destination this round."""
+    views: "dict[Path, Path]" = {}
+    for repo_root, targets in rows_by_repo_root.items():
+        contributions = [
+            (staging_dir_by_target_name[target.name], _dest_prefix_for(target.dest_dir))
+            for target in targets
+            if target.name in staging_dir_by_target_name
+        ]
+        views[repo_root] = assemble_per_root_artifact_view(repo_root, contributions)
+    return views
+
+
+def discard_per_root_artifact_views(views: "dict[Path, Path]") -> None:
+    """Discards every view `assemble_per_root_artifact_views` returned."""
+    for view_root in views.values():
+        discard_per_root_artifact_view(view_root)
+
+
 def _dir_trees_equal(a: Path, b: Path) -> bool:
     """Cheap recursive equality check (relative file paths + size + mtime,
     never byte content) used only by `_swap_publish_staging_into_dest_root`
@@ -11195,6 +11362,23 @@ def _discard_publish_staging_dir(staging_dir: Optional[Path]) -> None:
         shutil.rmtree(staging_dir, onerror=_rmtree_clear_readonly_onerror)
 
 
+# P079-C2 (docs/plans/2026-09-11-publish-build-verify-swap-one-staging-pa.md):
+# with C1 landed, `_swap_publish_staging_into_dest` is the ONLY phase THIS
+# FUNCTION (`process_target`) dispatches under `not dry_run` alone — every
+# other percolate-engine phase now runs in both modes against the staging
+# copy (§ C1). Declared once, here, rather than left to a scatter of
+# `if not dry_run:` reads: `coordinator/bin/tests/
+# test_publish_dryrun_real_run_step_parity.py` enumerates the `_time_phase`
+# labels `process_target` actually dispatches in each run mode and asserts
+# the two sets differ by exactly this one member. Scoped to `process_target`
+# itself — `main()`'s own real-run-only steps (the per-row commit,
+# `report_candidate_divergence`, the push nudge) are a separate, unenumerated
+# surface this constant does not cover.
+PROCESS_TARGET_REAL_RUN_ONLY_PHASES: "frozenset[str]" = frozenset({
+    "_swap_publish_staging_into_dest",
+})
+
+
 def process_target(
     target: ResolvedTarget,
     setup_dir: Path,
@@ -11357,13 +11541,16 @@ def process_target(
         # percolate-engine cutover (C-W2) — the pre_rsync phase (preserve-
         # destination-native BACKUP leg) MUST run while target.dest_dir still
         # holds the PRIOR destination tree, i.e. before the sync dispatch
-        # below. Skipped under --dry-run: the engine has no non-mutating
-        # preview mode (unlike the sync dispatchers below, which do), so
-        # dispatching it under --dry-run would actually mutate the
-        # destination tree, defeating the whole point of a preview run.
-        if dry_run:
-            print("  percolate engine phases: skipped (dry-run — engine has no preview mode)", file=out)
-        elif engine_ctx.engine_claude_klabauter is None or engine_ctx.store is None or percolate_store_path is None:
+        # below. NOT skipped under --dry-run (P079-C1): the earlier reasoning
+        # — "the engine has no non-mutating preview mode ... dispatching it
+        # under --dry-run would actually mutate the destination tree" — is
+        # retired by staging, not argued with. Every phase below dispatches
+        # against `sync_target`, whose `dest_dir` is a throwaway staging copy
+        # (§ `_create_publish_staging_dir`), so the engine mutates the
+        # staging copy under both run modes; only the staging copy is
+        # discarded under dry-run (the swap into the real destination stays
+        # real-run-only, see the post_rsync/inject block below).
+        if engine_ctx.engine_claude_klabauter is None or engine_ctx.store is None or percolate_store_path is None:
             print(
                 f"  Error: percolate engine unavailable — refusing to publish {target.name} "
                 "(AC15 fail-closed, see startup error above).",
@@ -11391,12 +11578,12 @@ def process_target(
 
             # Every phase from here through `dispatch_percolate_pre_ci` can
             # mutate a destination tree — reached only in this `else:` branch
-            # (not dry-run, engine available), the same condition gating the
-            # post_rsync/inject/pre_ci dispatch below. The prior-run orphan
-            # sweep itself now runs unconditionally near the top of this
-            # function (§ C3 comment there) — stage now, before the sync
-            # dispatch, so the sync itself also lands on the staging copy
-            # rather than the real destination.
+            # (engine available, both run modes as of P079-C1), the same
+            # condition gating the post_rsync/inject/pre_ci dispatch below.
+            # The prior-run orphan sweep itself now runs unconditionally near
+            # the top of this function (§ C3 comment there) — stage now,
+            # before the sync dispatch, so the sync itself also lands on the
+            # staging copy rather than the real destination.
             staging_dir = _create_publish_staging_dir(target.dest_dir)
             # SEED SNAPSHOT, for `published_files_sink` below.  # noqa: E501 The staging tree
             # is COPIED FROM `dest_dir` (§ `_create_publish_staging_dir`), so
@@ -11417,9 +11604,10 @@ def process_target(
         # that writes to "the destination" reads `.dest_dir` off whichever
         # target object it is handed, so this one substitution redirects the
         # sync + every percolate-engine phase without touching their own
-        # bodies. Falls back to the real `target` unchanged for dry-run and
-        # engine-unavailable rows (staging_dir stays `None` there), matching
-        # those paths' pre-existing behavior exactly.
+        # bodies. Falls back to the real `target` unchanged only for
+        # engine-unavailable rows (staging_dir stays `None` there, an early
+        # `return` above) — a dry run with the engine available also gets a
+        # staging copy as of P079-C1.
         sync_target = replace(target, dest_dir=staging_dir) if staging_dir is not None else target
 
         # Honest-report seam (task brief "make UPDATE: mean the published
@@ -11793,19 +11981,22 @@ def process_target(
         # suppressed sync-dispatch pass into the real output/totals; the
         # `NEW:`/`UPDATE:`/`STRIP:`/`DELETE:`/`REMOVE:` report noise itself
         # is dropped here on purpose — `_report_published_diff` below is the
-        # honest source for that. A no-op when `sync_out is out` (dry-run —
-        # nothing was suppressed to begin with).
+        # honest source for that. A no-op when `sync_out is out` (only the
+        # engine-unavailable early-return path reaches here with `sync_out
+        # is out` — every other path has a `staging_dir`, in both run modes
+        # as of P079-C1).
         if sync_out is not out:
             _forward_sync_diagnostics(sync_out, out)
             totals.warnings += sync_totals.warnings
             totals.audit_files.extend(sync_totals.audit_files)
 
         # post_rsync -> inject (separate, not phase-wired) -> pre_ci, in that
-        # order (§ dispatch_percolate_inject docstring). Same dry-run skip as
-        # the pre_rsync dispatch above.
-        if not dry_run and engine_ctx.engine_claude_klabauter is not None and engine_ctx.store is not None and percolate_store_path is not None:
+        # order (§ dispatch_percolate_inject docstring). Runs in both run
+        # modes as of P079-C1 — same engine-availability condition as the
+        # pre_rsync dispatch above, `dry_run` dropped from this gate.
+        if engine_ctx.engine_claude_klabauter is not None and engine_ctx.store is not None and percolate_store_path is not None:
             # `staging_dir` is guaranteed non-None here — the same condition
-            # (not dry_run, engine available) is what created it above.
+            # (engine available) is what created it above.
             # `row_visited` collects staged-path entries locally; they are
             # translated to real-destination paths and folded into the
             # caller's `visited_files_sink` below, AFTER the swap, so the
@@ -12012,94 +12203,103 @@ def process_target(
                 if row_changed_files is not None:
                     for _relative_id in row_changed_files:
                         _row_published_files.add(target.dest_dir / _relative_id)
-            try:
-                with _time_phase(timing_sink, target.name, "_swap_publish_staging_into_dest"):
-                    _swap_publish_staging_into_dest(target.dest_dir, staging_dir)
-            except PublishSwapPartial as exc:
-                # Do NOT swallow: re-raise either way so the row still marks
-                # FAILED and the operator sees `exc`'s message. Whether to
-                # record a swap depends on which of the two situations §
-                # `PublishSwapPartial`'s docstring describes this is:
-                if exc.content_swapped:
-                    # Content DID land this run even though the row still
-                    # fails overall — record exactly as the success path
-                    # below does, so this stays honest to `process_target`'s
-                    # stated invariant (a path reported as written was
-                    # actually written this run).
-                    staging_swapped = True
-                    out.write(report_buffer.getvalue())
-                    print(
-                        f"  Warning: content published, but .git re-home failed — "
-                        f"repo metadata stranded at {exc.prior_backup}: {exc}",
-                        file=out,
-                    )
-                    totals.synced += report_totals.synced
-                    totals.deleted += report_totals.deleted
-                    if visited_files_sink is not None:
-                        for staged_path in row_visited:
-                            rel = staged_path.relative_to(staging_dir)
-                            visited_files_sink.add(target.dest_dir / rel)
-                    if row_changed_files is None:
-                        if changed_undetermined_sink is not None:
-                            changed_undetermined_sink.add(target.dest_dir)
-                    elif changed_files_sink is not None:
-                        for relative_id in row_changed_files:
-                            changed_files_sink.add(target.dest_dir / relative_id)
-                    if removed_files_sink is not None:
-                        for relative_id in row_removed_files:
-                            removed_files_sink.add(target.dest_dir / relative_id)
-                    if published_dest_dirs_sink is not None:
-                        published_dest_dirs_sink.add(target.dest_dir)
-                    if published_files_sink is not None:
-                        published_files_sink.update(_row_published_files)
-                else:
-                    # Refused before touching this run's `dest_dir`/
-                    # `staging_dir` at all — nothing to record, the throwaway
-                    # `staging_dir` is reclaimed by the `finally` block below
-                    # as on any other pre-swap abort.
-                    print(f"  Error: {exc}", file=sys.stderr)
-                raise
-            staging_swapped = True
-            out.write(report_buffer.getvalue())
-            totals.synced += report_totals.synced
-            totals.deleted += report_totals.deleted
-            if visited_files_sink is not None:
-                for staged_path in row_visited:
-                    rel = staged_path.relative_to(staging_dir)
-                    visited_files_sink.add(target.dest_dir / rel)
-            # `row_changed_files` fold (§ docs/plans/2026-08-16-percolate-
-            # round-timing-and-changed-only.md chunk C4) — `None` means this
-            # row's changed-set is undeterminable (§ its own comment above),
-            # recorded via `changed_undetermined_sink` so the caller's
-            # per-repo-root aggregation fails WIDE (full sweep) for this
-            # row's repo root rather than silently treating it as "changed
-            # nothing".
-            if row_changed_files is None:
-                if changed_undetermined_sink is not None:
-                    changed_undetermined_sink.add(target.dest_dir)
-            elif changed_files_sink is not None:
-                for relative_id in row_changed_files:
-                    changed_files_sink.add(target.dest_dir / relative_id)
-            # `row_removed_files` fold (chunk C3.5) — always determined once
-            # `_report_published_diff` has run (unlike `row_changed_files`,
-            # there is no undetermined state for the removed set here: this
-            # comparison always runs before the swap on this path), so it
-            # folds unconditionally, no undetermined-sink counterpart needed.
-            if removed_files_sink is not None:
-                for relative_id in row_removed_files:
-                    removed_files_sink.add(target.dest_dir / relative_id)
-            # § `dispatch_end_of_run_unscanned_published_check` fix (unscanned-
-            # published-guard false-positive) — reached ONLY after this row's
-            # swap has actually landed, i.e. `target.dest_dir` right now holds
-            # exactly what THIS run published for it. Recorded here, not
-            # derived later from `target.dest_dir.is_dir()` at check time,
-            # because a dest_dir this run never reached (gate failure, --target
-            # exclusion, unmatched mode) must NOT be treated as "published by
-            # this run" even though it may still exist on disk from a prior run.
-            if published_dest_dirs_sink is not None:
-                published_dest_dirs_sink.add(target.dest_dir)
-            if published_files_sink is not None:
-                published_files_sink.update(_row_published_files)
+            # The swap itself, and every bookkeeping fold below it, is
+            # withheld under dry-run (P079-C1's collapse only builds the
+            # staging tree in both modes; the swap is the one step this
+            # chunk keeps real-run-only — P079-C2 pins that formally, via
+            # `PROCESS_TARGET_REAL_RUN_ONLY_PHASES` above). The `finally`
+            # block's `_discard_publish_staging_dir` reclaims this row's
+            # staging tree on the dry-run path since `staging_swapped` never
+            # flips True here.
+            if not dry_run:
+                try:
+                    with _time_phase(timing_sink, target.name, "_swap_publish_staging_into_dest"):
+                        _swap_publish_staging_into_dest(target.dest_dir, staging_dir)
+                except PublishSwapPartial as exc:
+                    # Do NOT swallow: re-raise either way so the row still marks
+                    # FAILED and the operator sees `exc`'s message. Whether to
+                    # record a swap depends on which of the two situations §
+                    # `PublishSwapPartial`'s docstring describes this is:
+                    if exc.content_swapped:
+                        # Content DID land this run even though the row still
+                        # fails overall — record exactly as the success path
+                        # below does, so this stays honest to `process_target`'s
+                        # stated invariant (a path reported as written was
+                        # actually written this run).
+                        staging_swapped = True
+                        out.write(report_buffer.getvalue())
+                        print(
+                            f"  Warning: content published, but .git re-home failed — "
+                            f"repo metadata stranded at {exc.prior_backup}: {exc}",
+                            file=out,
+                        )
+                        totals.synced += report_totals.synced
+                        totals.deleted += report_totals.deleted
+                        if visited_files_sink is not None:
+                            for staged_path in row_visited:
+                                rel = staged_path.relative_to(staging_dir)
+                                visited_files_sink.add(target.dest_dir / rel)
+                        if row_changed_files is None:
+                            if changed_undetermined_sink is not None:
+                                changed_undetermined_sink.add(target.dest_dir)
+                        elif changed_files_sink is not None:
+                            for relative_id in row_changed_files:
+                                changed_files_sink.add(target.dest_dir / relative_id)
+                        if removed_files_sink is not None:
+                            for relative_id in row_removed_files:
+                                removed_files_sink.add(target.dest_dir / relative_id)
+                        if published_dest_dirs_sink is not None:
+                            published_dest_dirs_sink.add(target.dest_dir)
+                        if published_files_sink is not None:
+                            published_files_sink.update(_row_published_files)
+                    else:
+                        # Refused before touching this run's `dest_dir`/
+                        # `staging_dir` at all — nothing to record, the throwaway
+                        # `staging_dir` is reclaimed by the `finally` block below
+                        # as on any other pre-swap abort.
+                        print(f"  Error: {exc}", file=sys.stderr)
+                    raise
+                staging_swapped = True
+                out.write(report_buffer.getvalue())
+                totals.synced += report_totals.synced
+                totals.deleted += report_totals.deleted
+                if visited_files_sink is not None:
+                    for staged_path in row_visited:
+                        rel = staged_path.relative_to(staging_dir)
+                        visited_files_sink.add(target.dest_dir / rel)
+                # `row_changed_files` fold (§ docs/plans/2026-08-16-percolate-
+                # round-timing-and-changed-only.md chunk C4) — `None` means this
+                # row's changed-set is undeterminable (§ its own comment above),
+                # recorded via `changed_undetermined_sink` so the caller's
+                # per-repo-root aggregation fails WIDE (full sweep) for this
+                # row's repo root rather than silently treating it as "changed
+                # nothing".
+                if row_changed_files is None:
+                    if changed_undetermined_sink is not None:
+                        changed_undetermined_sink.add(target.dest_dir)
+                elif changed_files_sink is not None:
+                    for relative_id in row_changed_files:
+                        changed_files_sink.add(target.dest_dir / relative_id)
+                # `row_removed_files` fold (chunk C3.5) — always determined once
+                # `_report_published_diff` has run (unlike `row_changed_files`,
+                # there is no undetermined state for the removed set here: this
+                # comparison always runs before the swap on this path), so it
+                # folds unconditionally, no undetermined-sink counterpart needed.
+                if removed_files_sink is not None:
+                    for relative_id in row_removed_files:
+                        removed_files_sink.add(target.dest_dir / relative_id)
+                # § `dispatch_end_of_run_unscanned_published_check` fix (unscanned-
+                # published-guard false-positive) — reached ONLY after this row's
+                # swap has actually landed, i.e. `target.dest_dir` right now holds
+                # exactly what THIS run published for it. Recorded here, not
+                # derived later from `target.dest_dir.is_dir()` at check time,
+                # because a dest_dir this run never reached (gate failure, --target
+                # exclusion, unmatched mode) must NOT be treated as "published by
+                # this run" even though it may still exist on disk from a prior run.
+                if published_dest_dirs_sink is not None:
+                    published_dest_dirs_sink.add(target.dest_dir)
+                if published_files_sink is not None:
+                    published_files_sink.update(_row_published_files)
 
         write_lastsync_marker(setup_dir, target.name, target.dest_dir, dry_run=dry_run)
 

@@ -64,19 +64,12 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _forwarder_resolve import resolve_forwarder
 except Exception:
-    # Defensive fallback -- a deploy missing its sibling _forwarder_resolve.py
-    # must still emit the remediation prose (minus a resolved path) rather than
-    # crash this fail-open hook on import.
     def resolve_forwarder(bin_dir, name):  # type: ignore[misc]
         return None
 
 
 import os
 
-# Matches the exit-127 case only: the observed payload shape is a leading
-# "Exit code 127" line (reachability spike, verbatim: `error: "Exit code 127\n…
-# command not found"`). A different non-zero exit is a different failure and is
-# out of this hook's one-case scope.
 _EXIT_127_RE = re.compile(r"(?m)^Exit code 127\b")
 
 _MEMO_SUBSTRING = "cross-repo-memo"
@@ -98,9 +91,6 @@ def _settings_home() -> Path:
 
 
 def _compose_remediation() -> str:
-    """One remediation message for the one case this hook handles. Resolves the
-    forwarder at call time; degrades to a name-only pointer (never a restated
-    dead-document path) if resolution fails."""
     forwarder = None
     try:
         forwarder = resolve_forwarder(_settings_home() / "bin", "cross-repo-memo")
@@ -171,6 +161,4 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception:
-        # Fail-open, unconditionally -- a PostToolUseFailure hook that itself
-        # raises must never brick tool-failure reporting.
         sys.exit(0)

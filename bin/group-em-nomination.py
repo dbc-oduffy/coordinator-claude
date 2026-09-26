@@ -262,8 +262,6 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(result.message)
         return 0
 
-    # Unreachable: `sub.add_parser(..., required=True)` above guarantees `args.verb` is one of
-    # the verbs handled; argparse itself exits 2 before `main()` ever sees anything else.
     raise AssertionError(f"unhandled verb {args.verb!r}")
 
 

@@ -1,7 +1,5 @@
 # Lane: add-repo. The thin door -- registration-only, no full onboarding. See CONTRACT.md for
-# the shape every lane follows.
-# spec_backlink: archive/specs/2026-08/2026-08-20-repo-setup-as-a-product-surface.md (C2)
-# census_backlink: state/plan-sidecars/2026-08-20-repo-setup-computed-form.census-steps.md
+
 
 lane: add-repo
 authored_against_contract_version: "1.0.0"
@@ -53,7 +51,7 @@ round_trip_directives:
     resolves: []
 
 # --- Nine agent-work steps: named, not pre-answered. None reachable under this lane's own
-# classification answer; named for the same completeness reason as the round_trip rows above.
+
 second_phase_deferred:
   - p15.substrate-read
   - p15.propose-project-type
@@ -65,10 +63,7 @@ second_phase_deferred:
   - tw.windows-console-allowlist-customize
   - tw.windows-console-suppression-tagging
 
-# --- Policy default for every terminal offer not on the deferred list above. Only
-# p3x.memo-destination-offer is reachable under this lane's own classification answer -- the
-# register-repo step runs regardless of the branch-b stop; the rest are unreachable and declared
-# for completeness.
+
 terminal_offer_defaults:
   - step_id: p15.propose-workstreams
     value: "not reached"

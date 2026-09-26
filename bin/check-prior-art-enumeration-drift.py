@@ -43,11 +43,6 @@ _SITES = (
 
 
 def _plugin_root() -> "Path | None":
-    """The plugin content root the published doctrine-asset sites live under.
-
-    Engine imports happen here, inside a function, never at module scope — keeps the module
-    body pure so `serve_classifier` still classifies this file warm-servable.
-    """
     try:
         import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
         import cc_invoke

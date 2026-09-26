@@ -1,19 +1,4 @@
-# coordinator/queue-profiles/lessons-central-apply.yaml — the lessons
-# central-mode apply grind profile, validated by
-# coordinator/schemas/queue-grind-profile.schema.json and by that schema's
-# test_every_queue_profile_validates, and pushed through the engine's own
-# load_profile/validate_graph/resolve_appetite seam by
-# coordinator/tests/test_lessons_queue_profile.py.
-#
-# /learn-lessons's central apply run emits and fires this profile through
-# emit-dispatch-workflow.py --queue state/lessons-outbox --profile
-# lessons-central-apply --appetite <a>, over rows the route run's
-# pm-decision hand-back the PM has already ruled `apply` on. Nothing here
-# is extracted, so the profile carries no source block, and the routing
-# decision the route run already verified is not re-verified here.
-#
-# Spec backlink: docs/plans/2026-09-21-canonical-learn-lessons-emitted-workflow.md
-# Tasks section C5.
+
 
 row_id_key: "@stem"
 
@@ -42,8 +27,8 @@ graph:
     kind: refute-close
     edges:
       confirmed: commit
-    # A refuted stale claim (the rule is not already in its target after
-    # all) hands back rather than closing on an unconfirmed claim.
+    
+    
     on_fail: needs-judgment
 
   fix:
@@ -56,8 +41,8 @@ graph:
     kind: verify
     edges:
       pass: commit
-    # A failed verify hands back rather than closing. A back-edge to fix
-    # would close a loop through this on_fail, which validate_graph refuses.
+    
+    
     on_fail: verify-failed
     verify:
       default: agent

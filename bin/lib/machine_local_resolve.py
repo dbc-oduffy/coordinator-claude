@@ -61,14 +61,6 @@ from coordinator_core.win_portability import is_executable
 
 
 def resolve_machine_local_bin(script_dir: Path) -> "str | None":
-    """Resolve an invokable `machine-local` executable path near `script_dir`.
-
-    `script_dir` is the caller's own directory (typically
-    `Path(os.path.dirname(os.path.abspath(__file__)))`) — the delivered bin/ tree
-    installs `machine-local` (POSIX) / `machine-local.cmd` (Windows) alongside the
-    calling script. See module docstring for the full resolution order and the
-    WinError 193 failure mode this closes.
-    """
     if os.name == "nt":
         candidate_cmd = script_dir / "machine-local.cmd"
         if candidate_cmd.is_file():

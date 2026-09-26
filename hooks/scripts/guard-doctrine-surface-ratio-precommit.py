@@ -611,11 +611,11 @@ def _apply_sub_floor_and_bill(
         addition = max(net, 0)
         accumulated = prior + addition
         if accumulated >= _SUB_FLOOR_BYTES:
-            owed = accumulated * 2
             denials.append(
                 f"`{surface}` crosses the 512 B sub-floor accumulator "
-                f"(accumulated {accumulated} B) -- {owed} B of cuts owed "
-                "on the surface this commit (D3 carve-out 2)."
+                f"(accumulated net growth {accumulated} B) -- this must come "
+                "down below 512 B, by cutting on the surface this commit or "
+                "by a reasoned-growth trailer (D3 carve-out 2)."
             )
             entry[surface_key] = 0
         else:
@@ -634,17 +634,11 @@ def _apply_sub_floor_and_bill(
         addition = max(net, 0)
         accumulated = prior + addition
         if accumulated >= _SUB_FLOOR_BYTES:
-            boundaries = tier_boundaries_for(surface)
-            ratio = 5
-            for band in boundaries["tiers"]:
-                if band["credit_scope"] == CREDIT_SCOPE_FILE:
-                    ratio = band["ratio"]
-                    break
-            owed = accumulated * ratio
             denials.append(
                 f"{path} crosses the 512 B sub-floor accumulator "
-                f"(accumulated {accumulated} B) -- {owed} B of cuts owed "
-                "on THIS FILE this commit (D3 carve-out 2)."
+                f"(accumulated net growth {accumulated} B) -- this must come "
+                "down below 512 B, by cutting on THIS FILE this commit or by "
+                "a reasoned-growth trailer (D3 carve-out 2)."
             )
             entry[file_key] = 0
         else:

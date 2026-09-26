@@ -156,15 +156,6 @@ _BOOTSTRAP_DONE = False
 
 
 def _bootstrap_engine() -> None:
-    """Put the claude-klabauter repo root on ``sys.path`` before ``coordinator_core``
-    is imported.
-
-    Idempotent; safe to call more than once. Moved out of module scope
-    (2026-08-28) -- unconditionally mutating `sys.path` at import time made
-    every import of this file mutate the `sys.path` of a warm server ~50
-    sessions share. Only the trigger moved; the effect is byte-for-byte the
-    same.
-    """
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
         return
@@ -172,24 +163,10 @@ def _bootstrap_engine() -> None:
         sys.path.insert(0, str(_CLAUDE_KLABAUTER_REPO_ROOT))
     _BOOTSTRAP_DONE = True
 
-#: The .cmd launcher's own basename — used by `recover_windows_argv` to locate
 #: where this invocation's own arguments begin within the raw `%CMDCMDLINE%`
-#: capture (see `raw_cmdline_recovery` module docstring). `--range` is a git
-#: rev/range this CLI's caller types directly (never defaulted — see module
-#: docstring), and git revision syntax leans on a literal `^` (`sha^..sha`,
-#: the per-commit predecessor-range shape a chain-scoped caller types) --
-#: exactly the character cmd.exe's `%*` batch-parameter population strips
-#: silently. Refuses on an unvouchable capture (coordinator-write-review-
-#: trail.py's C2 posture, not scoped-git-commit's C2b detect-and-record --
-#: this is a low-traffic per-review CLI, not a ~40-concurrent-session commit
-#: hot path, so a false refusal does not carry C2b's fleet-break risk).
 _LAUNCHER_CMD_NAME = "freeze-review-diff.cmd"
 
 def _resolve_repo_root(explicit: str) -> Path | None:
-    """Resolve the repo root: --repo-root verbatim if supplied, else the git
-    root from cwd (mirrors coordinator-write-review-trail.py's
-    `_resolve_repo_root` / the `git -C "$PWD" rev-parse --show-toplevel`
-    idiom used across this tree's other standalone bin/*.py entrypoints)."""
     if explicit:
         return Path(explicit)
     _bootstrap_engine()
@@ -215,10 +192,6 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     # OUTLIVED the retired trail record rather than depending on it: a range
-    # that never reaches the reviewer's frozen payload can never be attested
-    # by anyone, whatever else is or is not written alongside it. That is what
-    # the 2026-06-15 multi-EM-brightline-noise failure was, and it is still
-    # live.
     if not args.range_:
         print(
             f"{_PROG}: --range is required and is never defaulted — the caller "
@@ -237,9 +210,6 @@ def main(argv: list[str]) -> int:
     if repo_root is None:
         return 1
 
-    # DR-276: freeze_diff() is a plain function called directly (not an op
-    # main(argv)), so its declared writes are claimed via
-    # recording_declared_writes rather than run_op_main.
     with recording_declared_writes(cwd=str(repo_root)):
         result = freeze_diff(repo_root, args.range_, args.slice_id, args.paths or None)
     if result["error"] is not None:
@@ -269,19 +239,13 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    # `import lib` is what bootstraps `sys.path` for `raw_cmdline_recovery`
-    # below -- an undocumented dependency on a sibling module's import side
-    # effect, named explicitly here rather than left implicit.
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from raw_cmdline_recovery import UnsoundRawCmdlineTransport, recover_windows_argv
 
     try:
         _argv = recover_windows_argv(sys.argv[1:], _LAUNCHER_CMD_NAME)
     except UnsoundRawCmdlineTransport:
-        # Remediation names a runnable command line, not a slash command and not
-        # a bare basename: this fires before argv is trustworthy, so it cannot
         # assume a cwd. `_SCRIPT_DIR` resolves to wherever this file is actually
-        # installed. → CLAUDE.md § Runtime conventions (cold-path remediation).
         print(
             f"{_PROG}: the invoking shell stripped characters from this command "
             f'line before this process started — run `python "{_SCRIPT_DIR / "freeze-review-diff.py"}" '

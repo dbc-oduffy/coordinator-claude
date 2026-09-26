@@ -83,9 +83,6 @@ try:
         resolve_claude_klabauter_root as _resolve_claude_klabauter_root,
     )
 except Exception:
-    # Defensive fallback -- a hook script copied/deployed WITHOUT its
-    # sibling _engine_root.py (e.g. an isolated test harness, or a
-    # partial deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -94,7 +91,6 @@ except Exception:
 
 
 def main() -> int:
-    # --- Drain stdin (mirror the bash hook's stdin-drain pattern; no field needed). ---
     try:
         sys.stdin.read()
     except Exception:
@@ -102,15 +98,11 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open — engine repo unresolvable on this machine
+        return 0
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
 
-    # This stub calls three engine functions by direct import and never
-    # dispatches an op by name, so the ~80-module eager op-registry population
-    # `import coordinator_core.ops` triggers is pure dead weight here (~78ms of
-    # this hook's ~118ms). Must precede the first coordinator_core import.
     _arm_lazy_ops()
 
     try:
@@ -120,24 +112,16 @@ def main() -> int:
             evaluate_hooks_kill_switch_announcement,
         )
     except Exception:
-        return 0  # engine unimportable -> fail-open (never block SessionStart)
+        return 0
 
-    # Path.home() (not os.path.expanduser) fails loud -- RuntimeError, not a
     # silent literal "~" -- when every home rung (USERPROFILE, HOME) is
-    # unset. Caught here and degraded to the same fail-open 0 this hook
-    # already returns for an unimportable engine, matching the never-block-
-    # SessionStart posture this whole function is built around.
     try:
         home = str(Path.home())
     except RuntimeError:
-        return 0  # fail-open — home unresolvable on this machine
+        return 0
     config_dir_raw = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(home, ".claude")
     config_dir = Path(config_dir_raw)
 
-    # Each check is called and formatted independently -- one check raising
-    # must NEVER suppress a healthy sibling's banner. Order is fixed (see
-    # module docstring): settings-integrity, then delivery-duplication, then
-    # kill-switch announcement.
     parts: list[str] = []
 
     try:
@@ -145,21 +129,21 @@ def main() -> int:
         if text:
             parts.append(text)
     except Exception:
-        pass  # fail-open for this check only -- others still run
+        pass
 
     try:
         text = evaluate_hook_delivery_duplication(config_dir)
         if text:
             parts.append(text)
     except Exception:
-        pass  # fail-open for this check only -- others still run
+        pass
 
     try:
         text = evaluate_hooks_kill_switch_announcement(config_dir)
         if text:
             parts.append(text)
     except Exception:
-        pass  # fail-open for this check only -- others still run
+        pass
 
     if parts:
         sys.stdout.write("".join(parts))

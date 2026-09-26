@@ -59,19 +59,11 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
-    # Defensive fallback -- a hook script copied/deployed WITHOUT its
-    # sibling _engine_root.py (e.g. an isolated test harness, or a
-    # partial deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
 
 def main() -> int:
-    # This hook needs only cwd (exactly as the bash oracle used `$(pwd)`, not
-    # the SessionStart JSON payload) -- but SessionStart hooks are invoked
-    # with a JSON payload on stdin regardless of whether the hook consumes
-    # it; drain it so the harness never sees a broken pipe (matches
-    # project-rag-detect.py's convention).
     try:
         sys.stdin.read()
     except Exception:
@@ -79,7 +71,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open silent exit -- engine repo unresolvable on this machine
+        return 0
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
@@ -87,22 +79,16 @@ def main() -> int:
     try:
         from coordinator_core.hooks.ue_knowledge_distrust import run
     except Exception:
-        return 0  # engine unimportable -> fail-open silent exit
+        return 0
 
     # PLUGIN_ROOT: the bash oracle derived this from
     # `${BASH_SOURCE[0]}/../..` (hooks/scripts -> plugin root). Historically
-    # passed to the engine-repo op so it could locate the retired bash bootstrap script;
-    # the engine repo's `_run_bootstrap` (C5) now natively ports that write/merge logic
-    # in-process and keeps this parameter only for call-site compatibility
-    # (unused). Kept here too, mirroring coordinator-reminder.py's
-    # capability-catalog.md path convention.
-    # __file__ parents: [0]=scripts [1]=hooks [2]=coordinator (plugin root).
     plugin_root = str(Path(__file__).resolve().parents[2])
 
     try:
         result = run(os.getcwd(), plugin_root)
     except Exception:
-        return 0  # any engine failure -> fail-open silent exit
+        return 0
 
     for line in result.stderr_lines:
         try:
@@ -112,10 +98,6 @@ def main() -> int:
             pass
 
     if result.banner:
-        # Write raw bytes, not sys.stdout.write() -- on Windows, text-mode
-        # stdout translates LF to CRLF, which would diverge byte-for-byte
-        # from the bash oracle's LF-only heredoc output (golden-diff parity
-        # requirement, matches coordinator-reminder.py's convention).
         sys.stdout.buffer.write(result.banner.encode("utf-8"))
 
     return 0

@@ -126,6 +126,13 @@ Spec backlink: coordinator_core/hooks/nudge_foreground_agent_dispatch.py
 (the engine's reference implementation, the algorithm this module ports),
 coordinator/hooks/scripts/enforce-agent-dispatch-mode.py (module docstring,
 Concern G).
+
+SYNC_RETURN_TYPES divergence, deliberate and DoE-only: this module honours an
+explicit foreground dispatch for the bounded agent types in `SYNC_RETURN_TYPES`
+(returns `None` before the escape-hatch check); the engine's reference op
+`nudge_foreground_agent_dispatch` carries no such exemption and reroutes those
+types unconditionally same as any other -- this repo's divergence, not a bug
+in the reference.
 """
 
 from __future__ import annotations
@@ -141,16 +148,11 @@ from _message_envelope import resolve_wiki_citation  # noqa: E402
 try:
     from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir  # noqa: E402
 except Exception:
-    # Defensive fallback -- a deploy missing its sibling _git_common_dir.py
-    # must still fail open (empty common dir -> callers skip) rather than
-    # crash on import.
     def _resolve_git_common_dir(git_root: str) -> str:
         return ""
 try:
     from _session_hub import ensure_session_dir  # noqa: E402
 except Exception:
-    # Defensive fallback -- a deploy missing its sibling _session_hub.py must
-    # still fail open to the pre-gate behaviour, not crash on import.
     def ensure_session_dir(session_dir: Any, session_id: Any) -> bool:
         try:
             Path(session_dir).mkdir(parents=True, exist_ok=True)
@@ -160,11 +162,29 @@ except Exception:
 
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{4,}$")
 
+#: Membership rule (all four must hold for a type to belong here):
+#:   - Sonnet-or-below.
+#:   - Single pass.
+#:   - Not in the ACCUMULATED class named in subagent-sandbox-policy.yaml's
+#:     dispatch_tier comment (doc-link-checker, code-reviewer, dep-cve-auditor
+#:     are excluded on this ground: unbounded network checks, chunked review,
+#:     input-proportional payload growth).
+#:   - A result the EM consumes before its next decision.
+#: Opus personas are excluded as not cheap.
+SYNC_RETURN_TYPES = frozenset(
+    {
+        "git-commit-agent",
+        "premise-checker",
+        "prior-art-checker",
+        "plan-coverage-checker",
+        "docs-checker",
+        "test-evidence-parser",
+    }
+)
+
 _BG_CAPABLE_MARKER_NAME = ".harness-bg-capable"
 _FOREGROUND_OK_MARKER_NAME = ".foreground-ok"
 
-#: Repo-relative literal, resolved for the reader by `resolve_wiki_citation()`
-#: at render time (below) rather than emitted verbatim -- same mechanism the
 #: 16 `_message_envelope`-routed hooks use for their `_WIKI_ANCHOR` sites.
 _UNLOCK_DOC_CITATION = "coordinator/docs/wiki/guards/guard-unlock-channel.md"
 
@@ -192,10 +212,6 @@ _DENY_MESSAGE = (
 
 
 def _git_root(start: str) -> str:
-    """No-subprocess walk-up from `start` looking for a directory holding a
-    `.git` entry (directory or file) -- same idiom as `offer-exploration-
-    tier-dispatch.py`'s helper of the same name. Fails open to "" on any
-    error."""
     try:
         if not isinstance(start, str) or not start:
             return ""
@@ -212,15 +228,6 @@ def _git_root(start: str) -> str:
 
 
 def _resolve_git_dir(cwd: Any) -> Optional[str]:
-    """Best-effort git COMMON-dir resolution from `cwd`, WITHOUT spawning a
-    subprocess. Walks `cwd` and its parents to find the directory holding a
-    `.git` entry (`_git_root`), then resolves that entry to the git COMMON
-    dir (`_resolve_git_common_dir`) -- following a worktree's `gitdir:`
-    pointer AND its `commondir` indirection, never stopping at the
-    worktree's own PRIVATE dir. Returns `None` on any failure to resolve --
-    callers degrade to the fail-open "nothing to do" answer, same as every
-    other leg in this module.
-    """
     if not isinstance(cwd, str) or not cwd:
         return None
     try:
@@ -243,21 +250,12 @@ def _foreground_ok_path(git_dir: str, session_id: str) -> Path:
 
 
 def _mark_bg_capable(git_dir: Optional[str], session_id: str) -> None:
-    """Record that this session's harness demonstrably exposes run_in_background.
-
-    Best-effort and silent on failure: a missing marker degrades to the
-    brick-proof PASS that predates calibration entirely -- the safe direction
-    for the absent-key case.
-    """
     if not git_dir or not session_id:
         return
     marker = _bg_capable_path(git_dir, session_id)
     try:
         if marker.exists():
             return
-        # A session id the hub gate will not accept gets no directory minted
-        # for this marker (see `_session_hub`); the uncalibrated read that
-        # follows is the absent-key case this function already degrades to.
         if not ensure_session_dir(marker.parent, session_id):
             return
         marker.touch()
@@ -280,29 +278,6 @@ def compute_foreground_reroute(
     tool_input: dict,
     cwd: Any,
 ) -> Optional[tuple[str, Optional[bool], str]]:
-    """Pure computation (plus the calibration-marker touch, same tradeoff
-    `_worktree_isolation_strip.compute_strip` makes for its override-sentinel
-    read): no stdout, no sys.exit.
-
-    Args:
-        run_in_background: the raw `tool_input.run_in_background` value --
-            `True`/`False`/`"true"`/`"false"`/`None`/absent all handled;
-            "" and `None` are both treated as absent.
-        session_id: the raw top-level `session_id` payload value.
-        tool_input: the dispatch's `tool_input` dict (the rewrite target).
-        cwd: the raw top-level `cwd` payload value, used only for the
-            no-subprocess git-dir resolution behind calibration/escape-hatch.
-
-    Returns:
-        `None` -- nothing to do (background already set, uncalibrated
-            absent, or the `.foreground-ok` escape hatch is active).
-        `("reroute", True, notice)` -- rewrite to background; caller sets
-            `merged["run_in_background"] = True` and surfaces `notice` via
-            `additionalContext`.
-        `("deny", None, message)` -- foreground detected but no safe rewrite
-            exists; caller must deny the whole dispatch outright, never fold
-            this into an "allow".
-    """
     sid = session_id if isinstance(session_id, str) else ""
     if sid and not _SESSION_ID_RE.match(sid):
         sid = ""
@@ -314,9 +289,6 @@ def compute_foreground_reroute(
 
     git_dir = _resolve_git_dir(cwd)
 
-    # Calibrate first, mirroring the engine's reference op's ordering: presence (either
-    # value) proves the build exposes the param, and that fact is only
-    # observable here.
     if has_bg and sid:
         _mark_bg_capable(git_dir, sid)
 
@@ -326,9 +298,14 @@ def compute_foreground_reroute(
     if not has_bg:
         if not _is_bg_capable(git_dir, sid):
             return None
-        # Fall through: calibrated absent = deliberate foreground.
 
-    # Escape hatch -- explicit opt-in to foreground for this session.
+    if isinstance(tool_input, dict):
+        raw_subagent_type = tool_input.get("subagent_type")
+        if isinstance(raw_subagent_type, str) and raw_subagent_type:
+            type_name = raw_subagent_type.rsplit(":", 1)[-1]
+            if type_name in SYNC_RETURN_TYPES:
+                return None
+
     if sid and git_dir:
         try:
             if _foreground_ok_path(git_dir, sid).exists():

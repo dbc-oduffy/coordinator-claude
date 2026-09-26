@@ -1,52 +1,12 @@
-"""
-install-doe-claude-precommit-hook — CLI trampoline over claude-klabauter
-coordinator_core.ops.install_doe_claude_precommit_hook.
-
-Installs (or upgrades/appends onto an existing custom hook) DoE-claude's OWN
-`.git/hooks/pre-commit` gate chain — identity-gated via the canonical
-DoE-root resolver (`coordinator_core.doe_root_pointer`, registry-first over
-`repos.doe_claude`); an unresolved or non-matching target is a clean no-op
-skip. See that op module's docstring for the gate registry, the fail-loud
-discipline, and the exit-code clamping that guarantees this hook body only
-ever exits 0 or 1.
-
-Naming note: `doe_claude` is an explicitly KEPT slug in
-`coordinator_core.ops.check_registry_codename_leak` (`KEEPSET`, with the
-reason recorded at its definition — the OSS clone resolver already reads
-`repos.doe_claude`). Naming the repo here is therefore sanctioned, not a
-leak, and a generic paraphrase would conceal nothing while this file's own
-name, module path, and identifiers all carry the slug regardless.
-
-Exit convention: this is a config-writer/gate-installer, not a never-block
-hook. A claude-klabauter-link failure (the engine root unresolvable, module not
-importable) means the installer literally could not run — silently exiting
-0 would read as "hook installed" to a caller (`scripts/setup.py`,
-`/coordinator:setup`) when it was not, so this trampoline exits 1 on
-engine-root resolution or import failure. The op's own internal skip paths
-(not a git repo, not DoE-claude, unresolved root, already
-installed) all still exit 0.
-
-Usage:
-    install-doe-claude-precommit-hook [target-repo-root]
-
-    target-repo-root defaults to the current working directory.
-"""
 
 from __future__ import annotations
 
-INSTALL_CLASS = True  # writes a git hook; see door_install.declared_install_class
+INSTALL_CLASS = True
 
 import os
 import sys
 
 def _import_runner():
-    """Resolve the engine root and import the in-process runner.
-
-    DR-276: routes through `coordinator_core.cli_entry.run_op_main` rather
-    than calling the op's `main` directly, so the pre-commit hook file this
-    op writes becomes a session scope-touch claim instead of an orphan at
-    the `scoped_git_commit` sink.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 

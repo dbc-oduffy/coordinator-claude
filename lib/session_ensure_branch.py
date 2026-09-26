@@ -1,24 +1,3 @@
-"""lib/session_ensure_branch.py — shared gate: cut work/{machine}/{today} when the
-session opens on main, detached HEAD, or a zero-ahead non-span branch.
-
-Native port of the retired bash gate (de-bash campaign, chunk E3-f). The
-bash oracle's own `cs_parse_branch_span` was already a bridge shelling out to
-`coordinator_core.daily_branch.parse_branch_span`; this port imports that
-function directly instead — a straight Python import, not a subprocess spawn.
-
-Source this module and call `session_ensure_branch`, or run the git-mutating
-branch-cut logic ad hoc — this is an importable library, not a bin/ trampoline
-(mirrors lib/release_currency.py — no .cmd launcher).
-
-Spec backlink: state/handoffs/2026-07-04_220004_roadmap-strang-04.md § Phase 1
-Port: docs/plans/2026-07-19-debash-coordinator-windows.md (chunk E3-f)
-
-Soft seam — claude-klabauter action layer: a future `session.ensure_branch` op
-(pcore-06/10) may eventually own the git-mutation half of this gate; until
-that op exists, this module performs the git checkout/push subprocess calls
-directly (matching the bash oracle's behavior — the bash oracle was never
-gated on that future op either, it always did the git ops itself).
-"""
 from __future__ import annotations
 
 import subprocess
@@ -26,11 +5,7 @@ import sys
 from dataclasses import dataclass
 from typing import Optional
 
-# ---------------------------------------------------------------------------
 # COORDINATOR_OVERRIDE_BRANCH pattern: every git mutation carries this env pair
-# so the off-daily-branch PreToolUse guard does not deny it. Do NOT remove —
-# the guard denies git checkout/push on non-daily branches without it.
-# ---------------------------------------------------------------------------
 _OVERRIDE_ENV = {
     "COORDINATOR_OVERRIDE_BRANCH": "1",
     "COORDINATOR_OVERRIDE_BRANCH_REASON": "session-ensure-branch: create/push workstream branch",
@@ -38,36 +13,23 @@ _OVERRIDE_ENV = {
 
 
 class SuffixCollisionError(RuntimeError):
-    """Raised when no unused work/{machine}/{today}[-N] suffix is found (tried -2..-9)."""
+    pass
 
 
 @dataclass
 class EnsureResult:
-    result: str  # see the negative-spec in session_ensure_branch's docstring
+    result: str
     new_branch: str  # branch name when FRESH-CUT/ADOPTED-EXISTING/INHERITED; "" otherwise
 
 
-#: The tree already sits on today's branch's tip and it merely had to be
-#: checked out — content-neutral, no new ref minted.
 ADOPTED_EXISTING = "ADOPTED-EXISTING"
-#: Another session won the cut lock and this one inherited its branch. NOT
 #: "FRESH-CUT" (this session did not cut) and NOT "REFUSED-LIVE-PEERS" (the
-#: invariant now holds) — callers branching on the result MUST carry an arm
-#: for it rather than folding it into either.
 INHERITED = "INHERITED"
 
-#: Today's branch existed but lagged HEAD -- every commit it carried was
-#: already reachable from HEAD (the ordinary post-/merging-to-main state), so
-#: its ref was advanced to HEAD and checked out. Content-neutral in exactly
-#: the sense a fresh cut is: HEAD's commit does not move, no file is touched,
-#: no index entry changes, and no commit is discarded (the ancestor test
 #: below is what proves the last of those). NOT "FRESH-CUT" (no new ref was
 #: minted) and NOT "ADOPTED-EXISTING" (a ref DID move); callers branching on
-#: the result MUST carry an arm for it.
 ADVANCED_TO_HEAD = "ADVANCED-TO-HEAD"
 
-#: Bounded window a lock-loser polls for the winner's branch before falling
-#: through to the timeout arm.
 _INHERIT_POLL_SECONDS = 2.0
 _INHERIT_POLL_INTERVAL = 0.05
 
@@ -81,17 +43,12 @@ def _branch_ref_exists(name: str) -> bool:
 
 
 def _branch_mutation_verdict():
-    """Import indirection mirroring `_parses_as_branch_span` — native
-    import, no subprocess spawn. Isolated so a missing/broken
-    coordinator_core install degrades loudly via ImportError at call time
-    rather than silently at module load."""
     from coordinator_core.session.worktree_safety import branch_mutation_verdict
 
     return branch_mutation_verdict
 
 
 def _cut_lock():
-    """Import indirection mirroring `_branch_mutation_verdict`."""
     from coordinator_core.session import day_branch_cut_lock
 
     return day_branch_cut_lock
@@ -136,7 +93,6 @@ def _is_ancestor_of_head(rev: str) -> bool:
 
 
 def _parses_as_branch_span(name: str) -> bool:
-    """cs_parse_branch_span drop-in — native import, no subprocess spawn."""
     try:
         from coordinator_core.daily_branch import parse_branch_span
     except ImportError:
@@ -274,11 +230,7 @@ def session_ensure_branch(
 
     is_boot = caller == "boot"
     if is_boot and not is_main:
-        # Case (B) -- a detached HEAD and a zero-ahead non-span branch are not
-        # "on main" in the PM's own words and take C10's warn, never a cut. The
         # CEREMONY caller keeps the wider admission set; inheriting it here
-        # would silently extend the authorised reversal on a path that fires
-        # on every boot.
         return EnsureResult(result="", new_branch="")
 
     from coordinator_core.session import worktree_safety as _ws
@@ -364,12 +316,7 @@ def _cut_or_adopt(*, target: str, is_boot: bool, env, err) -> EnsureResult:
 
     if _branch_ref_exists(new_branch):
         if is_boot:
-            # Every-boot invariant: the tree returns to main routinely
-            # (/merging-to-main ends there), so re-entering the -N suffix loop
-            # on every subsequent boot would mint a new branch each time and
-            # raise SuffixCollisionError INSIDE a SessionStart hook on the
             # 10th. The cut mutex does not help -- it serialises CONCURRENT
-            # boots, not sequential ones hours apart.
             head_sha = _head_sha()
             if head_sha and head_sha == _head_sha(new_branch):
                 run_forwarding(
@@ -383,26 +330,6 @@ def _cut_or_adopt(*, target: str, is_boot: bool, env, err) -> EnsureResult:
                 print(f"ADOPTED-EXISTING branch={new_branch}")
                 return EnsureResult(result=ADOPTED_EXISTING, new_branch=new_branch)
 
-            # The post-/merging-to-main state, and the reason this whole arm
-            # exists. On 2026-09-02 today's branch was merged to `main` and
-            # the tree returned to `main`, which left the local day-branch ref
-            # BEHIND HEAD. Every subsequent boot found the branch existing,
-            # found HEAD not at its tip, refused, printed the banner, and left
-            # the tree on `main` -- for forty minutes and fifteen commits,
-            # because nothing in the system ever repaired it. A detector that
-            # reports the same true fact on every boot and changes nothing is
-            # not a guard; the repair is the guard.
-            #
-            # Advancing the ref is content-neutral in exactly the sense the
-            # fresh cut this function otherwise performs is: `checkout -B` at
-            # HEAD leaves HEAD's commit where it is, touches no file and no
-            # index entry, and -- given the ancestor test -- discards no
-            # commit, because every commit the old ref named is already
-            # reachable from HEAD. What it is NOT is a `checkout` of a
-            # different commit, which is the hazard the refusal below still
-            # covers: a branch carrying commits HEAD does not have is genuine
-            # divergence, moving HEAD onto it would yank every live peer's
-            # tree, and that case is refused exactly as before.
             if _is_ancestor_of_head(new_branch):
                 run_forwarding(
                     ["git", "checkout", "-B", new_branch, "HEAD"],
@@ -424,8 +351,6 @@ def _cut_or_adopt(*, target: str, is_boot: bool, env, err) -> EnsureResult:
             )
             return EnsureResult(result="REFUSED-LIVE-PEERS", new_branch="")
 
-        # Ceremony path ONLY. The arm above makes this structurally
-        # unreachable from the boot path -- keep it that way.
         n = 2
         while _branch_ref_exists(f"{new_branch}-{n}"):
             n += 1
@@ -437,11 +362,6 @@ def _cut_or_adopt(*, target: str, is_boot: bool, env, err) -> EnsureResult:
 
     checkout_env = _checkout_env(env)
 
-    # run_forwarding, not subprocess.run: `err` may be workday-start-step0's
-    # own `sys.stderr`, which is an io.StringIO with no fileno() when this
-    # gate runs in-process through coordinator_core.workday_complete.apply's
-    # capture-buffer dispatch -- see coordinator_core.win_portability.
-    # run_forwarding's own docstring.
     run_forwarding(
         ["git", "checkout", "-b", new_branch],
         env=checkout_env,
@@ -452,16 +372,7 @@ def _cut_or_adopt(*, target: str, is_boot: bool, env, err) -> EnsureResult:
     )
 
     if is_boot:
-        # NO network call on the boot path. The SessionStart fan-in runs under
-        # a single shared 10s timeout with no per-guard budget; a cold-
-        # connection push to GitHub routinely exceeds it, and a harness kill
-        # mid-push leaves the cut lock held by a dead process for the whole
         # stale-grace window. The upstream is established by the CEREMONY
-        # leg instead (workday-start-day-branch-resolve.py's
-        # day-branch-assert subcommand -> publish_day_branch), with
-        # push_with_retry's no-upstream arm as the backstop -- NOT by
-        # auto_push.push_once, whose per-commit caller C6/C7 of
-        # docs/plans/2026-08-30-who-pushes-and-when.md deleted.
         print(f"FRESH-CUT branch={new_branch}")
         return EnsureResult(result="FRESH-CUT", new_branch=new_branch)
 

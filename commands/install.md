@@ -1,7 +1,9 @@
 ---
+name: install
 description: "Installs the coordinator plugin — checks prereqs, configures project."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "AskUserQuestion"]
 argument-hint: "[--check-only] [--non-interactive] [--accept-no-git-auth]"
+disable-model-invocation: true
 ---
 
 # Coordinator Install

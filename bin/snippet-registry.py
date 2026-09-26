@@ -1,34 +1,3 @@
-"""
-snippet-registry — CLI trampoline over claude-klabauter coordinator_core.snippet_sync.registry.
-
-Folded from the retired bash CLI (477 LoC, itself shelling to a python3
-heredoc to parse snippets/registry.toml) per T3a-g3f Q14 — the nested
-bash-wraps-python shape was exactly the antipattern this migration targets.
-
-Usage:
-  snippet-registry list-snippets
-      Print one snippet name per line (all enrolled names), alphabetically.
-
-  snippet-registry list-consumers <snippet-name>
-      Print one resolved consumer path per line.
-      Exit 0 on success, 2 on unknown snippet name, 3 on schema_version mismatch.
-      Conditional consumers with unset machine-local keys emit a NOTE to stderr
-      and are skipped (no exit-nonzero — absent sibling repos are routine).
-
-  snippet-registry list-for <consumer-path>
-      Reverse lookup: print snippet names whose resolved consumer set includes
-      <consumer-path>. Empty output + exit 0 = no match.
-
-Exit codes:
-  0  success
-  1  usage / internal error
-  2  unknown snippet name (list-consumers only)
-  3  schema_version mismatch or absent
-
-Spec backlink: DoE scratch/subagent-sandbox/bash-to-python-engine-migration/recipe-t3a-g3.md § 6
-DR backlink:   docs/decisions/2026-06-15-snippet-registry-shape.md
-Port of: coordinator/bin/snippet-registry (bash CLI, retired on cutover; see git log)
-"""
 from __future__ import annotations
 
 import os
@@ -37,11 +6,6 @@ from pathlib import Path
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_BIN_DIR, "lib")
-# machine_local_resolve.py imports from the coordinator_core package
-# (win_portability) at module level -- that package is resolvable only from
-# the repo root, not from _LIB_DIR, so it must be on sys.path too or the
-# import below raises ModuleNotFoundError every time this CLI runs as a
-# subprocess (which is how every real caller invokes it).
 _REPO_ROOT = os.path.dirname(os.path.dirname(_BIN_DIR))
 
 _BOOTSTRAP_DONE = False
@@ -101,15 +65,6 @@ def main(argv: "list[str] | None" = None) -> int:
 
     require_dispatch_engine_on_path()
     # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
-    # what BINDS coordinator_core, and binding it HERE is the whole fix.
-    # require_dispatch_engine_on_path() above only mutates sys.path -- it imports
-    # nothing. Without this line the next import below (a binder module
-    # that resolves on the LOCATOR axis) wins the race and binds coordinator_core off
-    # the working tree instead of the dispatch root, and no later sys.path insert can
-    # rebind an already-imported package. Removing it restores a silent wrong-tree
-    # divergence that require_dispatch_engine_on_path now raises on.
-    # Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
-    # docs/research/engine-provenance-carrier-dependence.md
     import coordinator_core  # noqa: F401
 
     from machine_local_resolve import resolve_machine_local_bin
@@ -161,12 +116,6 @@ def main(argv: "list[str] | None" = None) -> int:
         except reg.RegistryError as exc:
             print(str(exc), file=sys.stderr)
             return exc.exit_code
-        # `resolve_consumers()` intentionally returns native-separator paths
-        # (internal Path/os.path reopen-and-compare surface, confirmed by the
-        # 2026-08-07 separator-cluster pass which reverted a same-shape fix
-        # inside registry.py after it broke 9 green tests) -- normalize only
-        # here, at the CLI presentation boundary, mirroring
-        # verify-snippet-sync's `--list` fix.
         for path in consumers:
             print(str(path).replace(os.sep, "/"))
         return 0

@@ -67,42 +67,15 @@ import yaml
 _SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(_SCRIPTS_DIR)))
 
-#: Where a delivered join lands. One path, named here rather than passed in,
-#: so that "the join is absent" is a checkable fact about this repo and not a
-#: property of how some caller was invoked.
 DEFAULT_JOIN_PATH = os.path.join(
     _REPO_ROOT, "state", "audits", "2026-09-07-guard-enforcement-join-from-claude-klabauter.yaml"
 )
 
-#: NO VERDICT IS TREATED AS MEANING "THIS GUARD DOES NOT FIRE HERE", and that
-#: is a finding rather than an omission.
-#:
-#: `cloud_verdict` answers "is the harm this guard protects against reachable
-#: in the target environment?" -- the harmed-party axis the ratification DR
-#: turns on. It does NOT answer "does this guard fire here", and the two come
-#: apart exactly where it matters. `nudge_windows_subprocess_popup` is the
-#: worked case: its premise is false on a headless VM (nobody sits at a
-#: Windows console to have their focus stolen) and yet the module carries no
-#: host gate whatsoever -- it is extension- and content-gated over authored
-#: code, so a Linux session writing a Windows-targeted launcher trips it.
-#: Premise false, guard live.
-#:
-#: So `resolve` below reports the first guard naming the rule and does not
 #: rank them. An earlier cut carried an `INERT_VERDICTS` set and picked the
-#: "strictest" guard from it; measured against the live artifact it matched
-#: zero of 105 rows, could not change a single emitted byte, and existed only
-#: to defend its own narrowness. Whether a guard fires here is derivable from
-#: its band, advisory value and tool surface -- if that computed field lands,
-#: it belongs here as a real discriminator, not as this constant restored.
 
 
 class JoinError(ValueError):
-    """The join file exists but cannot be trusted to answer anything.
-
-    Raised rather than returned, and never caught by this module: a
-    malformed join is a delivery defect on the engine plane, and silently
-    degrading it to "unresolved" would hide a broken artifact behind the
-    same empty ledger a missing one produces."""
+    pass
 
 
 def _require(condition: bool, message: str) -> None:
@@ -111,11 +84,6 @@ def _require(condition: bool, message: str) -> None:
 
 
 class GuardEnforcementJoin:
-    """One delivered join, parsed and queryable.
-
-    `complete_over_guards` is the single fact that licenses a negative
-    answer: the engine plane asserting that the rows below cover every
-    registered guard in the population named by `guard_population`."""
 
     def __init__(self, document: dict) -> None:
         _require(isinstance(document, dict), "join is not a mapping")
@@ -225,12 +193,6 @@ class GuardEnforcementJoin:
 
 
 def load_join(path: Optional[str] = None) -> "Optional[GuardEnforcementJoin]":
-    """The delivered join, or `None` when none has been delivered.
-
-    Absence is the expected state until the engine plane walks this path and
-    is not an error -- see `DR-an-omission-is-ratified-by-the-plane-that-
-    enforces-the-rule` § "The blocker is no longer a decision, it is a
-    missing artifact"."""
     target = path or DEFAULT_JOIN_PATH
     if not os.path.isfile(target):
         return None

@@ -48,22 +48,8 @@ import glob
 import os
 import sys
 
-# Question answered (C8b, 2026-07-27, plan-line-item-resolution-model): "is
-# this plan no longer actively being executed, so an expired
-# provisional_until/revisit_by date inside it is not worth chasing?" This is
-# NOT the same partition as claude-klabauter's several plan-status "terminal"-
-# named sets, and is not expected to agree with any of them:
 #   - lifecycle_constants.PLAN_ARCHIVABLE_STATUS answers "can this plan's
-#     file be git-mv'd into archive/?" — excludes 'deferred' (a deferred plan
-#     stays in docs/plans/, revisitable), while THIS set includes it (a
-#     deferred plan's staged decisions are deliberately parked, not chased).
 #   - ops.plan_status_transition._FROZEN_STATUSES answers "is this status
-#     frozen against the stamp-implemented flip?" — happens to agree with
-#     this set's membership today, but for an unrelated reason (flippability,
-#     not decision-chaseability); do not assume future agreement.
-#   - ops.records_query.liveness()'s plan branch answers "what LIVE/BLOCKED/
-#     DONE cockpit bucket does this status fall into?" — maps 'deferred' to
-#     BLOCKED, a third bucket, not folded into this binary set at all.
 _NOT_ACTIVELY_EXECUTING_STATUSES = {
     "implemented",
     "closed_partial",
@@ -76,10 +62,6 @@ _FRONTMATTER_KEYS = ("status", "provisional_until", "revisit_by")
 
 
 def _read_frontmatter_scalars(path: str) -> dict:
-    """Read a fixed set of top-level `key: value` scalar lines from the
-    leading `---`-delimited frontmatter block. No nested/list parsing —
-    matches the sibling detectors' documented lite-parse convention.
-    """
     scalars: dict = {}
     try:
         with open(path, "r", encoding="utf-8") as fh:
@@ -114,14 +96,7 @@ def _parse_date(value: str, path: str) -> datetime.date:
 
 
 def find_expired(paths, today: datetime.date | None = None):
-    """Return a list of (path, expiry_date, days_overdue, status) tuples for
-    every plan whose provisional_until/revisit_by date has passed while its
-    status is still non-terminal. Raises ValueError on an unparseable date
-    (caller maps to exit code 2)."""
     if today is None:
-        # Resolve in UTC, matching the sibling ceremony's `date -u`
-        # day-resolution, to avoid a machine-timezone disagreement across a
-        # day boundary.
         today = datetime.datetime.now(datetime.timezone.utc).date()
 
     expired = []
@@ -148,11 +123,6 @@ def find_expired(paths, today: datetime.date | None = None):
 
 
 def _resolve_targets(argv):
-    # The argv-less cwd-relative default is deliberately absent: the
-    # ceremony that invokes this always passes an explicit path, and a
-    # silent empty-glob no-op on the wrong cwd is indistinguishable from
-    # "nothing expired" — contradicting this script's own fail-loud
-    # negative-spec.
     if not argv:
         raise ValueError("no target path given (expected a file or directory argument)")
     target = argv[0]

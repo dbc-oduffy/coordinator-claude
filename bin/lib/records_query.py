@@ -167,7 +167,6 @@ def _resolve_repo_root(explicit_root: str | None = None) -> str:
 
 
 def _no_legacy() -> None:
-    """State-1 (seam-absent) handler — big-bang cutover has no legacy path."""
     raise RuntimeError(
         "records_query: legacy bash path retired (Windows de-bash campaign, "
         "big-bang cutover 2026-07-19) — native coordinator_core.invoke "
@@ -246,26 +245,14 @@ def query_records(
     else:
         params["type"] = record_type
         params["where"] = where
-    # `is not None`, NOT a truthiness check: the op treats limit=0 as
     # UNLIMITED (verified empirically — a `decision` corpus of 89 records
-    # returns all 89 under limit=0, and only 50 under omitted limit). A bare
-    # `if limit:` guard drops the falsy 0 from params, silently downgrading an
-    # explicit "no cap" request into the op's default 50-record truncation.
     if limit is not None:
         params["limit"] = int(limit)
-    # sort/since/older_than are all-string params where "" and None both mean
-    # "absent" (unlike limit's 0, there is no falsy-but-meaningful value
-    # here) — a truthiness guard is correct and intentional for these three.
     if sort:
         params["sort"] = sort
     if since:
         params["since"] = since
     if older_than:
-        # NB: snake_case `older_than` is the params-dict key the op expects.
-        # The CLI's user-facing flag is kebab `--older-than` (see main()) —
-        # that spelling divergence is deliberate and is exactly the trap
-        # documented in this function's docstring above; do not "normalize"
-        # this key to kebab to match the flag name.
         params["older_than"] = older_than
 
     result = route_mutation("records.query", params, repo_root, _no_legacy)
@@ -284,22 +271,6 @@ _LEADING_DASH_VALUE_FLAGS = ("--sort", "--since", "--older-than")
 
 
 def _rewrite_leading_dash_values(argv: list[str]) -> list[str]:
-    """Rewrite `--sort -created` (space-separated) into `--sort=-created`
-    (equals form) before argparse sees it.
-
-    Descending sort specs are the canonical shape for this op (`-created`,
-    `-loe.tshirt` — leading `-` = descending, per this module's Usage
-    docstring) and every caller in the dispatch brief invokes them exactly
-    this way: `--sort "-created"` as two separate argv tokens. argparse's
-    default optional-argument parsing treats any token starting with `-`
-    that isn't a recognized negative-number literal as a NEW flag, not a
-    value — so `["--sort", "-created"]` fails with "expected one argument"
-    even though the caller's intent is unambiguous. The `--flag=value`
-    equals form sidesteps this (argparse never re-tokenizes text after the
-    `=`), so this rewrite is applied only to the three flags whose
-    documented values legitimately start with `-` — it does not touch
-    --format/--limit/--unattached or the positionals.
-    """
     rewritten: list[str] = []
     i = 0
     while i < len(argv):
@@ -320,10 +291,6 @@ def _rewrite_leading_dash_values(argv: list[str]) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="records_query.py")
-    # nargs="?" on both positionals (rather than required) so --unattached can
-    # omit type/where entirely; validated post-parse below. Every pre-existing
-    # positional invocation shape (`<type> <where> [<format>] [<limit>]`) is
-    # unaffected — nargs="?" only widens what's *also* accepted.
     parser.add_argument("type", nargs="?", default=None)
     parser.add_argument("where", nargs="?", default=None)
     parser.add_argument("format", nargs="?", default=None)
@@ -334,31 +301,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Request the native `unattached` union lens instead of a single "
         "<type>/<where> query. Mutually exclusive with <type>/<where>.",
     )
-    # --format/--limit flags (distinct dest from the positionals above, to
     # avoid an attribute collision) exist SPECIFICALLY for --unattached
-    # invocations: with type/where omitted, the format/limit positionals
-    # would otherwise be ambiguous with argparse's left-to-right positional
-    # fill (an omitted type/where means the NEXT positional given is
-    # consumed as type, not format — there is no way to "skip" a nargs="?"
-    # positional from the CLI). The flags let --unattached callers name
-    # format/limit unambiguously; the positionals remain the only path for
-    # every pre-existing non---unattached invocation, unchanged.
     parser.add_argument("--format", dest="format_flag", default=None)
     parser.add_argument("--limit", dest="limit_flag", default=None)
-    # sort/since/older-than: pure passthrough flags for filters the op
-    # already understands (EM-verified live 2026-07-22) — no local
-    # reimplementation of sorting/date-filtering here. Compose with both
-    # positional and --unattached invocations; also verified to compose with
-    # each other and with --unattached (sort/since/older_than all apply once
-    # to the assembled union, same as a single-type query).
     parser.add_argument("--sort", dest="sort", default=None)
     parser.add_argument("--since", dest="since", default=None)
-    # NB: user-facing flag is kebab `--older-than`; argparse gives us
-    # `args.older_than` (snake_case) automatically via dest inference below.
-    # The params-dict key sent to the op MUST stay snake_case `older_than` —
-    # see query_records()'s docstring for the silent-drop trap this guards
-    # against (kebab `older-than` in the params dict is silently ignored by
-    # the op, returning an unfiltered result set instead of erroring).
     parser.add_argument("--older-than", dest="older_than", default=None)
     effective_argv = list(argv) if argv is not None else sys.argv[1:]
     args = parser.parse_args(_rewrite_leading_dash_values(effective_argv))
@@ -374,13 +321,6 @@ def main(argv: list[str] | None = None) -> int:
     limit_raw = args.limit_flag if args.limit_flag is not None else args.limit
 
     try:
-        # `if limit_raw else None`, not `is not None`: limit_raw is the RAW
-        # CLI string here (pre-int()), and an omitted positional/flag already
-        # defaults to None — the only falsy-but-present string is "", which
-        # only arises from an explicit empty-string arg and should still mean
-        # "no limit given". The string "0" is truthy and survives this guard
-        # intact, so `... 0` reaches query_records()'s own `is not None`
-        # guard as limit=0, preserving the unlimited semantics end to end.
         limit_int = int(limit_raw) if limit_raw else None
         out = query_records(
             record_type,

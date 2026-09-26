@@ -1,23 +1,4 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
-"""count-distill-backlog.py — heuristic count of completion-log entries pending
-wiki distillation.
-
-Scans archive/completed entries older than
-threshold_days and reports how many have not yet been absorbed into the wiki.
-The count is approximate — chain:null entries cannot be matched by chain slug
-and will always count as pending.
-
-Usage:
-    count-distill-backlog.py                # prints pending_count integer
-    count-distill-backlog.py --format json  # prints single-line JSON object
-
-Spec backlink: docs/plans/2026-06-22-cockpit-tc-3-coordinator-emission.md § C1
-Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md (Wave E3-c)
-
-Negative-spec: does NOT spawn `date`/`awk`/`grep`/`jq` subprocesses — cutoff
-date, frontmatter extraction, and JSON emission are all native Python
-(this is a straight behavioral port, not merely a shell-out wrapper).
-"""
 from __future__ import annotations
 
 import datetime
@@ -95,10 +76,6 @@ def _resolve_root() -> str:
 
 
 def _read_wiki_corpus(wiki_local: str, wiki_coord: str) -> str:
-    """Concatenate every *.md file under both wiki roots into one corpus
-    string. A missing/empty glob on either side contributes nothing — mirrors
-    the bash oracle's `cat ... 2>/dev/null || true` degrade-to-empty.
-    """
     parts: list[str] = []
     for root in (wiki_local, wiki_coord):
         for path in sorted(glob.glob(os.path.join(root, "*.md"))):
@@ -111,11 +88,6 @@ def _read_wiki_corpus(wiki_local: str, wiki_coord: str) -> str:
 
 
 def _extract_frontmatter(path: str) -> tuple[str, str]:
-    """Return (created, chain) from the first `created:`/`chain:` line found
-    in the file, matching the bash oracle's one-pass-per-file awk semantics
-    (FNR==1 style: first non-empty value per field per file wins). Empty
-    string for either field when absent. Zero-byte files return ("", "").
-    """
     created = ""
     chain = ""
     try:
@@ -143,7 +115,6 @@ def _derive_slug(entry_path: str, chain: str) -> str:
     base = os.path.basename(entry_path)
     if base.endswith(".md"):
         base = base[: -len(".md")]
-    # strip trailing 6-char hex suffix (e.g. -a62b94)
     no_hash = base
     if len(base) > 7 and base[-7] == "-":
         suffix = base[-6:]
@@ -187,10 +158,6 @@ def main(argv: list[str]) -> int:
     archive_files_found = 0
 
     for entry in md_files:
-        # A genuinely zero-byte file never triggers the bash oracle's awk
-        # FNR==1 record — it produces no record at all and is excluded from
-        # archive_files_found. Any non-zero-byte file (with or without
-        # created:/chain: lines) DOES produce a record.
         try:
             if os.path.getsize(entry) == 0:
                 continue
@@ -202,7 +169,7 @@ def main(argv: list[str]) -> int:
         created, chain = _extract_frontmatter(entry)
 
         if not created:
-            continue  # no frontmatter — skip (legacy rollup files)
+            continue
 
         if not (created < cutoff):
             continue

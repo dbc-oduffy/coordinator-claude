@@ -206,29 +206,11 @@ import tempfile
 from pathlib import Path
 from typing import IO, Iterable, Optional
 
-# Dual import: this module is loaded two different ways by its own test
-# suite. Newer tests (and publish.py) import it package-relatively as
-# `percolate.allowlist`, where the leading-dot relative import resolves
-# normally. Three older tests predate the `percolate` package and still use
-# the bare `sys.path.insert(<...>/lib/percolate)` + `import allowlist` idiom
-# — under that idiom this module has no parent package, so the relative
-# import raises ImportError ("attempted relative import with no known parent
-# package"), not because `.ignore` is missing but because there is no `.` to
-# resolve against. The fallback below retries as a plain top-level `ignore`
-# import, which resolves because sys.path already contains this file's own
-# directory under that same bare-import idiom. Any other ImportError (e.g.
-# `ignore.py` genuinely absent or broken) propagates unchanged from the
-# fallback line — this only papers over the "no parent package" case, it
-# does not mask a real missing dependency.
 try:
     from .ignore import PercolateIgnoreMatcher, load_percolate_ignore
 except ImportError:
     from ignore import PercolateIgnoreMatcher, load_percolate_ignore  # type: ignore[no-redef]
 
-# Working-data top-level prefix patterns (port of _check_working_data_paths'
-# _deny_prefixes array). No trailing slash — matched as an exact leading
-# path component or as `.../<pfx>/...` anywhere in the relative path, same
-# as the bash `[[ "$_rel" == "${_pfx}/"* || "$_rel" == *"/${_pfx}/"* ]]`.
 _DENY_PREFIXES = (
     "state",
     "docs/plans",
@@ -241,36 +223,18 @@ _DENY_PREFIXES = (
 
 
 class AllowlistError(Exception):
-    """Raised for a fatal allowlist-gate failure — a hard stop that must
-    prevent the caller from proceeding to publish. Never caught and
-    downgraded to a warning by this module."""
+    pass
 
 
-# Keyed by the `Path` a `build_allowlisted_source` call returned, holding the
 # PRE-FILTER (pre-copy-time-ignore) restricted-tree-relative path list for
-# that build — see `build_allowlisted_source`'s multi-source branch and
-# `get_pre_filter_paths` below. `pathlib.Path` cannot carry an ad-hoc
-# attribute (it is `__slots__`-based), and `build_allowlisted_source`'s
-# return type is fixed at `-> Path` by contract, so this out-of-band-by-key
-# map is the seam: keyed by the unique per-call `tempfile.mkdtemp()` result,
-# never overwritten across calls, and cheap to leave unread (single-source
-# callers never touch it).
 _pre_filter_paths_by_tmp_src: dict[Path, list[str]] = {}
 
 
 def get_pre_filter_paths(tmp_src: Path) -> Optional[list[str]]:
-    """Return the pre-copy-time-ignore-filter restricted-tree-relative path
-    list recorded for a `build_allowlisted_source(...)` call that returned
-    `tmp_src`, or `None` if that build was single-source (nothing recorded —
-    `check_working_data_paths` should walk `tmp_src` directly instead) or if
-    `tmp_src` was never produced by this module."""
     return _pre_filter_paths_by_tmp_src.get(tmp_src)
 
 
 def _parse_allowlist_csv(allowlist_csv: str) -> list[str]:
-    """Split a comma-separated allowlist string into trimmed, non-empty
-    entries — port of the bash `IFS=',' read -ra` + manual whitespace-trim
-    loop."""
     entries = []
     for raw_entry in allowlist_csv.split(","):
         entry = raw_entry.strip()
@@ -336,12 +300,6 @@ def _split_inclusion_exclusion(entries: list[str]) -> tuple[list[str], list[str]
     return inclusions, exclusions
 
 
-# Public aliases for the two cross-module consumers below (Review:
-# code-reviewer — coordinator/bin/publish.py's `_publish_relevant_paths`
-# consumes these via the SAME parse primitives `build_allowlisted_source`
-# uses, to avoid computing the allowlist-entry set twice, differently; the
-# leading-underscore names above stay as the in-module-private spelling for
-# every other caller in this file, and are NOT renamed or removed).
 parse_allowlist_csv = _parse_allowlist_csv
 split_inclusion_exclusion = _split_inclusion_exclusion
 
@@ -463,22 +421,6 @@ def _apply_exclusions(
 
 
 def _collision_preflight(entry_roots: dict[str, Path]) -> None:
-    """Pre-copy validation for multi-source builds (Trap A). With a single
-    root, allowlist entries are guaranteed distinct paths under one tree, so
-    collision cannot happen. With N roots it can: the same entry named twice,
-    or a deep entry from one root nesting inside another root's simple entry
-    (root A gives `bin`, root B gives `bin/foo.py`). Both land at overlapping
-    restricted-tree paths, and — because `shutil.copytree` is called without
-    `dirs_exist_ok=True` (see `build_allowlisted_source`) — an unvalidated
-    collision would otherwise surface only as a bare `FileExistsError` deep
-    inside the copy loop, order-dependent and confusing.
-
-    Iterates entries in sorted order so an abort is reproducible regardless
-    of `source_map`'s underlying dict order.
-
-    Raises `AllowlistError` naming both colliding entries and both
-    contributing roots.
-    """
     sorted_entries = sorted(entry_roots)
     for i, a in enumerate(sorted_entries):
         for b in sorted_entries[i + 1 :]:
@@ -493,13 +435,6 @@ def _collision_preflight(entry_roots: dict[str, Path]) -> None:
 
 
 def _normalize_dir_pattern(pattern: str) -> Optional[str]:
-    """Strip a `.percolate-ignore` pattern down to its directory-form body —
-    a leading and/or trailing `/` removed, branches 1/2/4 collapsed to the
-    same normalized shape — or `None` for a basename glob (branch 3, leading
-    `*`, no fixed path position) or an empty body. Shared normalization for
-    `_classify_dir_pattern_against_entries`, the composition filter's sole
-    consumer of this shape — kept in one place so it does not reimplement
-    `ignore.py`'s branch matching, per this module's negative-spec."""
     if pattern.startswith("*"):
         return None
     if len(pattern) >= 2 and pattern[0] == "/" and pattern[-1] == "/":
@@ -566,14 +501,6 @@ def _classify_dir_pattern_against_entries(
     if dir_ is None:
         return ("noise", None)
 
-    # `_normalize_dir_pattern` strips at most one leading/trailing slash, so
-    # a degenerate multi-slash pattern like `bin//` would leave a residual
-    # `/` in `dir_` here — comparing that residual against `e + "/"` would
-    # misclassify it as reaching BELOW entry `bin` (leftover separator
-    # junk, not genuine path content) rather than as the wholesale
-    # reference to `bin` it actually is. Stripping residual surrounding
-    # slashes before every comparison closes that gap (mirrors the prior
-    # `_pattern_reaches_below_first_component`'s `dir_.strip("/")` guard).
     dir_ = dir_.strip("/")
     if not dir_:
         return ("noise", None)
@@ -585,18 +512,7 @@ def _classify_dir_pattern_against_entries(
             return ("wholesale", longest)
         return ("below", longest)
 
-    # Per `ignore.py` branch 2, an any-depth directory pattern matches not
-    # only a strict path-prefix of `entry` (`e.startswith(dir_ + "/")`) but
     # also `dir_` occurring as an INTERIOR or TRAILING path segment of
-    # `entry` anywhere (`("/" + dir_ + "/") in rel_path` in `ignore.py`'s own
-    # matcher). The substring form below covers both: for `dir_` a strict
-    # prefix, `"/" + e + "/"` contains `"/" + dir_ + "/"` at its start; for
-    # `dir_` naming a middle or last segment (e.g. `wiki` against entry
-    # `docs/wiki`), the leading/trailing `/` padding turns the plain
-    # `in`-membership test into exactly ignore.py's any-depth check. The
-    # `nesting` check above runs first, so `dir_ == e` is already claimed as
-    # `wholesale` before reaching here — this substring test would also
-    # match that case, but it never gets the chance to.
     ancestored = [e for e in all_entries if ("/" + dir_ + "/") in ("/" + e + "/")]
     if ancestored:
         return ("ancestor", ancestored)
@@ -698,7 +614,7 @@ def _compose_percolate_ignore(
                     f"is a wholesale reference to another root's entry "
                     f"'{info}', not among this root's own entries ({sorted(e_s)})"
                 )
-            else:  # "ancestor"
+            else:
                 foreign = sorted(e for e in info if e not in e_s)
                 keep = not foreign
                 reason = (
@@ -791,64 +707,10 @@ def build_allowlisted_source(
     source_map: dict[str, Path] | None = None,
     stderr: IO[str] = sys.stderr,
 ) -> Path:
-    """Port of `_build_allowlisted_source`. Creates a new temp directory
-    containing only the allowlisted subpaths copied out of `real_src` (or,
-    for entries named in `source_map`, out of that entry's contributing
-    root — see the module docstring's § Multi-source publish), and returns
-    its path.
-
-    Allowlist entries (comma-separated, whitespace-trimmed):
-      - Simple name ("bin", "lib", ".claude-plugin"): copy the whole dir
-        (or file) to land directly under the temp root — never double-
-        nested (a naive `tmp/<entry>/<entry>` would defeat exact-path
-        `.percolate-ignore` patterns).
-      - Deep path ("docs/wiki"): create the parent dir under the temp
-        root, then copy the leaf into it.
-      - An entry absent from its resolved root ABORTS the build (raises
-        `AllowlistError`). This is a deliberate divergence from the bash
-        original (`publish.sh:772`, which skipped silently on the
-        rationale that the allowlist only narrows the publish set, never
-        widens it) — see plan AC18(c)
-        (`docs/plans/2026-07-21-percolate-python-port.md`). Under a
-        file-level curated seed list (the `restore-oss-seed-wiki` model),
-        narrowing the publish set IS the harm: a typo'd or wrong-rooted
-        entry is indistinguishable on disk from a deliberately-absent
-        one, and the bash behavior would silently drop a wiki from the
-        public mirror with no error. Fail-closed here catches drift at
-        the earliest possible point instead of shipping a quietly
-        incomplete publish.
-      - Leading-`!` exclusion ("!coordinator_core/benchmarks/fixtures/repo"):
-        removes that already-admitted subpath from the built restricted
-        tree — see module docstring § Exclusion entries. Applied only after
-        every plain (inclusion) entry above has been copied in, so an
-        exclusion can only narrow what inclusion already admitted, never
-        grant new content; a CSV with no `!`-entries is unaffected by this
-        branch entirely (the additive guarantee).
-      - Leading-`^` deny ("^percolate"): a top-level name declared as never
-        published — see module docstring § Whole-entry deny. Recognized and
-        discarded by `_split_inclusion_exclusion` before this function ever
-        sees an `entries`/`exclusion_targets` list, so a deny target is
-        simply never copied — there is no removal step for it, unlike `!`.
-
-    Raises `AllowlistError` if any entry is `/`-absolute or contains `..`
-    — both are unconditionally unsafe: an absolute path or a `..`
-    traversal could escape its resolved root and pull content the
-    allowlist was never meant to admit. Also raises `AllowlistError` if any
-    entry resolves to nothing under its root (see above), if a multi-source
-    build has a collision between two entries' restricted-tree paths, if
-    a multi-source build has a contributing root with no readable
-    `.percolate-ignore`, or if any `!`-exclusion entry is malformed or does
-    not resolve to a path the inclusion entries actually admitted (see
-    `_apply_exclusions`).
-    """
     entries, exclusion_targets = _split_inclusion_exclusion(_parse_allowlist_csv(allowlist_csv))
     sm = source_map or {}
 
     # SINGLE-SOURCE vs MULTI-SOURCE per the module contract: determined by
-    # the *shape of source_map itself*, not merely by which roots the
-    # current allowlist entries happen to use — a source_map that names a
-    # second root always puts the build on the multi-source path, even if
-    # (today) every entry still resolves to real_src.
     contributing_roots = {real_src} | set(sm.values())
     multi_source = len(contributing_roots) >= 2
 
@@ -871,24 +733,11 @@ def build_allowlisted_source(
 
     tmp_src = Path(tempfile.mkdtemp())
 
-    # Pre-filter relative-path list (multi-source only) — retained so
     # check_working_data_paths can scan what the allowlist ADMITTED before
-    # copy-time ignore filtering shrank the tree, rather than losing the
-    # ability to distinguish "allowlist is correct" from "allowlist is
-    # wrong but the ignore file happened to cover it."
     pre_filter_paths: list[str] = []
 
-    # Cache one ignore matcher per contributing root (multi-source only) —
-    # never rebuild per entry.
     matcher_cache: dict[Path, PercolateIgnoreMatcher] = {}
 
-    # Entries this build cannot resolve against their root (§ AC18(c)
-    # fail-closed above) — collected across the WHOLE entry set rather than
-    # raised at the first miss, so one abort names every stale token instead
-    # of one. The prior first-miss-only raise made a commit that deleted N
-    # allowlisted paths (e.g. a batch dead-script retirement) surface as N
-    # sequential publish failures, each requiring a full re-run to find the
-    # next name — see the task brief this fix implements, "Defect 2".
     unresolved_entries: list[str] = []
 
     for entry in sorted(entry_roots):
@@ -918,11 +767,6 @@ def build_allowlisted_source(
             if "/" in entry:
                 dst_parent = tmp_src / entry.rsplit("/", 1)[0]
                 dst_parent.mkdir(parents=True, exist_ok=True)
-                # dirs_exist_ok deliberately NOT passed — see
-                # _collision_preflight's docstring. A future maintainer
-                # "fixing" a FileExistsError here by adding dirs_exist_ok=True
-                # would convert a loud, unvalidated collision into a silent
-                # file-by-file shadow. Don't.
                 shutil.copytree(src_path, dst_parent / src_path.name, ignore=ignore_fn)
             else:
                 shutil.copytree(src_path, tmp_src / entry, ignore=ignore_fn)
@@ -954,18 +798,11 @@ def build_allowlisted_source(
                 "\n".join(composed) + "\n", encoding="utf-8", newline="\n"
             )
     else:
-        # Single-source: preserve today's tolerant behaviour exactly.
-        # Absence of a .percolate-ignore at real_src is a no-op, not an
-        # error — changing this would break every existing publish row.
         percolate_ignore = real_src / ".percolate-ignore"
         if percolate_ignore.is_file():
             shutil.copy2(percolate_ignore, tmp_src / ".percolate-ignore")
 
     if exclusion_targets:
-        # Runs strictly AFTER every inclusion entry has been copied in (see
-        # module docstring § Exclusion entries and `_apply_exclusions`'
-        # docstring) — this ordering is what makes "exclusions narrow, never
-        # grant" structural rather than conventional.
         try:
             removed = set(
                 _apply_exclusions(tmp_src, exclusion_targets, entries, pre_filter_paths)
@@ -974,13 +811,6 @@ def build_allowlisted_source(
             shutil.rmtree(tmp_src, ignore_errors=True)
             raise
         if pre_filter_paths:
-            # Subtract by PREFIX against the exclusion targets themselves,
-            # not only by exact membership in `removed` — a target that
-            # copy-time ignore-filtering already dropped before
-            # `_apply_exclusions` ran was never added to `removed` (nothing
-            # to unlink/rmtree on disk), but every pre_filter_paths entry
-            # nested under it is still stale and must not reach
-            # check_working_data_paths's gate scan.
             pre_filter_paths = [
                 p
                 for p in pre_filter_paths

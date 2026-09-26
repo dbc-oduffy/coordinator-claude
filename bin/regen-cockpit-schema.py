@@ -119,12 +119,6 @@ import sys
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def _bootstrap_imports() -> None:
-    """Import every non-stdlib dependency this module needs and bind it at
-    module scope, called from main() (C6k import-motion: module bodies stay
-    inert on both the warm door and the un-bootstrapped settings-home
-    forwarder load routes). Order is load-bearing — preserved verbatim from
-    the former module-scope sequence.
-    """
     global cc_invoke, claude_klabauter_root, _DoeUnresolvable, doe_root
     global no_console_creationflags
 
@@ -203,18 +197,6 @@ def _build_trampoline_env(mak_root: str) -> dict[str, str]:
 
 
 def _schema_dir_dirty(doe_root: str, out_dir: str) -> bool:
-    """Return True iff out_dir has an uncommitted working-tree change.
-
-    Scoped to `coordinator/cockpit-contract/schema/` only — unrelated dirty
-    files elsewhere in the tree must not affect the refuse-if-dirty gate.
-    Uses `git status --porcelain` (covers both modified-tracked and
-    untracked-new schema files) rather than `git diff --name-only`
-    (tracked-only, would miss a newly-added schema file).
-
-    Used ONLY by the `--advance-ref` refuse-if-dirty guard in `main()` — the
-    tag must never advance while the schema dir is dirty, since that would
-    land the tag on the commit BEFORE the regenerated schema.
-    """
     _bootstrap_imports()
     rel_out_dir = os.path.relpath(out_dir, doe_root)
     try:
@@ -289,13 +271,6 @@ def _schema_differs_from_tag(doe_root: str, out_dir: str) -> bool:
 
 
 def _read_contract_version(out_dir: str) -> str:
-    """Read the top-level `"version"` field out of the regenerated
-    `cockpit-contract.schema.json` in out_dir.
-
-    Fails loud (sys.exit(2)) on a missing file, malformed JSON, or an absent
-    `"version"` key — never falls back to a placeholder. The annotated tag
-    message is only as trustworthy as this read.
-    """
     schema_path = os.path.join(out_dir, _CONTRACT_SCHEMA_FILENAME)
     try:
         with open(schema_path, "r", encoding="utf-8") as f:
@@ -400,11 +375,6 @@ def main(argv: list[str] | None = None) -> int:
     mak_root = claude_klabauter_root()
     if not mak_root or not os.path.isdir(mak_root):
         # foreign-identity: NOT-REACHABLE — basis: DELIBERATE INVOCATION, not true
-        # unreachability. Schema-regen maintenance CLI (Usage: `python
-        # coordinator/bin/regen-cockpit-schema.py`, deliberately typed); a third-repo
-        # session cannot hit this ambiently, but a foreign-repo operator CAN reach it
-        # by typing the command — matching the audit's row 9/16 precedent for
-        # deliberately-invoked maintenance ops.
         print("ERROR: could not resolve the engine checkout path.", file=sys.stderr)
         print("  This script regenerates the cockpit-contract schema via claude-klabauter's Python emitter.", file=sys.stderr)
         print("  Prerequisite: a local checkout of the engine, registered as machine-local key", file=sys.stderr)
@@ -429,10 +399,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  ({mak_root}/scripts/setup.sh or setup.ps1), then re-run this script under it.", file=sys.stderr)
         return 2
 
-    # Either content layout — the published flat mirror carries
-    # cockpit-contract/ at its own root, with no "coordinator" segment to join.
-    # `doe_root` itself stays the REPO root: every git -C / relpath call below
-    # is repo-scoped, only the schema out-dir is content-scoped.
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from coordinator_data_root import content_root_or_private
 
@@ -447,13 +413,7 @@ def main(argv: list[str] | None = None) -> int:
         capture_output=True,
         text=True,
     )
-    # Success-path stdout/stderr from the claude-klabauter emitter subprocess is not
-    # relayed here — this script prints its own "Done." summary below, and
-    # no test/wiki contract in this repo asserts on the emitter's own
     # success-path output. `_EMITTER_MODULE` is a claude-klabauter source
-    # module outside this repo; if it turns out to emit load-bearing
-    # progress output on success, switch this to unconditional relay.
-    # (Review: code-reviewer — Finding 6, 2026-07-22.)
     if result.returncode != 0:
         if result.stdout:
             print(result.stdout, file=sys.stderr, end="" if result.stdout.endswith("\n") else "\n")

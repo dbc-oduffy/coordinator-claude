@@ -40,7 +40,7 @@ NOT-PREPPED residue is authorship: the bar asks what only a plan's author knows.
 
 - the plan path and its `bar:` line verbatim;
 - the bar's own refusal, naming each missing declaration and its declared-empty form:
-  `python3 "<plugin root>/bin/mise-prep-gate.py" --repo-root <repo> <plan>`;
+  `"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/mise-prep-gate" --repo-root <repo> <plan>`;
 - the charter: amend this plan in place, declaring only the classes named. No scaffold, no
   `status` change, no `mise_prepped_*` key, no body edit beyond a named class. Declared-empty only
   where true. What only the PM can answer goes in the summary, class left undeclared.

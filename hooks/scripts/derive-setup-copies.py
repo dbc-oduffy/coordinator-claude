@@ -89,13 +89,7 @@ if _HOOKS_DIR not in sys.path:
 
 from _message_envelope import CHANNEL_STOP, compose, emit  # noqa: E402
 
-#: Wiki section carrying the relocated parity-mode explanation (permanent vs
-#: temporary contract-only rows, and the canonical->derived direction
-#: contract) -- see this hook's own relocation fragment
-#: (state/relocations/guard-message-cap/derive-setup-copies.py.md).
 _WIKI_ANCHOR = (
-    # Review: code-reviewer -- bare fragment produced an unresolvable
-    # `render()` citation. Full path matches every other converted hook.
     "coordinator/docs/wiki/guards/guard-message-concision.md"
     "#derive-setup-copies-parity-modes-and-remedies"
 )
@@ -125,10 +119,6 @@ class Row:
     parity_test: str | None = None
 
     def __post_init__(self) -> None:
-        # Review (code-reviewer, 2026-08-02, Finding 2): fail loudly at
-        # row-construction time on any mode outside the known set, so a typo,
-        # a `None`, or a future third mode can never reach `_derive_or_raise`
-        # and silently fall through to `shutil.copyfile`.
         if self.mode not in _VALID_MODES:
             raise ValueError(
                 f"Row for {self.canonical} has unrecognized mode {self.mode!r}; "
@@ -138,7 +128,6 @@ class Row:
 
 @dataclass(frozen=True)
 class ResolvedRow:
-    """A `Row` with both sides resolved to absolute paths against one repo root."""
 
     canonical: Path
     derived: Path
@@ -146,9 +135,6 @@ class ResolvedRow:
     parity_test: str | None = None
 
     def __post_init__(self) -> None:
-        # Same guard as Row.__post_init__ — a ResolvedRow can also be
-        # hand-constructed directly (see tests), so it must not accept an
-        # unrecognized mode either.
         if self.mode not in _VALID_MODES:
             raise ValueError(
                 f"ResolvedRow for {self.canonical} has unrecognized mode "
@@ -177,13 +163,6 @@ ROWS: tuple[Row, ...] = (
 
 
 class ContractOnlyNotOverwritten(Exception):
-    """Raised by `_derive_or_raise` when a canonical write matches a
-    contract-only row. The derived copy is hand-maintained and guarded by a
-    signature-parity test where one exists (see the row's own comment
-    above); this exception is how the hook avoids a blind byte-copy of it —
-    the mode is checked before any file I/O, and `Row.__post_init__` rejects
-    any mode outside the known set, so no code path here can reach
-    `shutil.copyfile` for a contract-only row."""
 
     def __init__(self, row: ResolvedRow) -> None:
         super().__init__(f"contract-only row, not overwritten: {row.derived}")
@@ -208,7 +187,6 @@ def _parse_input(raw: str) -> dict:
 
 
 def _repo_root() -> Path:
-    # coordinator/hooks/scripts/<this file> -> parents[3] is the repo root.
     return Path(__file__).resolve().parents[3]
 
 
@@ -232,14 +210,6 @@ def _resolved_rows(repo_root: Path) -> tuple[ResolvedRow, ...]:
 
 
 def _derive_or_raise(row: ResolvedRow) -> None:
-    """Perform the canonical->derived derivation for one row, or raise.
-
-    `byte-copy` rows are copied directly. `contract-only` rows raise
-    `ContractOnlyNotOverwritten` BEFORE any file is touched — there is no
-    fallthrough path from a contract-only row to `shutil.copyfile` in this
-    function. Combined with `Row.__post_init__` rejecting any mode outside
-    `{byte-copy, contract-only}`, no row can reach `shutil.copyfile` while
-    carrying a contract-only mode, known or mistyped."""
     if row.mode == CONTRACT_ONLY:
         raise ContractOnlyNotOverwritten(row)
     row.derived.parent.mkdir(parents=True, exist_ok=True)
@@ -273,20 +243,11 @@ def _compose_derived_write_advisory(file_path: str, row: ResolvedRow):
 
 def _advise_derived_write(file_path: str, row: ResolvedRow) -> None:
     # Routed through `_message_envelope.emit()` (CHANNEL_STOP) rather than
-    # hand-rolling `render()` + a text-mode `sys.stderr.write()` -- `emit()`'s
     # CHANNEL_STOP branch writes via `sys.stderr.buffer.write()`, which
-    # bypasses Python's Windows text-mode LF->CRLF translation (a real
-    # byte-fidelity loss the hand-rolled path used to carry silently). See
-    # `state/bug-backlog/2026-08-06-derive-hooks-hand-roll-stop-shape-and-lo-4c1e9a7b03d5.yaml`.
     emit(_compose_derived_write_advisory(file_path, row), CHANNEL_STOP)
 
 
 def _exc_reason(exc: Exception) -> str:
-    """Short OS-error reason, without the embedded filename `OSError.__str__`
-    normally repeats (the path is already carried separately, in the
-    composer's own `alternative` slot -- printing it twice was the bulk of
-    these sites' pre-conversion length). Falls back to `str(exc)` for a
-    non-OSError exception, which carries no such duplication to begin with."""
     return getattr(exc, "strerror", None) or str(exc)
 
 
@@ -317,8 +278,6 @@ def _compose_contract_only_message(row: ResolvedRow):
 
 
 def _compose_write_failure_message(row: ResolvedRow, exc: Exception, source_bytes: bytes):
-    """Pure composer for a derived-write failure after a successful
-    canonical read. `row.derived` rides the exempt `alternative` slot."""
     prose = (
         f"FAILED to write derived -- canonical read OK, derivation did NOT "
         f"complete ({_exc_reason(exc)})."
@@ -327,16 +286,11 @@ def _compose_write_failure_message(row: ResolvedRow, exc: Exception, source_byte
 
 
 def _compose_success_message(row: ResolvedRow, source_bytes: bytes):
-    """Pure composer for a successful byte-copy re-derivation. `row.derived`
-    (the file to inspect) rides the exempt `alternative` slot instead of
-    being repeated inline alongside `row.canonical`."""
     prose = f"re-derived derived copy from canonical ({len(source_bytes)} bytes)."
     return compose(prose, alternative=str(row.derived), anchor=_WIKI_ANCHOR)
 
 
 def _handle_canonical_write(row: ResolvedRow) -> int:
-    # Routed through `_message_envelope.emit()` -- see `_advise_derived_write`
-    # above for the CRLF byte-fidelity rationale.
     try:
         source_bytes = row.canonical.read_bytes()
     except Exception as exc:

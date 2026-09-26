@@ -48,6 +48,13 @@ Options:
                           root, or cwd if not in a git repo); useful for tests
   --quiet                 Suppress human-readable banner
 
+  cruft_sweep.projects_size_cap_gib (machine-local registry key, default: 2)
+                          Byte-cap in GiB for UUID-gated projects/ bytes,
+                          resolved at _apply_machine_local_days_override.
+  cruft_sweep.size_cap_mtime_floor_hours (machine-local registry key,
+                          default: 24) Age floor below which a file is
+                          never evicted by the size cap.
+
 Exit codes:
   0  success or lock contention (contention exits silently)
   1  unexpected error (including COORDINATOR_CONTENT_ROOT / doe-root
@@ -192,36 +199,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
-# ---------------------------------------------------------------------------
-# Native coordinator_core bootstrap — replaces the bash oracle's
-# `source coordinator-claude-klabauter-root.sh` / `source coordinator-watchdog.sh` /
-# the resolve-coordinator-clone.py subprocess call with direct in-process
-# imports of the already-native, tested claude-klabauter peers. Retires all three
-# sourced/subprocess bash dependencies this script previously carried.
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
-# coordinator/lib/ (distinct from coordinator/bin/lib/ above — the two lib
-# dirs are NOT the same tree, see the module header's chunk-boundary notes)
-# carries settings_home.py, the native settings-home resolver the bash oracle
 # shells out to via `${_CSR_LIB_DIR}/settings_home.py --print-home`. Imported
-# in-process here (chunk C's Phase C parent-whitelist + install-baton
-# rendezvous hard-exclude) rather than subprocess'd, per this module's
-# zero-subprocess-hot-path goal.
-# ---------------------------------------------------------------------------
 _COORDINATOR_LIB_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"
 )
 
 
 def _bootstrap_engine() -> None:
-    """Bootstrap coordinator/bin/lib and coordinator/lib onto sys.path and
-    resolve the engine root.
-
-    Moved out of module scope (was a module-load-time sequence) so this file
-    carries no non-stdlib import at module scope. Called as the first action
-    of `main()`, before any function below imports a coordinator_core
-    submodule.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 
@@ -239,23 +223,10 @@ def _bootstrap_engine() -> None:
 
 
 # Phases A-D (2026-07-28 collapse — see CHUNK BOUNDARY addendum below) now
-# import their sweep logic directly from coordinator_core.ops.cruft_sweep,
-# the same way Phase E already did — this file no longer carries private
-# duplicates of the four ported phases. Only CLI/argparse, machine-local +
-# registry resolution, the coordinator_state_root seam, --parent-root
-# default derivation, the parent_whitelist TOML/grep read, CLASS dispatch,
-# the grand-total banner, and the run-marker log row remain trampoline-owned
-# (see that module's own docstring negative-spec for the authoritative list
-# of what it does NOT own).
 
 SELF_NAME = "cruft-sweep"
 
 
-#: Why a resolution failed, keyed by the flag whose default went unresolved.
-#: `_state_root_or_empty` folds the StateRootError to "" for the bash-oracle
-#: concatenation semantics; the REASON is what the refusal below needs, and
-#: dropping it is what left a caller reading "fix the root: machine-local get
-#: <key>" against a registry key that was correct all along.
 _STATE_ROOT_FAILURES: dict[bool, str] = {}
 
 
@@ -362,8 +333,6 @@ def _resolve_and_guard_content_root() -> None:
     from coordinator_data_root import content_root_for
 
     doe_root = _read_doe_root_pointer()
-    # Either content layout — a pointer naming the published flat mirror was
-    # rejected as missing/invalid while only `<root>/coordinator` counted.
     pointed = content_root_for(doe_root)
     if pointed is None:
         sys.stderr.write(
@@ -372,19 +341,11 @@ def _resolve_and_guard_content_root() -> None:
         sys.exit(1)
 
     content_root = os.environ.get("CLAUDE_PLUGIN_ROOT") or str(pointed)
-    # coordinator_trusted_root_guard_or_exit calls sys.exit(1) itself on an
-    # untrusted root (mirrors the bash oracle's exit-1 tail) — no local
-    # try/except needed here.
     coordinator_trusted_root_guard_or_exit(
         mode="fail-loud", root=content_root, site=sys.argv[0]
     )
 
 
-# ---------------------------------------------------------------------------
-# --help text (mirrors the bash oracle's `grep '^#' "$0" | ... | head -60`
-# extraction of its own header comment block — reproduced here as a literal
-# constant since a Python docstring has no '#'-prefixed lines to re-extract).
-# ---------------------------------------------------------------------------
 HELP_TEXT = """\
 cruft-sweep — Layer 1 autonomous cruft pruner for coordinator state.
 
@@ -414,6 +375,12 @@ Options:
   --quiet                 Suppress human-readable banner
   -h, --help              Show this help and exit
 
+  cruft_sweep.projects_size_cap_gib (machine-local registry key, default: 2)
+                          Byte-cap in GiB for UUID-gated projects/ bytes.
+  cruft_sweep.size_cap_mtime_floor_hours (machine-local registry key,
+                          default: 24) Age floor below which a file is never
+                          evicted by the size cap.
+
 Exit codes:
   0  success or lock contention (contention exits silently)
   1  unexpected error
@@ -423,10 +390,6 @@ Exit codes:
 
 @dataclass
 class SweepConfig:
-    """Parsed CLI configuration — mirrors the bash oracle's flat DAYS/APPLY/
-    CLASS/... globals as fields on one object instead of module globals, so
-    later chunks' phase-dispatch functions take this (and a Totals instance)
-    as explicit parameters rather than reading bash-style globals."""
 
     days: str = "14"
     apply: bool = False
@@ -434,12 +397,8 @@ class SweepConfig:
     json_mode: bool = False
     quiet: bool = False
     # Deliberately shorter ladder (HOME -> USERPROFILE, no CLAUDE_HOME rung), per the
-    # home-resolution family's written-justification carve-out: both roots address the
-    # HARNESS's own scratch under the real OS home -- Claude Code writes
     # ~/.claude/projects and ~/.claude/file-history there regardless of CLAUDE_HOME,
-    # which relocates the coordinator meta-repo, not the harness's session store. A
     # CLAUDE_HOME rung here would point the sweep at a directory the harness never
-    # writes to, and the sweep would silently reclaim nothing.
     projects_root: str = field(default_factory=lambda: os.path.join(
         os.environ.get("HOME") or os.environ.get("USERPROFILE") or "",
         ".claude", "projects",
@@ -454,6 +413,8 @@ class SweepConfig:
     parent_roots: List[str] = field(default_factory=list)
     scratch_age_days: str = "7"
     repo_root: str = ""
+    size_cap_gib: str = "2"
+    size_cap_floor_hours: str = "24"
 
 
 @dataclass
@@ -470,15 +431,9 @@ class Totals:
     scratch_items: int = 0
     orphans_bytes: int = 0
     orphans_items: int = 0
-    # NOT folded into the grand-total banner — see module docstring's
     # "DELIBERATE PARITY" note (chunk C+D): the bash oracle's own grand-total
-    # sum omits these, and this port reproduces that faithfully.
     subagent_sandbox_bytes: int = 0
     subagent_sandbox_items: int = 0
-    # empty-dirs (Phase E) IS folded into the grand-total banner/run-marker
-    # below — unlike subagent_sandbox above, there is no bash-oracle omission
-    # to faithfully reproduce here (this phase has no oracle at all), so the
-    # grand-total treatment is this port's own net-new design choice.
     empty_dirs_bytes: int = 0
     empty_dirs_items: int = 0
 
@@ -489,16 +444,7 @@ def _usage_error(message: str) -> "int":
 
 
 def parse_args(argv: List[str]) -> SweepConfig:
-    """Parse argv into a SweepConfig, mirroring the bash oracle's case-based
-    argument-parsing loop (including its exit-2-on-missing-value and
-    exit-2-on-unknown-flag/unknown-class contracts). Prints --help and exits
-    0 directly (matching the bash oracle's `-h|--help` branch) rather than
-    returning — --help is a terminal action, not a config to build."""
     cfg = SweepConfig()
-    # Defaults that reference coordinator_state_root are computed AFTER
-    # argument parsing overrides in the bash oracle's own source order
-    # (Defaults block precedes Argument-parsing block) — mirrored here by
-    # computing them eagerly before the loop, then letting the loop override.
     central_state_root = _state_root_or_empty(central=True)
     non_central_state_root = _state_root_or_empty(central=False)
     cfg.handoffs_glob = f"{non_central_state_root}/handoffs/*.md"
@@ -587,18 +533,6 @@ def parse_args(argv: List[str]) -> SweepConfig:
 def _reject_rootless_defaults(
     cfg: SweepConfig, central_state_root: str, non_central_state_root: str
 ) -> None:
-    """Refuse an unresolved-state-root run instead of writing to the drive root.
-
-    `_state_root_or_empty` folds a resolution failure to "" (bash-oracle
-    command-substitution fidelity), so the defaults above degrade to
-    `/cruft-sweep-log.md` and `/cruft-sweep.lock.d`. POSIX makes those a
-    root-owned refusal; Windows resolves a leading `/` against the CURRENT
-    DRIVE and the run silently succeeds against `<drive>:\\cruft-sweep-log.md`
-    — the run marker lands where the workweek staleness advisory
-    (`workweek-complete-advisories.py cruft-sweep-last-run`) will never read
-    it, so the sweep reads as never-run. Only fires when the unresolved
-    default is still in effect: an explicit `--log-path` is honoured.
-    """
     if central_state_root and non_central_state_root:
         return
     unresolved = [
@@ -637,15 +571,6 @@ def _reject_rootless_defaults(
 
 
 def _apply_machine_local_days_override(cfg: SweepConfig) -> None:
-    """Read cruft_sweep.harness_retention_days from the machine-local
-    registry, overriding cfg.days. Zero-spawn: reads `registry.local.toml` /
-    `registry.toml` directly via `coordinator_core.machine_resolver.
-    registry_get` rather than shelling out to the `machine-local` CLI (that
-    binary lives under the resettable `~/.claude/bin/` and a Claude Code
-    reset can wipe it while the registry TOML under settings-home survives
-    untouched — see `registry_get`'s own docstring). Keeps the `^[0-9]+$`
-    guard the CLI round-trip enforced — falls through silently (cfg.days
-    unchanged) on any absence/non-digit value."""
     from coordinator_core.machine_resolver import registry_get as _machine_registry_get
 
     value = _machine_registry_get("cruft_sweep.harness_retention_days")
@@ -653,6 +578,22 @@ def _apply_machine_local_days_override(cfg: SweepConfig) -> None:
         value = value.strip()
     if value and value.isdigit():
         cfg.days = value
+
+    cap_value = _machine_registry_get("cruft_sweep.projects_size_cap_gib")
+    if cap_value:
+        cap_value = cap_value.strip()
+    if cap_value:
+        try:
+            if float(cap_value) > 0:
+                cfg.size_cap_gib = cap_value
+        except ValueError:
+            pass
+
+    floor_value = _machine_registry_get("cruft_sweep.size_cap_mtime_floor_hours")
+    if floor_value:
+        floor_value = floor_value.strip()
+    if floor_value and floor_value.isdigit() and int(floor_value) > 0:
+        cfg.size_cap_floor_hours = floor_value
 
 
 def _acquire_lock(lock_dir: str) -> None:
@@ -677,21 +618,10 @@ def _release_lock(lock_dir: str) -> None:
         pass
 
 
-# ---------------------------------------------------------------------------
 # Phase A-D thin wrappers (2026-07-28 collapse — see CHUNK BOUNDARY addendum
-# in the module docstring and docs/research/2026-07-28-cruft-sweep-duplicate-
-# port-drift-audit.md). Each wrapper resolves ONLY the CLI-owned inputs
-# (repo root override, blocklist directory, parent roots, whitelist,
-# settings-home) and delegates the sweep logic itself to
-# coordinator_core.ops.cruft_sweep — the same shape Phase E already used.
-# ---------------------------------------------------------------------------
 
 
 def _resolve_repo_root(cfg: "SweepConfig") -> str:
-    """--repo-root override, else `git rev-parse --show-toplevel`, else cwd.
-    CLI-flag resolution stays trampoline-owned (the engine's own
-    `_resolve_repo_root` takes an already-optional Path and has no
-    --repo-root-flag concept of its own)."""
     if cfg.repo_root:
         return cfg.repo_root
     from coordinator_core.git.repo_root import show_toplevel
@@ -700,10 +630,6 @@ def _resolve_repo_root(cfg: "SweepConfig") -> str:
 
 
 def _handoffs_dir_from_glob(handoffs_glob: str) -> Path:
-    """Strip the trailing wildcard component off --handoffs-glob (handles
-    both '/' and '\\' glob separators) — build_uuid_blocklist takes an
-    already-resolved directory Path, not a glob string (engine negative-spec:
-    glob-string parsing is this trampoline's concern, not the engine's)."""
     glob_dir = handoffs_glob.rsplit("/", 1)[0] if "/" in handoffs_glob else handoffs_glob
     if glob_dir == handoffs_glob and "\\" in handoffs_glob:
         glob_dir = handoffs_glob.rsplit("\\", 1)[0]
@@ -711,13 +637,6 @@ def _handoffs_dir_from_glob(handoffs_glob: str) -> Path:
 
 
 def _sweep_harness(cfg: "SweepConfig", totals: "Totals") -> None:
-    """Phase A wrapper: resolve the handoffs directory + blocklist, then
-    delegate to coordinator_core.ops.cruft_sweep.sweep_harness.
-
-    Fail-closed on --apply against an incomplete blocklist scan (drift-audit
-    D2): an unreadable handoff file narrows the protected UUID set to a lower
-    bound, and applying a destructive sweep against a narrowed protected set
-    is exactly the silent-data-loss shape this guard exists to prevent."""
     from coordinator_core.ops.cruft_sweep import build_uuid_blocklist, sweep_harness
 
     handoffs_dir = _handoffs_dir_from_glob(cfg.handoffs_glob)
@@ -732,18 +651,20 @@ def _sweep_harness(cfg: "SweepConfig", totals: "Totals") -> None:
         sys.exit(1)
 
     log_path = Path(cfg.log_path) if cfg.log_path else None
+    size_cap_bytes = int(float(cfg.size_cap_gib) * 1024**3)
+    size_cap_mtime_floor_secs = int(cfg.size_cap_floor_hours) * 3600
     harness_bytes, harness_items = sweep_harness(
         Path(cfg.projects_root), Path(cfg.file_history_root), int(cfg.days),
         blocklist, apply=cfg.apply, json_mode=cfg.json_mode, quiet=cfg.quiet,
         log_path=log_path,
+        size_cap_bytes=size_cap_bytes,
+        size_cap_mtime_floor_secs=size_cap_mtime_floor_secs,
     )
     totals.harness_bytes = harness_bytes
     totals.harness_items = harness_items
 
 
 def _sweep_scratch(cfg: "SweepConfig", totals: "Totals") -> None:
-    """Phase B wrapper: resolve repo_root, delegate to
-    coordinator_core.ops.cruft_sweep.sweep_scratch."""
     from coordinator_core.ops.cruft_sweep import sweep_scratch
 
     repo_root = Path(_resolve_repo_root(cfg))
@@ -758,9 +679,6 @@ def _sweep_scratch(cfg: "SweepConfig", totals: "Totals") -> None:
 
 
 def _sweep_subagent_sandbox_files(cfg: "SweepConfig", totals: "Totals") -> None:
-    """File-level 24h-floor reap wrapper: resolve repo_root, delegate to
-    coordinator_core.ops.cruft_sweep.sweep_subagent_sandbox_files. NOT folded
-    into the grand-total banner (see Totals' own field comment)."""
     from coordinator_core.ops.cruft_sweep import sweep_subagent_sandbox_files
 
     repo_root = Path(_resolve_repo_root(cfg))
@@ -774,13 +692,6 @@ def _sweep_subagent_sandbox_files(cfg: "SweepConfig", totals: "Totals") -> None:
 
 
 def _get_parent_whitelist() -> set:
-    """Read the machine-local registry's `parent_whitelist` entries (lossy,
-    single-line-array-only — mirrors the bash oracle's grep-based extraction
-    exactly, including its multi-line-TOML warning; Review: reviewer F15).
-
-    Trampoline-owned per the engine's negative-spec (does NOT read/write the
-    machine-local parent_whitelist TOML array itself — this resolves it and
-    passes the resolved list in)."""
     from settings_home import settings_home as _coordinator_settings_home
 
     registry_path = os.path.join(
@@ -811,18 +722,6 @@ def _get_parent_whitelist() -> set:
 
 
 def _default_parent_roots() -> List[str]:
-    """Unique parent directories of registered machine-local [repos] entries,
-    order-preserving-deduplicated — mirrors the bash oracle's
-    `awk '!seen[$0]++'`. Zero-spawn: reads `registry.local.toml` /
-    `registry.toml` directly via `coordinator_core.machine_resolver.
-    merged_flat_registry` rather than a `machine-local keys` + one
-    `machine-local get` per key CLI round-trip. Empty if the registry is
-    unreadable (never raises — see `merged_flat_registry`'s never-block
-    contract).
-
-    Trampoline-owned per the engine's negative-spec (does NOT implement
-    --parent-root default-derivation itself — this resolves parent_roots and
-    passes the resolved list in)."""
     from coordinator_core.machine_resolver import merged_flat_registry as _merged_flat_registry
 
     flat = _merged_flat_registry()
@@ -843,10 +742,6 @@ def _default_parent_roots() -> List[str]:
 
 
 def _sweep_orphans(cfg: "SweepConfig", totals: "Totals") -> None:
-    """Phase C wrapper: resolve parent roots, whitelist, and settings-home,
-    then delegate to coordinator_core.ops.cruft_sweep.sweep_orphans (which
-    performs the C3 install-baton-rendezvous forward-guard itself when
-    settings_home is given)."""
     from coordinator_core.ops.cruft_sweep import sweep_orphans
     from settings_home import settings_home as _coordinator_settings_home
 
@@ -868,30 +763,13 @@ def _sweep_orphans(cfg: "SweepConfig", totals: "Totals") -> None:
     totals.orphans_bytes = orphans_bytes
     totals.orphans_items = orphans_items
 
-# ---------------------------------------------------------------------------
-# Phase E (net-new, no bash-oracle counterpart): top-level empty-dir sweep.
-# Delegates to coordinator_core.ops.cruft_sweep's canonical implementation
-# (imported above) rather than growing a third duplicate of this sweep's
-# logic — see that module's docstring for the "Net-new phase" rationale and
-# the import site's comment for why this phase departs from Phases A/B/C's
-# duplicate-per-file convention.
-# ---------------------------------------------------------------------------
-
 
 def _sweep_empty_dirs(cfg: "SweepConfig", totals: "Totals") -> None:
-    """Phase E: top-level (depth-1) children of the repo root containing
-    zero files anywhere in their subtree, older than the 24h mtime floor,
-    not git-ignored. Fails closed (no deletions) when the resolved repo root
-    is not inside a git work tree or git is unavailable. Sets
-    totals.empty_dirs_bytes/totals.empty_dirs_items."""
     from coordinator_core.ops.cruft_sweep import sweep_empty_toplevel_dirs
 
     repo_root = Path(_resolve_repo_root(cfg))
     log_path = Path(cfg.log_path) if cfg.log_path else None
 
-    # emit_fn=None lets the engine's own default (print(json.dumps(rec)) to
-    # stdout) handle JSONL emission — identical schema/output to this file's
-    # former private _emit_jsonl, so no wrapper is needed here.
     total_bytes, pruned_items = sweep_empty_toplevel_dirs(
         repo_root,
         apply=cfg.apply,
@@ -904,16 +782,6 @@ def _sweep_empty_dirs(cfg: "SweepConfig", totals: "Totals") -> None:
 
 
 def _emit_grand_total_banner(totals: "Totals", json_mode: bool) -> int:
-    """Grand-total bytes across harness+scratch+orphans+empty-dirs
-    (subagent-sandbox deliberately excluded — see Totals' field comment),
-    emitted to stderr in all modes except --json. Returns the total byte
-    count for the caller's
-    run-marker log row.
-
-    Emitted even under --quiet (the per-class banners are suppressed, but
-    this total is the only signal /workday-start Step 1.11 reads to check
-    the 1 GB advisory threshold — suppressing it under --quiet was a prior
-    bug that silently broke the briefing's threshold detector)."""
     total_bytes = (
         totals.harness_bytes + totals.scratch_bytes + totals.orphans_bytes
         + totals.empty_dirs_bytes
@@ -928,13 +796,6 @@ def _emit_grand_total_banner(totals: "Totals", json_mode: bool) -> int:
 
 
 def _write_run_marker(cfg: "SweepConfig", totals: "Totals", total_bytes: int) -> None:
-    """Run-marker log row, written unconditionally on --apply (non-JSON)
-    runs, even when zero items were pruned — /workday-start Step 1.11's
-    staleness arm reads `tail -1 cruft-sweep-log.md` and treats file-absent
-    OR oldest-row > 14d as stale; without this marker, a clean-machine sweep
-    would leave the staleness clock unfed. Per-class rows remain
-    items-gated (forensic detail); this trailing row is the staleness
-    signal. Reviewer-flagged 2026-06-14 (F4)."""
     total_items = (
         totals.harness_items + totals.scratch_items + totals.orphans_items
         + totals.empty_dirs_items
@@ -972,17 +833,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     _acquire_lock(cfg.lock_dir)
     try:
-        # DR-276: this trampoline owns its own main(argv) and calls the
-        # engine's per-class sweep functions directly (not a single op
-        # main(argv)), so writes are claimed via recording_declared_writes
-        # rather than run_op_main — see coordinator_core.cli_entry's own
-        # docstring for the rationale.
         with recording_declared_writes():
             totals = Totals()
 
-            # Mirrors the bash oracle's `case "$CLASS" in ... esac` main dispatch
             # (L1580-1600) exactly — including "scratch" dispatching BOTH
-            # _sweep_scratch and _sweep_subagent_sandbox_files back-to-back.
             if cfg.class_ == "harness":
                 _sweep_harness(cfg, totals)
             elif cfg.class_ == "scratch":
@@ -991,8 +845,6 @@ def main(argv: Optional[List[str]] = None) -> int:
             elif cfg.class_ == "orphans":
                 _sweep_orphans(cfg, totals)
             elif cfg.class_ == "empty-dirs":
-                # NET-NEW class (no bash-oracle counterpart) — not part of the
-                # `case "$CLASS"` mirror above.
                 _sweep_empty_dirs(cfg, totals)
             elif cfg.class_ == "all":
                 _sweep_harness(cfg, totals)
@@ -1003,9 +855,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
             total_bytes = _emit_grand_total_banner(totals, cfg.json_mode)
 
-            # Run-marker log row — written unconditionally on --apply (non-JSON)
             # runs. Mirrors the bash oracle's `if [[ "$APPLY" -eq 1 && "$JSON_MODE"
-            # -eq 0 ]]` gate (L1624) exactly.
             if cfg.apply and not cfg.json_mode:
                 _write_run_marker(cfg, totals, total_bytes)
 

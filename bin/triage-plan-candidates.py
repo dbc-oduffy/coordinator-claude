@@ -59,15 +59,10 @@ _CLI_ROOT = Path(__file__).resolve().parents[2]
 
 
 class TriageError(RuntimeError):
-    """A fail-loud precondition. `main()` prints it and exits non-zero."""
+    pass
 
 
 def _resolve_engine_root() -> Path:
-    """Put `coordinator_core` on `sys.path` via the standard engine-resident CLI bootstrap.
-
-    Engine imports happen here, inside a function, never at module scope -- keeps the module
-    body pure so `serve_classifier` still classifies this file warm-servable.
-    """
     try:
         import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
         import cc_invoke
@@ -85,18 +80,6 @@ def _resolve_engine_root() -> Path:
 
 
 def _git(repo: Path, *args: str) -> str:
-    """One git read. Returns stdout stripped, or "" on any non-zero exit --
-    this tool reports signal strength and must never fail a whole triage run
-    because one path has no history.
-
-    # Routes through
-    # coordinator_core.ops.ceremony.git_native._git instead of hand-rolling a
-    # second subprocess.run wrapper with its own creationflags/timeout/failure
-    # mapping.
-
-    Bootstraps itself: its only caller is `RepoFacts.__init__`, reachable from
-    the exported `triage()` without passing through `main()`.
-    """
     _resolve_engine_root()
     from coordinator_core.ops.ceremony.git_native import _git as _git_native
 
@@ -135,13 +118,6 @@ class RepoFacts:
         }
 
     def slug_hits(self, stem: str) -> int:
-        """How many commit messages mention `stem`.
-
-        Counted on the lowercased corpus because a commit message may
-        capitalize a slug it quotes in prose. A stem is a dated, hyphenated
-        title -- specific enough that substring matching does not need word
-        boundaries to stay meaningful.
-        """
         needle = stem.lower()
         if not needle:
             return 0

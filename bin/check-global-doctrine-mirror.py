@@ -144,15 +144,6 @@ import sys
 
 PROG = "check-global-doctrine-mirror.py"
 
-# (mirror-relative filename, ~/.claude-relative filename) -- currently identical
-# names on both sides, kept as a pair list in case that ever diverges.
-# CLAUDE.local.md
-# was deliberately RETIRED 2026-07-31 (commit 60b24123d: content folded into
-# CLAUDE.md, both copies deleted, 364 citations repointed), not merely
-# "never in play." A retired artifact does not belong in a live pair list,
-# so it is removed here rather than allowlisted -- this also means the
-# both-sides-absent branch below can stay unconditionally loud for every
-# remaining pair, including CLAUDE.md, without an allowlist carve-out.
 _MIRRORED_FILES = [
     ("CLAUDE.md", "CLAUDE.md"),
 ]
@@ -388,9 +379,6 @@ def main(argv: list[str]) -> int:
 
     mirror_dir = _mirror_dir()
     if not os.path.isdir(mirror_dir):
-        # Silent skip -- see module docstring's silent-skip contract. This is
-        # the expected state on every OSS install and on any DoE-claude clone
-        # that predates this feature.
         return 0
 
     claude_home = _claude_home()

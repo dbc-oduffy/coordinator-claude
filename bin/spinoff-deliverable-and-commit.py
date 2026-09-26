@@ -1,55 +1,4 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
-"""spinoff-deliverable-and-commit.py — origin-handoff-id carry and scope-scoped commit
-for the `/spinoff` authoring surface.
-
-Purpose: DoE-claude's coordinator/skills/spinoff/SKILL.md inlines several multi-step
-bash blocks (C2 origin_handoff_id ID-companion resolution and Step 4's
-scope-path-extraction-then-commit) that had to share one shell process (resolved
-variables do not survive across separate Bash tool calls). This CLI collapses each
-concern into a single naked-Python subcommand.
-
-Subcommands:
-  resolve-origin-handoff-id  — C2 ID-companion: read `handoff_id` off the SAME file
-                                named by `--origin-handoff` (never a different
-                                artifact) — the companion id for the `origin_handoff`
-                                display-path edge.
-  commit-scope                — Step 4: extract the `scope:` block's path list from a
-                                handoff's YAML frontmatter, fail loud if the block is
-                                missing/empty, then `git add`/`git commit` the scope
-                                paths plus the handoff file itself (scoped commit,
-                                never `git add -A`).
-
-Note: this CLI does NOT carry `deliverable_id` — that cascade lives solely in
-coordinator_core.ops.deliverable_carry.resolve_deliverable_and_initiative
-(the `/spinoff` authoring surface routes through the assembler, which calls the
-canonical cascade directly; see the 2026-08-05 PM ruling on the authoring door).
-This file previously forked a second, unconditional-carry copy of that function —
-removed as dead code contradicting the ruling and deliverable_carry.py's
-module-level negative-spec against a second copy of it.
-
-Composes an already-ported claude-klabauter op in-process (no subprocess re-invocation of
-its standalone CLI trampoline):
-  coordinator_core.ops.read_frontmatter_field.read_frontmatter_field
-
-Output convention (resolve-* subcommands): shell-assignment lines on stdout, meant to
-be consumed via `eval "$(spinoff-deliverable-and-commit.py resolve-origin-handoff-id ...)"`
-so resolved variables land directly in the caller's current shell — mirrors
-handoff-deliverable-carry.py's convention (same "must share one shell process"
-constraint the bash oracle called out for the handoff surface's analogous cascade).
-
-Exit codes: 0 on success. A missing/unresolvable engine root (this trampoline's own
-transport failure) exits 3 — distinct from any business-logic exit. A fail-loud
-business-logic guard (missing/empty scope block on commit-scope) exits 1, matching
-the bash oracle's own `exit 1` on the same guard.
-
-Spec backlink: coordinator/skills/spinoff/SKILL.md § "origin_handoff_id:" (C2 block),
-               § "Step 4: Commit"
-Port of: the two bash fences named above in DoE-claude
-         coordinator/skills/spinoff/SKILL.md (bash bodies retired on cutover; the
-         resolve-claude-klabauter-bin / _cc_trusted/_cc_root guard preambles surrounding those
-         fences are NOT ported here — thin-invocation/guard-preamble concern, handled
-         by the D2 SKILL.md repoint, not this engine-boundary CLI).
-"""
 
 from __future__ import annotations
 
@@ -62,15 +11,6 @@ _TRANSPORT_FAIL = 3
 
 
 def _import_ops():
-    """Resolve the engine root, put it on sys.path, and import the composed ops.
-
-    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
-    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
-    re-deriving it — this is a plain in-process import, not an RPC invoke, so
-    cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is deliberately
-    NOT used here (same convention as archive-stamp-cli, read-frontmatter-field.py,
-    mint-deliverable-id.py, handoff-deliverable-carry.py).
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 
@@ -93,20 +33,6 @@ def resolve_origin_handoff_id(read_frontmatter_field, origin_handoff: str | None
 
 
 def extract_scope_paths(handoff_text: str) -> list[str]:
-    """Extract the `scope:` block's `  - <path>` entries from handoff frontmatter.
-
-    Faithful Python port of the oracle's awk one-liner:
-        awk '/^scope:/{found=1; next}
-             found && /^  - /{print substr($0, 5)}
-             found && /^[a-z]/{exit}'
-
-    Rule order matters and is preserved: a `scope:` line sets `found` and is
-    otherwise skipped (awk's `next`); once `found`, a 2-space-indented `- ` line
-    contributes its path (substr($0,5) == strip the 4-char "  - " prefix); once
-    `found`, any subsequent line starting with a lowercase ASCII letter (the next
-    top-level frontmatter key) ends the block (awk's `exit` — later lines are never
-    scanned, matching the oracle's early-termination, not merely "skipped").
-    """
     found = False
     paths: list[str] = []
     for line in handoff_text.splitlines():
@@ -129,10 +55,6 @@ def _cmd_resolve_origin_handoff_id(args: argparse.Namespace, read_frontmatter_fi
 
 def _cmd_commit_scope(args: argparse.Namespace, _read_frontmatter_field) -> int:
     handoff = args.handoff
-    # Read the handoff relative to --cwd when both are given and the handoff path is
-    # relative — mirrors the bash oracle, where the whole block runs in one shell
-    # process sharing a single cwd (the repo root) for both the `awk` read and the
-    # `git add`/`git commit` below.
     read_path = (
         os.path.join(args.cwd, handoff) if args.cwd and not os.path.isabs(handoff) else handoff
     )

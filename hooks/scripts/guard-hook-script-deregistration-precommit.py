@@ -1,8 +1,3 @@
-# guard-not-a-hook-entrypoint
-# Native git pre-commit hook, not a hooks.json entrypoint. Same shape and same
-# reasoning as guard-phantom-staged-deletion-precommit.py: staged-set-for-
-# THIS-commit is only directly readable at pre-commit time, and a
-# `PreToolUse` hook sees one tool call, never a commit's whole staged diff.
 """Native git pre-commit hook: refuse a commit that removes a hook script
 `coordinator/hooks/hooks.json` still registers at HEAD, unless that same
 commit also removes the registration.
@@ -71,8 +66,6 @@ def _git(*args: str) -> "subprocess.CompletedProcess[bytes]":
         ["git", "--no-optional-locks", *args],
         capture_output=True,
         check=False,
-        # A git hook runs on every commit, including from headless Windows
-        # shells where a console-spawning child flashes a window each time.
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
 
@@ -83,9 +76,6 @@ def main() -> int:
 
     staged = _git("diff", "--cached", "--name-status", "-z", "-M")
     if staged.returncode != 0:
-        # An unreadable staged set is not evidence of a violation. Fail OPEN
-        # and say so: a pre-commit hook that blocks whenever git hiccups
-        # gets uninstalled, and this guard is worth more alive than strict.
         print(
             "[hook-script-deregistration-guard] could not read the staged set "
             f"(git exited {staged.returncode}); allowing the commit",
@@ -118,14 +108,6 @@ def main() -> int:
                 "utf-8", "surrogateescape"
             )
         else:
-            # A nonzero exit here USUALLY means hooks.json itself has no
-            # staged blob (this commit deletes it outright) --
-            # `staged_hooks_json_text` stays None either way, which
-            # `classify()` treats as "nothing left registered" (fail-open,
-            # never a block). But a nonzero exit can also mean some OTHER
-            # git failure (corrupt/unreadable blob) that is not actually a
-            # deletion -- distinguish the two so the latter is visible
-            # instead of silently degrading into "deletion".
             stderr_text = staged_hooks_json.stderr.decode(
                 "utf-8", "surrogateescape"
             )

@@ -1,12 +1,4 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
-# check-claude-klabauter-doctor-sentinel.sh — pure-Python CLI; no sh/python polyglot
-# trampoline. Wave 4a (2026-07-20) dropped the .sh suffix and the trampoline
-# entirely — this used to be check-claude-klabauter-doctor-sentinel.sh, kept on .sh
-# because commands/workday-start.md:744 and codename-provenance-seed.sh
-# referenced this exact basename; that call is reversed by the Wave 4a PM
-# amendment. workday-start.md is repointed in this wave; NOTE:
-# codename-provenance-seed.sh is outside this chunk's remit and was left
-# unedited — flag for the owning chunk/EM to repoint separately.
 """
 Check-claude-klabauter-doctor-sentinel.sh — CLI trampoline over claude-klabauter
 coordinator_core.ops.check_claude_klabauter_doctor_sentinel.

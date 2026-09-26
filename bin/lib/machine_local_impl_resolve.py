@@ -179,20 +179,6 @@ def settings_home() -> str:
 
 
 def machine_local_impl_path(env_override: "str | None" = "MACHINE_LOCAL_IMPL") -> str:
-    """Resolve the on-disk path to ``_machine_local.py``, settings-home first.
-
-    ``env_override`` names the test-isolation env var to consult first — pass
-    ``None`` to skip that check entirely for a caller whose pre-existing
-    contract never honoured one (e.g. `cc_invoke.py`, which must not gain new
-    env-var-triggered behavior as a side effect of this precedence fix).
-
-    Returns the settings-home candidate if it exists on disk; otherwise falls
-    back to the (possibly-nonexistent) mirror candidate unconditionally — the
-    caller is expected to `os.path.exists`/`os.path.isfile`-check the result
-    before use, exactly as every pre-existing caller already does. This
-    mirrors `coordinator_core.pyresolve._machine_local_impl()`'s existing,
-    correctly-ordered ladder.
-    """
     override = os.environ.get(env_override) if env_override else None
     if override:
         return override
@@ -203,17 +189,6 @@ def machine_local_impl_path(env_override: "str | None" = "MACHINE_LOCAL_IMPL") -
 
 
 def windows_cmd_first_candidates(bases: "list[str]") -> "list[str]":
-    """Given ordered base paths (extensionless), return the candidate list a
-    caller should probe: on Windows, try ``<base>.cmd`` before the bare
-    ``<base>`` for EACH base in order (``CreateProcess`` does not consult
-    ``PATHEXT``, so a bare extensionless invocation of a delivered ``.cmd``
-    silently fails); on every other platform, return ``bases`` unchanged.
-
-    Extracted from `resolve-repo-path.py`'s
-    `_machine_local_path_candidates()` (which had this logic correct) so
-    `machine_local_bin_candidates()` below stops silently omitting it — the
-    duplication-avoidance this whole module exists for, applied to itself.
-    """
     if os.name == "nt":
         candidates: "list[str]" = []
         for base in bases:
@@ -223,13 +198,6 @@ def windows_cmd_first_candidates(bases: "list[str]") -> "list[str]":
 
 
 def machine_local_bin_candidates() -> list[str]:
-    """Return ordered candidate paths for the ``machine-local`` CLI forwarder
-    itself (distinct from `_machine_local.py`, the reader it forwards to) —
-    settings-home first, mirror last, `.cmd`-first-per-base on Windows (see
-    `windows_cmd_first_candidates()`). Used by callers that shell out to the
-    `machine-local` CLI directly rather than invoking `_machine_local.py` via
-    `sys.executable`.
-    """
     bases = [
         os.path.join(settings_home(), "bin", "machine-local"),
         os.path.join(claude_home(), "bin", "machine-local"),
@@ -274,16 +242,10 @@ def _native_path_form(raw: str) -> str:
 
 
 def _env_override_key(key: str) -> str:
-    """Convert a dotted registry key to its env-var override name — mirrors
-    ``coordinator_core.machine_resolver._env_override_key``."""
     return "MACHINE_LOCAL_" + key.upper().replace(".", "_")
 
 
 def _load_toml_flat(path: str) -> dict:
-    """Load and flatten one registry TOML file. Degrades to ``{}`` on any
-    absent/malformed file or missing ``tomllib``/``tomli`` — never raises.
-    Mirrors ``coordinator_core.machine_resolver._load_toml`` +
-    ``_flatten`` byte-for-byte, including the ``tomli`` fallback import."""
     if not os.path.isfile(path):
         return {}
     try:
@@ -302,9 +264,6 @@ def _load_toml_flat(path: str) -> dict:
 
 
 def _flatten_registry_table(data: dict, prefix: str = "") -> dict:
-    """Flatten nested TOML tables into dotted keys, excluding any
-    ``schema``/``concerns``-keyed table at EVERY nesting level (not only the
-    root) — mirrors ``coordinator_core.machine_resolver._flatten`` exactly."""
     out: dict = {}
     for k, v in data.items():
         if k in ("schema", "concerns"):

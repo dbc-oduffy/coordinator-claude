@@ -85,7 +85,7 @@ The verdict is advisory. The agent never auto-blocks; only the EM/PM may halt a 
 
 ## Prior-art mutability — director-tier reviewer override path
 
-Prior art is not immutable doctrine. When a PM-authorized director-tier reviewer (the Director of Engineering, or the Staff Engineer elevated by PM brief) finds that a captured wiki/lesson is outdated, vague, or wrong, they have explicit authority to override the prior-art-checker's conflict finding and direct the integrator to update the prior art rather than the plan. The integrator records the override decision and edits the wiki/lesson/queue as a first-class deliverable of the review pass — same commit, same review trail.
+Prior art is not immutable doctrine. When a PM-authorized director-tier reviewer (the Director of Engineering, or the Staff Engineer elevated by PM brief) finds that a captured wiki/lesson is outdated, vague, or wrong, they have explicit authority to override the prior-art-checker's conflict finding and update the prior art themselves rather than the plan. The reviewer records the override decision and edits the wiki/lesson/queue as a first-class deliverable of the review pass — same commit, same review trail.
 
 **When the override applies:**
 
@@ -93,21 +93,21 @@ Prior art is not immutable doctrine. When a PM-authorized director-tier reviewer
 - The wiki entry was captured from a one-off incident and overstated as universal.
 - The lesson was captured before a structural change that made it inapplicable.
 
-**Required brief framing.** The dispatching EM MUST surface the override authority verbatim in the director-tier reviewer's brief — e.g. *"You may direct the integrator to update prior art (wiki/lesson/queue) rather than the plan when the captured pattern is itself the problem. Cite the wiki entry and reason in your finding."* Without the verbatim elevation, the reviewer defaults to plan-side correction per the standard direction-of-correction enum (`update-plan` / `update-prior-art` / `both` / `override-and-document` / `PM-input-needed`).
+**Required brief framing.** The dispatching EM MUST surface the override authority verbatim in the director-tier reviewer's brief — e.g. *"You may update prior art (wiki/lesson/queue) yourself rather than the plan when the captured pattern is itself the problem. Cite the wiki entry and reason in your finding."* Without the verbatim elevation, the reviewer defaults to plan-side correction per the standard direction-of-correction enum (`update-plan` / `update-prior-art` / `both` / `override-and-document` / `PM-input-needed`).
 
 **Companion doctrine:** the reviewer-pipeline doctrine's section on reviewer elevation past charter — for the mechanics of PM-authorized reviewer elevation generally.
 
 ## Verdict semantics
 
 - **COMPATIBLE** — zero conflicts; compatible-but-relevant items are informational only. Proceed to Opus reviewer dispatch.
-- **WARN** — one or more conflicts surfaced. EM (with reviewer + integrator help) picks a direction-of-correction per conflict before dispatching the Opus reviewer: `update-plan`, `update-prior-art`, `both`, `override-and-document`, or `PM-input-needed`. "WARN" does not mean "plan is wrong" — it means "two surfaces disagree; pick which to update." See § Bidirectional resolution.
+- **WARN** — one or more conflicts surfaced. EM (with the reviewer's help) picks a direction-of-correction per conflict before dispatching the Opus reviewer: `update-plan`, `update-prior-art`, `both`, `override-and-document`, or `PM-input-needed`. "WARN" does not mean "plan is wrong" — it means "two surfaces disagree; pick which to update." See § Bidirectional resolution.
 - **BLOCKED-SURFACE-TO-PM** — one or more conflicts contradict load-bearing doctrine (scoped-safety-commits, daily-branch-discipline, round-trip-contract-tests, sequential-review HARD RULE, etc.) OR contradict explicit institutional memory recording a past incident. EM **must** escalate to PM before continuing. Do not dispatch the Opus reviewer until the conflict is resolved or PM authorizes override.
 - **DEGRADED** — the agent ran with materially incomplete coverage. Emitted when: (a) Phase 1 capped at 30 claims and the plan has significantly more, (b) Stuck Detection fired ≥1 time, (c) a corpus was unreadable, or (d) estimated token cost exceeded 50K. Treat DEGRADED as no signal — review the plan fully against prior art as if no pre-flight ran. DEGRADED does not block; it flags unreliable coverage.
 
 ## Hard prohibitions — prior-art-checker must NOT
 
 - Edit the plan inline. The agent writes exactly one file: the sidecar.
-- Edit any wiki, lesson, or queue file (read-only against the corpus). Wiki/registry/lessons amendments arising from a Conflict are landed by the review-integrator after the EM picks a direction — not by the prior-art-checker itself.
+- Edit any wiki, lesson, or queue file (read-only against the corpus). Wiki/registry/lessons amendments arising from a Conflict are landed by the reviewer applying its own finding after the EM picks a direction — not by the prior-art-checker itself.
 - Apply auto-fixes of any kind. Recall is judgmental — even compatible-but-relevant findings could be wrong, and conflict resolutions need EM/PM input.
 - Fabricate prior art. If a claim is silent, the agent says so. Inventing citations is worse than reporting a gap.
 - WebSearch for general guidance. The agent checks **our** prior art, not the open internet's.
@@ -148,23 +148,23 @@ The sync verifier is auto-discovered by `/update-docs` Phase 11b.
 
 Wikis, lessons, and registries record what we believed at last write-time. They are the corpus a new plan should align with *by default* — but they are not immutable. A plan that contradicts prior art may be the plan capitulating to the wiki, OR it may be the wiki needing revision because the plan is the corrective. Treating every conflict as "plan must yield" turns the prior-art-checker into a freeze mechanism; treating every conflict as "wiki is stale" turns it into noise. Neither is right.
 
-The discipline: every Conflict is a **direction-of-correction question**, answered by the EM with reviewer + integrator input. The candidate directions (defined in the agent prompt) are `update-plan`, `update-prior-art`, `both`, `override-and-document`, and `PM-input-needed`. The sidecar surfaces the conflict and may offer a lean; the call is the EM's.
+The discipline: every Conflict is a **direction-of-correction question**, answered by the EM with the reviewer's input. The candidate directions (defined in the agent prompt) are `update-plan`, `update-prior-art`, `both`, `override-and-document`, and `PM-input-needed`. The sidecar surfaces the conflict and may offer a lean; the call is the EM's.
 
 ## Bidirectional resolution — who applies which edit
 
-Once the EM has picked a direction per Conflict, edits land via the integrator chain after the Opus reviewer's normal pass:
+Once the EM has picked a direction per Conflict, edits land as the reviewer applies its own findings after the Opus reviewer's normal pass:
 
 | Direction | What lands | Where |
 |---|---|---|
 | `update-plan` | Plan amendment folding prior art in | The plan artifact |
 | `update-prior-art` | Wiki/registry/lessons amendment | The cited prior-art file(s) |
-| `both` | Plan amendment + prior-art amendment | Both surfaces, in one integration pass |
+| `both` | Plan amendment + prior-art amendment | Both surfaces, in one pass |
 | `override-and-document` | One-line entry in plan's "Considered alternatives" citing prior-art quote and override rationale | The plan artifact |
 | `PM-input-needed` | No edit until PM decides; then one of the above | Per PM direction |
 
-The review-integrator agent has explicit authority to land prior-art-side edits when the EM's dispatch prompt names the direction per conflict. See `agents/review-integrator.md` § Prior-Art Conflict Resolution.
+The reviewer has explicit authority to land prior-art-side edits itself when the EM's dispatch prompt names the direction per conflict (`review-integration-doctrine.md`).
 
-**Precedence when reviewer disagrees with EM's pre-dispatch direction.** The EM names a direction per conflict in the integrator dispatch prompt. If the Opus reviewer's findings recommend a different direction (e.g., EM pre-selected `update-plan`; reviewer's architectural read says `update-prior-art`), the integrator escalates as ASK — does NOT silently apply either direction. The EM resolves the conflict before the integration commit. The EM's dispatch-prompt direction does not auto-override a contrary reviewer recommendation; this is the structural protection against the EM short-circuiting the review's directional input.
+**Precedence when reviewer disagrees with EM's pre-dispatch direction.** The EM names a direction per conflict in the reviewer's dispatch prompt. If the Opus reviewer's findings recommend a different direction (e.g., EM pre-selected `update-plan`; reviewer's architectural read says `update-prior-art`), the reviewer escalates as ASK — does NOT silently apply either direction. The EM resolves the conflict before the reviewer applies it. The EM's dispatch-prompt direction does not auto-override a contrary reviewer recommendation; this is the structural protection against the EM short-circuiting the review's directional input.
 
 ## False-positive arbitration — feedback loop on wiki quality
 

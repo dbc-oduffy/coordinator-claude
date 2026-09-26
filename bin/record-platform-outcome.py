@@ -105,32 +105,19 @@ def _bootstrap_engine() -> None:
         from coordinator_registry import doe_root, _DoeUnresolvable, _registry_machine_local_get
         from cc_invoke import require_engine_on_path
 
-        # The engine root must be on sys.path before any `coordinator_core` import: this
-        # file is also published into the claude-klabauter mirror, where coordinator_core
-        # is NOT pip-installed, so a bare import resolves nothing and the CLI dies at
-        # import time. Same bootstrap as coordinator/bin/lib/workday_ceremony_lib.py
-        # (landed in d2d4ec545 for the identical failure on /workday-start Step 0).
         require_engine_on_path(__file__)
 
         from coordinator_core.win_portability import no_console_creationflags
     finally:
-        # Publish whatever bound, EVEN IF a later import raised, and NEVER
-        # overwrite a name a caller already installed (e.g. a monkeypatch).
         _resolved = locals()
         for _name in _BOOTSTRAPPED_NAMES:
             if _name not in globals() and _name in _resolved:
                 globals()[_name] = _resolved[_name]
 
-    # Only on a clean run: a partial bootstrap must stay retryable.
     _BOOTSTRAP_DONE = True
 
 
 def __getattr__(name: str):
-    """PEP 562 hook: a consumer that imports this module rather than executing it
-    reaches these names before `main()` runs. Without this, deferring the
-    bootstrap leaves them simply absent. Only fires for names not already in
-    `__dict__`, so once bootstrapped the plain global wins.
-    """
     if name in _BOOTSTRAPPED_NAMES:
         _bootstrap_engine()
         if name not in globals():
@@ -145,11 +132,6 @@ def __getattr__(name: str):
             ) from None
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-# Canonical PlatformId vocabulary — agent-install-manifest.schema.json §PlatformId,
-# platform-outcome.schema.json §platform. Mirrors the identical mapping in the C4
-# sibling tool (untested-platform-advisory.py) — kept as a local copy rather than
-# a shared import because neither file exports the constant as a public API today;
-# if the PlatformId enum ever changes at its SSOT, update both copies together.
 _PLATFORM_MAP = {
     "Darwin": "macos",
     "Linux": "linux",
@@ -157,24 +139,14 @@ _PLATFORM_MAP = {
 }
 
 
-
 GENERATES = []  # writes state/platform-outcomes/<platform>/<machine>/<surface>.yaml under _surface_root() == coordinator_registry.doe_root() (the DoE-claude repo), never claude-klabauter's own tree — see module docstring "WRITE-TARGET RESOLUTION"
 
 
 class RecordPlatformOutcomeError(RuntimeError):
-    """Raised for any resolvable-but-failed precondition (bad git repo, unresolvable
-    platform, unsafe surface name). Caught once in main() and reported to stderr with
-    a non-zero exit — never a raw traceback for an operator-facing CLI."""
+    pass
 
 
 def _running_platform_id() -> str:
-    """Map the running OS to the PlatformId vocabulary (macos|linux|windows).
-
-    Raises RecordPlatformOutcomeError for an unrecognized platform (e.g. an exotic
-    BSD host) — unlike the advisory-only C4 sibling, this tool's job IS to attest a
-    platform; silently degrading here would emit a schema-invalid record with no
-    valid enum value.
-    """
     system = platform.system()
     resolved = _PLATFORM_MAP.get(system)
     if resolved is None:
@@ -228,12 +200,6 @@ def _surface_root() -> str:
 
 
 def _git_rev_parse(root: str, *args: str) -> str:
-    """Run `git -C <root> rev-parse <args>` and return stripped stdout.
-
-    Raises RecordPlatformOutcomeError on any non-zero exit or launch failure —
-    a git-identity failure means the emitted record cannot carry a trustworthy
-    surface_sha/invoking_repo, so this tool must not degrade to a placeholder.
-    """
     _bootstrap_engine()
     cmd = ["git", "-C", root, "rev-parse", *args]
     try:
@@ -251,18 +217,10 @@ def _git_rev_parse(root: str, *args: str) -> str:
 
 
 def _surface_sha(surface_root: str) -> str:
-    """SHA of the surface-providing repo at HEAD (schema field `surface_sha`)."""
     return _git_rev_parse(surface_root, "HEAD")
 
 
 def _invoking_repo_id() -> str:
-    """Repo id (basename of git root) of the tree the ceremony actually ran in —
-    resolved from the invoking process's cwd, independent of the surface root.
-
-    Falls back to the basename of cwd itself when cwd is not inside a git repo
-    (e.g. a scratch/ceremony sandbox) rather than raising — `invoking_repo` is a
-    free descriptive string per the schema, not a validated identity.
-    """
     cwd = os.getcwd()
     try:
         top = _git_rev_parse(cwd, "--show-toplevel")
@@ -279,11 +237,6 @@ def _now_observed_at() -> str:
 
 
 def _yaml_str(value: str) -> str:
-    """Emit a YAML scalar string: bare when safe, double-quoted (with `\\`/`"`
-    escaped) when the value contains YAML-significant characters. Mirrors the
-    identical heuristic in `coordinator/bin/migrate-central-improvement-queue.py:_yaml_str`
-    — the established house pattern for hand-emitted flat YAML records (this repo
-    avoids a PyYAML dependency for simple single-record writes)."""
     needs_quoting = (
         value.startswith(("- ", "| ", "> ", "!", "&", "*", "{", "[", "\"", "'", "`"))
         or ": " in value
@@ -299,21 +252,11 @@ def _yaml_str(value: str) -> str:
 
 
 def _yaml_quote_always(value: str) -> str:
-    """Always double-quote a YAML scalar string, escaping `\\`/`"`. Used for
-    `command` and `observed_at` — both free-form/argv-shaped or punctuation-heavy
-    values that the C1 schema fixture (`coordinator/schemas/fixtures/platform-outcome/valid.yaml`)
-    always quotes regardless of whether `_yaml_str`'s conditional heuristic would
-    require it; matching that convention byte-for-byte keeps hand-inspection of
-    records consistent across the fixture and every real emitted record."""
     escaped = value.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
 
 
 def _validate_surface(surface: str) -> None:
-    """Reject a surface value that could escape the platform-outcomes tree (path
-    separators or `..` segments) — the surface name becomes a filename component
-    (`<surface>.yaml`), never a path, so traversal characters are always invalid
-    input rather than a legitimate surface id."""
     if not surface or "/" in surface or "\\" in surface or ".." in surface:
         raise RecordPlatformOutcomeError(
             f"invalid --surface {surface!r}: must be a bare filename-safe id "
@@ -340,8 +283,6 @@ def build_record(
     surface_sha: str,
     invoking_repo: str,
 ) -> dict:
-    """Assemble the record dict in schema field order (required-field set matches
-    platform-outcome.schema.json exactly — see that file's `required` array)."""
     return {
         "platform": platform_id,
         "surface": surface,
@@ -356,9 +297,6 @@ def build_record(
 
 
 def write_record(path: str, record: dict) -> None:
-    """Write a single platform-outcome record to `path` as flat YAML (no `---`
-    frontmatter delimiters — this is a standalone record file, not a doc with a
-    body). Field order matches `build_record()`/the schema's `required` array."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     lines = [
         f"platform: {record['platform']}",

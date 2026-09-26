@@ -240,7 +240,16 @@ around.
 
 ### 5. Loop
 
-Fire `next_wave` and land it. Repeat.
+**`--waves` defaults to 1.** By default the run stops after wave 0 lands. A non-empty
+`next_wave.batons` at that stop is reported to the EM as the remaining work, to be fired as
+separate runs — a fresh single-wave run per later wave, or single-baton `coordinator:sizing` →
+`coordinator:plan` for a large baton — never auto-chained. The override is `--waves <n>` with
+`n > 1`, passed with a one-line written EM justification that goes in the run's trail. When the
+override is in force, the existing loop and all of its stop conditions below apply unchanged, wave
+after wave: fire `next_wave` and land it, repeat. Tripwire:
+`A-MULTI-WAVE-BLITZ-IS-NOT-THE-DEFAULT`. Evidence: single-baton, single-wave runs gave comparable
+product at about half the cost of the multi-wave comparisons
+(coordinator-recipe/diagnosis/handsoff-mise-prep.md § 5, experiments `6e2c5bab`).
 
 **Stop conditions, all mechanical:**
 

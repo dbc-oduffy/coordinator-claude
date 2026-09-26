@@ -26,9 +26,6 @@ import shutil
 import subprocess
 import sys
 
-# This file lives in coordinator/lib/ (not coordinator/bin/), so the shared
-# cc_invoke and python_interp helpers are siblings of coordinator/bin/, not of
-# this file's own directory.
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bin", "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
@@ -77,38 +74,9 @@ def _python_argv(script: str, *args: str) -> list:
 
 
 def _claude_home_argv(*args: str) -> list:
-    """Resolve an executable argv for the `claude-home` helper.
-
-    A bare "claude-home" fails on Windows with WinError 2: CreateProcess does
-    not consult PATHEXT (so the delivered `.cmd` is invisible) and the install's
-    bin dir is not necessarily on PATH anyway. Probe the known install
-    locations for the `.cmd` first, then fall back to PATH lookup — shutil.which
-    DOES honour PATHEXT — and only then to the bare name.
-
-    POSIX branch (state/audits/2026-07-25-claude-bin-mirror-read-rungs.md § 2,
-    this function's row): a bare "claude-home" PATH lookup is order-dependent
-    on whatever the invoking process's PATH happens to contain, which can
-    resolve to the retired mirror ahead of settings-home. Probe settings-home
-    by explicit path first, then PATH (`shutil.which`), then the retired
-    mirror by explicit path, with the bareword as the final rung — mirroring
-    `coordinator_core/install/maximalist.py::_claude_home_cli_argv`'s POSIX
-    branch. Negative spec: the mirror does not go ahead of `shutil.which`.
-    """
     if os.name == "nt":
-        # EM-verified disposition:
         # `CLAUDE_HOME` means "the home directory *containing* `.claude`", not
-        # `~/.claude` itself. 889 call sites across this codebase join
         # `CLAUDE_HOME` with `/.claude` (the `${CLAUDE_HOME:-$HOME}/.claude/...`
-        # idiom) vs. 5 that use it bare, and those 5 are docs/tests, not
-        # runtime resolvers. The `.claude`-suffix join below is correct and
-        # consistent with that convention — do not "fix" it to drop the join.
-        # Settings-home first (DR-210 Amendment 2026-07-24: "resolves nothing
-        # through ~/.claude/bin") — this Windows-only probe previously tried
-        # the retired compat mirror's `.cmd` BEFORE settings-home's, an
-        # inverted precedence on the platform that matters most (Windows is
-        # the primary machine per DoE-claude CLAUDE.md § Runtime conventions).
-        # Swapped so settings-home wins whenever both candidates exist; the
-        # mirror candidate is retained, tried last.
         home = (
             os.environ.get("CLAUDE_HOME")
             or os.environ.get("HOME")
@@ -124,10 +92,6 @@ def _claude_home_argv(*args: str) -> list:
         found = shutil.which("claude-home")
         if found:
             return [found, *args]
-        # Breadcrumb before the
-        # bare-name last resort: distinguishes "not installed" from
-        # "installed somewhere unexpected" for an operator debugging a
-        # WinError 2 on the fallback below.
         print(
             "register-coordinator-mirror.py: claude-home not found at known install "
             "locations or on PATH; falling back to bare-name invocation (likely to fail "
@@ -136,8 +100,6 @@ def _claude_home_argv(*args: str) -> list:
         )
         return ["claude-home", *args]
 
-    # Same bareword defect flagged in
-    # maximalist.py's POSIX branch (audit row above); ladder now matches.
     home = os.environ.get("HOME") or os.environ.get("USERPROFILE") or os.path.expanduser("~")
     settings_home_cand = os.path.join(
         os.environ.get("COORDINATOR_SETTINGS_HOME")
@@ -157,16 +119,6 @@ def _claude_home_argv(*args: str) -> list:
 
 
 def _resolve_coordinator_live() -> str:
-    """DoE-local "coordinator live path" resolution — unchanged from the bash oracle.
-
-    Tier 1: the script-relative resolve-coordinator-clone.py --for-content helper
-    (co-located sibling of this file — this file lives in coordinator/lib/, so
-    "up one then back into lib/" lands on the same directory). Invoked directly
-    via a resolved python interpreter (E2-c ported the resolver itself to naked
-    Python), removing the Windows-only `bash <script>` indirection the retired
-    bash predecessor needed. Tier 2 (defensive fallback, resolver missing or returned
-    empty): flat layout under `claude-home plugins`.
-    """
     this_dir = os.path.dirname(os.path.abspath(__file__))
     resolver = os.path.join(this_dir, "..", "lib", "resolve-coordinator-clone.py")
     coordinator_live = ""
@@ -192,9 +144,6 @@ def _resolve_coordinator_live() -> str:
     else:
         tier1_fail_reason = "resolver script not found"
 
-    # one-line stderr
-    # breadcrumb before the Tier-2 fallback so a transient Tier-1 failure
-    # (torn resolver script, permissions) isn't papered over indefinitely.
     if not coordinator_live and tier1_fail_reason:
         print(
             f"register-coordinator-mirror.py: resolver Tier 1 failed ({tier1_fail_reason}), "

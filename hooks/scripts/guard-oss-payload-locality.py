@@ -1,9 +1,4 @@
-# guard-not-a-hook-entrypoint -- invoked via the in-process guard runner's
 # REAL_GUARD_REGISTRY (coordinator/hooks/scripts/_guard_runner.py), which
-# preuse-write-dispatch.py's own hooks.json PreToolUse(Write|Edit|MultiEdit)
-# registration calls in-process (C4, docs/plans/2026-08-06-hook-spawn-fan-
-# in-finish-and-extend.md). This basename is deliberately never referenced
-# literally in hooks.json text -- that IS the mechanism, not an omission.
 """PreToolUse hook (matcher: Write|Edit|MultiEdit): denies a write that
 introduces a NEW OSS-payload locality defect into a file that ships to the
 OSS `coordinator-claude` mirror.
@@ -84,12 +79,8 @@ from _message_envelope import CHANNEL_DENY, Message, compose, emit  # noqa: E402
 
 _GUARDED_TOOLS = ("Write", "Edit", "MultiEdit")
 
-#: Wiki anchor carrying the relocated per-kind remedy explanations -- see
-#: `state/relocations/guard-message-cap/guard-oss-payload-locality.py.md`.
 _WIKI_ANCHOR = "coordinator/docs/wiki/guards/guard-message-concision.md#oss-payload-locality"
 
-#: Per-kind SHORT alternative, keyed by the exact `Violation.kind` strings
-#: `_prompt_surface_locality.iter_violations` emits. The full reasoning for
 #: each (the ENTRY CRITERION for `IRREDUCIBLE_LITERALS`, why a portable form
 #: replaces a drive path) lives at `_WIKI_ANCHOR`, not here.
 _ALTERNATIVES = {
@@ -103,20 +94,6 @@ _DEFAULT_ALTERNATIVE = "prefer a portable, capability-named alternative"
 
 
 def _deny_reason(target: str, violations: list) -> str:
-    """The prose diagnosis (the ONLY part `_message_envelope.CEILING`
-    counts) -- kept as a separate, importable, plain-string-returning
-    function so the character-cap measurement harness's adapter
-    (`_adapt_guard_oss_payload_locality` in
-    `message_measurement_harness.py`) can call it directly with synthesized
-    violations, with no process/stdin/envelope setup. `_deny_message` below
-    is what wires this into the real `Message`/emission path.
-
-    Review: code-reviewer, Finding 5 -- a mixed-kind write used to collapse
-    to a bare count with a generic default remedy, losing exactly the
-    per-kind information an operator needs to act on which violation fired.
-    Restores the first two distinct kinds inline (still counted prose, but
-    a short list rather than none) for the multi-kind case; the
-    single-kind case is unaffected."""
     kinds = sorted({v.kind for v in violations})
     first = min(violations, key=lambda v: v.line)
     where = f" First at line {first.line}: {first.excerpt[:60]!r}."

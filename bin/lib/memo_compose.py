@@ -34,23 +34,11 @@ from __future__ import annotations
 
 import datetime
 
-# Maximum summary length — mirrors
 # `coordinator_core.ops.fleet._memo_summary._SUMMARY_MAX_CHARS`, which the
-# receiver-side cross-field rule (`schema_validate._memo_cf_summary_length_cap`)
-# and the emitted memo schema both read. If that constant moves, update this
-# one too. Both sides must stay in sync.
 _SUMMARY_MAX_CHARS = 120
 
 
 def _yaml_quote(value: str) -> str:
-    """Double-quote a string for YAML, escaping backslashes, double-quotes,
-    and newlines/tabs. Always double-quotes — appropriate for memo frontmatter
-    where all values are authored strings and unambiguous quoting is required.
-
-    Negative-spec: unlike coordinator-queue-append's _yaml_quote_string, this
-    function ALWAYS wraps in double-quotes and never emits bare YAML strings.
-    The two serve different field grammars; do not conflate them.
-    """
     escaped = (
         value.replace("\\", "\\\\")
         .replace('"', '\\"')
@@ -82,22 +70,11 @@ def _derive_summary(body: str) -> str:
         if stripped:
             if len(stripped) <= _SUMMARY_MAX_CHARS:
                 return stripped
-            # Truncate preserving full words where possible.
             return stripped[: _SUMMARY_MAX_CHARS - 1] + "…"
     return ""
 
 
 def _render_scoped_to(scoped_to: dict[str, str]) -> str:
-    """Render the nested `scoped_to:` frontmatter mapping.
-
-    Matches the shape claude-klabauter's memo.send op composes into
-    engine-delivered memos (`coordinator_core/ops/fleet/memo_send.py`
-    `_render_extra_field`/`_render_yaml_block`, bcc7cdbe): a `scoped_to:`
-    key followed by 2-space-indented `sub_key: "value"` lines, each scalar
-    double-quoted via `_yaml_quote`. Keys are rendered in `scoped_to`'s own
-    iteration order — callers (via `_build_scoped_to`) insert artifact,
-    version-or-sha, then seam, matching claude-klabauter's field order.
-    """
     lines = ["scoped_to:"]
     for key, value in scoped_to.items():
         lines.append(f"  {key}: {_yaml_quote(value)}")
@@ -165,39 +142,24 @@ def compose_frontmatter(
     Negative-spec: this function never calls machine-local, _sender_em_id(),
     or any routing helper. from_id is always explicit.
     """
-    # Guard: decision is required when self_receipt=True.
-    # _compose_frontmatter would emit 'decision: "None"' (the string "None") if called
-    # without a decision. Fail loudly rather than silently writing a malformed field.
     if self_receipt and decision is None:
         raise ValueError(
             "compose_frontmatter: decision is required when self_receipt=True. "
             "Pass a decision value (accepted|declined|partial|superseded)."
         )
 
-    # Resolve and enforce summary length.
     resolved_summary = summary if summary is not None else _derive_summary(body)
     if len(resolved_summary) > _SUMMARY_MAX_CHARS:
         resolved_summary = resolved_summary[: _SUMMARY_MAX_CHARS - 1] + "…"
 
     today = _today()
-    # Canonical terminal status is 'actioned' (open → actioned). 'action_taken'
-    # is a grandfathered pre-2026-05-21 value — do not stamp it on new memos.
-    # `draft` is the OUTBOX status (2026-08-30): a staged draft under
-    # state/memo-outbox/ that memo.send has not delivered yet. It is a
-    # different lifecycle point from `open` (delivered, awaiting the
-    # receiver) and `actioned` (terminal), and _outbox_frontmatter_rules
     # REQUIRES it -- a scaffolder emitting `open` produces a file that
-    # validator rejects. `self_receipt` still wins: a self-receipt is
-    # terminal by construction and is never a draft.
     if self_receipt:
         status = "actioned"
     elif draft:
         status = "draft"
     else:
         status = "open"
-    # All string values are quoted so '#', leading '[', and trailing-space-before-':'
-    # in titles don't truncate via the YAML parser. 'topic' lives in the filename,
-    # not the schema — intentionally absent from frontmatter.
     lines = [
         "---",
         f"title: {_yaml_quote(title)}",
@@ -239,14 +201,6 @@ def compose_memo(
     sent_by: str | None = None,
     draft: bool = False,
 ) -> str:
-    """Compose the full memo document (frontmatter + body).
-
-    Returns the complete document string ready for writing to disk.
-    Delegates frontmatter composition to compose_frontmatter().
-
-    sent_by: see compose_frontmatter's docstring — resolved by the caller at
-    SEND time, this function only forwards it.
-    """
     frontmatter = compose_frontmatter(
         draft=draft,
         from_id=from_id,

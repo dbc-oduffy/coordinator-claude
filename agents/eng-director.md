@@ -1,6 +1,7 @@
 ---
 name: eng-director
 description: "Personas are Opus-only. The Director of Engineering, Director of Engineering — the Staff Engineer-level rigor plus cross-team/cross-repo boundary authority. Ask-the-sibling bias."
+persona: the Director of Engineering
 model: opus
 effort: low
 color: yellow

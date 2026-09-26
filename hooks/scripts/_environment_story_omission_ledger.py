@@ -100,11 +100,6 @@ from __future__ import annotations
 import re
 from typing import Iterable, Mapping, Optional, Sequence
 
-#: The register's own six rule-bearing dispositions -- the complement of
-#: the two file-level ones (`no-environment-scoped-premise`,
-#: `not-rule-bearing`). Verified, not merely asserted: this module's test
-#: sums these against the register's committed `counts:` block (`rule_rows`)
-#: rather than trusting the set is still complete after a register edit.
 RULE_BEARING_DISPOSITIONS: frozenset[str] = frozenset(
     {
         "binds",
@@ -116,19 +111,11 @@ RULE_BEARING_DISPOSITIONS: frozenset[str] = frozenset(
     }
 )
 
-#: The safe-arm's only legal "omittable, cleared" answer. Any row not
-#: matching both exactly is refusal 3.
 _SAFE_ARM_GUARD = "none"
 _SAFE_ARM_VERDICT = "n/a"
 
-#: Placeholder-lead spellings the register recurs on for "not applicable
-#: here" -- a lead alone is not enough (see `is_placeholder_party`).
 _PLACEHOLDER_LEAD_RE = re.compile(r"^(n/a|none|same)\b", re.IGNORECASE)
 
-#: Party-class nouns: a value leading with a placeholder spelling but going
-#: on to name one of these is naming an actual party, not concluding an
-#: absence. A noun list, not a topic list -- "Windows" or "PowerShell" name
-#: a mechanism, never a party, however specific the sentence gets.
 _PARTY_NOUN_TOKENS = frozenset(
     {
         "party", "parties",
@@ -159,26 +146,10 @@ _WORD_RE = re.compile(r"[A-Za-z']+")
 
 
 class OmissionLedgerError(Exception):
-    """Raised by `validate_omission_rows` / `validate_story_accounting` /
-    `validate_ledger` on any of the three refusals. Fail LOUD, never a
-    silent admit -- names every offending id/row found, not just the
-    first, so a caller sees the whole defect in one failure."""
+    pass
 
 
 def is_placeholder_party(value: Optional[str]) -> bool:
-    """True if `value` is a placeholder rather than an argued party.
-
-    A `None` or blank value is always a placeholder -- the schema requires
-    the field, and an absent value can never have named anything. Otherwise
-    the value must both LEAD with one of the register's three recurring
-    not-applicable spellings (`n/a`, `none`, `same`) AND go on to name no
-    party-class noun anywhere else in the sentence. Independently
-    reimplemented from `coordinator/bin/emit-omission-register.py`'s
-    detector of the same name and shape rather than imported from it: this
-    module is the consumer-side check on the emitted artifact, and a
-    consumer that could only ever agree with its producer's own detector
-    would not be an independent check on it.
-    """
     if value is None:
         return True
     stripped = value.strip()
@@ -203,16 +174,6 @@ def find_unaccounted_rule_ids(
     story_rule_ids: Iterable[str],
     omission_rows_for_story: Sequence[Mapping],
 ) -> frozenset[str]:
-    """Refusal 1. A rule-bearing id is accounted for iff it is in
-    `story_rule_ids` OR carries an omission row (in `omission_rows_for_
-    story`) with a non-empty `reason`. Returns every id that is in
-    NEITHER -- empty means fully accounted.
-
-    A real set difference, not an arithmetic identity: this is what a
-    count-based "the story keeps exactly N ids" check cannot be, and is
-    exactly the distinction this module's test exercises against the
-    historical incident (a story narrowed by 309 ids, zero omission rows,
-    a count-based check green throughout)."""
     carrying_a_reasoned_row = {
         row["rule_id"]
         for row in omission_rows_for_story
@@ -222,10 +183,6 @@ def find_unaccounted_rule_ids(
 
 
 def find_unnamed_party_rows(omission_rows: Sequence[Mapping]) -> list[Mapping]:
-    """Refusal 2 / Constraint 3. Every omission row whose `stated_party` or
-    `harmed_party` is empty or a placeholder (`is_placeholder_party`) --
-    such a row does not omit a rule, it reports a finding, and is refused
-    as an omission claim regardless of story."""
     return [
         row
         for row in omission_rows
@@ -235,14 +192,6 @@ def find_unnamed_party_rows(omission_rows: Sequence[Mapping]) -> list[Mapping]:
 
 
 def find_unresolved_enforcement_rows(omission_rows: Sequence[Mapping]) -> list[Mapping]:
-    """Refusal 3 / the DR's addition. Every omission row whose
-    (`enforcing_guard`, `enforcement_verdict`) pair is not EXACTLY the
-    safe-arm's cleared answer (`"none"`, `"n/a"`) -- a named guard, a
-    `pending-ratification` verdict, a mismatched pairing, or either field
-    missing, are all refused alike: while the DR stands `proposed`, an
-    omission claiming anything but the fully-cleared safe-arm answer is an
-    omission for a rule whose enforcement is unresolved, and silence never
-    buys one."""
     return [
         row
         for row in omission_rows
@@ -252,10 +201,6 @@ def find_unresolved_enforcement_rows(omission_rows: Sequence[Mapping]) -> list[M
 
 
 def validate_omission_rows(omission_rows: Sequence[Mapping]) -> None:
-    """Run refusals 2 and 3 over `omission_rows` (already filtered to one
-    story, or not -- both refusals are per-row and story-independent).
-    Raises `OmissionLedgerError` naming every offending row's `rule_id` if
-    either refusal fires; returns silently otherwise."""
     unnamed = find_unnamed_party_rows(omission_rows)
     unresolved = find_unresolved_enforcement_rows(omission_rows)
     if not unnamed and not unresolved:
@@ -280,8 +225,6 @@ def validate_story_accounting(
     story_rule_ids: Iterable[str],
     omission_rows_for_story: Sequence[Mapping],
 ) -> None:
-    """Run refusal 1. Raises `OmissionLedgerError` naming every unaccounted
-    id if any exist; returns silently otherwise."""
     unaccounted = find_unaccounted_rule_ids(rule_bearing, story_rule_ids, omission_rows_for_story)
     if unaccounted:
         raise OmissionLedgerError(
@@ -297,12 +240,6 @@ def validate_ledger(
     story_rule_ids: Iterable[str],
     omission_rows_for_story: Sequence[Mapping],
 ) -> None:
-    """The composed entry point: all three refusals, in order. Per-row
-    checks (2, 3) run first -- by the time refusal 1's coverage check runs,
-    every row it counts as "carrying a reasoned row" is already known
-    valid, so an invalid row can never rescue a rule from being unaccounted
-    for. Raises `OmissionLedgerError` on the first refusal that fires;
-    returns silently iff the story's accounting is fully clean."""
     validate_omission_rows(omission_rows_for_story)
     validate_story_accounting(
         rule_bearing_ids(register_rows), story_rule_ids, omission_rows_for_story

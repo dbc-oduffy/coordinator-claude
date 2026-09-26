@@ -112,9 +112,6 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
-    # Defensive fallback -- a hook script copied/deployed WITHOUT its
-    # sibling _engine_root.py (e.g. an isolated test harness, or a
-    # partial deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -124,21 +121,16 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open -- engine repo unresolvable on this machine
+        return 0
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
 
     try:
-        # Importing coordinator_core.hooks.agent_completion_log triggers the
-        # coordinator_core.hooks package __init__ (registers all 7 advisory ops +
-        # 4 bookkeeping ops via register_op side-effects at import time -- the
-        # hooks package has no lazy-skip guard, unlike coordinator_core.ops).
-        # One-time cost, in-process, still zero subprocess spawns.
         from coordinator_core.hooks import agent_completion_log as _op  # noqa: F401
         from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
     except Exception:
-        return 0  # engine unimportable -> fail-open
+        return 0
 
     try:
         payload = json.loads(raw)
@@ -159,10 +151,6 @@ def main() -> int:
         "description": tool_input.get("description", ""),
         "subagent_type": tool_input.get("subagent_type", ""),
         "name": tool_input.get("name", ""),
-        # R-1: dispatched_agent_id is the flattened tool_response.agentId (camelCase);
-        # dispatched_agent_id_snake is the snake_case fallback from named-teammate
-        # dispatch returns -- the handler ORs the two, mirroring the bash oracle's
-        # `.tool_response.agentId // .tool_response.agent_id // null` cascade.
         "dispatched_agent_id": tool_response.get("agentId", ""),
         "dispatched_agent_id_snake": tool_response.get("agent_id", ""),
     }
@@ -170,11 +158,6 @@ def main() -> int:
     cwd = payload.get("cwd")
 
     # scope "common_dir" (coordinator_core/ipc.py _OP_KEY_SCOPE) -- REQUIRES
-    # _origin_worktree; the handler resolves git_common_dir(repo_root) from it
-    # (any path inside the repo tree is sufficient, git does the walk-up).
-    # dispatch_from_hook builds the envelope itself and omits
-    # _origin_worktree when origin_worktree is None/empty, matching this
-    # stub's prior isinstance(cwd, str) and cwd guard unchanged.
     try:
         result = dispatch_from_hook(
             "hooks.agent_completion_log",
@@ -182,12 +165,9 @@ def main() -> int:
             origin_worktree=cwd if isinstance(cwd, str) else None,
         )
     except HookDispatchError:
-        return 0  # any engine failure -> fail-open (never brick a tool call)
+        return 0
 
-    if result:  # {} (no_advisory) and None both fall through to no-output;
-        # this op always returns no_advisory() -- the product is the disk-append
-        # side-effect, not stdout -- so this branch is dead in normal operation
-        # but kept for parity with the reference stub's envelope-relay shape.
+    if result:
         sys.stdout.write(json.dumps(result))
         sys.stdout.write("\n")
     return 0

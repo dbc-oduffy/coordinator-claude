@@ -113,12 +113,7 @@ try:
         resolve_claude_klabauter_root_with_provenance as _resolve_engine,
     )
 except Exception:
-    # Defensive fallback -- a hook script copied/deployed WITHOUT its
-    # sibling _engine_root.py (e.g. an isolated test harness, or a
-    # partial deploy) must still fail-open rather than crash on import.
-    # "unresolved" is spelled literally rather than imported as
     # RESOLUTION_UNRESOLVED: this leg exists precisely for the case where
-    # that module is absent, so it cannot depend on a name from it.
     def _resolve_engine() -> tuple[str | None, str, str]:
         return None, "unresolved", "none"
 
@@ -127,53 +122,23 @@ except Exception:
 
 
 def main() -> int:
-    # SAFETY BARRIER, not only a cold-start optimization: this function
-    # runs as a FRESH subprocess per PreToolUse(Bash) event, reads the
-    # candidate command from stdin as inert text, and never shell-execs it
     # -- so no COORDINATOR_OVERRIDE_*/COORDINATOR_ALLOW_* env var a subagent
-    # tries to set via an inline `VAR=1` prefix, `export`, or `env` wrapper
-    # inside the candidate command can ever reach this process's
-    # os.environ, which is the only thing `dispatch_checks._override()`
-    # reads. Pooling/reusing this process across events to cut the
-    # per-call spawn cost would silently delete that guarantee. Pinned in two
-    # halves, in two repos, because a pooling change can be made from either
-    # side: the behavioural half by
-    # coordinator_core/bash_guards/tests/test_override_unreachability_boundary.py
-    # (the engine repo), and the registration half -- that hooks.json keeps
-    # this wired as a per-event `type: "command"` hook -- by
-    # coordinator/tests/test_bash_guard_hook_stays_per_event.py (here).
-    # Do not "fix" either test's failure by deleting it; re-key the affected
-    # confinement guards onto resolved caller-context first.
     raw = sys.stdin.read()
 
-    # The payload reaches the engine dispatch with the tool_name the caller
-    # actually used. NEVER normalize it, here or at any transport layer: the
-    # engine's guards read the dialect themselves and gate their PowerShell
-    # conversions on it, so a rewritten tool_name does not widen coverage, it
-    # silently deletes the conversions that depend on the real value. If a
-    # matcher ever needs a normalized form, compute a LOCAL value for that
-    # gate and leave payload["tool_name"] untouched.
     root, resolution_class, _provenance = _resolve_engine()
     if not root:
-        return 0  # fail-open ALLOW — engine unresolvable on this machine
+        return 0
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
 
-    # Must precede the first coordinator_core.* import -- see
-    # _engine_root.arm_lazy_ops for the ~80ms package-init cost this avoids.
-    # This dispatcher is the hottest hook stub in the system: one fresh
-    # subprocess per PreToolUse(Bash) event.
     _arm_lazy_ops()
 
     try:
         from coordinator_core.bash_guards.dispatch import evaluate_payload_json
     except Exception:
-        return 0  # engine unimportable → fail-open ALLOW
+        return 0
 
-    # __file__ parents: [0]=scripts [1]=hooks [2]=coordinator(plugin root) --
-    # same depth as enforce-agent-dispatch-mode.py's identical computation,
-    # since both scripts live in this same directory.
     policy_file = Path(__file__).resolve().parents[2] / "subagent-sandbox-policy.yaml"
 
     try:
@@ -193,7 +158,7 @@ def main() -> int:
     try:
         out = evaluate_payload_json(raw, **kwargs)
     except Exception:
-        return 0  # any engine failure → fail-open ALLOW (never brick a Bash call)
+        return 0
 
     if out is not None:
         import json

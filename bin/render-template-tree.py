@@ -52,14 +52,6 @@ import os
 import sys
 
 def _import_runner():
-    """In-process import, not an RPC invoke — this is a plain local file
-    mutation, same rationale as edit-live-hook.py's own trampoline.
-
-    DR-276: the op is run through `coordinator_core.cli_entry.run_op_main`
-    rather than by calling its `main` directly, so the paths it declares become
-    a session scope-touch claim. Without that, everything this CLI writes is an
-    orphan at the `scoped_git_commit` sink.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 

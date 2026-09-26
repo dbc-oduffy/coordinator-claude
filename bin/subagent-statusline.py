@@ -62,9 +62,6 @@ def _identity(task: dict) -> str | None:
         if not isinstance(value, str) or not value.strip():
             continue
         value = value.strip()
-        # `type` carries the task KIND (`local_agent`) as often as it carries the agent type --
-        # a kind is identical on every row, so it identifies nothing and is worse than an
-        # absent segment, which at least spends no width.
         if value.lower() in _GENERIC_KINDS:
             continue
         value = " ".join(value.split())
@@ -75,9 +72,6 @@ def _identity(task: dict) -> str | None:
 
 
 def _activity(task: dict) -> str | None:
-    """What the worker is DOING -- the default row's most load-bearing field. `description` is
-    the dispatch's own one-line summary. `label` is left to `_identity` -- the row's who is the
-    stronger claim on it, and a description-less row simply has no activity segment."""
     value = task.get("description")
     if isinstance(value, str) and value.strip():
         return " ".join(value.split())
@@ -85,15 +79,6 @@ def _activity(task: dict) -> str | None:
 
 
 def _elapsed_segment(start_time: object, now: float | None = None) -> str | None:
-    """How long this worker has been running -- `1h04m`, `7m20s`, `45s`.
-
-    `startTime` arrives as an epoch number (seconds or milliseconds -- disambiguated by
-    magnitude, since a seconds-valued epoch cannot reach the millisecond threshold for another
-    three millennia). A non-numeric `startTime` (e.g. a string) drops the segment, the same
-    degrade as an unparseable or future-dated value -- this field is undocumented in
-    `statusline.md`, so a shape other than the observed numeric epoch is treated as absent
-    rather than parsed.
-    """
     epoch = None
     if isinstance(start_time, (int, float)) and not isinstance(start_time, bool):
         epoch = start_time / 1000.0 if start_time > 1e11 else float(start_time)
@@ -113,8 +98,6 @@ def _elapsed_segment(start_time: object, now: float | None = None) -> str | None
 
 
 def _tokens_segment(token_count: object) -> str | None:
-    """Absolute context spend -- `148.7k`, `1.2M` -- beside the percentage, which alone hides
-    how much a worker is actually burning when models with different windows share the panel."""
     if not isinstance(token_count, (int, float)) or isinstance(token_count, bool):
         return None
     if token_count < 0:
@@ -127,8 +110,6 @@ def _tokens_segment(token_count: object) -> str | None:
 
 
 def _model_segment(model: object) -> str | None:
-    """`claude-opus-5[1m]` renders as `opus-5[1m]`: the vendor prefix is constant across every
-    row, so it spends width distinguishing nothing."""
     if not isinstance(model, str) or not model.strip():
         return None
     return model.strip().removeprefix("claude-") or None
@@ -155,10 +136,6 @@ def _percentage(token_count: object, context_window_size: object) -> str:
 
 
 def _effort_segment(effort: object) -> str | None:
-    """`effort` renders as-is: a level string (`low`/`medium`/.../`max`) or a numeric token
-    budget (`statusline.md` documents both shapes). Absent whenever the subagent inherits the
-    session's effort level -- that is a normal state, not a fault, so it drops the segment
-    silently rather than rendering a placeholder."""
     if isinstance(effort, str) and effort.strip():
         return effort.strip()
     if isinstance(effort, (int, float)) and not isinstance(effort, bool):
@@ -167,13 +144,6 @@ def _effort_segment(effort: object) -> str | None:
 
 
 def _render_row(task: dict, columns: int | None) -> str | None:
-    """The row body for one task, or None if there is nothing renderable.
-
-    Segment order: `identity · activity · model · effort · <pct>% · status`. Any absent field drops its own
-    segment and separator rather than leaving a stray `· ·`. Truncates to `columns` when given,
-    never wrapping -- and a truncation that empties the string is reported as "nothing to
-    render" so the caller can skip emitting the row rather than hiding it with `""`.
-    """
     fixed = []
     identity = _identity(task)
     if identity:
@@ -189,8 +159,6 @@ def _render_row(task: dict, columns: int | None) -> str | None:
         fixed.append(elapsed)
     tokens = _tokens_segment(task.get("tokenCount"))
     pct = _percentage(task.get("tokenCount"), task.get("contextWindowSize"))
-    # Spend and pressure read together: the percentage alone hides how much a worker is
-    # actually burning once models with different window sizes share one panel.
     fixed.append(f"{tokens} ({pct})" if tokens else pct)
     status = task.get("status")
     if isinstance(status, str) and status.strip():
@@ -199,11 +167,6 @@ def _render_row(task: dict, columns: int | None) -> str | None:
     if not fixed:
         return None
 
-    # The activity text is the one variable-length segment, so it absorbs the width squeeze
-    # alone: the gauges after it are fixed-width and carry the state a squeezed row still has
-    # to show, and truncating the whole joined string would eat them first. Two policies:
-    # insert it whole when it fits, else ellipsize it to whatever `columns` leaves (floor one
-    # character of text plus the ellipsis); the hard slice below is the backstop either way.
     activity = _activity(task)
     if activity:
         position = 1 if identity else 0
@@ -218,7 +181,6 @@ def _render_row(task: dict, columns: int | None) -> str | None:
             fixed.insert(position, activity[: clipped - 1] + _ELLIPSIS)
 
     content = _SEP.join(fixed)
-    # A negative `columns` means no truncation constraint, not a clamp to 0.
     if isinstance(columns, (int, float)) and not isinstance(columns, bool) and columns >= 0:
         content = content[: int(columns)]
     return content or None
@@ -229,12 +191,10 @@ def main(argv: list[str] | None = None) -> int:
     call `main(argv)` uniformly across every `coordinator/bin/` entrypoint
     (`coordinator_core.warm.serve_classifier :: _main_arity_ok`); the door still replays
     `sys.argv[1:]` from the `__main__` guard below (ARGV_SHAPE_TAIL)."""
-    del argv  # unused — see docstring
+    del argv
     try:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, ValueError):
-        # ValueError also catches UnicodeDecodeError from a genuinely undecodable stdin
-        # byte stream (e.g. a non-UTF-8 Windows console) -- same exit-0, emit-nothing path.
         return 0
     if not isinstance(payload, dict):
         return 0
@@ -251,14 +211,9 @@ def main(argv: list[str] | None = None) -> int:
             continue
         task_id = task.get("id")
         if not isinstance(task_id, str) or not task_id:
-            # No id: the harness keeps its own default render for this row. Emitting a
-            # line with no id would not target any row, so this is a silent skip, not a
-            # degrade path.
             continue
         content = _render_row(task, columns)
         if content is None:
-            # Nothing renderable (or truncated to nothing) -- skip rather than emit an
-            # empty `content`, which would HIDE an otherwise-live row from the panel.
             continue
         lines.append(json.dumps({"id": task_id, "content": content}))
 

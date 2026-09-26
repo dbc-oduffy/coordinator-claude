@@ -1,14 +1,5 @@
 from __future__ import annotations
 
-# The polyglot trampoline's exec probe line (line 2)
-# is itself the first bare string-literal statement in the module, so CPython
-# assigns __doc__ from THAT text, not from the usage text below (which is a
-# second, inert string expression — same shape cross-repo-memo documents at
-# its own line ~102-108). `_print_help()` previously wrote `__doc__`, so
-# `--help` printed the shell-exec probe instead of Usage/Options/Exit-codes.
-# Fix: assign the usage text to an explicit module-level constant instead of
-# relying on __doc__, and have `_print_help()` read that constant.
-# Spec backlink: DoE-claude:pln-per-repo-okr-goal-setting-syst-80bced § C6
 _USAGE_TEXT = """
 reassess-goal-krs — CLI trampoline over claude-klabauter coordinator_core.goals.reassess_krs.
 
@@ -107,11 +98,7 @@ def main(argv: "list[str] | None" = None) -> int:
             print(f"ERROR: Unknown argument: {arg}", file=sys.stderr)
             return 1
 
-    # Repo whose state/goals + state/week-changelog we operate on: the caller's
-    # cwd-derived git root (matches the bash script's "never rely on cwd for
     # SCRIPT_DIR, but REPO_ROOT for state/ IS the repo the user is standing in"
-    # split — bin_dir below is this script's OWN location; signal_repo_root is
-    # the working repo).
     cwd_repo_root = _find_repo_root(os.getcwd())
 
     if not goals_dir:

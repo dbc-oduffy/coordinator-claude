@@ -69,6 +69,8 @@ Atlas frontmatter carries two date clocks under the `Last targeted audit` rubric
 
 The STALE-walk reads `last_attested`. A Branch B same-day re-attestation un-stales an atlas without a body rewrite — this is the design intent. Branch A always bumps both clocks (a real audit IS the strongest attestation; narrow-attestation would let a just-rotated atlas read STALE).
 
+`/architecture-survey` bumps `last_mapped` only, on both full and refresh passes, and carries any existing `last_attested` forward verbatim — a survey write is not attestation, enforced at `/architecture-survey` Phase 5 step 5.
+
 The inter-skill two-clock contract above is unaffected: `Last full audit` remains `/architecture-survey`-exclusive; `Last targeted audit` remains `/architecture-audit`-owned. The within-atlas split sits entirely inside `Last targeted audit`.
 
 

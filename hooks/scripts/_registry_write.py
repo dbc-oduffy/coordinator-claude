@@ -67,18 +67,10 @@ except Exception:  # pragma: no cover - partial-deploy defence
         return None
 
 
-#: Below the 15s whole-process timeout of the async SessionStart fan-in that
-#: hosts this module's callers, so the in-process catch fires and returns on
-#: the graceful path rather than losing the race to the harness hard-kill.
 _SPAWN_TIMEOUT_SECONDS = 6
 
 
 def resolve_machine_local_impl() -> Path | None:
-    """The `_machine_local.py` this box can actually run, or `None`.
-
-    See the module docstring for the two rungs and why the in-tree template is
-    a real rung. Never raises; any resolution failure yields `None`.
-    """
     try:
         home = _settings_home()
     except Exception:
@@ -104,13 +96,6 @@ def resolve_machine_local_impl() -> Path | None:
 
 
 def machine_local_set(key: str, value: str) -> None:
-    """Run `machine-local set <key> <value>`. Fail-open, silent, never raises.
-
-    The registry directory is created first when absent: `cmd_set` writes
-    `<registry-dir>/registry.local.toml` and does not itself bootstrap a
-    settings home that has never been installed into, which is the state this
-    whole seam exists to survive.
-    """
     impl = resolve_machine_local_impl()
     if impl is None:
         return

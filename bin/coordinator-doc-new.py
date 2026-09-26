@@ -1665,17 +1665,25 @@ def _mint_deliverable_id_from_title(
 def _resolve_cited_sizing_deliverable_id(
     sizing_object_relpath: str, repo_root: str,
 ) -> str | None:
-    """Read a cited sizing-object's `deliverable_id` for the `plan` arm's
-    carry tier, degrading to ``None`` (mint-from-slug) on any read failure.
+    """Read a cited sizing-object's `deliverable_id` for the `plan` and
+    `handoff` arms' carry tiers, degrading to ``None`` (mint-from-slug) on
+    any read failure.
 
     Reuses `deliverable_cascade._read_sizing_meta` — the same whole-document
     YAML reader `deliverable_cascade.py` uses for `state/sizings/*.yaml`
     records, since a sizing-object has no `---` frontmatter fence and a
     fenced-frontmatter reader would silently return `{}` on it rather than
     the record's real fields. Never raises: a malformed/unreadable sizing
-    must not block plan scaffolding (2026-08-10 deliverable-id-fork-
-    remediation follow-up) — it only means this plan cannot carry an id and
-    falls back to minting its own, exactly as it did before this fix.
+    must not block plan/handoff scaffolding (2026-08-10 deliverable-id-fork-
+    remediation follow-up) — it only means this record cannot carry an id
+    and falls back to minting its own, exactly as it did before this fix.
+
+    The `handoff` arm (C8, docs/plans/2026-09-26-batons-carry-their-work-
+    c7-c11.md) hands its result straight into `resolve_deliverable_and_
+    initiative`'s `sizing=(path, deliverable_id)` rung (C1) rather than
+    consuming it directly — a `None` id there is an ABSENT rung, never a
+    dropped-join refusal, matching the `plan` arm's own degrade-to-mint
+    posture.
 
     Whether citing this sizing is a fan-out or a re-route is NOT decidable
     from what this function reads — it is a fact about the CALLER's intent,
@@ -1708,6 +1716,26 @@ def _resolve_cited_sizing_deliverable_id(
             file=sys.stderr,
         )
         return None
+
+
+def _sizing_object_line(sizing_object: str) -> str:
+    """Render the `sizing_object:` frontmatter line for a supplied value.
+
+    Shared by every scaffold arm that accepts `--sizing-object` (`plan`,
+    `roadmap-baton`, `handoff`, `spinoff`) — one emission shape instead of
+    each arm inlining its own copy. The literal string `"null"` (the
+    caller's `--no-sizing-object` sentinel) renders as UNQUOTED YAML null —
+    the checkable declaration of absence — never the quoted string
+    `"null"`, which `_yaml_quote` would otherwise produce and which would
+    make the sanctioned absence-declaration indistinguishable from a real
+    (wrong) citation.
+
+    Callers gate the call on `if sizing_object:` themselves — this function
+    always emits a line, so an empty/`None` value is never passed in.
+    """
+    if sizing_object == "null":
+        return "sizing_object: null"
+    return f"sizing_object: {_yaml_quote(sizing_object)}"
 
 
 #: How far back the same-title sizing tier looks, by the sizing filename's
@@ -1765,6 +1793,80 @@ def _resolve_same_title_sizing_deliverable_id(
     if len(matches) > 1:
         print(
             "coordinator-doc-new: %d recent sizing-objects share this title slug "
+            "(%s) — not carrying either; pass --deliverable-id to join one."
+            % (len(matches), ", ".join(n for n, _ in matches)),
+            file=sys.stderr,
+        )
+        return None
+    return matches[0][1] if matches else None
+
+
+#: Mirrors `_SAME_TITLE_SIZING_WINDOW_DAYS` for the reverse direction (a sizing-
+#: object scaffolded moments after the baton it belongs to).
+_SAME_TITLE_BATON_WINDOW_DAYS = 7
+
+
+def _resolve_same_title_baton_deliverable_id(
+    slug: str | None, repo_root: str | None,
+) -> str | None:
+    """The `deliverable_id` of a recent `state/handoffs/` baton minted from
+    this same title slug, or None.
+
+    Mirrors `_resolve_same_title_sizing_deliverable_id` in the opposite
+    direction: that tier lets a handoff with no carry rung join a sizing-
+    object scaffolded moments earlier under the same title (5ec297b2); this
+    tier lets a sizing-object scaffolded FOR an already-existing baton (25a,
+    docs/plans/2026-09-26-inbox-blitz-claude-klabauter-fixes-fyi-rest.md) join that
+    baton's deliverable_id instead of minting a second id off the same title
+    slug. `state/handoffs/YYYY-MM-DD-<slug>.md` is the shared output path for
+    handoff/spinoff/recovery batons (see main()'s own `--out` naming
+    docstring); `roadmap-baton` files are named `..._roadmap-<stub_id>.md`
+    and never carry a title slug, so they never match here by construction —
+    no separate kind gate is needed.
+
+    Same slug is the co-membership evidence; exactly one match is required —
+    two or more is ambiguous, is named on stderr, and mints fresh.
+    `--new-chain` skips this tier, matching the sizing sibling's own
+    `--new-chain` exemption.
+
+    Never raises: any failure degrades to None and the existing mint.
+    """
+    if _NEW_CHAIN_REQUESTED or not slug or not repo_root:
+        return None
+    try:
+        import datetime as _dt  # noqa: PLC0415
+
+        _ensure_engine_on_path()
+        from coordinator_core.ops.mint_deliverable_id import _id_body  # noqa: PLC0415
+
+        id_re = re.compile(
+            r'^deliverable_id:\s*["\']?(dlv-' + re.escape(_id_body(slug))
+            + r'-[0-9a-f]{6})["\']?(\s|$)'
+        )
+        cutoff = (
+            _dt.date.today() - _dt.timedelta(days=_SAME_TITLE_BATON_WINDOW_DAYS)
+        ).isoformat()
+        handoffs = os.path.join(repo_root, "state", "handoffs")
+        matches = []
+        for name in sorted(os.listdir(handoffs), reverse=True):
+            if not name.endswith(".md"):
+                continue
+            if name[:10] < cutoff:
+                break
+            with open(os.path.join(handoffs, name), encoding="utf-8", errors="replace") as fh:
+                for _ in range(40):
+                    line = fh.readline()
+                    if not line:
+                        break
+                    m = id_re.match(line)
+                    if m:
+                        matches.append((name, m.group(1)))
+                        break
+    except Exception:  # noqa: BLE001 -- discovery is best-effort; never blocks scaffolding
+        return None
+    if len(matches) > 1:
+        print(
+            "coordinator-doc-new: %d recent batons share this title slug "
             "(%s) — not carrying either; pass --deliverable-id to join one."
             % (len(matches), ", ".join(n for n, _ in matches)),
             file=sys.stderr,
@@ -2185,6 +2287,7 @@ def _scaffold_handoff(
     deliverable_ids: list[str] | None = None,
     plan_ids: list[str] | None = None,
     carried_items: list[dict] | None = None,
+    sizing_object: str | None = None,
 ) -> str:
     """Generate validator-clean handoff frontmatter + canonical section skeleton.
 
@@ -2321,12 +2424,21 @@ def _scaffold_handoff(
     The singular --deliverable-id emission above is untouched by this addition —
     it does not route the singular value through these new flags.
 
+    sizing_object (--sizing-object, C8) is emitted as a real frontmatter key
+    ONLY when supplied — the flag is optional here, unlike the plan/
+    roadmap-baton arms' required-explicit-answer gate, so omitting it leaves
+    the schema's own "absent means none" default in force and there is no
+    "null" declaration to make. main() has already resolved this path on
+    disk before calling here. Emission shape is shared with every other
+    --sizing-object-accepting arm via `_sizing_object_line`.
+
     Spec backlink: pln-fleet-deliverable-spine-identity-and-facets-2b331c § D1, D2, C3b
     Spec backlink (handoff_id): docs/plans/2026-07-08-lifecycle-vocab-c2-durable-links-rollup.md § C1
     Spec backlink (handoff_phase): docs/plans/2026-07-17-execution-handoff-phase-doe-contract.md § C4
     Spec backlink (origin_handoff_id/predecessor_id): cross-repo memo
     2026-07-22-claude-klabauter-em-c2-id-companions (ask 1);
     docs/plans/2026-07-08-lifecycle-vocab-c2-durable-links-rollup.md § C2
+    Spec backlink (sizing_object): docs/plans/2026-09-26-batons-carry-their-work-c7-c11.md § C8
     Negative-spec: does NOT generate body prose — placeholder comments only.
     The EM authors the body; the scaffolder provides the shape.
     """
@@ -2534,6 +2646,8 @@ def _scaffold_handoff(
         f"deliverable_id: {_dlv}",
         f"initiative: {_ini}  # FK to state/initiatives/<id>.yaml; null when no named initiative",
     ]
+    if sizing_object:
+        lines.append(_sizing_object_line(sizing_object))
     if handoff_id:
         lines.append(f"handoff_id: {_yaml_quote(handoff_id)}")
     if origin_handoff_id:
@@ -2794,6 +2908,7 @@ def _scaffold_spinoff(
     predecessor_id: str | None = None,
     category: str | None = None,
     gated_open: str | None = None,
+    sizing_object: str | None = None,
 ) -> str:
     """Generate validator-clean spinoff frontmatter + canonical section skeleton.
 
@@ -2848,6 +2963,16 @@ def _scaffold_spinoff(
     is a resolve/audit-time check (SC-DR-016), not scaffold-time. Omitted →
     `blocked_by` unset and readiness derives ready_to_fire, unchanged from
     before this parameter existed.
+
+    sizing_object (--sizing-object, C8) is emitted as a real frontmatter key
+    ONLY when supplied. A spinoff mints its OWN deliverable_id regardless
+    (PM ruling 2026-08-05: a spinoff is the sole bearer of its own id) —
+    citing a sizing here records provenance only and never feeds the carry,
+    unlike the handoff arm's own --sizing-object. main() has already
+    resolved this path on disk before calling here. Emission shape is
+    shared with every other --sizing-object-accepting arm via
+    `_sizing_object_line`.
+    Spec backlink: docs/plans/2026-09-26-batons-carry-their-work-c7-c11.md § C8
     """
     _bootstrap_engine()
     today = _today()
@@ -2923,23 +3048,20 @@ def _scaffold_spinoff(
     # unresolvable (spinoff scaffolding never depended on the engine before
     # --gated-open existed here), but a caller supplying --gated-open needs
     # the derivation to actually run, so that leg refuses fail-loud instead.
-    if gated_open:
-        if _derive_readiness is None:
-            print(
-                "coordinator-doc-new: --gated-open needs the readiness derivation "
-                "engine (coordinator_core.reconcile.gate_eval.derive_readiness, C1) "
-                "and it could not be resolved. Omit --gated-open to scaffold "
-                "ready_to_fire instead, or fix engine resolution "
-                "(_ensure_engine_on_path).",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+    if gated_open and _derive_readiness is None:
+        print(
+            "coordinator-doc-new: --gated-open needs the readiness derivation "
+            "engine (coordinator_core.reconcile.gate_eval.derive_readiness, C1) "
+            "and it could not be resolved. Omit --gated-open to scaffold "
+            "ready_to_fire instead, or fix engine resolution "
+            "(_ensure_engine_on_path).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if _derive_readiness is not None:
         _readiness = _derive_readiness({"blocked_by": _blocked_by}, [])
-        _deployment_state = _readiness["deployment_state"] or "awaiting_gate"
-        _pickup_ready = "true" if _readiness["pickup_ready"] else "false"
-    elif _derive_readiness is not None:
-        _readiness = _derive_readiness({"blocked_by": _blocked_by}, [])
-        _deployment_state = _readiness["deployment_state"] or "ready_to_fire"
+        _default_deployment_state = "awaiting_gate" if gated_open else "ready_to_fire"
+        _deployment_state = _readiness["deployment_state"] or _default_deployment_state
         _pickup_ready = "true" if _readiness["pickup_ready"] else "false"
     else:
         _deployment_state = "ready_to_fire"
@@ -2975,6 +3097,8 @@ def _scaffold_spinoff(
         f"deliverable_id: {_dlv}",
         f"initiative: {_ini}  # FK to state/initiatives/<id>.yaml; null when no named initiative",
     ])
+    if sizing_object:
+        lines.append(_sizing_object_line(sizing_object))
     if handoff_id:
         lines.append(f"handoff_id: {_yaml_quote(handoff_id)}")
     if origin_handoff_id:
@@ -3121,7 +3245,7 @@ def _scaffold_roadmap_baton(
     cleared. `sprint`/`wave` are topo-sort outputs owned by
     `bin/roadmap-number-stubs`, not lineage.
 
-    Graph field placeholders (sprint, wave, cost, blocked_by, scope) are
+    Graph field placeholders (sprint, wave, loe, blocked_by, scope) are
     best-effort stubs — the author fills them via Edit after the topo sort via
     bin/roadmap-number-stubs (skills/roadmap-planning/SKILL.md § Step 2.1.5).
     gate_dependency is the deprecated single-string gate field (C2); when not
@@ -3186,7 +3310,7 @@ def _scaffold_roadmap_baton(
         "workstream: PLACEHOLDER  # replace with roadmap short prefix slug",
         "sprint: 1  # fill from roadmap-number-stubs topo output (Step 2.1.5)",
         "wave: 1    # fill from roadmap-number-stubs topo output (Step 2.1.5)",
-        "cost: T1   # T0 trivial | T1 small (<1h) | T2 medium (1-4h) | T3 multi-day",
+        "loe: M",
         "deployment_state: awaiting_gate",
     ]
     _blocks = [b.strip() for b in (blocks or []) if isinstance(b, str) and b.strip()]
@@ -3205,10 +3329,7 @@ def _scaffold_roadmap_baton(
         f"initiative: {_ini}  # FK to state/initiatives/<id>.yaml; null when no named initiative",
     ]
     if sizing_object:
-        if sizing_object == "null":
-            lines.append("sizing_object: null")
-        else:
-            lines.append(f"sizing_object: {_yaml_quote(sizing_object)}")
+        lines.append(_sizing_object_line(sizing_object))
     # awaiting_gate requires at least one of gate_dependency (deprecated),
     # blocked_by, or blocking_notes (CROSS_FIELD_RULES). An explicit
     # --gate-dependency writes the deprecated field as before; otherwise the
@@ -3720,15 +3841,10 @@ def _scaffold_plan(
         # Real key, only when supplied — the caller (main()) has already
         # asserted this path resolves on disk (AC3), or is threading the
         # literal string "null" for --no-sizing-object (sizing-citation-
-        # absence-is-checkable § C1, AC2). The literal null is emitted
-        # UNQUOTED so it parses as YAML null, not the string "null" —
-        # _yaml_quote always double-quotes, which would otherwise turn the
-        # sanctioned absence-declaration into a dangling-looking citation
-        # the sweep can't distinguish from a real (wrong) path.
-        if sizing_object == "null":
-            lines.append("sizing_object: null")
-        else:
-            lines.append(f"sizing_object: {_yaml_quote(sizing_object)}")
+        # absence-is-checkable § C1, AC2). Emission shape is shared with
+        # every other --sizing-object-accepting arm — see
+        # `_sizing_object_line`'s docstring for the unquoted-null rationale.
+        lines.append(_sizing_object_line(sizing_object))
     lines += [
         "# Optional keys — uncomment and fill as needed (promoted de-facto keys, D1):",
         "# scope_mode: additive-only         # planning posture",
@@ -5918,13 +6034,20 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
         default=None,
         metavar="PATH",
         help=(
-            "(plan, roadmap-baton) Path to the state/sizings/<id>.yaml this record was "
-            "sized against. "
+            "(plan, roadmap-baton, handoff, spinoff) Path to the "
+            "state/sizings/<id>.yaml this record was sized against. "
             "When supplied, must resolve on disk (relative to the repo root) — the "
-            "scaffolder fails loud and writes no file otherwise. When omitted, the "
-            "commented-optional-key skeleton is unchanged. Route a missing sizing "
-            "object through coordinator:sizing, never a hand-authored stub. "
-            "Spec: docs/plans/2026-08-06-plan-sizing-citation-gate.md § AC2, AC3"
+            "scaffolder fails loud and writes no file otherwise. On plan/roadmap-baton, "
+            "omitted leaves the commented-optional-key skeleton unchanged; on handoff/ "
+            "spinoff, where the flag is optional (not gated by --no-sizing-object), "
+            "omitted leaves the key absent entirely. Only the handoff arm feeds the "
+            "cited sizing's deliverable_id into the deliverable-id carry; the spinoff "
+            "arm records the citation but mints its own id regardless (spinoffs are "
+            "the sole bearer of their own id, PM ruling 2026-08-05). Refused on every "
+            "other --type. Route a missing sizing object through coordinator:sizing, "
+            "never a hand-authored stub. "
+            "Spec: docs/plans/2026-08-06-plan-sizing-citation-gate.md § AC2, AC3; "
+            "docs/plans/2026-09-26-batons-carry-their-work-c7-c11.md § C8"
         ),
     )
     parser.add_argument(
@@ -5963,13 +6086,15 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
         dest="no_sizing_object",
         action="store_true",
         help=(
-            "(plan, roadmap-baton) The sanctioned declaration that this record has no "
-            "sizing object — "
-            "not a bypass. Emits an explicit sizing_object: null frontmatter key. "
+            "(plan, roadmap-baton ONLY) The sanctioned declaration that this record "
+            "has no sizing object — not a bypass. Emits an explicit "
+            "sizing_object: null frontmatter key. "
             "Exactly one of --sizing-object / --no-sizing-object is required for "
             "--type plan and --type roadmap-baton; a missing sizing object is "
             "produced via coordinator:sizing, "
-            "never invented. "
+            "never invented. Refused on --type handoff/spinoff and every other "
+            "type — those arms have no explicit-answer requirement to satisfy, so "
+            "there is no absence to declare. "
             "Spec: docs/plans/2026-08-06-sizing-citation-absence-is-checkable.md, chunk C1"
         ),
     )
@@ -6041,9 +6166,7 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
             "baton (a stub_id or handoff_id, never a raw path), distinct from "
             "the predecessor:none-by-design lineage edge A3a-3 forces on every "
             "spinoff kind -- name one link of an ordered spinoff chain here. "
-            "Refused fail-loud for every --type but handoff/spinoff. "
-            "Spec: docs/plans/2026-08-19-gate-notes-are-advisory-blocked-by-derives-readiness.md § C3; "
-            "state/cross-repo/inbox/2026-09-25-doe-claude-em-doe-issues-92-95-engine-asks.md ask 1"
+            "Refused fail-loud for every --type but handoff/spinoff."
         ),
     )
     parser.add_argument(
@@ -6648,14 +6771,15 @@ def main(argv: "list[str] | None" = None) -> int:
             )
             return 1
 
-    # Validate plan-specific --sizing-object / --no-sizing-object: the write-time
-    # half of the plan sizing-citation gate. A supplied path that does not resolve
-    # on disk must fail loud and write no file — the scaffolder is the ergonomic
-    # locus where the correct path is cheaper than the wrong one. An explicit
-    # sizing answer (path or --no-sizing-object) is now REQUIRED for --type plan:
-    # omitting both is the ordinary failure mode the absence gate exists to close
-    # (assert_plan_sizing_citation's date-scoped absence check), so it is refused
-    # here, at write time, rather than left for the sweep to catch after the fact.
+    # Validate --sizing-object / --no-sizing-object: the write-time half of the
+    # sizing-citation gate. A supplied path that does not resolve on disk must
+    # fail loud and write no file — the scaffolder is the ergonomic locus where
+    # the correct path is cheaper than the wrong one. An explicit sizing answer
+    # (path or --no-sizing-object) is REQUIRED for --type plan and --type
+    # roadmap-baton: omitting both is the ordinary failure mode the absence
+    # gate exists to close (assert_plan_sizing_citation's date-scoped absence
+    # check), so it is refused here, at write time, rather than left for the
+    # sweep to catch after the fact.
     # Spec: docs/plans/2026-08-06-plan-sizing-citation-gate.md § AC3
     # Spec: docs/plans/2026-08-06-sizing-citation-absence-is-checkable.md, chunk C1
     # roadmap-baton is held to the SAME bar as plan, and for the same reason:
@@ -6664,7 +6788,34 @@ def main(argv: "list[str] | None" = None) -> int:
     # remember the flag is exactly the "the operator remembers" discharge this
     # repo does not accept. Cross-repo ask: cross-repo/inbox/2026-08-20-doe-
     # claude-em-pickup-brief-should-emit-the-sizing-disposition.md (follow-on).
-    if doc_type in ("plan", "roadmap-baton"):
+    #
+    # C8 (docs/plans/2026-09-26-batons-carry-their-work-c7-c11.md) widens the
+    # resolve-on-disk half to `handoff`/`spinoff` — those arms accept
+    # --sizing-object too, optionally, and a caller who typos the path there
+    # deserves the same fail-loud rather than a silently-ignored flag (the
+    # defect this widening replaces). The REQUIREMENT half stays plan/
+    # roadmap-baton only: handoff/spinoff have no explicit-answer gate to
+    # satisfy, so --sizing-object is refused outright everywhere else, and
+    # --no-sizing-object (which only ever declares an absence against that
+    # gate) is refused on every type but plan/roadmap-baton, handoff/spinoff
+    # included.
+    _SIZING_ANSWER_REQUIRED_TYPES = ("plan", "roadmap-baton")
+    _SIZING_OBJECT_ACCEPTING_TYPES = ("plan", "roadmap-baton", "handoff", "spinoff")
+    if args.sizing_object and doc_type not in _SIZING_OBJECT_ACCEPTING_TYPES:
+        print(
+            f"error: --sizing-object is not supported for --type {doc_type} "
+            f"(only {', '.join(_SIZING_OBJECT_ACCEPTING_TYPES)}).",
+            file=sys.stderr,
+        )
+        return 1
+    if args.no_sizing_object and doc_type not in _SIZING_ANSWER_REQUIRED_TYPES:
+        print(
+            f"error: --no-sizing-object is not supported for --type {doc_type} "
+            f"(only {', '.join(_SIZING_ANSWER_REQUIRED_TYPES)}).",
+            file=sys.stderr,
+        )
+        return 1
+    if doc_type in _SIZING_ANSWER_REQUIRED_TYPES:
         if args.sizing_object and args.no_sizing_object:
             print(
                 "error: --sizing-object and --no-sizing-object are mutually "
@@ -6683,17 +6834,17 @@ def main(argv: "list[str] | None" = None) -> int:
                 file=sys.stderr,
             )
             return 1
-        if args.sizing_object:
-            _sizing_repo_root = _current_repo_root() or "."
-            _sizing_abs_path = os.path.join(_sizing_repo_root, args.sizing_object)
-            if not os.path.isfile(_sizing_abs_path):
-                print(
-                    f"error: --sizing-object '{args.sizing_object}' does not resolve "
-                    f"on disk (looked for {_sizing_abs_path}). Produce the sizing object "
-                    "first via coordinator:sizing, then re-run with the resolved path.",
-                    file=sys.stderr,
-                )
-                return 1
+    if args.sizing_object:
+        _sizing_repo_root = _current_repo_root() or "."
+        _sizing_abs_path = os.path.join(_sizing_repo_root, args.sizing_object)
+        if not os.path.isfile(_sizing_abs_path):
+            print(
+                f"error: --sizing-object '{args.sizing_object}' does not resolve "
+                f"on disk (looked for {_sizing_abs_path}). Produce the sizing object "
+                "first via coordinator:sizing, then re-run with the resolved path.",
+                file=sys.stderr,
+            )
+            return 1
 
     # Validate review-findings-specific required fields.
     if doc_type == "review-findings":
@@ -7016,6 +7167,28 @@ def main(argv: "list[str] | None" = None) -> int:
             # `_mint_deliverable_id_from_title` makes, same reason.
             _hnd_work_slug = None if _is_placeholder_title(title) else _slug_from_title(title)
 
+            # C8's sizing rung (C1's `sizing` keyword): only an EXPLICIT
+            # --sizing-object citation feeds it — never `baton_assemble`'s
+            # lineage sizing_object, and never inferred from anything else on
+            # disk. Absent the flag, `_hnd_sizing_rung` stays None and the
+            # cascade behaves byte-identically to before this parameter
+            # existed (C1's own contract).
+            _hnd_sizing_rung = None
+            if getattr(args, "sizing_object", None):
+                # `or "."` matches the `plan` arm's own cited-sizing carry
+                # tier (`_sizing_repo_root_for_carry`, above): a repo-less
+                # cwd (no `.git`, e.g. a scratch scaffold) must not be
+                # confused with "no sizing to resolve" — `None` would make
+                # `os.path.join(None, ...)` raise inside the resolver, which
+                # degrades to mint-from-slug and silently drops a resolving
+                # citation instead of reading it.
+                _hnd_sizing_rung = (
+                    args.sizing_object,
+                    _resolve_cited_sizing_deliverable_id(
+                        args.sizing_object, _hnd_repo_root or "."
+                    ),
+                )
+
             try:
                 _resolved_deliverable_id, _hnd_carried_initiative = (
                     resolve_deliverable_and_initiative(
@@ -7025,6 +7198,7 @@ def main(argv: "list[str] | None" = None) -> int:
                         _predecessor_path,
                         slug_suffix="handoff",
                         work_slug=_hnd_work_slug,
+                        sizing=_hnd_sizing_rung,
                     )
                 )
             except (DroppedDeliverableJoinError, DivergentDeliverableIdError) as _hnd_carry_exc:
@@ -7063,9 +7237,30 @@ def main(argv: "list[str] | None" = None) -> int:
             # sizing IS the chain root; when it demonstrably is not, minting a
             # fresh id manufactures a fork rather than defending a root.
             # `--new-chain` is how an author asserts the root case explicitly.
-            _resolved_deliverable_id = _mint_deliverable_id_from_title(
-                title, doc_type, _current_repo_root()
+            #
+            # 25a (docs/plans/2026-09-26-inbox-blitz-claude-klabauter-fixes-fyi-rest.md
+            # § R25): a same-title tier ordered ahead of the title-mint —
+            # mirrors 5ec297b2's handoff-side join in the opposite direction.
+            # A baton scaffolded moments earlier under this same title has
+            # already minted this work's deliverable_id; without this tier
+            # the sizing scout mints a second id off the same slug and the
+            # spine forks (census: this baton's own sizing-object carried
+            # `dlv-...-54b440`, distinct from the baton's own `...-08b869`).
+            # `_resolve_same_title_baton_deliverable_id` degrades to None on
+            # any ambiguity/absence, so this never blocks scaffolding.
+            _sizing_slug = None if _is_placeholder_title(title) else _slug_from_title(title)
+            _sizing_baton_dlv = _resolve_same_title_baton_deliverable_id(
+                _sizing_slug, _current_repo_root()
             )
+            if _sizing_baton_dlv:
+                _resolved_deliverable_id = _mint_deliverable_id(
+                    deliverable_id=_sizing_baton_dlv,
+                    carry_source="same-title baton",
+                )
+            else:
+                _resolved_deliverable_id = _mint_deliverable_id_from_title(
+                    title, doc_type, _current_repo_root()
+                )
             if not _resolved_deliverable_id:
                 # A null deliverable_id here forks the spine (2026-08-26
                 # bug record `sizing-scaffold-emits-a-null-deliverable-id`)
@@ -7132,14 +7327,21 @@ def main(argv: "list[str] | None" = None) -> int:
     if doc_type == "decision":
         _dr_repo_root = _current_repo_root() or "."
         _decisions_dir = os.path.join(_dr_repo_root, "docs", "decisions")
-        # Unprefixed ids go through the shared mint; a second scan here is how
-        # the two paths disagreed and minted a claimed id.
+        # Unprefixed ids go through the shared mint, whose reservation is
+        # itself atomic (os.open(O_CREAT|O_EXCL), decision_record_mint.py
+        # module docstring) -- a second uniqueness scan here would be
+        # redundant against a race the reservation already closes, so this
+        # branch does not repeat it. `--dr-prefix` stays on the local scanning
+        # allocator below: the mint has no prefixed-pool support (it reserves
+        # a bare int, never a `DR-<PREFIX>-NNN` namespace), and adding one is
+        # a reservation-file-naming change to decision_record_mint.py, not a
+        # one-line route here -- so that path keeps its own post-scan
+        # uniqueness check, which is NOT backed by an atomic reservation.
         if not args.dr_prefix and _mint_next_dr_id is not None:
             try:
                 from pathlib import Path as _Path  # noqa: PLC0415 -- local, mirrors this file's on-demand-import convention
 
                 _resolved_dr_id = f"DR-{_mint_next_dr_id(_Path(_dr_repo_root))}"
-                _assert_dr_id_unique(_decisions_dir, _resolved_dr_id)
             except (_DrAllocatorError, RuntimeError) as exc:  # RuntimeError: mint exhaustion
                 print(f"error: {exc}", file=sys.stderr)
                 return 1
@@ -7305,6 +7507,7 @@ def main(argv: "list[str] | None" = None) -> int:
             deliverable_ids=args.deliverable_ids,
             plan_ids=args.plan_ids,
             carried_items=_parsed_carried_items,
+            sizing_object=args.sizing_object,
         )
     elif doc_type == "recovery":
         content = _scaffold_recovery(
@@ -7329,6 +7532,7 @@ def main(argv: "list[str] | None" = None) -> int:
             predecessor_id=args.predecessor_id,
             category=args.category,
             gated_open=args.gated_open,
+            sizing_object=args.sizing_object,
         )
     elif doc_type == "roadmap-baton":
         roadmap_id = args.roadmap_id if args.roadmap_id else "placeholder-rm"
@@ -7566,6 +7770,20 @@ def main(argv: "list[str] | None" = None) -> int:
     # outweighs the negligible performance gain on a review-time tool.
     _assert_output_safe(out_path)
 
+    # B4a: refuse to overwrite an existing sizing object. A truncated-slug
+    # collision (two titles hashing to the same slug prefix) must never
+    # silently replace a ratified sizing object with a fresh scaffold — the
+    # loss is a routing-lobby record, not a regenerable file. Scoped to
+    # --type sizing-object only: other doc types rely on conform-in-place
+    # re-invocation, which this check would break.
+    if doc_type == "sizing-object" and os.path.exists(out_path):
+        print(
+            f"error: refusing to overwrite existing sizing object at {out_path}. "
+            "Pass --out PATH to write to a different location.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     # Ensure parent directory exists.
     parent = os.path.dirname(out_path)
     if parent:
@@ -7629,7 +7847,7 @@ def main(argv: "list[str] | None" = None) -> int:
     # DR-276: this CLI owns its own main() (no single op module's main(argv) to
     # route through via coordinator_core.cli_entry.run_op_main), so the write is
     # wrapped in recording_declared_writes() directly, with declare_write() called
-    # AFTER the write lands — mirrors coordinator_core.ops.append_integrator_dispositions'
+    # AFTER the write lands — mirrors coordinator_core.ops.review_findings_ledger's
     # own "declared after the write, never before" discipline.
     try:
         _ensure_engine_on_path()

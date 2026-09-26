@@ -228,7 +228,38 @@ _DEFAULT_SUMMARY_LIMIT = 10
 # `grep -qE '^## Integrator Dispositions[[:space:]]*$'` exactly, including its
 # accepted false-positive limitation on a flush-left fenced quote of the
 # heading — see the native op's own negative-spec for the shared rationale).
+# RETIRED (DoE-claude docs/plans/2026-09-26-retire-review-integrator.md, row
+# M4): no NEW sidecar carries this heading — kept only so this legacy,
+# engine-independent fallback still classifies pre-retirement historical
+# sidecars as integrated (Anti-scope: "Do not edit historical records").
 _MARKER_RE = re.compile(r"^## Integrator Dispositions[ \t]*$", re.MULTILINE)
+
+# Frontmatter `findings_ledger:` stamp, column-zero-only — the CURRENT
+# integrated signal, written by `coordinator_core.ops.review_findings_ledger
+# .verify` on a pass. This legacy fallback runs with no coordinator_core seam
+# on disk (that is the whole reason it exists), so the check is a minimal,
+# self-contained line-scan rather than an import of that module's parser —
+# mirrors the native op's own frontmatter-bounds contract (a top-level key
+# inside the leading `---`/`---` block) without depending on it.
+_FRONTMATTER_LEDGER_KEY_RE = re.compile(r"^findings_ledger:[ \t]*(\S.*)$")
+
+
+def _has_verified_findings_ledger(text: str) -> bool:
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return False
+    for line in lines[1:]:
+        if line.strip() == "---":
+            return False
+        match = _FRONTMATTER_LEDGER_KEY_RE.match(line)
+        if match:
+            return True
+    return False
+
+
+def _is_integrated(text: str) -> bool:
+    return bool(_MARKER_RE.search(text)) or _has_verified_findings_ledger(text)
+
 
 _GIT_TIMEOUT_SECS = 30
 
@@ -330,7 +361,7 @@ def _reap_integrated_legacy(
             text = f.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        if _MARKER_RE.search(text):
+        if _is_integrated(text):
             to_reap.append(f)
 
     if not to_reap:
@@ -623,8 +654,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=_PROG,
         description=(
-            "Reap integrated ('## Integrator Dispositions' marker-bearing) "
-            "review-findings sidecars from state/review-trail/findings/."
+            "Reap integrated (verified findings_ledger, or historical "
+            "'## Integrator Dispositions' marker-bearing) review-findings "
+            "sidecars from state/review-trail/findings/."
         ),
     )
     parser.add_argument(

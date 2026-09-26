@@ -136,17 +136,6 @@ from pathlib import Path
 
 
 def _read_stdin(timeout: float = 2.0) -> str:
-    """Bounded stdin read (Windows hang guard) -- copied from
-    runtime-tripwire-stop-watcher.py._read_stdin (~186-201).
-
-    A bare sys.stdin.read() blocks forever if the harness never closes
-    stdin's write end (observed Windows failure mode). This hook fires on
-    EVERY PostToolUse event, so a hang here stalls every subsequent tool
-    call in the session -- highest-frequency hot path in this cohort, hence
-    P1. Backstopped with a 2s threaded-join timeout, returning "" (the same
-    fail-open value a JSON-decode failure already produces) instead of
-    hanging.
-    """
     box = {"data": ""}
 
     def _read() -> None:
@@ -170,9 +159,6 @@ try:
         resolve_claude_klabauter_root as _resolve_claude_klabauter_root,
     )
 except Exception:
-    # Defensive fallback -- a hook script copied/deployed WITHOUT its
-    # sibling _engine_root.py (e.g. an isolated test harness, or a
-    # partial deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -180,14 +166,7 @@ except Exception:
         return None
 
 
-#: `track-touched-files.py`'s own former matcher, mirrored here as an
 #: internal gate (C4b). RE-SCOPE (2026-08-16, state/handoffs/2026-08-16-
-#: untitled-6c1eb4ae.md): this dispatcher's own hooks.json matcher was
-#: narrowed from `''` (every PostToolUse event) to `Write|Edit|MultiEdit|
-#: NotebookEdit|Agent` -- a strict superset of this tuple still (Agent is
-#: the added tool the write itself never fires for), so this internal gate
-#: remains live and load-bearing: it is what keeps the wasted IPC
-#: round-trip out of every Agent-tool fire now reaching this script.
 _TRACK_TOUCHED_FILES_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 
 
@@ -196,32 +175,18 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open -- engine repo unresolvable on this machine
+        return 0
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
 
-    # Must precede the first coordinator_core.* import -- see
-    # _engine_root.arm_lazy_ops. Both ops this dispatcher names are
-    # registered by the coordinator_core.hooks package import immediately
-    # below, so the registry hits and no `_eager_import_all()` fallback
-    # fires at lookup. Measured on Windows: ~0.12s -> ~0.09s end-to-end
-    # per fire, warm cache, identical results either way.
     _arm_lazy_ops()
 
     try:
-        # Importing coordinator_core.hooks.postuse_advisory_dispatch triggers the
-        # coordinator_core.hooks package __init__ (registers all 7 advisory ops +
-        # 4 bookkeeping ops via register_op side-effects at import time -- the
-        # hooks package has no lazy-skip guard, unlike coordinator_core.ops).
-        # One-time-per-invocation cost, in-process, still zero subprocess
-        # spawns -- but each hook fire is a fresh process, so this import
-        # cost recurs every fire, not just once per session. track_touched_files
-        # (C4b) is the SAME package -- no additional import cost to fold it in.
         from coordinator_core.hooks import postuse_advisory_dispatch as _op  # noqa: F401
         from coordinator_core.ipc import HookDispatchError, dispatch_ops_from_hook
     except Exception:
-        return 0  # engine unimportable -> fail-open
+        return 0
 
     try:
         payload = json.loads(raw)
@@ -242,42 +207,16 @@ def main() -> int:
         "agent_id": payload.get("agent_id", ""),
         "tool_name": tool_name,
     }
-    # Gate the file body at the transport seam: file_path/content are read
-    # ONLY by the folded nudge_unauthorized_handoff advisory, which itself
-    # gates on tool_name == "Write" -- so every other PostToolUse fire
-    # (the overwhelming majority of tool calls in a session) must not
-    # serialise an unbounded file body across the IPC seam for a param no
-    # consumer reads. Key omitted (not "") on the non-Write path, matching
-    # the "missing/absent stdin keys map to absent" convention documented
-    # above -- _payload.field() already treats "" as ABSENT so the two are
-    # engine-equivalent; omission is chosen for symmetry with how absent
-    # stdin keys are handled everywhere else in this mapping.
     if tool_name == "Write":
         params["file_path"] = tool_input.get("file_path", "")
         params["content"] = tool_input.get("content", "")
 
-    # Same transport-seam gate, one tool over: the workflow-monitor arming
-    # advisory needs the identifiers of the launch it is firing on, and
-    # nothing else in this dispatcher's fan-in reads them. Without this the
-    # engine-side check can only scan the transcript tail and keep the last
-    # `async_launched` record it finds, which is correct for a lone launch and
-    # wrong for every concurrent one -- it renders a paste-ready watch command
-    # carrying a SIBLING fire's task id, and the reader holding the real tool
-    # result is the only party who could have noticed. Concurrent fires are the
-    # shape plan-blitz mandates, so that is the ordinary case, not the edge.
-    # The response is a small handle object, not a file body, so the seam
-    # argument that gates file_path/content above does not bite here.
     if tool_name == "Workflow":
         tool_response = payload.get("tool_response")
         if isinstance(tool_response, dict):
             params["tool_response"] = tool_response
 
     # scope "none" (coordinator_core/ipc.py _OP_KEY_SCOPE) -- no
-    # _origin_worktree required for this op; it accesses no repo-specific
-    # state. dispatch_ops_from_hook stamps origin_worktree onto EVERY op's
-    # envelope (there is one shared origin_worktree kwarg, not a per-op
-    # field), which is harmless here -- the postuse_advisory_dispatch
-    # handler simply ignores an _origin_worktree key it never reads.
     ops: list[tuple[str, dict]] = [("hooks.postuse_advisory_dispatch", params)]
 
     if tool_name in _TRACK_TOUCHED_FILES_TOOLS:
@@ -294,34 +233,20 @@ def main() -> int:
         )
 
     try:
-        # Ops dispatched sequentially, in order, under ONE asyncio.run
-        # inside dispatch_ops_from_hook -- same sequencing this dispatcher
-        # always used, now expressed via the shared seam instead of a
         # locally-defined asyncio coroutine. Per-op errors are RETURNED
-        # (HookDispatchError instances), not raised, so a failure in the
-        # track_touched_files bookkeeping op can never suppress the
-        # advisory op's own result, and vice versa -- the same
-        # per-concern isolation the old local swallow provided, now
-        # supplied by the seam's own returned-not-raised contract instead
-        # of a try/except around the second call.
         results = dispatch_ops_from_hook(
             ops,
             origin_worktree=payload.get("cwd", ""),
         )
     except Exception:
-        return 0  # any engine failure -> fail-open (never brick a tool call)
+        return 0
 
     advisory_result = results[0] if results else None
     if isinstance(advisory_result, HookDispatchError):
         advisory_result = None
 
-    # results[1] (track_touched_files), when present, is deliberately never
     # inspected/relayed: track_touched_files is MUTATING bookkeeping, never
-    # advisory (see track-touched-files.py's own former module docstring,
-    # "stdout NOTHING") -- a HookDispatchError there is simply discarded,
-    # exactly as the old try/except swallow discarded it, and exactly as
-    # the isolation contract above requires it not to touch advisory_result.
-    if advisory_result:  # {} (no_advisory) and None both fall through to no-output
+    if advisory_result:
         sys.stdout.write(json.dumps(advisory_result))
         sys.stdout.write("\n")
     return 0

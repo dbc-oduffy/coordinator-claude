@@ -55,7 +55,7 @@ would otherwise be recommending is the move that skill explicitly forbids
 (`read_spine` excludes landed chunks, so the re-emitted script is silently
 narrower). Without an exit, the two documented recoveries contradict and a
 halted run is unrecoverable. The exit is
-`emit-dispatch-workflow.py --restamp <script>`, which re-stamps the receipt
+`emit-dispatch-workflow --restamp <script>`, which re-stamps the receipt
 only when it already names the CURRENT session as emitter -- so the peer-
 overwrite case this hook exists for still cannot be laundered through it.
 """
@@ -94,123 +94,49 @@ def _session_id(payload: dict) -> "str | None":
 
 
 def _emitter_invocation() -> tuple[str, str]:
-    """A COPY-PASTEABLE `python3 <emitter>` prefix, absolute wherever possible,
-    plus the shell family it will be pasted into (`"posix"`, `"cmd"`, or
-    `"ps1"`) -- `_reemit_command` needs that to quote its trailing argv in a
-    syntax the target shell actually parses (Review: coordinator-code-reviewer
-    2026-09-22 -- `shlex.quote`'s POSIX single-quotes are not quoting syntax
-    to cmd.exe at all).
+    """A COPY-PASTEABLE emitter invocation, absolute wherever possible, plus the
+    shell family it will be pasted into (`"posix"`, `"cmd"`, or `"ps1"`) --
+    `_reemit_command` needs that to quote its trailing argv in a syntax the
+    target shell actually parses (Review: coordinator-code-reviewer 2026-09-22
+    -- `shlex.quote`'s POSIX single-quotes are not quoting syntax to cmd.exe at
+    all).
 
-    This hook fires in whatever repo the session is standing in, which is very often not the
-    doctrine repo the emitter lives in. A repo-relative `coordinator/bin/...` in the refusal text
-    is therefore unrunnable exactly where it is read: a peer recovering a halted run from a
-    sibling checkout copy-pastes it and gets a "can't open file" error, which reads as a broken
-    tool rather than a wrong cwd. `CLAUDE_PLUGIN_ROOT` is set for hooks and is the plugin root
-    the session actually resolved, so it names the emitter that will actually run.
+    `emit-dispatch-workflow` is served from the settings-home launcher (no DoE-local
+    copy as of the slice-1 fence-switch, coordinator-claude#47) -- resolved the same
+    way every coordinator CLI is, per `snippets/resolve-coordinator-bin.md`, never
+    against `CLAUDE_PLUGIN_ROOT` or a `.doe-root` pointer.
     """
-    for root in _emitter_root_candidates():
-        base = Path(root) / "bin" / "emit-dispatch-workflow"
-        py_candidate = base.with_suffix(".py")
-        if py_candidate.is_file():
-            return 'python3 "' + str(py_candidate) + '"', "posix"
-        # A published install may carry only the platform wrapper -- the projection
-        # that governs what a publish carries (_prepublish_projection.py) can drop the
-        # bare .py while the .cmd/.ps1 twins still ship (both self-invoke; neither
-        # needs a "python3" prefix). Naming a wrapper that IS on disk keeps this
-        # remediation runnable instead of prescribing a repair that cannot resolve.
-        cmd_candidate = base.with_suffix(".cmd")
-        if cmd_candidate.is_file():
-            return '"' + str(cmd_candidate) + '"', "cmd"
-        ps1_candidate = base.with_suffix(".ps1")
-        if ps1_candidate.is_file():
-            return 'pwsh "' + str(ps1_candidate) + '"', "ps1"
-    # Nothing on disk: say so rather than print a path resolving against the reader's cwd,
-    # or an absolute one that does not exist.
+    settings_home = os.environ.get("COORDINATOR_SETTINGS_HOME") or str(
+        Path(os.environ.get("CLAUDE_HOME") or Path.home()) / ".coordinator-claude-settings"
+    )
+    base = Path(settings_home) / "bin" / "emit-dispatch-workflow"
+    exe_candidate = base.with_suffix(".exe")
+    if exe_candidate.is_file():
+        return '"' + str(exe_candidate) + '"', "cmd"
+    if base.is_file():
+        return '"' + str(base) + '"', "posix"
     return (
-        "python3 <doe-claude-root>/coordinator/bin/emit-dispatch-workflow.py  "
-        "# not resolvable here; substitute the absolute path"
+        '"' + str(base) + '"  # launcher not found -- reinstall coordinator-claude, then rerun'
     ), "posix"
 
 
 def _quote_arg_for_shell(arg: str, shell: str) -> str:
-    """Quote one argv element for the shell family `_emitter_invocation`
-    resolved (Review: coordinator-code-reviewer 2026-09-22).
-
-    `shlex.quote` (POSIX single-quoting) is correct for the `posix` and `ps1`
-    cases -- PowerShell tolerates single-quoted strings -- but is not quoting
-    syntax to cmd.exe at all: a `'...'`-wrapped argv element containing a
-    space is not paste-runnable there. cmd.exe quotes with a doubled-up
-    double-quote (`""`) for an embedded double-quote; there is no escape for
-    a literal trailing backslash immediately before the closing quote, which
-    is why the check below refuses to fabricate one rather than emit a
-    silently-wrong command.
-    """
     if shell != "cmd":
         return shlex.quote(arg)
     if not arg or any(ch.isspace() for ch in arg) or '"' in arg:
         if arg.endswith("\\"):
-            # cmd.exe has no way to close a "..." literal ending in a bare
-            # backslash without it escaping the closing quote -- naming the
-            # gap beats printing a command that would misparse.
             return f'"{arg}"  # unquotable for cmd.exe: trailing backslash'
         return '"' + arg.replace('"', '""') + '"'
     return arg
 
 
 def _reemit_command(receipt: dict) -> str:
-    """The copy-pasteable command that re-derives this exact script.
-
-    A queue-emitted receipt (`--queue`, DR-404) carries its own `reemit` argv
-    -- the argument list for `emit-dispatch-workflow.py` (no program name,
-    always including `--profile-dir`). `--plan <plan-path>` is wrong advice
-    there: a queue-emitted script has no plan to name. A receipt that predates
-    the `reemit` key -- every one the plan route ever wrote -- still gets the
-    `--plan` line; those receipts are real artifacts on disk, not a fallback
-    over a missing contract.
-    """
     invocation, shell = _emitter_invocation()
     reemit = receipt.get("reemit")
     if isinstance(reemit, list) and reemit:
         args = " ".join(_quote_arg_for_shell(str(arg), shell) for arg in reemit)
         return f"{invocation} {args}"
     return f"{invocation} --plan <plan-path>"
-
-
-def _emitter_root_candidates() -> list[str]:
-    """Roots that may carry `bin/emit-dispatch-workflow.py`, best first.
-
-    `CLAUDE_PLUGIN_ROOT` alone is not enough, and printing it unchecked is the
-    failure this function exists to prevent. The emitter is a DoE-source-only CLI
-    -- it gets no settings-home launcher and the flat OSS mirror does not carry it
-    -- while a cloud container resolves its plugin root TO that mirror by design.
-    There, the unchecked branch printed an absolute path to a file that cannot
-    exist, and a peer copy-pasting it got `can't open file`: a broken tool, which
-    is exactly the reading this refusal must not produce.
-
-    So every candidate is probed on disk before it is printed, and the `.doe-root`
-    pointer -- the rung the no-launcher fences already use for this CLI -- is
-    consulted when the plugin root does not carry it.
-    """
-    candidates = []
-    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
-    if plugin_root:
-        candidates.append(plugin_root)
-
-    settings_home = os.environ.get("COORDINATOR_SETTINGS_HOME") or str(
-        Path(os.environ.get("CLAUDE_HOME") or Path.home()) / ".coordinator-claude-settings"
-    )
-    pointers = (
-        Path(settings_home) / "machine-local" / ".doe-root",
-        Path(os.environ.get("CLAUDE_HOME") or Path.home()) / ".claude" / ".doe-root",
-    )
-    for pointer in pointers:
-        try:
-            doe_root = pointer.read_text(encoding="utf-8").strip()
-        except OSError:
-            continue
-        if doe_root:
-            candidates.append(str(Path(doe_root) / "coordinator"))
-    return candidates
 
 
 def main() -> int:
@@ -231,7 +157,7 @@ def main() -> int:
     if not script.is_absolute():
         script = Path(payload.get("cwd") or ".") / script
     if not script.is_file():
-        return 0  # the tool's own not-found error owns this
+        return 0
 
     receipt_path = script.with_name(script.name + ".emitted.json")
     if not receipt_path.is_file():

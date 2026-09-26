@@ -48,11 +48,6 @@ from pathlib import Path
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_BIN_DIR, "lib")
-# machine_local_resolve.py imports from the coordinator_core package
-# (win_portability) at module level -- that package is resolvable only from
-# the repo root, not from _LIB_DIR, so it must be on sys.path too or the
-# import below raises ModuleNotFoundError every time this CLI runs as a
-# subprocess (which is how every real caller invokes it).
 _REPO_ROOT = os.path.dirname(os.path.dirname(_BIN_DIR))
 
 
@@ -126,13 +121,9 @@ def _resolve_plugin_root() -> Path:
             file=sys.stderr,
         )
         sys.exit(1)
-    # Either content layout: the published flat mirror carries snippets/ at its
-    # own root, with no "coordinator" segment to join.
     content = content_root_for(root)
     if content is not None:
         return content
-    # Neither layout present — keep naming the private-shape path so the
-    # downstream snippets/ read reports the directory an operator expected.
     return Path(root) / "coordinator"
 
 
@@ -143,9 +134,6 @@ def main(argv: "list[str] | None" = None) -> int:
         sys.stdout.write(__doc__ or "")
         return 0
     if not args:
-        # Bare/no-argument invocation is a usage error, not documented help:
-        # fail loud on stderr so a no-arg call can never be misread as a
-        # passing verification gate.
         sys.stderr.write(__doc__ or "")
         return 2
 
@@ -161,15 +149,6 @@ def main(argv: "list[str] | None" = None) -> int:
         print(f"verify-snippet-sync: engine-root resolution failed: {exc}", file=sys.stderr)
         return 1
     # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
-    # what BINDS coordinator_core, and binding it HERE is the whole fix.
-    # require_dispatch_engine_on_path() above only mutates sys.path -- it imports
-    # nothing. Without this line the next import below (a binder module
-    # that resolves on the LOCATOR axis) wins the race and binds coordinator_core off
-    # the working tree instead of the dispatch root, and no later sys.path insert can
-    # rebind an already-imported package. Removing it restores a silent wrong-tree
-    # divergence that require_dispatch_engine_on_path now raises on.
-    # Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
-    # docs/research/engine-provenance-carrier-dependence.md
     import coordinator_core  # noqa: F401
     try:
         from coordinator_core.snippet_sync.verify import run
@@ -195,12 +174,6 @@ def main(argv: "list[str] | None" = None) -> int:
         machine_local_bin=resolve_machine_local_bin(script_dir),
     )
 
-    # `run()`'s SyncOutcome.lines carry native-OS separators for verify/--fix
-    # (an internal Path/os.path reopen-and-compare surface, deliberately not
-    # normalized -- see coordinator_core/snippet_sync/verify.py's --list
-    # block). `--list` output is a display/consumer-enumeration surface, not
-    # a filesystem handle a caller reopens, so normalize it to POSIX here at
-    # the CLI boundary rather than in the engine.
     for line in outcome.lines:
         print(Path(line).as_posix() if mode == "--list" else line)
     for line in outcome.stderr_lines:

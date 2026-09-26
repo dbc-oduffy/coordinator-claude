@@ -184,9 +184,6 @@ def _import_main():
 
 
 def main(argv: "list[str] | None" = None) -> int:
-    # argv threading: this CLI reads sys.argv at depth (argparse and helpers),
-    # so the warm-call path swaps it for the duration rather than rewriting every read.
-    # NOT re-entrant: a threaded server must serialise calls into this entrypoint.
     _prev_argv = sys.argv
     if argv is not None:
         sys.argv = [sys.argv[0], *argv]
@@ -208,13 +205,6 @@ def main(argv: "list[str] | None" = None) -> int:
             return 3
     
         # COORDINATOR_ROOT is resolved via _resolve_coordinator_root() (CLAUDE_PLUGIN_ROOT
-        # env override, else <claude_klabauter_root>/coordinator via _resolve_claude_klabauter_root()) -- NOT
-        # this file's own directory. Post-DR-261 this file's directory's parent DOES equal
-        # the coordinator root (both live in this repo now), but resolution still goes
-        # through the registry ladder rather than __file__ -- see _resolve_coordinator_root()'s
-        # docstring for why. The op module owns the engine logic but not this repo's directory
-        # layout (DR-047-style separation, now both sides engine-side post-DR-261), so this
-        # trampoline supplies the resolved root explicitly rather than the module guessing.
         if "--coordinator-root" not in sys.argv[1:]:
             coordinator_root = _resolve_coordinator_root()
             argv = ["--coordinator-root", coordinator_root] + sys.argv[1:]

@@ -81,10 +81,7 @@ def _resolve_coordinator_root() -> str:
             where the fixed CLAUDE_HOME path may not be installed yet).
     Raises RuntimeError if neither resolves.
     """
-    # Path.home() (not os.path.expanduser) fails loud -- RuntimeError, not a
     # silent "~" -- when every home rung (USERPROFILE, HOME) is unset; this
-    # is a fail-loud install script (see module docstring's exit-code
-    # contract), so a resolution failure here belongs in that same posture.
     claude_home = os.path.join(os.environ.get("CLAUDE_HOME") or str(Path.home()), ".claude")
     candidates = [
         os.path.join(claude_home, "bin", "resolve-coordinator-clone"),
@@ -97,12 +94,6 @@ def _resolve_coordinator_root() -> str:
             "resolve-coordinator-clone not found at any of: " + ", ".join(candidates)
         )
 
-    # resolve-coordinator-clone is python3 source as of the 2026-07-22 de-bash
-    # wave (was bash at commit-time; see the header note above) — invoke it
-    # with a Python interpreter, matching the house fallback ladder used
-    # elsewhere in this port wave (see install-substrate.py's identical
-    # `sys.executable or platform-gated fallback` shape).
-    # (Review: code-reviewer — F1, 2026-07-22.)
     python_bin = sys.executable or ("python" if os.name == "nt" else "python3")
     try:
         proc = subprocess.run(
@@ -125,19 +116,7 @@ def _resolve_coordinator_root() -> str:
 
 
 def _import_main():
-    """Resolve the coordinator root, then the engine root via cc_invoke's
-    battle-tested ladder (env var -> settings-home pointer file ->
-    coordinator-claude-klabauter-root.sh) rather than re-deriving it -- this is a plain
-    in-process import, not an RPC invoke, so cc_invoke's subprocess-spawn
-    transport (cc_invoke()/route()) is deliberately NOT used here (same shape
-    as coordinator-auto-push / handoff-gate-aging — template-variant #1,
-    direct-import).
-    """
     # Rung 0 — COORDINATOR_ENGINE_ROOT env, honored directly.
-    # cc_invoke.py migrated to the engine plane with the executable surface
-    # (b644d5a9), so on a post-migration content root the cc_invoke import
-    # below is unreachable until the engine root is already known —
-    # env-pinned callers (tests, install legs) break that cycle.
     env_engine_root = os.environ.get("COORDINATOR_ENGINE_ROOT")
     if env_engine_root and os.path.isdir(env_engine_root):
         engine_root = env_engine_root

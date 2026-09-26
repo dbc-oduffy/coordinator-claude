@@ -70,12 +70,12 @@ It does NOT apply when subagents write to entirely separate files with no inter-
    `coordinator:code-reviewer` extends that line with a trailing `| executed: <yes|no>`; a persona
    reviewer's does not. The shared-grammar claim in step 4 covers the sidecar home, not the
    pointer line's field count.
-6. Dispatch the review-integrator pointing at the returned sidecar path — not an inline finding
-   list (`agents/review-integrator.md` § Intake precondition) — before shipping.
+6. The reviewer applies its own findings against the returned sidecar path — not an inline finding
+   list (`review-integration-doctrine.md` § Reviewer self-persists) — before shipping.
 
-## Multiple parallel integrators on different file-chunks — file-scope hard-fences required
+## Multiple parallel reviewers on different file-chunks — file-scope hard-fences required
 
-Multiple parallel review-integrators on different file-chunks work cleanly IF integrator briefs name explicit file ownership AND forward overlapping findings rather than touching out-of-scope files. File-scope hard-fences in each integrator brief eliminate cross-integrator stomp; overlapping findings (a finding in chunk A that also affects chunk B) must escalate to EM-side fold rather than the integrator writing out-of-scope files. Apply: for any parallel integrator dispatch, include a "Files this integrator owns: ..." block and a "Forward out-of-scope overlapping findings to EM" instruction.
+Multiple parallel reviewers applying their own findings on different file-chunks work cleanly IF each reviewer's brief names explicit file ownership AND forwards overlapping findings rather than touching out-of-scope files. File-scope hard-fences in each reviewer brief eliminate cross-reviewer stomp; overlapping findings (a finding in chunk A that also affects chunk B) must escalate to EM-side fold rather than the reviewer writing out-of-scope files. Apply: for any parallel reviewer dispatch, include a "Files this reviewer owns: ..." block and a "Forward out-of-scope overlapping findings to EM" instruction.
 
 ## The Merge-Time Coherence Sweep Greps the CLAIM, Not a Token — and Reaches Outside Plan Scope
 

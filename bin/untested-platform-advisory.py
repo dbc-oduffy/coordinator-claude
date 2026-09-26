@@ -42,7 +42,6 @@ import os
 import platform
 import sys
 
-# Canonical PlatformId vocabulary — agent-install-manifest.schema.json §PlatformId.
 _PLATFORM_MAP = {
     "Darwin": "macos",
     "Linux": "linux",
@@ -57,27 +56,16 @@ _ANCHOR_HINT = (
 
 
 def _running_platform_id() -> str | None:
-    """Map the running OS to the PlatformId vocabulary (macos|linux|windows).
-
-    Returns None for anything unrecognized (e.g. a BSD/other exotic host) —
-    an unrecognized platform can never match a manifest entry, so the caller
-    naturally falls through to silence.
-    """
     return _PLATFORM_MAP.get(platform.system())
 
 
 def _manifest_path() -> str:
-    """Resolve this repo's own agent-install-manifest.json, relative to this
-    file's on-disk location (coordinator/bin/) — never assumes cwd or HOME."""
     bin_dir = os.path.dirname(os.path.abspath(__file__))
     coordinator_dir = os.path.dirname(bin_dir)
     return os.path.join(coordinator_dir, _MANIFEST_RELATIVE)
 
 
 def _load_manifest(path: str) -> dict | None:
-    """Read + parse the manifest. Returns None on any I/O or parse failure —
-    advisory-only posture means a broken manifest degrades to silence, not
-    a ceremony-blocking crash."""
     try:
         with open(path, "r", encoding="utf-8") as fh:
             return json.load(fh)
@@ -86,25 +74,15 @@ def _load_manifest(path: str) -> dict | None:
 
 
 def advisory_line(manifest: dict | None, running_platform: str | None) -> str | None:
-    """Pure decision function: given a parsed manifest dict and the resolved
-    running-platform id, return the advisory line to emit, or None for silence.
-
-    Kept separate from I/O (see main()) so tests can drive all three states
-    without touching disk or platform.system().
-    """
     if manifest is None or running_platform is None:
         return None
 
-    # State 3: no packageability_compliance.declared:true marker -> silent
-    # (mirrors validate-install-contract.py's existing declared===true
-    # skip-clean rule).
     if manifest.get("packageability_compliance", {}).get("declared") is not True:
         return None
 
     present = manifest.get("present_platforms") or []
     tested = manifest.get("tested_platforms") or []
 
-    # State 1: present but not tested -> exactly one advisory line.
     if running_platform in present and running_platform not in tested:
         return (
             f"⚠ UNTESTED PLATFORM — this repo declares '{running_platform}' "
@@ -113,12 +91,11 @@ def advisory_line(manifest: dict | None, running_platform: str | None) -> str | 
             f"platform-verified."
         )
 
-    # State 2 (tested, or platform absent from both arrays entirely) -> silent.
     return None
 
 
 def main(argv: "list[str] | None" = None) -> int:
-    del argv  # this CLI takes no arguments; argv accepted for the warm-call contract
+    del argv
     try:
         running_platform = _running_platform_id()
         manifest = _load_manifest(_manifest_path())
@@ -126,8 +103,6 @@ def main(argv: "list[str] | None" = None) -> int:
         if line:
             print(line)
     except Exception:
-        # Advisory-only: any unexpected failure degrades to silence, never
-        # a non-zero exit and never a ceremony-blocking crash.
         pass
     return 0
 

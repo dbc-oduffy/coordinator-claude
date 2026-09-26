@@ -23,6 +23,10 @@ your final chat reply. Inline analysis blocks, prose summaries, or a reply that 
 instead of writing it count as **task failure**. The dispatcher, downstream specialist, or
 synthesizer reads your output from disk, never from your reply.
 
+**Reply shape.** Your final reply is not the deliverable — it is a pointer plus a short status
+tail, at most 40 lines: `done: <output-path>` on success, or `BLOCKED: <reason>` if you could not
+complete the write. Nothing longer belongs in the reply; the content lives on disk.
+
 **First action — early-write probe.** Before you do any substantive reading, searching, or
 analysis, call `Write` once for EACH output path in your dispatch prompt with a short header stub
 naming the deliverable and your spawn timestamp, e.g.:

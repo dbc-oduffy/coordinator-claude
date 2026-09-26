@@ -1,37 +1,4 @@
-"""detect-existing-claude-home.py — three-state classifier for Claude home directories.
-
-Thin, argv-passthrough veneer over the engine repo's
-coordinator_core.ops.detect_existing_claude_home. Classifies a target
-Claude home directory as pristine / used-vanilla / configured, driving the
-install flow's track A/B fork. Read-only, idempotent; degrades to
-"pristine" on an empty/nonexistent target rather than failing.
-"""
-# lib/detect-existing-claude-home.py — CLI trampoline over claude-klabauter
-# coordinator_core.ops.detect_existing_claude_home (three-state classifier
-# for Claude home directories: pristine / used-vanilla / configured).
-#
-# Full behavioral spec, decision-tier ordering, and the three-state rationale
-# now live in the claude-klabauter module's own docstring (this file is a thin,
-# argv-passthrough veneer) — see coordinator_core/ops/detect_existing_claude_home.py
-# in claude-klabauter. Read-only, idempotent contract carries over unchanged.
-#
-# Usage:
-#   detect-existing-claude-home.py [<target-dir>]
 #   CLAUDE_CONFIG_DIR=<dir> detect-existing-claude-home.py
-#
-# Output (stdout): one line of the form:
-#   state=<pristine|used-vanilla|configured> track=<A|B> reason: <human explanation>
-#
-# Exit codes:
-#   0 — always. Business classification never fails (it degrades to
-#       "pristine" on an empty/nonexistent target). A claude-klabauter-link (transport)
-#       failure ALSO exits 0, loud on stderr — this is a best-effort,
-#       never-block advisory classifier (both callers already treat a
-#       non-zero exit as "continue anyway": install-maximalist.py warns and
-#       proceeds; install.md's structural fork is agent-read, not
-#       gate-blocking) — so there is no dedicated transport-failure code to
-#       collide with a business code (rule per porter-brief addendum § 3b).
-#
 # Spec backlink: docs/plans/2026-07-16-bash-to-naked-python-engine-migration.md [DEAD-CITATION: plan file never committed to this repo]
 from __future__ import annotations
 
@@ -66,7 +33,6 @@ def main() -> int:
         op_main = _import_main()
     except RuntimeError as exc:
         # CLAUDE_KLABAUTER_ROOT resolution failed. This is a best-effort advisory
-        # classifier — never block the caller's install flow.
         print(
             f"detect-existing-claude-home.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}",
             file=sys.stderr,

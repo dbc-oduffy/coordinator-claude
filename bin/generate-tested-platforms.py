@@ -73,11 +73,6 @@ GENERATES = [
     },
 ]
 
-# Two known layouts for the manifest, relative to repo root:
-#   - DoE-claude:  coordinator/docs/install/agent-install-manifest.json
-#   - claude-klabauter:      docs/install/agent-install-manifest.json
-# `--repo-root` lets this tool probe either shape, so a single hardcoded
-# relative path cannot serve both (review: carried loose end, slice-3 review).
 _MANIFEST_RELATIVE_CANDIDATES = (
     os.path.join("coordinator", "docs", "install", "agent-install-manifest.json"),
     os.path.join("docs", "install", "agent-install-manifest.json"),
@@ -85,16 +80,12 @@ _MANIFEST_RELATIVE_CANDIDATES = (
 
 
 def _repo_root() -> str:
-    """coordinator/bin/<this file> -> repo root, two levels up. Never assumes cwd."""
     bin_dir = os.path.dirname(os.path.abspath(__file__))
     coordinator_dir = os.path.dirname(bin_dir)
     return os.path.dirname(coordinator_dir)
 
 
 def _manifest_path(repo_root: str) -> str:
-    """Resolve whichever manifest layout exists under `repo_root`, preferring
-    the repo's own shape. Neither exists -> raise FileNotFoundError naming
-    both attempted paths (fail loud, not a silent pick of the wrong one)."""
     attempted = [os.path.join(repo_root, rel) for rel in _MANIFEST_RELATIVE_CANDIDATES]
     for candidate in attempted:
         if os.path.isfile(candidate):
@@ -106,13 +97,6 @@ def _manifest_path(repo_root: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    # Record/derivation core lives in coordinator_core.ops.platform_outcome_records
-    # (extracted verbatim, byte-for-byte behavior-equivalent — see that module's
-    # docstring for the two-consumer rationale: this generator, and
-    # coordinator_core.ops.validate_install_contract._check_point4). Import off
-    # THIS script's own on-disk location (_repo_root()), never off a
-    # caller-supplied --repo-root target — see _current_repo_sha's own historical
-    # review note, now moot since this import happens at module load time here.
     _own_root = _repo_root()
     if _own_root not in sys.path:
         sys.path.insert(0, _own_root)
@@ -185,32 +169,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{manifest_path} already up to date; nothing written.")
         return 0
 
-    # manifest["tested_platforms"] = derived is dead code:
-    # the write path below splices raw text read fresh from disk, never the
-    # parsed manifest dict, so this assignment silently affected nothing.
-    # DR-276: this CLI owns its own main() and writes the manifest directly
-    # (no separate op `main(argv)` to route through `run_op_main` -- the
-    # imports above are library helpers, not an op entrypoint), so the write
-    # is wrapped in `recording_declared_writes()` with an explicit
-    # `declare_write()` call at the write site, per cli_entry's documented
-    # carve-out for CLIs that own their own body (see gen-launcher-shim.py's
-    # `generate()`/`main()` for the same shape).
     from coordinator_core.cli_entry import recording_declared_writes
     from coordinator_core.session.declared_writes import declare_write
 
-    # Format-preserving edit: this manifest is hand-maintained JSON (comments
-    # via `_comment_*` keys, deliberate inline arrays elsewhere). A whole-file
-    # `json.dump` reflows every field it touches -- escapes non-ASCII prose to
-    # `\uXXXX`, and re-indents any hand-inlined array in the file, not just
-    # `tested_platforms`. Splice only the `tested_platforms` array's own text
     # region instead of re-serializing the document.
-    # cross-repo/archive/2026-08-26-doe-claude-em-generate-tested-platforms-write-reflows-the-manifest.md
     import re
 
     with open(manifest_path, "r", encoding="utf-8") as fh:
         raw = fh.read()
     new_array = json.dumps(derived, indent=2, ensure_ascii=False)
-    # Re-indent the array literal to match the field's own indentation level.
     field_match = re.search(r'([ \t]*)"tested_platforms":\s*\[[^\]]*\]', raw)
     if field_match is None:
         print(

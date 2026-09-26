@@ -43,49 +43,16 @@ export const meta = {
   ],
 }
 
-// ---------------------------------------------------------------------------------------------
-// Inputs
-// ---------------------------------------------------------------------------------------------
-// `args` arrives as a JSON string even when the caller passes a JSON array/object
-// (state/lessons/2026-07-09-workflow-args-arrives-as-a-json-string — guard unconditionally).
+
 const INPUT = typeof args === 'string' ? JSON.parse(args) : args
 
-// Expected INPUT shape (produced by the /distill skill's Phase 0):
-// {
+
 //   runId: 'YYYY-MM-DD-HHhMM',
-//   repoRoot: '/absolute/path/to/repo',
-//   batches: [ { batchId: 'b1', description: '...', files: ['path1', ...], formatHints: '...' }, ... ],
-//   wikiDirs:  ['docs/wiki', 'coordinator/docs/wiki'],   // ordered; [0] is the default/primary NEW-file home.
-//                                                        // Whatever wiki trees the repo has (may be just ['docs/wiki']).
-//   wikiSlugs: { '<slug>': '<repo-relative-path>', ... }, // flat index: slugified filename-stem -> existing file
-//                                                          // path, union across every dir in wikiDirs.
-//   resumeFromRunId: '<prior-run-id>' | null,  // caller-supplied; the Workflow tool itself
-//                                               // consumes this at invocation time, not in-script
-//   inputFile: '/absolute/path/to/input.json' | undefined,  // see § Three input modes below
-// }
-//
-// Three input modes, in precedence order (highest wins):
-//   1. args.inputFile (NEW) — args carries `inputFile: '<absolute path>'` alongside the small
-//      fields (runId, repoRoot, wikiDirs, wikiSlugs); the (potentially large) `batches` table
-//      lives in a JSON file on disk instead of being authored inline into `args`. Workflow
-//      scripts have no filesystem access (no `import('node:fs')` — same restriction as the
+
+
 //      `import('node:os')` note on CONCURRENCY_CAP below), so the first action when this is set
-//      is a single Haiku agent() call whose ONLY job is to Read that file and return its parsed
-//      content verbatim as structured output (schema-forced — no summarizing, no truncation).
-//      Fields present in the file win over the same field in `args`; fields the file omits fall
-//      back to `args`. Fails loud (throws) if the file is missing/unreadable/malformed rather
-//      than silently falling back to (2)/(3) — a silent fallback here would run a stale or wrong
-//      batch table with no signal that it happened.
-//   2. args-passed input (existing, unchanged) — the caller passes the full INPUT JSON (object,
-//      or JSON-stringified — see the args-arrives-as-a-JSON-string guard immediately below)
-//      inline, including `batches`. Fine for small runs; a large batch table burns EM context to
-//      author inline, which is exactly what (1) exists to avoid.
-//   3. embedded INPUT default (existing, unchanged) — historically, forking this canonical
-//      script with a literal `const INPUT = {...}` hardcoded in place of this line (what the
-//      2026-07-22-23h55 dogfood run did to route around (2)'s context cost for a 306-file/~25KB
-//      batch table). No longer necessary once (1) exists, but this script does not forbid it —
-//      a forked copy with a literal INPUT still runs unchanged.
-// (2) and (3) keep working exactly as before; (1) is resolved first, per-field, and wins.
+
+
 const RAW_ARGS_INPUT = INPUT
 const INPUT_FILE_SCHEMA = {
   type: 'object',
@@ -413,8 +380,8 @@ const scanResults = (await parallel(
       model: 'haiku',
     })
   ),
-  // Review: code-reviewer (Finding 2) — concurrency is a parallel() barrier option only;
-  // agent() has no concurrency knob, so the per-agent field was dropped as redundant/dead.
+  
+  
   { concurrency: CONCURRENCY_CAP }
 )).filter(Boolean)
 
@@ -422,17 +389,10 @@ if (scanResults.length === 0) {
   return { phase_reached: 'scan', halted: 'all-scan-agents-failed', concurrency_cap: CONCURRENCY_CAP }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Empty-content defence in depth (2026-08-06, example-market-data-repo-em): the schema above now
-// requires non-empty `content`, but a batch that returns an all-empty-content result some other
-// way (a lenient schema implementation, a future schema loosening, nuggets[] all trivially
-// whitespace) must not silently pass as a scan success — an empty-content nugget carries no
-// extracted knowledge, and the disposal gate reasons over "did this source produce nuggets?" as
-// evidence of "already harvested". Logged per-batch regardless of outcome (no-silent-caps), and
-// any batch whose EVERY nugget is empty is folded into `failedBatchIds` below, which the
+
 // negative-spec disposition logic further down already treats as SKIP, not EPHEMERAL — the same
-// "never looked at" semantics that failedBatchIds carries for a batch that never returned at
-// all.
+
+
 const emptyContentBatchIds = []
 for (const result of scanResults) {
   const nuggets = result.nuggets || []
@@ -470,14 +430,8 @@ const MALFORMED_TAG_RE = /[,;|]|^\s|\s$/
 // exactly like empty-content") and its named tension point the same direction once read
 // carefully: empty-content's top-level rule ISN'T "any defect fails the batch" — it is "fail the
 // batch only when EVERY relevant nugget is bad" (see emptyContentBatchIds above, `nuggets.length
-// > 0 && emptyCount === nuggets.length`). A malformed tag is a narrower defect than empty
-// content: unlike an empty-content nugget, a malformed-tag nugget still carries a perfectly good
-// extraction — only its clustering key is broken — so there is no reason to discard sound
-// siblings in the same batch over one Haiku's sloppy tag. Splitting the tag ourselves is
-// explicitly out of scope (invents structure the model never committed to), so a malformed-tag
-// nugget is simply excluded from clustering input entirely, the same disposition a 'drop'
-// verdict gets in clusterNuggets() below — never silently vanished, always counted, so a run can
-// tell "no malformed tags" apart from "malformed tags silently swallowed".
+
+
 const malformedTagBatchIds = []
 let malformedTagNuggetCount = 0
 for (const result of scanResults) {
@@ -629,46 +583,14 @@ log(`join integrity: ${joinVerdict} — ${unjoinableCount}/${distinctSourceCount
 //   * `resumeFromRunId` is the Workflow *tool's* harness-assigned run id (`wf_...`), which exists
 //     only in invocation A's Workflow tool RESULT — this script cannot see or return it.
 // So invocation B passes `resumeFromRunId: <the wf_... id from invocation A's tool result>` and
-// `runId: <the same distillation slug>`. See `resume_hint` in the returned object.
-//
-// `failed_batch_ids` is the RAW INPUT to the scan-success gate, never the verdict — that gate is
-// an EM/Phase-0 computation over this run's per-batch journal (coordinator/commands/distill.md:
-// 284,290), not computed in this script. `join_integrity` IS inline-computed above; that
-// asymmetry with failed_batch_ids is deliberate, per the same doc.
-//
-// `recommended_keep_threshold` (chunk C4b) is returned alongside `tag_counts` — curation's
-// minting policy now lives entirely on claude-klabauter's side of the seam, as the `keep_threshold` value
-// WE pass into their gate call, not as a constant kept on our side (see the derivation comment
-// immediately below this one).
-//
-// `tag_counts` reuses clusterNuggets()'s own topicKey derivation below (a plain read of its
-// grouping, hoisted function declaration — not the rekeying-onto-the-curated-map work, which is
-// chunk C3 and runs only in invocation B, after curation resolves the map): "the counts first
-// exist at clusterNuggets()" per the plan's Problem section, matching the measured
-// 549-tags-over-1200-nuggets figure at that same call site.
-//
-// `recommended_keep_threshold` (chunk C4b) — claude-klabauter's `distill.curate_clusters` gate compares
-// `keep_threshold` against a cluster's FAMILY total (summed across every tag folded into it), so
-// the threshold is the one knob that decides cold-start survival vs. steady-state floor
-// semantics; their memo (see the file header cite above) is explicit that shipping their bare
-// default (2) unconditionally is wrong for a young corpus. Derivation uses ONLY their two
-// measured points (mean-of-20-seeds drop rate over a 433-nugget/249-tag census):
-//   thr=2: 20n->71.2%, 60n->44.4%, 150n->27.4%, 433n(full)->17.1%
-//   thr=1: 20n->12.0%, 60n->8.7%,  150n->8.8%,  433n(full)->8.1% (flat 8-12% across a 20x range)
+
+
 // Cold-start -> 1: fires when WIKI_SLUGS is empty (virgin wiki tree) OR the carry-forward nugget
-// count is below 150 — at 150 nuggets thr=2 still discards 27.4% of the corpus, which is not a
-// tail, it is the harvest. Mature -> 2 (their measured 17.1%-drop default) otherwise.
-// Deliberately NOT 3: pure floor semantics ("a 1-2-nugget cluster doesn't earn its own file")
-// would want it, but nobody has measured its drop rate on any corpus — shipping an unmeasured
-// number because it matches a retired constant's intent is exactly the assumption-shipping this
-// plan has already refused twice. What would settle it: a drop-rate measurement at threshold 3.
-//
-// Honest limitation (measured-boundary gap, not an oversight): at threshold 2, only 1-nugget
-// families are suppressed — a 2-nugget family still mints its own file. The retired
+
+
 // SINGLETON_FLOOR's stated job ("a 1-2-nugget cluster doesn't earn its own new file") is thus
-// only PARTLY discharged by this derivation, and stays that way until a threshold-3 measurement
-// lands.
-// ---------------------------------------------------------------------------------------------
+
+
 if (!CURATED_TAGS) {
   const tagCensusClusters = clusterNuggets(scanResults)
   const tagCounts = {}

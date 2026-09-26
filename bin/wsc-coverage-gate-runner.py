@@ -73,22 +73,9 @@ def _ensure_repo_root_on_path() -> None:
         sys.path.insert(0, str(_CLAUDE_KLABAUTER_REPO_ROOT))
 
 
-#: The .cmd launcher's own basename — used by `recover_windows_argv` to locate
 #: where this invocation's own arguments begin within the raw `%CMDCMDLINE%`
-#: capture — see `coordinator/bin/lib/raw_cmdline_recovery.py`'s module
-#: docstring. The `write-trail --sha-range` subcommand this originally guarded
-#: (a git rev/range typed directly at the CLI, e.g. the `sha^..sha`
-#: predecessor-range shape cmd.exe's `%*` batch-parameter population silently
-#: strips a literal `^` from) was removed here per DR-372/DR-374 (the
-#: review_trail.write op and its CLI are gravestoned, not deleted — both
-#: remain on disk); kept for `claim-plan`'s own argv, refusing on an
-#: unvouchable capture same as before.
 _LAUNCHER_CMD_NAME = "wsc-coverage-gate-runner.cmd"
 
-
-# ---------------------------------------------------------------------------
-# claim-plan
-# ---------------------------------------------------------------------------
 
 def _run_session_claim_cli(slug: str) -> tuple[int, str]:
     """Invoke the sibling session-claim-cli's claim-plan subcommand and return
@@ -134,7 +121,7 @@ def _run_session_claim_cli(slug: str) -> tuple[int, str]:
         text=True,
         check=False,
         env=child_env,
-        **no_console_creationflags(),  # popup-safe-env-suppressed
+        **no_console_creationflags(),
     )
     return proc.returncode, proc.stdout
 
@@ -142,14 +129,8 @@ def _run_session_claim_cli(slug: str) -> tuple[int, str]:
 def cmd_claim_plan(args: argparse.Namespace) -> int:
     returncode, combined = _run_session_claim_cli(args.slug)
     if returncode == 0:
-        # Acquired, re-entrant, or stale takeover — no special handling required.
         return 0
 
-    # Peer-contention vs infra-failure discrimination: the underlying claim
-    # machinery (coordinator_core/session/claims.py) prints "... held by
-    # session <sid> ..." to stderr ONLY on a live-holder collision. Any other
-    # non-zero exit (unresolvable session id, bad baton root, mkdir failure)
-    # is an infra error, never misreported as a phantom peer.
     if "held by session" in combined.lower():
         print("STOP: plan claim contention — workstream-complete halted.", file=sys.stderr)
     else:
@@ -158,31 +139,6 @@ def cmd_claim_plan(args: argparse.Namespace) -> int:
         print(combined, end="" if combined.endswith("\n") else "\n", file=sys.stderr)
     return 1
 
-
-# ---------------------------------------------------------------------------
-# coverage-gate subcommand and its `review-coverage-gate.py` child are
-# REMOVED (state/kill-ledger.md K-005, 2026-08-16 — "waiver system dies"):
-# the mint was `run_coverage_gate`'s/`coverage.gate`'s sole surviving
-# consumer once the waiver system died, so both went with it — see
-# docs/wiki/cost-budgets-and-the-kill-disposition.md.
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# write-trail — REMOVED from THIS CLI (DR-372, DR-374). This subcommand's
-# entire job was an argv-forwarding passthrough to the sibling
-# coordinator-write-review-trail.py. Neither that CLI nor the
-# review_trail.write op it trampolined has been deleted — DR-372 rules no
-# review trail is owed, and DR-374 gravestones the surface (both remain on
-# disk pending a follow-on deletion chunk); this is not the
-# coverage-gate/brightline-gate kill-means-kill shape. See
-# docs/decisions/DR-374-the-retired-review-trail-surface-is-gravestoned.md.
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# argv plumbing
-# ---------------------------------------------------------------------------
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="wsc-coverage-gate-runner.py")

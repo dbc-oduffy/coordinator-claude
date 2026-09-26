@@ -1,16 +1,4 @@
 #!/usr/bin/env python3
-"""emit-effective-delivery -- regenerate the `x-effective-delivery` manifest
-block that `coordinator_core.ops.session.hook_delivery_manifest` and
-`guard_settings_integrity.detect_hook_delivery_duplication` read at boot.
-
-The generator itself is `coordinator_core.ops.session.emit_effective_delivery`;
-this file is only its warm-door entrypoint. Print mode by default; `--write`
-writes `<doe content root>/hooks/effective-delivery.json`. Run it after a
-change to DoE's `hooks/hooks.json`.
-
-Negative-spec: not a hook and never wired as one -- it is a build-time
-generator an operator or ceremony runs on demand.
-"""
 from __future__ import annotations
 
 import sys

@@ -139,6 +139,10 @@ Do **not** read that offer as license to skip a Workflow when actually executing
 
 **Width is a checkable line, not a vibe.** A single `parallel([...])` wave with more than 5 write-capable executors chunks into sub-waves of 5. Count the array length. This bounds *concurrency within one barrier*, not the total number of chunks a plan can have.
 
+**Execution-wave membership comes from the spine's write and dependency graph.** The emitter itself applies no width cap. `state/audits/2026-09-26-execution-wave-width-measurement.md` measured what narrows observed concurrency below the emitter's built width for a real run; read it for the attribution rather than assuming a fixed-width cause. Where over-declared `writes:`/`reads:` are the cause, the lever is spine authoring: tightening those fields deserializes chunks that never actually collide.
+
+**The watchdog caveat: width is not stall-safety.** A wider wave raises exposure to an unobserved stalled member, not fixes it — more members in flight is more members that can stall with nothing to notice. `docs/plans/2026-09-26-em-event-driven-waits-and-stall-watchdog.md` (status: approved) is the watchdog for this; as of this writing it has not landed — its own wiki page and hook scripts are not yet on disk — so this caveat holds unconditionally until it does. Once landed, cite it here as landed and keep this sentence unless the watchdog itself supersedes it.
+
 **A Workflow script's own programmatic fan-out is its own risk surface.** `parallel`/loop constructs can launch far more concurrent agents than a human-authored wave ever would; the width rule binds the script, not just the EM.
 
 ---
@@ -299,7 +303,7 @@ return { done: true, foundation, results, probe }
 Notes on the shape:
 
 - **Every `agent()` call passes `model: 'sonnet'`** — see § Model selection.
-- **Every `agent()` call passes a `schema`** — the result is validated at the tool-call layer, so the model retries on mismatch and the EM receives structured data, not prose to parse. **EXCEPTION — a review/verify stage is the one place a schema of findings is WRONG.** A `schema:` return is an inline-return mechanism: right for an *executor* stage, wrong for a *review* stage, whose findings must land on its sidecar (`state/subagent-share/<session-id>/<provision_key>.md`) so `review-integrator` can consume them — its intake hard-stops unconditionally on inline findings (`agents/review-integrator.md` § Intake precondition; `review-integration-doctrine.md` § Reviewer self-persists). For a review phase, dispatch `agentType: 'coordinator:code-reviewer'` and return the `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N> | executed: <yes|no>` pointer string, not a findings array. **Never `agent(reviewPrompt, {schema: FINDINGS_SCHEMA})`** — the natural reach produces exactly the artifact the integrator forbids.
+- **Every `agent()` call passes a `schema`** — the result is validated at the tool-call layer, so the model retries on mismatch and the EM receives structured data, not prose to parse. **EXCEPTION — a review/verify stage is the one place a schema of findings is WRONG.** A `schema:` return is an inline-return mechanism: right for an *executor* stage, wrong for a *review* stage, whose findings must land on its own sidecar (`state/subagent-share/<session-id>/<provision_key>.md`) as a `## Findings Ledger` it applies itself — `review-findings-ledger verify` hard-stops unconditionally on inline findings (`review-integration-doctrine.md` § Reviewer self-persists). For a review phase, dispatch `agentType: 'coordinator:code-reviewer'` and return the `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N> | executed: <yes|no>` pointer string, not a findings array. **Never `agent(reviewPrompt, {schema: FINDINGS_SCHEMA})`** — the natural reach produces exactly the artifact the reviewer-applies-own-findings contract forbids.
 
 ### Per-wave review stage (target shape — not live in any emitted script today)
 
@@ -322,9 +326,9 @@ confinement from.
 **A named second exception to the sequential-review rule.** `coordinator/skills/review/SKILL.md`'s
 "Reviews are sequential, never parallel … integrate finding-set 1 before dispatching reviewer 2"
 rule names its exceptions explicitly; per-wave review is a further one, dispatching reviewer N+1
-before finding-set N is integrated, by construction. Its safety condition: nothing integrates
-mid-run, and every finding-set is integrated 1:1 at the close by an integrator that re-verifies
-each finding against HEAD (`review-integration-doctrine.md` § Re-verify reviewer premises) — a
+before finding-set N is applied, by construction. Its safety condition: nothing applies
+mid-run, and every finding-set is applied 1:1 at the close, re-verified against HEAD by the
+reviewer that owns it (`review-integration-doctrine.md` § Re-verify reviewer premises) — a
 later wave may have moved the file a per-wave reviewer read. This subsection states the exception
 and its safety condition; it does not edit `review/SKILL.md:56` itself, whose exception list moves
 only when the doctrine flips together with it.
@@ -349,7 +353,7 @@ provision-sidecar \
     --agent-type <subagent_type> --provision-key <slice-id>
 ```
 
-It prints one repo-relative path on stdout and fails loud — non-zero, empty stdout, named precondition on stderr — when it cannot. The CLI resolves the template from `report_type_map:` in `coordinator/subagent-sandbox-policy.yaml`, so a pre-provisioned reviewer gets `## Findings`, the same heading the hook-mediated path produces and the one `review-integrator` reads. `review-wave.mjs` survives without this only because it hands each agent an explicit `$FINDINGS_DIR` output path in the prompt; do not generalize from it.
+It prints one repo-relative path on stdout and fails loud — non-zero, empty stdout, named precondition on stderr — when it cannot. The CLI resolves the template from `report_type_map:` in `coordinator/subagent-sandbox-policy.yaml`, so a pre-provisioned reviewer gets `## Findings`, the same heading the hook-mediated path produces and the one the reviewer's own `review-findings-ledger verify` pass reads. `review-wave.mjs` survives without this only because it hands each agent an explicit `$FINDINGS_DIR` output path in the prompt; do not generalize from it.
 
 **A direct `Agent` executor dispatch outside `fan-out-dispatch.sh` gets no deviation-flight
 sidecar either.** The same hook-matched provisioning gap applies to the deviation-flight sidecar,

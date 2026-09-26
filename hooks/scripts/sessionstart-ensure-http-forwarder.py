@@ -82,14 +82,9 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _win_portability import no_console_creationflags  # noqa: E402
 
-# Sibling module this script starts -- see module docstring, "not registered here" / negative-spec.
 _FORWARDER_MODULE_PATH = Path(__file__).resolve().parents[1] / "http_hook_forwarder.py"
 
 #: Mirrors `http_hook_forwarder.FIXED_PORT` by value, not by import -- this script must not import
-#: the forwarder module itself (it only launches it as a detached child process; importing it here
-#: would additionally bind/serve inside THIS short-lived hook process, which is not this module's
-#: job). Kept as a literal with this comment as the single cross-reference, matching the forwarder
-#: module's own "exactly one place in the tree commits the number" framing for its own copy.
 _FIXED_PORT = 47623
 
 _ADDR_IN_USE_ERRNOS = frozenset(
@@ -103,15 +98,6 @@ _ADDR_IN_USE_ERRNOS = frozenset(
 
 
 def _probe_bind_wins(port: int = _FIXED_PORT) -> Optional[bool]:
-    """Attempt an exclusive probe bind on `port`, immediately releasing it on success.
-
-    Returns `True` when this call won the bind (nothing else is listening there right now --
-    caller should spawn the forwarder), `False` when the bind lost to an existing listener
-    (treated as success per module docstring -- caller should do nothing), or `None` when the
-    attempt raised something that is neither of those (caller should disclose a failure).
-
-    Never raises.
-    """
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         exclusive_flag = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
@@ -153,13 +139,6 @@ def _dial_count_path() -> Path:
 
 
 def _module_fingerprint_on_disk() -> Optional[str]:
-    """Fingerprint of the forwarder module as it exists on disk RIGHT NOW.
-
-    Mirrors `http_hook_forwarder.module_fingerprint`'s algorithm by value (sha256 of the file
-    bytes, first 16 hex) for the same no-import reason as the two above. Content, never mtime: a
-    checkout or a branch switch rewrites mtime without changing a byte, and each spurious mismatch
-    costs a real forwarder restart on a box carrying dozens of live sessions.
-    """
     try:
         return hashlib.sha256(_FORWARDER_MODULE_PATH.read_bytes()).hexdigest()[:16]
     except Exception:
@@ -167,7 +146,6 @@ def _module_fingerprint_on_disk() -> Optional[str]:
 
 
 def _running_forwarder_record() -> Optional[dict]:
-    """The bind record the resident forwarder wrote, or `None` if it cannot be read or parsed."""
     try:
         with _dial_count_path().open("r", encoding="utf-8") as handle:
             record = json.load(handle)
@@ -210,32 +188,18 @@ def _pid_is_a_forwarder(pid: int) -> Optional[bool]:
             capture_output=True,
             text=True,
             timeout=10,
-            # A SessionStart hook runs headless; without this the query flashes a console window
-            # on every boot that reaches it. The helper is a no-op mapping on POSIX, so one splat
-            # covers both dialects above.
             **no_console_creationflags(),
         )
     except Exception:
         return None
     if completed.returncode != 0 and not (completed.stdout or "").strip():
-        # No such process, or the query failed outright. Either way there is nothing to retire,
-        # and "nothing to retire" is not the same claim as "this is a forwarder".
         return False
     return bool(_FORWARDER_ARGV_RE.search(completed.stdout or ""))
 
 
-#: What a command line has to look like for its process to be a forwarder worth SIGTERMing.
-#:
 #: A BARE SUBSTRING IS NOT THIS TEST, and the difference is a wrongly-killed process. Matching
-#: `http_hook_forwarder` anywhere in the command line also matches every process that merely NAMES
-#: the module: `pytest coordinator/tests/test_http_hook_forwarder_staleness.py`, an editor holding
-#: the file open, a `grep` over the hooks tree. This requires the module's own filename as a whole
-#: path component -- so `test_http_hook_forwarder_staleness.py` and `http_hook_forwarder_decoy.py`
-#: both correctly fail to match, while `python <repo-root>\hooks\http_hook_forwarder.py` matches.
 _FORWARDER_ARGV_RE = re.compile(r"""(?:^|[\s"'/\\])http_hook_forwarder\.py(?:["'\s]|$)""")
 
-#: How long, in total, to wait for a spawned successor to actually take the port before declaring
-#: the box forwarderless. Ten polls at 200 ms.
 _BIND_CONFIRM_ATTEMPTS = 10
 _BIND_CONFIRM_INTERVAL_SECS = 0.2
 
@@ -294,11 +258,6 @@ def _retire_stale_forwarder(pid: int) -> bool:
 
 
 def _ensure_current_forwarder() -> None:
-    """Handle the already-bound case: retire and replace the winner IF it runs superseded code.
-
-    Every early return is a "cannot tell" and leaves the running forwarder alone -- see this
-    module's negative spec for why that asymmetry is deliberate.
-    """
     on_disk = _module_fingerprint_on_disk()
     if on_disk is None:
         return
@@ -307,16 +266,10 @@ def _ensure_current_forwarder() -> None:
         return
     running = record.get("module_fingerprint")
     if not isinstance(running, str) or not running:
-        # A forwarder that predates the fingerprint stamp. It is very likely stale, but "likely"
-        # does not buy a kill: nothing here can confirm what code it runs, and that generation's
-        # record carries no pid to verify either. It self-heals the first time a stamping forwarder
-        # binds.
         return
     if running == on_disk:
         return
     pid = record.get("pid")
-    # `isinstance(True, int)` is True in Python, so a record carrying `"pid": true` would otherwise
-    # reach `os.kill(1, ...)` -- init on POSIX. Bools and non-positives are rejected explicitly.
     if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
         return
     if _pid_is_a_forwarder(pid) is not True:
@@ -343,9 +296,6 @@ def _ensure_current_forwarder() -> None:
         return
     if _await_successor_bind():
         return
-    # The successor launched and did not take the port -- almost always the exclusive-bind race
-    # against the socket the retired process had not finished tearing down. One retry, because by
-    # now that teardown has had the confirmation window to complete.
     if _spawn_forwarder_detached() and _await_successor_bind():
         return
     _disclose_failure(
@@ -356,11 +306,6 @@ def _ensure_current_forwarder() -> None:
 
 
 def _spawn_forwarder_detached() -> bool:
-    """Launch `http_hook_forwarder.py` as a detached child process that outlives this session.
-
-    Returns `True` once the child process has been launched (NOT once it has finished binding --
-    see module docstring, "never wait"), `False` on any failure to launch. Never raises.
-    """
     if not _FORWARDER_MODULE_PATH.is_file():
         return False
 
@@ -390,9 +335,6 @@ def _spawn_forwarder_detached() -> bool:
 
 
 def _disclose_failure(reason: str) -> None:
-    """Write the loud-disclosure pair this hook's whole contract turns on: stderr, plus a NESTED
-    `hookSpecificOutput.additionalContext` on stdout -- never a top-level `additionalContext`,
-    which the harness silently drops (DR, "Disclosure"). Never raises."""
     try:
         sys.stderr.write(f"[sessionstart-ensure-http-forwarder] {reason}\n")
     except Exception:
@@ -419,8 +361,6 @@ def main() -> int:
         result = _probe_bind_wins()
         if result is False:
             # Already bound -- something is listening on FIXED_PORT. Not health-checked; the one
-            # question asked of the winner is whether it runs the module on disk. See module
-            # docstring, "one inspection, and it is not a health check".
             _ensure_current_forwarder()
             return 0
         if result is True:
@@ -429,13 +369,12 @@ def main() -> int:
                     "won the probe bind but failed to spawn the forwarder process"
                 )
             return 0
-        # result is None: the probe bind itself raised something unexpected.
         _disclose_failure(
             "could not determine whether the http hook forwarder is already running "
             "(probe bind failed for a reason other than address-in-use)"
         )
         return 0
-    except Exception as exc:  # belt-and-braces: this hook must never crash a session boot.
+    except Exception as exc:
         _disclose_failure(f"unexpected error ensuring the http hook forwarder: {exc!r}")
         return 0
 

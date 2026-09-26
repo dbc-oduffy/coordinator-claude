@@ -43,26 +43,12 @@ _SESSION_UUID_RE = re.compile(
 
 
 def session_id_is_real(session_id: object) -> bool:
-    """True iff `session_id` carries the uuid4 shape the harness hands a real
-    session. Non-string and empty inputs are False, never a raise -- callers
-    reach this with a raw payload value."""
     return isinstance(session_id, str) and bool(_SESSION_UUID_RE.match(session_id))
 
 
 def ensure_session_dir(
     session_dir: "str | os.PathLike[str]", session_id: object
 ) -> bool:
-    """Create `session_dir` for a session's own hub state.
-
-    Returns True when the directory exists and is safe to write into, False
-    when the caller must skip its write entirely.
-
-    Refuses to create anything for a session id failing `session_id_is_real`,
-    so a benchmark, probe, or test driving a hook with a synthetic id leaves
-    no directory behind. Returns False rather than raising on any OSError:
-    every caller reaches this from a best-effort or fail-open path, where a
-    directory that cannot be created is a silent no-op, never a broken hook.
-    """
     if not session_id_is_real(session_id):
         return False
     try:

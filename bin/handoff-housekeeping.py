@@ -63,8 +63,6 @@ import os
 import sys
 from pathlib import Path
 
-#: Default move cap. The OP itself requires a positive cap and has no default —
-#: this is the CLI's own recommended value, mirroring `sweep-terminal-handoffs.py`
 #: citing `_RECOMMENDED_CAP_CHOICE` rather than re-deriving a rationale.
 _DEFAULT_CAP = 150
 
@@ -253,11 +251,6 @@ def main(argv: "list[str] | None" = None) -> int:
     _stamp_archive_sweeps_liveness(str(main_worktree_root(common_dir)))
 
     archived = result.get("archived") or []
-    # `closed` is an INT from `housekeeping.cycle` (a count), where the
-    # retired `handoff.housekeeping` returned the list of cleared gates.
-    # `len()` on the int raises -- and `or []` hid it exactly when the corpus
-    # had nothing to close, so this read looked correct on a quiet run and
-    # crashed on the first run that actually cleared a gate.
     closed = result.get("closed") or 0
     failed = result.get("failed") or []
     conflicts = result.get("conflicts") or []
@@ -269,8 +262,6 @@ def main(argv: "list[str] | None" = None) -> int:
             file=sys.stderr,
         )
     if result.get("close_error"):
-        # A failed close pass reports zero closed handoffs, which reads exactly
-        # like a corpus with nothing to close. Say which one it was.
         print(
             f"handoff-housekeeping: close pass failed: {result['close_error']} — "
             f"the sweep still ran",

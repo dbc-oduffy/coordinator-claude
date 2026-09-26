@@ -1,6 +1,7 @@
 ---
 name: staff-data-sci
 description: "Personas are Opus-only. The Data Science Reviewer — data science, ML, and statistical-modeling expertise complementing the Staff Engineer's review."
+persona: the Data Science Reviewer
 model: opus
 effort: low
 access-mode: read-write

@@ -102,7 +102,6 @@ import sys
 
 PROG = "check-sh-suffix-polyglot.py"
 
-# The verbatim trampoline every polyglot-class member contains within its
 # first 20 lines. Kept byte-identical to check-bin-sh-polyglot.py's TRAMPOLINE.
 TRAMPOLINE = (
     "''''exec \"$(command -v python3 || command -v python || command -v py)\" "
@@ -247,9 +246,9 @@ def main(argv):
     new_offenders = []
     for rel, abspath in candidates:
         if not _has_trampoline(abspath):
-            continue  # genuine bash (or not-yet-in-class) — not our concern
+            continue
         if rel in baseline:
-            continue  # known backlog — ratchet does not re-flag it
+            continue
         new_offenders.append(rel)
 
     if not new_offenders:

@@ -72,8 +72,6 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import _resolve_live_working_tree
 except Exception:
-    # A hook script deployed WITHOUT its sibling _engine_root.py must still
-    # fail-open rather than crash on import.
     def _resolve_live_working_tree():  # type: ignore[misc]
         return None, "none"
 
@@ -89,8 +87,6 @@ _REMEDIATION = (
 
 
 def _norm(path: str) -> str:
-    """Case-fold and separator-normalise for a Windows-safe boundary comparison --
-    a POSIX-shaped comparison here does not error, it silently never fires."""
     return os.path.normcase(os.path.normpath(path))
 
 
@@ -104,7 +100,6 @@ def _crosses_boundary(old_cwd: str, new_cwd: str, sibling_root: str) -> bool:
 
     new_inside = _inside(new_norm)
     old_inside = _inside(old_norm)
-    # INTO the sibling, or OUT OF it -- not a crossing when both endpoints agree.
     return new_inside != old_inside
 
 
@@ -159,6 +154,4 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception:
-        # Fail-open, unconditionally -- a CwdChanged hook that itself raises
-        # must never brick a session's ability to change directory.
         sys.exit(0)

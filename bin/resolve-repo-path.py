@@ -76,20 +76,6 @@ def _bootstrap_engine() -> None:
 
 
 def _machine_local_path_candidates() -> list[str]:
-    """Candidate paths for the machine-local CLI, settings-home first
-    (DR-210 Amendment 2026-07-24: "resolves nothing through ~/.claude/bin" —
-    this rung previously offered the retired compat mirror as its ONLY
-    candidate), extension-first on Windows within each base.
-
-    The extensionless `bin/machine-local` path never resolves on Windows —
-    there is no bare-name executable there, only a `.cmd` shim — so the
-    isfile+X_OK guard below silently never fires and the wiki-layout override
-    feature this backs is permanently dead on that platform with no
-    diagnostic. Windows `.cmd`-first-per-base handling now lives in
-    `machine_local_impl_resolve.windows_cmd_first_candidates()` (review:
-    code-reviewer F2 — was hand-rolled here only, so the module's own
-    `machine_local_bin_candidates()` silently diverged from this file).
-    """
     _bootstrap_engine()
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from machine_local_impl_resolve import (
@@ -144,8 +130,6 @@ def _resolve_registry_value(key: str) -> str:
 
 
 def _parse_args(argv: list[str]) -> tuple[bool, str, str]:
-    """Returns (wiki, docs_wiki, shortname). Raises _UsageError on a genuine
-    internal/usage error (distinct from the skip-to-empty/exit-0 path)."""
     wiki = False
     docs_wiki = ""
     shortname = ""
@@ -166,8 +150,6 @@ def _parse_args(argv: list[str]) -> tuple[bool, str, str]:
             if i + 1 >= len(argv):
                 raise _UsageError("--docs-wiki requires a value")
             val = argv[i + 1]
-            # Review parity (F1): reject a flag-like next token so --docs-wiki
-            # never silently swallows a real flag (e.g. --wiki) as its value.
             if val.startswith("-"):
                 raise _UsageError(
                     f"--docs-wiki requires a value, got flag-like '{val}'"

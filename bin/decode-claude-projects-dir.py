@@ -40,17 +40,6 @@ import os
 import sys
 
 def _prepare_claude_klabauter_root() -> None:
-    """Resolve the engine root and put it on sys.path.
-
-    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
-    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
-    re-deriving it.
-
-    DR-276: the op is run through `coordinator_core.cli_entry.run_op_main`
-    rather than by importing and calling its `main` directly, so any paths it
-    declares via `declare_write()` become a session scope-touch claim instead
-    of landing unclaimed as an orphan at the `scoped_git_commit` sink.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 

@@ -23,9 +23,9 @@ engine-repo op (see `postuse-advisory-dispatch.py`'s `_origin_worktree`
 plumbing), not the "resolves the doctrine repo root to read doctrine working-data"
 shape the plan's Anti-scope forbids porting. Verdict: CANDIDATE for a
 net-new `common_dir`-scoped engine-repo op, tracked under C6b's DR-127
-gate -- not a DoE-runner fold (contrast `guard-review-integrator-sidecar-
-intake.py`, which reads a genuine DoE-authored sidecar file and therefore
-stays DoE-resident on `preuse-agent-dispatch.py`'s runner). Actual porting
+gate -- not a DoE-runner fold (contrast a hook that reads a genuine
+DoE-authored sidecar file and therefore stays DoE-resident on
+`preuse-agent-dispatch.py`'s runner). Actual porting
 is out of C6c's scope per that row's own body ("Porting any of them means
 writing new engine logic, not attaching existing logic"); this hook remains
 un-registered in `hooks.json` pending that future engine-side work.
@@ -47,8 +47,8 @@ tree):
     W-second window (condition 6, burst-threshold below).
   - anything else -> exits 0 silently.
 
-Burst threshold: a single hand-dispatch (e.g. a lone review-integrator, or
-a review->integrate pair) no longer trips this nudge. It fires only when
+Burst threshold: a single hand-dispatch (e.g. a lone enricher dispatch)
+no longer trips this nudge. It fires only when
 the CURRENT dispatch is the Nth qualifying dispatch within the last W
 seconds, tracked via a per-session rolling log at
 ${SESSION_DIR}/multiwave-dispatch-log (one epoch-seconds line per
@@ -78,7 +78,7 @@ per-dispatch nag, and a wrongly-tightened gate silently drops the offer):
      never nudge.
   3. subagent_type must be present under tool_input and must match the
      write-capable roster (*executor* substring, or an exact
-     review-integrator/enricher name, case-insensitive) -- everything else
+     enricher name, case-insensitive) -- everything else
      (including empty/missing) never fires.
   4. No Workflow launched this session (workflow-launched sentinel absent).
   5. Fires at most once per session (multiwave-workflow-nudged sentinel).
@@ -221,11 +221,11 @@ _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{4,}$")
 # Write-capable roster (case-insensitive). Keep in sync with the bash
 # oracle's `case` block and CLAUDE.md § Roster Doctrine / § Adding a
 # Convention -- a future write-capable worker type that doesn't match
-# *executor* and isn't named review-integrator/enricher will silently miss
-# this nudge, same caveat as the bash original.
+# *executor* and isn't named enricher will silently miss this nudge, same
+# caveat as the bash original. review-integrator is retired
+# (docs/plans/2026-09-26-retire-review-integrator.md, D5a) and dropped from
+# this roster.
 _EXACT_WRITE_CAPABLE = {
-    "review-integrator",
-    "coordinator:review-integrator",
     "enricher",
     "coordinator:enricher",
 }

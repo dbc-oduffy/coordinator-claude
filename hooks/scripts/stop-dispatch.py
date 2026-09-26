@@ -115,17 +115,7 @@ except Exception:
 _TAIL_BYTES = 262144
 
 
-# --------------------------------------------------------------------------
-# Shared context: work every guard would otherwise redo in its own process.
-# --------------------------------------------------------------------------
 class Ctx:
-    """Computed ONCE per Stop event and shared by all six preconditions.
-
-    In the original 5-process world each of these was paid up to 5 times: the
-    transcript tail was read by 3 of the 5 guards, and the repo root walked
-    by 2. The sixth guard (`stop-em-report-altitude.py`) reuses this same
-    shared `final_assistant_text()` memoisation.
-    """
 
     def __init__(self, raw: str) -> None:
         self.raw = raw
@@ -141,7 +131,6 @@ class Ctx:
         self._tail: Optional[str] = None
         self._repo_root: Optional[str] = None
 
-    # -- lazy, memoised: only paid if some precondition actually asks
     def tail(self) -> str:
         if self._tail is None:
             self._tail = ""
@@ -186,49 +175,12 @@ class Ctx:
         return self._repo_root
 
 
-# --------------------------------------------------------------------------
-# Preconditions -- import-free, cheapest-first. Each returns True only if the
-# guard's expensive module import can possibly matter.
-# --------------------------------------------------------------------------
 def _pre_em_check(ctx: Ctx) -> bool:
-    # em-check exits 0 immediately without a session_id or a git root; both
-    # are payload/one-stat cheap, and the git walk is shared.
     return bool(ctx.session_id) and bool(ctx.repo_root())
 
 
 def _pre_next_move(ctx: Ctx) -> bool:
-    # The watchdog reads the per-session next-move ledger AND NOTHING ELSE.
-    # No ledger file for this session under EITHER machinery root -> the
-    # guard is provably a no-op.
-    #
-    # The path and extension MUST track `_next_move_ledger.py`'s own
     # `_LEDGER_FILENAME` and storage root, which are its docstring's contract:
-    # `.coordinator-local/subagent-share/<session-id>/next-move-ledger.jsonl`
-    # (the retired root, still probed below, was `state/subagent-share/
-    # <session-id>/next-move-ledger.jsonl`). This precondition previously
-    # named `.git/coordinator-sessions/<sid>/next-move-ledger.json` -- the
-    # pre-2026-08-15 location, and a `.json` extension the writer has never
-    # used. Wrong on both axes, it returned False for every session, and the
-    # Stop leg it gates never ran once between the C2 anchoring (471e8eba8)
-    # and this fix. A precondition that is always False is indistinguishable
-    # on disk from a predicate that never has anything to say; the tell was
-    # 123 ledgers at the real path and 0 at this one.
-    #
-    # Both machinery roots are probed, same reasoning and same retirement
-    # condition as `_pre_kira_verdict_routed` below: the engine's provisioned
-    # root moved from `state/` to `.coordinator-local/` on 2026-09-02, and a
-    # session provisioned before that republish still has its ledger under
-    # the old root. Probing the new literal alone suppresses this leg for
-    # every such session, indistinguishable from the guard passing.
-    #
-    # The literals below are duplicated rather than imported ON PURPOSE:
-    # this precondition runs before any guard module is imported, and pulling
-    # in `_next_move_ledger` (and transitively `_engine_root`) here would pay
-    # that import on every Stop in the fleet to answer a one-`stat` question.
-    # The duplication is pinned instead --
-    # `test_stop_precondition_tracks_the_ledgers_real_path` asserts both
-    # against the writer's own constants, so the drift that killed this leg
-    # cannot reland silently.
     root = ctx.repo_root()
     if not root or not ctx.session_id:
         return False
@@ -248,30 +200,16 @@ def _pre_manufactured_blocker(ctx: Ctx) -> bool:
 
 
 def _pre_transcript_present(ctx: Ctx) -> bool:
-    # The two engine-backed pointer shims both work off the final assistant
-    # message; no transcript, no possible fire.
     return bool(ctx.final_assistant_text())
 
 
 def _pre_em_report_altitude(ctx: Ctx) -> bool:
-    # em_report_altitude measures the final assistant message; a subagent's
-    # own Stop (agent_id present) is never an EM->PM message, and no final
-    # assistant text means nothing to measure either way.
     if ctx.agent_id:
         return False
     return bool(ctx.final_assistant_text())
 
 
 def _pre_kira_verdict_routed(ctx: Ctx) -> bool:
-    # guard-kira-verdict-routed.py is only ever relevant on the EM's OWN
-    # Stop (never a subagent's, including Kira's own -- see that guard's
-    # module docstring TRIGGER SCOPE section) in a session that has a
-    # share dir at all. A session with no share directory under EITHER
-    # machinery root has nothing to route and is provably a no-op. Both roots
-    # are probed because the engine's provisioned root moved from `state/` to
-    # `.coordinator-local/` on 2026-09-02 -- probing the old literal alone
-    # suppresses the guard for every session provisioned today, which is
-    # indistinguishable from the guard passing.
     if ctx.agent_id or ctx.stop_hook_active:
         return False
     root = ctx.repo_root()
@@ -286,27 +224,13 @@ def _pre_kira_verdict_routed(ctx: Ctx) -> bool:
 
 
 def _pre_receiver_state(ctx: Ctx) -> bool:
-    # The producer shim needs a session_id and this session's own transcript;
-    # without either the op is a silent no-op engine-side, so skip the import
-    # entirely. Deliberately does NOT read the transcript -- `os.path.isfile`
-    # only, never `ctx.tail()`: the ladder is the engine's, and paying a tail
-    # read here to decide whether to let the engine do its own tail read would
-    # double the cost to answer nothing.
     if not ctx.session_id:
         return False
     return bool(ctx.transcript_path) and os.path.isfile(ctx.transcript_path)
 
 
 def _pre_group_em_park_spool(ctx: Ctx) -> bool:
-    # See `group-em-park-spool.py`'s module docstring for the full contract
-    # this precondition enforces (miss-path cost, scaffold-nothing, ordering).
-    #
-    # The two literals below are duplicated from `receiver_state_reader`'s
     # `_SESSIONS_DIRNAME`/`_SIBLING_FILENAME` ON PURPOSE, for the same reason
-    # `_pre_next_move` duplicates its own: this runs before any guard module is
-    # imported, and pulling the reader in here would pay that import on every
-    # Stop in the fleet to answer a one-`stat` question. The duplication is
-    # pinned by `test_precondition_tracks_receiver_state_carrier_path`.
     if ctx.agent_id or not ctx.session_id:
         return False
     root = ctx.repo_root()
@@ -342,18 +266,11 @@ REGISTRY: Tuple[StopGuard, ...] = (
               "guard-kira-verdict-routed.py", _pre_kira_verdict_routed),
     # A PRODUCER, not a guard -- it always exits 0 with empty stdout, so it
     # contributes nothing to this dispatcher's CONCATENATE-ALL aggregation and
-    # cannot change any verdict. It rides the fan-in rather than taking a
-    # second `Stop` entry in hooks.json purely for the process cost: a second
-    # entry buys a permanent extra interpreter cold start on every Stop
-    # fleet-wide, where folding it here adds no process at all.
     StopGuard("receiver_state_sensor",
               "receiver-state-sensor.py", _pre_receiver_state),
     # ORDER IS LOAD-BEARING: this producer reports the verdict the entry
-    # ABOVE causes to be written, so it must stay after it. Moving it earlier
-    # spools the previous turn's verdict on every park -- wrong, and silently
     # so. Like `receiver_state_sensor` it is a PRODUCER, not a guard: always
     # exit 0, always empty stdout, contributes nothing to the CONCATENATE-ALL
-    # aggregation and cannot change any verdict.
     StopGuard("group_em_park_spool",
               "group-em-park-spool.py", _pre_group_em_park_spool),
 )
@@ -381,12 +298,6 @@ class _ByteSink:
 
 
 class _BufferedTextCapture(io.StringIO):
-    """Same shim `_stop_family_runner` uses: the nudge shims emit through
-    `sys.stderr.buffer.write()`, which a plain StringIO has no attribute for.
-    Both channels land in ONE ordered `io.BytesIO` -- `write(str)` encodes
-    into it, `.buffer.write(bytes)` writes into it unmodified -- so
-    `combined()`/`combined_bytes()` are order-preserving AND byte-exact,
-    rather than concatenating two separately-accumulated buffers."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -426,12 +337,6 @@ def _import_guard(guard: StopGuard) -> Any:
 
 
 def _invoke(main_fn: Callable[[], int], stdin_text: str) -> Tuple[int, str, str]:
-    """Run one guard's main() with stdin swapped and BOTH channels captured.
-
-    Stop guards use stderr+exit 2 to speak to Claude and stdout+exit 0 for the
-    posture-scaled advisory channel, so unlike `_stop_family_runner` (stderr
-    only) this dispatcher must capture and merge both.
-    """
     old_stdin = sys.stdin
     out_buf = _BufferedTextCapture()
     err_buf = _BufferedTextCapture()
@@ -477,10 +382,6 @@ def main() -> int:
         try:
             mod = _import_guard(guard)
             # SHARED-CONTEXT INJECTION -- the half of the win that is "better
-            # code", not merely "fewer processes". Hands the module a repo
-            # root already resolved by this dispatcher's own zero-spawn walk
-            # rather than letting it re-derive its own (only possible once
-            # the guards share an interpreter).
             if hasattr(mod, "_git_root"):
                 _root = ctx.repo_root()
                 mod._git_root = lambda _r=_root: _r
@@ -493,8 +394,6 @@ def main() -> int:
                     f"import={(_t1 - _t0) * 1000:.1f}ms "
                     f"run={(_t.perf_counter() - _t1) * 1000:.1f}ms\n")
         except BaseException as exc:
-            # Exception isolation: this guard alone fails open; the other
-            # four still run.
             skipped.append(guard.module_key)
             if trace:
                 sys.stderr.write(f"[trace] {guard.module_key}: RAISED {exc!r}\n")
@@ -507,12 +406,6 @@ def main() -> int:
                 fired_err.append(err.rstrip("\n"))
 
     if advisory_out:
-        # Re-emit through .buffer, never the text wrapper -- advisory_out/
-        # fired_err are built from _BufferedTextCapture.combined(), which may
-        # carry a folded guard's raw sys.stdout.buffer.write()/sys.stderr.
-        # buffer.write() bytes (Windows CRLF-translation fix); a text-mode
-        # write here would reintroduce exactly the translation that
-        # convention exists to avoid. See _ByteSink's own docstring above.
         _out_text = "\n\n".join(advisory_out) + "\n"
         sys.stdout.buffer.write(_out_text.encode("utf-8"))
         sys.stdout.buffer.flush()

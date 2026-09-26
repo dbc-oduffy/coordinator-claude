@@ -58,8 +58,6 @@ from pathlib import Path
 
 
 def _read_stdin(timeout: float = 2.0) -> str:
-    """Bounded stdin read (Windows hang guard) — same pattern as the other
-    hooks in this directory (e.g. track-dispatched-agents.py._read_stdin)."""
     box = {"data": ""}
 
     def _read() -> None:
@@ -80,9 +78,6 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
-    # Defensive fallback — a hook script copied/deployed WITHOUT its sibling
-    # _engine_root.py (e.g. an isolated test harness, or a partial deploy)
-    # must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -99,14 +94,14 @@ def main() -> int:
 
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id:
-        return 0  # fail-open — no session id to key the anchor record on
+        return 0
 
     cwd = payload.get("cwd")
     launch_cwd = cwd if isinstance(cwd, str) and cwd else None
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open — engine root unresolvable on this machine
+        return 0
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
@@ -116,15 +111,11 @@ def main() -> int:
             write_session_start_record,
         )
     except Exception:
-        return 0  # engine unimportable → fail-open
+        return 0
 
     try:
         write_session_start_record(session_id, launch_cwd=launch_cwd)
     except Exception:
-        # write_session_start_record already fails open internally (returns
-        # False rather than raising — see its own docstring's "FAIL OPEN"),
-        # but this call site swallows unconditionally too: a SessionStart
-        # hook erroring is worse than one that silently no-ops.
         pass
 
     return 0

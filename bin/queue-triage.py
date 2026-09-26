@@ -99,11 +99,6 @@ def _bootstrap_engine() -> None:
             route_mutation,
         )
 
-        # The engine root must be on sys.path before any `coordinator_core` import: this
-        # file is also published into the claude-klabauter mirror, where coordinator_core
-        # is NOT pip-installed, so a bare import resolves nothing and the CLI dies at
-        # import time. Same bootstrap as coordinator/bin/lib/workday_ceremony_lib.py
-        # (landed in d2d4ec545 for the identical failure on /workday-start Step 0).
         _ENGINE_ROOT = str(require_engine_on_path(__file__))
 
         from coordinator_core.argv_fidelity import (  # noqa: E402
@@ -114,23 +109,15 @@ def _bootstrap_engine() -> None:
         )
         from coordinator_core.git.repo_root import show_toplevel  # noqa: E402
     finally:
-        # Publish whatever bound, EVEN IF a later import raised, and NEVER
-        # overwrite a name a caller already installed (e.g. a monkeypatch).
         _resolved = locals()
         for _name in _BOOTSTRAPPED_NAMES:
             if _name not in globals() and _name in _resolved:
                 globals()[_name] = _resolved[_name]
 
-    # Only on a clean run: a partial bootstrap must stay retryable.
     _BOOTSTRAP_DONE = True
 
 
 def __getattr__(name: str):
-    """PEP 562 hook: a consumer that imports this module rather than executing it
-    reaches these names before `main()` runs. Without this, deferring the
-    bootstrap leaves them simply absent. Only fires for names not already in
-    `__dict__`, so once bootstrapped the plain global wins.
-    """
     if name in _BOOTSTRAPPED_NAMES:
         _bootstrap_engine()
         if name not in globals():
@@ -148,25 +135,10 @@ def __getattr__(name: str):
 _OP_CLUSTER = "queue.cluster"
 _OP_SCAFFOLD = "handoff.scaffold_from_queue"
 
-# scaffold-baton's `family` is
-# interpolated into a filesystem path (`_entry_path_for`) with no parse-time
-# guard, unlike `entry_path` (checked for separators before use). Charset-only
-# allowlist, scoped to scaffold-baton's `family` alone — cluster's `family`
-# never touches a filesystem path (it goes straight into op params),
-# so this is not a general family-legitimacy check (that stays the op's job).
-# Mirrors coordinator-queue-append's `_validate_workstream_identifier` shape.
 _FAMILY_ARG_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 
 
 def _legacy_fn(op: str):
-    """No-bash-fallback marker — mirrors sweep-boot.py's big-bang-cutover shape.
-
-    All three ops are assumed present (verified at plan-scout time, C1-C6 of
-    this same plan). There is no per-op bash sweep left to strangle back to;
-    a raised legacy_fn only fires if the native seam is genuinely absent,
-    which `route`/`route_mutation` already treat identically to any other
-    transport failure.
-    """
     def _raise() -> Any:
         raise RuntimeError(
             f"queue-triage: native seam absent for {op!r} and no bash fallback "
@@ -176,7 +148,6 @@ def _legacy_fn(op: str):
 
 
 def _resolve_repo_root(explicit: str | None) -> str | None:
-    """Resolve repo_root — `--repo-root` wins; else `git rev-parse --show-toplevel`."""
     _bootstrap_engine()
     if explicit:
         return explicit
@@ -184,12 +155,6 @@ def _resolve_repo_root(explicit: str | None) -> str | None:
 
 
 def _dispatch_read(op: str, params: dict, repo_root: str) -> tuple[Any, int]:
-    """Cluster dispatch — route() is compute-only, bare result on success.
-
-    Returns (result, exit_code). Only a transport failure (RuntimeError) is
-    possible here — route() never interprets an in-envelope exit_code/error
-    the way route_mutation() does, by design (AC10).
-    """
     _bootstrap_engine()
     try:
         result = route(op, params, repo_root, _legacy_fn(op))
@@ -200,7 +165,6 @@ def _dispatch_read(op: str, params: dict, repo_root: str) -> tuple[Any, int]:
 
 
 def _dispatch_mutation(op: str, params: dict, repo_root: str) -> tuple[Any, int]:
-    """scaffold-baton dispatch — route_mutation() honors the op's in-envelope refusal shape."""
     _bootstrap_engine()
     try:
         result = route_mutation(op, params, repo_root, _legacy_fn(op))
@@ -220,16 +184,6 @@ def _split_csv(value: str | None) -> list[str] | None:
 
 
 def _family_arg(value: str) -> str:
-    """Parse-time validator for `family` — charset-only, path-injection guard.
-
-    Rejects `family` values that would escape `state/<family>/` when
-    interpolated by `_entry_path_for` (e.g. `../../etc`) or otherwise carry
-    path separators. Applied uniformly to all three legs' `family` positional
-    for CLI-shape symmetry (matching the module's stated uniform-positional
-    convention), even though only scaffold-baton's `family` actually reaches
-    a filesystem path today — a future leg reusing the same positional gets
-    the guard for free rather than needing to remember to add it.
-    """
     if not _FAMILY_ARG_RE.match(value):
         raise argparse.ArgumentTypeError(
             f"family must match {_FAMILY_ARG_RE.pattern!r} (lowercase letters, "
@@ -257,15 +211,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="leg", required=True)
 
-    # argparse's subparsers action
-    # (nargs=PARSER) consumes the subcommand token plus ALL remaining argv as
-    # that subparser's own arguments, so `--repo-root` only worked when given
-    # BEFORE the leg name. Carrying the same flag as a `parents=[...]` shared
-    # parser on every subparser lets it work in either position — `default=
     # argparse.SUPPRESS` on the shared copy is load-bearing: without it, a
-    # subparser parse with `--repo-root` omitted would still set its own
-    # default and silently overwrite an already-populated top-level value
-    # when the outer namespace is merged (see _SubParsersAction.__call__).
     _repo_root_parent = argparse.ArgumentParser(add_help=False)
     _repo_root_parent.add_argument("--repo-root", default=argparse.SUPPRESS)
 
@@ -321,21 +267,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _entry_path_for(family: str, entry_path: str) -> str:
-    """Expand a bare filename against `family`; leave an already-qualified path alone.
-
-    Emitted as a POSIX-separated string regardless of platform -- the
-    downstream `handoff.scaffold_from_queue` param contract carries
-    repo-relative identifiers, not native filesystem paths, and Windows'
-    `Path.__str__()` yields backslashes that would otherwise leak a
-    host-specific separator into it.
-    """
     if "/" in entry_path or "\\" in entry_path:
-        # The bare-filename branch
-        # below was POSIX-normalized but this already-qualified branch still
-        # returned a caller-supplied path verbatim, backslashes included.
-        # Normalize here too so both branches honour the same
-        # repo-relative-identifier contract that `handoff.scaffold_from_queue`
-        # expects.
         return PureWindowsPath(entry_path).as_posix()
     return "/".join(("state", family, entry_path))
 
@@ -417,11 +349,6 @@ def main(argv: list[str] | None = None) -> int:
             _OP_SCAFFOLD, _build_scaffold_params(args), repo_root
         )
 
-    # Gate printing on exit_code (2 ==
-    # transport failure, no envelope produced) rather than `result is not
-    # None` — a legitimate op result of JSON `null` on success (exit_code 0)
-    # or a refusal envelope (exit_code 1) must still print verbatim, per the
-    # "every leg prints the op's ratified envelope unchanged" contract.
     if exit_code != 2:
         print(json.dumps(result, indent=2))
     return exit_code

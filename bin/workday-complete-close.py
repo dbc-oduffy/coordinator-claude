@@ -90,24 +90,10 @@ _STITCH_SIDECAR_CLI = _BIN_DIR / "stitch-observer-sidecar.py"
 _STEP9_CLI = _BIN_DIR / "workday-complete-step9-append-changelog.py"
 _CEREMONY_HOOK_CLI = _BIN_DIR / "coordinator-ceremony-hook.py"
 
-# Per-gap-date backfill dispatch (_dispatch_step9_row) invokes the entire
-# composed step9 ceremony once per row with NO bound at all — on this repo's
-# 50-70-concurrent-session load norm an unbounded spawn here can wedge a
-# ceremony with no session available to fix it (state/audits/
-# 2026-08-15-fleet-composed-op-spawn-census.md row 14). step9-append-changelog
-# itself bounds its OWN internal subprocess calls at 15-30s each but runs
-# several of them sequentially plus a possible git push; 120s gives that
-# composed chain headroom without being unbounded.
 _STEP9_ROW_DISPATCH_TIMEOUT_SECS = 120
 
 
 def _bootstrap_engine() -> None:
-    """Put `coordinator/bin/lib` on `sys.path` and resolve the co-located
-    engine root -- the same two-step sequence `main()` runs before
-    dispatching any subcommand. Called again, idempotently, from each
-    function below that does its own deferred `coordinator_core`/`cc_invoke`
-    import, so an in-process caller that reaches one of them directly
-    (bypassing `main()`) is not left with an un-bootstrapped `sys.path`."""
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_colocated_engine_on_path
 
@@ -115,7 +101,6 @@ def _bootstrap_engine() -> None:
 
 
 def _load_sibling_module(cli_path: Path, module_name: str):
-    """Import a sibling coordinator/bin CLI by path, in-process."""
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(module_name, cli_path)
@@ -202,10 +187,6 @@ def cmd_step9_dispatch(args: argparse.Namespace) -> int:
     if args.scope_summary:
         forward.append(args.scope_summary)
 
-    # In-process now, so these are this process's own env, not a child's --
-    # matches the spawn form's setdefault-on-a-copy semantics for THIS run
-    # (never overwrites an already-set value; both keys are process-lifetime,
-    # exactly as they were per-child before).
     os.environ.setdefault("RC_VALIDATE", "not-run")
     os.environ.setdefault("RC_PLUGIN_SUITE", "n/a")
 
@@ -214,10 +195,6 @@ def cmd_step9_dispatch(args: argparse.Namespace) -> int:
 
 
 def cmd_ceremony_hook(args: argparse.Namespace) -> int:
-    """Step 10.5: run the generic post-ceremony command hook, non-blocking on
-    any failure (the hook's own contract is always-exit-0; a non-zero exit here
-    means the sibling script itself couldn't be found/exec'd -- install drift,
-    not a business failure)."""
     if args.only_mode:
         print(
             "[workday-complete] --only set — skipping post-ceremony command hook",
@@ -226,12 +203,6 @@ def cmd_ceremony_hook(args: argparse.Namespace) -> int:
         return 0
 
     # P055-C1 conversion: was a `[python, _CEREMONY_HOOK_CLI, "workday-complete"]`
-    # spawn via the (now-removed) generic `_run` helper. coordinator-ceremony-hook.py's
-    # own `__main__` guard wraps `main(sys.argv[1:])` in a broad try/except so an
-    # unanticipated escape still honors its "always exit 0" contract -- that backstop
-    # lived OUTSIDE `main()` itself, so calling `main()` directly here does not inherit
-    # it. Recreated locally: this call site's OWN contract is already "never blocks",
-    # so any exception maps to the same non-blocking WARN path a nonzero rc took.
     import contextlib
     import io
 
@@ -289,9 +260,6 @@ def _dispatch_step9_row(
             **no_console_passthrough_kwargs(),
         )
     except subprocess.TimeoutExpired:
-        # A timed-out row must fail THIS row only, never abort the rest of
-        # the backfill loop (cmd_backfill_dispatch_rows' per-row isolation
-        # contract — "one bad day should not abandon the rest").
         print(
             f"ERROR: backfill-dispatch-rows: step9-dispatch timed out after "
             f"{_STEP9_ROW_DISPATCH_TIMEOUT_SECS}s for {date}",
@@ -302,21 +270,8 @@ def _dispatch_step9_row(
 
 
 def cmd_backfill_dispatch_rows(args: argparse.Namespace) -> int:
-    """Step 3.5 Phase B: parse the stdin gap-rows blob and dispatch step9
-    once per row, oldest-first as given. See the module docstring's
-    `backfill-dispatch-rows` entry for the per-row flag-building and
-    --only-mode skip rules this ports from workday-complete.md's Phase B
-    paragraph."""
     raw = sys.stdin.read()
     if not raw.strip() and not args.allow_empty:
-        # The defect this command was reported for: empty stdin produced zero
-        # rows, the dispatch loop never ran, and it returned 0 — a clean
-        # success in the ceremony report while nothing had been written. The
-        # scan emits NOTHING for a gapless window, so "" cannot be told from
-        # "stdin was never wired" at this seam. `--allow-empty` moves that
-        # discrimination to the caller: apply passes it because `stdin_from`
-        # has already proved the producer landed, so empty genuinely means no
-        # gaps. A hand or mis-wired invocation without it fails loud instead.
         print(
             "ERROR: backfill-dispatch-rows: no gap rows on stdin. Pipe "
             "workday-complete-backfill-scan's output in, or pass --allow-empty "

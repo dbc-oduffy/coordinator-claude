@@ -82,19 +82,7 @@ from typing import List, Optional
 
 
 def _cc_invoke():
-    """Put `coordinator/bin/lib` on `sys.path` and hand back `cc_invoke`.
-
-    Extracted because both callers below need a name out of that module and
-    only one of them used to do the path setup: `require_dispatch_engine_on_path`
-    was imported into `_resolve_claude_klabauter_root`'s LOCAL scope and then referenced
-    from `_import_state_root`, a different function, so every call raised
-    `NameError` and this CLI could not resolve a state root at all. The
-    failure is silent at the callers that treat it as best-effort --
-    `percolate-round.py :: _resolve_central_state` maps a non-zero exit to
-    `None` and drops the peer-repo-name scan leg without saying so.
-    """
     _this_dir = os.path.dirname(os.path.abspath(__file__))
-    # lib/ -> coordinator/ -> coordinator/bin/lib/
     _coordinator_root = os.path.dirname(_this_dir)
     _bin_lib_dir = os.path.join(_coordinator_root, "bin", "lib")
     if _bin_lib_dir not in sys.path:
@@ -105,22 +93,10 @@ def _cc_invoke():
 
 
 def _resolve_claude_klabauter_root() -> str:
-    """Delegate to cc_invoke's battle-tested engine-root resolution ladder
-    (env var -> settings-home pointer file -> machine-local registry ->
-    coordinator_core.engine_root) rather than re-deriving it — mirrors
-    coordinator-is-meta-repo.py's _resolve_claude_klabauter_root().
-    """
     return _cc_invoke()._resolve_claude_klabauter_root()
 
 
 def _import_state_root():
-    """Resolve the engine root, put it on sys.path, and import the native seam.
-
-    Raises RuntimeError (engine root unresolvable) or ImportError
-    (coordinator_core.state_root not importable) — both are transport
-    failures the CLI maps to exit code 1, distinct from the module's own
-    StateRootError/CrossCuttingStateRoot business-logic failures.
-    """
     claude_klabauter_root = _cc_invoke().require_dispatch_engine_on_path()
     from coordinator_core.state_root import (  # noqa: E402
         CrossCuttingStateRoot as _CrossCuttingStateRoot,
@@ -132,10 +108,6 @@ def _import_state_root():
     return _native_coordinator_state_root, _native_print_map, _StateRootError, _CrossCuttingStateRoot
 
 
-# Re-exported so importers can `from coordinator_state_root import CrossCuttingStateRoot`
-# after loading this hyphenated module via importlib (see test/import precedent in
-# coordinator-artifact-subject.test.py) without reaching into coordinator_core directly.
-# Populated lazily on first successful _import_state_root() call — None until then.
 StateRootError: Optional[type] = None
 CrossCuttingStateRoot: Optional[type] = None
 
@@ -146,11 +118,6 @@ def coordinator_state_root(
     artifact: Optional[str] = None,
     git_root: Optional[str] = None,
 ) -> str:
-    """Importable public API mirroring the retired bash function's call
-    shape. Raises RuntimeError on any resolution failure: engine-root
-    transport, or the native module's own StateRootError /
-    CrossCuttingStateRoot (both already subclass RuntimeError).
-    """
     global StateRootError, CrossCuttingStateRoot
     native_fn, _native_print_map, _StateRootError, _CrossCuttingStateRoot = _import_state_root()
     StateRootError = _StateRootError
@@ -159,10 +126,6 @@ def coordinator_state_root(
 
 
 def print_map() -> str:
-    """Importable public API mirroring `--print-map`. Raises RuntimeError
-    only on engine-root transport failure — the native print_map() itself
-    never raises (each subject's own failure folds to JSON null + stderr
-    WARN)."""
     global StateRootError, CrossCuttingStateRoot
     _native_fn, native_print_map, _StateRootError, _CrossCuttingStateRoot = _import_state_root()
     StateRootError = _StateRootError
@@ -171,12 +134,6 @@ def print_map() -> str:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    """CLI-shaped wrapper preserving the bash oracle's exit codes for
-    parity: prints the resolved path to stdout (no trailing newline) and
-    returns 0; or writes remediation to stderr and returns 1 (usage error /
-    StateRootError / engine-root transport failure) / 2
-    (CrossCuttingStateRoot). ``--print-map`` prints the JSON map and
-    returns 0."""
     args = list(sys.argv[1:] if argv is None else argv)
 
     central = False
@@ -219,9 +176,6 @@ def main(argv: Optional[List[str]] = None) -> int:
             )
             return 1
 
-    # (Review: code-reviewer — F2, 2026-07-22: restored dropped negative-spec
-    # branch from the bash oracle, ordered before the --print-map check to
-    # mirror its original sequencing.)
     if subject is not None and artifact is not None:
         print(
             "coordinator_state_root: --subject and --artifact are mutually exclusive; specify at most one",

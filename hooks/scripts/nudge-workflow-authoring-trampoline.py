@@ -3,7 +3,7 @@
 Problem this closes (docs/wiki/coordinator-tripwires/
 a-hand-authored-workflow-costs-4x-the-plan-execution.md): the native
 `workflow-authoring` skill teaches an EM to hand-author a `Workflow({script:
-"..."})` call with no pointer back at `emit-dispatch-workflow.py`, the
+"..."})` call with no pointer back at `emit-dispatch-workflow`, the
 emitter that would derive the same wave shape from a ratified plan spine for
 roughly a quarter of the token cost. `Workflow({script: "..."})` (the inline
 form) is a deliberate fail-open in `block-workflow-foreign-emission.py`
@@ -119,7 +119,6 @@ _WIKI_ANCHOR = (
     "a-hand-authored-workflow-costs-4x-the-plan-execution.md"
 )
 
-# Mirrors nudge-multiwave-workflow.py's own session_id format guard.
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{4,}$")
 
 _SENTINEL_NAME = "workflow-authoring-trampoline-nudged"
@@ -128,9 +127,6 @@ _TARGET_SKILL_NAMES = {"workflow-authoring", "coordinator:workflow-authoring"}
 
 
 def _git_root() -> str | None:
-    """Repo root, fail-open to None. In-process parent walk first, subprocess
-    fallback -- see nudge-multiwave-workflow.py's own `_git_root` for the
-    full rationale; this is a byte-for-byte copy of that function."""
     walked = _git_root_walk()
     if walked:
         return walked
@@ -151,11 +147,9 @@ def _git_root() -> str | None:
 
 
 def _compose_skill_offer() -> "_envelope.Message":
-    """Pure message composer, routed through `_message_envelope.compose`
-    (docs/plans/2026-08-02-guard-message-character-cap.md § C6)."""
     prose = (
         "[workflow-authoring trampoline] if this is plan dispatch, the script "
-        "already exists -- run `emit-dispatch-workflow.py --plan <plan>` and "
+        "already exists -- run `emit-dispatch-workflow --plan <plan>` and "
         "fire the emitted path via `coordinator:execute-plan` instead of "
         "hand-authoring one here. If this is a fan-out the emitter cannot "
         "produce (review, research), carry on and author it."
@@ -164,12 +158,10 @@ def _compose_skill_offer() -> "_envelope.Message":
 
 
 def _compose_inline_offer() -> "_envelope.Message":
-    """Pure message composer, routed through `_message_envelope.compose`
-    (docs/plans/2026-08-02-guard-message-character-cap.md § C6)."""
     prose = (
         "[workflow-authoring trampoline] this inline `script:` is by "
         "construction hand-authored -- if this is plan dispatch, run "
-        "`emit-dispatch-workflow.py --plan <plan>` and fire the emitted path "
+        "`emit-dispatch-workflow --plan <plan>` and fire the emitted path "
         "via `coordinator:execute-plan` (`Workflow({scriptPath})`) instead, "
         "for roughly a quarter of the token cost. If this is a fan-out the "
         "emitter cannot produce (review, research), carry on."
@@ -238,9 +230,6 @@ def main() -> int:
     if not git_root:
         return 0
 
-    # Rooted at the git COMMON dir, never `<git_root>/.git` -- see
-    # nudge-multiwave-workflow.py's own `main()` for why a worktree's `.git`
-    # FILE would silently never persist this session's sentinel.
     common_dir = _resolve_git_common_dir(git_root)
     if not common_dir:
         return 0

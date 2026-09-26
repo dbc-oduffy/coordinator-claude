@@ -159,17 +159,8 @@ _PYTEST_ENV_SCRUB = (
     "PYTEST_XDIST_WORKER_COUNT",
     "PYTEST_XDIST_TESTRUNUID",
 )
-# This module already spawns pytest as a
-# nested subprocess and needs the outer run's own pytest env vars scrubbed
 # out of that child's environment: a peer's `PYTEST_ADDOPTS` or xdist worker
-# identity would turn a genuine collection into one this gate misreads as a
-# tree defect. `coordinator/bin/tests/test_zero_test_module_ratchet.py`
 # carries the identical tuple under the same name (`_NESTED_PYTEST_ENV_SCRUB`)
-# for the same nested-subprocess reason; kept as a literal here rather than
-# loaded from that file by path (importlib spec, sys.path mutation, and a
-# transitive `coordinator_core` import on every publish round, to read four
-# strings) because the drift risk between two four-element literals is near
-# zero and any divergence is caught by that suite's own scrub test.
 
 MARKER_EXPRESSION = "not cadence and not pending_fix and not designed_red"
 """The tree's own documented fast-tier marker expression (parent plan's
@@ -218,10 +209,6 @@ without measuring anything. A timeout here remains `is_incomplete=True`
 (no claim about the tree), which is the hard-won part and is unchanged."""
 
 _NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
-# See coordinator/lib/percolate/publish_sync.py's identical constant for the
-# rationale: a console-subsystem child with no console of its own opens a
-# visible window on Windows; every subprocess this module spawns is
-# short-lived and output-captured. 0 on POSIX, where the flag does not exist.
 
 _COLLECTED_COUNT_RE = re.compile(r"(\d+)(?:/\d+)?\s+tests?\s+collected\b")
 _ERROR_TAIL_RE = re.compile(r"\berror(?:s)?\b", re.IGNORECASE)
@@ -263,14 +250,6 @@ class MirrorCollectionResult:
     passed: bool
     collected_count: int
     errored: bool
-    # `errored=True` alone
-    # does NOT mean "a content verdict was reached and the tree is bad": it
-    # is now also set for an unrecognised/empty summary, a signal-killed
-    # child, and a spawn OSError, none of which reached a verdict at all.
-    # Always read `is_incomplete` first; `errored` without that check
-    # conflates "the tree has real collection errors" with "the box
-    # couldn't even start/finish the child" — see `is_incomplete`'s own
-    # docstring for the full enumeration.
     exit_code: "int | None"
     timed_out: bool
     elapsed_s: float
@@ -454,16 +433,6 @@ def _parse_collection_summary(stdout: str) -> "tuple[int, bool, bool]":
 
     m = _COLLECTED_COUNT_RE.search(stdout)
     if m:
-        # A recognised "N (of M) tests collected" summary line wins over the
-        # word "error" appearing anywhere ELSE in the body (e.g. a deselected
-        # test's id containing "error_handling") -- but never over an error
-        # clause pytest wrote into that same summary line. pytest reports a
-        # partial collection as "22938/39613 tests collected (16675
-        # deselected), 5 errors in 11.20s": a count AND an error tally, on one
-        # line. Reading that as a clean collection made this gate refuse a
-        # publish while printing "collection completed cleanly" -- the exact
-        # collapse `MirrorCollectionResult` forbids, with the operator told
-        # the tree collects by the same sentence that refused it.
         line_start = stdout.rfind("\n", 0, m.start()) + 1
         line_end = stdout.find("\n", m.start())
         summary_line = stdout[line_start:] if line_end == -1 else stdout[line_start:line_end]
@@ -477,10 +446,7 @@ def _parse_collection_summary(stdout: str) -> "tuple[int, bool, bool]":
     if _NO_TESTS_RE.search(tail_line):
         return 0, False, True
 
-    # Unrecognised summary shape — fail closed into "errored" rather than
-    # silently reporting a clean zero (see docstring), AND report it as
     # unrecognised so the caller treats this as INCOMPLETE, not as a
-    # content verdict about the tree.
     return 0, True, False
 
 
@@ -520,21 +486,6 @@ def _subprocess_env() -> "dict[str, str]":
 
 
 def _verify_isolation_precondition(tree_root: Path) -> bool:
-    """Return whether `tree_root` carries the package directory that
-    `run_assembled_mirror_gate`'s isolation reliance depends on shadowing.
-
-    The gate's isolation is NOT interpreter-level (see module docstring);
-    it depends on `cwd=tree_root` giving `sys.path[0]` precedence over an
-    ambient editable install of the same package name (measured
-    2026-08-29: claude-klabauter's own interpreter has exactly this install). That
-    precedence only produces the intended answer if `tree_root` itself
-    contains a `coordinator_core/` directory for `cwd` to shadow the
-    ambient install with — a tree missing that directory would still run
-    collection, but a resolved `import coordinator_core` inside it could
-    silently come from claude-klabauter instead, with no signal that isolation had
-    stopped applying. This function turns that reliance into a checked
-    precondition instead of an assumed one: callers must refuse rather
-    than trust a run made without it."""
     return (tree_root / "coordinator_core").is_dir()
 
 
@@ -676,12 +627,6 @@ def run_assembled_mirror_gate(
             verdict_obtained=False,
         )
     except OSError as exc:
-        # Process creation itself failed (e.g. a saturated box refusing a
-        # new process) -- this function's own docstring promises "Never
-        # raises"; propagating an OSError out of a caller with no
-        # try/except turns a refusal into a crash. Reported the same way a
-        # TimeoutExpired is: no subprocess ran to completion, so this
-        # carries no claim about the tree's content.
         elapsed_s = time.perf_counter() - start
         return MirrorCollectionResult(
             passed=False,
@@ -700,15 +645,6 @@ def run_assembled_mirror_gate(
     elapsed_s = time.perf_counter() - start
 
     collected_count, errored, recognized = _parse_collection_summary(result.stdout)
-    # A negative returncode means the child died to a signal rather than
-    # exiting on its own -- e.g. an OS/job-object kill under memory
-    # pressure. Whatever stdout it managed to write before that, even if it
-    # happens to match a recognised summary shape, is not evidence the
-    # collection actually finished; treat it the same as an unrecognised
-    # summary. `returncode < 0` is POSIX-only signal-death signalling;
-    # Windows job-object kills report a large positive code instead, which
-    # this branch does not claim to catch -- the unrecognised-summary path
-    # above is what closes that shape.
     signal_killed = result.returncode is not None and result.returncode < 0
     verdict_obtained = recognized and not signal_killed
     if not verdict_obtained:
@@ -738,14 +674,6 @@ _NON_SUBJECT_STEMS = frozenset({"__init__", "conftest"})
 
 @dataclass(frozen=True)
 class ModuleTestCoverageReport:
-    """The verdict `find_modules_missing_tests` reaches. WARN-shaped, never
-    a refusal — `missing` is reported alongside `examined_count` so a
-    caller (and this module's own `format_test_coverage_warning`) can
-    always print the denominator: "0 modules missing tests" over
-    `examined_count == 0` is the abstention this plan exists to kill, and
-    must never read the same as "0 modules missing tests" over a real
-    population (parent plan Anti-scope, "Every leg must report its
-    denominator")."""
 
     examined_count: int
     missing: "tuple[str, ...]"
@@ -760,11 +688,6 @@ def _is_test_file(stem: str) -> bool:
 
 
 def _test_subject_stem(stem: str) -> str:
-    """Strip the test-naming convention off `stem` so a subject module's
-    own stem can be looked up against it — `test_foo` and `foo_test` both
-    reduce to `foo`. Only one of the two affixes is ever present (a file
-    already matched `_is_test_file` to get here), so stripping both in
-    sequence is safe and idempotent."""
     if stem.startswith(_TEST_STEM_PREFIX):
         stem = stem[len(_TEST_STEM_PREFIX) :]
     if stem.endswith(_TEST_STEM_SUFFIX):
@@ -773,38 +696,6 @@ def _test_subject_stem(stem: str) -> str:
 
 
 def _is_vendored_path(path: Path) -> bool:
-    """True iff any component of `path` marks it as third-party dependency
-    source rather than a subject this gate's coverage question is about.
-
-    This gate answers "did a module WE ship leave its own test behind" —
-    a vendored dependency (a venv's copy of `numpy`, `torch`, `pytest`
-    itself, ...) is neither a subject we own nor one whose tests we would
-    ever land alongside it, so it belongs in neither `examined_count` nor
-    `missing`. Left unfiltered (measured 2026-08-29 against the live
-    claude-klabauter<->klabauter pair): 53778 of the assembled mirror's 57754 `.py`
-    files sit under a vendored tree, so an unfiltered `examined_count` is
-    ~93% other people's code, and every stem-collision false positive in
-    `missing` traced back to that same vendored population (e.g. a venv's
-    `setup.py`/`terminal.py`/`manifest.py` coincidentally sharing a stem
-    with an unrelated `test_<stem>.py` living in claude-klabauter's own source
-    tree) — a denominator and a WARN list neither one describes the
-    payload this gate exists to check.
-
-    Deliberately NOT delegated to `percolate/ignore.py`'s
-    `PercolateIgnoreMatcher`: that module matches a `.percolate-ignore`
-    FILE's patterns against publish-payload inclusion (a different,
-    file-driven, security-load-bearing question — see its own module
-    docstring), not a hardcoded "is this a dependency tree" predicate: no
-    `.percolate-ignore` is guaranteed to exist for an arbitrary tree_root/
-    source_root this function is asked to walk. A component-name check is
-    the smallest correct mechanism for the specific two shapes this gate
-    needs to exclude.
-
-    Matches ANY path component named exactly `site-packages`, or any
-    component whose name STARTS WITH `.fleet-env` (the fleet's own
-    generated-venv naming convention carries a trailing per-run suffix,
-    e.g. `.fleet-env.gen-72332-47c78a42/` — a startswith check catches
-    every instance, an exact-match check would not)."""
     for part in path.parts:
         if part == "site-packages":
             return True
@@ -814,13 +705,6 @@ def _is_vendored_path(path: Path) -> bool:
 
 
 def _test_stems_under(root: Path) -> "set[str]":
-    """Walk `root` and return the set of subject stems that have a test
-    file somewhere under it, matched the same STEM-not-adjacency way
-    `find_modules_missing_tests` matches within a single tree (see that
-    function's docstring). Vendored paths (`_is_vendored_path`) are
-    excluded from the walk — a vendored test file must never make a
-    vendored (or first-party, via stem collision) subject look covered
-    or missing."""
     stems: set[str] = set()
     for py_file in root.rglob("*.py"):
         if _is_vendored_path(py_file):
@@ -954,13 +838,6 @@ def format_test_coverage_warning(report: ModuleTestCoverageReport) -> str:
 
 
 def format_refusal(result: MirrorCollectionResult) -> str:
-    """Render `result` as the refusal message a wiring caller (C3) prints
-    when `result.passed` is False. Reports the denominator explicitly (the
-    parent plan's Anti-scope: "Do not build a gate that can abstain ...
-    Every leg must report its denominator") — a caller that only prints
-    "assembled mirror gate failed" without the collected count and the
-    errored/clean-zero distinction reproduces the abstention defect this
-    plan exists to close."""
     if result.isolation_unverified:
         shape = (
             "INCOMPLETE — ISOLATION UNVERIFIED, no subprocess run "

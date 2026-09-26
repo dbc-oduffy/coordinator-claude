@@ -1,31 +1,8 @@
-# coordinator/queue-profiles/lessons.yaml — the lessons local-mode grind
-# profile, validated by coordinator/schemas/queue-grind-profile.schema.json
-# and by that schema's test_every_queue_profile_validates, and pushed
-# through the engine's own load_profile/validate_graph/resolve_appetite
-# seam by coordinator/tests/test_lessons_queue_profile.py.
-#
-# /learn-lessons's local run emits and fires this profile through
-# emit-dispatch-workflow.py --queue state/lessons --profile lessons
-# --appetite <a>, replacing EM-driven waves. Every executable step below
-# is a named engine op or agent verify -- no field accepts a command line
-# (DR-queue-grinds-run-on-shared-primitives Negative spec). The operative
-# triage policy lives ONLY here, inline as data.
-#
-# Spec backlink: docs/plans/2026-09-21-canonical-learn-lessons-emitted-workflow.md
-# Tasks section C4.
 
-# Lesson rows carry no reliable id field (1 of 62 rows at census carries a
-# stray id) -- the file stem is the row's identity, and it survives the
-# archive rename.
+
 row_id_key: "@stem"
 
-# No `source`. The queue's own YAML files are the rows and the only thing a
-# close can write back to. The engine would add lessons.extract's records to
-# the same manifest as separate `@source-*` rows, which duplicates every
-# lesson and yields rows no close can reach.
 
-# Coalesce [proposed_target, target_wiki] -- the first present, non-sentinel
-# value wins; a row with neither batches under @unkeyed.
 batch_key: [proposed_target, target_wiki]
 
 absent_sentinels:
@@ -50,21 +27,15 @@ verdicts:
   - direction-call
   - malformed
 
-# Hand-back types this profile adds to the universal set (DR-404 § 3):
-# universal rows route to central promotion, and doe-escalation/
-# direction-call reach the PM under their own name.
+
 hand_back_types:
   - route-to-central
   - doe-escalation
   - direction-call
 
 graph:
-  # Triage runs once. Each verdict family then passes its own agent routing
-  # verify before its stage or hand-back; with no source op there is no
-  # extraction manifest for lessons.verify_extraction to ground against. A
-  # verify node's outcomes are only pass/fail, so it cannot fan out by
-  # verdict, and a second triage node to re-fan would be a second model call
-  # that can disagree with the first.
+  
+  
   triage:
     kind: triage
     edges:
@@ -83,8 +54,7 @@ graph:
       malformed: verify-routing-malformed
     on_fail: needs-judgment
 
-  # A failed routing verify hands back verify-failed: a back-edge to triage
-  # would close a loop through this on_fail, which validate_graph refuses.
+  
   verify-routing-discard:
     kind: verify
     verify:
@@ -137,9 +107,8 @@ graph:
     kind: refute-close
     edges:
       confirmed: commit
-    # A refuted discard hands back rather than closing on an unconfirmed
-    # claim. A back-edge to triage would close a loop through this
-    # on_fail, which validate_graph refuses as a second on_fail traversal.
+    
+    
     on_fail: needs-judgment
 
   fix:
@@ -152,8 +121,8 @@ graph:
     kind: verify
     edges:
       pass: commit
-    # A failed verify hands back rather than closing. A back-edge to fix
-    # would close a loop through this on_fail, which validate_graph refuses.
+    
+    
     on_fail: verify-failed
     verify:
       default: agent

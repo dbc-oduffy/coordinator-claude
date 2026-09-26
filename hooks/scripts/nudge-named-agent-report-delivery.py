@@ -67,9 +67,6 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
-    # Defensive fallback -- a hook script copied/deployed WITHOUT its
-    # sibling _engine_root.py (e.g. an isolated test harness, or a
-    # partial deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -90,7 +87,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open silent pass -- engine plane unresolvable on this machine
+        return 0
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
@@ -99,23 +96,20 @@ def main() -> int:
         from coordinator_core.hooks import nudge_named_agent_report_delivery as _op  # noqa: F401
         from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
     except Exception:
-        return 0  # engine unimportable -> fail-open silent pass
+        return 0
 
     params = {
         "tool_name": payload.get("tool_name", ""),
         # Forwarded UNFLATTENED and complete: the op reads tool_input["name"] and
-        # tool_input["prompt"] raw, so a flattened scalar will not work here.
         "tool_input": tool_input,
     }
 
-    # Not scoped (see module docstring): no _origin_worktree forwarded, matching
-    # the op's own repo_root=None default.
     try:
         result = dispatch_from_hook("hooks.nudge_named_agent_report_delivery", params)
     except HookDispatchError:
-        return 0  # any engine failure -> fail-open silent pass
+        return 0
 
-    if result:  # {} (no_advisory) and None both fall through to no-output
+    if result:
         sys.stdout.write(json.dumps(result))
         sys.stdout.write("\n")
     return 0

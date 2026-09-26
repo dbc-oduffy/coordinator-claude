@@ -191,13 +191,13 @@ Both are re-reads of disk, not memory. Either failing means not done yet.
 
 ## Completion Report Format
 
-Return `## Review Integration Complete` carrying reviewer, artifact path(s), counts (received, applied, escalated, deferred):
+Open with `<STATUS>: <own run-report sidecar path>` (DONE or BLOCKED), then `## Review Integration Complete` with reviewer, artifact path(s), counts (received, applied, escalated, deferred):
 
 - `### AUTO-FIX Summary` (if any) — one line each: `Finding #N — [brief description]`.
-- `### Triage Table` — every finding with an explicit disposition, none untriaged. Columns `# | Finding | Confidence | Fix Class | Disposition | File | Lines | Reasoning`, `—` where nothing supplied. Dispositions are § Sidecar Disposition Annotation's buckets, plus `Suspended (REJECTED)`.
-- `### Brief Conflicts` (if any) — each colliding sentence verbatim, the floor it would have relaxed, what you did instead.
+- `### Triage Table` — every finding disposed, none untriaged. Columns `# | Finding | Confidence | Fix Class | Disposition | File | Lines | Reasoning`, `—` if none. Dispositions: § Sidecar Disposition Annotation's buckets, plus `Suspended (REJECTED)`.
+- `### Brief Conflicts` (if any) — the colliding sentence verbatim, the floor relaxed, what you did instead.
 - `### Escalations` and `### Deferred to Pipeline` (if any).
-- A reviewer's `## Worker Dispatch Recommendations` block — preserved verbatim, not acted on.
+- Reviewer's `## Worker Dispatch Recommendations` block — verbatim, not acted on.
 - `### Stamp` — always: `integrated_from: [<stem>, ...]`, or `integrated_from: skipped — integrated nothing`.
 
 ## Tools Policy

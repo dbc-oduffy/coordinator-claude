@@ -132,16 +132,6 @@ def _bootstrap_engine() -> None:
 
 
 def __getattr__(name: str):
-    """PEP 562 hook for `breadcrumb` / `stable_pid_alive`.
-
-    `test_breadcrumb_and_spawn.py` monkeypatches `stop_mod.breadcrumb` and
-    `stop_mod.stable_pid_alive` WITHOUT calling `main()` first, so deferring
-    those imports into `main()` as plain locals -- which is what the sweep did
-    -- left them absent from the module and broke five tests with
-    `AttributeError: module has no attribute 'breadcrumb'`. Routing them
-    through the bootstrap restores the module attribute while keeping the
-    module body inert.
-    """
     if name in _BOOTSTRAPPED_NAMES:
         _bootstrap_engine()
         if name not in globals():
@@ -163,33 +153,19 @@ _EXIT_STALE_BREADCRUMB = 3
 _EXIT_COULD_NOT_STOP = 4
 
 # Matches `warm.client.READ_DEADLINE_SECS`'s own bound for a single
-# request/response round trip -- an operator command should never itself
-# hang past a plausible server response window.
 _ASK_READ_DEADLINE_SECS = 2.0
 
 # Matches `warm.client.ERROR_PIPE_BUSY` -- kept as a local literal rather
-# than importing the private constant from a sibling module for a single
-# comparison.
 _ERROR_PIPE_BUSY = 231
 
-# Bound on waiting for a `terminate()`'d process to actually exit before
-# escalating to `kill()`.
 _TERMINATE_GRACE_SECS = 5.0
 _TERMINATE_POLL_INTERVAL_SECS = 0.1
 
-# A fixed, obviously-invalid engine-generation token. The real token
-# (`warm.skew.compute_client_token`) is a 16-hex-character sha1 prefix;
-# this literal cannot collide with one and is never meant to -- it exists
-# only to guarantee `warm.skew.ServerVersionState.is_skewed` sees a
 # mismatch, per this script's own docstring ("MECHANISM", step 1).
 _STOP_REQUEST_TOKEN = "warm-engine-stop-requested-0000"
 
 
 def _read_line_with_deadline(fh, deadline_secs: float) -> "bytes | None":
-    """One bounded `readline()`, run on a daemon thread so a wedged server
-    never blocks this process past `deadline_secs` -- the same shape
-    `warm.client._PendingRead` uses, kept local rather than imported since
-    that class is private to its module."""
     import threading
 
     result: dict = {}
@@ -211,9 +187,6 @@ def _read_line_with_deadline(fh, deadline_secs: float) -> "bytes | None":
 
 
 def _open_pipe(pipe: str):
-    """Open the client end of the warm pipe -- isolated as its own
-    function (mirroring `warm.client._open_pipe`'s own shape) so tests can
-    monkeypatch the transport without a real named pipe."""
     return open(pipe, "r+b")
 
 
@@ -247,12 +220,7 @@ def _ask_server_to_stop(pipe: str) -> bool:
         except OSError:
             return False
         _read_line_with_deadline(fh, _ASK_READ_DEADLINE_SECS)
-        # Whether or not a response line arrived, the write succeeding
-        # means the server accepted the frame and (per `warm.server.
-        # _serve_line`'s fixed order) already ran respond -> close_listener
-        # -> drain before this function could observe anything further --
         # a dropped read here is an EXPECTED shape of a server that is now
-        # exiting, not a failure to report.
         return True
     finally:
         try:

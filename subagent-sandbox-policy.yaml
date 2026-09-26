@@ -1,41 +1,8 @@
-# subagent-sandbox-policy.yaml
-#
-# Policy contract — the doctrine-owned half of the contract-vs-engine split.
-#
-# SCOPE: the write-sandbox confinement half is DEAD. The
-# `confined:` / `exempt:` / `sanctioned_dirs:` deny grammar was removed
-# end-to-end — this doctrine, the Python enforcement engine that reads it, and
-# this file — and the pinned contract grammar table was dropped in lockstep.
-# This file's surviving surface is `report_sidecar:` — the
-# run-report-sidecar provisioning eligibility list — plus the additive
-# `report_type_map:` key (agent-citizenship provisioning) layered on
-# top of it; neither restructures the other.
-#
-# Read by:
-#   (a) a PostToolUse hook (coordinator/hooks/scripts/enforce-agent-dispatch-mode.py),
-#       which resolves a spawning subagent_type against report_sidecar: to decide
-#       eligibility for an auto-provisioned run-report sidecar, and
-#   (b) the provisioning engine's `provision_report` entrypoint.
-# This key's name and value grammar are pinned against that engine's contract
-# for the `report_sidecar` section. Any change to the key name or value
-# grammar here is a breaking drift against that pinned contract and must be
-# relayed to the engine side in lockstep — never silently changed.
-#
-#   report_sidecar:  list[str] of subagent_type values — the run-report-sidecar
-#                     eligibility list. EXACT STRING MATCH — no globbing. Seeded with
-#                     the write-capable / multi-step subagent classes; short read-only
-#                     2-call spawns deliberately stay off it. A subagent_type present
+
+
 #                     in this list is ELIGIBLE for an auto-provisioned run-report
-#                     sidecar at spawn time; a subagent_type ABSENT is a lookup-miss,
-#                     which fail-opens to "not eligible — provision nothing" (never a
-#                     hard failure, never a blocked spawn). The provision engine (reader
-#                     (b) above) emits either exactly one {"report_sidecar":"<path>"}
-#                     line (eligible) or empty stdout (ineligible or any fail-open leg),
-#                     exit 0 either way.
-#
-# Fail-open — an empty, absent, unreadable, or malformed policy resolves to an empty
-# policy: every report_sidecar lookup then misses, and every spawn provisions nothing.
-#
+
+
 report_sidecar:
   - coordinator:executor
   - coordinator:review-integrator
@@ -71,51 +38,11 @@ report_sidecar:
   - coordinator:test-evidence-parser
   - coordinator:test-runner
   - coordinator:atlas-clarity-reviewer
-  # Holds Write, and plan-blitz's wave dispatches it through `provisionSidecarCli` and
-  # then reads back a pointer record naming what it provisioned. Without eligibility
-  # that call is REFUSED and the checker falls back to a path it invents — measured
-  # 2026-09-10 on example-cockpit-repo, a `subagent-share/premise-check-fallback/` directory
-  # inside the wave's own trail slot. The review still ran; only its dispositions were
-  # lost, which is the silent half.
+  
+  
   - coordinator:premise-checker
-# 2026-07-30 (dispatch-tiering, Leg B): coordinator:atlassian-worker and
-# coordinator:drive-worker were removed from this list — dispatch_tier: (below)
-# classifies both as exploration tier (write-toolless, clause (1)), so neither is
-# provisioning-eligible any more. coordinator:security-audit-worker and
-# coordinator:external-pattern-checker were considered for the same removal and
-# corrected back to review-execution tier (see dispatch_tier:'s own comment) — both
-# stay on this list. coordinator:dep-cve-auditor and coordinator:test-evidence-parser
-# were ALSO removed in that same pass and then restored here (2026-07-30, same-day
-# fix): the two-clause rule as shipped dropped the payload-size discriminator, and
-# both agents' own bodies hard-require a sidecar (see dispatch_tier:'s clause (2)(c)
-# comment) — removing them left their own contract unfulfillable at every dispatch.
-# Removal (for atlassian-worker/drive-worker) is safe by this file's own fail-open
-# contract: an absent subagent_type is a lookup-miss that resolves to "provision
-# nothing", never a hard failure or a blocked spawn.
 
-# report_type_map:  dict[str, str] — subagent_type -> template type, additive
-# on top of report_sidecar (does NOT replace or restructure it). Selects which
-# of the provisioning engine's four `provision_report --type` templates
-# (run-report / review-findings / assessment / staff-eng-review) an eligible
-# subagent_type's auto-provisioned sidecar should use.
-#
-# TWO consumers, not one:
-#   (a) a doctrine-side hook, on the `Agent`-tool spawn path; and
-#   (b) the engine's `subagent_sandbox.engine.load_policy`, which parses this
-#       key so `provision-sidecar` resolves the same template on the Workflow
-#       path (where no `Agent`-tool hook fires).
-# What (b) depends on is the KEY NAME and the `str -> str` value grammar,
-# nothing more — rows may be added, removed, or re-pointed freely without
-# engine-side coordination. Parsing there is fail-open at both levels (a
-# non-dict value voids the map, a malformed row drops only itself, a
-# lookup-miss provisions the legacy shape). Renaming the key, or changing its
-# value grammar away from `str -> str`, breaks that consumer and needs the
-# lockstep relay this file's header requires. Every key here MUST also be report_sidecar-eligible
-# (see coordinator/tests/test_report_type_map.py) — a subagent_type cannot
-# get a typed sidecar unless it can get a sidecar at all. Every subagent_type
-# declared across coordinator/agents/*.md MUST appear here (no agent left
-# unmapped) — the test enumerates coordinator/agents/*.md `name:` frontmatter
-# and cross-checks.
+
 report_type_map:
   coordinator:executor: run-report
   coordinator:review-integrator: run-report
@@ -127,8 +54,8 @@ report_type_map:
   coordinator:security-audit-worker: review-findings
   coordinator:dep-cve-auditor: review-findings
   coordinator:test-evidence-parser: review-findings
-  # run-report, not review-findings: test-runner emits execution evidence with no
-  # findings and no dispositions — classification is test-evidence-parser's row above.
+  
+  
   coordinator:test-runner: run-report
   coordinator:staff-eng: staff-eng-review
   coordinator:staff-data-sci: staff-eng-review
@@ -136,22 +63,18 @@ report_type_map:
   coordinator:staff-ux: staff-eng-review
   coordinator:vp-product: staff-eng-review
   coordinator:eng-director: staff-eng-review
-  # staff-eng-review, not review-findings: Kira is an Opus persona reviewer emitting
-  # the shared ReviewOutput envelope with a top-level persona delta
-  # (rebuild_recommended/rebuild_rationale/rebuild_scope) — the same shape as the six
-  # rows above, not the tool-shaped per-finding output of the review-findings family.
+  
+  
   coordinator:overengineering-reviewer: staff-eng-review
   coordinator:apm: staff-eng-review
-  # review-findings: the checker reports per-class citation findings, the same
-  # per-finding shape the review-findings family carries. report_sidecar-eligible
-  # (above) because plan-blitz provisions it a sidecar and reads its pointer back.
+  
+  
   coordinator:premise-checker: review-findings
-  # Typed for the coverage invariant, NOT provisioned — each is absent from
-  # report_sidecar: on its own dispatch_tier: rationale below. A type here selects a
-  # template for an agent that gets a sidecar; for one that does not, it is inert.
+  
+  
   # Coverage is over every DECLARED agent (coordinator/tests/test_report_type_map.py
-  # § invariant 3, decoupled from report_sidecar 2026-07-30), so leaving an agent out
-  # asserts nothing about eligibility and only breaks the enumeration.
+  
+  
   coordinator:falsifier-integrity-reviewer: review-findings
   coordinator:subtractive-adjudicator: review-findings
   coordinator:blitz-em: staff-eng-review
@@ -170,127 +93,55 @@ report_type_map:
   coordinator:docs-checker: assessment
   coordinator:coverage-auditor: assessment
   coordinator:doc-link-checker: assessment
-  # MCP tool-holding retrieval workers. Both return facts as final message text —
-  # neither carries Write/Edit, so neither can author a sidecar itself. Mapped for
-  # coverage-invariant completeness; the type is the retrieval-worker default.
+  
+  
   # DISCHARGED 2026-07-30 (dispatch-tiering, Leg B): this row USED to also keep both
-  # agents report_sidecar-eligible, which meant the provisioning engine auto-
-  # scaffolded a sidecar at every dispatch that could never be filled in (no
-  # Write/Edit tool), leaving a permanently-empty state/subagent-share/<session>/
-  # <key>.md behind every real dispatch. That was a named tradeoff, and the
-  # no-sidecar escape hatch it called out as a "known follow-up" now exists:
-  # dispatch_tier: (below) classifies both as exploration tier, and both have been
-  # removed from report_sidecar: accordingly — the coverage invariant
-  # (report_type_map:, this key) and the provisioning trigger (report_sidecar:) are
-  # no longer the same list, by design. This row stays for report_type_map's
-  # coverage invariant only; it no longer implies provisioning.
+  
+  
   coordinator:atlassian-worker: assessment
   coordinator:drive-worker: assessment
   coordinator:prior-art-checker: assessment
   coordinator:external-pattern-checker: assessment
-  # Bash+Read only, by DR-125 Ruling 3 — no Write/Edit, so it cannot author a
-  # sidecar either. Same shape as the retrieval workers above: mapped for the
-  # coverage invariant, absent from report_sidecar:, no provisioning implied.
-  # Its reporting contract (SHA, exact paths committed, what it declined and
-  # why) returns as final message text to the dispatching EM.
+  
+  
   coordinator:git-commit-agent: run-report
-  # assessment, not review-findings: its Structured Output Contract is three fixed
-  # question sections (followability / boundary-entry specificity / ambiguity risk)
-  # answered per page, with no per-finding disposition slot — question/answer shape.
-  # Its resident subagent-sandbox-preamble paste is already the assessment VARIANT,
-  # which the sync verifier selects off this row.
+  
+  
   coordinator:atlas-clarity-reviewer: assessment
-  # run-report, not assessment: its return is execution evidence — the fired run
-  # handle, the wave map it fired, and what it excluded — not findings with
-  # dispositions. Mapped for this key's coverage invariant only; absent from
-  # report_sidecar:, so no provisioning is implied.
+  
+  
   coordinator:workflow-maker: run-report
-  # run-report, not review-findings: it relays one op invocation's exit code and JSON
-  # verbatim, no dispositions of its own. Mapped for the coverage invariant only;
-  # absent from report_sidecar: (see dispatch_tier: below — no Write/Edit, clause (1)).
+  
+  
   coordinator:queue-grind-op-runner: run-report
 
-# dispatch_tier:  dict[str, str] — subagent_type -> "exploration" | "review-execution".
-# Additive on top of report_sidecar: / report_type_map: / contract_blocks: — does not
-# restructure any of them. Every subagent_type declared across coordinator/agents/*.md
-# MUST appear here exactly once (coverage + closed-value-set + the structural clause-1
-# check below are all asserted by coordinator/tests/test_dispatch_tier.py).
-#
-# THE RULE (mechanical — apply it, don't re-litigate it case-by-case):
-#
-# A sidecar buys two different things — crash/compaction protection (redoing lost
-# work costs more than the boot) and EM-context protection (an inline return would
-# spend more of the dispatching EM's context window than the sidecar convention
-# saves). A surface needs only ONE of the two to earn a sidecar, not both.
-#
+
 # A surface is REVIEW-EXECUTION tier (sidecar provisioned) only if it satisfies BOTH:
-#   (1) It can fill one. It holds a write tool (Write/Edit). An agent without one can
-#       never author its sidecar, so it can never be review-execution tier — this leg
-#       is mechanical and admits no exception.
-#   (2) Losing the run, or returning it inline, costs more than the boot. Its output
-#       is ANY of:
+
+
 #         (a) TRANSPORT — consumed by another agent downstream rather than by the
-#             dispatching EM;
+
 #         (b) ACCUMULATED across more than one independent unit of work (chunk, file,
-#             source, link, package), such that a mid-run crash or compaction means
-#             redoing work already finished; or
+
+
 #         (c) LARGE OR UNBOUNDED PAYLOAD — its output is a table/list/report whose
-#             size scales with the input (findings across N packages, N test
-#             failures) rather than a small fixed-size answer (a verdict, a short
-#             list, a pointer), such that returning it inline costs the dispatching
-#             EM more context than the sidecar convention saves. "Returns a table" is
-#             not itself the test — a short, bounded table is exploration-tier;
-#             unbounded-with-input-size is what makes (c) fire.
-#
+
+
 # Everything else is EXPLORATION tier: findings come back inline in the final message
-# and no sidecar is provisioned. The saving is real — a doctrine-carrying dispatch
-# boots at ~45-55k against Explore's ~17.6k — but note the honest constraint: the
-# cheap harness tier (Explore/Plan) has no Edit/Write at all, so "exploration tier"
-# here means "needs no sidecar", not "is automatically re-pointed at Explore".
-#
+
+
 # report_sidecar: stays the PROVISIONING TRIGGER (fail-open lookup-miss = "provision
-# nothing"). Every review-execution-tier row here is report_sidecar-eligible; every
-# exploration-tier row here is absent from report_sidecar: — dispatch_tier: makes that
-# classification an explicit, checked artifact instead of something inferable only
-# from report_sidecar:'s membership. coordinator/tests/test_dispatch_tier.py enforces
-# clause (1) structurally: no agent lacking a write tool may be review-execution, and
-# no exploration-tier agent may appear in report_sidecar:.
-#
-# Applying clause (2): two agents fail clause (1) alone (no write tool at all) —
-# coordinator:atlassian-worker, coordinator:drive-worker. The rest are write-capable,
+
+
 # so clause (2) decides them. TRANSPORT is read off actual downstream wiring, not
-# guessed: docs-checker/prior-art-checker/plan-coverage-checker all have a dedicated
-# "-consumption" block injected into the six G1 reviewer personas (they read these
-# sidecars as part of their own dispatch contract); external-pattern-checker is the
-# same transport case — its sidecar is consumed downstream by an Opus review, the
-# direct sibling of prior-art-checker's pre-flight-recall-into-Opus-review shape, and
-# its bounded web research is expensive to redo, so splitting it from prior-art-checker
-# would be incoherent; the deep-research scout/specialist/sweep chain (repo-scout,
-# repo-specialist, research-scout, research-specialist, research-worker,
-# notebooklm-research-scout) hands off via an explicit, prompt-documented file
-# convention each downstream teammate reads on startup; the six review personas and
-# the G4 execute-pipeline pair (executor, review-integrator, plus enricher upstream of
+
+
 # it) are transport/accumulated by construction. ACCUMULATED covers doc-link-checker
-# (up to 100 sequential network link-checks per dispatch), code-reviewer/
-# code-reviewer-weekly/parallel-review-synthesizer/coverage-auditor (chunked review —
-# crash-safety is the whole point), security-audit-worker (it scans a diff,
-# accumulating findings file by file — a crash midway through a large diff loses every
-# finding already made; the unit count scales with the diff's size, not with a fixed
-# per-agent call budget, so "a handful of bounded tool calls" is the wrong measure for
-# it), and the sweep/synthesizer stage (research-sweep, research-synthesizer,
-# structured-synthesizer — merges N upstream specialists' work, expensive to redo).
-# dep-cve-auditor and test-evidence-parser fail BOTH transport ((a) — no consumption
-# block wired to any downstream agent's own prompt; the EM is the sole direct reader)
-# and accumulation ((b) — each is a single fast local pass, cheap to rerun in full,
-# not the many-independent-unit exposure that leg requires), but both hit clause
-# (2)(c): their own agent bodies hard-require a sidecar (test-evidence-parser
-# pre-scaffolds a findings file and makes exactly one Edit replacing a
+
+
 # `<!-- FINDINGS -->` sentinel; dep-cve-auditor's Edit "fails loudly if the sidecar is
-# absent — correct behavior", and an inline summary is "task failure, not a
-# shortcut") and their payload — a triage table across N test failures, or a CVE
-# table across ecosystems — scales with the input rather than being a small
-# fixed-size answer, so returning it inline spends exactly the EM context the
-# sidecar convention exists to avoid.
+
+
 dispatch_tier:
   coordinator:executor: review-execution
   coordinator:review-integrator: review-execution
@@ -325,147 +176,50 @@ dispatch_tier:
   coordinator:atlassian-worker: exploration
   coordinator:drive-worker: exploration
   coordinator:test-evidence-parser: review-execution
-  # test-runner executes; its report is the payload test-evidence-parser reads, so the
-  # same clause (2)(c) payload-size/EM-context rationale that tiers the parser applies.
+  
+  
   coordinator:test-runner: review-execution
   coordinator:dep-cve-auditor: review-execution
-  # no Write/Edit — clause (1) forces exploration tier, same as atlassian-worker/drive-worker
+  
   coordinator:git-commit-agent: exploration
-  # Read+Bash+PowerShell only — clause (1) again: it authors the falsifier script into a
-  # scratch path it runs, and returns the baseline verdict as final message text, so it
-  # can hold no sidecar. Absent from report_sidecar: accordingly.
+  
+  
   coordinator:exit-criterion-falsifier: exploration
-  # Holds Write, passing clause (1), but its own body declares no affirmative sidecar
-  # contract (no provisioned-home paragraph, no DONE:/done: <path> return, no
-  # inline-summary-is-task-failure prose) and its output — clearing one Group EM's
-  # pre-assembled memo triage brief — returns to the dispatching Group EM inline.
-  # Absent from report_sidecar:/report_type_map: accordingly.
+  
+  
   coordinator:group-em-assistant: exploration
-  # Holds Edit, so clause (1) passes. Clause (2)(c): its body hard-requires the
-  # pre-provisioned sidecar (Edit only — "never `Write` a new file, never guess a
-  # path") and its return is a bare `DONE: <sidecar-path> — <verdict>`, so the whole
-  # verdict payload — one bullet per finding across three lenses, scaling with the
-  # page — exists only in the sidecar. Same shape as dep-cve-auditor/
-  # test-evidence-parser: exploration tier would make its own contract
-  # unfulfillable at every dispatch. Not (a)/(b): one page per dispatch, EM-read.
+  
+  
   coordinator:atlas-clarity-reviewer: review-execution
-  # Holds Write/Edit, so clause (1) passes, but clause (2) does not: one fired run
-  # per dispatch, consumed by the dispatching EM, and a re-emit after a lost run is
-  # deterministic and cheap — nothing accumulates that a crash would make you redo.
+  
+  
   coordinator:workflow-maker: exploration
-  # Holds Write, so clause (1) passes; clause (2)(c) decides it: plan-blitz hands it a
-  # provisioned sidecar and reads back only a pointer record, so the whole per-class
-  # citation payload exists in that sidecar and nowhere else. Same shape as
-  # atlas-clarity-reviewer. report_sidecar-eligible accordingly.
+  
+  
   coordinator:premise-checker: review-execution
-  # Read/Grep/Glob only — clause (1) forces exploration, same as the other Write-less
+  
   # reviewers. Its verdict (SOUND/BROKEN/UNREVIEWABLE plus the tell) returns as final
-  # message text. Absent from report_sidecar: accordingly.
+  
   coordinator:falsifier-integrity-reviewer: exploration
   coordinator:subtractive-adjudicator: exploration
-  # Bash+PowerShell only — clause (1) forces exploration, same as atlassian-worker/
-  # drive-worker. It relays one op's exit code and JSON verbatim as final message
-  # text. Absent from report_sidecar: accordingly.
+  
+  
   coordinator:queue-grind-op-runner: exploration
-  # Both hold Write and so pass clause (1), but clause (2) does not: each writes its
-  # deliverable to a path the dispatching Workflow addressed for it — the trail slot's
-  # size review, the plan body and its planning report — and returns a structured value,
-  # not a sidecar. A provisioned scaffold would be scaffolded and never filled.
+  
+  
   coordinator:blitz-em: exploration
   coordinator:plan-author: exploration
 
-# contract_blocks:  dict[str, list[str]] — subagent_type -> ORDERED list of
-# canonical snippet block names to assemble and inject into that subagent's
-# dispatch prompt at spawn time. Additive on top of report_sidecar:; every key
-# here MUST name a REAL agent declared under coordinator/agents/*.md (see
-# coordinator/tests/test_contract_blocks.py) — it is NOT required to be
-# report_sidecar-eligible. Decoupled 2026-07-30 (dispatch-tiering, Leg B), same
-# shape as report_type_map:'s own decoupling above: a block that teaches an
-# agent about a provisioned sidecar (provisioned-scaffold-precedence,
-# sidecar-emission-contract, sidecar-frontmatter-contract, run-report-
-# citizenship) belongs only to a report_sidecar-eligible agent, but a block
-# like quota-self-detect-preamble teaches an agent to notice its own quota
-# exhaustion regardless of tier — forcing contract_blocks: keys to equal
-# report_sidecar: would strip that protocol from every exploration-tier agent
-# purely to keep the two lists in lockstep, which is exactly the coupling
-# defect this decoupling closes. Block names are registry.toml snippet names
-# WITHOUT the .md suffix and MUST resolve to a real coordinator/snippets/
-# <name>.md on disk. List ORDER is the emission order — deterministic,
-# asserted by test. A subagent_type absent from this map receives no
-# injection (lookup-miss fail-open, never a blocked spawn). An EMPTY list is
-# legal and means the same. This key's name and value grammar are pinned
-# against the provisioning engine's own `contract_blocks` contract — lockstep,
-# never one-sided.
-#
-# Artifact-type families (report_type_map: shape, not persona identity) —
-# three exist as of 2026-07-26: `review-findings`/`staff-eng-review`-shaped
-# rows get sidecar-frontmatter-contract (G1); `assessment`-shaped G2
-# pre-flight rows get sidecar-emission-contract; `run-report`-shaped rows
-# (executor, review-integrator) get run-report-citizenship. These are three
-# genuinely different sidecar shapes (see run-report-citizenship.md's own
-# header for the discriminating detail) — never force one onto a
-# subagent_type whose deliverable shape doesn't match; an agent that never
-# runs a pre-flight does not carry pre-flight-consumption prose, and an
-# `assessment`-shaped worker outside the G2 plan-pipeline does not carry the
-# G2-specific plan-sidecars path convention (see the G5 rows' own comment
-# below for a concrete instance of that discrimination).
-#
-# G1 (reviewer-persona shared contract) rows: the six named Opus-tier reviewer
+
 # personas. DEFAULT-TO-ALL-TO-ALL (seam adjudication / G1 C2, F9 the Director of Engineering): the
-# universal-safe blocks — persona-dispatch-contract (front of the ordered
-# list — defines the base ReviewOutput envelope every persona-specific delta
-# extends, so it must resolve before them), reviewer-calibration,
-# quota-self-detect-preamble, sidecar-frontmatter-contract, the pre-flight
-# trio (docs-checker-consumption, prior-art-check-consumption,
-# plan-coverage-check-consumption; inert when a persona never receives that
-# pre-flight sidecar), and persona-persisting-findings (persist-to-disk
-# mechanics, positioned last as a downstream-of-sidecar-path concern) —
-# default to all six. reviewer-calibration is the one block excluded
-# per-persona, and ONLY where a STATED behavioral reason exists (burden of
-# argument sits on the exclusion, not the inclusion): staff-ux (the UX Reviewer) runs a
-# flow/step-based finding shape, not the fix-vs-ask rubric; vp-product (the VP-Product Reviewer)
-# runs a product-lens voice, not the fix-vs-ask rubric. Both personas would
-# be behaviorally misled by the rubric's fix-vs-ask framing, so it is
-# omitted for them; the other four personas (staff-eng, eng-director,
-# staff-data-sci, senior-front-end) receive it. do-not-commit.md and
+
+
 # guard-encounter-preamble are NOT injected — they stay RESIDENT (pasted)
-# per C1/F3 and are not contract_blocks entries, for these six or for any
-# subagent_type in any family below — that carve-out is universal, not
-# G1-scoped.
-#
-# 2026-07-26 regression note (G0 leg (b)): persona-dispatch-contract and
-# persona-persisting-findings were added to the six G1 rows above to close a
-# live committed regression — commit 909cc10b (G1 second pass) converted all
-# six personas' pasted blocks to prose references pointing at "the injected
-# X block", but the corresponding contract_blocks/registry.toml wiring never
-# landed in that commit. Between 909cc10b and this fix, dispatching any of
-# the six personas delivered NEITHER the old resident paste (removed) NOR the
-# new injected content (not yet wired) — a silent content-loss window, not a
-# duplication one. See state/subagent-share/g1-second-pass/
-# contract-block-requests.md for the diff-intent this closes.
-#
-# G2 (plan-pipeline sidecar contract) rows: the four pre-flight sidecar-
-# emitters get the single sidecar-emission-contract block (their own path/
-# frontmatter/verdict-floor/return-a-pointer contract — distinct from the
-# reviewer-persona sidecar-frontmatter-contract above).
-#
-# G3/G4/G5 rows (2026-07-26, G0 leg (b) citizenship extension): see the
-# per-block-group comments directly above each group of rows below for the
-# specific reasoning (universal-safe quota-self-detect-preamble win, the new
-# run-report-citizenship family for G4, and the deliberate G5 sidecar-
-# emission-contract non-adoption).
-#
-# The transient-duplication note that used to sit here — "the newly-cited
-# blocks are, for now, ALSO still resident-pasted... a follow-up pass must
+
+
 # strip the resident copies" — is RESOLVED as of 2026-07-28. The strip landed
-# (909cc10b and successors); zero of the in-repo consumers for
-# persona-dispatch-contract, persona-persisting-findings, or
-# quota-self-detect-preamble carry a resident sentinel. Those three registry
-# rows were flipped paste -> inject to match, because while they still read
-# "paste" a single `verify-snippet-sync <row> --fix` would have re-inserted
-# 37 blocks into files the strip had already cleaned. Do not restore this note
-# as a live caveat: it read as current long after it stopped being true, which
-# is exactly how the stale declaration survived.
+
+
 contract_blocks:
   coordinator:staff-eng:
     - persona-dispatch-contract
@@ -511,10 +265,10 @@ contract_blocks:
     - sidecar-frontmatter-contract
     - persona-persisting-findings
     - context7-lazy-load-bootstrap
-  # Kira runs the fix-vs-ask rubric on the standard ReviewFinding shape, so
+  
   # reviewer-calibration is INCLUDED (the exclusion carries the burden of argument,
-  # and no behavioral reason exists here). Holds neither Grep nor Glob, and holds the
-  # context7 pair — same block list as staff-eng, verbatim.
+  
+  
   coordinator:overengineering-reviewer:
     - persona-dispatch-contract
     - reviewer-calibration
@@ -526,11 +280,8 @@ contract_blocks:
     - sidecar-frontmatter-contract
     - persona-persisting-findings
     - context7-lazy-load-bootstrap
-  # Angelique (apm) -- adversarial junior-PM PLAN reviewer. staff-eng-review family: she emits
-  # the shared ReviewOutput envelope, not the tool-shaped review-findings output. Same block
-  # list as Kira. She holds no Grep/Glob: she reviews plan PROSE at a cited path rather than
-  # hunting across a tree, so a filesystem search surface buys her nothing. That is a scoping
-  # call about her role, not a claim about what the harness ships.
+  
+  
   coordinator:apm:
     - persona-dispatch-contract
     - reviewer-calibration
@@ -571,9 +322,8 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - sidecar-emission-contract
     - quota-self-detect-preamble
-  # Same three as the peer citation/coverage checker above: it is handed a provisioned
-  # scaffold by plan-blitz's wave, so it must be told the scaffold wins over the
-  # frontmatter its review-findings family contract describes.
+  
+  
   coordinator:premise-checker:
     - provisioned-scaffold-precedence
     - sidecar-emission-contract
@@ -588,46 +338,23 @@ contract_blocks:
     - sidecar-emission-contract
     - quota-self-detect-preamble
     - named-dispatch-relay
-  # enricher gets quota-self-detect-preamble ONLY — deliberately NOT
-  # sidecar-emission-contract. enricher edits the plan/stub body in-place by
-  # charter and is explicitly not a sidecar emitter
-  # (coordinator/agents/enricher.md:20 — "Do not provision or write a
-  # `.X-check.md` sidecar"). The quota block is universal-safe and applies
-  # regardless of sidecar-emission status.
+  
+  
   coordinator:enricher:
     - provisioned-scaffold-precedence
     - run-report-citizenship
     - quota-self-detect-preamble
     - named-dispatch-class-3-backstop
-  # G3 (review-pipeline agents, 2nd pass) rows: quota-self-detect-preamble is
+  
   # the one universal-safe block these 8 already carry RESIDENT (pasted) in
-  # every agent file — no per-agent behavioral variance, same content
-  # everywhere, so it is the one candidate for blanket contract_blocks
-  # citizenship per the G3 second-pass executor's own recommendation
-  # (state/subagent-share/g3-second-pass/contract-block-requests.md Request
-  # 1). NOTE — transient duplication: the hot-file protocol for this pass
-  # forbids editing coordinator/agents/*.md, so these 8 files still ALSO
-  # carry the resident paste; a follow-up pass must strip it once this row
-  # exists, the same two-step G3 itself asked for ("land both halves... in
-  # the same EM-serial commit") but split across two dispatches because the
-  # wiring and the agent-file edit are on opposite sides of the hot-file
-  # boundary this wave. subagent-sandbox-preamble (Request 2, G3) is NOT
-  # added here — it is a separate resident-paste VARIANT mechanism (its own
-  # verify-subagent-sandbox-preamble-sync.py, not registry.toml/
-  # contract_blocks), and G3 itself flagged an unresolved injection-order
-  # caveat for 2 of these 8 (parallel-review-synthesizer, coverage-auditor
-  # carry a per-agent disambiguating override note above it) — left for a
-  # dedicated pass, not blanket-added here.
+  
+  
   coordinator:code-reviewer:
     - provisioned-scaffold-precedence
     - quota-self-detect-preamble
     - review-findings-body-contract
-  # review-findings-body-contract NOT added here: code-reviewer-weekly's
-  # Verdict enum / Output structure sections are NOT byte-identical to
-  # code-reviewer's (different wording throughout, plus weekly-only fields —
-  # escalate_to_architecture, Architecture-tier escalation flag,
-  # Cross-chunk observations) — confirmed by direct read, not assumed.
-  # See docs/plans/2026-08-06-route-findings-body-residue-through-contract-blocks.md § C2.
+  
+  
   coordinator:code-reviewer-weekly:
     - provisioned-scaffold-precedence
     - quota-self-detect-preamble
@@ -637,10 +364,8 @@ contract_blocks:
   coordinator:security-audit-worker:
     - provisioned-scaffold-precedence
     - quota-self-detect-preamble
-  # dep-cve-auditor / test-evidence-parser: review-execution tier (see
-  # dispatch_tier: above, clause (2)(c) — payload size / EM-context protection),
-  # so provisioned-scaffold-precedence applies exactly as it does for the other
-  # G3 rows in this group.
+  
+  
   coordinator:dep-cve-auditor:
     - provisioned-scaffold-precedence
     - quota-self-detect-preamble
@@ -659,18 +384,15 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - quota-self-detect-preamble
     - named-dispatch-relay
-  # atlas-clarity-reviewer is handed a provisioned per-page verdict scaffold
-  # like every other review-execution-tier agent, so it takes the same
-  # precedence block; quota-self-detect-preamble is the universal-safe row.
+  
+  
   coordinator:atlas-clarity-reviewer:
     - provisioned-scaffold-precedence
     - quota-self-detect-preamble
-  # G4 (execute-pipeline, 2nd pass) rows: the third contract_blocks
-  # artifact-type family (run-report-citizenship — see that snippet's own
-  # header for why it is not a shoehorn onto sidecar-frontmatter-contract or
-  # sidecar-emission-contract), plus the same universal-safe
+  
+  
   # quota-self-detect-preamble both already carry RESIDENT (same transient-
-  # duplication note as the G3 rows above applies here too).
+  
   coordinator:executor:
     - provisioned-scaffold-precedence
     - run-report-citizenship
@@ -682,29 +404,14 @@ contract_blocks:
     - run-report-citizenship
     - quota-self-detect-preamble
     - named-dispatch-class-3-backstop
-  # G5 (deep-research pipeline, 2nd pass) rows: same universal-safe
-  # quota-self-detect-preamble win as G3/G4 — all 9 already carry it
+  
+  
   # RESIDENT (same transient-duplication note applies). No G2-style
-  # sidecar-emission-contract analog is added here: that block's path
-  # convention (state/plan-sidecars/<plan-stem>.<lens>.md) is specific to
-  # the G2 plan-pipeline pre-flight emitters, not these research/assessment
-  # workers, which already get the correct path convention from their own
-  # resident subagent-sandbox-preamble VARIANT:assessment paste — adding
-  # sidecar-emission-contract here would force a G2-specific shape onto
-  # agents whose deliverable genuinely differs.
-  #
-  # disk-first-protocol added 2026-07-26 (coverage-gap close): the fourth
-  # contract_blocks artifact family, the early-write-probe + growth-check
-  # discipline for this same G5 9-agent family. Prior to this addition it was
-  # pasted resident in only 2 of the 9 (repo-scout, repo-specialist); the
-  # other 7 — including the two Haiku scouts (research-scout,
-  # notebooklm-research-scout) — carried none of it despite being squarely
+  
+  
   # in the ~30%-Haiku TEXT-ONLY-hallucination risk population named in
-  # `coordinator/snippets/em-operating-doctrine.md § Extensions to coordinator defaults — EM-only
-  # clauses` ("Scouts: disk-first"). Additive to
-  # the three still-resident blocks (text-only-recovery-preamble,
-  # guard-encounter-preamble, subagent-sandbox-preamble) — see
-  # snippets/disk-first-protocol.md's own header for the discrimination.
+  
+  
   coordinator:research-scout:
     - provisioned-scaffold-precedence
     - disk-first-protocol
@@ -750,169 +457,54 @@ contract_blocks:
     - disk-first-protocol
     - quota-self-detect-preamble
     - named-dispatch-relay-named-scout
-  # atlassian-worker / drive-worker: quota-self-detect-preamble ONLY, restored
-  # 2026-07-30 same-day fix (code-reviewer finding #2 on the dispatch-tiering
-  # diff). Both are exploration tier (see dispatch_tier: above) and absent
-  # from report_sidecar: — neither gets a provisioned sidecar, so neither
-  # carries provisioned-scaffold-precedence or any other sidecar-family block.
-  # But quota-self-detect-preamble applies regardless of tier (it teaches an
-  # agent to notice its own quota exhaustion, not to fill a sidecar), and both
-  # are MCP-tool-heavy retrieval workers making live Atlassian/Drive API calls
-  # over plausibly long sessions — the exact population that block protects.
+  
+  
   coordinator:atlassian-worker:
     - quota-self-detect-preamble
+    - inline-return-cap
   coordinator:drive-worker:
     - quota-self-detect-preamble
-  # Exploration tier, no sidecar (see dispatch_tier: above) — carries the one
-  # block its own body promises: the SendMessage-to-EM constraints shared with
-  # apm, injected rather than pasted per C1's correction.
+    - inline-return-cap
+
+
   coordinator:group-em-assistant:
     - subagent-messaging-constraints
+    - inline-return-cap
 
-# bash_policy:  dict[str, dict] — subagent_type -> a mapping describing that
-# subagent_type's allowed Bash surface. Sibling of report_sidecar: /
-# report_type_map: / contract_blocks: above — same file, same exact-string
-# subagent_type key convention, same fail-open-on-lookup-miss posture. EXACT
-# STRING MATCH — no globbing. Consumed by the provisioning engine's own
-# policy loader (its `Policy.bash_policy` field, added in lockstep) and,
-# downstream, by the reviewer Bash guard. This key's name and value grammar
-# are pinned against that engine's `bash_policy` contract — any
-# change to the key name or value grammar here is a breaking drift against
-# that pinned contract and must be relayed to the engine side in lockstep,
-# exactly as report_sidecar:/contract_blocks: already require.
-#
-# Fail-open at the LOADER: an absent bash_policy: key, a non-dict top-level
-# value, a non-dict per-key value, or a lookup-miss on a subagent_type not
-# listed here all resolve to "no policy for this type" — never a parse
-# failure, never a blocked spawn. This mirrors report_sidecar:'s fail-open
-# contract exactly. The GUARD's miss-behaviour is the opposite of the
-# loader's — a policy lookup-miss at the guard falls back to the guard's
-# PRIOR hardcoded enforcement (AC11), never to ALLOW. These are two different
-# layers with two different correct defaults: an eligibility lookup
-# (report_sidecar:) degrading to "provision nothing" is harmless; a deny-
-# guard's lookup degrading to "permit everything" is not. Do not conflate
-# them when reading or extending this key.
-#
-# Two-class posture — read this before adding a row for a new subagent_type.
-# There are exactly two classes of Bash surface in this fleet, not a spectrum:
-# confined findings-agents (code-reviewer today, any future silent-corruption-
-# risk peer tomorrow) get a row here and a real allowlist; every other
-# subagent_type, executor included, is NOT a confined type and gets no row —
-# not an empty one, not a wide-open one, none at all. A lookup-miss for a
-# non-confined type is not a gap to be closed by adding a row "to be safe";
-# it is the correct, intended state under the ruling that removed the
-# executor carve-out from the confined set. If you are asking "should I add a
-# row for type X," the question that actually gates it is "is X a confined
-# findings-agent," not "does X run Bash" — most subagent_types that run Bash
-# belong in the second class and stay off this key entirely.
-#
+  # 2026-09-26-light-subagent-return-payloads: exploration tier, no sidecar, reply is the
+  # deliverable — inline-return-cap pins the 40-line inline reply shape for these six.
+  coordinator:git-commit-agent:
+    - inline-return-cap
+  coordinator:exit-criterion-falsifier:
+    - inline-return-cap
+  coordinator:workflow-maker:
+    - inline-return-cap
+  coordinator:falsifier-integrity-reviewer:
+    - inline-return-cap
+  coordinator:subtractive-adjudicator:
+    - inline-return-cap
+  coordinator:queue-grind-op-runner:
+    - inline-return-cap
+
+
 # Generality (AC10): a second CONFINED subagent_type is a plain additional row
-# under bash_policy: — no code change, no new top-level key, exactly the same
-# extension shape report_sidecar:/report_type_map:/contract_blocks: already
-# use. For example, adding a second confined findings-agent class would look
-# like:
-#
-#   bash_policy:
-#     coordinator:code-reviewer:
-#       ...
-#     coordinator:some-other-confined-agent:   # <- a plain additional row
-#       ...
-#
-# This is documentation of the shape only — the empirical two-row proof
-# (a fixture policy carrying two bash_policy rows for two distinct
-# subagent_type keys, each resolving independently with no cross-leak) lives
-# in the provisioning engine's own loader test, not here — a
-# header-comment-only demonstration is unfalsifiable.
-#
-# --- Negative spec: Bash ONLY, no write/edit leg, ever ---
-#
-# `bash_policy:` governs the Bash tool surface for a confined subagent_type.
-# It MUST NEVER carry a Write/Edit/MultiEdit-shaped grammar — no `deny:`,
-# `write:`, `edit:`, `sanctioned_dirs:`, `confined:`, or `exempt:` key at any
-# depth under any subagent_type row. That is not a stylistic preference; it
-# is a deliberate, PM-directed ruling that REMOVED exactly this grammar — the
-# `confined:`/`exempt:`/`sanctioned_dirs:` deny keys this file used to carry
-# governed Write/Edit, not Bash, and were killed end-to-end (the doctrine
-# side, the enforcement engine, and this file's own keys) because the
-# confinement overrode the EM's own dispatch intent for no measurable safety
-# gain: a doctrine-sweep worker blocked mid-task by a hook the task text
-# could not override, with no corresponding incident it had actually
-# prevented. The revisit trigger for that ruling is narrow and has NOT
+
+
 # fired: reopening a write/edit leg requires a CONCRETE incident where a
-# reviewer (or other confined agent) silently corrupted source that the EM's
-# own `git diff` review missed — i.e. a case where the confinement would
-# have prevented real harm, not merely friction. Even if that trigger fires,
-# the ruling itself scopes any reintroduction to the reviewer class ONLY
-# (never `general-purpose`/`executor`) and forbids it from ever blocking a
-# write the EM explicitly delegated. Until that trigger fires, adding a
-# write/edit leg here is not a local editorial call — it is a doctrine
-# reversal, and the ruling stays in force regardless of how inconvenient its
-# absence feels to a future session.
-#
-# Two further points govern *why* this negative-spec is legible as a rule
-# rather than a bare assertion, and *why* this file — not the engine that
-# reads it — is the correct place to enforce it:
-#
-#   The general doctrine↔engine file-of-authority rule holds here:
-#   doctrine owns the rules, the engine owns the machine that honors them.
-#   `bash_policy:`'s declared grammar (this YAML) is contract/data and
-#   belongs in doctrine; the engine that reads and enforces it (the
-#   provisioning engine's policy loader, and the reviewer Bash guard's
-#   consumption of it) is machine and belongs on the engine side. The split
-#   across the two sides for this same feature is a direct instance of that
-#   cut, not an arbitrary one.
-#
-#   The general doctrine-reversal discipline also holds: a settled ruling is
-#   legitimately reversed only by naming a genuinely NEW fact its original
-#   deciders did not have, never by restating a disagreement they already
-#   considered and decided anyway. It is what makes "adding a write/edit leg
-#   here would not reverse the ruling above without new evidence" a
-#   checkable rule instead of an assertion a future editor can talk
-#   themselves past — the concrete incident named above is exactly the kind
-#   of new fact required before that ruling may be reopened.
-#
-# Gate: this comment states the WHY; coordinator/tests/test_bash_policy_no_write_leg.py
-# is the WHETHER — it asserts both that this file's bash_policy: subtree
-# carries no write/edit-shaped key at any depth, and that the engine's
-# policy class exposes no such field. A future session that adds a
-# `deny:`/`write:`/`edit:`/`sanctioned_dirs:`/`confined:`/`exempt:` key here
-# specifically because it wants to route around this comment will fail that
-# test, not just read past this prose.
-#
+
+
   # atlassian-worker / drive-worker: SUPERSEDED 2026-07-30 (dispatch-tiering, Leg
-  # B), then amended same-day (code-reviewer finding #2). Both used to be
-  # report_sidecar-eligible (assessment-typed) and carried the universal
-  # precedence block as their only contract text, since no family shape block
-  # applied to these read-only MCP workers. Both are now exploration tier (see
-  # dispatch_tier: above) and absent from report_sidecar: — no sidecar is
-  # provisioned, so neither carries provisioned-scaffold-precedence or any
-  # other sidecar-family block any more. Their contract_blocks rows were not
-  # left empty, though: both still carry quota-self-detect-preamble (see that
-  # row, above, in the contract_blocks: section) — that block is tier-
-  # agnostic and applies to these two MCP-heavy retrieval workers regardless.
+  
+  
 # DECLARED KEYS ARE LOAD-BEARING; DECLARED RULESETS ARE NOT. Editing a
-# ruleset under a row here changes no enforced ALLOW/DENY. The engine
-# resolves a confined type's allowed Bash surface entirely in Python:
-# `coordinator_core.bash_guards.block_reviewer_bash_outside_allowlist._resolve_ruleset`
-# terminates unconditionally in `_default_ruleset(effective_type)` +
+
+
 # `_DEFAULT_RULESET_TYPE_OVERRIDES` and does not read this table at all
-# (Divergence 14) — a confined reviewer holds an unconfined `Edit` that
-# reaches this file, so a policy-driven confinement was rewritable by the
-# very agent it confines.
-#
-# What a row here still does: `_is_confined_type` consults this table for
+
+
 # exact-key SET MEMBERSHIP, so a confined type must remain a key whose value
-# is a mapping — `engine.load_policy` silently drops any non-dict-valued
-# entry. That is the whole live contract of this section.
-#
-# The transcribed reviewer ruleset that used to sit here was removed once it
-# had drifted from the enforced one with nothing failing — nothing read it.
-# Do not re-transcribe one: a second copy of the allowlist is a trap, not
-# documentation. Read the Python.
-#
-# Bash only. No Write/Edit/MultiEdit surface is or was ever expressed here —
-# see the negative-spec block above, gated by
-# coordinator/tests/test_bash_policy_no_write_leg.py.
+
+
 bash_policy:
   coordinator:code-reviewer:
     declaration_only: true

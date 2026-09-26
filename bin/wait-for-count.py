@@ -84,7 +84,7 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent  # coordinator/bin -> coordinator -> repo root
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 _UNARMED_FLEET_BUDGET_FALLBACK_SEC: float = 1200.0
 """Ceiling used when the fleet budget is disarmed (`FLEET_AGGREGATE_ELAPSED_BUDGET
@@ -158,12 +158,6 @@ def __getattr__(name: str):
 
 
 def clamp_dials(timeout_sec: float, poll_interval_sec: float) -> tuple[float, float]:
-    """Clamp the two caller-supplied wait dials to their ceilings.
-
-    Idempotent, so both `wait_for_count` (the authority, covering any importer)
-    and `main` (which reports the budget in its TIMEOUT line) can call it without
-    the value being reduced twice.
-    """
     _bootstrap_engine()
     return (
         min(float(timeout_sec), MAX_TIMEOUT_SEC),
@@ -172,8 +166,6 @@ def clamp_dials(timeout_sec: float, poll_interval_sec: float) -> tuple[float, fl
 
 
 def count_matches(dir_path: Path, pattern: str) -> int:
-    """Count directory entries matching `pattern` (non-recursive). A
-    not-yet-existing directory counts as 0, not an error."""
     if not dir_path.is_dir():
         return 0
     return sum(1 for _ in dir_path.glob(pattern))
@@ -189,13 +181,6 @@ def wait_for_count(
     now_fn: Callable[[], float] = time.monotonic,
     sleep_fn: Callable[[float], None] = time.sleep,
 ) -> tuple[bool, int]:
-    """Poll until count_matches(dir_path, pattern) >= minimum or the
-    timeout elapses. Returns (met, final_count). Always checks at least
-    once before ever sleeping, so a threshold already satisfied (or a
-    timeout_sec of 0) returns immediately without blocking.
-
-    Both dials are clamped via `clamp_dials` before the loop starts — a caller
-    asking above either ceiling gets the ceiling, never what it asked for."""
     timeout_sec, poll_interval_sec = clamp_dials(timeout_sec, poll_interval_sec)
     deadline = now_fn() + timeout_sec
     while True:

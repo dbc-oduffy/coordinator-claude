@@ -62,25 +62,6 @@ import sys
 
 
 def _no_console_creationflags() -> dict:
-    """Resolve the engine root onto `sys.path` before importing `coordinator_core`
-    (mirrors `safe-commit-offer.py` / `sweep-boot.py`'s resolve-then-insert
-    shape, which every other in-process op import in this directory uses).
-
-    This module used to import `coordinator_core.win_portability` at module
-    level with no root bootstrap at all, so it resolved only where
-    `coordinator_core` happened to already be importable -- i.e. when the
-    process cwd was the engine checkout. Invoked through the settings-home
-    `bin` shim from a SIBLING repo (the ordinary case: this is the reaper an
-    operator reaches for after a scoped-commit refusal names a claim), it
-    raised `ModuleNotFoundError: No module named 'coordinator_core'` at
-    import time -- before `main`'s best-effort error handling could run, so
-    the "never block session start" contract in this module's own docstring
-    was defeated by its own import line. Reported 2026-08-07 by doe-claude-em
-    (cross-repo memo `...-scoped-commit-calls-a-live-peer-dead-and-reapable`).
-
-    Degrades to `{}` rather than raising: a missing subprocess-window flag is
-    cosmetic, and this reaper must not fail on any path.
-    """
     try:
         _bootstrap_imports()
         claude_klabauter_root = _resolve_claude_klabauter_root()
@@ -100,18 +81,6 @@ def _no_fallback() -> None:
 
 
 def _resolve_repo_root(argv: list[str]) -> str | None:
-    """Hand-rolled `--repo <value>` parse, in the shape of
-    `session-reachability-cli.py`'s `peer-roster` subcommand parse (borrowed
-    for the PARSE ONLY -- never its `_usage(...)` non-zero-exit branch: this
-    module's own docstring pins every exit path at 0, so no argv shape here
-    may raise or propagate a non-zero return).
-
-    - `['--repo', <value>, ...]` resolves to `<value>`.
-    - A bare positional (`argv[0]` not starting with `--`) resolves to itself,
-      preserving the prior caller shape.
-    - `['--repo']` alone (no value following) and any other unrecognised flag
-      fall through to the `git rev-parse --show-toplevel` resolution below.
-    """
     if argv:
         if argv[0] == "--repo":
             if len(argv) >= 2:
@@ -165,14 +134,6 @@ def __getattr__(name: str):
 
 
 def _bootstrap_imports() -> None:
-    """Import every non-stdlib dependency this module needs and bind it at
-    module scope, called from main() (C6k import-motion: module bodies stay
-    inert on both the warm door and the un-bootstrapped settings-home
-    forwarder load routes). Idempotent by construction: a name already bound
-    at module scope (via a prior call, or a test that reaches for
-    `mod.cc_invoke` ahead of calling `main()`) is left alone rather than
-    clobbered by a real import.
-    """
     if all(n in globals() for n in _BOOTSTRAP_NAMES):
         return
 
@@ -193,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
     repo_root = _resolve_repo_root(argv)
     if repo_root is None:
         print("reap-sessions.py: cannot resolve git repo root", file=sys.stderr)
-        return 0  # best-effort: never block session start
+        return 0
 
     try:
         result = cc_invoke.route("session.reap", {}, repo_root, _no_fallback)

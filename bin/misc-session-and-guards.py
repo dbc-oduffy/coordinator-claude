@@ -75,78 +75,34 @@ _BIN_DIR = Path(__file__).resolve().parent
 
 
 def _bootstrap_lib() -> None:
-    """Put `coordinator/bin/lib` on `sys.path` so `cc_invoke` is importable.
-
-    Every `from cc_invoke import ...` in this module carried the comment
-    "(path injected at module top)". No such injection existed: module scope
-    imports stdlib only. The comment described a bootstrap that is not there,
-    so each deferred import raised `ModuleNotFoundError: cc_invoke` and every
-    caller reported a transport failure instead of doing its job — including
-    `autonomous-sentinel`, which is how `/autonomous` silently declined to
-    enable itself.
-
-    Idempotent and cheap: `import lib` is the house bootstrap (same line as
-    `coordinator-harvest-deferrals.py`), and re-importing a bound module is a
-    dict lookup. Called at each deferred-import site rather than at module
-    scope on purpose — module bodies stay inert on the warm door and on the
-    un-bootstrapped settings-home forwarder load route (C6d import-motion),
-    and hoisting this would undo that.
-    """
     if str(_BIN_DIR) not in sys.path:
         sys.path.insert(0, str(_BIN_DIR))
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
 
 
-GENERATES = []  # autonomous-sentinel writes only to the platform tempdir (autonomous_sentinel.sentinel_path); other subcommands only print/shell out
+GENERATES = []
 
 _TRANSPORT_FAIL = 3
 
-# Windows console-subprocess discipline: every subprocess.run() below spawns
-# a console-subsystem child (python.exe) — pass no_console_creationflags()
-# (a no-op on non-Windows) so a headless Bash-tool-parented invocation never
-# flashes a focus-stealing console window.
-
-
-# ---------------------------------------------------------------------------
-# claim-classify
-# ---------------------------------------------------------------------------
 
 _PEER_CONTENTION_MARKER = "held by session"
 
 
 def classify_claim_error(output_text: str) -> str:
-    """Classify a non-zero `session-claim-cli claim-plan` result.
-
-    Returns "peer-contention" when stderr names a live holder (the
-    session-claim-cli convention is to include the substring "held by
-    session" in that case); otherwise "infra-error" (unresolvable session
-    id, git-root error, or any other transport failure).
-    """
     return "peer-contention" if _PEER_CONTENTION_MARKER in output_text else "infra-error"
 
 
 def _cmd_claim_classify(argv: list[str]) -> int:
-    del argv  # no flags — reads stdin
+    del argv
     output_text = sys.stdin.read()
     verdict = classify_claim_error(output_text)
     print("STOP: plan claim error — execute-plan halted.", file=sys.stderr)
     print(output_text, file=sys.stderr, end="" if output_text.endswith("\n") else "\n")
     print(verdict)
-    # Source contract: rc!=0 on the claim call is ALWAYS fail-loud (exit 1)
-    # regardless of which classification fires — the classification only
-    # changes what the EM does next (reconcile-with-peer vs surface-infra-
-    # failure), never whether execute-plan halts here.
     return 1
 
 
-# ---------------------------------------------------------------------------
-# rag-freshness-gate
-# ---------------------------------------------------------------------------
-
-
 def _parse_kv_flags(argv: list[str], flags: tuple[str, ...]) -> dict[str, str]:
-    """Order-independent `--flag value` scan (mirrors archive-stamp-cli's
-    --sha convention) restricted to the given flag names."""
     out: dict[str, str] = {}
     i = 0
     while i < len(argv):
@@ -213,14 +169,7 @@ def _cmd_rag_freshness_gate(argv: list[str]) -> int:
     return subprocess.run(cmd, check=False, **no_console_passthrough_kwargs()).returncode
 
 
-# ---------------------------------------------------------------------------
-# rag-staleness-survey
-# ---------------------------------------------------------------------------
-
-
 def _resolve_project_rag_cli_and_root() -> tuple[str | None, str | None]:
-    """Mirror the `~/.claude.json` MCP-args resolution used by
-    workstream-start/SKILL.md's Freshness nudge inline python3 -c calls."""
     claude_json = Path(os.path.expanduser("~/.claude.json"))
     try:
         with claude_json.open("r", encoding="utf-8") as fh:
@@ -238,8 +187,6 @@ def _cmd_rag_staleness_survey(argv: list[str]) -> int:
     del argv
     cli, root = _resolve_project_rag_cli_and_root()
     if not cli or not root:
-        # Source contract: "Skip silently if verdict is current, or if
-        # either path could not be resolved from ~/.claude.json."
         return 0
 
     try:
@@ -273,11 +220,6 @@ def _cmd_rag_staleness_survey(argv: list[str]) -> int:
     recommendation = payload.get("recommendation_command", payload.get("recommendation", ""))
     print(f"Project-RAG last scanned {age}. Verdict: {verdict}. Recommend: {recommendation}.")
     return 0
-
-
-# ---------------------------------------------------------------------------
-# autonomous-sentinel
-# ---------------------------------------------------------------------------
 
 
 def _import_resolve_session_id():
@@ -358,11 +300,6 @@ def _cmd_autonomous_sentinel(argv: list[str]) -> int:
 
     if action == "disable":
         if not session_id:
-            # rm -f semantics: an unresolvable session id means there is no
-            # deterministic sentinel to remove — treat as a no-op success
-            # rather than fail-loud (mirrors the enable/disable asymmetry
-            # in commands/autonomous.md: disable is documented as a plain
-            # `rm -f`, never gated on session-id resolution).
             return 0
         _sentinel_path(session_id).unlink(missing_ok=True)
         return 0
@@ -370,10 +307,6 @@ def _cmd_autonomous_sentinel(argv: list[str]) -> int:
     print(f"misc-session-and-guards.py autonomous-sentinel: unknown action {action!r}", file=sys.stderr)
     return 2
 
-
-# ---------------------------------------------------------------------------
-# dispatch
-# ---------------------------------------------------------------------------
 
 _SUBCOMMANDS = (
     "claim-classify | rag-freshness-gate | rag-staleness-survey | "

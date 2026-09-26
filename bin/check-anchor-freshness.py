@@ -24,10 +24,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-# A console-subsystem child with no console of its own allocates a fresh
-# conhost on Windows -- with a visible window. Every git spawn below is
-# short-lived and output-captured, so without this each one flashes.
-# 0 on POSIX, where the flag does not exist.
 _NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 ANCHOR = Path("coordinator") / ".claude-plugin" / "plugin.json"
@@ -46,11 +42,6 @@ def _repo_root(start: Path) -> Path | None:
 
 
 def _anchor_commits(root: Path, window: str) -> str | None:
-    """Commits in `window` whose diff adds/removes a `"version"` line in the anchor.
-
-    Returns None when git itself is unusable — distinct from an empty string, which is the
-    stale-anchor finding.
-    """
     try:
         proc = subprocess.run(
             [

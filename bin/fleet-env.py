@@ -1,6 +1,3 @@
-# Unix shebang — see advance-tracker-status.py's own module docstring for the
-# generator-retirement note this line's presence/absence follows; kept for
-# parity with the rest of this family's convention.
 """fleet-env.py — operator CLI over the fleet-environment registry key.
 
 Purpose: `fleet_env.root` (minted by C0, see
@@ -76,39 +73,14 @@ _FLEET_ENV_ROOT_KEY = "fleet_env.root"
 _USAGE_FAIL = 2
 _ABSENT = 3
 
-#: `coordinator/bin/lib`, derived from this file's own `__file__` — never
-#: from `sys.path[0]`. See module docstring's "Root cause" note: an
-#: `exec_module`-loaded copy of this file (the installer's real load path,
-#: `coordinator_core/install/fleet_env.py::_load_c1_resolver`) gets no
-#: auto-prepended script directory, so the bootstrap must be
-#: invocation-path-independent.
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 
 
 def _repo_root_from_file() -> str:
-    """Repo root derived from this file's own location -- `coordinator/bin/
-    fleet-env.py` is two directories under it -- the same `__file__`-based,
-    invocation-path-independent pattern `_LIB_DIR` already uses above.
-    The degrade route in
-    `resolve_fleet_env_root`'s except clause used to re-run
-    `_import_cc_invoke()` and `_resolve_claude_klabauter_root()` to reach this path,
-    which re-derives exactly the import the try block just failed on; a
-    packaging defect that makes `cc_invoke` unimportable made that route
-    fail silently for the one case DR-402 rung 3 names. This helper reaches
-    the same root without importing `cc_invoke` at all."""
     return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def _import_cc_invoke():
-    """Import `cc_invoke` with an invocation-path-independent bootstrap.
-
-    Inserts `_LIB_DIR` onto `sys.path` directly (mirroring `cc_invoke.py`'s
-    own `__file__`-based self-bootstrap, ` :441-443`) rather than going
-    through the bare-name `lib` package, whose own bootstrap only fires
-    reliably when this file's directory is already on `sys.path` — true for
-    `python fleet-env.py ...` but NOT true for `exec_module` loading. See
-    module docstring's "Root cause" note for the failure this replaces.
-    """
     if _LIB_DIR not in sys.path:
         sys.path.insert(0, _LIB_DIR)
     import cc_invoke

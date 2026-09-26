@@ -1,7 +1,9 @@
 ---
+name: notebooklm-research
 description: "PM-GATED, never from a subagent. NotebookLM research for video/audio sources."
 allowed-tools: ["Agent", "Read", "Write", "Bash", "Glob", "Grep", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
 argument-hint: "<topic> [--context file1 file2] [--sources url1 url2] [--cleanup]"
+disable-model-invocation: true
 ---
 
 # NotebookLM Research — Pipeline D (Agent Teams)

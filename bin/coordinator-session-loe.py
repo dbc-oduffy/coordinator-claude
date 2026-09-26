@@ -49,11 +49,6 @@ _SESSION_ID_ENV_TIERS = (
     "CLAUDE_CODE_SESSION_ID",
 )
 
-# Format: (tier, ad_threshold, od_threshold, token_threshold)
-# Ordered from HIGHEST to LOWEST so we return on first match.
-# Mirrors config/loe-thresholds.yaml exactly (dogfood-fix 2026-05-19: S.od
-# raised from 0 to 1, M.od 1->2, to keep XS structurally reachable under
-# any-criterion semantics).
 _TSHIRT_TABLE = (
     ("XL", 50, 6, 1_000_000),
     ("L", 30, 3, 600_000),
@@ -87,9 +82,6 @@ _BOOTSTRAPPED_NAMES = ("resolve_checked_repo_root",)
 
 
 def _bootstrap_csl() -> None:
-    """Bind `resolve_checked_repo_root` at module scope, guarded so a caller
-    that already set the name on this module (a test's `mock.patch.object`)
-    is never clobbered by a later real import."""
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
 
     global resolve_checked_repo_root
@@ -146,9 +138,6 @@ def _resolve_git_root() -> str | None:
 
 
 def _count_session(sessions_base: str, sid: str) -> tuple[int | None, int | None]:
-    """Returns (agent_dispatches, opus_dispatches); None for each when the
-    dispatched-agents.txt file is absent (null-honesty, C3/AC4). A present but
-    empty file yields (0, 0)."""
     agents_file = os.path.join(sessions_base, sid, "dispatched-agents.txt")
     if not os.path.isfile(agents_file):
         return None, None
@@ -159,16 +148,8 @@ def _count_session(sessions_base: str, sid: str) -> tuple[int | None, int | None
     except OSError:
         return 0, 0
 
-    # ad mirrors `wc -l` (counts '\n' bytes; a final line lacking a trailing
-    # newline is not counted — matches GNU/BSD wc -l exactly).
     ad = raw.count(b"\n")
 
-    # od mirrors `cut -f2 | grep -ci opus` over the newline-terminated lines
-    # only (the same population wc -l counted above): column 2 (model field)
-    # substring-matched case-insensitively against "opus". A legacy
-    # single-column line has no tab, so cols[1] is absent and the whole line
-    # (which never contains "opus" for a bare agentId) is checked instead —
-    # same behavior as the bash oracle's no-tab-no-match fallthrough.
     od = 0
     for raw_line in raw.split(b"\n")[:ad]:
         cols = raw_line.split(b"\t")

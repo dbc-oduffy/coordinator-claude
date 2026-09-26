@@ -9,55 +9,13 @@ schemas/ but forgotten in query-records.js TYPE_TO_GLOB fails loudly instead
 of silently drifting. Consumer: SSOT drift verification at cadence/CI gates.
 """
 from __future__ import annotations
-# verify-schema-registry-sync.sh — CLI trampoline over claude-klabauter
-# coordinator_core.ops.verify_schema_registry_sync.
-#
-# SSOT drift gate: every schemas/*.yaml with an applies_to: must have a
-# corresponding query --type recognised by bin/query-records.js at runtime.
 # Adding a new schema without wiring it into query-records.js TYPE_TO_GLOB
-# causes this script to fail loudly, making "add schema, forget
-# query-records" impossible.
-#
-# Finish-strangler port (DR-059): the bash implementation has been fully
-# ported to coordinator_core/ops/verify_schema_registry_sync.py (DoE-claude
-# clean-slate migration, 2026-07-16). This file is now a thin DoE-side
-# (contract) trampoline over that claude-klabauter (engine) module, per DR-047 (DoE
-# owns contract/generator, claude-klabauter owns engine).
-#
-# Exit convention: this is a fail-loud gate script (SSOT drift check), NOT a
-# never-block auto-push shape — it exits 1 both on engine-root/import
-# resolution failure AND on the ported check's own FAIL verdict, mirroring
-# the pre-port .sh's own ERROR/FAIL exit-1 conventions (it never silently
-# skipped).
-#
-# Exit codes:
-#   0 — all schemas with applies_to: have a recognised --type in query-records.js
-#   1 — one or more schemas with applies_to: are NOT recognised by
-#       query-records.js, OR claude-klabauter-link resolution/import failed, OR a
-#       sanity guard (schemas dir / query-records.js missing) tripped.
-#
-# Usage:
-#   verify-schema-registry-sync.sh
-#   bash plugins/coordinator/bin/verify-schema-registry-sync.sh
-#
-# Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § Decision 3 + C4
 
 import os
 import sys
 
 
 def _resolve_plugin_root() -> str:
-    """The coordinator root containing the live schemas/ dir.
-
-    Previously a bare `os.path.dirname(os.path.dirname(__file__))` walk — the
-    old co-located-only assumption, broken by the 2026-07-22 executable-surface
-    migration that moved this script into claude-klabauter while schemas/ stayed
-    DoE-resident (DR-047: contract/data lives with DoE, engine with claude-klabauter; see
-    `lib/coordinator_data_root.py`'s module docstring for the full two-rung
-    resolution chain this now delegates to). Returns the PARENT of the resolved
-    schemas/ dir, matching what `coordinator_core.ops.verify_schema_registry_sync
-    .run()` expects as its `plugin_root` argument (`plugin_root / "schemas"`).
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from coordinator_data_root import data_root
 
@@ -65,19 +23,6 @@ def _resolve_plugin_root() -> str:
 
 
 def _resolve_run_op_main():
-    """Resolve the engine root, put it on sys.path, and import `run_op_main`.
-
-    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
-    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
-    re-deriving it -- this is a plain in-process import, not an RPC invoke, so
-    cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
-    deliberately NOT used here.
-
-    DR-276: routed through `coordinator_core.cli_entry.run_op_main` rather than
-    a bare `main` import — this op declares no writes (pure read/verify/
-    print), so this changes nothing behaviorally, but keeps every operator
-    CLI on the one recording seam uniformly.
-    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 
