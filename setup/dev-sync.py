@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-from __future__ import annotations
 """
 dev-sync.py — sync coordinator-claude plugin source to Claude Code's cache.
 

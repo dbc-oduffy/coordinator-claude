@@ -53,8 +53,7 @@ Additional qualifications:
 id, not a wiki path, from inside a surface that ships past this repo's own readers.** Anything
 under `coordinator/snippets/` or `coordinator/skills/` percolates one-way to the public OSS mirror
 and runs unmodified in every fleet-sibling repo; `coordinator/docs/decisions/` does not percolate —
-it stays local to this repo. A bare decision-record id embedded in percolating prose (`DR-082`,
-`SC-DR-015`) points an OSS user or a fleet-sibling reader at a document that structurally cannot
+it stays local to this repo. A bare decision-record id embedded in percolating prose () points an OSS user or a fleet-sibling reader at a document that structurally cannot
 exist in their tree: the reader either hits a dead reference, or worse, a citation that looks
 resolvable and silently fails.
 

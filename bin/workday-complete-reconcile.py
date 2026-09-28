@@ -1,4 +1,7 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+"""Workday-complete reconciliation step: resolves the engine root and runs
+the merge/rebase reconcile against it, via the colocated `cc_invoke` shim.
+"""
 from __future__ import annotations
 
 import argparse

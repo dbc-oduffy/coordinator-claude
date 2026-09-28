@@ -203,7 +203,7 @@ The hook does **not** ban stash. It bans creating a sibling branch first. Park W
 
 - **Commit on the daily.** Intentionally messy commits are fine on `work/*` branches — they're quick-saves, not history.
   Use the coordinator engine's scoped-commit helper with the WIP paths/message — it selects the safe commit
-  mechanism for you, so a partial-hunk stage never needs hand-classifying (→ `scoped-safety-commits.md § SC-DR-015`).
+  mechanism for you, so a partial-hunk stage never needs hand-classifying (→ `scoped-safety-commits.md` §).
   Test-breadth posture at commit time is proportional — commit is not a test gate; run the full tier only at cadence checkpoints.
 - **Stash on the daily.** Do not change branches first.
   ```

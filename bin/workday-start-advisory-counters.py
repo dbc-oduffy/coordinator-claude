@@ -1,4 +1,9 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+"""Workday-start advisory counters: tallies recurring-item YAML entries per scope.
+
+Non-blocking -- emits counts for the operator's own awareness at session
+start, never fails the ceremony on a missing or malformed directory.
+"""
 
 from __future__ import annotations
 

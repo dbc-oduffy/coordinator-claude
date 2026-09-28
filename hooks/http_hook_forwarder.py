@@ -524,6 +524,74 @@ _engine_discovery_path: Optional[str] = None
 
 _ENGINE_ROOT_RERESOLVE_MIN_GAP_SECS = 30.0
 
+#: The stable symlink a cloud session's `SessionStart` hook
+#: (`coordinator_core.hooks.repin_cloud_engine_root`) re-points onto a fresher per-session
+#: checkout. Absent by construction on a workstation session -- every check below is a single
+#: `os.path.realpath` behind an `exists()` guard, so the absent case costs one failed `os.lstat`.
+_ENGINE_LINK_PATH = "/root/engine-current"
+
+#: THE ROOT CAUSE THIS CLOSES. `_ensure_engine_on_sys_path_locked` caches the FIRST resolved
+#: `coordinator_core` root for this process's entire lifetime, and a `sys.path` insert is a no-op
+#: once `sys.modules["coordinator_core"]` is bound -- re-pointing `_ENGINE_LINK_PATH` after this
+#: process has already imported through it (directly, or via the module cache) cannot be
+#: repaired by anything short-of-restart done from inside this process. `invalidate_engine_root`
+#: drops the cache and the stale `sys.path` entry on a resolution FAILURE, but a stale-but-still-
+#: importable frozen tree never fails, so that path never fires for this defect shape. The only
+#: correct fix for an already-bound module is a fresh process: `os.execv` re-runs this exact
+#: interpreter invocation, so the next `import coordinator_core` binds through the link's CURRENT
+#: target instead of whatever it pointed at when this process started.
+_link_realpath_at_start: Optional[str] = None
+try:
+    if os.path.exists(_ENGINE_LINK_PATH):
+        _link_realpath_at_start = os.path.realpath(_ENGINE_LINK_PATH)
+except OSError:
+    _link_realpath_at_start = None
+
+
+def _engine_link_has_moved() -> bool:
+    """Cheap per-request check: has `_ENGINE_LINK_PATH` been re-pointed since this process
+    started? One `os.path.realpath` behind an `exists()` guard -- no import, no spawn, no lock.
+
+    `None` at start (link absent, or unreadable) never reports a move: there is nothing to have
+    diverged from, and a workstation session (no such link ever) must cost exactly one failed
+    `exists()` per request forever, never a realpath call.
+
+    A link that DID exist at start and is now missing or broken counts as moved, not as "never
+    existed" -- those are different facts, and the atomic-replace window during a re-point (old
+    link gone, new one not yet visible) is not provably zero. Only `_link_realpath_at_start is
+    None` -- no link at all when this process started -- is the true no-op case.
+    """
+    if _link_realpath_at_start is None:
+        return False
+    try:
+        if not os.path.exists(_ENGINE_LINK_PATH):
+            return True
+        return os.path.realpath(_ENGINE_LINK_PATH) != _link_realpath_at_start
+    except OSError:
+        return False
+
+
+def _reexec_self_for_fresh_engine_link() -> None:
+    """Replace this process image so the next `import coordinator_core` binds through
+    `_ENGINE_LINK_PATH`'s CURRENT target, closing the module-cache half of the re-point that
+    `sys.path` mutation alone cannot reach (see `_link_realpath_at_start`'s note).
+
+    CALLED FROM `serve_forever`'S OWN CALLER (the process main thread), NEVER FROM A REQUEST
+    THREAD. `_ForwarderHandler.do_POST` answers the request that observed the moved link (a
+    diagnosable 503, matching `http_listener.py`'s companion fix) and hands off to
+    `_ExclusiveServer.request_recycle()`, which stops the accept loop and waits for every other
+    concurrently in-flight request to finish answering its own caller. Only once every one of
+    them has completed does `serve_forever()` call this function -- so `os.execv` here replaces
+    the process image after every in-flight request has already been answered, not "once, in
+    exchange for" losing one. `os.execv` never returns on success. Fails open on any `OSError`
+    (e.g. `sys.executable` unresolvable): the process simply keeps running under the stale
+    binding rather than crash, matching this module's fail-open contract throughout.
+    """
+    try:
+        os.execv(sys.executable, [sys.executable] + list(sys.argv))
+    except OSError:
+        return
+
 
 def _ensure_engine_on_sys_path() -> bool:
     """Resolve the sibling engine checkout onto `sys.path`, caching the resolved root.
@@ -1537,6 +1605,19 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
         self._respond(200, json.dumps(payload).encode("utf-8"))
 
     def do_POST(self) -> None:  # noqa: N802
+        if _engine_link_has_moved():
+            # NEVER exit/exec ON THIS THREAD -- this handler is one of potentially many
+            # concurrently in-flight `ThreadingHTTPServer` worker threads on this same process,
+            # and `os.execv` replaces the whole process image, killing every one of them
+            # mid-response, not just the request that happened to observe the moved link.
+            # Answer THIS request with a diagnosable response (matching `http_listener.py`'s
+            # companion fix, closing the asymmetry a prior review flagged), then hand off to
+            # `request_recycle()`: a dedicated non-request thread stops accepting new
+            # connections and drains every other in-flight request before the process re-execs.
+            self._respond(503, b'{"error":"engine root moved, restarting"}')
+            self.server.request_recycle()  # type: ignore[attr-defined]
+            return
+        self.server.enter_request()  # type: ignore[attr-defined]
         counter = self._counter
         arrived_at = counter.record_arrival() if counter is not None else None
         try:
@@ -1636,6 +1717,7 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
             # PERSISTED AFTER THE RESPONSE, on every exit path including the early returns above.
             if counter is not None:
                 counter.persist()
+            self.server.exit_request()  # type: ignore[attr-defined]
 
 
 def _apply_registration_op(backend_hook_path: str, incoming_path: Optional[str]) -> str:
@@ -1710,6 +1792,14 @@ class _ExclusiveServer(ThreadingHTTPServer):
 
     dial_counter: "Optional[DialCounter]" = None
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._in_flight = 0
+        self._in_flight_lock = threading.Lock()
+        self._recycle_lock = threading.Lock()
+        self._recycle_started = False
+        self._recycle_ready = threading.Event()
+
     def server_bind(self) -> None:
         # SO_EXCLUSIVEADDRUSE only exists on Windows. Where it is absent (POSIX), the machine-
         # substitute for -- POSIX's own SO_REUSEADDR semantics (permits rebinding a TIME_WAIT
@@ -1717,6 +1807,45 @@ class _ExclusiveServer(ThreadingHTTPServer):
         if exclusive_flag is not None:
             self.socket.setsockopt(socket.SOL_SOCKET, exclusive_flag, 1)
         super().server_bind()
+
+    def enter_request(self) -> None:
+        """Called by `_ForwarderHandler.do_POST` before it does any dispatch work, so a
+        concurrent recycle knows this request is still in flight and must be waited on."""
+        with self._in_flight_lock:
+            self._in_flight += 1
+
+    def exit_request(self) -> None:
+        with self._in_flight_lock:
+            self._in_flight -= 1
+
+    def request_recycle(self) -> None:
+        """Called from a request-handling thread that just observed the engine link move.
+
+        Never exits/execs here -- this method runs ON the request thread. It hands off, once,
+        to a dedicated non-request thread (`_recycle_worker`) that stops accepting new
+        connections and waits for every already-in-flight request to finish. The actual
+        `os.execv` happens later, from `serve_forever`'s own caller (the process main thread),
+        once that function observes `_recycle_ready` set -- see `_reexec_self_for_fresh_engine_link`.
+        Idempotent: a second concurrent caller observing the same moved link is a no-op here.
+        """
+        with self._recycle_lock:
+            if self._recycle_started:
+                return
+            self._recycle_started = True
+        threading.Thread(
+            target=self._recycle_worker, name="engine-link-recycle", daemon=True
+        ).start()
+
+    def _recycle_worker(self) -> None:
+        # `shutdown()` stops the `serve_forever` accept loop; it does not touch threads already
+        # dispatched for requests accepted before this call, which is exactly what "drain" needs.
+        self.shutdown()
+        while True:
+            with self._in_flight_lock:
+                if self._in_flight <= 0:
+                    break
+            time.sleep(0.01)
+        self._recycle_ready.set()
 
 
 def make_server(port: int = FIXED_PORT, host: Optional[str] = None) -> _ExclusiveServer:
@@ -1894,6 +2023,17 @@ def serve_forever(port: int = FIXED_PORT, host: Optional[str] = None) -> None:
     after `make_server` returns, i.e. after the bind actually succeeded, so a forwarder that lost
     the election never advertises a seat it does not hold. See `publish_door_discovery` for why a
     non-door publishes this at all.
+
+    IT ALSO OWNS THE RE-EXEC, on an engine-link recycle, and that is deliberate rather than an
+    odd place to put it. `serve_forever()` runs on the thread that calls this function -- for the
+    ordinary `main()` entry point, that IS the process main thread. `server.shutdown()` (called
+    from a dedicated non-request thread once a request observes the moved link) only unblocks
+    `server.serve_forever()`'s own accept loop; it does not wait for already-dispatched request
+    threads to finish answering their callers. So this function, after `serve_forever()` returns
+    and teardown runs, waits on `_recycle_ready` -- the signal that every in-flight request has
+    actually finished -- before calling `_reexec_self_for_fresh_engine_link()`. The exec therefore
+    happens on the main thread, after every in-flight request has been drained, never on a
+    request thread and never before the drain completes.
     """
     server = make_server(port, host=host)
     publish_door_discovery(port)
@@ -1902,6 +2042,9 @@ def serve_forever(port: int = FIXED_PORT, host: Optional[str] = None) -> None:
     finally:
         retract_door_discovery(port)
         server.server_close()
+    if getattr(server, "_recycle_started", False):
+        server._recycle_ready.wait()
+        _reexec_self_for_fresh_engine_link()
 
 
 def main(argv: Optional[list] = None) -> int:

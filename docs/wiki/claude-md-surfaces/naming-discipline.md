@@ -60,7 +60,7 @@ qualifier. Every other namespace is cited in a form that names it:
   cite a decision in prose; `` `<sibling-repo>/docs/decisions/DR-###-<slug>.md` `` (full path)
   when the reader is being sent to open the record.
 - a plan-local single-digit `DR-<n>` → cited only inside the plan that mints it, never from outside
-- a PREFIXED or document-local scheme (`SC-DR-###` in `scoped-safety-commits.md`, `DBT-DR-0##`
+- a PREFIXED or document-local scheme (`SC-DR-###` in `scoped-safety-commits.md`, `DBT-DR-N##`
   in `document-bloat-trim.md`, the anchored `DR-001`..`DR-009` registry in `lesson-triage.md`,
   and any later one) → a document-local id, not a `docs/decisions/` citation, and never
   rewritten into one. This is a CLASS rule, not an enumeration: any scheme carrying its own

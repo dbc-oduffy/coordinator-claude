@@ -120,7 +120,7 @@ Two properties every consumer of this artifact can rely on, enforced at the sche
   one consumer's execution mechanics (e.g. Cockpit's `shell:false` arg-vector posture is cockpit's own
   detail), only the shape that lets a consumer implement degrade-to-inert safely.
 - **`call_to_action.payload.cwd` is `"$FLEET_ROOT/<repo>"`, never an absolute path.** An
-  absolute, authoring-machine path (`X:/<repo>`, `/Users/<name>/.../<repo>`) resolves on no other
+  absolute, authoring-machine path (a drive-letter mount or a home-directory path) resolves on no other
   box, so a consumer's loader finds no such directory and disables the action there. `$FLEET_ROOT`
   is the portable per-machine fleet root every consumer already binds (registry
   `repos.fleet_root`, then the `FLEET_ROOT` env var, then that platform's own root convention).

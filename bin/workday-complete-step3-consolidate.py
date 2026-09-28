@@ -1,3 +1,10 @@
+"""Workday-complete step 3: consolidate the session's branch onto main.
+
+Drives `sync-main.py` and `workday_ceremony_lib` git helpers to merge/rebase,
+reconcile conflicts, and push, exiting with the codes documented in `_HELP`
+below rather than raising -- callers key off the exit code, not stderr text.
+"""
+
 from __future__ import annotations
 
 import os

@@ -57,7 +57,7 @@ Per the PM's commit-model ruling (AC6, the subagent commit model), the executor 
 at all — it writes/edits and reports back, the EM commits. The engine's M4 PreToolUse guard
 (`coordinator_core/bash_guards/`) denies any `git commit` (plain or via `coordinator-safe-commit`)
 that resolves to a Sonnet/Haiku subagent context; there is no authorized executor commit path. See
-`scoped-safety-commits.md § 8` and SC-DR-006/SC-DR-008 for the parallel gate there.
+`scoped-safety-commits.md § 8` and for the parallel gate there.
 
 Executors set no context variable and take no gate-arming first action. Enforcement is
 non-cooperative: the PreToolUse chain resolves the caller from harness-supplied identity the agent

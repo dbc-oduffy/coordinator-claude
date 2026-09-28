@@ -345,7 +345,9 @@ Residue is row-granular to this session only — never the whole store, never a 
 
 ## Step 18: Archive + Reset Week-Changelog
 
-Moves daily files + priorities fragments to `archive/week-changelogs/<week-starting>/`,
+Moves daily files + priorities fragments to `archive/week-changelogs/<week-starting>/` (which must
+end up holding one `WEEK-SUMMARY.md` in the rollup-frontmatter shape —
+`docs/wiki/ceremony-calibration/daily-summary-procedure.md` § Rollup Frontmatter Standard),
 review-trail JSON to `archive/review-trail/<week-starting>/` (`.gitkeep` and
 `.weekly-reviewer-scopes-*.json` shards deleted not archived), rewrites `HEADER.md`, commits +
 pushes. Run `workweek-complete-close archive --version vX.Y.Z --merge-sha <merge-sha>`

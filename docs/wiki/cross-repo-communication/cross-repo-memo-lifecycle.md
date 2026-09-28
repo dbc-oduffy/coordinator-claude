@@ -311,7 +311,7 @@ Mechanics:
 
 1. **Append, don't restructure** — add under a dated `## Routed from inbox triage (<YYYY-MM-DD>)` heading at the end of the handoff body (extend the section if it already exists for the day): one bullet per routed item, citing the source artifact path and one line on what the baton now additionally owes.
 2. **Leave the handoff frontmatter untouched** — `status`, `deployment_state`, and lineage fields are lifecycle state with their own authorized writers; a routing note is body content only.
-3. **Commit the handoff edit via `ceremony.commit_v2`** (the engine repo, `coordinator_core/git/commit.py` :: `commit_paths`) with `paths: [<handoff>]`, subject `route-to-baton: <handoff-slug> ← <source-basename>` — it commits the tree it builds from that path alone, whether or not you staged a partial hunk, so there's nothing to classify here (→ `scoped-safety-commits.md § SC-DR-015`). The commit is the durable record; an uncommitted routing note fails the ruling.
+3. **Commit the handoff edit via `ceremony.commit_v2`** (the engine repo, `coordinator_core/git/commit.py` :: `commit_paths`) with `paths: [<handoff>]`, subject `route-to-baton: <handoff-slug> ← <source-basename>` — it commits the tree it builds from that path alone, whether or not you staged a partial hunk, so there's nothing to classify here (→ `scoped-safety-commits.md` §). The commit is the durable record; an uncommitted routing note fails the ruling.
 4. **Route-then-close, in that order, in the same pass.** The routing commit must exist before the flip — never close against a capture you have not landed. Once it has landed and the baton demonstrably names the memo, resolve the memo where you routed it:
 
        archive-stamp-cli resolve-memo <memo> \

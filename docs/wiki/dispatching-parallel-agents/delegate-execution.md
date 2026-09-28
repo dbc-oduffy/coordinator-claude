@@ -342,7 +342,7 @@ hand-rolling git. This pattern prevents both absorption and scope sweep. The op 
 selection at all: it builds the commit's tree from the named paths and never reads the shared
 index. The older two-horn account below (private index when staged content diverges, ordinary pathspec
 commit when it agrees) rather than the caller having to pick one by hand — see
-`scoped-safety-commits.md § SC-DR-015`.
+`scoped-safety-commits.md` §.
 
 This retires the earlier `git reset && git add -- <paths> && git commit -m "<message>"` recipe.
 That form's leading `git reset` cleared the *shared* index — unstaging whatever a concurrent

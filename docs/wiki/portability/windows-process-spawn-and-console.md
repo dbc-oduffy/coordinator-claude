@@ -2,7 +2,7 @@
 
 **Purpose.** Triage, canonical fix, and test-discipline rules for Windows hidden-window child-process spawning under the Claude Code headless-bash parent, plus the console-input-mode rule that governs launching an interactive TUI. Sections 1-3 consolidate queue entries 52, 65, and 66; § 4 governs the launch chain.
 
-See also: `cross-platform-shell-portability.md` § Windows console-popup (the full layer doctrine); `coordinator/docs/wiki/coordinator-tripwires/` § WINDOWS-CONSOLE-POPUP; `docs/decisions/DR-054-*` (retirement of the execution-layer nag; creationflags-at-authoring is the canonical fix).
+See also: `cross-platform-shell-portability.md` § Windows console-popup (the full layer doctrine); `coordinator/docs/wiki/coordinator-tripwires/` § WINDOWS-CONSOLE-POPUP; .
 
 ## 1. Triage — audit session-lifecycle scripts first
 

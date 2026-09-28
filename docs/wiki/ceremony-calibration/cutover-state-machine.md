@@ -376,7 +376,6 @@ asking for the same underlying cutover.
 
 ## Diagnosing a foreign consumer's test surface before opening the record
 
-<!-- spec-backlink: state/handoffs/2026-09-23-cutover-consumer-test-preflight.md -->
 
 Two causes make a gate verdict swing (`closed-reason-terminal` went PASS → INDETERMINATE →
 REFUSE → INDETERMINATE), distinct from § A sibling's bulk rename orphans `verified_by` refs

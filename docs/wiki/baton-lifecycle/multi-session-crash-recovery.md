@@ -157,7 +157,7 @@ The crash leaves attributable uncommitted work in the shared tree. Preserve it w
 via `ceremony.commit_v2` (the engine repo) — explicit paths, never `git add -A` — so a repeat
 crash can't re-lose it and commits auto-push as insurance. The op selects the safe mechanism whether or
 not the crash-recovery scan left partial hunks staged, so there's no TOCTOU shape to reason about here
-(→ `scoped-safety-commits.md § SC-DR-015`). A safety
+(→ `scoped-safety-commits.md` §). A safety
 commit is preservation, not blessing; note verification status in the message and let the successor re-run gates.
 **Attribute each dirty file to a session** and group commits by workstream — two crashed sessions' work must not be
 swept into one commit (the concurrent-EM blanket-commit hazard, seen more than once). Delete obvious crash

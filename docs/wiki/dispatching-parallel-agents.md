@@ -425,7 +425,7 @@ never accept a `DONE` chat message as proof). Commit the wave via `ceremony.comm
 `repo`/`paths`/`message` (the repo-root keyword is `repo`) — it builds the commit from those paths, never the
 shared index; **never
 `git add -A` / `git add .`** (sibling sessions may have unrelated dirty files). Mechanism +
-rationale → `scoped-safety-commits.md § SC-DR-015`. **Executors do NOT commit;**
+rationale → `scoped-safety-commits.md` §. **Executors do NOT commit;**
 if one reports it did, inspect `git log` and drop the out-of-scope paths from the wave commit's
 pathspec — do **not** revert them in the working tree. On a shared tree an out-of-scope edit is at
 least as likely to be a live peer's as your executor's, and `git checkout --` on it is

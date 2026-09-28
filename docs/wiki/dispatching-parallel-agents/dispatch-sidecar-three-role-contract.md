@@ -613,7 +613,7 @@ the two lead lines alone, and the body remains below them as detail for the disp
 cases above.
 
 **R3 owns sync/async; this section owns shape only.** The sibling plan
-`docs/plans/2026-09-26-coordinator-remedies-slate-tier-1.md` (R3) is the home for whether a
+ (R3) is the home for whether a
 dispatch blocks the EM synchronously or reports by background notification. Nothing in this
 section changes that — it only fixes what the payload looks like once it arrives, however it
 arrives.

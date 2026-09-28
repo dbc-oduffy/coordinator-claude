@@ -183,6 +183,6 @@ estimates for this class of sweep have undercounted before.
 ## See also
 
 - `cross-platform-shell-portability.md` — the coordinator's OWN runtime-syntax portability (the internal half).
-- `cross-platform-invocation-parity.md` — python-shebang + `.cmd`, never bareword-through-a-shell (DR-076).
+- `cross-platform-invocation-parity.md` — python-shebang + `.cmd`, never bareword-through-a-shell ().
 - `agent-install-contract.md` § No subagent-hostile bash wrappers — the packageability clause.
 - `windows-cmd-shims.md` — launcher/interpreter-resolution mechanics and the Shape β non-goal (shared runtime resolver library).

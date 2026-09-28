@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""One-shot substitution of articulated reviewer role-labels for user-chosen names in the OSS publish repo's installed prose. Not idempotent across repeated runs."""
+
 # name-personas.py — Bind user-chosen names to role-distinct reviewer personae.
 #
 # The publish repo ships nameless: reviewers are referred to by articulated role

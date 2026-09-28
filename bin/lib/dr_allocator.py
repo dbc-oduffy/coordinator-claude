@@ -1,4 +1,6 @@
 
+"""Allocates the next free DR-<prefix>-<NNN> decision-record id by scanning existing filenames and frontmatter for used numbers, and guards against minting a duplicate."""
+
 from __future__ import annotations
 
 import os

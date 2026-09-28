@@ -111,6 +111,17 @@ print(compute_machine())
    ```
 
    ```markdown
+   ---
+   rollup_schema: 1
+   grain: day
+   period: YYYY-MM-DD
+   repo: <owner>/<repo>
+   machine: <machine-slug or null>
+   commits: <int or null>
+   covered_tip_sha: <40-char SHA, "none", or null>
+   covered_machine: <machine-slug or null>
+   backfilled: false
+   ---
    # Daily Summary — YYYY-MM-DD
 
    > Generated: YYYY-MM-DD HH:MM by /workday-complete Step 4
@@ -438,3 +449,35 @@ control-plane-engine work, out of this corpus's scope; (2) no harvest debt — d
 over `archive/specs/`, not this directory; (3) no new link-heal no-rewrite class — stays in
 AC19's ordinary rewritable `archive/` scope. Left open: the never-delete asymmetry —
 `state/week-changelog/` is on `artifact-pruning.md`'s Never-delete list, this directory is not.
+
+---
+
+## Rollup Frontmatter Standard
+
+Every daily summary and every archived week carries frontmatter in one shape, so a reader like
+Cockpit parses facts without scraping prose. The keys mirror the cockpit contract's `day-rollup` /
+`week-rollup` entities (`grain`, `period`, `repo`, `deterministic_facts.commits`).
+
+- **Day** — `archive/daily-summaries/YYYY-MM-DD[-<machine>].md`, keys exactly as the template
+  above, in that order. Unknown value → `null`, never omitted. Keys outside the standard are kept
+  under a nested `legacy:` map, never at top level. `covered_tip_sha` stays line-anchored so the
+  backfill scan still reads it.
+- **Week** — every `archive/week-changelogs/<week-start>/` holds exactly one `WEEK-SUMMARY.md`
+  (never `WEEK-DIGEST.md`, `week-changelog.md`, or a dated variant) opening with:
+
+  ```yaml
+  ---
+  rollup_schema: 1
+  grain: week
+  period: YYYY-Www          # ISO week of week_start
+  week_start: YYYY-MM-DD
+  week_end: YYYY-MM-DD
+  repo: <owner>/<repo>
+  commits: <sum of the week's daily `commits`, or null>
+  days: [YYYY-MM-DD, ...]   # days with any record
+  backfilled: <bool>
+  narrative: authored | null   # null = generated day index, no written weekly narrative
+  ---
+  ```
+- The body under the frontmatter is prose and free-form beyond the H1
+  (`# Daily Summary — YYYY-MM-DD` / `# Week Summary — <start> .. <end>`).

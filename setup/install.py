@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Standalone OSS coordinator-claude installer for the publish repo. Deliberately self-contained -- no claude-klabauter/coordinator_core import, since it runs on end-user machines with no sibling engine clone."""
+
 # install.py — coordinator-claude installer.
 #
 # Copies plugins to ~/.claude and registers them in Claude Code's JSON config
