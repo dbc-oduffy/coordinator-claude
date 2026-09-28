@@ -39,7 +39,7 @@ The engine repo's `coordinator_core/write_guards/block_subagent_archive_write.py
 
 The hook exempts, by path shape, the executor's one authorized fallback write: a completion-log entry at `archive/completed/YYYY-MM/<entry>.md`, per `executor.md § Archive Fallback`. This is explicitly sanctioned behavior, not a gap — the hook must not block it.
 
-PM resolution on scope: **HYBRID** — keep the archive subagent-block hook *and* baseline rules, applied across all 10 flagged paths (not hook-only, not doctrine-only). Two of the resulting entries deserved standalone treatment: E1 (sidecar immutability landed as a `## Sidecar Immutability` section in `agents/review-integrator.md`'s baseline prompt, not just the dispatch brief) and E5 (the archive-write hook itself, above). The remaining entries (E2–E4, E6–E10) are narrower doctrine calibrations — coarse `agent_id` gating, sidecar disposition annotation, dogfood binding — folded into existing surfaces rather than new mechanisms.
+PM resolution on scope: **HYBRID** — keep the archive subagent-block hook *and* baseline rules, applied across all 10 flagged paths (not hook-only, not doctrine-only). Two of the resulting entries deserved standalone treatment: E1 (sidecar immutability landed as a `## Sidecar Immutability` section in the now-retired `review-integrator.md`'s baseline prompt, not just the dispatch brief) and E5 (the archive-write hook itself, above). The remaining entries (E2–E4, E6–E10) are narrower doctrine calibrations — coarse `agent_id` gating, sidecar disposition annotation, dogfood binding — folded into existing surfaces rather than new mechanisms.
 
 ### Touched-files scope and branch-pin
 <!-- src: plan03-006 plan03-007 plan03-008 -->

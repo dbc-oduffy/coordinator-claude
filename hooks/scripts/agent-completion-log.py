@@ -158,6 +158,11 @@ def main() -> int:
     cwd = payload.get("cwd")
 
     # scope "common_dir" (coordinator_core/ipc.py _OP_KEY_SCOPE) -- REQUIRES
+    # _origin_worktree; the handler resolves git_common_dir(repo_root) from it
+    # (any path inside the repo tree is sufficient, git does the walk-up).
+    # dispatch_from_hook builds the envelope itself and omits
+    # _origin_worktree when origin_worktree is None/empty, matching this
+    # stub's prior isinstance(cwd, str) and cwd guard unchanged.
     try:
         result = dispatch_from_hook(
             "hooks.agent_completion_log",

@@ -44,9 +44,10 @@ Assigned exactly one output path: `$FINDINGS_DIR/chunk-<k>.md`. `Write` only —
   everything found so far plus a `<!-- in-progress -->` marker near the top; the final write
   removes the marker and adds the verdict line.
 - **Write nothing else** — no source files, no other chunk files, no synthesis.json, no commits,
-  no branches, no invoking `coordinator:review-integrator`/`coordinator:executor`/any
-  codebase-mutating or dispatching agent. `git status` shows one new/modified `chunk-<k>.md`;
-  anything else is a contract violation.
+  no branches, no invoking `coordinator:executor`/any codebase-mutating or dispatching agent.
+  `git status` shows one new/modified `chunk-<k>.md`; anything else is a contract violation.
+  You write findings only — you do not apply them or edit source; that is the base
+  `code-reviewer`'s behavior, not this weekly-gate variant's.
 
 ## Obsessive-nit framing
 

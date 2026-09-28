@@ -292,6 +292,17 @@ def _dump_registry(machine_local_bin: str) -> dict[str, str]:
     return values
 
 
+def _env_override_key(key: str) -> str:
+    """Mirror `_machine_local.py`'s own `_env_key`: the `MACHINE_LOCAL_<KEY>`
+    escape-hatch name for a dotted registry key. Forward-only and exact —
+    `key` is always a literal dotted string the caller already knows, so
+    there is no reverse-mapping ambiguity here (unlike guessing a dotted key
+    back out of an arbitrary `MACHINE_LOCAL_*` env var name, which is lossy
+    for a key segment that itself contains an underscore, e.g.
+    `coordinator_claude`)."""
+    return "MACHINE_LOCAL_" + key.upper().replace(".", "_")
+
+
 def _machine_local_get(machine_local_bin: str, key: str) -> Optional[str]:
     """Resolve `key` from `<machine_local_bin> dump`'s memoized output (see
     `_dump_registry`) rather than spawning a dedicated `<machine_local_bin>
@@ -305,8 +316,21 @@ def _machine_local_get(machine_local_bin: str, key: str) -> Optional[str]:
     as the old per-key path did: an empty base would otherwise be silently
     concatenated with the sigil's subpath, producing a bare "\\coordinator"
     that fails much later as "source path does not exist", far from the
-    missing key that caused it)."""
-    return _dump_registry(machine_local_bin).get(key) or None
+    missing key that caused it).
+
+    BV-20260927-05: `dump`'s registry enumeration is TOML-layer-only, so a
+    key with no TOML declaration at all is never a candidate `dump` even
+    tries to resolve — `get`/`has` still answer it via their own last-resort
+    `MACHINE_LOCAL_<KEY>` env check (the `resolve_one` kernel), but a value
+    read only from `_dump_registry`'s memoized dict never sees that rung.
+    Re-applying the same last-resort env check here, once, keeps this
+    single-process batched reader at parity with a per-key `get` call for
+    the one rung `dump`'s enumeration structurally cannot reach — zero
+    additional subprocess spawns, since `os.environ` is already in-process."""
+    val = _dump_registry(machine_local_bin).get(key) or None
+    if val is not None:
+        return val
+    return os.environ.get(_env_override_key(key)) or None
 
 
 def _resolve_machine_local_or_raise(meta_root: Path) -> str:

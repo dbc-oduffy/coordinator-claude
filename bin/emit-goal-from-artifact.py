@@ -21,11 +21,19 @@ Spec backlink: DoE-claude:pln-close-the-weekly-goal-loop-yam-d31316 § C11 (thin
 
 Usage:
     emit-goal-from-artifact.py [--root <repo-root>] [--repo <owner/repo>] [--dry-run]
+                                [--artifact <path> | <path>]
+    emit-goal-from-artifact.py --help
 
 Options:
-    --root <path>    Repo root to scan for state/goals/*.yaml (default: cwd git root)
-    --repo <slug>    Override repo slug passed to append-goal-event.py (default: derived)
-    --dry-run        Print append-goal-event.py invocations without executing them
+    --root <path>     Repo root to scan for state/goals/*.yaml (default: cwd git root)
+    --repo <slug>     Override repo slug passed to append-goal-event.py (default: derived)
+    --dry-run         Print append-goal-event.py invocations without executing them
+    --artifact <path> Emit ONLY this scaffolded goal artifact (any state/goals/*.yaml path,
+                       absolute or relative to cwd) instead of scanning the whole
+                       state/goals/ directory — "run the emitter against the scaffolded
+                       artifact" (goal-setting doctrine). A bare positional path argument
+                       is accepted as shorthand for --artifact (F2, klabauter#71).
+    -h, --help        Print this usage and exit 0.
 
 Exit codes:
     0  -- all goals emitted successfully (or --dry-run completed)
@@ -245,16 +253,35 @@ def _project_key_results_status(file_path: str, basename: str) -> str:
     return json.dumps(objects, separators=(",", ":"))
 
 
+_USAGE = """Usage: emit-goal-from-artifact.py [--root <repo-root>] [--repo <owner/repo>] [--dry-run]
+                                  [--artifact <path> | <path>]
+       emit-goal-from-artifact.py --help
+
+Options:
+    --root <path>     Repo root to scan for state/goals/*.yaml (default: cwd git root)
+    --repo <slug>     Override repo slug passed to append-goal-event.py (default: derived)
+    --dry-run         Print append-goal-event.py invocations without executing them
+    --artifact <path> Emit ONLY this scaffolded goal artifact instead of scanning the
+                       whole state/goals/ directory. A bare positional path is accepted
+                       as shorthand for --artifact.
+    -h, --help        Print this usage and exit 0.
+"""
+
+
 def main(argv: list[str]) -> int:
     args = argv[1:]
     root_override = ""
     repo_override = ""
     dry_run = False
+    artifact_override = ""
 
     i = 0
     while i < len(args):
         a = args[i]
-        if a == "--root":
+        if a in ("--help", "-h"):
+            print(_USAGE)
+            return 0
+        elif a == "--root":
             root_override = args[i + 1] if i + 1 < len(args) else ""
             i += 2
         elif a == "--repo":
@@ -262,6 +289,13 @@ def main(argv: list[str]) -> int:
             i += 2
         elif a == "--dry-run":
             dry_run = True
+            i += 1
+        elif a == "--artifact":
+            artifact_override = args[i + 1] if i + 1 < len(args) else ""
+            i += 2
+        elif not a.startswith("-") and not artifact_override:
+            # Bare positional path — shorthand for --artifact (F2).
+            artifact_override = a
             i += 1
         else:
             print(f"ERROR: Unknown argument: {a}", file=sys.stderr)
@@ -289,21 +323,33 @@ def main(argv: list[str]) -> int:
         )
         return 1
 
-    goals_dir = os.path.join(git_root, "state", "goals")
     repo_slug = _derive_repo_slug(git_root, repo_override)
 
-    if not os.path.isdir(goals_dir):
-        print(f"[emit-goal] no state/goals/ directory at {git_root} — nothing to emit", file=sys.stderr)
-        return 0
+    if artifact_override:
+        artifact_path = (
+            artifact_override
+            if os.path.isabs(artifact_override)
+            else os.path.join(git_root, artifact_override)
+        )
+        if not os.path.isfile(artifact_path):
+            print(f"ERROR: --artifact path not found: {artifact_path}", file=sys.stderr)
+            return 1
+        goal_files = [artifact_path]
+    else:
+        goals_dir = os.path.join(git_root, "state", "goals")
 
-    goal_files = sorted(
-        os.path.join(goals_dir, f) for f in os.listdir(goals_dir) if f.endswith(".yaml")
-    )
-    if not goal_files:
-        print(f"[emit-goal] no *.yaml files found in {goals_dir} — nothing to emit", file=sys.stderr)
-        return 0
+        if not os.path.isdir(goals_dir):
+            print(f"[emit-goal] no state/goals/ directory at {git_root} — nothing to emit", file=sys.stderr)
+            return 0
 
-    print(f"[emit-goal] found {len(goal_files)} goal artifact(s) in {goals_dir}", file=sys.stderr)
+        goal_files = sorted(
+            os.path.join(goals_dir, f) for f in os.listdir(goals_dir) if f.endswith(".yaml")
+        )
+        if not goal_files:
+            print(f"[emit-goal] no *.yaml files found in {goals_dir} — nothing to emit", file=sys.stderr)
+            return 0
+
+    print(f"[emit-goal] found {len(goal_files)} goal artifact(s) to emit", file=sys.stderr)
 
     emit_fail = False
     batch: list[tuple[str, dict]] = []

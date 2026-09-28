@@ -298,6 +298,9 @@ def main() -> int:
         "session_id": flat.get("session_id", ""),
         # Forwarded UNFLATTENED and complete: the engine answers a foreground dispatch by
         # rewriting it (hookSpecificOutput.updatedInput), and updatedInput REPLACES the
+        # tool's argument object rather than merging into it -- so the engine needs every
+        # original key, not the three flattened scalars above. Withholding it is not a
+        # silent no-op: the engine falls back to its legacy deny envelope.
         "tool_input": tool_input,
     }
 
@@ -309,6 +312,8 @@ def main() -> int:
         )
     except HookDispatchError:
         # Any engine failure (including INVALID_PARAMS/unregistered-op/handler-exception,
+        # all surfaced as an "error" response) -- deny a known foreground dispatch, pass
+        # anything else, same as the "no result object at all" branch this replaces.
         return _fail()
 
     if result:

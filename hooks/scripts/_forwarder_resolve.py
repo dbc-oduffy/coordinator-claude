@@ -52,10 +52,21 @@ from typing import Optional
 
 _FORWARDER_SUFFIXES = ("", ".exe")
 
+# Suffixes whose file is a native executable, launched bare. A suffix is a
 # SUFFICIENT tell and never a necessary one -- see `_is_native_image`.
 _NATIVE_SUFFIXES = (".exe",)
 
+# The native-image predicate has ONE definition in this package, in
+# `_bin_impl_drift`, whose local magic tuple is already pinned against the
 # engine's `coordinator_core.install.door_install.NATIVE_IMAGE_MAGIC` by
+# `test_bin_impl_drift`. Importing it here rather than carrying a second copy
+# means that existing pin covers this module too; a copy would need its own pin
+# and could still drift in the window between them.
+#
+# A sibling import, not an engine import: `_bin_impl_drift` is a peer in this
+# directory with no module-scope side effects, and `sessionstart-bin-drift-refresh`
+# already imports from it the same way. The no-engine-import constraint in this
+# package reaches `coordinator_core`, never the module beside this one.
 from _bin_impl_drift import _is_native_image  # noqa: E402
 
 

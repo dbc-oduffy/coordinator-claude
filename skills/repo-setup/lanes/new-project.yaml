@@ -1,5 +1,8 @@
 
+# Lane: new-project (greenfield). Caller supplies a project name and a goal statement; there is
 # no existing code for Phase 1.5 to read. See CONTRACT.md for the shape every lane follows.
+# spec_backlink: archive/specs/2026-08/2026-08-20-repo-setup-as-a-product-surface.md (C2)
+# census_backlink: state/plan-sidecars/2026-08-20-repo-setup-computed-form.census-steps.md
 
 
 lane: new-project
@@ -94,6 +97,7 @@ terminal_offer_defaults:
       one, rather than waiting for a *.sh signal to accrete first.
 
 # --- AC5: ROSTER SLOTS. Ordered ready_to_fire baton slots; see CONTRACT.md § Roster slots for
+# the ordering convention. This lane writes no baton -- slots are data naming the primitive.
 
 roster_slots:
   - slot: 1

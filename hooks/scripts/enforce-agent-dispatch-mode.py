@@ -155,6 +155,20 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
+# --- Concern I: teammate-name path-segment refusal ---
+#
+# `name` feeds the engine's canonical-agent-id builder downstream, which
+# formats it directly into the teammate's canonical agent id and, from
+# there, its sidecar path segment -- with no sanitization step of its own.
+# A name containing a path separator (e.g. "feature/auth-review", the shape
+# anyone doing branch-scoped review naturally reaches for) resolves a type
+# and passes provisioning eligibility while defeating the engine's
+# named-teammate-agent-id predicate (the canonical-id shape it expects never
+# matches an id carrying an embedded `/`). This is NOT the same failure mode
+# `_named_dispatch_strip.py` guards against (Explore/Plan confinement loss,
+# reporting-agent report loss) -- it applies regardless of subagent_type,
+# to any dispatch carrying a `name` at all, and refuses rather than
+# sanitizes: silently mangling the name would let the dispatch through under
 # a DIFFERENT name than the one asked for, which is worse than refusing.
 _TEAMMATE_NAME_PATH_UNSAFE_RE = re.compile(r"[\\/]")
 
@@ -256,7 +270,13 @@ def main() -> int:
     tool_input = data.get("tool_input")
     tool_input_dict = tool_input if isinstance(tool_input, dict) else {}
 
+    # --- Concern I: teammate-name path-segment refusal. Computed
+    # unconditionally, before anything else -- it is not a mode-elevation
     # concern, must not be gated by COORDINATOR_AGENT_MODE_OK, and applies
+    # regardless of subagent_type (unlike Concern F, which only strips/denies
+    # for the Explore/Plan/reporting-type populations). A non-None result is
+    # this hook's own fail-closed leg and wins outright over every other
+    # concern -- checked first in the precedence chain below.
     teammate_name_deny_message: Optional[str] = None
     _name_value = tool_input_dict.get("name")
     if isinstance(_name_value, str):
@@ -265,7 +285,13 @@ def main() -> int:
         except Exception:
             teammate_name_deny_message = None
 
+    # --- Escape hatch: deliberate down-scope dispatch (e.g. read-only scout
+    # from YOLO session). Short-circuits Concern A computation only, matching
+    # the oracle's early-exit placement for that concern (before any Concern
+    # A computation). It deliberately does NOT short-circuit Concerns E/F/G
     # below: COORDINATOR_AGENT_MODE_OK is a permission-mode escape hatch, not
+    # a doctrine/rewrite one, and letting it suppress those strips would
+    # silently un-strip every session that sets it.
     mode_ok_escape = bool(os.environ.get("COORDINATOR_AGENT_MODE_OK"))
 
     parent_mode = data.get("permission_mode") or ""
@@ -281,19 +307,46 @@ def main() -> int:
             if parent_rank >= 0 and child_rank >= 0 and parent_rank >= 3 and child_rank < parent_rank:
                 need_mode_elevation = True
 
+    # --- Concern E: worktree-isolation strip (single-emitter fix, see module
+    # docstring). Computed unconditionally -- it is not a
+    # mode-elevation concern and must not be gated by the
     # COORDINATOR_AGENT_MODE_OK escape hatch. Pure computation; None when
+    # there is nothing to strip (isolation absent, any non-"worktree" value,
+    # or the override sentinel is active).
+    # Review: code-reviewer -- the three _compute_* call sites relied entirely
+    # on callee-internal fail-open discipline with no defensive try/except at
+    # the call site; an uncaught exception here would produce no valid JSON
+    # on stdout (fail-CLOSED on a hook whose whole design is fail-open).
+    # Degrade to None on any exception, matching the ImportError fallback's
+    # own contract.
     try:
         worktree_strip_result = _compute_worktree_strip(tool_input_dict)
     except Exception:
         worktree_strip_result = None
 
+    # --- Concern F: named-dispatch (`name` key) strip (single-emitter
+    # fold-in, see module docstring). Computed unconditionally, like Concern
+    # E -- it is not a mode-elevation concern and must not be gated by the
     # COORDINATOR_AGENT_MODE_OK escape hatch. A "deny" result is this
+    # module's own fail-closed leg (unrecognised tool_input key, or an
+    # internal failure, on a genuinely named Explore/Plan dispatch) and MUST
+    # win outright over every other concern -- short-circuit immediately,
+    # before folding anything else into `merged`, exactly as the standalone
+    # guard used to (its deny was never conditional on the other concerns'
+    # state).
     try:
         named_dispatch_result = _compute_named_dispatch(tool_input_dict)
     except Exception:
         named_dispatch_result = None
 
+    # --- Concern G: foreground-dispatch reroute (single-emitter fold-in,
+    # RE-LAND, see module docstring). Computed unconditionally, like Concern
+    # E/F -- it is not a mode-elevation concern and must not be gated by the
     # COORDINATOR_AGENT_MODE_OK escape hatch (its own, distinct escape hatch
+    # is the `.foreground-ok` sentinel, checked inside the pure computation).
+    # A "deny" result (no safely rewritable tool_input) MUST win outright
+    # over every other concern, same precedence tier as Concern F's own
+    # fail-closed leg.
     try:
         foreground_result = _compute_foreground_reroute(
             tool_input_dict.get("run_in_background"),
@@ -349,6 +402,10 @@ def main() -> int:
         or foreground_result is not None
     ):
 
+        # --- Emit: permissionDecision "allow" + updatedInput (full merge,
+        # whichever mutations apply). Type guard mirrors the oracle's jq path
+        # ("object" type check only -- an empty {} tool_input still
+        # qualifies) rather than the oracle's stricter python-fallback
         # truthy check, since jq is the oracle's PREFERRED path.
         if not isinstance(tool_input, dict):
             return 0

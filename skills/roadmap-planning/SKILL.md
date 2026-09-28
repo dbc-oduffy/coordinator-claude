@@ -93,7 +93,10 @@ STOP those clusters, never substitute web scouts, surface to PM. Other clusters 
 1.5.5. Sequential reviews — the Staff Engineer, or the Director of Engineering on cross-repo/cross-team boundaries; domain reviewer
    by flavor. Sidecar contract + altitude rule (shared with Step 2.8): wiki.
 1.5.6. PM round 2 (final approval) with a diff vs. shape-approved — framing template: wiki. On
-   approval, `status: final-approved`. **Phase 2 MUST NOT start without it.**
+   approval, `status: final-approved`. **Phase 2 MUST NOT start without it** — unless the PM
+   pre-waived round 2 at round 1 with a recorded "execute and adjust" ruling (verbatim utterance,
+   recorded alongside the round-1 approval); that waiver stands in for round 2 and Phase 2 may
+   start on it directly.
 
 **Exit:** research-depth recorded; every KEEP cluster has a research-corpus file; OVERVIEW cites +
 `### Contested` per section; peer-team-asks present; both reviews integrated; `status:
@@ -133,8 +136,9 @@ final-approved`.
    output; sets how many stubs 2.1 scaffolds. `loe:` is the whole-baton t-shirt read.
    - **Band: mostly M and L.** XS/S never ship alone — group them into one baton. XL only where a
      group cannot cut smaller. An XXL stub means the roadmap is mis-made; go back to Phase 1.
-   - **Collapse the wave.** Same wave + pairwise-disjoint `scope:` + no `blocked_by` between
-     members → one baton, several specs. Same-file units never split, in any wave.
+   - **Collapse the wave.** 2.1.5's wave assignment already places edge-free, pairwise-disjoint
+     stubs in the same wave; fold that set into one baton, several specs. Same-file units never
+     split, in any wave.
    - **Split only on a real barrier** — a gate that cannot clear until the first half lands, or a
      decision the first half's output determines.
    - **Re-price on scope change**, or a stale size routes a go-do-it through a full lifecycle.

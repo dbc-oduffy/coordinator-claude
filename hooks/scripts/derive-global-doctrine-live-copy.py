@@ -110,6 +110,8 @@ if _HOOKS_DIR not in sys.path:
 from _message_envelope import CHANNEL_STOP, compose, emit, measurement_enabled  # noqa: E402
 
 _WIKI_ANCHOR = (
+    # Review: code-reviewer -- render() emits `f"See {anchor}."` verbatim;
+    # a bare fragment produces an unresolvable citation. Full path matches
     # every other converted hook's `_WIKI_ANCHOR` shape.
     "coordinator/docs/wiki/guards/guard-message-concision.md"
     "#derive-global-doctrine-mirror-and-fail-loud"
@@ -134,7 +136,15 @@ def _parse_input(raw: str) -> dict:
 
 
 def _repo_root() -> Path:
+    # coordinator/hooks/scripts/<this file> -> parents[3] is the repo root.
+    # Review: code-reviewer -- Finding 4: this resolves from Path(__file__),
     # i.e. from wherever ${CLAUDE_PLUGIN_ROOT} points -- the canonical plugin
+    # source checkout, not necessarily the checkout backing the session's
+    # cwd. A session working out of a git worktree, editing that worktree's
+    # own global-doctrine/CLAUDE.md, will never match tracked_resolved
+    # (pinned to the plugin-root checkout), so the hook silently no-ops for
+    # that worktree -- believed correct (one canonical live doctrine
+    # target), but worth knowing if a worktree edit doesn't propagate.
     return Path(__file__).resolve().parents[3]
 
 
@@ -241,7 +251,11 @@ def _emit_stop(message: str, emit_state: dict) -> int:
 
 def _derive_live_copy(tracked: Path, live: Path, *, emit_state: dict | None = None) -> int:
     # Routed through `_message_envelope.emit()` (CHANNEL_STOP) rather than
+    # hand-rolling `render()` + a text-mode `sys.stderr.write()` -- `emit()`'s
     # CHANNEL_STOP branch writes via `sys.stderr.buffer.write()`, which
+    # bypasses Python's Windows text-mode LF->CRLF translation (a real
+    # byte-fidelity loss the hand-rolled path used to carry silently). See
+    # `state/bug-backlog/2026-08-06-derive-hooks-hand-roll-stop-shape-and-lo-4c1e9a7b03d5.yaml`.
     if emit_state is None:
         emit_state = {}
 

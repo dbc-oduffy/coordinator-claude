@@ -36,8 +36,7 @@ wrong one. Both are accepted here, as they are in `recycle-check.py`.
 Usage:
 
     python3 emit-wave-fire.py --repo-root <abs> --trail-dir <abs> [--wave-index 0]
-                              [--plugin-root <abs>] [--dispositions-cli <abs>]
-                              [--spine-check-cli <abs>]
+                              [--plugin-root <abs>] [--spine-check-cli <abs>]
                               [--engine-root <abs>] [--batons-per-fire 8]
 
 Writes `<trail-dir>/fire-<waveIndex>-<n>.mjs` per fire and prints, for each, the exact
@@ -108,8 +107,8 @@ def _latest_wave_slot(trail_dir: Path, baton_id: str) -> Path | None:
 
 def _plan_path_for(slot: Path, baton_id: str) -> str | None:
     """This baton's plan, off the slot's own records. The landing's `wave-result.json` is the
-    first source because the verdict row is what the repair re-dispositions; the planning report
-    is the fallback for a fire that died before it landed."""
+    first source because the verdict row is what an EM settlement re-dispositions; the planning
+    report is the fallback for a fire that died before it landed."""
     result = slot / "wave-result.json"
     if result.is_file():
         try:
@@ -126,67 +125,6 @@ def _plan_path_for(slot: Path, baton_id: str) -> str | None:
         if m:
             return m.group(1)
     return None
-
-
-def _repair_entry(trail_dir: Path, repo_root: Path, baton_id: str) -> tuple[dict | None, str | None]:
-    """Resolve one baton's `repairBatons` entry from the trail, or say why it cannot be.
-
-    Returns (entry, refusal). The refusals mirror the workflow's own, deliberately: the workflow
-    refuses the same cases at fire time, and catching them here costs a print instead of a fire.
-    """
-    slot = _latest_wave_slot(trail_dir, baton_id)
-    if slot is None:
-        return None, (
-            f"{baton_id}: no reviewer pointer records under any wave slot of {trail_dir}. "
-            "A trail written before the structured pointer contract carries bare paths, not "
-            "records, and is not repairable."
-        )
-    plan_path = _plan_path_for(slot, baton_id)
-    if not plan_path:
-        return None, (
-            f"{baton_id}: {slot.name} names no plan for it — neither a landed verdict row nor a "
-            "planning report. Repair re-dispositions a plan; there is none to read."
-        )
-
-    reviews: list[dict] = []
-    unresolved: list[dict] = []
-    for pointer in sorted(slot.glob(f"{baton_id}.review-*{_POINTER_SUFFIX}")):
-        try:
-            record = json.loads(pointer.read_text(encoding="utf-8"))
-        except ValueError as exc:
-            unresolved.append({"pointerPath": str(pointer), "error": f"unreadable: {exc}"})
-            continue
-        if not isinstance(record, dict) or "verdict" not in record:
-            return None, (
-                f"{baton_id}: {pointer.name} carries no `verdict` — the pre-contract bare-path "
-                "shape. Integrating it would apply findings under a verdict nobody wrote."
-            )
-        target = Path(record.get("sidecarPath") or "")
-        if not target.is_absolute():
-            target = repo_root / target
-        if record.get("sidecarPath") and target.is_file():
-            reviews.append(record)
-        else:
-            unresolved.append(
-                {"pointerPath": str(pointer), "error": f"sidecar missing at {target}"}
-            )
-
-    if unresolved:
-        return None, (
-            f"{baton_id}: {len(unresolved)} pointer(s) name a sidecar that is gone "
-            f"({unresolved[0]['error']}). Repair disposition the whole baton or none of it."
-        )
-    if not reviews:
-        return None, f"{baton_id}: {slot.name} holds no resolvable reviewer pointer for it."
-    return (
-        {
-            "batonId": baton_id,
-            "planPath": plan_path,
-            "reviews": reviews,
-            "unresolvedPointers": [],
-        },
-        None,
-    )
 
 
 def _gate_payload(path: Path) -> dict:
@@ -745,13 +683,11 @@ def _settings_home_bin(name: str) -> str | None:
 def _engine_env_prefix(engine_root: Path) -> str:
     """`COORDINATOR_ENGINE_ROOT=<engine> `, or empty. Part of the injected literal.
 
-    `append-integrator-dispositions` resolves CLAUDE_KLABAUTER_ROOT before it does anything, and on a
-    box with no machine-local registry that resolution fails outright — the CLI exits 3
-    with a bootstrap message naming this variable as one of its remedies. The integrator
-    then reports the op refused and correctly declines to hand-author around it, so the
-    wave runs every review and records not one disposition. Silent by construction: the
-    refusal loses only the RECORD. Measured 2026-09-10 on example-cockpit-repo, wave 4 — three
-    sidecars, no `## Integrator Dispositions` block on any of them.
+    `provision-sidecar` and `plan-spine-check` resolve CLAUDE_KLABAUTER_ROOT before they do anything
+    else, and on a box with no machine-local registry that resolution fails outright — the
+    CLI exits with a bootstrap message naming this variable as one of its remedies. An agent
+    that hits the failure correctly declines to hand-author around it, so the injected literal
+    is what makes the op runnable at all rather than reported absent.
 
     The dispatching side already resolved an engine root to bind the fire with; the agent
     running the CLI cannot. Same rung-3 reasoning as the interpreter and DOE_ROOT.
@@ -996,7 +932,7 @@ def _default_sidecar_cli(
     A reviewer cannot resolve `<machinery_root>` or `<your session id>` from inside its
     brief — both are facts about this box. An agent handed those placeholders invents
     them, and the invention is silent: the path it picks still carries the
-    `subagent-share` segment `append-integrator-dispositions` checks for, so the findings
+    `subagent-share` segment `review-findings-ledger` checks for, so the findings
     are written, accepted, and simply kept somewhere the repo does not track.
     """
     return _settings_home_bin("provision-sidecar") or _engine_bin(
@@ -1004,101 +940,127 @@ def _default_sidecar_cli(
     )
 
 
-def _default_dispositions_cli(
-    engine_root: Path | None, plugin_root: Path | None = None
-) -> str | None:
-    """`append-integrator-dispositions`, resolved the way rung 3 says the CALLER must.
+def _refuse_from_sizing(msg: str) -> int:
+    print(f"emit-wave-fire: REFUSED — {msg}", file=sys.stderr)
+    return EXIT_REFUSED
 
-    The op ships no launcher on a stock install, so a bareword exits 127 and the
-    integrator reports the tool ABSENT — a misdiagnosis that gets escalated rather than
-    fixed, while the op runs fine from its own bin/. Resolve it here, where there is a
-    filesystem, and inject the literal. Returning None is honest: the workflow's brief
-    then says the caller omitted it, rather than letting the integrator guess.
+
+def _emit_single_from_sizing(
+    args,
+    repo_root: Path,
+    trail_dir: Path,
+    plugin_root: Path,
+    engine_root: Path | None,
+    wave_number: int,
+) -> int:
+    """`--from-sizing`: one `mode: 'single'` fire built from an accepted sizing object.
+
+    § Pinned interfaces (plan 2026-09-27-four-turn-em-loop.md, task C5). No gate report, no
+    wave — the single baton comes straight off the sizing YAML. Refuses, exit 2, naming the
+    reason, on any of the four touchpoint checks below (each mode's touchpoint includes
+    accepting the exit criterion — M3 § touchpoints).
     """
-    return _settings_home_bin("append-integrator-dispositions") or _engine_bin(
-        engine_root, "append-integrator-dispositions", plugin_root
-    )
+    import yaml  # local import: only this code path needs it
 
-
-def _emit_repair(args, repo_root: Path, trail_dir: Path, plugin_root: Path, engine_root, refuse) -> int:
-    """Emit one repair fire, bound the same way a wave fire is — identity resolution included.
-
-    A repair reaches only the integrator, and a confined integrator cannot run
-    `append-integrator-dispositions` at all, so an unresolved identity costs a repair its entire
-    point just as silently as it costs a wave its plans.
-
-    Repair existed only as a shape the caller was told to assemble by hand — which is the one act
-    § Fire the wave forbids, and for the same reasons: an args object inside a tool call is not on
-    disk, so the repair cannot be re-read, re-fired or diffed, and nothing archives with the trail.
-    Everything the assembly needed was already mechanical (latest wave slot, the partition rule,
-    the refusals), so it is done here.
-    """
+    if not trail_dir.is_dir():
+        return _refuse_from_sizing(
+            f"trail dir {trail_dir} does not exist. Scaffold it before emitting."
+        )
     script_source = plugin_root / "workflows" / "plan-blitz.mjs"
     if not script_source.is_file():
-        return refuse(f"no plan-blitz.mjs at {script_source} — pass --plugin-root")
-    if not trail_dir.is_dir():
-        return refuse(f"trail dir {trail_dir} does not exist — a repair reads its records")
-    plugin_agents, plugin_agents_why = _plugin_agents_available(plugin_root, args.plugin_agents_available)
-    print(f"  agent identities: {'declared' if plugin_agents else 'OMITTED'} — {plugin_agents_why}", file=sys.stderr)
+        return _refuse_from_sizing(
+            f"no plan-blitz.mjs at {script_source} — the plugin root did not resolve. "
+            "Pass --plugin-root with the absolute path."
+        )
 
-    entries, refusals = [], []
-    for baton_id in args.repair:
-        entry, why = _repair_entry(trail_dir, repo_root, baton_id)
-        (refusals if entry is None else entries).append(why if entry is None else entry)
+    sizing_rel = args.from_sizing
+    sizing_path = repo_root / sizing_rel
+    if not sizing_path.is_file():
+        return _refuse_from_sizing(f"no sizing object at {sizing_path}")
+    try:
+        sizing = yaml.safe_load(sizing_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        return _refuse_from_sizing(f"{sizing_path} is not valid YAML: {exc}")
+    if not isinstance(sizing, dict):
+        return _refuse_from_sizing(f"{sizing_path} does not parse to a mapping")
 
-    for why in refusals:
-        print(f"  REFUSED {why}", file=sys.stderr)
-    if not entries:
-        return refuse("no repairable baton among --repair; every one is named above")
+    exit_criterion = sizing.get("exit_criterion")
+    if not isinstance(exit_criterion, dict) or not exit_criterion.get("statement"):
+        return _refuse_from_sizing(
+            f"{sizing_rel} carries no `exit_criterion.statement` — nothing to hand off as this "
+            "plan's prime exit criterion."
+        )
+    if exit_criterion.get("accepted") is None:
+        return _refuse_from_sizing(
+            f"{sizing_rel} carries a null `exit_criterion.accepted` — every mode's touchpoint "
+            "includes accepting the exit criterion (M3 § touchpoints), and this sizing has not "
+            "been accepted yet."
+        )
+    interaction_mode = sizing.get("interaction_mode")
+    if not interaction_mode:
+        return _refuse_from_sizing(f"{sizing_rel} carries no `interaction_mode`")
+    route = sizing.get("route")
+    if route != "plan":
+        return _refuse_from_sizing(
+            f"{sizing_rel}'s route is {route!r}, not 'plan' — --from-sizing only fires the "
+            "single-plan Workflow"
+        )
 
-    repair_args = {
-        "repoRoot": str(repo_root),
-        "trailDir": str(trail_dir),
-        "mode": "repair",
-        "repairBatons": entries,
-        # A repair's integrator needs the same two caller-resolved inputs a wave's does, and this
-        # path shipped without either. `pluginAgentsAvailable` is the one that bites hardest:
-        # `withRole` writes the agent's declared identity ONLY when it is true, so a repair emitted
-        # without it dispatches as `workflow-subagent` — a non-empty type on no roster, which the
-        # sandbox guard confines, and the confined integrator cannot run
-        # `append-integrator-dispositions` at all, "regardless of path spelling". Measured on
-        # example-store-repo-fb's repair: the op never executed, so every disposition record silently
-        # stayed at whatever an earlier pass wrote. `spineCheckCli`'s absence is quieter and also
-        # real — the integrator brief calls a missing one a CALLER defect and correctly refuses to
-        # guess a repo-relative substitute, so spine validation simply never ran on a repair while
-        # every wave fire got it.
-        "pluginAgentsAvailable": plugin_agents,
+    baton = {
+        "id": sizing_path.stem,
+        "path": sizing_rel,
+        "sized": True,
+        "sizingObject": sizing_rel,
+        "tshirt": (sizing.get("estimate") or {}).get("tshirt"),
+        "route": route,
+        "exitCriterion": exit_criterion,
+        "interactionMode": interaction_mode,
+        "executionOpen": False,
     }
-    dispositions = args.dispositions_cli or _default_dispositions_cli(engine_root, plugin_root)
-    if dispositions:
-        repair_args["dispositionsCli"] = dispositions
+
+    plugin_agents, plugin_agents_why = _plugin_agents_available(
+        plugin_root, args.plugin_agents_available
+    )
+    if plugin_agents:
+        print(f"  agent identities: declared ({plugin_agents_why})", file=sys.stderr)
+    else:
+        print(f"  agent identities: OMITTED ({plugin_agents_why})", file=sys.stderr)
+
+    sidecar_cli = args.provision_sidecar_cli or _default_sidecar_cli(engine_root, plugin_root)
     spine_check_cli = args.spine_check_cli or _default_spine_check_cli(engine_root, plugin_root)
     _warn_if_resolved_cli_unrunnable("spine-check", spine_check_cli)
+    arming_check_cli = _default_arming_check_cli(plugin_root)
+    engine_ref = _engine_ref(repo_root, script_source)
+
+    wave_args = {
+        "repoRoot": str(repo_root),
+        "waveIndex": wave_number,
+        "trailDir": str(trail_dir),
+        "mode": "single",
+        "pluginAgentsAvailable": plugin_agents,
+        "engineRef": engine_ref,
+        "batons": [baton],
+    }
+    if sidecar_cli:
+        wave_args["provisionSidecarCli"] = sidecar_cli
     if spine_check_cli:
-        repair_args["spineCheckCli"] = spine_check_cli
+        wave_args["spineCheckCli"] = spine_check_cli
+    if arming_check_cli:
+        wave_args["armingCheckCli"] = arming_check_cli
+
     try:
-        text = _bind(engine_root, script_source, repair_args, args.live_engine_tree)
+        text = _bind(engine_root, script_source, wave_args, args.live_engine_tree)
     except ValueError as exc:
-        return refuse(str(exc))
+        return _refuse_from_sizing(str(exc))
 
-    # Numbered past the archive on the same rule a narrowed wave re-emit uses: a second repair of
-    # the same trail is a different fire, and overwriting the first destroys the record of what it
-    # re-dispositioned.
-    n = 1 + max(
-        (int(p.stem.rsplit("-", 1)[-1]) for p in trail_dir.glob("repair-fire-*.mjs")
-         if p.stem.rsplit("-", 1)[-1].isdigit()),
-        default=0,
-    )
-    out = trail_dir / f"repair-fire-{n}.mjs"
+    out = trail_dir / f"fire-{wave_number}-1.mjs"
     out.write_text(text, encoding="utf-8", newline="\n")
-
-    manifest = [{"fire": n, "scriptPath": str(out), "batons": [e["batonId"] for e in entries]}]
     if args.json:
-        print(json.dumps({"mode": "repair", "fires": manifest, "refused": refusals}, indent=2))
+        print(json.dumps({"waveIndex": wave_number, "fires": [
+            {"fire": 1, "scriptPath": str(out), "batons": [baton["id"]]}
+        ]}, indent=2))
         return EXIT_OK
-    print(f"emit-wave-fire: repair — {len(entries)} baton(s), {len(refusals)} refused.")
-    for e in entries:
-        print(f"    {e['batonId']}  {len(e['reviews'])} review(s)  {e['planPath']}")
+    print(f"emit-wave-fire: single-plan fire for {baton['id']} (mode=single).")
     print(f'\n  Workflow({{ scriptPath: "{out}" }})   # no args — they are bound')
     return EXIT_OK
 
@@ -1110,6 +1072,15 @@ def main(argv=None) -> int:
     )
     ap.add_argument("--repo-root", required=True, help="ABSOLUTE path to the repo being planned")
     ap.add_argument("--trail-dir", required=True, help="ABSOLUTE trail dir; also where scripts land")
+    ap.add_argument(
+        "--from-sizing",
+        help=(
+            "repo-relative path to an accepted sizing object. Emits ONE `mode: 'single'` fire "
+            "built from that sizing, skipping the wave/gate-report path entirely. Mutually "
+            "exclusive with --gate-report (§ Pinned interfaces, plan "
+            "2026-09-27-four-turn-em-loop.md)."
+        ),
+    )
     ap.add_argument(
         "--gate-report",
         help="frozen report for THIS wave (default: <trail-dir>/wave-<N>.gate-report.json, "
@@ -1139,7 +1110,6 @@ def main(argv=None) -> int:
     )
     ap.add_argument("--plugin-root", help="resolved CLAUDE_PLUGIN_ROOT (default: this file's plugin root)")
     ap.add_argument("--engine-root", help="claude-klabauter root (default: $COORDINATOR_ENGINE_ROOT)")
-    ap.add_argument("--dispositions-cli", help="absolute append-integrator-dispositions invocation")
     ap.add_argument("--provision-sidecar-cli", help="absolute provision-sidecar invocation")
     ap.add_argument(
         "--spine-check-cli",
@@ -1201,21 +1171,29 @@ def main(argv=None) -> int:
         action="store_true",
         help="fire batons whose record is uncommitted too (default: hold them — a live writer)",
     )
-    ap.add_argument(
-        "--repair",
-        metavar="BATON-ID",
-        action="append",
-        default=[],
-        help="emit a REPAIR fire for these batons instead of a wave fire: their reviewer "
-        "pointer records are resolved from the latest wave slot of --trail-dir and bound as "
-        "`repairBatons`. No gate report is read and no reviewer, planner or scout is "
-        "dispatched — the one role a repair reaches is the integrator.",
-    )
     ap.add_argument("--json", action="store_true", help="emit the fire manifest as JSON")
     args = ap.parse_args(argv)
 
+    if args.from_sizing and args.gate_report:
+        print(
+            "emit-wave-fire: REFUSED — --from-sizing and --gate-report are mutually exclusive: "
+            "one fires a single-plan baton from an accepted sizing object, the other fires a "
+            "wave from a frozen gate report.",
+            file=sys.stderr,
+        )
+        return EXIT_REFUSED
+
     repo_root = Path(args.repo_root).resolve()
     trail_dir = Path(args.trail_dir).resolve()
+
+    if args.from_sizing:
+        plugin_root = (
+            Path(args.plugin_root).resolve() if args.plugin_root else Path(__file__).resolve().parents[2]
+        )
+        _engine = args.engine_root or os.environ.get("COORDINATOR_ENGINE_ROOT") or ""
+        engine_root = Path(_engine).resolve() if _engine.strip() else None
+        wave_number = args.wave_number if args.wave_number is not None else args.wave_index
+        return _emit_single_from_sizing(args, repo_root, trail_dir, plugin_root, engine_root, wave_number)
     # skills/plan-blitz/<this file> -> the plugin root is two parents up.
     plugin_root = Path(args.plugin_root).resolve() if args.plugin_root else Path(__file__).resolve().parents[2]
     plugin_agents, plugin_agents_why = _plugin_agents_available(plugin_root, args.plugin_agents_available)
@@ -1259,9 +1237,6 @@ def main(argv=None) -> int:
 
     if live_tree_refusal:
         return refuse(live_tree_refusal)
-
-    if args.repair:
-        return _emit_repair(args, repo_root, trail_dir, plugin_root, engine_root, refuse)
 
     if not report_path.is_file():
         return refuse(f"no frozen gate report at {report_path}")
@@ -1380,12 +1355,12 @@ def main(argv=None) -> int:
 
     # A PLAN THIS TRAIL ALREADY HOLDS IS BOUND, even when the gate report does not link it.
     # `blitz_land` links a plan to its baton only on `ready`, so a PULLED baton — the one whose
-    # plan an EM then settles, and the one a repair re-dispositions — comes back from the gate
-    # with no `plan`. Re-firing it hands the planner a baton that looks unplanned, and it authors
-    # over the settled plan rather than revising it: the planner's revising branch keys on exactly
-    # this field. Reported by example-store-repo-fb, standing between a repaired plan and the only
-    # vehicle that can approve it. The trail is authoritative here because it is where THIS run's
-    # plan for that baton was written.
+    # plan an EM then settles — comes back from the gate with no `plan`. Re-firing it hands the
+    # planner a baton that looks unplanned, and it authors over the settled plan rather than
+    # revising it: the planner's revising branch keys on exactly this field. Reported by
+    # example-store-repo-fb, standing between a settled plan and the only vehicle that can approve it.
+    # The trail is authoritative here because it is where THIS run's plan for that baton was
+    # written.
     adopted = []
     for entry in entries:
         if entry.get("planPath"):
@@ -1444,15 +1419,12 @@ def main(argv=None) -> int:
         print(
             "  WARNING: non-POSIX host with no settings home. The injected CLI literals "
             "carry no environment prefix (`VAR=x cmd` is not a command here), so "
-            "`append-integrator-dispositions` may fail CLAUDE_KLABAUTER_ROOT resolution inside a "
-            "dispatched agent, where its diagnostic is not read. Resolve the CLIs "
-            "explicitly with --dispositions-cli / --provision-sidecar-cli.",
+            "`provision-sidecar` may fail CLAUDE_KLABAUTER_ROOT resolution inside a dispatched "
+            "agent, where its diagnostic is not read. Resolve it explicitly with "
+            "--provision-sidecar-cli.",
             file=sys.stderr,
         )
 
-    dispositions = args.dispositions_cli or _default_dispositions_cli(
-        engine_root, plugin_root
-    )
     sidecar_cli = args.provision_sidecar_cli or _default_sidecar_cli(
         engine_root, plugin_root
     )
@@ -1511,8 +1483,6 @@ def main(argv=None) -> int:
             "engineRef": engine_ref,
             "batons": batch,
         }
-        if dispositions:
-            wave_args["dispositionsCli"] = dispositions
         if sidecar_cli:
             wave_args["provisionSidecarCli"] = sidecar_cli
         if spine_check_cli:
@@ -1569,12 +1539,6 @@ def main(argv=None) -> int:
         f"emit-wave-fire: wave {wave_number} — {len(entries)} baton(s) across "
         f"{len(fires)} fire(s), at most {per} per fire."
     )
-    if not dispositions:
-        print(
-            "  WARNING: no append-integrator-dispositions resolved. The integrator brief "
-            "will say the caller omitted it; dispositions for this wave go unrecorded.",
-            file=sys.stderr,
-        )
     if not sidecar_cli:
         print(
             "  WARNING: no provision-sidecar resolved. Every reviewer will place its own "

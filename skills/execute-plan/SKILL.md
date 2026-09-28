@@ -24,7 +24,11 @@ Executing a plan is restructure-then-dispatch, not "type the plan's steps": buil
 dispatch-gate graph, decompose into per-chunk dispatches — parallel where gates allow, serial
 where they don't, default vehicle a background Workflow. A serial chain is still N fresh
 dispatches with EM-verify between, never one long-lived executor. No per-chunk reviewer gate —
-code review defers to `/workstream-complete`. **EM-verify means the EM itself runs the chunk's
+code review is the emitted workflow's own review stages (one parallel review wave, then one
+integration pass, partitioned into disjoint file slices at or above `review-brightline-gate`),
+run once per plan after every row has written, on every plan at every size. The EM never
+hand-dispatches a reviewer after the workflow returns. Tripwire:
+`CODE-REVIEW-IS-A-STAGE-OF-THE-EXECUTE-WORKFLOW`. **EM-verify means the EM itself runs the chunk's
 tests, never trusts an executor's pass claim** — a dispatch vehicle can narrow the executor's Bash
 surface below what the tests need (wiki: `workflow-orchestration.md`), and an honest executor then
 reports "PASS (by inspection)". Inspection is not verification. **A host-dependent chunk's red is
@@ -78,6 +82,12 @@ boundaries: ship Phase N green, dispatch Phase N+1 immediately, no checkpoint of
    A plan arriving by `plan-blitz → mise-prep` carries both, and this step writes only the
    quartet — the attest survives that, because `mise_prepped_sha` hashes the plan BODY. Tripwire:
    `A-HANDOFF-AN-EM-RETYPES-IS-NOT-A-SEAM`.
+2a. **Turn 3 by mode (the four-turn loop: sizing, plan, execute, workstream-complete).** In
+   **pm** and **ceo** modes the execute decision is not a further PM ask: the stamp records
+   `authorized by accepted sizing (mode=<mode>)`, citing the sizing path, and passes no
+   `--utterance` — never the sizing's `pm_quote`, and never invented words. The accepted sizing
+   (turn 1) is the execution authority. **hands-on** is unchanged: today's `--utterance` ask,
+   using the PM's own execution words.
 3. **Remaining-context gate** (skip under `/autonomous`): read this session's own remaining-context
    reading before committing to same-session execution — the same context-window percentage the
    statusline captures and publishes each turn. A session already carrying the plan authorship +
@@ -106,6 +116,8 @@ unpopulated wave-map, whatever the plan body's prose says. For the external prer
 `external_gate` entries are where it is declared: `blocks: execution` uncleared bounces;
 `blocks: ac-closure` does not — proceed, and tell the PM at dispatch that this run's terminal
 state is `approved`, not `implemented`, and why.
+`plan-spine-check --for-execution <plan>` exiting 1 is the unpopulated-wave-map bounce; report its
+WIDTH line to the PM at dispatch.
 Full signal catalog and non-signals: wiki.
 
 ---
@@ -190,7 +202,9 @@ hand-authored wave map, or a chat emission of a wave table.
 session the EM runs
 `"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/emit-dispatch-workflow" --plan <plan-path>`
 (settings-home launcher — resolve per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`;
-never cwd-relative), then
+never cwd-relative). Before firing, register review targets:
+`review-findings-ledger targets --add <every file-level writes: path on the spine>` — EM-only, and
+the confined execute-review stage's reviewers cannot apply findings without it. Then
 calls `Workflow({scriptPath: "<emitted path>", args: {repoRoot: "<absolute repo root>"}})` in this
 session, using the exact `fire with: Workflow(...)` line the emitter prints on stderr. The
 emitter's output is already a valid `scriptPath` input — no flag, no re-authoring. That call
@@ -255,12 +269,16 @@ or edited phase resumes via `resumeFromRunId` without re-paying phases that alre
 Removing the prompt is not removing the gates.
 
 **One emit per plan — a partial re-run resumes, it does not re-emit.** The emitted script already
-carries every open wave, preflight through terminal test phase; firing it once is the whole plan.
-When a run halts — a `Commit wave N` phase with no `COMMIT-LANDED <sha>`, a BLOCKed executor — the
+carries every open wave, preflight through the review stages and the terminal test phase; firing it
+once is the whole plan. There is no `Commit wave N` phase and no `COMMIT-LANDED <sha>` anywhere in
+it — the Workflow never commits, and the run's one commit (`dispatch.terminal_commit`, below) is an
+EM act after the workflow returns, not a phase inside it. When a run halts — a BLOCKed executor, a
+review-wave verdict of BLOCKED/FAIL, or an integration pass leaving `unresolved[]` non-empty — the
 recovery is `Workflow({scriptPath, resumeFromRunId: <run>})` in the same session — but resume
 alone does not recover. Resume serves the longest UNCHANGED prefix of `agent()` calls from cache,
-and the commit agent that refused *completed*; its refusal is cached. Relaunching the script
-untouched replays that cached refusal and re-halts at the same gate. **Edit the halting phase's
+and the halting call *completed* with its refusal/BLOCKED verdict; that verdict is cached.
+Relaunching the script untouched replays that cached verdict and re-halts at the same gate.
+**Edit the halting phase's
 agent step first, and no earlier one** — an edited completed step loses its cache and re-runs,
 re-committing or halting on an already-clean pathspec — fix what the refusal named — then
 **re-stamp the receipt**, then resume; the
@@ -293,6 +311,21 @@ something" the PM asked for — no new script under `coordinator/bin/`, no new r
 not copy the `CronCreate`/`RemoteTrigger` refusal in
 `coordinator/skills/strategic-self-description-refresh/SKILL.md`: that gate exists to force a human
 decision, and a fired workflow has none to protect.
+
+**Completion — the terminal commit is the EM's first act, not a phase inside the workflow.** The
+review stages (one parallel review wave, one integration pass) run inside the fired workflow,
+against the working tree — nothing commits mid-run. When the workflow returns, the EM's first act
+is `coordinator-invoke dispatch.terminal_commit` with `script_path` plus the wake digest's
+`next_action.params`, relayed verbatim (M1 § D3). This is the run's ONE commit — it lands every
+row's work and the review-integration fixes together, carrying the `Inline-Review:` trailer — and
+until it runs, an EM-fired run has landed nothing. There is no per-wave commit agent and no
+`Commit wave N` phase to resume into; resume-after-halt keys on the terminal-commit refusal, never
+on a commit-agent state.
+
+Still in that turn: put the wake digest to the PM for acceptance in **hands-on** and **pm**
+modes, or proceed at once in **ceo** mode. On acceptance, fire `coordinator:workstream-complete`
+(turn 4) — the same EM turn as the terminal commit, per the four-turn loop (sizing, plan,
+execute, workstream-complete).
 
 ---
 
@@ -444,9 +477,19 @@ commit:**
    reachability gate still reaches it — a caller-grep, not an import smoke-check. Unconfirmed (or
    never checked) → Phase-5-halted, no stamp; step 4's `close-out-and-stamp` does not perform this
    check itself and its green is not evidence of it.
+3.8. **`review-stamp mint`, right after the terminal commit and before step 4.**
+   `review-stamp mint --plan "$ARGUMENTS" --build-test <the wake digest's tests.sidecar>`. It
+   resolves the terminal commit through its `Inline-Review:` trailer, reads the prep/integration/
+   delivery sidecars, and writes `review_stamp:` into the plan frontmatter. Refusal — no
+   stamp-able review, no build/test record, `delivery.verdict == FAIL`, `unresolved > 0`, a
+   confinement violation, or a non-empty `foreign_claims[]` — is Phase-5-halted: report the refusal
+   line and do not proceed to step 4. Tripwire:
+   `A-PLAN-REACHES-IMPLEMENTED-ONLY-THROUGH-A-REVIEW-STAMP`.
 4. `close-out-and-stamp "$ARGUMENTS"` — stamps `status: implemented` and commits the plan path
    (full-plan-shipped), or reports remaining uncommitted chunks and skips the stamp
    (Phase-5-halted). Folding the stamp into your own commit is acceptable — state that you did.
+   The engine refuses `implemented` without a `review_stamp` on the plan frontmatter (step 3.8) —
+   this step's own green is not evidence that stamp exists.
 
 **Offer, stamp-aware, never parroted.** The branch is whether step 4 stamped `implemented`, never
 how shipped the session feels. Stamped → offer `/workstream-complete`, note
@@ -489,6 +532,7 @@ supporting evidence and writes an execution handoff. Enrichment appropriate to t
 has already happened upstream — for L/XL plans, via the size-keyed lane dispatch of
 `coordinator:enricher` directly over the plan body (see the plan's residue segments), not via
 `/enrich-and-review`, which remains a separate chunk-directory/stub pipeline this skill does not
-route through. `/review-code` is an optional post-execution pass. `coordinator:workstream-complete`
+route through. `/review-code` stays an optional ad-hoc post-execution pass — never the plan's review, which is the
+execute-review stages inside the fired workflow (Phase 1.5/1.6). `coordinator:workstream-complete`
 is offered, never auto-invoked, in Phase 4; `coordinator:finishing-a-development-branch` is not
 chained here — reached separately via `/merging-to-main`. Full failure-mode table: wiki.

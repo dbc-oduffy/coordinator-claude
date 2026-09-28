@@ -1,10 +1,10 @@
 ---
 name: plan-blitz
-description: "PM-GATED. Sweep every baton in the repo that lacks an approved plan, in waves — sonnet scouts size, an Opus EM finalises, Opus planners write, plans are reviewed and integrated without the EM in the loop, and the EM gates readiness at the end. Or target named batons. Wave N+1 fires on wave N's approvals, not its landings."
+description: "PM-GATED. Sweep every baton lacking an approved plan, in waves — scouts size, an Opus EM finalises, planners write and reviewers apply their own findings without the EM in the loop, EM gates readiness. Or target named batons."
 description-budget: 320
 version: 1.0.0
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill", "Workflow", "AskUserQuestion", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]
-argument-hint: "[<baton-id> ...] [--roadmap-id <id>] [--waves <n>] [--dry-run] [--repair <baton-id> ...]"
+argument-hint: "[<baton-id> ...] [--roadmap-id <id>] [--waves <n>] [--dry-run]"
 ---
 
 # Plan-blitz — a roadmap's worth of plans, in waves
@@ -17,13 +17,12 @@ agent cannot fan out (`A-SKILL-PHASE-NAMES-ITS-ACTOR`).
 
 ---
 
-## Three modes
+## Two modes
 
 | Mode | Target set |
 |---|---|
 | **Sweep** (default, no args) | every baton the engine returns as `needs_plan` — no linked plan, or one not yet review-cleared. An approved baton is out of the set, staying in the graph only as a satisfied blocker. `--roadmap-id` narrows to one roadmap. |
 | **Targeted** (`<baton-id> ...`) | the ids you pass as `targets` (a gate row's `id`, or the baton's filename stem). Everything unnamed stops being a candidate but stays a fully-resolved BLOCKER — narrowing the ask never narrows what the answer is computed from. |
-| **Repair** (`--repair <baton-id> ...`) | a plan that already went through a full wave, re-dispositioned from the review sidecars on disk through the same `integrator()` a live wave calls — no fresh judgment dispatched. § Repair. |
 
 **Check `unmatched_targets` on every targeted run.** A target matching nothing is a typo or
 non-candidate; a run that quietly drops one is worse than a refusal.
@@ -170,12 +169,14 @@ planned right now still reads as needing planning: nothing on disk changes until
 - **A hold that only you remember is not a hold.** Write a standing reason in the trail's
   `RUN-NOTES.md`, and the baton record when it belongs there — a gate read sees that.
 
-**`dispositionsCli` and `provisionSidecarCli` are resolved caller-side, by `emit-wave-fire.py`**
-— launcher first, then `--engine-root`'s own `coordinator/bin/`. Pass `--dispositions-cli` /
-`--provision-sidecar-cli` only to OVERRIDE that; omitting on a box with no install lets a reviewer
-invent its own sidecar path, losing the disposition record silently. **A resolved
-`provision-sidecar` whose findings path carries no `subagent-share` segment is a REFUSAL too.**
-Tripwire: `A-SIDECAR-THE-DISPOSITION-OP-REFUSES-LOSES-ONLY-THE-RECORD`.
+**`provisionSidecarCli` is resolved caller-side, by `emit-wave-fire.py`** — launcher first, then
+`--engine-root`'s own `coordinator/bin/`. Pass `--provision-sidecar-cli` only to OVERRIDE that;
+omitting on a box with no install lets a reviewer invent its own sidecar path, losing the findings
+record silently. **A resolved `provision-sidecar` whose findings path carries no `subagent-share`
+segment is a REFUSAL too.** A reviewer applies its own findings and then self-verifies with
+`review-findings-ledger verify --sidecar <its sidecar>` — no caller-injected CLI for that op; it is
+on the reviewer's own Bash allowlist. Tripwire:
+`A-SIDECAR-THE-DISPOSITION-OP-REFUSES-LOSES-ONLY-THE-RECORD`.
 
 **A box with no install is Rung N, not a broken resolution** — every launcher rung fails
 command-not-found and reads as "this CLI does not exist", while the engine source is on disk
@@ -301,8 +302,8 @@ with a reason. Tripwire: `A-SINGLE-REVIEWER-OPTION-IS-A-RECOMMENDATION-NOT-A-DEA
 **No reviewer is prescribed in a plan file** — the blitz-em resolves reviewers per baton.
 
 **`BLOCKED` and `PIVOT` are different questions, not a severity ladder.** `BLOCKED` means "wrong
-until you fix these" — the integrator applies the findings and the fixed plan is approved the same
-wave. `PIVOT` means "this direction cannot proceed" — no findings repair it. Test: name what a
+until you fix these" — the reviewer applied its findings; the fixed plan is approved the same wave.
+`PIVOT` means "this direction cannot proceed" — no findings repair it. Test: name what a
 competent author changes to make it right and it's `BLOCKED`, however large; `PIVOT` requires a
 stated premise failure. Tripwire: `A-BLOCKED-REVIEW-IS-NOT-A-PIVOT`.
 
@@ -326,51 +327,10 @@ stops at *ready to execute* in both vocabularies.
 
 **A wave's body edits invalidate a stamp; its frontmatter writes do not.** `mise_prepped_sha` is
 `canonical_body_sha` of the plan BODY, frontmatter excluded, so `blitz_land`'s writes leave an
-existing stamp intact; a review-integrator body rewrite makes the plan STALE, which re-gates rather
+existing stamp intact; a reviewer's body edit makes the plan STALE, which re-gates rather
 than re-stamps. Never read `mise_prepped_by` for presence. Tripwire:
 `A-PRESENT-MISE-PREPPED-STAMP-IS-NOT-A-CERTIFICATION`; consumer contract:
 `coordinator/docs/wiki/lesson-triage/mise-prepped-attest.md`.
-
----
-
-## Repair
-
-**Emit it; never hand-build `repairBatons`** — same reasons as § Fire the wave: an args object in a
-tool call isn't on disk, so the repair can't be re-read, re-fired or diffed.
-
-    python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-blitz/emit-wave-fire.py" \
-        --repo-root <abs> --trail-dir <abs of the run whose records you are repairing> \
-        --repair <baton-id> [--repair <baton-id> ...]
-
-It resolves each baton's pointer records under the rules below, refuses per baton with the reason
-on stderr, and writes `repair-fire-<n>.mjs` into the trail, numbered past any repair already there.
-Fire the printed `Workflow({ scriptPath })`, with no args. No gate report is read.
-
-The bound shape, for reading not writing a fire — one entry per plan re-dispositioned:
-
-```
-{ batonId, planPath, reviews: [ <pointer record>, ... ], unresolvedPointers: [ ... ] }
-```
-
-**Where the records come from.** Each pointer record: `{ sidecarPath, verdict, premiseFailure }`,
-from the latest WAVE slot only (`recycle-check.py :: _slot_order`). A record whose `sidecarPath`
-still exists is a review; a gone target is an `unresolvedPointer`. Mechanics in full: wiki, §
-Trimmed rationale.
-
-**Refusals, all loud, none silent.** The whole baton or none of it when: no `planPath`; any
-`unresolvedPointers`; empty `reviews`; a record missing `verdict`; or no `trailDir`. A missing
-`verdict` is the pre-contract bare-path shape — a trail that old is unrepairable.
-
-**Check the plan has not moved under review** — a pointer names its plan by path, never version.
-Tripwire: `A-REVIEW-SIDECAR-NAMES-ITS-PLAN-BY-PATH-NOT-BY-VERSION`.
-
-**A repair produces an integration, never a verdict — a repaired plan is not yet `approved`.** No
-landing exists for a repair result: `blitz_land` lands a WAVE. Approve via one targeted re-fire,
-safe because the emitter binds the plan the trail already holds even unlinked. Re-freeze the gate
-first if you edited the plan. Do not hand-stamp `approved`.
-
-**What it does not do.** It dispatches no `sizingScout`, no `planner`, no `reviewerAgent`. The one role reached is
-`integrator()`, unforked, holding no `Agent`/`Task` tool. A premise failure PIVOTs as in a wave.
 
 ---
 

@@ -114,7 +114,11 @@ def main() -> int:
     except Exception:
         return 0
 
+    # Path.home() (not os.path.expanduser) fails loud -- RuntimeError, not a
     # silent literal "~" -- when every home rung (USERPROFILE, HOME) is
+    # unset. Caught here and degraded to the same fail-open 0 this hook
+    # already returns for an unimportable engine, matching the never-block-
+    # SessionStart posture this whole function is built around.
     try:
         home = str(Path.home())
     except RuntimeError:

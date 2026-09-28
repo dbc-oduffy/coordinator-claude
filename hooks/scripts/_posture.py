@@ -39,6 +39,8 @@ import os
 import sys
 
 _VALID_POSTURES = frozenset({"precision", "default", "substrate-free"})
+# Named for what it SELECTS, not for the failure mode that reaches it: resolution
+# fails open (never blocks), and the value it falls back to is the most cautious
 # posture in the enum. A `_FAIL_OPEN_` prefix would read as the opposite.
 _MOST_CAUTIOUS_POSTURE = "precision"
 
@@ -47,7 +49,12 @@ _cached_posture_by_root: dict[str, str] = {}
 
 # Reuse the existing root-resolution PRIMITIVE (`_engine_root._session_repo_root`
 # -- CLAUDE_PROJECT_DIR when set and real, else a zero-spawn upward walk for a
+# `.git` entry) rather than writing a fourth copy of that walk. This is NOT the
 # families-spanning shared READER/TRANSPORT module DR-047/DR-118 decline for
+# this class of tiny, independently-failing-open helper (see
+# `_next_move_ledger._find_repo_root`'s docstring for that ruling) -- this
+# module still resolves and caches `engagement_posture` entirely on its own;
+# it borrows only the root-finding primitive underneath.
 _SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
@@ -121,6 +128,8 @@ def _resolve_posture_from(repo_root: str | None) -> str:
                 return value
 
         # WS-2 home-resolution shape: CLAUDE_HOME first, `Path.home()` as the terminal
+        # rung. A bare `expanduser("~")` yields the literal "~" when every home rung is
+        # unset, which silently reads a posture file that is not the operator's.
         from pathlib import Path
         claude_home = os.environ.get("CLAUDE_HOME") or Path.home()
         identity_path = os.path.join(claude_home, ".claude", "coordinator-identity.yaml")

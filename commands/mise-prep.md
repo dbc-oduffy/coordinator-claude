@@ -46,7 +46,11 @@ NOT-PREPPED residue is authorship: the bar asks what only a plan's author knows.
   where true. What only the PM can answer goes in the summary, class left undeclared.
 
 Not `coordinator:enricher` — it gathers facts and never decides, and a `prime_exit_criterion` is
-a decision. Tripwire: `NOT-PREPPED-RESIDUE-IS-AUTHORED-BY-PLAN-AUTHOR`.
+carried from the sizing's accepted `exit_criterion`; plan-author authors it only when the sizing
+carries none. Tripwire: `NOT-PREPPED-RESIDUE-IS-AUTHORED-BY-PLAN-AUTHOR`.
+
+Not an EM step on the M/L four-turn loop — this command runs for backlog runs and hands-on
+re-plans (`em-loop-factfind.md` §1, census rows 7 and 8).
 
 ## 3. Re-run, then stop
 

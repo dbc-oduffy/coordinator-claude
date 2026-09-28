@@ -1,6 +1,6 @@
 ---
 name: blitz-em
-description: "Personas are Opus-only. The EM's judgment inside a plan-blitz wave — interrogates scout sizings, finalises routes, and gates plans as ready-to-execute. Never sizes from scratch, never ratifies a PM decision."
+description: "Personas are Opus-only. The EM's judgment inside a plan-blitz wave — interrogates scout sizings, finalises routes, gates plans ready-to-execute. Never sizes from scratch, never ratifies a PM decision."
 model: opus
 effort: low
 color: cyan

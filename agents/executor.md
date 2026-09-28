@@ -268,9 +268,9 @@ Stays the CLI-emitted `commits: []` for your dispatch (§ Commit Gate); the EM p
 
 ### Rebuild-remit terminal stamp
 
-**Only when the brief carries an explicit refactor remit answering a Kira (`overengineering-reviewer`) `rebuild_recommended: true` verdict** (routed per `A-REBUILD-VERDICT-IS-NOT-A-FINDINGS-LIST`, never through `review-integrator`). An ordinary chunk stamps nothing here.
+**Only when the brief carries an explicit refactor remit answering a Kira (`overengineering-reviewer`) `rebuild_recommended: true` verdict** (routed per `A-REBUILD-VERDICT-IS-NOT-A-FINDINGS-LIST`). An ordinary chunk stamps nothing here.
 
-After edits land, Edit the sidecar frontmatter to write `integrated_from` as a top-level key **at column zero** — the shape `review-integrator` stamps (`code-reviewer.md` § HARD RULE step 4) — naming the cited Kira sidecar stem. Appending at the scaffold's indented `divergence:` level nests it under that key instead, silently discarded by `additionalProperties: false`.
+After edits land, Edit the sidecar frontmatter to write `integrated_from` as a top-level key **at column zero** — the shape `code-reviewer.md`'s terminal stamp uses — naming the cited Kira sidecar stem. Appending at the scaffold's indented `divergence:` level nests it under that key, silently discarded by `additionalProperties: false`. You are the sole writer of `integrated_from`.
 
 **Hard pre-completion self-check.** Re-open the sidecar and confirm `integrated_from` is at column zero, one entry per cited Kira sidecar — absent, indented, or a bare string means not done. `guard-kira-verdict-routed.py` joins on this key alone. Report a `Stamp:` line (§ Report Format) with `integrated_from: [<stem>, ...]` as written.
 

@@ -69,6 +69,7 @@ _ENTER_TIMEOUT_SECONDS = 30
 _CONTEXT_BUDGET_CHARS = 10_000
 
 # Windows console-subprocess discipline: `python.exe` is a CONSOLE-subsystem
+# child. `getattr` resolves to 0 (no-op) on every non-Windows platform.
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 _PM_CALL_DEFAULT = "resolving this is the PM's call"
@@ -145,6 +146,12 @@ def render_additional_context(payload: dict, exit_code: int, stderr: str) -> str
     candidates = sum(1 for peer in roster if peer.get("candidate"))
 
     # `roster` IS NOT THE PEER POPULATION -- it is `build_candidate_roster`'s output
+    # (candidate | unclassifiable | contradicted), a numerator whose denominator the engine
+    # reports separately as `roster_considered` (see `coordinator_core/ops/group_em_enter.py`'s
+    # module docstring, which says so in capitals). Rendering `len(roster)` as "peer(s)" told
+    # the holder a busy repo was nearly empty, and `0 of 11` and `0 of 0` -- looked-and-found-
+    # nothing versus never-enumerated -- collapsed into the same line. Both were chased as
+    # separate bugs across three repos on 2026-09-02 before the render was found.
     considered = payload.get("roster_considered")
     if isinstance(considered, int) and not isinstance(considered, bool):
         roster_line = (
@@ -195,6 +202,8 @@ def render_additional_context(payload: dict, exit_code: int, stderr: str) -> str
     intake = payload.get("intake") or {}
     if intake.get("rejected"):
         # A rejected intake row is a PRODUCER defect, and the whole reason the
+        # fold refuses to skip malformed lines quietly. Surfacing the count at
+        # entry is what turns the quarantine file into something someone reads.
         lines.append(
             f"  ! obligations-inbound: {intake['rejected']} malformed row(s) quarantined to "
             ".coordinator-local/subagent-share/<sid>/obligations-inbound.rejected.jsonl -- producer bug"

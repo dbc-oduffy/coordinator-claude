@@ -137,9 +137,11 @@ Do **not** read that offer as license to skip a Workflow when actually executing
 
 **The execute-plan seam discriminator.** Inside `/execute-plan` the default is **one Workflow for the whole plan**, not one per wave. Segment into per-wave scripts only on a named structural reason: interface-unpinnability (the next wave's shape depends on inspecting the previous wave's *content*), or an explicit named EM branch. *"I want eyes between waves"* is **not** a valid reason — the EM reads results between phases without needing a fresh script boundary.
 
-**Width is a checkable line, not a vibe.** A single `parallel([...])` wave with more than 5 write-capable executors chunks into sub-waves of 5. Count the array length. This bounds *concurrency within one barrier*, not the total number of chunks a plan can have.
+**There is no static width cap on write-capable executors.** Concurrency is the emitted DAG;
+admission is measured load (`coordinator_core/ops/dispatch_emit/admission.py`). A restored count
+needs a measurement, not a recollection.
 
-**Execution-wave membership comes from the spine's write and dependency graph.** The emitter itself applies no width cap.  measured what narrows observed concurrency below the emitter's built width for a real run; read it for the attribution rather than assuming a fixed-width cause. Where over-declared `writes:`/`reads:` are the cause, the lever is spine authoring: tightening those fields deserializes chunks that never actually collide.
+**Execution-wave membership comes from the spine's write and dependency graph.** The emitter itself applies no width cap.  measured what narrows observed concurrency below the emitter's built width for a real run; read it for the attribution rather than assuming a fixed-width cause. Where over-declared `writes:`/`consumes:` are the cause, the lever is spine authoring: `reads_at_head` is the fix for a reference read, and tightening those fields deserializes chunks that never actually collide.
 
 **The watchdog caveat: width is not stall-safety.** A wider wave raises exposure to an unobserved stalled member, not fixes it — more members in flight is more members that can stall with nothing to notice.  (status: approved) is the watchdog for this; as of this writing it has not landed — its own wiki page and hook scripts are not yet on disk — so this caveat holds unconditionally until it does. Once landed, cite it here as landed and keep this sentence unless the watchdog itself supersedes it.
 
@@ -177,7 +179,7 @@ A workflow does not repeal fan-out sizing discipline — it *carries* it into ea
 
 **Coupling exception.** A tightly-coupled shared file is the one case where keeping a ~10-min unit whole beats splitting it — splitting a shared pytest `conftest` across parallel authors races the file. Coupling rules out concurrency, not decomposition (`dispatching-parallel-agents.md § Coupling Rules Out Concurrency`).
 
-**Width is a distinct axis from duration.** A wave can satisfy the ≤10-min ceiling on every agent and still be too wide (§ The burst-offer nudge, concretely).
+**Width is a distinct axis from duration.** A wave can satisfy the ≤10-min ceiling on every agent and still be too wide — not against a static cap, but against `plan-spine-check`'s `WIDTH` line and the critical-path share it reports (§ The burst-offer nudge, concretely).
 
 ---
 
@@ -303,38 +305,48 @@ return { done: true, foundation, results, probe }
 Notes on the shape:
 
 - **Every `agent()` call passes `model: 'sonnet'`** — see § Model selection.
-- **Every `agent()` call passes a `schema`** — the result is validated at the tool-call layer, so the model retries on mismatch and the EM receives structured data, not prose to parse. **EXCEPTION — a review/verify stage is the one place a schema of findings is WRONG.** A `schema:` return is an inline-return mechanism: right for an *executor* stage, wrong for a *review* stage, whose findings must land on its own sidecar (`state/subagent-share/<session-id>/<provision_key>.md`) as a `## Findings Ledger` it applies itself — `review-findings-ledger verify` hard-stops unconditionally on inline findings (`review-integration-doctrine.md` § Reviewer self-persists). For a review phase, dispatch `agentType: 'coordinator:code-reviewer'` and return the `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N> | executed: <yes|no>` pointer string, not a findings array. **Never `agent(reviewPrompt, {schema: FINDINGS_SCHEMA})`** — the natural reach produces exactly the artifact the reviewer-applies-own-findings contract forbids.
+- **Every `agent()` call passes a `schema`** — the result is validated at the tool-call layer, so the model retries on mismatch and the EM receives structured data, not prose to parse. **EXCEPTION — a review stage never returns a findings array.** A review stage's `schema:` is one of `review-stage.schema.json`'s `$defs` (`review-prep-result`, `slice-review-result`, `whole-diff-review-result`, `delivery-verdict`, `review-integration-result`) — every field a count or a sidecar anchor, findings themselves left in the sidecar's own `## Findings Ledger` the reviewer applies itself — `review-findings-ledger verify` hard-stops unconditionally on inline findings (`review-integration-doctrine.md` § Reviewer self-persists). **Never `agent(reviewPrompt, {schema: FINDINGS_SCHEMA})`** — the natural reach produces exactly the artifact the reviewer-applies-own-findings contract forbids.
 
-### Per-wave review stage (target shape — not live in any emitted script today)
+### Execute-review stage
 
-A per-wave review stage is a `code-reviewer` `agent()` call the emitted script fires **concurrent
-with the next execution wave**, not serially after it — the stage `placement: per-wave` value on
-the roster fragment is its precondition, and nothing in this tree supplies that fragment to the
-emitter today (`coordinator/bin/emit-dispatch-workflow.py`'s `review_roster_fragment` parameter is
-unconnected). For the stage's per-agent-call payload and the reconciliation of its pointer return
-with the "no inline findings" rule above, see `workflow-emitter-contract.md` §11 — this subsection
-does not restate that shape.
+Code review is stages of the same emitted `/execute-plan` workflow, run after every row has
+written and against the working tree — never a hand-dispatched pass after the workflow returns,
+and never deferred to `/workstream-complete`. The order, fixed by the roster fragment's
+`execute_review` block (`coordinator/contract/review-roster-fragment.json`):
 
-**Safety, as it currently stands.** A per-wave reviewer Reads/Greps source and Edits only its
-own sidecar (§ Self-persist contract, `agents/code-reviewer.md`), so it touches none of a
-concurrent executor wave's write paths. That safety is convention plus the engine repo's Bash allowlist
-(`coordinator_core.bash_guards.block_reviewer_bash_outside_allowlist`) plus the EM's own `git diff`
-at the wave boundary — **never a structural write sandbox.** A prior
-`block-subagent-write-outside-sandbox.sh` hook was deliberately removed; no such hook exists in this tree to inherit
-confinement from.
+1. **Prep** (mechanical, `coordinator:test-runner`) partitions the working-tree diff into
+   file-disjoint slices at or above `review_brightline_gate`'s threshold, and freezes a
+   worktree diff per slice plus the whole diff.
+2. **Review wave — one `parallel()`.** One `code-reviewer` per slice applies its own findings
+   inside its slice's files only, logging anything outside its slice under `## Out-of-Slice
+   Findings` rather than applying it. `overengineering-reviewer` (Kira) and every
+   `review_signals`-resolved persona run over the whole diff, **findings-only** — they never
+   self-apply in this stage, because their lens spans every slice and a same-file write race
+   is exactly what disjoint slices exist to prevent. `delivery-verifier` runs read-only over
+   the whole diff, checking executor claims against it.
+3. **Integration — exactly one `code-reviewer` call**, with an integrate remit, applies the
+   residue no slice owner could: out-of-slice findings, Kira's and the personas' findings, and
+   the rebuild-route decision item on `rebuild_recommended: true`. It writes the one ledger
+   covering that residue and stamps `integrated_from:` with every sidecar it consumed. There is
+   no second review round; a finding integration cannot resolve goes to `unresolved[]`, meaning
+   the PM (`review-integration-doctrine.md` § One integration pass).
+4. The build/test gate runs after integration, then the workflow returns; the EM's terminal
+   commit and `review-stamp mint` follow (`skills/execute-plan/SKILL.md`).
 
-**A named second exception to the sequential-review rule.** `coordinator/skills/review/SKILL.md`'s
-"Reviews are sequential, never parallel … integrate finding-set 1 before dispatching reviewer 2"
-rule names its exceptions explicitly; per-wave review is a further one, dispatching reviewer N+1
-before finding-set N is applied, by construction. Its safety condition: nothing applies
-mid-run, and every finding-set is applied 1:1 at the close, re-verified against HEAD by the
-reviewer that owns it (`review-integration-doctrine.md` § Re-verify reviewer premises) — a
-later wave may have moved the file a per-wave reviewer read. This subsection states the exception
-and its safety condition; it does not edit `review/SKILL.md:56` itself, whose exception list moves
-only when the doctrine flips together with it.
+**Safety condition — this is what licenses "parallel reviewers, not sequential".** Slices are
+file-disjoint by construction (the prep partition), so two reviewers never write the same file at
+once; the whole-diff lenses stay findings-only in this stage for the same reason, since their span
+crosses every slice; and the one integration pass — the sole place a cross-slice write could
+otherwise happen — runs alone, after the wave, never concurrent with it. This supersedes the
+per-wave-review target shape once described here and the "named second exception to the
+sequential-review rule" it required: the execute-review stage is not an exception carved out of a
+sequential-by-default rule, it is disjoint-slice parallelism with one bounded serial residue-writer,
+stated once. `coordinator/skills/review/SKILL.md` § A.3 states the same rule for the general
+code-review case; plan review over one artifact stays ordered.
 
-**Why an emitted per-wave stage reads no pre-flight prior-art sidecar.** See the gate/never-emitted
-ruling on `coordinator/contract/review-roster-fragment.md` — cited here, not restated.
+For the stage's per-agent-call catering payload and its structured returns, see
+`workflow-emitter-contract.md` §11 — this subsection does not restate that shape.
+
 - **Halts return a structured object** naming `phase_reached` and `halted:` — the EM reads which gate fired, fixes, and resumes via `resumeFromRunId`.
 - **`agentType: 'coordinator:executor'`** routes each agent through the coordinator executor. Other coordinator agent types compose the same way.
 - **Schema-validated ≠ functionally verified — command-shaped ACs need execution-time invocation.** A `schema:` return guarantees the result's *shape*, not that the artifact *works*: an AC reading "a command can scaffold X" passes every shape check while the CLI's dispatch branch is missing, and the crash stays invisible behind a green checkmark until a downstream repo hits it. **Any AC phrased as a command/CLI capability ("a command can do X", "type Z scaffolds", "X is invocable") must be verified by literally invoking the delivered command** — assert exit 0 plus expected output — inside the phase that claims it, folded into that phase's returned schema-validated result rather than trusting a registry, manifest, or file-touch. Registry-driven CLIs (a known-types table plus a dispatch `if/elif` chain) also carry a standing registration↔dispatch parity test as the regression net; `coordinator/bin/coordinator-doc-new-emitter-parity.test.py` is the shipped exemplar.

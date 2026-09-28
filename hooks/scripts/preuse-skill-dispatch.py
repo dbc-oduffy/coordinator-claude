@@ -151,6 +151,9 @@ from _stop_family_runner import _BufferedTextCapture  # noqa: E402
 _INTERNAL_DEADLINE_SECONDS = 40.0
 
 # Verb sets -- see this module's docstring "REGISTRY rows" section. Kept as
+# named constants (not inline tuple literals) so
+# `test_preuse_skill_dispatch.py` can import and pin each one directly
+# against the owning module's own frozenset without re-deriving it from
 # REGISTRY first.
 _TRAMPOLINE_VERBS: FrozenSet[str] = frozenset({"workflow-authoring"})
 _PICKUP_AUTOFIRE_VERBS: FrozenSet[str] = frozenset(
@@ -336,6 +339,7 @@ def main() -> int:
     results, skipped = _run_legs_concurrently(matched, raw)
 
     # REGISTRY order, not completion order -- a deterministic render
+    # regardless of which leg happened to finish first.
     for leg in matched:
         text = results.get(leg.leg_id)
         if text:

@@ -137,4 +137,4 @@ When an agent-facing safety script is silent on the clean state and emits only o
 
 ## Follow-Up Work (Deferred)
 
-**Preamble extension to other write-capable agents.** The meta-ask preamble ships first in `agents/executor.md`. Future work extends it to `agents/enricher.md`, `agents/review-integrator.md`, and the example-game-repo/web-dev/data-science executor analogues. Deferred to allow dogfood on the `executor.md` instance first — phrasing issues discovered there should be fixed once, not propagated to N places before the first run.
+**Preamble extension to other write-capable agents.** The meta-ask preamble ships first in `agents/executor.md`. Future work extends it to `agents/enricher.md` and the example-game-repo/web-dev/data-science executor analogues. Deferred to allow dogfood on the `executor.md` instance first — phrasing issues discovered there should be fixed once, not propagated to N places before the first run.

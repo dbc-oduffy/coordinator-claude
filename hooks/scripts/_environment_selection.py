@@ -72,12 +72,36 @@ from _environment_story import (  # noqa: E402
     resolve_environment_story,
 )
 
+# Imported for its module-level side effect only: `_environment_stories`
 # calls `_environment_story.register_story(EPHEMERAL_CLOUD_VM_STORY)` at
+# import time, admitting `"ephemeral-cloud-vm"` into the same in-process
+# registry `resolve_environment_story` looks names up against. Nothing in
+# this module references a name from it directly -- the registration is
+# the only thing needed, and it is the reason this import exists at all
+# rather than being left to whichever caller happens to import that module
 # first. `noqa: F401` because the import is deliberately side-effect-only;
+# not wrapped in try/except like the `_engine_root` imports elsewhere in
+# this directory, because a missing `_environment_stories` here is a
+# partial deploy of THIS SAME BATON's own two chunks, not the
+# cross-repo-engine-absent case those other wrappers guard against.
 import _environment_stories  # noqa: F401,E402
 
 
+# ---------------------------------------------------------------------------
+# Marker constants -- the splice site for the composed story's prose.
+#
+# MUST NOT reuse `coordinator:posture` (or any other already-spliced marker
+# name). This is not a style preference: the engine's
+# `render_posture_overlay._swap` sets a `printed_block` flag on the FIRST
 # `MARKER_START` line it meets in a target file and drops every marker line
+# after it -- so a file carrying two pairs of the SAME marker name has its
+# SECOND pair (start line, body, and end line) silently deleted: exit 0, no
+# warning, no error, nothing raised. Verified by executing that module
+# against a two-pair fixture; filed P1 against the engine and unpinned by
+# any test there as of this writing. A future edit that "simplifies" these
+# two constants down to `coordinator:posture` would reintroduce exactly
+# that silent-deletion path. See this plan's Anti-scope for the full
+# writeup: docs/plans/2026-09-07-compose-the-environment-story-and-select.md
 MARKER_START = "<!-- coordinator:environment-story:start -->"
 MARKER_END = "<!-- coordinator:environment-story:end -->"
 

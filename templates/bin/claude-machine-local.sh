@@ -21,7 +21,10 @@ if [ -n "${CLAUDE_MACHINE_LOCAL_SOURCED:-}" ]; then
 fi
 
 
+# Settings-home resolution ladder (inline mirror of
+# coordinator/lib/settings-home.sh::_coordinator_settings_home — not sourced,
 # see file-top note). Scope matches that lib: MACHINE_LOCAL_REGISTRY_DIR is a
+# deeper registry-dir override handled by _machine_local.py itself, not here.
 
 if [ -n "${COORDINATOR_SETTINGS_HOME:-}" ]; then
     _ml_settings_home="$COORDINATOR_SETTINGS_HOME"

@@ -417,11 +417,44 @@ def _governed_identifiers() -> "list[str]":
 _GOVERNED_IDENTIFIERS = _governed_identifiers()
 
 #: Case-folded mirror of ``_GOVERNED_IDENTIFIERS`` -- see module docstring
+#: point 3 (Review: security-audit-worker, "high" finding -- both macOS and
+#: Windows are case-insensitive-filesystem-by-default, this repo's own
+#: CLAUDE.md names macOS/Windows first-class, and ``claude.md``/
+#: ``EM-Operating-Doctrine.MD`` name the SAME governed file as
+#: ``CLAUDE.md``/``em-operating-doctrine.md`` on either platform). The
 #: case-SENSITIVE list above is kept for diagnostics (the "matched"
+#: identifier reported is the canonical-cased one); the membership TEST
+#: itself runs case-folded. Deliberately not a full glob resolution
+#: (``CLAUDE.*`` remains out of scope -- a harder, separate problem per the
+#: security-audit-worker's own triage).
 _GOVERNED_IDENTIFIERS_LOWER = tuple(identifier.lower() for identifier in _GOVERNED_IDENTIFIERS)
 
 #: Path-segment-boundary-anchored mirror of ``_GOVERNED_IDENTIFIERS_LOWER`` --
+#: see ``_mentions_governed_identifier``. A governed identifier (bare
+#: basename or full repo-relative path alike) may legitimately sit adjacent
+#: to a quote, `/`, `\`, whitespace, `=`, `(`, a backtick, `;`, `>`, or
+#: string-start/end -- none of those are word characters, so a lookbehind/
+#: lookahead excluding `[A-Za-z0-9]` on either side accepts all of them
+#: while rejecting a longer basename that merely ends/starts with the same
+#: characters (`dotclaude.md` contains `claude.md` as a raw substring, but
+#: the character immediately before the match is `t`, a word character, so
+#: the anchored pattern does not match it).
+#:
 #: TRAILING-`.` EXCLUDED TOO (state/bug-backlog/2026-09-01-doctrine-surface-
+#: bash-write-guard-matche-5afe5af585d7.yaml, repro 1) -- every governed
+#: identifier already ends in `.md`, so the original lookahead alone let a
+#: DECOY basename that merely APPENDS a further extension after the real
+#: one -- `CLAUDE.md.probe`, a session-scratchpad probe file -- match, since
+#: the character right after the `.md` in `CLAUDE.md.probe` is `.`, which
+#: `[A-Za-z0-9]` never excludes. `.` is not a word character but it is not a
+#: legitimate END of a governed basename either: a real reference to the
+#: governed file is never immediately followed by another `.`. Excluding it
+#: from the lookahead closes the decoy while leaving every genuine
+#: reference -- `CLAUDE.md`, `"CLAUDE.md"`, `./CLAUDE.md`,
+#: `global-doctrine/CLAUDE.md`, `path/to/CLAUDE.md` -- matching exactly as
+#: before (see `test_allow_read_of_scratch_file_whose_basename_carries_a_
+#: dotted_suffix` / `test_deny_real_write_to_claude_md_variants_adjacent_
+#: to_separators`).
 _GOVERNED_IDENTIFIER_PATTERNS = tuple(
     re.compile(r"(?<![A-Za-z0-9])" + re.escape(identifier) + r"(?![A-Za-z0-9.])")
     for identifier in _GOVERNED_IDENTIFIERS_LOWER
@@ -440,6 +473,14 @@ _TEE_RE = re.compile(r"\btee\b")
 _SED_INPLACE_RE = re.compile(r"\bsed\b.{0,120}?(-i\b|--in-place\b)", re.DOTALL)
 _PERL_INPLACE_RE = re.compile(r"\bperl\b.{0,120}?-i\b", re.DOTALL)
 #: A copying/truncating command name counts only in COMMAND POSITION -- at the
+#: start of the segment or right after a shell operator -- never as a word
+#: inside a path operand. `\b(...)\b` alone matched `install` inside the
+#: filename `2026-07-08-install-baton-rendezvous-off-dotclaude.md`, because
+#: hyphens are non-word characters that make every hyphenated fragment its own
+#: `\b`-delimited word; combined with the mention prefilter that denied a plain
+#: `grep -c` as a write. A path operand never sits in command position, so this
+#: keeps the over-deny side (any genuine `cp`/`mv`/`install` invocation) while
+#: dropping the filename-fragment match.
 _CP_MV_RE = re.compile(
     r"(?:^|[|&;(]|\|\||&&)\s*(?:\w+=\S*\s+)*(?:sudo\s+|command\s+|env\s+)*"
     r"\b(cp|mv|install|dd|truncate)\b"
@@ -447,8 +488,16 @@ _CP_MV_RE = re.compile(
 _WRITE_MODE_OPEN_RE = re.compile(r"open\([^)]*['\"][wax]['\"]")
 _WRITE_METHOD_RE = re.compile(r"\.write(_text|_bytes)?\(")
 
+#: Additional file-write primitives -- see module docstring point 3
+#: extension (Review: security-audit-worker, "high" finding -- enumeration
+#: gap confirmed live against `ex -c '%d' -c 'wq' CLAUDE.md`,
+#: `patch CLAUDE.md < x.patch`, `rsync -a src CLAUDE.md`,
+#: `curl -o CLAUDE.md URL`, `wget -O CLAUDE.md URL`, and
+#: `sed -n 'w CLAUDE.md' /dev/null` -- sed's `w` SCRIPT command writes a
 #: file with no `-i`/`--in-place` flag at all, so `_SED_INPLACE_RE` never
 #: fires on it). Built the same way `_CP_MV_RE` was: a bare command-name
+#: word-boundary match, deliberately broad rather than scoped to one
+#: invocation shape.
 _EX_ED_RE = re.compile(r"\b(ex|ed)\b")
 _PATCH_RSYNC_RE = re.compile(r"\b(patch|rsync)\b")
 _CURL_OUTPUT_RE = re.compile(r"\bcurl\b.{0,200}?(-o\b|--output\b)", re.DOTALL)
@@ -627,7 +676,13 @@ def _names_governed_identifier(text: str) -> bool:
     return any(pattern.search(lowered) for pattern in _GOVERNED_IDENTIFIER_PATTERNS)
 
 
+#: Markers that can actually EXECUTE arbitrary code inside a segment. A
 #: strict subset of ``_INDIRECTION_PATTERNS`` -- deliberately excludes bare
+#: command substitution (``$(...)``/backticks), which cannot write a file
+#: except by way of one of the markers scanned for here or a redirect (which
+#: ``_has_write_marker`` catches independently). Used only by the point-7
+#: git carve-out; the general path in point 3 still treats substitution
+#: itself as disqualifying.
 _CODE_EXECUTION_PATTERNS = (
     _INTERPRETER_RE,
     _SHELL_DASH_C_RE,
@@ -932,8 +987,19 @@ def _git_subcommand(segment: str) -> "str | None":
     return None
 
 
+#: Basenames of the scoped-commit wrapper family -- see
 #: module docstring point 7's "SCOPED-COMMIT WRAPPER RECOGNITION" prose.
+#: Deliberately exact-match only, never a substring or prefix test: a
+#: lookalike name (``my-coordinator-safe-commit-wrapper``) must NOT inherit the
+#: exemption.
+#:
+#: ``coordinator-invoke`` is NOT a member: this set's safety property is
 #: basename-only recognition of a wrapper whose BEHAVIOR IS FIXED BY ITS
+#: NAME -- ``coordinator-invoke``'s behavior is chosen by its op-name
+#: argument, so basename recognition alone would exempt every op dialed
+#: through the door, not just the commit-shaped one.
+#: See ``coordinator/docs/wiki/coordinator-tripwires/
+#: guard-carve-out-keyed-on-executable-name.md``.
 _COMMIT_WRAPPER_BASENAMES = frozenset(
     {
         "coordinator-safe-commit",
@@ -941,7 +1007,14 @@ _COMMIT_WRAPPER_BASENAMES = frozenset(
     }
 )
 
+#: Windows carries every wrapper as BOTH a bare form and a ``.cmd`` form
 #: (``$COORDINATOR_SETTINGS_HOME/bin/coordinator-safe-commit.cmd`` alongside the
+#: extension-less POSIX form), and Windows paths/extensions are
+#: case-insensitive -- ``Coordinator-Safe-Commit.CMD`` is the same binary as
+#: ``coordinator-safe-commit``. A carve-out that recognises the POSIX form and
+#: silently denies the ``.cmd`` form is a multi-OS correctness defect (P0 in
+#: this repo), not a cosmetic gap, so the suffix is stripped case-
+#: insensitively before the exact-match comparison below.
 _CMD_SUFFIX_RE = re.compile(r"\.cmd$", re.IGNORECASE)
 
 
@@ -1004,7 +1077,11 @@ def _is_git_read_shape(segment: str) -> bool:
 
 _CLAUDE_MD_GRANT_MODULE = "coordinator_core.session.claude_md_grant"
 
+#: Interpreter basenames recognised for the point-9 carve-out -- deliberately
 #: the same set ``_INTERPRETER_RE`` matches, restricted to the ones that
+#: support a ``-m <module>`` invocation form (``perl``/``ruby``/``node`` do
+#: not carry this CLI, so they are not included here even though they are
+#: indirection markers elsewhere in this module).
 _PYTHON_BASENAMES = frozenset({"python", "python3"})
 
 
@@ -1476,8 +1553,24 @@ def is_denied_bash_write(cmd: str) -> bool:
 
     segments = _split_top_level_segments(cmd)
 
+    # Point 4's assignment-indirection scan is a shell-only concept ("a
+    # variable is assigned a governed path, then dereferenced by a later
+    # segment's write"). Scanning it over the RAW segments misfires on a
+    # heredoc BODY: a Python source line like `add = """... CLAUDE.md
+    # ..."""` inside `python3 - <<'PY' ... PY` is data on stdin, never
     # shell-parsed, but `_ASSIGN_RE` matches its `add =` prefix as though it
+    # were a live `NAME=value` shell assignment -- observed live, denying a
+    # heredoc whose body happened to contain both a governed-name mention in
+    # one string literal and an unrelated `.write_text(` call writing a
     # DIFFERENT (non-governed) file in another. Heredoc-stripping this scan
+    # (and only this scan) removes that false trigger while leaving point
+    # 3's per-segment loop below -- which still runs over the RAW,
+    # unstripped segments -- fully able to catch a REAL write inside a
+    # heredoc body, e.g. `open('CLAUDE.md','w').write(...)` on its own
+    # body line: that line still mentions the identifier AND carries the
+    # write-mode-open marker in the SAME (unstripped) segment, so point 3
+    # denies it exactly as before. See module docstring points 4/5 and the
+    # dispatch brief's second reproduction.
     stripped_cmd = _strip_heredoc_bodies(cmd)
     stripped_segments = _split_top_level_segments(stripped_cmd)
     if _has_var_assignment_indirection(
@@ -1531,7 +1624,29 @@ def _looks_quoted_content_shaped(cmd: str) -> bool:
         target = _redirect_target_token(segment)
         if target and _mentions_governed_identifier(target):
             return False
+        # The same reasoning for the write sinks that take their
+        # destination as a PATH OPERAND: `cp src "CLAUDE.md"`, `mv`,
+        # `tee "CLAUDE.md"`, `sed -i ... "CLAUDE.md"`, `rsync`/`patch`.
+        # The governed name is quoted, so the `all(...)` below reads it as
+        # prose -- but quoting a destination is ordinary shell hygiene,
+        # not a signal about intent. The redirect arm above covered only
+        # the one sink whose destination this file can locate positionally;
+        # these have the same property and were missed for that reason
+        # alone. Here the remedy would say "edit the real destination"
+        # about a command whose real destination IS the governed file just
+        # blocked: there is no other destination to edit, so the sentence
+        # does not merely fail to help, it contradicts its own block.
+        #
+        # Deliberately NOT every write marker. An interpreter payload
+        # (`p.write_text(...)`, `open(p, "w")`) takes its destination as an
         # EXPRESSION, so a governed mention inside it really can be prose
+        # bound for a non-governed path -- which is the exact shape
+        # `test_deny_write_text_quoting_governed_filename_in_prose_names_edit_fix`
+        # pins, and those keep the quoted-content remedy. Operand grammar
+        # is the discriminator, not writing-ness.
+        #
+        # Diagnostic only, like the redirect arm: this narrows WHICH
+        # message is composed and never re-derives the deny verdict.
         without_redirect = _BARE_REDIRECT_RE.sub(
             " ", _SAFE_REDIRECT_RE.sub(" ", segment)
         )
@@ -1603,7 +1718,11 @@ def main() -> int:
         commit_shaped=_looks_commit_shaped(cmd),
         quoted_content_shaped=_looks_quoted_content_shaped(cmd),
     )
+    # Latent-bug fix: sys.stderr.write text-mode-translates LF->CRLF on
+    # Windows, breaking byte-fidelity with the bash oracle's stderr output
     # -- the same class of bug as _message_envelope.emit's CHANNEL_STOP fix
+    # (review-integrator Finding 2), found here mid-task since this hook
+    # bypasses `emit()` and writes `render()`'s output directly.
     sys.stderr.buffer.write((render(message) + "\n").encode("utf-8"))
     return 2
 

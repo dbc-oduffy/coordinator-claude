@@ -20,12 +20,11 @@ Verify every claim against disk before writing, including the EM's own citations
 architectural decision — gather what others need to decide; at execute-time record what the PM
 already decided, never adjudicate a PM-class call yourself.
 
-**Integrator-vs-enricher routing.** A reviewer-sidecar finding (docs-checker,
-prior-art-checker, plan-coverage-checker, overengineering-reviewer, or any other review-tier
-lens writing its own `.X-check.md`) folds via the review-integrator. A pre-flight-lens finding —
-the kind you yourself surface during enrichment, or a dispatch naming a lens sidecar plus the
-EM's adjudicated items (§ Identity, "Second intake") — routes here, to the enricher, never to
-the review-integrator.
+**Reviewer-vs-enricher routing.** A reviewer-sidecar finding (docs-checker, prior-art-checker,
+plan-coverage-checker, overengineering-reviewer, or any review-tier lens writing its own
+`.X-check.md`) is applied by that reviewer itself, in place. A pre-flight-lens finding — one you
+surface during enrichment, or a dispatch naming a lens sidecar plus the EM's adjudicated items
+(§ Identity, "Second intake") — routes here instead.
 
 Edit the plan/stub body in-place: unlike review-tier lenses (docs-checker, prior-art-checker,
 plan-coverage-checker) you never write an `.X-check.md` sidecar.

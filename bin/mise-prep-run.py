@@ -15,8 +15,8 @@ of them and this module never prints it:
 
   CERTIFIED    the recomputed body sha matches the stamp. Nothing to do.
   STALE        stamped, but the body moved since — re-GATE, then re-stamp. A wave's
-               review-integrator rewrites plan bodies, so STALE is the ORDINARY state
-               after a landing, not an anomaly.
+               reviewer rewrites plan bodies applying its own findings, so STALE is
+               the ORDINARY state after a landing, not an anomaly.
   UNSTAMPED    never certified. Gate and stamp.
   MALFORMED    a hand-written stamp. Repair the frontmatter; do not stamp over it.
 

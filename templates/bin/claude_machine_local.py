@@ -31,7 +31,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Windows-only: suppress the console window that console-subsystem child
+# processes flash when this process has no console to inherit (e.g. spawned by
 # an MCP server or a GUI Claude Code host). POSIX: empty dict — CREATE_NO_WINDOW
+# is a Windows-only attribute, so the ternary short-circuits before touching it.
 _NO_CONSOLE_WINDOW = (
     {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
 )
@@ -55,7 +58,12 @@ def _settings_home() -> str:
     override = os.environ.get("COORDINATOR_SETTINGS_HOME")
     if override:
         return override
+    # Path.home() (not os.path.expanduser) is the fail-loud rung: it honours
     # USERPROFILE on Windows exactly as expanduser does, but raises
+    # RuntimeError instead of silently returning the literal string "~" when
+    # every home-resolution env var is unset -- expanduser's silent-degrade
+    # is the exact shape that turns an unset shell into a cwd-relative
+    # settings-home and writes artifacts at the drive root.
     home = os.environ.get("CLAUDE_HOME") or str(Path.home())
     return os.path.join(home, ".coordinator-claude-settings")
 

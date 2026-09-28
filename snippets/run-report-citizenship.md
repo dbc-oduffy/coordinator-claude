@@ -1,9 +1,9 @@
 <!-- canonical source for run-report-citizenship — edit here, then run bin/verify-snippet-sync run-report-citizenship --fix -->
 <!-- consumers: fixed list in snippets/registry.toml [snippet.run-report-citizenship] -->
 <!-- INJECTED block, not paste-governed: assembled into the dispatched child prompt at dispatch -->
-<!-- time via the `contract_blocks:` grammar, keyed by `subagent_type`. Consumed by the three -->
+<!-- time via the `contract_blocks:` grammar, keyed by `subagent_type`. Consumed by the two -->
 <!-- run-report-typed subagent_types that are ALSO report_sidecar-eligible (executor, -->
-<!-- review-integrator, enricher). git-commit-agent is run-report-typed too but holds no -->
+<!-- enricher). git-commit-agent is run-report-typed too but holds no -->
 <!-- Write/Edit and is absent from report_sidecar:, so it is never provisioned one and never -->
 <!-- receives this block; test_every_provisioned_run_report_type_carries_its_citizenship_block -->
 <!-- pins that intersection. -->
@@ -37,15 +37,16 @@ report via exit-report only.
 distinct from the reviewer-persona `kind:`/`reviewer:`/`verdict:`/`findings_count:`/`plan:` shape
 and the G2 emitter shape.
 
-**`integrated_from:` — `review-integrator` only, and this list is not optional for you.** A
-`review-integrator` run that triaged anything MUST also carry `integrated_from`: the reviewer-sidecar
-stems it triaged, at column zero, written as its last action (`agents/review-integrator.md` §
-Terminal Stamp). Never indented — the scaffold's `divergence:` pair is itself indented, and appending
-at that indent nests the key under it and discards the stamp silently.
-`guard-kira-verdict-routed.py` joins a Kira verdict to its integrator on this key alone, so an
-unstamped run is indistinguishable at close from one that was never dispatched and hard-stops the
-EM's close. Triaged nothing → omit the key entirely; no empty list, no sentinel. Every other persona
-receiving this block ignores this paragraph.
+**`integrated_from:` — the rebuild-route executor only, and this list is not optional for you.**
+An executor dispatched with an explicit refactor remit answering a Kira `rebuild_recommended: true`
+verdict MUST carry `integrated_from`: the cited Kira sidecar stem(s), at column zero, written as
+its last action (`agents/executor.md` § Rebuild-remit terminal stamp). Never indented — the
+scaffold's `divergence:` pair is itself indented, and appending at that indent nests the key under
+it and discards the stamp silently. `guard-kira-verdict-routed.py` joins a Kira verdict to its
+rebuild executor on this key alone, so an unstamped run is indistinguishable at close from one
+that was never dispatched and hard-stops the EM's close. An ordinary review dispatch (reviewer
+applies its own findings and verifies the ledger) never writes this key at all. Every other
+persona receiving this block ignores this paragraph.
 
 **Status transitions.** `open` OR `dispatched` (writer-set at spawn — see below) → `in_flight` (you
 set this as your first action after reading your brief) → `complete | blocked | thrashing` (you set
@@ -82,7 +83,7 @@ incomplete dispatch, the same way a `review-findings` citizen returning a pointe
 sidecar would be.
 
 **For `enricher`, "your completion report" is the summary-plus-pointer, not a standalone
-artifact.** Unlike executor/review-integrator, where the inline completion report IS the
+artifact.** Unlike executor, where the inline completion report IS the
 structured deliverable, enricher's recoverable work product is the plan/stub document(s) it
 mutated on disk — the report is a summary of what was enriched pointing at those path(s), not a
 self-contained finding set. Enricher's `## Run Report` section is that summary plus the mutated
@@ -102,7 +103,7 @@ further: line 1 is `<STATUS>: <stub-id | sidecar-path>`, where STATUS is `DONE`,
 no sidecar was provisioned>`), present whenever line 1's ref is not the sidecar path itself. The
 body below the two lead lines stays inline exactly as your own agent file defines it — detail the
 EM reads when it disputes the status or needs more, never replaced by the lead lines. This
-paragraph reaches four agents: executor, review-integrator, enricher, and test-runner. For an
+paragraph reaches three agents: executor, enricher, and test-runner. For an
 emitted-path brief whose own contract says "Reply EXACTLY `<STATUS>: <path>`", that reply already
 is the lead line alone — the two paths agree. A reply of `DONE: <sidecar-path>` is already a
 complete lead: line 1 with ref = the sidecar path, line 2 omitted. test-runner's own file already

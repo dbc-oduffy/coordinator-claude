@@ -22,8 +22,11 @@ recorded, not resolved, here.
 Sibling to coordinator/workflows/wsc-review-partition.mjs (DoE-claude, C2):
 this script produces exactly the `args` object that Workflow script consumes
 -- `{ slices: [ { id, diffPath, shaRange, wasteReport,
-reviewer: {sidecarPath, contractBlocks}, integrator: {sidecarPath, contractBlocks} } ] }`,
-no other top-level or per-role key. `wasteReport` is a repo-relative path to
+reviewer: {sidecarPath, contractBlocks} } ] }`,
+no other top-level or per-role key. The integrator stage is retired
+(docs/plans/2026-09-26-retire-review-integrator.md D9b) -- the reviewer
+applies its own findings, so no second per-slice role is provisioned or
+emitted. `wasteReport` is a repo-relative path to
 the slice's attributed waste report, added by
 docs/plans/2026-08-28-waste-number-reaches-the-reviewer.md chunk C3 -- one
 key added through the existing shape, never a restructuring of it (see
@@ -170,10 +173,11 @@ def _role_snippet_path() -> Optional[Path]:
     return Path(root) / "snippets" / "agent-role-dispatched.md"
 
 
-#: role -> subagent_type, the two phases every slice gets.
+#: role -> subagent_type, the one phase every slice gets. The integrator
+#: phase is retired (docs/plans/2026-09-26-retire-review-integrator.md D9b):
+#: the reviewer applies its own findings, so there is no second role here.
 _ROLE_AGENT_TYPE = {
     "reviewer": "coordinator:code-reviewer",
-    "integrator": "coordinator:review-integrator",
 }
 
 #: The exact per-slice key set this composer emits -- pinned against C2's
@@ -183,7 +187,7 @@ _ROLE_AGENT_TYPE = {
 #: repo-relative path to the slice's attributed waste report (see
 #: `_write_waste_report` below), never an inline dict, matching every other
 #: artifact key in this set.
-_SLICE_KEYS = {"id", "diffPath", "reviewer", "integrator", "wasteReport"}
+_SLICE_KEYS = {"id", "diffPath", "reviewer", "wasteReport"}
 _ROLE_PAYLOAD_KEYS = {"sidecarPath", "contractBlocks"}
 
 #: Matches a git unified-diff file header, e.g. "diff --git a/foo.py b/foo.py".
@@ -254,9 +258,8 @@ def _contract_block_names(policy: dict, agent_type: str) -> list[str]:
     """Ordered block-name list for `agent_type`, read from `contract_blocks:`.
 
     A real `yaml.safe_load` result, never a hardcoded list or count (today
-    that resolves to three blocks for coordinator:code-reviewer and four
-    for coordinator:review-integrator -- this function must not encode
-    either number). A structurally absent `contract_blocks:` MAPPING is a
+    that resolves to three blocks for coordinator:code-reviewer -- this
+    function must not encode that number). A structurally absent `contract_blocks:` MAPPING is a
     malformed policy and fails loud; an absent or non-list entry for one
     `agent_type` fails open to `[]`, mirroring the policy file's own
     documented lookup-miss contract -- an empty block list then surfaces
@@ -704,9 +707,8 @@ def compose(
     # confinement guard confines every agent's writes to the directory named by
     # its OWN runtime session id. A workflow-spawned phase inherits the EM's
     # session, so a composed-in `wsc-<run_id>` directory is one no fired phase
-    # can write to: the reviewer reads its provisioned scaffold, is denied on
-    # write, and the integrator downstream correctly refuses an unfilled
-    # sidecar. Measured live -- run wf_1800c597-781 lost all five slices this
+    # can write to: the reviewer reads its provisioned scaffold and is denied
+    # on write. Measured live -- run wf_1800c597-781 lost all five slices this
     # way. Slice-bearing uniqueness lives in `provision_key` (the FILENAME),
     # which is what AC5 actually requires, so nothing is lost by dropping the
     # per-run directory.
@@ -845,7 +847,6 @@ def compose(
                 "shaRange": range_spec,
                 "wasteReport": _repo_relative(str(waste_report_path)),
                 "reviewer": role_payloads["reviewer"],
-                "integrator": role_payloads["integrator"],
             }
         )
 
@@ -870,7 +871,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         "inherits it. Required, never synthesized: the Edit confinement guard "
         "confines each agent's writes to state/subagent-share/<its own session "
         "id>/, so a sidecar provisioned anywhere else is one no fired phase can "
-        "write to, and the wave is lost on the integrator leg.",
+        "write to, and the wave is lost on the reviewer leg.",
     )
     parser.add_argument(
         "--policy",

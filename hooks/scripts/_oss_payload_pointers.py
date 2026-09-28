@@ -164,7 +164,10 @@ class Violation:
     line_fingerprint: str = ""
 
 
+# ---------------------------------------------------------------------------
+# The engine-resident skip manifest — derived from the allowlist, never
 # hand-maintained. See module docstring "THE MANIFEST'S ENTRY RULE".
+# ---------------------------------------------------------------------------
 
 
 def _skip_entries() -> frozenset:
@@ -216,6 +219,13 @@ def _excluded_from_payload(rel_str: str, ignore_patterns: tuple) -> bool:
 
 
 #: Observed citation-form PREFIXES that precede `coordinator/{entry}/` in the
+#: corpus for `source_map`-routed entries — kept explicit and exercised by the
+#: ratchet test (not just implicitly relied upon by `_normalize_citation`'s
+#: anchor-strip below) so a reader can see the five forms this detector is
+#: actually proven against. `_normalize_citation` is a strict superset of
+#: this list (it anchors on ANY prefix before a literal `coordinator/`), so a
+#: sixth unlisted form still classifies correctly — this tuple documents and
+#: tests the corpus's actual shapes, it does not gate the mechanism.
 _OBSERVED_ENGINE_CITATION_PREFIXES = (
     "",
     "$CLAUDE_PLUGIN_ROOT/",
@@ -241,7 +251,10 @@ _ROUTED_TO_PROVENANCE_GATE = frozenset({"coordinator/CLAUDE.md"})
 _LEADING_STRIP = "\"'([{"
 _TRAILING_STRIP = "\"'.,;:)]}"
 
+#: The one non-`coordinator/`-anchored citation class this module validates —
 #: see module docstring "SCOPE IS ALSO NARROW ON TARGET VOCABULARY". This is
+#: the known-answer corpus (`test_oss_payload_pointers_resolve.py`'s
+#: round-trip against the commits that repointed these).
 _MIGRATED_FLAT_FILES = frozenset(
     {
         "state/lessons.md",

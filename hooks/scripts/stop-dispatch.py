@@ -180,7 +180,38 @@ def _pre_em_check(ctx: Ctx) -> bool:
 
 
 def _pre_next_move(ctx: Ctx) -> bool:
+    # The watchdog reads the per-session next-move ledger AND NOTHING ELSE.
+    # No ledger file for this session under EITHER machinery root -> the
+    # guard is provably a no-op.
+    #
+    # The path and extension MUST track `_next_move_ledger.py`'s own
     # `_LEDGER_FILENAME` and storage root, which are its docstring's contract:
+    # `.coordinator-local/subagent-share/<session-id>/next-move-ledger.jsonl`
+    # (the retired root, still probed below, was `state/subagent-share/
+    # <session-id>/next-move-ledger.jsonl`). This precondition previously
+    # named `.git/coordinator-sessions/<sid>/next-move-ledger.json` -- the
+    # pre-2026-08-15 location, and a `.json` extension the writer has never
+    # used. Wrong on both axes, it returned False for every session, and the
+    # Stop leg it gates never ran once between the C2 anchoring (471e8eba8)
+    # and this fix. A precondition that is always False is indistinguishable
+    # on disk from a predicate that never has anything to say; the tell was
+    # 123 ledgers at the real path and 0 at this one.
+    #
+    # Both machinery roots are probed, same reasoning and same retirement
+    # condition as `_pre_kira_verdict_routed` below: the engine's provisioned
+    # root moved from `state/` to `.coordinator-local/` on 2026-09-02, and a
+    # session provisioned before that republish still has its ledger under
+    # the old root. Probing the new literal alone suppresses this leg for
+    # every such session, indistinguishable from the guard passing.
+    #
+    # The literals below are duplicated rather than imported ON PURPOSE:
+    # this precondition runs before any guard module is imported, and pulling
+    # in `_next_move_ledger` (and transitively `_engine_root`) here would pay
+    # that import on every Stop in the fleet to answer a one-`stat` question.
+    # The duplication is pinned instead --
+    # `test_stop_precondition_tracks_the_ledgers_real_path` asserts both
+    # against the writer's own constants, so the drift that killed this leg
+    # cannot reland silently.
     root = ctx.repo_root()
     if not root or not ctx.session_id:
         return False
@@ -230,7 +261,15 @@ def _pre_receiver_state(ctx: Ctx) -> bool:
 
 
 def _pre_group_em_park_spool(ctx: Ctx) -> bool:
+    # See `group-em-park-spool.py`'s module docstring for the full contract
+    # this precondition enforces (miss-path cost, scaffold-nothing, ordering).
+    #
+    # The two literals below are duplicated from `receiver_state_reader`'s
     # `_SESSIONS_DIRNAME`/`_SIBLING_FILENAME` ON PURPOSE, for the same reason
+    # `_pre_next_move` duplicates its own: this runs before any guard module is
+    # imported, and pulling the reader in here would pay that import on every
+    # Stop in the fleet to answer a one-`stat` question. The duplication is
+    # pinned by `test_precondition_tracks_receiver_state_carrier_path`.
     if ctx.agent_id or not ctx.session_id:
         return False
     root = ctx.repo_root()
@@ -266,11 +305,18 @@ REGISTRY: Tuple[StopGuard, ...] = (
               "guard-kira-verdict-routed.py", _pre_kira_verdict_routed),
     # A PRODUCER, not a guard -- it always exits 0 with empty stdout, so it
     # contributes nothing to this dispatcher's CONCATENATE-ALL aggregation and
+    # cannot change any verdict. It rides the fan-in rather than taking a
+    # second `Stop` entry in hooks.json purely for the process cost: a second
+    # entry buys a permanent extra interpreter cold start on every Stop
+    # fleet-wide, where folding it here adds no process at all.
     StopGuard("receiver_state_sensor",
               "receiver-state-sensor.py", _pre_receiver_state),
     # ORDER IS LOAD-BEARING: this producer reports the verdict the entry
+    # ABOVE causes to be written, so it must stay after it. Moving it earlier
+    # spools the previous turn's verdict on every park -- wrong, and silently
     # so. Like `receiver_state_sensor` it is a PRODUCER, not a guard: always
     # exit 0, always empty stdout, contributes nothing to the CONCATENATE-ALL
+    # aggregation and cannot change any verdict.
     StopGuard("group_em_park_spool",
               "group-em-park-spool.py", _pre_group_em_park_spool),
 )
@@ -382,6 +428,10 @@ def main() -> int:
         try:
             mod = _import_guard(guard)
             # SHARED-CONTEXT INJECTION -- the half of the win that is "better
+            # code", not merely "fewer processes". Hands the module a repo
+            # root already resolved by this dispatcher's own zero-spawn walk
+            # rather than letting it re-derive its own (only possible once
+            # the guards share an interpreter).
             if hasattr(mod, "_git_root"):
                 _root = ctx.repo_root()
                 mod._git_root = lambda _r=_root: _r

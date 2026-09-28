@@ -151,7 +151,8 @@ No atlas page for the target → skip entirely. Otherwise pick a branch:
   close-out commit message must contain `atlas-current-as-of: <YYYY-MM-DD>`.
 
 Run `verify-arch-audit-atlas-refresh <AUDIT_DATE> <TARGET_SYSTEM> [<COMMIT_MSG_FILE>]` before
-`git commit`. `PASS branch=A|B` → commit. `FAIL` → do not commit; amend per the branch you're on,
+`git commit`. `PASS branch=A|B` → commit scoped, explicit-path: `git commit -m "<subject>" --
+state/health-ledger.md <atlas-page-path>`. `FAIL` → do not commit; amend per the branch you're on,
 re-stage, re-run. Anti-scope and full branch mechanics: wiki.
 
 ---

@@ -23,6 +23,10 @@ Run, relaying its own stdout confirmation verbatim (don't re-author it). Shape W
 
 ## Behavior While Active
 
+PM touchpoints themselves are set by the sizing's `interaction_mode` (hands-on / pm / ceo), not
+by this toggle — this sentinel only quiets context-pressure nudges; see
+`docs/plans/2026-09-27-four-turn-em-loop.md`.
+
 Presume the PM is away — don't wait for input. Status between steps is
 output-only; no mid-run "should we continue?". Everything else once printed
 here (drive-to-completion, tracked debt over stalling, fix-by-default at

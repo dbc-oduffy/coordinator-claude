@@ -48,7 +48,9 @@ from typing import Iterable, Optional
 STATUS_DELETE = "D"
 STATUS_RENAME = "R"
 
+#: Same token this repo's own registration-parity tests scan for
 #: (`test_hook_registrations_fail_open.py`'s `_SCRIPT_TOKEN_RE`) -- not a
+#: second parser, the identical regex over hooks.json's raw text.
 _SCRIPT_TOKEN_RE = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT\}(/[\w./-]+\.py)")
 
 #: `${CLAUDE_PLUGIN_ROOT}` resolves to `coordinator/` (the plugin root) --

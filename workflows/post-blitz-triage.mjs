@@ -12,7 +12,16 @@ export const meta = {
 }
 
 
+// Model-tier discipline (coordinator/docs/wiki/dispatching-parallel-agents/delegate-execution.md § Model Selection
+// Rubric, and staff-eng.md/vp-product.md's own "Do Not Commit"/Tools Policy sections):
+//   - Judgment/review personas (vp-product, staff-eng) run OPUS, but their write access is for
+//     their OWN findings/recommendation artifact only -- staff-eng.md is explicit: "never change
+//     source under review; fixes are the review-integrator's and Executor's job."
+//   - Anything that WRITES THE FIX ITSELF runs SONNET, always -- "Dispatched executors are always
 //     Sonnet. No exceptions." (delegate-execution.md). So staff-eng INVESTIGATES and reports what
+//     needs to change; a separate sonnet pass applies it. Same reasoning nearly makes a two-step
+//     out of the XS executor phase too, but those are single-baton direct-dispatch work with no
+//     separate reviewer in the loop to begin with, so one sonnet executor per item is correct as is.
 
 
 const VP_PRODUCT_PREAMBLE = `You are acting as the vp-product persona (coordinator/agents/vp-product.md) —

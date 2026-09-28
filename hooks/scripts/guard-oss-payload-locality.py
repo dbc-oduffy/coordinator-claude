@@ -1,4 +1,9 @@
+# guard-not-a-hook-entrypoint -- invoked via the in-process guard runner's
 # REAL_GUARD_REGISTRY (coordinator/hooks/scripts/_guard_runner.py), which
+# preuse-write-dispatch.py's own hooks.json PreToolUse(Write|Edit|MultiEdit)
+# registration calls in-process (C4, docs/plans/2026-08-06-hook-spawn-fan-
+# in-finish-and-extend.md). This basename is deliberately never referenced
+# literally in hooks.json text -- that IS the mechanism, not an omission.
 """PreToolUse hook (matcher: Write|Edit|MultiEdit): denies a write that
 introduces a NEW OSS-payload locality defect into a file that ships to the
 OSS `coordinator-claude` mirror.
@@ -81,6 +86,8 @@ _GUARDED_TOOLS = ("Write", "Edit", "MultiEdit")
 
 _WIKI_ANCHOR = "coordinator/docs/wiki/guards/guard-message-concision.md#oss-payload-locality"
 
+#: Per-kind SHORT alternative, keyed by the exact `Violation.kind` strings
+#: `_prompt_surface_locality.iter_violations` emits. The full reasoning for
 #: each (the ENTRY CRITERION for `IRREDUCIBLE_LITERALS`, why a portable form
 #: replaces a drive path) lives at `_WIKI_ANCHOR`, not here.
 _ALTERNATIVES = {

@@ -64,7 +64,10 @@ def main() -> int:
     except Exception:
         return 0
 
+    # Capability catalog lives at the doctrine-plane plugin root -- mirrors the bash
     # PLUGIN_ROOT ($SCRIPT_DIR/../..) resolution and preuse-write-dispatch.py's
+    # policy_path convention. __file__ parents: [0]=scripts [1]=hooks
+    # [2]=coordinator (plugin root).
     catalog_path = Path(__file__).resolve().parents[2] / "capability-catalog.md"
 
     try:

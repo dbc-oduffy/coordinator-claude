@@ -113,7 +113,12 @@ try:
         resolve_claude_klabauter_root_with_provenance as _resolve_engine,
     )
 except Exception:
+    # Defensive fallback -- a hook script copied/deployed WITHOUT its
+    # sibling _engine_root.py (e.g. an isolated test harness, or a
+    # partial deploy) must still fail-open rather than crash on import.
+    # "unresolved" is spelled literally rather than imported as
     # RESOLUTION_UNRESOLVED: this leg exists precisely for the case where
+    # that module is absent, so it cannot depend on a name from it.
     def _resolve_engine() -> tuple[str | None, str, str]:
         return None, "unresolved", "none"
 
@@ -122,7 +127,23 @@ except Exception:
 
 
 def main() -> int:
+    # SAFETY BARRIER, not only a cold-start optimization: this function
+    # runs as a FRESH subprocess per PreToolUse(Bash) event, reads the
+    # candidate command from stdin as inert text, and never shell-execs it
     # -- so no COORDINATOR_OVERRIDE_*/COORDINATOR_ALLOW_* env var a subagent
+    # tries to set via an inline `VAR=1` prefix, `export`, or `env` wrapper
+    # inside the candidate command can ever reach this process's
+    # os.environ, which is the only thing `dispatch_checks._override()`
+    # reads. Pooling/reusing this process across events to cut the
+    # per-call spawn cost would silently delete that guarantee. Pinned in two
+    # halves, in two repos, because a pooling change can be made from either
+    # side: the behavioural half by
+    # coordinator_core/bash_guards/tests/test_override_unreachability_boundary.py
+    # (the engine repo), and the registration half -- that hooks.json keeps
+    # this wired as a per-event `type: "command"` hook -- by
+    # coordinator/tests/test_bash_guard_hook_stays_per_event.py (here).
+    # Do not "fix" either test's failure by deleting it; re-key the affected
+    # confinement guards onto resolved caller-context first.
     raw = sys.stdin.read()
 
     root, resolution_class, _provenance = _resolve_engine()

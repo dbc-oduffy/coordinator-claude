@@ -101,6 +101,7 @@ def main() -> int:
     params = {
         "tool_name": payload.get("tool_name", ""),
         # Forwarded UNFLATTENED and complete: the op reads tool_input["name"] and
+        # tool_input["prompt"] raw, so a flattened scalar will not work here.
         "tool_input": tool_input,
     }
 

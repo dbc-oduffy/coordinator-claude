@@ -238,7 +238,7 @@ The coordinator plugin is the session-management spine of the Claude Code agenti
 
 - **Session orchestration** — handoffs, spinoffs, workday/workweek cadence, fan-out dispatch
 - **Review pipeline** — named Opus reviewers (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering), code-reviewer,
-  review-integrator
+  each applying its own findings
 - **Skills** — plan, enrich, review, workstream-complete, pickup, repo-setup, and more
 - **Hooks** — PreToolUse tripwires, commit guards, auto-push, session-init
 - **Agents** — executor, enricher, reviewer personas, scouts

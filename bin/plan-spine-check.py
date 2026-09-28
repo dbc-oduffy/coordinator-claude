@@ -32,11 +32,22 @@ property, a wrong type, a closed-enum violation, a missing required key on an ed
 and fails; a retired `change_kind` value or an absent legacy conditional key the schema's own
 `x-bump-note` says is deliberately NOT retro-opened is LEGACY and does not.
 
+A THIRD CLASS, ADVISORY, NEVER FATAL EITHER WAY. `--for-execution` marks the plan as
+execution-bound. Without the flag, an `open`, `execution_mode: agent` row with UNDECLARED `writes`
+(key absent or null, and no `writes_under`) is reported `advisory`, never fatal. WITH the flag,
+that same finding is STRUCTURAL and sets the failing exit. `writes: []` is a positive "writes
+nothing" assertion (the schema's own spelling) -- DECLARED, never UNDECLARED, under either flag.
+Two more findings live in this class and are never fatal, flag or no flag: a `reads_at_head` path
+another row writes (declare `consumes` instead if the output is actually needed), and a `consumes`
+path no row writes (orders nothing -- use `reads_at_head`). `LEGACY-READS` is a plain notice on
+any row carrying `reads:`. Paths are normalised from `\` to `/` before comparison.
+
 Arrived from DoE-claude coordinator/bin/plan-spine-check.py (docs/plans/2026-09-18-doe-holds-no-
-scripts.md, chunk W2-C9). Requirement-restated, not carried verbatim: the DoE-side `_locate_spine`
-resolved `coordinator_core` through an `_engine_root` seam because that copy lived outside the
-engine; this copy lives inside it, so the locator and the schema resolve through this module's own
-tree (§ Path resolution, "engine" class) with no seam at all.
+scripts.md, chunk W2-C9; the fourth-class port above from docs/plans/2026-09-27-plan-shape-for-
+width.md C9/C5, requirement-restated as W2-C9 did). Requirement-restated, not carried verbatim:
+the DoE-side `_locate_spine` resolved `coordinator_core` through an `_engine_root` seam because
+that copy lived outside the engine; this copy lives inside it, so the locator and the schema
+resolve through this module's own tree (§ Path resolution, "engine" class) with no seam at all.
 
 Spec backlink: docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W2-C9.
 """
@@ -94,6 +105,12 @@ class CheckError(RuntimeError):
     """A precondition this module cannot proceed without, named rather than guessed."""
 
 
+def _norm_path(path) -> str:
+    if not isinstance(path, str):
+        return path
+    return path.replace("\\", "/")
+
+
 def _ensure_engine_on_path() -> None:
     """Put the engine root on `sys.path`, fail-loud — the same self-location-first bootstrap
     every other `coordinator/bin/*.py` engine-backed CLI uses (see e.g.
@@ -131,7 +148,7 @@ def _locate_spine(text: str):
     return result, LocateStatus
 
 
-def check_plan(path: Path) -> dict:
+def check_plan(path: Path, for_execution: bool = False) -> dict:
     """One plan's verdict: PREPPED-shaped report, never a raise for an ordinary outcome."""
     try:
         text = path.read_text(encoding="utf-8")
@@ -184,23 +201,104 @@ def check_plan(path: Path) -> dict:
                     "class": "legacy" if _is_legacy(at, error.message) else "structural",
                 }
             )
+    advisories = []
+    written_paths = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for p in (row.get("writes") or []):
+            written_paths.add(_norm_path(p))
+        for p in (row.get("writes_under") or []):
+            written_paths.add(_norm_path(p))
+
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        row_id = row.get("id")
+        label = row_id or f"row {index + 1} (no id)"
+
+        if row.get("reads"):
+            advisories.append(
+                {
+                    "row": label,
+                    "error": "LEGACY-READS: split into `reads_at_head`/`consumes` when next touched",
+                    "at": "reads",
+                    "class": "advisory",
+                }
+            )
+        for p in (row.get("reads_at_head") or []):
+            if _norm_path(p) in written_paths:
+                advisories.append(
+                    {
+                        "row": label,
+                        "error": (
+                            f"reads_at_head `{p}` — you read HEAD, not another row's output — "
+                            "declare `consumes` if you need it"
+                        ),
+                        "at": "reads_at_head",
+                        "class": "advisory",
+                    }
+                )
+        for p in (row.get("consumes") or []):
+            if _norm_path(p) not in written_paths:
+                advisories.append(
+                    {
+                        "row": label,
+                        "error": f"consumes `{p}` — orders nothing — use `reads_at_head`",
+                        "at": "consumes",
+                        "class": "advisory",
+                    }
+                )
+
+        deferred = row.get("deferred") is True
+        execution_mode = row.get("execution_mode", "agent")
+        disposition = row.get("disposition", "open")
+        if (
+            not deferred
+            and disposition == "open"
+            and execution_mode == "agent"
+            and row.get("writes") is None
+            and not row.get("writes_under")
+        ):
+            finding = {
+                "row": label,
+                "error": "UNDECLARED writes — this row has no write target",
+                "at": "writes",
+                "class": "structural" if for_execution else "advisory",
+            }
+            if for_execution:
+                findings.append(finding)
+            else:
+                advisories.append(finding)
+
     if any(f["class"] == "structural" for f in findings):
         verdict = "INVALID"
     elif findings:
         verdict = "LEGACY"
     else:
         verdict = "VALID"
-    return {"path": str(path), "verdict": verdict, "detail": None, "rows": findings}
+    return {
+        "path": str(path),
+        "verdict": verdict,
+        "detail": None,
+        "rows": findings,
+        "advisories": advisories,
+    }
 
 
 def _render(report: dict) -> str:
     name = Path(report["path"]).name
+    advisory_lines = [
+        f"  {a['row']} at `{a['at']}`: {a['error']}  [advisory, not fatal]"
+        for a in report.get("advisories", [])
+    ]
+    advisory_block = ("\n" + "\n".join(advisory_lines)) if advisory_lines else ""
     if report["verdict"] in ("VALID", "NO-SPINE"):
-        return f"plan-spine-check: {report['verdict']} — {name}"
+        return f"plan-spine-check: {report['verdict']} — {name}{advisory_block}"
     if report["verdict"] == "LEGACY":
         return (
             f"plan-spine-check: LEGACY — {name} ({len(report['rows'])} tolerated finding(s), "
-            "no structural defect)"
+            f"no structural defect){advisory_block}"
         )
     lines = [f"plan-spine-check: {report['verdict']} — {name}"]
     if report["detail"]:
@@ -209,6 +307,8 @@ def _render(report: dict) -> str:
         at = f" at `{finding['at']}`" if finding["at"] else ""
         tag = "" if finding["class"] == "structural" else "  [legacy, not fatal]"
         lines.append(f"  {finding['row']}{at}: {finding['error']}{tag}")
+    if advisory_lines:
+        lines.extend(advisory_lines)
     return "\n".join(lines)
 
 
@@ -219,10 +319,15 @@ def main(argv: "list[str] | None" = None) -> int:
     )
     parser.add_argument("plans", nargs="+", help="plan file(s)")
     parser.add_argument("--json", action="store_true", help="emit the full report as JSON")
+    parser.add_argument(
+        "--for-execution",
+        action="store_true",
+        help="mark the plan execution-bound: UNDECLARED writes becomes STRUCTURAL (exit 1)",
+    )
     args = parser.parse_args(argv)
 
     try:
-        reports = [check_plan(Path(p)) for p in args.plans]
+        reports = [check_plan(Path(p), for_execution=args.for_execution) for p in args.plans]
     except CheckError as exc:
         print(f"plan-spine-check: {exc}", file=sys.stderr)
         return EXIT_UNREADABLE

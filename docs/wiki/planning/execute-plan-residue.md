@@ -60,8 +60,10 @@ Tier T (chunk's own scoped tests) or Tier F (repo's fast tier, EM-only, gated be
 session-scoped test-invocation grant, same as Tier U — a chained `fast_test_cmd` like `a && b` is
 denied as Tier U today by a guard equality-check limitation; configure `fast_test_cmd` as a single
 command instead) run per wave; Tier U (full suite / unscoped runner) is reserved for the cadence
-gate at the end — N waves must not mean N full-suite runs. Code review defers to
-`/workstream-complete`.
+gate at the end — N waves must not mean N full-suite runs. Code review is the emitted workflow's
+own review stages (one parallel review wave, one integration pass), run once at the end of the
+run, never per chunk and never sequential; `/workstream-complete` is bookkeeping (plan status,
+lessons, docs, commit/merge hygiene, handoff) and carries no reviewer dispatch of its own.
 
 **(2) A background Workflow is the vehicle for executing a plan.** `/execute-plan` invocation IS
 the standing opt-in; ad-hoc dispatch outside plan execution is the EM's own choice of backgrounded
@@ -215,12 +217,11 @@ position ("can't parallelize" ≠ "one dispatch"). Over-budget coupled work beco
 chunk (dispatch B2 → EM verifies → dispatch fresh C1 → EM verifies → dispatch fresh C2/D), never one
 agent handed chunk after chunk.
 
-**Within-wave width check:** >5 write-capable executors in one wave → chunk into sub-waves of ≤5.
-This is a checkable count, not a flat cap — write-capable sub-waves carry write-contention/
-commit-serialization pressure on the shared branch that read-only or cheap-leaf-worker waves don't,
-so 5 (paired with the wiki's "≤5 files per executor" guidance) is the right bound specifically for
-the write-capable case. Cheap leaf-worker width (read-only scouts, mechanical verifiers, no
-shared-branch write contention) is unbraked by this check.
+**No count bounds a wave.** The stated rationale for a within-wave width ceiling was write-contention
+and commit-serialization pressure on the shared branch — M1's single terminal commit removes it.
+The emitted DAG sets concurrency; admission (`coordinator_core/ops/dispatch_emit/admission.py`)
+gates the workflow on measured load, not a wave-size count; and `plan-spine-check`'s `WIDTH` line
+is the pre-dispatch width signal an author reads before firing.
 
 ### Fan-out methodology mechanical step
 

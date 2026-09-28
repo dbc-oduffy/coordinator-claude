@@ -10,7 +10,7 @@
 
 Per plan in the run's scope, the coordinator collects:
 
-- **Live sidecars** — `<plan>.<reviewer>-rN.md` files on disk at Phase 2.5 start. Pre-annotated with `disposition:` fields by the review-integrator (D7) before Phase 5 deletes them.
+- **Live sidecars** — `<plan>.<reviewer>-rN.md` files on disk at Phase 2.5 start. Pre-annotated with `disposition:` fields by the reviewer applying its own findings before Phase 5 deletes them.
 - **Historical sidecars via `git show`** — when an existing `docs/wiki/codebase-judgment/<topic>.md` entry lists `source_findings[*].sha`, those SHAs resolve via `git show <sha>:<sidecar-path>`. Used ONLY during initial topic-cluster creation, not during the update path (D8).
 
 **SHA-resolution + Phase 5 timing:** sidecars are deleted by Phase 5; the `source_findings[*].sha` field captures the sidecar's git SHA so `git show` resolves after deletion. The strict-sequencing gate above ensures Phase 2.5 runs before the same run's Phase 5.
@@ -21,8 +21,8 @@ Only architectural reviewer findings count for convergence. **Ineligible:**
 
 - Mechanical (newline, indent, formatting)
 - docs-checker-class (wrong import, stale signature, incorrect function name)
-- `disposition: escalated-disagree` — actively rejected by integrator; including would let rejected verdicts accumulate
-- `disposition: verified-no-action` — integrator verified and found the artifact already correct; a resolved-fine finding is not convergence evidence
+- `disposition: escalated-disagree` — actively rejected by the reviewer/EM; including would let rejected verdicts accumulate
+- `disposition: verified-no-action` — the reviewer verified and found the artifact already correct; a resolved-fine finding is not convergence evidence
 
 **Eligible:** architectural recommendations, pattern requirements, anti-pattern prohibitions, recurring design constraints.
 

@@ -102,18 +102,39 @@ REGISTRY: Tuple[StartGuard, ...] = (
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
     # LIFECYCLE OWNER FOR THE http FORWARDER, folded here rather than given its
     # own registration. Its module docstring said "NOT REGISTERED HERE ... the
+    # DR's own Consequences section defers that wiring to a later chunk" -- this
+    # is that chunk (C10). Left unregistered it was inert: the resident forwarder
+    # on this box was started once by hand and nothing revived it.
+    #
     # THIS IS LOAD-BEARING THE MOMENT ANY ENTRY IS type: "http". A dead forwarder
     # is not a deny, it is a CONNECTION REFUSAL at the harness -- a transport
+    # error, which the http path FAILS OPEN on. Every guard behind that transport
+    # then goes silently inert fleet-wide, which is a worse shape than the outage
+    # 084654c8b reverted: an outage announces itself, a silent disarm does not.
+    #
     # All five sources deliberately. The forwarder is a MACHINE-WIDE resident, so
+    # the session that finds it missing is whichever one starts next -- there is
+    # no reason that should be a `startup` in particular, and narrowing this set
+    # would leave a box whose sessions all resume/fork with no forwarder at all.
+    # Costs nothing on the overwhelmingly common path: the guard probe-binds,
+    # loses to the incumbent, and treats losing as success (its own "ENSURE, NOT
     # SPAWN-BLINDLY" contract). Async and never-waits, per its own "NEVER WAIT".
     StartGuard("sessionstart_ensure_http_forwarder",
                "sessionstart-ensure-http-forwarder.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
     # PLUGIN-ROOT BREADCRUMB -- see `session-start-write-plugin-root-breadcrumb.py`'s own
+    # module docstring for what this is and why it exists.
+    #
+    # All five sources. The breadcrumb is a property of the BOX, not of a particular boot,
+    # so the session that finds it absent or pointing at another checkout is whichever one
+    # starts next -- narrowing the set would leave a box whose resume/fork sessions render
+    # default rows forever. A healthy box pays one small read and returns.
     StartGuard("session_start_write_plugin_root_breadcrumb",
                "session-start-write-plugin-root-breadcrumb.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
     # PRE-COMMIT GATE CHAIN SELF-HEAL -- see `session-start-ensure-precommit-hook.py`.
+    # All five sources: `.git/hooks` is a property of the clone, so the session
+    # that finds it missing is whichever one starts next.
     StartGuard("session_start_ensure_precommit_hook",
                "session-start-ensure-precommit-hook.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),

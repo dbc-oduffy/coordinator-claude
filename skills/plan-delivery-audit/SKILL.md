@@ -69,7 +69,7 @@ trail's freeze; after it, Oracle 3 is `UNAVAILABLE`.
 
 **The corpus is frozen; absence stopped meaning anything.** `review_trail.write` is retired with
 no live writer left (retired in the engine repo); this repo's newest record is `2026-08-26-211749`. Reviews land
-in the reviewer sidecar's `## Integrator Dispositions` receipt, which this oracle cannot read
+in the reviewer sidecar's `findings_ledger`, which this oracle cannot read
 -- so a post-freeze plan returns UNCOVERED whether or not it was reviewed. Read the sidecar before
 reporting a review missing. If delivery commits aren't named in frontmatter or execution
 notes, identify them from what the plan's ACs describe.

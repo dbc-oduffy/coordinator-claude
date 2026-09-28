@@ -4844,9 +4844,22 @@ def resolve_percolate_root(*, err: IO[str] = sys.stderr) -> Path:
     return root
 
 
-def _resolve_percolate_root_and_rung(*, err: IO[str] = sys.stderr) -> "tuple[Path, str]":
+def _resolve_percolate_root_and_rung(
+    *, override: "Optional[str]" = None, err: IO[str] = sys.stderr
+) -> "tuple[Path, str]":
     """Native in-process port of `setup/publish.sh`'s PERCOLATE_ROOT
     resolution. Calls the SAME underlying resolver
+
+    BV-20260927-05 fix 3: `override` (the CLI's own `--percolate-root`, when
+    given) is now the FIRST rung, ahead of the native resolver — a caller
+    that already resolved PERCOLATE_ROOT (e.g. `percolate-mirror.py`, which
+    used to resolve it correctly itself and then spawn this file with no
+    `--percolate-root` at all) must have that answer WIN here rather than be
+    silently re-derived from `coordinator_percolate_runtime_root()`, which
+    reads `~/.claude/.doe-root` and can name a different tree entirely (the
+    live defect: a cloud PERCOLATE_ROOT override never reached this child
+    process, so it silently loaded DoE-claude's own `publish-targets.portable`
+    instead of the caller's).
     (`cc_invoke.resolve_engine_root` -> `coordinator_core.percolate.
     runtime_root.coordinator_percolate_runtime_root`) the bash original
     invoked via a `python3 -c` subprocess — here it is a direct in-process
@@ -4884,6 +4897,9 @@ def _resolve_percolate_root_and_rung(*, err: IO[str] = sys.stderr) -> "tuple[Pat
     `_read_doe_root_pointer()` read should later converge onto the shared
     `coordinator_core.doe_root_pointer` module is left for a future chunk.
     """
+    if override:
+        return Path(override), "cli-override"
+
     cc_invoke_path = _locate_cc_invoke()
     failure_reason: Optional[str] = None
     root: Optional[str] = None
@@ -9697,8 +9713,10 @@ def assert_dest_on_declared_ref(
         return False
     if actual_ref != expected_branch:
         print(
-            f"  Error: dest is not on the declared publish ref for '{key}' "
-            f"(expected '{expected_branch}', dest is on '{actual_ref}').",
+            f"  Error: dest is not on its declared track_ref for '{key}' "
+            f"(publish.mirrors.{key}.track_ref names '{expected_branch}', dest "
+            f"is checked out on '{actual_ref}'). Fix: "
+            f"`git -C {repo_root} checkout {expected_branch}`.",
             file=sys.stderr,
         )
         _print_row_refusal(target.name, err=sys.stderr)
@@ -12456,6 +12474,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "re-doing work a proof says is idle."
         ),
     )
+    p.add_argument(
+        "--percolate-root",
+        default=None,
+        help=(
+            "Authoritative PERCOLATE_ROOT override, taking precedence over "
+            "the native `coordinator_percolate_runtime_root()` resolver and "
+            "its `.doe-root`/repo-root fallback rungs (BV-20260927-05 fix 3). "
+            "The parent driver (e.g. `percolate-mirror.py`) passes its own "
+            "already-resolved root here so a child `publish.py` invocation "
+            "never silently re-resolves a different one."
+        ),
+    )
     return p
 
 
@@ -12743,7 +12773,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     # resolved `percolate_root`/`setup_dir` here, once, and thread it into
     # every AC15 FATAL message below instead of re-deriving a fresh (and
     # potentially different) answer at each call site.
-    percolate_root, percolate_root_rung = _resolve_percolate_root_and_rung()
+    percolate_root, percolate_root_rung = _resolve_percolate_root_and_rung(
+        override=args.percolate_root
+    )
     setup_dir = percolate_root / "setup"
 
     print("publish: plugin sources → downstream repos")

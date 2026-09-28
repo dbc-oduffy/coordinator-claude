@@ -4,7 +4,7 @@
 
 ## Overview
 
-The "night shift colleague" — reviews today's commits, dispatches a reviewer for any issues, applies findings via review-integrator, and updates health tracking. Results are ready for the next morning's workstream-start.
+The "night shift colleague" — reviews today's commits, dispatches a reviewer for any issues who applies its own findings, and updates health tracking. Results are ready for the next morning's workstream-start.
 
 **Announce at start:** "I'm using /code-health to review recent commits."
 
@@ -55,15 +55,14 @@ If multiple domains are present, weight toward the dominant one (most files chan
 
 **Unattended review flow:** `coordinator:code-reviewer` self-persists by default — no pre-scaffold or claim marker required. The reviewer scaffolds its own sidecar in `<machinery_root>/subagent-share/<session-id>/` (DR-091's one home) and returns a pointer+verdict line.
 
-1. **Dispatch `coordinator:code-reviewer`** (UNNAMED — no `name:` param), `run_in_background: true`, `--problems-only`. The reviewer scaffolds its own sidecar in `<machinery_root>/subagent-share/<session-id>/` via `coordinator-doc-new --type review-findings`, writes its findings there, and returns: `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`. Read the returned path; no EM pre-scaffold or claim marker.
+1. First register the reviewed file list: `review-findings-ledger targets --add` for Step 1's diff scope. Then **dispatch `coordinator:code-reviewer`** (UNNAMED — no `name:` param), `run_in_background: true`, `--problems-only`. The reviewer scaffolds its own sidecar in `<machinery_root>/subagent-share/<session-id>/` via `coordinator-doc-new --type review-findings`, writes its findings there, and returns: `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`. Read the returned path; no EM pre-scaffold or claim marker.
 
-### Step 4: Apply Findings
+### Step 4: Reviewer Applies Findings
 
 If the reviewer returns findings:
 
-1. Dispatch `coordinator:review-integrator` pointing at the **on-disk sidecar path** (not inline findings — `agents/review-integrator.md` § Intake precondition hard-stops on inline-relayed findings). Pass the sidecar path and affected file paths.
-2. Review-integrator applies inline fixes and annotations.
-3. Complex findings (3+ interacting files, new abstractions) go to the debt backlog instead.
+1. The reviewer applies and verifies its ledger — inline fixes and annotations against its own sidecar, `review-findings-ledger verify` passing before it reports done.
+2. Complex findings (3+ interacting files, new abstractions) go to the debt backlog instead.
 
 If no findings: skip to Step 6.
 
@@ -164,7 +163,7 @@ git commit -m "daily-code-health: review of commits since [date]"
 
 ## Cost
 
-1 Sonnet `code-reviewer` dispatch (with `--problems-only`) + 1 Sonnet `review-integrator` dispatch if findings exist. No persona, no Opus at this nightly cadence. ~5-10 min for a typical day's commits.
+1 Sonnet `code-reviewer` dispatch (with `--problems-only`), applying its own findings inline. No persona, no Opus at this nightly cadence. ~5-10 min for a typical day's commits.
 
 ## Failure Modes
 
@@ -172,4 +171,4 @@ git commit -m "daily-code-health: review of commits since [date]"
 |---------|-------|-----|
 | No new commits since last check | All work landed before the last check timestamp | Update timestamp, report "No new commits since last health check," and exit gracefully. Do not treat as an error. |
 | Reviewer dispatch fails (529 overload or crash) | Model overload during Step 3 dispatch | Re-dispatch once after 60s with reduced scope (summary of changed files only, no full diff). If second failure, log `SKIPPED — reviewer dispatch failed` in health-summary and proceed to Step 6 with no findings applied. |
-| Review-integrator fails (Step 4) | Agent crash or context limit after reviewer returns findings | Defer all reviewer findings to debt-backlog as unreviewed entries (source: `daily-health/integrator-failure/{date}`). Log in health-summary: "Integrator failed — N findings deferred unreviewed." |
+| Reviewer's own-apply fails (Step 4) | Agent crash or context limit while applying its own findings | Defer all reviewer findings to debt-backlog as unreviewed entries (source: `daily-health/reviewer-apply-failure/{date}`). Log in health-summary: "Reviewer apply failed — N findings deferred unreviewed." |

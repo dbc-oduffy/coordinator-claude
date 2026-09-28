@@ -834,7 +834,7 @@ def _engine_bin(
 #: Agent definitions every wave dispatches under. The roster the write guards consult is walked
 #: from the plugin's own `agents/*.md`, so their presence IS the question `--plugin-agents-available`
 #: asks — there is nothing to assume.
-_WAVE_AGENT_DEFINITIONS = ("plan-author.md", "blitz-em.md", "review-integrator.md")
+_WAVE_AGENT_DEFINITIONS = ("plan-author.md", "blitz-em.md")
 
 
 def _plugin_agents_available(plugin_root: Path | None, explicit: str) -> tuple[bool, str]:

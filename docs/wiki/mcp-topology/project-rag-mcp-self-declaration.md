@@ -134,7 +134,7 @@ The project-RAG preamble for agent/skill dispatch lives at `coordinator/snippets
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
 <!-- END project-rag-preamble -->
 ```
-Sync: `verify-snippet-sync project-rag-preamble --check/--fix`. Wired into `/workday-start` Step 1.7. Inline targets: enricher dispatch prompts, executor dispatch prompts, review-integrator dispatch prompts, scout dispatch templates in brainstorming/writing-plans/systematic-debugging skills.
+Sync: `verify-snippet-sync project-rag-preamble --check/--fix`. Wired into `/workday-start` Step 1.7. Inline targets: enricher dispatch prompts, executor dispatch prompts, reviewer dispatch prompts, scout dispatch templates in brainstorming/writing-plans/systematic-debugging skills.
 
 **Project detection:** the preamble uses generic any-project detection (not example-game-repo-specific). Example-game-repo deduplication uses positive context detection (`.example-game-repo/` dir or `Saved/ExampleGameRepoProjectRag/` path-up search), not hook-ordering sentinel — order-independent. False positives produce silent banners; false negatives are graceful (no banner, no behavior change).
 

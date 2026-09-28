@@ -1,10 +1,10 @@
 {
   "x-effective-delivery": {
     "version": 1,
-    "generated_from_sha": "01dc9ac7ac725783d1393b43cffd9a219df3692d",
-    "generated_at": "2026-09-22T23:17:35Z",
+    "generated_from_sha": "788324789bf39fd87e5b435f281cd846b9abce17",
+    "generated_at": "2026-09-28T05:30:13Z",
     "generated_from_dirty_tree": true,
-    "engine_source_sha": "41ae2f0feca3713ff1d3c215d0c3525feae0f78e",
+    "engine_source_sha": "7c7ce5bea5d77153e2a1ef44cf0389bc6e813dfb",
     "engine_source_dirty_tree": true,
     "engine_source_resolution": "live-working-tree/env-override",
     "carriers": {
@@ -200,13 +200,12 @@
             ]
           },
           {
-            "id": "block_em_hand_edit_pending_review_integration",
-            "script": "write_guards/block_em_hand_edit_pending_review_integration.py",
+            "id": "block_em_strict_dispatch_code_write",
+            "script": "write_guards/block_em_strict_dispatch_code_write.py",
             "tool_names": [
               "Write",
               "Edit",
-              "MultiEdit",
-              "NotebookEdit"
+              "MultiEdit"
             ]
           },
           {
@@ -292,6 +291,15 @@
               "Edit",
               "MultiEdit",
               "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_sizing_object_schema_violation",
+            "script": "write_guards/block_sizing_object_schema_violation.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
             ]
           },
           {
@@ -449,6 +457,15 @@
             ]
           },
           {
+            "id": "nudge_handoff_author_lint",
+            "script": "write_guards/nudge_handoff_author_lint.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
             "id": "nudge_improvement_queue_write",
             "script": "write_guards/nudge_improvement_queue_write.py",
             "tool_names": [
@@ -564,6 +581,15 @@
               "Edit",
               "MultiEdit",
               "NotebookEdit"
+            ]
+          },
+          {
+            "id": "nudge_unattributed_process_time_figure",
+            "script": "write_guards/nudge_unattributed_process_time_figure.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
             ]
           },
           {
@@ -852,6 +878,14 @@
             ]
           },
           {
+            "id": "block-subagent-findings-reject",
+            "script": "bash_guards/block_subagent_findings_reject.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
             "id": "block-subagent-guard-grant",
             "script": "bash_guards/block_subagent_guard_grant.py",
             "tool_names": [
@@ -1014,7 +1048,7 @@
           },
           {
             "id": "head-tail-plumbing-rewrite",
-            "script": "bash_guards/guard_head_tail_rewrite.py",
+            "script": "bash_guards/_dialect.py",
             "tool_names": [
               "Bash",
               "PowerShell"
@@ -1327,13 +1361,6 @@
         "tool_names": []
       },
       {
-        "id": "nudge-autonomous-askuserquestion.py",
-        "script": "scripts/nudge-autonomous-askuserquestion.py",
-        "tool_names": [
-          "AskUserQuestion"
-        ]
-      },
-      {
         "id": "nudge-cross-repo-cwd-boundary.py",
         "script": "scripts/nudge-cross-repo-cwd-boundary.py",
         "tool_names": []
@@ -1358,13 +1385,6 @@
         "tool_names": []
       },
       {
-        "id": "plan-persistence-check.py",
-        "script": "scripts/plan-persistence-check.py",
-        "tool_names": [
-          "ExitPlanMode"
-        ]
-      },
-      {
         "id": "postuse-agent-dispatch.py",
         "script": "scripts/postuse-agent-dispatch.py",
         "tool_names": [
@@ -1386,8 +1406,13 @@
       {
         "id": "runtime-tripwire-em-check.py",
         "script": "scripts/runtime-tripwire-em-check.py",
+        "tool_names": []
+      },
+      {
+        "id": "session-start-cloud-focus.py",
+        "script": "scripts/session-start-cloud-focus.py",
         "tool_names": [
-          "Agent"
+          "startup"
         ]
       },
       {
@@ -1413,18 +1438,6 @@
         ]
       },
       {
-        "id": "session-start-cloud-focus.py",
-        "script": "scripts/session-start-cloud-focus.py",
-        "tool_names": [
-          "startup"
-        ]
-      },
-      {
-        "id": "sessionend-archive-session.py",
-        "script": "scripts/sessionend-archive-session.py",
-        "tool_names": []
-      },
-      {
         "id": "strip-worktree-isolation.py",
         "script": "scripts/strip-worktree-isolation.py",
         "tool_names": [
@@ -1448,15 +1461,6 @@
         "id": "track-dispatched-agents.py",
         "script": "scripts/track-dispatched-agents.py",
         "tool_names": []
-      },
-      {
-        "id": "watchdog-undischarged-next-move.py",
-        "script": "scripts/watchdog-undischarged-next-move.py",
-        "tool_names": [
-          "Agent",
-          "Skill",
-          "Workflow"
-        ]
       }
     ],
     "retired": [

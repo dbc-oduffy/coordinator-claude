@@ -127,6 +127,8 @@ from pathlib import Path
 from typing import Any
 
 
+# Path-traversal guard for session_id / agent_id before they are used to
+# build filesystem paths -- mirrors runtime-tripwire-em-check.py's
 # _ID_CHARSET_RE.
 _ID_CHARSET_RE = re.compile(r"^[A-Za-z0-9_@-]+$")
 
@@ -312,6 +314,26 @@ def main() -> int:
             },
         ),
         # RECEIVER-STATE FOLD -- the SubagentStop half of the producer trigger
+        # the engine's receiver-state sensor has been waiting on. Its Stop half
+        # is `receiver-state-sensor.py`, riding the `stop-dispatch.py` fan-in.
+        # Folded here for the same reason the review mark is: a third
+        # SubagentStop entry in hooks.json would buy a third permanent
+        # interpreter cold start on every subagent stop fleet-wide, where an
+        # extra tuple in this list adds no process at all.
+        #
+        # `agent_transcript_path`, NEVER `transcript_path` -- AC10 above binds
+        # this op exactly as it binds the zero-tool-use op, and for the same
+        # reason: the decoy is the PARENT session's transcript, valid and
+        # tool-call-rich, so reading it would write a confident ladder verdict
+        # about the wrong session rather than failing loudly.
+        #
+        # `pid` is omitted (a stop payload carries none, and this hook's own
+        # pid is not the session's) and `delegation_evidence` is passed false
+        # rather than derived -- the op declines to derive it and the ask to
+        # widen it is out to the engine team. Both dispositions, and why
+        # neither is a design, are in `receiver-state-sensor.py`'s docstring;
+        # the two legs must stay in step, which is why they are pinned to each
+        # other by `test_both_receiver_state_legs_pass_the_same_params`.
         (
             "hooks.receiver_state_sensor",
             {
@@ -324,7 +346,13 @@ def main() -> int:
 
     try:
         # Per-op errors are RETURNED (HookDispatchError instances), never
+        # raised, so neither op can suppress the other: on any install whose
+        # published engine mirror lags `hooks.subagent_review_mark`, the mark
         # op resolves to a returned METHOD_NOT_FOUND and the zero-tool-use
+        # detection it rides with keeps landing untouched. That isolation is
+        # the seam's own contract (`coordinator_core.ipc` ::
+        # `dispatch_ops_from_hook`, Returns clause plus negative spec), not a
+        # local try/except.
         dispatch_ops_from_hook(
             ops,
             origin_worktree=cwd if isinstance(cwd, str) and cwd else None,

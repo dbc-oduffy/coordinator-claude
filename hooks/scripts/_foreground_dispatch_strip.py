@@ -185,6 +185,8 @@ SYNC_RETURN_TYPES = frozenset(
 _BG_CAPABLE_MARKER_NAME = ".harness-bg-capable"
 _FOREGROUND_OK_MARKER_NAME = ".foreground-ok"
 
+#: Repo-relative literal, resolved for the reader by `resolve_wiki_citation()`
+#: at render time (below) rather than emitted verbatim -- same mechanism the
 #: 16 `_message_envelope`-routed hooks use for their `_WIKI_ANCHOR` sites.
 _UNLOCK_DOC_CITATION = "coordinator/docs/wiki/guards/guard-unlock-channel.md"
 

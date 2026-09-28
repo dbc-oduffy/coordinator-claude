@@ -89,10 +89,54 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+# Named for what it SELECTS -- the environment about which nothing could be
+# determined, and so which gets the story that omits nothing -- never for
 # the failure that reaches it. A `_FAIL_CLOSED_` prefix would name the
+# mechanism, not the selection, and read as the opposite of what a reader
+# scanning for the default actually wants to find.
 STRICTEST_STORY_NAME = "strictest"
 
+# The core is exactly two members, admitted by argument, never by default.
+#
+# Admission discriminator (stated here, in prose, so a later addition is
+# argued against a bar rather than a remembered one):
+#
+#   Core-admission asks: "is there any selectable environment where the
+#   harmed party is ABSENT?" -- a question universally quantified over the
+#   whole story space. A member is admitted only when the answer is no for
+#   every story this switch could ever select.
+#
+#   Omission-list admission asks a different, environment-relative
+#   question: "is the harmed party absent HERE?" -- true for one specific
+#   story, irrelevant to whether the rule belongs in every other one.
+#
+#   A rule that CAN name a party but is found present in every candidate
+#   story is not omittable either -- but for the opposite reason from an
+#   omission-list rule (universal presence, not unnameability).
+#
+# The two founding members, each argued from its own real party:
+#
+#   "naked-python-mandate" -- code authored inside a VM is not quarantined
+#   to that VM; it is committed, reviewed, and merged into the same tree
+#   every workstation checks out. The harmed party is this fleet's
+#   maintainers on every host, and that party is present regardless of
+#   which host authored the diff -- no selectable story removes them.
+#
+#   "cross-repo-write-gating" -- its stated premise (sibling checkouts,
+#   other teams' live sessions) is genuinely false in an isolated VM, and
+#   its real party is the PR reviewer, present and the entire safety model
+#   in a cloud session. That party is renamed there, never absent, so no
 #   story omits this member. Its ENFORCEMENT MODE is venue-conditional and
+#   that is not an omission: on a managed-remote host the write-confinement
+#   guards stand down from blocking to an after-the-fact warning, and the
+#   reviewer is served instead by the warning, the scoped pathspec, and one
+#   repo's work per commit stream. The reasoning is recorded in the doctrine repo's
+#   own decision record for the managed-remote stand-down; that path is cited
+#   by name nowhere here because `docs/decisions/` is outside every publish
+#   row's source, so a reader of the published mirror would chase a directory
+#   the mirror does not carry. The rule above stands on its own text.
+#   A story that DROPPED the id would remove protection for a party that is
+#   not absent at all.
 CORE_RULE_IDS: frozenset[str] = frozenset(
     {"naked-python-mandate", "cross-repo-write-gating"}
 )

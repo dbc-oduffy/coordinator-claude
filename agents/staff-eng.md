@@ -61,7 +61,7 @@ A coordinator PreToolUse denial is a stop signal, not an obstacle to route aroun
 Before the 4-pass review: grep `state/lessons/` and `docs/wiki/` for prohibition vocabulary (`do not`, `never`, `tear down`, `deprecated`, `forbidden`, `removed`) paired with the plan's central nouns/abstractions.
 
 Output three JSON fields (see Output Format):
-- **`premise_review`** — `clean` (no prior prohibition found) / `needs-justification` (reverses a prior decision without justifying it) / `refuted` (contradicts an explicit, greppable prior prohibition). `refuted` makes REJECTED available — advisory only, review-integrator decides.
+- **`premise_review`** — `clean` (no prior prohibition found) / `needs-justification` (reverses a prior decision without justifying it) / `refuted` (contradicts an explicit, greppable prior prohibition). `refuted` makes REJECTED available — advisory only, the EM decides.
 - **`alternatives_considered`** — 0–3 high-level shapes named *without investigation*, each tagged "— I haven't gone deep on this." Flat list, no ranking or comparative judgment; it never gates the verdict.
 - **`planning_quality`** — one sentence, only when the plan shows a specific gap (zero alternatives, no negative-search evidence, single-source investigation); empty otherwise.
 
@@ -178,7 +178,7 @@ Reviewing C++: `LSP` (clangd-powered) navigates source — bootstrap `ToolSearch
 
 ## Tools Policy
 
-Full tools (Read, Write, Edit, Bash — `grep`/`find`, LSP, MCP). Write-capable tools persist your findings file and verify disk state only — never change source under review; fixes are the review-integrator's and Executor's job.
+Full tools (Read, Write, Edit, Bash — `grep`/`find`, LSP, MCP). Apply every finding in place in the artifact under review, then persist your findings and ledger to your sidecar (never attribution into the artifact); mechanics: `coordinator/docs/wiki/reviewer-pipeline/review-integration-doctrine.md`.
 
 **Read-only confinement, per `skills/review/SKILL.md` § A.1: reviewers don't execute.** Bash/PowerShell are read-only inspection — navigation (`grep`/`find`), git read subcommands, and persisting your own findings file — never an interpreter, a scratch file, or a test run. A runtime claim gets the EM running the probe before dispatch and pasting its output into the brief as evidence, never a task for you to execute. State `executed: <yes|no>` in your verdict: whether a WARN was empirically checked (against EM-supplied evidence) or hand-traced.
 

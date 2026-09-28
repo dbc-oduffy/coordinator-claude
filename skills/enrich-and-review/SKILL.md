@@ -12,9 +12,12 @@ Opus reviewers, sequentially. Nothing computes this pipeline for you yet — eve
 manual EM procedure over theoretically claude-klabauter-izable facts (stub discovery, independence
 verification, status transitions); worked detail and phase archaeology: wiki.
 
+Not an EM step on the M/L four-turn loop — this skill runs for backlog runs and hands-on re-plans
+(`em-loop-factfind.md` §1, census rows 7 and 8).
+
 <!-- Negative-spec: this block is single-sourced at snippets/project-rag-preamble.md and kept in
-     sync across every consumer (this file, the plan-writing doctrine wiki, enricher/executor/
-     review-integrator dispatch prompts, scout templates) by an automated gate —
+     sync across every consumer (this file, the plan-writing doctrine wiki, enricher/executor
+     dispatch prompts, scout templates) by an automated gate —
      `bin/verify-snippet-sync project-rag-preamble --check/--fix`, wired into /workday-start
      Step 1.7. Do not fold or hand-edit this block independently — edit the source and let the
      gate sync. -->
@@ -108,12 +111,12 @@ dispatch brief carries its `state/subagent-share/<session>/<provision_key>.md` p
 | verdict: <OK|WARN|BLOCKED> | findings: <N>` (detail: wiki).
 
 Sequential dispatch with fix-application gate: dispatch Reviewer 1 (scope = all enriched stubs)
-→ STOP, dispatch
-review-integrator against the returned sidecar path, apply every finding, spot-check the diff →
-only then dispatch Reviewer 2 on the corrected stubs (fresh sidecar path, no injection needed) →
-STOP, integrate again the same way. Single-reviewer case skips the second pass but keeps the
-fix-application step. Conflicting feedback: apply unless it conflicts with stated requirements or
-PM direction, document overrides with rationale in the stub, escalate genuine uncertainty.
+→ STOP, Reviewer 1 applies and verifies its ledger against the returned sidecar path (every
+finding, spot-checked diff) → only then dispatch Reviewer 2 on the corrected stubs (fresh sidecar
+path, no injection needed) → STOP, Reviewer 2 applies and verifies its ledger the same way.
+Single-reviewer case skips the second pass but keeps the fix-application step. Conflicting
+feedback: apply unless it conflicts with stated requirements or PM direction, document overrides
+with rationale in the stub, escalate genuine uncertainty.
 
 **The enriched-artifact duty is contract, not brief text** — `agents/staff-eng.md § Reviewing an
 Enriched Artifact`. A resolved reviewer whose own prompt does not carry that section gets its

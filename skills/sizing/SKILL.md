@@ -90,7 +90,7 @@ Do not read `acted`: it belongs to a different op and is empty either way. Tripw
 `TaskCreate`: one session-goal task naming the ask and the sizing-object path, then **one task per
 remaining stage of the chain the route implies, through its terminal**. The chain is the route's,
 not your judgment: `dispatch` → the work → `quick-wrap`. `spec-dispatch` → light plan → `/execute-plan` (claims the
-plan) → scoped `code-reviewer` + `review-integrator` → `quick-wrap`. `plan` → plan → plan review
+plan) → scoped `code-reviewer` applies its own findings → `quick-wrap`. `plan` → plan → plan review
 → `execute-plan` → `/workstream-complete`. `shape`/`roadmap`/`pm-decision` → the named room owns
 its own chain; record the entry task and stop. Direct executor dispatch on a `spec-dispatch` plan
 skips the plan claim only `/execute-plan` makes, so the plan is never stamped done -- route through
@@ -118,6 +118,21 @@ carries/needs an initiative FK — `split` is retired into this exit), or `accep
 (neither above holds — one coherent job, clear JTBD, one workstream, simply large — **and** the PM
 has explicitly assented; writing `xl_exit: accept_multi_session` IS that record, never a silent
 fallthrough default).
+
+**5c. Turn 1 exit on `route: plan` at M/L — the four-turn loop.** The EM loop is four turns:
+sizing (this one), the plan Workflow's return, the execute Workflow's return, and
+workstream-complete. Touchpoints are read from `interaction_mode`, never inferred:
+  - **hands-on**: today's ask — accept the size, and separately accept execution later.
+  - **pm**: one ask accepts the size and the exit criterion together.
+  - **ceo**: one ask accepts the exit criterion only.
+Pass `--exit-criterion` and `--interaction-mode` to `sizing-assemble`, and record the PM's
+answer with `sizing.accept_exit_criterion` (`pm_quote`, optional amended `statement`, `mode`) —
+never by hand-editing the sizing object. In pm and ceo modes the ask says plainly that
+accepting it authorizes execution without a further ask; that sentence is what makes the
+accepted sizing the execution authority the turn-3 stamp cites. For XL, Step 5b is unchanged.
+After acceptance, run `emit-wave-fire.py --from-sizing <sizing path>` and fire its one printed
+`Workflow` line. End the turn — the plan Workflow (turn 2) runs planning, pre-flights, review
+and integration with no EM in the loop, and its return is turn 2's digest.
 
 **6. Hard gate — the only override that exists.** The t-shirt→route map binds absolutely; no
 named-reason override, no ratifier. If a route feels wrong, the size read was wrong: fix the size

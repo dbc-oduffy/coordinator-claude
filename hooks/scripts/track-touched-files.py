@@ -154,6 +154,11 @@ def main() -> int:
     }
 
     # scope "common_dir" (coordinator_core/ipc.py _OP_KEY_SCOPE) -- REQUIRED.
+    # Handed through raw; the engine resolves git-common-dir itself from
+    # whatever cwd the harness reports (no subprocess spawn in this stub).
+    # dispatch_from_hook builds the {"jsonrpc", "id", "method", "params"}
+    # envelope itself and stamps _origin_worktree only when non-empty --
+    # matches this stub's own payload.get("cwd", "") semantics unchanged.
     try:
         dispatch_from_hook(
             "hooks.track_touched_files",
@@ -164,6 +169,10 @@ def main() -> int:
         return 0
 
     # No stdout relay: this op is MUTATING bookkeeping (dedup-append into
+    # touched.txt), never advisory -- it always returns no_advisory() == {}.
+    # The contract is "stdout NOTHING" (see module docstring), enforced
+    # structurally here by never inspecting/relaying the response, not
+    # incidentally via `{}`'s falsiness under `if result:`.
     return 0
 
 

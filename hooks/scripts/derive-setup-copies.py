@@ -243,7 +243,11 @@ def _compose_derived_write_advisory(file_path: str, row: ResolvedRow):
 
 def _advise_derived_write(file_path: str, row: ResolvedRow) -> None:
     # Routed through `_message_envelope.emit()` (CHANNEL_STOP) rather than
+    # hand-rolling `render()` + a text-mode `sys.stderr.write()` -- `emit()`'s
     # CHANNEL_STOP branch writes via `sys.stderr.buffer.write()`, which
+    # bypasses Python's Windows text-mode LF->CRLF translation (a real
+    # byte-fidelity loss the hand-rolled path used to carry silently). See
+    # `state/bug-backlog/2026-08-06-derive-hooks-hand-roll-stop-shape-and-lo-4c1e9a7b03d5.yaml`.
     emit(_compose_derived_write_advisory(file_path, row), CHANNEL_STOP)
 
 

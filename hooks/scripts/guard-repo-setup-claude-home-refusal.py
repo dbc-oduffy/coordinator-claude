@@ -1,4 +1,5 @@
 # guard-not-a-hook-entrypoint: folded into preuse-bash-dispatch.py's _BASH_GUARD_REGISTRY, the
+# single PreToolUse(Bash|PowerShell) registration -- hooks.json names the dispatcher, not this file.
 """PreToolUse(Bash|PowerShell) hook: make the repo-setup precondition
 "never target ~/.claude" an executable refusal, not prose.
 
@@ -123,8 +124,13 @@ from _message_envelope import Message, compose, render  # noqa: E402
 
 _COMMAND_TOOL_NAMES = ("Bash", "PowerShell")
 
+#: Identifiers naming the engine-plane scaffold mechanism (see module
+#: docstring "SEAM CHOICE"). Review: code-reviewer (Finding 3) -- a bare
 #: substring test denied a command that merely MENTIONS one of these
+#: strings (a `grep scaffold_structure ...`, a `git log --grep=...`) without
+#: invoking it, when cwd happened to be Claude Home. `_names_scaffold_
 #: mechanism` below requires the marker to appear in an INVOKED-program-ish
+#: position, not merely anywhere in the text.
 _SCAFFOLD_MECHANISM_MARKERS = (
     "repo-setup-args-and-register",
     "coordinator_core.install.scaffold_structure",
@@ -133,10 +139,19 @@ _SCAFFOLD_MECHANISM_MARKERS = (
 
 _ROOT_FLAG_RE = re.compile(r"--(?:root|target)(?:=|\s+)(\"[^\"]*\"|'[^']*'|\S+)")
 
+#: ``--dry-run`` is the scaffold CLI's own no-write mode: it prints the
+#: ``create``/``skip (exists)`` plan and touches nothing. This guard exists to
+#: keep a WRITE off Claude Home, so a dry run has nothing to refuse -- and the
+#: `coordinator-doctor` P-12 probe reads Claude Home's structure through exactly
+#: that flag. Denying it turned a read-only health probe into a refusal.
 #: NEGATIVE-SPEC: this is a no-write exemption, never a bypass -- drop the flag
+#: and the write is denied again, which is the whole of its safety argument.
 _DRY_RUN_RE = re.compile(r"(?:^|\s)--dry-run(?:[=\s]|$)")
 
+#: A leading ``cd <path> &&``/``cd <path> ;`` or PowerShell
+#: ``Set-Location``/``sl`` (optionally ``-Path``) prefix -- see module
 #: docstring "LEADING cd/Set-Location HANDLING". Must anchor the START of
+#: the command (modulo leading whitespace); only ONE such prefix is
 #: recognized (see NEGATIVE-SPEC).
 _LEADING_CD_RE = re.compile(
     r"""^\s*(?:cd|Set-Location|sl)\s+(?:-Path\s+)?
@@ -288,7 +303,15 @@ def is_denied_repo_setup_claude_home(
     return resolved_candidate == claude_home
 
 
+#: No wiki anchor. The obvious target (`docs/wiki/doe-altitude-and-shared-
 #: infra.md`) is a fleet-private page outside `SEED_WIKIS`, so it 404s for
+#: every reader this hook actually reaches -- a sibling repo's checkout or an
+#: OSS install, which is where `repo-setup` runs. The prose below therefore
+#: carries the whole diagnosis inline (what ~/.claude is, why it is not a
+#: target, and the command that IS) rather than pointing at further reading
+#: the denied caller cannot open. Do not re-add a citation here without first
+#: promoting its target into the seed allowlist; a pointer that 404s is worse
+#: than none, because it reads as an answer.
 
 
 def _compose_deny_message() -> Message:

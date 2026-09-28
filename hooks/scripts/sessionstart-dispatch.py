@@ -178,7 +178,13 @@ REGISTRY: Tuple[StartGuard, ...] = (
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
     StartGuard("bin_drift_refresh", "sessionstart-bin-drift-refresh.py",
                frozenset({"startup"})),
+    # `startup` ONLY, and this one is load-bearing rather than merely narrow:
     # this is the fan-in's one genuinely git-MUTATING leg (it cuts the day
+    # branch when the tree sits on `main`, per the PM ruling of 2026-08-18).
+    # `compact`, `resume` and `fork` all fire mid-execution, and a cut on
+    # `compact` is the mid-execution mutation doctrine keeps out of bounds.
+    # See the negative-spec in `day-branch-assert.py`; widening this set turns
+    # `test_sessionstart_day_branch_assert_registered.py` red.
     StartGuard("day_branch_assert", "day-branch-assert.py",
                frozenset({"startup"})),
     StartGuard("job_mode_announce", "session-start-announce-job-mode.py",
@@ -301,6 +307,11 @@ def main() -> int:
             skipped.append(guard.module_key)
             continue
         # INCREMENTAL FLUSH -- see module docstring. Written to the real
+        # stdout/stderr immediately, never accumulated for a final join.
+        # `out`/`err` are raw bytes (`_invoke`'s `combined_bytes()`); written
+        # through `.buffer`, never the text wrapper, so a guard's raw
+        # sys.stdout.buffer.write()/sys.stderr.buffer.write() bytes (Windows
+        # CRLF-translation fix) survive re-emission unmodified.
         if out:
             sys.__stdout__.buffer.write(out)
             sys.__stdout__.buffer.flush()

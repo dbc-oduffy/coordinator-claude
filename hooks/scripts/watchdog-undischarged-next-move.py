@@ -139,6 +139,8 @@ _SEAM_REVIEW_A1_A2 = "review-a1-a2"
 _SEAM_EXECUTE_WAVE = "execute->wave"
 _SEAM_PICKUP_NEXT_MOVE = "pickup->next-move"
 
+# route -> the literal next_action a routed sizing object machine-resolves.
+# `pm-decision` and `goal-setting` are deliberately absent -- see module
 # docstring "ROUTE TERMINALS".
 _ROUTE_TERMINAL = {
     "dispatch": "Agent(coordinator:executor)",

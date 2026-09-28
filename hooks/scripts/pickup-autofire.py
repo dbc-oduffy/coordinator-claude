@@ -129,7 +129,16 @@ import tempfile
 import time
 from pathlib import Path, PureWindowsPath
 
+# --- C3 producer-capture engine-import seam (docs/plans/2026-08-12-producer-
+# axis-on-the-baton-contract.md D1/D3/D6) -------------------------------------
+#
+# `_engine_root.py` is the one seam every hook in this directory imports from
+# to reach `coordinator_core` (see its own module docstring) -- reused here
+# rather than re-deriving a second root-resolution ladder. Producer capture
+# calls `coordinator_core.session.shape.producer_set` directly (a plain
+# library function, not a registered `coordinator_core.hooks` advisory op),
 # so it does not need the `ipc.dispatch_message` JSON-RPC indirection the
+# sibling hooks in this directory use for their own bookkeeping ops.
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
@@ -158,7 +167,20 @@ except Exception:
 
 _PICKUP_COMMAND_NAMES = frozenset({"pickup"})
 
+# Commands that take batons among OTHER arguments. `/pickup`'s entire argument
+# string is a path string; the wide run's is not (it also carries tail-mode
+# flags and PM-named item identifiers), so its baton paths are extracted by
+# family before anything reaches `pickup-assemble` -- see
+# `extract_baton_paths`. Everything downstream of that extraction is shared:
+# handing batons to a run IS a grab, so it briefs, claims, and renders through
+# exactly the same path `/pickup` uses. There is deliberately no second claim
+# mechanism for the mise surface.
+#
+# Both members name ONE ceremony (`commands/warp-speed-execute.md` forwards to
+# `commands/mise-en-place.md`), so both must claim. This set is invocation
+# vocabulary only -- it is matched against `command_name` and against nothing
 # else. Kept literally identical to `mise-autofire.py :: _MISE_COMMAND_NAMES`;
+# a verb in one and not the other starts the run half-wired, silently.
 _BATON_GRAB_COMMAND_NAMES = frozenset({"mise-en-place", "warp-speed-execute"})
 
 _BATON_PATH_FAMILIES = (
@@ -234,6 +256,7 @@ _BRIEF_TIMEOUT_SECONDS = 12
 _APPLY_TIMEOUT_SECONDS = 20
 
 # Windows console-subprocess discipline: `python.exe` is a CONSOLE-subsystem
+# child. `getattr` resolves to 0 (no-op) on every non-Windows platform.
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 _PROBE_LOG_NAME = "pickup-autofire-events.jsonl"
@@ -761,7 +784,13 @@ def _log_probe_event(payload: dict) -> None:
     try:
         command_name = payload.get("command_name")
         if command_name is None:
+            # A PreToolUse(Skill) payload carries no `command_name` -- the verb
+            # lives in `tool_input.skill`. Logging the raw key alone writes a
+            # row that proves the Skill path fired but cannot say WHICH verb
+            # fired it, which is half the question the
             # AN-AUTOFIRE-HOOK-THAT-DID-NOT-FIRE-IS-SILENT diagnostic is read
+            # to answer. Observed live on 2026-09-11 (session 962ed128): a
+            # Skill(coordinator:pickup) call logged `command_name: null`.
             tool_input = payload.get("tool_input")
             if isinstance(tool_input, dict):
                 for key in ("skill", "command"):
@@ -784,7 +813,14 @@ def _log_probe_event(payload: dict) -> None:
         pass
 
 
+# --- C3: producer capture at UserPromptExpansion -----------------------------
+#
+# Spec: docs/plans/2026-08-12-producer-axis-on-the-baton-contract.md chunk C3;
+# D1 (host inside this existing registration, no third one), D3 (capture only
 # on a CONFIRMED typed slash-command turn -- the value otherwise persists
+# until the next one, per the seam's own empirical firing pattern), D6 (write
+# the namespaced `producer.typed_command` record via the engine entrypoint,
+# never hand-write `session-shape.json`).
 
 
 def _log_producer_capture_failure(
@@ -814,7 +850,11 @@ def _capture_producer(
     typed_command = command_name if command_name else "unresolved"
 
     if not session_id:
+        # Review: code-reviewer -- unlike the not-a-slash-command gate above
         # (an intentional D3 no-op), this is a genuine failure: a CONFIRMED
+        # slash-command turn with nothing to key the write against. Must log,
+        # not bare-return, or it collapses into the same silent skip AC-7
+        # forbids on every other branch in this function.
         _log_producer_capture_failure(session_id or "", typed_command, "missing_session_id")
         return
 
@@ -922,6 +962,12 @@ def compute_context(stdin_text: str) -> str | None:
         return None
 
     # DEC-3: apply keys UNIFORMLY off each decision's own resolved
+    # `artifact.path`, never the raw `command_args`/`path_string` -- for
+    # N==1 and N>1 alike. A missing/empty path (an error-object baton in a
+    # mixed N>1 array) skips apply for THAT baton without raising; the
+    # render below degrades that baton's segment naturally rather than
+    # crashing on a raw subscript. Never fired at all from a subagent's own
+    # tool call -- see this function's subagent-guard docstring paragraph.
     if not subagent:
         for decision in decisions:
             if not should_apply(decision):

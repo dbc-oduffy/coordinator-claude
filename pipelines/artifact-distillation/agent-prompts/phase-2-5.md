@@ -107,16 +107,16 @@ Do NOT count the following as convergence-eligible findings, even if they recur:
 - **Docs-checker-class findings:** wrong import path, stale API function name,
   incorrect parameter count, broken link — any finding that a mechanical tool
   (not architectural judgment) could produce.
-- **Disposition: escalated-disagree findings:** if the sidecar contains a field
-  `disposition: escalated-disagree` on a finding, SKIP that finding entirely.
-  These are findings the review-integrator actively rejected; including them would
-  let rejected verdicts accumulate into promoted wiki entries.
-- **Disposition: verified-no-action findings:** SKIP entirely, same as
-  `escalated-disagree` but for a different reason. The integrator verified the
-  finding and found the artifact already correct — the reviewer was right to
-  raise it, and nothing changed. Convergence counts evidence that a design
-  constraint keeps being violated; a finding that resolved to "already fine" is
-  not that evidence.
+- **`em-rejected` findings:** if the ledger row for a finding carries
+  `status: em-rejected`, SKIP that finding entirely. These are findings the EM
+  actively rejected (with a reason); including them would let rejected verdicts
+  accumulate into promoted wiki entries.
+- **`suspended` findings:** SKIP entirely, same as `em-rejected` but for a
+  different reason. A `suspended` row means the review verdict was
+  `REJECTED`/`PIVOT` (premise failure) and nothing was applied — the reviewer
+  was right to raise it, but there is no applied change to count. Convergence
+  counts evidence that a design constraint keeps being violated; a finding with
+  nothing applied is not that evidence.
 
 Eligible finding types: architectural recommendations, recurring design constraints,
 anti-pattern prohibitions, structural requirements flagged by the reviewer as a
@@ -125,42 +125,25 @@ pattern-level concern (not a single-instance nitpick).
 ## How to read each sidecar
 
 Each sidecar file (`<plan>.<reviewer>-rN.md`) contains numbered findings. The
-dispositions are **not** on the findings — the review-integrator is forbidden to
-annotate findings inline (`agents/review-integrator.md` § Sidecar Disposition
-Annotation: no `disposition` fields on finding objects, no `**Disposition:**`
-lines, sidecar body preserved verbatim). They arrive as ONE bulk block appended
-at the end of the file, keyed by bucket rather than by finding:
+reviewer applies its own findings and stamps the disposition per finding into
+its own `findings_ledger` — one row per finding, verified by
+`review-findings-ledger verify` (`claude-klabauter coordinator_core/ops/review_findings_ledger.py`).
+Each row carries `status: applied|em-rejected|suspended` plus, for `applied`,
+the `before`/`after` evidence; for `em-rejected`, a non-empty `reason`.
 
-## Integrator Dispositions
+So: read the sidecar's `findings_ledger` frontmatter (stamped after `verify`
+passes), and index it by finding id. Then count:
 
-```yaml
-schema_version: 1
-applied: [A-F1, A-F2]
-escalated-disagree: [A-F3]
-escalated-ask: []
-escalated-p0: []
-deferred: []
-verified-no-action: [A-F4]     # sixth bucket; renders only when non-empty
-```
+- `applied` → eligible (reviewer's finding was applied and verified)
+- `em-rejected` → **INELIGIBLE — skip**
+- `suspended` → **INELIGIBLE — skip**
+- id in no row, or no `findings_ledger` at all → eligible (sidecar predates the
+  ledger, or verify has not yet run)
 
-So: find the `## Integrator Dispositions` heading, parse the fenced yaml under
-it, and invert it into finding-id → bucket. **If more than one such block is
-present, the LAST one wins** — the block is append-only and never edited, so a
-correction arrives as a later block superseding an earlier one. Then count:
-
-- `applied` → eligible (integrator accepted the finding)
-- `escalated-ask` → eligible (needs PM input but finding stands)
-- `escalated-p0` → eligible (critical finding; counts toward convergence)
-- `deferred` → eligible (accepted for future work)
-- `escalated-disagree` → **INELIGIBLE — skip**
-- `verified-no-action` → **INELIGIBLE — skip**
-- id in no bucket, or no `## Integrator Dispositions` heading at all → eligible
-  (sidecar predates the integrator annotation)
-
-**Do not look for a per-finding `disposition:` field.** Nothing writes one. A
-read keyed on it finds nothing, excludes nothing, and silently counts every
-rejected verdict as convergence evidence — which is the outcome this section
-exists to prevent.
+**Do not look for a `## Integrator Dispositions` block or a per-finding
+`disposition:` field.** Nothing writes either any more. A read keyed on them
+finds nothing, excludes nothing, and silently counts every rejected verdict as
+convergence evidence — which is the outcome this section exists to prevent.
 
 ## Convergence counting rules
 

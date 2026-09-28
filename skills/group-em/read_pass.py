@@ -95,7 +95,9 @@ STATE_PRODUCING = "PRODUCING"
 
 STATE_TURN_ENDED = "PAUSED:turn-ended"
 
+#: The reader-leg spelling of a paused verdict -- kept distinct from
 #: `STATE_TURN_ENDED` (the fallback-leg internal spelling) so both legs can
+#: be normalised to the same `{state, reason}` shape at serialization time.
 STATE_PAUSED = "PAUSED"
 
 STATE_UNKNOWN = "UNKNOWN"
@@ -492,7 +494,10 @@ def resolve_addressee(
         for agent in agents
         if isinstance(agent, dict) and agent.get("name") == name and agent.get("sessionId")
     ]
+    # Dedupe by sessionId: two records for the same live session (a harness
+    # double-listing artifact) must not trip the ambiguity refusal below --
     # that refusal exists for two DIFFERENT sessions sharing a name, not for
+    # duplicate rows describing the one session.
     seen_session_ids: set = set()
     matches = []
     for candidate in candidates:

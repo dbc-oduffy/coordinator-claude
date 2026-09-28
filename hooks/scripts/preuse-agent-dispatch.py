@@ -108,6 +108,7 @@ class AgentGuard:
     filename: str
 
 
+# Registration order == prior hooks.json registration order == first-deny-wins
 # precedence. See module docstring "AGGREGATION CONTRACT".
 REGISTRY: Tuple[AgentGuard, ...] = (
     AgentGuard("block_dispatch_suite_invocation", "block-dispatch-suite-invocation.py"),

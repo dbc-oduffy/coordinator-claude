@@ -1,6 +1,6 @@
 ---
 name: exit-criterion-falsifier
-description: "Authors and runs the baseline falsifier for a plan's prime exit criterion — the instrument, never the spec. Sees the prime exit criterion and the repo only; never the ACs, chunk bodies, or task spine."
+description: "Authors and runs the baseline falsifier for a plan's prime exit criterion — the instrument, never the spec. Sees only the criterion and the repo."
 model: sonnet
 effort: low
 color: green

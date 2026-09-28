@@ -111,6 +111,8 @@ def main() -> int:
     }
 
     # scope "none" (coordinator_core/ipc.py _OP_KEY_SCOPE) -- no
+    # _origin_worktree required; this op accesses no repo-specific state
+    # (only an in-process coordinator content-root resolution, self-contained).
     try:
         result = dispatch_from_hook("hooks.suggest_sonnet_research", params)
     except HookDispatchError:

@@ -160,7 +160,9 @@ def _bootstrap_engine() -> None:
         globals().setdefault(_name, _value)
 
 
-def _mirror_groups(percolate_root: str) -> Optional[Dict[str, List[str]]]:
+def _mirror_groups(
+    percolate_root: str, target_filter: str = ""
+) -> Optional[Dict[str, List[str]]]:
     """Registered target names grouped by the git WORKTREE ROOT their dest
     resolves into, in `publish-targets.portable` order.
 
@@ -171,13 +173,21 @@ def _mirror_groups(percolate_root: str) -> Optional[Dict[str, List[str]]]:
     means. Rows landing in sibling subdirectories of a single mirror
     (`<mirror>`, `<mirror>/bin`, `<mirror>/coordinator/lib`) resolve to the
     same root and so group together, which is exactly the set one publish
-    invocation and one lock must cover."""
+    invocation and one lock must cover.
+
+    `target_filter` is threaded straight into `load_targets`: it narrows
+    only which unresolvable row aborts the whole call (rc1_skip_or_abort)
+    vs. which is skipped with a warning, never which rows are ADDED — a
+    resolvable row outside the filter still lands in the returned groups.
+    Passing the CLI's own `--mirror` selector here means an unrelated,
+    unset target (e.g. `publish.mirrors.coordinator_claude.path`) no
+    longer aborts a run naming a different mirror; BV-20260927-05."""
     _bootstrap_engine()
     from percolate.targets import TargetsError, load_targets  # noqa: E402
 
     setup_dir = Path(percolate_root) / "setup"
     try:
-        rows = load_targets(setup_dir, target_filter=None)
+        rows = load_targets(setup_dir, target_filter=target_filter)
     except TargetsError as exc:
         print(exc.message, file=sys.stderr)
         return None
@@ -194,11 +204,13 @@ def _mirror_groups(percolate_root: str) -> Optional[Dict[str, List[str]]]:
     return groups
 
 
-def _row_paths(percolate_root: str) -> Dict[str, tuple]:
+def _row_paths(percolate_root: str, target_filter: str = "") -> Dict[str, tuple]:
+    """`target_filter` — see `_mirror_groups`'s docstring; same skip-vs-abort
+    threading into `load_targets`, never a filter on the returned rows."""
     from percolate.targets import TargetsError, load_targets  # noqa: E402
 
     try:
-        rows = load_targets(Path(percolate_root) / "setup", target_filter=None)
+        rows = load_targets(Path(percolate_root) / "setup", target_filter=target_filter)
     except TargetsError:
         return {}
 
@@ -252,7 +264,7 @@ def _run_gate_legs(
     unreliable_anchor: List[tuple] = []
     real_drift: List[tuple] = []
 
-    row_paths = _row_paths(percolate_root)
+    row_paths = _row_paths(percolate_root, ",".join(targets))
     for target in targets:
         # Branch 0 is a per-target FIRST-RUN SETUP check (it fails
         # MISSING_IGNORE on a row with no `.percolate-ignore` of its own).
@@ -438,7 +450,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("percolate-mirror: could not resolve PERCOLATE_ROOT.", file=sys.stderr)
         return _round._EXIT_USAGE
 
-    groups = _mirror_groups(str(percolate_root))
+    groups = _mirror_groups(str(percolate_root), args.mirror)
     if groups is None:
         print(
             "percolate-mirror: publish-target resolution failed (cause above).",
@@ -491,7 +503,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             real_env[_round._INHERITED_LOCK_ROOTS_ENV] = (
                 f"{os.getpid()}={os.path.realpath(mirror_root)}"
             )
-            real_cmd = [sys.executable, str(_round._PUBLISH), joined, "--no-commit"]
+            real_cmd = [
+                sys.executable,
+                str(_round._PUBLISH),
+                joined,
+                "--no-commit",
+                "--percolate-root",
+                str(percolate_root),
+            ]
             if not args.delta:
                 real_cmd.append("--no-delta")
             manifest_not_before = time.time()
@@ -554,11 +573,6 @@ def main(argv: Optional[List[str]] = None) -> int:
                 )
                 return _round._EXIT_CONFIRM_REQUIRED
 
-            subject = (
-                f"percolate publish: {Path(mirror_root).name} "
-                f"({len(targets)} row(s), {len(pathspec)} file(s))"
-                f"{_round._source_sha_suffix()}"
-            )
             print(f"=== percolate-mirror {mirror_root} — commit ({len(pathspec)} file(s)) ===")
             # `_round._SCOPED_GIT_COMMIT` went with it, so this leg raised
             from functools import partial  # noqa: PLC0415
@@ -573,11 +587,51 @@ def main(argv: Optional[List[str]] = None) -> int:
                 compose_message,
             )
 
+            # BV-20260927-05 fix 6: `pathspec` mixes NEW and REMOVE-tagged
+            # entries (`_round._pathspec_from_manifest` flattens both into one
+            # list) -- passing it whole as `paths` with no `deleted_paths` at
+            # all made `commit_paths` refuse the first entry that is gone from
+            # the worktree but still tracked at HEAD, exactly the deletions
+            # this mirror is supposed to be able to carry (unlike
+            # percolate-round.py's own per-target commit leg, which already
+            # partitions via `_partition_pathspec_for_commit` before calling
+            # `commit_paths`). Same partition here, once, over the combined
+            # multi-row pathspec.
+            head_tracked = _round._dest_head_tree(repo_root)
+            present_paths, deletion_paths, declined_paths = (
+                _round._partition_pathspec_for_commit(pathspec, repo_root, head_tracked)
+            )
+            if declined_paths:
+                for entry in declined_paths:
+                    reason = entry.get("reason", "") if isinstance(entry, dict) else ""
+                    path = entry.get("path", entry) if isinstance(entry, dict) else entry
+                    print(f"  {path} ({reason})" if reason else f"  {path}", file=sys.stderr)
+
+            # `commit_tripwires.check_undeclared_staged_deletion` reads the
+            # commit MESSAGE for a deletion verb -- a bare "(N row(s), M
+            # file(s))" subject never says "removed", so a real deny-listed
+            # path (e.g. percolate-mirror.py itself, added to kl bin's deny
+            # list) fails closed at the guard even though this leg already
+            # knows it is removing tracked files (`deletion_paths`, just
+            # computed above). Name the removal in the subject whenever
+            # `deletion_paths` is non-empty so the guard's own verb-match
+            # passes on the first try, matching `_build_commit_subject`'s
+            # removed-count in percolate-round.py's per-target commit leg.
+            removal_clause = (
+                f", removes {len(deletion_paths)} file(s)" if deletion_paths else ""
+            )
+            subject = (
+                f"percolate publish: {Path(mirror_root).name} "
+                f"({len(targets)} row(s), {len(pathspec)} file(s){removal_clause})"
+                f"{_round._source_sha_suffix()}"
+            )
+
             try:
                 outcome = commit_paths(
                     repo_root,
-                    pathspec,
+                    present_paths,
                     compose_message(subject=subject),
+                    deleted_paths=deletion_paths,
                     blob_fallback=partial(hash_worktree_blobs_via_spawn, cwd=repo_root),
                 )
             except (CommitRefused, FilterUnsupported) as exc:

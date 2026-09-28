@@ -1,6 +1,6 @@
 ---
 name: doc-link-checker
-description: "Validates documentation links — internal file/anchor existence by default; external URL liveness checks only when the dispatcher opts in. Returns a broken/redirected/timeout/ok table."
+description: "Validates doc links — internal file/anchor existence by default; external URL liveness only if the dispatcher opts in. Returns a broken/redirected/timeout/ok table."
 model: haiku
 effort: low
 color: blue

@@ -33,6 +33,15 @@ if (-not $_python) {
     return
 }
 
+# One process: `dump --prefix repos --include-unset` resolves every
+# repos.<slug> key through the full 4-rung ladder (incl. autodiscovery) and
+# returns one JSON object — replacing the enumerate-then-read loop this
+# script used to run (one `keys` spawn, then one `get` spawn per key). `null`
+# = clean absence (rc=1), `""` = declared-but-unconfigured (rc=0, AC14), any
+# other string = a resolved value. An operationally-failed key (rc>=2) is
+# omitted from the object; stderr is deliberately NOT redirected here so the
+# reader's own failure message (which names the key) still reaches the
+# caller, matching the JSON dump's failures block.
 # psargv-nonempty-verified: $_reader is a Join-Path of three literal segments — non-empty by construction
 $_dumpJson = & $_python $_reader dump --prefix repos --include-unset
 $_dumpRc = $LASTEXITCODE
@@ -57,6 +66,7 @@ foreach ($key in $_dumped.Keys) {
         [Console]::Error.WriteLine("claude-machine-local: warning: '$key' not resolved by ladder — `$env:${var} not exported")
     } elseif ([string]::IsNullOrEmpty($value)) {
         
+        # Declared-but-unconfigured (rc=0, AC14) — exporting "" would corrupt
         # "$($env:REPO_FOO)/subdir" path joins (see negative-spec above).
         [Console]::Error.WriteLine("claude-machine-local: warning: '$key' declared but has no value — `$env:${var} not exported")
     } else {

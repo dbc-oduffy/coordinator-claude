@@ -66,15 +66,20 @@ rules, and the review cycle their absence cost: writing-plans.md § Prime Exit C
 - _Plan scaffolds a new autonomous skill / agent / command?_
   → Apply the skill-scaffold checklist before drafting: (1) destructive-action prohibition block for any write-capable autonomous skill; (2) explicit out-of-scope list; (3) spinoff-schema awareness if it can author handoffs (`kind`/`predecessor`/`deployment_state`); (4) recheck-marker semantics if it has a cadence; (5) discovery-surface integration (where does it announce itself?); (6) **platform-vocabulary collision check on the invokable name** — grep the proposed verb against the platform's command/primitive surface AND this repo's own `coordinator/commands/` and `coordinator/skills/*/SKILL.md` verbs.
 
-- _Downstream renderer needs to jump to a chunk by id?_
-  → **Contract, not yet wired to an emitter:** a sidecar `docs/plans/<slug>.chunk-index.json` mapping `{chunk_id: {heading, line_start, line_end}}` per `### C<n> — <title>` heading, in document order. Its emission point is `scaffold-plan`'s write-time commit, in the control-plane, and has not landed. Until it does, do not hand-roll the sidecar — treat chunk-id jump-to as heading-anchor-only and cite this row when the emitter work is picked up.
+- _Drafting tasks, Branch C — authoring for width?_
+  → Put contracts/types/stubs/schema in an interface-first chunk in wave 0; many small disjoint
+  chunks with file-level `writes`; `reads_at_head` by default, `consumes` only for real output
+  consumption; critical path <= ~1/3 of dispatchable rows; width < 3 needs a `## Width rationale`
+  section. Tokens `A-REFERENCE-READ-DECLARED-AS-AN-ORDERING-EDGE-SERIALISES-THE-PLAN` and
+  `A-SPINE-THAT-CHAINS-EVERY-CHUNK-CANNOT-BE-SCHEDULED-WIDE`. writing-plans.md § Authoring for
+  width.
 
 ---
 
 | `plan` | **Full terminal.** Invoke `coordinator:review` immediately with a named Opus persona. Do not ask the PM whether to proceed — plan→review is the pipeline, not a checkpoint; review-or-not is gated inside `coordinator:review` Branch A.2. **The absent-sizing-object case cannot reach this Exit** — Branch A's wall refuses Branch B without one. Arriving with none cited is a diagnosis, not a state this table handles: the trampoline was bypassed upstream. |
 
-**Reviewer altitude is binary: named Opus persona, or no review.** Plan review is an Opus-persona judgment task (the Staff Engineer / the Game Dev Reviewer / the Director of Engineering / the Data Science Reviewer / the Front-End Reviewer / the UX Reviewer). `code-reviewer` is not one — it is the Sonnet **diff** reviewer, scoped to weak tests, dead code, unclear naming, and correctness/security on a frozen diff. The fork: plan merits review → named persona; it does not → skip review, implement, let `code-reviewer` catch the diff. The M rung still gets a named-persona review. **The light terminal is an instance of "no review", not a third reviewer tier — the fork stays two-valued.**
+**Reviewer altitude is binary: named Opus persona, or no review** (rationale: writing-plans.md § Prime Exit Criterion).
 
-**The full pipeline for the `plan`-route terminal:** (1) substrate verification (Branch B), (2) body composition with the four lenses (Branch C), (3) `docs-checker` / `prior-art-checker` / **`plan-coverage-checker`** pre-flights via `coordinator:review`, (4) named Opus reviewer, (5) review-integrator. Skipping `coordinator:plan` skips the pipeline.
+**The full pipeline for the `plan`-route terminal:** (1) substrate verification (Branch B), (2) body composition with the four lenses (Branch C), (3) `docs-checker` / `prior-art-checker` / **`plan-coverage-checker`** pre-flights via `coordinator:review`, (4) named Opus reviewer, who applies every finding in place and verifies via `review-findings-ledger verify`. Skipping `coordinator:plan` skips the pipeline.
 
 ---

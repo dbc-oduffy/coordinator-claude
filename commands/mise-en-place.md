@@ -162,9 +162,11 @@ Proceeding.
 ## Phase 5: Execute
 
 Default: ONE background Workflow for the whole run, carrying the Phase 2 DAG across every wave —
-executors, verifiers, and the per-wave commit phase alike. `model: 'sonnet'` on every `agent()` whose `subagent_type` is UNPINNED — never alongside a
-`coordinator:*` type, which pins its own tier and whose pin guard refuses the override —
-≤5 write-capable executors/barrier. **No hand-dispatch, and no single-wave carve-out:** manual
+executors, verifiers, and the one terminal commit alike. `model: 'sonnet'` on every `agent()` whose `subagent_type` is UNPINNED — never alongside a
+`coordinator:*` type, which pins its own tier and whose pin guard refuses the override.
+Width is the spine's DAG; admission is by measured load
+(`coordinator_core/ops/dispatch_emit/admission.py :: await_admission`), not a count. **No
+hand-dispatch, and no single-wave carve-out:** manual
 `Agent` calls spend EM context, which is the binding constraint in a mise run, and "only one wave"
 is not a shape a Workflow cannot express. Verifiers ride inside the Workflow — call
 `provision-sidecar --agent-type <type>` for any phase whose `report_type_map` row is not
@@ -179,7 +181,10 @@ proceeding. `A-CD-OUT-OF-A-REPO-DISARMS-EVERY-DISPATCHED-COMMIT-FOR-THE-SESSION`
 Don't hand-author the script — mint and emit:
 `COORDINATOR_AGENT_TYPE_HOST=coordinator "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/emit-dispatch-workflow" --inventory state/mise-inventory/<run-id>.md`
 writes the spine (item-id → chunk-id, footprint → `writes`) plus the `.mjs`; fire it with the
-`Workflow({scriptPath, args: {repoRoot}})` call the emitter prints on stderr.
+`Workflow({scriptPath, args: {repoRoot}})` call the emitter prints on stderr. An inventory row whose
+spec path is itself a plan carrying a `` ```yaml plan-tasks `` spine expands into that plan's own
+chunk DAG — `<item-id>.<chunk-id>` per chunk — inside this SAME emitted Workflow, never a second
+`--plan` emit; a plain row with no such spine stays one executor.
 
 **Ignore the Stop-hook's "commit and push" advisory mid-run** — the dirt it flags is a live
 wave's footprint. The only commit path is the wave-gate commit above; never widen it to satisfy

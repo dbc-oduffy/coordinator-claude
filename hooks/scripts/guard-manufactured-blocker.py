@@ -185,6 +185,10 @@ _POSSESSIVE_PATTERNS = [
 
 _PATTERN_GROUPS = (_HANDOFF_PATTERNS, _POSSESSIVE_PATTERNS)
 
+# The bare ownership cue -- a third, narrower group that catches a handoff
+# phrased too loosely for the first two groups ("...and it's yours.") but
+# still marks the sentence as a candidate PM-handoff for the C6 decidability
+# check below. Not itself an altitude verdict -- C5's own verdict is governed
 # solely by `_PATTERN_GROUPS` above, unchanged.
 _OWNERSHIP_CUE_PATTERNS = [
     re.compile(r"\b(?:is|'s)\s+yours\b", re.IGNORECASE),
@@ -202,6 +206,7 @@ _BARE_IDENTIFIER_PATTERNS = [
 ]
 
 # The choice named as a CATEGORY rather than stated -- "a scope call", "a
+# product call", etc. -- with no statement of what the alternatives are.
 _CATEGORY_CALL_RE = re.compile(
     r"\ba\s+(?:scope|product|direction|prioritization)\s+call\b", re.IGNORECASE
 )
@@ -247,8 +252,14 @@ _WRONG_SIGNATORY_PATTERNS = [
     re.compile(r"\bboth\s+deciders\b", re.IGNORECASE),
 ]
 
+# An authorship admission -- "I wrote/authored it" or "I am one of the named
 # deciders" -- co-occurring with ratification/sign-off vocabulary ANYWHERE in
 # the message. DELIBERATELY whole-message, not window-scoped (A13 finding 1):
+# a real wrong-signatory report legitimately states the admission and the
+# ratification ask in different sentences. Neither half alone is sufficient;
+# an ordinary "I wrote the plan, so the approach call is yours" carries the
+# admission half but no ratification vocabulary, so it must still fire the
+# ordinary handoff check.
 _AUTHORSHIP_ADMISSION_RE = re.compile(
     r"\bI\s+(?:wrote|authored)\s+\S+\b"
     r"|\bI(?:'m|\s+am)\s+one\s+of\s+the\s+named\s+deciders\b",
@@ -547,8 +558,19 @@ def _any_exemption_applies(payload: dict, text: str) -> bool:
     sentences, window_idxs = _trigger_window_idxs(text)
     scope = " ".join(sentences[i] for i in sorted(window_idxs)) if window_idxs else text
 
+    # The final sentence is consulted for sizing vocabulary ONLY when it sits
     # IMMEDIATELY after the trigger window with no intervening sentence --
+    # the structural shape an engine-emitted closing prompt produces
     # (module docstring, SIZING EXEMPTION'S SECOND SCOPE): the window ends
+    # before the message does, and the final sentence is the very next one.
+    # Contiguity, not merely "outside the window", is the gate: without it,
+    # a trigger sentence far from the end with unrelated filler sentences in
+    # between would still let ANY final sentence carrying sizing vocabulary
+    # exempt the whole turn regardless of distance from the trigger -- the
+    # A13 incidental-co-occurrence failure mode this guard exists to close,
+    # reopened at final-sentence scope. Requiring adjacency narrows this to
+    # the one shape the fix targets (trigger, then immediate context, then
+    # the engine's own closing prompt) without accepting that residual risk.
     final_idx = len(sentences) - 1 if sentences else -1
     final_sentence_eligible = bool(window_idxs) and final_idx == max(window_idxs) + 1
     sizing_in_scope = _sizing_topic_in_scope(scope) or (
@@ -591,8 +613,23 @@ def _fails_decidability(sentence: str, full_text: str) -> bool:
     )
 
 
+# ---------------------------------------------------------------------------
 # C10 -- the declarative stall. The EM ends its turn having ANNOUNCED its next
+# action rather than taken it ("Proceeding with: A, then B, then C."), so the
+# work resumes only when the PM speaks. No question is asked and no second
+# person appears, so neither C5 group can see it; no tool is called, so the
+# AskUserQuestion nudge cannot; and a self-authored slate opens no ledger
+# obligation, so the next-move watchdog has nothing to leave undischarged.
+#
+# Matched ONLY against the final sentence. An intent stated mid-message and
+# then acted on in the same turn is a report, not a stall -- it is the
+# announcement in terminal position that makes the turn end on a promise.
+#
 # ADVISORY-ONLY by construction (see `_emit_declarative_stall_verdict`): this
+# is a speech act whose wrongness depends on whether the action was available,
+# which the guard cannot see. A13's "a false fire is worse than a miss" is
+# discharged by never blocking, not by narrowing until the tic escapes.
+# ---------------------------------------------------------------------------
 
 _DECLARATIVE_STALL_PATTERNS = [
     re.compile(r"^\s*(?:now\s+|so\s+)?proceeding\s+with\b", re.IGNORECASE),
@@ -698,6 +735,8 @@ def main() -> int:
 
     if _any_exemption_applies(payload, text):
         # ALTITUDE PASSED (A13 exemption -- a real PM gate). Ordering (A15):
+        # altitude first, decidability second. This item survived C5; now C6
+        # asks whether the PM can actually answer it as written.
         candidate = _candidate_ownership_sentence(text) or text
         return _emit_decidability_verdict(candidate, text)
 

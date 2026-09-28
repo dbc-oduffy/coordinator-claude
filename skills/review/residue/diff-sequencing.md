@@ -6,9 +6,14 @@ order: 50
 ---
 
 **`--surface diff`:**
-- **In-session code reviews → sequential (HARD RULE).** Integrate Reviewer 1's findings via `coordinator:review-integrator` BEFORE dispatching Reviewer 2.
-  _See CLAUDE.md § Review Sequencing._
-- **Merge-gate parallel carve-out applies ONLY at `/workweek-complete` Step 7** on a frozen weekly diff with orthogonal lenses + no-rewrite synthesizer. Does NOT apply to mid-session, `/merging-to-main`, or `/workday-complete` reviews.
-  _See CLAUDE.md § Review Sequencing ¶ exception (merge-gate code review on frozen diff)._
+- **Plan-bearing work → the execute-review stage.** A diff produced by `/execute-plan` is reviewed
+  as stages of that same emitted workflow: one parallel wave of slice-owning reviewers plus
+  whole-diff findings-only lenses, then exactly one integration pass. See
+  `coordinator/skills/execute-plan/SKILL.md` and `coordinator/skills/review/SKILL.md` § A.3. This
+  skill's outgoing branch is not the dispatch vehicle for that review; nothing here re-partitions
+  or re-dispatches it.
+- **Ad hoc diff review (`/review-code`, no plan/no slice partition) → sequential.** Reviewer 1
+  applies and verifies its own findings ledger before Reviewer 2 is dispatched — there is no slice
+  partition here to make concurrent writes disjoint.
 - _Frozen weekly diff at `/workweek-complete` Step 7?_
   → Exit this skill; use `coordinator:parallel-code-review`.

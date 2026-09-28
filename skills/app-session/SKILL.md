@@ -1,6 +1,6 @@
 ---
 name: app-session
-description: "Census/launch/teardown lifecycle for a repo's declared app under coordinator.local.md's app_session config -- complementary to the platform's built-in run skill, not competing with it."
+description: "Census/launch/teardown for a repo's declared app under coordinator.local.md's app_session config."
 version: 1.0.0
 allowed-tools: ["Read", "Bash"]
 ---

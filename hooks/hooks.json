@@ -510,6 +510,25 @@
             ]
           }
         ]
+      },
+      {
+        "matcher": "TaskList|TaskGet|TaskOutput|ListAgents|ReadNotifications",
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:47623/hook/hooks.flag_em_poll_in_flight",
+            "timeout": 5,
+            "headers": {
+              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
+              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
+              "X-Coordinator-Env-Channel": "1",
+              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
+            },
+            "allowedEnvVars": [
+              "COORDINATOR_DOOR_KEY", "COORDINATOR_CLONE_ROOT", "HOME", "USERPROFILE"
+            ]
+          }
+        ]
       }
     ],
     "PostToolUse": [

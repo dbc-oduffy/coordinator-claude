@@ -24,8 +24,8 @@
   <machinery_root>/subagent-share/<session-id>/ only -- DR-091's one home, shared with every other
   typed subagent sidecar. state/review-trail/findings/ is the RETIRED markdown home and nothing
   writes it; `coordinator-doc-new --type review-findings` has not emitted there since the
-  2026-07-24 provisioning reconciliation, and `append-integrator-dispositions` refuses a target
-  outside a subagent-share segment, so a sidecar written to the old home cannot be dispositioned.
+  2026-07-24 provisioning reconciliation, and `review-findings-ledger` refuses a target
+  outside a subagent-share segment, so a sidecar written to the old home cannot be verified.
 -->
 
 ## HARD RULE: Scaffold first (if needed), read everything, Edit last

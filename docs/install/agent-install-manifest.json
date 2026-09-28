@@ -36,7 +36,7 @@
       "kind": "plugin",
       "tier": "semi-hard",
       "description": "Claude Code plugin context7@claude-plugins-official, enabled fleet-wide via settings.json enabledPlugins. Serves the MCP server plugin:context7:context7 (tools mcp__plugin_context7_context7__resolve-library-id / __query-docs) for live library/API documentation lookups.",
-      "why": "Required by docs-checker (its entire job is verifying API claims via Context7 — inert without it), enricher, executor, review-integrator, staff-eng, eng-director, staff-ux, staff-data-sci, and senior-front-end, which name these tools in their frontmatter and are degraded to guessing without them.",
+      "why": "Required by docs-checker (its entire job is verifying API claims via Context7 — inert without it), enricher, executor, staff-eng, eng-director, staff-ux, staff-data-sci, and senior-front-end, which name these tools in their frontmatter and are degraded to guessing without them.",
       "probe": {
         "kind": "json_object_key_true",
         "location": "install_root",

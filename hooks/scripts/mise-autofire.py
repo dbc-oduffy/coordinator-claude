@@ -100,9 +100,16 @@ import sys
 from pathlib import Path
 
 
+# The bare verbs this hook reacts to. Deliberately the SAME literal set
 # `pickup-autofire.py` uses for its own `_BATON_GRAB_COMMAND_NAMES` -- not a
+# second, independently-chosen convention for what counts as an invocation of
+# the wide run. Both spellings name one ceremony, so both must mint.
 _MISE_COMMAND_NAMES = frozenset({"mise-en-place", "warp-speed-execute"})
 
+# The one cadence `mint-run-id`/`brief` are called with from this hook. It is
+# ENGINE vocabulary, not an invocation verb: the sentinel mode, the run-id
+# family and `handoff.schema.json`'s cadence key all spell it `mise-en-place`,
+# and none of them move when a new verb is admitted above. Widening
 # `_MISE_COMMAND_NAMES` never widens this.
 _CADENCE = "mise-en-place"
 
@@ -112,6 +119,7 @@ _MINT_TIMEOUT_SECONDS = 12
 _BRIEF_TIMEOUT_SECONDS = 12
 
 # Windows console-subprocess discipline: `python.exe` is a CONSOLE-subsystem
+# child. `getattr` resolves to 0 (no-op) on every non-Windows platform.
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 

@@ -67,6 +67,8 @@ A spinoff carries only what `handoff.author_fork` derives for it: `origin_*` pro
 - **Don't replace `/handoff` with `/spinoff`.** They serve different needs. The writer-of-spinoff still ends their own session with `/handoff`.
 - **Don't migrate prior orphan-promotion handoffs.** Their lifecycle is over; renaming retroactively is churn. New spinoffs use the `kind:` field; old ones stay as-is.
 
+`venue: workstation` marks a spinoff that needs a human or a workstation session at a terminal — a cloud pickup sweep lists it as not-claimable instead of auto-claiming it. Absent, or `venue: any`, means either venue may claim it.
+
 ## See also
 
 - `skills/handoff/SKILL.md` — end-of-session continuation handoffs.

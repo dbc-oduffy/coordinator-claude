@@ -99,6 +99,9 @@ second marking store. On decline, proceed to Step 2 without repeating the offer.
 > flagged/rejected elements, a SET-level verdict (GO/REVISE/REFRAME). Give the EM and PM the
 > material to revise it themselves — do not rewrite the whole OKR yourself.
 
+Step 2's dispatch runs in the background: tell the PM to expect a wait and stand down until the
+idle notification for the VP-Product Reviewer's return, rather than polling or re-dispatching.
+
 ### Step 3 — EM+PM integrate the VP-Product Reviewer's critique in-dialogue
 
 The artifact does not exist on disk yet. REJECT items are rewritten or dropped; FLAG items are
@@ -110,8 +113,9 @@ proposes a revised shape, and asks the PM to confirm.
 
 ### Step 4 — Scaffold the goal artifact
 
-**On a PowerShell host, invoke the `.exe` launcher by absolute path through the call operator**
-(Shape W) for every invocation in Steps 4-5. Ladder and shapes: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
+Resolve every CLI in Steps 4-5 per the ladder in
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape A/B on a POSIX host; Shape W's
+`.exe` launcher only on a PowerShell host).
 
 `coordinator-doc-new --type goal --title "<objective-slug>"`, resolved per that ladder.
 
@@ -119,9 +123,13 @@ Fill: `objective:` (ratified text), `key_results:` (≤5, weekly-perceptible), `
 schema enum `day|week|repo|quarter|year` — e.g. `period: quarter`, `period_value: Q3-2026`),
 `status: active`.
 
-Once filled, invoke `emit-goal-from-artifact.py` (claude-klabauter-owned, the goal-pipeline emitter
-per `goals-okr-system.md` § Emit → Cockpit → Cockpit Pipe) against the scaffolded artifact so the
-ratified goal actually lands on the wire — scaffolding alone does not emit.
+Once filled, invoke `emit-goal-from-artifact` (claude-klabauter-owned, the goal-pipeline emitter per
+`goals-okr-system.md` § Emit → Cockpit → Cockpit Pipe), resolved per the same ladder, with the
+scaffolded artifact's path as its argument:
+
+`emit-goal-from-artifact state/goals/<objective-slug>.md`, resolved per that ladder — scaffolding
+alone does not emit. Run `emit-goal-from-artifact --help` first on doubt about flags or the
+artifact-path argument shape.
 
 ### Step 5 — Spawn downstream stubs
 

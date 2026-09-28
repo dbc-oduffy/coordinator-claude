@@ -5,9 +5,18 @@
 # Workstream-Complete Review and Marker Trail
 
 
-`/workstream-complete` is the natural pause point for post-executor code review — the diff is fresh, the EM has context, and the cost of catching an integration bug now is one Sonnet call instead of a debugging session three weeks later. The marker trail at `state/review-trail/` records what has been reviewed so downstream weekly and daily ceremonies shed redundant load rather than re-reviewing work already covered.
+**SUPERSEDED for plan-bearing closes.** `/workstream-complete` no longer dispatches, scales, or
+trail-records code review — code review runs as stages of the emitted `/execute-plan` workflow
+(one parallel review wave, one integration pass), and the close's review record is the plan's
+`review_stamp` (`coordinator/skills/workstream-complete/SKILL.md` § Resolve judgment points, "The
+review record is the plan's `review_stamp`"). For a close with no governing plan, the ad-hoc route
+is `/review-code`. The sections below describing a WSC-dispatched Scale/brightline/trampoline
+mechanism are kept as archaeology for a reader tracing an old close's shape; do not cite them as
+current behavior. A full doctrine-wide turnover of this page is C11's.
 
-## When this fires
+`/workstream-complete` was the natural pause point for post-executor code review — the diff is fresh, the EM has context, and the cost of catching an integration bug now is one Sonnet call instead of a debugging session three weeks later. The marker trail at `state/review-trail/` records what has been reviewed so downstream weekly and daily ceremonies shed redundant load rather than re-reviewing work already covered.
+
+## When this fires (historical — see SUPERSEDED banner above)
 
 **Trigger surfaces:**
 
@@ -121,7 +130,7 @@ If a waive rationale boils down to "the plan was already reviewed," that's the s
 
 **Worked example.** A multi-executor session shipped a substantial workstream with plan-time prior-art-check (7 findings folded), plan-time the Staff Engineer review (8 findings folded), per-executor self-acceptance gates (all PASS), and a final-segment validation including an OOM smoke test. The EM waived workstream-complete `code-reviewer` on the rationale "distributed coverage upstream." The audited holes: a the Staff Engineer plan-time finding had been factually wrong (the executor caught it — meaning plan-review surface had a leak that *more downstream eyes*, not fewer, was the right response to); one executor segment swept up unrelated concurrent work whose commit message described only the headline change; the OOM smoke passed in 8s of a 600s budget without verifying it had actually exercised the install path vs. short-circuiting on cached state. None of these were catchable by plan-time review or by mechanical executor gates. They were exactly the class of finding a fresh `code-reviewer` lens on the actual diff catches.
 
-## Per-wave sidecars are integration inputs, never the close's review record
+## Per-wave sidecars are integration inputs, never the close's review record (historical — rule (d) below, "the close review still runs, whole-diff, unchanged," is NO LONGER TRUE: the close runs no review at all now. Kept for C11 to rewrite, not as current instruction.)
 
 *Self — per-wave review stages in the emitted Workflow.* Five rules, stated once here; other
 surfaces cite this section rather than re-deriving it.

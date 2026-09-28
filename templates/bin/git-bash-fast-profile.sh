@@ -35,7 +35,9 @@ case "$-" in
          [ "$MSYS2_PATH_TYPE" = strict ]; }; then
 
       
+      # Mirrors the stock profile's own `. '/etc/msystem'`. Populates MSYSTEM,
       # MSYSTEM_PREFIX/CARCH/CHOST and MINGW_PREFIX/CHOST/PACKAGE_PREFIX for this
+      # install's actual MSYSTEM. File reads only.
       
       unset MINGW_MOUNT_POINT
       . /etc/msystem
@@ -84,6 +86,7 @@ case "$-" in
       [ -d /usr/bin/core_perl ] && PATH=$PATH:/usr/bin/core_perl
 
       
+      # `hostname` in the stock profile is one spawn for a value fixed per machine;
       # COMPUTERNAME carries it already. Case may differ from the stock value and is
       # cosmetic -- HOSTNAME is consumed only by PS1, which this path does not set.
       HOSTNAME="${COMPUTERNAME:-$HOSTNAME}"

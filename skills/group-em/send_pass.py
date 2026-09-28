@@ -69,11 +69,18 @@ _LEDGER_FILENAME = "next-move-ledger.jsonl"
 
 _SAFE_SID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
+#: Per-field character cap on the free-text values a peer/verdict producer
+#: hands us -- `entries[].state`, `entries[].source`, `suppressed[].reason`.
+#: `entries[].session_id` and `entries[].reason` are excluded: both are
 #: already bounded in shape (`_safe_session_id`/`_SAFE_SID_RE`, and the
 #: two-literal `SEND_ELIGIBLE_REASONS` frozenset) and are not the exposure.
+#: Counted in characters, never bytes or a mid-multibyte-sequence slice --
+#: Python string indexing is by code point, so a plain `value[:N]` already
+#: satisfies that.
 MAX_FIELD_CHARS = 500
 
 #: Appended to a value cut at `MAX_FIELD_CHARS`, so a truncated string is
+#: recognisable in place, not just in the sidecar `truncated_fields` record.
 _ELISION_MARKER = "...[truncated]"
 
 

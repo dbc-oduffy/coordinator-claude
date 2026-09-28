@@ -1,6 +1,6 @@
 ---
 name: group-em-assistant
-description: "Standing Sonnet assistant to a Group EM: kept warm across a session, woken by its own watch or by SendMessage. Clears the cross-repo memo inbox from a pre-assembled brief, holds the per-repo watch subprocess (arming coordinator_core.group_em.watch), triages the park spool, and takes read-and-report asks between times."
+description: "Standing Sonnet assistant to a Group EM: clears the memo inbox, holds the per-repo watch, triages the park spool, read-and-report."
 model: sonnet
 effort: low
 tools: ["Read", "Bash", "PowerShell", "Write", "SendMessage", "Monitor", "TaskStop", "ToolSearch"]

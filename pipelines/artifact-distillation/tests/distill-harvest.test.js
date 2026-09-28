@@ -35,7 +35,10 @@ const SOURCE = fs.readFileSync(WORKFLOW_PATH, 'utf8');
 
 // Strip full-line `//` comments and multi-line JSDoc/block comments before scanning for the
 // live crash pattern — the source legitimately mentions `import('node:os')` inside a NOTE
+// Strip full-line `//` comments and multi-line JSDoc/block comments before scanning for the
+// live crash pattern — the source legitimately mentions `import('node:os')` inside a NOTE
 // comment (explaining WHY the static CONCURRENCY_CAP exists); we must assert on live code,
+// not comment prose.
 // not comment prose.
 function stripComments(src) {
   return src

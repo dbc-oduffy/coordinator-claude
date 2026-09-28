@@ -42,7 +42,7 @@ distinct roles instead of one.
 
 **Subsumption.** The `2026-07-13-subagent-run-report-subsume` plan subsumed the
 flight recorder into a universal **run-report sidecar**, eligible for every scoped subagent
-(executors, integrators, enrichers, long scouts — per the `report_sidecar:` policy list), not
+(executors, reviewers, enrichers, long scouts — per the `report_sidecar:` policy list), not
 just `/execute-plan` chunk executors. The sidecar now lives under the current share root,
 `.coordinator-local/subagent-share/<session-id>/<provision_key>.md`
 (`coordinator_core/session/machinery_paths.py :: share_dir`) — the earlier
@@ -179,11 +179,13 @@ dependency of the shipped `dispatch.emit` op** (the engine emitter cites this sc
 input) — whether the gate itself shipped alongside the op is unverified here; check the engine repo's side
 directly rather than assuming either way.
 
-### The `writes:`/`reads:` spine dependency (engine contract-ask #2) — live
+### The `writes:`/`consumes:` spine dependency (engine contract-ask #2) — live
 
 `dispatch_feed.write_files` and `gate_kind` are **derived outputs**, not authored directly: the
 engine emitter (`coordinator_core.ops.dispatch_emit`, op `dispatch.emit`) derives them from the
-explicit per-task `writes:` (and `reads:`) declaration on the plan's `## Tasks` spine. That spine
+explicit per-task `writes:`/`writes_under:`/`consumes:` declaration on the plan's `## Tasks`
+spine (legacy `reads:` orders exactly as `consumes:` does; `reads_at_head:` never orders — the fix
+for a reference read). That spine
 field landed as the engine's **contract-ask #2**, a `plan-tasks.schema.json` change authored on the engine's side (`x-schema-version: 1.7.0`), and
 the emitter itself lives on the engine's side, deriving a Workflow wave-map from the spine.
 `write_files`/`gate_kind` have a live producer wherever a plan's spine declares `writes:`.
@@ -256,8 +258,8 @@ output goes is a dead end, not a control.
 **(d) G0 leg (a) is landed, not asserted — one known follow-up.**
 <!-- Provenance: run 2026-08-06-14h38, derives from c7-007 -->
 The `2026-07-24-agent-citizenship-identity-adapted-provisioning` plan's G0 leg (a) — identity-
-typed, lead-stamped, tracked sidecar provisioning contract plus the reviewer→integrator seam
-documented below (§ One-home reviewer→integrator seam) — is confirmed genuinely landed on disk,
+typed, lead-stamped, tracked sidecar provisioning contract plus the reviewer seam
+documented below (§ One-home reviewer seam) — is confirmed genuinely landed on disk,
 not merely claimed in a plan. The G1–G5 fleet-rewrite waves build against this landed G0 as their
 foundation. **Follow-up closed — see § Subagent-share reaper below.** The reaper's settings-home
 forwarder gap named here is fixed; a future reader touching the reaper path should
@@ -524,21 +526,20 @@ sidecars, offered as convenience rather than imposed as a fence. Confinement is 
 speedbump, not security" — it does not change which agents get typed deliverable docs (all of
 them do), only whether the sidecar is the agent's *sole* write surface or one write surface among
 several.
-### One-home reviewer→integrator seam implemented
+### One-home reviewer seam implemented
 <!-- Provenance: run 2026-08-06-14h38, derives from c7-018 -->
 
 The typed-sidecar contract is not just a ratified decision record — it is implemented.
-`review-integrator`'s intake, plus all 7 reviewer personas and all 5 review skills, now
-read/write exclusively `state/subagent-share/<session>/` for review findings. This retires the
-prior `review-trail/findings/` home and its sentinel-append convention entirely — a reviewer no
+All 7 reviewer personas and all 5 review skills read/write exclusively
+`state/subagent-share/<session>/` for review findings. This retires the prior
+`review-trail/findings/` home and its sentinel-append convention entirely — a reviewer no
 longer appends to a shared sentinel file; it writes its own sidecar under the per-session
 subagent-share directory, same as every other identity-typed deliverable doc in the table above.
-A single mechanical non-trivial-fill guard sits at the **integrator chokepoint** (not scattered
-across the 7 reviewer dispatch sites) to catch a reviewer sidecar that was provisioned but never
-actually filled in before `review-integrator` tries to fold it. This is the concrete landed
-mechanism behind § Why the reviewer's write carve-out exists below — the sidecar-shaped outlet
-described there is, as of this seam, the *only* outlet; `review-trail/findings/` is retired, not
-merely deprecated.
+There is no separate integrator chokepoint: the reviewer applies its own findings to the
+artifact and logs a verifiable `## Findings Ledger`, checked by `review-findings-ledger verify`
+(`review-integration-doctrine.md`). This is the concrete landed mechanism behind § Why the
+reviewer's write carve-out exists below — the sidecar-shaped outlet described there is, as of
+this seam, the *only* outlet; `review-trail/findings/` is retired, not merely deprecated.
 
 ### Dispatch tiering — a stated rule, not case-by-case
 
@@ -554,7 +555,8 @@ following hold:
    is dead scaffolding, not a control.
 2. **At least one of:**
    - it transports its output **downstream** to another consumer (e.g. `dispatch_feed` to the
-     engine emitter, review findings to `review-integrator`),
+     engine emitter, review findings applied by the reviewer itself and verified via
+     `review-findings-ledger verify`),
    - it **accumulates across units of work** (e.g. divergence prose feeding a future
      canonization pass), or
    - it returns a **payload too large to hand back inline** (the context-management framing in §
@@ -580,10 +582,9 @@ snippet or mechanism:
   needs no separate injected rule.
 - **`run-report-lead`** — `<STATUS>: <ref>` then `Sidecar: <path>` (or `Sidecar: none — <why>`),
   with the agent's existing inline body unchanged below those two lines. Delivered by
-  `run-report-citizenship.md`'s lead-line paragraph, and mirrored directly into the bodies of
-  `executor.md` and `review-integrator.md` so their reports open with the same two lines rather
-  than relying on the injected snippet alone. `enricher` gets no body edit; its coverage rests on
-  the injected rule.
+  `run-report-citizenship.md`'s lead-line paragraph, and mirrored directly into the body of
+  `executor.md` so its reports open with the same two lines rather than relying on the injected
+  snippet alone. `enricher` gets no body edit; its coverage rests on the injected rule.
 - **`inline-capped`** — line 1 is the agent's own verdict or status, the whole reply is at most 40
   lines, and overflow gives the first lines plus `… <N> more lines omitted — reproduce with:
   <command>`. Delivered by `inline-return-cap.md`, for the nine sidecar-less exploration agents
@@ -605,7 +606,7 @@ that lost or received a truncated reply has a durable place to recover the full 
 an instruction to read every sidecar produced in a session, and firing once does not obligate a
 sidecar-open on every subsequent dispatch.
 
-**The run-report carve-out, and why.** `executor`, `review-integrator` and `enricher` keep their
+**The run-report carve-out, and why.** `executor` and `enricher` keep their
 inline-body return rather than inverting to a bare pointer — the EM ruled to keep this carve-out
 because the inline body is the EM-facing channel and the sidecar copy is what survives a truncated
 reply. This section's lead lines make that body status-led without removing it: the EM can act on
@@ -622,9 +623,9 @@ arrives.
 `coordinator/tests/test_agent_return_payload_contract.py` asserts every agent's resolved contract
 text (body plus injected `contract_blocks`) carries the literal marker for its class — it verifies
 the *instruction* is present. It does not and cannot verify that a given reply is actually light:
-`review-integrator`'s Triage Table stays inline and unbounded by design (see the carve-out above),
-so a future reader must not mistake this test's green for evidence that every reply obeys the cap
-in practice — only that the instruction to do so is wired.
+A reviewer's Triage Table stays inline and unbounded by design (see the carve-out above), so a
+future reader must not mistake this test's green for evidence that every reply obeys the cap in
+practice — only that the instruction to do so is wired.
 
 ### Why the reviewer's write carve-out exists — context management, not a safety boundary
 
@@ -635,8 +636,8 @@ it.
 
 The mechanism it exists for: review personas get overeager and produce a lot of material. If a
 reviewer cannot write that material anywhere, all of it returns inline and floods the dispatching
-EM's context — and the EM then has to re-emit the whole thing back out just so `review-integrator`
-has something to act on. The sidecar carve-out exists so a reviewer's output lands on disk where
+EM's context — and the EM then has to re-emit the whole thing back out just so the reviewer's own
+findings ledger has something to apply against. The sidecar carve-out exists so a reviewer's output lands on disk where
 the EM can *judge* it at a pointer's cost, not a context-dump's cost. Nothing about a security
 boundary requires that design; a context-budget problem does.
 

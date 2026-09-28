@@ -161,6 +161,16 @@ _ERROR_PIPE_BUSY = 231
 _TERMINATE_GRACE_SECS = 5.0
 _TERMINATE_POLL_INTERVAL_SECS = 0.1
 
+# The graceful ask's own confirm window (BV-20260927-06). A connection that
+# succeeds and then drops is EXPECTED here -- `warm.skew.evict_on_skew`
+# writes its response, closes the listener, then drains up to `warm.
+# lifecycle`'s own ceiling (dispatch timeout + margin, ~35s default) before
+# `os._exit`. Reading that drop as failure -- or as success without waiting
+# for the pid to actually go away -- is the defect this window exists to
+# close: sized a little above the drain ceiling, not `_TERMINATE_GRACE_SECS`
+# (which is a raw-signal grace, a different and much shorter wait).
+_ASK_CONFIRM_GRACE_SECS = 40.0
+
 # mismatch, per this script's own docstring ("MECHANISM", step 1).
 _STOP_REQUEST_TOKEN = "warm-engine-stop-requested-0000"
 
@@ -227,6 +237,39 @@ def _ask_server_to_stop(pipe: str) -> bool:
             fh.close()
         except OSError:
             pass
+
+
+def _pid_confirmed_gone(pid: int, stored_epoch_str: str) -> bool:
+    """True iff `pid` (identified the same way `main` already did, pid plus
+    stored birth instant) is no longer the process this script identified.
+
+    Reuses `stable_pid_alive` rather than a bare `psutil.pid_exists` --
+    the same recycled-pid hazard `main`'s own identification step guards
+    against applies here: a dead-and-reused pid must read as gone, not as
+    a new unrelated process still being "the server"."""
+    return not stable_pid_alive(pid, stored_start_epoch=stored_epoch_str)
+
+
+def _wait_for_pid_gone(
+    pid: int,
+    stored_epoch_str: str,
+    *,
+    deadline_secs: float,
+    poll_interval: float = _TERMINATE_POLL_INTERVAL_SECS,
+) -> bool:
+    """Poll `_pid_confirmed_gone` until true or `deadline_secs` elapses.
+
+    Bounded, never hangs: an operator running this by hand gets a definite
+    answer within `deadline_secs`, never an indefinite wait -- mirrors this
+    module's own `_terminate_pid` confirm loop, sized for a graceful drain
+    (`_ASK_CONFIRM_GRACE_SECS`) rather than a raw signal."""
+    deadline = time.monotonic() + deadline_secs
+    while True:
+        if _pid_confirmed_gone(pid, stored_epoch_str):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(poll_interval)
 
 
 def _terminate_pid(pid: int, *, psutil_module=None) -> bool:
@@ -321,9 +364,24 @@ def main(argv=None) -> int:
 
     asked = _ask_server_to_stop(pipe)
     if asked:
-        print("Sent graceful-stop request over the warm pipe.", file=sys.stderr)
-        breadcrumb.unlink_breadcrumb()
-        return _EXIT_OK
+        print(
+            "Sent graceful-stop request over the warm pipe; a connection "
+            "that is accepted and then drops is the server draining and "
+            "exiting, not a failure -- waiting to confirm.",
+            file=sys.stderr,
+        )
+        if _wait_for_pid_gone(pid, stored_epoch_str, deadline_secs=_ASK_CONFIRM_GRACE_SECS):
+            print("stopped", file=sys.stderr)
+            breadcrumb.unlink_breadcrumb()
+            return _EXIT_OK
+        print(
+            f"Graceful-stop request was delivered, but pid {pid} has not "
+            f"exited after {_ASK_CONFIRM_GRACE_SECS:.0f}s -- it may still be "
+            "draining in-flight work. Re-run this script or check the pid "
+            "directly before assuming the stop failed.",
+            file=sys.stderr,
+        )
+        return _EXIT_COULD_NOT_STOP
 
     print(
         "Warm pipe did not accept a connection -- falling back to a direct process signal.",

@@ -59,6 +59,9 @@ from typing import Iterable
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 #: Same five trees as `test_prompt_surfaces_carry_no_provenance.py::PROMPT_SURFACE_DIRS`
+#: — kept as a separate tuple (not imported) because that module is a test, not a
+#: stable import surface, and its own docstring explains why `templates/`/`schemas/`/
+#: `dist/` are deliberately excluded. If that set ever changes, update both.
 PROMPT_SURFACE_DIRS = (
     REPO_ROOT / "coordinator" / "agents",
     REPO_ROOT / "coordinator" / "skills",
@@ -67,10 +70,21 @@ PROMPT_SURFACE_DIRS = (
     REPO_ROOT / "coordinator" / "pipelines",
 )
 
+#: `coordinator/hooks/` (C3, docs/plans/2026-08-13-doe-guard-text-trust-failure-
 #: coverage.md) -- a SEPARATE tree from `PROMPT_SURFACE_DIRS` above because it is
 #: governed on `.py` source (guard/hook scripts carrying `_WIKI_ANCHOR`-shaped
+#: string literals and citation-bearing docstrings/comments), not `.md` prose.
+#: Prior to this chunk the detector's corpus excluded `hooks/` entirely, which is
+#: exactly why unresolvable anchors accumulated there unseen while every `.md`
+#: prompt surface was held to zero. `resolve_wiki_citation()`
+#: (`_message_envelope.py`) rewrites a `docs/wiki/<page>.md` (optionally
+#: `coordinator/`-prefixed) citation into an absolute path anchored at the real
 #: plugin root AT RENDER TIME -- so a hook-resident `_WIKI_ANCHOR` holding that
+#: literal is resolvable-at-rest and must NOT be flagged on that basis alone; the
 #: existing SEED_WIKIS/REAL_WIKI_PAGES membership checks below already capture
+#: the orthogonal question (does the target page exist/percolate at all), so no
+#: separate resolution rule is needed here -- widening the corpus to include this
+#: tree is sufficient for the existing classification logic to apply to it.
 PY_SURFACE_DIRS = (REPO_ROOT / "coordinator" / "hooks",)
 
 _TESTS_DIR = REPO_ROOT / "coordinator" / "tests"
@@ -187,6 +201,15 @@ _NONPERCOLATING_TREES = (
 )
 
 #: A token following a non-percolating prefix must look like a SPECIFIC file
+#: (has a real extension) to count — a bare directory, a trailing placeholder
+#: (`<...>`), a glob (`*`), a template var (`{...}`/`$...`), or a trailing
+#: slash is a convention being described, not a citation being resolved.
+# Review: coordinator:code-reviewer -- F4: `\b` alone still matches
+# "foo.md-style" (word char "d" -> non-word "-" is a boundary), so an
+# adjectival citation ("our internal docs/plans/foo.md-style convention")
+# false-positived as a specific-file citation. The added negative lookahead
+# additionally excludes a trailing hyphen so the extension must be followed
+# by whitespace/punctuation/end-of-token, not more path-shaped text.
 _FILE_EXTENSION = re.compile(r"\.(md|ya?ml|py|json|jsonl|sh|txt)(?![\w-])")
 _PLACEHOLDER_CHARS = ("<", ">", "*", "{", "}", "$")
 _PATH_TOKEN = re.compile(r"[^\s`)\]\"'>]*")
@@ -229,18 +252,35 @@ def _literal_sentinel_spans(line: str) -> "list[tuple[int, int]]":
 
 _WIKI_CITATION = re.compile(r"docs/wiki/([A-Za-z0-9_\-]+\.md)")
 
+#: A de-prefixed citation of a real wiki page — `writing-plans.md`, `` `writing-plans.md` ``,
+#: `writing-plans.md:51`, or the partial-prefix form `wiki/writing-plans.md` (missing `docs/`).
 #: Stripping the `docs/wiki/` prefix off a citation is a working evasion of `_WIKI_CITATION`
+#: above: the reader still can't open the page, but the string "docs/wiki/" no longer appears
 #: on the line. Matched against `REAL_WIKI_PAGES` (the actual files on disk) rather than a
+#: filename-shaped regex, precisely so this can't be fooled by an unrelated `*.md` mention and
+#: doesn't need its own allowlist of "things that look like a wiki page" — deliberately narrower
 #: than `_FILE_EXTENSION`/`_looks_like_specific_file` for that reason.
+#:
+#: Deliberately two patterns, not one permissive one — a plain `\b`-bounded token also matches
+#: `<central-state>/repo-registry.md`, `state/repo-registry.md`, or any other directory whose
 #: basename happens to collide with a wiki page name. Those are repo-relative CONVENTIONS (a
+#: path in the READER'S OWN environment the agent writes to or checks for existence), not a
+#: citation of this repo's doctrine page of the same name — exactly the class CLAUDE.md
+#: § Conventions carves out, and the false positive this module's docstring warns against
 #: manufacturing. So only two shapes count: truly prefix-less (`_BARE_WIKI_PAGE_TOKEN`, not
+#: preceded by a word char OR `/`) and the specific partial-prefix `wiki/name.md` missing only
 #: the `docs/` segment (`_WIKI_SHORT_PREFIX_TOKEN`) — anything preceded by some OTHER directory
+#: name is left alone. The `docs/wiki/name.md` form is excluded from both (already counted once
 #: by `_WIKI_CITATION` above) via the negative lookbehind on the first and the negative
+#: lookbehind on `docs/` on the second.
 _BARE_WIKI_PAGE_TOKEN = re.compile(r"(?<![\w/])([A-Za-z0-9][\w-]*\.md)\b")
 _WIKI_SHORT_PREFIX_TOKEN = re.compile(r"(?<!docs/)\bwiki/([A-Za-z0-9][\w-]*\.md)\b")
 
+#: The contiguous non-whitespace/non-delimiter run immediately before a match — used to
 #: detect a TEMPLATED write-target masquerading as a bare wiki-page name, e.g.
 #: `state/audits/YYYY-MM-DD-<SID_SHORT>-plan-delivery-audit.md`: the trailing
+#: `plan-delivery-audit.md` is a real wiki page's basename, but the match sits at the tail
+#: of an output-path template the skill is told to WRITE to, not a citation of that page. A
 #: token boundary alone (used for the DIRECTORY-prefixed case in `_looks_like_specific_file`)
 #: doesn't catch this because the placeholder (`<SID_SHORT>`) is BEFORE the matched name, not
 #: in a directory prefix. Same `_PLACEHOLDER_CHARS` used there.
@@ -270,12 +310,39 @@ def _load_real_wiki_pages() -> frozenset:
 REAL_WIKI_PAGES: frozenset = _load_real_wiki_pages()
 
 #: Wiki filenames that name a file THE CONSUMING REPO OWNS, rather than a
+#: doctrine page this repo ships — a convention like `archive/<queue>/<YYYY-MM>/`,
+#: not a citation. Naming one does not point a reader at a document only this
+#: clone has; it names a path in the reader's own repo, and the prompt uses it
+#: operationally (write to it, check whether it exists) rather than sending
+#: anyone off to read it for content.
+#:
 #: ENTRY CRITERION, and it is narrow: the prompt must use the path as an
 #: OPERATIONAL TARGET in the consuming repo — a write destination, or an
+#: existence check gating behaviour. A page the reader is told to go READ for
+#: doctrine is a violation no matter how conventional its name looks. Adding an
+#: entry here is a deliberate judgment that the path is machinery, not
+#: reference; it is an allowlist and never a heuristic, because the cost of a
+#: wrong entry is a real dangling pointer going silently unreported.
+#:
 #: `DIRECTORY_GUIDE.md` is the index the artifact-distillation pipeline
 #: assembles (its Phase 3c is literally titled "DIRECTORY_GUIDE.md Assembly"),
+#: and several of its mentions are WRITE targets — "update
 #: `docs/wiki/DIRECTORY_GUIDE.md` and `docs/README.md`". Flagging those pushed
+#: a remediation pass toward stripping the directory off the path to quiet the
+#: detector, which left an apply-agent told to update a file without being told
+#: where it lives, with its fully-pathed sibling `docs/README.md` sitting in the
+#: same sentence untouched — that asymmetry existed only because one path
+#: happens to live under `docs/wiki/`. Making the instruction worse to satisfy
+#: the gate is the failure mode; exempting the convention is the fix.
+#:
+#: `versioning-convention.md` is named by a conditional in workweek-complete:
+#: "If `docs/wiki/install-playbook-rationale/versioning-convention.md` exists, it is the authority for
+#: which number/artifact is canonical." The prompt never asks anyone to read
 #: this repo's copy — it tells the agent to look for the CONSUMING repo's own
+#: convention and defer to it, falling back to a semver heuristic stated inline
+#: right there. Rewording the path out would have destroyed the instruction: an
+#: agent told to honour a convention, but not where to find it, cannot perform
+#: the check.
 _CONSUMING_REPO_CONVENTION_FILES = frozenset(
     {
         "DIRECTORY_GUIDE.md",
@@ -320,8 +387,39 @@ def _neutralize_structural_comments(text: str) -> str:
     return _HTML_COMMENT.sub(_replace, text)
 
 
+# ---------------------------------------------------------------------------
+# `.py` scope narrowing — EMITTED MESSAGE TEXT ONLY (C3 rescope,
+# docs/plans/2026-08-13-doe-guard-text-trust-failure-coverage.md)
+#
+# Why a `.py` hook needs a narrower rule than a `.md` prompt surface: a `.md`
 # file under PROMPT_SURFACE_DIRS is emitted to a reader WHOLESALE, so every
+# citation in it is something an agent is expected to resolve. A `.py` hook
+# is not — only the message strings it actually sends an agent (stderr,
+# hookSpecificOutput dict keys, or the `_message_envelope` compose/emit seam)
+# ever reach a reader. Its module docstring, inline comments, and Review:
+# provenance lines are read by a HUMAN maintaining the source, never
+# forwarded anywhere, so a docstring citing docs/plans/ or a bare DR- id
+# there is not a reader-facing citation. Flagging it is
+# the miscalibration this rescope corrects — restricting the `.py` leg
+# structurally (an AST reachability rule) rather than adding a denylist of
+# comment/docstring prefixes, which would silently miss the next syntactic
+# shape provenance shows up in.
+#
+# Reuses the same emission-site taxonomy as
+# `coordinator/tests/fixtures/hook-message-sweeps/population_scan.py`'s
+# `scan_emission_sites()` (stderr write, stdout.buffer write, `print(...,
+# file=sys.stderr)`, a `hookSpecificOutput` dict-literal key, a subscript
+# assignment to one of those keys, and the `_message_envelope`
+# compose/emit seam) rather than re-deriving a second detection of what
+# counts as "emission" — that module's own docstring is the source of the
+# taxonomy this section deliberately mirrors instead of importing directly
+# (population_scan.py's own file-selection is scoped to non-underscore
 # `coordinator/hooks/scripts/` files only, narrower than PY_SURFACE_DIRS,
+# and it returns line numbers only, not the argument/value AST subtree this
+# section needs to walk for string literals) -- see that module's own
+# docstring for the negative-spec this mirrors: not a text grep, an AST scan
+# over the file's *executed* body.
+# ---------------------------------------------------------------------------
 
 _PY_EMISSION_DICT_KEYS = frozenset(
     {"additionalContext", "systemMessage", "permissionDecisionReason"}

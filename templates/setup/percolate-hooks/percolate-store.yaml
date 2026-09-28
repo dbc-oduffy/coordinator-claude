@@ -66,6 +66,10 @@ base:
     exclude_globs: []
 
   # Mirrors PATH_REWRITE_SOURCES / PATH_REWRITE_DESTS (publish-time-transform.sh
+  # ~line 416-429): the static 5-plugin floor. discovery_scan_dir mirrors the
+  # script's dynamic plugin-discovery loop (~line 540-548) that extends the
+  # floor with any additional plugin dirs found under $TARGET/plugins at
+  # runtime.
   
   
   path_rewrite:
@@ -138,7 +142,14 @@ base:
       functional_hold: true
 
   
+  # Boundary-free glued-identifier stem map -- mirrors codename_provenance_seed.py
   # CODENAME_STEM_MAP / CODENAME_STEM_KEYS (D7). Applied as a SEPARATE pass
+  # after the exact-key depersonalize pass (engine.py content-transform sweep
+  # ordering: path-rewrite -> exact-substitute -> depersonalize -> stem-rewrite ->
+  # cosmetic -> basename-rename). Values are the underscore-form lowercase placeholder used
+  # inside glued identifiers (claude_klabauter_root=, claude_klabauterRoot) -- NOT the hyphenated
+  # prose placeholder from the depersonalize table below, which remains
+  # authoritative for hyphen/prose contexts via the exact-key depersonalize path.
   
   
   stem_rewrite:
@@ -190,7 +201,18 @@ base:
       token_class: "vocabulary"
     
     
+    # NOTE (revised, code-review Finding 1): bash oracle's "example-sim-repo" ->
+    # "exampleSimRepo" (camelCase-glued-identifier form) IS now covered here, via
+    # the same-canonical placeholder rather than the seed's divergent camelCase one.
+    # store.py's single-placeholder-per-codename invariant (canonical = key.lower())
     # rejects a DIVERGENT placeholder for a lowered canonical already claimed --
+    # "example-sim-repo" (lowered) already maps to "example-sim-repo" via the entries
+    # above/below -- but it does NOT require every case-form's placeholder to look
+    # pretty. Mirroring the exact tradeoff already accepted for the
+    # cockpit/claude-klabauter/example-voice-system case_variants:true entries (accept a
+    # cosmetically-different-cased placeholder rather than leave a codename
+    # unscrubbed), the entry below reuses "example-sim-repo" verbatim under the
+    # exact-key "example-sim-repo" so the camelCase form substitutes and closes the leak.
     
     
     - key: "example-sim-repo"
@@ -296,7 +318,11 @@ base:
       token_class: "vocabulary"
     
     
+    # Same engine-vs-bash-oracle case-preservation conflict as "cockpit" above (see that
+    # entry's comment for the full explanation + the 2026-07-24 resolution). Now case-
     # PRESERVING via case_variant_placeholders:true: "Claude-Klabauter" substitutes to Title-case
+    # "Claude-Klabauter" (matching the bash oracle's intent) rather than the
+    # lowercase-hyphen collapse the bare case_variants:true previously forced.
     
     
     - key: "claude-klabauter"
@@ -373,8 +399,10 @@ base:
       placeholder: "claude-klabauter-4th-class-ref-manifest.md"
       token_class: "vocabulary"
     
+    # Same engine-vs-bash-oracle case-preservation conflict as "cockpit"/"claude-klabauter" above.
     # RESOLVED 2026-07-24 via case_variant_placeholders:true (see the "cockpit" comment):
     # "Example-Voice-System" now case-PRESERVES to Title-case "Example-Voice-System" rather than the
+    # lowercase-hyphen "example-voice-system" the bare case_variants:true previously forced.
     
     - key: "example-voice-system"
       placeholder: "example-voice-system"
@@ -470,7 +498,13 @@ base:
       token_class: "vocabulary"
 
   
+  # File-rename table -- mirrors publish-time-transform.sh's
   # CODENAME_BASENAME_RENAMES / rename_codename_basenames() (lines ~682-687).
+  # Hand-synced with the four basename-shaped depersonalize entries above (the
+  # bash oracle keeps these as two independently-maintained tables by design,
+  # not derived from one another -- see that function's own header comment on
+  # why a clean derivation was rejected). Applied LAST by the engine, after
+  # every other content-transform step (engine.py load-bearing ordering).
   
   
   basename_rename:
@@ -484,7 +518,29 @@ base:
       dst: "claude-klabauter-4th-class-ref-manifest.md"
     
     
+    # Identity-gate-asymmetry fix (state/research/2026-09-09-identity-gate-
+    # asymmetry.md): the four entries above never covered the `coordinator/
+    # bin,lib` executable surface routed into the coordinator-claude target
+    # via source_map (d4a566c99 widened that row to publish bin/lib/hooks as
+    # a real executable surface; this table was not extended to match), so
+    # six paths kept shipping the private fleet codename `claude-klabauter` in their
     # FILENAMES to the public mirror even though their CONTENT was already
+    # scrubbed by the bare `claude-klabauter` depersonalize entry above -- a half-
+    # completed rename, not merely a leak: the published files' own
+    # docstrings/usage text already name the NEW basenames below (e.g.
+    # `gen-claude-klabauter-root-pointer.py` line 1 reads
+    # "gen-claude-klabauter-root-pointer.py"), so without this the shipped
+    # launcher invoked a sibling file that does not exist. Directory rename
+    # (trailing slash on both sides, per `_partition_rename_pairs`'s
+    # src/dst-both-or-neither convention) mirrors `coordinator_core/install/
+    # substrate.py`'s own documented expectation (~line 1040: "percolate's
+    # rename map rewrites it on publish (resolve-claude-klabauter/_resolve_claude_klabauter.py
+    # -> resolve-claude-klabauter/_resolve_claude_klabauter.py)") -- matched
+    # to that literal target basename, not invented here. `.cmd` siblings
+    # keep their `.cmd` extension (the Windows-launcher counterpart of a
+    # `.sh`/`.py` script, never renamed to `.sh` the way the pre-existing
+    # `check-claude-klabauter-doctor-sentinel.sh` -> `...-sentinel.sh` entry above
+    # does for its own `.py`).
     
     
     - src: "resolve-claude-klabauter/"
@@ -503,6 +559,12 @@ base:
       dst: "remove-claude-klabauter-precommit-hook.cmd"
     
     
+    # The depersonalize table rewrites the token `example-game-repo` -> `example-game-repo`
+    # in file CONTENT, and a markdown link target is content: a link to
+    # `example-game-repo-for-your-ue-project.md` publishes as a link to
+    # `example-game-repo-for-your-ue-project.md`. Without this rename the file
+    # itself still published under the old basename, so the transform broke its
+    # own link -- caught by validate-references the first round that published
     # a page citing it (DIRECTORY_GUIDE.md, via the wiki-seed expansion).
     - src: "example-game-repo-for-your-ue-project.md"
       dst: "example-game-repo-for-your-ue-project.md"
@@ -522,7 +584,30 @@ targets:
       - guard
     
     
+    # `coordinator:percolate-only` marker pair -- registers the pre-existing
+    # coordinator/templates/*.tmpl + coordinator/templates/postures/*.md
+    # "distribution artifact, not this repo's own doctrine" preamble blocks
+    # (coordinator/templates/CLAUDE.md.tmpl and the three
+    # postures/*.md files) for mechanical removal before publish -- this is the
+    # only target whose allowlist (setup/publish-targets.portable) carries any of
+    # those four files, so no other target needs this entry. See
+    # coordinator_core/percolate/strip_sentinel.py (claude-klabauter) for the
+    # engine-side mechanism this registers into.
+    #
+    # A second, `#`-comment-shaped pair (F-016) does the same job for
+    # coordinator/templates/machine-local/registry.toml.example: the HTML-comment
+    # form above is not valid TOML syntax, so a TOML source file needs its own
+    # marker form. It fences the file's two `repos.claude_klabauter` rows (root
+    # table + `[regeneratability]`) -- DoE-plane-only, engine-source-working-tree
+    # rows with no OSS meaning. Without this, the depersonalize table's
+    # claude_klabauter -> claude_klabauter rewrite (below) collapses each fenced row
     # onto its `repos.claude_klabauter` sibling, producing a DUPLICATE KEY --
+    # invalid TOML -- on every publish (the `[regeneratability]` pair additionally
+    # disagreeing in value: session-accumulated-must-survive-crash vs
+    # idempotent-regeneratable). Stripping removes the row instead of renaming it,
+    # keeping the projection injective, regardless of pass order: stripping
+    # deletes the whole fenced region outright, so the row never reaches the
+    # projection whether or not depersonalize has already renamed it first.
     
     
     sentinel_strip:
@@ -587,7 +672,27 @@ targets:
             - "*.cmd"
       
       
+      # Bare-codename backstop (identity-gate-asymmetry, state/research/
+      # 2026-09-09-identity-gate-asymmetry.md § 2). `_registry_alternation_
+      # pattern` (claude-klabauter coordinator_core/ops/percolate_run.py)
+      # builds the guard above from `repos.*` machine-local registry-key
       # SPELLINGS only (`claude_klabauter`/`claude-klabauter`), so it compiles
+      # `claude_klabauter|project\-claude-klabauter|...` and structurally cannot match
+      # the bare token `claude-klabauter` -- there is no `repos.*` key spelled that
+      # way to derive it from. That blind spot is why the six-path leak this
+      # entry answers survived every prior publish undetected. `params.
+      # pattern` (a static literal, same schema-supported alternative the
+      # gendered-pronoun entry below already uses) closes it directly for
+      # this one already-known private codename, per depersonalize-
+      # doctrine.md's "seed the bare token explicitly" prescription for any
+      # `repos.*`-registry-unspellable codename (`example-initiative`, `example-workstream`
+      # already carry the same shape in `depersonalize:` above). Word-
+      # boundary anchored, case-insensitive, so it also catches `Claude-Klabauter`/
+      # `CLAUDE-KLABAUTER` residue the same way the depersonalize entry's own
+      # `case_variants` does. Not a substitute for porting klabauter's
+      # literal `BANNED`-list path scan as a second independent leg (R2's
+      # "better still") -- that is a larger, separate change, left for a
+      # follow-up plan rather than folded into this fix.
       
       
       - kind: "no-residual-pattern"
@@ -759,7 +864,43 @@ targets:
         - "skills"
     
     
+    # The mirror's own local validation harness (run-all-checks.py and the checkers it
+    # drives, allowlists, issue/PR templates; no workflows). Homed at
+    # dist/mirror-native/coordinator-claude/.github/ after a clean-slate mirror
+    # rebuild (2026-08-05) found it existing ONLY in the publish repo, authored
+    # nowhere in source -- the mirror could not be reconstructed from this tree,
+    # and wiping it took the end-of-run identity gate's own checker with it.
+    # Direct precedent: claude-klabauter's claude-klabauter block
+    # (setup/percolate-hooks/percolate-store.yaml:1203-1242), same failure mode,
+    # same resolution.
+    #
+    # THIS ROW, not the `coordinator-claude` mirror row: inject resolves `dst`
+    # against `target.dest_dir` (= dest_root/dest_subdir). (Review: code-reviewer,
+    # 2026-08-05 -- corrected a false uniqueness claim here: this row and the
+    # `coordinator-claude` row both carry an empty `dest_subdir` in
+    # setup/publish-targets.portable, so both resolve `dst` to the mirror repo
+    # ROOT -- this row is not unique in that respect.) The actual reason this
+    # row hosts the `.github` inject rather than `coordinator-claude`: this
     # section (`-publish-repo-toplevel`) owns the publish repo's TOP-LEVEL
+    # directory furniture (README, CI harness, issue/PR templates -- § this
+    # section's own header comment), a distinct content domain from
+    # `coordinator-claude`'s job of mirroring the plugin's own machinery
+    # (bin/lib/agents/skills/etc. from `plugin-source:coordinator-claude`).
+    # `.github`'s CI harness belongs with the repo-toplevel content it
+    # governs, not the plugin-content mirror, even though both rows' `dst`
+    # happen to coincide at the mirror repo root.
+    #
+    # `inject` rather than a publish row is structural, not preference: inject
+    # dispatches AFTER the content-transform sweep, so check-persona-names.py's
+    # BANNED vocabulary -- literal fleet codenames, by construction -- is not
+    # itself rewritten into placeholders, which would leave the checker reporting
+    # green over a dirty tree. This target's own `exclude_prefixes` above already
+    # carries `.github` for the same reason, as does base's `exclude_basenames`
+    # (check-persona-names.py) and `exclude_globs` (*check-persona*).
+    #
+    # Survives this row's own flat-mirror sweep: Phase 2 deletes top-level FILES
+    # only, never directories (setup/publish_sync.py:877), so an injected
+    # `.github/` is not reaped between passes.
     
     
     inject:
@@ -877,7 +1018,10 @@ targets:
       - guard
     
     
+    # A wiki page that publishes is as OSS-facing as INSTALL.md, and this row
+    # carried no strip at all -- `install-command-residue.md` reached the mirror
     # naming an authoring-only script and CLAUDE_KLABAUTER_ROOT. The containment gate does
+    # not cover wiki pages, so nothing on the source side reports it either.
     
     sentinel_strip:
       - start_marker: ""
@@ -885,13 +1029,32 @@ targets:
     guards:
       
       
+      # Check 6 (empty-source guard) -- C-W3 item 3, resolved by the
+      # `source-glob-present` primitive (ec766767): asserts the SOURCE tree
+      # (not target_root) has >=1 `.md` file. Dispatches against `source_root`
       # -- REQUIRES the driver to pass `source_root` on every `percolate.run`
+      # call this entry's phase runs in (§ coordinator/bin/publish.py
+      # `dispatch_percolate_post_rsync`/`_pre_ci`, which already do
+      # unconditionally as of C-W2); a missing `source_root` is a loud
+      # `GuardCheckError` from `guards.run_guard`, never a silent
+      # wrong-tree check. Checks below are in the bash oracle's own numbered
+      # order.
       
       
       - kind: "source-glob-present"
         params:
           glob: "*.md"
           # include_extensions is REQUIRED here, not inherited from this
+          # target's `file_surface.include_extensions` -- guards.py's
+          # `_walk_for_guard` only ever reads scoping params off the guard
+          # ENTRY's own `params` (§ that function's docstring: "omitting
+          # them yields the routine's own defaults... no includes match"),
+          # never the section's `file_surface`. Without this, the walk
+          # includes nothing and the guard always reports "no file
+          # matching *.md", even when .md files are present -- verified via
+          # coordinator/tests/test_percolate_deferred.py
+          # TestSourceGlobPresent (a `.md`-only-source case failed until
+          # this param was added).
           
           
           include_extensions:

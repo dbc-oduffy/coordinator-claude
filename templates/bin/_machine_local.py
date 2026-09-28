@@ -73,6 +73,8 @@ EXIT_OK = 0
 EXIT_NOT_FOUND = 1
 EXIT_OPERATIONAL = 2
 
+# Hard requirement: fail loud on Python < 3.11 rather than silently degrade.
+# coordinator requires Python 3.11+ for TOML parsing via stdlib tomllib.
 # Exits OPERATIONAL (not NOT_FOUND): a guard trip is a broken reader, not absence.
 if sys.version_info < (3, 11):
     print(
@@ -117,7 +119,10 @@ def _settings_home() -> str:
     if override:
         return override
     # Path.home(), not os.path.expanduser("~") -- both honour USERPROFILE on
+    # Windows, but expanduser silently returns the literal string "~" when
     # every rung (USERPROFILE, HOMEDRIVE+HOMEPATH, HOME) is unset, which
+    # yields a cwd-relative settings-home and writes artifacts at the drive
+    # root. Path.home() raises RuntimeError in that case instead.
     home = os.environ.get("CLAUDE_HOME") or str(Path.home())
     return os.path.join(home, ".coordinator-claude-settings")
 
@@ -479,6 +484,12 @@ def resolve_sibling_repo(name: str) -> "Path | None":
         )
 
     # Rung 2 — search-roots autodiscovery. An ambiguous scan is a rung-2 NON-RESULT,
+    # not a ladder-terminating error: the contract says stop at the first rung that
+    # produces a result, and two candidates produce none. Hold the exception and keep
+    # walking so an explicit operator declaration at rung 3/4 stays reachable; re-raise
+    # only if nothing further resolves. Letting it propagate here made a correct,
+    # unambiguous registry.local.toml pin unreachable whenever any stray copy of the
+    # repo appeared under a search root.
     deferred_ambiguity: AmbiguousRepoMatch | None = None
     try:
         discovered = _autodiscover_repo(slug, reg_dir)
@@ -733,6 +744,8 @@ def resolve_one(key: str, layers: list[dict] | None = None) -> tuple[int, str | 
         try:
             resolved = resolve_sibling_repo(slug)
         except (AmbiguousRepoMatch, EnvironmentError) as exc:
+            # AmbiguousRepoMatch = detect-then-silently-pick footgun (misconfig).
+            # EnvironmentError   = REPO_<SLUG> set but path absent (misconfig).
             # Both are EXIT_OPERATIONAL: the reader could not produce a clean answer.
             return EXIT_OPERATIONAL, f"machine-local: {exc}"
 
@@ -1652,7 +1665,13 @@ def _cmd_set_concern(args: argparse.Namespace) -> int:
         )
         return 1
 
+    # Concern names AND keys are lowercase by contract (the reader's self-named-table
+    # resolution and the addon serializer both use lowercase). Reject mixed-case
+    # fail-loud rather than silently normalizing it — detect-then-fail-loud
     # (coordinator doctrine) applied UNIFORMLY to both the --concern arg and the key
+    # (code-reviewer F2: silently lowercasing the concern while rejecting the key was
+    # an inconsistent footgun). Avoids a confusing round-trip-None refusal on a write
+    # the operator believes is valid.
     if raw_concern != name:
         print(
             f"machine-local: concern names must be lowercase — got '{raw_concern}'. "
@@ -1785,6 +1804,9 @@ def _cmd_set_concern(args: argparse.Namespace) -> int:
         )
         return 1
     resolved = _flatten_concern(name, parsed).get(key)
+    # str() both sides intentionally (code-reviewer F7): `value` is always a str
+    # from argparse, while `resolved` may come back typed (e.g. an int the reader
+    # parsed). This check validates the key we just WROTE landed; type-fidelity of
     # PRESERVED co-writer scalars is covered by _emit_concern_scalar, not here.
     if str(resolved) != str(value):
         print(
@@ -2046,7 +2068,12 @@ def _remove_key(content: str, key: str) -> tuple[str, str | None]:
         return _excise(m.start(), m.end()), old_value
 
     if kind == "table-leaf":
+        # abs_start = section_start + leaf_m.start(). leaf_pat's leading
         # whitespace class is [ \t]* (horizontal only, never \s*) so MULTILINE
+        # ^ + leaf_m.start() lands on the first character of the leaf's own
+        # line — never on the newline terminating the [section] header above
+        # it, which \s* would have swallowed for a leaf immediately after the
+        # header (the first-leaf-under-a-header corruption case).
         abs_start = locate["abs_start"]
         abs_end = locate["abs_end"]
         return _excise(abs_start, abs_end), old_value
@@ -2267,6 +2294,8 @@ def cmd_migrate_publish_mirrors(args: argparse.Namespace) -> int:
     changed = False
 
     # Migration table: see module-level _MIRROR_SOURCES (hoisted F6).
+    # Processed in order: canonical keys first so the legacy alias sees the target
+    # already set and only removes the stale key (not overwriting the canonical value).
     for old_key, mirror_key, is_alias in _MIRROR_SOURCES:
         target_path_key = f"publish.mirrors.{mirror_key}.path"
 
@@ -2323,6 +2352,10 @@ def cmd_migrate_publish_mirrors(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
 
+    # --- Rewrite repo:<mirror> → publish-mirror:<key> in publish.targets array ---
+    # Machines that registered publish topology via the registry array keep stale
+    # 'repo:coordinator_claude' / 'repo:deep_research_claude' rows after D3 removes
+    # those keys from repos.*.  Rewrite them now so they resolve via publish.mirrors.*.
     # Token replacements defined at module-level as _ARRAY_TOKEN_REPLACEMENTS (hoisted F6).
     try:
         arr_parsed = tomllib.loads(content)
@@ -2425,7 +2458,13 @@ def cmd_migrate_publish_mirrors(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    # Windows: Python text-mode stdout translates '\n' -> '\r\n', so a captured
+    # `$(machine-local get repos.x)` carries a trailing '\r'. That stray CR
+    # silently breaks downstream string/path comparisons — notably claude-doe's
     # regen grep-gate (friction F6: the CR made `grep -qF "$DOE_COORDINATOR/hooks"`
+    # never match settings.json, forcing a full hook-block regen + "clobbered"
+    # noise on every launch). Emit LF-only output on every platform. Guarded for
+    # stream objects that don't expose reconfigure (non-TextIOWrapper).
     for _stream in (sys.stdout, sys.stderr):
         try:
             _stream.reconfigure(newline="\n")

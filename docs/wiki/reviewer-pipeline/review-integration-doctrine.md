@@ -90,6 +90,29 @@ merge-gate's chunk reviewers each own a disjoint frozen file set, so they apply 
 then runs one `verify` sweep over every sidecar and lands one scoped commit, never one per slice. A
 merge-gate's whole-diff specialists run after the chunk reviewers, in sequence.
 
+## One integration pass
+
+The execute-review stage of `/execute-plan`'s emitted workflow runs one parallel review wave, then
+exactly one integration pass — never a second review round. The wave's slice-owning
+`coordinator:code-reviewer` calls apply their own findings inside their own disjoint file slices,
+logging anything outside their slice under `## Out-of-Slice Findings` instead. Every whole-diff
+lens in that wave — `coordinator:overengineering-reviewer` (Kira) and every `review_signals`-resolved
+persona — runs findings-only: it never self-applies, because its lens spans every slice and
+applying there would race a slice owner's own write.
+
+The one integration call is a `coordinator:code-reviewer` dispatch with an integrate remit, never a
+second agent type. It applies only the residue no slice owner could safely touch: the out-of-slice
+findings, Kira's findings (except `rebuild_recommended: true`, which becomes a decision item rather
+than an automatic apply), and every persona's findings. It writes its own `## Findings Ledger`
+covering that residue, runs `verify` over every slice sidecar, checks that each slice ledger row's
+`file` is inside that slice, and stamps `integrated_from:` with every sidecar stem it took custody
+of.
+
+**Unresolved means the PM, not a second round.** A finding integration cannot resolve goes to
+`unresolved[]`. There is no dispatching a third reviewer to adjudicate it — `review-stamp mint`
+refuses to mint on any non-empty `unresolved[]`, so an unresolved finding blocks the plan reaching
+`implemented` rather than triggering more review.
+
 ## Pre-flight lens findings are not the reviewer's to fold
 
 The pre-flight lens checkers (`prior-art-checker`, `plan-coverage-checker`, `docs-checker`,

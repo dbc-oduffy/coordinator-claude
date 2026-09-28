@@ -83,6 +83,12 @@ def main() -> int:
 
     # PLUGIN_ROOT: the bash oracle derived this from
     # `${BASH_SOURCE[0]}/../..` (hooks/scripts -> plugin root). Historically
+    # passed to the engine-repo op so it could locate the retired bash bootstrap script;
+    # the engine repo's `_run_bootstrap` (C5) now natively ports that write/merge logic
+    # in-process and keeps this parameter only for call-site compatibility
+    # (unused). Kept here too, mirroring coordinator-reminder.py's
+    # capability-catalog.md path convention.
+    # __file__ parents: [0]=scripts [1]=hooks [2]=coordinator (plugin root).
     plugin_root = str(Path(__file__).resolve().parents[2])
 
     try:

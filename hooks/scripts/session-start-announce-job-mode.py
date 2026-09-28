@@ -157,12 +157,23 @@ def main() -> int:
     session_id = _extract_session_id(raw)
 
     try:
+        # session_id is unused by the `job_mode` key today (its
+        # `session_pair` is None -- see mode_resolution.py's own
         # `MODE_KEYS["job_mode"]`), but `resolve_mode`'s signature requires
+        # one; passing the session's own id (falling back to "") keeps this
+        # call honest against a future key that does read it.
         mode = resolve_mode("job_mode", session_id if session_id != "unknown" else "", env=env)
     except Exception:
         return 0
 
     # Whether the value was explicitly ASSERTED via COORDINATOR_JOB_MODE, or
+    # fell through to the conservative anchor -- read the same public wire
+    # name and enum the engine repo exports (never re-spelled here; see this
+    # module's own docstring and mode_resolution.py's "ONE place the wire
+    # name is spelled fleet-wide"). `job_mode` is `environment-wins`, so a
+    # raw value inside the declared enum always IS the resolved value;
+    # anything else (absent, empty, mis-cased, or otherwise unrecognised)
+    # fell through past the environment rung.
     raw_env_value = env.get(COORDINATOR_JOB_MODE)
     if isinstance(raw_env_value, str) and raw_env_value in JOB_MODE_VALUES:
         provenance = f"asserted via {COORDINATOR_JOB_MODE}"

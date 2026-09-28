@@ -166,7 +166,14 @@ except Exception:
         return None
 
 
+#: `track-touched-files.py`'s own former matcher, mirrored here as an
 #: internal gate (C4b). RE-SCOPE (2026-08-16, state/handoffs/2026-08-16-
+#: untitled-6c1eb4ae.md): this dispatcher's own hooks.json matcher was
+#: narrowed from `''` (every PostToolUse event) to `Write|Edit|MultiEdit|
+#: NotebookEdit|Agent` -- a strict superset of this tuple still (Agent is
+#: the added tool the write itself never fires for), so this internal gate
+#: remains live and load-bearing: it is what keeps the wasted IPC
+#: round-trip out of every Agent-tool fire now reaching this script.
 _TRACK_TOUCHED_FILES_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 
 
@@ -217,6 +224,11 @@ def main() -> int:
             params["tool_response"] = tool_response
 
     # scope "none" (coordinator_core/ipc.py _OP_KEY_SCOPE) -- no
+    # _origin_worktree required for this op; it accesses no repo-specific
+    # state. dispatch_ops_from_hook stamps origin_worktree onto EVERY op's
+    # envelope (there is one shared origin_worktree kwarg, not a per-op
+    # field), which is harmless here -- the postuse_advisory_dispatch
+    # handler simply ignores an _origin_worktree key it never reads.
     ops: list[tuple[str, dict]] = [("hooks.postuse_advisory_dispatch", params)]
 
     if tool_name in _TRACK_TOUCHED_FILES_TOOLS:
@@ -233,7 +245,16 @@ def main() -> int:
         )
 
     try:
+        # Ops dispatched sequentially, in order, under ONE asyncio.run
+        # inside dispatch_ops_from_hook -- same sequencing this dispatcher
+        # always used, now expressed via the shared seam instead of a
         # locally-defined asyncio coroutine. Per-op errors are RETURNED
+        # (HookDispatchError instances), not raised, so a failure in the
+        # track_touched_files bookkeeping op can never suppress the
+        # advisory op's own result, and vice versa -- the same
+        # per-concern isolation the old local swallow provided, now
+        # supplied by the seam's own returned-not-raised contract instead
+        # of a try/except around the second call.
         results = dispatch_ops_from_hook(
             ops,
             origin_worktree=payload.get("cwd", ""),
@@ -245,7 +266,12 @@ def main() -> int:
     if isinstance(advisory_result, HookDispatchError):
         advisory_result = None
 
+    # results[1] (track_touched_files), when present, is deliberately never
     # inspected/relayed: track_touched_files is MUTATING bookkeeping, never
+    # advisory (see track-touched-files.py's own former module docstring,
+    # "stdout NOTHING") -- a HookDispatchError there is simply discarded,
+    # exactly as the old try/except swallow discarded it, and exactly as
+    # the isolation contract above requires it not to touch advisory_result.
     if advisory_result:
         sys.stdout.write(json.dumps(advisory_result))
         sys.stdout.write("\n")

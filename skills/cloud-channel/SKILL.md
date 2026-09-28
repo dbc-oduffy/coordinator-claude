@@ -1,6 +1,6 @@
 ---
 name: cloud-channel
-description: "Open or reuse a cloud session's draft PR on its focus repo and subscribe to it — the session's comms channel."
+description: "Open or reuse a cloud session's draft PR on its focus repo and subscribe — its comms channel."
 version: 1.0.0
 allowed-tools: ["Read", "Bash", "ToolSearch"]
 ---

@@ -47,7 +47,11 @@ _LEDGER_FILENAME = "next-move-ledger.jsonl"
 
 # Reuse the existing root-resolution PRIMITIVE (`_engine_root._session_repo_root`
 # -- CLAUDE_PROJECT_DIR when set and real, else a zero-spawn upward walk for a
+# `.git` entry) rather than writing a fourth copy of that walk. This is NOT
 # the families-spanning shared READER/TRANSPORT module DR-047/DR-118 decline
+# (see `_find_repo_root`'s own docstring below, kept verbatim) -- that ruling
+# is about collapsing the three coordinator.local.md READERS into one shared
+# transport, not about sharing the tiny root-finding primitive beneath them.
 _SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
@@ -326,12 +330,69 @@ def mark_fired(session_id: str, obligation_id: str) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# Obligations-inbound intake -- the engine->doctrine-plane fold
+# ---------------------------------------------------------------------------
+#
+# The doctrine plane is the SOLE WRITER of this ledger. The engine plane (`coordinator_core`)
+# resolves obligations of its own and must not write these files: both planes
+# writing the same peer's ledger on the same Stop event is a read-modify-
+# whole-file-rewrite collision, the race `mark_fired` above already documents.
+# So the engine APPENDS rows to a separate, append-only intake file and this plane
+# folds them in. One writer, one rewrite path, no shared file.
+#
+#   producer (engine) --append--> obligations-inbound.jsonl
+#   consumer (here)   --claim---> obligations-inbound.jsonl.draining
+#                     --fold----> next-move-ledger.jsonl
+#                     --delete--> (only after the fold committed)
+#
+# Row shape, one JSON object per line. The producing plane's copy of this
+# table lives at `coordinator/docs/wiki/cross-repo-communication/obligations-inbound-intake.md`:
+#
+#   schema         int, must be 1
+#   session_id     str, the session the obligation belongs to; must equal the
+#                  session directory the file sits in
+#   op             "open" | "progress" | "blocked" | "discharge"
+#   obligation_id  str, the producer's stable id for this obligation
 #   emitted_at     str, ISO-8601 Z; provenance only, never used for ordering
 #   seam           str, REQUIRED for op="open", ignored otherwise
 #   next_action    str, REQUIRED for op="open", ignored otherwise
+#   blocked_on_session_id
 #                  str, REQUIRED for op="blocked" -- a SESSION ID, never a bare
+#                  peer name (see `block_obligation`); ignored otherwise
+#   blocked_on_name
+#                  str, optional companion to the id, for a human reading the
+#                  row; never used to identify anything
+#   producer       str, optional free-form provenance
+#
+# Unknown keys are ignored, so the producer can add fields without a lockstep
+# release here.
+#
 # THREE FAILURE-PATH RULES, each load-bearing:
+#
 # 1. A TRAILING partial line is tolerated; a malformed line MID-FILE is not.
+#    A torn last line is a producer caught mid-append and costs one row. A
+#    malformed line with rows after it is a producer BUG, and silently
+#    skipping it would keep that bug invisible for as long as it kept
+#    shipping. Such lines are quarantined verbatim to
+#    `obligations-inbound.rejected.jsonl` and counted in the drain report --
+#    visible on disk, without stalling the fold behind a row nobody is coming
+#    to fix.
+#
+# 2. The claim uses a FIXED `.draining` suffix, drained on startup. A
+#    timestamped or pid-stamped name would leave a fold that died partway
+#    orphaning its rows under a name nothing ever looks for again; a fixed
+#    name means the next drain finds them.
+#
+# 3. The drained file is deleted only AFTER the fold has committed. Deleting
+#    first means a failed write loses the rows outright; deleting after costs
+#    at worst a replay, and every fold op is idempotent -- `open_obligation`
+#    dedupes on `obligation_id` and the stamps re-stamp.
+#
+# No cross-process lock. Concurrent drainers are safe by that same
+# idempotence: the `O_EXCL` claim below serialises the common case, and a
+# drainer that cannot claim defers to the next drain rather than replacing an
+# unread `.draining` file.
 
 _INTAKE_FILENAME = "obligations-inbound.jsonl"
 _DRAINING_SUFFIX = ".draining"

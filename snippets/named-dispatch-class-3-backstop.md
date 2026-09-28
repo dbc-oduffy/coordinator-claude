@@ -3,11 +3,11 @@
 <!-- INJECTED block, not paste-governed: assembled into the dispatched child prompt at dispatch -->
 <!-- time via the `contract_blocks:` grammar (subagent-sandbox-policy.yaml), keyed by -->
 <!-- `subagent_type`. New backstop variant of the named-dispatch clause (C4, named-dispatch -->
-<!-- three-class partition) for exactly the three class-3 run-report types (enricher, executor, -->
-<!-- review-integrator) — C1 newly puts all three under the strip that removed EM-addressed -->
+<!-- three-class partition) for exactly the class-3 run-report types (enricher, executor) — -->
+<!-- C1 newly puts both under the strip that removed EM-addressed -->
 <!-- doctrine from their prompts, so they acquire the same hook-absent non-arrival exposure class 2 -->
 <!-- is protected against, and the plan must not end with zero backstop for that class. Carries the -->
-<!-- non-arrival warning WITHOUT the `SendMessage` prescription: none of the three declares -->
+<!-- non-arrival warning WITHOUT the `SendMessage` prescription: neither declares -->
 <!-- `SendMessage`, and their deliverable is the run-report sidecar, not a return-text relay. -->
 <!-- Deliberately its own block rather than riding `run-report-citizenship`, whose -->
 <!-- `contract_blocks:` membership also includes test-runner — a class-2 type that already carries -->

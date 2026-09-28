@@ -54,8 +54,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
+#: Runner-owned sys.path setup (clause 4: guard code itself must never
+#: mutate sys.path; only the runner may, once, at discovery time -- clause
 #: 8 governs ORDERING). This module's own self-resolution idiom mirrors
 #: every guard's `_HOOKS_DIR` pattern: inserted at the top, before any
+#: other import, so it is exempt from the "late insert" conformance check
+#: that applies to guard modules (this module is the runner, not a guard).
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
@@ -278,11 +282,33 @@ def build_registry_entries(
     return entries
 
 
+#: C4 enrolment registry: ALL FIVE `_guard_runner_contract.
 #: ENROLLED_GUARD_MODULES` write-path guards -- the three C2 enrolled first
+#: (`guard-oss-payload-locality.py`, `nudge-plan-test-surface-tier.py`,
+#: `guard-prompt-surface-citations.py`), plus `guard-doctrine-changelog-
+#: prose.py` (C3b) and `check-claude-md-size.py` (C3's protocol translation,
+#: wired for real here) added by C4 once each guard's parity was proven.
 #: Every descriptor here is IMPORTED from `_guard_runner_contract`, never a
 #: copy re-declared in this file -- `DOCTRINE_CHANGELOG_PROSE_SCOPE_
 #: DESCRIPTOR` and `CHECK_CLAUDE_MD_SIZE_SCOPE_DESCRIPTOR` are the same
+#: objects `coordinator/tests/test_inprocess_guard_runner.py` and
+#: `coordinator/tests/test_check_claude_md_size_runner_fold.py` verify --
+#: the three C2 guards' descriptors are still declared inline below (their
+#: own scope predicates were never at risk of the "test-file-only, never
+#: wired" drift the other two were flagged for, since they were authored
+#: alongside this registry from the start). Every descriptor lives HERE (or
+#: in the contract module, for the two C3/C3b guards), not inside the
+#: guard's own body module, per contract clause 12's explicit "import-free
+#: and live OUTSIDE the guard's own body module" requirement -- a
+#: descriptor sourced from the guard module itself would be circular
+#: (importing the guard to ask whether to import the guard defeats the
 #: lazy-import win). Each descriptor deliberately OVERAPPROXIMATES its
+#: guard's own real `is_in_scope()` predicate (which the guard body still
+#: applies, correctly, once imported) -- a descriptor's only job is to rule
+#: out payloads that could never possibly match, cheaply, before paying an
+#: import; false-positive matches here just mean the real (and still
+#: authoritative) in-guard scope check runs and fails open, exactly as it
+#: does when invoked standalone.
 _GUARD_OSS_PAYLOAD_LOCALITY = "guard-oss-payload-locality.py"
 _GUARD_PLAN_TEST_SURFACE_TIER = "nudge-plan-test-surface-tier.py"
 _GUARD_PROMPT_SURFACE_CITATIONS = "guard-prompt-surface-citations.py"
@@ -300,7 +326,13 @@ REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
         module_path=str(Path(_HOOKS_DIR) / _GUARD_PYTHON_SYNTAX_ON_WRITE),
         descriptor=GuardScopeDescriptor(
             guard_module=_GUARD_PYTHON_SYNTAX_ON_WRITE,
+            # Real scope (the guard's own `is_in_scope`) is ".py" files with
             # "coordinator" among the RESOLVED ABSOLUTE path's parts. This
+            # descriptor instead substring-tests the RAW tool_input path —
+            # a different test that over-admits relative to `is_in_scope`,
+            # which is the safe direction (under-admitting would not be).
+            # They agree in practice only because Write/Edit/MultiEdit
+            # mandate absolute `file_path` inputs.
             path_suffixes=frozenset({".py"}),
             directory_substrings=("coordinator/",),
         ),
@@ -356,7 +388,14 @@ REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
         module_path=str(Path(_HOOKS_DIR) / _GUARD_TEST_TREE_GIT_FIXTURE_SPAWN),
         descriptor=GuardScopeDescriptor(
             guard_module=_GUARD_TEST_TREE_GIT_FIXTURE_SPAWN,
+            # C9 (docs/plans/2026-08-07-restore-the-excised-tests-spawn-free.md).
+            # Deliberately OVER-approximating and repo-generic: a bare
+            # "tests/" substring (never "coordinator/tests/") plus ".py"
+            # suffix -- the guard's own `spawn_detect.is_test_tree_site()`
+            # call is the real, precise, structural scope predicate (see
             # that guard's own module docstring "SCOPE-EXPRESSION NOTE");
+            # this descriptor's only job is to rule out payloads that could
+            # never possibly match, cheaply, before paying the import.
             path_suffixes=frozenset({".py"}),
             directory_substrings=("tests/",),
         ),

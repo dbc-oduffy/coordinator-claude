@@ -121,7 +121,11 @@ from _engine_root import (  # noqa: E402
     place_engine_root_on_path as _place_engine_root_on_path,
 )
 
+#: Wiki section carrying the full remedy explanations and the escape hatch
 #: (COORDINATOR_NEW_FILE_RATCHET_NUDGE_OFF=1) this hook's message used to
+#: state inline -- see docs/plans/2026-08-02-guard-message-character-cap.md
+#: § C6 and state/relocations/guard-message-cap/
+#: nudge-new-file-zero-budget-ratchets.py.md.
 _WIKI_ANCHOR = (
     "coordinator/docs/wiki/guards/guard-message-concision.md"
     "#new-file-zero-budget-ratchet-remedies"
@@ -224,6 +228,13 @@ def _posix_exec_findings(repo_root: Path, relpath_str: str, candidate: Path) -> 
         return []
     # STOP-FAMILY-RUNNER-CONTRACT clause 8 (sys.path ordering, mirroring
     # GUARD-ON-RUNNER-CONTRACT's identical clause): append, never insert at
+    # index 0 -- the hooks dir (inserted at the top of this module, before
+    # this point) must stay AHEAD of the sibling engine root on sys.path,
+    # so a module-name collision resolves toward the doctrine-plane-local helper.
+    # Index-1 placement via the shared primitive: hooks dir stays at 0, engine root
+    # outranks site-packages. A bare append put it BEHIND an editable install of the
+    # engine, so the resolver answered the mirror and the import returned the working
+    # tree -- see _engine_root.place_engine_root_on_path.
     _place_engine_root_on_path(engine_root_str)
     try:
         import coordinator_core.ops.check_posix_exec_assumptions as posix_check
@@ -269,12 +280,25 @@ def _posix_exec_findings(repo_root: Path, relpath_str: str, candidate: Path) -> 
     return findings
 
 
+#: Short remedy PROSE for the first locality violation kind found -- the
+#: full explanation (why, and the DR-047 rationale) relocates to
 #: `_WIKI_ANCHOR`, per state/relocations/guard-message-cap/
+#: nudge-new-file-zero-budget-ratchets.py.md.
+#:
+#: Review: code-reviewer, Finding 3 -- these are noun-phrase remedy
+#: descriptions, not runnable commands or paths, so they belong in the
+#: counted `prose`, not the char-cap-EXEMPT `alternative` slot (that slot
+#: is reserved for a copy-pasteable command/diff/path; some of these
+#: strings only dodged `validate_alternative_shape`'s cheap heuristic by
+#: accident -- see the sibling `_message_envelope.py` fix for the
+#: heuristic gap itself). Folded into prose here rather than reshaped into
+#: fake commands.
 _LOCALITY_SHORT_ALT = {
     "private sibling-repo-name attribution": "use IRREDUCIBLE_LITERALS in _oss_operative_strings.py",
     "drive-rooted windows path": "use pathlib.Path instead of a raw backslash path",
 }
 
+#: Short remedy PROSE for the first POSIX-exec-assumption class found --
 #: the full explanation (including the EXEMPTIONS-file escape hatch for a
 #: genuine direct-exec entrypoint) relocates to `_WIKI_ANCHOR`. See the
 #: Finding-3 note above `_LOCALITY_SHORT_ALT` -- same reasoning applies.

@@ -49,7 +49,7 @@ Confidence rubric + AUTO-FIX/ASK: injected reviewer-calibration block.
 
 ## Delta-Scoping
 
-Review the diff, not the codebase — pre-existing tokenization/CSS debt in unchanged components is out of scope unless the diff introduces or reveals it. You identify issues; the review-integrator/Executor implement fixes.
+Review the diff, not the codebase — pre-existing tokenization/CSS debt in unchanged components is out of scope unless the diff introduces or reveals it. Apply every finding in place, then write the ledger; mechanics: `coordinator/docs/wiki/reviewer-pipeline/review-integration-doctrine.md`.
 
 <!-- BEGIN guard-encounter-preamble (synced from snippets/guard-encounter-preamble.md) -->
 

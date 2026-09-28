@@ -39,9 +39,31 @@ import sys
 from pathlib import Path
 from typing import Callable, Iterable
 
+# ---------------------------------------------------------------------------
+# .percolate-ignore — delegates to coordinator/lib/percolate/ignore.py so
 # there is exactly one implementation of the (SECURITY-LOAD-BEARING) matcher
+# semantics; two independent copies of a leak-gate WILL drift — this file
+# used to carry its own parallel `IgnoreMatcher` class with NO root-anchored
+# `/dir/` branch, a silent false-negative that would have let a root-anchored
+# ignore pattern through unmatched (see
+# state/bug-backlog/2026-07-21-templates-setup-publish-sync-py-still-ca-c753beadf718.yaml
+# and docs/plans/2026-07-21-percolate-python-port.md § C-W4b).
+#
 # THIS FILE IS A DEPLOYED COPY, not a checkout-sibling of coordinator/. It is
+# delivered by install-substrate.sh / dist/publish-repo-setup/install.sh into
+# <install-root>/setup/publish_sync.py — unlike the repo-root
+# setup/publish_sync.py (which sits directly next to coordinator/ in a
+# doctrine-repo checkout and can reach ignore.py via a simple parent.parent
+# relative path), this copy's install destination is NOT a sibling of
+# coordinator/lib: the live plugin's coordinator/ tree lives one level
+# further down, at <install-root>/plugins/coordinator/
+# (see the doctrine repo's root `CLAUDE.md` § Architecture: "the live plugin root
+# under ~/.claude/plugins/coordinator-claude/ is one level above a
+# coordinator/ subdirectory"; not coordinator/CLAUDE.md, which was retired
+# 2026-07-27). _locate_percolate_lib() below resolves that, mirroring the
 # 2-rung CLAUDE_PLUGIN_ROOT / known-layout precedent already established by
+# coordinator/bin/publish.py's _locate_cc_invoke().
+# ---------------------------------------------------------------------------
 def _locate_machine_local_cli() -> Path | None:
     """Return the `machine-local` registry-reader CLI, or None if unresolvable.
 
@@ -228,7 +250,27 @@ def load_ignore(path: Path | None) -> IgnoreMatcher:
     return IgnoreMatcher(_load_percolate_ignore_patterns(path))
 
 
+# ---------------------------------------------------------------------------
+# Skip rules common to both modes
+# ---------------------------------------------------------------------------
+# Structural build-artifact exclusion — the twin of `coordinator/bin/publish.py::
+# _is_structurally_never_published`'s `__pycache__`/`.pyc`/`.pyo` handling
 # (that function's own `_STRUCTURAL_NEVER_PUBLISHED_DIR_NAMES`/`_SUFFIXES`
+# comment carries the full rationale: these are locally-generated Python
+# bytecode artifacts, recreated by anything that RUNS Python in a
+# destination clone, never present in a restricted source tree, and never
+# something any row's sync copies — treating their mere presence at the
+# destination as an orphan-sweep signal is a false positive by construction.
+# Deliberately NOT sharing one Python object with publish.py's copy: that
+# function is keyed to a `(path, repo_root)` pair walking a FULL repo tree
+# (including `.git/`, which this module never syncs to/from and which
+# `_archived_or_orphan`'s dotfile-adjacent callers already keep out of scope
+# — see `_sync_mirror_top_level_files`'s `not p.name.startswith(".")` and the
+# orphan-sweep's own `non_dot_dst` filter), while this module's callers pass
+# POSIX-relative rel_path strings (sub-plugin-relative or bare top-level
+# names) with no `repo_root` in scope. Same `__pycache__`/`.pyc`/`.pyo`
+# vocabulary, kept identical char-for-char below; `.git` is intentionally
+# absent here because it can never appear as sync input in this module.
 _STRUCTURAL_BUILD_ARTIFACT_DIR_NAMES = ("__pycache__",)
 _STRUCTURAL_BUILD_ARTIFACT_SUFFIXES = (".pyc", ".pyo")
 
@@ -315,9 +357,28 @@ def _walk_files(root: Path) -> Iterable[Path]:
             yield entry
 
 
+# ---------------------------------------------------------------------------
+# Empty-source mass-delete guard — see EmptySourceMassDeleteError docstring.
+#
 # BACKGROUND (2026-07-26): when an allowlist-declared (or otherwise resolved)
+# source directory exists on disk but has been emptied of real content — e.g.
+# `coordinator-claude|mirror`'s `bin`/`lib` allowlist entries, hollowed by the
+# 2026-07-22 executable-surface migration (commit b644d5a9) — Phase 2 below
+# (delete dst files not in src) reads "nothing in source" as "everything at
+# the destination was intentionally removed" and deletes it. That is the
+# WRONG inference for the common case (a misrouted/stale source_path config)
+# and correct only for the rare deliberate-full-prune case. This guard makes
+# the common case fail loud instead of silently deleting; the rare case gets
 # an explicit, intent-recording escape hatch (`COORDINATOR_OVERRIDE_EMPTY_
 # SOURCE_PRUNE`) rather than a permanent wall — see its docstring below.
+#
+# Companion regression doc: coordinator/tests/test_publish_allowlist_source_
+# populated.py documents the SAME hazard from the authoring-time angle (an
+# allowlist entry resolving to an empty dir on THIS repo's own root); this
+# guard is the runtime backstop that fires regardless of how the empty
+# source came about (allowlist narrowing, a misrouted source_path, a
+# multi-source design gap, etc.) — it does not depend on that test running.
+# ---------------------------------------------------------------------------
 class EmptySourceMassDeleteError(RuntimeError):
     """Raised by `sync_mirror`/`sync_flat_mirror` when a directory (mirror:
     one per-plugin subdir; flat-mirror: the whole src_dir) resolves to ZERO
@@ -497,7 +558,19 @@ def _guard_against_empty_source_mass_delete(
     raise EmptySourceMassDeleteError(diagnostic)
 
 
+# ---------------------------------------------------------------------------
+# Copy-time transform seam — `copy_file`, optional on both sync_mirror and
+# sync_flat_mirror. Default (None) is a plain byte-for-byte shutil.copy2,
 # i.e. today's behavior, unchanged — this is a MANDATORY backward-compat
+# contract, not a convenience default: this module's own `main()` below and
+# any other caller that does not pass copy_file must see identical behavior
+# to before this parameter existed. Threading a caller-supplied transform
+# through here (rather than duplicating a strip implementation in this file)
+# is deliberate — see `<this-repo-root>/coordinator/bin/publish.py`'s
+# `strip_fleet_only_fences` / `_publish_copy_file` docstrings for why a
+# security-sensitive copy-time transform is single-sourced there and injected
+# down, not re-derived per copy engine.
+# ---------------------------------------------------------------------------
 CopyFileFn = Callable[[Path, Path, bool], None]
 
 
@@ -846,6 +919,9 @@ def sync_mirror(
             if _archived_or_orphan(rel_path):
                 continue
             # .percolate-ignore patterns are SOURCE_DIR-relative (plugin-qualified):
+            # the file is authored as `coordinator/bin/tests/`, `data/`, etc. rel_path
+            # here is sub-plugin-relative, so qualify with plugin_name before matching —
+            # otherwise every plugin-prefixed pattern silently no-ops and leaks. (2026-05-30)
             if ignore.matches(f"{plugin_name}/{rel_path}"):
                 continue
             dst_file = dst_plugin / rel_path
@@ -871,7 +947,20 @@ def sync_mirror(
                     continue
                 if ignore.matches(f"{plugin_name}/{rel_path}"):
                     continue
+                # Same exemption, same reason, as `_sweep_mirror_top_level_orphans`'s
+                # (see that function's `renamed_file_names` paragraph) -- applied here
+                # too because a row's renamed files are not all top-level: 15 of
+                # `claude-klabauter-bin`'s 16 renamed basenames live under `tests/`,
+                # where only this loop sees them. Basename, not rel_path: the exemption
+                # set is basenames (a rename never moves a file between directories), and
+                # rel_path here is plugin-relative and may carry directory components.
+                # Read as a bug in the wild first (state/bug-backlog/2026-08-26-publish-
+                # dry-run-wants-to-un-rename-test-*.yaml): the two legs disagreeing made
                 # a preview report a rename running BACKWARDS -- top-level renames
+                # exempt and silent, nested ones listed as REMOVE + re-added under their
+                # pre-rename names. Convergence was never at risk (the transform pass
+                # renames them again immediately after), but a preview nobody can read
+                # is what the exemption exists to prevent.
                 if Path(rel_path).name in renamed_file_names:
                     continue
                 if (src_plugin / rel_path).is_file():
@@ -901,7 +990,30 @@ def sync_mirror(
             and p.name not in foreign_dir_names
         ]
 
+        # Top-level presence preflight (2026-07-26): the mass-deletion guard below
+        # only fires above a >50%-of-dst-top-level-dirs threshold, so a SINGLE
+        # dropped top-level entry (e.g. `bin`, `lib` out of 8 top-level dirs = 25%)
+        # sails under it and is deleted outright by the orphan sweep with no abort
+        # at all — this is the exact mechanism that made a previously-investigated
+        # multi-source (source_map) publish shape destructive (2/8 orphaned = 25%,
+        # under the 50% guard). Statement of the invariant this closes: for a
+        # mirror-mode target, the restricted source tree must contain a top-level
+        # directory entry for every top-level directory the destination contains
+        # that this target owns — a top-level dir present at dst and absent from
+        # src is deleted by the sweep below regardless of .percolate-ignore, which
+        # the sweep does not consult. This preflight fires on ANY orphan (not just
+        # a large fraction), aborting before either guard below or the sweep touches
         # disk. Reuses COORDINATOR_OVERRIDE_ORPHAN_SWEEP=1 deliberately — a second,
+        # differently-named escape hatch for the same underlying action (permit the
+        # orphan sweep to proceed) would just be a second knob an operator has to
+        # remember exists. Preserves the dry-run-never-aborts contract used
+        # throughout this module (WARNING instead of FATAL, never a real delete).
+        # Does NOT replace the 50%-threshold guard immediately below — belt and
+        # braces on a destructive path is cheap, and that guard still independently
+        # covers the wholly-misconfigured-src_dir case (which this preflight also
+        # catches, redundantly, on the non-override path).
+        # Spec: state/subagent-share/5bae563a-448a-4c5e-96ef-2de84498bd09/
+        #       coordinatorstaff-eng-dfffb96b.md § 6 (The orphan-sweep invariant).
         if orphans:
             override = _orphan_sweep_override()
             exempt = [p for p in orphans if _orphan_sweep_overridden(p.name, override)]
@@ -953,7 +1065,11 @@ def sync_mirror(
                     print(f"FATAL: {diagnostic}", file=sys.stderr)
                     raise SystemExit(3)
 
+        # Mass-deletion guard: a misconfigured src_dir makes EVERY dst plugin look
+        # orphaned, so an unguarded rmtree loop would wipe the whole destination.
+        # Fail loud when orphans would remove >50% of dst plugin dirs (and there are
         # ≥2 of them). Override with COORDINATOR_OVERRIDE_ORPHAN_SWEEP=1 for the rare
+        # legitimate mass-prune. Dry-run reports but never aborts.
         if orphans and len(non_dot_dst) >= 2 and len(orphans) > len(non_dot_dst) / 2:
             if at_risk:
                 names = ", ".join(p.name for p in at_risk)
@@ -1117,7 +1233,16 @@ def sync_flat_mirror(
     return synced, removed
 
 
+# ---------------------------------------------------------------------------
+# `repo-cut` one-shot bootstrap (docs/plans/2026-08-10-repo-cut-the-fourth-
+# mode-and-the-table.md, chunk C7b). NOT part of the source-repo port this
+# module otherwise is (see module docstring's "Three cuts... nothing else") —
+# a genuinely new addition, authored here because `check_publish_sync_
+# contract` (`publish.py`) validates every mode's `entry_point` as an
 # attribute of WHICHEVER module wins the `_import_publish_sync` seam, exactly
+# like `sync_mirror`/`sync_flat_mirror` (AC7); a bootstrap function living
+# only in `publish.py` would never be reachable through that seam.
+# ---------------------------------------------------------------------------
 class RepoCutBootstrapError(RuntimeError):
     """Raised by `sync_repo_cut` when a `git` step of the one-shot bootstrap
     (init / config / add / commit) exits non-zero. Fatal by design — a

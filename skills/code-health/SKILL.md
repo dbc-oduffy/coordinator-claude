@@ -49,15 +49,16 @@ gets flagged for `/workweek-complete` Step 7.5, not escalated here. Tell it what
 dominant change type (UE idioms / component-token-reuse-accessibility / numeric-correctness /
 coupling-and-interface-seams) — vocabulary only, never identity.
 
-Dispatch unattended: `coordinator:code-reviewer`, UNNAMED, `run_in_background: true`,
-`--problems-only`. Its sidecar is spawn-provisioned (arrives as `sidecar_path:` in its brief) — no
-EM pre-scaffold. Read the returned `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings:
-<N>` and pass the path to Step 4.
+First register the reviewed file list: `review-findings-ledger targets --add` for Step 1's
+surfaces. Then dispatch unattended: `coordinator:code-reviewer`, UNNAMED, `run_in_background:
+true`, `--problems-only`. Its sidecar is spawn-provisioned (arrives as `sidecar_path:` in its
+brief) — no EM pre-scaffold. Read the returned `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> |
+findings: <N>` and pass the path to Step 4.
 
-## Step 4: Apply Findings
+## Step 4: Reviewer Applies Findings
 
-Dispatch `coordinator:review-integrator` on the on-disk sidecar path (never inline-relayed
-findings) plus affected file paths. It applies inline fixes and annotations. Findings needing 3+
+The reviewer applies and verifies its ledger — inline fixes and annotations against its own
+sidecar, `review-findings-ledger verify` passing before it reports done. Findings needing 3+
 interacting files or new abstractions go to Step 5 instead. No findings: skip to Step 6.
 
 ## Step 4.5: Commenting Lint Sweep
@@ -126,12 +127,11 @@ Nothing else this run touched. Post-commit hook pushes automatically.
 | Debt backlog doesn't exist | Create from template first |
 | Complex finding can't be fixed inline | Debt backlog, with severity and effort estimate |
 | Git commands fail (no commits, detached HEAD) | Report the error and stop |
-| review-integrator unavailable | Log findings into the health summary body manually, note as deferred |
 
 ## Cost
 
-1 Sonnet `code-reviewer` dispatch (`--problems-only`) + 1 `review-integrator` dispatch if findings
-exist. No persona, no Opus at this cadence.
+1 Sonnet `code-reviewer` dispatch (`--problems-only`), applying its own findings inline. No
+persona, no Opus at this cadence.
 
 ## Relationship to Other Commands
 

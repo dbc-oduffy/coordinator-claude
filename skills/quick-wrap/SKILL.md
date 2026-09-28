@@ -48,10 +48,11 @@ what drops the session under the line.
 Test 2 failing means a review is owed, not that this ceremony is wrong. Two routes exist; the
 first is the default and the second requires a named class member.
 
-**1. Scoped review, then wrap (the default).** (1) dispatch a reviewer scoped to the risk
-surface — `Skill(coordinator:review-code)` diff-shaped, or a direct `coordinator:code-reviewer`
-when scope is narrow; (2) integrate findings via the review-integrator, applied never ratified
-back as a list; (3) run the checklist below, verdict in step 4.
+**1. Scoped review, then wrap (the default).** (1) register the reviewed file list with
+`review-findings-ledger targets --add`, then dispatch a reviewer scoped to the risk surface —
+`Skill(coordinator:review-code)` diff-shaped, or a direct `coordinator:code-reviewer` when scope
+is narrow; (2) the reviewer applies and verifies its own ledger, applied never ratified back as a
+list; (3) run the checklist below, verdict in step 4.
 
 > **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
 > step names; it dissolves no gate this skill's own body names.
@@ -175,8 +176,8 @@ sentence:** it runs whether or not this session had anything of its own to close
 dirty-tree/queue CLI ran between them); keep it a separate call only when step 2 actually ran one.
 
 **4. Report.** Three lines: what landed (commit SHA), what you closed, what's deliberately open.
-Five for `scope_mode: spec-dispatch`: add the `code-reviewer` verdict + integration commit, and
-that the plan-reconciliation micro-step ran. Then stop.
+Five for `scope_mode: spec-dispatch`: add the `code-reviewer` verdict + ledger verified + one
+commit, and that the plan-reconciliation micro-step ran. Then stop.
 
 ---
 

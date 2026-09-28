@@ -313,6 +313,13 @@ When mid-execution drift blocks an executor (the substrate on disk differs from 
 
 **Use ASCII (`:`/single `-`) in headings intended to be linked — Unicode dashes (em-dash `—`, en-dash `–`) in heading text cause silent slug-rot in cross-doc links.** Markdown parsers strip or percent-encode Unicode punctuation when generating fragment IDs; a link authored against the raw heading text silently resolves to nothing after the first renderer normalizes the slug. Apply: before writing a heading you expect to cross-link, check that it contains only ASCII characters in the fragment-forming region. If an em-dash is desirable in prose, rewrite the heading to use a colon or a plain hyphen instead (e.g. `## Schema Bump — Backstop Rule` → `## Schema-Bump Backstop Rule`).
 
+**Chunk-index sidecar contract, not yet wired to an emitter.** A downstream renderer needing to
+jump to a chunk by id has a contract to build against: a sidecar `docs/plans/<slug>.chunk-index.json`
+mapping `{chunk_id: {heading, line_start, line_end}}` per `### C<n> — <title>` heading, in document
+order. Its emission point is `scaffold-plan`'s write-time commit, in the control-plane, and has not
+landed. Until it does, do not hand-roll the sidecar — treat chunk-id jump-to as heading-anchor-only
+and cite this paragraph when the emitter work is picked up.
+
 ## Plan Document Header
 
 **Every plan MUST start with this header:**
@@ -324,6 +331,11 @@ prime_exit_criterion:
     One falsifiable sentence naming what is true of the TREE when this plan has
     delivered — outcome-shaped, never a paraphrase of the task list.
   derived_from: state/sizings/<file>.yaml (or <goal_id>#kr-N) — a LINK, not a self-declaration
+  falsifier:
+    how: The probe run against baseline_ref, and re-run against HEAD at close-out.
+    baseline_ref: <full 40-char commit SHA> — the commit the baseline run was taken at, never a branch name or "HEAD"
+    baseline_output: What the probe returned at baseline_ref — MUST be red (§ Prime Exit Criterion below).
+    expected_when_true: What the probe returns once the criterion is TRUE.
 ---
 
 # [Feature Name] Implementation Plan
@@ -473,6 +485,14 @@ wrong — one said sound in kind, broken in detail, fix and keep; the other said
 the defect, delete it and read the spine dispositions. The doctrine did not say, so both readings
 were available and the plan paid a full review cycle plus a re-authoring pass.
 
+**Reviewer altitude is binary: named Opus persona, or no review.** Plan review is an Opus-persona
+judgment task (the Staff Engineer / the Game Dev Reviewer / the Director of Engineering / the Data Science Reviewer / the Front-End Reviewer / the UX Reviewer). `code-reviewer` is not one — it is the
+Sonnet **diff** reviewer, scoped to weak tests, dead code, unclear naming, and
+correctness/security on a frozen diff. The fork: plan merits review → named persona; it does not →
+skip review, implement, let `code-reviewer` catch the diff. The M rung still gets a named-persona
+review. The light terminal is an instance of "no review", not a third reviewer tier — the fork
+stays two-valued.
+
 ## Gated Exit Criteria (Fleet Brightlines)
 
 `gated_exit_criteria` is a top-level frontmatter list, sibling to `prime_exit_criterion`, that
@@ -610,9 +630,11 @@ Each list item is a task object with the following fields:
 | `body` | string block | optional | Multi-line detail. Maps to the queue entry's `body` field. |
 | `writes` | array of strings | **required on every non-deferred row** (`deferred: true` rows are exempt — harvest candidates, never dispatch candidates) | Repo-relative paths this task writes (plain strings; no glob syntax in this version). This is the surface-vs-write-files-set distinction `surface` points at above: `surface` is the single harvest/coverage primary target, `writes` is the net-new full write set, and write-overlap/wave-map derivation is a pure function of `writes` across the spine's rows. **Three spellings; name the one you wrote and never call any of them "empty".** Key **absent**, or **present with no value** (YAML null — colon, then nothing): equivalent, both *not-yet-knowable*. Such a row is not provably disjoint from any other, so it lands in a solo wave, which then refuses at commit time until the row is filled in. `writes: []` is the opposite — a **positive claim that this row writes nothing**: it may share a wave with declared-writes rows, and is excluded from that wave's commit pathspec. **Every entry is a file.** A trailing `/` or `\` is refused by the schema (`plan-tasks.schema.json` >= 2.0.0) and by the emitter; stripping the separator strands the wave. A memo row writes nothing here (`memo.send` commits in the receiver), so it spells `writes: []`. |
 | `writes_under` | array of strings | optional | Directory prefixes, each ending in `/` or `\`, for a row whose filenames are chosen at run time: a dated audit, a live run's output, a write into a growing corpus. Joins write-overlap and ordering like `writes`. The executor names the files it wrote under each prefix and the commit takes exactly those, bounded to the row's own prefixes. A row with a prefix and no `writes` reads as `writes: []`, never undeclared. A file you can name now belongs in `writes`, not here. |
-| `reads` | array of strings | optional | Repo-relative paths this task reads without writing. Same string-array shape as `writes`. Participates in wave ordering: the wave-builder computes the write-overlap gate from `writes`/`reads` together (see the `depends_on` row below), not from `writes` alone. |
-| `depends_on` | array of objects | optional; **absence is a positive claim of no non-computable gate on this row** | One entry per predecessor row this task's execution is gated on — object shape `{chunk, gate_kind, note?}`, never a bare chunk-id list. Required wherever the author imposes a gate the write-overlap graph cannot derive on its own (never for write-overlap itself — the wave-builder computes that from `writes`/`reads`). Full field shape, valid `gate_kind` values, and a worked example: § Substrate-Migration Sequencing below. |
-| `external_gate` | array of objects | optional | Declared blockers on work owned by ANOTHER repo — one entry per blocking party. Each entry: `owner_repo` (required, bare hyphenated repo shortname; confirm the spelling with `machine-local keys | grep '^repos\.'`; never this repo's own shortname — that's an intra-plan blocker, belongs on `depends_on` — and never a session id), `condition` (required, prose — what must become true before this row executes), `closure_evidence` (optional — memo path, commit SHA, or probe naming HOW closure is or will be verified; clears nothing on its own), `cleared` (optional bool — asserts the gate IS discharged; `cleared: true` clears it outright, `cleared: false` is an explicit negative that overrides a truthy `closure_evidence`), `closure_key` (optional object, `{kind, id}` — the machine-matchable IDENTITY of what discharges the gate, `kind` one of `deliverable`\|`memo-thread`; a reader matches it against a `discharges.closure_key` block on a cross-repo memo from `owner_repo` and may propose the `cleared: true` flip, never perform it), `blocks` (optional, enum `execution`\|`ac-closure`, default `execution` — whether the gate blocks the row's execution or only a named acceptance criterion's closure). A sibling field to `depends_on`, not nested in it: an external blocker has no local predecessor row, so it cannot fill `depends_on[].chunk`. NOT for intra-plan edges (use `depends_on`) and NOT a substitute for the write-overlap gate the wave-builder computes from `writes`/`reads`. |
+| `reads_at_head` | array of strings | optional | A **HEAD-time reference read** — the path as it stands when this row starts. **Never orders**: a sibling row that writes this same path does NOT order this row after it. Same string-array shape as `writes`. Declare this by default for a read that is only consulted, not consumed. |
+| `consumes` | array of strings | optional | The row needs another row's **output** at this path. **Orders**, exactly as legacy `reads` does: a path here that a sibling row `writes`/`writes_under` orders that writer before this row. Reach for this only where the row genuinely needs the sibling's produced content. |
+| `reads` | array of strings | **LEGACY — not authored on new rows** | Ordered exactly as `consumes` is ordered (never reinterpreted as a HEAD read — doing so silently drops ordering on a plan already carrying it). A live plan's owner splits it by hand into `reads_at_head`/`consumes` when they next touch the spine; `plan-spine-check` prompts this with a non-fatal `LEGACY-READS` line. Refused by the schema alongside either `reads_at_head` or `consumes` on the same row — a mixed row has no single honest reading (`plan-tasks.schema.json` >= 3.2.0). |
+| `depends_on` | array of objects | optional; **absence is a positive claim of no non-computable gate on this row** | One entry per predecessor row this task's execution is gated on — object shape `{chunk, gate_kind, note?}`, never a bare chunk-id list. Required wherever the author imposes a gate the write-overlap graph cannot derive on its own (never for write-overlap itself — the wave-builder computes that from `writes`/`writes_under`/`consumes`). Full field shape, valid `gate_kind` values, and a worked example: § Substrate-Migration Sequencing below. |
+| `external_gate` | array of objects | optional | Declared blockers on work owned by ANOTHER repo — one entry per blocking party. Each entry: `owner_repo` (required, bare hyphenated repo shortname; confirm the spelling with `machine-local keys | grep '^repos\.'`; never this repo's own shortname — that's an intra-plan blocker, belongs on `depends_on` — and never a session id), `condition` (required, prose — what must become true before this row executes), `closure_evidence` (optional — memo path, commit SHA, or probe naming HOW closure is or will be verified; clears nothing on its own), `cleared` (optional bool — asserts the gate IS discharged; `cleared: true` clears it outright, `cleared: false` is an explicit negative that overrides a truthy `closure_evidence`), `closure_key` (optional object, `{kind, id}` — the machine-matchable IDENTITY of what discharges the gate, `kind` one of `deliverable`\|`memo-thread`; a reader matches it against a `discharges.closure_key` block on a cross-repo memo from `owner_repo` and may propose the `cleared: true` flip, never perform it), `blocks` (optional, enum `execution`\|`ac-closure`, default `execution` — whether the gate blocks the row's execution or only a named acceptance criterion's closure). A sibling field to `depends_on`, not nested in it: an external blocker has no local predecessor row, so it cannot fill `depends_on[].chunk`. NOT for intra-plan edges (use `depends_on`) and NOT a substitute for the write-overlap gate the wave-builder computes from `writes`/`writes_under`/`consumes` (legacy `reads`). |
 | `traces_to_brief` | string | **required on every non-`deferred`, open/coded row when the plan body carries a `## PM brief` section** | A substring of that section's text, after whitespace normalisation, naming the brief phrase this row serves. Checked by `plan-spine-check.py` (`trace_ok`), which reports STRUCTURAL for a row that omits it or whose value paraphrases rather than quotes. A plan with no `## PM brief` section is exempt — the checker reports an informational `NO-BRIEF` line instead. A row that can quote no phrase is scope growth: surface it in the row body rather than inventing a trace. |
 
 **Which closure field to write.** Three fields on an `external_gate` entry look related and
@@ -708,6 +730,39 @@ invisible cannot be revised by anyone who did not write it, so this paragraph is
 **The airtime discriminator.** Where the EM is unsure how much depth a given cut deserves, the
 test is **load-bearingness**, not EM confidence — how much would break, or how much of the plan's
 outcome would change, if the cut turned out to be wrong, not how sure the EM feels about it.
+
+### Authoring for width
+
+Workflows exist to maximise concurrency and minimise wall clock — a two-wide workflow is a waste,
+even on a four-core box. A spine chained C1→C2→C3→...→CN runs about one wide regardless of what
+the scheduler can do, because the critical path IS the whole plan. Authoring for width is a
+drafting discipline, not a scheduler feature:
+
+- **Interface-first chunk in wave 0.** Put contracts, types, stubs and schema in one small chunk
+  that lands first, so every dependant builds against the contract instead of waiting on the
+  implementation. This also cuts cross-chunk seam defects: a dependant coded against a landed
+  interface cannot silently drift from an implementation that has not landed yet, the way two
+  chunks racing against a shared, evolving shape can.
+- **File-level `writes` over `writes_under`.** A directory prefix orders every row that shares it
+  as one blob; a file-level `writes` lets the wave-builder see two rows in the same directory as
+  disjoint.
+- **`reads_at_head` by default, `consumes` only for real output consumption.** A row that only
+  consults a sibling's file, never its output, orders itself needlessly behind that sibling if it
+  declares `reads`/`consumes` — declare `reads_at_head` instead, which never orders.
+- **Critical path ≤ ~⅓ of dispatchable rows**, measured by `plan-spine-check`'s `WIDTH` line
+  (`max=<n> critical-path=<k>/<N> share=<k/N>`). This is an authoring target, not a gate — the
+  checker reports the share, it never refuses on it.
+- **`## Width rationale`** is the one way to state why a spine is narrower than 3 dispatchable
+  rows — required whenever `plan-spine-check` reports `max < 3` and there are at least 3
+  dispatchable rows; absent that section, the flag fires (advisory, never fatal).
+
+**Worked example.** `docs/plans/2026-09-25-reviewer-attribution-commit-gate.md` chains 8 rows
+C1→C2→C3→C5→C7, so its critical path is roughly the whole plan. Rewritten interface-first: C1
+(schema/contract stub) lands alone in wave 0; C2, C3, C5 build against the landed contract and run
+concurrently in wave 1, each with disjoint file-level `writes` and `reads_at_head` (not `reads`)
+against C1's output; C7 (the row that actually consumes what C2/C3/C5 produce) declares `consumes`
+against their `writes` and lands in wave 2. Three waves rather than five serialized rows, and the
+critical path drops from "the whole chain" to two hops.
 
 ### Grouping Approvals — the live ratification mechanism
 
@@ -808,6 +863,24 @@ field table above) — the "filenames chosen at run time" case it exists for —
 entry naming a guessed filename. `writes:` freezes at spine-emission time; a guessed filename
 frozen there diverges from the allocator-assigned one, and the committer refuses the undeclared
 path as a pathspec divergence. Prose in the row cannot widen a scope emission already froze.
+
+### App Router Dynamic Segments: Name the File in writes:
+
+A Next.js App Router path (`src/app/(main)/players/[slug]/page.tsx`) names a concrete file, not a
+glob, even though it carries `[`/`]`/`(`/`)` — declare it directly in `writes:` and keep
+file-level collision detection. The emitter's pathspec derivation (`inventory_mint.is_glob_pathspec`,
+`pathspec.py`) treats a bracket or paren confined to a WHOLE path segment — a dynamic route
+segment (`[slug]`, `[...slug]`, `[[...slug]]`) or a route group (`(main)`) — as literal, never as
+glob metacharacter; only a bare `*`, `?`, or a bracket/paren that spans more than one segment or
+is unbalanced is refused as an unbounded pathspec. The committer receives the path with git's own
+`:(literal)` pathspec magic prefixed automatically, so git's default glob-reading of `[`/`]`
+never disagrees with this classification.
+
+Fall back to `writes_under: ["app/<route>/[param]/"]` only for the ordinary "filenames chosen at
+run time" case (see New Decision Records above) — never merely because the filename contains
+brackets. If a footprint entry's brackets/parens are NOT confined to a whole segment (a stray
+`[` mid-segment, or a shape this rule does not recognize), an explicit `:(literal)`-prefixed
+entry is also accepted.
 
 ## Full-Coverage Scoping — Default Is the Complete Problem Set
 

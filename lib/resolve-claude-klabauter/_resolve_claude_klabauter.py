@@ -346,6 +346,7 @@ PUBLISHER_ONLY_TARGETS = frozenset({
     "coordinator-validate-local-config.py",
     "engine-gap-lint.py",
     "percolate-gate.py",
+    "percolate-mirror.py",
     "percolate-push.py",
     "percolate-round.py",
     "publish-time-transform-py.py",
@@ -1251,7 +1252,24 @@ def _resolve_publisher_root() -> str:
     Says "does not ship in the mirror", never "runs the percolate engine":
     only half the set does, and a reader told the wrong reason checks the
     wrong thing. ``engine-gap-lint`` and ``check-persona-slug-leak`` import
-    no percolate module at all; they are here because publish DENIES them."""
+    no percolate module at all; they are here because publish DENIES them.
+
+    BV-20260927-05 fix 4: ``COORDINATOR_ENGINE_SOURCE_ROOT`` — the LOCATOR-
+    axis variable ``percolate-mirror.py``'s own ``_bootstrap_engine`` already
+    honours for ITS internal dispatch — is checked FIRST, ahead of
+    ``_resolve_claude_klabauter_root``'s ``COORDINATOR_ENGINE_ROOT``/registry/sentinel
+    ladder (all DISPATCH-axis, see that function's own DR-326 note). Before
+    this, the settings-home launcher for a publisher-only target consulted
+    only the dispatch ladder, so an operator who set
+    ``COORDINATOR_ENGINE_SOURCE_ROOT`` per this CLI's own printed remediation
+    still got no effect from the launcher — it never reached this seam at
+    all, and the launcher fell back to whichever root the dispatch ladder
+    picked (frequently a published mirror missing ``percolate-round.py``
+    entirely, the live "missing percolate-round.py" failure this closes)."""
+    source_override = (os.environ.get("COORDINATOR_ENGINE_SOURCE_ROOT") or "").strip()
+    if source_override and os.path.isdir(source_override):
+        return source_override.rstrip("/").rstrip("\\")
+
     ml_dir = _ml_dir()
     try:
         return _resolve_claude_klabauter_root(ml_dir)
@@ -1261,7 +1279,9 @@ def _resolve_publisher_root() -> str:
             + "\n  NOTE: this is a publisher-only CLI — the publish allowlist denies "
             "it, so it exists only in the live claude-klabauter checkout. The published "
             "engine mirror (repos.claude_klabauter) is the publish DESTINATION and "
-            "cannot satisfy it; set repos.claude_klabauter.\n"
+            "cannot satisfy it; set repos.claude_klabauter, or set "
+            "COORDINATOR_ENGINE_SOURCE_ROOT=<path to the source checkout>, or run it "
+            "directly: `python <source-checkout>/coordinator/bin/<name>.py`.\n"
         ) from exc
 
 

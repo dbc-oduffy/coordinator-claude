@@ -1,6 +1,6 @@
 ---
 name: falsifier-integrity-reviewer
-description: "Statically reviews a plan's recorded exit-criterion falsifier for construction defects — can this instrument report red at all. Sees exactly what the falsifier was allowed to see, plus the falsifier's own report; never the ACs, chunk bodies, or task spine."
+description: "Statically reviews a plan's exit-criterion falsifier for construction defects — can it report red at all. Sees only what the falsifier saw, plus its report."
 model: sonnet
 effort: low
 color: yellow

@@ -188,61 +188,6 @@ appearing inside the note alone. A genuine redirect or `tee` riding alongside th
 still denies -- only the CLI's own expected indirection is exempted, not an actual write smuggled
 into the same command.
 
-## review-integrator sidecar intake -- what the guard is redirecting you away from {#review-integrator-sidecar-intake}
-
-`review-integrator` applies a reviewer's findings to an artifact strictly from files on disk: a
-findings sidecar plus the artifact path(s), never findings pasted inline into the dispatch prompt.
-A sufficiently confident, concretely-specified brief -- real file paths, verified measurements,
-unambiguous instructions -- can walk straight through a prose-only stop; that observed failure mode
-is why a mechanical guard now enforces this at dispatch time instead of relying on prose alone.
-
-A dispatch satisfies the guard iff its prompt text NAMES a sidecar path shaped like
-`state/subagent-share/<session>/<key>.md` AND that exact path exists on disk.
-Everything else denies: inline findings with no sidecar path at all, a path that is named but not
-yet on disk (stale citation, or the reviewer was never actually dispatched to provision it), or a
-real sidecar that exists on disk but was never named in THIS dispatch's prompt (see the
-closed-rationalization-hole note below).
-
-If you have hit this guard, there are three ways forward, in order of likelihood:
-
-- **This is plan-body maintenance, not reviewer-findings application.** Dispatch
-  `coordinator:enricher` instead -- review-integrator applies a reviewer's sidecar findings, it
-  does not author or maintain plan bodies.
-- **This genuinely is reviewer findings.** Re-dispatch the reviewer instead: sidecar provisioning
-  auto-creates a sidecar at spawn (`state/subagent-share/<session>/<key>.md`), and that path is
-  what this dispatch needs to name.
-- **Defect-recovery only** -- a reviewer already ran and its output was lost from the sidecar:
-  write the reviewer's verbatim output into the already-provisioned sidecar path, then re-dispatch
-  review-integrator naming that exact path in the prompt.
-
-### `.coordinator-local/plan-sidecars/` is never the answer here, even for a `staff-eng-review`-lens plan review
-
-A persona's findings on a PLAN can look, at a glance, like they belong next to the plan-pipeline
-lens sidecars (`.coordinator-local/plan-sidecars/<plan-stem>.prior-art-check.md` and siblings) -- they don't.
-`state-placement-law.md`'s two rows are explicit about the split: `.coordinator-local/plan-sidecars/` is
-reserved for exactly four plan-derivable, D0/Z2-relocated, UNREAPED-BY-DESIGN lens emitters
-(prior-art-check, plan-coverage-check, docs-check, external-pattern) whose whole purpose is
-cross-run continuity at a fixed plan-derived path. `staff-eng-review` (and every other persona
-finding, code review included) stays session-keyed at `state/subagent-share/<session>/<key>.md`,
-the one home the typed-sidecar contract gives it, reaped on an age/liveness floor once its
-content folds into a consuming
-artifact -- a fundamentally different lifecycle than the unreaped lens sidecars. A persona findings
-sidecar that lands under `.coordinator-local/plan-sidecars/` didn't move because the guard's regex is narrow; it
-moved because provisioning put it in the wrong family. Widening `_SIDECAR_PATH_RE` to also admit
-`.coordinator-local/plan-sidecars/` would fix the symptom by erasing that reap-lifecycle distinction -- resist
-it. The fix is re-dispatching (or re-provisioning) the persona so its findings land at its own
-auto-provisioned `state/subagent-share/` path, not teaching the guard to accept the wrong family.
-
-### The closed rationalization hole
-
-This guard deliberately checks "named in this dispatch's prompt AND present on disk" -- never
-"present on disk" alone. A "some sidecar exists somewhere under
-`state/subagent-share/<session>/`" fallback would silently re-open a failure mode already observed
-in the field: a dispatcher treating an unrelated pre-existing sidecar as a correction order against
-it, simply because one happened to exist on disk. Resist adding one even as a convenience for a
-genuinely-provisioned-but-unnamed sidecar -- the correct remedy in that case is to name the path in
-the dispatch prompt, not for the guard to go find it on the dispatcher's behalf.
-
 ## Unnamed Explore Dispatch: Cost and Guarantee {#unnamed-explore-dispatch-cost-and-guarantee}
 
 When the EM dispatches a doctrine-carrying agent (any `subagent_type` other than `Explore`/
@@ -867,7 +812,7 @@ the hook never treats an unreachable matcher as a reason to stay silent or to cr
 ## Workflow offer nudge {#workflow-offer-nudge}
 
 This advisory (`nudge-multiwave-workflow.py`) fires on a `PreToolUse` `Agent` dispatch when the
-EM hand-dispatches the Nth write-capable executor (or `review-integrator`/`enricher`) within a
+EM hand-dispatches the Nth write-capable executor (or `enricher`) within a
 rolling window — N defaults to 4 dispatches within 30 seconds. It is advisory only and never
 blocks: the tool call it fired on always proceeds.
 

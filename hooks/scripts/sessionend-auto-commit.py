@@ -100,13 +100,25 @@ _HOOKS_JSON_REGISTERED_TIMEOUT_SECS = 30
 _SUBPROCESS_TIMEOUT_SECS = 22
 
 # Grace window between the soft terminate and the hard kill. NEGATIVE SPEC:
+# `subprocess.run(timeout=)` hard-kills (SIGKILL / TerminateProcess) the moment
+# the bound expires, so no frame in the child ever runs -- including the
+# `try/finally` in `run_commit_pipeline` whose whole job is to unstage the
+# residue it staged. Staged-and-abandoned is the worst of the three possible
+# states on a shared `work/*` branch: the next bare `git commit` from any
+# concurrent session absorbs those paths into an unrelated commit. Untracked
+# would be inert; committed would be a paper trail. Hence terminate-then-wait-
+# then-kill rather than a bare `run(timeout=)`.
 _TERMINATE_GRACE_SECS = 4
 
 # Post-kill pipe-drain wait. Deliberately smaller than _TERMINATE_GRACE_SECS:
+# after a hard kill() the child is gone and its pipes close immediately, so
+# this only needs to cover the OS's own teardown latency, not the grace period
+# a still-alive child gets to actually run its cleanup.
 _POST_KILL_DRAIN_SECS = 2
 
 # Worst case: _SUBPROCESS_TIMEOUT_SECS + _TERMINATE_GRACE_SECS +
 # _POST_KILL_DRAIN_SECS == 22 + 4 + 2 == 28s, comfortably under the 30s
+# ceiling mirrored above.
 
 
 def _read_stdin(timeout: float = 2.0) -> str:
@@ -195,7 +207,12 @@ def main() -> int:
         _log_diagnostic(payload, f"safe-commit-offer subprocess failed to spawn: {exc}")
         return 0
 
+    # Popen + communicate(timeout=) rather than subprocess.run(timeout=) --
     # see the `_TERMINATE_GRACE_SECS` negative-spec block above for why.
+    # NOTE (Windows): `Popen.terminate()` IS `TerminateProcess` on Windows --
+    # there is no softer signal to send, so the soft-terminate path degrades
+    # to the same hard-kill behaviour there. That is a platform limit, not a
+    # bug this hook can work around.
     try:
         _stdout, stderr = proc.communicate(timeout=_SUBPROCESS_TIMEOUT_SECS)
         returncode = proc.returncode
@@ -236,7 +253,13 @@ def main() -> int:
         _log_diagnostic(payload, f"safe-commit-offer subprocess failed: {exc}")
         return 0
 
+    # Exit 0 (ran, nothing-to-commit-is-a-valid-outcome included) and exit 1
+    # (session id unresolvable -- shouldn't happen here since we pass
+    # --session explicitly, but the CLI degrades to it rather than raising)
+    # are both expected outcomes, never worth a diagnostic. Exit 2 (usage
+    # error -- would indicate a bug in THIS hook's own invocation) and exit 3
     # (transport failure -- CLAUDE_KLABAUTER_ROOT resolvable here but not inside the
+    # trampoline, or the engine import failed) are genuinely unexpected.
     if returncode not in (0, 1):
         _log_diagnostic(
             payload,

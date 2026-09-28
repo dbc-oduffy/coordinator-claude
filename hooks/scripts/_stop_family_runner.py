@@ -229,8 +229,11 @@ def run_stop_family_guards(
     return combined_exit, combined_text
 
 
+#: C4b enrolment registry: the four Stop-family guards
 #: `_stop_family_runner_contract.ENROLLED_GUARD_MODULES` names, each paired
 #: with its descriptor from `STOP_FAMILY_SCOPE_DESCRIPTORS` (imported, never
+#: copied -- the object `postuse-stop-family-dispatch.py` wires is the SAME
+#: object `test_stop_family_runner_contract.py` verifies).
 REAL_STOP_FAMILY_REGISTRY: Tuple[RegisteredStopFamilyGuard, ...] = tuple(
     RegisteredStopFamilyGuard(
         module_key=name.replace("-", "_").replace(".py", ""),

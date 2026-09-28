@@ -55,7 +55,9 @@ from typing import Optional
 
 
 #: See module docstring "HARNESS-SHAPE CARVE-OUT" -- harness-owned dispatch shapes the
+#: engine roster does not yet enumerate. Provisional; removed once the
 #: engine plane's `_HARNESS_BUILTIN_TYPES` carries the entry. NEVER grows to hold
+#: coordinator-authored or plugin agent types.
 _HARNESS_SHAPES_NOT_IN_ENGINE_ROSTER = frozenset({"fork"})
 
 

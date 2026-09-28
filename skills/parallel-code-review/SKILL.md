@@ -120,8 +120,8 @@ member. The primary `Workflow` path above does not depend on this.
 
 - **Chunk reviewers** (`agents/code-reviewer-weekly.md`, skip all if `SKIP_CODE_SEMANTICS=1`): one
   per chunk, its file-scope list plus `$DIFF_PATH`, writing **only** `$FINDINGS_DIR/chunk-<k>.md`
-  incrementally. Marks `escalate_to_architecture: true` where relevant. Read-only on source. No
-  AUTO-FIX — the integrator is a separate cycle.
+  incrementally. Marks `escalate_to_architecture: true` where relevant. Findings the reviewer
+  applies land in the diff itself, verified via `review-findings-ledger verify`, not this file.
 - **security-audit-worker**: `$DIFF_PATH` → `$FINDINGS_DIR/security.md`.
 - **dep-cve-auditor**: repo manifests at HEAD vs. `$DIFF_PATH` → `$FINDINGS_DIR/deps.md`.
 - **test-evidence-parser**: `$TEST_OUTPUT_PATH` → `$FINDINGS_DIR/tests.md` via one `Edit` on the

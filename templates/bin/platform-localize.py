@@ -81,7 +81,10 @@ def _resolve_coordinator_root() -> str:
             where the fixed CLAUDE_HOME path may not be installed yet).
     Raises RuntimeError if neither resolves.
     """
+    # Path.home() (not os.path.expanduser) fails loud -- RuntimeError, not a
     # silent "~" -- when every home rung (USERPROFILE, HOME) is unset; this
+    # is a fail-loud install script (see module docstring's exit-code
+    # contract), so a resolution failure here belongs in that same posture.
     claude_home = os.path.join(os.environ.get("CLAUDE_HOME") or str(Path.home()), ".claude")
     candidates = [
         os.path.join(claude_home, "bin", "resolve-coordinator-clone"),
@@ -117,6 +120,10 @@ def _resolve_coordinator_root() -> str:
 
 def _import_main():
     # Rung 0 — COORDINATOR_ENGINE_ROOT env, honored directly.
+    # cc_invoke.py migrated to the engine plane with the executable surface
+    # (b644d5a9), so on a post-migration content root the cc_invoke import
+    # below is unreachable until the engine root is already known —
+    # env-pinned callers (tests, install legs) break that cycle.
     env_engine_root = os.environ.get("COORDINATOR_ENGINE_ROOT")
     if env_engine_root and os.path.isdir(env_engine_root):
         engine_root = env_engine_root

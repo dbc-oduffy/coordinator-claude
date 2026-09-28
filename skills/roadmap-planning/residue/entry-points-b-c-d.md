@@ -11,6 +11,8 @@ When a `kind: roadmap-seed` stub is actioned via `/pickup`, the stub's `authorin
 
 **Stub lifecycle:** set `deployment_state: in_flight` on the roadmap-seed stub when Phase 1 begins; set `deployment_state: shipped` (via the normal `/workstream-complete` path) when Phase 2 completes and the resulting roadmap-baton stubs are committed.
 
+**Multi-seed pickup — one goal minted several coupled roadmap-seed stubs.** Run a single roadmap-planning pass across all of them, under one `run-id` (not one per stub): set it from the goal, not from any single stub's `stub_id`. Use each stub's scope description as its own Phase 1 cluster seed (item 2, repeated per stub); every resulting roadmap-baton stub's `covers:` traces back to the originating roadmap-seed stub id, so the coupling is recoverable from `covers:` alone, not from `run-id`. Apply the stub-lifecycle transitions (item above) to each seed stub independently — they complete together only if their batons ship together.
+
 ### Entry Point C — Chain from `/shape` (ratified problem-set, `estimated_horizon: week`)
 
 When `/shape` ratifies a problem-set whose `estimated_horizon` field is `week`, it routes here instead of `coordinator:plan`. The ratified problem-set (`docs/problems/<slug>.md`) is the oracle that replaces the research corpus as the cluster seed.

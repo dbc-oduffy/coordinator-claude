@@ -151,6 +151,12 @@ def _resolve_goal_candidates(repo_root: str, text: str) -> list:
         return []
 
     # STOP-FAMILY-RUNNER-CONTRACT clause 8 (sys.path ordering): append,
+    # never insert at index 0 -- the hooks dir (inserted at the top of this
+    # module) must stay ahead of the sibling engine root on sys.path.
+    # Index-1 placement via the shared primitive: hooks dir stays at 0, engine root
+    # outranks site-packages. A bare append put it BEHIND an editable install of the
+    # engine, so the resolver answered the mirror and the import returned the working
+    # tree -- see _engine_root.place_engine_root_on_path.
     _place_engine_root_on_path(root)
 
     try:
@@ -164,7 +170,12 @@ def _resolve_goal_candidates(repo_root: str, text: str) -> list:
         if handler is None:
             return []
 
+        # goal.match_candidates is keyed on git_common_dir (coordinator_core/ipc.py
         # WORKTREE_SCOPED_OPS comment: "goal.match_candidates -- keyed on
+        # git_common_dir: reads state/goals/ under main_worktree_root(common_dir)").
+        # The handler derives the worktree root as common_dir.parent -- passing the
+        # worktree root itself here (what git rev-parse --show-toplevel gives us)
+        # would make it look one directory too high and always return [].
         common_dir = git_common_dir(Path(repo_root))
 
         result = asyncio.run(

@@ -1,8 +1,10 @@
 """Stop-hook guard -- hard-stop a close whose Kira (overengineering-reviewer)
 verdict was never routed anywhere.
 
-Spec: docs/plans/2026-08-30-kira-verdict-routing-join-key.md (chunk C5).
-Dispatch brief: state/dispatch-briefs/2026-08-30-kira-verdict-routing-join-key/C5.md
+Spec: docs/plans/2026-09-27-review-inside-execute-plan.md (chunk C5).
+Historical spec: docs/plans/2026-08-30-kira-verdict-routing-join-key.md
+(chunk C5). Dispatch brief: state/dispatch-briefs/2026-08-30-kira-verdict-
+routing-join-key/C5.md
 
 THE PROBLEM. `/workstream-complete` doctrine is emphatic that Kira fires on
 every close, that her findings route through `review-integrator`
@@ -72,36 +74,47 @@ merely "this session opened before 2026-08-30" -- delete
 that date, nor any predecessor reachable through a chain, can still
 close.
 
-THE DECISION -- from frontmatter, plus exactly ONE body read. Every routing
-fact comes from a column-zero frontmatter key; the single exception is the
-`## Integrator Dispositions` heading, read off the verdict's own body by
-`_has_recorded_dispositions` (and by `_is_untouched_scaffold`, which reads a
-body only to tell a killed agent from a silent one). That heading is the
-ONLY routing record reachable when a fire dies before its integrator lands:
-no sibling sidecar exists to carry `integrated_from`, and both honest routes
-to authoring one are refused (see `_has_recorded_dispositions`). A reader who
-takes the decision for frontmatter-only concludes a recorded dispositions
-block cannot discharge this guard, and re-dispatches an integrator whose
-findings are already applied -- the reported miss `_find_answers` documents.
+THE DECISION -- from frontmatter only, review-integrator retired
+(docs/plans/2026-09-26-retire-review-integrator.md). Kira now runs inside
+every execute-review wave (parallel, findings-only) rather than once at
+/workstream-complete; her sidecar lands in the EM session's own share dir,
+which `compose-review-wave` provisions. Both conditions below are decided
+from column-zero frontmatter keys alone -- no body read of any kind.
   1. No Kira sidecar in the session share dir, but other review activity
      is present -> BLOCK (a close that reviewed something owed Kira a run
      too). A PLAN review never counts as that "something": Kira reviews the
-     CODE diff at /workstream-complete, so a sidecar whose `plan:` field
-     points at `docs/plans/*.md`, an `apm` agent_type, or a
-     review-integrator run that answered only such sidecars, is excluded
-     from this condition's detection (`_is_plan_review`,
-     `_block_condition_1`).
-  2. A Kira sidecar carrying `findings_count > 0` with no sibling sidecar
-     stamping `integrated_from` naming it, and no `## Integrator
-     Dispositions` block recorded on the verdict itself -> BLOCK. That block
-     is the routing record when no integrator survived to write a sibling. The owed route is
-     named unconditionally in the message (review-integrator, or a
-     refactor executor if the verdict recommended a rebuild) -- an
-     unanswered ordinary verdict and an unanswered rebuild verdict are
-     the same failure: an unrouted Kira sidecar.
+     CODE diff in the execute workflow, never a plan, so a sidecar whose
+     `plan:` field points at `docs/plans/*.md`, an `apm` agent_type, or a
+     review-integrator-shaped run that answered only such sidecars, is
+     excluded from this condition's detection (`_is_plan_review`,
+     `_block_condition_1`). Predicate unchanged from the prior spec.
+  2. A Kira sidecar carrying `findings_count > 0` with no answer -> BLOCK.
+     Reviewers apply their own findings in place ("Apply, Then Ledger, Then
+     Verify" -- coordinator/agents/overengineering-reviewer.md); a verified
+     `findings_ledger` stamped on the Kira sidecar's OWN frontmatter
+     (`_has_verified_ledger`) is therefore an answer by itself -- no sibling
+     sidecar is required to name it. The remaining answers, now that
+     review-integrator has retired: a sibling sidecar stamping
+     `agent_type: coordinator:code-reviewer`, whose `integrated_from` names
+     this Kira stem, AND whose frontmatter carries a verified
+     `findings_ledger` (the `review-findings-ledger verify` terminal stamp
+     -- `verify` writes this key on a passing run only, so its bare
+     PRESENCE in this guard's flat, column-zero-only parse is proof enough;
+     see `_read_frontmatter`'s nested-block handling); OR a sibling naming
+     this stem via `integrated_from` that is NOT itself a retired
+     review-integrator (the schema's sole remaining writer of that field
+     besides code-reviewer is the rebuild-route executor -- see
+     `review-findings.schema.json`'s `integrated_from` description).
+     Nothing else answers: a `## Integrator Dispositions` body heading and
+     a `review-integrator` `agent_type` both stop being answers -- the
+     agent and the heading it wrote are retired together. The owed route
+     is named unconditionally in the message (the execute-review
+     integration pass, or a rebuild executor if the verdict recommended a
+     rebuild) -- an unanswered ordinary verdict and an unanswered rebuild
+     verdict are the same failure: an unrouted Kira sidecar.
 
-A third condition -- blocking a rebuild verdict answered by BOTH an
-integrator AND a refactor executor -- was cut (staff-eng review,
+A third condition -- blocking a rebuild verdict answered by BOTH a
+code-reviewer and a refactor executor -- was cut (staff-eng review,
 2026-08-30): it could only fire when both answering agents had already
 stamped `integrated_from` correctly, which is the exact compliance whose
 absence is the problem this guard exists to catch; condition 2 already
@@ -131,7 +144,6 @@ import json
 import os
 import sys
 import time
-from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -391,6 +403,9 @@ def _block_condition_1(in_scope: list[tuple[str, dict]]) -> bool:
 
 
 def _find_answers(kira_filename: str, in_scope: list[tuple[str, dict]]) -> list[str]:
+    """Filenames of sibling sidecars whose `integrated_from` names this Kira
+    stem AND which count as an answer under the retired-review-integrator
+    contract (`_counts_as_answer`)."""
     stem = _kira_stem(kira_filename)
     answers: list[str] = []
     for f, m in in_scope:
@@ -403,131 +418,43 @@ def _find_answers(kira_filename: str, in_scope: list[tuple[str, dict]]) -> list[
             continue
         if stem not in integrated and kira_filename not in integrated:
             continue
+        if not _counts_as_answer(m):
+            continue
         answers.append(f)
     return answers
 
 
-#: The heading `append-integrator-dispositions` writes onto the REVIEWER's own
-_DISPOSITIONS_HEADING = "## Integrator Dispositions"
+def _has_verified_ledger(meta: dict) -> bool:
+    """True when this sidecar's OWN frontmatter carries a non-empty
+    `findings_ledger:` stamp (written by `review_findings_ledger.verify`,
+    docs/plans/2026-09-26-retire-review-integrator.md row M4). A verified
+    ledger on Kira's own sidecar satisfies routing directly -- it never
+    needs a separate sibling sidecar to name it via `integrated_from`."""
+    value = meta.get("findings_ledger")
+    if isinstance(value, list):
+        return bool(value)
+    return isinstance(value, str) and bool(value.strip())
 
 
-def _body_lines(path: str) -> list[str]:
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
-            lines = fh.read().splitlines()
-    except OSError:
-        return []
-    if not lines or lines[0].strip() != "---":
-        return lines
-    for i in range(1, len(lines)):
-        if lines[i].strip() == "---":
-            return lines[i + 1:]
-    return []
+_CODE_REVIEWER_AGENT_TYPE = "code-reviewer"
+_RETIRED_INTEGRATOR_AGENT_TYPE = "review-integrator"
 
 
-def _has_recorded_dispositions(path: str) -> bool:
-    lines = _body_lines(path)
-    for i, line in enumerate(lines):
-        if line.strip() != _DISPOSITIONS_HEADING:
-            continue
-        for rest in lines[i + 1:]:
-            stripped = rest.strip()
-            if not stripped or stripped.startswith("<!--"):
-                continue
-            if stripped.startswith("#"):
-                break
-            return True
-    return False
-
-
-def _is_untouched_scaffold(path: str) -> bool:
-    for line in _body_lines(path):
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or stripped.startswith("<!--"):
-            continue
+def _counts_as_answer(meta: dict) -> bool:
+    """review-integrator retired (docs/plans/2026-09-26-retire-review-
+    integrator.md): its own `integrated_from` stamp, and the `## Integrator
+    Dispositions` body heading it used to write, both stop being answers.
+    The two remaining answers, per `review-findings.schema.json`'s
+    `integrated_from` description: a code-reviewer sidecar whose findings
+    were VERIFIED (`findings_ledger` present -- `review-findings-ledger
+    verify` writes that key on a passing run only), or the rebuild-route
+    executor -- the schema's sole other writer of `integrated_from`."""
+    agent_type = _normalize_agent_type(meta.get("agent_type"))
+    if agent_type == _RETIRED_INTEGRATOR_AGENT_TYPE:
         return False
+    if agent_type == _CODE_REVIEWER_AGENT_TYPE:
+        return "findings_ledger" in meta
     return True
-
-
-def _unstamped_integrators(
-    in_scope: list[tuple[str, dict]], paths: dict | None = None
-) -> list[str]:
-    """Filenames of sibling sidecars that RAN an integrator but stamped no
-    `integrated_from`.
-
-    `integrator_receipt` is spliced into an integrator's own sidecar
-    frontmatter by the engine at spawn (`subagent_sandbox/provision_report.
-    _splice_integrator_receipt`), so its presence is proof a review-integrator
-    actually ran; `integrated_from` is a separate manual Edit the agent makes
-    afterwards (`agents/review-integrator.md` § The one write after your
-    disposition block). The two come from different writers, so a receipt
-    without a stamp spans THREE states this guard cannot tell apart: an
-    integrator still in flight (the receipt is spliced at spawn, before the
-    agent has read anything), one that finished and skipped only that last
-    Edit, and -- to condition 2 -- one that was never dispatched at all.
-
-    A FOURTH state is excluded rather than blocked: a sidecar whose body is
-    still the provisioned scaffold. Its agent was killed before it read
-    anything — the receipt was spliced at spawn — so naming it sends the EM to
-    wait on a run that will never finish. See `_is_untouched_scaffold`.
-
-    The other three still BLOCK: the stamp is genuinely absent in every case
-    and the guard has no business inventing it. They differ in the REMEDY, and naming
-    the wrong one is not cosmetic in either direction. Telling an EM to
-    dispatch an integrator that already ran invites a re-dispatch of findings
-    already discharged, the exact miss `_find_answers` was widened to avoid;
-    telling an EM to hand-stamp one that is still running invites attesting
-    dispositions that do not exist yet. The message therefore names the
-    in-flight possibility rather than asserting the integrator finished.
-
-    Detected by KEY PRESENCE, not by value. `_read_frontmatter` is a flat
-    column-zero line-scan, so a nested block surfaces as its bare key with an
-    empty scalar and its sub-keys are skipped -- exactly the shape the engine
-    writes. Testing the value for a dict would never match and the branch
-    would be dead."""
-    return [
-        f
-        for f, m in in_scope
-        if "integrator_receipt" in m
-        and not m.get("integrated_from")
-        and not (paths and _is_untouched_scaffold(paths.get(f, "")))
-    ]
-
-
-_NAMES_SHOWN = 5
-
-
-def _name_a_few(names: list[str]) -> str:
-    ordered = sorted(names)
-    if len(ordered) <= _NAMES_SHOWN:
-        return ", ".join(ordered)
-    rest = len(ordered) - _NAMES_SHOWN
-    return f"{', '.join(ordered[:_NAMES_SHOWN])}, and {rest} more"
-
-
-def _integrators_that_could_have_received(
-    kira_meta: dict, unstamped: list[str], in_scope: list[tuple[str, dict]]
-) -> list[str]:
-    reviewed_at = _spawned_at(kira_meta)
-    if reviewed_at is None:
-        return unstamped
-    later = [
-        f
-        for f in unstamped
-        for m in (dict(in_scope).get(f) or {},)
-        if (_spawned_at(m) or reviewed_at) >= reviewed_at
-    ]
-    return later or unstamped
-
-
-def _spawned_at(meta: dict):
-    raw = (meta or {}).get("spawned_at")
-    if not isinstance(raw, str) or not raw.strip():
-        return None
-    try:
-        return datetime.fromisoformat(raw.strip().strip("'\""))
-    except ValueError:
-        return None
 
 
 _LIVE_JOURNAL_SECONDS = 2 * 60 * 60
@@ -660,10 +587,8 @@ def main() -> int:
         return 0
 
     entries: list[tuple[str, dict]] = []
-    paths: dict[str, str] = {}
     for fname, fpath in listed:
         entries.append((fname, _read_frontmatter(fpath)))
-        paths[fname] = fpath
 
     if not entries:
         return 0
@@ -693,42 +618,20 @@ def main() -> int:
         kira_entries = []
     for kira_file, kira_meta in kira_entries:
         findings_count = _to_int(kira_meta.get("findings_count"))
+        if findings_count is not None and findings_count > 0 and _has_verified_ledger(kira_meta):
+            continue
         answers = _find_answers(kira_file, in_scope)
 
-        if _has_recorded_dispositions(paths.get(kira_file, "")):
-            continue
-
         if findings_count is not None and findings_count > 0 and not answers:
-            ran_but_unstamped = _integrators_that_could_have_received(
-                kira_meta, _unstamped_integrators(in_scope, paths), in_scope
+            reasons.append(
+                f"- {kira_file} stamps findings_count={findings_count} with no "
+                f"sibling sidecar's integrated_from naming it. Owed route: the "
+                f"execute-review integration pass -- a code-reviewer sidecar "
+                f"naming {_kira_stem(kira_file)} in its own `integrated_from` "
+                f"and carrying a verified `findings_ledger` (`review-findings-"
+                f"ledger verify --sidecar <that sidecar>`) -- or a refactor "
+                f"executor if the verdict recommended a rebuild."
             )
-            if ran_but_unstamped:
-                named = _name_a_few(ran_but_unstamped)
-                reasons.append(
-                    f"- {kira_file} stamps findings_count={findings_count} with no "
-                    f"sibling sidecar's integrated_from naming it. An integrator "
-                    f"was dispatched ({named} carries an integrator_receipt, "
-                    f"which the engine splices AT SPAWN) -- so it is either "
-                    f"still in flight or finished having skipped only the "
-                    f"stamp -- do NOT re-dispatch it. If it is still running, "
-                    f"wait; hand-stamping now would attest dispositions that "
-                    f"do not exist yet. Once it has finished, add a top-level "
-                    f"`integrated_from: [{_kira_stem(kira_file)}]` to that "
-                    f"sidecar's frontmatter at column zero, verify its "
-                    f"dispositions are the ones you actually landed, and re-close."
-                )
-            else:
-                reasons.append(
-                    f"- {kira_file} stamps findings_count={findings_count} with no "
-                    f"sibling sidecar's integrated_from naming it. Owed route: "
-                    f"review-integrator, or a refactor executor if the verdict "
-                    f"recommended a rebuild. Where the wave that would have "
-                    f"integrated these findings is dead (a killed fire leaves "
-                    f"untouched scaffolds), record the dispositions you landed "
-                    f"on {kira_file} itself with append-integrator-dispositions; "
-                    f"that block answers this verdict. Never stamp a receipt on "
-                    f"an agent that did not run."
-                )
 
     if not reasons:
         return 0

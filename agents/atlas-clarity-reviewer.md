@@ -1,6 +1,6 @@
 ---
 name: atlas-clarity-reviewer
-description: "Per-page clarity verdict for one architecture atlas page — followability, boundary-entry specificity, ambiguity risk. Never accuracy/citations (C4's mechanical job); never rewrites the page."
+description: "Per-page clarity verdict for one atlas page — followability, boundary-entry specificity, ambiguity risk. Never accuracy/citations (C4's job); never rewrites the page."
 model: sonnet
 effort: low
 color: teal

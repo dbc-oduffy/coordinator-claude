@@ -915,8 +915,8 @@ plan-body edit from an executor identity correctly, but only after the brief has
 written and dispatched, which is an expensive way to learn the routing. **Route plan-body edits by
 job shape, not by naming the file as in-scope:** naming `docs/plans/<file>.md` as "your only write
 scope" in an executor brief does not lift the guard, because the guard reads the dispatched agent's
-*type*, not the brief's scope claim. A plan-body edit belongs to the enricher, the
-review-integrator, or the EM inline — never an executor, however narrowly its brief is scoped.
+*type*, not the brief's scope claim. A plan-body edit belongs to the enricher or the EM inline —
+never an executor, however narrowly its brief is scoped.
 
 ## Fan-Out Scan Success Must Be Measured Per-File, Not Per-Batch
 
@@ -1245,9 +1245,13 @@ The doctrine floor in `coordinator/snippets/disk-first-done-preamble.md` names ~
 
 **Measurement provenance:** this 50–60% figure is from a single incident — one 9-parallel wave — measured at or before 2026-07-04, against the harness and Sonnet build current at that time. One incident is enough to justify the cap, not enough to call the rate precise; treat 50–60% as an order-of-magnitude finding, not a calibrated constant.
 
-**How to apply:** (1) hard-cap parallel write-capable executor fan-out at 5; for larger surfaces, dispatch in waves of 5 with EM-verification between. (2) On any fan-out, EM verifies actual on-disk state via `grep -lr <expected-token> <scope>/ | wc -l` and compares to reported counts — disk is the only signal that counts; reports merge what was *attempted* with what *landed*. (3) For homogeneous-shape mechanical sweeps, prefer a single deterministic script over N agent dispatches — agents are appropriate for judgment, not bulk mechanical marking.
+**How to apply, at any width:** (1) On any fan-out, EM verifies actual on-disk state via `grep -lr <expected-token> <scope>/ | wc -l` and compares to reported counts — disk is the only signal that counts; reports merge what was *attempted* with what *landed*. Delivery verification of every row (`docs/plans/2026-09-27-review-inside-execute-plan.md`'s delivery verifier, where landed) is the structural form of this leg. (2) For homogeneous-shape mechanical sweeps, prefer a single deterministic script over N agent dispatches — agents are appropriate for judgment, not bulk mechanical marking.
 
-**Re-measurement:** item (2)'s verification step IS the re-test instrument — it does not need a dedicated exercise. The next genuinely-wide mechanical sweep that runs item (2) is the re-measurement; do not manufacture a sweep solely to re-test this cap, and do not relax the cap ahead of a landed re-measurement. A 50–60% silent-write-failure rate is re-measured before relaxing, not after — until fresh numbers land, the cap holds at 5.
+The static five-executor barrier cap named in an earlier version of this section is retired
+(`docs/wiki/em-operating-model/workflow-orchestration.md`); disk verification, not a count, is the
+mitigation at any width. **Re-measurement:** the disk-verification leg above IS the re-test
+instrument for this incident's hallucination-rate finding — it does not need a dedicated exercise.
+The next genuinely-wide mechanical sweep that runs it is the re-measurement.
 
 ## Diagnose-Then-Fix — Split the Brief; Frame the Cause as Hypothesis
 

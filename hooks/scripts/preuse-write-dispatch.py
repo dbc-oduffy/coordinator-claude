@@ -82,9 +82,17 @@ except Exception:
         return []
 
 
+# The in-process guard runner's enrolment list (contract clause 12,
 # `_guard_runner_contract.ENROLLED_GUARD_MODULES`). C1 built the runner
 # MECHANISM with this deliberately empty so the aggregation/lazy-import path
+# was structurally exercised (AC1) before any real guard depended on it; C2
+# (three guards), C3b (a fourth), and C3 (the fifth, `check-claude-md-size`,
+# protocol-translated) proved each guard's parity in turn. C4 is what
 # actually points this constant at `_guard_runner.REAL_GUARD_REGISTRY` --
+# the live enrolment set -- rather than the placeholder empty tuple: without
+# this line, every registry change C2/C3/C3b/C4 made to `_guard_runner.py`
+# is inert in production, because THIS is the constant the dispatcher below
+# actually reads on every edit.
 _GUARD_REGISTRY: "tuple" = _REAL_GUARD_REGISTRY
 
 
@@ -104,6 +112,14 @@ def main() -> int:
 
     # Contract clause 8 (SYS.PATH ORDERING, `_guard_runner_contract.py`):
     # the engine root is APPENDED, never inserted at index 0 -- the hooks
+    # dir (inserted at index 0 above, before this point) must stay AHEAD
+    # of the engine root on sys.path, so a module-name collision between a
+    # doctrine-plane-local helper and a same-named engine-side module resolves toward
+    # the doctrine-plane-local helper.
+    # Index-1 placement via the shared primitive: hooks dir stays at 0, engine root
+    # outranks site-packages. A bare append put it BEHIND an editable install of the
+    # engine, so the resolver answered the mirror and the import returned the working
+    # tree -- see _engine_root.place_engine_root_on_path.
     _place_engine_root_on_path(root)
 
     _arm_lazy_ops()
@@ -147,7 +163,14 @@ def main() -> int:
         engine_envelopes = out
         out = None
 
+    # In-process guard runner (C1): batches the doctrine-plane-resident write-path
     # guards named in `_GUARD_REGISTRY` into this SAME interpreter, after
+    # the engine call, with zero subprocess spawns of its own (AC1). The
+    # registry is empty until C2 (next wave) enrols the three residual
+    # guards -- this call is still exercised structurally today, and folds
+    # cleanly into the same aggregation the engine's own verdict runs
+    # through, so the two verdict sources are never reconciled by two
+    # separate code paths.
     try:
         if engine_envelopes:
             guard_entries: list = [

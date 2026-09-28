@@ -196,8 +196,21 @@ DOCTRINE_SCHEMAS_DIR = REPO_ROOT / "coordinator" / "schemas"
 
 _EXEMPT_PATH_SEGMENTS = frozenset({"tests", "fixtures"})
 
+#: Basenames that are, by their own stated purpose, a changelog rather than
 #: a doctrine surface -- exempt from `DOCTRINE_MD_DIRS` scanning regardless
+#: of which governed directory they sit under. `changelog-history.md` is the
+#: seed case: its own header states its entire job is to preserve the
 #: pre-consolidation release history VERBATIM ("Entry content, dates,
+#: version numbers... are unchanged from the original -- that record is not
+#: a defect to be edited away"), and `test_publish_seed_wiki_allowlist.py`
+#: independently confirms it ships in the OSS seed for exactly that reason.
+#: Rewriting it into present tense would not fix a doctrine defect -- it
+#: would destroy the artifact the page exists to be. A doctrine surface
+#: states the rule as it stands now; a changelog states what happened when --
+#: this file is the second thing, on purpose, and this module's whole job is
+#: to keep the two apart. Widen this set only for another file whose own
+#: stated purpose is the same (a changelog, not a rule), never to silence a
+#: genuine prose finding.
 _EXEMPT_BASENAMES = frozenset({"changelog-history.md"})
 
 _SCHEMA_PROSE_KEYS = frozenset({"description", "$comment"})
@@ -212,9 +225,12 @@ class Violation:
     confidence: str = "high"
 
 
+#: Basename of the config-class file this module also governs -- a
 #: repo-root `coordinator.local.md`, resolved from the CANDIDATE PATH's own
 #: nearest `.git` ancestor (see `_find_repo_root`), never from `REPO_ROOT`
+#: (the plugin's own tree -- see module docstring's "Two governed file
 #: CLASSES" section for why an appended `DOCTRINE_MD_DIRS` entry can never
+#: reach a sibling repo's config).
 _CONFIG_FILE_BASENAME = "coordinator.local.md"
 
 _REPO_ROOT_WALK_MAX_DEPTH = 32
@@ -388,6 +404,19 @@ _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _TOKEN = re.compile(r"\S+")
 _TOKEN_STRIP = ".,;:()[]\"'*"
 
+#: History-verb stems/phrases. Matched as a substring search over the whole
+#: line (multi-word phrases like "used to"/"no longer"/"ruled down" can't be
+#: single-token matches), then converted to a token index for the proximity
+#: check against a date token.
+#:
+#: `(?<![\w.-])`/`(?![\w.-])` REPLACE plain `\b` on both ends -- `\b` alone
+#: treats `-` and `.` as boundaries, so `\bcompletion\b` matched inside
+#: `local-completion` and `\bsource\b`-adjacent logic matched inside
+#: `cross-source` (confirmed false positives: `completion.fold`,
+#: `local-completion`, `cross-source`, all compound identifiers/filenames/
+#: dotted attribute paths, none of them prose). The lookaround additionally
+#: excludes `-`/`.` from BOTH sides so a verb only counts as a standalone
+#: word, never a segment of a hyphenated or dotted compound. Applies to
 #: `_PROVENANCE_KEYWORDS` below for the identical reason.
 _HISTORY_VERB = re.compile(
     r"(?<![\w.-])("
@@ -401,19 +430,51 @@ _HISTORY_VERB = re.compile(
     re.IGNORECASE,
 )
 
+#: Standalone changelog-narration phrases that must fire on their own -- NO
 #: co-located date or `_HISTORY_VERB` hit required (C7/plan Rulings). Each
+#: is a phrase whose presence alone, anywhere on a scannable line, is the
+#: changelog shape: "this used to work like X", "no longer applies",
+#: "the new version handles Y". Deliberately NOT folded into
 #: `_HISTORY_VERB` -- that constant only drives the proximity-gated
+#: verb-near-date rule, and these must fire WITHOUT a date at all.
+#: Deliberately narrower than a bare `\bused\s+to\b` -- that blanket form
 #: false-positived on the FUNCTIONAL "is used to <verb>" construction
 #: (`"RECEIVER-ROUTING-CRITICAL — used to determine delivery target"`,
+#: `"used to produce the audited synthesis"` in schema descriptions), which
+#: is present-tense purpose prose, not history narration. The plan's named
+#: shapes are specifically "this used to…" and "used to be…"; both keep the
+#: subject/copula immediately adjacent to "used to", which the functional
+#: construction never does.
 _USED_TO_STANDALONE = re.compile(
     r"\b(this|it|that|they|which)\s+used\s+to\b|\bused\s+to\s+be\b", re.IGNORECASE
 )
 _NO_LONGER_STANDALONE = re.compile(r"\bno\s+longer\b(?!\s+than\b)", re.IGNORECASE)
 
 #: The same narrowing `_USED_TO_STANDALONE` above already earned, applied to
+#: the phrase that kept the blanket form. "no longer" has two populations, and
+#: only one of them is changelog:
+#:
 #:   CHANGELOG — a definite subject in main-clause position narrates that THIS
+#:   system changed: "The helper no longer unions mtime-dirty paths", "You no
+#:   longer relay events", "it just no longer fires inside your commit".
+#:
 #:   FUNCTIONAL — a RELATIVE CLAUSE describes a runtime state the reader may
+#:   encounter, which is present-tense prose about the world, not history about
+#:   the doctrine: "an assigned memo that is no longer where the manifest says",
+#:   "processes that no longer exist", "a wiring that no longer exists".
+#:
+#: The discriminator is structural, not semantic: the functional form puts a
+#: relative pronoun immediately before the phrase, and the changelog form never
+#: does — its subject sits in main-clause position. Same argument, same shape as
+#: the `used to` narrowing, which is why this is a correction rather than a new
+#: exemption class.
+#:
 #: DELIBERATELY CONSERVATIVE, in the direction of the guard FIRING. The window
+#: is three words so a clause boundary cannot be spanned, and reduced relatives
+#: ("a surface this repo no longer owns") and generic-subject modals ("a reader
+#: can no longer tell") are NOT carved — they read as functional to a human but
+#: have no structural marker, and inventing one would start carving the
+#: changelog population too. Rewrite those in prose; do not widen this.
 _NO_LONGER_RELATIVE_CLAUSE = re.compile(
     r"\b(?:that|which|who|whose|where)\b(?:\s+\w+){0,3}?\s+no\s+longer\b", re.IGNORECASE
 )
@@ -422,11 +483,17 @@ _NEW_VERSION_STANDALONE = re.compile(
 )
 
 #: `UPDATE:` as a paragraph/line preamble -- distinct from `_ORIGIN_HEADER`'s
+#: `Update <date>:` form, which requires a co-located date. This fires on a
+#: bare `UPDATE:` preamble with no date required.
 _UPDATE_PREAMBLE = re.compile(r"^UPDATE\s*:", re.IGNORECASE)
 
 #: `PM decision:`/`PM ruling:` used as a DATELINE/ATTRIBUTION PREAMBLE --
+#: i.e. leading the line/paragraph, colon-terminated, standing in for a
+#: changelog dateline ("PM decision: retired the old flag."). Distinct from
 #: the inline `_PM_RULING` ambiguous rule below, which matches the phrase
 #: ANYWHERE on a line and requires a date/verb signal to fire at all -- a
+#: leading dateline-shaped construction is unconditionally the changelog
+#: shape regardless of what follows it.
 _PM_DATELINE_PREAMBLE = re.compile(r"^PM\s+(decision|ruling)\s*:", re.IGNORECASE)
 
 _TOKEN_PROXIMITY_WINDOW = 15
@@ -448,10 +515,15 @@ _READ_TOLERANCE_CUES = re.compile(
 
 _PM_RULING = re.compile(r"\bPM ruling\b", re.IGNORECASE)
 
+#: Reversal verbs used ONLY to widen the `PM ruling` ambiguous condition
 #: below -- deliberately NOT folded into `_HISTORY_VERB`, whose match also
+#: drives the HIGH-confidence verb-near-date rule gated by the shrink-only
+#: ratchet baseline (`coordinator/tests/doctrine_changelog_prose_baseline.json`).
 #: Widening `_HISTORY_VERB` corpus-wide would raise high-confidence counts
+#: and break that ratchet; a bare "PM ruling flipped this from a hard-deny to
 #: advisory." has no date and no `_HISTORY_VERB` hit, so it needs its own,
 #: narrower-scoped verb set to stay in the AMBIGUOUS bucket rather than
+#: passing unflagged.
 _PM_RULING_REVERSAL_VERB = re.compile(
     r"(?<![\w.-])("
     r"flip\w*|switch\w*|chang\w*|walked?\s+back|downgrad\w*|soften\w*|"
@@ -460,8 +532,15 @@ _PM_RULING_REVERSAL_VERB = re.compile(
     re.IGNORECASE,
 )
 
+#: Keyword-form dated provenance tag -- see module docstring. Widened from
+#: an initial 6-token window: a real tag can carry a short qualifier between
+#: the keyword and the date (`Source: claude-central L10, 2026-05-30`), so 6
 #: undercounted. Still narrower than `_TOKEN_PROXIMITY_WINDOW` -- these tags
+#: are compact, not paragraphs.
+#:
 #: Same `(?<![\w.-])`/`(?![\w.-])` boundary fix as `_HISTORY_VERB` -- plain
+#: `\b` matched `source` inside `cross-source` (a compound identifier, not a
+#: provenance tag); see that constant's comment for the full reasoning.
 _PROVENANCE_KEYWORDS = re.compile(
     r"(?<![\w.-])(Source|Origin|Encoded|Established)(?![\w.-])", re.IGNORECASE
 )
@@ -473,6 +552,8 @@ _ITALIC_PROVENANCE = re.compile(
 
 #: A cue immediately before a bare date token that names an OPERATIVE
 #: THRESHOLD the rule gates on now ("Pre-2026-05-22 memos...", "before
+#: 2026-08-01, X applies", "as of 2026-08-01") rather than a historical
+#: event -- see `_bare_dated_parenthetical_hit`.
 _THRESHOLD_CUE = re.compile(r"(?i)\b(pre|before|since|as\s+of)[\s-]*$")
 
 _PAREN_SPAN = re.compile(r"\(([^()]*)\)")
@@ -661,8 +742,13 @@ def _scan_text_line(line: str, line_no: int) -> "list[Violation]":
             )
         )
 
+    # ---- Phrase-only shapes: fire unconditionally, no co-located date or
     # ---- `_HISTORY_VERB` hit required (C7/plan Rulings). ----
     # A phrase inside a code span or quotation marks is being MENTIONED, not
+    # used — doctrine that names these shapes (this file's own tripwire row, the
+    # plan's ruling table) must be able to quote them without tripping the
+    # guard that forbids them. Same use/mention discrimination the preamble legs
+    # below get from `dequoted`.
     mention_free = _strip_mentions(line)
 
     if _USED_TO_STANDALONE.search(mention_free):
@@ -711,13 +797,24 @@ def _scan_text_line(line: str, line_no: int) -> "list[Violation]":
     return violations
 
 
+#: A bare `DR-\d+` id, ANY occurrence -- deliberately unlike the prose path
+#: (`_scan_text_line`), which exempts a lone `DR-` citation as a live rule
 #: reference. Same `(?<![\w.-])`/`(?![\w.-])` boundary as `_HISTORY_VERB` so
+#: a `DR-1` inside a longer identifier never counts as a standalone id.
 _CONFIG_DR_ID = re.compile(r"(?<![\w.-])DR-\d+(?![\w.-])")
 
 _CONFIG_ROT_PATH_RE = re.compile(r"cross-repo/inbox/|archive/|state/handoffs/")
 
+#: The retirement-exemption marker (C1(c)) -- CLAUDE.md § Conventions'
+#: carve-out for a retirement whose ABSENCE is the operative rule, made
+#: mechanical. Exempts a line from the DATE leg only. Not the
+#: rot-prone-path leg (no retirement rationale needs a live handoff
+#: pointer), and NOT the bare-`DR-` leg: a bare `DR-127` also reads as a
+#: plan-local `DR-N` or a sibling repo's id, so it identifies no single
+#: record. A retirement clause cites its record path-qualified, which
 #: `_CONFIG_DR_ID`'s `(?![\w.-])` boundary already lets through
 #: unflagged -- so exempting the leg would license only the one citation
+#: shape that cannot be resolved.
 _RETIREMENT_EXEMPTION_MARKER = re.compile(
     r"<!--\s*doctrine-retirement-exemption:\s*[^>]*-->", re.IGNORECASE
 )

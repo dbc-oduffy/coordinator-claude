@@ -1432,11 +1432,22 @@ def _current_branch() -> str:
 # ---------------------------------------------------------------------------
 
 def _slug_from_title(title: str) -> str:
-    """Sanitize a title into a filesystem-safe slug (≤40 chars)."""
+    """Sanitize a title into a filesystem-safe slug (<=40 chars, word-boundary
+    truncated).
+
+    F8 (klabauter#71): a flat slug[:40] cut mid-word (e.g. "...grant-gate-|a")
+    reads as a typo'd/cut-off word rather than an intentional truncation. Cut
+    back to the last dash inside the 40-char budget instead, so the slug
+    always ends on a whole word — unless the very first word itself exceeds
+    40 chars, in which case the hard cut is the only option left.
+    """
     slug = title.lower()
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
     slug = slug.strip("-")
-    slug = slug[:40]
+    if len(slug) > 40:
+        truncated = slug[:40]
+        boundary = truncated.rfind("-")
+        slug = truncated[:boundary] if boundary > 0 else truncated
     # Re-strip after truncation (review finding, corpus-sweep F1): a 40-char cut
     # landing exactly on a separator would otherwise leave a trailing dash, which
     # _mint_artifact_id/_mint_deliverable_id would then carry into a double-dash
@@ -1715,6 +1726,40 @@ def _resolve_cited_sizing_deliverable_id(
             f"{_sizing_read_exc}) — degrading to mint-from-slug.",
             file=sys.stderr,
         )
+        return None
+
+
+def _resolve_cited_sizing_exit_criterion(
+    sizing_object_relpath: str, repo_root: str,
+) -> dict | None:
+    """Read a cited sizing-object's `exit_criterion` for the plan-scaffold
+    inheritance arm (Design § Inheritance, C3), degrading to ``None`` on any
+    read failure or an absent field — mirrors `_resolve_cited_sizing_
+    deliverable_id`'s never-raise posture exactly, and reuses the SAME
+    `_read_sizing_meta` reader rather than adding a second YAML reader here.
+
+    A `None` return covers two callers must NOT distinguish: the sizing
+    genuinely carries no `exit_criterion` (the whole existing corpus, since
+    there is no backfill), and an unreadable/malformed sizing (this must
+    never block plan scaffolding). Both degrade to the caller emitting
+    today's placeholder block with no stderr line — only a present-but-
+    unaccepted (`accepted: null`) criterion gets the stderr notice, and that
+    distinction is made by the caller reading the returned dict's `accepted`
+    key, not here.
+
+    Negative-spec: does NOT write to disk — pure read.
+    """
+    try:
+        _ensure_engine_on_path()
+        from coordinator_core.ops.deliverable_cascade import (  # noqa: PLC0415
+            _read_sizing_meta,
+        )
+
+        _sizing_abs_path = os.path.join(repo_root, sizing_object_relpath)
+        _sizing_meta = _read_sizing_meta(_sizing_abs_path)
+        _exit_criterion = _sizing_meta.get("exit_criterion")
+        return _exit_criterion if isinstance(_exit_criterion, dict) else None
+    except Exception:  # noqa: BLE001 -- malformed/unreadable sizing degrades to the placeholder block, never blocks scaffolding
         return None
 
 
@@ -3200,6 +3245,7 @@ def _scaffold_roadmap_baton(
     sizing_object: str | None = None,
     blocks: list[str] | None = None,
     predecessor: str | None = None,
+    goals: list[str] | None = None,
 ) -> str:
     """Generate validator-clean roadmap-baton frontmatter + canonical section skeleton.
 
@@ -3342,6 +3388,14 @@ def _scaffold_roadmap_baton(
         lines.append("blocking_notes: PLACEHOLDER — name the condition gating this baton, or delete this line once blocked_by names it")
     if handoff_id:
         lines.append(f"handoff_id: {_yaml_quote(handoff_id)}")
+    _goals = [g.strip() for g in (goals or []) if isinstance(g, str) and g.strip()]
+    if _goals:
+        # F13 (klabauter#71): origin_goal_id — schema field name, array|null
+        # (handoff.schema.json) — carries the roadmap's originating goal(s) so
+        # a roadmap-baton can declare which goal(s) it serves at mint time,
+        # not only via a later hand-edit.
+        lines.append("origin_goal_id:")
+        lines.extend(f"  - {_yaml_quote(g)}" for g in _goals)
     lines += [
         "---",
         "",
@@ -3776,6 +3830,7 @@ def _scaffold_plan(
     initiative: str | None = None,
     sizing_object: str | None = None,
     problem_set: str | None = None,
+    sizing_repo_root: str | None = None,
 ) -> str:
     """Generate validator-clean plan frontmatter + canonical section skeleton.
 
@@ -3811,6 +3866,17 @@ def _scaffold_plan(
     required — a plan with no ratified problem set simply leaves the
     placeholder commented.
 
+    sizing_repo_root, when supplied alongside a real (non-"null") sizing_object,
+    is used to resolve that sizing's `exit_criterion` for inheritance (Design §
+    Inheritance, C3): an ACCEPTED criterion is carried verbatim into
+    `prime_exit_criterion.statement` with `derived_from` naming the cited
+    sizing, in place of the `<REPLACE: ...>` placeholder pair; a PROPOSED
+    (accepted: null) criterion leaves the placeholder pair as-is and prints
+    one stderr notice; a sizing with no `exit_criterion` at all, or an
+    unreadable one, is byte-identical to today with no stderr line. Omitted
+    (sizing_repo_root is None, or sizing_object is None/"null") reproduces
+    today's unconditional placeholder emission exactly.
+
     Spec backlink: docs/plans/2026-06-25-example-initiative-tc-1-records-consolidation.md § C5
     Spec backlink: pln-fleet-deliverable-spine-identity-and-facets-2b331c § D1, D3, C3b
     Spec backlink: pln-plan-sizing-citation-gate-scaf-45eaed § AC2
@@ -3826,6 +3892,17 @@ def _scaffold_plan(
         if author == "unknown-sender-em"
         else f"author: {author}"
     )
+    # Inheritance (Design § Inheritance, C3) — resolved once, up front, so the
+    # emission block below is a pure branch on its result. Only a REAL cited
+    # sizing (never "null", the --no-sizing-object sentinel) with a
+    # `sizing_repo_root` to resolve it against is eligible; every other case
+    # (no citation, --no-sizing-object, or the caller declining to pass
+    # sizing_repo_root) reproduces today's unconditional placeholder.
+    _cited_exit_criterion: dict | None = None
+    if sizing_object and sizing_object != "null" and sizing_repo_root:
+        _cited_exit_criterion = _resolve_cited_sizing_exit_criterion(
+            sizing_object, sizing_repo_root
+        )
     lines = [
         "---",
         f"title: {_yaml_quote(title)}",
@@ -3886,24 +3963,56 @@ def _scaffold_plan(
         # invisible — the author fills a field they can see instead of
         # remembering one they cannot. Row text is byte-parity with the other
         # producer of this block, DoE's `coordinator/templates/plans/plan.md.tmpl`.
-        "prime_exit_criterion:",
-        "  statement: >-",
-        "    <REPLACE: one falsifiable sentence naming what is true of the TREE when this plan",
-        "    has delivered — outcome-shaped, never a paraphrase of the task list.>",
-        # QUOTED, unlike the block-scalar `statement` above. `<REPLACE: ...>` is a
-        # plain scalar containing ": ", which YAML refuses outright — an unquoted
-        # marker here does not merely read oddly, it makes the whole frontmatter
-        # unparseable, and every downstream reader (this gate included) sees a
-        # plan with NO frontmatter rather than one with an unanswered field.
-        '  derived_from: "<REPLACE: state/sizings/<file>.yaml | <goal_id>#kr-<kr-id> — a LINK>"',
-        "# falsifier: {how, baseline_output, baseline_ref, expected_when_true} — REQUIRED only",
-        "#   when this plan's sizing_object resolves to estimate.tshirt M/L/XL. The criterion",
-        "#   above is owed at EVERY size; that size rule governs the falsifier, never it.",
-        "#   falsifier:",
-        "#     how:",
-        "#     baseline_output:",
-        "#     baseline_ref:",
-        "#     expected_when_true:             # NEW in 2.8.0 — do not omit",
+    ]
+    _accepted = (_cited_exit_criterion or {}).get("accepted") if _cited_exit_criterion else None
+    if _cited_exit_criterion and isinstance(_accepted, dict):
+        # ACCEPTED — carry the PM's criterion verbatim (Design § Inheritance,
+        # C3): no `<REPLACE: ...>` markers, derived_from names the cited
+        # sizing. The falsifier stays commented — it is still authored per
+        # plan (Anti-scope: "No falsifier authoring at sizing").
+        _statement = _cited_exit_criterion.get("statement", "")
+        lines += [
+            "prime_exit_criterion:",
+            f"  statement: {_yaml_quote(_statement)}",
+            f"  derived_from: {_yaml_quote(sizing_object)}",
+        ]
+    else:
+        if _cited_exit_criterion is not None:
+            # PROPOSED (accepted: null) — placeholder stays, one stderr notice.
+            print(
+                f"sizing {sizing_object} carries an exit_criterion the PM has "
+                "not accepted; prime_exit_criterion left for authoring",
+                file=sys.stderr,
+            )
+        lines += [
+            "prime_exit_criterion:",
+            "  statement: >-",
+            "    <REPLACE: one falsifiable sentence naming what is true of the TREE when this plan",
+            "    has delivered — outcome-shaped, never a paraphrase of the task list.>",
+            # QUOTED, unlike the block-scalar `statement` above. `<REPLACE: ...>` is a
+            # plain scalar containing ": ", which YAML refuses outright — an unquoted
+            # marker here does not merely read oddly, it makes the whole frontmatter
+            # unparseable, and every downstream reader (this gate included) sees a
+            # plan with NO frontmatter rather than one with an unanswered field.
+            '  derived_from: "<REPLACE: state/sizings/<file>.yaml | <goal_id>#kr-<kr-id> — a LINK>"',
+        ]
+    lines += [
+        # F23 (klabauter#71): falsifier commented NESTED under prime_exit_criterion
+        # (2-space indent, matching `statement`/`derived_from` above) — NOT as a
+        # top-level sibling. close_out's goal_gate refuses a sibling `falsifier:`
+        # (falsifier_misnested) exactly because that is the shape an author gets
+        # by uncommenting a column-0 block next to this one. baseline_ref's
+        # placeholder is spelled as an explicit SHA slot (<40-hex-or-short-SHA>)
+        # so it reads as "paste a commit SHA here", not a prose reference —
+        # close_out also refuses a prose baseline_ref (baseline_ref_malformed).
+        "  # falsifier: {how, baseline_output, baseline_ref, expected_when_true} — REQUIRED only",
+        "  #   when this plan's sizing_object resolves to estimate.tshirt M/L/XL. The criterion",
+        "  #   above is owed at EVERY size; that size rule governs the falsifier, never it.",
+        "  # falsifier:",
+        "  #   how:",
+        "  #   baseline_output:",
+        "  #   baseline_ref: <SHA — the commit this falsifier's baseline_output was measured at>",
+        "  #   expected_when_true:             # NEW in 2.8.0 — do not omit",
         # `census` — emitted LIVE and DECLARED-EMPTY, the same distinction a
         # spine row's `writes: []` draws against an absent `writes:`. `[]` is a
         # plan asserting it rests on no counted premise, which a reviewer can
@@ -4819,7 +4928,13 @@ def _scaffold_goal(title: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _scaffold_sizing(title: str, deliverable_id: str | None = None) -> str:
+def _scaffold_sizing(
+    title: str,
+    deliverable_id: str | None = None,
+    exit_criterion: str | None = None,
+    interaction_mode: str | None = None,
+    name: str | None = None,
+) -> str:
     """Generate validator-clean whole-document-YAML sizing-object record.
 
     Produces a conformant record against schemas/sizing-object.schema.json
@@ -4864,12 +4979,30 @@ def _scaffold_sizing(title: str, deliverable_id: str | None = None) -> str:
     `null` there means NOT YET CHOSEN — never that the multi-session exit was
     accepted by default. Both fields are required-and-nullable in the schema,
     so both must be emitted here even when null.
+
+    `exit_criterion` and `interaction_mode`, when supplied, emit the 1.23.0
+    fields Design § Contract added (sizing-object type only; the argparse
+    flags are refused on every other --type, mirroring the existing type-
+    scoped flags). `exit_criterion` always scaffolds `accepted: null` — PM
+    acceptance is written only through `sizing.accept_exit_criterion` (C4),
+    never hand-authored or minted here. Both are OPTIONAL and omitted leaves
+    the field out entirely (no backfill posture; unlike `deliverable_id`
+    there is no present-as-null convention for either — the schema declares
+    them optional, not required-and-nullable).
     """
     _bootstrap_engine()
     intent_placeholder = title if title else "PLACEHOLDER — replace with the PM's ask, verbatim"
+    # F17 (klabauter#71): --name, when supplied, writes the real `name` field
+    # (schema's own optional display-LABEL field — see its description above)
+    # instead of leaving the commented-out placeholder; the sizing skill
+    # prescribes passing --name explicitly.
+    if name:
+        _name_line = f"name: {_yaml_quote(name[:60])}"
+    else:
+        _name_line = "# name: PLACEHOLDER  # OPTIONAL, <=60 chars — a display LABEL only, nothing joins on it; do NOT slice from intent"
     lines = [
         "schema: sizing-object",
-        "# name: PLACEHOLDER  # OPTIONAL, <=60 chars — a display LABEL only, nothing joins on it; do NOT slice from intent",
+        _name_line,
         f"intent: {_yaml_quote(intent_placeholder)}",
         "estimate:",
         "  tshirt: XS  # XS | S | M | L | XL | XXL — reuses loe.tshirt; coarse ROUTING estimate only",
@@ -4884,6 +5017,16 @@ def _scaffold_sizing(title: str, deliverable_id: str | None = None) -> str:
         "  evidence: PLACEHOLDER — cite the file:line, test, or command output you actually looked at; answered in place, never spun into its own record",
         f"deliverable_id: {_yaml_quote(deliverable_id) if deliverable_id else 'null'}  # durable spine join key — re-scaffold with --deliverable-id <id> to join an existing baton's, never hand-edit",
     ]
+    if exit_criterion:
+        lines += [
+            "exit_criterion:",
+            f"  statement: {_yaml_quote(exit_criterion)}",
+            "  accepted: null  # PM acceptance is written ONLY via sizing.accept_exit_criterion — never hand-authored",
+        ]
+    if interaction_mode:
+        lines.append(
+            f"interaction_mode: {interaction_mode}  # hands-on | pm | ceo — which human touchpoints this sizing's size commits to"
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -5073,7 +5216,7 @@ def _scaffold_run_report(
 
     agent_type is OPTIONAL (defaults to the literal "executor" when omitted) —
     the universal field naming which subagent kind was spawned (e.g. executor,
-    review-integrator, code-reviewer); flight-recorder-shaped callers (fan-out-
+    code-reviewer, enricher); flight-recorder-shaped callers (fan-out-
     dispatch.sh chunk dispatch) always spawn an executor, so the default covers
     that call shape without requiring every caller to pass --agent-type.
 
@@ -5615,6 +5758,7 @@ def _default_output_path(
     slice_id: str | None = None,
     scope: str | None = None,
     dr_id: str | None = None,
+    slug_override: str | None = None,
 ) -> str:
     """Compute the default output path for a scaffolded document.
 
@@ -5648,13 +5792,20 @@ def _default_output_path(
     """
     _bootstrap_engine()
     today = _today()
+
+    def _slug(t: str) -> str:
+        # F8 (klabauter#71): --slug, when supplied, overrides the
+        # title-derived slug outright rather than feeding through
+        # _slug_from_title's word-boundary truncation.
+        return slug_override if slug_override else _slug_from_title(t)
+
     if doc_type in ("handoff", "spinoff", "recovery", "goal-seed", "roadmap-seed"):
-        slug = _slug_from_title(title)
+        slug = _slug(title)
         return os.path.join("state", "handoffs", f"{today}-{slug}.md")
     elif doc_type == "roadmap-baton":
         # Canonical path includes real HHMMSS (see SKILL.md § Step 2.1); 000000 is the
         # best-effort fallback when --out is omitted. Use --out to supply the full path.
-        id_slug = stub_id if stub_id else _slug_from_title(title)
+        id_slug = stub_id if stub_id else _slug(title)
         return os.path.join("state", "handoffs", f"{today}_000000_roadmap-{id_slug}.md")
     elif doc_type == "memo":
         # `state/memo-outbox/<topic>.md` — the ONE path `memo.send` looks a draft
@@ -5665,13 +5816,13 @@ def _default_output_path(
         # had to be moved and renamed by hand before it could be sent. No date
         # prefix — `memo.send` keys on the bare topic slug (see
         # `ops/fleet/memo_send.py :: _OUTBOX_DIRNAME` and its module docstring).
-        slug = topic if topic else _slug_from_title(title)
+        slug = topic if topic else _slug(title)
         return os.path.join("state", "memo-outbox", f"{slug}.md")
     elif doc_type == "plan":
-        slug = _slug_from_title(title)
+        slug = _slug(title)
         return os.path.join("docs", "plans", f"{today}-{slug}.md")
     elif doc_type == "decision":
-        slug = _slug_from_title(title)
+        slug = _slug(title)
         prefix = dr_id or "DR-XXX"  # dr_id always set by main() before this call; fallback is defensive only
         return os.path.join("docs", "decisions", f"{prefix}-{slug}.md")
     elif doc_type == "audit-record":
@@ -5680,17 +5831,17 @@ def _default_output_path(
         sys_slug = system
         return os.path.join("docs", "architecture", "audit-records", f"{today}-{sys_slug}.md")
     elif doc_type == "problem-set":
-        slug = _slug_from_title(title)
+        slug = _slug(title)
         return os.path.join("docs", "problems", f"{today}-{slug}.md")
     elif doc_type == "completion":
-        slug = _slug_from_title(title)
+        slug = _slug(title)
         month = today[:7]  # YYYY-MM
         return os.path.join("archive", "completed", month, f"{today}-{slug}.md")
     elif doc_type == "goal":
-        slug = _slug_from_title(title)
+        slug = _slug(title)
         return os.path.join("state", "goals", f"{today}-{slug}.yaml")
     elif doc_type == "sizing-object":
-        slug = _slug_from_title(title)
+        slug = _slug(title)
         return os.path.join("state", "sizings", f"{today}-{slug}.yaml")
     elif doc_type == "health-status":
         return os.path.join("state", "health", f"{today}-health-summary.md")
@@ -5699,7 +5850,7 @@ def _default_output_path(
         # this artifact class is one-per-repo, never one-per-day.
         return os.path.join("state", "strategic", "self-description.yaml")
     elif doc_type == "research-synthesis":
-        slug = _slug_from_title(title)
+        slug = _slug(title)
         return os.path.join("docs", "research", f"{today}-{slug}.md")
     elif doc_type in _SIDECAR_TYPES:
         stem = plan_stem or "PLAN-STEM"
@@ -5794,6 +5945,16 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
             "Document title. Defaults to a placeholder when omitted. "
             "Required conceptually for memo (used as summary fallback). "
             "(strategic-self-description: seeds repo_identity.repo)"
+        ),
+    )
+    parser.add_argument(
+        "--slug",
+        default=None,
+        metavar="SLUG",
+        help=(
+            "Override the title-derived filename slug outright (F8, klabauter#71). "
+            "Bypasses _slug_from_title's own sanitization/truncation — pass an "
+            "already filesystem-safe slug."
         ),
     )
     parser.add_argument(
@@ -5905,8 +6066,8 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
         metavar="TYPE",
         help=(
             "(run-report, alias flight-recorder) Universal agent_type: frontmatter "
-            "field naming the spawned subagent kind (e.g. executor, review-integrator, "
-            "code-reviewer). Optional — defaults to 'executor', the shape every "
+            "field naming the spawned subagent kind (e.g. executor, code-reviewer, "
+            "enricher). Optional — defaults to 'executor', the shape every "
             "flight-recorder-style /execute-plan chunk dispatch uses. "
             "(subagent-sidecar) Same usage as run-report above. Optional for --type "
             "subagent-sidecar."
@@ -6079,6 +6240,45 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
             "commented-optional-key skeleton unchanged (no --no-problem-set pairing; "
             "unlike --sizing-object this key is never required). "
             "Spec: docs/plans/2026-08-21-engine-half-of-the-roadmap-sprint-spine-split.md § C7"
+        ),
+    )
+    parser.add_argument(
+        "--exit-criterion",
+        dest="exit_criterion",
+        default=None,
+        metavar="STATEMENT",
+        help=(
+            "(sizing-object) The PM-facing primary success / exit criterion sentence, "
+            "confirmed at the sizing touchpoint (target-design.md § 11). Emits "
+            "exit_criterion: {statement: STATEMENT, accepted: null} — acceptance is "
+            "written ONLY through sizing.accept_exit_criterion, never here. Refused "
+            "for every other --type. "
+            "Spec: docs/plans/2026-09-27-sizing-carries-exit-criterion-and-interaction-mode.md § C1, C3"
+        ),
+    )
+    parser.add_argument(
+        "--interaction-mode",
+        dest="interaction_mode",
+        default=None,
+        choices=("hands-on", "pm", "ceo"),
+        metavar="MODE",
+        help=(
+            "(sizing-object) Which human touchpoints this sizing's size commits to: "
+            "hands-on | pm | ceo (target-design.md § 11). Records the mode this "
+            "sizing ran under. Refused for every other --type. "
+            "Spec: docs/plans/2026-09-27-sizing-carries-exit-criterion-and-interaction-mode.md § C1, C3"
+        ),
+    )
+    parser.add_argument(
+        "--name",
+        dest="sizing_name",
+        default=None,
+        metavar="LABEL",
+        help=(
+            "(sizing-object) Short human-readable display label (<=60 chars) — "
+            "the sizing skill's prescribed field for a whiteboard-short name, "
+            "distinct from --title/intent. Emits the schema's own optional "
+            "`name:` field. Refused for every other --type. (F17, klabauter#71)"
         ),
     )
     parser.add_argument(
@@ -7434,6 +7634,26 @@ def main(argv: "list[str] | None" = None) -> int:
         )
         return 1
 
+    # --exit-criterion/--interaction-mode are sizing-object-scoped (Design §
+    # Contract, C3): refused fail-loud for every other --type, same posture as
+    # the other type-scoped flags above rather than silently dropped.
+    if args.sizing_name and doc_type != "sizing-object":
+        print(
+            f"coordinator-doc-new: --name is not accepted for --type {doc_type}. "
+            "--name is scoped to --type sizing-object.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if (args.exit_criterion or args.interaction_mode) and doc_type != "sizing-object":
+        _bad_flag = "--exit-criterion" if args.exit_criterion else "--interaction-mode"
+        print(
+            f"coordinator-doc-new: {_bad_flag} is not accepted for --type {doc_type}. "
+            "--exit-criterion and --interaction-mode are sizing-object-only fields.",
+            file=sys.stderr,
+        )
+        return 1
+
     # --deliverable-ids/--plan-ids are handoff-scoped plural carriers (C1),
     # same posture as --additional-predecessor/--summary above: refused
     # fail-loud for every other --type rather than silently dropped (same
@@ -7453,18 +7673,19 @@ def main(argv: "list[str] | None" = None) -> int:
         )
         return 1
 
-    # --goals is scoped to goal-seed/roadmap-seed only (same posture as
-    # --additional-predecessor/--summary/--deliverable-ids above): refused
-    # fail-loud for every other --type. Before this block, a caller could
-    # pass --goals to e.g. --type handoff and it would parse, exit 0, and
-    # never be read or emitted -- the same silent-drop the 2026-08-18
-    # cross-repo/inbox memo reported (verified still open for this flag
-    # specifically: only goal-seed/roadmap-seed's scaffold calls ever read
-    # args.goals).
-    if args.goals and doc_type not in ("goal-seed", "roadmap-seed"):
+    # --goals is scoped to goal-seed/roadmap-seed/roadmap-baton only (same
+    # posture as --additional-predecessor/--summary/--deliverable-ids above):
+    # refused fail-loud for every other --type. Before this block, a caller
+    # could pass --goals to e.g. --type handoff and it would parse, exit 0,
+    # and never be read or emitted -- the same silent-drop the 2026-08-18
+    # cross-repo/inbox memo reported. roadmap-baton added (F13,
+    # klabauter#71): batons need to carry origin_goal_id too, not just the
+    # goal-seed/roadmap-seed pre-work artifacts.
+    if args.goals and doc_type not in ("goal-seed", "roadmap-seed", "roadmap-baton"):
         print(
             f"coordinator-doc-new: --goals is not accepted for --type {doc_type}. "
-            "--goals is scoped to --type goal-seed and --type roadmap-seed.",
+            "--goals is scoped to --type goal-seed, --type roadmap-seed, and "
+            "--type roadmap-baton.",
             file=sys.stderr,
         )
         return 1
@@ -7537,6 +7758,7 @@ def main(argv: "list[str] | None" = None) -> int:
     elif doc_type == "roadmap-baton":
         roadmap_id = args.roadmap_id if args.roadmap_id else "placeholder-rm"
         stub_id = args.stub_id if args.stub_id else "placeholder-stub-1"
+        _goals_list = [g.strip() for g in args.goals.split(",") if g.strip()] if args.goals else None
         content = _scaffold_roadmap_baton(
             title=title,
             branch=branch,
@@ -7550,6 +7772,7 @@ def main(argv: "list[str] | None" = None) -> int:
             sizing_object=("null" if args.no_sizing_object else args.sizing_object),
             blocks=args.blocks,
             predecessor=args.predecessor,
+            goals=_goals_list,
         )
     elif doc_type == "goal-seed":
         _goals_list = [g.strip() for g in args.goals.split(",") if g.strip()] if args.goals else None
@@ -7595,6 +7818,7 @@ def main(argv: "list[str] | None" = None) -> int:
             initiative=_resolved_initiative,
             sizing_object="null" if args.no_sizing_object else args.sizing_object,
             problem_set=args.problem_set,
+            sizing_repo_root=(_current_repo_root() or ".") if args.sizing_object else None,
         )
     elif doc_type == "decision":
         content = _scaffold_decision(title=title, dr_id=_resolved_dr_id)
@@ -7612,7 +7836,13 @@ def main(argv: "list[str] | None" = None) -> int:
     elif doc_type == "goal":
         content = _scaffold_goal(title=title)
     elif doc_type == "sizing-object":
-        content = _scaffold_sizing(title=title, deliverable_id=_resolved_deliverable_id)
+        content = _scaffold_sizing(
+            title=title,
+            deliverable_id=_resolved_deliverable_id,
+            exit_criterion=args.exit_criterion,
+            interaction_mode=args.interaction_mode,
+            name=args.sizing_name,
+        )
     elif doc_type == "health-status":
         content = _scaffold_health_status(title=title)
     elif doc_type == "strategic-self-description":
@@ -7708,6 +7938,7 @@ def main(argv: "list[str] | None" = None) -> int:
             slice_id=slice_id_for_path,
             scope=scope_for_path,
             dr_id=_resolved_dr_id,
+            slug_override=args.slug,
         )
         # Anchor default relative paths to the correct root so the output lands in the
         # right location regardless of the caller's cwd.

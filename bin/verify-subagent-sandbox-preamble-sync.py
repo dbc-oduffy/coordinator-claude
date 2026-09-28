@@ -5,7 +5,7 @@ Thin DoE-side (contract) trampoline over claude-klabauter's
 coordinator_core.ops.verify_subagent_sandbox_preamble_sync. Checks (and, with
 --fix, repairs) the `subagent-sandbox-preamble` sentinel block across the
 scoped-agent CONSUMERS array — scouts/specialists/workers/checkers/auditors
-only, never Opus personas or executor/review-integrator/enricher/docs-checker.
+only, never Opus personas or executor/enricher/docs-checker.
 --list enumerates one consumer path per line.
 """
 from __future__ import annotations

@@ -44,6 +44,9 @@ done
 python3 -V 2>&1 || true
 
 # PEP 668: Ubuntu 24.04 ships EXTERNALLY-MANAGED in the system interpreter, and the engine's own
+# installer refuses such an interpreter outright (exit 96, no fallback). This script does not run
+# that installer, so the marker is not fatal here — but it decides how phase 2 installs deps, and
+# it decides whether the NEXT increment can run /coordinator:install at all.
 
 
 if command -v python3 >/dev/null 2>&1; then
@@ -122,7 +125,20 @@ fi
 echo "=== phase 3b: global doctrine into the VM's own HOME ==="
 
 
+# Cloud reads the VM's $HOME/.claude normally -- what does not carry over is the machine you
+# launched FROM. That is provenance, not path (tripwire
 # A-VM-WRITTEN-HOME-CLAUDE-IS-NOT-YOUR-MACHINES-HOME-CLAUDE), and it is why phase 3 can register a
+# plugin here at all. The same write lands global doctrine, which otherwise reaches no cloud
+# session: `global-doctrine/` is deliberately absent from the OSS mirror this script clones, so the
+# only copy on this VM is the one in the working repo's own clone -- present when the session runs
+# on a repo that authors doctrine, absent otherwise. Copy, never mirror-and-prune: $HOME/.claude is
+# the operator's, and on a self-hosted runner it may already carry seeded content this must not eat.
+# Review: code-reviewer — comment named two of three candidates; the sibling-checkout glob is
+# the second search rung, ahead of the published copy.
+# Search order is authoring-copy first, sibling-checkout glob second, published copy third. They are byte-identical when the
+# deriver has run, so the order only decides which one a doctrine-authoring repo uses; the
+# published copy under the plugin clone is what makes every OTHER repo work, since it rides the
+# percolated tree into the OSS mirror this script already clones.
 
 
 DOCTRINE_SRC=""
@@ -161,7 +177,13 @@ echo "=== phase 4: engine root pointer ==="
 
 if [ "$HAVE_ENGINE" -eq 0 ]; then
   
+  # `-root`, NOT `-live-root`. Two pointers are read at different rungs and they assert different
   # things: `.claude-klabauter-root` is the PUBLISHED build (admitted only with a tracked
+  # coordinator_core/_engine_stamp, which a fresh clone of the mirror carries), `-live-root` is a
+  # live working tree (isdir alone). We clone the published mirror, so this is the published arm.
+  # The wrong name does not fail loudly — the published arm falls through, the live arm accepts on
+  # isdir, and the box resolves by asserting a published mirror is a live tree. That is DR-326's
+  # manual test-and-execute carve-out, taken silently where nobody can attach a debugger.
   
   
   mkdir -p "$HOME/.coordinator-claude-settings/machine-local"
@@ -174,7 +196,13 @@ fi
 echo "=== phase 4b: run the engine installer ==="
 
 
+# The point of doing this HERE rather than asking the session to run /coordinator:install: a
+# newborn cloud EM should inherit a working machine, not a chore. Both clones exist by now and the
 # image's python3 carries no EXTERNALLY-MANAGED marker, so the installer's exit-96 refusal cannot
+# fire — the two things that made this un-runnable at provision time are both gone.
+# Best-effort by construction: a failure here degrades the session to plugin-only (skills load,
+# the bin/ CLI surface does not), which is exactly where this script stood before. It must never
+# take the session down with it, so the exit code is reported and swallowed.
 
 
 if [ "$HAVE_ENGINE" -eq 0 ]; then
@@ -211,6 +239,10 @@ if [ "$HAVE_ENGINE" -eq 0 ]; then
   "$PYBIN" -c "import pydantic, psutil, jsonschema, yaml; print('deps import: OK')" 2>&1 | tail -1
 fi
 # The PUBLISHED-engine pointer, written here so the env block never has to carry an override to
+# do this job. The published arm admits a root only if <root>/coordinator_core/_engine_stamp
+# exists, and the stamp is tracked, so a fresh clone of the mirror satisfies it. The name is
+# load-bearing: `-live-root` would be accepted on isdir alone and resolve the mirror AS a live
+# working tree. See contract § Why the pointer name is `-root` and not `-live-root`.
 
 
 if [ "$HAVE_ENGINE" -eq 0 ]; then

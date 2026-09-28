@@ -390,7 +390,17 @@ if (scanResults.length === 0) {
 }
 
 
+// ---------------------------------------------------------------------------------------------
+// Empty-content defence in depth (2026-08-06, example-market-data-repo-em): the schema above now
+// requires non-empty `content`, but a batch that returns an all-empty-content result some other
+// way (a lenient schema implementation, a future schema loosening, nuggets[] all trivially
+// whitespace) must not silently pass as a scan success — an empty-content nugget carries no
+// extracted knowledge, and the disposal gate reasons over "did this source produce nuggets?" as
+// evidence of "already harvested". Logged per-batch regardless of outcome (no-silent-caps), and
+// any batch whose EVERY nugget is empty is folded into `failedBatchIds` below, which the
 // negative-spec disposition logic further down already treats as SKIP, not EPHEMERAL — the same
+// "never looked at" semantics that failedBatchIds carries for a batch that never returned at
+// all.
 
 
 const emptyContentBatchIds = []
@@ -430,6 +440,14 @@ const MALFORMED_TAG_RE = /[,;|]|^\s|\s$/
 // exactly like empty-content") and its named tension point the same direction once read
 // carefully: empty-content's top-level rule ISN'T "any defect fails the batch" — it is "fail the
 // batch only when EVERY relevant nugget is bad" (see emptyContentBatchIds above, `nuggets.length
+// > 0 && emptyCount === nuggets.length`). A malformed tag is a narrower defect than empty
+// content: unlike an empty-content nugget, a malformed-tag nugget still carries a perfectly good
+// extraction — only its clustering key is broken — so there is no reason to discard sound
+// siblings in the same batch over one Haiku's sloppy tag. Splitting the tag ourselves is
+// explicitly out of scope (invents structure the model never committed to), so a malformed-tag
+// nugget is simply excluded from clustering input entirely, the same disposition a 'drop'
+// verdict gets in clusterNuggets() below — never silently vanished, always counted, so a run can
+// tell "no malformed tags" apart from "malformed tags silently swallowed".
 
 
 const malformedTagBatchIds = []
@@ -1742,35 +1760,22 @@ recommendations, recurring design constraints, anti-pattern prohibitions, struct
 requirements flagged as pattern-level. Exclude unconditionally: mechanical/formatting findings,
 and docs-checker-class findings (wrong import, stale signature, incorrect function name).
 
-Then apply the integrator's dispositions. They are NOT on the findings — review-integrator is
-forbidden to annotate findings inline (agents/review-integrator.md, Sidecar Disposition
-Annotation: no \`disposition\` fields on finding objects, no \`**Disposition:**\` lines, body
-preserved verbatim). They arrive as ONE bulk \`## Integrator Dispositions\` block appended at the
-end of the sidecar, keyed by bucket, not by finding:
+Then apply the reviewer's own ledger dispositions. The reviewer applies its own findings and
+stamps each one into its own \`findings_ledger\` frontmatter (verified by
+\`review-findings-ledger verify\`, claude-klabauter coordinator_core/ops/review_findings_ledger.py)
+— one row per finding, keyed by finding id, each carrying \`status: applied|em-rejected|suspended\`:
 
-    ## Integrator Dispositions
-    \`\`\`yaml
-    schema_version: 1
-    applied: [A-F1, A-F2]
-    escalated-disagree: [A-F3]
-    escalated-ask: []
-    escalated-p0: []
-    deferred: []
-    verified-no-action: [A-F4]
-    \`\`\`
+Read the sidecar's \`findings_ledger\` frontmatter and index it by finding id. Then:
+  - \`applied\` -> ELIGIBLE (reviewer's finding was applied and verified)
+  - \`em-rejected\` -> INELIGIBLE, skip
+  - \`suspended\` -> INELIGIBLE, skip
+  - a finding in no row, or a sidecar with no \`findings_ledger\` at all
+    -> ELIGIBLE (predates the ledger, or verify has not yet run)
 
-Find that heading, parse the fenced yaml under it, invert to finding-id -> bucket. If more than
-one block is present the LAST one wins — the block is append-only and never edited, so a
-correction arrives as a later block superseding an earlier one. Then:
-  - applied / escalated-ask / escalated-p0 / deferred -> ELIGIBLE
-  - escalated-disagree -> INELIGIBLE, skip
-  - verified-no-action -> INELIGIBLE, skip
-  - a finding in no bucket, or a sidecar with no \`## Integrator Dispositions\` heading at all
-    -> ELIGIBLE (predates the annotation)
-
-Do NOT look for a per-finding \`disposition:\` field. Nothing writes one. A read keyed on it
-finds nothing, excludes nothing, and silently counts every rejected verdict as convergence
-evidence — the exact outcome this exclusion exists to prevent.
+Do NOT look for a \`## Integrator Dispositions\` block or a per-finding \`disposition:\` field.
+Nothing writes either any more. A read keyed on them finds nothing, excludes nothing, and
+silently counts every rejected verdict as convergence evidence — the exact outcome this
+exclusion exists to prevent.
 
 A finding shape-matches this cluster iff its claim-topic noun is semantically equivalent to
 "${cluster.topicCluster}" AND its verdict-direction matches "${cluster.verdictDirection}" — read

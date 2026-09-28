@@ -65,8 +65,12 @@ FANIN_DISPATCHERS = {
     "stop-dispatch.py": "Stop",
     "preuse-write-dispatch.py": "PreToolUse",
     "postuse-stop-family-dispatch.py": "PostToolUse",
+    # `preuse-bash-dispatch.py` is deliberately absent from BOTH this map and
     # `_CARRIER_SOURCES`, and the two must stay in step: it is a PreToolUse
+    # dispatcher, but it fans nothing in any more -- its guards live in the
     # engine's chain. Listing it here without a `_CARRIER_SOURCES` entry raises
+    # "not an enrolled fan-in carrier" from `carried_guards`; adding one back
+    # would reinstate the deleted fold. See that dict's own note.
     "preuse-agent-dispatch.py": "PreToolUse",
 }
 
@@ -103,14 +107,25 @@ def _rows_via_module_path(rows) -> "list[tuple[str, str]]":
     return [(row.module_key, Path(row.module_path).name) for row in rows]
 
 
+#: dispatcher filename -> (source filename to load, attribute name on that
+#: module, row-shape extractor). The source is the dispatcher itself for the
 #: four dispatchers whose own `REGISTRY`-shaped attribute is directly usable;
+#: for the two `_REAL_*`-backed dispatchers it is the sibling runner module
+#: that publicly defines the registry the dispatcher only imports a private
+#: alias of. The attribute may be a tuple (read directly) or a zero-arg
+#: callable (called to obtain the tuple), per `_load_carrier_rows`.
 _CARRIER_SOURCES: "dict[str, tuple[str, str, Callable]]" = {
     "sessionstart-dispatch.py": ("sessionstart-dispatch.py", "REGISTRY", _rows_direct),
     "sessionstart-async-dispatch.py": ("sessionstart-async-dispatch.py", "REGISTRY", _rows_direct),
     "stop-dispatch.py": ("stop-dispatch.py", "REGISTRY", _rows_direct),
     "preuse-agent-dispatch.py": ("preuse-agent-dispatch.py", "REGISTRY", _rows_direct),
     # `preuse-bash-dispatch.py` is DELIBERATELY ABSENT and must not be re-added: it carries no
+    # guard registry any more. Its four folded guards were rehomed into the control-plane
+    # engine's own guard chain, which evaluates them on every transport, and the dispatcher
     # became a pure relay. A carrier entry here would resolve `_BASH_GUARD_REGISTRY` on a module
+    # that no longer defines it and raise, and re-adding one to "fix" that would be reinstating
+    # the fold this deletion removed. The guard SCRIPTS remain on disk and independently
+    # invocable; their deregistration reasons are in `baselines/hook-registration-roster.json`.
     "preuse-write-dispatch.py": ("_guard_runner.py", "REAL_GUARD_REGISTRY", _rows_via_module_path),
     "postuse-stop-family-dispatch.py": (
         "_stop_family_runner.py", "REAL_STOP_FAMILY_REGISTRY", _rows_via_module_path,

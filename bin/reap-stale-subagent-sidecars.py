@@ -14,7 +14,7 @@ indefinitely (the "DR-091 tracked-inversion" cost named in
 docs/plans/2026-07-24-reviewer-sidecar-provisioning-reconciliation.md § C7).
 This script is that reaper: a simple fire-when-invoked delete op, operating
 by DELETE-BY-CONVENTION — a sidecar's durable value is folded into the
-artifact it fed (the review-integrator's Disposition block, the executor's
+artifact it fed (the reviewer's own findings applied in place, the executor's
 plan-progress update, the EM's read of an assessment/run-report) before this
 sweep ever runs; the sidecar itself is disposable scaffolding once folded.
 

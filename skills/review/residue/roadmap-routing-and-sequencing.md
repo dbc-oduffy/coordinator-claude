@@ -30,8 +30,8 @@ downstream rather than integrating them here. The reciprocal also binds: a plan-
 review does not re-litigate which clusters became stubs.
 
 **Sequencing (HARD RULE):**
-- Default → sequential. Integrate Reviewer 1's findings via `coordinator:review-integrator`
-  BEFORE dispatching Reviewer 2. Roadmap artifacts are never parallelized; the
+- Default → sequential. Reviewer 1 applies and verifies its own findings ledger BEFORE
+  Reviewer 2 is dispatched. Roadmap artifacts are never parallelized; the
   merge-gate parallel carve-out is diff-only.
 - **Two PM rounds bracket the reviewers, and they are not interchangeable.** Round 1 is
   shape approval and runs BEFORE any reviewer (`status: shape-approved`). Round 2 is final

@@ -1,4 +1,9 @@
+# guard-not-a-hook-entrypoint -- invoked via the in-process guard runner's
 # REAL_GUARD_REGISTRY (coordinator/hooks/scripts/_guard_runner.py), which
+# preuse-write-dispatch.py's own hooks.json PreToolUse(Write|Edit|MultiEdit)
+# registration calls in-process. This basename is deliberately never
+# referenced literally in hooks.json text -- that IS the mechanism, not an
+# omission.
 """PreToolUse hook (matcher: Write|Edit|MultiEdit): warns on a write that
 would leave a handoff's `summary:` frontmatter field over its 140-char cap.
 

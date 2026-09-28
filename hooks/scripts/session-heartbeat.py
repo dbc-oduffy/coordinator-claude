@@ -126,6 +126,14 @@ def main() -> int:
     }
 
     # scope "common_dir" (coordinator_core/ipc.py _OP_KEY_SCOPE) -- this op
+    # writes .git/coordinator-sessions/<sid>/meta.json, so it needs
+    # _origin_worktree to resolve the correct common .git directory.
+    # stdin's "cwd" mirrors what the former bash hook derives via
+    # `git rev-parse --show-toplevel`; absent/empty degrades to fail-open
+    # (resolve_op_repo_key raises ValueError -> surfaced as HookDispatchError
+    # -> caught below -> exit 0, no heartbeat written -- silent no-op, not a
+    # crash). dispatch_from_hook builds the envelope itself and stamps
+    # _origin_worktree only when non-empty.
     try:
         result = dispatch_from_hook(
             "hooks.session_heartbeat",

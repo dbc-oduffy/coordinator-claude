@@ -85,6 +85,10 @@ from _win_portability import no_console_creationflags  # noqa: E402
 _FORWARDER_MODULE_PATH = Path(__file__).resolve().parents[1] / "http_hook_forwarder.py"
 
 #: Mirrors `http_hook_forwarder.FIXED_PORT` by value, not by import -- this script must not import
+#: the forwarder module itself (it only launches it as a detached child process; importing it here
+#: would additionally bind/serve inside THIS short-lived hook process, which is not this module's
+#: job). Kept as a literal with this comment as the single cross-reference, matching the forwarder
+#: module's own "exactly one place in the tree commits the number" framing for its own copy.
 _FIXED_PORT = 47623
 
 _ADDR_IN_USE_ERRNOS = frozenset(
@@ -197,7 +201,14 @@ def _pid_is_a_forwarder(pid: int) -> Optional[bool]:
     return bool(_FORWARDER_ARGV_RE.search(completed.stdout or ""))
 
 
+#: What a command line has to look like for its process to be a forwarder worth SIGTERMing.
+#:
 #: A BARE SUBSTRING IS NOT THIS TEST, and the difference is a wrongly-killed process. Matching
+#: `http_hook_forwarder` anywhere in the command line also matches every process that merely NAMES
+#: the module: `pytest coordinator/tests/test_http_hook_forwarder_staleness.py`, an editor holding
+#: the file open, a `grep` over the hooks tree. This requires the module's own filename as a whole
+#: path component -- so `test_http_hook_forwarder_staleness.py` and `http_hook_forwarder_decoy.py`
+#: both correctly fail to match, while `python <repo-root>\hooks\http_hook_forwarder.py` matches.
 _FORWARDER_ARGV_RE = re.compile(r"""(?:^|[\s"'/\\])http_hook_forwarder\.py(?:["'\s]|$)""")
 
 _BIND_CONFIRM_ATTEMPTS = 10
@@ -361,6 +372,8 @@ def main() -> int:
         result = _probe_bind_wins()
         if result is False:
             # Already bound -- something is listening on FIXED_PORT. Not health-checked; the one
+            # question asked of the winner is whether it runs the module on disk. See module
+            # docstring, "one inspection, and it is not a health check".
             _ensure_current_forwarder()
             return 0
         if result is True:

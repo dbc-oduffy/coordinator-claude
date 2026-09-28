@@ -77,8 +77,23 @@ class Message:
     anchor: Optional[str] = None
 
 
+#: First non-blank-line "looks like a command or path" proxy. Deliberately
+#: cheap, not a real shell parser -- see `_looks_like_command_or_path`'s own
+#: docstring for what it does and does not catch. A token carrying a literal
+#: `$` (a `${VAR}`/`$VAR` shell expansion) is checked against the WIDER
 #: `_SHELL_VAR_TOKEN_RE` instead -- kept as a separate, narrower carve-out
+#: (gated on the presence of `$`) rather than folding `${}:=,@%+~` into the
+#: base charset outright, so a bare colon-bearing prose token (e.g. `Note:`)
+#: does not newly slip through just because the base charset widened.
+#: A Windows drive-letter prefix -- a single letter immediately followed by
+#: `:` and a path separator -- is admitted as an optional leading segment,
 #: mirroring the identical narrow carve-out `_PROSE_PUNCT_RE` already
+#: applies to the SAME shape (see that regex's own comment). This is the
+#: only new thing the widened charset admits: a bare drive-letter colon at
+#: the very start of the token, still followed by a separator. It does not
+#: admit a colon anywhere else in the token (a mid-token colon, or a
+#: trailing prose colon, still fail), so a genuinely malformed alternative
+#: block is no more likely to pass than before.
 _COMMAND_TOKEN_RE = re.compile(r"^(?:[A-Za-z]:[\\/])?[A-Za-z0-9_./\\-]+$")
 _SHELL_VAR_TOKEN_RE = re.compile(r"^[A-Za-z0-9_./\\${}:=,@%+~-]+$")
 _SENTENCE_END_RE = re.compile(r"[.!?]\s*$")
@@ -104,8 +119,19 @@ _STOPWORDS = frozenset(
         "for",
     }
 )
+#: Closed-class English grammar words (articles, prepositions, conjunctions,
+#: pronouns, auxiliary/modal verbs) -- ANY single hit among the line's
 #: tokens is treated as prose, unlike `_STOPWORDS`'s >=2 threshold. A real
+#: shell command or path essentially never contains a standalone closed-
+#: class function word as one of its own tokens (flags, subcommands, and
+#: path segments are open-class/symbolic, not grammatical glue); an
 #: imperative remedy PHRASE ("delete THE shebang line", "IRREDUCIBLE_LITERALS
+#: IN _oss_operative_strings.py") almost always does, in exactly the two
+#: reviewer-found bypasses this hardening closes. Deliberately excludes
+#: everyday CLI-subcommand-shaped verbs (`add`, `remove`, `use`, `fix`, ...)
+#: -- those are NOT closed-class and appear in genuine commands (`git add`),
+#: so blacklisting them would reject real, live hook alternatives instead of
+#: only the prose-smuggling shape this set targets.
 _FUNCTION_WORDS = frozenset(
     {
         "the", "a", "an",
@@ -214,16 +240,63 @@ def compose(
     return Message(prose=prose.strip(), alternative=alternative, anchor=anchor)
 
 
+# --------------------------------------------------------------------------
+# Wiki-citation resolution -- the C2 seam fix.
+#
 # Every `_WIKI_ANCHOR` constant across the 16 converted hooks (and the
+# hand-rolled "Reference: docs/wiki/..." strings in the two runtime-tripwire
+# hooks) is authored as a `coordinator/docs/wiki/<page>.md#<slug>`-shaped
 # literal. That literal is REPO-RELATIVE: it resolves only from this source
+# repo's own root, and 404s for a reader in any OTHER repo the plugin is
+# installed into (verified live from project-rag's checkout -- see the C2
+# dispatch report). `render()` was appending it verbatim ("See <anchor>."),
+# per the standing reviewer note in `derive-global-doctrine-live-copy.py`
+# that a bare fragment (no path at all) is even less useful -- that note is
+# correct and is why the fix is NOT to strip the path down, but to resolve
 # it against the plugin root the hook is ACTUALLY running from.
+#
 # `_coordinator_dir()` is deliberately NOT `os.environ["CLAUDE_PLUGIN_ROOT"]`.
+# `enforce-agent-dispatch-mode.py`'s "Concern B" note records that env var
+# as an "undeclared ... dependency" not reliably present/correct in a hook
+# subprocess's own environment. What IS reliable: this very module's own
 # `__file__`. Every hook that carries a `_WIKI_ANCHOR` lives at
+# `<coordinator-dir>/hooks/scripts/<hook>.py` in EVERY install shape (this
+# dev source tree, or a `--plugin-dir`-resolved installed copy) -- that is a
+# structural fact of the plugin layout, not an inherited value that can go
+# missing or point somewhere else.
+# --------------------------------------------------------------------------
 
+#: `docs/wiki/`, optionally `coordinator/`-prefixed -- the two forms
 #: observed across the 16 `_WIKI_ANCHOR` constants and the six hand-rolled
+#: runtime-tripwire "Reference:" citations (see the C2 plan chunk body for
+#: the full site list).
+#:
 #: The page part spans SUBDIRECTORIES, not just a flat page name: real
+#: anchors live at `docs/wiki/coordinator-tripwires/<page>.md` and
+#: `docs/wiki/coordinator-tripwires/tripwire-registry/<page>.md`. Each
+#: interior segment must itself match the same conservative character class
+#: and the final one must end `.md`, so a directory-only target
+#: (`docs/wiki/`, `docs/wiki/coordinator-tripwires/`) still does not match
+#: and is emitted verbatim -- resolving one to an absolute path would point
+#: a reader at a directory, not a page.
 #: CROSS-TRANSPORT CONTRACT, not a local edit. The control-plane engine's
+#: ported bash guards mirror THIS pattern by construction so the cold
+#: transport (here) and the warm/resident transport emit byte-identical deny
+#: text, and a cold-vs-warm parity oracle asserts over it. Widening this
+#: pattern to nested anchors turned 19 of that oracle's cases red mid-flight
+#: -- the widening was correct and the oracle is what caught it, but the
+#: lesson is that editing this regex changes test outcomes outside this
+#: repo. Re-check the engine-side copy at source before touching it; do not
+#: reason about it from here.
+#:
+#: KNOWN DEFECT, coordinated fix or none: `resolve_wiki_citation` below emits
 #: an ABSOLUTE path, so on a marketplace-shaped install -- where the plugin
+#: root sits under the operator's home directory -- deny text names that
+#: home directory. Not reproducible from a development clone, whose root is
+#: outside the home tree; the engine side has a register lint that catches
+#: it, this side has no equivalent, and both transports share the property.
+#: Suppressing it on one transport alone re-opens the divergence both sides
+#: just closed, so it is a coordinated change, not a local cleanup.
 _WIKI_CITATION_RE = re.compile(
     r"(?:coordinator/)?docs/wiki/((?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.md)"
 )
@@ -375,6 +448,11 @@ def emit(message: Message, channel: str) -> Optional[int]:
     text = render(message)
 
     if channel == CHANNEL_STOP:
+        # Review: code-reviewer -- .buffer.write bypasses Python's Windows
+        # text-mode newline translation (stderr in text mode would silently
+        # turn every LF into CRLF, breaking byte-fidelity with the bash
+        # oracle's stderr output). Mirrors coordinator-reminder.py /
+        # ue-knowledge-distrust.py; this seam is the one home for the
         # contract every CHANNEL_STOP caller inherits.
         sys.stderr.buffer.write(text.encode("utf-8"))
         return 2

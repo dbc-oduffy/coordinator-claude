@@ -154,6 +154,10 @@ function chunkPrompt(chunk, diffPatchPath, findingsDir) {
 }
 
 // Generalized over the worker's INPUT ARTIFACT, not "the diff" — security-audit-worker and
+// dep-cve-auditor take the full diff, but test-evidence-parser takes an EM-captured test-output
+// path (it has no Bash on its tool surface and never runs the suite itself; see the args-contract
+// note on testOutputPath above). Grouping all three under a diff-shaped call site is exactly the
+// bug this generalizes away from — see the plan's F6 finding.
 
 
 function mechanicalPrompt(worker, inputPath, inputDescription, findingsDir, outFile) {
@@ -223,6 +227,9 @@ const chunkResults = args.skipCodeSemantics
 phase('Mechanical')
 
 // An absent testOutputPath is the skill's RESOLVER_EXIT=2 week reaching this script: no
+// resolver, so no captured test output and no pre-scaffolded tests.md sentinel for an
+// Edit-only agent to write into. Dispatching anyway burns a slice that can only fail its
+// disk read, and the synthesizer scores that as failed_disk_read rather than a clean skip.
 
 
 const mechanicalThunks = [

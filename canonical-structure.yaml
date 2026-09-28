@@ -58,6 +58,8 @@ entries:
 
   # bin/cross-repo-memo.md is a discoverability breadcrumb: the send verb is DoE-owned
   # and on PATH (not vendored), so a consumer EM's tree-scoped `ls bin/` search finds
+  # nothing without this pointer. Scaffolded from a static template (no substitution).
+  # Spec: cross-repo/inbox/2026-07-06-cross-repo-memo-send-discoverability.md
   
   
   - path: bin/cross-repo-memo.md
