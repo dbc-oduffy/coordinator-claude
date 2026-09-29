@@ -605,7 +605,7 @@ The relocation above did not move the entire `~/.claude/<repo-id>/` directory �
 
 > Added by the consumer-durable-data-plane-uninstall-boundary plan (cluster 11) — DoE-altitude
 > doctrine-seeding under PM direction (project-rag-em's inbound proposal, PM-accepted).
-> Per [`cross-repo-communication.md`](../cross-repo-communication.md) § Doctrine seeding vs.
+> Per `cross-repo-communication.md` § Doctrine seeding vs.
 > code/install-surface change (lines 562-574), this is a legitimate direct wiki edit: it shapes *how*
 > sibling repos understand a shared contract surface, authored from doctrine-repo altitude on PM direction, not
 > a code/install-surface change to any sibling's own tree. The receiving repo's EM (project-rag-em) may

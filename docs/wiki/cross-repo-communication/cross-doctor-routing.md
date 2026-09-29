@@ -71,7 +71,7 @@ The cascade is the primitive; the per-peer dict is the configuration. New peers 
 ## When NOT to use the cascade
 
 - **Reading peer source content** at runtime (e.g. importing peer Python modules). That's a different problem — the cascade resolves *pointers for the operator*, not import paths for our code. For runtime peer code consumption, use `machine-local` registry directly with explicit error if absent.
-- **Auto-dispatching a peer doctor.** Cross-doctor coupling breaks fail-open posture — peer failure surfaces as our doctor failure, and the operator's choice of when to act gets bypassed. Surface the pointer via the cascade + a cross-repo memo; the [general PM-as-relay rule](../cross-repo-communication.md) applies (no automatic dispatch into the peer's tree, ever).
+- **Auto-dispatching a peer doctor.** Cross-doctor coupling breaks fail-open posture — peer failure surfaces as our doctor failure, and the operator's choice of when to act gets bypassed. Surface the pointer via the cascade + a cross-repo memo; the general PM-as-relay rule (`cross-repo-communication.md`) applies (no automatic dispatch into the peer's tree, ever).
 
 ---
 
@@ -81,6 +81,6 @@ Pattern formalized in addon-doctor-host-routing-pointers-cascade work (project-r
 
 ## Related
 
-- [cross-repo-communication.md](../cross-repo-communication.md) — PM-as-relay primitive for cross-repo findings (the no-auto-dispatch rule).
+- cross-repo-communication.md (`cross-repo-communication.md`) — PM-as-relay primitive for cross-repo findings (the no-auto-dispatch rule).
 - [machine-local-registry.md](../hook-best-practices/machine-local-registry.md) — Rung 1 source of truth for peer-repo paths.
 - [coordinator-doctor.md](../install-playbook-rationale/coordinator-doctor.md) — general doctor doctrine (probe shapes, fail-open, override-flag hazards).

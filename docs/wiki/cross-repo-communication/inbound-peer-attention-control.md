@@ -3,7 +3,7 @@
 Governs who decides what an EM works on next once an inbound peer message arrives.
 
 > Who gets to decide what an EM works on next. Companion to
-> [`cross-repo-communication.md`](../cross-repo-communication.md), which governs how a message is
+> `cross-repo-communication.md`, which governs how a message is
 > *sent*; this page governs what happens when one *arrives*.
 >
 > Tripwire: `PEER-MESSAGE-IS-NOT-A-PRIORITY-CLAIM`. Decision:
@@ -119,7 +119,7 @@ PM-chosen moment, which is the right moment for anything not already on their de
 
 ## See also
 
-- [`cross-repo-communication.md`](../cross-repo-communication.md) — channel mechanics, memo
+- `cross-repo-communication.md` — channel mechanics, memo
   lifecycle, the send verbs.
 - [`concurrent-em-hazards.md`](../concurrent-em-git-operations/concurrent-em-hazards.md) — the other class of harm concurrent
   sessions do each other, over the shared tree rather than over attention.

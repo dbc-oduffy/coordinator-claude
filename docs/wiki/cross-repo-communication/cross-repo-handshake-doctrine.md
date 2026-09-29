@@ -180,5 +180,5 @@ When a verification ask in a memo CAN be done locally in-session, do it rather t
 - [`agentic-install-integrity.md`](../install-playbook-rationale/agentic-install-integrity.md) — doctrine wiki for the lifted classifier + deferred extensions (semantic-vs-byte, plugin-spawned state, agent-readable boot sentinel).
 - [`cross-repo-contract-test-discipline.md`](./cross-repo-contract-test-discipline.md) — roadmap-stub schemas speculative-until-grounded; byte-equal fixtures + `eol=lf` pinning as the executable contract oracle.
 - [`cross-repo-citation-conventions.md`](./cross-repo-citation-conventions.md) — how to cite across repos in handoffs and plans
-- [`cross-repo-communication.md`](../cross-repo-communication.md) — when to use a sentinel vs. PM-relay vs. archive link
+- `cross-repo-communication.md` — when to use a sentinel vs. PM-relay vs. archive link
 - [`scoped-safety-commits.md`](../concurrent-em-git-operations/scoped-safety-commits.md) — staging discipline when sentinel updates ride alongside other work

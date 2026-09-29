@@ -187,7 +187,7 @@ When a plan introduces or modifies a producer/consumer contract field across sep
 
 **Discipline.** When local-test semantics disagree with the receiver's validator, the local test is the bug. Cross-repo schema fields must be verified at the *receiver's* assertion site — adjacent to Convention A's polarity rule (the consumer publishes its own surface; the producer asserts against it, not against a copy that may have drifted).
 
-**Strict-inclusive upper-bound pins turn an additive bump into a forced re-release — check for a host-only home first.** Under a strict-inclusive gate (`pv_min <= host <= pv_max`), an *additive* bump on a HOST-consumed field falls OUT of every consumer that pinned `[lo, current]`, forcing each to widen-and-re-release for zero benefit — additive is not free under a strict upper bound. Before bumping the shared protocol version for what is actually a host-only concern, ask whether the field can stay host-internal (a presentation-only façade field no consumer reads needs no shared bump at all). The full discriminator — shared-contract change (coordinate reader-first) vs. host-owned façade field (host-side-only) — lives in [`cross-repo-communication.md`](../cross-repo-communication.md) § Host-owned façade fields don't need the shared bump. (Source: project-rag.)
+**Strict-inclusive upper-bound pins turn an additive bump into a forced re-release — check for a host-only home first.** Under a strict-inclusive gate (`pv_min <= host <= pv_max`), an *additive* bump on a HOST-consumed field falls OUT of every consumer that pinned `[lo, current]`, forcing each to widen-and-re-release for zero benefit — additive is not free under a strict upper bound. Before bumping the shared protocol version for what is actually a host-only concern, ask whether the field can stay host-internal (a presentation-only façade field no consumer reads needs no shared bump at all). The full discriminator — shared-contract change (coordinate reader-first) vs. host-owned façade field (host-side-only) — lives in `cross-repo-communication.md` § Host-owned façade fields don't need the shared bump. (Source: project-rag.)
 
 ## Wire-field op-classification is an allowlist, not a consumer heuristic
 
@@ -404,7 +404,7 @@ from directly.
 
 ## See also
 
-- [`cross-repo-communication`](../cross-repo-communication.md) — the broader cross-repo communication doctrine; this wiki is the contract-field instance of it.
+- `cross-repo-communication` — the broader cross-repo communication doctrine; this wiki is the contract-field instance of it.
 - [`sibling-surface-parity-testing`](./sibling-surface-parity-testing.md) — symmetric peer parity (sibling skills, parallel reviewers). This wiki covers asymmetric producer/consumer.
 - [`cross-repo-contract-test-discipline`](./cross-repo-contract-test-discipline.md) — discipline for contract tests that skip-vs-run. Convention A's producer-side assertion needs a CI lane that actually runs it.
 - [`parity-audit-doctrine`](../reviewer-pipeline/parity-audit-doctrine.md) — plugin-migration audit; complementary to this wiki but governs the move-event, not the steady-state contract.

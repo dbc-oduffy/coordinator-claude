@@ -99,4 +99,4 @@ decision, not resolved by this wiki.
 
 - [`cross-repo-handshake-doctrine.md`](../cross-repo-communication/cross-repo-handshake-doctrine.md) § Acceptance-readiness vs. branch-position — the standing-general anti-deadlock doctrine (mutual-deference standoff, courtesy-stall-memo tell, bilateral sequencing by bump class) that § 2 and § 3 above specialize for the AHEAD-state case specifically.
 - [`schema-version-gate.md`](../schema-and-validation-contracts/schema-version-gate.md) — the wire-format mechanics (`x-schema-version` / `schema_version`, major-only gating) that DIRECTION computation and the bump-CLASS table above both key off.
-- [`cross-repo-communication.md`](../cross-repo-communication.md) — the messaging primitive (memo declaration, PM-relay) the § 2 declaration duty rides on.
+- `cross-repo-communication.md` — the messaging primitive (memo declaration, PM-relay) the § 2 declaration duty rides on.
