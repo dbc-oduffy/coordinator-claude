@@ -97,16 +97,18 @@ The sidecar path is included verbatim in the Opus reviewer's dispatch prompt. Th
 
 docs-checker may apply at most `max(10, claims_count/3)` edits per artifact. Beyond the cap, remaining INCORRECT items report as findings rather than auto-fixes. This bounds blast radius if a verification source returns inconsistent results across the run and prevents oscillation across different lines — a failure mode the existing stuck-detection rule does not cover.
 
-## Integrator Bypass + Rollback
+## Auto-Fix Rollback
 
-docs-checker auto-fixes are NOT integrator-gated. The integrator runs after the Opus reviewer on the reviewer's findings, unchanged. The compensation for bypassing the integrator:
+docs-checker auto-fixes land before the Opus reviewer dispatches, unreviewed by anyone else — the
+reviewer applies its own findings against the artifact as the auto-fixes left it, the same as any
+other reviewer in the wave.
 
 1. All edits land as a single git-revertible commit — "undo all docs-checker edits" is one command: `git revert <docs-checker-commit-sha>`.
 2. The changelog sidecar is included verbatim in the Opus reviewer's dispatch prompt, so the reviewer sees exactly what was pre-applied.
 3. After the Opus review completes, the EM **must** diff the docs-checker commit against the pre-edit artifact for any auto-fix the Opus reviewer did not explicitly endorse. This spot-check is mandatory and time-bounded, not discretionary. The EM reads the changelog AND runs the diff before marking the review stage done.
 4. Rollback is `git revert <docs-checker-commit-sha>` — one command, all fixes reverted atomically.
 
-The integrator continues to handle Opus reviewer findings as today. The docs-checker changelog is part of the permanent review record.
+The docs-checker changelog is part of the permanent review record.
 
 ## docs-checker verifies the API claim, not fix-locus liveness
 
@@ -136,7 +138,7 @@ docs-checker dispatch briefs MUST instruct the agent to **enumerate every extern
 
 **Required bucket in the sidecar:** alongside VERIFIED / UNVERIFIED / INCORRECT, the docs-checker output MUST include an **"Unverified spec-cited symbol"** bucket. Any external symbol named in the artifact and absent from the claim table goes here. The bucket forces the gap into the sidecar rather than letting it propagate silently to executor time. Pattern is analogous to the prior-art-checker's Conflicts / Compatible-but-relevant / Silent bucket schema — gaps surface in the sidecar, not three reviews downstream.
 
-**Producer-skill obligation.** The dispatch brief is the contract. Skills calling docs-checker (`coordinator:plan`, reviewer pre-flights, integrator hand-offs) MUST require the agent to: (1) enumerate every external API symbol/method named in the artifact, (2) produce a claim row for each, (3) explicitly list spec-cited symbols absent from the claim table in the Unverified-spec-cited-symbol bucket. "Trust the dispatcher's recall on which APIs are subtle" is the wrong default — recall is exactly what docs-checker exists to backstop.
+**Producer-skill obligation.** The dispatch brief is the contract. Skills calling docs-checker (`coordinator:plan`, reviewer pre-flights) MUST require the agent to: (1) enumerate every external API symbol/method named in the artifact, (2) produce a claim row for each, (3) explicitly list spec-cited symbols absent from the claim table in the Unverified-spec-cited-symbol bucket. "Trust the dispatcher's recall on which APIs are subtle" is the wrong default — recall is exactly what docs-checker exists to backstop.
 
 ## Version-pinned edges
 

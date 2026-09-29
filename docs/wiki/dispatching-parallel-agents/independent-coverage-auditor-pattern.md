@@ -108,9 +108,9 @@ deleting them.
 
 A DRAFT Sonnet-tier auditor for the coordinator plan-review pipeline. PM has approved the concept;
 implementation has not landed. When it ships, it will run between plan-draft and prior-art-check —
-`plan.write → comprehensiveness-auditor → docs-checker → prior-art-checker → Opus reviewer →
-integrator` — because gap findings often reshape the plan body (adding Rollback, Migration sections)
-and the downstream checks should run on the amended body.
+`plan.write → comprehensiveness-auditor → docs-checker → prior-art-checker → Opus reviewer (applies
+its own findings)` — because gap findings often reshape the plan body (adding Rollback, Migration
+sections) and the downstream checks should run on the amended body.
 
 Its audit question is structural: "does the plan address canonical coverage areas (rollback,
 migration, observability, security boundary, error paths, test surface, concurrency, docs impact)?"

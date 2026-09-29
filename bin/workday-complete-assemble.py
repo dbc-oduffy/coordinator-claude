@@ -36,7 +36,7 @@ own § Exit-code contract):
         this trampoline's own transport failure, distinct from any business
         exit code the underlying submodule may compute.
 
-Spec backlink: DoE-claude coordinator/commands/workday-complete.md § Step 0.95, § apply
+Spec backlink: coordinator-content-repo coordinator/commands/workday-complete.md § Step 0.95, § apply
 Spec backlink: claude-klabauter coordinator_core/workday_complete/brief.py
 Spec backlink: claude-klabauter coordinator_core/workday_complete/apply.py
 

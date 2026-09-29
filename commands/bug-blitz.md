@@ -123,7 +123,7 @@ Archive only the rows this command disposes after the run: baton-minted rows, cl
 closes every other row. The EM commits each minted baton together with the archival of the rows
 it absorbs, as one scoped commit per baton via the committer route, with `--declared-revert` for
 the removed rows.
-<!-- engine-gap: field=directives[build_verifier_dispatch].dispatch_entry producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=directives[build_verifier_dispatch].dispatch_entry producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
 
 **Per-item cadence.** One commit per verified fix, never collapsed per batch.
 

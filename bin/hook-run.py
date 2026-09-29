@@ -113,7 +113,7 @@ def _engine_down_pass(event_name: "str | None", detail: str) -> dict:
     """`hook_http.unreachable_response`'s shape, inlined because that module is
     what failed to import. An unreachable engine PASSES LOUDLY, never denies:
     these guards are ergonomics, and a deny here walls off every tool call on
-    the box (DoE-claude coordinator/docs/wiki/coordinator-tripwires/
+    the box (coordinator-content-repo coordinator/docs/wiki/coordinator-tripwires/
     an-unreachable-engine-passes-loudly-never-denies.md). `systemMessage`
     reaches the operator and `additionalContext` the model, so an unrun guard
     never reads as one that passed. `SessionEnd` refuses `hookSpecificOutput`

@@ -111,6 +111,13 @@ def _certainly_compliant(repo_root) -> bool:
 
 def main() -> int:
     try:
+        from _machine_profile import is_author
+        if not is_author():
+            return 0
+    except Exception:
+        pass
+
+    try:
         from _engine_root import _session_repo_root, resolve_claude_klabauter_root
     except Exception:
         return 0

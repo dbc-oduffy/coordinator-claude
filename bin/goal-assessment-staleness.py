@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """goal-assessment-staleness — the missing reader for the never-assessed rule.
 
-Ported from DoE-claude `coordinator/bin/goal-assessment-staleness.py` (W2-C6,
+Ported from coordinator-content-repo `coordinator/bin/goal-assessment-staleness.py` (W2-C6,
 `docs/plans/2026-09-18-doe-holds-no-scripts.md`) — mechanical move, no behavioural change. This
 module's `_repo_root()` was already "engine" class (§ Path resolution): `Path(__file__).resolve()
-.parents[2]` names the repo root from this module's own tree whether it lives in DoE-claude's
+.parents[2]` names the repo root from this module's own tree whether it lives in coordinator-content-repo's
 `coordinator/bin/` or here, so nothing about the resolution changes on arrival.
 
 WHY THIS EXISTS. `/workweek-complete` Step 1 reads a goal's `status` directly; Step 5's KR
@@ -16,7 +16,7 @@ achieved/missed/never-assessed doctrine, per `docs/wiki/invisible-doctrine.md`'s
 
 WHY `yaml.safe_load`, NOT A HAND-ROLLED SCRAPE. A goal artifact routinely carries inline enum
 comments (see every `key_results[].status` line in `state/goals/*.yaml`: `status: not-started  #
-not-started | in-progress | met | at-risk`), so a line scrape would reproduce a defect DoE-claude
+not-started | in-progress | met | at-risk`), so a line scrape would reproduce a defect coordinator-content-repo
 already hit and fixed once (`0dfa4d2d6a`). `yaml.safe_load` discards comments by definition and is
 already an in-tree dependency of several `coordinator/bin` scripts (e.g. `baton-chain-closure.py`).
 Do not "simplify" this back to a line scrape.

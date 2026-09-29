@@ -7,10 +7,10 @@ NOT the same tool as `coordinator/bin/repomap/generate-repomap.py` ("repomap")
 
 Purpose: subsumes the three shell pipelines (language census via `find | sed |
 sort | uniq`, per-language import-edge extraction via `grep`, cross-reference
-counting via `grep -rl | wc -l`) that DoE-claude's `pipelines/deep-research/
+counting via `grep -rl | wc -l`) that coordinator-content-repo's `pipelines/deep-research/
 repo-research-internals.md` § Phase 1.5 formerly spelled out as copy-paste shell
 shapes for the deep-research Pipeline B EM to retype. Ops belong in the claude-klabauter
-engine, not in instruction-surface fences — see DoE-claude's
+engine, not in instruction-surface fences — see coordinator-content-repo's
 coordinator/docs/wiki/coordinator-tripwires.md (greppable token
 NO-MULTI-LINE-SHELL-FENCE / SKILLS-CARRY-NO-CODE) and
 coordinator/docs/wiki/invisible-doctrine.md § How we got here — six escalating
@@ -28,7 +28,7 @@ is a pure, self-contained CLI.
 Distinct from `repomap` (`coordinator/bin/repomap/generate-repomap.py`):
 that tool builds a token-budgeted, PageRank-centrality + git-activity-ranked
 Markdown map for LLM context injection into a repo WE OWN and have git
-history for (it backs DoE-claude's project-orientation hook and update-docs
+history for (it backs coordinator-content-repo's project-orientation hook and update-docs
 staleness banner). This tool has no git-activity signal, no token budget, and
 no tree-sitter dependency — it emits a flat census + raw import-occurrence
 counts + distinct-referencing-file counts, in JSON or human-readable form, for
@@ -68,7 +68,7 @@ Exit codes:
     2 — usage/argument error, or <repo-path> is not a directory
 
 Spec backlink: coordinator/pipelines/deep-research/repo-research-internals.md
-    § Phase 1.5 — Repomap Generation (DoE-claude)
+    § Phase 1.5 — Repomap Generation (coordinator-content-repo)
 """
 
 from __future__ import annotations

@@ -71,7 +71,7 @@ infer the state from a property, because the obvious test for each one lies:
 ```bash
 test -d ~/.claude/.git && echo "own-git-repo"          # NOT `git -C ~/.claude rev-parse …`
 jq -e '. != {} and . != null' ~/.claude/plugins/installed_plugins.json 2>/dev/null && echo "has-plugins"
-test -e ~/.claude/.doe-root -o -d ~/.coordinator-claude-settings && echo "has-coordinator-infra"
+test -e ~/.claude/.content-root -o -d ~/.coordinator-claude-settings && echo "has-coordinator-infra"
 ```
 
 Use the literal commands, not `git rev-parse` — a home directory under dotfile tracking makes
@@ -86,7 +86,13 @@ Use the literal commands, not `git rev-parse` — a home directory under dotfile
   warning below.
 - **`state=configured`** — any of the three printed. **Track B.**
 
-**Track B — proceed and report; do not stop.** The install merges config files rather than
+**Track B with the coordinator plugin already installed** (`has-plugins` names `coordinator@…`)
+**is the update track, not a cold install.** Run `/coordinator-update`, then
+`python3 <plugin-root>/lib/install/coordinator_install.py --plan`: it reports `track: update` and
+every step skips what is already configured, so re-running it is the way to pick up newly added
+steps (status lines, recommended extras). Skip Steps 1 and 2 and go to Step 3.
+
+**Track B otherwise — proceed and report; do not stop.** The install merges config files rather than
 overwriting them, so an existing home is not by itself a reason to hold. Proceed, and tell the
 human afterwards what you found and what the install did with it:
 
@@ -248,28 +254,22 @@ The plugins are installed. Now the human needs a fresh Claude Code session.
 
 Tell the human exactly this:
 
-> **Start a fresh Claude Code session from your coordinator root, then paste one command.**
+> **Start a fresh Claude Code session from any directory, then paste one command.**
 >
-> 1. Open a terminal.
-> 2. `cd ~/.claude`
-> 3. `claude`
->
-> Then, in that session, paste:
+> 1. Open a terminal in any folder and run `claude`.
+> 2. In that session, paste:
 >
 > ```
 > /coordinator:install
 > ```
 >
-> **Switch to auto mode first.** Coordinator is an agentic system — the EM edits files, runs
-> setup scripts, and dispatches subagents on your behalf. Press **Shift+Tab** to cycle the
-> permission mode to **auto-accept ("auto") mode** so the install runs without a prompt on every
-> action.
+> The install opens `~/.claude` in your file manager so you can see the files that govern your
+> sessions; you never need to `cd` there.
 >
-> (If `claude` isn't found, install the CLI first: `npm install -g @anthropic-ai/claude-code`. If
-> you've been using the desktop app, switch to the CLI for coordinator work.)
+> (If `claude` isn't found, install the CLI first: `npm install -g @anthropic-ai/claude-code`.)
 >
-> A fresh session is required: hooks/commands and the Agent Teams env var both take effect only
-> at startup.
+> A fresh session is required for plugin hooks and commands to load. Everything after it runs in
+> that one session; the install asks for a further restart only when a check proves one is needed.
 
 Do NOT describe the fresh session as "just restarting" — the human is handing off to a new
 session that runs `/coordinator:install` to finish the environment wiring.
@@ -278,8 +278,10 @@ session that runs `/coordinator:install` to finish the environment wiring.
 
 In the fresh session, the human runs:
 
-1. **`/coordinator:install`** — environment wiring (safe to re-run; skips anything already
-   configured). Checks prerequisites, sets the Agent Teams env var, lays down the machine-local
+1. **`/coordinator:install`** — environment wiring, run as a script with declared choices
+   (`lib/install/coordinator_install.py`: orientation first, then `--plan`, then `--answers`; safe
+   to re-run; skips anything already configured; reports every step RAN, SKIPPED, INHERITED or
+   FAILED). Checks prerequisites, sets the Agent Teams env var, lays down the machine-local
    registry, builds the helper venv, scaffolds the canonical document structure, records the
    `setup_concluded` receipt, and offers a guided tour + repo bootstrap. This *is* the
    post-restart onboarding — there is no separate baton to `/pickup`. **Phase 3 of this command
@@ -507,6 +509,13 @@ After install, `/coordinator-update` is the PM-invoked way to update later: it c
 published version, computes a delta, and advises a path while preserving customizations by
 default — never a blind overwrite. `claude plugin install coordinator@coordinator-claude` also
 pulls the latest, but `/coordinator-update` is the safer, customization-aware path.
+
+`version.txt` in the installed plugin directory is the update baseline: the commit SHA of the
+source the install was made from, which `/coordinator-update` compares against upstream. It is not
+the plugin version; that lives in `.claude-plugin/plugin.json`. `docs/coordinator-currency.yaml`,
+written by the install's optional `coordinator_currency` step into a project repo, records which
+coordinator version that repo was set up against; commit it in the project repo and skip it in the
+plugin clone.
 
 ## More detail
 

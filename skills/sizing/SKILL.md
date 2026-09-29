@@ -67,7 +67,7 @@ has the discriminator), the Step 1b/2 flags as answered, and
 returned `route`/`detents`/`next_move` verbatim — it already carries the discharge text.
 
 **4. Scaffold the sizing-object** (`coordinator-doc-new --type sizing-object`) for any
-non-express-lane sizing, populating `intent`/`estimate`/`route`/`detents`/`scout_evidence` and the
+non-express-lane sizing, populating `intent`/`estimate`/`route`/`detents`/`scout_evidence`/`exit_criterion`/`interaction_mode` and the
 property-attests verbatim from the returned fields. Undecided direction-class items go in
 `surfaced_to_pm`, never folded into `fork`/`xl_exit`. Optionally pass `--name "<short label>"` for
 `name` — a few words, whiteboard length; never a slice of `intent`.
@@ -130,7 +130,7 @@ answer with `sizing.accept_exit_criterion` (`pm_quote`, optional amended `statem
 never by hand-editing the sizing object. In pm and ceo modes the ask says plainly that
 accepting it authorizes execution without a further ask; that sentence is what makes the
 accepted sizing the execution authority the turn-3 stamp cites. For XL, Step 5b is unchanged.
-After acceptance, run `emit-wave-fire.py --from-sizing <sizing path>` and fire its one printed
+After acceptance, run `emit-wave-fire --from-sizing <sizing path>` and fire its one printed
 `Workflow` line. End the turn — the plan Workflow (turn 2) runs planning, pre-flights, review
 and integration with no EM in the loop, and its return is turn 2's digest.
 

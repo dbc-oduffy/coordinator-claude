@@ -19,7 +19,7 @@ no fresh parser, no local `yaml.safe_load` over a hand-located fence (that
 module's own docstring documents the fenced-block traps this reuse avoids).
 
 Field partition (re-verified against plan-tasks.schema.json x-schema-version
-1.7.0, DoE-claude coordinator/schemas/plan-tasks.schema.json, as of this
+1.7.0, coordinator-content-repo coordinator/schemas/plan-tasks.schema.json, as of this
 writing):
   IN  — title, surface, change_kind, body (id heads the brief as a label).
   OUT — queue_scope, pm_approved, deferred, writes, reads, case_against,
@@ -50,7 +50,7 @@ House style: mirrors `fan-out-dispatch.py`'s arg parsing, `_err` stderr
 helper, and 0/1/2 exit-code contract (0 success, 1 data/spec error, 2 usage
 error). Pure Python 3.11+, naked .py, no bash.
 
-Spec backlink: cross-repo/inbox/2026-08-13-doe-claude-em-pcli-02-plan-task-brief-copyout.md
+Spec backlink: cross-repo/inbox/2026-08-13-coordinator-content-repo-em-pcli-02-plan-task-brief-copyout.md
 
 Usage:
   python plan-task-brief.py <plan-path> <task-id> [--out FILE]

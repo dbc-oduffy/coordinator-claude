@@ -5,7 +5,7 @@ one place a hook turns a decided key/value into a registry write, so there is
 one implementation of "which `_machine_local.py` do we actually run".
 
 **Why this module exists — the writer that is missing exactly when it is
-needed.** `session-start-register-doe-claude-root.py` resolved its writer as
+needed.** `session-start-register-coordinator-content-repo-root.py` resolved its writer as
 `<settings-home>/bin/_machine_local.py` and no-opped when that file was
 absent. That file is written by the engine plane's installer, so the resolver
 was unavailable on precisely the boxes whose registry needs self-healing: a

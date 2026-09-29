@@ -85,33 +85,22 @@ edit, they do not execute; `verify` is on that allowlist.
 
 Two reviewers editing one artifact would race. A plan's reviewers run in sequence — premise
 checker first, each verifying before the next starts. A plan's review-phase wall time is therefore
-the sum of its reviewers' durations, not the slowest one alone. Partitioned closes and a
-merge-gate's chunk reviewers each own a disjoint frozen file set, so they apply in parallel; the EM
-then runs one `verify` sweep over every sidecar and lands one scoped commit, never one per slice. A
-merge-gate's whole-diff specialists run after the chunk reviewers, in sequence.
+the sum of its reviewers' durations, not the slowest one alone.
 
-## One integration pass
+Code review over a diff is different: it runs as one parallel wave, and every reviewer in it —
+slice owners, Kira (`coordinator:overengineering-reviewer`), and every named persona — applies
+every finding it logs, in place, with an exact-text `Edit`, including a finding outside its own
+slice. When an `Edit` misses because another writer moved the text first, re-read and re-apply.
+The EM sweeps `verify` over every sidecar once the wave finishes and lands one scoped commit for
+the whole wave, never one per slice.
 
-The execute-review stage of `/execute-plan`'s emitted workflow runs one parallel review wave, then
-exactly one integration pass — never a second review round. The wave's slice-owning
-`coordinator:code-reviewer` calls apply their own findings inside their own disjoint file slices,
-logging anything outside their slice under `## Out-of-Slice Findings` instead. Every whole-diff
-lens in that wave — `coordinator:overengineering-reviewer` (Kira) and every `review_signals`-resolved
-persona — runs findings-only: it never self-applies, because its lens spans every slice and
-applying there would race a slice owner's own write.
+## No integration pass
 
-The one integration call is a `coordinator:code-reviewer` dispatch with an integrate remit, never a
-second agent type. It applies only the residue no slice owner could safely touch: the out-of-slice
-findings, Kira's findings (except `rebuild_recommended: true`, which becomes a decision item rather
-than an automatic apply), and every persona's findings. It writes its own `## Findings Ledger`
-covering that residue, runs `verify` over every slice sidecar, checks that each slice ledger row's
-`file` is inside that slice, and stamps `integrated_from:` with every sidecar stem it took custody
-of.
-
-**Unresolved means the PM, not a second round.** A finding integration cannot resolve goes to
-`unresolved[]`. There is no dispatching a third reviewer to adjudicate it — `review-stamp mint`
-refuses to mint on any non-empty `unresolved[]`, so an unresolved finding blocks the plan reaching
-`implemented` rather than triggering more review.
+There is no separate integrator agent and no integrate remit. Every reviewer applies its own
+findings as it goes (§ The reviewer applies every finding, above), and there is no second review
+round. The one thing that returns to the EM instead of being applied in place is a Kira
+`rebuild_recommended: true`, or a `REJECTED`/`PIVOT` premise verdict (§ Verdicts) — everything
+else is applied and verified before the review stage ends.
 
 ## Pre-flight lens findings are not the reviewer's to fold
 

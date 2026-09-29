@@ -65,7 +65,7 @@ Read it whenever a run turns up a surface nothing below covers.
 | Flag | Effect |
 |---|---|
 | *(none)* | Full-remove. |
-| `--keep-marketplace` | Revert-to-marketplace: re-registers the flat tree, clears `live_path`, removes `.doe-root`. |
+| `--keep-marketplace` | Revert-to-marketplace: re-registers the flat tree, clears `live_path`, removes `.content-root`. |
 | `--purge-operator-config` | Also purges `coordinator-identity.yaml` / `working-repos.yaml` (not touched by default). Fails loud on a hand-edited file unless combined with `--force`. |
 | `--force` | Required alongside `--purge-operator-config` to remove a hand-edited file. No effect alone. |
 | `--dry-run` | Prints the ordered leg plan for THIS machine — zero writes, zero registry clears. Run this first. |

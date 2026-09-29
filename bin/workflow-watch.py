@@ -14,8 +14,8 @@ pasted it and got `ModuleNotFoundError: No module named 'coordinator_core'`,
 exit 1, while the advisory's imperative wording ("arm the watcher instead of
 hand-writing one") had already talked them out of their own monitor. A dead
 watcher and a quiet run look identical.
-(cross-repo/inbox/2026-08-30-doe-claude-em-workflow-watch-command-is-unrunnable-outside-the-engine.md,
-relayed by doe-claude-em from project-rag-em.)
+(cross-repo/inbox/2026-08-30-coordinator-content-repo-em-workflow-watch-command-is-unrunnable-outside-the-engine.md,
+relayed by coordinator-content-repo-em from project-rag-em.)
 
 Cold path — a long-poll watcher process, not a daemon-RPC hot path. Direct
 in-process import + call (the aggregate-chain-loe.py / coordinator-auto-push

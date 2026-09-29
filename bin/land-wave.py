@@ -333,7 +333,7 @@ def _invoke(repo_root: Path, op: str, params: dict, live_engine_tree: bool = Fal
 
     Through 2026-09-18 this spawned a `coordinator-invoke` subprocess (a launcher at the
     settings home, or a `--engine-root` checkout's own trampoline, run COLD under
-    `--live-engine-tree`), because this CLI lived in DoE-claude and could not import the
+    `--live-engine-tree`), because this CLI lived in coordinator-content-repo and could not import the
     engine directly. It now lives inside the engine repo itself
     (`docs/plans/2026-09-18-doe-holds-no-scripts.md`) and is served by the warm door, so
     that boundary is gone: `coordinator_core` is importable off this same tree

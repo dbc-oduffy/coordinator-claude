@@ -8,9 +8,9 @@ for this shape. On Windows, this file's co-located `.cmd` twin wins via
 macOS/Linux `python3` is the right interpreter. Caution: callers must invoke
 via the extensionless name or a resolved-interpreter prefix, never a bareword
 `.py` through git-bash — git-bash DOES honor the shebang and would exec-127
-with no `python3` present. See the carve-out in DoE-claude's
+with no `python3` present. See the carve-out in coordinator-content-repo's
 coordinator/docs/wiki/bash-on-windows-gotchas.md § Carve-out (cross-repo —
-this wiki lives in the DoE-claude repo, not here).
+this wiki lives in the coordinator-content-repo repo, not here).
 
 Spec backlink: docs/plans/2026-07-09-plan-full-coverage-and-deferred-harvest.md § Architecture (C4a)
 
@@ -116,7 +116,7 @@ unnecessary schema churn for a value that already fits the existing contract).
 Before writing a new entry, this script greps the plan's own harvest routing
 target (project-scope: <repo-or-QUEUE_APPEND_OUTPUT_ROOT>/state/improvement-queue/*.yaml;
 central-scope: <claude-klabauter-root-or-QUEUE_APPEND_OUTPUT_ROOT>/state/improvement-queue/*.yaml; lessons:
-<doe-root-or-LESSON_PROMOTE_OUTBOX_ROOT>/state/lessons-outbox/*.yaml) for that exact
+<content-root-or-LESSON_PROMOTE_OUTBOX_ROOT>/state/lessons-outbox/*.yaml) for that exact
 harvest-key string in the `evidence:` field of already-written entries. A match means
 "already harvested from this plan" — skip, do not double-write. This is a best-effort
 text scan (not a database query) but is sufficient given the low write-volume and
@@ -126,16 +126,16 @@ promote's own root resolution COMPLETELY, not just their env-override leg: env
 overrides (QUEUE_APPEND_OUTPUT_ROOT / LESSON_PROMOTE_OUTBOX_ROOT) win first exactly
 as the write seams check them first, and when unset the central-scope
 improvement-queue leg calls cli_shared.claude_klabauter_root() (repos.claude_klabauter) while
-the lessons-outbox leg calls coordinator_registry.doe_root() (repos.doe_claude) —
+the lessons-outbox leg calls coordinator_registry.content_root() (repos.content_root) —
 the identical functions coordinator-queue-append's central branch and
 coordinator-lesson-promote's _outbox_root() respectively call — so scan-root cannot
 drift from write-root under either machine-local-registry-resolved case (the
 expected steady state on any installed machine) any more than under the
 respective env-var case. (Review: code-reviewer slice2 Finding 1 — an earlier
 revision of this docstring/comment claimed env-override-precedence parity while
-the implementation only reproduced the DOE_ROOT-env leg of doe_root()'s
+the implementation only reproduced the CONTENT_ROOT-env leg of content_root()'s
 three-step resolution for BOTH legs, silently dropping the machine-local-registry
-leg; a later fix closed that gap but scanned doe_root() for the central-scope
+leg; a later fix closed that gap but scanned content_root() for the central-scope
 improvement-queue leg too, missing commit 5b908173's repoint of that leg's
 write-seam to cli_shared.claude_klabauter_root() — this revision fixes both legs'
 implementation and this claim.)
@@ -174,7 +174,7 @@ _CLI_CMD_CACHE: dict[tuple[str, bool], list[str] | None] = {}
 _BOOTSTRAPPED_NAMES = (
     "_resolve_claude_klabauter_root",
     "require_dispatch_engine_on_path",
-    "doe_root",
+    "content_root",
     "_DoeUnresolvable",
     "cli_shared",
     "_claude_klabauter_root",
@@ -214,10 +214,10 @@ def _bootstrap_engine() -> None:
         # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
         import coordinator_core  # noqa: F401
         
-        from coordinator_registry import doe_root, _DoeUnresolvable
+        from coordinator_registry import content_root, _DoeUnresolvable
         
         # cli_shared.claude_klabauter_root() resolves repos.claude_klabauter (CLAUDE_KLABAUTER_ROOT env ->
-        # implementations", 2026-07-23). doe_root() resolves the DIFFERENT
+        # implementations", 2026-07-23). Content_root() resolves the DIFFERENT
         import cli_shared
         
         if _BIN_DIR not in sys.path:
@@ -663,7 +663,7 @@ def _harvest_key(plan_id: str, row_id: str) -> str:
 # subprocess) once PER CANDIDATE ROW inside _harvest()'s loop — N redundant
 # _CLI_CMD_CACHE pattern above (also a per-process, first-call memo). Never
 _repo_root_cache: dict[str, str | None] = {}
-_resolved_doe_root_cache: dict[str, str | None] = {}
+_resolved_content_root_cache: dict[str, str | None] = {}
 _resolved_claude_klabauter_root_cache: dict[str, str | None] = {}
 _UNSET = "<unset>"
 
@@ -683,12 +683,12 @@ def _collect_evidence_lines(search_dirs: list[str]) -> list[str]:
     Hoisted out of the per-row loop (2026-08-15 staff review, Defect 2):
     `search_dirs` is invariant across a whole `_harvest()` run — it depends
     only on env overrides and the process-memoized root resolvers (see the
-    `_repo_root_cache` / `_resolved_doe_root_cache` / `_resolved_claude_klabauter_root_cache`
+    `_repo_root_cache` / `_resolved_content_root_cache` / `_resolved_claude_klabauter_root_cache`
     block above), never on any individual row — yet `_already_harvested` was
     previously called once PER CANDIDATE ROW and re-globbed + re-read EVERY
     `*.yaml` file in up to four directories on each call. This module's own
     `_derive_proposed_action` docstring measures those corpora at 605
-    (DoE-claude) and 493 (claude-klabauter) entries: O(rows x ~1100 full file reads)
+    (coordinator-content-repo) and 493 (claude-klabauter) entries: O(rows x ~1100 full file reads)
     for a key set invariant across the loop. Call this once before the loop
     in `_harvest()`; `_already_harvested` below then does an O(1)-per-row
     membership check against the returned list instead of re-scanning disk.
@@ -713,29 +713,29 @@ def _already_harvested(key: str, evidence_lines: list[str]) -> bool:
     return any(key in line for line in evidence_lines)
 
 
-def _resolved_doe_root() -> str | None:
-    """Call the SAME doe_root() coordinator-lesson-promote's _outbox_root()
+def _resolved_content_root() -> str | None:
+    """Call the SAME content_root() coordinator-lesson-promote's _outbox_root()
     calls, degrading to None on _DoeUnresolvable (mirrors the write seam's own
     WARN+skip-on-unresolvable posture — this is a best-effort scan, never a
     hard requirement).
 
-    doe_root() (repos.doe_claude) is the correct root for lessons-outbox ONLY
+    content_root() (repos.content_root) is the correct root for lessons-outbox ONLY
     — see _resolved_claude_klabauter_root() below for the central-scope improvement-queue
     leg, which resolves a DIFFERENT registry key as of commit 5b908173.
 
-    Memoized (see _repo_root_cache block above): doe_root()'s own resolution
+    Memoized (see _repo_root_cache block above): content_root()'s own resolution
     ladder can itself spawn a subprocess (machine-local registry probe /
     marketplace-cache rung) and was previously re-run once per harvested row
     via _candidate_search_dirs() inside _harvest()'s loop for an answer that
     cannot change mid-process.
     """
     _bootstrap_engine()
-    if _UNSET not in _resolved_doe_root_cache:
+    if _UNSET not in _resolved_content_root_cache:
         try:
-            _resolved_doe_root_cache[_UNSET] = doe_root()
+            _resolved_content_root_cache[_UNSET] = content_root()
         except _DoeUnresolvable:
-            _resolved_doe_root_cache[_UNSET] = None
-    return _resolved_doe_root_cache[_UNSET]
+            _resolved_content_root_cache[_UNSET] = None
+    return _resolved_content_root_cache[_UNSET]
 
 
 def _resolved_claude_klabauter_root() -> str | None:
@@ -760,10 +760,10 @@ def _candidate_search_dirs(row: dict) -> list[str]:
     _outbox_root() BOTH check their own env-override var (QUEUE_APPEND_OUTPUT_ROOT /
     LESSON_PROMOTE_OUTBOX_ROOT respectively) FIRST, then fall back to a
     machine-local-registry-resolved root — but NOT the SAME root: lessons-outbox
-    falls back to coordinator_registry.doe_root() (repos.doe_claude); central-scope
+    falls back to coordinator_registry.content_root() (repos.content_root); central-scope
     improvement-queue falls back to cli_shared.claude_klabauter_root() (repos.claude_klabauter,
     since commit 5b908173). An earlier version of this function only reproduced
-    the DOE_ROOT-env leg of doe_root()'s chain for BOTH legs (missing the
+    the CONTENT_ROOT-env leg of content_root()'s chain for BOTH legs (missing the
     machine-local-registry leg, the expected steady state on any installed
     machine) — that gap is closed here by importing and calling the real seam
     functions directly (Review: code-reviewer slice2 Finding 1 — option (a): call
@@ -777,7 +777,7 @@ def _candidate_search_dirs(row: dict) -> list[str]:
         repo's own* project-scope queue, which is correct — it mirrors
         _output_path()'s project-scope branch, not the central one).
       - lessons-outbox: LESSON_PROMOTE_OUTBOX_ROOT env override first (matches
-        coordinator-lesson-promote's _outbox_root()), else doe_root() (the
+        coordinator-lesson-promote's _outbox_root()), else content_root() (the
         exact function _outbox_root() itself calls).
       - central-scope improvement-queue: QUEUE_APPEND_OUTPUT_ROOT env override
         first, else cli_shared.claude_klabauter_root() (the exact function
@@ -813,9 +813,9 @@ def _candidate_search_dirs(row: dict) -> list[str]:
             dirs.append(os.path.join(resolved_claude_klabauter_root, "state", "improvement-queue"))
 
     if not lessons_override:
-        resolved_doe_root = _resolved_doe_root()
-        if resolved_doe_root:
-            dirs.append(os.path.join(resolved_doe_root, "state", "lessons-outbox"))
+        resolved_content_root = _resolved_content_root()
+        if resolved_content_root:
+            dirs.append(os.path.join(resolved_content_root, "state", "lessons-outbox"))
 
     return dirs
 

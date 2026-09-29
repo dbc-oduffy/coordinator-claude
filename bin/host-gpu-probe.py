@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """host-gpu-probe — standalone GPU probe, the sole surviving successor of coordinator_whoami.
 
-coordinator_whoami (DoE-claude `coordinator/whoami/`) was retired
+coordinator_whoami (coordinator-content-repo `coordinator/whoami/`) was retired
 (archive/specs/2026-08-23-retire-coordinator-whoami-entirely.md). Of its twelve host probes,
 project-rag and example-game-repo were asked directly which they still need, and both independently
 answered GPU-only — see that plan's C9 chunk for the full consumer ruling and the citations

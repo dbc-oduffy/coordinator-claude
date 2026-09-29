@@ -4,7 +4,7 @@ the engine sync module.
 
 Installed to `<install-root>/setup/publish_sync.py`, where it wins the
 `_import_publish_sync` seam for an install-rooted percolate run exactly as
-the repo-root `setup/publish_sync.py` does for a DoE-rooted one.
+the repo-root `setup/publish_sync.py` does for a ContentRooted one.
 
 Derived from `<claude-klabauter>/coordinator/lib/percolate/publish_sync.py`,
 with exactly two additions and nothing else:

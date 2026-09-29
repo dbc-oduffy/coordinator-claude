@@ -1,6 +1,6 @@
 # .percolate-ignore — coordinator/lib/ contributing source root for the claude-klabauter
 # OSS mirror (rows 6 and 7, `claude-klabauter-lib` / `claude-klabauter-coordinator-lib`, authored sibling-side in
-# DoE-claude:setup/publish-targets.portable).
+# coordinator-content-repo:setup/publish-targets.portable).
 #
 # SOURCE_DIR for this file is `claude-klabauter/coordinator/lib/` itself. Patterns are
 # SOURCE_DIR-RELATIVE — they carry NO `coordinator/lib/` prefix, or they double-prefix

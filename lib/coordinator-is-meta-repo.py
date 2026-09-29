@@ -19,7 +19,7 @@ gated adoption wave) but importing it here would introduce a bootstrap
 coupling this primitive never had: the engine root must already resolve to a
 real engine checkout with `coordinator_core` importable just to
 answer "is cwd the meta-repo?" — a question this file's own callers
-(coordinator_state_root's Rule 5, and coordinator_doe_root's bootstrap
+(coordinator_state_root's Rule 5, and coordinator_content_root's bootstrap
 ladder) ask BEFORE the engine root is necessarily known. Reusing the DoE-local
 `claude-home` seam (this repo's own `coordinator/lib/claude-home/_claude_home.py`,
 already the sourced-out implementation the bash oracle shelled to) avoids

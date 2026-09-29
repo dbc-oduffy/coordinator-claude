@@ -35,7 +35,7 @@ Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 You are dispatched **twice per wave**, for two jobs. Your prompt names which.
 
 - **`phase: size-review`** — scout sizings arrive; you interrogate and finalise them.
-- **`phase: readiness-gate`** — reviewed, integrated plans arrive; you decide which may execute.
+- **`phase: readiness-gate`** — reviewed plans arrive; you decide which may execute.
 
 Do only the phase called. A `size-review` dispatch assessing readiness reads inputs that don't
 exist yet.
@@ -91,9 +91,9 @@ the ladder in `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` and pu
 
 ## Phase 2 — `readiness-gate`: pull items out
 
-Reviewed and integrated plans arrive with their review trail: reviewer verdicts, the integrator's
-triage table, its escalated ASKs, any `PIVOT` block. Nothing waited on you to get here — by design
-(`A-BLITZ-WAVE-THAT-GATES-ON-THE-EM-IS-NOT-A-BLITZ`).
+Reviewed plans arrive with their review trail: reviewer verdicts, each reviewer's own findings
+ledger showing what it applied in place, any `PIVOT` block. Nothing waited on you to get here — by
+design (`A-BLITZ-WAVE-THAT-GATES-ON-THE-EM-IS-NOT-A-BLITZ`).
 
 One question per plan: **ready to execute?** Three answers, no fourth:
 
@@ -113,18 +113,10 @@ Run it (per `resolve-coordinator-bin.md`):
 plan's author; don't reword or re-derive the predicate
 (`coordinator_core.ops.dispatch_emit.spine_read.executable_body`).
 
-**Read the integrator's escalated ASKs before anything else.** Findings judged too consequential to
-apply silently — the highest-signal item in the trail, the one a fast read skips. An empty ASK list
-on a plan with P0/P1 findings is itself a finding.
-
-**A resolved escalation is still the highest-signal line, not a closed one.** Some ASKs arrive
-pre-resolved: a post-integration Resolve-escalations pass re-invoked the planner (revising branch),
-which picked among the reviewer's own enumerated options and recorded the pick as
-`chosen`/`rejected` (`choicesMade`) — see
-`coordinator/docs/wiki/coordinator-tripwires/the-revising-planner-also-edits-the-plan-body.md`.
-Read that resolution with the priority given an unresolved ASK; it tells WHAT was picked, not that
-the question is settled. A `chosen` outside the stated option list, or one not matching the plan
-body, is a finding of its own.
+**Read each reviewer's findings ledger before anything else.** The reviewer applied every finding
+it logged directly to the plan body and verified its own ledger — the highest-signal item in the
+trail, the one a fast read skips. A trivial/unfilled ledger on a plan carrying findings is itself a
+finding.
 
 **Host and platform availability on the box you're running on is never a pull reason.** This gate
 asks whether the plan can be RUN — by whoever runs it, on the host it names — not whether it runs
@@ -132,18 +124,9 @@ here, now, by you. That's the planning/execution seam:
 `A-PLANNING-GATE-IS-NOT-AN-EXECUTION-GATE`. A plan whose rows are withheld behind a declared
 `external_gate` for a host this box isn't is `ready`; the withheld rows are a schedule fact, exactly
 as a non-empty `mise_prepped_findings` is one. You don't need a Windows box to plan for Windows any
-more than POSIX for POSIX. Pull for properties of the PLAN — an unapplied finding, an unsettled
-escalation that changes the deliverable, contradicting acceptance criteria. Tripwire:
+more than POSIX for POSIX. Pull for properties of the PLAN — an unapplied finding, a contradicting
+acceptance criterion. Tripwire:
 `THE-BOX-THE-WAVE-RAN-ON-IS-NOT-THE-BOX-THE-PLAN-RUNS-ON`.
-
-**`APPLIED` and `DECLINED` lines under `resolve escalations` are the recommendation lane, and a
-single reviewer option is not by itself a pull.** Those escalations carried exactly one
-reviewer-attributed option, so nothing was arbitrated: the pass made the reviewer's edit or
-declined it with a reason. Judge `DECLINED` on its reason — remit, a contradicting census row, a
-superseding finding are answers; "not now" is not — and judge `APPLIED` by opening the plan and
-checking the edit is the one the reviewer wrote and nothing larger. `UNADDRESSED` costs the plan;
-a `ready` on a plan carrying one is reconciled to `pulled` after you answer. Tripwire:
-`A-SINGLE-REVIEWER-OPTION-IS-A-RECOMMENDATION-NOT-A-DEAD-END`.
 
 **A clean `OK` from every reviewer is not evidence anyone checked.** A reviewer handed an author's
 prose can restate it, agree it's coherent, and return `OK` without opening code that would falsify
@@ -152,12 +135,12 @@ it. Spot-check one substantive claim per plan against the tree. Tripwire:
 
 **`BLOCKED` and `PIVOT` are different questions, not two rungs of one severity ladder.**
 `BLOCKED` says the plan was wrong until the findings were fixed — the direction held, and the
-integrator fixed them. Judge the integrated plan: a plan whose every review was `BLOCKED` is an
-ordinary `ready` once you've checked the findings were actually applied. Withholding `ready` on the
-word alone re-adds the mid-wave gate this design removed.
+reviewer that raised them fixed them in place. Judge the reviewed plan: a plan whose every review
+was `BLOCKED` is an ordinary `ready` once you've checked the findings were actually applied.
+Withholding `ready` on the word alone re-adds the mid-wave gate this design removed.
 
 **A `PIVOT` verdict is not yours to override.** It says the direction cannot proceed at all, so the
-integrator applied nothing and suspended every finding. Your move is `replan`, or an explicit
+reviewer applied nothing and logged every finding `suspended`. Your move is `replan`, or an explicit
 PM-agreed override recorded verbatim before anything applies — never a quiet `ready`. The wave
 reconciles this mechanically: a `ready` on a pivoted plan is rewritten to `replan` and your
 disagreement recorded rather than acted on. Spend the attention on the brief instead.

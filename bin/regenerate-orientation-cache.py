@@ -48,9 +48,9 @@ for this shape. On Windows, this file's co-located `.cmd` twin wins via
 macOS/Linux `python3` is the right interpreter. Caution: callers must invoke
 via the extensionless name or a resolved-interpreter prefix, never a bareword
 `.py` through git-bash — git-bash DOES honor the shebang and would exec-127
-with no `python3` present. See the carve-out in DoE-claude's
+with no `python3` present. See the carve-out in coordinator-content-repo's
 coordinator/docs/wiki/bash-on-windows-gotchas.md § Carve-out (cross-repo —
-this wiki lives in the DoE-claude repo, not here).
+this wiki lives in the coordinator-content-repo repo, not here).
 """
 from __future__ import annotations
 

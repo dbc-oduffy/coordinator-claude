@@ -200,7 +200,7 @@ def settings_home() -> Path:
         sibling-to-~/.claude semantics are deliberate — see design doc).
       - Does NOT read any file from the settings home (pure location lookup).
 
-    Spec backlink: DoE-claude:pln-relocate-durable-coordinator-s-d48415 § C1
+    Spec backlink: coordinator-content-repo:pln-relocate-durable-coordinator-s-d48415 § C1
     """
     override = os.environ.get("COORDINATOR_SETTINGS_HOME")
     if override is not None:
@@ -315,7 +315,7 @@ def _check_machine_local_divergence() -> None:
     symlink at ~/.claude/machine-local → <settings-home>/machine-local resolves
     to the SAME realpath and MUST NOT trigger a warning.
 
-    Spec backlink: DoE-claude:pln-relocate-durable-coordinator-s-d48415 § C1
+    Spec backlink: coordinator-content-repo:pln-relocate-durable-coordinator-s-d48415 § C1
     """
     legacy = claude_home_dir() / "machine-local"
     new = settings_home() / "machine-local"

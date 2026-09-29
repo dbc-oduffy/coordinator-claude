@@ -110,11 +110,11 @@ _LOCAL_COORDINATOR_ROOT = REPO_ROOT / "coordinator"
 #: `_engine_entries_by_subpath`).
 _ENGINE_REPO_NAME = "claude-klabauter"
 
-#: The dedicated seed-wiki flat-mirror row this module also models — see the
-#: module docstring's COMPOSITION point 4 for why this is a second row, not a
-#: bug in the mirror row's own field 7 handling.
+#: The dedicated seed-wiki row this module also models — see the module
+#: docstring's COMPOSITION point 4 for why this is a second row, not a bug in
+#: the mirror row's own field 7 handling. Its allowlist carries nested paths.
 _TOPLEVEL_WIKI_ROW_NAME = "coordinator-claude-toplevel-wiki"
-_TOPLEVEL_WIKI_ROW_MODE = "flat-mirror"
+_TOPLEVEL_WIKI_ROW_MODE = "mirror"
 
 
 @dataclass(frozen=True)

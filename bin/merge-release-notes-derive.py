@@ -2,7 +2,7 @@
 """merge-release-notes-derive.py -- native port of the /merging-to-main Step 5.5
 release-tag attribution walk.
 
-Purpose: DoE-claude's coordinator/skills/merging-to-main/SKILL.md Step 5.5
+Purpose: coordinator-content-repo's coordinator/skills/merging-to-main/SKILL.md Step 5.5
 ("Post-Merge Completion-Log Status Flip") previously embedded two blocks of
 genuine imperative logic directly as bash-fenced content -- a reconcile
 sweep loop (ported here as `reconcile-sweep`; removed 2026-08-23 along with
@@ -11,7 +11,7 @@ heredoc-fed `python3 -` script that walks git tag history to attribute
 completion-log
 entries to the earliest release tag that actually contains their commits.
 Per the "a skill must LINK to an entrypoint, not carry a command payload for
-the EM to transcribe" ruling (DoE-claude/CLAUDE.local.md, 2026-07-22), that
+the EM to transcribe" ruling (coordinator-content-repo/CLAUDE.local.md, 2026-07-22), that
 logic is lifted here as a real, testable, self-contained naked-Python CLI.
 The skill-side repoint (replacing both fenced blocks with a call to this
 CLI) is a separate wave (D2) and is NOT done by this port -- this file only
@@ -32,7 +32,7 @@ Subcommands:
       "<path>: released_in=<tag>" line per flipped entry (or "no
       pending-release entries to flip" when none matched). This is the exact
       logic that used to live in the SKILL.md heredoc -- see the git history
-      of coordinator/skills/merging-to-main/SKILL.md in DoE-claude for the
+      of coordinator/skills/merging-to-main/SKILL.md in coordinator-content-repo for the
       pre-port original.
 
 This subcommand is self-resolving (no cwd dependence beyond the git
@@ -41,7 +41,7 @@ is inside -- same contract the bash oracle had) and idempotent: re-running
 flip-tags on an already-`released` entry is a silent no-op (the
 `status != "pending-release"` guard skips it).
 
-Spec backlink: DoE-claude coordinator/skills/merging-to-main/SKILL.md
+Spec backlink: coordinator-content-repo coordinator/skills/merging-to-main/SKILL.md
   Step 5.5 items 2-3 (pre-port).
 Spec backlink: cross-repo/archive/2026-07-13-project-rag-ue-addon-em-completion-log-flip-skipped-on-consolidation-release.md
 

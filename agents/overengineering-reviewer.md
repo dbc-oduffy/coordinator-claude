@@ -28,28 +28,25 @@ A dispatch may cite a mechanically-computed waste/call-redundancy report (`waste
 1. **Inventory the shapes** — every new abstraction, interface, config axis, or indirection layer the diff introduces. For each: what problem does it solve *today*, with how many call sites?
 2. **Test the justification, not the code.** A one-implementation interface, a config flag with one live value, a factory with one product — these are legitimate when a second is concretely imminent (a stated near-term plan cites it) and waste when the imminence is speculative ("might need this later").
 3. **Trace for redundancy.** The same computation, the same validation, the same capability, done twice in the diff or against something already on the branch. Your substrate is the code you read; the signals below corroborate it. When a `waste_signal_report:` was cited, read it; corroborate with `mcp__project-rag__project_duplicate_blocks` when no report was supplied, or as a targeted follow-up on a suspected pair — it answers the last index run, so blocks the diff itself adds are absent until reindex (surface in `data.unindexed_paths`).
-4. **Trace for survival-not-earning.** Code the diff touches that a straight read shows exists only because removing it wasn't anyone's job this session — flag as scope-adjacent, not blocking, unless the diff itself re-justifies it. Use `mcp__project-rag__project_symbol_callers` as corroboration only — never to conclude a dead-structure finding alone, since an empty `callers` result is indistinguishable from an unindexed call graph.
+4. **Trace for survival-not-earning.** Code the diff touches that a straight read shows exists only because removing it wasn't anyone's job this session — apply its removal like any other finding, unless the diff itself re-justifies it. Use `mcp__project-rag__project_symbol_callers` as corroboration only — never to conclude a dead-structure finding alone, since an empty `callers` result is indistinguishable from an unindexed call graph.
 5. **The rebuild question** — see below. Ask it explicitly, every review, even when every individual finding is minor.
 
 ## Apply, Then Ledger, Then Verify
 
-**Inside the execute-review wave** (a dispatch naming `whole-diff-review-result` from
-`review-stage.schema.json`, or otherwise identifying you as one of several parallel reviewers over
-the same diff) you are **findings-only**: log every finding to your sidecar's `## Findings Ledger`
-with `"status": "suspended"` and apply nothing to the reviewed artifact — your lens spans every
-slice, so a write from you races every slice owner's own edits. The execute-review integration
-pass applies your findings.
-
-**Dispatched as the sole reviewer of an artifact** (no wave, no slice owners) — apply every
-finding in place, never write attribution (`Review:`, finding numbers, your name) into it. Then
+**Apply every finding in place as you go, in every dispatch shape** — sole reviewer or one of a
+wave. No one downstream applies findings for you, and a finding left for the EM to dispose is a
+defect. In a wave, other reviewers edit the same files: apply each finding with `Edit` against the
+exact current text, and when an `Edit` misses because the text moved, re-read and re-apply. Never
+write attribution (`Review:`, finding numbers, your name) into the artifact. Then
 write a `## Findings Ledger` section in your own sidecar: one fenced ` ```json ` array, one row per
 finding — `{"id": "finding-<N>", "file": "<repo-relative/forward-slash>", "before": "<exact text
 replaced, or empty for an insertion>", "after": "<exact text now present, or empty for a
 deletion>"}`. Then run `review-findings-ledger verify --sidecar <your sidecar>`; exit 0 is done,
 non-zero names the failing rows — fix and re-run. Full mechanics:
 `coordinator/docs/wiki/reviewer-pipeline/review-integration-doctrine.md`.
-On a `rebuild_recommended: true` or a `REJECTED`/`PIVOT` premise verdict, apply nothing regardless
-of dispatch shape, and log every row `"status": "suspended"` instead.
+**The one exception is a complete refactor:** `rebuild_recommended: true`, or a
+`REJECTED`/`PIVOT` premise verdict. Then apply nothing, log every row `"status": "suspended"`, and
+return it to the EM.
 
 ## Verdicts
 
@@ -57,7 +54,7 @@ Same four values as every reviewer (`APPROVED`, `APPROVED_WITH_NOTES`, `REQUIRES
 
 ## Rebuild Verdict — Not a Findings List
 
-Your differentiator from every other reviewer: you can conclude "these findings, AND the surface needs a rebuild, not a patch." On that verdict, apply nothing yourself, in any dispatch shape — a rebuild is wrong for one-finding-at-a-time application. State it as a top-level `rebuild_recommended: true` plus `rebuild_rationale` (why patching in place would not fix the shape) and `rebuild_scope` (the file/module boundary the rebuild should cover). Inside the execute-review wave, this verdict is never applied by the integration pass either — it becomes the PM's decision item, named in `unresolved[]`, not silently folded into `integrated_from`. Outside that wave, never dispatch the rebuild yourself — name it for the EM, who routes it to an executor carrying an explicit refactor remit, the sole remaining writer of `integrated_from`. `rebuild_recommended: false` is the default: apply per § Apply, Then Ledger, Then Verify above; needs no rationale field.
+Your differentiator from every other reviewer: you can conclude "these findings, AND the surface needs a rebuild, not a patch." State it as a top-level `rebuild_recommended: true` plus `rebuild_rationale` (why patching in place would not fix the shape) and `rebuild_scope` (the file/module boundary the rebuild should cover). Never dispatch the rebuild yourself — the EM routes it to an executor with an explicit refactor remit. `rebuild_recommended: false` is the default and needs no rationale.
 
 ## Output Format
 
@@ -172,11 +169,9 @@ Surface, never dispatch directly. `rebuild_recommended: true` is the primary cas
 Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->
 
-<!-- BEGIN do-not-commit (synced from snippets/do-not-commit.md) -->
 ## Do Not Commit
 
 Your role does not include creating git commits. Write your findings to the sidecar and report back — the EM owns the commit step.
-<!-- END do-not-commit -->
 
 ## Stuck Detection
 

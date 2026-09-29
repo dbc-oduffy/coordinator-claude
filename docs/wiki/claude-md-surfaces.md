@@ -95,7 +95,7 @@ that applies to any subdirectory `CLAUDE.md` in any project, with zero plugin in
   in — the ancestor chain a nested-load walks is rooted at the session's own cwd, not at
   wherever `--plugin-dir` happens to point.
 - **Consequence — the one that matters most:** `coordinator/CLAUDE.md` reaches **no sibling-repo
-  session, ever.** Verified live: a sibling-repo session, launched via the real `claude-doe`
+  session, ever.** Verified live: a sibling-repo session, launched via the real `claude-author`
   invocation with the coordinator plugin confirmed loaded (its slash command available), returned
   NOT-PRESENT on a verbatim-recall probe for a sentence that exists only in
   `coordinator/CLAUDE.md`. The plugin loading is real and confirmed; the doctrine text riding
@@ -112,8 +112,8 @@ correction). Every session in this repo also happens to Read a `coordinator/`-ro
 immediately (a skill, an agent prompt), so the nested-load fires early enough to look
 indistinguishable from a boot-time plugin injection — from inside this repo, the two mechanisms
 produce the same *symptom* (doctrine present) by two entirely different *causes* (one fleet-wide
-and mechanical, one repo-scoped and read-triggered). The `claude-doe` exec chain itself is
-correctly described elsewhere in this wiki and is not in question: `~/.local/bin/claude-doe`
+and mechanical, one repo-scoped and read-triggered). The `claude-author` exec chain itself is
+correctly described elsewhere in this wiki and is not in question: `~/.local/bin/claude-author`
 does end in `exec claude --plugin-dir "$DOE_COORDINATOR" …`, and that flag is what delivers the
 five surfaces named above — it is simply not what delivers this one.
 

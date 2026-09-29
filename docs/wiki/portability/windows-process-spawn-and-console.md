@@ -102,21 +102,21 @@ what `coordinator/tests/test_dogfood_launch_shape.py` does.
 A launcher may safely delegate its *whole* invocation to a helper process only for flags the
 helper answers and exits on. Conflating the two classes is what caused the outage:
 
-- **Self-terminating** — `--dry-run`, `--print-plugin-dir`, `--help`, `-h`. The `claude-doe`
+- **Self-terminating** — `--dry-run`, `--print-plugin-dir`, `--help`, `-h`. The `claude-author`
   Python wrapper answers these itself and exits; no TUI is ever rendered, so no console input mode
   exists to corrupt. Delegating them wholesale is safe, and necessary — `claude` rejects them
   outright.
-- **Resolution input** — `--doe-root <path>` / `--doe-root=<path>`. Different in kind: an input to
+- **Resolution input** — `--content-root <path>` / `--content-root=<path>`. Different in kind: an input to
   an otherwise ordinary **interactive** launch. Delegating it hands the TUI to the wrapper. It
   must be consumed by the launcher, folded into the non-interactive `--print-plugin-dir`
   resolution, and stripped from the argv that reaches `claude`.
 
-`--doe-root` sat in the launchers' self-terminating set, and the PowerShell `claude` shim passes
+`--content-root` sat in the launchers' self-terminating set, and the PowerShell `claude` shim passes
 it on **every** launch — so the operator's hottest path always ran the TUI under `python.exe`
 under `cmd.exe`.
 
-**One further trap, PowerShell-side.** `& claude-doe` resolves through `PATHEXT` to
-`claude-doe.CMD` and spawns a `cmd.exe`. Invoking `claude-doe.ps1` **by path** runs it in the
+**One further trap, PowerShell-side.** `& claude-author` resolves through `PATHEXT` to
+`claude-author.CMD` and spawns a `cmd.exe`. Invoking `claude-author.ps1` **by path** runs it in the
 caller's own pwsh process, interposing nothing. A shim that "simplifies" back to the bare command
 name reintroduces the defect silently.
 
@@ -125,14 +125,14 @@ is live is disabling the shim, which leaves every session on the box running van
 with no coordinator plugin at all. One bad launch shape strips the whole operating system from
 every session.
 
-**Scope.** The `--doe-root` seam exists only in the dogfood shape (a doctrine-repo clone plus an
-engine-repo clone, with the `claude` shim reading the `.doe-root` pointer). OSS
+**Scope.** The `--content-root` seam exists only in the dogfood shape (a doctrine-repo clone plus an
+engine-repo clone, with the `claude` shim reading the `.content-root` pointer). OSS
 coordinator-claude and claude-klabauter installs never take this path, so the OSS install contract
 cannot see this defect — coverage belongs on the surface that validates *our* shape.
 
-**Surfaces.** Templates: `coordinator/templates/bin/claude-doe-launcher.{cmd,ps1}.tmpl`,
-`coordinator/templates/shell/claude-doe-shim.ps1.tmpl`. Template guard:
-`coordinator/tests/test_claude_doe_launcher_native_exec.py`. Rendered-install guard plus the
+**Surfaces.** Templates: `coordinator/templates/bin/claude-author-launcher.{cmd,ps1}.tmpl`,
+`coordinator/templates/shell/claude-author-shim.ps1.tmpl`. Template guard:
+`coordinator/tests/test_claude_author_launcher_native_exec.py`. Rendered-install guard plus the
 process-tree probe: `coordinator/tests/test_dogfood_launch_shape.py`. Tripwire:
 `docs/wiki/coordinator-tripwires/tripwire-registry/windows-interactive-launch-must-be-a-direct-child.md`.
 

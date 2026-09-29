@@ -29,7 +29,7 @@ Reader semantics: strip a trailing `\r` (Windows line endings), skip blank
 lines and `#`-comment lines, trim TRAILING whitespace only — leading
 whitespace in a pattern is significant and preserved.
 
-Spec backlink: DoE-claude:pln-port-the-percolate-engine-to-p-94f40f § C-W1b.
+Spec backlink: coordinator-content-repo:pln-port-the-percolate-engine-to-p-94f40f § C-W1b.
 """
 
 from __future__ import annotations

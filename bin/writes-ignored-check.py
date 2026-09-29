@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """writes-ignored-check — refuse a spine whose declared writes a commit cannot take.
 
-Ported from DoE-claude `coordinator/bin/writes-ignored-check.py` (W3-C1,
+Ported from coordinator-content-repo `coordinator/bin/writes-ignored-check.py` (W3-C1,
 `docs/plans/2026-09-18-doe-holds-no-scripts.md`). One path-resolution seam changed (§ Path
 resolution): DoE's `_load_spine_reader` treated the engine as a sibling checkout it had to find
 by a fallback ladder (`$HOME/claude-klabauter`, a `parents[3]` guess), because in DoE the engine

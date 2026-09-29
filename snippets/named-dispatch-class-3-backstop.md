@@ -12,7 +12,7 @@
 <!-- Deliberately its own block rather than riding `run-report-citizenship`, whose -->
 <!-- `contract_blocks:` membership also includes test-runner — a class-2 type that already carries -->
 <!-- the resident clause and must not gain a class-3 backstop. Not pasted by verify-snippet-sync. -->
-<!-- named-dispatch-clause: backstop — machine-read by test_reporting_type_set_matches_the_agent_definitions to decide whether a type this block is injected into counts as clause-carrying. `relay` names how the report reaches the dispatcher and IS the clause; `backstop` warns without prescribing a route and is NOT, so class 3 stays disjoint from the clause-carrying set. -->
+<!-- named-dispatch-clause: backstop — machine-read by test_reporting_type_set_matches_the_agent_definitions to decide whether a type this block is injected into counts as clause-carrying. `relay` names how the report reaches the dispatcher and IS the clause; `backstop` warns without prescribing a route and is not, so class 3 stays disjoint from the clause-carrying set. -->
 
 **Named dispatch?** If you were dispatched with a name, your return text may not reach the
 dispatcher. Your sidecar is the deliverable; signal completion via `TaskUpdate` and do not message

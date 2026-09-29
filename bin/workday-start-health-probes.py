@@ -1,13 +1,13 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """workday-start-health-probes.py — day-start health-probe imperative logic,
-ported off DoE-claude's `coordinator/commands/workday-start.md`.
+ported off coordinator-content-repo's `coordinator/commands/workday-start.md`.
 
 Several `/workday-start` steps wrapped a single sibling CLI invocation in
 genuine bash imperative logic (rc-branching, regex date extraction, path
 canonicalization, conditional dir/exec checks, capture-then-conditionally-
 print) that lived nowhere lintable/testable — a `.md` fence is invisible to
 ShellCheck, the test registry, and the coverage-of-the-coverage gate (see
-DoE-claude `CLAUDE.local.md` § "A skill must LINK to an entrypoint"). This
+Coordinator-content-repo `CLAUDE.local.md` § "A skill must LINK to an entrypoint"). This
 CLI is the naked-Python home for that residual logic; the DoE-side fence
 shrinks to a single call to this file plus the shared `_cc_trusted`/
 `_cc_claude_klabauter` resolution preamble (unchanged — that preamble is D1/D2's
@@ -57,7 +57,7 @@ Subcommands (argv[1] selects):
   mis-channelled-box
       NEW 2026-08-16 (chunk C29). PM RULING, verbatim: "we should detect this."
       Detects a box running the PUBLISHED engine on the wrong release channel —
-      the gap neither repo's plan closed on its own (DoE-claude's resolver
+      the gap neither repo's plan closed on its own (coordinator-content-repo's resolver
       diverts to a klabauter tree on the wrong channel and reports
       `resolved-engine` truthfully; nothing on either plane notices the branch
       disagrees with the box's own declaration). Catches both entry points to
@@ -68,7 +68,7 @@ Subcommands (argv[1] selects):
       Only fires when `resolve_claude_klabauter_root_with_class()` answers
       `RESOLUTION_RESOLVED_ENGINE` — a live working tree isn't running a
       published channel at all, so it is out of scope by construction.
-      "Actually on" is read zero-spawn, mirroring DoE-claude's
+      "Actually on" is read zero-spawn, mirroring coordinator-content-repo's
       `_read_current_branch_boot()` technique (`project-orientation.py`) — a
       direct `.git/HEAD` text read, never a `git` subprocess. "Should be on"
       is the box's own declaration, `engine.target`
@@ -108,12 +108,12 @@ Subcommands (argv[1] selects):
       discriminant is now structural (is the session's own root the
       resolved `repos.claude_klabauter` value?), not a lookup against this
       key. This probe still matters because OTHER consumers of this
-      namespace remain (DoE-claude's own resolver, per DR-132; other
+      namespace remain (coordinator-content-repo's own resolver, per DR-132; other
       cross-repo locator callers that resolve "where is claude-klabauter
       checked out" via this key, e.g. `coordinator_core/ops/
-      setup_chain_walker.py`'s doe_claude analogue) — a wiped or
+      setup_chain_walker.py`'s content_root analogue) — a wiped or
       hand-corrupted entry still breaks THOSE reads, just not claude-klabauter's own
-      session resolution any more. Governing record: DR-132 (DoE-claude
+      session resolution any more. Governing record: DR-132 (coordinator-content-repo
       `docs/decisions/DR-132-engine-working-repos-is-its-own-
       namespace-not-a-repos-star-inference.md`). Currently inert on claude-klabauter's
       own gate — `_resolve_published_engine()` returns None while
@@ -209,7 +209,7 @@ Subcommands (argv[1] selects):
       Exit (--fix): 0 the sweep ran and produced no `FAILED` line; 1 the
       sweep could not run at all, or produced at least one `FAILED` line.
 
-Spec backlink: DoE-claude `coordinator/commands/workday-start.md` §§
+Spec backlink: coordinator-content-repo `coordinator/commands/workday-start.md` §§
   Step 1.10.64 (Orphaned Observer Sidecar Sweep), Step 1.10.9 (Claude-Klabauter-Bin
   Sentinel Probe), Step 5.6 (Project Post-Ceremony Command Hook).
 Port backlink: M3 chunk WDS-5 (bash-kill campaign, structural-bash-to-
@@ -502,7 +502,7 @@ def cmd_ceremony_hook(argv: list[str]) -> int:
 def _read_current_branch_boot(repo_root: str | None) -> str:
     """Pure-Python `.git/HEAD` read — no `git` subprocess.
 
-    Port of DoE-claude's zero-spawn technique (`coordinator/hooks/scripts/
+    Port of coordinator-content-repo's zero-spawn technique (`coordinator/hooks/scripts/
     project-orientation.py::_read_current_branch_boot`, cited verbatim in
     this chunk's spec as prior art to reuse rather than re-derive) — module
     docstring's "mis-channelled-box" entry. `.git/HEAD` normally contains

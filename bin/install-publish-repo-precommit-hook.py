@@ -14,8 +14,8 @@ a bareword, so the shebang is never read there; on macOS/Linux `python3` is the
 right interpreter. Caution: callers must invoke via the extensionless name or a
 resolved-interpreter prefix, never a bareword `.py` through git-bash — git-bash
 DOES honor the shebang and would exec-127 with no `python3` present. See the
-carve-out in DoE-claude's coordinator/docs/wiki/bash-on-windows-gotchas.md §
-Carve-out (cross-repo — this wiki lives in the DoE-claude repo, not
+carve-out in coordinator-content-repo's coordinator/docs/wiki/bash-on-windows-gotchas.md §
+Carve-out (cross-repo — this wiki lives in the coordinator-content-repo repo, not
 here).
 
 Usage:
@@ -28,7 +28,7 @@ foreign-hook offer is not an error state for the caller, e.g. install.sh).
 Spec backlinks:
   docs/plans/2026-06-11-exec-bit-install-surface-completion.md § Chunk 5
   docs/plans/2026-06-30-cross-platform-file-naming-helper.md § Wave D4
-Port source: coordinator/bin/install-publish-repo-precommit-hook.py (DoE-claude, pre-port)
+Port source: coordinator/bin/install-publish-repo-precommit-hook.py (coordinator-content-repo, pre-port)
 Port backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md (residual)
 """
 

@@ -43,6 +43,8 @@ refusal verbatim; never route around it by writing the file yourself.
   `consumes` only where a row needs another's output — never legacy `reads`.
 - Critical path <= ~1/3 of rows, plus `## Width rationale` when `plan-spine-check` reports width
   < 3.
+- Two flat tells: A-REFERENCE-READ-DECLARED-AS-AN-ORDERING-EDGE-SERIALISES-THE-PLAN and
+  A-SPINE-THAT-CHAINS-EVERY-CHUNK-CANNOT-BE-SCHEDULED-WIDE.
 
 `status: draft` is correct, not a placeholder — only a readiness gate advances it; `approved`
 forges the gate the pipeline exists to hold.

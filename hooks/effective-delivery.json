@@ -1183,8 +1183,8 @@
         "matcher": "startup|resume|clear|compact|fork",
         "guards": [
           {
-            "id": "session_start_register_doe_claude_root",
-            "script": "scripts/session-start-register-doe-claude-root.py",
+            "id": "session_start_register_content_root_root",
+            "script": "scripts/session-start-register-coordinator-content-repo-root.py",
             "tool_names": []
           },
           {

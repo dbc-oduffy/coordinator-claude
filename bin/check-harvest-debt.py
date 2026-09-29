@@ -17,8 +17,8 @@ a bareword, so the shebang is never read there; on macOS/Linux `python3` is the
 right interpreter. Caution: callers must invoke via the extensionless name or a
 resolved-interpreter prefix, never a bareword `.py` through git-bash — git-bash
 DOES honor the shebang and would exec-127 with no `python3` present. See the
-carve-out in DoE-claude's coordinator/docs/wiki/bash-on-windows-gotchas.md §
-Carve-out (cross-repo — this wiki lives in the DoE-claude repo, not
+carve-out in coordinator-content-repo's coordinator/docs/wiki/bash-on-windows-gotchas.md §
+Carve-out (cross-repo — this wiki lives in the coordinator-content-repo repo, not
 here).
 
 Exit convention: this is an ADVISORY orientation-nudge probe (invoked from
@@ -30,7 +30,7 @@ nudge or silent; 1 = archive/specs/ present but canonical log absent —
 fail-loud, see the claude-klabauter module's own docstring) are UNCHANGED and produced
 by check_harvest_debt.main() itself once import succeeds.
 
-Spec backlink: DoE-claude:pln-bash-to-naked-python-engine-mi-c09292
+Spec backlink: coordinator-content-repo:pln-bash-to-naked-python-engine-mi-c09292
 """
 
 from __future__ import annotations

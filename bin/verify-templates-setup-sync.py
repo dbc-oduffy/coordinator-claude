@@ -38,35 +38,35 @@ def _resolve_plugin_root() -> str:
     """Resolve the plugin root (coordinator/templates/setup/'s parent).
 
     Env var CLAUDE_PLUGIN_ROOT wins if set, returned verbatim. Otherwise
-    resolves via doe_root() (see that function's own docstring for its
+    resolves via content_root() (see that function's own docstring for its
     env-var/machine-local resolution chain) and returns
-    <doe_root()>/coordinator.
+    <content_root()>/coordinator.
 
     This does NOT derive from this script's own __file__ location: this
     executable lives in claude-klabauter while coordinator/templates/
-    stayed in DoE-claude per DR-047, so self-location no longer resolves
+    stayed in coordinator-content-repo per DR-047, so self-location no longer resolves
     to a directory containing templates/ (see
     verify-templates-bin-sync.py's _resolve_plugin_root() for the same fix
     on the sibling script — this function mirrors its shape).
 
-    Fails loud (sys.exit(1)) if doe_root() cannot resolve: this is a gate
+    Fails loud (sys.exit(1)) if content_root() cannot resolve: this is a gate
     script, not a never-block hook, so an unresolvable DoE root must not
     degrade to an exit-0 no-op.
     """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from coordinator_data_root import content_root_or_private
-    from coordinator_registry import _DoeUnresolvable, doe_root
+    from coordinator_registry import _DoeUnresolvable, content_root
 
     env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if env_root:
         return env_root
     try:
-        root = doe_root()
+        root = content_root()
     except _DoeUnresolvable as exc:
         print(
             "verify-templates-setup-sync.py: cannot resolve the coordinator doctrine "
-            f"repo root ({exc}). Set repos.doe_claude in the machine-local "
-            "registry, or set the DOE_ROOT env var, or set "
+            f"repo root ({exc}). Set repos.content_root in the machine-local "
+            "registry, or set the CONTENT_ROOT env var, or set "
             "CLAUDE_PLUGIN_ROOT directly.",
             file=sys.stderr,
         )

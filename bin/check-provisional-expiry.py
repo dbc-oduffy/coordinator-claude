@@ -37,7 +37,7 @@ Exit codes:
   1 — one or more expired provisional decisions found (fail loud)
   2 — internal error (missing path, unparseable date)
 
-Arrived from DoE-claude coordinator/lib/check-provisional-expiry.py
+Arrived from coordinator-content-repo coordinator/lib/check-provisional-expiry.py
 (docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W3-C6).
 Spec backlink: docs/plans/2026-07-26-push-side-write-discipline.md § D1b
 """

@@ -8,7 +8,7 @@ against the coordinator source's current schema version. The classification
 logic (schema-version read, stamp read/compare, source_is_live detection, the
 F14 CLAUDE_HOME-not-a-.claude-dir guard) is fully ported to
 coordinator_core/ops/probe_onboarding_currency.py — this file's only remaining
-job is: resolve the engine root, resolve the DoE-claude coordinator plugin root
+job is: resolve the engine root, resolve the coordinator-content-repo coordinator plugin root
 (coordinator-schema-version's home) and hand it to the engine module via
 COORDINATOR_CURRENCY_PLUGIN_ROOT, tell the engine module where THIS file lives
 on disk via COORDINATOR_CURRENCY_SCRIPT_DIR (a DoE-side/contract-only fact the
@@ -17,15 +17,15 @@ see _resolve_plugin_root() below for why it is no longer the plugin-root
 default too), and forward argv/exit code.
 
 Plugin-root resolution note (b644d5a9 migration): this executable moved from
-DoE-claude into claude-klabauter while coordinator-schema-version stayed behind
-in DoE-claude's coordinator/ tree. The engine module's OWN dirname(SCRIPT_DIR)
+Coordinator-content-repo into claude-klabauter while coordinator-schema-version stayed behind
+in coordinator-content-repo's coordinator/ tree. The engine module's OWN dirname(SCRIPT_DIR)
 default (coordinator_core/ops/probe_onboarding_currency.py main(), used only
 when a caller sets SCRIPT_DIR but not PLUGIN_ROOT) assumed the script and the
-plugin payload were co-located — true in DoE-claude, false here: it now lands
+plugin payload were co-located — true in coordinator-content-repo, false here: it now lands
 on <claude-klabauter>/coordinator, which has no coordinator-schema-version at all. This
 trampoline no longer relies on that fallback: it always resolves
 COORDINATOR_CURRENCY_PLUGIN_ROOT explicitly via _resolve_plugin_root() below
-(env override wins verbatim, else doe_root() + "/coordinator") before
+(env override wins verbatim, else content_root() + "/coordinator") before
 importing/calling the engine module.
 
 Shebang note: the SHEBANG line above is `#!/usr/bin/env python3`, generator-
@@ -35,8 +35,8 @@ a bareword, so the shebang is never read there; on macOS/Linux `python3` is the
 right interpreter. Caution: callers must invoke via the extensionless name or a
 resolved-interpreter prefix, never a bareword `.py` through git-bash — git-bash
 DOES honor the shebang and would exec-127 with no `python3` present. See the
-carve-out in DoE-claude's coordinator/docs/wiki/bash-on-windows-gotchas.md §
-Carve-out (cross-repo — this wiki lives in the DoE-claude repo, not
+carve-out in coordinator-content-repo's coordinator/docs/wiki/bash-on-windows-gotchas.md §
+Carve-out (cross-repo — this wiki lives in the coordinator-content-repo repo, not
 here).
 
 Exit codes (never-block probe, per the ported module's own docstring): 0 in the
@@ -66,20 +66,20 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _resolve_plugin_root() -> str | None:
-    """Resolve the DoE-claude coordinator plugin root (coordinator-schema-version's home).
+    """Resolve the coordinator-content-repo coordinator plugin root (coordinator-schema-version's home).
 
     COORDINATOR_CURRENCY_PLUGIN_ROOT wins verbatim when the caller already set
     it (e.g. coordinator_core/plugin_health/sentinel.py's in-process P-13
     caller always does — see that module's _currency_plugin_root()). Otherwise
-    resolves via doe_root() (coordinator/bin/lib/coordinator_registry.py:
-    DOE_ROOT env -> REPO_DOE_CLAUDE env -> machine-local repos.doe_claude) and
+    resolves via content_root() (coordinator/bin/lib/coordinator_registry.py:
+    CONTENT_ROOT env -> REPO_CONTENT_ROOT env -> machine-local repos.content_root) and
     returns the coordinator content root inside it, either layout
     (coordinator_data_root.content_root_for).
 
     Does NOT derive from this trampoline's own __file__ location (see module
     docstring's "Plugin-root resolution note" for why self-location broke).
 
-    Returns None (never raises, never sys.exit) when doe_root() is
+    Returns None (never raises, never sys.exit) when content_root() is
     unresolvable, or when the resolved root holds no coordinator content root
     — this probe's contract (module docstring) is never-block:
     an unresolvable root must degrade to inconclusive(...)/exit 0 like every
@@ -92,9 +92,9 @@ def _resolve_plugin_root() -> str | None:
         return override
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from coordinator_data_root import content_root_for
-    from coordinator_registry import _DoeUnresolvable, doe_root
+    from coordinator_registry import _DoeUnresolvable, content_root
     try:
-        resolved = doe_root()
+        resolved = content_root()
     except _DoeUnresolvable:
         return None
     content = content_root_for(resolved)
@@ -116,8 +116,8 @@ def main(argv: "list[str] | None" = None) -> int:
     if plugin_root is None:
         print(
             "probe-onboarding-currency: cannot resolve the coordinator doctrine repo's "
-            "plugin root (doe_root() unresolvable). Set repos.doe_claude in the "
-            "machine-local registry, or set DOE_ROOT / REPO_DOE_CLAUDE, or set "
+            "plugin root (content_root() unresolvable). Set repos.content_root in the "
+            "machine-local registry, or set CONTENT_ROOT / REPO_CONTENT_ROOT, or set "
             "COORDINATOR_CURRENCY_PLUGIN_ROOT directly.",
             file=sys.stderr,
         )

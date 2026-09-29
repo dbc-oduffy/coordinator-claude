@@ -9,7 +9,7 @@ Purpose: these four steps each wrap an ALREADY-native sibling CLI
 (stitch-observer-sidecar.py, workday-complete-step9-append-changelog.py,
 coordinator-ceremony-hook.py, emit-cadence.py) with a small amount of genuine
 imperative logic -- path construction, `--only`-mode gating, and exit-code-to-message
-dispatch ladders -- that was still living as inline bash in DoE-claude's
+dispatch ladders -- that was still living as inline bash in coordinator-content-repo's
 commands/workday-complete.md. This CLI concentrates that residual logic into one
 naked-Python, idempotent, self-resolving entrypoint so the DoE ceremony body can
 call it by subcommand name instead of carrying the bash.
@@ -69,10 +69,10 @@ Subcommands:
 
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md (Windows de-bash
     campaign, M3 chunk WDC-4)
-Spec backlink: commands/workday-complete.md (DoE-claude) § Step 4d / Step 9 /
+Spec backlink: commands/workday-complete.md (coordinator-content-repo) § Step 4d / Step 9 /
     Step 10.5 / Step 10.6 -- the bash this file replaces; the DoE repoint (D2) is a
     later wave and is out of scope for this port.
-Prior bash form: see DoE-claude git history for commands/workday-complete.md's
+Prior bash form: see coordinator-content-repo git history for commands/workday-complete.md's
     inline Step 4d / Step 9 dispatch / Step 10.5 / Step 10.6 blocks (this port lifts
     that logic out; the DoE file itself is not edited here).
 """

@@ -326,7 +326,7 @@ never invents or extends the axis set.
 — fill in the bracketed fields (subject repo, peer target, axis list) and dispatch as a single
 `Agent(...)` call (fan-out shape), not via `TaskCreate`/team formation. The output path is bound,
 not an EM fill-in — see `repo-driver.md` § Mode Dispatch — `--code-compare` step 2:
-`<doe-root>/state/emissions/code-comparison/{run-id}.yaml`.
+`<content-root>/state/emissions/code-comparison/{run-id}.yaml`.
 
 **Record schema:** `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/code-comparison-record-schema.md`
 — shares the `SourceRef` shape with `spec-format.md` (same vocabulary, not forked).

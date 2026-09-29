@@ -91,8 +91,8 @@ GIT_BASH_FAST_PROFILE_FILES: "tuple[BinTemplateEntry, ...]" = (
 )
 
 LAUNCHER_TEMPLATE_FILES: "tuple[BinTemplateEntry, ...]" = (
-    BinTemplateEntry("claude-doe-launcher.cmd.tmpl", "code", False, True),
-    BinTemplateEntry("claude-doe-launcher.ps1.tmpl", "code", False, True),
+    BinTemplateEntry("claude-author-launcher.cmd.tmpl", "code", False, True),
+    BinTemplateEntry("claude-author-launcher.ps1.tmpl", "code", False, True),
 )
 
 ALL_BIN_TEMPLATE_FILES: "tuple[BinTemplateEntry, ...]" = (

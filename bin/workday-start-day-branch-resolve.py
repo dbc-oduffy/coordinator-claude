@@ -1,7 +1,7 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 coordinator/bin/workday-start-day-branch-resolve.py — native port of two genuine
-imperative fragments from `commands/workday-start.md` (DoE-claude), Steps -1 and
+imperative fragments from `commands/workday-start.md` (coordinator-content-repo), Steps -1 and
 0.45: session reap-log append, and local-day/branch-span mismatch assertion.
 
 Purpose: these two fragments were the last non-trivial bash LOGIC left inline in
@@ -14,7 +14,7 @@ importable/invokable CLI lets the DoE ceremony call this file by name instead of
 carrying the logic inline, where it is unlintable (ShellCheck does not see markdown
 fences), untestable (no test registry enumerates fenced code), and unreachable by
 extension-filtered code search — the same pathology documented in
-`DoE-claude/CLAUDE.local.md`'s "A skill must LINK to an entrypoint" note.
+`coordinator-content-repo/CLAUDE.local.md`'s "A skill must LINK to an entrypoint" note.
 
 Subcommands:
     reap-log
@@ -52,7 +52,7 @@ Subcommands:
         retry: it never renames the branch itself.
 
     day-branch-assert [--repo-root <path>]
-        C6 of DoE-claude docs/plans/2026-08-18-enforce-day-branch-cut-tree-invariant.md
+        C6 of coordinator-content-repo docs/plans/2026-08-18-enforce-day-branch-cut-tree-invariant.md
         (AC-6). Gives `/workweek-start` a real branch leg: `orient-assemble brief
         --cadence week`'s spine is READ-ONLY BY CONSTRUCTION (module docstring of
         coordinator_core.orient_assemble, enforced by
@@ -100,10 +100,10 @@ Negative-spec (do NOT reintroduce while touching this file):
       function C4b's SessionStart shim calls, so the two entry paths can never
       drift into printing different text for the same state.
 
-Spec backlink: DoE-claude commands/workday-start.md § Step -1 (Session Reaper),
+Spec backlink: coordinator-content-repo commands/workday-start.md § Step -1 (Session Reaper),
 § Step 0.45 (Post-Step-0 Span Assertion)
 Spec backlink: docs/plans/2026-07-23-extirpate-bash-from-workday-start.md § WDS-1 [DEAD-CITATION: plan file never committed to this repo]
-Spec backlink: DoE-claude docs/plans/2026-08-18-enforce-day-branch-cut-tree-invariant.md
+Spec backlink: coordinator-content-repo docs/plans/2026-08-18-enforce-day-branch-cut-tree-invariant.md
     § C6 / AC-6 (day-branch-assert subcommand)
 """
 from __future__ import annotations

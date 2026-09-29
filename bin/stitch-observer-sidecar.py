@@ -105,7 +105,7 @@ Exit codes (--scan form):
   1 — one or more orphaned sidecars found (reported to stderr, one line each).
   2 — usage error (e.g. directory does not exist).
 
-Spec backlink: coordinator/commands/workday-complete.md § Step 4d (DoE-claude)
+Spec backlink: coordinator/commands/workday-complete.md § Step 4d (coordinator-content-repo)
 """
 from __future__ import annotations
 
@@ -118,7 +118,7 @@ GENERATES = []  # writes only to `<daily_summary_path>`, an arbitrary CLI positi
 _HEADING = "## Strategic Review"
 _SIDECAR_SUFFIX = ".observer.md"
 
-#: The analyst's stand-in for the section this script appends, per DoE-claude
+#: The analyst's stand-in for the section this script appends, per coordinator-content-repo
 #: coordinator/docs/wiki/daily-summary-procedure.md's summary template. Its
 #: presence proves the stitch has NOT run, regardless of what headings the
 #: summary carries.

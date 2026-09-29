@@ -294,12 +294,10 @@ jargon-dressed answer hides — verify rather than accept. context7 is **lazy-lo
 `ToolSearch("select:mcp__plugin_context7_context7__resolve-library-id,mcp__plugin_context7_context7__query-docs")`,
 then `resolve-library-id` (name → ID), `query-docs` (ID + the claim).
 
-<!-- BEGIN do-not-commit (synced from snippets/do-not-commit.md) -->
 ## Do Not Commit
 
 Your role does not include creating git commits. Write your findings to the sidecar and report
 back — the EM owns the commit step.
-<!-- END do-not-commit -->
 
 ## Stuck Detection
 

@@ -28,7 +28,7 @@ Usage:
 
 Exits 3 if the engine root cannot be resolved (see stderr); otherwise exits 0.
 
-Spec backlink: DoE-claude DoE-claude:pln-human-facing-doc-staleness-det-d9c047 § C2, AC1
+Spec backlink: coordinator-content-repo coordinator-content-repo:pln-human-facing-doc-staleness-det-d9c047 § C2, AC1
 Spec backlink: claude-klabauter coordinator_core/ops/doc_staleness.py
 
 Negative-spec: does NOT compute staleness itself — delegates entirely to

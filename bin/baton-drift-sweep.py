@@ -30,7 +30,7 @@ Exit codes:
 
 NEVER writes anything — read-only diagnostic.
 
-Spec backlink: DoE-claude:pln-push-side-write-discipline-for-05c30d § D2d
+Spec backlink: coordinator-content-repo:pln-push-side-write-discipline-for-05c30d § D2d
 """
 from __future__ import annotations
 

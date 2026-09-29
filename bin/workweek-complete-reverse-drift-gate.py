@@ -18,7 +18,7 @@ missing/unresolvable engine root (this trampoline's OWN transport failure,
 distinct from the ported module's business exit code) exits 1 — a fail-loud
 gate feeder must never let a claude-klabauter-link outage silently pass a merge gate.
 
-Port source: coordinator/commands/workweek-complete.md § Step 4g (DoE-claude),
+Port source: coordinator/commands/workweek-complete.md § Step 4g (coordinator-content-repo),
 the per-plugin execution loop with 3-way rc branching.
 Port backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md
 """

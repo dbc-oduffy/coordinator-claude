@@ -2,7 +2,7 @@
 """Re-export coordinator/schemas/subagent-catering-resolution.json from live sources.
 
 Arrival record: state/audits/doe-script-arrivals/W3-C3.yaml
-(docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W3-C3). Mechanical move from DoE-claude
+(docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W3-C3). Mechanical move from coordinator-content-repo
 coordinator/bin/export-catering-resolution.py (158 lines, measured cold well under the 200ms
 bar -- moved under the batch rules). § Path resolution (docs/plans/2026-09-18-doe-holds-no-scripts.md):
 `coordinator/subagent-sandbox-policy.yaml`, `coordinator/snippets/*.md` and

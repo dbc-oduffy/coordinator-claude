@@ -6,18 +6,18 @@
 
 If your dispatch prompt cites a **prior-art-check pre-flight** with a sidecar path (the engine-provisioned `.coordinator-local/plan-sidecars/<plan-stem>.prior-art-check.md` home, computed once by `provision_report` and passed through unchanged), the artifact has already been cross-referenced against the coordinator's accumulated internal doctrine and decision corpus. Use the pre-flight to focus your review on architecture, approach, and design rather than re-deriving lessons we've already captured.
 
-**Prior art is current best-state, not eternal law.** A Conflict is *not* "plan must yield" — it's a direction-of-correction question with multiple valid resolutions: amend the plan, amend the wiki/registry/lessons, do both, or document a knowing divergence. Your review is where the direction gets recommended; the integrator lands edits on whichever surface(s) you (and the EM) name.
+**Prior art is current best-state, not eternal law.** A Conflict is *not* "plan must yield" — it's a direction-of-correction question with multiple valid resolutions: amend the plan, amend the wiki/registry/lessons, do both, or document a knowing divergence. Your review is where the direction gets recommended, and you land the edits yourself on whichever surface(s) you (and the EM) name.
 
 **Buckets:**
 
-- **Conflicts** — prior art contradicts a plan claim. The sidecar quotes the prior-art passage verbatim and lists candidate directions for the EM (`update-plan` / `update-prior-art` / `both` / `override-and-document` / `PM-input-needed`). Your job per conflict: recommend a direction with one-sentence reasoning — default is *think about which surface is right now*, not "fold prior art into plan": the plan is often the more current artifact, but prior art often encodes an incident the plan author didn't live through. If you recommend `update-prior-art`, name the specific wiki/lessons/registry file and the substance of the correction so the integrator can land it.
+- **Conflicts** — prior art contradicts a plan claim. The sidecar quotes the prior-art passage verbatim and lists candidate directions for the EM (`update-plan` / `update-prior-art` / `both` / `override-and-document` / `PM-input-needed`). Your job per conflict: recommend a direction with one-sentence reasoning — default is *think about which surface is right now*, not "fold prior art into plan": the plan is often the more current artifact, but prior art often encodes an incident the plan author didn't live through. If you recommend `update-prior-art`, name the specific wiki/lessons/registry file and the substance of the correction, and land it yourself.
 - **Compatible-but-relevant** — prior art covers the topic; the plan should cite or align vocabulary. Informational, not blockers, but flag missing citations that would materially aid maintainability. Each entry carries a `subtype`: `cite` (prior art is current) or `wiki-may-be-outdated` (entry is >60 days old and the plan looks like an evolution — treat as a soft `update-prior-art` signal).
 - **Silent** — no prior art covers this claim; calibrate your scrutiny accordingly.
 
 **Verdict semantics:**
 
 - **COMPATIBLE** — no conflicts; review on architecture alone.
-- **WARN** — one or more conflicts surfaced; per conflict, recommend a direction with one-sentence reasoning, and the EM dispositions before the integrator runs. Disagree with a pre-marked direction? Surface it as a finding.
+- **WARN** — one or more conflicts surfaced; per conflict, recommend a direction with one-sentence reasoning, and the EM dispositions before you apply it. Disagree with a pre-marked direction? Surface it as a finding.
 - **BLOCKED-SURFACE-TO-PM** — load-bearing-doctrine conflict; if you are reading this, the EM has either escalated to PM and proceeded with PM authorization, or the dispatch is malformed. Verify the plan documents PM authorization before approving.
 - **DEGRADED** — incomplete coverage (claim cap hit, Stuck Detection fired, a corpus unreadable, or token cost exceeded 50K). Treat as no signal — review the plan fully against prior art as if no pre-flight ran.
 
@@ -27,7 +27,7 @@ If your dispatch prompt cites a **prior-art-check pre-flight** with a sidecar pa
 
 ### Conflicts vs. your own findings
 
-If you also identify a finding that overlaps a prior-art-check Conflict, label it "reinforces prior-art-check Conflict #N" — convergence between an independent reviewer and the corpus is high-confidence signal, and the integrator uses it for fix prioritization.
+If you also identify a finding that overlaps a prior-art-check Conflict, label it "reinforces prior-art-check Conflict #N" — convergence between an independent reviewer and the corpus is high-confidence signal, and you use it yourself for fix prioritization.
 
 ### Platform-capability bucket — "this plan builds infra a sibling hosts"
 

@@ -21,7 +21,7 @@ env-override convention, e.g. coordinator/bin/snippet-registry's
 _resolve_plugin_root), then falls back to the shared
 coordinator_data_root.data_root() split-repo ladder — this file no longer
 walks its own on-disk location to find templates/, since templates/ moved
-to DoE-claude in the 2026-07-22 executable-surface migration.
+to coordinator-content-repo in the 2026-07-22 executable-surface migration.
 """
 # CLAUDE_PLUGIN_ROOT env override taking precedence first — the same
 #       failure) — a DEDICATED code, distinct from both business codes
@@ -94,7 +94,7 @@ def _coordinator_root() -> str:
     synthetic coordinator root without touching real disk). Otherwise
     resolved via coordinator_data_root.data_root("templates").parent, the
     shared split-repo ladder (co-located rung 1 -> DoE-resident rung 2 via
-    coordinator_registry.doe_root()) — never re-derived here (see that
+    coordinator_registry.content_root()) — never re-derived here (see that
     module's negative-spec).
     """
     _bootstrap_engine()

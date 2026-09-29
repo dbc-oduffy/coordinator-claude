@@ -2,7 +2,7 @@
 `/workday-start` Step 0.8 / Step 1.1 / Step 1.2 orientation-triage logic.
 
 Consolidates four small pieces of imperative bash that previously lived
-inline as embedded fences in DoE-claude's `coordinator/commands/workday-start.md`
+inline as embedded fences in coordinator-content-repo's `coordinator/commands/workday-start.md`
 into one CLI, each exposed as a subcommand:
 
   stale-plans   — Step 0.8's stale-executing-plan advisory scan: flags any
@@ -51,7 +51,7 @@ Exit codes:
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md (the wider
 extirpation-of-structural-bash-from-instruction-files campaign this chunk
 belongs to).
-Port of: DoE-claude coordinator/commands/workday-start.md § Step 0.8 (Stale-
+Port of: coordinator-content-repo coordinator/commands/workday-start.md § Step 0.8 (Stale-
 Executing Plan Nudge) and § Step 1 (Handoff Triage) Steps 1.1/1.2 — the
 bash bodies there are slated for a later D2 repoint to call this CLI by name;
 this file does not edit that source (out of scope for this chunk).

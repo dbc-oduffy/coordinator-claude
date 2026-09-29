@@ -1,6 +1,6 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """workweek-complete-drift-guards.py — /workweek-complete advisory + gate
-dispatch logic, ported out of DoE-claude's coordinator/commands/workweek-complete.md
+dispatch logic, ported out of coordinator-content-repo's coordinator/commands/workweek-complete.md
 (M3 chunk WWC-3, 2026-07-23 bash-extirpation campaign).
 
 Purpose: the DoE ceremony file previously carried the *imperative logic*
@@ -45,7 +45,7 @@ below — they are NOT uniform (pcli-drift-gate propagates a real block
 signal; the advisory subcommands always exit 0 by design, per DoE doctrine
 that advisories never block merge).
 
-Spec backlink: DoE-claude coordinator/commands/workweek-complete.md
+Spec backlink: coordinator-content-repo coordinator/commands/workweek-complete.md
     §§ Step 4d (description-length), Step 4f (enabledPlugins drift),
     Step 4h (CVE recheck), Step 4k (advisory vendored-schema drift, now the
     doctor's vendor_drift sentinel — this file no longer carries a blocking

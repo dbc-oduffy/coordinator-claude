@@ -31,8 +31,8 @@ artifacts; this CLI is picked up by substrate's dynamic agent-helper
 forwarder derivation off claude-klabauter's own coordinator/bin/ listing, which is
 what keeps the entry claude-klabauter-generated and out of DoE's tree.
 
-Spec backlink: cross-repo/inbox/2026-08-17-doe-claude-em-install-entrypoint-what-we-need-from-you.md § 4a
-Shape ruling:  cross-repo/inbox/2026-08-17-doe-claude-em-coordinator-install-entry-resolve-from-manifest.md § Question 1
+Spec backlink: cross-repo/inbox/2026-08-17-coordinator-content-repo-em-install-entrypoint-what-we-need-from-you.md § 4a
+Shape ruling:  cross-repo/inbox/2026-08-17-coordinator-content-repo-em-coordinator-install-entry-resolve-from-manifest.md § Question 1
 """
 
 from __future__ import annotations

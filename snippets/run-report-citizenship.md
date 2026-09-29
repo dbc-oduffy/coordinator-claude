@@ -39,7 +39,7 @@ and the G2 emitter shape.
 
 **`integrated_from:` — the rebuild-route executor only, and this list is not optional for you.**
 An executor dispatched with an explicit refactor remit answering a Kira `rebuild_recommended: true`
-verdict MUST carry `integrated_from`: the cited Kira sidecar stem(s), at column zero, written as
+verdict must carry `integrated_from`: the cited Kira sidecar stem(s), at column zero, written as
 its last action (`agents/executor.md` § Rebuild-remit terminal stamp). Never indented — the
 scaffold's `divergence:` pair is itself indented, and appending at that indent nests the key under
 it and discards the stamp silently. `guard-kira-verdict-routed.py` joins a Kira verdict to its
@@ -52,17 +52,11 @@ persona receiving this block ignores this paragraph.
 set this as your first action after reading your brief) → `complete | blocked | thrashing` (you set
 this at exit, matching your exit-report tag).
 
-**Two writers, two spawn-time shapes — both correct.** Unique to the `run-report` type: which shape
-you were handed depends on the provisioning path. The engine-side spawn-time writer
-(`provision_report`) emits the SUBSET — `status: open`, `agent_type:`, `spawned_at:`,
-`lead_session_id:`, `divergence:`, `commits: []`, `dispatch_feed:` — with no `plan:`/`chunk:`/
-`dispatched_by:`/`sidecar_schema:`. The self-create path (`coordinator-doc-new`, the
-`plan:`+`chunk:` ad-hoc case above) emits the full `run-report.schema.json` superset —
-`agent_type:`, `spawned_at:`, `divergence:`, `commits:`, `dispatch_feed:`, `plan:`, `chunk:`,
-`dispatched_by:`, `sidecar_schema:`, and `status: dispatched` — but never `lead_session_id:`. The
-schema admits both initial states deliberately, which is
-why the transition list above starts with either. Do not add the other writer's fields to the
-scaffold you were handed to make the two match.
+**Two spawn-time shapes, both correct.** The engine-side writer (`provision_report`) emits a subset
+(`status: open`, `agent_type:`, `spawned_at:`, `lead_session_id:`, `divergence:`, `commits: []`,
+`dispatch_feed:`); the self-create path (`coordinator-doc-new`) emits the full
+`run-report.schema.json` superset with `status: dispatched`, never `lead_session_id:`. Do not add the
+other writer's fields to the scaffold you were handed.
 
 **Commits list stays EM-populated.** You never commit (this is unconditional for every run-report
 citizen — see your own agent file's Commit Discipline section), so `commits:` stays
@@ -82,20 +76,12 @@ run-report sidecar returned carrying only the provisioned template and a scratch
 incomplete dispatch, the same way a `review-findings` citizen returning a pointer to an empty
 sidecar would be.
 
-**For `enricher`, "your completion report" is the summary-plus-pointer, not a standalone
-artifact.** Unlike executor, where the inline completion report IS the
-structured deliverable, enricher's recoverable work product is the plan/stub document(s) it
-mutated on disk — the report is a summary of what was enriched pointing at those path(s), not a
-self-contained finding set. Enricher's `## Run Report` section is that summary plus the mutated
-document path(s); the obligation this block imposes is satisfied by writing that summary-and-
-pointer to the sidecar, not by trying to inline the plan body itself.
+**For `enricher`, the `## Run Report` is a summary plus the mutated document path(s)** — the plan/stub
+it mutated on disk is the work product, not the report.
 
-Why it is mandated rather than left to good practice: the EM-facing PostToolUse advisory tells
-every dispatcher that a coordinator-themed subagent's full findings are on disk, and to read the
-sidecar before concluding a lost reply's work was lost. That promise was true for
-`review-findings` citizens and false for this family — an EM who followed it after an integrator
-reply was truncated found a template and reasonably concluded nothing had been written. The
-obligation is what makes the advisory true here rather than narrowing it to exclude you.
+Why this is mandated: the EM-facing advisory tells every dispatcher that a subagent's full findings
+are on disk. An EM who followed it after a truncated integrator reply found only a template and
+concluded nothing had been written. The obligation makes the advisory true for this family.
 
 **Lead lines.** Your inline return opens with two lead lines the EM can proceed on without reading
 further: line 1 is `<STATUS>: <stub-id | sidecar-path>`, where STATUS is `DONE`,

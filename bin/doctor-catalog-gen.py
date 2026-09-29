@@ -21,11 +21,11 @@ Environment:
                            coordinator_data_root.data_root("docs") / "wiki" /
                            "coordinator-doctor.md" — co-located if this repo ships
                            its own docs/, else DoE-resident via coordinator_registry.
-                           doe_root(); see coordinator/bin/lib/coordinator_data_root.py)
+                           content_root(); see coordinator/bin/lib/coordinator_data_root.py)
 
 Cross-repo write note: --write mode writes coordinator-doctor.md in place at the
 resolved wiki path above. In the current split-repo layout that path resolves to
-DoE-claude's coordinator/docs/wiki/coordinator-doctor.md (this repo's coordinator/docs/
+Coordinator-content-repo's coordinator/docs/wiki/coordinator-doctor.md (this repo's coordinator/docs/
 does not exist), so --write is a cross-repo write into DoE's tree, same as it always
 was pre-migration when this script's caller ran with a DoE-relative CWD. This module
 does not change that write behavior or its governance — it only fixes path resolution
@@ -45,7 +45,7 @@ from pathlib import Path
 # import regardless of caller cwd.
 _LIB_DIR = Path(__file__).resolve().parent / "lib"
 
-GENERATES = []  # --write targets coordinator-doctor.md at the resolved wiki path, which resolves to DoE-claude's coordinator/docs/wiki/ tree (this repo has no coordinator/docs/) — a cross-repo write, never into claude-klabauter's own tree (see module docstring "Cross-repo write note")
+GENERATES = []  # --write targets coordinator-doctor.md at the resolved wiki path, which resolves to coordinator-content-repo's coordinator/docs/wiki/ tree (this repo has no coordinator/docs/) — a cross-repo write, never into claude-klabauter's own tree (see module docstring "Cross-repo write note")
 
 # ---------------------------------------------------------------------------
 # Sentinel markers (must stay byte-identical across all write/check operations)
@@ -58,7 +58,7 @@ GENERATES = []  # --write targets coordinator-doctor.md at the resolved wiki pat
 # carried the claude-klabauter spelling. The two copies could never validate the same
 # page: whichever one you did not run reported markers-not-found, and its own
 # message then told you to --write, which appends a SECOND block beside the
-# existing one rather than replacing it. Reported by doe-claude-b1 2026-09-02,
+# existing one rather than replacing it. Reported by coordinator-content-repo-b1 2026-09-02,
 # who hit the mismatch and ran the other copy instead of following it.
 #
 # Same rule as `sentinel.py::_whoami_plugin_modules` and P-9's remediation

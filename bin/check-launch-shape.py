@@ -17,8 +17,8 @@ correctly-present artifacts resolve against each other on PATH. Those are
 different questions, and folding this into the prerequisite list would answer
 neither well.
 
-SCOPE — the claude-klabauter/DoE dogfood shape only. The ``--doe-root`` seam exists only
-where a DoE-claude clone and a claude-klabauter clone are both present and the
+SCOPE — the claude-klabauter/DoE dogfood shape only. The ``--content-root`` seam exists only
+where a coordinator-content-repo clone and a claude-klabauter clone are both present and the
 `claude` shim passes the pointer on every launch. OSS coordinator-claude and
 Claude-klabauter installs never take that path, so this SKIPs rather than FAILs
 when the rendered launcher pair is absent.
@@ -29,7 +29,7 @@ pays a severe per-spawn tax and is shared with many concurrent sessions.
 No DoE-relative paths: every path this probe touches (the launcher pair, the
 shim) is resolved from PATH or `$CLAUDE_HOME`/home at runtime, on the machine
 being probed — never from this file's own on-disk location — so no adaptation
-was needed for its move from DoE-claude into claude-klabauter
+was needed for its move from coordinator-content-repo into claude-klabauter
 (docs/plans/2026-09-18-doe-holds-no-scripts.md § Path resolution, "session
 repo"/"doctrine asset" classes do not apply here).
 
@@ -43,9 +43,9 @@ import os
 import sys
 from pathlib import Path
 
-_LAUNCHER_PS1 = "claude-doe.ps1"
-_LAUNCHER_CMD = "claude-doe.cmd"
-_LAUNCHER_BARE = "claude-doe"
+_LAUNCHER_PS1 = "claude-author.ps1"
+_LAUNCHER_CMD = "claude-author.cmd"
+_LAUNCHER_BARE = "claude-author"
 
 
 def _path_dirs() -> "list[Path]":
@@ -65,7 +65,7 @@ def _path_dirs() -> "list[Path]":
 
 def _shim_path() -> "Path | None":
     home = Path(os.environ.get("CLAUDE_HOME") or Path.home())
-    cand = home / ".claude" / "shell" / "claude-doe-shim.ps1"
+    cand = home / ".claude" / "shell" / "claude-author-shim.ps1"
     return cand if cand.is_file() else None
 
 
@@ -83,7 +83,7 @@ def _check_no_shadow(failures: "list[str]") -> "Path | None":
             real = d
             break
         failures.append(
-            f"a `claude-doe` in {d} shadows the real launcher: it offers no "
+            f"a `claude-author` in {d} shadows the real launcher: it offers no "
             f"{_LAUNCHER_PS1}, so first-hit resolution reaches a generic forwarder "
             "that nests the interactive TUI under cmd.exe and python.exe. Remove it, "
             "or place the directory holding the real launcher pair earlier on PATH."
@@ -151,37 +151,37 @@ def _group_after(text: str, anchor: str) -> "str | None":
 
 def _check_shim_scans(shim: Path, failures: "list[str]") -> None:
     text = shim.read_text(encoding="utf-8", errors="replace")
-    if "claude-doe.ps1" not in text:
+    if "claude-author.ps1" not in text:
         failures.append(
-            f"{shim} never looks for {_LAUNCHER_PS1}: it falls through to `& claude-doe`, "
-            "which PATHEXT-resolves to claude-doe.CMD and interposes a cmd.exe."
+            f"{shim} never looks for {_LAUNCHER_PS1}: it falls through to `& claude-author`, "
+            "which PATHEXT-resolves to claude-author.CMD and interposes a cmd.exe."
         )
         return
-    group = _enclosing_group(text, "Get-Command claude-doe")
+    group = _enclosing_group(text, "Get-Command claude-author")
     if group is None:
         failures.append(
-            f"{shim} has no parseable `Get-Command claude-doe` expression — it cannot be "
+            f"{shim} has no parseable `Get-Command claude-author` expression — it cannot be "
             "confirmed to scan PATH for the real launcher."
         )
         return
     if "Select-Object -First 1" in group:
         failures.append(
-            f"{shim} takes the FIRST resolved claude-doe rather than scanning for the "
+            f"{shim} takes the FIRST resolved claude-author rather than scanning for the "
             f"directory that actually contains {_LAUNCHER_PS1}. A shadowing forwarder "
             "earlier on PATH then wins and the launch nests."
         )
 
 
-def _check_launcher_consumes_doe_root(launcher_dir: Path, failures: "list[str]") -> None:
+def _check_launcher_consumes_content_root(launcher_dir: Path, failures: "list[str]") -> None:
     ps1 = launcher_dir / _LAUNCHER_PS1
     text = ps1.read_text(encoding="utf-8", errors="replace")
     group = _group_after(text, "$selfFlags")
-    if group is not None and "--doe-root" in group:
+    if group is not None and "--content-root" in group:
         failures.append(
-            f"{ps1} lists --doe-root among its self-terminating flags, so a --doe-root "
+            f"{ps1} lists --content-root among its self-terminating flags, so a --content-root "
             "launch — the shape the `claude` shim uses on EVERY launch — delegates the "
             "whole INTERACTIVE launch to the Python wrapper and nests claude.exe under "
-            "python.exe. --doe-root must be consumed and folded into --print-plugin-dir."
+            "python.exe. --content-root must be consumed and folded into --print-plugin-dir."
         )
 
 
@@ -195,13 +195,13 @@ def main(argv: "list[str]") -> int:
 
     if launcher_dir is None and not failures:
         print(
-            "[check-launch-shape] SKIP: no rendered claude-doe launcher pair on PATH — "
+            "[check-launch-shape] SKIP: no rendered claude-author launcher pair on PATH — "
             "not the claude-klabauter/DoE dogfood shape"
         )
         return 0
 
     if launcher_dir is not None:
-        _check_launcher_consumes_doe_root(launcher_dir, failures)
+        _check_launcher_consumes_content_root(launcher_dir, failures)
 
     shim = _shim_path()
     if shim is not None:
@@ -213,7 +213,7 @@ def main(argv: "list[str]") -> int:
             print(f"  - {f}")
         print(
             "  Reference: coordinator/docs/wiki/windows-process-spawn-and-console.md "
-            "§ Interactive launch (DoE-claude)"
+            "§ Interactive launch (coordinator-content-repo)"
         )
         return 1
 

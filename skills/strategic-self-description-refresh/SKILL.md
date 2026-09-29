@@ -86,7 +86,7 @@ direction never reverses.
    `generated`) / override (human types replacement, `curated` or `asserted`) / skip (leave
    untouched). Human-curated-only fields (`competitors[].relationship`, `vision`) are NEVER
    auto-proposed even if present in the draft by mistake — flag and skip.
-<!-- engine-gap: field=strategic_self_description.draft_diff producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=strategic_self_description.draft_diff producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
 4. **Write the canonical file** with the reconciled set, each field's resolved provenance marker,
    schema-validated at write time via the authoring surface — never a raw file write outside it.
 5. **Archive or clear the draft** now that its fields are reconciled (`.archived` suffix or

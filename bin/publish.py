@@ -65,7 +65,7 @@ original called via a `python3 -c` subprocess, just invoked directly since
 this driver is already Python. Falls back to this repo's own root on any
 failure, exactly mirroring the bash fallback's non-fatal degrade. This
 resolution is the load-bearing fix for the one-level SOURCE_DIR offset
-between the DoE-claude source layout (`coordinator/` IS the plugin root) and
+between the coordinator-content-repo source layout (`coordinator/` IS the plugin root) and
 the `~/.claude` live-install layout (`coordinator/` is one level below the
 plugin root) — see `coordinator/docs/wiki/percolate-setup.md`.
 
@@ -1511,7 +1511,7 @@ def dispatch_percolate_pre_ci(
     # `check-persona-names.py` copy the destination happened to be carrying
     # BEFORE this run started is judging this run's content against a rule
     # this run may have already retired (state/audits/2026-08-14 diagnosis —
-    # PM ruling in commit 500e6b298 deleted the DoE/DoE-claude ban patterns
+    # PM ruling in commit 500e6b298 deleted the DoE/coordinator-content-repo ban patterns
     # from the SOURCE checker; a stale destination copy still carries them).
     # `_refresh_identity_checker_at_dest` below is the fix: a `pre_ci`
     # PRECONDITION that overwrites the checker AT `scan_dest` with this run's
@@ -2009,8 +2009,8 @@ _SYNTHETIC_REGISTRY_MANIFEST_FIXTURE = {
     ],
     "queueTypes": ["queue-delegate"],
     "identity": {
-        "repoAliases": [{"registryKey": "repos.doe_claude", "shortname": "doe-claude"}],
-        "centralReceiverIds": ["doe-claude-em"],
+        "repoAliases": [{"registryKey": "repos.content_root", "shortname": "coordinator-content-repo"}],
+        "centralReceiverIds": ["coordinator-content-repo-em"],
     },
 }
 
@@ -2026,7 +2026,7 @@ def _synthetic_registry_manifest_overrides():
     names as the intended `overrides` consumer.
 
     NEVER points at a real installed plugin, the ambient dev-box install, or
-    DoE-claude's own tree. `publish.py` BLOCKER-2 (§ `dispatch_end_of_run_
+    coordinator-content-repo's own tree. `publish.py` BLOCKER-2 (§ `dispatch_end_of_run_
     function_gate`'s docstring, `hermetic_gate_env`'s own docstring)
     deliberately removed ambient `HOME`/`USERPROFILE`/`CLAUDE_HOME`
     passthrough because that let the gate evaluate the payload against the
@@ -2062,7 +2062,7 @@ def _synthetic_registry_manifest_overrides():
         `coordinator/bin` and `coordinator/scripts` only -- `.py`-suffixed
         CLIs (e.g. `sync-cockpit-contract.py`, `verify-schema-registry-
         sync.py`, `review-findings-ledger.py`, `doctor-catalog-gen.py`, `gen-
-        claude-doe-shim.py`) are explicitly out of that gate's scan scope
+        claude-author-shim.py`) are explicitly out of that gate's scan scope
         (§ `enumerate_gate_entrypoints` docstring), so whatever data dirs
         THEY touch at startup is irrelevant here even though several of
         them also call `coordinator_data_root.data_root()`. A source sweep
@@ -2099,12 +2099,12 @@ def _synthetic_registry_manifest_overrides():
         # and `coordinator_registry.py`'s import-time `_MANIFEST_PATH` bootstrap
         # (`_mp_candidate_manifest_path`) both already probe OSS-flat
         # (`<root>/schemas/...`) AND private DoE-repo (`<root>/coordinator/
-        # schemas/...`) unconditionally, and `.doe-root` pointer semantics are
-        # the DoE-claude REPO ROOT (a directory THAT HAS a `coordinator/`
+        # schemas/...`) unconditionally, and `.content-root` pointer semantics are
+        # the coordinator-content-repo REPO ROOT (a directory THAT HAS a `coordinator/`
         # subdir) -- so a conformant real install satisfies the private shape
         # at this same root, not merely the flat one. A caller like
         # `emit-artifact-shape-contract`'s `_resolve_coordinator_root()` that
-        # hardcodes `doe_root() + "/coordinator"` unconditionally (never
+        # hardcodes `content_root() + "/coordinator"` unconditionally (never
         # routing through the dual-layout-aware `data_root()`/`_cdr_manifest_
         # present()` probe) only ever resolves the private shape -- staging
         # flat alone left it demanding a `<plugin_root>/coordinator/schemas`
@@ -2156,7 +2156,7 @@ def _synthetic_registry_manifest_overrides():
         settings_home = fixture_root_path / "settings_home"
         machine_local_dir = settings_home / "machine-local"
         machine_local_dir.mkdir(parents=True)
-        (machine_local_dir / ".doe-root").write_text(str(plugin_root) + "\n", encoding="utf-8", newline="\n")
+        (machine_local_dir / ".content-root").write_text(str(plugin_root) + "\n", encoding="utf-8", newline="\n")
 
         yield {"COORDINATOR_SETTINGS_HOME": str(settings_home)}
 
@@ -2224,7 +2224,7 @@ def dispatch_end_of_run_function_gate(
     GIVEN a conformant `coordinator-registry.manifest.json` at the plugin
     root, and nothing else from the ambient environment. It is narrower than
     "the payload works" -- manifest-SCHEMA conformance (are the fields
-    right, do the doc types resolve, etc.) remains DoE-claude's own
+    right, do the doc types resolve, etc.) remains coordinator-content-repo's own
     contract, tested on their side; this gate only proves importability
     given a manifest shaped enough for `coordinator_registry`'s bootstrap to
     accept.
@@ -2236,7 +2236,7 @@ def dispatch_end_of_run_function_gate(
     `test_gate_fires_hermetically_on_synthetic_manifest_fixture`
     (`coordinator_core/percolate/tests/test_function_gate.py`) builds by
     hand. It is deliberately NEVER the ambient dev-box install, a real
-    installed plugin, or DoE-claude's own tree: `publish.py` BLOCKER-2
+    installed plugin, or coordinator-content-repo's own tree: `publish.py` BLOCKER-2
     stripped ambient `HOME`/`USERPROFILE`/`CLAUDE_HOME` passthrough
     precisely because that let this gate evaluate the payload against the
     PUBLISHING BOX'S OWN coordinator-claude install rather than the payload
@@ -2312,7 +2312,7 @@ def dispatch_end_of_run_function_gate(
             # manifest-import failure class only; see this function's own
             # docstring "WHAT THIS GATE ACTUALLY ASSERTS" section) -- give
             # the hermetic smoke-run a resolvable plugin-install rung, so a
-            # bare engine mirror (which never ships DoE-claude's manifest by
+            # bare engine mirror (which never ships coordinator-content-repo's manifest by
             # design) does not fail this gate by construction on every
             # publish. `_synthetic_registry_manifest_overrides` stages a
             # SYNTHETIC fixture, never an ambient one (§ BLOCKER-2, same
@@ -2948,7 +2948,7 @@ def dispatch_end_of_run_entrypoint_gate(
             # Director-of-Engineering ruling, same rung as `dispatch_end_of_
             # run_function_gate` (§ that function's own docstring "WHAT THIS
             # GATE ACTUALLY ASSERTS" section) -- a bare engine mirror never
-            # ships DoE-claude's `coordinator-registry.manifest.json` by
+            # ships coordinator-content-repo's `coordinator-registry.manifest.json` by
             # design, so every shipped entrypoint that imports `coordinator_
             # registry` fails this gate by construction with the same
             # `FileNotFoundError` class the function gate hit (§ state/
@@ -4769,18 +4769,18 @@ def dispatch_end_of_run_unscanned_published_check(
 # ---------------------------------------------------------------------------
 # PERCOLATE_ROOT resolution — see module docstring.
 # ---------------------------------------------------------------------------
-def _read_doe_root_pointer() -> str:
-    """Cold-read the `.doe-root` pointer, durable-first (DR-071/DR-072).
+def _read_content_root_pointer() -> str:
+    """Cold-read the `.content-root` pointer, durable-first (DR-071/DR-072).
 
     Read order:
-      1. `${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.doe-root`
-      2. `${CLAUDE_HOME:-$HOME}/.claude/.doe-root`  (legacy fallback)
+      1. `${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.content-root`
+      2. `${CLAUDE_HOME:-$HOME}/.claude/.content-root`  (legacy fallback)
 
     Returns "" when neither is present/readable — every caller here already
     treats empty as "this rung did not resolve" and falls through.
 
     Kept as a local cold-read rather than importing
-    `coordinator_core.doe_root_pointer`: this is a pointer-file rung used while
+    `coordinator_core.content_root_pointer`: this is a pointer-file rung used while
     LOCATING the engine repo checkout, so it must not depend on having located it.
     The durable rung was added 2026-07-28 when the generator stopped writing the
     legacy target (which lives in the cross-machine-synced `~/.claude` tree).
@@ -4790,8 +4790,8 @@ def _read_doe_root_pointer() -> str:
     )
     claude_home = os.environ.get("CLAUDE_HOME") or str(Path.home())
     for candidate in (
-        Path(settings_home) / "machine-local" / ".doe-root",
-        Path(claude_home) / ".claude" / ".doe-root",
+        Path(settings_home) / "machine-local" / ".content-root",
+        Path(claude_home) / ".claude" / ".content-root",
     ):
         try:
             content = candidate.read_text(encoding="utf-8").strip()
@@ -4810,8 +4810,8 @@ def _locate_cc_invoke() -> Optional[Path]:
       already lives at `coordinator/bin/publish.py`, exactly where the bash
       original's rung-2 `$SCRIPT_DIR/../bin/lib/cc_invoke.py` was reaching
       for, so the lookup collapses to a direct sibling read here.
-    Rung 3: the `.doe-root` pointer file's `coordinator/bin/lib/cc_invoke.py`,
-      read durable-first (see `_read_doe_root_pointer`).
+    Rung 3: the `.content-root` pointer file's `coordinator/bin/lib/cc_invoke.py`,
+      read durable-first (see `_read_content_root_pointer`).
 
     Returns None if no rung resolves (bash's silent `_cc_invoke_py=""` state).
     """
@@ -4825,9 +4825,9 @@ def _locate_cc_invoke() -> Optional[Path]:
     if sibling.is_file():
         return sibling
 
-    doe_root = _read_doe_root_pointer()
-    if doe_root:
-        candidate = Path(doe_root) / "coordinator" / "bin" / "lib" / "cc_invoke.py"
+    content_root = _read_content_root_pointer()
+    if content_root:
+        candidate = Path(content_root) / "coordinator" / "bin" / "lib" / "cc_invoke.py"
         if candidate.is_file():
             return candidate
 
@@ -4856,9 +4856,9 @@ def _resolve_percolate_root_and_rung(
     used to resolve it correctly itself and then spawn this file with no
     `--percolate-root` at all) must have that answer WIN here rather than be
     silently re-derived from `coordinator_percolate_runtime_root()`, which
-    reads `~/.claude/.doe-root` and can name a different tree entirely (the
+    reads `~/.claude/.content-root` and can name a different tree entirely (the
     live defect: a cloud PERCOLATE_ROOT override never reached this child
-    process, so it silently loaded DoE-claude's own `publish-targets.portable`
+    process, so it silently loaded coordinator-content-repo's own `publish-targets.portable`
     instead of the caller's).
     (`cc_invoke.resolve_engine_root` -> `coordinator_core.percolate.
     runtime_root.coordinator_percolate_runtime_root`) the bash original
@@ -4874,10 +4874,10 @@ def _resolve_percolate_root_and_rung(
       1. Native resolver (above) — preferred, resolves the true percolation
          source root. Post-C1/C4, this is the ONLY correctness mechanism in
          the ordinary case: `coordinator_percolate_runtime_root()` itself now
-         consults the registry-first `.doe-root` pointer rung ahead of the
+         consults the registry-first `.content-root` pointer rung ahead of the
          shared-install rung, so a correct DoE-clone answer is already
          produced here on every normal run.
-      2. This function's OWN `.doe-root` pointer read (`_read_doe_root_pointer()`),
+      2. This function's OWN `.content-root` pointer read (`_read_content_root_pointer()`),
          validated by the presence of `setup/publish-targets.portable` at the
          pointed-to root. This is a cold-start backstop for genuine
          native-resolver failure (missing cc_invoke, an unresolvable
@@ -4894,8 +4894,8 @@ def _resolve_percolate_root_and_rung(
          last resort.
 
     Open question (not this chunk): whether rung 2's local
-    `_read_doe_root_pointer()` read should later converge onto the shared
-    `coordinator_core.doe_root_pointer` module is left for a future chunk.
+    `_read_content_root_pointer()` read should later converge onto the shared
+    `coordinator_core.content_root_pointer` module is left for a future chunk.
     """
     if override:
         return Path(override), "cli-override"
@@ -4934,14 +4934,14 @@ def _resolve_percolate_root_and_rung(
     if root:
         return Path(root), "native"
 
-    doe_root = _read_doe_root_pointer()
-    if doe_root and (Path(doe_root) / "setup" / "publish-targets.portable").is_file():
+    content_root = _read_content_root_pointer()
+    if content_root and (Path(content_root) / "setup" / "publish-targets.portable").is_file():
         print(
             f"publish.py: coordinator_percolate_runtime_root (native) failed ({failure_reason}); "
-            f"using .doe-root pointer PERCOLATE_ROOT={doe_root}",
+            f"using .content-root pointer PERCOLATE_ROOT={content_root}",
             file=err,
         )
-        return Path(doe_root), "doe-root-pointer-cold-start"
+        return Path(content_root), "content-root-pointer-cold-start"
 
     print(
         f"publish.py: coordinator_percolate_runtime_root (native) failed ({failure_reason}); "
@@ -5140,9 +5140,9 @@ class IdentityFileMissingError(Exception):
 
 def _machine_local_percolate_identity_path() -> Path:
     """The machine-local canonical `.percolate-identity` rung: settings-home
-    ROOT (NOT `machine-local/`, unlike `_read_doe_root_pointer`'s `.doe-root`
+    ROOT (NOT `machine-local/`, unlike `_read_content_root_pointer`'s `.content-root`
     rung) — verified on disk at `~/.coordinator-claude-settings/.percolate-identity`.
-    Mirrors `_read_doe_root_pointer`'s env-var precedence: `COORDINATOR_SETTINGS_HOME`
+    Mirrors `_read_content_root_pointer`'s env-var precedence: `COORDINATOR_SETTINGS_HOME`
     wins if set, else a path relative to `CLAUDE_HOME`, else a path relative to the
     platform home directory."""
     settings_home = os.environ.get("COORDINATOR_SETTINGS_HOME") or os.path.join(
@@ -5199,7 +5199,7 @@ def write_publish_provenance_record(
     2026-08-26: DoE's OSS mirror sat ~3h behind `c67e4984d` while the live
     record listed only the nine `claude-klabauter-*` rows of the last round,
     with no `coordinator-claude` entry at all; the lag had to be found by
-    hand-diffing two mirrors (doe-claude-em, same finding independently).
+    hand-diffing two mirrors (coordinator-content-repo-em, same finding independently).
     Rows this round reached are overwritten; rows it did not are carried
     forward verbatim, so a stored sha always answers "published from what,
     last time it published". `rows_in_last_round` names which rows the most
@@ -5329,7 +5329,7 @@ def resolve_percolate_identity_path(setup_dir: Path) -> Optional[Path]:
 
     Returns `None` when neither rung resolves — callers treat that as "run
     `check_identity_file_present` to raise the FATAL", mirroring
-    `_read_doe_root_pointer`'s "" empty-string not-resolved convention but
+    `_read_content_root_pointer`'s "" empty-string not-resolved convention but
     returning `Optional[Path]` since callers here need the winning path, not
     just a resolved/unresolved flag.
     """
@@ -5939,7 +5939,7 @@ def run_pre_sync_gates(
     # C6 (docs/plans/2026-08-04-publish-from-a-committed-ref.md): report the
     # resolved provenance SHA per contributing root, unconditionally (real
     # run and --dry-run both) — "shipped from <sha>" is what makes a publish
-    # reproducible, promised to doe-claude-em in
+    # reproducible, promised to coordinator-content-repo-em in
     # 2026-08-04-claude-klabauter-em-ref-materialization-ratified-here-is-the-
     # path.md. `shadow_toplevels` collects the distinct materialized (git
     # toplevel, sha) shadow trees this target's roots resolved to — several
@@ -6365,7 +6365,7 @@ def _print_round_timing_summary(
 # Fleet-only fence strip — the copy-time transform seam this driver's raw
 # `shutil.copy2` calls previously lacked. `<!-- coordinator:fleet-only:start
 # --> ... <!-- coordinator:fleet-only:end -->` marks content authored for the
-# internal fleet (DoE-claude's `CLAUDE.md`, `global-doctrine/CLAUDE.md`) that
+# internal fleet (coordinator-content-repo's `CLAUDE.md`, `global-doctrine/CLAUDE.md`) that
 # must never reach the public OSS mirror byte-for-byte — see those files'
 # own fence usage for the documented contract. Before this seam existed,
 # every copy site here was a plain `shutil.copy2`, so a fenced file
@@ -6727,7 +6727,7 @@ def _engine_reference_suffix(module_path: Path) -> str:
     sync_contract` is provenance-blind by design (§ `_resolve_publish_sync_
     module_path`); this suffix does not reintroduce provenance into the
     CHECK, it only tells the reader where the interface it failed is
-    declared. Asked for by doe-claude-em 2026-08-26, after an AC15 refusal
+    declared. Asked for by coordinator-content-repo-em 2026-08-26, after an AC15 refusal
     whose kwarg name and rung made the diagnosis fast and whose missing
     reference path made the fix slower than it needed to be.
     """
@@ -6755,7 +6755,7 @@ def _import_publish_sync(setup_dir: Path):
     """Import whichever module `_resolve_publish_sync_module_path` resolves
     to for `setup_dir` — claude-klabauter has no `setup/` directory of its own before
     this plan's C1 lands one, so a claude-klabauter-rooted run resolves straight to the
-    engine module; a DoE-rooted run keeps resolving `setup/publish_sync.py`
+    engine module; a ContentRooted run keeps resolving `setup/publish_sync.py`
     exactly as before.
 
     The engine module (`coordinator/lib/percolate/publish_sync.py`) lives
@@ -7042,7 +7042,7 @@ def check_publish_sync_contract(
         # that an `is_mirror_like`-keyed guard leaves `repo-cut` permanently
         # unchecked; a run-scoped guard still checks it in full whenever a
         # `repo-cut` row is present, so AC7's intent survives intact while its
-        # over-reach does not. That over-reach was live: DoE-claude's percolate
+        # over-reach does not. That over-reach was live: coordinator-content-repo's percolate
         # root carries its own `setup/publish_sync.py` override (§
         # `_resolve_publish_sync_module_path`) predating `sync_repo_cut`, and
         # the table-wide loop refused all five of their mirror rows over an
@@ -7883,12 +7883,12 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
       alone, so `autocrlf=false` disables it and `eol=lf` is the no-op.
       Measured, 3021-byte LF blob: bare 3082/61 CRLF; `eol=lf` alone 3082/61;
       `autocrlf=false` alone 3021/0; both 3021/0.
-    - Path with explicit **`text=auto`** (DoE-claude sets `* text=auto`
+    - Path with explicit **`text=auto`** (coordinator-content-repo sets `* text=auto`
       repo-wide, covering `coordinator/dist/publish-repo-toplevel/`): the
       ATTRIBUTE drives conversion and the target ending comes from `core.eol`,
       which defaults to `native` = CRLF on Windows. There `autocrlf=false`
       changes nothing and `eol=lf` is the load-bearing flag. Measured by
-      doe-claude-em, 12290-byte LF blob: bare 12514/224 CRLF; both 12290/0.
+      coordinator-content-repo-em, 12290-byte LF blob: bare 12514/224 CRLF; both 12290/0.
 
     Only the pair is correct across both regimes. A regression pin must cover
     one path of each kind — a pin over attribute-free paths alone stays green
@@ -9535,7 +9535,7 @@ def assert_dest_engine_root_viable(
     with no `.git` ancestor at all (`_ensure_dest_ready` owns that refusal).
 
     DoE synthesized a broken mirror and drove the ladder against it
-    (`DoE-claude coordinator/tests/test_engine_root_degraded_mirror_outcomes.py`,
+    (`coordinator-content-repo coordinator/tests/test_engine_root_degraded_mirror_outcomes.py`,
     `be3dec68b027`, five cases, mutation-tested): a clean consumer box hits
     `unresolved`/root `None` -- a LOUD failure, not wrong bits. A MIXED
     machine (a consumer repo alongside a reachable live checkout) is the
@@ -9575,7 +9575,7 @@ def assert_dest_engine_root_viable(
     -- was refused merely for lacking a `coordinator_core/` it was never
     meant to have.
 
-    SCOPE, second narrowing (cross-repo memo 2026-08-16-doe-claude-em-
+    SCOPE, second narrowing (cross-repo memo 2026-08-16-coordinator-content-repo-em-
     engine-guards-block-coordinator-claude-publish.md): registration alone
     is still too wide -- `coordinator_claude` (`publish.mirrors.
     coordinator_claude`, path per `machine-local get publish.mirrors.
@@ -10622,7 +10622,7 @@ def _refuse_stranded_root_swap_prior(dest_dir: Path) -> None:
     those paths are genuinely absent. The per-entry loop reopens the window
     once per top-level entry per round.
 
-    Reported by doe-claude-6e (2026-08-26), verified line-by-line here.
+    Reported by coordinator-content-repo-6e (2026-08-26), verified line-by-line here.
     Live mechanism, not a live incident -- neither mirror carried a strand
     when this landed.
 
@@ -12480,7 +12480,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "Authoritative PERCOLATE_ROOT override, taking precedence over "
             "the native `coordinator_percolate_runtime_root()` resolver and "
-            "its `.doe-root`/repo-root fallback rungs (BV-20260927-05 fix 3). "
+            "its `.content-root`/repo-root fallback rungs (BV-20260927-05 fix 3). "
             "The parent driver (e.g. `percolate-mirror.py`) passes its own "
             "already-resolved root here so a child `publish.py` invocation "
             "never silently re-resolves a different one."
@@ -13870,7 +13870,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             # _pathspec_from_manifest`), so exactly the paths the round most
             # explicitly intends to delete are the ones it protects. Measured
             # on the `coordinator-claude` mirror 2026-08-26 (cross-repo/inbox/
-            # 2026-08-26-doe-claude-em-coordinator-claude-remeasured-declared-
+            # 2026-08-26-coordinator-content-repo-em-coordinator-claude-remeasured-declared-
             # payload-protects-the-removals.md): the retired `whoami/` package
             # sat in `declared_payload` and `removed` at once, 23 of that
             # mirror's 67 outstanding removals.

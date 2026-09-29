@@ -19,7 +19,7 @@ file:line`` -- to add a RENAMEABLE-LOCAL row outside the slice list recorded at 
 row's own SHA (the ratchet, escalation E2).
 
 SPAWNS: at most 3 `git` processes total -- one `git ls-files` per repo (this repo,
-DoE-claude, claude-klabauter). No per-file, per-identifier or per-item git call.
+Coordinator-content-repo, claude-klabauter). No per-file, per-identifier or per-item git call.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 TREES = ("coordinator", "coordinator_core", "bin", "scripts")
 NOUN = re.compile(r"claude-klabauter", re.IGNORECASE)
 
-#: DoE-claude's load-bearing trees for the source-spelling sibling-consumer check.
+#: coordinator-content-repo's load-bearing trees for the source-spelling sibling-consumer check.
 DOE_TREES = ("setup/", "coordinator/")
 #: claude-klabauter's tree, minus the shim-preservation carve-out.
 KLABAUTER_EXCLUDE_PREFIX = ".fleet-env"
@@ -225,7 +225,7 @@ def _scan_four_trees(repo: Path) -> tuple[list[dict], int]:
 
 
 def _sibling_pass(
-    rows: list[dict], doe_root: Path, klabauter_root: Path
+    rows: list[dict], content_root: Path, klabauter_root: Path
 ) -> dict[str, dict]:
     """Identifier-level alternation pass, one per sibling tree, over every distinct
     identifier appearing on a RENAMEABLE-LOCAL-default line. Returns {identifier:
@@ -255,9 +255,9 @@ def _sibling_pass(
     for c, p in published_map.items():
         reverse_published.setdefault(p, []).append(c)
 
-    doe_files = _git_ls_files(doe_root, *DOE_TREES)
+    doe_files = _git_ls_files(content_root, *DOE_TREES)
     for rel in doe_files:
-        path = doe_root / rel
+        path = content_root / rel
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -298,10 +298,10 @@ def main(argv: "list[str] | None" = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", default=str(REPO_ROOT))
     parser.add_argument(
-        "--doe-root",
+        "--content-root",
         default=None,
-        help="Override for DoE-claude's root; default resolves via `machine-local get "
-        "repos.doe_claude`.",
+        help="Override for coordinator-content-repo's root; default resolves via `machine-local get "
+        "repos.content_root`.",
     )
     parser.add_argument(
         "--klabauter-root",
@@ -315,7 +315,7 @@ def main(argv: "list[str] | None" = None) -> int:
         help="Pin this repo's SHA (avoids a 4th git spawn beyond the 3-spawn budget). "
         "Falls back to `git rev-parse HEAD` if omitted.",
     )
-    parser.add_argument("--doe-sha", default=None, help="Pin DoE-claude's SHA; see --repo-sha.")
+    parser.add_argument("--doe-sha", default=None, help="Pin coordinator-content-repo's SHA; see --repo-sha.")
     parser.add_argument(
         "--klabauter-sha", default=None, help="Pin claude-klabauter's SHA; see --repo-sha."
     )
@@ -332,7 +332,7 @@ def main(argv: "list[str] | None" = None) -> int:
     args = parser.parse_args(argv)
 
     repo = Path(args.repo).resolve()
-    doe_root = _resolve_sibling_root("doe_claude", args.doe_root)
+    content_root = _resolve_sibling_root("content_root", args.content_root)
     klabauter_root = _resolve_sibling_root("claude_klabauter", args.klabauter_root)
 
     t0 = time.monotonic()
@@ -340,7 +340,7 @@ def main(argv: "list[str] | None" = None) -> int:
     scan_ms = (time.monotonic() - t0) * 1000
 
     t1 = time.monotonic()
-    sibling_result = _sibling_pass(rows, doe_root, klabauter_root)
+    sibling_result = _sibling_pass(rows, content_root, klabauter_root)
     sibling_ms = (time.monotonic() - t1) * 1000
 
     admitted = set(args.admit_renameable)
@@ -376,7 +376,7 @@ def main(argv: "list[str] | None" = None) -> int:
         return 1
 
     repo_sha = args.repo_sha or _rev_parse(repo)
-    doe_sha = args.doe_sha or _rev_parse(doe_root)
+    doe_sha = args.doe_sha or _rev_parse(content_root)
     klabauter_sha = args.klabauter_sha or _rev_parse(klabauter_root)
 
     manifest = _render_manifest(
@@ -425,7 +425,7 @@ def _render_json(rows: list[dict], repo_sha: str, doe_sha: str, klabauter_sha: s
     )
     return {
         "repo_sha": repo_sha,
-        "doe_claude_sha": doe_sha,
+        "content_root_sha": doe_sha,
         "claude_klabauter_sha": klabauter_sha,
         "renameable_local_slice_list": renameable,
         "exempt_files": exempt,
@@ -459,7 +459,7 @@ def _render_manifest(
     a("")
     a("# Legacy engine-noun (`claude-klabauter`) four-class reference manifest")
     a("")
-    a(f"repo SHA: `{repo_sha}`  \nDoE-claude SHA: `{doe_sha}`  \nclaude-klabauter SHA: `{klabauter_sha}`")
+    a(f"repo SHA: `{repo_sha}`  \nCoordinatorContentRepo SHA: `{doe_sha}`  \nclaude-klabauter SHA: `{klabauter_sha}`")
     a("")
     a(
         "The classified atom is the **LINE**, matching the denominator's unit exactly. "
@@ -515,7 +515,7 @@ def _render_manifest(
     a("")
     a(
         "Every row below passed the sibling-consumer check (source spelling against "
-        "DoE-claude's `setup/` + `coordinator/`, published spelling against "
+        "coordinator-content-repo's `setup/` + `coordinator/`, published spelling against "
         "claude-klabauter minus `.fleet-env*`) clean. Grouped into file-disjoint slices, "
         "one per surface directory, so the identifier follow-on is a transcription."
     )

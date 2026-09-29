@@ -6,7 +6,7 @@ items created by /pickup Step 5.5. The mirror lives at state/tasks/<sid>/<name>.
 under the repo root — protected `state/` substrate (NOT bare tasks/, which is swept
 aggressively by /distill and /update-docs).
 
-Spec backlink: DoE-claude:pln-ceremony-as-pipeline-2-land-th-aa5ace § C1.2
+Spec backlink: coordinator-content-repo:pln-ceremony-as-pipeline-2-land-th-aa5ace § C1.2
 Negative-spec: This script is ONLY called from within pickup Step 5.5's
 completeness_checklist gate. It is NOT called unconditionally; absent
 completeness_checklist baton field -> this helper is never invoked.

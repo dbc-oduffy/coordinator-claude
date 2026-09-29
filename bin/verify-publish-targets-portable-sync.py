@@ -29,8 +29,8 @@ either alone re-diverges them with zero test signal.
 P-22 SEMANTICS CORRECTION (2026-08-01, docs/plans/2026-08-01-percolate-root-
 rung-ordering.md chunk C4): this check's "live" side used to resolve via the
 full PERCOLATE_ROOT ladder (`coordinator_percolate_runtime_root()`), which
-now (chunk C1) prefers a registry-first DoE-root pointer rung ahead of the
-shared install. On any machine with `repos.doe_claude` set — the machine
+now (chunk C1) prefers a registry-first content-root pointer rung ahead of the
+shared install. On any machine with `repos.content_root` set — the machine
 class that plan exists for — that made this check's "live" side and its
 "DoE" side (`_doe_tracked_path()`, also resolved via the same registry key)
 resolve to the IDENTICAL file: a tautological self-comparison that could
@@ -50,7 +50,7 @@ public-publish boundary config is a worse bug than the one it closes).
 
 POST-MOVE THREE-COPY TOPOLOGY (2026-08-03,
 docs/plans/2026-08-03-klabauter-rows-relocate-into-claude-klabauter.md chunk C4): the
-four `claude-klabauter*` rows moved from DoE-claude's tracked copy into this
+four `claude-klabauter*` rows moved from coordinator-content-repo's tracked copy into this
 repo's own `setup/publish-targets.portable` (this script's own checkout).
 DoE keeps its copy until it runs its source-side residual audit (AC8/C6) —
 until then both DoE's and this repo's tracked copies carry these four rows,
@@ -119,10 +119,10 @@ Negative-spec:
       target ROWS (and, for the allowlist field specifically, its entries as
       an order-insensitive set) are compared. See `_parse_rows` / `_diff_rows`.
     - Does NOT resolve its live side through the full PERCOLATE_ROOT ladder
-      (`coordinator_percolate_runtime_root()`) — that ladder's DoE-root-
+      (`coordinator_percolate_runtime_root()`) — that ladder's content-root-
       pointer rung resolves via the same registry key this script's
       `_doe_tracked_path()` uses, which would make the two sides tautological
-      on any machine with `repos.doe_claude` set. `_resolve_live_targets_path()`
+      on any machine with `repos.content_root` set. `_resolve_live_targets_path()`
       resolves the shared-install rung (`_rung4_shared_install()`) directly.
     - Does NOT report a clean pass when the live path and the DoE path
       resolve to the identical file — that self-comparison can observe no
@@ -247,7 +247,7 @@ def _registry_machine_local_get(key: str):
 
     return _impl(key)
 
-# Rows relocated into this repo from DoE-claude by
+# Rows relocated into this repo from coordinator-content-repo by
 # docs/plans/2026-08-03-klabauter-rows-relocate-into-claude-klabauter.md (chunks
 # C3/C4). See the module docstring's POST-MOVE THREE-COPY TOPOLOGY section
 # for why these four names are excluded from the ordinary DoE-vs-live
@@ -283,18 +283,18 @@ def _claude_klabauter_tracked_path() -> Path:
 def _doe_tracked_path() -> Path:
     """Return the DoE-tracked publish-targets.portable path.
 
-    Resolved via doe_root() (env DOE_ROOT/REPO_DOE_CLAUDE -> machine-local
-    repos.doe_claude -> raise), not this script's own __file__ location:
+    Resolved via content_root() (env CONTENT_ROOT/REPO_CONTENT_ROOT -> machine-local
+    repos.content_root -> raise), not this script's own __file__ location:
     this executable lives in claude-klabauter while setup/ stayed in
-    DoE-claude per DR-047 (see verify-templates-bin-sync.py's
+    coordinator-content-repo per DR-047 (see verify-templates-bin-sync.py's
     _resolve_plugin_root() for the same fix on a sibling script). Exits 1
-    with a diagnostic if doe_root() cannot resolve — a gate script must not
+    with a diagnostic if content_root() cannot resolve — a gate script must not
     silently degrade to comparing nothing.
     """
-    from coordinator_registry import _DoeUnresolvable, doe_root
+    from coordinator_registry import _DoeUnresolvable, content_root
 
     try:
-        root = doe_root()
+        root = content_root()
     except _DoeUnresolvable as exc:
         # foreign-identity: NOT-REACHABLE — basis: DELIBERATE INVOCATION, not true
         # unreachability. Publish-targets verify/sync CLI (same shape as
@@ -303,8 +303,8 @@ def _doe_tracked_path() -> Path:
         # command.
         print(
             "verify-publish-targets-portable-sync.py: cannot resolve the "
-            f"DoE-claude repo root ({exc}). Set repos.doe_claude in the "
-            "machine-local registry, or set the DOE_ROOT env var.",
+            f"coordinator-content-repo repo root ({exc}). Set repos.content_root in the "
+            "machine-local registry, or set the CONTENT_ROOT env var.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -317,9 +317,9 @@ def _resolve_live_targets_path() -> Optional[Path]:
     the full `coordinator_percolate_runtime_root()` ladder.
 
     P-22 SEMANTICS CORRECTION (docs/plans/2026-08-01-percolate-root-rung-
-    ordering.md chunk C4): the full ladder's rung 3 (DoE-root pointer) now
-    resolves via the same registry key (`repos.doe_claude`) this script's
-    `_doe_tracked_path()` uses via `doe_root()`. On any machine with that key
+    ordering.md chunk C4): the full ladder's rung 3 (content-root pointer) now
+    resolves via the same registry key (`repos.content_root`) this script's
+    `_doe_tracked_path()` uses via `content_root()`. On any machine with that key
     set, calling the full ladder here would make this function's "live" side
     and `_doe_tracked_path()`'s "DoE" side resolve to the identical file —
     a tautological self-comparison that can never observe drift. This

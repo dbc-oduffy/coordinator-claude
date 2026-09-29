@@ -138,7 +138,7 @@ def _detect_hook_seam_drift():
             'COORDINATOR HOOK SEAM: this session snapshotted its hook registration payload '
             'before the current fix landed -- every guard in this session is running a STALE '
             'bootstrap, not the one on disk now. Disk is already correct; this is fixed by '
-            'restarting the session, not by editing anything. (Detected once per session; this '
+            'reloading hooks (/reload-plugins; a restart where the host allows one), not by editing anything. (Detected once per session; this '
             'banner will not repeat.)\n'
         )
         os.makedirs(sentinel_dir, exist_ok=True)

@@ -67,14 +67,14 @@ Feed resolutions back via `apply --decisions-file <path>`: a JSON object mapping
 `dispositions[].value`. `{"value": "<v>"}` is equivalent; a `decision_note` sibling key carries
 through.
 
-**`apply` is the single route out — never hand-execute the directive list.**
+**`apply` is the single route out — never hand-execute the directive list.** `apply` cannot run (`git`/engine unreachable, non-path `PATH`)? Repair `PATH` and retry; still blocked → leave the draft at its target path and name it in the final report (`coordinator-tripwires/a-non-path-path-is-a-break-class-fault-reported-not-worked-around.md`).
 `baton-assemble apply handoff <artifact-path> --decisions-file <path>`, resolved per
 `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape W on PowerShell hosts) — same `<artifact-path>` as
 `brief`.
 
 Once `apply`'s commit lands, best-effort trigger project-rag's SCIP rebuild in the background —
 never waits, never blocks this ceremony: `"$_py"
-"${CLAUDE_PLUGIN_ROOT:-<doe-root>/coordinator}/bin/scip-rebuild-at-ceremony.py" --ceremony handoff`
+"${CLAUDE_PLUGIN_ROOT:-<content-root>/coordinator}/bin/scip-rebuild-at-ceremony.py" --ceremony handoff`
 (§ Plugin-local `coordinator/bin/`, `resolve-coordinator-bin.md`).
 
 Procedure detail — body authoring, `d5` release, next-steps durability,

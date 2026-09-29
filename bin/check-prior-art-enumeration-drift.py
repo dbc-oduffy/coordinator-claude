@@ -14,7 +14,7 @@ break — re-enumerating either site removes the phrase and this guard names the
 Zero-spawn: stdlib only, no subprocess, no shell.
 
 PATH RESOLUTION — DOCTRINE ASSET. Both sites (`docs/wiki/reviewer-pipeline.md`,
-`snippets/prior-art-check-consumption.md`) are DoE-claude doctrine assets published under the
+`snippets/prior-art-check-consumption.md`) are coordinator-content-repo doctrine assets published under the
 plugin root, not `Path(__file__)`-relative any more now that this script lives in the engine
 rather than beside them (`docs/plans/2026-09-18-doe-holds-no-scripts.md` § Path resolution).
 Resolution order: `--root` override, then `CLAUDE_PLUGIN_ROOT`/the ambient plugin-root probe

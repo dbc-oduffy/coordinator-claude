@@ -40,7 +40,7 @@ the confinement root from the TARGET HANDOFF'S OWN DIRECTORY
 (`git -C <dirname(handoff_path)> rev-parse --show-toplevel`) — same technique
 as handoff-archive-transition.py's `_resolve_repo_root` — rather than from the
 process cwd. This is what lets a settings-home forwarder invoke this CLI
-against a *consumer* repo's handoff (e.g. a DoE-claude EM stamping their own
+against a *consumer* repo's handoff (e.g. a coordinator-content-repo EM stamping their own
 baton): the confinement root is the target handoff's worktree, not whatever
 repo this CLI happens to be invoked from. `handoff.stamp_phase` is a
 common_dir-scoped op (see the op's own P9 docstring note); this CLI passes
@@ -76,9 +76,9 @@ Negative-spec:
       it as an opaque string, entirely inside the op (out of this CLI's
       reach).
 
-Spec backlink: DoE-claude coordinator/skills/handoff/SKILL.md's
+Spec backlink: coordinator-content-repo coordinator/skills/handoff/SKILL.md's
     "native-seam-only ... invoked ad-hoc" known-gap note; originating memo
-    cross-repo/inbox/2026-07-24-doe-claude-em-handoff-stamp-phase-cli-gap.md.
+    cross-repo/inbox/2026-07-24-coordinator-content-repo-em-handoff-stamp-phase-cli-gap.md.
 """
 from __future__ import annotations
 

@@ -15,7 +15,7 @@ If your dispatch prompt cites a **plan-coverage-check pre-flight** with a sideca
 **Sidecar bucket vocabulary (for audit-trail reading):**
 
 - **Missed audit items** — oracle items with no slate entry and no architectural OOS justification. The EM resolves each by one of three mechanical paths: **add-to-slate**, **architectural-OOS** (documented, hard constraint), or **oracle-was-wrong** (audit table amended). Not yours to re-litigate; flag a NEW gap the lens missed as a finding.
-- **Ambiguous audit items** — signal-partial matches (stopword-only overlap, or a consolidating slate chunk not enumerating covered items). Informational only, do NOT gate INCOMPLETE, and the EM has read them. Flag a finding only if you independently identify a gap within this set.
+- **Ambiguous audit items** — signal-partial matches (stopword-only overlap, or a consolidating slate chunk not enumerating covered items). Informational only, do not gate INCOMPLETE, and the EM has read them. Flag a finding only if you independently identify a gap within this set.
 - **Weak-OOS / hedges** — appetite-based deferrals ("not now", "follow-up") the EM has promoted to the slate or rewritten with an architectural reason. You are reading the post-rewrite plan.
 - **Substrate-drift items** — in-repo citations flagged as drifted (file/symbol absent), amended or explained by the EM; not your concern once resolved.
 
@@ -30,7 +30,7 @@ If your dispatch prompt cites a **plan-coverage-check pre-flight** with a sideca
 - **SCOPE-MISMATCH** — no oracle table was located; the lenses did not run in a meaningful sense. Review as if no pre-flight ran.
 - **DEGRADED** — incomplete coverage (token cap, oracle parsing ambiguity, etc.). Treat as no signal; review coverage fully as if no pre-flight ran.
 
-**Fold-before-reviewer model — how this differs from prior-art-checker.** The prior-art-checker's WARN sidecar travels through to the named reviewer unintegrated; you recommend a direction-of-correction per Conflict, and the integrator lands edits after your review. Plan-coverage-checker INCOMPLETE findings fold BEFORE you — coverage gaps have three EM-mechanical resolutions that don't require reviewer judgment, so you are always reading a post-fold plan; the sidecar is audit trail, not open questions for you to resolve.
+**Fold-before-reviewer model — how this differs from prior-art-checker.** The prior-art-checker's WARN sidecar travels through to the named reviewer unfolded; you recommend a direction-of-correction per Conflict, and you land those edits yourself as part of your own review. Plan-coverage-checker INCOMPLETE findings fold BEFORE you — coverage gaps have three EM-mechanical resolutions that don't require reviewer judgment, so you are always reading a post-fold plan; the sidecar is audit trail, not open questions for you to resolve.
 
 **The plan-coverage-checker is mechanical, not judgmental** — it can over-match (flag a slate item the lens couldn't match by topic) and under-match (miss a gap requiring semantic understanding). Your review supplements it, never ratifies it; if a MISSED finding was incorrectly resolved in the fold, surface that as a finding.
 
@@ -38,5 +38,5 @@ If your dispatch prompt cites a **plan-coverage-check pre-flight** with a sideca
 
 ### Coverage findings vs. your own findings
 
-If you also identify a gap that overlaps a sidecar Missed or Ambiguous item, label it "reinforces plan-coverage-check [Missed/Ambiguous] item #N" — convergence between an independent reviewer and the mechanical lens is high-confidence signal, and the integrator uses it for fix prioritization.
+If you also identify a gap that overlaps a sidecar Missed or Ambiguous item, label it "reinforces plan-coverage-check [Missed/Ambiguous] item #N" — convergence between an independent reviewer and the mechanical lens is high-confidence signal, and you use it yourself for fix prioritization.
 <!-- END plan-coverage-check-consumption -->

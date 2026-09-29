@@ -134,8 +134,15 @@ def base_branch(checkout: Path) -> Optional[str]:
     symbolic = _git(checkout, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD")
     if symbolic and symbolic.startswith("origin/"):
         return symbolic[len("origin/"):]
+    # Single call for both candidates (not one `rev-parse` per name) — avoids a
+    # per-item spawn loop; `for-each-ref` accepts both patterns in one invocation.
+    refs = _git(
+        checkout, "for-each-ref", "--format=%(refname:short)",
+        "refs/remotes/origin/main", "refs/remotes/origin/master",
+    )
+    found = {line.rsplit("/", 1)[-1] for line in refs.splitlines()} if refs else set()
     for name in ("main", "master"):
-        if _git(checkout, "rev-parse", "--verify", "-q", f"refs/remotes/origin/{name}"):
+        if name in found:
             return name
     return None
 
@@ -170,8 +177,8 @@ def render_teams_line(flag: str) -> Optional[str]:
     if flag == "1":
         return None
     return (
-        f"CLOUD: agent teams OFF. Add {TEAMS_FLAG_ENV}=1 to the env-var box, then start a "
-        "new session."
+        f"CLOUD: agent teams OFF. Add {TEAMS_FLAG_ENV}=1 to `env` in ~/.claude/settings.json "
+        "(in-session); the env-var box reaches only sessions started later."
     )
 
 

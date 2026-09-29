@@ -201,7 +201,7 @@ The SHA-sentinel primitive encodes a general rule for **any** materialized-from-
 
 - **mtime is working-tree-sensitive, not checkout-durable.** A "golden older than source → stale" guard (mirroring the emitter's find-src-newer-than-dist idiom) works within a session but is a no-op after a fresh clone/checkout — git does not track mtime, so every file gets the checkout mtime. Fine for gitignored build output; for a *committed* artifact it catches only within-session edits. Document the limitation and pair it with a content-drift check.
 
-- **Presence-check misses incremental edits.** A self-heal/regen gate that only checks whether a source path *string* appears in the materialized copy (`grep -qF`) silently misses a renamed or subsumed entry while the bulk stays intact — the copy drifts unbounded. Gate on a content hash of the SOURCE (a sentinel file) so any source change re-materializes. Evidence: the claude-doe `settings.json` self-heal drifted 31→52 hooks undetected. *[universal]*
+- **Presence-check misses incremental edits.** A self-heal/regen gate that only checks whether a source path *string* appears in the materialized copy (`grep -qF`) silently misses a renamed or subsumed entry while the bulk stays intact — the copy drifts unbounded. Gate on a content hash of the SOURCE (a sentinel file) so any source change re-materializes. Evidence: the claude-author `settings.json` self-heal drifted 31→52 hooks undetected. *[universal]*
 
 This is the SHA-sentinel's own rationale generalized — the sentinel records a source HEAD SHA (a content identity) precisely because mtime and presence both admit silent drift.
 

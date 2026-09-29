@@ -101,7 +101,7 @@ _SIBLING_LINE_WINDOW = 16
 #: The plugin-local no-launcher rung is POSIX-only BY RULING, so it can
 #: never have a Shape W sibling to pair with. `resolve-coordinator-bin.md`
 #: § "Plugin-local `coordinator/bin/` -- the doctrine-repo set" prescribes
-#: `"$_py" "${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}/bin/<cli>.py"`
+#: `"$_py" "${CLAUDE_PLUGIN_ROOT:-${_content_root}/coordinator}/bin/<cli>.py"`
 #: verbatim and says "Keep the guarded `:-` form" -- the launcher set walks
 #: the ENGINE's bin, so a doctrine-repo-only script gets no launcher on any
 #: host and there is no `.exe`/`.cmd` for a Shape W line to name. Flagging

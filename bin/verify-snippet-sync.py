@@ -23,7 +23,7 @@ Usage:
 enumerates the valid names).
 
 Env overrides:
-  CLAUDE_PLUGIN_ROOT        — plugin root (default: resolved via doe_root(),
+  CLAUDE_PLUGIN_ROOT        — plugin root (default: resolved via content_root(),
                                see _resolve_plugin_root() docstring below)
   COORDINATOR_CONTENT_ROOT  — overrides plugin-root-relative consumer resolution only
                                (cache-install seam; sibling/conditional consumers stay
@@ -88,36 +88,36 @@ def _resolve_plugin_root() -> Path:
     consumer agent prompts this CLI checks for drift.
 
     Env var CLAUDE_PLUGIN_ROOT wins if set, returned verbatim. Otherwise
-    resolves via doe_root() (see that function's own docstring for its
+    resolves via content_root() (see that function's own docstring for its
     env-var/machine-local resolution chain) and returns the coordinator content
     root inside it, either layout (coordinator_data_root.content_root_for).
 
     This does NOT derive from this script's own __file__ location. b644d5a9
     migrated this executable to claude-klabauter while snippets/ (and every
-    registry-driven consumer prompt) stayed in DoE-claude — self-location
+    registry-driven consumer prompt) stayed in coordinator-content-repo — self-location
     now resolves to <claude-klabauter>/coordinator, which has no snippets/ at all. Do
     not "restore" __file__-based resolution to regain parity with the
     pre-migration layout — that parity is exactly what caused the break
     once this file moved repos.
 
-    Fails loud (sys.exit(1)) if doe_root() cannot resolve: this is a gate
+    Fails loud (sys.exit(1)) if content_root() cannot resolve: this is a gate
     script, not a never-block hook, so an unresolvable DoE root must not
     degrade to a silent scan of the wrong tree.
     """
     _bootstrap_engine()
     from coordinator_data_root import content_root_for
-    from coordinator_registry import _DoeUnresolvable, doe_root
+    from coordinator_registry import _DoeUnresolvable, content_root
 
     env = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if env:
         return Path(env)
     try:
-        root = doe_root()
+        root = content_root()
     except _DoeUnresolvable as exc:
         print(
             "verify-snippet-sync: cannot resolve the coordinator doctrine repo root "
-            f"({exc}). Set repos.doe_claude in the machine-local registry, or set "
-            "the DOE_ROOT env var, or set CLAUDE_PLUGIN_ROOT directly.",
+            f"({exc}). Set repos.content_root in the machine-local registry, or set "
+            "the CONTENT_ROOT env var, or set CLAUDE_PLUGIN_ROOT directly.",
             file=sys.stderr,
         )
         sys.exit(1)

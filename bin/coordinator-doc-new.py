@@ -668,12 +668,12 @@ def _missing_out_message(type_label: str) -> str:
 #
 # Resolution order:
 #   1. cwd git-root → reverse-lookup against machine-local repos.* table
-#   2. DoE-claude repo (repos.doe_claude) path-match → "claude-central-em"
+#   2. Coordinator-content-repo repo (repos.content_root) path-match → "claude-central-em"
 #   3. Unregistered git repo → basename of git root + "-em"
 #   4. Not in a git repo → "unknown-sender-em"
 #
 # Negative-spec: ~/.claude is no longer a memo-identity anchor; central identity
-# flows through repos.doe_claude only (C2b central-identity-flip).
+# flows through repos.content_root only (C2b central-identity-flip).
 # ---------------------------------------------------------------------------
 
 # _REPO_KEY_ALIASES is imported above from coordinator_registry (REPO_ALIASES alias).
@@ -862,7 +862,7 @@ def _assert_no_archived_handoff_twin(out_path: str, handoff_id: str | None, repo
     scaffold on an environment this tool already tolerates elsewhere.
 
     Spec backlink: docs/audits/2026-07-26-handoff-live-archive-duplication-origin.md
-    (DoE-claude); coordinator_core.handoff_creation_guard (claude-klabauter) — the
+    (coordinator-content-repo); coordinator_core.handoff_creation_guard (claude-klabauter) — the
     shared guard this call delegates to, also enforced at the two engine-side
     handoff-creation ops (handoff.author_fork, handoff.scaffold_from_queue).
     """
@@ -933,7 +933,7 @@ def _assert_scaffold_content_valid(content: str, out_path: str, repo_root: str |
     the generated content triggers the hard exit.
 
     Spec backlink: cross-repo memo
-    2026-08-01-doe-claude-em-roadmap-baton-write-guard-warns-where-claim-gate-denies.md
+    2026-08-01-coordinator-content-repo-em-roadmap-baton-write-guard-warns-where-claim-gate-denies.md
     § "Also worth noting regardless of the above".
     Spec backlink (C3): pln-ledger-owing-handoff-kinds-emi-648818 § C3
     """
@@ -1296,7 +1296,7 @@ def _mint_plan_id(slug: str) -> str:
 
 
 # _em_id_for_root deleted (C2b) — imported from coordinator_registry above (2-arg form: no home param).
-# Central identity now anchored on repos.doe_claude path-match, not ~/.claude.
+# Central identity now anchored on repos.content_root path-match, not ~/.claude.
 
 
 def _resolve_from_repo() -> str:
@@ -1304,9 +1304,9 @@ def _resolve_from_repo() -> str:
     _bootstrap_engine()
     root = _current_repo_root()
     paths_dict = _machine_local_dump_repos()
-    # Ensure repos.doe_claude is present so the central-identity path-match in
+    # Ensure repos.content_root is present so the central-identity path-match in
     # em_id_for_root fires even when the machine-local keys enumeration omits it.
-    paths_dict.setdefault("repos.doe_claude", _machine_local_get("repos.doe_claude"))
+    paths_dict.setdefault("repos.content_root", _machine_local_get("repos.content_root"))
     return _em_id_for_root(root, paths_dict)
 
 
@@ -1474,7 +1474,7 @@ def _is_placeholder_title(title: str) -> bool:
     every polluted record is a live false-clear edge. An absent id dangles honestly
     and is trivially sweepable; a wrong one is indistinguishable from a right one.
 
-    Spec backlink: cross-repo/inbox/2026-08-05-doe-claude-em-placeholder-id-minting-fix-unfiled.md
+    Spec backlink: cross-repo/inbox/2026-08-05-coordinator-content-repo-em-placeholder-id-minting-fix-unfiled.md
     Sizing: state/sizings/2026-08-05-placeholder-title-guard-at-artifact-id-m.yaml
 
     Negative-spec: matches on the scaffold's own sentinel prefix, NOT on the word
@@ -2639,8 +2639,8 @@ def _scaffold_handoff(
     # record with `pickup_ready: true` is well-formed and meaningless in
     # exactly that helper's sense: a future `/pickup` or `/workday-start`
     # surfaces it as actionable and whoever takes it finds a comment-only
-    # skeleton. Reported live from DoE-claude 2026-08-20 (`cross-repo/inbox/
-    # 2026-08-20-doe-claude-em-pickup-mints-a-phantom-successor.md`), where
+    # skeleton. Reported live from coordinator-content-repo 2026-08-20 (`cross-repo/inbox/
+    # 2026-08-20-coordinator-content-repo-em-pickup-mints-a-phantom-successor.md`), where
     # one held the genuine successor's `deliverable_id` for three and a half
     # hours.
     #
@@ -3324,7 +3324,7 @@ def _scaffold_roadmap_baton(
 
     Spec backlink: docs/plans/2026-06-29-cli-scaffold-deterministic-docs.md § C3c
     Spec backlink: pln-fleet-deliverable-spine-identity-and-facets-2b331c § D1, D2, C3b
-    Spec backlink (handoff_id): DoE-claude docs/plans/2026-08-01-baton-spine-information-integrity.md § A5 (AC13)
+    Spec backlink (handoff_id): coordinator-content-repo docs/plans/2026-08-01-baton-spine-information-integrity.md § A5 (AC13)
 
     category (--category) is validated against _HANDOFF_CATEGORY_ENUM before the
     frontmatter is written — defaults to 'roadmap' unchanged when not supplied.
@@ -3840,7 +3840,7 @@ def _scaffold_plan(
     as DISTINCT sections per D2).
 
     Negative-spec: no `## Acceptance Criteria` heading is emitted. The AC table
-    is a retired row family (forward-only, PM ruling 2026-08-27, DoE-claude
+    is a retired row family (forward-only, PM ruling 2026-08-27, coordinator-content-repo
     pln-collapse-the-ac-checkbox-table-c53bbc): a criterion that must be
     discharged is a `## Tasks` spine row, where `close_out_and_stamp`'s
     `spine_fully_resolved` gate and `d-harvest-deferrals` actually reach it;
@@ -5767,8 +5767,9 @@ def _default_output_path(
       handoff/spinoff/recovery -> state/handoffs/YYYY-MM-DD-<slug>.md
       roadmap-baton  -> state/handoffs/YYYY-MM-DD_000000_roadmap-<stub_id>.md
                          (HHMMSS=000000 fallback; use --out to supply the full path at runtime)
-      memo             -> state/memo-outbox/<topic>.md  (the draft path memo.send
-                          resolves a topic to; never cross-repo/inbox/, which is delivery)
+      memo             -> .coordinator-local/memo-outbox/<topic>.md  (the canonical
+                          draft path memo.send resolves a topic to; never
+                          cross-repo/inbox/, which is delivery)
       plan             -> docs/plans/YYYY-MM-DD-<slug>.md
       decision         -> docs/decisions/<dr_id>-<slug>.md  (dr_id allocated by
                           _allocate_dr_number before this call — never a DR-XXX
@@ -5808,16 +5809,22 @@ def _default_output_path(
         id_slug = stub_id if stub_id else _slug(title)
         return os.path.join("state", "handoffs", f"{today}_000000_roadmap-{id_slug}.md")
     elif doc_type == "memo":
-        # `state/memo-outbox/<topic>.md` — the ONE path `memo.send` looks a draft
-        # up by, and the shape `cross-repo-memo draft` already produces. This
-        # used to return a bare `{today}-{slug}.md`, which landed the draft in
-        # the REPO ROOT under a name `memo.send <topic>` cannot resolve: wrong
-        # directory and wrong filename in one default, so every scaffolded memo
-        # had to be moved and renamed by hand before it could be sent. No date
-        # prefix — `memo.send` keys on the bare topic slug (see
-        # `ops/fleet/memo_send.py :: _OUTBOX_DIRNAME` and its module docstring).
+        # `.coordinator-local/memo-outbox/<topic>.md` — the CANONICAL outbox
+        # dir `coordinator_core.ops.fleet.memo_draft.outbox_dir` writes (its
+        # own `MUTATES = [".coordinator-local/memo-outbox/*.md"]`), and the
+        # shape `cross-repo-memo draft` already produces. `state/memo-outbox/`
+        # is the RETIRED read-fallback only (`legacy_outbox_dir`) — this used
+        # to scaffold into it directly, giving the fleet two outboxes for one
+        # verb with no way for a sender to tell which was canonical (memo
+        # friction item 6, cross-repo/inbox/2026-09-28-project-rag-em-memo-
+        # send-friction.md). `memo.send`/`memo.list`/`memo.reconcile` all
+        # resolve/merge both dirs already (`resolve_outbox_draft_path`,
+        # `merged_outbox_drafts`), so writing the canonical one here needs no
+        # further engine change. No date prefix — `memo.send` keys on the
+        # bare topic slug (see `ops/fleet/memo_send.py :: _OUTBOX_DIRNAME`
+        # and its module docstring).
         slug = topic if topic else _slug(title)
-        return os.path.join("state", "memo-outbox", f"{slug}.md")
+        return os.path.join(".coordinator-local", "memo-outbox", f"{slug}.md")
     elif doc_type == "plan":
         slug = _slug(title)
         return os.path.join("docs", "plans", f"{today}-{slug}.md")
@@ -5908,7 +5915,7 @@ Examples:
   # Local memo skeleton (fill body, then send via cross-repo-memo):
   coordinator-doc-new --type memo --to project-rag-em --topic rag-liveness-query \\
       --title "Query liveness predicate contract" \\
-      --out state/memo-outbox/2026-06-25-rag-liveness-query.md
+      --out .coordinator-local/memo-outbox/rag-liveness-query.md
 
   # Architecture audit record (requires --system):
   coordinator-doc-new --type audit-record --system coordinator-runtime
@@ -6838,12 +6845,24 @@ def main(argv: "list[str] | None" = None) -> int:
         # would close the comment and inject arbitrary body text.
         to_slug = args.to
         if not _SLUG_RE.match(to_slug):
-            print(
-                f"error: --to '{to_slug}' is not a valid slug. "
-                "Use lowercase alphanumeric + dashes, starting with alphanum.",
-                file=sys.stderr,
-            )
-            return 1
+            lowered = to_slug.lower()
+            if _SLUG_RE.match(lowered):
+                # Receiver identities are mixed-case in the fleet (e.g. a repo's
+                # own -em id); lowercasing is a deterministic, lossless fix — do
+                # it and say so, rather than refusing a well-formed identity.
+                print(
+                    f"coordinator-doc-new: --to '{to_slug}' lowercased to "
+                    f"'{lowered}'.",
+                    file=sys.stderr,
+                )
+                to_slug = args.to = lowered
+            else:
+                print(
+                    f"error: --to '{to_slug}' is not a valid slug. "
+                    "Use lowercase alphanumeric + dashes, starting with alphanum.",
+                    file=sys.stderr,
+                )
+                return 1
         topic_slug = args.topic
         if not _SLUG_RE.match(topic_slug):
             print(
@@ -7604,7 +7623,7 @@ def main(argv: "list[str] | None" = None) -> int:
     # --additional-predecessor precedent, so no third posture is invented).
     #
     # --gated-open is ALSO accepted for --type spinoff (state/cross-repo/
-    # inbox/2026-09-25-doe-claude-em-doe-issues-92-95-engine-asks.md ask 1):
+    # inbox/2026-09-25-coordinator-content-repo-em-doe-issues-92-95-engine-asks.md ask 1):
     # it writes `blocked_by`, an ORDERING edge distinct from the
     # predecessor:none-by-design lineage edge A3a-3 forces on every spinoff
     # kind. `blocked_by` is schema-permitted on any kind (handoff.schema.json)

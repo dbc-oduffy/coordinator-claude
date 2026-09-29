@@ -1,6 +1,6 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """merge-gate-and-pr.py — merge-time imperative logic ported off the bash
-fences embedded in DoE-claude coordinator/skills/merging-to-main/SKILL.md.
+fences embedded in coordinator-content-repo coordinator/skills/merging-to-main/SKILL.md.
 
 K-001 (state/kill-ledger.md, 2026-08-16): the original `coverage-gate`
 subcommand that used to live here — a thin wrapper relaying
@@ -27,7 +27,7 @@ Subcommands (argv[1] selects):
   pr-body --ship-verdict <text> --release-notes <text> [--summary <text>]
            [--verification <text>] [--risk <text>] [--demo-path <text>]
            [--links <text>] [--commit-range <range>]
-      Composes the PR body in the fleet PR template's section order (DoE-claude
+      Composes the PR body in the fleet PR template's section order (coordinator-content-repo
       coordinator/templates/github-pull-request-template.md): the
       `**Ship verdict:**` line, ## Summary, ## Release notes, ## Verification,
       ## Risk and rollback, ## Demo path (only when given), ## Links, then a
@@ -76,7 +76,7 @@ Subcommands (argv[1] selects):
 
 Spec backlink: docs/plans/2026-07-21-doe-skill-bash-to-claude-klabauter-python-port.md [DEAD-CITATION: plan file never committed to this repo]
   (M3 chunk MTM-2 — merging-to-main review-coverage gate / PR body / active-
-  branch merge guard). Source: DoE-claude
+  branch merge guard). Source: coordinator-content-repo
   coordinator/skills/merging-to-main/SKILL.md §§ Step 1.5, Step 1.65, Step 4.
   coverage-gate's re-wiring: docs/plans/2026-08-27-the-merge-gate-is-pointed-
   back-at-the-coverage-engine.md § C1.

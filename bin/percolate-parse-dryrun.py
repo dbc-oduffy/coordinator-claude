@@ -1,6 +1,6 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """percolate-parse-dryrun.py — naked-Python assembler computing the
-`/percolate` skill's (DoE-claude coordinator/skills/percolate/SKILL.md)
+`/percolate` skill's (coordinator-content-repo coordinator/skills/percolate/SKILL.md)
 dry-run-stdout parse steps and the Step-3 PM-confirmation gate-fire
 predicate as a single decision-object envelope.
 
@@ -42,7 +42,7 @@ own those; their hit counts are passed in as `--medium-leak-count` /
 (`coordinator_core.contract.decision_object`), never copied per the
 pickup_assemble CONSUME-DON'T-RE-DERIVE hazard.
 
-Spec backlink: coordinator/skills/percolate/SKILL.md (DoE-claude) — Step 2,
+Spec backlink: coordinator/skills/percolate/SKILL.md (coordinator-content-repo) — Step 2,
 Step 2b, Step 2c, Step 3. Port chunk: b8-C5.
 """
 from __future__ import annotations

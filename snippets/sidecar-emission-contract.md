@@ -25,7 +25,7 @@ home, `state/subagent-share/<session-id>/<provision_key>.md`, or
 (the label drops the `:` in `coordinator:docs-checker` rather than replacing it — worth knowing if
 you glob for these). `plan_path` is never required for eligibility; its absence simply means "use
 the existing home." Callers on the plan-less path — `/bug-sweep`'s Track C and Phase 3.5
-docs-checker dispatches — must NOT start passing a synthetic stem to reach the plan-sidecars home:
+docs-checker dispatches — must not start passing a synthetic stem to reach the plan-sidecars home:
 that would put run-scoped files into `.coordinator-local/plan-sidecars/`, which is an unreaped-by-design archive
 class. `plan_path` is settable only via the stdin JSON field; `provision_report`'s argparse exposes
 no `--plan` flag.
@@ -44,7 +44,7 @@ were not given, and do not substitute your own timestamp — a consumer refuses 
 sidecar lacks this run's nonce, and `.coordinator-local/plan-sidecars/` files are durable and reused across runs
 by design. No `run_nonce:` in your brief → omit the field.
 
-**Verdict floor.** Your verdict enum MUST include `DEGRADED` (incomplete coverage — a corpus was
+**Verdict floor.** Your verdict enum must include `DEGRADED` (incomplete coverage — a corpus was
 unreadable, you hit a scan cap, or you could not complete your check as scoped; treat as no
 signal downstream) and, where your lens can detect load-bearing-doctrine contradiction,
 `BLOCKED-SURFACE-TO-PM`. Lens-specific verdicts are free to add above this floor.

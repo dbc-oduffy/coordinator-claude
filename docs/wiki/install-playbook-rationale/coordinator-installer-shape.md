@@ -392,7 +392,7 @@ Structural divergence beyond path substitutions (`coordinator-claude/coordinator
 >
 > The install destination is `~/.coordinator-claude-settings/machine-local/`, NOT `~/.claude/machine-local/`. `install-substrate.py` runs a one-time idempotent migration BEFORE any `mkdir`/seed so that an upgrading operator's `registry.local.toml` (carrying `repos.*` sibling paths and `plugin.mirrors.*`) is migrated intact. After migration, `~/.claude/machine-local` is a realpath-symlink to the settings home — retained for consumers that read the old path through the compat window.
 
-The `.doe-root` bootstrap pointer lives at the settings home (`<settings-home>/machine-local/.doe-root`, beside its sibling `.claude-klabauter-root`), not in `~/.claude` — the git-tracked `~/.claude` copy would sync between machines and fight over one file when a Mac and a Windows box each write their own absolute clone path, so the writer does not target it there. A read-only legacy `~/.claude/.doe-root` fallback rung remains for machines installed before the move. Everything coordinator manages under this settings surface lives at `~/.coordinator-claude-settings/`. See §10 for the full install-home shape and compat contract.
+The `.content-root` bootstrap pointer lives at the settings home (`<settings-home>/machine-local/.content-root`, beside its sibling `.claude-klabauter-root`), not in `~/.claude` — the git-tracked `~/.claude` copy would sync between machines and fight over one file when a Mac and a Windows box each write their own absolute clone path, so the writer does not target it there. A read-only legacy `~/.claude/.content-root` fallback rung remains for machines installed before the move. Everything coordinator manages under this settings surface lives at `~/.coordinator-claude-settings/`. See §10 for the full install-home shape and compat contract.
 
 ~~Neither `install.sh` nor `publish.sh` creates or seeds `~/.claude/machine-local/`. The deprecated `publish-targets.sh` fallback activates silently when the directory is absent.~~ OSS newcomers now get the substrate laid automatically at install time under the settings home; no manual bootstrap step is required.
 
@@ -424,7 +424,7 @@ COORDINATOR_SETTINGS_HOME              (explicit home root override — XDG, CI,
 
 ### The one intentional `~/.claude` residual
 
-**`.doe-root`** — a single-line read-only bootstrap pointer, read by `resolve-coordinator-clone` rung-1 on cold-start. `gen-doe-root-pointer.py` writes it to `<settings-home>/machine-local/.doe-root`, beside its sibling `.claude-klabauter-root` — a git-tracked `~/.claude` copy would sync between machines and each machine's install would clobber the last one's absolute path. `~/.claude/.doe-root` remains a read-only legacy fallback rung; nothing writes it anymore.
+**`.content-root`** — a single-line read-only bootstrap pointer, read by `resolve-coordinator-clone` rung-1 on cold-start. `gen-content-root-pointer.py` writes it to `<settings-home>/machine-local/.content-root`, beside its sibling `.claude-klabauter-root` — a git-tracked `~/.claude` copy would sync between machines and each machine's install would clobber the last one's absolute path. `~/.claude/.content-root` remains a read-only legacy fallback rung; nothing writes it anymore.
 
 All other coordinator-owned `~/.claude` content (harness-owned `settings.json`, `.mcp.json`, `plugins/`, `projects/`, `.claude.json`) is Anthropic's — coordinator populates those files per the harness API but does not own their location.
 

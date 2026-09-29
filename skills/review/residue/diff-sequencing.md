@@ -7,8 +7,8 @@ order: 50
 
 **`--surface diff`:**
 - **Plan-bearing work → the execute-review stage.** A diff produced by `/execute-plan` is reviewed
-  as stages of that same emitted workflow: one parallel wave of slice-owning reviewers plus
-  whole-diff findings-only lenses, then exactly one integration pass. See
+  as one parallel wave inside that same emitted workflow, every reviewer applying its own
+  findings. See
   `coordinator/skills/execute-plan/SKILL.md` and `coordinator/skills/review/SKILL.md` § A.3. This
   skill's outgoing branch is not the dispatch vehicle for that review; nothing here re-partitions
   or re-dispatches it.

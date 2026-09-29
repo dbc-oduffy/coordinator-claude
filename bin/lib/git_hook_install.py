@@ -98,15 +98,15 @@ GENERATES = []
 
 _MARKETPLACE_SUFFIX = ".claude/plugins/coordinator/bin"
 
-_DOE_ROOT_DURABLE_SH = '${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/machine-local/.doe-root'
-_DOE_ROOT_LEGACY_SH = '$HOME/.claude/.doe-root'
+_CONTENT_ROOT_DURABLE_SH = '${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/machine-local/.content-root'
+_CONTENT_ROOT_LEGACY_SH = '$HOME/.claude/.content-root'
 
 
 def _sh_path(p: str) -> str:
     return p.replace("\\", "/")
 
 
-# COORD_BIN resolution — machine-local registry → .doe-root pointer → marketplace.
+# COORD_BIN resolution — machine-local registry → .content-root pointer → marketplace.
 
 def _resolve_machine_local_bin(bin_dir: str) -> Optional[str]:
     cand = os.path.join(bin_dir, "machine-local")
@@ -182,9 +182,9 @@ def _resolve_coord_bin(bin_dir: str, script_name: str) -> str:
 
     Rung 1: `<bin_dir>/machine-local get plugin.mirrors.coordinator-claude.source_path`
             (or `machine-local` on PATH) → `<source_path>/bin/<script_name>`.
-    Rung 2: `.doe-root` pointer, durable-first — settings-home
-            (`$HOME/.coordinator-claude-settings/machine-local/.doe-root`, DR-072),
-            falling back to the legacy `$HOME/.claude/.doe-root` —
+    Rung 2: `.content-root` pointer, durable-first — settings-home
+            (`$HOME/.coordinator-claude-settings/machine-local/.content-root`, DR-072),
+            falling back to the legacy `$HOME/.claude/.content-root` —
             → `<doe>/coordinator/bin/<script_name>`.
     Rung 3: `machine-local get repos.claude_klabauter` →
             `<claude_klabauter>/coordinator/bin/<script_name>` — the executable
@@ -212,7 +212,7 @@ def _resolve_coord_bin(bin_dir: str, script_name: str) -> str:
     is where the executable surface is *authored*; the published
     `claude-klabauter` mirror is the resolved engine root on every box, and in
     an ephemeral container it is the ONLY one of the four present — there is no
-    doctrine clone, no `.doe-root`, no `repos.claude_klabauter`, and
+    doctrine clone, no `.content-root`, no `repos.claude_klabauter`, and
     `$HOME/.claude/plugins/` is never populated because the plugin is resolved
     via `--plugin-dir`. Without this rung the ladder exhausts to a rung-5 path
     that does not exist, `_ensure_hook` finds no target and skips fail-open, and
@@ -260,19 +260,19 @@ def _resolve_coord_bin(bin_dir: str, script_name: str) -> str:
     settings_home = os.environ.get("COORDINATOR_SETTINGS_HOME") or os.path.join(
         home, ".coordinator-claude-settings"
     )
-    for doe_root_ptr in (
-        os.path.join(settings_home, "machine-local", ".doe-root"),
-        os.path.join(home, ".claude", ".doe-root"),
+    for content_root_ptr in (
+        os.path.join(settings_home, "machine-local", ".content-root"),
+        os.path.join(home, ".claude", ".content-root"),
     ):
         try:
-            with open(doe_root_ptr, encoding="utf-8") as fh:
-                doe_root = fh.read().strip()
+            with open(content_root_ptr, encoding="utf-8") as fh:
+                content_root = fh.read().strip()
         except OSError:
             continue
-        if doe_root:
+        if content_root:
             from coordinator_data_root import content_root_for
 
-            content = content_root_for(doe_root)
+            content = content_root_for(content_root)
             if content is not None:
                 cand_bin = os.path.join(str(content), "bin")
                 if _helper_present(cand_bin, script_name):
@@ -320,7 +320,7 @@ def _resolve_klabauter_bin_sh(script_name: str) -> Optional[str]:
 # substitution). That removes one SUBSHELL — one process — from every fire of
 # hook` now passes its OWN `skip_env` (`COORDINATOR_TRAILERS_ALREADY_
 # sessions. `_NATIVE_PROBE_DEF` closes the POSIX half; the bump forces
-_HOOK_GEN_STAMP = 13
+_HOOK_GEN_STAMP = 14
 
 
 def _hook_gen_stamp_line() -> str:
@@ -332,6 +332,12 @@ def _hook_gen_stamp_line() -> str:
 _NATIVE_PROBE_DEF = (
     '_native() { [ -x "$1" ] || return 1; IFS= read -r _n1 < "$1" 2>/dev/null '
     '|| return 1; case "$_n1" in "#!"*) return 1 ;; esac; return 0; }\n'
+)
+
+
+_CACHE_ROOT_PROBE = (
+    '_cb=""; for _d in "$HOME"/.claude/plugins/cache/coordinator-claude/coordinator/*/bin; '
+    'do [ -d "$_d" ] && _cb="$_d"; done\n'
 )
 
 
@@ -390,7 +396,7 @@ def _shim_body(
     flag — that is the hooksPath redirect wearing a disguise.
 
     The shell fallback chain (settings-home forwarder → baked SCRIPT →
-    .doe-root pointer → engine-repo-bin candidate → published-mirror
+    .content-root pointer → engine-repo-bin candidate → published-mirror
     candidate (F4) → marketplace) means
     an already-installed hook can recover a dead baked path WITHOUT waiting
     for the next `_resolve_coord_bin` regeneration — self-healing at
@@ -466,10 +472,13 @@ def _shim_body(
         + f'_fwd="{settings_home_script}"\n'
         '_native "$_fwd" && exec "$_fwd" "$@"\n'
         f'SCRIPT="{settings_home_script}"\n'
+        + _CACHE_ROOT_PROBE
+        + f'_have_py "$SCRIPT" || SCRIPT="$_cb/{script_name}"\n'
+        f'_have_py "$SCRIPT" || SCRIPT="$_cb/{script_name}.py"\n'
         f'_have_py "$SCRIPT" || SCRIPT="{coord_bin_sh}/{script_name}"\n'
         f'_have_py "$SCRIPT" || SCRIPT="{coord_bin_sh}/{script_name}.py"\n'
-        '_have_py "$SCRIPT" || { _dr="$(cat "' + _DOE_ROOT_DURABLE_SH + '" 2>/dev/null || '
-        'cat "' + _DOE_ROOT_LEGACY_SH + '" 2>/dev/null)"; '
+        '_have_py "$SCRIPT" || { _dr="$(cat "' + _CONTENT_ROOT_DURABLE_SH + '" 2>/dev/null || '
+        'cat "' + _CONTENT_ROOT_LEGACY_SH + '" 2>/dev/null)"; '
         f'[ -n "$_dr" ] && _have_py "$_dr/coordinator/bin/{script_name}" && '
         f'SCRIPT="$_dr/coordinator/bin/{script_name}"; '
         f'[ -n "$_dr" ] && ! _have_py "$SCRIPT" && _have_py "$_dr/coordinator/bin/{script_name}.py" && '
@@ -479,7 +488,7 @@ def _shim_body(
         f'_have_py "$SCRIPT" || SCRIPT="{fallback}.py"\n'
         '_have_py "$SCRIPT" || { echo "[coordinator] WARNING: hook installed but '
         f'{script_name} not found (looked in settings-home forwarder, baked path, '
-        '.doe-root, machine-local repos.claude_klabauter, and marketplace) — commits '
+        '.content-root, machine-local repos.claude_klabauter, and marketplace) — commits '
         'are NOT being auto-pushed / annotated by this hook" 1>&2; exit 0; }\n'
         # $HOME or $COORDINATOR_SETTINGS_HOME is itself POSIX-style, i.e. when a
         # drive form is the only shape $HOME or $COORDINATOR_SETTINGS_HOME ever
@@ -524,11 +533,14 @@ def _append_block(
         f'_fwd="{settings_home_script}"; }}\n'
         'if [ -f "$_fwd" ]; then "$_fwd" "$@"; else\n'
         + baked_python_lines("_PY") + "\n"
-        f'_T="{settings_home_script}"; '
+        f'_T="{settings_home_script}"\n'
+        + _CACHE_ROOT_PROBE
+        + f'_have_py "$_T" || _T="$_cb/{script_name}"; '
+        f'_have_py "$_T" || _T="$_cb/{script_name}.py"; '
         f'_have_py "$_T" || _T="{coord_bin_sh}/{script_name}"; '
         f'_have_py "$_T" || _T="{coord_bin_sh}/{script_name}.py"; '
-        '_have_py "$_T" || { _dr="$(cat "' + _DOE_ROOT_DURABLE_SH + '" 2>/dev/null || '
-        'cat "' + _DOE_ROOT_LEGACY_SH + '" 2>/dev/null)"; '
+        '_have_py "$_T" || { _dr="$(cat "' + _CONTENT_ROOT_DURABLE_SH + '" 2>/dev/null || '
+        'cat "' + _CONTENT_ROOT_LEGACY_SH + '" 2>/dev/null)"; '
         f'[ -n "$_dr" ] && _have_py "$_dr/coordinator/bin/{script_name}" && '
         f'_T="$_dr/coordinator/bin/{script_name}"; '
         f'[ -n "$_dr" ] && ! _have_py "$_T" && _have_py "$_dr/coordinator/bin/{script_name}.py" && '
@@ -537,7 +549,7 @@ def _append_block(
         f'_have_py "$_T" || _T="{fallback}"; '
         f'_have_py "$_T" || _T="{fallback}.py"; '
         f'_have_py "$_T" || echo "[coordinator] WARNING: hook installed but {script_name} '
-        'not found (looked in settings-home forwarder, baked path, .doe-root, '
+        'not found (looked in settings-home forwarder, baked path, .content-root, '
         'machine-local repos.claude_klabauter, and marketplace) — commits are NOT being '
         'auto-pushed / annotated by this hook" 1>&2; '
         '[ -n "$_PY" ] || echo "[coordinator] WARNING: hook installed but no '
@@ -841,6 +853,8 @@ def _ensure_hook(
         return _note("rewritten-stale")
 
     if not check_only:
+        if not body.startswith("#!"):
+            body = "#!/bin/sh\n" + body
         _atomic_write(hook_path, body + append_block + "\n")
         _chmod_x(hook_path)
     return _note("appended")
@@ -962,7 +976,7 @@ def _resolve_git_hooks_dir(root: str) -> Optional[str]:
     treat that shape as `missing` (an `isdir` check on `.git` fails on a
     file), silently EXCLUDING such a repo from the fleet enumeration
     entirely — one of the three candidate causes named for claude-klabauter
-    DoE-claude#85 row 9 ("a repo skipped by the fleet enumeration").
+    coordinator-content-repo#85 row 9 ("a repo skipped by the fleet enumeration").
 
     Hooks are not per-worktree: git stores them in the repository's COMMON
     dir (shared across every worktree), found by following the worktree
@@ -1008,10 +1022,60 @@ def _is_coordinator_worktree(root: str) -> bool:
     )
 
 
+_COORDINATOR_HOOK_MARKERS = ("coordinator-prepare-commit-msg", "coordinator-hook-gen", "coordinator-claude")
+
+
+def _hook_points_at_coordinator(root: str, hook_name: str) -> bool:
+    """Whether ``root``'s installed ``hook_name`` body names a coordinator path."""
+    git_dir = _resolve_git_hooks_dir(root)
+    if git_dir is None:
+        return False
+    hook_path = os.path.join(git_dir, "hooks", hook_name)
+    if not os.path.isfile(hook_path):
+        return False
+    body = _read(hook_path)
+    return any(m in body for m in _COORDINATOR_HOOK_MARKERS)
+
+
+def _scan_dirs() -> List[str]:
+    """Directories whose immediate children are candidate repos: each
+    ``repos.*`` container key's value, plus the parent of every registered repo."""
+    flat = _merged_flat_registry()
+    dirs = []
+    for key in _CONTAINER_REGISTRY_KEYS:
+        val = ("" if flat.get(key) is None else str(flat.get(key))).strip()
+        if val:
+            dirs.append(val)
+    return dirs
+
+
+def _unregistered_hooked_repos(registered: "set[str]") -> List[tuple]:
+    """Repos outside the registry whose prepare-commit-msg hook names a
+    coordinator path: children of the container dirs and siblings of registered
+    repos. Bounded to one directory level."""
+    parents = {os.path.dirname(os.path.normpath(r)) for r in registered} | set(_scan_dirs())
+    seen = {os.path.normpath(r) for r in registered}
+    found: List[tuple] = []
+    for parent in sorted(p for p in parents if p and os.path.isdir(p)):
+        try:
+            names = sorted(os.listdir(parent))
+        except OSError:
+            continue
+        for name in names:
+            child = os.path.normpath(os.path.join(parent, name))
+            if child in seen:
+                continue
+            seen.add(child)
+            if _hook_points_at_coordinator(child, "prepare-commit-msg"):
+                found.append((f"scan:{name}", child))
+    return found
+
+
 def ensure_hooks_fleet(
     bin_dir: str, *, check_only: bool = False, strict: bool = False
 ) -> int:
     roots = _registry_repo_roots(bin_dir)
+    roots = roots + _unregistered_hooked_repos({r for _, r in roots})
     if not roots:
         print(
             "[git_hook_install] WARNING: fleet heal found no registered repos "
@@ -1029,7 +1093,7 @@ def ensure_hooks_fleet(
         if kind == "missing":
             missing.append(f"{key} -> {root}")
             continue
-        if kind == "mirror":
+        if kind == "mirror" and not _hook_points_at_coordinator(root, "prepare-commit-msg"):
             continue
         for label, fn in (
             ("prepare-commit-msg", ensure_prepare_commit_msg_hook),

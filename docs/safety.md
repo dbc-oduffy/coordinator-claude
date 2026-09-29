@@ -46,11 +46,11 @@ list this repo maintains against its own uninstall command), the surfaces it can
 | 2 | A generated hook block in `~/.claude/settings.json` | Registers coordinator's hooks with Claude Code, preserving any hooks you already had |
 | 3 | Machine-local registry (`~/.coordinator-claude-settings/machine-local/`) | Coordinator's own config keys (e.g. sibling-repo paths), never your other settings |
 | 4 | A shell launch shim + an `rc`-file source line | Only present in the maximalist/dev install mode; the flat marketplace-plugin install (the path this doc covers) does not need it |
-| 5 | `.doe-root` pointer | Only relevant to the dev-clone install mode, not the marketplace path |
+| 5 | `.content-root` pointer | Only relevant to the dev-clone install mode, not the marketplace path |
 | 6 | `~/.claude/bin/` forwarder scripts | Coordinator-owned command names only — never a blanket write to that directory |
 | 7 | `~/.coordinator-claude-settings/` tree | Coordinator-authored files only (`machine-local/`, `bin/`, `.coordinator-venv/`, `state/handoffs`) |
 | 8 | `~/.claude/coordinator-identity.yaml`, `working-repos.yaml` | Your operator name and posture preferences |
-| 9 | `${HOME}/.local/bin/claude-doe` wrapper | Only present in the maximalist/dev install mode |
+| 9 | `${HOME}/.local/bin/claude-author` wrapper | Only present in the maximalist/dev install mode |
 
 It also, on request, adds `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"` to the `env` block of
 `~/.claude/settings.json` (required for staff sessions and research pipelines; takes effect on

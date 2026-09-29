@@ -1245,7 +1245,7 @@ The doctrine floor in `coordinator/snippets/disk-first-done-preamble.md` names ~
 
 **Measurement provenance:** this 50–60% figure is from a single incident — one 9-parallel wave — measured at or before 2026-07-04, against the harness and Sonnet build current at that time. One incident is enough to justify the cap, not enough to call the rate precise; treat 50–60% as an order-of-magnitude finding, not a calibrated constant.
 
-**How to apply, at any width:** (1) On any fan-out, EM verifies actual on-disk state via `grep -lr <expected-token> <scope>/ | wc -l` and compares to reported counts — disk is the only signal that counts; reports merge what was *attempted* with what *landed*. Delivery verification of every row (`docs/plans/2026-09-27-review-inside-execute-plan.md`'s delivery verifier, where landed) is the structural form of this leg. (2) For homogeneous-shape mechanical sweeps, prefer a single deterministic script over N agent dispatches — agents are appropriate for judgment, not bulk mechanical marking.
+**How to apply, at any width:** (1) On any fan-out, EM verifies actual on-disk state via `grep -lr <expected-token> <scope>/ | wc -l` and compares to reported counts — disk is the only signal that counts; reports merge what was *attempted* with what *landed*. Delivery verification of every row (the execute-review delivery verifier) is the structural form of this leg. (2) For homogeneous-shape mechanical sweeps, prefer a single deterministic script over N agent dispatches — agents are appropriate for judgment, not bulk mechanical marking.
 
 The static five-executor barrier cap named in an earlier version of this section is retired
 (`docs/wiki/em-operating-model/workflow-orchestration.md`); disk verification, not a count, is the

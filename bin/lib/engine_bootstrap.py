@@ -86,8 +86,8 @@ class _RegistryReadTimeout(RuntimeError):
 _CLAUDE_KLABAUTER_ROOT_REMEDIATION = (
     "cc_invoke: cannot resolve the engine root — every rung missed.\n"
     "  Searched: COORDINATOR_ENGINE_ROOT (unset or not a directory), the "
-    "<settings-home>/machine-local pointer files (.claude-klabauter-root, "
-    ".claude-klabauter-root — absent or unreadable), the machine-local registry key "
+    "<settings-home>/machine-local pointer file (.claude-klabauter-root — "
+    "absent or unreadable), the machine-local registry key "
     "repos.claude_klabauter (unset), and self-location from this script's own "
     "checkout (no enclosing coordinator_core/ + pyproject.toml found).\n"
     "  Remediate (choose one):\n"
@@ -137,7 +137,6 @@ def _machine_local_get(key: str) -> str | None:
     Native Python replacement for the bash `machine-local` forwarder: invokes
     bin/_machine_local.py (the real reader) directly with the same interpreter
     that loaded this module — no shell, no bash. Mirrors
-    gen-claude-klabauter-root-pointer.py::_machine_local_get and
     coordinator_core.engine_root.coordinator_engine_root's own rung-2 lookup.
 
     Returns the resolved value, or None on any failure (missing impl, non-zero
@@ -378,14 +377,12 @@ def _resolve_engine_root(caller_file: str | None = None) -> str:
       Rung 1:   COORDINATOR_ENGINE_ROOT already set in environment → CANDIDATE, delegated
                 through the single gated ladder (see "DELEGATION" below) rather
                 than answered directly.
-      Rung 1.5: machine-local pointer files → cheap direct file reads, no
+      Rung 1.5: machine-local pointer file → cheap direct file read, no
                 subprocess spawn (docs/plans/2026-07-14-claude-klabauter-windows-
-                portability.md § C1). `.claude-klabauter-root` is consulted
-                FIRST and wins outright (DR-326: all engine dispatch goes to the
-                published build); `.claude-klabauter-root` answers only on a box with no
-                published mirror installed. Both remain a DIRECT return, not a
-                delegation — see the "no longer gate-blind in the direction
-                that mattered" note below for why that is safe.
+                portability.md § C1). `.claude-klabauter-root` (DR-326: all
+                engine dispatch goes to the published build) is a DIRECT
+                return, not a delegation — see the "no longer gate-blind in
+                the direction that mattered" note below for why that is safe.
       Rung 2:   machine-local registry candidate → delegated, same as Rung 1.
       Rung 3:   terminal self-location (__file__) → CANDIDATE, delegated the
                 same way — see "DISPATCH axis" note below.
@@ -588,11 +585,6 @@ def _resolve_engine_root(caller_file: str | None = None) -> str:
         os.path.join(_published_pointer_val, "coordinator_core", "_engine_stamp")
     ):
         return _published_pointer_val
-
-    # because the published arm answers first; in the PUBLISHED MIRROR it is
-    _pointer_val = _read_pointer(".claude-klabauter-root")
-    if _pointer_val and os.path.isdir(_pointer_val):
-        return _pointer_val
 
     _registry_read_timed_out = False
     try:

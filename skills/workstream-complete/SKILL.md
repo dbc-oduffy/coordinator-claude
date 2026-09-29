@@ -181,7 +181,7 @@ as leaving nothing landed.** Then, still yours to make:
 
 Once the close commit(s) land, best-effort trigger project-rag's SCIP rebuild in the background —
 never waits, never blocks this ceremony: `"$_py"
-"${CLAUDE_PLUGIN_ROOT:-<doe-root>/coordinator}/bin/scip-rebuild-at-ceremony.py" --ceremony
+"${CLAUDE_PLUGIN_ROOT:-<content-root>/coordinator}/bin/scip-rebuild-at-ceremony.py" --ceremony
 workstream-complete` (§ Plugin-local `coordinator/bin/`, `resolve-coordinator-bin.md`).
 
 **The terminal stamp is gated engine-side, and a blocked stamp is not a failed one.**

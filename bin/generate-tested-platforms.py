@@ -56,7 +56,7 @@ whichever repo_root is in effect. `coordinator_core` itself is always imported o
 this script's own location, never off `--repo-root`, since `coordinator_core` lives
 in claude-klabauter's checkout regardless of which repo is being probed.
 
-Spec backlink: DoE-claude:pln-platform-verified-is-a-distinc-a076aa § C3a1
+Spec backlink: coordinator-content-repo:pln-platform-verified-is-a-distinc-a076aa § C3a1
 """
 from __future__ import annotations
 

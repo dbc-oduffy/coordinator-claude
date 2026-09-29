@@ -39,7 +39,7 @@ re-derived from plan frontmatter.
 Exit 0 when every plan in the set ends CERTIFIED, 1 when at least one does not (the
 report names which and why), 2 on a refusal that stopped the run.
 
-Landed here (`coordinator/bin/mise-prep-run.py`, claude-klabauter) from DoE-claude
+Landed here (`coordinator/bin/mise-prep-run.py`, claude-klabauter) from coordinator-content-repo
 `coordinator/bin/mise-prep-run.py`, docs/plans/2026-09-18-doe-holds-no-scripts.md chunk W2-C9.
 `_invoke` no longer spawns `sys.executable coordinator-invoke.py` per op — the DoE original's
 one non-negotiable invocation tax this plan exists to remove. Both ops (`plan.prep_gate`,

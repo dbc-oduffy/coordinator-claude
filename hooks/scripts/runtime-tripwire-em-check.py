@@ -813,6 +813,31 @@ def _check_hooks_json_staleness(git_root: str, session_id: str, common_dir: str)
     )
 
 
+def _branch_has_no_upstream_and_no_commits(git_root: str, branch: str) -> bool:
+    """True when `branch` has no tracking upstream and no commit beyond the
+    commit it was cut from -- a push failure there has nothing to lose.
+
+    Reads `.git` files only (no subprocess): no `branch.<name>.remote` in
+    config, and the branch ref equals the ref of the branch it was cut from
+    (recorded by the first reflog line, `branch: Created from <ref>`), or the
+    reflog holds a single entry. Any uncertainty returns False.
+    """
+    try:
+        common = _resolve_git_common_dir(git_root)
+        if not common:
+            return False
+        cfg = os.path.join(common, "config")
+        with open(cfg, "r", encoding="utf-8", errors="replace") as fh:
+            if f'[branch "{branch}"]' in fh.read():
+                return False
+        log = os.path.join(common, "logs", "refs", "heads", *branch.split("/"))
+        with open(log, "r", encoding="utf-8", errors="replace") as fh:
+            entries = [ln for ln in fh.read().splitlines() if ln.strip()]
+        return len(entries) == 1 and "branch: Created from" in entries[0]
+    except Exception:
+        return False
+
+
 def _check_push_failures(git_root: str, session_id: str):
     """AUTO-PUSH-MID-SESSION-DETECT -- mid-session surfacing of a *newly
     growing* `.git/push-failures.log`, closing the gap left by the ceremony-
@@ -981,6 +1006,10 @@ def _check_push_failures(git_root: str, session_id: str):
     branch = _current_branch_cheap(git_root)
     designated = _configured_day_branch_cheap(git_root)
     if not (branch.startswith("work/") or (designated and branch == designated)):
+        _advance_cursor()
+        return None, None
+
+    if _branch_has_no_upstream_and_no_commits(git_root, branch):
         _advance_cursor()
         return None, None
 

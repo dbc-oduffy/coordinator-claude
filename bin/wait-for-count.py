@@ -8,7 +8,7 @@ signal instead of the bare `until ... || ...; do sleep; done` bash idiom's
 silent fall-through (that idiom has no exit-code contract at all: it just
 stops looping, success or timeout indistinguishable to the caller).
 
-Replaces the inline polling fence in DoE-claude
+Replaces the inline polling fence in coordinator-content-repo
 coordinator/commands/architecture-survey.md (waiting for N scout-agent
 output files to land in a scratch directory before fanning out analysts) --
 a genuinely atomic single-op idiom (poll-until-condition) that a
@@ -73,7 +73,7 @@ unless <pattern> is itself written to traverse it, which Path.glob's single-
 level semantics do not support -- use `**/GLOB` deliberately if recursion is
 ever needed, `Path.glob` supports it natively).
 
-Spec backlink: coordinator/commands/architecture-survey.md (DoE-claude) --
+Spec backlink: coordinator/commands/architecture-survey.md (coordinator-content-repo) --
     scout-wave completion poll, "Run with run_in_background: true".
 """
 from __future__ import annotations

@@ -36,7 +36,7 @@ then let them apply — or memo them.
 Zero-spawn: stdlib only, no subprocess. This box routinely runs 20+ concurrent sessions.
 
 TEMPLATE RESOLUTION — DOCTRINE-ASSET CLASS. `templates/dotprojectragignore.tmpl` stays in
-DoE-claude and is published through the plugin root — it is not `Path(__file__)`-relative any
+Coordinator-content-repo and is published through the plugin root — it is not `Path(__file__)`-relative any
 more, because this script now lives in the engine, not beside the template
 (`docs/plans/2026-09-18-doe-holds-no-scripts.md` § Path resolution). Resolution order:
 `--template` override, then `CLAUDE_PLUGIN_ROOT`/the ambient plugin-root probe

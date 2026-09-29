@@ -82,7 +82,7 @@ def _default_hooks_json() -> str:
     co-located/DoE-resident two-rung chain, not a bare `__file__`-relative walk.
 
     The 2026-07-22 executable-surface migration moved this script into
-    claude-klabauter while `hooks/` stayed in DoE-claude (DR-047 contract/engine
+    claude-klabauter while `hooks/` stayed in coordinator-content-repo (DR-047 contract/engine
     split), so a `coordinator/hooks/hooks.json` walk relative to this file no
     longer lands anywhere. Resolved lazily (called only when no explicit
     --hooks-json is given) so an unresolvable default cannot explode at import

@@ -756,7 +756,7 @@ drafting discipline, not a scheduler feature:
   rows — required whenever `plan-spine-check` reports `max < 3` and there are at least 3
   dispatchable rows; absent that section, the flag fires (advisory, never fatal).
 
-**Worked example.** `docs/plans/2026-09-25-reviewer-attribution-commit-gate.md` chains 8 rows
+**Worked example.** A plan that chains 8 rows
 C1→C2→C3→C5→C7, so its critical path is roughly the whole plan. Rewritten interface-first: C1
 (schema/contract stub) lands alone in wave 0; C2, C3, C5 build against the landed contract and run
 concurrently in wave 1, each with disjoint file-level `writes` and `reads_at_head` (not `reads`)
@@ -851,9 +851,8 @@ the points that matter.
 
 **A chunk that creates a new `docs/decisions/` record does not know its `DR-<N>` id at
 plan-authoring time.** `coordinator-doc-new --type decision` allocates it at scaffold time
-(claude-klabauter `coordinator/bin/lib/dr_allocator.py::allocate_dr_number`, vendored
-byte-identical at `coordinator_core/ops/docgen/dr_allocator.py`) — the one allocator that reads
-BOTH existing filenames and frontmatter `id:` fields. Never project a number with a hand-typed
+(`coordinator_core/ops/docgen/dr_allocator.py::allocate_dr_number`, the engine's own copy) — the
+one allocator that reads BOTH existing filenames and frontmatter `id:` fields. Never project a number with a hand-typed
 probe (`ls docs/decisions | grep -oE 'DR-[0-9]+' | sort | tail -1` and variants): a lexical `sort`
 returns the id that sorts last, not the highest, and even a correct probe races every concurrent
 plan landing on the same projection.

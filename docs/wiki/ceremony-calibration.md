@@ -166,7 +166,7 @@ one was broken under pipefail — all blocking daily wrap-up for work unrelated 
 ## Negative space — what doesn't earn ceremony
 
 - **Naming, formatting, file location** — implementation discretion, EM acts.
-- **Tradeoff-free reviewer fixes** — apply via integrator, surface to PM only on real tradeoffs (`global-doctrine/CLAUDE.md` § Flag Severity, "Reviewer findings — apply, don't ratify").
+- **Tradeoff-free reviewer fixes** — the reviewer applies them itself, in place; surface to PM only on real tradeoffs (`global-doctrine/CLAUDE.md` § Flag Severity, "Reviewer findings — apply, don't ratify").
 - **Tool choice within an established pattern** — direct dispatch unless cost/risk shifts materially.
 - **Whether to commit/branch/stash** — never ask.
 

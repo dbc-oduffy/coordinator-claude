@@ -79,7 +79,7 @@ check-auto-reconcile.test.sh drive the rendering logic without a live op
 or a real engine checkout. The seam is checked BEFORE the engine-root gate
 below, same ordering rationale as check-engine-drift.py.
 
-Spec backlink: DoE-claude:pln-doe-side-adoption-of-claude-klabauter-au-284ced (C1) +
+Spec backlink: coordinator-content-repo:pln-doe-side-adoption-of-claude-klabauter-au-284ced (C1) +
 cross-repo/inbox/2026-07-13-claude-klabauter-em-claude-klabauter-auto-reconcile-wire-surfaces.md
 
 Engine-side dispatch: coordinator_core/ops/check_auto_reconcile.py::get_response().

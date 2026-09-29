@@ -2,7 +2,7 @@
 """handoff-deliverable-carry.py — deliverable_id/initiative-FK carry-or-mint cascade
 for the handoff authoring surface (D1 carry-not-remint rule).
 
-Purpose: DoE-claude's coordinator/skills/handoff/SKILL.md used to inline this cascade
+Purpose: coordinator-content-repo's coordinator/skills/handoff/SKILL.md used to inline this cascade
 as a multi-step bash block spanning several `$(python ... )` command substitutions
 that had to share one shell process (the resolved variables did not survive across
 separate Bash tool calls). This CLI collapses that cascade into a single naked-Python
@@ -41,7 +41,7 @@ Usage:
 names an extra fan-in predecessor leg beyond `--predecessor`, compared for
 deliverable_id divergence alongside the plan/predecessor rungs — additive only, never
 becomes the carried id itself. Omitting it reproduces today's 2-rung behaviour
-byte-for-byte; no in-repo or DoE-claude caller passes it yet.
+byte-for-byte; no in-repo or coordinator-content-repo caller passes it yet.
 
 Caller-must-resolve obligation (Review: coordinator:code-reviewer af8ffeae, P2 finding 2
 — documented, not fixed here; resolving raw argv paths in this CLI is out of the sedge-01
@@ -80,13 +80,13 @@ divergent join: the plan AND the predecessor handoff both name a non-empty
 `coordinator_core.ops.deliverable_carry` for the full reasoning and the DR-207 DD#1
 earliest-artifact tiebreak this trampoline does not attempt to apply). Exit 3, exit 4,
 and exit 5 are all consumed only by generic nonzero-halts callers (no in-repo or
-reachable DoE-claude caller gates on a specific exit-code allowlist), so adding exit 5
+reachable coordinator-content-repo caller gates on a specific exit-code allowlist), so adding exit 5
 is safe.
 
 Spec backlink: coordinator/skills/handoff/SKILL.md § Deliverable-spine threading
-               (D1 carry-not-remint) — DoE-claude, C3d
+               (D1 carry-not-remint) — coordinator-content-repo, C3d
 Port of: the `# C3d — deliverable_id auto-inheritance (D1 carry-not-remint rule)` bash
-         block in DoE-claude coordinator/skills/handoff/SKILL.md (deliverable_id +
+         block in coordinator-content-repo coordinator/skills/handoff/SKILL.md (deliverable_id +
          initiative resolution only; predecessor_id carried separately, out of scope
          here — see module docstring above)
 """

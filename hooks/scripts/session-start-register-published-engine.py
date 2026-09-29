@@ -25,7 +25,7 @@ Contract:
             effect, and a hook that chatters on every healthy session is worse
             than the gap it closes.
   exit 0  — ALWAYS. Fail open at every step; every failure mode degrades to a
-            silent no-op. Mirrors `session-start-register-doe-claude-root.py`,
+            silent no-op. Mirrors `session-start-register-coordinator-content-repo-root.py`,
             its sibling in the same fan-in — read that file first if editing
             this one.
 
@@ -69,7 +69,7 @@ spec against inferring it from what the mirror has checked out, precisely so the
 probe can detect a disagreement instead of agreeing with itself. A self-heal
 that invented a value would destroy that instrument and would then be found
 present — and skipped — by the real install that should have written it. So a
-DoE-claude-rooted session on an uninstalled box still resolves the unstamped
+Coordinator-content-repo-rooted session on an uninstalled box still resolves the unstamped
 live tree; `coordinator/bin/emit-dispatch-workflow.py` names that state and its
 remedy at the point of refusal rather than this hook guessing.
 

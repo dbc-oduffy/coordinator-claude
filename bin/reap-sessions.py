@@ -52,7 +52,7 @@ Negative-spec:
       session-init's reaper block does not consume a count).
     - Does NOT fall back to legacy on transport failure (no legacy path exists).
 
-Spec backlink: DoE-claude:pln-session-init-sh-boot-sweep-rea-fff7cc § C1
+Spec backlink: coordinator-content-repo:pln-session-init-sh-boot-sweep-rea-fff7cc § C1
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md § Wave F1 (facade collapse)
 """
 from __future__ import annotations

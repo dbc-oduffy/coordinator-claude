@@ -23,8 +23,8 @@ a bareword, so the shebang is never read there; on macOS/Linux `python3` is the
 right interpreter. Caution: callers must invoke via the extensionless name or a
 resolved-interpreter prefix, never a bareword `.py` through git-bash — git-bash
 DOES honor the shebang and would exec-127 with no `python3` present. See the
-carve-out in DoE-claude's coordinator/docs/wiki/bash-on-windows-gotchas.md §
-Carve-out (cross-repo — this wiki lives in the DoE-claude repo, not
+carve-out in coordinator-content-repo's coordinator/docs/wiki/bash-on-windows-gotchas.md §
+Carve-out (cross-repo — this wiki lives in the coordinator-content-repo repo, not
 here).
 
 Exit convention: this is a never-block advisory (matches the original bash
@@ -34,7 +34,7 @@ exits 0 (idempotent; safe as a Phase 0 call)"). A claude-klabauter-link failure
 on stderr and exits 0, not 1 -- unlike a fail-loud gate/config-writer
 trampoline, this script must never block whatever Phase-0 flow invokes it.
 
-Spec backlink: DoE-claude:pln-bash-to-naked-python-engine-mi-c09292
+Spec backlink: coordinator-content-repo:pln-bash-to-naked-python-engine-mi-c09292
 Prior bash implementation: see git log (learn-lessons-config-update.py, 49 lines)
 """
 

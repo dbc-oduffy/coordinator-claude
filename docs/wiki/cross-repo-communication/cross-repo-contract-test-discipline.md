@@ -38,7 +38,7 @@ second repo being present on the machine running it.
 Two repos that co-author the same artifact (a shared snippet registry, a schema both sides read, a
 wire contract) need an assertion that fails when they diverge. One such pair had exactly one such
 guard, and two independent reviewers reaching it from opposite repos found the same hole
-independently: the test is `pytestmark = pytest.mark.skipif(not DOE_ROOT_PRESENT)`, so on any
+independently: the test is `pytestmark = pytest.mark.skipif(not CONTENT_ROOT_PRESENT)`, so on any
 machine or CI shape without a resolvable sibling checkout — a fresh machine, most CI shapes, an
 OSS install — it skips rather than fails. A guard whose absence-of-sibling behaviour is "pass" is
 indistinguishable from no guard at all, exactly when you need it. Compounding it, the guard was

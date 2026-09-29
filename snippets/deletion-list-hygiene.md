@@ -1,6 +1,6 @@
 # Deletion-List Hygiene
 
-Phase 3d emits a structured YAML manifest (`schema_version: 2`, `deletions:` and `deletion_groups:` keys). Consume the YAML directly — do NOT parse the prose Markdown table (if present) and do NOT use column-extraction tools like `awk -F'|'` to extract paths from it. The prose table is a derived PM-readable view; the YAML is the source of truth.
+Phase 3d emits a structured YAML manifest (`schema_version: 2`, `deletions:` and `deletion_groups:` keys). Consume the YAML directly — do not parse the prose Markdown table (if present) and do not use column-extraction tools like `awk -F'|'` to extract paths from it. The prose table is a derived PM-readable view; the YAML is the source of truth.
 
 ## Required procedure
 
@@ -15,7 +15,7 @@ Phase 3d emits a structured YAML manifest (`schema_version: 2`, `deletions:` and
 
 The prose failure mode that drove the original awk guidance still applies to the prose table (if retained): a `grep '\.md'` over the manifest body matches paths in both the `artifact_path` column AND paths cross-referenced in the `reason` text, silently expanding the deletion list. YAML consumption eliminates this failure mode structurally — each field is typed and separately addressable; the `artifact_path` field is never confused with `reason` text.
 
-<!-- negative-spec: do NOT use awk -F'|' or grep-based column extraction on the Phase 3d prose table to build deletion lists. The prose table is a derived view; only the YAML deletions: list is authoritative. -->
+<!-- negative-spec: do not use awk -F'|' or grep-based column extraction on the Phase 3d prose table to build deletion lists. The prose table is a derived view; only the YAML deletions: list is authoritative. -->
 
 ## See also
 

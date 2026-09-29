@@ -1,7 +1,7 @@
 """review-findings-ledger.py — CLI trampoline over claude-klabauter's
 coordinator_core.ops.review_findings_ledger.
 
-Replaces append-integrator-dispositions.py (DoE-claude
+Replaces append-integrator-dispositions.py (coordinator-content-repo
 docs/plans/2026-09-26-retire-review-integrator.md, row M2). A reviewer applies
 every finding it logs directly to the reviewed artifact, then runs
 `verify --sidecar <own sidecar>` to check its own `## Findings Ledger` block

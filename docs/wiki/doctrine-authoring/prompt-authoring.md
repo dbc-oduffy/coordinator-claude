@@ -10,6 +10,8 @@ related:
   - coordinator/docs/wiki/skills-corpus/writing-skills.md  (SKILL.md authoring — a distinct surface, see § Scope below)
 ---
 
+Design principles for every author: enforce with code, not prose, and minimize EM turns (`coordinator/docs/wiki/doctrine-authoring/enforce-with-code-and-minimize-em-turns.md`).
+
 # Prompt Authoring for Agent/Persona Prompts
 
 

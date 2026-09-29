@@ -161,8 +161,8 @@ base:
   # verified during BIG_PORT (test_codename_provenance_seed.py). All entries
   
   
-  # PM go-live decision 2026-07-10): DoE-claude / doe_claude / DOE_CLAUDE and
-  # all compound forms are DELIBERATELY ABSENT below -- DoE-claude is a
+  # PM go-live decision 2026-07-10): coordinator-content-repo / content_root / CONTENT_ROOT and
+  # all compound forms are DELIBERATELY ABSENT below -- coordinator-content-repo is a
   # KEEP-SET token, not a private codename to depersonalize. Do not re-add
   
   depersonalize:

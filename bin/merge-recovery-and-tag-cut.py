@@ -4,10 +4,10 @@ recovery-branch dance and idempotent annotated-tag cut.
 
 Self-contained, self-resolving (Path(__file__)-relative, NO cwd dependence for
 its own imports), naked-Python CLI. Ports the residual imperative bash logic
-out of DoE-claude's `coordinator/skills/merging-to-main/SKILL.md` Step 1 /
+out of coordinator-content-repo's `coordinator/skills/merging-to-main/SKILL.md` Step 1 /
 Step 1.5 so the skill can call this CLI by name instead of carrying the logic
 inline. This file is the M3/MTM-1 chunk output of that porting pass; the
-skill-side repoint (D2) is a later wave and lands in DoE-claude, not here.
+skill-side repoint (D2) is a later wave and lands in coordinator-content-repo, not here.
 
 Subcommands (argv[1] selects):
 
@@ -79,7 +79,7 @@ Negative-spec:
     exactly (no new git spawn, no new failure mode) for callers that never
     asked for it.
 
-Spec backlink: DoE-claude coordinator/skills/merging-to-main/SKILL.md Step 1
+Spec backlink: coordinator-content-repo coordinator/skills/merging-to-main/SKILL.md Step 1
 (recovery-branch dance) and Step 1.5 Part 2 (tag_anchor=git-tag mode C4,
 2026-06-01; docs/plans/2026-06-01-version-disclosure-and-boot-currency-hook.md
 § C4; DR-149) + Step 1.5 Part 2 Mode B (default GH-release publish).

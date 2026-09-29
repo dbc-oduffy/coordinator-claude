@@ -27,14 +27,14 @@ Note: MACHINE_LOCAL_REGISTRY_DIR is a DEEPER registry-dir override handled by
 _machine_local.py::_registry_dir() (rung-1). This module resolves the
 settings HOME ROOT only — it does not read registry CONTENTS.
 
-Spec backlink: DoE-claude:pln-relocate-durable-coordinator-s-d48415 § C1
+Spec backlink: coordinator-content-repo:pln-relocate-durable-coordinator-s-d48415 § C1
 RAG-bait: coordinator settings-home resolution seam; COORDINATOR_SETTINGS_HOME
           env var; machine-local divergence fail-loud guard
 
 DR-072: durable, per-machine coordinator state lives in settings-home, not the
 resettable/synced ~/.claude tree — see
 docs/decisions/DR-072-durable-machine-local-coordinator-state-lives-in-settings-home-not-claude.md
-and its predecessor DR-071-durable-coordinator-root-anchor-settings-home-registry-doe-root-demoted-to-cache.md.
+and its predecessor DR-071-durable-coordinator-root-anchor-settings-home-registry-content-root-demoted-to-cache.md.
 See also docs/wiki/state-placement-law.md § Surfaces That Deliberately Stay in ~/.claude
 and docs/wiki/machine-local-registry.md § 4e.
 

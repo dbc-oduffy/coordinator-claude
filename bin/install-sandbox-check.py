@@ -13,12 +13,12 @@ and hands it to that module.
 # COORDINATOR_ROOT and hand it to the claude-klabauter module, which cannot self-locate
 # COORDINATOR_ROOT resolution is NOT self-location (dirname(script_dir)).
 # coordinator/templates/ (which COORDINATOR_ROOT must point at — see
-# DoE-claude. The old bash oracle's `SCRIPT_DIR="$(cd "$(dirname
+# coordinator-content-repo. The old bash oracle's `SCRIPT_DIR="$(cd "$(dirname
 # "${BASH_SOURCE[0]}")" && pwd)"` self-location was correct only while this
 # subagent/this process — it is printed as a DEFERRED manual gate at the end
 # 1 one or more assertions FAILed (business outcome); 3 TRANSPORT/
 # ORCHESTRATION failure — the engine root unresolvable, the default
-# COORDINATOR_ROOT unresolvable (doe_root() raised _DoeUnresolvable),
+# COORDINATOR_ROOT unresolvable (content_root() raised _DoeUnresolvable),
 from __future__ import annotations
 
 INSTALL_CLASS = False
@@ -30,34 +30,34 @@ _TRANSPORT_FAILURE_RC = 3
 
 def _resolve_coordinator_root() -> str:
     """Resolve the default --coordinator-root (the DoE-owned coordinator/
-    tree holding templates/, e.g. templates/shell/claude-doe-shim.sh.tmpl).
+    tree holding templates/, e.g. templates/shell/claude-author-shim.sh.tmpl).
 
     This does NOT derive from this script's own __file__ location. b644d5a9
     migrated this trampoline into claude-klabauter while coordinator/templates/
-    stayed in DoE-claude — self-location (dirname(script_dir)) now resolves
+    stayed in coordinator-content-repo — self-location (dirname(script_dir)) now resolves
     to <claude-klabauter>/coordinator, which has no templates/ tree at all, and the
     downstream sandbox_check module would silently read from a directory
-    that never existed. doe_root() is the correct authority for "where is
-    the DoE-claude repo," independent of where THIS script happens to run
+    that never existed. Content_root() is the correct authority for "where is
+    the coordinator-content-repo repo," independent of where THIS script happens to run
     from. A future reader must not "restore" __file__-based resolution to
     regain oracle parity with the retired bash script — that is precisely
     what caused this break.
 
-    Fails loud (sys.exit(_TRANSPORT_FAILURE_RC)) if doe_root() cannot
+    Fails loud (sys.exit(_TRANSPORT_FAILURE_RC)) if content_root() cannot
     resolve — this is a gate script, not a never-block hook, so an
     unresolvable DoE root must not degrade to a silent no-op default.
     """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from coordinator_data_root import content_root_or_private
-    from coordinator_registry import _DoeUnresolvable, doe_root
+    from coordinator_registry import _DoeUnresolvable, content_root
 
     try:
-        root = doe_root()
+        root = content_root()
     except _DoeUnresolvable as exc:
         print(
             f"install-sandbox-check: cannot resolve the coordinator doctrine repo root ({exc}). "
-            "Set repos.doe_claude in the machine-local registry, or set the "
-            "REPO_DOE_CLAUDE (or legacy DOE_ROOT) env var, or pass --coordinator-root "
+            "Set repos.content_root in the machine-local registry, or set the "
+            "REPO_CONTENT_ROOT (or legacy CONTENT_ROOT) env var, or pass --coordinator-root "
             "explicitly.",
             file=sys.stderr,
         )
@@ -90,7 +90,7 @@ def main(argv: "list[str] | None" = None) -> int:
         print(f"install-sandbox-check: coordinator_core.install.sandbox_check not importable: {exc}", file=sys.stderr)
         return _TRANSPORT_FAILURE_RC
 
-    # Resolve the default COORDINATOR_ROOT via doe_root() (see
+    # Resolve the default COORDINATOR_ROOT via content_root() (see
     argv = list((sys.argv[1:] if argv is None else argv))
     if not any(a == "--coordinator-root" or a.startswith("--coordinator-root=") for a in argv):
         coordinator_root = _resolve_coordinator_root()

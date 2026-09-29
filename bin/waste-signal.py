@@ -3,7 +3,7 @@ coordinator.bin.waste-signal -- dynamic, opt-in instrument counting call redunda
 work-vs-question ratio for one live-executed callable.
 
 Arrival record: state/audits/doe-script-arrivals/W3-C3.yaml
-(docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W3-C3). Mechanical move from DoE-claude
+(docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W3-C3). Mechanical move from coordinator-content-repo
 coordinator/bin/waste-signal.py (1405 lines). `DR-180`'s "hosted in coordinator/bin/, not
 Claude-klabauter's" line is the plane call this whole plan's PM ruling supersedes (DoE holds no
 scripts) -- the instrument itself is unchanged; only its host tree moves. The only DoE-relative

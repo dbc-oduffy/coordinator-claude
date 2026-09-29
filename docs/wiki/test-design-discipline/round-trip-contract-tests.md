@@ -142,7 +142,7 @@ A mock pins the call shape at one boundary. Moving the boundary — routing reso
 
 **An idempotency/dedup scan must resolve its target root the SAME way the write seam does — otherwise the "did I already write this?" read looks in the wrong place and silently double-writes.** A dedup read that resolves its scan directory from process cwd (`git rev-parse`) while the write seam honors a test-isolation env override (e.g. `QUEUE_APPEND_OUTPUT_ROOT`) will double-write under any invocation where `cwd != the override root`. Production cwd-coincidence masks the divergence — the two roots happen to agree until an isolated call trips them apart.
 
-**Rule:** the scan must mirror the write seam's OWN root-resolution precedence — env-override first, then git/`DOE_ROOT` fallback — not re-derive location from cwd. Reader and writer resolving location identically is the same round-trip contract as producer and consumer agreeing on schema: a divergence at the *location* seam is as silent as a divergence at the *column* seam, and cwd-coincidence hides it exactly the way inline fixtures hide schema drift.
+**Rule:** the scan must mirror the write seam's OWN root-resolution precedence — env-override first, then git/`CONTENT_ROOT` fallback — not re-derive location from cwd. Reader and writer resolving location identically is the same round-trip contract as producer and consumer agreeing on schema: a divergence at the *location* seam is as silent as a divergence at the *column* seam, and cwd-coincidence hides it exactly the way inline fixtures hide schema drift.
 
 *Caught by C7 on coordinator-harvest-deferrals.*
 

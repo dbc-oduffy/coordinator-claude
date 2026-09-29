@@ -108,7 +108,7 @@ Usage forms:
                                                                # routed through
                                                                # ceremony.commit_v2
 
-2026-08-06 (cross-repo/inbox/2026-08-06-doe-claude-em-safe-commit-pathspec-
+2026-08-06 (cross-repo/inbox/2026-08-06-coordinator-content-repo-em-safe-commit-pathspec-
 and-allowlist-naming.md, Defect 1): the `-- <paths>` form above is a
 passthrough — originally it shelled out to `scoped-git-commit -m "<subject>"
 -- <paths>` (coordinator_core/ops/ceremony/scoped_git_commit.py) rather than
@@ -248,7 +248,7 @@ BLANKET_ALLOWED_COMMANDS = frozenset(
 # the ceremony's own dispatch-prompt naming, not a `.md` file. "distill.md"
 # is the actual skill file (coordinator/commands/distill.md) — the natural
 # `CLAUDE_INVOKING_COMMAND=distill` value was refused by neither marker
-# before this fix (cross-repo/inbox/2026-08-06-doe-claude-em-safe-commit-
+# before this fix (cross-repo/inbox/2026-08-06-coordinator-content-repo-em-safe-commit-
 # pathspec-and-allowlist-naming.md, Defect 2).
 BLANKET_ALLOWED_PPID_MARKERS = (
     "workstream-start.md",
@@ -447,7 +447,7 @@ def parse_args(argv: Sequence[str]) -> Args:
                 raise UsageError("--include-orphans requires at least one pathspec argument.")
         elif tok == "--":
             # Pathspec-passthrough separator (Defect 1,
-            # cross-repo/inbox/2026-08-06-doe-claude-em-safe-commit-
+            # cross-repo/inbox/2026-08-06-coordinator-content-repo-em-safe-commit-
             # pathspec-and-allowlist-naming.md): everything after `--` is a
             # path handed to `scoped-git-commit`, mirroring `git commit`'s
             # own `-m <subject> -- <paths>` shape. The subject is whatever
@@ -2176,7 +2176,8 @@ def _blanket_invoking_command_allowed() -> bool:
     the parent process's command line (Linux /proc, else `ps -p <ppid> -o
     command=`) for one of the ceremony markers, matching bash's dual-path
     check exactly."""
-    invoking = os.environ.get("CLAUDE_INVOKING_COMMAND", "")
+    invoking = os.environ.get("CLAUDE_INVOKING_COMMAND", "").strip()
+    invoking = invoking.lstrip("/").removesuffix(".md")
     if invoking in BLANKET_ALLOWED_COMMANDS:
         return True
 
@@ -2299,7 +2300,9 @@ def do_blanket(session_id: str, args: "Args", cs_core, cs_liveness, cs_claims) -
             file=sys.stderr,
         )
         print(
-            "Use scoped staging (default) or COORDINATOR_OVERRIDE_SCOPE=1 for emergencies.",
+            "From an authorized ceremony, prefix the call: "
+            "CLAUDE_INVOKING_COMMAND=workstream-start coordinator-safe-commit --blanket \"<subject>\". "
+            "Otherwise use scoped staging (default) or COORDINATOR_OVERRIDE_SCOPE=1 for emergencies.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -2696,10 +2699,10 @@ def do_scoped(
     # as-is, falling back to `git add -A` only when nothing was pre-staged
     # (2026-07-25 fix — see do_override docstring).
     #
-    # NOT --scope-from <handoff> (2026-07-29 fix, DoE-claude audit
+    # NOT --scope-from <handoff> (2026-07-29 fix, coordinator-content-repo audit
     # state/audits/2026-07-29-safe-commit-scope-from-defect.md): the
     # /handoff skill stopped emitting the `scope:` frontmatter block
-    # --scope-from parses (2026-07-25, DoE-claude 1d5aa82b) and every
+    # --scope-from parses (2026-07-25, coordinator-content-repo 1d5aa82b) and every
     # handoff written since fails it on arrival — a named alternative that
     # is inoperative in the situation the caller is actually in is worse
     # than none (docs/wiki/bash-guard-threat-model.md). `_scoped_commit_
@@ -3049,7 +3052,7 @@ def do_scoped(
         # has partial-staged one of these paths. Replaces the prior
         # `_git_add` + pathspec-less `git commit`, which committed THE
         # INDEX and could silently absorb a concurrent sibling's staged
-        # file (DoE-claude 726925b2). Scope COMPUTATION above (my_scope,
+        # file (coordinator-content-repo 726925b2). Scope COMPUTATION above (my_scope,
         # orphan_claimed_paths) is unchanged; only the write mechanism is
         # repointed. sys.path already carries claude_klabauter_root at this point
         # (main() runs _import_session() before dispatching to do_scoped).
@@ -3284,7 +3287,7 @@ def do_scope_from(args: "Args", session_id: str, cs_core, cs_liveness, cs_scope,
         # has partial-staged one of these paths. Replaces the prior
         # `_git_add` + pathspec-less `git commit`, which committed THE
         # INDEX and could silently absorb a concurrent sibling's staged
-        # file (DoE-claude 726925b2) -- the same horn do_scoped's no-orphan
+        # file (coordinator-content-repo 726925b2) -- the same horn do_scoped's no-orphan
         # sibling branch was closed against. Scope COMPUTATION above
         # (my_scope) is unchanged; only the write mechanism is repointed.
         # sys.path already carries claude_klabauter_root at this point (main() runs

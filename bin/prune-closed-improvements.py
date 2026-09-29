@@ -58,7 +58,7 @@ no legacy bash fallback — the op is assumed present; a genuinely seam-absent
 install surfaces as a transport failure (RuntimeError), caught below and
 logged, never propagated.
 
-Spec backlink: coordinator/commands/update-docs.md (DoE-claude) § Phase 11i
+Spec backlink: coordinator/commands/update-docs.md (coordinator-content-repo) § Phase 11i
 Spec backlink: docs/decisions/DR-115-queue-shape-is-a-scope-collision-not-a-staleness.md
   (names this exact repoint as "one engine-plane wiring row")
 """

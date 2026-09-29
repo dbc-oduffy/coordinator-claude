@@ -239,7 +239,7 @@ def resolve_from_repo(root: str | None = None) -> str:
 
     Resolution order (same convention as cross-repo-memo._sender_em_id):
       1. cwd git-root -> reverse-lookup against machine-local repos.* table
-      2. repos.doe_claude (DoE-claude repo) -> "claude-central-em"
+      2. repos.content_root (coordinator-content-repo repo) -> "claude-central-em"
       3. Unregistered git repo -> basename of git root + "-em"
       4. Not in a git repo -> "unknown-sender-em"
       Never uses `git remote get-url origin` — that yields a URL, not a shortname.
@@ -257,7 +257,7 @@ def resolve_from_repo(root: str | None = None) -> str:
     UNRESOLVED never refuses either, degrading to `root=None` exactly as the
     predecessor's git-failure branch did.
 
-    Ensures repos.doe_claude is present in the paths table for the central-identity
+    Ensures repos.content_root is present in the paths table for the central-identity
     anchor even when machine_local_repos_keys() omits it (e.g. unregistered machine).
     """
     if root is None:
@@ -268,7 +268,7 @@ def resolve_from_repo(root: str | None = None) -> str:
                 file=sys.stderr,
             )
     paths = machine_local_dump_repos()
-    paths.setdefault("repos.doe_claude", machine_local_get("repos.doe_claude"))
+    paths.setdefault("repos.content_root", machine_local_get("repos.content_root"))
     return em_id_for_root(root, {k: v for k, v in paths.items() if v})
 
 

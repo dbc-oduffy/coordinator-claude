@@ -18,7 +18,7 @@ and are REQUIRED — an assembler never touches either, but an agent
 invoking the script by name at a prompt does, every time.
 
 Checkable live examples of the second consumer (in the coordinator-claude
-skills tree, `DoE-claude/coordinator/skills/`, not this repo):
+skills tree, `coordinator-content-repo/coordinator/skills/`, not this repo):
 
 - `archive-stamp-cli claim-handoff <path>` — `skills/pickup`
 - `coordinator-queue-append --schema …` — `skills/bug-sweep`,

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """claim-neighbours — the ask-anytime CLI: "who else is hitting these
 files?" for an arbitrary path set, no artifact required.
 

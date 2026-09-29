@@ -11,39 +11,39 @@ def _resolve_plugin_root() -> str:
     """Resolve the plugin root (coordinator/) that owns templates/bin/.
 
     Env var CLAUDE_PLUGIN_ROOT wins if set, returned verbatim. Otherwise
-    resolves via doe_root() (see that function's own docstring for its
+    resolves via content_root() (see that function's own docstring for its
     env-var/machine-local resolution chain) and returns
-    <doe_root()>/coordinator.
+    <content_root()>/coordinator.
 
     This does NOT derive from this script's own __file__ location. That
-    used to be correct when this executable lived in DoE-claude
+    used to be correct when this executable lived in coordinator-content-repo
     (coordinator/bin/.. IS the plugin root there), but this file has since
     migrated to the engine repo while coordinator/templates/bin/ stayed put
-    in DoE-claude — self-location now resolves to a directory with no
+    in coordinator-content-repo — self-location now resolves to a directory with no
     templates/ at all, silently producing five TMPL_MISSING lines instead
-    of a loud failure. doe_root() is the correct authority for "where is
-    the DoE-claude repo," independent of where THIS script happens to run
+    of a loud failure. Content_root() is the correct authority for "where is
+    the coordinator-content-repo repo," independent of where THIS script happens to run
     from. A future reader must not "restore" __file__-based resolution to
     regain oracle parity — that is precisely what caused this break.
 
-    Fails loud (sys.exit(1)) if doe_root() cannot resolve: this is a gate
+    Fails loud (sys.exit(1)) if content_root() cannot resolve: this is a gate
     script, not a never-block hook, so an unresolvable DoE root must not
     degrade to an exit-0 no-op.
     """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from coordinator_data_root import content_root_or_private
-    from coordinator_registry import _DoeUnresolvable, doe_root
+    from coordinator_registry import _DoeUnresolvable, content_root
 
     env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if env_root:
         return env_root
     try:
-        root = doe_root()
+        root = content_root()
     except _DoeUnresolvable as exc:
         print(
             "verify-templates-bin-sync.py: cannot resolve the coordinator doctrine repo root "
-            f"({exc}). Set repos.doe_claude in the machine-local registry, or set "
-            "the DOE_ROOT env var, or set CLAUDE_PLUGIN_ROOT directly.",
+            f"({exc}). Set repos.content_root in the machine-local registry, or set "
+            "the CONTENT_ROOT env var, or set CLAUDE_PLUGIN_ROOT directly.",
             file=sys.stderr,
         )
         sys.exit(1)

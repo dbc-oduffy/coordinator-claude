@@ -11,7 +11,7 @@ only, never Opus personas or executor/enricher/docs-checker.
 from __future__ import annotations
 # block across the scoped-agent CONSUMERS array (scouts/specialists/workers/
 #   1 — drift found (MISSING/MISMATCH/MISSING_END/MISSING_FILE — see the
-#       (CLAUDE_PLUGIN_ROOT unset and doe_root() raised _DoeUnresolvable) —
+#       (CLAUDE_PLUGIN_ROOT unset and content_root() raised _DoeUnresolvable) —
 # claude-klabauter module) because it is DoE-repo topology knowledge (CLAUDE_PLUGIN_ROOT
 
 import os
@@ -22,39 +22,39 @@ def _resolve_plugin_root() -> str:
     """Resolve the plugin root (coordinator/) that owns agents/*.md.
 
     Env var CLAUDE_PLUGIN_ROOT wins if set, returned verbatim. Otherwise
-    resolves via doe_root() (see that function's own docstring for its
+    resolves via content_root() (see that function's own docstring for its
     env-var/machine-local resolution chain) and returns
-    <doe_root()>/coordinator.
+    <content_root()>/coordinator.
 
     This does NOT derive from this script's own __file__ location. That
-    used to be correct when this executable lived in DoE-claude
+    used to be correct when this executable lived in coordinator-content-repo
     (coordinator/bin/.. IS the plugin root there), but this file has since
     migrated to claude-klabauter (b644d5a9/8a28a6ca) while coordinator/agents/
-    stayed put in DoE-claude — self-location now resolves to a directory
+    stayed put in coordinator-content-repo — self-location now resolves to a directory
     with no agents/ at all, silently producing MISSING_FILE rows over a
-    tree that never existed instead of a loud failure. doe_root() is the
-    correct authority for "where is the DoE-claude repo," independent of
+    tree that never existed instead of a loud failure. Content_root() is the
+    correct authority for "where is the coordinator-content-repo repo," independent of
     where THIS script happens to run from. A future reader must not
     "restore" __file__-based resolution to regain oracle parity — that is
     precisely what caused this break.
 
-    Fails loud (sys.exit(1)) if doe_root() cannot resolve: this is a gate
+    Fails loud (sys.exit(1)) if content_root() cannot resolve: this is a gate
     script, not a never-block hook, so an unresolvable DoE root must not
     degrade to an exit-0 no-op.
     """
     from coordinator_data_root import content_root_or_private
-    from coordinator_registry import _DoeUnresolvable, doe_root
+    from coordinator_registry import _DoeUnresolvable, content_root
 
     env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if env_root:
         return env_root
     try:
-        root = doe_root()
+        root = content_root()
     except _DoeUnresolvable as exc:
         print(
             "verify-subagent-sandbox-preamble-sync.py: cannot resolve the coordinator doctrine repo root "
-            f"({exc}). Set repos.doe_claude in the machine-local registry, or set "
-            "the DOE_ROOT env var, or set CLAUDE_PLUGIN_ROOT directly.",
+            f"({exc}). Set repos.content_root in the machine-local registry, or set "
+            "the CONTENT_ROOT env var, or set CLAUDE_PLUGIN_ROOT directly.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -116,7 +116,6 @@ def main(argv: "list[str] | None" = None) -> int:
         return code
     finally:
         sys.argv = _prev_argv
-    return 0
 
 
 if __name__ == "__main__":

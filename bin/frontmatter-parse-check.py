@@ -3,7 +3,7 @@
 WHY THIS EXISTS. Nothing in this fleet checked that a record's frontmatter is
 loadable YAML, so a malformed one was invisible until some unrelated tool
 tripped over it. Measured when this was written: 43 records across
-Claude-klabauter and DoE-claude do not parse — plans, lessons, decisions,
+Claude-klabauter and coordinator-content-repo do not parse — plans, lessons, decisions,
 handoffs and review sidecars. Every one was found by accident.
 
 The failure is silent in the only direction anyone checks. A reader that cannot

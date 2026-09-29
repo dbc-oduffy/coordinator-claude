@@ -12,7 +12,7 @@ the namespaced canonical name, matching the fleet's existing `coordinator-*` pre
 (`coordinator-doc-new`, `coordinator-lesson-add`, `coordinator-queue-append`).
 
 `publish` itself is INTENTIONALLY still installed and untouched — this is an additive rename,
-not a cutover. `coordinator/skills/percolate/SKILL.md` (DoE-claude) invokes the bareword
+not a cutover. `coordinator/skills/percolate/SKILL.md` (coordinator-content-repo) invokes the bareword
 `"${COORDINATOR_SETTINGS_HOME:-...}/bin/publish"` today; deleting `publish` here would break that
 skill immediately. Deleting the old name is a separate, gated follow-up once callers have
 actually moved to `coordinator-publish` — see the D1 dispatch report for the caller list.

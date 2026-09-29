@@ -68,4 +68,5 @@ def inverse_strip(settings_json: str, coordinator_root: str, out_path: str) -> N
             ["jq", "--arg", "generated_hooks_dir", generated_hooks_dir, program, settings_json],
             stdout=out_fh,
             check=True,
+            timeout=30,
         )

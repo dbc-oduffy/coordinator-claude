@@ -33,7 +33,7 @@ Usage:
 Exit code and stdout/stderr are exactly
 `coordinator_core.workweek_complete.brief.main`'s.
 
-Spec backlink: DoE-claude coordinator/commands/workweek-complete.md § Step 0.95
+Spec backlink: coordinator-content-repo coordinator/commands/workweek-complete.md § Step 0.95
 Spec backlink: claude-klabauter coordinator_core/workweek_complete/brief.py
 
 Negative-spec: does NOT parse or reinterpret argv itself — `brief.main`

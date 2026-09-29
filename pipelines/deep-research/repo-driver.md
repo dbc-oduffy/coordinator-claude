@@ -33,7 +33,7 @@ Agent Teams flow below (Steps 1-7.5) — skip straight to a single-agent dispatc
    `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/code-comparison-agent-prompt-template.md`.
 2. Fill in the bracketed fields (subject repo, peer target, axis list). **`[OUTPUT_PATH]` is
    bound, not an EM fill-in:** `<repo-root>/state/emissions/code-comparison/{run-id}.yaml`, where
-   `<repo-root>` resolves via the running repo's own tree-root pointer (this repo's is `.doe-root`;
+   `<repo-root>` resolves via the running repo's own tree-root pointer (this repo's is `.content-root`;
    never `${CLAUDE_PLUGIN_ROOT}`, which names the plugin source tree, not `state/`'s parent) and
    `{run-id}` is generated fresh (`YYYY-MM-DD-HHhMM`, current timestamp) — Mode Dispatch skips
    Step 1, so this mode generates its own run-id rather than reusing one. Each repo writes its

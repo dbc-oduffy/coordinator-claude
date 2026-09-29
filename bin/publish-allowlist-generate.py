@@ -609,7 +609,15 @@ def _derive_row(rows: Dict, row_name: str, source_subdir: str, portable_text: st
             )
 
     idx, row_line = _existing_row_line(portable_text, row_name)
-    exclusions = _existing_exclusions(row_line)
+    # An exclusion naming nothing tracked is dead: the publish refuses an
+    # exclusion that narrows no admitted path, so a deleted file must drop out.
+    tracked_rel = {
+        Path(rel).relative_to(source_subdir).as_posix() for rel in _git_ls_files(source_subdir)
+    }
+    exclusions = [
+        e for e in _existing_exclusions(row_line)
+        if any(t == e[1:].rstrip("/") or t.startswith(e[1:].rstrip("/") + "/") for t in tracked_rel)
+    ]
     fields = row_line.rstrip("\n").split("|")
     new_csv = ",".join(sorted(include_root) + exclusions)
     fields[_ALLOWLIST_FIELD] = new_csv

@@ -95,7 +95,7 @@ def _engine_root() -> str | None:
 
     Needed because the 2026-07-22 executable-surface migration moved
     coordinator/{bin,lib,scripts} — including _LIB_REL itself — out of the
-    DoE-claude source tree and into claude-klabauter. The rungs below are the
+    coordinator-content-repo source tree and into claude-klabauter. The rungs below are the
     settled cross-repo claude-klabauter-locate ladder (kept in lockstep with
     session-heartbeat.py's _resolve_claude_klabauter_root() and its two sibling hook
     copies — see that function's docstring):
@@ -111,7 +111,7 @@ def _engine_root() -> str | None:
          lookup, mirroring `_machine_local.py::_flatten_nested`); an
          empty-string value is a sentinel placeholder, not a resolution
       6. marker auto-discovery: a sibling "claude-klabauter" dir next to the
-         resolved DoE-claude root
+         resolved coordinator-content-repo root
     """
     for env_var in ("REPO_CLAUDE_KLABAUTER", "COORDINATOR_ENGINE_ROOT"):
         root = os.environ.get(env_var)
@@ -146,32 +146,37 @@ def _engine_root() -> str | None:
         except ImportError:
             pass
 
-    doe_root = _doe_root_pointer()
-    if doe_root:
-        sibling = Path(doe_root).parent / "claude-klabauter"
+    content_root = _content_root_pointer()
+    if content_root:
+        sibling = Path(content_root).parent / "claude-klabauter"
         if sibling.is_dir():
             return str(sibling)
 
     return None
 
 
-def _doe_root_pointer() -> str:
-    # Durable-first (DR-072): settings-home pointer, falling back to the
-    # legacy ~/.claude pointer during the transition window.
+_POINTER_NAMES = (
+    ".coordinator-content-root",
+    ".content-root",  # compat-fallback: legacy pointer name
+)
+
+
+def _content_root_pointer() -> str:
+    # Settings-home pointer first, then the ~/.claude pointer; the
+    # content-root name wins over the legacy name at each location.
     settings_home = _settings_home_dir()
+    locations = []
     if settings_home is not None:
-        try:
-            root = (settings_home / "machine-local" / ".doe-root").read_text(encoding="utf-8").strip()
+        locations.append(settings_home / "machine-local")
+    locations.append(_home_dir())
+    for location in locations:
+        for name in _POINTER_NAMES:
+            try:
+                root = (location / name).read_text(encoding="utf-8").strip()
+            except OSError:
+                continue
             if root:
                 return root
-        except OSError:
-            pass
-    try:
-        root = (_home_dir() / ".doe-root").read_text(encoding="utf-8").strip()
-        if root:
-            return root
-    except OSError:
-        pass
     return ""
 
 
@@ -198,21 +203,21 @@ def _locate_lib() -> Path | None:
         if root and (Path(root) / _LIB_REL).is_file():
             return Path(root) / _LIB_REL
 
-    # 2. Cold-readable .doe-root pointer (projected from the machine-local
+    # 2. Cold-readable content-root pointer (projected from the machine-local
     #    registry at install / session-init self-heal). Under maximalist the
     #    lib lives at <DoE>/coordinator/lib/... where <DoE> is the pointer's
     #    single line; this tier survives Phase-2 flat-tree removal cold.
     #    Placed ABOVE the flat layout (the Phase-2-doomed tree) and BELOW env
     #    overrides.
-    doe_root = _doe_root_pointer()
-    if doe_root:
-        candidate = Path(doe_root) / "coordinator" / _LIB_REL
+    content_root = _content_root_pointer()
+    if content_root:
+        candidate = Path(content_root) / "coordinator" / _LIB_REL
         if candidate.is_file():
             return candidate
 
     # 2b. Claude-klabauter root, via the settled cross-repo claude-klabauter-locate
     #     ladder (see _engine_root()). The 2026-07-22 executable-surface
-    #     migration relocated _LIB_REL itself out of DoE-claude and into
+    #     migration relocated _LIB_REL itself out of coordinator-content-repo and into
     #     claude-klabauter's coordinator/ tree — this rung is the shim's only
     #     path to the lib's current, post-migration home.
     claude_klabauter_root = _engine_root()
@@ -258,10 +263,10 @@ def main(argv: list[str]) -> int:
         sys.stderr.write(
             f"resolve-coordinator-clone: cannot locate {_LIB_REL} under any known coordinator install location.\n"
             f"  Searched: $CLAUDE_PLUGIN_ROOT, $COORDINATOR_ROOT, $COORDINATOR_CLONE, "
-            f"{home}/.doe-root pointer, claude-klabauter (via $COORDINATOR_ENGINE_ROOT, "
+            f"{home}/.coordinator-content-root pointer, claude-klabauter (via $COORDINATOR_ENGINE_ROOT, "
             "$REPO_CLAUDE_KLABAUTER, the .claude-klabauter-root pointer, or registry.local.toml), "
             f"{home}/plugins/coordinator/, and the versioned plugin cache.\n"
-            f"  Remediation: install/repair the coordinator plugin (writes {home}/.doe-root), "
+            f"  Remediation: install/repair the coordinator plugin (writes {home}/.coordinator-content-root), "
             "set CLAUDE_PLUGIN_ROOT to its checkout, or set COORDINATOR_ENGINE_ROOT to the claude-klabauter checkout.\n"
         )
         return 1

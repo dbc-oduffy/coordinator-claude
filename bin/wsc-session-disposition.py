@@ -1,6 +1,6 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 # wsc-session-disposition — naked-Python port of the workstream-complete Step 0
-# "Session-Shape Detection" block (DoE-claude
+# "Session-Shape Detection" block (coordinator-content-repo
 # coordinator/skills/workstream-complete/SKILL.md, the `<!-- VERBATIM -->`
 # fence at its Step 0). No cc_invoke/IPC hop — this is pure resolution logic
 # operating on git and the filesystem, plus one subprocess call out to the
@@ -76,7 +76,7 @@
 #   cross-repo/inbox/2026-07-23-claude-klabauter-em-liveness-primitive-landed.md
 #   cross-repo/inbox/2026-07-23-claude-klabauter-em-wsc-step0-fails-open-crash-recovery.md
 #   DR-084 remainder baton: state/handoffs/2026-07-22_152437_dr084-skill-layer-dual-read.md
-#   (DoE-claude repo; these inbox/state paths do not resolve in this repo —
+#   (coordinator-content-repo repo; these inbox/state paths do not resolve in this repo —
 #   quoted here only as provenance, not as a live citation).
 #
 # Exit codes: 0 on a completed resolution (chain-terminal OR single-session —
@@ -241,7 +241,7 @@ def resolve_session_id(_repo_root: Path) -> str:
     REMOVED (KS-3, 2026-08-07): unsound under concurrency (documented
     last-writer-wins across concurrent sessions sharing one worktree — see
     coordinator_core/bash_guards/guard_inprocess_search.py ~L84) AND its
-    sole writer (session-init.py, the DoE-claude SessionStart hook) was
+    sole writer (session-init.py, the coordinator-content-repo SessionStart hook) was
     deleted by PM directive 2026-07-15 — no production writer survives.
 
     The hex-timestamp fallback that used to sit BELOW the sentinel was
@@ -559,7 +559,7 @@ _FIELD_SEP = "\x1f"
 # handoff(s)` commit carried THIS session's Session-Id trailer purely
 # because the sweep ran inside it. Detector B read that trailer as "I did
 # this" and misattributed the archival. Verified against the literal
-# emitted text (DoE-claude coordinator_core/ops/fleet/archive_handoffs.py,
+# emitted text (coordinator-content-repo coordinator_core/ops/fleet/archive_handoffs.py,
 # archive_shipped_handoffs.py, session/boot_sweep.py), not paraphrased; no
 # distinguishing automation trailer exists beyond the ambient Session-Id
 # trailer already consulted above, so subject text is the only signal

@@ -34,7 +34,7 @@ Single-liveness-source contract: the answer comes from the native op, NEVER a lo
 or a second live-set computation. The `--live-set-json` flag from the pre-DR-215 era is
 retired; coordinator_core owns live-set resolution internally.
 
-Spec backlink: DoE-claude:pln-wire-claude-klabauter-fleet-archive-prun-8fd552 § C6 / KD-5 / AC8
+Spec backlink: coordinator-content-repo:pln-wire-claude-klabauter-fleet-archive-prun-8fd552 § C6 / KD-5 / AC8
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md (Wave 1, unit W1b)
 
 Usage:

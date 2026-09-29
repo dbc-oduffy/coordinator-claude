@@ -954,7 +954,7 @@ const ARMING_CHECK_CLI =
 // THE SPINE CHECKER LIVES IN THE PLUGIN ROOT, NOT THE REPO BEING PLANNED, and that is why it
 // is the caller's to resolve on the same rung as the two CLIs above. Both briefs below used to
 // interpolate `${REPO_ROOT}/coordinator/bin/plan-spine-check.py`, which resolves ONLY when the
-// repo under plan happens to be DoE-claude — the tree where the plugin root and the repo root
+// repo under plan happens to be coordinator-content-repo — the tree where the plugin root and the repo root
 // coincide. Firing the same wave against claude-klabauter made every spine validation a MISSING
 // FILE, and a missing file reads as "there is no such check" rather than "the path was not
 // resolved", so the plan-author and the integrator both returned having validated nothing and
@@ -2040,7 +2040,7 @@ if (!['wave', 'single', 'repair'].includes(MODE)) {
 const SINGLE_MODE = MODE === 'single'
 
 // `single` requires exactly one baton, already sized and carrying a sizing-object — the shape
-// `emit-wave-fire.py --from-sizing` (C5) emits. Refused here, before any dispatch, rather than
+// `emit-wave-fire --from-sizing` (C5) emits. Refused here, before any dispatch, rather than
 // letting the size-review gating below silently do the wrong thing over zero or several batons.
 if (SINGLE_MODE) {
   // `tshirt` and `route` are checked here too — both are read straight off the baton at
@@ -2154,7 +2154,7 @@ const sizingLines = batons
 // SINGLE-PLAN MODE gates only THIS phase (§ Pinned interfaces / body item 2): the sizing scout is
 // already skipped above by the `unsized` filter, since a single-mode fire's one baton is always
 // `sized: true`. There is exactly one decision to make and the baton already states it — a
-// blitz-em interrogating a sizing this fire's own `emit-wave-fire.py --from-sizing` (C5) already
+// blitz-em interrogating a sizing this fire's own `emit-wave-fire --from-sizing` (C5) already
 // resolved would be re-litigating an accepted decision, not gating a fresh one.
 const dispatch = SINGLE_MODE
   ? {
@@ -2477,7 +2477,7 @@ if (plannable.length && scaffoldDenials.length === plannable.length && identityD
       + 'dispatch identity, so the planner, premise-check and reviewer below would be refused '
       + 'identically — the wave was stopped rather than spending them to prove it. The '
       + 'usual cause is an agentType the roster does not carry: check `pluginAgentsAvailable` in '
-      + 'this fire\'s bound args and re-emit with it resolved (`emit-wave-fire.py` detects it). '
+      + 'this fire\'s bound args and re-emit with it resolved (`emit-wave-fire` detects it). '
       + 'Tripwire: A-WORKFLOW-DISPATCH-WITHOUT-WITHROLE-IS-CONFINED.',
     agentErrors: 0,
     scaffoldDenials: scaffoldDenials.map((d) => ({ batonId: d.batonId, route: d.route, reason: d.sizingObjectAbsence })),
@@ -3045,7 +3045,7 @@ return {
   // The code this wave ran, echoed back verbatim from what the emitter stamped. A fire is a FROZEN
   // COPY of this file with its args bound in, so two waves of one run can behave differently with
   // nothing about the batons changing — and before this, nothing in either result said so. Written
-  // by `emit-wave-fire.py :: _engine_ref` because the emitter is the only actor here that can see
+  // by `emit-wave-fire :: _engine_ref` because the emitter is the only actor here that can see
   // a repo: this script has no filesystem primitive and could not compute it if it wanted to.
   // Absent on a fire emitted before this field existed, which is itself the version signal — and
   // is why it is echoed rather than defaulted to a plausible-looking unknown.

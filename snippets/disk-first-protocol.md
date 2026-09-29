@@ -37,14 +37,13 @@ naming the deliverable and your spawn timestamp, e.g.:
 _Spawned at {SPAWN_TIMESTAMP}. Entries appended below as work proceeds._
 ```
 
-This is mandatory, not optional. It (a) confirms your output paths are writable, (b) breaks any
-"Write is forbidden" misframing before it can take hold, and (c) gives the dispatcher an early
-disk signal that you are alive and on-protocol. After the probes succeed, proceed with your normal
-work loop, appending to the file(s) incrementally rather than holding everything until the end.
+This is mandatory. It confirms your output paths are writable, breaks any "Write is forbidden"
+misframing, and gives the dispatcher an early disk signal. After the probes succeed, append to the
+file(s) incrementally rather than holding everything until the end.
 
 **Verify every write landed.** After each append — or, for a single-shot deliverable, after your
 one write — confirm the file actually grew: `Bash ls -la {path}` or a quick `Read` is cheap
-insurance. If a `Write` appears to silently no-op, retry — do NOT switch to inline output as a
+insurance. If a `Write` appears to silently no-op, retry — do not switch to inline output as a
 substitute.
 
 **Doctrine root:** `coordinator/snippets/em-operating-doctrine.md § Extensions to coordinator defaults ▸ Fan-out dispatch extras ¶ "Scouts: disk-first"`

@@ -2,13 +2,13 @@
 coordinator.bin.measure-hook-class-cost -- per-class structural + round-trip cost harness for
 the hook-routing decision.
 
-Ported from DoE-claude `coordinator/bin/measure-hook-class-cost.py` (W3-C1,
+Ported from coordinator-content-repo `coordinator/bin/measure-hook-class-cost.py` (W3-C1,
 `docs/plans/2026-09-18-doe-holds-no-scripts.md`) -- mechanical move, no behavioural change.
 `_REPO_ROOT` and `_PROBE_PATH` were already "engine" class (§ Path resolution): both resolve
 from this module's own `__file__`, unchanged by the move -- `Path(__file__).parents[2]` was
 already the engine root in DoE (a sibling of `coordinator/bin`) and stays the engine root here.
 The module docstring's reference to `coordinator/hooks/scripts/_engine_root.py` below still
-names a DoE-claude file (that hook lands with Wave 4, not this chunk) -- kept as prose evidence
+names a coordinator-content-repo file (that hook lands with Wave 4, not this chunk) -- kept as prose evidence
 for the zero-spawn scoping claim, not a runtime import.
 
 Purpose: claude-klabauter's agreed instrument (structural counters -- `len(sys.modules)`, its

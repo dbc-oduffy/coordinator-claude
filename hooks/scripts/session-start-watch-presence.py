@@ -141,6 +141,13 @@ def render_presence_line(watch_result: dict | None) -> str | None:
 
 def main() -> int:
     try:
+        from _machine_profile import is_author
+        if not is_author():
+            return 0
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
         raw = sys.stdin.read()
     except Exception:  # noqa: BLE001
         raw = ""

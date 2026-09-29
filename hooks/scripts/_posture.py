@@ -157,10 +157,10 @@ def resolve_posture(repo_root: str | None = None) -> str:
     `.git`-walk anchoring. Every existing caller passes nothing and gets
     byte-identical behaviour to before this parameter existed.
 
-    INTENDED CONSUMER: this module's own planned move into claude-klabauter
+    INTENDED CONSUMER: this module's own planned move into the engine
     (`coordinator_core/hooks/support/posture.py`, per
     docs/plans/2026-09-18-doe-holds-no-scripts.md W4-C4) and, ahead of that
-    move, any DoE hook already holding a Stop/PostToolUse payload with a
+    move, any hook here already holding a Stop/PostToolUse payload with a
     `cwd` field (e.g. guard-manufactured-blocker.py, which already reads
     `payload["cwd"]` for its own use). A resident engine process serves ~50
     concurrent sessions and cannot anchor off its own process cwd or

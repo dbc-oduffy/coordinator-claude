@@ -274,7 +274,7 @@ session-identity/machine-state infra is deliberately NOT moved:
 2. Relocated git-tracked coordinator source (1482 files, `git archive HEAD:<subdir>` prefix-stripped, +3 untracked bin scripts carried) → `<DoE>/coordinator/`, EXCLUDING `whoami/`. Built artifacts (`.venv`, `node_modules`, `dist`, `__pycache__`) NOT copied — they self-heal at the doctrine repo (the engine repo's `coordinator_core.install.ensure_venv` for the venv; npm for cockpit-contract).
 3. Registry: `plugin.mirrors.coordinator-claude` = `source_is_live`, `source_path`/`live_path` → `<DoE>/coordinator` (no-op drift/refresh semantics, recognized by `check-plugin-drift.py`/the engine repo's `coordinator/bin/refresh-plugin-live-install.py`).
 4. `settings.json` hooks regenerated via the engine repo's `coordinator/bin/gen-settings-hooks.py` → 32 coordinator hooks now doctrine-repo-absolute; 2 harness-native hooks preserved; non-hook keys byte-identical; idempotent.
-5. `~/.claude/plugins/coordinator-claude/` tree LEFT IN PLACE (removal is Phase 2). `--plugin-dir` takes precedence over the vestigial marketplace entry, so a relaunched `claude-doe` cleanly resolves from the doctrine repo.
+5. `~/.claude/plugins/coordinator-claude/` tree LEFT IN PLACE (removal is Phase 2). `--plugin-dir` takes precedence over the vestigial marketplace entry, so a relaunched `claude-author` cleanly resolves from the doctrine repo.
 
 **Rollback runbook (Phase 1 — before relaunch, trivial since nothing destructive ran):**
 2. `rm -rf <DoE>/coordinator` + drop the doctrine-repo commit.
@@ -283,7 +283,7 @@ session-identity/machine-state infra is deliberately NOT moved:
 
 **Full rollback runbook (post-Phase-2, once the `~/.claude` tree is removed):** additionally (1) restore
 `~/.claude/plugins/coordinator-claude` from `plugins.tar.gz`; (2) revert the launch command from
-`claude-doe` to bare `claude` (remove wrapper alias / PATH shim).
+`claude-author` to bare `claude` (remove wrapper alias / PATH shim).
 
 **Phase 2 — historical record (this block described a forward-looking action list at cutover time;
 items have since resolved independently — see per-item disposition below, not as a live TODO):**
@@ -308,7 +308,7 @@ items have since resolved independently — see per-item disposition below, not 
    (placement-law spots) unblock" was a consequence clause, not an action — no artifact declares either
    unblocked as of this writing.
 
-**Verification owed (PM relaunch):** boot via `claude-doe`; confirm coordinator skills/agents resolve
+**Verification owed (PM relaunch):** boot via `claude-author`; confirm coordinator skills/agents resolve
 from `<DoE>/coordinator` (skill base dir external, zero `~/.claude/plugins/coordinator-claude` in
 resolution) and settings.json SessionStart hooks fire at boot from DoE-absolute paths.
 
@@ -329,7 +329,7 @@ skill/command markdown file, or any surface where `machine-local` is unavailable
 > dirs onto PATH at plugin-load time, not via shell profile. This creates a chicken-and-egg trap
 > post-cutover: the launch shim cannot call `machine-local` to resolve the doctrine-repo root, because
 > `machine-local` itself now lives inside the doctrine-repo clone it would need to locate. This is why the install
-> step must project the registry value into a cold-readable bootstrap artifact (the `.doe-root` pointer
+> step must project the registry value into a cold-readable bootstrap artifact (the `.content-root` pointer
 > file) rather than relying on any tool-mediated resolution for the first cold read.
 
 > **A rung that invokes an executable is not PATH-hardened just because YOU call it by absolute path —
@@ -344,26 +344,26 @@ skill/command markdown file, or any surface where `machine-local` is unavailable
 **Resolution mechanism (POSIX-host form; a PowerShell host resolves the same pointer via rung 0 /
 Shape W, see `coordinator/snippets/resolve-coordinator-bin.md`):** durable-first `cat` of
 the settings-home pointer
-(`${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.doe-root`),
-falling back to the legacy `cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root"` during the transition
+(`${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.content-root`),
+falling back to the legacy `cat "${CLAUDE_HOME:-$HOME}/.claude/.content-root"` during the transition
 window — zero tool dependency either way. The
-`claude()` shim (`~/.claude/shell/claude-doe-shim.sh`) and the inline fallbacks in the 10
+`claude()` shim (`~/.claude/shell/claude-author-shim.sh`) and the inline fallbacks in the 10
 skill/command markdown files use this path. The fail-loud idiom is load-bearing — never use the bare
-`${CLAUDE_PLUGIN_ROOT:-$(cat …/.doe-root)/coordinator}` form, which silently expands to the literal
+`${CLAUDE_PLUGIN_ROOT:-$(cat …/.content-root)/coordinator}` form, which silently expands to the literal
 `/coordinator` when the pointer file is absent:
 
 ```sh
 # POSIX-host form; a PowerShell host resolves via rung 0 / Shape W (see
 # coordinator/snippets/resolve-coordinator-bin.md).
-_doe_root="$(cat "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.doe-root" 2>/dev/null)"
-if [ -z "$_doe_root" ]; then
-  _doe_root="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)"
+_content_root="$(cat "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.content-root" 2>/dev/null)"
+if [ -z "$_content_root" ]; then
+  _content_root="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.content-root" 2>/dev/null)"
 fi
-if [ -z "$_doe_root" ] || [ ! -d "$_doe_root/coordinator" ]; then
-  echo "ERROR: ~/.claude/.doe-root missing/invalid — re-run coordinator:install" >&2
+if [ -z "$_content_root" ] || [ ! -d "$_content_root/coordinator" ]; then
+  echo "ERROR: ~/.claude/.content-root missing/invalid — re-run coordinator:install" >&2
   return 1 2>/dev/null || exit 1
 fi
-_coordinator_root="${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}"
+_coordinator_root="${CLAUDE_PLUGIN_ROOT:-${_content_root}/coordinator}"
 ```
 
 ### WARM-generated / warm-run artifacts
@@ -373,7 +373,7 @@ the engine repo's `coordinator/lib/resolve-coordinator-clone.py` consumers runni
 is a path swap only — the consumers described here always ran inside an active session and invoked whichever
 resolver was current, bash then Python).
 
-**Resolution mechanism:** read the registry directly via `machine-local get repos.doe_claude`. The
+**Resolution mechanism:** read the registry directly via `machine-local get repos.content_root`. The
 hook generators (`coordinator-ensure-post-commit-hook`, `coordinator-ensure-prepare-commit-msg-hook`,
 the engine repo's `coordinator/bin/gen-settings-hooks.py`) bake the registry-resolved path into the hook body at generate-time — the
 **warm half** of the coherent split. See the commit "hooks: installers resolve coordinator bin from
@@ -381,19 +381,19 @@ registry — fixes stale-path clobber post-cutover" for the canonical warm-surfa
 
 ### The pointer is a projection of the registry — coherence assertion
 
-`gen-doe-root-pointer.py` writes `<settings-home>/machine-local/.doe-root` = the doctrine repo's root
-(projected from `repos.doe_claude`), beside its sibling `.claude-klabauter-root`. It writes only the
-settings-home copy — never the git-tracked `~/.claude/.doe-root`, because that path syncs between
+`gen-content-root-pointer.py` writes `<settings-home>/machine-local/.content-root` = the doctrine repo's root
+(projected from `repos.content_root`), beside its sibling `.claude-klabauter-root`. It writes only the
+settings-home copy — never the git-tracked `~/.claude/.content-root`, because that path syncs between
 machines, so each machine would commit its own absolute clone path over the last one's and the
-loser would silently mis-resolve. `~/.claude/.doe-root` is a read-only legacy fallback for
+loser would silently mis-resolve. `~/.claude/.content-root` is a read-only legacy fallback for
 machines installed before the move to settings-home. The pointer is a **bootstrap cache**, not
 a second source of truth. It is (re)generated at install time and self-healed at boot: the
-SessionStart hook calls `gen-doe-root-pointer.py` if the pointer is absent but the registry is
+SessionStart hook calls `gen-content-root-pointer.py` if the pointer is absent but the registry is
 set, so a `git pull` without re-running the installer does not leave migrated inline sites
 fail-louding on pointer-miss.
 
 **Coherence assertion (verified at install):**
-`"$(cat <settings-home>/machine-local/.doe-root)/coordinator"` == `plugin.mirrors.coordinator-claude.source_path`
+`"$(cat <settings-home>/machine-local/.content-root)/coordinator"` == `plugin.mirrors.coordinator-claude.source_path`
 
 ## Resolution seam: `resolve-coordinator-clone.py` pointer tier
 
@@ -401,8 +401,8 @@ the engine repo's `coordinator/lib/resolve-coordinator-clone.py` is the **sancti
 coordinator root — downstream repos (project-rag, example-game-repo, deep-research) bind it instead of
 inlining their own fallback. Its header precedence docblock enumerates every tier in order.
 
-Post-W4.2 the resolver gained a `.doe-root` **pointer tier** (settings-home first, legacy
-`~/.claude/.doe-root` fallback; added by
+Post-W4.2 the resolver gained a `.content-root` **pointer tier** (settings-home first, legacy
+`~/.claude/.content-root` fallback; added by
 the maximalist-install plan's C3). This tier sits **above** the
 flat-layout tier and **below** the registry tier. Critically, the two resolver modes resolve to
 **different directories** under maximalist — they were the same directory in the old flat-clone model
@@ -410,11 +410,11 @@ and this divergence is now explicit in the resolver's header docblock:
 
 | Mode | Pointer tier resolves to | Gate condition |
 |------|--------------------------|----------------|
-| `--for-content` | `<doe-root>/coordinator` | `-d <doe-root>/coordinator` |
-| `--for-git-ops` | `<doe-root>` (repo root) | `-d <doe-root>/.git` |
+| `--for-content` | `<content-root>/coordinator` | `-d <content-root>/coordinator` |
+| `--for-git-ops` | `<content-root>` (repo root) | `-d <content-root>/.git` |
 
 `--for-git-ops` returns the repo root, not the `coordinator/` subdir, because `coordinator/.git` is
-absent under maximalist — a tier returning `<doe-root>/coordinator` fails the `.git` gate and would
+absent under maximalist — a tier returning `<content-root>/coordinator` fails the `.git` gate and would
 fall through to fail-loud. Both pointer-tier variants read the pointer via `cat` (no `machine-local`
 dependency), so they are cold-capable even though they live inside the otherwise-warm resolver.
 
@@ -422,16 +422,16 @@ Effective precedence chain for each mode after W4.2:
 
 ```
 --for-content:  CLAUDE_PLUGIN_ROOT → COORDINATOR_ROOT → registry live_path → cache
-                → .doe-root pointer (→ <root>/coordinator) → flat-layout → fail-loud
+                → .content-root pointer (→ <root>/coordinator) → flat-layout → fail-loud
 
 --for-git-ops:  COORDINATOR_ROOT → CLAUDE_PLUGIN_ROOT (git-ops-incompatible, gated)
-                → registry source_path → cache → .doe-root pointer (→ <root>)
+                → registry source_path → cache → .content-root pointer (→ <root>)
                 → flat-layout → fail-loud
 ```
 
 **When you add a resolution tier, add it to the ENTRY POINT the callers actually bind — and cold-test
-that entry point, not just the inner lib.** 2026-07-05: the resolver lib gained a cold `.doe-root` pointer
-tier, but the bootstrap bin-shim its consumers actually invoke had no `.doe-root` tier to *locate the lib*
+that entry point, not just the inner lib.** 2026-07-05: the resolver lib gained a cold `.content-root` pointer
+tier, but the bootstrap bin-shim its consumers actually invoke had no `.content-root` tier to *locate the lib*
 in the first place — so it returned rc=1 cold and every downstream consumer broke, even though the lib in
 isolation resolved fine. A new lib tier is unreachable if the shim that loads the lib can't find the lib.
 Adding a tier is not done until it exists at the bound entry point AND that entry point has been tested
@@ -454,14 +454,14 @@ lockstep. If you add an out-of-repo surface to the install, update the uninstall
 
 **Install surface — `coordinator/commands/install.md` (the doctrine repo):**
 Steps 3.5a–3.5c and the Phase 7 status table enumerate every out-of-repo surface the installer
-writes: registry keys (`repos.doe_claude`), the `.doe-root` pointer
-(`<settings-home>/machine-local/.doe-root`), the owned shim file
-(`~/.claude/shell/claude-doe-shim.sh`), the one marked `source` line in the interactive rc,
+writes: registry keys (`repos.content_root`), the `.content-root` pointer
+(`<settings-home>/machine-local/.content-root`), the owned shim file
+(`~/.claude/shell/claude-author-shim.sh`), the one marked `source` line in the interactive rc,
 settings.json hook block, and the doctrine-repo clone itself. The installer is the canonical listing of what
 exists out-of-repo; the uninstall is its inverse.
 
 **Uninstall surface — `coordinator/commands/uninstall.md` + the engine repo's `coordinator/bin/coordinator-uninstall.py`:**
-The "What gets reversed" surface list reverses the install. Surface #6 (`.doe-root` pointer) and the
+The "What gets reversed" surface list reverses the install. Surface #6 (`.content-root` pointer) and the
 reshaped surface #4 (owned shim file + marked rc source line + legacy `~/.bashrc` block) were added
 in lockstep by C4 of the maximalist-install plan. The uninstall also strips the legacy
 `# --- coordinator maximalist launch ---` `claude()` block from `~/.bashrc` even though the install

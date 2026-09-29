@@ -1,6 +1,6 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """validate-fast-and-packageability.py -- naked-Python port of the two bash
-fences embedded in DoE-claude's coordinator/skills/validate/SKILL.md ("How to
+fences embedded in coordinator-content-repo's coordinator/skills/validate/SKILL.md ("How to
 Run" and "Packageability-contract check").
 
 Purpose: single self-contained CLI exposing the two independently-reported
@@ -37,7 +37,7 @@ Subcommands:
       `tier-u-refused` (the resolved
       command classifies Tier U -- unscoped/full-suite shape -- and the
       calling session holds no live Tier-U grant; R3+R4,
-      cross-repo/inbox/2026-07-25-doe-claude-em-validate-tier-u-shape-
+      cross-repo/inbox/2026-07-25-coordinator-content-repo-em-validate-tier-u-shape-
       ruling.md). This is an ADDED contract beyond the ported bash fence
       (which never itself exited non-zero -- callers parsed the printed
       line) -- see the "Divergence from the bash fence" note below.
@@ -64,7 +64,7 @@ that only greps the printed line (as the current /validate SKILL.md fence
 does). This is a deliberate, noted improvement -- not a silent behavior
 change to the printed contract.
 
-Port source: coordinator/skills/validate/SKILL.md (DoE-claude) -- "How to
+Port source: coordinator/skills/validate/SKILL.md (coordinator-content-repo) -- "How to
 Run" fence (mktemp diagnostic capture + rc==2/126/other-nonzero/0 ladder)
 and "Packageability-contract check" fence (validate-install-contract.py
 loud-skip-vs-silent-pass guard). The resolve-claude-klabauter-bin resolver block, the
@@ -96,7 +96,7 @@ Negative-spec:
     that repo's own request (docs/wiki/agent-install-contract.md §
     Packageability).
   - The `fast` subcommand NEVER calls ``write_tier_u_grant`` -- R4
-    (cross-repo/inbox/2026-07-25-doe-claude-em-validate-tier-u-shape-
+    (cross-repo/inbox/2026-07-25-coordinator-content-repo-em-validate-tier-u-shape-
     ruling.md) requires /validate to gate on shape and REFUSE, never to
     write or consume-by-granting a Tier-U grant. It only READS one via
     ``coordinator_core.session.tier_u_gate.enforce_tier_u_gate``.

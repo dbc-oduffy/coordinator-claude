@@ -73,24 +73,28 @@ entries:
     creation: eager
     schema: null
     readme: null
+    produced_by: /coordinator:repo-setup rendering and scaffolding (CLAUDE.md from templates/CLAUDE.md.template)
 
   
   - path: docs/README.md
     creation: eager
     schema: null
     readme: null
+    produced_by: /coordinator:repo-setup rendering and scaffolding (docs/README.md from templates/README.md.template)
 
   
   - path: docs/exec-summary.md
     creation: eager
     schema: null
     readme: null
+    produced_by: /coordinator:repo-setup rendering and scaffolding (repo-setup-args-and-register resolve-exec-summary-generator)
 
   
   - path: .gitignore
     creation: eager
     schema: null
     readme: null
+    produced_by: /coordinator:repo-setup .gitignore step (canonical block from templates/gitignore.project.template)
 
   
   - path: .project-rag-ignore
@@ -111,6 +115,7 @@ entries:
     creation: eager
     schema: null
     readme: null
+    produced_by: /coordinator:repo-setup post-commit auto-push hook step (coordinator-ensure-hooks-fleet)
 
   
   - path: state/handoffs/

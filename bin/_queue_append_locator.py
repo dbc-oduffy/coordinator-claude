@@ -72,7 +72,7 @@ def find_cli_cmd(
 
     That is the whole mechanism behind an eleven-week leak: harvest tests set
     `LESSON_PROMOTE_OUTBOX_ROOT`, the door dropped it, and the served CLI
-    resolved the live `repos.doe_claude` outbox instead of the tmpdir. Going
+    resolved the live `repos.content_root` outbox instead of the tmpdir. Going
     sibling-only runs the CLI cold in the caller's own process tree, which is
     the ONLY route where a test-isolation env var applies by design.
 

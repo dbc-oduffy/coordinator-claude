@@ -47,7 +47,7 @@ Exit codes:
       the one below.
   1 — either CITED population (forwarder_drift.py's `cited_missing` OR
       `extension_mismatch`) is non-empty: at least one settings-home/bin
-      forwarder that a live DoE-claude prompt surface names is missing
+      forwarder that a live coordinator-content-repo prompt surface names is missing
       (`cited_missing`, NAME axis) or is cited under an extension
       settings-home/bin did not actually install for that base name
       (`extension_mismatch`, EXTENSION axis, Windows-only). Never fires on

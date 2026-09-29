@@ -3,7 +3,7 @@
 have no existing landed CLI: git-lfs-enable (idempotent `git lfs install`
 mutation gated by a functional check), and a thin `python3` passthrough to
 coordinator_core.install.prereq_probe.probe_python() (Windows
-App-Execution-Alias stub detection) -- so DoE-claude's
+App-Execution-Alias stub detection) -- so coordinator-content-repo's
 coordinator/commands/install.md Phase 1 can invoke these by name through the
 settings-home forwarder instead of carrying narrated shell fences.
 
@@ -54,10 +54,10 @@ its probe set (python, uv, pwsh, ue, clone_auth, longpaths) and
 coordinator_core.install.prereq_probe's own docstring negative-spec #1
 explicitly scopes bash-version OUT of `_PROBE_ORDER` by design. This
 subcommand was landed 2026-07-21 but never wired to any forwarder call site
-in DoE-claude (see cross-repo/archive/2026-07-23-doe-claude-em-four-new-bin-
+in coordinator-content-repo (see cross-repo/archive/2026-07-23-coordinator-content-repo-em-four-new-bin-
 entrypoints-command-fence-extraction.md: "Not yet wired to any forwarder ...
 a separate, later wave") and that wave never happened -- a repo-wide grep of
-DoE-claude found zero references to `probe-prereq` or `bash-version` outside
+Coordinator-content-repo found zero references to `probe-prereq` or `bash-version` outside
 this file's own docstring/tests. The one still-real bash-version gate lives
 at coordinator_core/install/first_run.py `_bash_version_ok()` (sanctioned
 class (d), a different site, driving the macOS brew-bash offer flow) and is
@@ -65,7 +65,7 @@ untouched by this removal. Do not re-add a `bash-version` subcommand here
 without first re-establishing a live caller -- a probe with no consumer is
 not a probe, it is dead code wearing a probe's docstring.
 
-Spec backlink: coordinator/commands/install.md (DoE-claude) § 1a.3 (git-lfs
+Spec backlink: coordinator/commands/install.md (coordinator-content-repo) § 1a.3 (git-lfs
     enablement), § 1b.1 (python3 stub detection);
     docs/2026-07-29-debash-residual-sites-spec.md § Group F (this removal).
 """

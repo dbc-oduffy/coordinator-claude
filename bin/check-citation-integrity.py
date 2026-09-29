@@ -2,7 +2,7 @@
 """coordinator/bin/check-citation-integrity.py -- ratchet gate over
 `coordinator_core.citation_graph`'s resolution output.
 
-Ported from DoE-claude `coordinator/bin/check-citation-integrity.py` (W2-C6,
+Ported from coordinator-content-repo `coordinator/bin/check-citation-integrity.py` (W2-C6,
 `docs/plans/2026-09-18-doe-holds-no-scripts.md`). One path-resolution seam changes on arrival:
 DoE's copy `sys.path`-inserted its sibling `coordinator/lib` directory and imported `citation_graph`
 as a top-level module -- an "engine" class resolution that, in this engine, is simply

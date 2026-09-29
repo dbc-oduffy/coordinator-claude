@@ -15,8 +15,8 @@ a bareword, so the shebang is never read there; on macOS/Linux `python3` is the
 right interpreter. Caution: callers must invoke via the extensionless name or a
 resolved-interpreter prefix, never a bareword `.py` through git-bash — git-bash
 DOES honor the shebang and would exec-127 with no `python3` present. See the
-carve-out in DoE-claude's coordinator/docs/wiki/bash-on-windows-gotchas.md §
-Carve-out (cross-repo — this wiki lives in the DoE-claude repo, not
+carve-out in coordinator-content-repo's coordinator/docs/wiki/bash-on-windows-gotchas.md §
+Carve-out (cross-repo — this wiki lives in the coordinator-content-repo repo, not
 here).
 
 Exit codes (parity-critical — workweek-complete.md:289 pipes through
@@ -54,7 +54,7 @@ def _default_skill_path() -> str:
     """Resolve workstream-complete/SKILL.md via `coordinator_data_root.data_root()`'s
     co-located/codename-free/DoE-resident ladder, not a bare `__file__`-relative walk.
 
-    Skills are a coordinator-claude (DoE-claude) discovery-resolved surface, not
+    Skills are a coordinator-claude (coordinator-content-repo) discovery-resolved surface, not
     part of this engine repo (CLAUDE.md: "Discovery-resolved surfaces (skills,
     plugins, hooks) belong in coordinator-claude, not here") — the prior
     `<this file's dir>/../skills/...` derivation assumed skills/ was co-located
@@ -75,7 +75,7 @@ def _resolve_default_paths() -> tuple[str, str]:
     """Resolve WSC_SKILL_PATH and WSC_BASELINE_FILE, honoring env overrides.
 
     WSC_SKILL_PATH defaults to `_default_skill_path()` (the settings-home/
-    DoE-root ladder — see that function's docstring); WSC_BASELINE_FILE defaults
+    content-root ladder — see that function's docstring); WSC_BASELINE_FILE defaults
     to SCRIPT_DIR/.wsc-inline-budget-baseline (this repo's own state, unaffected
     by the skills cross-plane resolution).
 

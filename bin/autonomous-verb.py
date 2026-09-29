@@ -15,7 +15,7 @@ Usage:
 
 Exit code and stdout/stderr are exactly `coordinator_core.workday_complete.autonomous_verb.main`'s.
 
-Spec backlink: DoE-claude:pln-b1-ceremony-complete-computed--9ffa54 § C7
+Spec backlink: coordinator-content-repo:pln-b1-ceremony-complete-computed--9ffa54 § C7
 
 Negative-spec: does NOT parse or validate the toggle token itself — that branch lives
 solely in `autonomous_verb.parse_toggle`; this wrapper never duplicates it.

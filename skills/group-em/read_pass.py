@@ -453,7 +453,7 @@ def resolve_addressee(
     A peer name is not a stable address. The harness re-uses one as sessions
     come and go, and it re-points with no event, no error and no visible
     difference at the call site -- observed twice in one session
-    (`doe-claude-48`), and reported independently by the engine plane the
+    (`coordinator-content-repo-48`), and reported independently by the engine plane the
     same hour. A roster row is a snapshot; between assembling it and sending,
     the name on it can belong to a session that was never on the roster. A
     nudge landing there is worse than no nudge: it interrupts a session

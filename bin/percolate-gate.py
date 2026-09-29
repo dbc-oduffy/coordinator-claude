@@ -1,5 +1,5 @@
 """percolate-gate.py — naked-Python engine for the `/percolate` skill's
-residual imperative gate logic (DoE-claude coordinator/skills/percolate/SKILL.md).
+residual imperative gate logic (coordinator-content-repo coordinator/skills/percolate/SKILL.md).
 
 Ports the four genuine imperative-logic fences the skill still carries as
 bash after the b644d5a9 bin/lib migration: the Branch-0 first-run setup gate
@@ -75,7 +75,7 @@ Subcommands:
       rung PERCOLATE_ROOT ladder once and returns `(path, rung)`. Bare form
       prints the resolved absolute path on stdout, one line, exit 0.
       `--explain` prints `<path>\t<rung>` (tab-separated), where rung is one
-      of the stable labels `env` / `repo-local-git` / `doe-root-pointer` /
+      of the stable labels `env` / `repo-local-git` / `content-root-pointer` /
       `shared-install`. On a ladder RuntimeError, its own remediation message
       reaches stderr verbatim (not reworded) and the subcommand exits 1 with
       no stdout. Unlike the other subcommands, this one takes NO
@@ -136,7 +136,7 @@ It also does NOT resolve a python3/python interpreter for the skill's Step
 prose routes through the existing resolve-python seam, not this module
 (C4's L151/L274 concern, out of scope for this port).
 
-Spec backlink: coordinator/skills/percolate/SKILL.md (DoE-claude) — Branch 0,
+Spec backlink: coordinator/skills/percolate/SKILL.md (coordinator-content-repo) — Branch 0,
 Step 2a, Step 2c, Step 2d. Port chunk: M3 C-PERCOLATE, W1.7/C4.
 """
 from __future__ import annotations

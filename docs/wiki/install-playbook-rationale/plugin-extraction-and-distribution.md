@@ -819,7 +819,7 @@ would relocate the consumer's chicken-and-egg). It anchors on the fixed
 suffix is appended OUTSIDE the default (the form `${CLAUDE_HOME:-$HOME/.claude}` is wrong: it breaks
 the `CLAUDE_HOME=/tmp/sb` sandbox/CI redirect, which must resolve `/tmp/sb/.claude/`). It walks a
 minimal find-the-resolver ladder (env `CLAUDE_PLUGIN_ROOT`/`COORDINATOR_ROOT`/`COORDINATOR_CLONE` →
-`.doe-root` pointer → flat layout → newest versioned cache → fail-loud), then hands off to the
+`.content-root` pointer → flat layout → newest versioned cache → fail-loud), then hands off to the
 located resolver, which still owns ALL content/git-ops precedence — the shim only finds the file.
 Because it is position-independent, the live (`bin/`) and template (`templates/bin/`) copies are
 byte-identical — enforced by `verify-templates-bin-sync.py`.

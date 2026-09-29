@@ -17,7 +17,7 @@ NEGATIVE SPEC.
   - Accepts a plan path outside `docs/plans/` (the retrospective corpus is archived) — this tool
     never writes the plan, so there is nothing to protect by refusing an archived path.
 
-Arrived from DoE-claude coordinator/bin/plan-completeness.py — plan-completeness was never
+Arrived from coordinator-content-repo coordinator/bin/plan-completeness.py — plan-completeness was never
 ported when its sibling reader `plan-spine-check` was; this mirrors that arrival's registration.
 Requirement-restated, not carried verbatim: module scope here carries stdlib imports ONLY (never
 the `coordinator/bin/lib` sys.path mutation DoE's copy performed at import time) — the lib

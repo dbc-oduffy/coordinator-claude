@@ -15,7 +15,7 @@ byte-for-byte preserved from the bash oracle.
 Spec backlink: docs/plans/2026-05-27-fan-out-default-doctrine.md §Chunk 1
 Spec backlink (organic-ramp): docs/plans/2026-05-30-organic-ramp-concurrency-doctrine.md §C2
 Spec backlink (invariant observers): docs/plans/2026-06-22-invariant-verification-observers.md §C2
-Spec backlink (run-report subsume): DoE-claude:pln-universal-subagent-run-report--4250e3 §C5/DEC-6
+Spec backlink (run-report subsume): coordinator-content-repo:pln-universal-subagent-run-report--4250e3 §C5/DEC-6
 
 Input format (TSV, one row per chunk):
   <chunk-id>TAB<brief-one-liner-or-@filepath>TAB<comma-separated-file-paths>
@@ -85,7 +85,7 @@ def _resolve_plugin_root() -> str:
     broke once the 2026-07-22 executable-surface migration split snippets/ (DoE-resident)
     away from this script (claude-klabauter-resident) — see coordinator_data_root.py's
     module docstring. Resolved via the shared two-rung resolver instead of reimplementing
-    the DOE_ROOT chain here (negative-spec in that module).
+    the CONTENT_ROOT chain here (negative-spec in that module).
     """
     env = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if env:

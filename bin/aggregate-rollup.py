@@ -65,7 +65,7 @@ carries no readable `aggregate_execution` block. 1 is not an error -- it is the 
 run that did part of the work, and a caller that treats 0 as "done" therefore cannot read a
 partial fire as a completion.
 
-Arrived from DoE-claude coordinator/skills/pickup/aggregate-rollup.py
+Arrived from coordinator-content-repo coordinator/skills/pickup/aggregate-rollup.py
 (docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W3-C7). Path resolution: "session repo"
 class (§ Path resolution) — `_default_repo_root()` below resolves the invoking repo through
 `coordinator_core.git.repo_root.show_toplevel()` (the caller's cwd, walked up) instead of DoE's

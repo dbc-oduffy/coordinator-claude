@@ -13,7 +13,7 @@
  * ~300-singleton-topic input, asserting the new-file count stays under the documented cap
  * and no nugget is ever dropped.
  *
- * Spec backlink: /private/tmp/claude-501/-Users-example-operator-X-DoE-claude/792aee5f-e00d-4d98-a3e6-e4705ec5d010/scratchpad/distill-harvest-fix-design.md
+ * Spec backlink: /private/tmp/claude-501/-Users-example-operator-X-coordinator-content-repo/792aee5f-e00d-4d98-a3e6-e4705ec5d010/scratchpad/distill-harvest-fix-design.md
  * § "Regression test" + § "D3 design".
  * Source under test: coordinator/pipelines/artifact-distillation/distill-harvest.workflow.js
  *

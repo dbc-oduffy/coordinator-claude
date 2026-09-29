@@ -6,7 +6,7 @@ coordinator_core.bash_guards.block_reviewer_bash_outside_allowlist (fail-closed,
 no escape hatch, correctly so) — it cannot run `git show` / `git diff` / `git
 log` itself. Every non-weekly review-dispatch gate therefore needs the diff
 frozen to a file BEFORE dispatch, with the reviewer pointed at the path. Five
-DoE-claude skill surfaces landed this as a hand-written `git diff > file`
+Coordinator-content-repo skill surfaces landed this as a hand-written `git diff > file`
 fenced shell block — a command payload the EM reads out of a markdown fence
 and retypes into a shell (unlintable, untestable, invisible to the coverage
 gate, because a fence is not a file — PM ruling, 2026-07-22). This CLI is the
@@ -51,7 +51,7 @@ duplicate or re-implement the trail record" — the reviewer's own attestation
 was always the binding, and a retired writer leaves nothing to admit. DR-372's
 receipt stamped on the reviewer's sidecar is the replacement; K-060's
 ``Returns-when`` is "Not applicable". So the leg and its four flags came out
-together, in sequence behind DoE-claude's ``compose-review-wave`` dropping the
+together, in sequence behind coordinator-content-repo's ``compose-review-wave`` dropping the
 ``trailRecord`` key it fed (DoE f3d3128c8, closed b427d44b1) — that repo held
 the only live caller, and removing our half first would have broken theirs.
 
@@ -63,7 +63,7 @@ STDOUT is exactly one line — the ``.diff`` path.
 ``parallel-review-orthogonality-guard.py``'s ``snapshot`` subcommand
 (``_cmd_snapshot``) consumes it as ``proc.stdout.strip()``, a whole-stdout
 slurp treated as one path from which it derives the ``.head.sha`` sibling by
-suffix substitution; DoE-claude's fences slurp the same way via ``$(...)``. A
+suffix substitution; coordinator-content-repo's fences slurp the same way via ``$(...)``. A
 second stdout line would silently corrupt those derived paths while still
 exiting 0.
 
@@ -108,7 +108,7 @@ Exit codes:
         exit 1's write-nothing contract rather than exit 0's one-line stdout.
 
 Spec backlink: cross-repo/inbox/2026-07-23-claude-central-em-review-diff-freeze-op-wanted.md
-Prior pattern: coordinator/skills/parallel-code-review/SKILL.md (DoE-claude) — the
+Prior pattern: coordinator/skills/parallel-code-review/SKILL.md (coordinator-content-repo) — the
 existing frozen-diff + head.sha shape this CLI generalizes to the other five
 non-weekly review-dispatch gates.
 

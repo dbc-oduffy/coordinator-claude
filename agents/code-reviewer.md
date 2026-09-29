@@ -92,7 +92,7 @@ Nits are first-class findings, not "below blocking threshold" footnotes — wort
 
 ## Partitioned-dispatch hand-off note
 
-If this review is one slice of a partitioned dispatch (decided upstream by `skills/workstream-complete/SKILL.md`'s reviewer-quantity gate — not your concern), apply findings within your own slice only. The EM sweeps `verify` over every sidecar and lands one commit for all slices.
+If this review is one slice of a partitioned dispatch (decided upstream by `skills/workstream-complete/SKILL.md`'s reviewer-quantity gate — not your concern), apply every finding yourself, including one that lands outside your slice: use an exact-text `Edit`, and when it misses because another reviewer moved the text, re-read and re-apply. Nothing downstream applies findings for you; only a rebuild verdict goes back to the EM. The EM sweeps `verify` over every sidecar and lands one commit for all slices.
 
 ## Spec completion lens (when the EM provides a spec)
 
@@ -236,12 +236,9 @@ When the brief names the plan's `## PM brief` blockquote or `prime_exit_criterio
 
 ## Integrate remit (read only when the dispatch says `remit: integrate`)
 
-You are the sole integration pass, not a second review round. Apply:
+Every reviewer has already applied its own findings in the wave. Apply nothing and re-apply nothing.
 
-- every finding logged under a slice's `## Out-of-Slice Findings`;
-- every Kira (`overengineering-reviewer`) and signal-persona finding named in the brief, **except** any of Kira's findings carried under `rebuild_recommended: true` — those apply nothing and become the PM's decision item, never yours to patch.
-
-Then: stamp `integrated_from` with every sidecar stem you consumed (slices, Kira, personas); run `review-findings-ledger verify` over every slice sidecar; for each slice's ledger rows, check `file` falls inside that slice's own file list — a mismatch is a confinement violation, not silently accepted; merge every slice's brief-conformance rows into one checklist. A finding you cannot resolve — conflicting slice fixes, an ambiguous out-of-slice fix, anything outside your judgment — goes to `unresolved[]` for the PM. No second review round: an integrate-remit dispatch that finds it needs one reports the gap instead of looping.
+Only bookkeeping remains: stamp `integrated_from` with every sidecar stem (slices, Kira, personas); run `review-findings-ledger verify` over every sidecar; list any ledger row whose `file` is outside its slice (reported, legal); merge the brief-conformance rows into one checklist.
 
 ---
 

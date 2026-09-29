@@ -100,7 +100,7 @@ design: a bulleted problem list, not a design doc.
    reasons, not "later."
 3. On PM convergence: flip `status: draft → ratified`, fill `ratified_by`, `ratified_date`,
    `estimated_horizon`, stamp `> Ratified by PM <name> <date>`.
-<!-- engine-gap: field=shape.convergence.detected producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=shape.convergence.detected producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
 
 A problem-set without ratification is `status: draft` and does NOT count as an oracle. Plans link
 it via `problem_set:`.

@@ -105,7 +105,7 @@ Otherwise skip. Full table: wiki. UBT gate and reverse-drift gate have live prod
 (`/workday-complete` / `example_game_repo_recover --step reverse-drift`, or the matching
 `COORDINATOR_OVERRIDE_*`). Plugin-version-matrix, structural-index-schema, and
 customer-facing-install-path touches still need eyeball diff-path classification — no producer yet
-<!-- engine-gap: field=merge.touched_path_classes producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->.
+<!-- engine-gap: field=merge.touched_path_classes producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->.
 - **Plugin version matrix** — detection: touches under `control/plugin/**`. Action: verify the
   5-version plugin matrix passes locally.
 - **Customer-facing install path** — detection: touches under `scripts/install-*.{sh,ps1}`.
@@ -177,7 +177,7 @@ merge is tracked separately. Run the check every time until `d2` moves.
 
 Once the merge lands, best-effort trigger project-rag's SCIP rebuild in the background — never
 waits, never blocks this ceremony: `"$_py"
-"${CLAUDE_PLUGIN_ROOT:-<doe-root>/coordinator}/bin/scip-rebuild-at-ceremony.py" --ceremony
+"${CLAUDE_PLUGIN_ROOT:-<content-root>/coordinator}/bin/scip-rebuild-at-ceremony.py" --ceremony
 merge-to-main` (§ Plugin-local `coordinator/bin/`, `resolve-coordinator-bin.md`).
 
 ---

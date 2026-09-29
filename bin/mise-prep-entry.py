@@ -65,7 +65,7 @@ withheld (FIRE), 1 when at least one certifies and something is excluded or with
 (PARTIAL-FIRE), 2 when nothing certifies (NO-FIRE), 3 on a usage or precondition failure. 1 is not
 an error — it is the honest code for a partial hand-over.
 
-Arrived from DoE-claude coordinator/skills/plan-blitz/mise-prep-entry.py (docs/plans/2026-09-18-
+Arrived from coordinator-content-repo coordinator/skills/plan-blitz/mise-prep-entry.py (docs/plans/2026-09-18-
 doe-holds-no-scripts.md, chunk W2-C9). Lands here as a bin CLI, not a skill-local script; DoE
 retargets the skill's citation. AC (reviewer finding 8): `_gate_cmd` prints the bare settings-home
 launcher name for `mise-prep-gate`, never the published `<plugin_root>/bin/mise-prep-gate.py`

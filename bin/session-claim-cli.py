@@ -147,7 +147,7 @@ def _liveness_basis_for(sid: str, cwd) -> str:
 
 _UNNAMED_MARKER = "<unnamed>"
 
-#: Rung 3 split into its two DISTINGUISHABLE outcomes (doe-claude-em,
+#: Rung 3 split into its two DISTINGUISHABLE outcomes (coordinator-content-repo-em,
 #: and rc 4 (record found, process gone). `_UNNAMED_MARKER` is retained above
 _NO_REGISTRY_RECORD_MARKER = "<no registry record -- not proof the session ended>"
 _NAME_UNRESOLVED_MARKER = "<name unresolved: registry lookup failed>"
@@ -208,7 +208,7 @@ def _render_claimant_name(sid: str, path: str, lookup_result) -> str:
     a caller cannot tell "re-check this against a workstream path" from
     "distrust this column entirely" when both print the same token. The
     split mirrors ``resolve-peer-address.py``'s own rc 3 / rc 4 distinction,
-    which doe-claude-em's memo asked be kept intact at this seam.
+    which coordinator-content-repo-em's memo asked be kept intact at this seam.
 
     RENDERED AS PROVENANCE, NEVER AS AN ADDRESS. Rung 1's name is an
     identity the CLAIMANT claimed for itself at write time, not a live

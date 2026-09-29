@@ -8,7 +8,7 @@ handoffs, actioned memos). That op is KILLED, not suspended — it measured
 kill bar means kill forever. The dial could only ever refuse.
 
 What the dial cost, measured rather than supposed: 49 refusals in 28 hours in
-Claude-klabauter and 32 in DoE-claude, from 55 distinct sessions, one per session
+Claude-klabauter and 32 in coordinator-content-repo, from 55 distinct sessions, one per session
 boot. The cost was never just the wasted call. The refusal came back through
 `route_mutation`, whose warm client blocks up to 15s waiting for a respawned
 server before it can deliver the error — so every session on a ~50-session box

@@ -10,7 +10,6 @@ allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskU
 # coordinator:review
 
 <!-- Purpose: Merged decision-tree router for plan-review, code-review, and roadmap/sprint-review workflows, arg-branched on --surface plan|diff|roadmap. Covers outgoing (pre-flight + dispatch) and incoming (applied-findings triage) directions for both surfaces. Does NOT cover the frozen weekly diff at /workweek-complete Step 7 — that is coordinator:parallel-code-review. -->
-<!-- spec-backlink: archive/specs/2026-05/2026-05-06-review-code-super-skill.md — --surface diff merge parent (spec_backlink field above carries only the --surface plan spec). -->
 
 **Trigger:** a reviewable artifact exists — a plan/design doc/RFC, a code change, or a roadmap spine/sprint slice — outgoing when nothing on it has been reviewed yet, incoming when a reviewer's findings have landed.
 
@@ -32,11 +31,10 @@ _A reviewable artifact exists for `--surface`, no reviewer invoked yet this iter
 
 **Reviewers don't execute.** Bash is read-only inspection — no interpreter, scratch files, or test runs. A runtime claim gets the EM running the probe before dispatch and pasting its output into the brief as evidence, never a task. The verdict's `executed: <yes|no>` discloses whether a WARN was empirically checked or hand-traced.
 <!-- Review: code-reviewer — Finding: reviewers must never execute; a runtime claim is EM-verified before dispatch, not delegated to the reviewer's own Bash. -->
-<!-- Spec backlink: archive/completed/2026-06/2026-06-30-reviewer-selfpersist-naked-dispatch-ad0a71.md — code-reviewer's diff-only Sonnet pattern, no -selfpersist variant. -->
 
 ### A.2 — Reviewer selection and dispatch
 
-<!-- engine-gap: field=review.reviewer_selection producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=review.reviewer_selection producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
 Reviewer selection (routing-table match, tier precedence, effort) is a signal-lookup a program can compute; no producer AUTOMATES it yet — the plan carries the input, nothing yet merges it at dispatch time. Until then:
 
 - **Routing table:** merge `coordinator/routing.md` with every enabled plugin's `routing.md` fragments into one composite table; match signals to identify Reviewer 1 (domain specialist) and Reviewer 2 (generalist, if needed) — same table both surfaces.
@@ -50,28 +48,24 @@ Reviewer selection (routing-table match, tier precedence, effort) is a signal-lo
 **Pipeline phases** (docs-checker, prior-art-checker/plan-coverage-checker, external-pattern-checker, backstop, report) aren't optional — walk them inline per the surface's assembled phase list. The reviewer applies its own findings; there is no separate integrate phase.
 
 **Persist findings on the pre-provisioned sidecar** (`state/subagent-share/<session>/<provision_key>.md`, already in the dispatch brief — `staff-eng-review` for personas, `review-findings` for `code-reviewer`) via **Edit**, not a Bash redirect or hand-scaffold.
-<!-- Spec backlink: archive/specs/2026-07/2026-07-24-reviewer-sidecar-provisioning-reconciliation.md (chunk C3) — pre-provisioned sidecar path, Edit not Bash redirect. -->
 <!-- Review: code-reviewer — Finding: pipeline phases run inline per the assembled phase list; the reviewer applies its own findings, there is no separate integrate phase. -->
 
 **Persona/Opus reviewer** applies every finding in place, writes the `## Findings Ledger` to its sidecar, runs `review-findings-ledger verify --sidecar <path>`, and returns `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`; the EM reads the applied diff and the verified ledger. `code-reviewer`'s diff-only Sonnet pattern is assembled by the op.
 
 **Multi-reviewer chain:** each reviewer gets its own provisioned sidecar, applies its own findings, and verifies its own ledger against its returned path. A trivial/unfilled returned sidecar fails loud (BLOCKED) at intake.
-<!-- Spec backlink: coordinator/docs/wiki/reviewer-pipeline.md § Phase 3.5 — multi-reviewer chain, each reviewer verifies its own ledger. -->
-<!-- Spec backlink: archive/specs/2026-05/2026-05-24-acceptance-oracle-with-teeth.md §2.5 — review-skill offer. -->
 
 ### A.3 — Sequencing
 
-<!-- Review: code-reviewer — Finding: code review over a diff runs as one parallel wave, then exactly one integration pass; plan review over one artifact stays ordered. -->
-**Code review (a diff) is one parallel wave, then exactly one integration pass.** Slice-owning
-reviewers apply their findings inside disjoint file slices, in parallel; whole-diff lenses (Kira,
-the named personas) are findings-only in that same wave. Exactly one integration pass then applies
-the residue: the out-of-slice findings and the whole-diff lenses' findings. There is no second
-review round — an unresolvable finding goes to the PM, never to another reviewer. The invariant is
-"no two writers on one file at once", not "no two readers": whole-diff lenses may read the same
-diff concurrently with the slice wave because they write nothing. This runs inside the execute
+<!-- Review: code-reviewer — Finding: code review over a diff runs as one parallel wave where every reviewer applies its own findings; plan review over one artifact stays ordered. -->
+**Code review (a diff) is one parallel wave, and every reviewer applies its own findings.**
+Slice owners, Kira and the named personas all apply in place with exact-text `Edit`s, including
+findings outside their own slice. Nothing downstream applies findings; only a rebuild verdict
+goes back to the EM. There is no second review round. The invariant is
+"no write against stale text": every writer applies with an exact-text `Edit`, which fails rather
+than clobbers when another writer moved the text first. This runs inside the execute
 workflow's review stage (`coordinator/skills/execute-plan/SKILL.md`); a diff reviewed outside that
-workflow (`/review-code` ad hoc) still applies and verifies its own findings ledger before a second
-reviewer touches the same diff, because there is no slice partition to make the writes disjoint.
+workflow (`/review-code` ad hoc) applies and verifies its own findings ledger before a second
+reviewer touches the same diff.
 
 **Plan review over one plan artifact stays ordered.** Reviewers apply their findings in place on
 the plan body, so Reviewer 1 applies and verifies its own findings before Reviewer 2 is dispatched.
@@ -127,7 +121,6 @@ sidecar at `.coordinator-local/plan-sidecars/<plan-stem>.<lens>.md`? → dispatc
 with the lens sidecar path + adjudicated items instead; a pre-flight lens sidecar is never a
 findings-ledger sidecar. Never hand-author around this.
 <!-- Review: code-reviewer — Finding: a pre-flight lens sidecar is never a findings-ledger sidecar; route each to its own consumer, never hand-author around the split. -->
-<!-- Spec backlink: state/cross-repo/archive/2026-07-23-example-cockpit-repo-em-mise-en-place-run-friction-five-observations.md § 3 — provenance gate resolves before triage. -->
 
 **An artifact-shape tradeoff** (architectural direction, scope, sequencing, file organization,
 abstraction boundary) the reviewer applied anyway is exactly the case the EM's double-check exists

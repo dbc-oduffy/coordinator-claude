@@ -13,7 +13,7 @@ tools needed to repair it (Write, Edit, Bash) being exactly the tools the
 break disabled. A guard that runs through the tool it guards can detect a
 break but never repair it — see
 docs/plans/2026-07-29-windows-viability-stop-the-spawn-storms.md WS-9 / AC-28
-and DoE-claude state/2026-07-29-deleted-hook-scripts-bricked-every-write.md.
+and coordinator-content-repo state/2026-07-29-deleted-hook-scripts-bricked-every-write.md.
 
 Layers checked, what's auto-repairable vs. detect-only, and the reasoning
 behind the split all live in the actual implementation's module docstring:

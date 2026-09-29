@@ -24,7 +24,7 @@
 # needing to travel. Add one line per addon concern you register:
 # <concern>.toml
 #
-# Root pointers — one machine's repo path. Siblings of the .doe-root the
+# Root pointers — one machine's repo path. Siblings of the .content-root the
 # meta-repo's own .gitignore already anchors, and the same class. Matched by
 # shape, not by name: a pointer named after a repo this operator happens to
 # have registered must never need a new line here to stay out of git, because

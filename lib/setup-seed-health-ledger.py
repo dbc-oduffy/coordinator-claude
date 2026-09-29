@@ -29,7 +29,7 @@ Exit codes: 0 — ledger seeded or already present (idempotent no-op); 1 — bad
 REPO_ROOT, or state/ directory/ledger file could not be created (fail-loud —
 this is a setup-time gate/config-writer, not a never-block hook).
 
-Spec backlink: DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
+Spec backlink: coordinator-content-repo:pln-bash-polyglot-clean-slate-full-5c71ee
 """
 
 from __future__ import annotations

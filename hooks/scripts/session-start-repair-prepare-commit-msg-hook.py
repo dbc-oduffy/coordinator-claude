@@ -18,7 +18,7 @@ executable surface + its tests to the engine repo (1135 files)") relocated
 and into the engine repo — but did not repoint any shim installed BEFORE
 that migration ran. A shim installed pre-migration hardcodes a path into
 this doctrine repo that no longer holds the file; every one of its three
-fallback rungs (the hardcoded path, the `.doe-root`-relative path, and the
+fallback rungs (the hardcoded path, the `.content-root`-relative path, and the
 installed-plugin path) also resolves inside this doctrine repo, so NONE of them reaches the
 script's new home. The shim's own `[ -f "$SCRIPT" ] || exit 0` contract is
 correctly fail-open — it does not error, it just silently never stamps a
@@ -38,7 +38,7 @@ same-repo, same-session action; there is no engine-plane file to edit that
 would reach this stale-on-disk shim (it was already materialized before the
 migration and nothing re-materializes it automatically). This hook is the
 doctrine-plane-resident repair, following the identical self-heal shape as
-`session-start-register-doe-claude-root.py` (read this file first if
+`session-start-register-coordinator-content-repo-root.py` (read this file first if
 editing this one; mirrors its structure, error handling, docstring style,
 and fail-open contract byte-for-byte).
 
@@ -54,7 +54,7 @@ Contract:
             `__file__`/cwd, never trusts payload fields for a path).
   stdout  — NOTHING (registered `async: true` — this hook's whole value is
             the file-repair side effect, not context-bound output; mirrors
-            the boot-sweep / doe-claude-root-registration hooks' own
+            the boot-sweep / coordinator-content-repo-root-registration hooks' own
             "no context-bound stdout -> async is correct" reasoning).
   exit 0  — ALWAYS. FAIL OPEN at every step, unconditionally: a SessionStart
             hook that raises greets every session with a stack trace, worse
@@ -90,7 +90,7 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root
 except Exception:
-    # Defensive fallback — see session-start-register-doe-claude-root.py's
+    # Defensive fallback — see session-start-register-coordinator-content-repo-root.py's
     # identical precedent for why an import failure must degrade quietly
     # rather than crash a SessionStart hook.
     def _resolve_claude_klabauter_root():  # type: ignore[no-redef]
@@ -145,13 +145,16 @@ def _candidate_script_paths(repo_root: str) -> list[str]:
     """
     candidates = [str(Path(repo_root) / _SCRIPT_RELATIVE)]
 
-    doe_root_pointer = Path.home() / ".claude" / ".doe-root"
-    try:
-        doe_root = doe_root_pointer.read_text(encoding="utf-8").strip()
-    except Exception:
-        doe_root = ""
-    if doe_root:
-        candidates.append(str(Path(doe_root) / _SCRIPT_RELATIVE))
+    content_root = ""
+    for pointer_name in (".coordinator-content-root", ".content-root"):  # .content-root: compat-fallback
+        try:
+            content_root = (Path.home() / ".claude" / pointer_name).read_text(encoding="utf-8").strip()
+        except Exception:
+            content_root = ""
+        if content_root:
+            break
+    if content_root:
+        candidates.append(str(Path(content_root) / _SCRIPT_RELATIVE))
 
     claude_klabauter_root = None
     try:

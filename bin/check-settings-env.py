@@ -1,6 +1,6 @@
 """check-settings-env — assert `settings.json`'s `env` block carries the VALUES the manifest requires.
 
-WHY THIS EXISTS. DoE-claude's `templates/settings-manifest.md` § Environment Variables names the
+WHY THIS EXISTS. Coordinator-content-repo's `templates/settings-manifest.md` § Environment Variables names the
 env values every machine needs, and several of them gate whether a tool exists at all — not how it
 behaves. A wrong value does not error: the tool is simply absent from the model's surface, and the
 session reports the capability as missing from this build. `/coordinator:install` checked only
@@ -23,9 +23,9 @@ and reported, never repaired.
 
 WHY VALUES LIVE HERE AND NOT IN THE MANIFEST. The manifest's cells carry prose conditions a parser
 would have to guess at ("`"1"` on a Windows host under a no-Bash directive; unset elsewhere"). The
-executable spec is `_SPEC` below; DoE-claude `tests/test_settings_env_manifest_parity.py` pins it
+executable spec is `_SPEC` below; coordinator-content-repo `tests/test_settings_env_manifest_parity.py` pins it
 against the manifest table so the two cannot drift apart silently in either direction — the manifest
-itself stays a published doctrine asset in DoE-claude, resolved through the plugin root, never
+itself stays a published doctrine asset in coordinator-content-repo, resolved through the plugin root, never
 copied here.
 
 Zero-spawn: stdlib only, no subprocess. Safe to run at a cadence on a box carrying a dozen-plus

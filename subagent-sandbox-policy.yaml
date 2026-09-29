@@ -260,6 +260,7 @@ dispatch_tier:
   
   
   coordinator:queue-grind-op-runner: exploration
+  coordinator:delivery-verifier: exploration
   
   
   coordinator:blitz-em: exploration
@@ -567,6 +568,8 @@ contract_blocks:
   coordinator:subtractive-adjudicator:
     - inline-return-cap
   coordinator:queue-grind-op-runner:
+    - inline-return-cap
+  coordinator:delivery-verifier:
     - inline-return-cap
 
 

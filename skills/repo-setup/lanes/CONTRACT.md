@@ -3,7 +3,6 @@ purpose: >
   Types the three repo-setup lane files (`new-project.yaml`, `add-existing-project.yaml`,
   `add-repo.yaml`) so a caller — human or button — can fire `repo-setup-assemble` unattended
   with every `round_trip` judgment point pre-answered.
-census_backlink: ".coordinator-local/plan-sidecars/2026-08-20-repo-setup-computed-form.census-steps.md"
 contract_version: "1.0.0"
 ---
 
@@ -97,8 +96,7 @@ resolves by `judgment_points[].id`. No corpus rule equates the two identifiers t
 engine side to state the basis). Each lane file's `round_trip_directives[]` and
 `terminal_offer_defaults[]` entries therefore carry BOTH:
 
-- `step_id` — the census identifier, stable and joinable against
-  `.coordinator-local/plan-sidecars/2026-08-20-repo-setup-computed-form.census-steps.md`.
+- `step_id` — the census identifier, stable and joinable against the originating census.
 - `engine_judgment_point_id` — placeholder, `null` until the engine side's answer to C1 fixes the
   resolution shape. A later contract shape-change is then a mechanical remap of this one field,
   not a re-authoring of the lane files.

@@ -1127,7 +1127,7 @@ def _proceed_body(hook_event_name: str, cause: str) -> bytes:
             "additionalContext": (
                 "COORDINATOR GUARD DEGRADED (rung 3 of 3, proceeding): {0}, and the in-process "
                 "cold evaluation could not run either. The command was NOT evaluated by any "
-                "guard and is proceeding under the harness's normal permission flow, per DR-402 "
+                "guard and is proceeding under the harness's normal permission flow "
                 "-- these guards are performance and ergonomics instruments, not security "
                 "controls, and failing closed on an unreachable engine borks the fleet for no "
                 "good reason. This is recorded at {1}. If you are seeing this repeatedly, the "
@@ -1220,21 +1220,21 @@ def _normalize_clone_root(raw: str) -> Optional[Path]:
     does not name a real clone -- never a prefix match, never a best-effort pick (see module
     docstring / CHUNK B2 brief).
 
-    Chunk B's two Windows launchers (`claude-doe-launcher.cmd.tmpl`, `.ps1.tmpl`) export the
+    Chunk B's two Windows launchers (`claude-author-launcher.cmd.tmpl`, `.ps1.tmpl`) export the
     **repo root** (the doctrine repo's own clone directory), not the plan C1 body's "resolved
     coordinator dir" (`<repo root>/coordinator`) -- verified by reading the templates as they
     stand on disk, not the plan text. The POSIX leg exports from a different site,
     and the distinction matters to anyone reasoning about who arrives header-less.
-    `claude-doe-shim.sh.tmpl` itself exports NOTHING and must not -- it resolves no plugin dir,
-    and DR-087 forbids promoting its `.doe-root` pointer to rung-1 authority (negative-spec
+    `claude-author-shim.sh.tmpl` itself exports NOTHING and must not -- it resolves no plugin dir,
+    and DR-087 forbids promoting its `.content-root` pointer to rung-1 authority (negative-spec
     pinned in `test_launcher_templates_export_clone_root.py`). It delegates instead, terminating
-    in `claude-doe`, and the engine's `coordinator/bin/claude-doe.py:650` does the
+    in `claude-author`, and the engine's `coordinator/bin/claude-author.py:650` does the
     `setdefault` ABOVE its `os.name == "nt"` branch, so it runs on every platform. A
     shim-launched POSIX session therefore DOES carry the header, and `_extract_cwd` is its
     second identity source rather than its only one.
 
     The population that genuinely rests on `_extract_cwd` alone is narrower than "POSIX": a
-    session that bypasses `claude-doe` entirely -- a hand-run `claude --plugin-dir`, which
+    session that bypasses `claude-author` entirely -- a hand-run `claude --plugin-dir`, which
     `INSTALL.md` documents as supported. This resolver accepts
     either shape without favouring one: a header value whose final path segment is literally
     `coordinator` is treated as `<repo root>/coordinator` and folded back to its parent (the repo

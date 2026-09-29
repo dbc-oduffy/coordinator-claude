@@ -14,6 +14,6 @@
 <!-- `subagent-sandbox-preamble.md` KEEPS its own resident copy of this line (its six consumers are -->
 <!-- all class 2, so its membership already matches a class exactly); this injected block does not -->
 <!-- also target them, to avoid a doubled clause. Not pasted by verify-snippet-sync. -->
-<!-- named-dispatch-clause: relay — machine-read by test_reporting_type_set_matches_the_agent_definitions to decide whether a type this block is injected into counts as clause-carrying. `relay` names how the report reaches the dispatcher and IS the clause; `backstop` warns without prescribing a route and is NOT, so class 3 stays disjoint from the clause-carrying set. -->
+<!-- named-dispatch-clause: relay — machine-read by test_reporting_type_set_matches_the_agent_definitions to decide whether a type this block is injected into counts as clause-carrying. `relay` names how the report reaches the dispatcher and IS the clause; `backstop` warns without prescribing a route and is not, so class 3 stays disjoint from the clause-carrying set. -->
 
 **Named dispatch?** A teammate's return text never arrives — `SendMessage` this pointer to `"main"`.

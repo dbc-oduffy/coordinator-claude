@@ -57,12 +57,12 @@ Every caller follows this exact sequence. Do not embed variant logic — gate un
 ```bash
 # 0. Resolve + validate the trusted root (guard doctrine: CLAUDE-PLUGIN-ROOT-SOURCE-GUARD, coordinator/docs/wiki/coordinator-tripwires/draft-plan-aging.md)
 # POSIX-host form; a PowerShell host resolves the trusted root by its own PowerShell-native path.
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.doe-root" 2>/dev/null || cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.doe-root" 2>/dev/null || true)"
+_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.content-root" 2>/dev/null || cat "${CLAUDE_HOME:-$HOME}/.claude/.content-root" 2>/dev/null)/coordinator}"
+_cc_doe="$(cat "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.content-root" 2>/dev/null || true)"
 if [ -z "$_cc_doe" ]; then
-  _cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
+  _cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.content-root" 2>/dev/null || true)"
 fi
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
+_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .content-root
 _cc_trusted=0
 case "$_cc_root" in
   "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
@@ -71,7 +71,7 @@ esac
 case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
 [ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
 [ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
+[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.content-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
 
 # 0b. Resolve the claude-klabauter root — check-rag-state.py / generate-repomap.py migrated there
 # (coordinator bin/lib -> claude-klabauter).
@@ -112,10 +112,10 @@ block in a guard that exits 0 on any failure:
   # Advisory-hook resolve (Variant B, fail-open — SSOT: coordinator/snippets/cc-root-source-guard.md).
   # Never hard-exits; a hook must not terminate the hook chain on an untrusted/unresolved root.
   # POSIX-host form; a PowerShell host resolves the trusted root by its own PowerShell-native path.
-  _cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.doe-root" 2>/dev/null || cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-  _cc_doe="$(cat "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.doe-root" 2>/dev/null || true)"
+  _cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.content-root" 2>/dev/null || cat "${CLAUDE_HOME:-$HOME}/.claude/.content-root" 2>/dev/null)/coordinator}"
+  _cc_doe="$(cat "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.content-root" 2>/dev/null || true)"
   if [ -z "$_cc_doe" ]; then
-    _cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
+    _cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.content-root" 2>/dev/null || true)"
   fi
   _cc_doe="${_cc_doe%/}"
   _cc_trusted=0

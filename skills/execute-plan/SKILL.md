@@ -24,8 +24,8 @@ Executing a plan is restructure-then-dispatch, not "type the plan's steps": buil
 dispatch-gate graph, decompose into per-chunk dispatches — parallel where gates allow, serial
 where they don't, default vehicle a background Workflow. A serial chain is still N fresh
 dispatches with EM-verify between, never one long-lived executor. No per-chunk reviewer gate —
-code review is the emitted workflow's own review stages (one parallel review wave, then one
-integration pass, partitioned into disjoint file slices at or above `review-brightline-gate`),
+code review is the emitted workflow's own review wave (every reviewer applies its own findings;
+partitioned into file slices at or above `review-brightline-gate`),
 run once per plan after every row has written, on every plan at every size. The EM never
 hand-dispatches a reviewer after the workflow returns. Tripwire:
 `CODE-REVIEW-IS-A-STAGE-OF-THE-EXECUTE-WORKFLOW`. **EM-verify means the EM itself runs the chunk's
@@ -136,7 +136,7 @@ Claim the plan (`session-claim-cli claim-plan <slug> --for-execution`) before an
 — a live peer holding it means reconcile with them first, never race. A live holder that has
 formally handed off — relinquishment evidence present, not mere liveness — is not "reconcile with
 them"; `take_over_claim` is the named next move, fail-loud without evidence and never a bare retry
-of `claim-plan` (`docs/decisions/DR-205-claim-relinquishment-is-not-liveness.md`). **`--for-execution` is not
+of `claim-plan` (relinquishment is evidence, not liveness). **`--for-execution` is not
 optional here.** It is what flips the plan to `status: executing`, and this step is its only
 caller fleet-wide; a bare `claim-plan` takes the lock and leaves the plan reading `draft` through
 its entire execution. The flag is scripted into this step, not typed by the EM — the rung stays
@@ -273,7 +273,7 @@ carries every open wave, preflight through the review stages and the terminal te
 once is the whole plan. There is no `Commit wave N` phase and no `COMMIT-LANDED <sha>` anywhere in
 it — the Workflow never commits, and the run's one commit (`dispatch.terminal_commit`, below) is an
 EM act after the workflow returns, not a phase inside it. When a run halts — a BLOCKed executor, a
-review-wave verdict of BLOCKED/FAIL, or an integration pass leaving `unresolved[]` non-empty — the
+review-wave verdict of BLOCKED/FAIL, or a rebuild verdict — the
 recovery is `Workflow({scriptPath, resumeFromRunId: <run>})` in the same session — but resume
 alone does not recover. Resume serves the longest UNCHANGED prefix of `agent()` calls from cache,
 and the halting call *completed* with its refusal/BLOCKED verdict; that verdict is cached.
@@ -313,11 +313,11 @@ not copy the `CronCreate`/`RemoteTrigger` refusal in
 decision, and a fired workflow has none to protect.
 
 **Completion — the terminal commit is the EM's first act, not a phase inside the workflow.** The
-review stages (one parallel review wave, one integration pass) run inside the fired workflow,
+review wave runs inside the fired workflow,
 against the working tree — nothing commits mid-run. When the workflow returns, the EM's first act
 is `coordinator-invoke dispatch.terminal_commit` with `script_path` plus the wake digest's
 `next_action.params`, relayed verbatim (M1 § D3). This is the run's ONE commit — it lands every
-row's work and the review-integration fixes together, carrying the `Inline-Review:` trailer — and
+row's work and the reviewers' fixes together, carrying the `Inline-Review:` trailer — and
 until it runs, an EM-fired run has landed nothing. There is no per-wave commit agent and no
 `Commit wave N` phase to resume into; resume-after-halt keys on the terminal-commit refusal, never
 on a commit-agent state.
@@ -400,12 +400,10 @@ The engine-side half of this same join defect is the engine repo's, tracked at t
 `state/sizings/2026-08-08-close-out-and-stamp-no-join-candidates-s.yaml` — one contradiction, not
 two independent bugs.
 
-This defect has been found three times independently and credited zero:
-`state/lessons/2026-07-27-the-chunk-shipped-recovery-signal-keys-o-4eb89c9a1830.yaml` ("corroborate
-against the other two legs of the triple ... plus a git log by chunk-id subject unscoped by path")
-and `state/lessons/2026-07-31-a-closure-detector-keyed-on-the-plan-pat-83ecabed9809.yaml` ("key the
+This defect has been found three times independently and credited zero: corroborate against
+the other two legs of the triple, plus a git log by chunk-id subject unscoped by path; key the
 detector on something the permitted writer produces (the chunk-id commit subject anywhere in
-range, not filtered by path)").
+range, not filtered by path).
 
 **`close-out-and-stamp` reads no commit message at all.** The commit-subject/`Deliverable-Id`-trailer
 join was deleted — not narrowed — on measured low recall; its absence is a

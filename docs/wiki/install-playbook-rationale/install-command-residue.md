@@ -9,7 +9,7 @@ procedure. Organized by the install-doc heading it was cut from.
 
 `uninstall.md` is the tested, symmetric counterpart — it reverses every
 out-of-repo surface this install writes (settings.json hook block, shell
-shim/wrapper, machine-local registry keys, venv, `.doe-root` pointer,
+shim/wrapper, machine-local registry keys, venv, `.content-root` pointer,
 `~/.claude/bin/` forwarders, plugin wiring), snapshot-independent. A new
 surface added to install gets a matching removal step there in the same change.
 
@@ -472,6 +472,8 @@ doing, point them at `/workstream-start` and stand down gracefully.
 
 ## Engagement posture — exact question text
 
+The script (`coordinator_install.py`, `POSTURE_QUESTION` / `POSTURE_OPTIONS`) is the canonical source; the text below mirrors it.
+
 *"How do you want the coordinator EM to work with you day to day?"*
 
 - **Precision** — "I want to be consulted often and closely, before things
@@ -492,25 +494,31 @@ if they want to be asked before things change.
 
 ## Phase 7 — exact closing-message text
 
-While `orientation` is `PENDING`:
+The install script's result block is the status table. There is no restart gate: the tour
+(Movements 2-4 of `getting-started.md`) runs in the same session.
 
-> "Setup wired your environment. Next required step — restart Claude Code,
-> then say 'walk me through the coordinator' to finish tailoring it to you."
+While the tour is pending:
+
+> "Setup wired your environment. Say 'yes' and I'll walk you through the rest of the coordinator
+> now, or 'later' and say 'walk me through the coordinator' whenever you're ready."
 
 Once `orientation_completed` is recorded:
 
 > "You're all set up — say 'walk me through the coordinator,' or tell me what
 > you want to build."
 
+When the result block reports `restart_needed`, add one line: settings env values and MCP
+registrations apply from the next session; nothing else waits on it.
+
 **Standing sign-off note**, included verbatim in every next-steps block (not
 `--check-only`):
 
 > Your `~/.claude` is the surface you evolve — git-track it and back it up;
 > the coordinator plugin source lives in the doctrine-plane clone
-> (`repos.doe_claude`), resolved live via `claude-doe`. Bare `claude` works
-> via the installed `claude()` shim — it reads the `.doe-root` pointer and
-> delegates to `claude-doe` automatically. If not yet active in your current
-> shell, run `claude-doe` directly or open a new terminal. Never copy plugin
+> (`repos.content_root`), resolved live via `claude-author`. Bare `claude` works
+> via the installed `claude()` shim — it reads the `.content-root` pointer and
+> delegates to `claude-author` automatically. If not yet active in your current
+> shell, run `claude-author` directly or open a new terminal. Never copy plugin
 > source into `~/.claude/plugins/`.
 
 **Bootstrap offer**, interactive, not `--check-only`, when

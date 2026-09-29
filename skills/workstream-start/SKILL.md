@@ -16,15 +16,17 @@ at specific work.
 
 ## Setup-freshness probe
 
-If `state/.repo-setup-just-ran` exists, `/repo-setup` just ran — delete it immediately (before
-printing anything), then emit the notice below and stop:
+If `state/.repo-setup-just-ran` exists, `/repo-setup` just ran. Delete it immediately (before
+printing anything), print one line — `Setup just ran; running orientation once now.` — and
+continue with Orient. Orientation runs exactly once per repo on a fresh setup; the sentinel never
+suppresses it.
 
-> Setup just ran — your orientation is current. /workstream-start is for sibling EMs or
-> post-restart sessions, not the operator who just set up. Use /workday-start tomorrow; to start
-> work now, just describe it.
-
-<!-- engine-gap: field=session.setup_just_ran producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=session.setup_just_ran producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
 Single-shot; race window and lifecycle: wiki.
+
+**Machine profile.** A consumer box is one where `machine-local get coordinator.machine_profile`
+prints `consumer`, or prints nothing and no `repos.*` path holds a `.coordinator-dev-repo` file.
+Author-only steps below say so; on a consumer box skip them without comment.
 
 ## Orient
 
@@ -32,7 +34,8 @@ The session-cadence orient spine (health, staleness, handoff triage, branch chec
 computed for you. PowerShell hosts (Shape W,
 `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\orient-assemble.exe" brief --cadence session`. Read the JSON. Every `directives[]` entry names a CLI to run when not
-`already_satisfied`; every `judgment_points[]` entry is an open branch to resolve yourself —
+`already_satisfied`; on a consumer box skip any entry that reads fleet state (group-EM watch,
+cross-repo memo inbox, fleet registries, cockpit); every `judgment_points[]` entry is an open branch to resolve yourself —
 present each with its `dispositions[]`, pick, don't drop any. Don't hand-run what these compute.
 
 **Do NOT load, summarize, or act on any handoff the orient output surfaces** — a `ready-to-fire`
@@ -41,7 +44,7 @@ up (link, name, or "pick up that handoff"), read the full file; sets `HANDOFF_LO
 Engage below — or the PM uses `/pickup` directly. A markdown in `state/handoffs/`, `tasks/`, or
 `archive/` may already be addressed by commits landed after it was authored — verify before
 treating it as pending.
-<!-- engine-gap: field=handoffs.stale_advisory_reconcile producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=handoffs.stale_advisory_reconcile producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
 
 **Route-to-baton default:** a memo/finding/triage item inside an active handoff's scope
 (`state/handoffs/*.md`, `status: open|claimed`) gets a dated `## Routed from inbox triage
@@ -72,8 +75,9 @@ everything that follows: main is read-only. Stay on a non-main branch if on one 
 covers an environment-designated day branch (e.g. a cloud harness's checkout, recorded as
 `coordinator.dayBranch`): the engine's day-branch oracles honour it, whatever its shape, so
 nothing here needs a separate cloud rule. On main, run `sync-main --quiet` (report divergence
-first), then create the default `work/{machine}/{date}` (`-2` on collision) — superseded by the
-branch-day-span directive when present. Diverged from `main` >2 days → recommend
+first), then — author box only — create the default `work/{machine}/{date}` (`-2` on collision),
+superseded by the branch-day-span directive when present. A consumer box stays on the branch it
+is on and cuts nothing. Diverged from `main` >2 days → recommend
 `/merging-to-main`, wait for the PM; ≤2 days → continue silently.
 
 ### Context load — not part of the shared spine
@@ -96,11 +100,11 @@ writer), so this marks the historical trail's stopping point, not a live un-revi
 `docs/guides/`/`docs/research/` without an index → note `/update-docs` builds one.
 `fan-out-dispatch.py` — use instead of hand-authoring parallel executor prompts.
 
-**Delegation (game-dev).** `project_type: game-dev` + `unreal` in `project_subtypes`
+**Delegation (game-dev, author box only).** `project_type: game-dev` + `unreal` in `project_subtypes`
 (`coordinator.local.md`) → dispatch `Agent(subagent_type='example-game-repo-control:ue-{domain}')` for
 single-domain work (Blueprint graph needs ue-asset-author); 8 tools direct for fact-finding.
 
-**Project-RAG.** MCP available → call `project_subsystem_profile()` (no args), report the count;
+**Project-RAG (author box only).** `project-rag` MCP available → call `project_subsystem_profile()` (no args), report the count;
 prefer `project_subsystem_profile("<name>")` over Explore — deterministic, <200ms.
 
 ---
@@ -164,7 +168,7 @@ wiki.
    An acknowledged, unexpired red set whose delta is all-`persistent` advocates nothing from this
    predicate — correct silence, not a gap. Never runs the test tier itself, never blocks on it —
    only reads the record the engine's emitter already wrote.
-   <!-- engine-gap: field=test_red.advisory producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
+   <!-- engine-gap: field=test_red.advisory producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
 7. **Other** — ask the user to describe it; load relevant context.
 
 `$ARGUMENTS` provided → use it directly, skip the menu. Surface the tracker's ready/executing
@@ -176,4 +180,4 @@ generic categories. A fresh backlog item or ad-hoc ask with no sizing-object yet
 
 Briefly (2 lines): repo state (uncommitted changes may be a peer's), current branch. Orientation,
 not ownership.
-<!-- engine-gap: field=session.repo_status_summary producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=session.repo_status_summary producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->

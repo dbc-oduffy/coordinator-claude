@@ -4,7 +4,7 @@ installed on every box that runs a session here.
 
 `.git/hooks` is per-clone and untracked, so a gate chain that only an operator
 installs by hand is installed nowhere. It sat that way for weeks: the engine's
-installer (`coordinator_core.ops.install_doe_claude_precommit_hook`) existed
+installer (`coordinator_core.ops.install_content_root_precommit_hook`) existed
 and nothing called it, so the gates it installs -- the doctrine-surface
 admission leg, the doctrine-weight ratchet's enforcing leg, and the
 phantom-staged-deletion leg of the committer P0 -- never ran on any commit.
@@ -62,7 +62,7 @@ def main() -> int:
         if not engine_root:
             return 0
         place_engine_root_on_path(str(engine_root))
-        from coordinator_core.ops import install_doe_claude_precommit_hook as installer
+        from coordinator_core.ops import install_content_root_precommit_hook as installer
 
         target_cwd = _payload_cwd() or os.getcwd()
         captured = io.StringIO()

@@ -29,7 +29,7 @@ NOT folded, deliberately (see state/subagent-share/892113a3-8c0c-4fa8-bb68-
   - `sweep-boot.py` -- explicit handoff instruction (state/handoffs/
     2026-08-16-untitled-6c1eb4ae.md § Next Steps 1): its 30s timeout must
     not hide behind a short one. Stays its own standalone registration.
-  - `session-start-register-doe-claude-root.py` and `session-start-repair-
+  - `session-start-register-coordinator-content-repo-root.py` and `session-start-repair-
     prepare-commit-msg-hook.py` -- both registered `async: true` in the
     prior manifest (their whole value is a side-effect write with no
     context-bound stdout, DELIBERATELY kept off boot-latency). Folding an

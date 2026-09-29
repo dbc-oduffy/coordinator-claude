@@ -124,7 +124,7 @@ def _engine_sibling_record() -> dict:
 #: machine-local registry present (the plan's Anti-scope entry rules out the
 #: candidates: `_ENGINE_REPO_NAME` answers the sibling-routing question, not
 #: the OSS-reachability one; the machine-local `repos.*` registry and
-#: `.doe-root` are runtime-detected and absent by design on a fresh install;
+#: `.content-root` are runtime-detected and absent by design on a fresh install;
 #: `percolate-store.yaml`'s keep-set governs the publish transform, not
 #: detector input). The first name below is this repo: private, published
 #: verbatim to the OSS mirror, with no `source_map` row and never one,
@@ -133,7 +133,7 @@ def _engine_sibling_record() -> dict:
 #: forms only from a record entry's own declared `short_forms`, never from
 #: another entry's name.
 _PINNED_UNREACHABLE_RECORD: dict = {
-    "DoE-claude": {
+    "coordinator-content-repo": {
         "is_engine_sibling": False,
         "oss_reachable": False,
         "short_forms": (),

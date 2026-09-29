@@ -237,10 +237,10 @@ cluster = "system-prereq"
 weight = "cheap"
 interactivity = "silent"
 fix = "none"
-symptom_keywords = ["doe-root missing", "settings-home doe-root absent", ".doe-root pointer", "durable coordinator root pointer", "DR-072", "coordinator root unresolvable"]
+symptom_keywords = ["content-root missing", "settings-home content-root absent", ".content-root pointer", "durable coordinator root pointer", "DR-072", "coordinator root unresolvable"]
 triage = true
 severity_if_fail = "error"
-remediation = "No <settings-home>/machine-local/.doe-root pointer found (DR-072 durable location) and no legacy ~/.claude/.doe-root fallback either — re-run /coordinator:install to re-seed the durable coordinator-root pointer."
+remediation = "No <settings-home>/machine-local/.content-root pointer found (DR-072 durable location) and no legacy ~/.claude/.content-root fallback either — re-run /coordinator:install to re-seed the durable coordinator-root pointer."
 
 
 # install copy (usually ${CLAUDE_HOME:-$HOME}/.claude/setup/, PERCOLATE_ROOT
@@ -267,7 +267,7 @@ cluster = "structure"
 weight = "cheap"
 interactivity = "silent"
 fix = "none"
-symptom_keywords = ["claude-doe wrapper drift", "claude-doe stale", "wrapper byte copy stale", "claude-doe not updated", "launcher fix had no effect"]
+symptom_keywords = ["claude-author wrapper drift", "claude-author stale", "wrapper byte copy stale", "claude-author not updated", "launcher fix had no effect"]
 triage = false
 severity_if_fail = "degraded"
-remediation = "Re-publish the wrapper: re-run python scripts/setup.py (installer Step 3.5b, _install_claude_doe_wrapper in coordinator_core/install/maximalist.py) to sync ~/.local/bin/claude-doe from <claude_klabauter_root>/coordinator/bin/claude-doe.py"
+remediation = "Re-publish the wrapper: re-run python scripts/setup.py (installer Step 3.5b, _install_claude_author_wrapper in coordinator_core/install/maximalist.py) to sync ~/.local/bin/claude-author from <claude_klabauter_root>/coordinator/bin/claude-author.py"

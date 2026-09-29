@@ -1,6 +1,6 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """repo-setup-args-and-register.py — naked-Python port of the residual bash
-logic previously embedded in DoE-claude's `coordinator/skills/repo-setup/SKILL.md`.
+logic previously embedded in coordinator-content-repo's `coordinator/skills/repo-setup/SKILL.md`.
 
 Ports five concerns the skill's fenced bash blocks used to implement inline
 (2026-07-23 debash campaign, chunk C-REPOSETUP):
@@ -51,7 +51,7 @@ Machine-local reads/writes reuse `coordinator_core.install._shared`'s
 install/uninstall already use) rather than re-deriving a machine-local
 invocation ladder here.
 
-Spec backlink: DoE-claude coordinator/skills/repo-setup/SKILL.md
+Spec backlink: coordinator-content-repo coordinator/skills/repo-setup/SKILL.md
   §§ "Target-root resolution", "coordinator_whoami availability",
   "3d.5. docs/exec-summary.md", "3x. Fleet memo-destination registration"
 Port backlink: docs/plans (M3 chunk C-REPOSETUP, PM-authorized extirpation plan)
@@ -240,13 +240,12 @@ def cmd_whoami_status(args: argparse.Namespace) -> int:
 
 
 def _resolve_claude_klabauter_root_for_exec_summary(settings_home: "str | None") -> "str | None":
-    """Native mirror of the skill's claude-klabauter-root fallback chain used only by
-    the exec-summary generator lookup:
-    REPO_CLAUDE_KLABAUTER, falling back to COORDINATOR_ENGINE_ROOT (via the
-    accessor), falling back to `<settings-home>/machine-local/.claude-klabauter-root`,
-    falling back to `.claude/machine-local/.claude-klabauter-root` under CLAUDE_HOME or,
-    absent that, the platform home directory (USERPROFILE on Windows, HOME or
-    the passwd entry on POSIX).
+    """Native mirror of the skill's claude-klabauter-root lookup used only by the
+    exec-summary generator: REPO_CLAUDE_KLABAUTER, falling back to
+    COORDINATOR_ENGINE_ROOT (via the accessor). No pointer-file fallback:
+    absence fails loudly rather than falling back to a live-tree pointer
+    (PM ruling — no consumer of the published build has a claude-klabauter checkout,
+    and a fallback there is a false sense of security).
 
     C23: was a bare ``os.environ.get("CLAUDE_KLABAUTER_ROOT")`` with no new-name rung at
     all -- silently dark since C14 closed the dual-read window. Routed through
@@ -255,28 +254,7 @@ def _resolve_claude_klabauter_root_for_exec_summary(settings_home: "str | None")
     _bootstrap_engine()
     from coordinator_core.engine_root import coordinator_engine_root_env
 
-    candidate = os.environ.get("REPO_CLAUDE_KLABAUTER") or coordinator_engine_root_env(__name__)
-    if candidate:
-        return candidate
-
-    home = os.environ.get("CLAUDE_HOME") or os.path.expanduser("~")
-    resolved_settings_home = (
-        settings_home
-        or os.environ.get("COORDINATOR_SETTINGS_HOME")
-        or os.path.join(home, ".coordinator-claude-settings")
-    )
-    for pointer_path in (
-        os.path.join(resolved_settings_home, "machine-local", ".claude-klabauter-root"),
-        os.path.join(home, ".claude", "machine-local", ".claude-klabauter-root"),
-    ):
-        try:
-            with open(pointer_path, "r", encoding="utf-8") as handle:
-                value = handle.read().strip()
-            if value:
-                return value
-        except OSError:
-            continue
-    return None
+    return os.environ.get("REPO_CLAUDE_KLABAUTER") or coordinator_engine_root_env(__name__)
 
 
 def cmd_resolve_exec_summary_generator(args: argparse.Namespace) -> int:
@@ -284,7 +262,7 @@ def cmd_resolve_exec_summary_generator(args: argparse.Namespace) -> int:
 
         _cc_gen="$_cc_root/bin/generate-exec-summary.py"
         if [ ! -f "$_cc_gen" ]; then
-          _cc_claude_klabauter="${REPO_CLAUDE_KLABAUTER:-${CLAUDE_KLABAUTER_ROOT:-<pointer-file lookups>}}"
+          _cc_claude_klabauter="${REPO_CLAUDE_KLABAUTER:-${COORDINATOR_ENGINE_ROOT:-}}"
           [ -n "$_cc_claude_klabauter" ] && _cc_gen="$_cc_claude_klabauter/coordinator/bin/generate-exec-summary.py"
         fi
 
@@ -320,7 +298,7 @@ def cmd_resolve_exec_summary_generator(args: argparse.Namespace) -> int:
         print(
             "[repo-setup-args-and-register] generate-exec-summary.py unresolvable "
             "(checked coordinator/bin/ and the engine sibling via "
-            "REPO_CLAUDE_KLABAUTER/CLAUDE_KLABAUTER_ROOT/.claude-klabauter-root) — exec-summary "
+            "REPO_CLAUDE_KLABAUTER/COORDINATOR_ENGINE_ROOT) — exec-summary "
             "generation skipped",
             file=sys.stderr,
         )

@@ -1,9 +1,9 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """parallel-review-gate-decision.py — gate-decision assembler for the weekly
-parallel-code-review gate (DoE-claude coordinator/skills/parallel-code-review/
+parallel-code-review gate (coordinator-content-repo coordinator/skills/parallel-code-review/
 SKILL.md).
 
-Spec backlink: DoE-claude:pln-computed-skills-b8-review-ci-c-ffa5ad
+Spec backlink: coordinator-content-repo:pln-computed-skills-b8-review-ci-c-ffa5ad
 chunk C3 ("Extract parallel-code-review's gating Rules 1-4 (mechanical) +
 chunking algorithm into a gate-decision assembler; surface Rule 5's inputs
 without deciding it") and chunk C3b ("Upgrade C3's gate-decision assembler

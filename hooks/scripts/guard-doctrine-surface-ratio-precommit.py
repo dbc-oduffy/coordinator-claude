@@ -88,7 +88,7 @@ it becomes durable and travels).
 
 WHY THIS RIDES *THIS* SCRIPT rather than a new, separate pre-commit gate:
 the actual `.git/hooks/pre-commit` dispatch is wired by the engine repo's
-`coordinator_core.ops.install_doe_claude_precommit_hook._GATE_REGISTRY` (see
+`coordinator_core.ops.install_content_root_precommit_hook._GATE_REGISTRY` (see
 `coordinator/tests/test_doe_precommit_installer_registration.py`), a
 cross-repo file this repo cannot add an entry to unilaterally. A brand-new
 sibling script here would ship complete and tested and NEVER ACTUALLY RUN

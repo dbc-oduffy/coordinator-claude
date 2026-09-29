@@ -21,7 +21,7 @@ Environment: COORDINATOR_PLUGINS_ROOT (default ~/.claude/plugins),
 COORDINATOR_CONSUMER_HEALTH_ROOT (default ~/.claude),
 COORDINATOR_HEALTH_STALE_SEC (default 86400).
 
-Spec backlink: DoE-claude:pln-bash-to-naked-python-engine-mi-c09292 § T3a-g2/T3b
+Spec backlink: coordinator-content-repo:pln-bash-to-naked-python-engine-mi-c09292 § T3a-g2/T3b
 """
 
 from __future__ import annotations

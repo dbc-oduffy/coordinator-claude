@@ -21,7 +21,7 @@ artifacts — it does not reconstruct or re-author them.
 
 If `state/week-changelog/HEADER.md` doesn't exist, create it with the template below, then
 continue — no scaffold CLI covers this file yet.
-<!-- engine-gap: field=week_changelog.header_bootstrap producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=week_changelog.header_bootstrap producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
 If it already exists, skip silently — never overwrite an existing HEADER.
 
 ```markdown
@@ -103,7 +103,7 @@ repos). Kill-switch for the staleness banner: `COORDINATOR_EXECSUMMARY_STATUS_OF
 
 Days covered, implemented plans, blockers carried over, and priorities met vs. missed are
 engine-knowable but not yet emitted by any producer.
-<!-- engine-gap: field=week_changelog.prior_week_digest producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=week_changelog.prior_week_digest producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
 Until it lands, report: _"No engine-computed prior-week digest yet — see
 `state/week-changelog/*.md` for the raw record."_ Do not hand-derive the digest by reading and
 cross-referencing the daily files and priority fragments yourself.
@@ -114,7 +114,7 @@ cross-referencing the daily files and priority fragments yourself.
 
 Which `state/workstreams/` workstreams have had no commits in >7 days is engine-knowable but
 not yet emitted.
-<!-- engine-gap: field=tracker.stalled_workstreams producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=tracker.stalled_workstreams producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
 Report "no engine-computed staleness signal yet" rather than running `git log --since` per tracker
 branch.
 
@@ -124,7 +124,7 @@ branch.
 
 Upcoming `tasks/*-recheck-due-*.md` items due within 7 days are engine-knowable but not yet
 emitted.
-<!-- engine-gap: field=tasks.recheck_due_this_week producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=tasks.recheck_due_this_week producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
 
 ---
 

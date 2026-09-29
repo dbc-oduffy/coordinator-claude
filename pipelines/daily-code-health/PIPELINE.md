@@ -53,7 +53,7 @@ Domain still matters — but for **vocabulary and emphasis**, not reviewer ident
 
 If multiple domains are present, weight toward the dominant one (most files changed / most critical path). A finding that genuinely needs persona/Opus judgment is **flagged for the weekly arch pass** (`/workweek-complete` Step 7.5), not escalated to an Opus dispatch here.
 
-**Unattended review flow:** `coordinator:code-reviewer` self-persists by default — no pre-scaffold or claim marker required. The reviewer scaffolds its own sidecar in `<machinery_root>/subagent-share/<session-id>/` (DR-091's one home) and returns a pointer+verdict line.
+**Unattended review flow:** `coordinator:code-reviewer` self-persists by default — no pre-scaffold or claim marker required. The reviewer scaffolds its own sidecar in `<machinery_root>/subagent-share/<session-id>/` (the one home for every provisioned subagent sidecar) and returns a pointer+verdict line.
 
 1. First register the reviewed file list: `review-findings-ledger targets --add` for Step 1's diff scope. Then **dispatch `coordinator:code-reviewer`** (UNNAMED — no `name:` param), `run_in_background: true`, `--problems-only`. The reviewer scaffolds its own sidecar in `<machinery_root>/subagent-share/<session-id>/` via `coordinator-doc-new --type review-findings`, writes its findings there, and returns: `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`. Read the returned path; no EM pre-scaffold or claim marker.
 

@@ -2,7 +2,7 @@
 coordinator.bin.measure-listener-availability -- committed sampler for the http-transport
 fail-open exposure window.
 
-Ported from DoE-claude `coordinator/bin/measure-listener-availability.py` (W3-C1,
+Ported from coordinator-content-repo `coordinator/bin/measure-listener-availability.py` (W3-C1,
 `docs/plans/2026-09-18-doe-holds-no-scripts.md`). One path-resolution seam changed (§ Path
 resolution): DoE's copy resolved "the claude-klabauter engine clone" as a SIBLING repo, via a
 machine-local registry key (`repos.claude_klabauter`) read through a settings-home ladder --

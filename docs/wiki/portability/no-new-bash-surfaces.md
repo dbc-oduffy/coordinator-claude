@@ -150,7 +150,7 @@ Worked examples from a single sweep, useful as a bucketing template for future d
 - **`.sh` is a Windows bash-tax vector regardless of shebang** — the extension itself is what
   triggers the tax, not just shell content. `source` is the one exception: it is not a spawn, so
   a `source`d `.sh` does not pay the same fork/exec cost a spawned one does.
-- **Ratified FLOOR survivors:** `claude-machine-local.sh` and `claude-doe-shim.sh` are kept as
+- **Ratified FLOOR survivors:** `claude-machine-local.sh` and `claude-author-shim.sh` are kept as
   zero-fork, sourced-into-parent irreducibles — they are never spawned, only sourced, so the
   Windows tax does not apply to them.
 - **Killed:** `platform-localize.sh` (orphan, nothing referenced it) and `mint-deliverable-id.sh`

@@ -849,7 +849,7 @@ def _atomic_write_json(dest: Path, data: dict) -> None:
 # subprocess read). Imported directly via a scoped sys.path insert rather
 # than duplicated inline, per that manifest's own "edit HERE and nowhere
 # else" contract. The manifest module has no claude-klabauter/coordinator_core
-# dependency, so this import works unmodified in both the DoE-claude dev
+# dependency, so this import works unmodified in both the coordinator-content-repo dev
 # checkout and the standalone OSS publish repo this file percolates into
 # (see this file's own header — DELIBERATELY SELF-CONTAINED).
 

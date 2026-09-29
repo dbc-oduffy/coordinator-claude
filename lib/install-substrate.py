@@ -29,7 +29,7 @@ debt in `state/posix-exec-baseline.json`.
 Env:
     CLAUDE_PLUGIN_ROOT — required; the coordinator plugin install root (the DoE-owned
                           coordinator/ tree holding lib/ AND templates/). Resolved via
-                          doe_root() when unset — NOT from this file's own location.
+                          content_root() when unset — NOT from this file's own location.
     CLAUDE_HOME        — optional; $HOME substitute (see lib/claude-home).
     COORDINATOR_NON_INTERACTIVE — optional; "1" suppresses the AppX stub deletion
                           consent prompt. Any other value is treated as unset.
@@ -43,7 +43,7 @@ CLI flags (passed through to the claude-klabauter module's argparse):
     --check-only  — report would-do, write nothing.
 
 Ported to: coordinator_core.install.substrate [claude-klabauter repo] (T4a-g3b chunk).
-Spec backlink: DoE-claude:pln-bash-to-naked-python-engine-mi-c09292;
+Spec backlink: coordinator-content-repo:pln-bash-to-naked-python-engine-mi-c09292;
     coordinator/commands/install.md § Phase 3.
 """
 
@@ -58,7 +58,7 @@ if _BIN_LIB_DIR not in sys.path:
     sys.path.insert(0, _BIN_LIB_DIR)
 from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 from coordinator_data_root import content_root_or_private  # noqa: E402
-from coordinator_registry import _DoeUnresolvable, doe_root  # noqa: E402
+from coordinator_registry import _DoeUnresolvable, content_root  # noqa: E402
 
 
 def _derive_plugin_root() -> str:
@@ -73,8 +73,8 @@ def _derive_plugin_root() -> str:
     below rejected it on every run — `python <claude-klabauter>/coordinator/lib/
     install-substrate.py` could not execute from its own documented fence.
     A script whose required root is always a DIFFERENT repo's tree must not
-    infer it from its own path; doe_root() is the authority for "where is the
-    DoE-claude clone." A future reader must not "restore" __file__-based
+    infer it from its own path; content_root() is the authority for "where is the
+    coordinator-content-repo clone." A future reader must not "restore" __file__-based
     derivation to regain oracle parity — that is exactly what broke it. Same
     reasoning, same fix as install-sandbox-check.py::_resolve_coordinator_root.
     """
@@ -82,7 +82,7 @@ def _derive_plugin_root() -> str:
     if existing:
         return existing
     try:
-        resolved = doe_root()
+        resolved = content_root()
     except _DoeUnresolvable as exc:
         print(
             f"install-substrate: cannot resolve the coordinator plugin root ({exc}).",
@@ -90,9 +90,9 @@ def _derive_plugin_root() -> str:
         )
         print(
             "  Set CLAUDE_PLUGIN_ROOT explicitly (the remedy that works for an OSS "
-            "installer, which has no repos.doe_claude to resolve), or set "
-            "repos.doe_claude in the machine-local registry, or set REPO_DOE_CLAUDE "
-            "(or legacy DOE_ROOT).",
+            "installer, which has no repos.content_root to resolve), or set "
+            "repos.content_root in the machine-local registry, or set REPO_CONTENT_ROOT "
+            "(or legacy CONTENT_ROOT).",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -119,7 +119,7 @@ def main() -> None:
         )
         print(f"  Resolved root: {plugin_root}", file=sys.stderr)
         print(
-            "  Set CLAUDE_PLUGIN_ROOT explicitly to override the doe_root() resolution.",
+            "  Set CLAUDE_PLUGIN_ROOT explicitly to override the content_root() resolution.",
             file=sys.stderr,
         )
         sys.exit(1)

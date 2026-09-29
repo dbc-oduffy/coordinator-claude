@@ -11,7 +11,7 @@ assertion. A fail-closed pre-flight gate: on transport failure it exits loud
 rather than silently passing. Gate logic lives engine-side in
 coordinator_core.ops.percolate_preflight_scratch_publish;
 this file supplies the --coordinator-root path knowledge, resolved via
-cc_invoke._resolve_claude_klabauter_root() + "/coordinator" (NOT doe_root() -- see
+cc_invoke._resolve_claude_klabauter_root() + "/coordinator" (NOT content_root() -- see
 _resolve_coordinator_root() below for why the DoE-pointing resolver this
 file used before DR-261 is now the wrong target).
 
@@ -26,7 +26,7 @@ resolved via _resolve_coordinator_root() below (CLAUDE_PLUGIN_ROOT env, else
 See _resolve_coordinator_root()'s docstring for why __file__-based
 resolution is STILL avoided even though this script itself now lives inside
 the correct root post-DR-261 (it would happen to work today, but would
-silently re-break under exactly the invocation shapes doe_root()-style
+silently re-break under exactly the invocation shapes content_root()-style
 indirection exists to survive).
 
 Shebang note: the SHEBANG line above is `#!/usr/bin/env python3`, generator-
@@ -36,8 +36,8 @@ a bareword, so the shebang is never read there; on macOS/Linux `python3` is the
 right interpreter. Caution: callers must invoke via the extensionless name or a
 resolved-interpreter prefix, never a bareword `.py` through git-bash — git-bash
 DOES honor the shebang and would exec-127 with no `python3` present. See the
-carve-out in DoE-claude's coordinator/docs/wiki/bash-on-windows-gotchas.md §
-Carve-out (cross-repo — this wiki lives in the DoE-claude repo, not
+carve-out in coordinator-content-repo's coordinator/docs/wiki/bash-on-windows-gotchas.md §
+Carve-out (cross-repo — this wiki lives in the coordinator-content-repo repo, not
 here).
 
 Fail-loud exit convention: this is a gate script (C6 pre-flight) — on
@@ -54,7 +54,7 @@ Exit codes:
     3 — engine-link/transport failure (the engine root unresolvable or
         coordinator_core.ops.percolate_preflight_scratch_publish not importable)
 
-Spec backlink: DoE-claude:pln-doe-source-of-truth-percolatio-4722b4 § C6/AC8
+Spec backlink: coordinator-content-repo:pln-doe-source-of-truth-percolatio-4722b4 § C6/AC8
 Port backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
 Review note: the Director of Engineering F2 — running the transform bin directly does not exercise whether the
 post_rsync-phase engine dispatch resolves DEPERSONALIZE_BIN from DoE; this script closes
@@ -85,11 +85,11 @@ def _resolve_coordinator_root() -> str:
     DR-261 (docs/decisions/DR-261-claude-klabauter-owns-klabauter-publishing-end-to.md) moved
     klabauter publishing ownership -- the publish.py driver, the two leak guards, and
     the row/store config -- into the engine repo end to end. Before DR-261 this resolved
-    via coordinator_registry.doe_root() (DoE-claude's repo root), because publish.py /
+    via coordinator_registry.content_root() (coordinator-content-repo's repo root), because publish.py /
     the guards / the portable-targets file all lived DoE-side. That is no longer true:
     both `coordinator/bin/{publish,check-registry-codename-leak,check-persona-slug-leak}.py`
     AND the sibling `setup/publish-targets.portable` / `setup/percolate-hooks/
-    percolate-store.yaml` now live in THIS repo. doe_root() pointed at
+    percolate-store.yaml` now live in THIS repo. Content_root() pointed at
     the wrong repo post-move; this resolver was fixed to point at this repo instead.
 
     This still does NOT derive from this script's own __file__ location, even though

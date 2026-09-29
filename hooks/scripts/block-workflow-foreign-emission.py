@@ -104,7 +104,7 @@ def _emitter_invocation() -> tuple[str, str]:
     `emit-dispatch-workflow` is served from the settings-home launcher (no DoE-local
     copy as of the slice-1 fence-switch, coordinator-claude#47) -- resolved the same
     way every coordinator CLI is, per `snippets/resolve-coordinator-bin.md`, never
-    against `CLAUDE_PLUGIN_ROOT` or a `.doe-root` pointer.
+    against `CLAUDE_PLUGIN_ROOT` or a `.content-root` pointer.
     """
     settings_home = os.environ.get("COORDINATOR_SETTINGS_HOME") or str(
         Path(os.environ.get("CLAUDE_HOME") or Path.home()) / ".coordinator-claude-settings"

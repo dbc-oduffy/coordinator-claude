@@ -2,7 +2,7 @@
 coordinator-git-maintenance — CLI trampoline over claude-klabauter
 coordinator_core.ops.git_maintenance.
 
-Purpose: give the six ceremony call sites in doe-claude-em's tree something to
+Purpose: give the six ceremony call sites in coordinator-content-repo-em's tree something to
 invoke. They call a BIN, not an op; `coordinator_core.ops.git_maintenance`
 registers `git.maintenance` and is reachable over IPC, but an op alone is not
 reachable from a ceremony command file. This file is that missing door.

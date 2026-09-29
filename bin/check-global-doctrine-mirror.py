@@ -92,10 +92,10 @@ Environment:
     CLAUDE_HOME -- overrides the `~/.claude` resolution root (defaults to
                    `$HOME/.claude`), matching the convention documented in
                    `coordinator/bin/count-distill-backlog.py`.
-    DOE_ROOT / REPO_DOE_CLAUDE -- overrides the coordinator doctrine repo root that
+    CONTENT_ROOT / REPO_CONTENT_ROOT -- overrides the coordinator doctrine repo root that
                    owns `global-doctrine/` (see _repo_root()). Consulted via
-                   the shared coordinator_registry.doe_root() resolver
-                   (env var -> machine-local repos.doe_claude -> raise);
+                   the shared coordinator_registry.content_root() resolver
+                   (env var -> machine-local repos.content_root -> raise);
                    this script does NOT derive its own repo root from
                    __file__ -- see _repo_root()'s docstring for why.
 
@@ -165,39 +165,39 @@ def _claude_home() -> str:
 
 
 def _repo_root() -> str:
-    """Resolve the DoE-claude REPO ROOT that owns `global-doctrine/`.
+    """Resolve the coordinator-content-repo REPO ROOT that owns `global-doctrine/`.
 
     This does NOT derive from this script's own __file__ location. That
-    used to be correct when this executable lived in DoE-claude
+    used to be correct when this executable lived in coordinator-content-repo
     (coordinator/bin/../.. IS the repo root there), but this file has
     since migrated to claude-klabauter (commit b644d5a9 here, 8a28a6ca in
-    DoE-claude) while `global-doctrine/` stayed put in DoE-claude at the
+    coordinator-content-repo) while `global-doctrine/` stayed put in coordinator-content-repo at the
     REPO root -- self-location now resolves to `<claude-klabauter>/`, which
     has no `global-doctrine/` at all. Because the mirror-absent case is a
     silent skip (see module docstring's silent-skip contract), that break
     was invisible: it just made this probe permanently inert instead of
-    ever comparing anything. doe_root() is the correct authority for
-    "where is the DoE-claude repo," independent of where THIS script
+    ever comparing anything. Content_root() is the correct authority for
+    "where is the coordinator-content-repo repo," independent of where THIS script
     happens to run from. A future reader must not "restore" __file__-based
     resolution to regain the old two-hops-up shape -- that is precisely
     what caused this break.
 
-    Resolves via doe_root() (DOE_ROOT env -> REPO_DOE_CLAUDE env ->
-    machine-local repos.doe_claude -> raise). Fails loud (sys.exit(1)) if
-    doe_root() cannot resolve: this is a gate/probe script, not a
+    Resolves via content_root() (CONTENT_ROOT env -> REPO_CONTENT_ROOT env ->
+    machine-local repos.content_root -> raise). Fails loud (sys.exit(1)) if
+    content_root() cannot resolve: this is a gate/probe script, not a
     never-block hook, so an unresolvable DoE root must not silently
     masquerade as the "mirror absent, skip" case.
     """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from coordinator_registry import _DoeUnresolvable, doe_root
+    from coordinator_registry import _DoeUnresolvable, content_root
 
     try:
-        return doe_root()
+        return content_root()
     except _DoeUnresolvable as exc:
         sys.stderr.write(
             f"{PROG}: cannot resolve the coordinator doctrine repo root ({exc}). Set "
-            "repos.doe_claude in the machine-local registry, or set the "
-            "DOE_ROOT / REPO_DOE_CLAUDE env var.\n"
+            "repos.content_root in the machine-local registry, or set the "
+            "CONTENT_ROOT / REPO_CONTENT_ROOT env var.\n"
         )
         sys.exit(1)
 
@@ -323,7 +323,7 @@ def _sync(mirror_dir: str, claude_home: str) -> int:
     """Re-derive the ~/.claude live copies FROM the authoritative mirror.
     Never writes into the mirror.
 
-    This is the same derivation the DoE-claude PostToolUse hook
+    This is the same derivation the coordinator-content-repo PostToolUse hook
     `derive-global-doctrine-live-copy.py` performs on every write to the
     tracked file; this flag is the manual catch-up for the cases that hook
     cannot see (a cold re-install that clobbered `~/.claude`, an out-of-band

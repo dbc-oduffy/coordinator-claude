@@ -563,7 +563,7 @@ the proven in-tree model; tc-4 applies the same pattern to the coordinator artif
 EMIT.** Adding a `schemas/*.schema.json` here makes a new `--type` queryable and validateable. It
 does **not**, by itself, make the type scaffoldable or emittable: both the scaffolder
 (`coordinator-doc-new`'s hand-written `if/elif` builder chain, § above) and the contract emitter
-live in **claude-klabauter**, not in this repo. Registering a schema in DoE-claude is a necessary
+live in **claude-klabauter**, not in this repo. Registering a schema in coordinator-content-repo is a necessary
 but not sufficient condition for GENERATE/EMIT support — a future author still has to add a
 builder to claude-klabauter's `if/elif` chain (or re-run claude-klabauter's emitter for tc-4/EMIT) before the type is
 actually scaffoldable or emittable. Treating registration alone as "done" is the trap: it reads

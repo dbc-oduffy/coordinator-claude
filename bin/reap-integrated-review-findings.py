@@ -100,13 +100,13 @@ otherwise.
 #   - The bash>=4-version guard is dropped — Python has no bash-3.2-class
 #     interpreter fragmentation to guard against; this guard existed only to
 #     protect bash-4 syntax (arrays, [[ ]]) used later in that script.
-#   - The PLUGIN_ROOT / ~/.claude/.doe-root resolution block (and its
+#   - The PLUGIN_ROOT / ~/.claude/.content-root resolution block (and its
 #     "exit 0 if unresolvable" gate) is dropped. In the bash oracle this
 #     machinery existed SOLELY to compute `_CSR_LIB_DIR` and source
 #     coordinator-state-root.sh — a source whose functions the script never
 #     actually calls (grepped: zero call sites of any coordinator_state_root
 #     function in the pre-port body). It was dead weight: a machine missing
-#     ~/.claude/.doe-root would no-op the ENTIRE reap even though the actual
+#     ~/.claude/.content-root would no-op the ENTIRE reap even though the actual
 #     reap logic never touched anything PLUGIN_ROOT-derived. This is not a
 #     functional regression (nothing observable depended on it; no AC in
 #     test-reap-integrated-review-findings.sh exercises this path) — dropping
@@ -228,7 +228,7 @@ _DEFAULT_SUMMARY_LIMIT = 10
 # `grep -qE '^## Integrator Dispositions[[:space:]]*$'` exactly, including its
 # accepted false-positive limitation on a flush-left fenced quote of the
 # heading — see the native op's own negative-spec for the shared rationale).
-# RETIRED (DoE-claude docs/plans/2026-09-26-retire-review-integrator.md, row
+# RETIRED (coordinator-content-repo docs/plans/2026-09-26-retire-review-integrator.md, row
 # M4): no NEW sidecar carries this heading — kept only so this legacy,
 # engine-independent fallback still classifies pre-retirement historical
 # sidecars as integrated (Anti-scope: "Do not edit historical records").

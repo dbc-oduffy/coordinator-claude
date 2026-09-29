@@ -29,7 +29,7 @@ not ship — its absence from an installed or mirrored tree is expected, not a m
 - **Sending is not exchanging.** Conjunct 3 exists to refuse exactly that.
 - **It clears nothing.** `cleared: true` remains the only clearing path; this predicate governs
   whether a leg may *rest while still blocked*.
-- **It grants no commit right.** `DR-127` stands: no standing cross-repo grant, in either
+- **It grants no commit right.** No standing cross-repo grant survives, in either
   direction. An answered "no" ends the exchange, not the boundary.
 - **It builds no channel.** The inbox, the outbox, and the sent-ledger carry it.
 

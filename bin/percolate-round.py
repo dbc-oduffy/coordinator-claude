@@ -4,7 +4,7 @@ gate -> real run -> commit -> CI smoke -> push (on a clean round; DR-301).
 `--no-publish` stops before the push, same as this module's old behaviour.
 
 Ports the nine hand-driven steps `coordinator/skills/percolate/SKILL.md`
-(DoE-claude) currently has the EM drive one CLI invocation at a time into a
+(coordinator-content-repo) currently has the EM drive one CLI invocation at a time into a
 single sequenced driver. Every step already has its own CLI
 (`percolate-gate.py`, `percolate-parse-dryrun.py`, `publish.py`) — this
 module SEQUENCES those via subprocess, it does not reimplement any of their
@@ -159,7 +159,7 @@ multi-target/no-argument rounds.
 
 Spec backlink: pln-percolate-publish-round-read-t-9d73fa
 § Tasks C2, Acceptance Criteria AC6-AC10.
-Spec backlink: coordinator/skills/percolate/SKILL.md (DoE-claude) — Steps 0.5,
+Spec backlink: coordinator/skills/percolate/SKILL.md (coordinator-content-repo) — Steps 0.5,
 1, 2, 2c, 2d, 3, 4, 5, 6, 7.
 Spec backlink: docs/plans/2026-08-14-publishing-runs-itself.md § C3,
 Acceptance Criteria AC2/AC2b/AC3/AC4/AC5/AC9.
@@ -929,7 +929,7 @@ evidence and which dissolved.
                                 surface by `_walk_published_payload` bounds
                                 narrowness.
   Could delete a live file   -> `_refuse_removals_present_on_disk`, a hard
-                                refusal, doe-claude-em's condition of assent.
+                                refusal, coordinator-content-repo-em's condition of assent.
   Per-mirror assent needed   -> DISSOLVED, not satisfied. klabauter is ours
                                 (PM); both owners can assent, so the
                                 per-target scoping this flag lacks is
@@ -965,7 +965,7 @@ Two notes worth carrying to the next question on this module:
 
   - A property someone proposes to scope by SPACE (per-mirror, per-target,
     per-path), where the scoping does not bite, is usually one that varies
-    over TIME. Every safety question here had that shape (DoE-claude
+    over TIME. Every safety question here had that shape (coordinator-content-repo
     coordinator/docs/wiki/verification-discipline.md, tripwire
     A-SAFETY-PROPERTY-HOLDS-OVER-AN-INTERVAL-NOT-OVER-A-THING).
   - An in-process predicate cannot close a cross-process hole. Two attempts
@@ -1018,7 +1018,7 @@ def _pending_removal_warning(dest: str) -> str:
     Fails toward saying nothing on a probe failure -- an unreadable dest must
     not manufacture a warning about a count it does not have.
 
-    Reported by doe-claude-6e (2026-08-26)."""
+    Reported by coordinator-content-repo-6e (2026-08-26)."""
     result = _run(
         ["git", "-C", dest, "--no-optional-locks", "status", "--porcelain=v1"],
         timeout=_GIT_PLUMBING_TIMEOUT_SECS,
@@ -1302,7 +1302,7 @@ class RemovalCandidateOnDiskError(RuntimeError):
 def _refuse_removals_present_on_disk(dest_root: Path, candidates: Sequence[str]) -> None:
     """AC6 -- the removal side may not delete a path that exists on disk.
 
-    Added as a CONDITION OF ASSENT by doe-claude-em (2026-08-26), in their
+    Added as a CONDITION OF ASSENT by coordinator-content-repo-em (2026-08-26), in their
     words "in the code, not in the procedure", before the removal side may be
     opened against a mirror this repo does not own.
 
@@ -1364,7 +1364,7 @@ def _already_committed_non_executable_scripts(
     stuck forever: the file no longer changes, so it never enters a pathspec
     again, while the mirror's CI `check-exec-bit` keeps failing every round and
     the durable fix at source has nothing left to cross. That is the state
-    doe-claude-em's mirror was in after three rounds. Correcting it needs a
+    coordinator-content-repo-em's mirror was in after three rounds. Correcting it needs a
     write at the mirror, which the publish-mirror guard denies by design and
     correctly -- so the round, which is the sanctioned writer, has to do it.
 
@@ -1456,7 +1456,7 @@ def _stage_shebang_exec_bits(
     recorded. The bit therefore reached mirrors only from hosts where
     `core.fileMode` happens to be true -- accidentally correct on macOS,
     silently wrong on Windows, and visible only when a NEW executable is
-    published from the wrong host. Reported by doe-claude-em 2026-08-26 after
+    published from the wrong host. Reported by coordinator-content-repo-em 2026-08-26 after
     three rounds self-blocked: the round committed locally and then failed its
     own mirror CI `check-exec-bit`, whose remediation ("run `git update-index
     --chmod=+x` in source and commit") was both already satisfied at source and
@@ -1484,7 +1484,7 @@ def _stage_shebang_exec_bits(
     class than the refusals around it, which all leave a state the next round
     simply re-derives. It raised exactly once, on 2026-08-26, when
     `_cmd_round_default` passed `_resolve_repo_root`'s `str` into a `Path /`
-    expression and took a live round down at the commit leg (doe-claude-em).
+    expression and took a live round down at the commit leg (coordinator-content-repo-em).
     A best-effort mode fix has no business ending a publish.
 
     `repo_root` therefore takes `str` or `Path`: `_resolve_repo_root` returns
@@ -1692,7 +1692,7 @@ def _filter_commit_pathspec(
     pathspec and printed "real run reported no changed files", a statement
     about the ROW made on evidence about the FILTER. Same ruling as
     `_round_warnings` — a stderr line above a green verdict is not a report
-    (DoE-claude memo 2026-08-26, percolate-round-passes-but-drops-every-
+    (coordinator-content-repo memo 2026-08-26, percolate-round-passes-but-drops-every-
     removal); the count has to reach the verdict block.
 
     NEGATIVE SPEC — `drops` is not an error channel. Every class it counts is
@@ -2117,7 +2117,7 @@ def _summarize_change_lines(change_lines: List[Tuple[str, str]]) -> Tuple[int, i
     published subject carried a literal `0 modified` that measured nothing.
     Sixty consecutive publishes read `N added, 0 modified`; the constant
     looked like a suspicious invariance worth investigating and was merely
-    dead vocabulary (example-cockpit-repo-30 / doe-claude-em, 2026-09-04).
+    dead vocabulary (example-cockpit-repo-30 / coordinator-content-repo-em, 2026-09-04).
 
     It survived because this module's own tests hand-built `("UPDATE", ...)`
     tuples and asserted on the resulting counts -- validating a vocabulary
@@ -2213,7 +2213,7 @@ def _build_commit_subject(
     made the mirror's own PUBLIC git history assert changes that never
     landed: a real commit read "dest diverged on 646 added, 0 modified, 67
     removed" while carrying zero removals, because the removal side is gated
-    off (`_REMOVAL_SIDE_ENABLED`) downstream of the count (DoE-claude memo
+    off (`_REMOVAL_SIDE_ENABLED`) downstream of the count (coordinator-content-repo memo
     2026-08-26, percolate-round-passes-but-drops-every-removal). A commit
     subject is the one report that outlives the round, so it states what the
     commit carries and names the remainder as not carried, rather than
@@ -2450,7 +2450,7 @@ def _report_commit_residual(
     enough: this function's whole purpose is to be "loud rather than
     silent", and a round that dropped 57 intended changes still printed a
     bare `PASS` with `Warnings: 0`, because nothing downstream of this print
-    knew the gap existed (DoE-claude memo 2026-08-26,
+    knew the gap existed (coordinator-content-repo memo 2026-08-26,
     percolate-round-passes-but-drops-every-removal). The verdict is what an
     operator reads; a stderr line scrolled past above a green verdict is
     indistinguishable from a clean round.
@@ -2704,7 +2704,7 @@ def _round_warnings(
     place so the verdict block can both COUNT and NAME them. The count is
     what an operator reads: a round that dropped 57 intended changes printed
     a bare `PASS` with a zero warning count, because the only report of the
-    drop was a stderr line scrolled past far above the verdict (DoE-claude
+    drop was a stderr line scrolled past far above the verdict (coordinator-content-repo
     memo 2026-08-26, percolate-round-passes-but-drops-every-removal).
 
     NEGATIVE SPEC — a warning here does NOT refuse the push.

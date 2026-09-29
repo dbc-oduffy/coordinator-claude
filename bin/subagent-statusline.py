@@ -3,7 +3,7 @@
 
 WHAT THIS IS FOR. The harness's `subagentStatusLine` setting renders a custom row per visible
 subagent task, replacing the default `name · description · token count` row -- this script is that
-renderer, ported from DoE-claude for the same reason every other consumer-blocking `coordinator/bin`
+renderer, ported from coordinator-content-repo for the same reason every other consumer-blocking `coordinator/bin`
 CLI moved (`docs/plans/2026-09-18-doe-holds-no-scripts.md`).
 
 INVOCATION SHAPE, NOT A TOOL CALL. Per `statusline.md:202-223`, the harness runs this command once

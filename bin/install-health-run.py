@@ -40,7 +40,9 @@ import os
 import sys
 
 def _import_main():
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
     from cc_invoke import require_dispatch_engine_on_path
 
     claude_klabauter_root = require_dispatch_engine_on_path()

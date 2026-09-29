@@ -499,14 +499,14 @@ Both `review-coverage-gate.py` and the two-oracle brightline gate (§ Two-oracle
 
 ## Three-Surface Composition — Automated Build Verdicts (UBT pattern), RETIRED from this repo's ceremonies
 
-**This pattern is not wired into any DoE ceremony.** UBT compile-freshness was never this repo's
+**This pattern is not wired into any ceremony here.** UBT compile-freshness was never this repo's
 requirement to discharge — the writer's own docstring names example-game-repo's `/workstream-complete`
 Step 2.9 and `/workday-complete` as its consumers, and example-game-repo's own ceremonies now carry it.
 Neither `/workday-complete` nor `/workweek-complete` in this repo names a UBT step: see
 `docs/wiki/ceremony-calibration/workweek-gate-residue.md § Step 4c/UBT directive — drained; it was never a gate` for
 the measurement and `coordinator/commands/workweek-complete.md § Step 0.95` for the standing
 ruling. What follows documents the marker/reviewer wire shape for readers tracing example-game-repo's own
-implementation, not a live DoE gate.
+implementation, not a live gate in this repo.
 
 ### Motivation
 
@@ -515,7 +515,7 @@ commits under the concurrent-EM cadence (`state/lessons/:324` — "at most one U
 executor in flight"). The three-surface pattern decouples intent-capture (cheap, workstream-complete)
 from build-execution (expensive, daily) from gate-enforcement (cheap, weekly).
 
-### Three surfaces and their roles (example-game-repo-owned, not a DoE ceremony step)
+### Three surfaces and their roles (example-game-repo-owned, not a ceremony step here)
 
 | Surface | Role | Cost | Trigger |
 |---|---|---|---|

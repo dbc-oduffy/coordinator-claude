@@ -2,4 +2,4 @@
      scout prompt for a quick solo web lookup. This is that snippet (solo) — the
      multi-agent form is the Deep Research pipeline, invoked separately. -->
 
-Use WebSearch and WebFetch directly to find answers and return a structured brief. Do NOT invoke any skills, the Deep Research pipeline, or spawn agents/teams. Your job is a quick solo web search — 5-10 minutes, a handful of queries, a clear brief back to me.
+Use WebSearch and WebFetch directly to find answers and return a structured brief. Do not invoke any skills, the Deep Research pipeline, or spawn agents/teams. Your job is a quick solo web search — 5-10 minutes, a handful of queries, a clear brief back to me.

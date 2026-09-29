@@ -36,7 +36,7 @@ def _default_canonical() -> str | None:
     `coordinator_data_root.data_root()`'s co-located/DoE-resident two-rung
     chain, not a bare `__file__`-relative walk: the 2026-07-22
     executable-surface migration moved this script into claude-klabauter while
-    `cockpit-contract/` (contract data, DR-047) stayed in DoE-claude, so a
+    `cockpit-contract/` (contract data, DR-047) stayed in coordinator-content-repo, so a
     `${script_dir}/../cockpit-contract` walk no longer lands anywhere.
 
     Returns None if data_root can't resolve it — an explicit --canonical or

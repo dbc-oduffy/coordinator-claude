@@ -37,7 +37,7 @@ subcommand having run first in the same process) and self-resolving
 separate subprocess calls from the DoE ceremony fence.
 
 Spec backlink: commands/workday-complete.md § Argument Parsing (Front Door),
-§ Step 1: Validate (DoE-claude repo, C6 —
+§ Step 1: Validate (coordinator-content-repo repo, C6 —
 docs/plans/2026-07-07-workday-complete-local-day-and-targeted-wrap.md).
 
 Stdout contracts (eval-safe; values `shlex.quote`'d — eval-injection defence,

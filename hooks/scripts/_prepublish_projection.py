@@ -734,7 +734,7 @@ def iter_citations(text: str, *, source_file: str) -> "list[Citation]":
     a pure false positive (§ dispatch brief class 1, 243 findings). Bare-path extraction
     (`_COORDINATOR_PATH`) is unaffected -- it stays live in code/data files, which is
     exactly where a bare `coordinator/...` path citation legitimately appears (docstrings,
-    comments, `Spec backlink:` lines)."""
+    comments, `Spec backlink:` lines; pinned by `test_json_bare_path_citation_still_extracted`)."""
     citations: list[Citation] = []
     is_markdown = source_file.lower().endswith(".md")
     for line_no, line in enumerate(text.split("\n"), start=1):
@@ -826,6 +826,16 @@ _RETIRED_DOCTRINE_PATHS = {
 #: `_CHANGELOG_DOC_BASENAMES` verbatim -- see `_load_changelog_basenames`.
 _CHANGELOG_BASENAMES_FALLBACK = frozenset(
     {"changelog.md", "changes.md", "history.md", "release-notes.md", "releases.md"}
+)
+
+
+#: Generated JSON manifests whose entire payload is a list of repo-relative paths (an
+#: exempt/reference-class enumeration a script consumes), never prose citing a path for a
+#: reader to follow. Basename-scoped, not a blanket `.json` exemption -- see
+#: `check_citations`'s use of this set for why a blanket exemption is wrong (it would
+#: silence `test_json_bare_path_citation_still_extracted`'s pinned case).
+_GENERATED_PATH_MANIFEST_BASENAMES = frozenset(
+    {"legacy-engine-noun-reference-classes.json"}
 )
 
 
@@ -935,6 +945,16 @@ def check_citations(projection: Projection, *, claude_klabauter_root: "Path | No
             # the historical record working as intended, not a broken citation
             # (§ dispatch brief class 2; matches the engine-plane sibling repo's own
             # `_install_doc_paths_for_repo_root` ruling for the same document class).
+            continue
+        if dest_basename in _GENERATED_PATH_MANIFEST_BASENAMES:
+            # A *-generated* JSON manifest whose payload IS a list of repo paths (e.g. an
+            # engine-root noun-sweep's `exempt_files` array) is data a script consumes, not
+            # prose citing a path for a reader to open -- scanning it produces a single-file
+            # spike of false "excluded-from-publish"/"absent-from-source" findings that
+            # tracks the manifest's own size, not real citation debt. Distinct from
+            # `test_json_bare_path_citation_still_extracted`'s pinned case (an authored
+            # `"doc": "coordinator/..."` pointer field): this skip is basename-scoped to
+            # known generated manifests, not a blanket JSON exemption.
             continue
         if not pf.source_path.is_file():
             continue

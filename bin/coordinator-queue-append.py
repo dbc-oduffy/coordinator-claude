@@ -7,9 +7,9 @@ for this shape. On Windows, this file's co-located `.cmd` twin wins via
 macOS/Linux `python3` is the right interpreter. Caution: callers must invoke
 via the extensionless name or a resolved-interpreter prefix, never a bareword
 `.py` through git-bash — git-bash DOES honor the shebang and would exec-127
-with no `python3` present. See the carve-out in DoE-claude's
+with no `python3` present. See the carve-out in coordinator-content-repo's
 coordinator/docs/wiki/bash-on-windows-gotchas.md § Carve-out (cross-repo —
-this wiki lives in the DoE-claude repo, not here). There is no separate
+this wiki lives in the coordinator-content-repo repo, not here). There is no separate
 polyglot trampoline line — this file is the pure-`.py`-with-`.cmd` shape
 end to end.
 
@@ -27,12 +27,12 @@ Output path: state/<output_dir from schema>/<ISO-date>-<slug>.yaml
 from_repo resolution order (same convention as cross-repo-memo and
 coordinator-lesson-promote):
   1. cwd git-root → reverse-lookup against machine-local repos.* table
-  2. DoE-claude repo (repos.doe_claude) → "claude-central-em"
+  2. Coordinator-content-repo repo (repos.content_root) → "claude-central-em"
   3. Unregistered git repo → basename of git root + "-em"
   4. Not in a git repo → "unknown-sender-em"
   Never uses `git remote get-url origin` — that yields a URL, not a shortname.
   Negative-spec: ~/.claude is no longer a memo-identity anchor; central identity
-  flows through repos.doe_claude path-match only.
+  flows through repos.content_root path-match only.
 
 Schemas supported (validation delegated to the native "schema.describe"/"schema.validate"
 coordinator_core ops, which read coordinator_core/frontmatter/schemas/*.yaml/*.schema.json
@@ -260,7 +260,7 @@ def _bootstrap_imports() -> None:
 
     # _resolve_from_repo: extracted to bin/lib/cli_shared.py (T2-g2a
     # consolidation) — same cwd git-root -> machine-local reverse-lookup ->
-    # doe_claude -> unregistered -> "unknown-sender-em" ladder, byte-identical
+    # content_root -> unregistered -> "unknown-sender-em" ladder, byte-identical
     # to the pre-consolidation body.
     _resolve_from_repo = cli_shared.resolve_from_repo
 
@@ -521,7 +521,7 @@ def _resolve_session_id() -> str:
     <git_root>/.git/coordinator-sessions/.current-session-id. Unsound under
     concurrency (documented last-writer-wins across concurrent sessions
     sharing one worktree — coordinator_core/bash_guards/guard_inprocess_search.py
-    ~L84) AND its sole writer (session-init.py, the DoE-claude SessionStart
+    ~L84) AND its sole writer (session-init.py, the coordinator-content-repo SessionStart
     hook) was deleted by PM directive 2026-07-15 — no production writer
     survives.
 
@@ -540,7 +540,7 @@ def _resolve_session_id() -> str:
 
 
 # _resolve_from_repo: extracted to bin/lib/cli_shared.py (T2-g2a consolidation) —
-# same cwd git-root -> machine-local reverse-lookup -> doe_claude -> unregistered
+# same cwd git-root -> machine-local reverse-lookup -> content_root -> unregistered
 # -> "unknown-sender-em" ladder, byte-identical to the pre-consolidation body.
 # Bound in _bootstrap_imports() (C6d import-motion).
 
@@ -701,7 +701,7 @@ def _output_path(
       - docs/plans/2026-07-08-project-tracker-render-from-queue.md § Substrate / § Chunks C2 (filename_override)
       - Landmine L7 (per-repo cwd-fallback): closed here by using git root, not os.getcwd().
 
-    Negative-spec: [DoE-claude] docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1
+    Negative-spec: [coordinator-content-repo] docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1
     proposed routing central state to DoE instead of claude-klabauter, but that plan is
     `status: draft` with AC1/AC2 `pending` and its own C3 HELD (recorded disk proof
     the flip never took effect on the production path) — it was never ratified and
@@ -734,7 +734,7 @@ def _output_path(
             )
         # Central state routes to claude-klabauter unconditionally — see
         # docs/wiki/state-placement-law.md § Taxonomy "Central/global state".
-        # (The [DoE-claude] docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md
+        # (The [coordinator-content-repo] docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md
         # plan's proposal to route this branch to DoE was never ratified: that plan is `status: draft`,
         # AC1/AC2 are `pending`, and its own C3 is HELD with recorded disk proof
         # the flip never took effect on the production path.)
@@ -2501,7 +2501,7 @@ def main(argv: "list[str] | None" = None) -> int:
     if _native_result.get("skipped"):
         # Contract pt 5 (AC12): map skipped:true → legacy WARN + exit 0 (no path printed).
         # Parity with the legacy path's _ClaudeKlabauterUnresolvable WARN messages — both routes
-        # degrade on unresolvable engine root, not DOE_ROOT (see docs/wiki/state-placement-law.md
+        # degrade on unresolvable engine root, not CONTENT_ROOT (see docs/wiki/state-placement-law.md
         # § Taxonomy "Central/global state"). The native op's _output_path (coordinator_core/ops/
         # queue_append.py) raises _ClaudeKlabauterUnresolvable on THREE branches — central-scope,
         # meta-repo-cwd, and the caller_worktree-is-None fallback — not central-scope alone, so

@@ -28,7 +28,7 @@ Environment: CLAUDE_HOME, COORDINATOR_PLUGINS_ROOT, MACHINE_LOCAL_REGISTRY_DIR,
 COORDINATOR_PYTHON, DOCTOR_PROBES_MANIFEST, COORDINATOR_PREREQ_PROBE_LIB_DIR,
 COORDINATOR_BIN_ROOT (test isolation for the DoE-side sibling-script root).
 
-Spec backlink: DoE-claude:pln-bash-to-naked-python-engine-mi-c09292 § T3a-g2/T3b
+Spec backlink: coordinator-content-repo:pln-bash-to-naked-python-engine-mi-c09292 § T3a-g2/T3b
 Port of: coordinator-doctor-sentinel.sh (DoE b5a4192c, 2026-07-20; 989-line bash oracle)
 """
 

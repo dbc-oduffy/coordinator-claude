@@ -58,7 +58,7 @@ schema = 1
 # The doctrine repo's canonical key. It shares its path with the depersonalized
 # alias repos.example_doctrine_repo; declaring it here is what makes
 # canonical_repo_key_for_root pick it by roster rather than by tie-break.
-"repos.doe_claude"                 = ""
+"repos.content_root"                 = ""
 
 # The published coordinator-engine mirror (claude-klabauter), NOT the
 # engine-source working tree — see `engine.working_repos.*` below for that.
@@ -91,7 +91,7 @@ schema = 1
 # repos exist on this machine that scripts/agents may need to find" — and it
 # is deliberately broad (19 keys on the reference machine, most of them
 # consumer repos the published engine exists to serve). Only 2 of those are
-# engine-working (claude_klabauter, doe_claude). Treating `repos.*` membership
+# engine-working (claude_klabauter, content_root). Treating `repos.*` membership
 # as the engine-working discriminant conflates "known sibling" with "works on
 # the engine itself" — see docs/wiki/coordinator-tripwires.md for the
 # concrete incident this caused.
@@ -100,7 +100,7 @@ schema = 1
 # its own root) — never hand-set here. Declarations only below.
 # ---------------------------------------------------------------------------
 "engine.working_repos.claude_klabauter" = ""
-"engine.working_repos.doe_claude"     = ""
+"engine.working_repos.content_root"     = ""
 
 # ---------------------------------------------------------------------------
 # Vendor / engine roots — place here ONLY if no concern file is loaded.
@@ -239,21 +239,21 @@ concerns = ["project_rag", "unreal"]
 # (see repos.claude_klabauter below).
 "repos.example_store_repo"               = "session-accumulated-must-survive-crash"
 "repos.example_market_data_repo"        = "session-accumulated-must-survive-crash"
-# Operator-set: session-start-register-doe-claude-root.py only seeds it when
+# Operator-set: session-start-register-coordinator-content-repo-root.py only seeds it when
 # absent, never overwrites the operator's choice of clone.
-"repos.doe_claude"                 = "session-accumulated-must-survive-crash"
+"repos.content_root"                 = "session-accumulated-must-survive-crash"
 # engine.working_repos.* — idempotent-regeneratable, unlike repos.* above. A
 # repos.* value encodes the OPERATOR's knowledge of another repo's on-disk
 # layout and cannot be re-derived from code; an engine.working_repos.* value
 # self-heals because the writer is that repo's OWN root-resolution, re-run with
 # no human input and no state loss. Both members have such a writer:
 # claude_klabauter: register_claude_klabauter_root() at install time (scripts/setup.py).
-# doe_claude: coordinator/hooks/scripts/session-start-register-doe-claude-root.py,
+# content_root: coordinator/hooks/scripts/session-start-register-coordinator-content-repo-root.py,
 # SessionStart-time (async, idempotent, guarded by the repo-root
 # .coordinator-dev-repo sentinel).
 # Evidence: DR-132 § Consequences and its SUPERSEDED-IN-PART note.
 "engine.working_repos.claude_klabauter" = "idempotent-regeneratable"
-"engine.working_repos.doe_claude"     = "idempotent-regeneratable"
+"engine.working_repos.content_root"     = "idempotent-regeneratable"
 # engine.working_repos — FAMILY/prefix entry, not a per-slug key (distinct
 # from the two dotted keys above). The exact-string matcher this table backs
 # has only a plugin.mirrors prefix exception today; a prefix-family match arm

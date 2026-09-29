@@ -22,13 +22,13 @@ Spec backlink: extracted from the inline rule logic that first landed in
 `coordinator_core/tests/test_home_resolution_lint.py` (commit `c1545206`,
 2026-07-28), which found 98 live violations in this repo (70 X_OK, 18
 bare-or-chain, 9 forward-slash, 1 colon-join). Extraction design:
-`DoE-claude/docs/research/2026-07-28-fleet-lint-distribution-design.md`
+`coordinator-content-repo/docs/research/2026-07-28-fleet-lint-distribution-design.md`
 (the DoE distribution blueprint). This module is a behavior-preserving
 extraction -- same AST logic, same matching semantics -- not a rewrite.
 
 **Why this file lives here and not vendored per-repo.** This path
 (`claude-klabauter/coordinator/lib/`) is already covered by the `bin,lib`
-multi-source percolation row (`DoE-claude/setup/publish-targets.portable`),
+multi-source percolation row (`coordinator-content-repo/setup/publish-targets.portable`),
 so it reaches the OSS mirror with zero new allowlist configuration, and it
 respects the DoE-prose/claude-klabauter-engine plane split (a lint is executable
 Python -- engine-subject, not doctrine). Every consuming repo (including
@@ -622,7 +622,7 @@ class HomeResolutionLintEngine:
         `right`), an attribute chain on top of the call
         (`Path.home().resolve()` -- `.attr` or `.method(...)` applied to a
         `Path.home()` receiver is still the same underlying call), or nested
-        combinations of all of the above -- the shapes DoE-claude's fleet
+        combinations of all of the above -- the shapes coordinator-content-repo's fleet
         uses at its correct sites (guard-ladder `return Path.home() /
         ".claude"` reduces to this same expression-level check once C4
         extracts the returned value).

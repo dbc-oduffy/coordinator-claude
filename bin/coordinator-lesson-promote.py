@@ -15,7 +15,7 @@ Output path: state/lessons-outbox/<ISO-ts>-<slug>.yaml
 
 from_repo resolution order (same convention as cross-repo-memo):
   1. cwd git-root → reverse-lookup against machine-local repos.* table
-  2. repos.doe_claude (DoE-claude repo) → "claude-central-em"
+  2. repos.content_root (coordinator-content-repo repo) → "claude-central-em"
   3. Unregistered git repo → basename of git root + "-em"
   4. Not in a git repo → "unknown-sender-em"
   Never uses `git remote get-url origin` — that yields a URL, not a shortname.
@@ -40,24 +40,24 @@ Exit-code contract:
   1  unexpected error (schema load failure, filesystem error, unexpected op result shape).
   2  invalid arguments — argparse-detected (missing/unknown flag, invalid --change-kind),
      or --target-wiki not found in the central wiki inventory (see § A7 below).
-  3  DoE-claude root unresolvable — the write (or the --target-wiki inventory check) was
+  3  coordinator-content-repo root unresolvable — the write (or the --target-wiki inventory check) was
      SKIPPED, not silently treated as success. Remediate per the stderr message
-     (`machine-local set repos.doe_claude /path/to/DoE-claude`).
+     (`machine-local set repos.content_root /path/to/coordinator-content-repo`).
      Also used when the DISPATCH engine root (claude-klabauter) itself is
-     unresolvable, a fresh-machine case reachable before the DoE-root check
+     unresolvable, a fresh-machine case reachable before the content-root check
      ever runs — remediate per the stderr message ('machine-local set
      repos.claude_klabauter /path/to/claude-klabauter').
 
-Negative-spec (A13): a skipped write due to an unresolvable DoE-claude root is NEVER
+Negative-spec (A13): a skipped write due to an unresolvable coordinator-content-repo root is NEVER
 exit 0. A caller checking only `returncode == 0` must be able to trust that outcome —
 exit 0 means an entry was actually written.
 
 --target-wiki validation (A7): validated against the real central wiki inventory
-(<doe_root>/coordinator/docs/wiki/**/*.md, enumerated recursively — nested pages such
+(<content_root>/coordinator/docs/wiki/**/*.md, enumerated recursively — nested pages such
 as coordinator-tripwires/ count) unless the literal value 'unknown' is passed, or
 --allow-new-wiki is given (escape hatch for a genuine wiki-new OR wiki-append
 promotion, where the target intentionally does not exist yet). An unresolvable
-DoE-claude root during this check is the SAME exit 3 as the write-skip case above —
+Coordinator-content-repo root during this check is the SAME exit 3 as the write-skip case above —
 never a silently-skipped validation.
 
 --target-wiki normalization (A9): normalized to the canonical 'docs/wiki/<name>.md'
@@ -114,12 +114,12 @@ def _is_publish_mirror_root(resolved_root: str) -> bool:
     normalized = os.path.normpath(resolved_root)
     return any(marker in normalized for marker in _PUBLISH_MIRROR_MARKERS)
 
-# Env var for DOE_ROOT override — mirrors CLAUDE_KLABAUTER_ROOT §4b idempotency gate.
-_DOE_ROOT_ENV = "DOE_ROOT"
+# Env var for CONTENT_ROOT override — mirrors CLAUDE_KLABAUTER_ROOT §4b idempotency gate.
+_CONTENT_ROOT_ENV = "CONTENT_ROOT"
 
 
 _BOOTSTRAPPED_NAMES = (
-    "doe_root",
+    "content_root",
     "_DoeUnresolvable",
     "require_dispatch_engine_on_path",
     "_cc_route",
@@ -162,7 +162,7 @@ def _bootstrap_engine() -> None:
     try:
 
         import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-        from coordinator_registry import doe_root, _DoeUnresolvable
+        from coordinator_registry import content_root, _DoeUnresolvable
         from cc_invoke import require_dispatch_engine_on_path
         from cc_invoke import route as _cc_route
 
@@ -310,17 +310,17 @@ def _outbox_root() -> str:
     """Return the lessons-outbox directory path.
 
     Respects LESSON_PROMOTE_OUTBOX_ROOT env var for test isolation (takes precedence).
-    Default: central state root via the DoE seam → <doe_root>/state/lessons-outbox/.
-    Raises _DoeUnresolvable (from coordinator_registry.doe_root()) when the DoE root
+    Default: central state root via the DoE seam → <content_root>/state/lessons-outbox/.
+    Raises _DoeUnresolvable (from coordinator_registry.content_root()) when the DoE root
     cannot be resolved and no env override is present — callers catch this and degrade
     to a SKIP with a non-zero exit (A13: never exit 0 — see legacy_fn's
     _DoeUnresolvable handler in main()).
 
     Negative-spec: does NOT fall back to cwd-relative state/ or to claude-klabauter when
-    DOE_ROOT is unresolvable — silent fallback is a write-plane landmine.
+    CONTENT_ROOT is unresolvable — silent fallback is a write-plane landmine.
 
     Negative-spec (klabauter#39): does NOT write into an OSS publish-mirror install
-    (a scrubbed/marketplace copy of the doctrine repo) even when doe_root() resolves
+    (a scrubbed/marketplace copy of the doctrine repo) even when content_root() resolves
     one — raises RuntimeError instead. The lessons-outbox is a private central corpus;
     a write into a publish mirror duplicates it into a tree the drain procedure never
     reads back from, and is never correct.
@@ -333,17 +333,17 @@ def _outbox_root() -> str:
     )
     if override:
         return override
-    # DOE_ROOT env var is not set; _DoeUnresolvable propagates to legacy_fn() catch.
-    resolved_doe_root = doe_root()
-    if _is_publish_mirror_root(resolved_doe_root):
+    # CONTENT_ROOT env var is not set; _DoeUnresolvable propagates to legacy_fn() catch.
+    resolved_content_root = content_root()
+    if _is_publish_mirror_root(resolved_content_root):
         raise RuntimeError(
             f"coordinator-lesson-promote: refusing to write the lessons-outbox into "
-            f"an OSS publish-mirror install ({resolved_doe_root!r}) — the private "
-            f"DoE-claude source repo is unresolvable via env/registry. Remediation: "
-            f"run 'machine-local set repos.doe_claude /path/to/the-coordinator-doctrine-repo' "
-            f"or set DOE_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI."
+            f"an OSS publish-mirror install ({resolved_content_root!r}) — the private "
+            f"coordinator-content-repo source repo is unresolvable via env/registry. Remediation: "
+            f"run 'machine-local set repos.content_root /path/to/the-coordinator-doctrine-repo' "
+            f"or set CONTENT_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI."
         )
-    return os.path.join(resolved_doe_root, "state", "lessons-outbox")
+    return os.path.join(resolved_content_root, "state", "lessons-outbox")
 
 
 def _wiki_inventory_dir() -> str:
@@ -351,11 +351,11 @@ def _wiki_inventory_dir() -> str:
 
     Respects LESSON_PROMOTE_WIKI_ROOT env var for test isolation (takes precedence;
     points DIRECTLY at a directory of .md files, mirroring _OUTBOX_ROOT_ENV's
-    override shape — no real DoE-claude checkout required to exercise validation).
+    override shape — no real coordinator-content-repo checkout required to exercise validation).
     Default: the resolved DoE root's coordinator content root, either layout
     (coordinator_data_root.content_root_for), plus docs/wiki/.
 
-    Raises _DoeUnresolvable (from coordinator_registry.doe_root()) when the DoE root
+    Raises _DoeUnresolvable (from coordinator_registry.content_root()) when the DoE root
     cannot be resolved and no env override is present.
     """
     _bootstrap_engine()
@@ -364,7 +364,7 @@ def _wiki_inventory_dir() -> str:
     override = os.environ.get(_WIKI_ROOT_ENV)
     if override:
         return override
-    resolved = doe_root()
+    resolved = content_root()
     return os.path.join(content_root_or_private(resolved), "docs", "wiki")
 
 
@@ -422,8 +422,8 @@ def _validate_target_wiki(
             file=sys.stderr,
         )
         print(
-            "  Remediation: run 'machine-local set repos.doe_claude /path/to/the-coordinator-doctrine-repo'\n"
-            "  or set DOE_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI.\n"
+            "  Remediation: run 'machine-local set repos.content_root /path/to/the-coordinator-doctrine-repo'\n"
+            "  or set CONTENT_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI.\n"
             "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c",
             file=sys.stderr,
         )
@@ -470,7 +470,7 @@ def _repo_relative_outbox_path(path: str) -> str:
     nicety only, never a gate on the write that already succeeded."""
     _bootstrap_engine()
     try:
-        root = doe_root()
+        root = content_root()
     except _DoeUnresolvable:
         return path
     try:
@@ -758,17 +758,17 @@ def main(argv: list[str] | None = None) -> int:
                 from_repo=from_repo,
             )
         except _DoeUnresolvable as exc:
-            # A13 fix: graceful-skip on unresolvable DOE_ROOT is WARN + skip, but the
+            # A13 fix: graceful-skip on unresolvable CONTENT_ROOT is WARN + skip, but the
             # skip is NEVER silent success — exit _EXIT_DOE_UNRESOLVABLE (3), not 0.
             # able to trust that outcome. Negative-spec: this was PREVIOUSLY `return 0`
             print(
-                f"warn: coordinator-lesson-promote: DOE_ROOT unresolvable — "
+                f"warn: coordinator-lesson-promote: CONTENT_ROOT unresolvable — "
                 f"skipping central lessons-outbox write: {exc}",
                 file=sys.stderr,
             )
             print(
-                "  Remediation: run 'machine-local set repos.doe_claude /path/to/the-coordinator-doctrine-repo'\n"
-                "  or set DOE_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI.\n"
+                "  Remediation: run 'machine-local set repos.content_root /path/to/the-coordinator-doctrine-repo'\n"
+                "  or set CONTENT_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI.\n"
                 "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c",
                 file=sys.stderr,
             )
@@ -833,9 +833,9 @@ def main(argv: list[str] | None = None) -> int:
         "evidence": args.evidence if args.evidence else None,
         "from_repo": from_repo,
     }
-    # against (DOE_ROOT honoured), not re-resolve it from the warm server's own env
+    # against (CONTENT_ROOT honoured), not re-resolve it from the warm server's own env
     try:
-        params["doe_root"] = doe_root()
+        params["content_root"] = content_root()
     except _DoeUnresolvable:
         pass
     # Test isolation gate: LESSON_PROMOTE_OUTBOX_ROOT redirects the outbox path (see
@@ -846,14 +846,14 @@ def main(argv: list[str] | None = None) -> int:
     ):
         return _run_legacy_with_write_declaration()
 
-    # DOE_ROOT gate (klabauter#33): DOE_ROOT is documented (module docstring, § from_repo
-    # resolution / _DOE_ROOT_ENV) as this CLI's steering lever for the DoE-claude root, and
-    # queue.promote op's resolver (coordinator_core.ops.coordinator_doe_root) has no DOE_ROOT
-    # rung at all — only REPO_DOE_CLAUDE — so an operator who set DOE_ROOT (without also
-    # setting REPO_DOE_CLAUDE) would see --target-wiki validation obey it while the native
-    # write, which resolves through THIS module's own DOE_ROOT-aware doe_root(), whenever
-    # DOE_ROOT is the only lever the operator has pulled.
-    if os.environ.get(_DOE_ROOT_ENV, "").strip() and not os.environ.get("REPO_DOE_CLAUDE", "").strip():
+    # CONTENT_ROOT gate (klabauter#33): CONTENT_ROOT is documented (module docstring, § from_repo
+    # resolution / _CONTENT_ROOT_ENV) as this CLI's steering lever for the coordinator-content-repo root, and
+    # queue.promote op's resolver (coordinator_core.ops.coordinator_content_root) has no CONTENT_ROOT
+    # rung at all — only REPO_CONTENT_ROOT — so an operator who set CONTENT_ROOT (without also
+    # setting REPO_CONTENT_ROOT) would see --target-wiki validation obey it while the native
+    # write, which resolves through THIS module's own CONTENT_ROOT-aware content_root(), whenever
+    # CONTENT_ROOT is the only lever the operator has pulled.
+    if os.environ.get(_CONTENT_ROOT_ENV, "").strip() and not os.environ.get("REPO_CONTENT_ROOT", "").strip():
         return _run_legacy_with_write_declaration()
 
     result = _cc_route("queue.promote", params, repo_root, _run_legacy_with_write_declaration)
@@ -862,15 +862,15 @@ def main(argv: list[str] | None = None) -> int:
         if result.get("skipped"):
             # above): skipped:true → WARN + exit _EXIT_DOE_UNRESOLVABLE (3), never 0.
             # Negative-spec: this was PREVIOUSLY `return 0` (A13 defect) — identical
-            reason = result.get("reason", "DOE_ROOT unresolvable")
+            reason = result.get("reason", "CONTENT_ROOT unresolvable")
             print(
-                f"warn: coordinator-lesson-promote: DOE_ROOT unresolvable — "
+                f"warn: coordinator-lesson-promote: CONTENT_ROOT unresolvable — "
                 f"skipping central lessons-outbox write: {reason}",
                 file=sys.stderr,
             )
             print(
-                "  Remediation: run 'machine-local set repos.doe_claude /path/to/the-coordinator-doctrine-repo'\n"
-                "  or set DOE_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI.\n"
+                "  Remediation: run 'machine-local set repos.content_root /path/to/the-coordinator-doctrine-repo'\n"
+                "  or set CONTENT_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI.\n"
                 "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c",
                 file=sys.stderr,
             )
@@ -884,7 +884,7 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 1
-        # cheap check that would have made the DOE_ROOT/native-write mismatch
+        # cheap check that would have made the CONTENT_ROOT/native-write mismatch
         print(f"Lesson outbox entry written: {_repo_relative_outbox_path(out_path)}")
         print(f"  id:          {result.get('entry_id', entry_id)}")
         print(f"  from_repo:   {result.get('from_repo', from_repo)}")

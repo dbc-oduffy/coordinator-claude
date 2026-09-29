@@ -183,11 +183,11 @@ source dir, not from the restricted allowlist tree this module builds.
 That ordering is deliberate in the bash original and must be preserved
 when publish.py wires this module together with ignore.py.
 
-Spec backlink: DoE-claude:pln-doe-maximalist-execution-plugi-6d808d
+Spec backlink: coordinator-content-repo:pln-doe-maximalist-execution-plugi-6d808d
                § W5.1
 Port: docs/plans/2026-07-21-percolate-python-port.md (chunk C-W1c).
 Multi-source: state/subagent-share/5bae563a-448a-4c5e-96ef-2de84498bd09/
-              coordinatorstaff-eng-dfffb96b.md (DoE-claude) §§ 1, 5.
+              coordinatorstaff-eng-dfffb96b.md (coordinator-content-repo) §§ 1, 5.
 
 Negative-spec: this module never falls back to publishing the unrestricted
 source tree when allowlist enforcement fails or is ambiguous — every error

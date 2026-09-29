@@ -1,5 +1,5 @@
 """wsc-coverage-gate-runner.py — /workstream-complete Step 2.4/2.9 imperative
-logic ported off the bash fences embedded in DoE-claude
+logic ported off the bash fences embedded in coordinator-content-repo
 coordinator/skills/workstream-complete/SKILL.md.
 
 Subcommands (argv[1] selects):
@@ -47,7 +47,7 @@ Subcommands (argv[1] selects):
       (`decide_review_scale` row 4) — only the chain-wide view is gone.
 
 Spec backlink: docs/plans/2026-07-21-doe-skill-bash-to-claude-klabauter-python-port.md [DEAD-CITATION: plan file never committed to this repo]
-  (M3 chunk WSC-2). Source: DoE-claude
+  (M3 chunk WSC-2). Source: coordinator-content-repo
   coordinator/skills/workstream-complete/SKILL.md §§ Step 2.4 "Plan-claim
   guard", Step 2.9 "Coverage gate (chain-end path)" + "Marker write".
 

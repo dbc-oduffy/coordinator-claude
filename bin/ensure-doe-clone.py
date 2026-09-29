@@ -2,15 +2,15 @@
 """
 ensure-doe-clone.py — CLI trampoline over claude-klabauter coordinator_core.ops.ensure_doe_clone.
 
-Resolves the local DoE-claude clone path (REPO_DOE_CLAUDE env override, then
-`machine-local get repos.doe_claude`) and clones it if the resolved directory
+Resolves the local coordinator-content-repo clone path (REPO_CONTENT_ROOT env override, then
+`machine-local get repos.content_root`) and clones it if the resolved directory
 is not yet a git checkout. Collapses into one call the two literal bash fences
-that the DoE-claude install playbook (coordinator/commands/install.md) once
+that the coordinator-content-repo install playbook (coordinator/commands/install.md) once
 carried inline — see coordinator_core.ops.ensure_doe_clone's own docstring for the
 full design rationale and negative-spec (this trampoline owns no logic of
 its own beyond the standard engine-root resolve-and-import dance).
 
-Spec backlink: DoE-claude:pln-extirpate-pasted-code-from-em--0f42e9 § M3/D9
+Spec backlink: coordinator-content-repo:pln-extirpate-pasted-code-from-em--0f42e9 § M3/D9
 """
 
 from __future__ import annotations

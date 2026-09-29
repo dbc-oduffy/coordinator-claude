@@ -8,7 +8,7 @@ read the pointer with zero subprocess spawn, avoiding the 5s bash-fallback hang
 on Windows that motivated this fix.
 
 Cross-platform by design (Python, not bash): the analogous DoE writer
-(gen-doe-root-pointer.py) is bash-only, which is fine for the DoE resolver
+(gen-content-root-pointer.py) is bash-only, which is fine for the DoE resolver
 (bash-native consumers only). The claude-klabauter pointer, by contrast, is read by a
 Python transport whose whole point is avoiding a bash subprocess spawn on
 Windows — a bash-only WRITER would reintroduce exactly the fragility (bash
@@ -18,7 +18,7 @@ via `python3`/`python`) and the Windows install path (setup.ps1, via
 `python3`/`python`) — one implementation, no shell-specific duplication.
 
 Spec backlink: pln-claude-klabauter-windows-portability-a48fac § C1b
-Design mirror: coordinator/bin/gen-doe-root-pointer.py (bash analog for the DoE
+Design mirror: coordinator/bin/gen-content-root-pointer.py (bash analog for the DoE
                 repo root pointer — same idempotent/atomic/--check-only shape).
 Resolution mirror: coordinator/lib/coordinator-claude-klabauter-root.sh (bash reader),
                     coordinator/bin/lib/cc_invoke.py::_resolve_claude_klabauter_root (Python reader).
@@ -138,7 +138,7 @@ def _machine_local_get(key: str) -> str | None:
 
 
 def _resolve_claude_klabauter_root() -> str:
-    # REPO_DOE_CLAUDE tier; REPO_CLAUDE_KLABAUTER is also the rung-1 override
+    # REPO_CONTENT_ROOT tier; REPO_CLAUDE_KLABAUTER is also the rung-1 override
     override = os.environ.get("REPO_CLAUDE_KLABAUTER")
     if override:
         return override

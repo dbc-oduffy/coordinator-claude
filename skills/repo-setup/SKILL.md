@@ -39,7 +39,9 @@ the engine op lands, the caller's own answer to `p1.repo-classification-ask`) na
 - **Default (no flag) — single-repo, `new-project` or `add-existing-project` lane.** Runs from inside one repo's cwd.
 - **`--root <path>` (alias `--target <path>`) — single-repo only, optional.** Onboards a sibling repo by absolute or relative path without cd-ing the session into it; defaults to `$(pwd)`. Orthogonal to `--batch`, which reads paths from `working-repos.yaml` and loops the fleet — `--root`/`--target` names exactly one repo. Resolution mechanic: § Procedure.
 - **`--batch` — fleet non-interactive.** See `residue/batch-mode.md`.
-- **`--check-only` and `--non-interactive` are batch-mode-only.** If passed to the default single-repo mode (without `--batch`), the skill exits with the one-line remediation: `"--check-only and --non-interactive are only valid with --batch; for non-interactive single-repo setup, set coordinator.local.md first and re-run /repo-setup."`
+- **`--non-interactive` (single repo, valid without `--batch`).** Asks nothing: every judgment point takes the firing lane's `lanes/<lane>.yaml` value, and the unattended-halt set (§ Procedure step 4) returns unresolved to the caller. The name comes from `coordinator.local.md` or the directory name, the type from detection.
+- **`--answers <file.json | inline-json>` (single repo).** A JSON object keyed by lane `step_id` (`p2.ask-project-name`, `p2.ask-project-type`, `p2.ask-workstreams`, ...) overriding that step's lane value; every unlisted step takes its lane value. Implies `--non-interactive`; an unknown key fails loud, naming it.
+- **`--check-only` is batch-mode-only.** Passed to the default single-repo mode (without `--batch`), the skill exits with the one-line remediation: `"--check-only is only valid with --batch; for a single repo use --non-interactive or --answers."`
 
 ## Prerequisites
 
@@ -58,7 +60,7 @@ the engine op lands, the caller's own answer to `p1.repo-classification-ask`) na
 
 **5. Roster.** Report the firing lane's `roster_slots[]` verbatim in the Phase 4 output. Materializing the roster into batons is a later skill/ceremony's job.
 
-**6. Sentinel — signal that setup just ran.** As the final action, write a session-scoped sentinel so `/workstream-start` (if invoked in this same session) emits the produce-not-prescribe one-liner instead of re-orienting: create the `state/` directory if absent, then touch `state/.repo-setup-just-ran`. The sentinel is single-shot: `/workstream-start`'s Preflight consumes it on first read (`rm -f`). It MUST be gitignored, never committed — see `residue/mechanics.md` for the `.gitignore` line.
+**6. Sentinel — signal that setup just ran.** As the final action, write a session-scoped sentinel so `/workstream-start` (if invoked in this same session) prints its one-line setup notice and then runs orientation once: create the `state/` directory if absent, then touch `state/.repo-setup-just-ran`. The sentinel is single-shot: `/workstream-start`'s Preflight consumes it on first read (`rm -f`). It MUST be gitignored, never committed — see `residue/mechanics.md` for the `.gitignore` line.
 
 ## Optional Tripwire Installs
 

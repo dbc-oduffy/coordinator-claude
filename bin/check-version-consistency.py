@@ -15,8 +15,8 @@ a bareword, so the shebang is never read there; on macOS/Linux `python3` is the
 right interpreter. Caution: callers must invoke via the extensionless name or a
 resolved-interpreter prefix, never a bareword `.py` through git-bash — git-bash
 DOES honor the shebang and would exec-127 with no `python3` present. See the
-carve-out in DoE-claude's coordinator/docs/wiki/bash-on-windows-gotchas.md §
-Carve-out (cross-repo — this wiki lives in the DoE-claude repo, not
+carve-out in coordinator-content-repo's coordinator/docs/wiki/bash-on-windows-gotchas.md §
+Carve-out (cross-repo — this wiki lives in the coordinator-content-repo repo, not
 here).
 
 Usage:
@@ -30,7 +30,7 @@ Usage:
 Exit: 0 = all surfaces agree; 1 = mismatch (or a required surface missing/
 unparseable — fail-loud, this is a gate); 2 = unrecognised CLI argument.
 
-Port of: coordinator/bin/check-version-consistency.py (DoE-claude)
+Port of: coordinator/bin/check-version-consistency.py (coordinator-content-repo)
 Port backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
 """
 

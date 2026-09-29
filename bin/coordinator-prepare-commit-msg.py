@@ -86,15 +86,15 @@ Behaviour:
      one). A single held pickup is unaffected.
   4a. Cross-repo fallback (2026-07-27): ``session-shape.json`` is written into
      the git-dir of whichever repo was ``cwd`` when ``/pickup`` ran — almost
-     always DoE-claude, since EM sessions operate from there (DoE-claude
-     ``CLAUDE.md`` § "Who you are when working in DoE-claude"). A commit
+     always coordinator-content-repo, since EM sessions operate from there (coordinator-content-repo
+     ``CLAUDE.md`` § "Who you are when working in coordinator-content-repo"). A commit
      landed DIRECTLY into claude-klabauter under the standing cross-repo
-     write grant (DoE-claude ``CLAUDE.md`` § "Cross-repo write discipline")
+     write grant (coordinator-content-repo ``CLAUDE.md`` § "Cross-repo write discipline")
      runs this SAME hook script but with ``git_dir`` pointed at claude-klabauter's own
      ``.git``, which never receives that write — so step 4's lookup always
      misses for a cross-repo commit, not merely on rare occasion. When step 4
-     resolves nothing, re-resolve against DoE-claude's own git-dir, located
-     via the identical ``.doe-root`` pointer convention already used above
+     resolves nothing, re-resolve against coordinator-content-repo's own git-dir, located
+     via the identical ``.content-root`` pointer convention already used above
      (step "SCRIPT" fallback) to locate this very script — no new resolution
      mechanism introduced, no subprocess spawn (two plain file reads at
      most). Same omit-rather-than-guess contract: no match there either →
@@ -175,7 +175,7 @@ subprocess, and never rewrites the message.
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md § git-hook-installers-port
 Prior spec: docs/plans/2026-06-15-brightline-session-scope-fix.md § C1
 Spec: cross-repo/inbox/2026-07-21-claude-klabauter-em-claude-klabauter-session-id-leak-fix-reply.md (residual B(i))
-Deliverable-Id spec: DoE-claude coordinator/schemas/handoff.schema.json (deliverable_id field);
+Deliverable-Id spec: coordinator-content-repo coordinator/schemas/handoff.schema.json (deliverable_id field);
     coordinator_core/ops/session/record_pickup.py (write side).
 """
 from __future__ import annotations
@@ -337,7 +337,7 @@ def _resolve_session_id(git_dir: str) -> str:
     concurrent sessions on one shared worktree means even a freshly-written
     sentinel hands session A the id of whichever session wrote last, so a
     liveness gate only made it confidently wrong rather than obviously
-    wrong; (2) its writer, ``session-init.py`` (DoE-claude SessionStart
+    wrong; (2) its writer, ``session-init.py`` (coordinator-content-repo SessionStart
     hook), was deleted by PM directive 2026-07-15
     ("full-kill-keep-fast-orientation") — no production writer survives
     anywhere. ``git_dir`` is accepted (and resolved by the caller) purely
@@ -355,7 +355,7 @@ def _resolve_session_id(git_dir: str) -> str:
     return ""
 
 
-def _resolve_doe_root() -> str:
+def _resolve_content_root() -> str:
     home = (
         os.environ.get("CLAUDE_HOME")
         or os.environ.get("HOME")
@@ -366,8 +366,8 @@ def _resolve_doe_root() -> str:
         home, ".coordinator-claude-settings"
     )
     for candidate in (
-        os.path.join(settings_home, "machine-local", ".doe-root"),
-        os.path.join(home, ".claude", ".doe-root"),
+        os.path.join(settings_home, "machine-local", ".content-root"),
+        os.path.join(home, ".claude", ".content-root"),
     ):
         try:
             with open(candidate, encoding="utf-8") as fh:
@@ -704,7 +704,7 @@ def _resolve_deliverable_id(git_dir: str, session_id: str, paths: "list | None" 
     tier above disambiguated OMITS the trailer rather than guessing among
     the session-keyed tiers below), then ``git_dir`` (the common
     single-baton case — a commit landed in the
-    same repo ``/pickup`` ran in), then DoE-claude's own git-dir (the
+    same repo ``/pickup`` ran in), then coordinator-content-repo's own git-dir (the
     cross-repo case — a commit landed directly into claude-klabauter under the
     standing DoE→claude-klabauter write grant), then the session's claimed PLAN (the
     same-session plan-execute-without-a-handoff case — see
@@ -754,9 +754,9 @@ def _resolve_deliverable_id(git_dir: str, session_id: str, paths: "list | None" 
         deliverable_id = _resolve_deliverable_id_at(git_dir, session_id)
         if deliverable_id:
             return deliverable_id
-    doe_root = _resolve_doe_root()
-    if doe_root:
-        doe_git_dir = os.path.join(doe_root, ".git")
+    content_root = _resolve_content_root()
+    if content_root:
+        doe_git_dir = os.path.join(content_root, ".git")
         if os.path.normpath(doe_git_dir) != os.path.normpath(
             git_dir
         ) and not _session_holds_multiple_held_pickups(doe_git_dir, session_id):

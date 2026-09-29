@@ -8,7 +8,7 @@ The shared `ReviewOutput` envelope (wrapper fields, exact verdict strings, base 
 
 Every reviewer persona returns a `ReviewOutput` JSON block followed by a human-readable narrative. Your sidecar-frontmatter contract (where the review is persisted, `kind:` routing, the pointer-line-only return shape) is injected into your dispatch prompt separately — follow it as delivered.
 
-The envelope wrapper — `reviewer` / `verdict` / `summary` / `findings[]` — is identical across all six personas. **Verdict — exact strings, ALL CAPS with underscores, no spaces, do NOT paraphrase:** `APPROVED`, `APPROVED_WITH_NOTES`, `REQUIRES_CHANGES`, `REJECTED`.
+The envelope wrapper — `reviewer` / `verdict` / `summary` / `findings[]` — is identical across all six personas. **Verdict — exact strings, ALL CAPS with underscores, no spaces, do not paraphrase:** `APPROVED`, `APPROVED_WITH_NOTES`, `REQUIRES_CHANGES`, `REJECTED`.
 
 The base `ReviewFinding` shape — shared verbatim by the Staff Engineer, the Director of Engineering, the Data Science Reviewer, and the Front-End Reviewer (the UX Reviewer uses a separate flow/step-based `UXReviewerFinding` variant instead — see `agents/staff-ux.md`) — is:
 
@@ -26,7 +26,7 @@ The base `ReviewFinding` shape — shared verbatim by the Staff Engineer, the Di
 }
 ```
 
-**Exact strings — do NOT paraphrase:** severity is `critical` | `major` | `minor` | `nitpick` (NOT high/blocker/moderate/medium/low/trivial/suggestion); field names are `finding`, `suggested_fix`, `line_start`, `line_end`, `file` (NOT title/description/issue/recommendation/line/path).
+**Exact strings — do not paraphrase:** severity is `critical` | `major` | `minor` | `nitpick` (not high/blocker/moderate/medium/low/trivial/suggestion); field names are `finding`, `suggested_fix`, `line_start`, `line_end`, `file` (not title/description/issue/recommendation/line/path).
 
 **`confidence`/`fix_class` are OPTIONAL on the base shape** — a persona that never received the
 `reviewer-calibration` block legitimately omits both, with no expectation attached. A persona that

@@ -68,7 +68,6 @@ _BOOTSTRAPPED_NAMES = (
     "_read_frontmatter",
     "_read_frontmatter_key",
     "_resolve_python_interp",
-    "_venv_interp",
     "read_local_md_key",
     "redact_for_diag",
     "resolve_fast_test_cmd",

@@ -80,7 +80,7 @@ handling gaps, null access, resource leaks, logic errors, dead code, race condit
 finding give severity (P0/P1/P2), confidence (HIGH/MEDIUM/LOW), file:line, description,
 AI-fixable-or-not. Scratch: `{chunk-name}-phase1-sonnet.md`.
 
-<!-- engine-gap: field=directives[d_bug_sweep_track_a2_prompt].fields producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=directives[d_bug_sweep_track_a2_prompt].fields producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
 
 **Track B — Test Suite** (EM runs; Haiku parses): Tier-U-gated, no implicit grant. Ask the PM
 using `backlog-grind-assemble brief bug-sweep`'s exact ask text (`j-bug-sweep-tier-u-grant`) — a
@@ -158,7 +158,7 @@ group, source files, acceptance criteria per fix, and this verify-first contract
 > Write a brief summary of changes to `{scratch-path}` using the Write tool. The summary MUST
 > distinguish `fixed` vs `no-op — already in HEAD` per finding.
 
-<!-- engine-gap: field=directives[d_bug_sweep_phase3_executor_prompt].fields producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=directives[d_bug_sweep_phase3_executor_prompt].fields producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
 
 **Post-fix:** re-run the test suite yourself (same Track B grant, recheck `tier-u-grant-cli check`
 live, no second ask). Any newly-failing test → revert that fix, backlog it noting "regression

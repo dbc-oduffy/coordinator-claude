@@ -28,14 +28,14 @@ tooling that redirects output to a tmp dir keeps working unchanged.
 
 Coordinator-root resolution does NOT derive from this script's own __file__ location
 (dirname(dirname(__file__))). That mirrored the JS oracle's `COORDINATOR =
-path.join(__dirname, '..')` correctly while this executable lived in DoE-claude
+path.join(__dirname, '..')` correctly while this executable lived in coordinator-content-repo
 (coordinator/bin/.. IS the coordinator root there) — but this file has since migrated to
 Claude-klabauter (see BACKGROUND above) while coordinator/schemas/ and
-coordinator/artifact-shape-contract/ stayed in DoE-claude. Self-location now resolves to
+coordinator/artifact-shape-contract/ stayed in coordinator-content-repo. Self-location now resolves to
 <claude-klabauter>/coordinator, which has neither directory, so the op module would fail with a
 misleading "schemas/ not found" instead of a clear root-resolution error. Resolution now
 goes through CLAUDE_PLUGIN_ROOT (env override, wins verbatim if set) else
-coordinator_registry.doe_root() + "/coordinator" (fail loud via sys.exit(2) if
+coordinator_registry.content_root() + "/coordinator" (fail loud via sys.exit(2) if
 unresolvable) — see _resolve_coordinator_root() below. A future reader must not restore
 __file__-based resolution to regain oracle parity; that is precisely what caused this
 break (same class of fix as commit 1a31400d, verify-templates-bin-sync.py).
@@ -46,9 +46,9 @@ for this shape. On Windows, this file's co-located `.cmd` twin wins via
 macOS/Linux `python3` is the right interpreter. Caution: callers must invoke
 via the extensionless name or a resolved-interpreter prefix, never a bareword
 `.py` through git-bash — git-bash DOES honor the shebang and would exec-127
-with no `python3` present. See the carve-out in DoE-claude's
+with no `python3` present. See the carve-out in coordinator-content-repo's
 coordinator/docs/wiki/bash-on-windows-gotchas.md § Carve-out (cross-repo —
-this wiki lives in the DoE-claude repo, not here).
+this wiki lives in the coordinator-content-repo repo, not here).
 
 Usage:
   emit-artifact-shape-contract
@@ -82,31 +82,31 @@ def _resolve_coordinator_root() -> str:
     artifact-shape-contract/ (default output).
 
     CLAUDE_PLUGIN_ROOT wins verbatim if set. Otherwise resolves via
-    coordinator_registry.doe_root() (env DOE_ROOT / REPO_DOE_CLAUDE -> machine-local
-    repos.doe_claude -> raise) and returns <doe_root()>/coordinator.
+    coordinator_registry.content_root() (env CONTENT_ROOT / REPO_CONTENT_ROOT -> machine-local
+    repos.content_root -> raise) and returns <content_root()>/coordinator.
 
     Does NOT derive from this script's own __file__ location — see this module's
     docstring § coordinator root resolution for why self-location broke when this
     executable migrated to claude-klabauter while schemas/ and artifact-shape-contract/
-    stayed in DoE-claude.
+    stayed in coordinator-content-repo.
 
     Fails loud (sys.exit(2), the same DEDICATED transport/config-failure code used for
-    engine-root resolution failures below) if doe_root() cannot resolve.
+    engine-root resolution failures below) if content_root() cannot resolve.
     """
     env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if env_root:
         return env_root
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from coordinator_data_root import content_root_or_private
-    from coordinator_registry import _DoeUnresolvable, doe_root
+    from coordinator_registry import _DoeUnresolvable, content_root
 
     try:
-        root = doe_root()
+        root = content_root()
     except _DoeUnresolvable as exc:
         print(
             f"emit-artifact-shape-contract: cannot resolve the coordinator doctrine repo root ({exc}). "
-            "Set repos.doe_claude in the machine-local registry, or set the DOE_ROOT "
-            "(or REPO_DOE_CLAUDE) env var, or set CLAUDE_PLUGIN_ROOT directly.",
+            "Set repos.content_root in the machine-local registry, or set the CONTENT_ROOT "
+            "(or REPO_CONTENT_ROOT) env var, or set CLAUDE_PLUGIN_ROOT directly.",
             file=sys.stderr,
         )
         sys.exit(2)

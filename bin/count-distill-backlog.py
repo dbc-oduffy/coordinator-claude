@@ -13,7 +13,7 @@ THRESHOLD_DAYS = 30
 
 
 def _resolve_root() -> str:
-    """Resolve the archive/wiki scan root: the DoE-claude repo, whose
+    """Resolve the archive/wiki scan root: the coordinator-content-repo repo, whose
     `archive/completed` + `docs/wiki` (source layout) or the live-installed
     `~/.claude` + `plugins/coordinator/docs/wiki`
     (live-install layout) hold the completion-log corpus this script counts
@@ -31,28 +31,28 @@ def _resolve_root() -> str:
     this override, the test suite's synthetic fixtures, not a behavior this
     port invents).
 
-    Absent CLAUDE_HOME, resolves via `coordinator_registry.doe_root()`
-    (DOE_ROOT / REPO_DOE_CLAUDE env -> machine-local `repos.doe_claude` ->
+    Absent CLAUDE_HOME, resolves via `coordinator_registry.content_root()`
+    (CONTENT_ROOT / REPO_CONTENT_ROOT env -> machine-local `repos.content_root` ->
     raise).
 
     THIS DOES NOT DERIVE FROM __file__. b644d5a9 migrated this executable
-    from DoE-claude into claude-klabauter's `coordinator/bin/`, while
+    from coordinator-content-repo into claude-klabauter's `coordinator/bin/`, while
     `archive/completed` and `docs/wiki` (the corpus this script counts)
-    stayed in DoE-claude. Claude-klabauter ALSO has its own `archive/completed`
+    stayed in coordinator-content-repo. Claude-klabauter ALSO has its own `archive/completed`
     — a distinct, unrelated completion log — so the retired hop-count
     resolution below (bin/ -> up N levels) would silently land on and count
-    claude-klabauter's OWN backlog instead of DoE-claude's: wrong answer, zero
+    claude-klabauter's OWN backlog instead of coordinator-content-repo's: wrong answer, zero
     errors, the nastiest failure shape. A future reader must not restore
     script-location inference to "fix" this — self-location is no longer a
     valid proxy for the DoE root once this script lives outside it, and
     restoring it is precisely the shape of the original bug.
 
-    Fails loud (`sys.exit(1)`) when `doe_root()` cannot resolve — this is a
+    Fails loud (`sys.exit(1)`) when `content_root()` cannot resolve — this is a
     reporting/gate script, not a never-block hook, so an unresolvable root
     must not silently degrade to counting the wrong repo's backlog.
     """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from coordinator_registry import _DoeUnresolvable, doe_root
+    from coordinator_registry import _DoeUnresolvable, content_root
 
     claude_home_env = os.environ.get("CLAUDE_HOME")
     if claude_home_env:
@@ -64,12 +64,12 @@ def _resolve_root() -> str:
         return parent_form
 
     try:
-        return doe_root()
+        return content_root()
     except _DoeUnresolvable as exc:
         print(
             f"{PROG}: cannot resolve the coordinator doctrine repo root ({exc}). "
-            "Set repos.doe_claude in the machine-local registry, or set the "
-            "DOE_ROOT/REPO_DOE_CLAUDE env var, or set CLAUDE_HOME directly.",
+            "Set repos.content_root in the machine-local registry, or set the "
+            "CONTENT_ROOT/REPO_CONTENT_ROOT env var, or set CLAUDE_HOME directly.",
             file=sys.stderr,
         )
         sys.exit(1)

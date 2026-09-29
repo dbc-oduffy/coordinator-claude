@@ -1,4 +1,4 @@
-<!-- Canonical source, read directly — NOT a synced snippet: no BEGIN sentinel, no embedding -->
+<!-- Canonical source, read directly — not a synced snippet: no BEGIN sentinel, no embedding -->
 <!-- consumers, not in the snippet registry (`verify-snippet-sync` exits 2 on this name). -->
 <!-- Rule only. Rationale, measured door latencies and worked examples live in the doctrine wiki (dev clone), page `coordinator-cli-resolution-rationale` -->
 
@@ -53,7 +53,7 @@ stamped, published engine whatever directory you are standing in, which is the w
 prefer it — the raw form below does not, and the difference is invisible until it has already
 answered wrong. Reach past the launcher only when `<settings-home>/bin/` genuinely is not there.
 
-Then the remedy is NOT the installer § The door names. A container cloned fresh per session and
+Then the remedy is not the installer § The door names. A container cloned fresh per session and
 reclaimed at session end has no install to repair and nothing to carry one, and the installer may
 not even be runnable there. The engine source is on disk regardless, and the engine is a Python
 package:
@@ -96,7 +96,7 @@ the guard above is a requirement rather than a suggestion.
 worktree-scoped op REQUIRES it here: without it `coordinator_core.invoke` resolves the repo from
 cwd, and the engine checkout named on that same line is itself a git repo — so the op answers about
 the ENGINE's records, well-formed and wrong, in the environment where the operator is least likely
-to be sitting in the repo they mean. A `scope: none` op REFUSES it (DR-279, "`--repo` is meaningless
+to be sitting in the repo they mean. A `scope: none` op REFUSES it ("`--repo` is meaningless
 for op '<op>'"), so pasting the flag everywhere fails loud on roughly a third of the registry. One
 direction is a wrong answer, the other an error naming its own remedy: read the error, do not
 hand-derive a rule from it. A no-launcher op module with its own CLI runs the same way,
@@ -230,39 +230,39 @@ no launcher, ever. Cite it against the **plugin root**, never cwd-relative: a ba
 `coordinator/bin/<cli>.py` resolves only in a session whose cwd is the doctrine repo, and a ceremony read
 from a consumer repo gets `can't open file`. **This set does not publish:** the mirror row sources
 `bin/` wholly from the engine, so a coordinator-claude + klabauter consumer has none of these
-scripts and no `.doe-root` it could set would supply them. `COORDINATOR_ENGINE_ROOT` goes first:
-in a cloud session `.doe-root` names the published mirror, which has no `coordinator/`:
+scripts and no `.content-root` it could set would supply them. `COORDINATOR_ENGINE_ROOT` goes first:
+in a cloud session `.content-root` names the published mirror, which has no `coordinator/`:
 
     _sh=${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}
     if [ -n "$COORDINATOR_ENGINE_ROOT" ] && [ -d "$COORDINATOR_ENGINE_ROOT/coordinator" ]; then
-        _doe_root=$COORDINATOR_ENGINE_ROOT
+        _content_root=$COORDINATOR_ENGINE_ROOT
     else
-        _doe_root=$(cat "$_sh/machine-local/.doe-root" 2>/dev/null || cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)
+        _content_root=$(cat "$_sh/machine-local/.content-root" 2>/dev/null || cat "${CLAUDE_HOME:-$HOME}/.claude/.content-root" 2>/dev/null)
     fi
-    [ -n "$_doe_root" ] && [ -d "$_doe_root/coordinator" ] || { echo "unresolved plugin root — tried COORDINATOR_ENGINE_ROOT, $_sh/machine-local/.doe-root, ${CLAUDE_HOME:-$HOME}/.claude/.doe-root; re-run /coordinator:install if none of these apply" >&2; exit 1; }
+    [ -n "$_content_root" ] && [ -d "$_content_root/coordinator" ] || { echo "unresolved plugin root — tried COORDINATOR_ENGINE_ROOT, $_sh/machine-local/.content-root, ${CLAUDE_HOME:-$HOME}/.claude/.content-root; re-run /coordinator:install if none of these apply" >&2; exit 1; }
     _py=$(command -v python3 || command -v python) || { echo "no python interpreter on PATH" >&2; exit 1; }
-    "$_py" "${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}/bin/<cli>.py" …
+    "$_py" "${CLAUDE_PLUGIN_ROOT:-${_content_root}/coordinator}/bin/<cli>.py" …
 
 Keep the guarded `:-` form: `CLAUDE_PLUGIN_ROOT` is empty in a Bash tool call on a dev box, so the
-default arm is the one that actually carries. Refuse on an empty or non-directory `_doe_root` —
+default arm is the one that actually carries. Refuse on an empty or non-directory `_content_root` —
 the unguarded `${VAR:-$(cat FILE)/suffix}` idiom expands to a literal root-relative
 `/coordinator`, which resolves to nothing and reads as "this CLI does not exist". Doctrine prose
 spells this `<plugin-root>/bin/<cli>.py`; that placeholder means this ladder. Note the shape:
-`CLAUDE_PLUGIN_ROOT` names the plugin root itself — `<doe-root>/coordinator` in a dev tree, and the
+`CLAUDE_PLUGIN_ROOT` names the plugin root itself — `<content-root>/coordinator` in a dev tree, and the
 bundle root under an OSS install — so `bin/` hangs directly off it. `<plugin-root>/coordinator/bin/`
 double-counts the segment and resolves nowhere under either layout.
 
-**An unresolved `.doe-root` beside a POPULATED `bin/` is its own state, and the fence's refusal
+**An unresolved `.content-root` beside a POPULATED `bin/` is its own state, and the fence's refusal
 names the wrong remedy for it.** Rung N covers a settings home that is absent entirely; this is
 one state in from that — `<settings-home>/bin/` is full of launchers, so rungs 1-2 work and only
 the no-launcher residue above fails. A fresh container gets there routinely: the settings home is
 provisioned, the pointer and `repos.*` entries are not, because they name paths on the box the
 install ran on. Read the discriminant before believing "re-run /coordinator:install":
-`ls "$_sh/bin"` non-empty with `.doe-root` unreadable is THIS state, not a broken install.
+`ls "$_sh/bin"` non-empty with `.content-root` unreadable is THIS state, not a broken install.
 
 Its remedy is to write what is missing, which is two facts and no install:
 
-    printf '%s\n' "$(git -C <doe-clone> rev-parse --show-toplevel)" > "$_sh/machine-local/.doe-root"
+    printf '%s\n' "$(git -C <doe-clone> rev-parse --show-toplevel)" > "$_sh/machine-local/.content-root"
     "$_py" "$_sh/bin/machine-local" set repos.<key> <path>   # per clone actually on disk
 
 **Scope it by the box's lifetime, exactly as Rung N does.** On a durable box a missing pointer is

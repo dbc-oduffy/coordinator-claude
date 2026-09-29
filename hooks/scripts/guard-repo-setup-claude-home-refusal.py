@@ -54,7 +54,7 @@ no-write exemption, not an escape hatch.
 
 CLAUDE HOME RESOLUTION -- never ``os.path.expanduser`` naively, which
 ignores a monkeypatched ``HOME`` in a way that has clobbered a real
-``.doe-root`` in this repo's own install history
+``.content-root`` in this repo's own install history
 (``docs/wiki/...windows-subprocess-exec-traps`` lineage). Resolution order,
 explicit and testable via an injected env mapping: ``CLAUDE_CONFIG_DIR``
 (if set, IS the Claude Home) -> ``HOME`` (POSIX) -> ``USERPROFILE``

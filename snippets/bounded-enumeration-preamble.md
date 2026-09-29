@@ -6,14 +6,14 @@ Inline this verbatim into Sonnet or Haiku dispatches whose deliverable is a verd
 
 **Bounded-enumeration preamble (paste verbatim into the dispatch brief):**
 
-> The input list below is the COMPLETE set of items you may produce verdicts for. Do NOT add rows for items not in the input list. Do NOT infer related items from context, file structure, or recalled prior knowledge. Do NOT expand a single input row into multiple output rows unless the input row explicitly contains multiple file:line citations (in which case fan-out is allowed per cited file:line).
+> The input list below is the COMPLETE set of items you may produce verdicts for. Do not add rows for items not in the input list. Do not infer related items from context, file structure, or recalled prior knowledge. Do not expand a single input row into multiple output rows unless the input row explicitly contains multiple file:line citations (in which case fan-out is allowed per cited file:line).
 >
 > Output schema:
 > - One row per input item, in input order.
-> - Row count MUST equal input count (or input citation count, for explicit fan-out). Verify before writing the file.
-> - Each row's ID column MUST be the verbatim ID from the input. No new IDs, no renamings, no abbreviations.
+> - Row count must equal input count (or input citation count, for explicit fan-out). Verify before writing the file.
+> - Each row's ID column must be the verbatim ID from the input. No new IDs, no renamings, no abbreviations.
 >
-> Before writing the deliverable file, run a self-check: `wc -l` the output table body and compare to the input count. If they differ and you have not explicitly fanned out a multi-citation row, STOP and re-read the input list — you have either hallucinated rows or skipped rows. Inline the count check at the top of your reply: `Input items: N. Output rows: M. Reconciled: <reason if M != N>`.
+> Before writing the deliverable file, run a self-check: `wc -l` the output table body and compare to the input count. If they differ and you have not explicitly fanned out a multi-citation row, stop and re-read the input list — you have either hallucinated rows or skipped rows. Inline the count check at the top of your reply: `Input items: N. Output rows: M. Reconciled: <reason if M != N>`.
 
 ---
 
@@ -23,7 +23,7 @@ Inline this verbatim into Sonnet or Haiku dispatches whose deliverable is a verd
 - Any executor whose input is "verify these N file:line entries" or "classify these N items."
 - Any audit whose schema is "one verdict row per input row."
 
-## When NOT to inline
+## When not to inline
 
 - Open-ended enumeration ("find all X in the codebase") — bounded preamble would suppress discovery.
 - Schema-driven generation ("emit a row per gameplay tag the indexer found") — bound is the indexer's output, not a passed-in list.

@@ -76,7 +76,7 @@ UNFINISHED and SHARED-ID rows may still be listed), 1 RECYCLED, RESURRECTED or U
 landing or an archive repair is owed, or candidacy could not be checked), 2 on a usage or
 precondition failure.
 
-Arrived from DoE-claude coordinator/skills/plan-blitz/recycle-check.py
+Arrived from coordinator-content-repo coordinator/skills/plan-blitz/recycle-check.py
 (docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W3-C7). Path resolution: every path it
 reads (`--repo-root`, `--trail-root`, `--archive-root`, `--gate-report`) is caller-supplied and
 resolved against `--repo-root`, already the "session repo" class (§ Path resolution) with no seam

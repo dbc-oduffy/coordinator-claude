@@ -13,9 +13,9 @@ Identity chain (executor pin, plan C7):
 
 Provenance: source_kind="coordinator_artifact", path="state/goals/<file>.yaml".
 
-Spec backlink: DoE-claude:pln-per-repo-okr-goal-setting-syst-80bced § C7
+Spec backlink: coordinator-content-repo:pln-per-repo-okr-goal-setting-syst-80bced § C7
 Spec backlink: docs/plans/2026-06-22-cockpit-tc-3-coordinator-emission.md § DR-210
-Spec backlink: DoE-claude:pln-close-the-weekly-goal-loop-yam-d31316 § C11 (thin passthrough
+Spec backlink: coordinator-content-repo:pln-close-the-weekly-goal-loop-yam-d31316 § C11 (thin passthrough
     of weekly_perceptible / parent_goal_id / key_results_status / goal_id to
     append-goal-event.py; claude-klabauter's artifact.emit carries the wire projection + engine)
 
@@ -440,9 +440,9 @@ def main(argv: list[str]) -> int:
         try:
             result = subprocess.run(
                 cmd, cwd=git_root, **_no_console_kw(),
-                capture_output=True, text=True,
+                capture_output=True, text=True, timeout=60,
             )
-        except (OSError, RuntimeError, ImportError) as exc:
+        except (OSError, RuntimeError, ImportError, subprocess.TimeoutExpired) as exc:
             print(f"[emit-goal] FAIL: append-goal-event.py batch invocation error: {exc}", file=sys.stderr)
             for basename, _event in batch:
                 print(f"[emit-goal] FAIL {basename}: batch invocation did not complete", file=sys.stderr)

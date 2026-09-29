@@ -322,8 +322,8 @@ writes or sends. Full ladder: that file's module docstring.
 ## Send pass (gem-14)
 
 `send_pass.py` turns `build_roster`'s **full** population into **one digest per invocation**
-(`build_send_digest`). It selects and throttles; **it does not send.** Rationale:
-`docs/decisions/DR-group-em-send-narrows-on-the-obligation-ledger.md`.
+(`build_send_digest`). It selects and throttles; **it does not send.** Rationale: the send
+narrows the full roster against the obligation ledger, not against liveness alone.
 
 **`roster` IS NOT THE POPULATION — it is the shortlist**, `build_candidate_roster`'s output. A
 human adjudicates it. `undischarged_obligations: None` means no ledger exists, never that the peer

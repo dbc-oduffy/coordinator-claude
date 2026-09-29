@@ -11,19 +11,19 @@ def _plugin_root() -> str:
     """Resolve the plugin root (coordinator/) that owns dist/publish-repo-{toplevel,docs}/.
 
     Env var CLAUDE_PLUGIN_ROOT wins if set, returned verbatim. Otherwise
-    resolves via doe_root() (see that function's own docstring for its
+    resolves via content_root() (see that function's own docstring for its
     env-var/machine-local resolution chain) and returns
-    <doe_root()>/coordinator.
+    <content_root()>/coordinator.
 
     This does NOT derive from this script's own __file__ location. That
-    used to be correct when this executable lived in DoE-claude
+    used to be correct when this executable lived in coordinator-content-repo
     (coordinator/bin/.. IS the plugin root there), but this file has since
     migrated to claude-klabauter (b644d5a9 there, 8a28a6ca here) while
     coordinator/dist/publish-repo-{toplevel,docs}/ stayed put in
-    DoE-claude — self-location now resolves to <claude-klabauter>/coordinator, which
+    coordinator-content-repo — self-location now resolves to <claude-klabauter>/coordinator, which
     has no dist/ at all, silently producing spurious MISSING/ERROR lines
-    over a tree that never existed instead of a loud failure. doe_root()
-    is the correct authority for "where is the DoE-claude repo,"
+    over a tree that never existed instead of a loud failure. Content_root()
+    is the correct authority for "where is the coordinator-content-repo repo,"
     independent of where THIS script happens to run from. A future reader
     must not "restore" __file__-based resolution to regain the old bash
     oracle's SCRIPT_DIR/.. shape — that is precisely what caused this
@@ -31,7 +31,7 @@ def _plugin_root() -> str:
     the DoE tree — so the trampoline resolves and forwards it via the
     environment.
 
-    Fails loud (sys.exit(3)) if doe_root() cannot resolve: this is a gate
+    Fails loud (sys.exit(3)) if content_root() cannot resolve: this is a gate
     script, not a never-block hook, so an unresolvable DoE root must not
     degrade to an exit-0 no-op. Exit code 3 (not 1 or 2) keeps this failure
     distinct from the op's own 0/1/2 business codes, matching this
@@ -39,18 +39,18 @@ def _plugin_root() -> str:
     """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from coordinator_data_root import content_root_or_private
-    from coordinator_registry import _DoeUnresolvable, doe_root
+    from coordinator_registry import _DoeUnresolvable, content_root
 
     env_val = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if env_val:
         return env_val
     try:
-        root = doe_root()
+        root = content_root()
     except _DoeUnresolvable as exc:
         print(
-            "verify-dist-publish-repo-sync.py: cannot resolve the DoE-claude repo root "
-            f"({exc}). Set repos.doe_claude in the machine-local registry, or set "
-            "the DOE_ROOT env var, or set CLAUDE_PLUGIN_ROOT directly.",
+            "verify-dist-publish-repo-sync.py: cannot resolve the coordinator-content-repo repo root "
+            f"({exc}). Set repos.content_root in the machine-local registry, or set "
+            "the CONTENT_ROOT env var, or set CLAUDE_PLUGIN_ROOT directly.",
             file=sys.stderr,
         )
         sys.exit(3)

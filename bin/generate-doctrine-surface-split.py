@@ -1,5 +1,5 @@
 """coordinator/bin/generate-doctrine-surface-split.py — the sanctioned
-split mechanism for an over-ceiling doctrinal-surface file in DoE-claude
+split mechanism for an over-ceiling doctrinal-surface file in coordinator-content-repo
 (D4, A15, A16 of `docs/plans/2026-08-13-doctrinal-surface-weight-ratchet.md`).
 
 WHY THIS EXISTS. The weight ratchet's 10:1 tier is unpayable by design for a
@@ -43,8 +43,8 @@ Usage:
     python coordinator/bin/generate-doctrine-surface-split.py <source.md> --check    # verify, exit 1 on drift
 
 DOE-INTERNAL. `<source.md>` and the split directory it produces live and are
-committed inside the DoE-claude checkout, never in this repo — claude-klabauter owns
-and runs this CLI, DoE-claude is where its input and output live.
+committed inside the coordinator-content-repo checkout, never in this repo — claude-klabauter owns
+and runs this CLI, coordinator-content-repo is where its input and output live.
 
 Path resolution: "doctrine asset" class (§ Path resolution,
 docs/plans/2026-09-18-doe-holds-no-scripts.md), resolved through the plugin
@@ -55,13 +55,13 @@ own three-rung ambient probe — the same pair chunk W2-C9's mise-prep-entry.py
 already uses for its own doctrine-asset seam, and this file's own sibling
 `generate-doctrine-surfaces.py` (W3-C6) also uses. `_repo_root()` below
 replaces the DoE original's own `Path(__file__).resolve().parent.parent.parent`
-— the DoE-claude@b644d5a9 lesson this wave exists to fix.
+— the coordinator-content-repo@b644d5a9 lesson this wave exists to fix.
 `_no_console_creationflags()`'s `win_portability` import is a real package
 import (`coordinator_core.win_portability`) rather than a
 `sys.path`-inserted sibling-file load, since that primitive now lives inside
 the engine.
 
-Arrived from DoE-claude coordinator/lib/generate-doctrine-surface-split.py
+Arrived from coordinator-content-repo coordinator/lib/generate-doctrine-surface-split.py
 (docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W3-C6).
 Spec backlink: docs/plans/2026-08-13-doctrinal-surface-weight-ratchet.md (D4, C10)
 """
@@ -143,9 +143,9 @@ _HEADING_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 
 
 def _repo_root() -> Path:
-    """The DoE-claude checkout root this generator reads and writes.
+    """The coordinator-content-repo checkout root this generator reads and writes.
 
-    `resolve_caller_context().plugin_root` is a CONTENT root (DoE-claude's
+    `resolve_caller_context().plugin_root` is a CONTENT root (coordinator-content-repo's
     `coordinator/` subdir) one level below the repo root this generator's
     paths are relative to — same convention this file's sibling
     `generate-doctrine-surfaces.py` documents. Raises loud when unresolvable:
@@ -162,10 +162,10 @@ def _repo_root() -> Path:
     plugin_root = resolve_caller_context().plugin_root
     if plugin_root is None:
         raise RuntimeError(
-            "generate-doctrine-surface-split: cannot resolve the DoE-claude "
+            "generate-doctrine-surface-split: cannot resolve the coordinator-content-repo "
             "plugin root -- resolve_caller_context().plugin_root returned no "
             "result. Set CLAUDE_PLUGIN_ROOT, or register the coordinator-claude "
-            "plugin install / .doe-root pointer (see resolve_plugin_root())."
+            "plugin install / .content-root pointer (see resolve_plugin_root())."
         )
     return Path(plugin_root).resolve().parent
 

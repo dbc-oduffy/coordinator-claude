@@ -25,7 +25,7 @@ replaces the former bash forwarder (regen-cockpit-schema.sh, DoE 23d34a4c,
 the emitter is invoked directly via subprocess.run() with an argv list, never
 through a shell string.
 
-Spec backlink: DoE-claude:pln-decommission-cockpit-contract--73331e (chunk C2).
+Spec backlink: coordinator-content-repo:pln-decommission-cockpit-contract--73331e (chunk C2).
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md (Wave 1, Category C).
 
 Usage:
@@ -74,9 +74,9 @@ publishes BOTH the moving `cockpit-contract-release` ref and the immutable
 per-version alias (`cockpit-contract-<CONTRACT_VERSION>`) from DoE's clone to
 DoE's origin. As of 2026-08-23 that script exists and has been exercised (4.0.0
 published both refs), but the GitHub Action that was meant to trigger it does
-not — DoE-claude has `.github/scripts/` and no `.github/workflows/` — so the
+not — coordinator-content-repo has `.github/scripts/` and no `.github/workflows/` — so the
 publish is an operator-run script, not an automatic one. Verify before relying
-on this: the presence of a workflow file under DoE-claude's `.github/workflows/`
+on this: the presence of a workflow file under coordinator-content-repo's `.github/workflows/`
 is the ground truth, not this docstring's age. Until it is automated, the origin tag can
 sit stale relative to the local `git tag -f` advance below, and any reader
 pinned to the origin ref — claude-klabauter's own freshness probe
@@ -119,7 +119,7 @@ import sys
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def _bootstrap_imports() -> None:
-    global cc_invoke, claude_klabauter_root, _DoeUnresolvable, doe_root
+    global cc_invoke, claude_klabauter_root, _DoeUnresolvable, content_root
     global no_console_creationflags
 
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
@@ -128,7 +128,7 @@ def _bootstrap_imports() -> None:
     cc_invoke.ensure_engine_on_path(__file__)
 
     from cli_shared import claude_klabauter_root
-    from coordinator_registry import _DoeUnresolvable, doe_root
+    from coordinator_registry import _DoeUnresolvable, content_root
     from coordinator_core.win_portability import no_console_creationflags
 
 _EMITTER_MODULE = "coordinator_core.contract.cockpit_schema.emit_schema"
@@ -136,11 +136,11 @@ _RELEASE_TAG = "cockpit-contract-release"
 _CONTRACT_SCHEMA_FILENAME = "cockpit-contract.schema.json"
 
 
-def _resolve_doe_root() -> str:
+def _resolve_content_root() -> str:
     """Resolve the DoE repo root via the shared machine-local registry ladder.
 
     This does NOT derive the root from this script's own location. That was
-    correct while this executable lived in DoE-claude (SCRIPT_DIR/../.. IS
+    correct while this executable lived in coordinator-content-repo (SCRIPT_DIR/../.. IS
     the DoE root there — the old `git rev-parse --show-toplevel` with
     cwd=_BIN_DIR mirrored the retired bash oracle exactly), but this file
     has since migrated to claude-klabauter. Self-location now resolves to the
@@ -152,19 +152,19 @@ def _resolve_doe_root() -> str:
     migration. A future reader must not "restore" __file__/git-toplevel
     resolution to regain oracle parity — that is precisely what broke it.
 
-    Resolution chain: doe_root() (DOE_ROOT env -> REPO_DOE_CLAUDE env ->
-    machine-local repos.doe_claude -> raise _DoeUnresolvable). Fails loud
+    Resolution chain: content_root() (CONTENT_ROOT env -> REPO_CONTENT_ROOT env ->
+    machine-local repos.content_root -> raise _DoeUnresolvable). Fails loud
     (sys.exit(2)) on an unresolvable root, keeping this function's existing
     exit-2 contract with callers.
     """
     _bootstrap_imports()
     try:
-        root = doe_root()
+        root = content_root()
     except _DoeUnresolvable as exc:
         print(
             f"ERROR: could not resolve the coordinator doctrine repo root ({exc}). "
-            "Set repos.doe_claude in the machine-local registry, or set the "
-            "DOE_ROOT / REPO_DOE_CLAUDE env var.",
+            "Set repos.content_root in the machine-local registry, or set the "
+            "CONTENT_ROOT / REPO_CONTENT_ROOT env var.",
             file=sys.stderr,
         )
         sys.exit(2)
@@ -196,13 +196,13 @@ def _build_trampoline_env(mak_root: str) -> dict[str, str]:
     return env
 
 
-def _schema_dir_dirty(doe_root: str, out_dir: str) -> bool:
+def _schema_dir_dirty(content_root: str, out_dir: str) -> bool:
     _bootstrap_imports()
-    rel_out_dir = os.path.relpath(out_dir, doe_root)
+    rel_out_dir = os.path.relpath(out_dir, content_root)
     try:
         result = subprocess.run(
             ["git", "status", "--porcelain", "--", rel_out_dir],
-            cwd=doe_root,
+            cwd=content_root,
             capture_output=True,
             text=True,
             **no_console_creationflags(),
@@ -216,7 +216,7 @@ def _schema_dir_dirty(doe_root: str, out_dir: str) -> bool:
     return bool(result.stdout.strip())
 
 
-def _schema_differs_from_tag(doe_root: str, out_dir: str) -> bool:
+def _schema_differs_from_tag(content_root: str, out_dir: str) -> bool:
     """Return True iff the COMMITTED schema at HEAD differs from what the
     `cockpit-contract-release` tag currently points at (AC8: only a real
     change to committed schema content should advance the tag).
@@ -233,11 +233,11 @@ def _schema_differs_from_tag(doe_root: str, out_dir: str) -> bool:
     either outcome.
     """
     _bootstrap_imports()
-    rel_out_dir = os.path.relpath(out_dir, doe_root)
+    rel_out_dir = os.path.relpath(out_dir, content_root)
     try:
         tag_check = subprocess.run(
             ["git", "rev-parse", "--verify", "--quiet", f"{_RELEASE_TAG}^{{commit}}"],
-            cwd=doe_root,
+            cwd=content_root,
             capture_output=True,
             text=True,
             **no_console_creationflags(),
@@ -251,7 +251,7 @@ def _schema_differs_from_tag(doe_root: str, out_dir: str) -> bool:
     try:
         diff = subprocess.run(
             ["git", "diff", "--quiet", _RELEASE_TAG, "HEAD", "--", rel_out_dir],
-            cwd=doe_root,
+            cwd=content_root,
             capture_output=True,
             text=True,
             **no_console_creationflags(),
@@ -288,7 +288,7 @@ def _read_contract_version(out_dir: str) -> str:
     return version
 
 
-def _advance_release_tag(doe_root: str, out_dir: str) -> None:
+def _advance_release_tag(content_root: str, out_dir: str) -> None:
     """Force-move the LOCAL `cockpit-contract-release` ANNOTATED tag to HEAD.
 
     Writes an annotated tag (`git tag -f -a ... -m ...`), never a lightweight
@@ -303,7 +303,7 @@ def _advance_release_tag(doe_root: str, out_dir: str) -> None:
     Negative-spec: under DR-060, publishing this tag to origin is DoE's
     initiative, not claude-klabauter's, and this function adding a push would silently
     transfer the publish button to claude-klabauter's tree. Today the origin push is an
-    operator-run step performed in the DoE-claude clone, via
+    operator-run step performed in the coordinator-content-repo clone, via
     `.github/scripts/publish_cockpit_contract.py` — NOT a bare
     `git push origin refs/tags/cockpit-contract-release`, which advances the
     moving ref alone and skips the immutable `cockpit-contract-<version>` alias
@@ -320,7 +320,7 @@ def _advance_release_tag(doe_root: str, out_dir: str) -> None:
     try:
         result = subprocess.run(
             ["git", "tag", "-f", "-a", _RELEASE_TAG, "-m", message],
-            cwd=doe_root,
+            cwd=content_root,
             capture_output=True,
             text=True,
             **no_console_creationflags(),
@@ -339,7 +339,7 @@ def _advance_release_tag(doe_root: str, out_dir: str) -> None:
         "claude-klabauter's. Until DoE performs it (or their own automated publish step "
         "lands), the origin tag stays stale. In the coordinator doctrine repo clone:"
     )
-    print(f"    git -C {doe_root} push origin refs/tags/{_RELEASE_TAG}")
+    print(f"    git -C {content_root} push origin refs/tags/{_RELEASE_TAG}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -370,7 +370,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    doe_root = _resolve_doe_root()
+    content_root = _resolve_content_root()
 
     mak_root = claude_klabauter_root()
     if not mak_root or not os.path.isdir(mak_root):
@@ -402,7 +402,7 @@ def main(argv: list[str] | None = None) -> int:
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from coordinator_data_root import content_root_or_private
 
-    out_dir = os.path.join(content_root_or_private(doe_root), "cockpit-contract", "schema")
+    out_dir = os.path.join(content_root_or_private(content_root), "cockpit-contract", "schema")
     print(f"Regenerating cockpit-contract schema via claude-klabauter emitter ({sys.executable})...")
     env = dict(trampoline_env)
     env["COCKPIT_SCHEMA_OUT_DIR"] = out_dir
@@ -427,7 +427,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if args.advance_ref:
-        if _schema_dir_dirty(doe_root, out_dir):
+        if _schema_dir_dirty(content_root, out_dir):
             print(
                 "ERROR: --advance-ref refused — coordinator/cockpit-contract/schema/ has "
                 "uncommitted changes.",
@@ -450,8 +450,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
 
-        if _schema_differs_from_tag(doe_root, out_dir):
-            _advance_release_tag(doe_root, out_dir)
+        if _schema_differs_from_tag(content_root, out_dir):
+            _advance_release_tag(content_root, out_dir)
         else:
             print(
                 f"--advance-ref: committed schema already matches {_RELEASE_TAG} — nothing to "

@@ -21,7 +21,7 @@ NEGATIVE SPEC.
     never derived from `cwd` — and every path join goes through `pathlib.Path` plus the engine's
     own `machinery_paths` accessors, never a hand-built literal.
 
-Arrived from DoE-claude coordinator/bin/lib/plan_completeness.py (plan-completeness was never
+Arrived from coordinator-content-repo coordinator/bin/lib/plan_completeness.py (plan-completeness was never
 ported when its sibling reader `plan-spine-check` was; this module mirrors that arrival's
 registration). Requirement-restated, not carried verbatim: the DoE-side `ensure_engine_on_path`
 resolved `coordinator_core` through a `coordinator/hooks/scripts::_engine_root` seam because that

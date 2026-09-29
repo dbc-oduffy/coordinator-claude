@@ -3,7 +3,7 @@
 WHY THIS EXISTS. `state/group-em-watch.json`, `state/group-em-watch-parked.json` and
 `state/group-em-watch-spool.jsonl` are per-machine runtime state written by a live poller and by
 every session's own `Stop` hook. `/coordinator:repo-setup` already prescribes them in its canonical
-`.gitignore` block (`skills/repo-setup/residue/mechanics.md`, DoE-claude) -- but that block is laid
+`.gitignore` block (`skills/repo-setup/residue/mechanics.md`, coordinator-content-repo) -- but that block is laid
 down once, at setup, and a repo onboarded before the trio existed never receives it. Nothing else
 checks.
 
@@ -31,7 +31,7 @@ this machine has not cloned is normal.
 
 _checked_paths()/BOX_LOCAL_STATE_GROUPS name paths only, never touch a doctrine asset at runtime --
 the residue block their spelling is pinned against (`skills/repo-setup/residue/mechanics.md`)
-stays in DoE-claude and is a test-time concern only (see
+stays in coordinator-content-repo and is a test-time concern only (see
 coordinator/tests/test_arrival_check_watch_state_gitignore_fleet.py), so this CLI itself needs no
 plugin-root resolution (docs/plans/2026-09-18-doe-holds-no-scripts.md § Path resolution).
 
@@ -51,7 +51,7 @@ import sys
 from pathlib import Path
 
 # Every path here is box-local: written by a live poller or a hook on THIS machine, read by
-# nothing in any other clone. Spelled exactly as skills/repo-setup/residue/mechanics.md (DoE-claude)
+# nothing in any other clone. Spelled exactly as skills/repo-setup/residue/mechanics.md (coordinator-content-repo)
 # prescribes them; test_arrival_check_watch_state_gitignore_fleet.py pins the two spellings
 # together so the instrument and the prose that documents it cannot drift apart.
 #

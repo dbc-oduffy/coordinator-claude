@@ -3,7 +3,7 @@
 check for code-comparison-record YAML fixtures.
 
 Validates a code-comparison-record (per
-coordinator/pipelines/deep-research/code-comparison-record-schema.md, DoE-claude doctrine asset)
+coordinator/pipelines/deep-research/code-comparison-record-schema.md, coordinator-content-repo doctrine asset)
 against: (1) required-field presence, (2) verdict/confidence enum range,
 (3) evidence permalink shape (blob/<sha>/path#Lx-Ly), (4) peer_ref present,
 (5) competitor_uid ABSENT (negative-spec 1), (6) analysis contains no
@@ -20,10 +20,10 @@ Usage:
 Exit: 0 on all records passing all checks; non-zero (count of violations)
 on any violation, with each violation printed to stderr.
 
-Spec backlink: coordinator/pipelines/deep-research/code-comparison-record-schema.md (DoE-claude)
+Spec backlink: coordinator/pipelines/deep-research/code-comparison-record-schema.md (coordinator-content-repo)
 § Negative Specs — Summary (items 1, 4) and § Field Reference (verdict, confidence).
 
-Arrived from DoE-claude coordinator/pipelines/deep-research/fixtures/validate-code-comparison-record.py
+Arrived from coordinator-content-repo coordinator/pipelines/deep-research/fixtures/validate-code-comparison-record.py
 (docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W3-C7). Path resolution: "engine" class
 (§ Path resolution) — `SCRIPT_DIR` is `Path(__file__).resolve().parent`, unchanged in shape,
 now resolving to `coordinator/bin/` instead of the DoE pipeline fixtures directory.

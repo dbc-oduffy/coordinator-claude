@@ -1,0 +1,19 @@
+# coordinator — per-machine and per-session state (managed block)
+.coordinator-local/
+.claude/settings.local.json
+scratch/
+state/.repo-setup-just-ran
+state/.workday-start-marker
+
+# coordinator — ceremony and coverage transients
+state/housekeeping-liveness.json
+state/engine-provenance-counts.jsonl
+
+# coordinator — group-EM watch state
+state/group-em-watch.json
+state/group-em-watch-parked.json
+state/group-em-watch-spool.jsonl
+
+# project-rag corpus output (never commit; ~230MB in history)
+.project-rag-corpus-artifacts/
+.project-rag-corpus-store/

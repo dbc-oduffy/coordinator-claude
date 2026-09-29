@@ -64,7 +64,7 @@ Invocation is always `python coordinator/bin/block-discharge.py <verb>
 ...`, resolved relative to repo root -- there is no bare `block-discharge`
 PATH shim anywhere in `coordinator/bin/`.
 
-Port of DoE-claude's `coordinator/bin/block-discharge.py`
+Port of coordinator-content-repo's `coordinator/bin/block-discharge.py`
 (`docs/plans/2026-09-06-block-discharge-durable-artifact.md`, chunk C3) per
 `docs/plans/2026-09-18-doe-holds-no-scripts.md` chunk W2-C8. The ledger
 logic this CLI drove by loading DoE's `coordinator/hooks/scripts/
@@ -78,7 +78,7 @@ Ledger-root resolution is the "session repo" class in the same table:
 resolved against the CALLER's cwd via `coordinator_core.git.repo_root`,
 never against this file's own `__file__` location -- this CLI ships from
 Claude-klabauter but a fire it discharges was very likely recorded by a hook running
-in the CONSUMING repo (see `_resolve_ledger_root` below for the DoE-claude@
+in the CONSUMING repo (see `_resolve_ledger_root` below for the coordinator-content-repo@
 b644d5a9 lesson this table entry exists to prevent a repeat of).
 
 Spec: docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W2-C8.
@@ -130,7 +130,7 @@ def _resolve_ledger_root(explicit_repo_root: Optional[str] = None) -> Path:
     writes its fire record to that repo's `state/block-discharge/`. Pinning
     the ledger root to this file's own `__file__` chain made the discharge
     instruction the guard prints unrunnable from any OTHER repo (the
-    DoE-claude@b644d5a9 lesson, § Path resolution): it looked in the wrong
+    coordinator-content-repo@b644d5a9 lesson, § Path resolution): it looked in the wrong
     repo for a fire recorded elsewhere, and reported it as an unmatched
     nonce. This resolution order is what makes the guard's printed
     instruction true as written, from whichever repo it fired in.

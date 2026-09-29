@@ -84,7 +84,7 @@ makes unreachable:
    neither, and it must be noted in `analysis`.
 
 ```yaml
-repo: dbc-oduffy/DoE-claude
+repo: dbc-oduffy/coordinator-content-repo
 signal_id: cli-argument-parsing-robustness
 axis: "CLI Argument-Parsing Robustness"
 
@@ -120,7 +120,7 @@ observation:
       an explicit string comparison (lines 167-170) rather than a
       declarative choices list.
     evidence:
-      - url: "https://github.com/dbc-oduffy/DoE-claude/blob/cbbd7cd220bbb9e2f92a511cd7abfc2f5c7ef354/coordinator/bin/coordinator-safe-commit#L111-L186"
+      - url: "https://github.com/dbc-oduffy/coordinator-content-repo/blob/cbbd7cd220bbb9e2f92a511cd7abfc2f5c7ef354/coordinator/bin/coordinator-safe-commit#L111-L186"
         fetch_date: "2026-07-12"
         platform: github
         comment_id: null
@@ -421,7 +421,7 @@ stub-to-live transition, so live-emit wiring does not migrate the path a second 
 
 **The bound path is `<repo-root>/state/emissions/code-comparison/`** — `<repo-root>` is the root
 of the repo running the comparison, resolved via that repo's own tree-root pointer (for this repo, the
-`.doe-root` pointer; never `${CLAUDE_PLUGIN_ROOT}`, which names the plugin source tree under
+`.content-root` pointer; never `${CLAUDE_PLUGIN_ROOT}`, which names the plugin source tree under
 `<repo-root>/coordinator/`, not the repo root that `state/` sits under). Each repo binds its own
 code-comparison agent's output path to this directory, relative to its own root, plus a
 run-scoped filename; `state/emissions/code-comparison/README.md` states the arrival contract for

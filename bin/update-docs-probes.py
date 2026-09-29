@@ -5,14 +5,14 @@
 Port history: this file used to CARRY the fresh-scaffold-probe /
 repomap-gate / queue-prune-sweep / distill-threshold logic directly (4
 concerns, one subcommand each, ported from `coordinator/commands/update-
-docs.md` bash fences). 2026-08-06 (cross-repo/inbox/2026-08-06-doe-claude-em-
+docs.md` bash fences). 2026-08-06 (cross-repo/inbox/2026-08-06-coordinator-content-repo-em-
 updatedocs-gates-structured-verdicts.md, ADOPTED): that logic moved to
 `coordinator_core/ops/updatedocs_gates.py`'s gate functions, which return a
 structured `GateResult` (clean/finding/unavailable/contradiction + severity)
 instead of a bare exit code — the native op is now the source of truth, and
 this file's only remaining job is translating a `GateResult` back into the
 legacy exit-code/stdout contract each `/update-docs` phase already expects,
-so the phase prose in `coordinator/commands/update-docs.md` (DoE-claude, out
+so the phase prose in `coordinator/commands/update-docs.md` (coordinator-content-repo, out
 of this repo's edit scope) does not need to change in lockstep.
 
 Each `_cmd_*` function below calls its gate function directly (in-process,
@@ -25,7 +25,7 @@ would silently change behavior a caller may depend on.
 
 Retired 2026-07-29: the `snippet-sync-sweep` subcommand (Phase 11b glob-loop
 over `bin/verify-*-sync.sh` verifiers) was removed as dead code — those
-verifiers were retired fleet-wide (DoE-claude `dce9788bc` / `de23f5002`,
+verifiers were retired fleet-wide (coordinator-content-repo `dce9788bc` / `de23f5002`,
 superseded by the native `coordinator_core/snippet_sync/` verifier), and no
 caller passed a `--glob-root` pointing anywhere but the default `~/.claude`.
 Its Windows-side `sh`/`bash` interpreter resolution (added 2026-07-28) was
@@ -77,9 +77,9 @@ had a CLI shim (DoE's Phase 11f/11g/11h/11j fences invoke the underlying
 CLIs directly, see that module's docstring), so there is nothing here to
 port them into.
 
-Spec backlink: coordinator/commands/update-docs.md (DoE-claude) — Pre-flight
+Spec backlink: coordinator/commands/update-docs.md (coordinator-content-repo) — Pre-flight
   probe, Phase 9b, Phase 11i, Phase 13 steps 1-2.
-Spec backlink: cross-repo/inbox/2026-08-06-doe-claude-em-updatedocs-gates-
+Spec backlink: cross-repo/inbox/2026-08-06-coordinator-content-repo-em-updatedocs-gates-
   structured-verdicts.md
 """
 

@@ -52,7 +52,7 @@ Negative-spec: does NOT resurrect `platform-localize.sh` — this reuses the
 merge *idiom* (codex / the engine repo's shipped `seed_enabled_plugins.py`
 shape), not the file.
 
-Spec backlink: DoE-claude:pln-seed-marketplace-sibling-enabl-4806a8
+Spec backlink: coordinator-content-repo:pln-seed-marketplace-sibling-enabl-4806a8
   § D1 (C1) — AC1, AC2, AC3, AC4, AC5. § D4 (C6) — AC9 (registration).
 Twin: the engine repo's shipped `scripts/seed_enabled_plugins.py` (f4e165e9)
   — same shape, differs only in TARGET (settings.local.json here, not

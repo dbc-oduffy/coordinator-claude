@@ -8,7 +8,7 @@ spawns with the ambient environment) from writing
 resolution substrate, and a file no tmp_path discipline or dirty-tree gate
 watches. The 2026-07-28 incident that motivates this landed in the sibling
 tree; the same escape route is open here, and several CLIs exercised from this
-tree (``repo-setup``, ``register-coordinator-mirror``, the DoE-root harvest leg)
+tree (``repo-setup``, ``register-coordinator-mirror``, the content-root harvest leg)
 reach registry writers.
 
 Detection rather than redirection, deliberately: see the long note on the same

@@ -784,7 +784,7 @@ Grep the file for helper calls inside decorator arguments and class bodies — a
 
 ### Symptom
 
-A bash-kill sweep treats every `.sh` file as a spawn to eliminate, including files that are `source`d into the caller's own shell (env exporters like `claude-machine-local.sh`, shell-function shims like `claude-doe-shim.sh`). `source X.sh` reads the file into the *current* shell process — zero subprocess. The Windows fork tax comes from **spawning** bash per-op, not from sourcing.
+A bash-kill sweep treats every `.sh` file as a spawn to eliminate, including files that are `source`d into the caller's own shell (env exporters like `claude-machine-local.sh`, shell-function shims like `claude-author-shim.sh`). `source X.sh` reads the file into the *current* shell process — zero subprocess. The Windows fork tax comes from **spawning** bash per-op, not from sourcing.
 
 ### Fix
 

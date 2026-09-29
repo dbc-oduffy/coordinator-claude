@@ -38,9 +38,9 @@ exceptions:
       `exclude_globs` entry; Group B of
       state/audits/2026-08-05-first-full-payload-identity-findings.md
       flagged that exclusion as unverified-whether-deliberate and declined to
-      ratify it unilaterally. Ratified as deliberate and correct by DoE-claude's
+      ratify it unilaterally. Ratified as deliberate and correct by coordinator-content-repo's
       EM and PM in
-      cross-repo/inbox/2026-08-05-doe-claude-em-three-publish-gates-block-the-4-0-0-percolate.md
+      cross-repo/inbox/2026-08-05-coordinator-content-repo-em-three-publish-gates-block-the-4-0-0-percolate.md
       -- this entry records that ratification.
   - path: "coordinator_core/warm/door/door.exe"
     reason: >-

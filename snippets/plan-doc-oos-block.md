@@ -7,9 +7,9 @@ tool-call layer; this brief-side block names the constraint so the executor does
 context attempting the write before the hook denies it.
 -->
 
-## Out-of-scope — plan document, do NOT touch
+## Out-of-scope — plan document, do not touch
 
-Do NOT edit the plan markdown body — not the header `Status:`, not your assigned chunk-section, not the wave-map, not the acceptance-criteria checkboxes. The plan document is EM-owned and integrator-owned. Plan-status hygiene is owned by the EM via the wave-map; chunk-level execution state is owned by you via the per-chunk run-report sidecar (`state/subagent-share/<session-id>/<provision_key>.md`) named in your dispatch brief's `sidecar_path:` field.
+Do not edit the plan markdown body — not the header `Status:`, not your assigned chunk-section, not the wave-map, not the acceptance-criteria checkboxes. The plan document is EM-owned and reviewer-owned — a reviewer applies its own findings there in place. Plan-status hygiene is owned by the EM via the wave-map; chunk-level execution state is owned by you via the per-chunk run-report sidecar (`state/subagent-share/<session-id>/<provision_key>.md`) named in your dispatch brief's `sidecar_path:` field.
 
 The PreToolUse guard `block_subagent_plan_body_write` will DENY any Write/Edit/MultiEdit/NotebookEdit you attempt on `docs/plans/**/*.md`. Attempting the write wastes context; the hook is the gate, this block names the rule so you don't try.
 

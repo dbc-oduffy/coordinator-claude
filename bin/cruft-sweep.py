@@ -57,7 +57,7 @@ Options:
 
 Exit codes:
   0  success or lock contention (contention exits silently)
-  1  unexpected error (including COORDINATOR_CONTENT_ROOT / doe-root
+  1  unexpected error (including COORDINATOR_CONTENT_ROOT / content-root
      resolution failure)
   2  invalid flags
 
@@ -253,12 +253,12 @@ def _state_root_or_empty(*, central: bool = False) -> str:
         return ""
 
 
-def _read_doe_root_pointer() -> str:
-    """Durable-first, legacy-fallback `.doe-root` pointer read — mirrors the
+def _read_content_root_pointer() -> str:
+    """Durable-first, legacy-fallback `.content-root` pointer read — mirrors the
     bash oracle's inline fallback (L158-162), used ONLY when
     resolve_content_root() itself fails (see _resolve_and_guard_content_root
     below). Deliberately a local, tiny reimplementation rather than importing
-    coordinator_core.resolve_coordinator_clone._read_doe_root_pointer (a
+    coordinator_core.resolve_coordinator_clone._read_content_root_pointer (a
     private symbol of a sibling module) — same convention that module's own
     docstring already documents as accepted (each caller keeps its own copy
     rather than sharing a private helper across module boundaries).
@@ -284,36 +284,36 @@ def _read_doe_root_pointer() -> str:
     else:
         settings_home_dir = ""
 
-    doe_root = ""
+    content_root = ""
     if settings_home_dir:
         try:
             with open(
-                os.path.join(settings_home_dir, "machine-local", ".doe-root"),
+                os.path.join(settings_home_dir, "machine-local", ".content-root"),
                 "r",
                 encoding="utf-8",
             ) as f:
-                doe_root = f.read().strip()
+                content_root = f.read().strip()
         except OSError:
-            doe_root = ""
-    if not doe_root and home:
+            content_root = ""
+    if not content_root and home:
         try:
             with open(
-                os.path.join(home, ".claude", ".doe-root"), "r", encoding="utf-8"
+                os.path.join(home, ".claude", ".content-root"), "r", encoding="utf-8"
             ) as f:
-                doe_root = f.read().strip()
+                content_root = f.read().strip()
         except OSError:
-            doe_root = ""
-    return doe_root
+            content_root = ""
+    return content_root
 
 
 def _resolve_and_guard_content_root() -> None:
-    """Resolve COORDINATOR_CONTENT_ROOT and, ONLY on the .doe-root fallback
+    """Resolve COORDINATOR_CONTENT_ROOT and, ONLY on the .content-root fallback
     path, run the trusted-root-guard fail-loud check — mirrors the bash
     oracle's control flow EXACTLY (L144-180): the primary
     resolve-coordinator-clone resolver is trusted implicitly (its own ladder
     already only returns well-known trusted locations); the guard only fires
     when that primary resolver fails and this falls back to reading the raw
-    `.doe-root` pointer file directly. Exits 1 (mirroring the bash oracle's
+    `.content-root` pointer file directly. Exits 1 (mirroring the bash oracle's
     literal `exit 1`) if neither path resolves a usable content root."""
     from coordinator_core.resolve_coordinator_clone import (
         ResolveCoordinatorCloneError,
@@ -332,11 +332,11 @@ def _resolve_and_guard_content_root() -> None:
 
     from coordinator_data_root import content_root_for
 
-    doe_root = _read_doe_root_pointer()
-    pointed = content_root_for(doe_root)
+    content_root = _read_content_root_pointer()
+    pointed = content_root_for(content_root)
     if pointed is None:
         sys.stderr.write(
-            "ERROR: ~/.claude/.doe-root missing/invalid — re-run coordinator:install\n"
+            "ERROR: ~/.claude/.content-root missing/invalid — re-run coordinator:install\n"
         )
         sys.exit(1)
 

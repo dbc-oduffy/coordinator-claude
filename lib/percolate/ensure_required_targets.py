@@ -409,12 +409,12 @@ def _default_repo_root() -> Path:
     """Post-split default root: the percolation SOURCE tree (the one holding
     `setup/`), not this file's own repo root. The 2026-07-22 executable-surface
     migration moved this module into claude-klabauter while `setup/` stayed in
-    the percolation source (DoE-claude / a `~/.claude` shared install), so the
+    the percolation source (coordinator-content-repo / a `~/.claude` shared install), so the
     old `parents[3]` walk lands on a tree with no `setup/` at all. Rung order:
       1. Co-located `setup/` beside this module's repo root — the pre-split
          layout and any install shipping both halves together; costs nothing.
       2. `coordinator_core.percolate.runtime_root`'s explained resolver (env
-         override → cwd git root → DoE-root pointer → shared install), whose
+         override → cwd git root → content-root pointer → shared install), whose
          root marker is `setup/publish-targets.portable`, exactly the data
          this module exists to reach — BUT pinned to never accept an answer
          that resolves to the DoE clone itself (docs/plans/2026-08-01-percolate-
@@ -426,11 +426,11 @@ def _default_repo_root() -> Path:
          exact write-into-a-foreign-clone hazard C6/C8 exist to stop,
          arriving through this caller instead of the installer.
          The pin compares the resolved PATH (normalized via `Path.resolve()`)
-         against `doe_root_pointer.read_doe_root_pointer()`'s answer (also
+         against `content_root_pointer.read_content_root_pointer()`'s answer (also
          normalized) rather than checking the rung *label* — the label alone
          is an incomplete proxy: a cwd *inside* the DoE clone resolves via
-         rung 2 (`"repo-local-git"`), not rung 3 (`"doe-root-pointer"`), and a
-         label-only check would miss it. The `"doe-root-pointer"` rung label
+         rung 2 (`"repo-local-git"`), not rung 3 (`"content-root-pointer"`), and a
+         label-only check would miss it. The `"content-root-pointer"` rung label
          is still excluded too, belt-and-braces, but the path comparison is
          what carries the guarantee. Any such hit is treated exactly like a
          resolver miss here, falling through to step 3.
@@ -446,22 +446,22 @@ def _default_repo_root() -> Path:
         from coordinator_core.percolate.runtime_root import (
             coordinator_percolate_runtime_root_explained,
         )
-        from coordinator_core.doe_root_pointer import read_doe_root_pointer
+        from coordinator_core.content_root_pointer import read_content_root_pointer
 
         resolved, rung = coordinator_percolate_runtime_root_explained()
     except (ImportError, RuntimeError):
         return co_located
-    if rung == "doe-root-pointer":
+    if rung == "content-root-pointer":
         return co_located
     # Pin on the resolved *path* being the DoE clone,
     # not the rung label; a cwd-inside-DoE-clone hit resolves via rung 2
     # ("repo-local-git"), which the label-only check never caught (Finding 1).
     resolved_path = Path(resolved).resolve()
     try:
-        doe_root_raw = read_doe_root_pointer()
+        content_root_raw = read_content_root_pointer()
     except Exception:
-        doe_root_raw = ""
-    if doe_root_raw and resolved_path == Path(doe_root_raw).resolve():
+        content_root_raw = ""
+    if content_root_raw and resolved_path == Path(content_root_raw).resolve():
         return co_located
     return Path(resolved)
 

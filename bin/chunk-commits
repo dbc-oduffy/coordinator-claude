@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # chunk-commits — CLI trampoline over claude-klabauter's `ceremony.chunk_commits` op
 # (coordinator_core/ops/ceremony/chunk_commits.py): answers "did chunk <id>
 # of plan <path> commit?" as a nameable, invocable-by-name command.

@@ -34,9 +34,9 @@
     {
       "id": "context7",
       "kind": "plugin",
-      "tier": "semi-hard",
+      "tier": "advisory",
       "description": "Claude Code plugin context7@claude-plugins-official, enabled fleet-wide via settings.json enabledPlugins. Serves the MCP server plugin:context7:context7 (tools mcp__plugin_context7_context7__resolve-library-id / __query-docs) for live library/API documentation lookups.",
-      "why": "Required by docs-checker (its entire job is verifying API claims via Context7 — inert without it), enricher, executor, staff-eng, eng-director, staff-ux, staff-data-sci, and senior-front-end, which name these tools in their frontmatter and are degraded to guessing without them.",
+      "why": "Recommended for docs-checker (its entire job is verifying API claims via Context7 — inert without it), enricher, executor, staff-eng, eng-director, staff-ux, staff-data-sci, and senior-front-end, which name these tools in their frontmatter and are degraded to guessing without them.",
       "probe": {
         "kind": "json_object_key_true",
         "location": "install_root",
@@ -46,15 +46,15 @@
       },
       "install": {
         "mode": "manual",
-        "remediation": "enable the context7 plugin: run /plugin in Claude Code and install/enable context7@claude-plugins-official from the claude-plugins-official marketplace (or add \"context7@claude-plugins-official\" to enabledPlugins in settings.json)."
+        "remediation": "run the install script's context7 step (it registers the claude-plugins-official marketplace, then installs the plugin), or by hand: claude plugin marketplace add anthropics/claude-plugins-official, then claude plugin install context7@claude-plugins-official."
       },
       "reference": "coordinator/docs/wiki/mcp-topology.md"
     },
     {
       "id": "notebooklm-mcp",
       "kind": "external_server",
-      "tier": "semi-hard",
-      "description": "External MCP server notebooklm-mcp, served by the PyPI package notebooklm-mcp-cli (CLI: nlm), registered as a Claude Code MCP server exposing tools under the mcp__notebooklm-mcp__ prefix.",
+      "tier": "advisory",
+      "description": "External MCP server notebooklm-mcp, served by the PyPI package notebooklm-mcp-cli (CLI: nlm), registered as a Claude Code MCP server exposing tools under the mcp__notebooklm-mcp__ prefix (the registration name is \"Gemini Notebook MCP\" when added by nlm setup).",
       "why": "Powers deep-research Pipeline D; pipelines A/B/C are unaffected without it.",
       "probe": {
         "kind": "command_succeeds",
@@ -64,7 +64,7 @@
       },
       "install": {
         "mode": "manual",
-        "remediation": "install: uv tool install notebooklm-mcp-cli (requires uv/uvx), then nlm login, then nlm setup add claude-code to register the notebooklm-mcp MCP server."
+        "remediation": "install: uv tool install notebooklm-mcp-cli (requires uv/uvx), then nlm login (a browser flow), then nlm setup add claude-code to register the MCP server. The install script performs the first and last."
       },
       "reference": "coordinator/docs/wiki/mcp-topology/notebooklm-for-your-research.md"
     }
@@ -83,12 +83,66 @@
       },
       "install": {
         "mode": "manual",
-        "remediation": "if statusLine already carries a value, move that object verbatim into $COORDINATOR_SETTINGS_HOME/statusline-inner.json (falls back to ~/.coordinator-claude-settings/statusline-inner.json when unset). Then run: S=\"$(cat \"$HOME/.claude/.coordinator-plugin-root\" 2>/dev/null)/bin/statusline.py\"; python3 \"$S\" --selftest || python \"$S\" --selftest -- and confirm it prints a sidecar: line and an inner: line. Only then set statusLine in ~/.claude/settings.json to {\"type\": \"command\", \"command\": \"S=\\\"$(cat \\\"$HOME/.claude/.coordinator-plugin-root\\\" 2>/dev/null)/bin/statusline.py\\\"; python3 \\\"$S\\\" || python \\\"$S\\\"\"}."
+        "remediation": "run the install script's status_lines step: it writes statusLine to ~/.claude/settings.json and, when a different statusLine command was already there, relocates that object verbatim to $COORDINATOR_SETTINGS_HOME/statusline-inner.json, which statusline.py delegates to."
       },
       "reference": "coordinator/docs/wiki/claude-md-surfaces/anthropic-harness-capability-map.md"
+    },
+    {
+      "id": "subagent-statusline-registration",
+      "description": "The `subagentStatusLine` key in `~/.claude/settings.json`, registering coordinator/bin/subagent-statusline.py as the renderer of per-subagent rows. Machine-local, like statusline-registration.",
+      "why": "Subagent rows show who, what, model, effort and distance to compaction; without the key the harness draws its default rows and the operator loses the per-subagent compaction signal.",
+      "tier": "advisory",
+      "probe": {
+        "kind": "json_key_present",
+        "location": "install_root",
+        "relative_path": "settings.json",
+        "json_path": "subagentStatusLine"
+      },
+      "install": {
+        "mode": "manual",
+        "remediation": "run the install script's status_lines step, which writes both statusLine and subagentStatusLine."
+      },
+      "reference": "coordinator/docs/wiki/claude-md-surfaces/anthropic-harness-capability-map.md"
+    },
+    {
+      "id": "settings-env",
+      "description": "The `env` block of `~/.claude/settings.json` carrying the all-machines values from templates/settings-manifest.md (CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, CLAUDE_CODE_ENABLE_TODO_TOOLS). Values, not key presence, are what gate the tools.",
+      "why": "A missing or wrong value removes Agent Teams, the research pipelines and the Task* task graph from every session on the box while the settings read as configured.",
+      "tier": "semi-hard",
+      "probe": {
+        "kind": "json_key_present",
+        "location": "install_root",
+        "relative_path": "settings.json",
+        "json_path": "env"
+      },
+      "install": {
+        "mode": "manual",
+        "remediation": "run the install script's settings_env step, or: python3 coordinator/bin/check-settings-env.py --apply (lands next session)."
+      },
+      "reference": "coordinator/templates/settings-manifest.md"
+    },
+    {
+      "id": "hook-delivery",
+      "description": "Coordinator hooks reaching sessions: delivered by the plugin's hooks/hooks.json, or generated into settings.json by gen-settings-hooks when the plugin does not deliver them.",
+      "why": "Without a delivery path no guard or SessionStart doctrine fires; with both, every hook fires twice.",
+      "tier": "semi-hard",
+      "probe": {
+        "kind": "json_key_present",
+        "location": "install_root",
+        "relative_path": "settings.json",
+        "json_path": "enabledPlugins"
+      },
+      "install": {
+        "mode": "manual",
+        "remediation": "run the install script's hooks_marker step: plugin delivery is recorded as INHERITED and nothing is generated; on a machine without plugin delivery, answer hooks_marker=create."
+      },
+      "reference": "coordinator/docs/wiki/install-playbook-rationale.md"
     }
   ],
-  "required_env_vars": [],
+  "required_env_vars": [
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
+    "CLAUDE_CODE_ENABLE_TODO_TOOLS"
+  ],
   "override_flags": {
     "skip_dep_check": "--skip-dep-check",
     "accept_hallucination_risk": "--accept-missing-deps-risk"
@@ -103,7 +157,7 @@
     "floor_prerequisite_ids": ["git", "claude_code"],
     "install_root_drivable": true
   },
-  "tested_platforms": ["linux"],
+  "tested_platforms": ["linux", "macos", "windows"],
   "present_platforms": ["macos", "linux", "windows"],
   "configurable_locations": [
     {
@@ -171,7 +225,7 @@
         "mode": "auto-with-confirmation",
         "posix": "npm install -g @anthropic-ai/claude-code",
         "windows": "npm install -g @anthropic-ai/claude-code",
-        "remediation": "install the Claude Code CLI — coordinator's canonical, preferred runtime (preferred over the desktop app): npm install -g @anthropic-ai/claude-code. To START a coordinator session: open a terminal, run `cd ~/.claude`, then run `claude` — that launches Claude Code with your coordinator root (~/.claude) as the working directory. Whenever an install step says \"restart your session from ~/.claude\", that is the action: a terminal, `cd ~/.claude`, `claude`."
+        "remediation": "install the Claude Code CLI — coordinator's canonical, preferred runtime (preferred over the desktop app): npm install -g @anthropic-ai/claude-code. A session started from any directory reaches ~/.claude; the install opens ~/.claude in your file manager so you can see the files that govern your sessions."
       },
       "reference": "https://docs.claude.com/en/docs/claude-code"
     },
@@ -194,7 +248,7 @@
     },
     {
       "id": "bash",
-      "tier": "hard",
+      "tier": "advisory",
       "probe": {
         "kind": "command_succeeds",
         "cmd": "bash -c '(( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 3) ))'",
@@ -204,13 +258,13 @@
       },
       "install": {
         "mode": "manual",
-        "remediation": "install bash >= 4.3 (macOS ships 3.2): brew install bash (macOS) — most Linux/WSL/Git-Bash is already 4.3+; ensure the modern bash precedes /bin/bash in PATH. coordinator-safe-commit uses local -n namerefs (bash 4.3+) and runs on every commit; scripts also use declare -A / mapfile."
+        "remediation": "install bash >= 4.3 recommended (macOS ships 3.2, which works for the install): brew install bash (macOS) — most Linux/WSL/Git-Bash is already 4.3+; ensure the modern bash precedes /bin/bash in PATH. coordinator-safe-commit uses local -n namerefs (bash 4.3+) and runs on every commit; scripts also use declare -A / mapfile."
       },
       "reference": "coordinator/scripts/lib/prereq_probe.sh"
     },
     {
       "id": "gh",
-      "tier": "hard",
+      "tier": "semi-hard",
       "probe": {
         "kind": "command_succeeds",
         "cmd": "command -v gh",
@@ -226,7 +280,7 @@
     },
     {
       "id": "node",
-      "tier": "hard",
+      "tier": "advisory",
       "probe": {
         "kind": "command_succeeds",
         "cmd": "command -v node",

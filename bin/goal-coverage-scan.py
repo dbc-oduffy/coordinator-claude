@@ -14,7 +14,7 @@ flags zero-coverage active goals so a human can decide whether to spin off a
 stub — mirrors detect-initiative-candidates' surface-and-confirm shape one
 cadence-step over (the initiative-govern sweep).
 
-Spec backlink: DoE-claude:pln-close-the-weekly-goal-loop-yam-d31316 § C5 (AC5);
+Spec backlink: coordinator-content-repo:pln-close-the-weekly-goal-loop-yam-d31316 § C5 (AC5);
 state/review-trail/findings/2026-07-22-goal-coverage-scan-port-blocked.md
 (the blocked-then-cleared port attempt this file completes — the native
 records.query op's `goal` type-coverage gap that blocked the original port

@@ -5,7 +5,7 @@ Thin DoE-side (contract) trampoline over claude-klabauter's
 coordinator_core.ops.verify_skill_anchor_links. Resolution is PATH-DIRECTED:
 each `<path>.md § <section>` citation is checked against the file that citation
 itself names, never against a union of doctrine files. An OPTIONAL manifest at
-<doe_root>/coordinator/doctrine-surfaces.json (override:
+<content_root>/coordinator/doctrine-surfaces.json (override:
 COORDINATOR_DOCTRINE_MANIFEST) supplies an alias map so home-relative citations
 such as `~/.claude/CLAUDE.md` become checkable; its ABSENCE is not an error —
 those citations simply stay QUALIFIED rather than resolved.

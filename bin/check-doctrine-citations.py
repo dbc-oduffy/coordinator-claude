@@ -61,7 +61,7 @@ plain-text substring matching, matching the spike's own probe methodology.
 Does NOT count an illustrative/placeholder form as dangling or ambiguous —
 it is excluded and separately tallied, never silently dropped. Does NOT
 silently narrow the candidate tree set when a default tree fails to resolve
-(P1 fix) — a failed `doe-claude` resolution (unregistered shortname, stale
+(P1 fix) — a failed `coordinator-content-repo` resolution (unregistered shortname, stale
 `repos.*` key, a transient subprocess failure) is named and forces a
 non-zero exit, even with zero citation findings, rather than degrading to a
 false-clean scan of whatever trees happened to resolve. Does NOT perform a
@@ -113,7 +113,7 @@ backtracks to a truncated `.md` match; ordinary trailing punctuation
 
 Negative-spec gotcha: `${CLAUDE_PLUGIN_ROOT}` resolves to the plugin INSTALL
 directory, not the repo root — for a marketplace source of `./plugin` that
-is `<repo>/plugin`, not `<repo>/`; DoE-claude's own shipped citations resolve
+is `<repo>/plugin`, not `<repo>/`; coordinator-content-repo's own shipped citations resolve
 it against the `coordinator/` subtree, which is why the default `plugin_root`
 tree entry mirrors `doe_coordinator` rather than the bare repo root. Do NOT
 assume plugin root == repo root elsewhere.
@@ -134,7 +134,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__f
 # to `_CITATION_RE`'s own alternation, not this map.
 _PREFIX_TREE_MAP: dict[str, str] = {
     "coordinator/": "doe_coordinator",
-    "~/.claude/": "doe_root",
+    "~/.claude/": "content_root",
     "${CLAUDE_PLUGIN_ROOT}/": "plugin_root",
 }
 
@@ -156,12 +156,12 @@ def _is_illustrative(full_text: str) -> bool:
     return bool(_ILLUSTRATIVE_RE.search(full_text))
 
 
-_DOE_TREE_NAMES = ("doe_root", "doe_coordinator")
+_DOE_TREE_NAMES = ("content_root", "doe_coordinator")
 
 _DEFAULT_TREE_SHORTNAMES: dict[str, tuple[str, str]] = {
-    "doe_root": ("doe-claude", ""),
-    "doe_coordinator": ("doe-claude", "coordinator"),
-    "plugin_root": ("doe-claude", "coordinator"),
+    "content_root": ("coordinator-content-repo", ""),
+    "doe_coordinator": ("coordinator-content-repo", "coordinator"),
+    "plugin_root": ("coordinator-content-repo", "coordinator"),
     "claude-klabauter": ("claude-klabauter", ""),
 }
 
@@ -459,7 +459,7 @@ def find_dead_from_consumer(citations: list[Citation], tree_roots: dict[str, str
     correct join to perform; skipping the literal check is the safe read,
     not a coincidental one."""
     findings: list[Finding] = []
-    doe_roots = {name: tree_roots[name] for name in _DOE_TREE_NAMES if tree_roots.get(name)}
+    content_roots = {name: tree_roots[name] for name in _DOE_TREE_NAMES if tree_roots.get(name)}
     for citation in citations:
         if _resolves_cwd_independently(citation):
             continue
@@ -467,7 +467,7 @@ def find_dead_from_consumer(citations: list[Citation], tree_roots: dict[str, str
         if not _contains_dotdot_segment(literal_path) and os.path.isfile(os.path.join(consumer_root, literal_path)):
             continue
         doe_matches = [
-            tree_name for tree_name, root in doe_roots.items() if os.path.isfile(os.path.join(root, citation.core_path))
+            tree_name for tree_name, root in content_roots.items() if os.path.isfile(os.path.join(root, citation.core_path))
         ]
         if doe_matches:
             findings.append(Finding(citation, "dead-from-consumer", sorted(doe_matches)))
@@ -574,7 +574,7 @@ def main(argv: list[str]) -> int:
         action="append",
         default=[],
         metavar="NAME=PATH",
-        help="Override or add a tree root (doe_root, doe_coordinator, claude-klabauter); repeatable.",
+        help="Override or add a tree root (content_root, doe_coordinator, claude-klabauter); repeatable.",
     )
     parser.add_argument(
         "--no-default-trees",

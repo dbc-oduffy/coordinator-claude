@@ -44,7 +44,7 @@ Exit codes:
   3 — fast-test test-only failure (fix-quick or flag).
   5 — resolved fast-test command classifies Tier U (unscoped/full-suite shape) and the
        calling session holds no live Tier-U grant (RC_VALIDATE=tier-u-refused). R3+R4,
-       cross-repo/inbox/2026-07-25-doe-claude-em-validate-tier-u-shape-ruling.md — this
+       cross-repo/inbox/2026-07-25-coordinator-content-repo-em-validate-tier-u-shape-ruling.md — this
        gate only READS a Tier-U grant, it never writes/consumes-by-granting one.
 
 Port of: workday-complete-step1-validate.sh (DoE 091c0f3e, 2026-07-19).

@@ -60,7 +60,7 @@ Public API:
         so bare route() would return them unraised. Python sibling of the shell transport's
         strangle_route_mutation (Port of: strangler-facade.sh, DoE c6d97219, 2026-07-22).
 
-Spec backlink: DoE-claude:pln-strang-08-arm-the-doe-queue-fa-36567b § C1
+Spec backlink: coordinator-content-repo:pln-strang-08-arm-the-doe-queue-fa-36567b § C1
 DR-215 ref: coordinator_core/invoke/__main__.py's default (non---bare) response IS the
             {jsonrpc,id,result} envelope this module's cc_invoke() parses (--bare is
             opt-in server-side) — the envelope-parse convention is verified against the
@@ -443,9 +443,9 @@ def _machine_local_impl_resolver():
 def _claude_home() -> str:
     """Return the ~/.claude root, honoring CLAUDE_HOME for test isolation.
 
-    Mirrors gen-claude-klabauter-root-pointer.py::_claude_home — this is the install root
-    that hosts the machine-local Python reader (bin/_machine_local.py), distinct
-    from the settings-home used for the rung-1.5 pointer file. Delegates to
+    This is the install root that hosts the machine-local Python reader
+    (bin/_machine_local.py), distinct from the settings-home used for the
+    rung-1.5 pointer file. Delegates to
     machine_local_impl_resolve.claude_home() (shared resolver — see that
     module's docstring).
     """
@@ -579,8 +579,9 @@ def resolve_engine_root(script_file: str) -> str:
       Rung 2: self-location — ``_walk_up_to_checkout(script_file)``, the
               nearest enclosing checkout at any depth.
       Rung 3: ``_resolve_claude_klabauter_root()``'s remaining rungs — the
-              ``<settings-home>/machine-local/.claude-klabauter-root`` pointer file, then
-              the machine-local ``repos.claude_klabauter`` registry key.
+              ``<settings-home>/machine-local/.claude-klabauter-root`` pointer
+              file, then the machine-local ``repos.claude_klabauter`` registry
+              key.
 
     Distinct from ``resolve_colocated_claude_klabauter_root`` in rung ORDER, and the
     difference is load-bearing: that function probes self-location BEFORE the
@@ -1095,7 +1096,9 @@ def require_dispatch_engine_on_path() -> str:
     """
     root = _front_insert_on_path(_resolve_claude_klabauter_root())
     report = _report_provenance("require_dispatch_engine_on_path", root, "dispatch")
-    if report.verdict == PROVENANCE_DIVERGENT and not _is_source_twin(report):
+    if report.verdict == PROVENANCE_DIVERGENT and _is_repinned_engine_twin(report):
+        _announce_repinned_engine_twin(report)
+    elif report.verdict == PROVENANCE_DIVERGENT and not _is_source_twin(report):
         raise ProvenanceDivergenceError(
             "require_dispatch_engine_on_path: coordinator_core already bound "
             f"from '{report.imported_file}', diverges from dispatch root "
@@ -1259,6 +1262,57 @@ def _is_source_twin(report: "ProvenanceReport") -> bool:
     except (ValueError, OSError):
         return False
     return True
+
+
+_REPINNED_TWIN_ANNOUNCED = False
+
+
+def _is_repinned_engine_twin(report: "ProvenanceReport") -> bool:
+    """True when the already-bound `coordinator_core` is the pre-repin engine
+    copy of a cloud container: `COORDINATOR_ENGINE_ROOT` is a symlink (the
+    stable engine link), the bound module sits outside its current target, and
+    that target carries a `coordinator_core` package.
+
+    A site `.pth` binds the frozen clone in every interpreter before any
+    script runs, so "call this before any earlier import" cannot be satisfied;
+    raising here silences the whole guard plane. Both trees are engine copies
+    the setup script installed, so evaluating on the bound one beats not
+    evaluating. Degrades to False on any doubt, leaving the raise intact for a
+    genuine third tree.
+    """
+    if not report.imported_file or not report.engine_root:
+        return False
+    link = os.environ.get("COORDINATOR_ENGINE_ROOT", "")
+    try:
+        if not (link and os.path.islink(link)):
+            return False
+        target = Path(link).resolve()
+        if not (target / "coordinator_core" / "__init__.py").is_file():
+            return False
+        if Path(report.engine_root).resolve() != target:
+            return False
+        Path(report.imported_file).resolve().relative_to(target)
+    except ValueError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
+def _announce_repinned_engine_twin(report: "ProvenanceReport") -> None:
+    """Say once on stderr that guards run on the pre-repin engine copy."""
+    global _REPINNED_TWIN_ANNOUNCED
+    if _REPINNED_TWIN_ANNOUNCED:
+        return
+    _REPINNED_TWIN_ANNOUNCED = True
+    try:
+        sys.stderr.write(
+            f"engine split: coordinator_core bound from '{report.imported_file}', dispatch "
+            f"root is '{report.engine_root}' -- evaluating on the bound copy; "
+            "re-run scripts/cloud_setup.py to repoint the interpreter's .pth at the engine link\n"
+        )
+    except Exception:
+        return
 
 
 def _seam_present(claude_klabauter_root: str) -> bool:
@@ -1622,9 +1676,9 @@ def _op_error_detail(stdout_text: str, _parsed: Optional[dict] = None) -> str:
     unknown method — reached the operator as a bare
     ``invoke process exited 1 (op=X) — op or dispatch error`` followed by an
     empty ``stderr:`` line, with the reason nowhere: it was sitting on stdout,
-    discarded unread. That is how ``ceremony.wsc_tail`` failed on doe-claude-em's
+    discarded unread. That is how ``ceremony.wsc_tail`` failed on coordinator-content-repo-em's
     Windows box with no recoverable diagnosis
-    (``cross-repo/inbox/2026-08-07-doe-claude-em-windows-ceremony-cli-coordinator-core-import-break.md``),
+    (``cross-repo/inbox/2026-08-07-coordinator-content-repo-em-windows-ceremony-cli-coordinator-core-import-break.md``),
     and why that one item's symptom looked unlike its two siblings' — those died
     in the trampoline process itself and printed a real traceback, while this one
     died behind the transport's blind side.

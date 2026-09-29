@@ -9,7 +9,7 @@ UNCONDITIONALLY — no settings-home rung at all. That directly violates DR-210
 Amendment 2026-07-24 ("coordinator resolves nothing through `~/.claude/bin`")
 and, worse, is drift-prone: independently-maintained copies of the same
 two-line join is exactly the duplication class that let 456 call sites miss a
-caller sweep on 2026-07-22 (see DoE-claude CLAUDE.local.md § Repo-specific
+caller sweep on 2026-07-22 (see coordinator-content-repo CLAUDE.local.md § Repo-specific
 gotchas). This module is the resolver the seven callers now delegate to:
 `coordinator-doc-new`, `coordinator-lesson-add`, `cross-repo-memo`,
 `cli_shared.py`, `coordinator_registry.py`, `cc_invoke.py`,
@@ -53,7 +53,7 @@ callers on a machine where settings-home is somehow absent/incomplete must
 still resolve via the mirror. This module changes precedence only.
 
 Spec backlink: this repo's own state/audits/2026-07-25-claude-bin-mirror-read-
-  rungs.md (work-list); DoE-claude state/audits/2026-07-24-claude-bin-compat-
+  rungs.md (work-list); coordinator-content-repo state/audits/2026-07-24-claude-bin-compat-
   mirror-binding-audit.md (VERDICT: HAS-BINDINGS); docs/decisions/
   DR-210-claude-klabauter-native-tooling-ownership-strangler.md Amendment 2026-07-24
   ("resolves nothing through ~/.claude/bin").
@@ -89,7 +89,7 @@ do not fall under that parity obligation:
      CONSTRAINT below), so the repair is inlined here, following the same
      by-hand-parity precedent as ``claude_home``/``settings_home``. Precedent
      for wrapping a registry-read return value in this repair:
-     ``coordinator_core.ops.gen_doe_root_pointer._resolve_doe_root`` wraps
+     ``coordinator_core.ops.gen_content_root_pointer._resolve_content_root`` wraps
      both of its rungs (env override, registry read) in
      ``native_path_form(...)`` before returning — the collector's own
      2026-08-16 "REPOS.* LADDER-LOSS FIX" note documents why a stored

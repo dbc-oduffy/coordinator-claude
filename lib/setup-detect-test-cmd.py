@@ -28,8 +28,8 @@ def main() -> None:
         print(f"setup-detect-test-cmd: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
         print(
             "  Remediation: ensure CLAUDE_KLABAUTER_ROOT is set, or that "
-            "<settings-home>/machine-local/.claude-klabauter-root points at a valid "
-            "claude-klabauter checkout (see coordinator-claude-klabauter-root.sh).",
+            "repos.claude_klabauter is registered in "
+            "<settings-home>/machine-local/registry(.local).toml.",
             file=sys.stderr,
         )
         sys.exit(4)

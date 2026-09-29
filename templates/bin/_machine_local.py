@@ -304,7 +304,7 @@ def _autodiscover_repo(slug: str, reg_dir: str) -> str | None:
 
     Spec backlink: project-rag/docs/wiki/cross-machine-path-resolution-contract.md
                    § The 4-Rung Resolution Ladder
-    Spec backlink: docs/plans/2026-08-03-doe-claude-as-a-first-class-installation.md § C2
+    Spec backlink: docs/plans/2026-08-03-coordinator-content-repo-as-a-first-class-installation.md § C2
     """
     roots_by_platform = _load_search_roots(reg_dir)
     platform_roots = roots_by_platform.get(sys.platform, [])
@@ -2460,7 +2460,7 @@ def cmd_migrate_publish_mirrors(args: argparse.Namespace) -> int:
 def main() -> int:
     # Windows: Python text-mode stdout translates '\n' -> '\r\n', so a captured
     # `$(machine-local get repos.x)` carries a trailing '\r'. That stray CR
-    # silently breaks downstream string/path comparisons — notably claude-doe's
+    # silently breaks downstream string/path comparisons — notably claude-author's
     # regen grep-gate (friction F6: the CR made `grep -qF "$DOE_COORDINATOR/hooks"`
     # never match settings.json, forcing a full hook-block regen + "clobbered"
     # noise on every launch). Emit LF-only output on every platform. Guarded for

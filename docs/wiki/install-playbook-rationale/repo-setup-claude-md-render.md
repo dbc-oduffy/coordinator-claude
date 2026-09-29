@@ -69,12 +69,12 @@ Concatenate block bodies for each selected type (in selection order); blank line
 # render-template.py migrated to claude-klabauter (coordinator bin/lib -> claude-klabauter).
 # POSIX-host form (this is the cc-root-source-guard.md SSOT preamble, not a coordinator-CLI
 # invocation); a PowerShell host resolves the trusted root by its own PowerShell-native path.
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.doe-root" 2>/dev/null || cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.doe-root" 2>/dev/null || true)"
+_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.content-root" 2>/dev/null || cat "${CLAUDE_HOME:-$HOME}/.claude/.content-root" 2>/dev/null)/coordinator}"
+_cc_doe="$(cat "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.content-root" 2>/dev/null || true)"
 if [ -z "$_cc_doe" ]; then
-  _cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
+  _cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.content-root" 2>/dev/null || true)"
 fi
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
+_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .content-root
 _cc_trusted=0
 case "$_cc_root" in
   "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
@@ -83,7 +83,7 @@ esac
 case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
 [ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
 [ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
+[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.content-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
 
 _cc_claude_klabauter="${REPO_CLAUDE_KLABAUTER:-${COORDINATOR_ENGINE_ROOT:-}}"
 if [ -z "$_cc_claude_klabauter" ]; then
@@ -104,7 +104,7 @@ python3 "$_cc_claude_klabauter/coordinator/bin/render-template.py" \
   PROJECT_TYPE_BLOCK="<concatenated-blocks-or-empty>"
 ```
 
-The helper substitutes all `{{KEY}}` placeholders, exits non-zero if any remain (template/key drift guard). The render helper and template resolve from the coordinator plugin root (`$_cc_root`, settings-resolved via `CLAUDE_PLUGIN_ROOT`/`.doe-root`, trust-guarded above) and the engine root (`$_cc_claude_klabauter`, settings-resolved via `REPO_CLAUDE_KLABAUTER`/`CLAUDE_KLABAUTER_ROOT`/`_engine_root.py`) — relative paths are wrong because they resolve against the project root, not the plugin directory, but the fix is these resolved variables, never a hardcoded `$HOME`-anchored literal. Leave `<!-- Fill in -->` comments as-is; they are prompts for the PM.
+The helper substitutes all `{{KEY}}` placeholders, exits non-zero if any remain (template/key drift guard). The render helper and template resolve from the coordinator plugin root (`$_cc_root`, settings-resolved via `CLAUDE_PLUGIN_ROOT`/`.content-root`, trust-guarded above) and the engine root (`$_cc_claude_klabauter`, settings-resolved via `REPO_CLAUDE_KLABAUTER`/`CLAUDE_KLABAUTER_ROOT`/`_engine_root.py`) — relative paths are wrong because they resolve against the project root, not the plugin directory, but the fix is these resolved variables, never a hardcoded `$HOME`-anchored literal. Leave `<!-- Fill in -->` comments as-is; they are prompts for the PM.
 
 ## 4. Runtime Conventions Section
 

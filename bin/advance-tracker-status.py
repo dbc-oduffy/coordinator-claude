@@ -42,7 +42,7 @@ shape, which carries no error signal of its own on success):
         absent, or the op itself raised — not-found/ambiguous stub_id, tracker_path
         outside the worktree, missing tracker file, malformed to_status).
 
-Spec backlink: DoE-claude coordinator/skills/enrich-and-review/SKILL.md § Phase 2.5/4.5/6
+Spec backlink: coordinator-content-repo coordinator/skills/enrich-and-review/SKILL.md § Phase 2.5/4.5/6
 Spec backlink: claude-klabauter coordinator_core/ops/tracker/advance_status.py
 
 Negative-spec: does NOT re-implement row resolution, markdown-table parsing, or the

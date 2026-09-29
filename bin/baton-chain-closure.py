@@ -2,7 +2,7 @@
 """baton-chain-closure -- detect that an entire baton-chain (workstream), not a single baton, has
 closed, and emit a PM-facing closure signal conforming to `group-em-output-contract.md`.
 
-Ported from DoE-claude `coordinator/bin/baton-chain-closure.py` (W2-C6,
+Ported from coordinator-content-repo `coordinator/bin/baton-chain-closure.py` (W2-C6,
 `docs/plans/2026-09-18-doe-holds-no-scripts.md`) -- mechanical move, no behavioural change.
 `_repo_root()` was already "engine" class (§ Path resolution): `Path(__file__).resolve().
 parents[2]` names the repo root from this module's own tree. The docstring's citation of

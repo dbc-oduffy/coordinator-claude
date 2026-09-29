@@ -1,7 +1,7 @@
 """workweek-complete-close.py — closing-orchestration CLI for /workweek-complete.
 
 Ports the residual imperative logic that was still hand-authored inline as
-bash fences in DoE-claude `coordinator/commands/workweek-complete.md` (M3
+bash fences in coordinator-content-repo `coordinator/commands/workweek-complete.md` (M3
 chunk WWC-4, the bash-kill campaign). It is a composite entrypoint over
 several concerns — one subcommand per concern — rather than N separate
 scripts, matching the multi-concern chunk convention: the DoE ceremony step
@@ -32,7 +32,7 @@ are the D1/D2 repoint's concern directly; wrapping them here would just be
 re-indirection, not a port. See the WWC-4 dispatch brief's "what to port vs
 leave" rule.
 
-Spec backlink: DoE-claude coordinator/commands/workweek-complete.md
+Spec backlink: coordinator-content-repo coordinator/commands/workweek-complete.md
     § Step 9.1 (week-start derivation, lines ~3337-3339)
     § Step 13 (archive + reset + commit + push, lines ~3762-3903)
 """

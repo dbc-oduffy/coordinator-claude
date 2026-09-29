@@ -23,7 +23,7 @@ coordinator/bin/handoff-carry-gate's "trampoline resolves the engine root/
 repo_root and calls into coordinator_core" shape.
 
 The five exits after the 2026-08-05 DoE ruling
-(cross-repo/inbox/2026-08-05-doe-claude-em-plan-tasks-five-exits-ruling.md;
+(cross-repo/inbox/2026-08-05-coordinator-content-repo-em-plan-tasks-five-exits-ruling.md;
 docs/plans/2026-08-05-make-the-five-exit-plan-tasks-resolver-r.md):
 
   --coded <sha>            -> disposition: coded      (no PM word needed)
@@ -41,7 +41,7 @@ docs/plans/2026-08-05-make-the-five-exit-plan-tasks-resolver-r.md):
                                same PM ruling)
 
 Every row takes --id and --plan. --id is repeatable (--id C1 --id C2 ...)
-for --coded ONLY (2026-08-06, cross-repo/inbox/2026-08-06-doe-claude-em-
+for --coded ONLY (2026-08-06, cross-repo/inbox/2026-08-06-coordinator-content-repo-em-
 deferrals-both-sides-landed-revendor-and-a-resolve-ergonomics-bug.md), so a
 full-plan close-out batch resolves in one atomic op call instead of N
 independent partial writes — "these N rows are implemented" is genuinely one
@@ -168,7 +168,7 @@ _PM_GATED_DISPOSITIONS = frozenset({"backlogged", "wont_do"})
 _CASE_AGAINST_REQUIRED_DISPOSITIONS = frozenset({"backlogged", "wont_do"})
 
 # The offer-shaped refusal for a multi-id call against any exit other than
-# --coded (leg 2, cross-repo/inbox/2026-08-06-doe-claude-em-deferrals-both-
+# --coded (leg 2, cross-repo/inbox/2026-08-06-coordinator-content-repo-em-deferrals-both-
 # sides-landed-revendor-and-a-resolve-ergonomics-bug.md). --coded is the one
 # exit where "these N rows are implemented" is genuinely a single shared
 # statement — every other exit's --disposition-detail/--case-against (or, for

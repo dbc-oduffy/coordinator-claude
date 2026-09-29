@@ -1,6 +1,6 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """handoff-archive-transition.py — CLI trampoline over claude-klabauter's
-`handoff.archive_transition` op, covering the two dispatch shapes DoE-claude's
+`handoff.archive_transition` op, covering the two dispatch shapes coordinator-content-repo's
 `coordinator/skills/handoff/SKILL.md` (predecessor chain-archival on write, and
 park-with-links on supersession) previously inlined as embedded
 `python3 -c` heredocs calling `cc_invoke.route_mutation` directly.
@@ -129,7 +129,7 @@ Negative-spec:
       (handoff.stamp_phase), out of scope for this port (see the M3/HO-3
       dispatch brief's "What to port vs leave").
 
-Spec backlink: DoE-claude coordinator/skills/handoff/SKILL.md
+Spec backlink: coordinator-content-repo coordinator/skills/handoff/SKILL.md
     §§ "Chain archival — presume the sweep wins" (event-driven cutover /
     option a) and "Park-with-links on supersession" (relocation step).
 """

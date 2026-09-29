@@ -1,6 +1,6 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """parallel-review-orthogonality-guard.py — pre-dispatch guard + weekly-slice
-snapshot ops for coordinator:parallel-code-review (DoE-claude
+snapshot ops for coordinator:parallel-code-review (coordinator-content-repo
 coordinator/skills/parallel-code-review/SKILL.md).
 
 Two subcommands, both self-resolving (Path(__file__)-relative, no cwd
@@ -57,11 +57,11 @@ resolve-claude-klabauter-bin settings-home ladder — none of that applies here.
 CLI and the two sibling CLIs it wraps (verify-parallel-review-lens-
 orthogonality.py, freeze-review-diff.py) already live side by side in THIS
 repo's coordinator/bin/, so there is no cross-repo root to resolve; the
-DoE-claude skill fence's entire guard preamble collapses to a plain
-co-located subprocess call. See CLAUDE.local.md (DoE-claude) "The boilerplate
+Coordinator-content-repo skill fence's entire guard preamble collapses to a plain
+co-located subprocess call. See CLAUDE.local.md (coordinator-content-repo) "The boilerplate
 evaporates rather than needing translation."
 
-Spec backlink: coordinator/skills/parallel-code-review/SKILL.md (DoE-claude)
+Spec backlink: coordinator/skills/parallel-code-review/SKILL.md (coordinator-content-repo)
   § Pre-Flight Orthogonality Assertion, § Snapshot
 Port backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md
 """

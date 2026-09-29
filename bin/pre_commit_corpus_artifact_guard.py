@@ -1,8 +1,9 @@
+#!/usr/bin/env python3
 """coordinator/bin/pre_commit_corpus_artifact_guard.py — refuse a commit that stages a
 project-rag corpus artifact, or any oversized real blob.
 
 Purpose: the belt-and-braces half of the fleet ruling that a corpus artifact is never
-committed (DoE-claude's ``docs/wiki/coordinator-tripwires/corpus-artifact-is-never-committed.md``).
+committed (coordinator-content-repo's ``docs/wiki/coordinator-tripwires/corpus-artifact-is-never-committed.md``).
 The ignore stanza is the primary defence; this catches the cases the stanza cannot,
 because a `.gitignore` rule is silent once a path is staged with ``git add -f`` or was
 already tracked before the rule existed.
@@ -28,7 +29,7 @@ so an over-threshold staged blob here has no legitimate pointer form to be confu
 
 No DoE-relative paths: every path this guard touches is staged-index state in the caller's
 own repo, read via `git` subprocess calls -- nothing here is `Path(__file__)`-derived, so no
-adaptation was needed for its move from DoE-claude into claude-klabauter
+adaptation was needed for its move from coordinator-content-repo into claude-klabauter
 (docs/plans/2026-09-18-doe-holds-no-scripts.md § Path resolution).
 
 Windows-first: no shell, no bash, no ``find``. Every git call goes through
@@ -167,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
             "    git restore --staged -- <path>\n"
             "If they were already tracked, untrack them so the ignore rule takes effect:\n"
             "    git rm -r --cached <path>\n"
-            "Ruling: DoE-claude coordinator/docs/wiki/coordinator-tripwires/"
+            "Ruling: coordinator-content-repo coordinator/docs/wiki/coordinator-tripwires/"
             "corpus-artifact-is-never-committed.md\n",
             file=out,
         )

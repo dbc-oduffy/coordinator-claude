@@ -167,7 +167,7 @@ exists to catch. Existing checker agents ARE reused: this contract carries plan-
 Lens 3 calibration over verbatim rather than re-deriving it, and Lens 3 consumes this same text.
 
 **Tolerance rule, carried over verbatim, do not recalibrate:** same-file line-number drift alone
-(same file, same symbol, shifted line number) is tolerated and is NOT a finding; a missing file or
+(same file, same symbol, shifted line number) is tolerated and is not a finding; a missing file or
 an absent symbol is a real finding.
 
 **AN ABSENCE IS EVIDENCE ONLY IF THE INSTRUMENT COULD HAVE SEEN PRESENCE.** `find`, `ls`,
@@ -181,7 +181,7 @@ two parties running one wrong instrument agree with each other. Tripwire:
 `AN-ABSENCE-IS-EVIDENCE-ONLY-IF-THE-INSTRUMENT-COULD-HAVE-SEEN-PRESENCE`.
 
 **Class 3 — refs (mechanical, new).** A cited branch, commit or tag is checked with
-`git branch -r` / `git rev-parse --verify`. A peer-repo ref MUST be cited `<repo>@<ref>` — a bare
+`git branch -r` / `git rev-parse --verify`. A peer-repo ref must be cited `<repo>@<ref>` — a bare
 "verified against HEAD" cannot distinguish `main` from someone's unmerged branch, and the failure
 is silent in both directions. See tripwire `VERIFIED-AGAINST-HEAD-DOES-NOT-NAME-A-BRANCH`.
 

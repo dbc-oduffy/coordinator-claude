@@ -84,7 +84,7 @@ wave result to compensate.
 | `cycles` | batons block each other | Stop and report the named members. |
 | `counts.unschedulable` | blockers this pass cannot clear | Proceed; excluded by design. |
 
-**A blocker naming a peer EM (`doe-claude-em`, `claude-klabauter-em`) is the standing case, not a typo
+**A blocker naming a peer EM (`coordinator-content-repo-em`, `claude-klabauter-em`) is the standing case, not a typo
 to repair.** `blocked_by` takes stub ids and `handoff_id`s, so a role name resolves to no record and
 lands here permanently — the shape a baton waiting on a cross-repo answer wears. **Never clear one by
 deleting the edge**: the edge is the only thing holding both gates shut, so removing it makes the
@@ -110,7 +110,7 @@ sidecar write lands nowhere.
 
 | Rule | The tell if you skip it |
 |---|---|
-| **One report PER WAVE, named for its wave.** Each wave freezes its own, after the previous wave landed. Pass the path to `emit-wave-fire.py`, which refuses a report frozen against an earlier landing declaration. | An earlier report is shape-right and time-wrong: it reads as a healthy wave carrying plans since approved or open in a live agent. |
+| **One report PER WAVE, named for its wave.** Each wave freezes its own, after the previous wave landed. Pass the path to `emit-wave-fire`, which refuses a report frozen against an earlier landing declaration. | An earlier report is shape-right and time-wrong: it reads as a healthy wave carrying plans since approved or open in a live agent. |
 | **Pass `--bare`** so a successful invoke prints `result` alone; an error still prints the whole envelope. | Without it you freeze a JSON-RPC envelope one level too deep, so a reader finds no `waves`/`batons` and reports an EMPTY WAVE. Tripwire: `AN-ENVELOPE-FROZEN-AS-A-GATE-REPORT-READS-AS-AN-EMPTY-WAVE`. |
 | **Freeze by redirection** — `1> gate-report.json 2> gate.stderr`. | `ConvertFrom-Json \| ConvertTo-Json` truncates rows at default depth; `2>&1` folds engine stderr into the JSON. |
 | **Read back with `utf-8-sig`.** | PowerShell 5.1 writes a UTF-8 BOM; pwsh 7 does not, and a BOM fails a plain `json.load`. |
@@ -129,7 +129,7 @@ Verdict meanings in full: wiki, § Trimmed rationale. Tripwire:
 
 ### 3. Fire the wave — emit it; never hand-write the args
 
-    python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-blitz/emit-wave-fire.py" \
+    "$COORDINATOR_SETTINGS_HOME/bin/emit-wave-fire" \
         --repo-root <abs> --trail-dir <abs> --wave-index N --wave-number N \
         --gate-report <trail-dir>/wave-N.gate-report.json
 
@@ -158,7 +158,7 @@ planned right now still reads as needing planning: nothing on disk changes until
   twice — whichever lands second overwrites the first. Keep the set in the run's own notes.
 - **Disjointness is on `planPath`, not just baton id** — several batons share one plan, and two
   fires naming the same plan write one file, silently. Same plan, same fire, or non-overlapping
-  fires. **`emit-wave-fire.py._split` enforces that WITHIN an emit** — your duty is ACROSS emits:
+  fires. **`emit-wave-fire._split` enforces that WITHIN an emit** — your duty is ACROSS emits:
   subtract in-flight `planPath`s before the next emit.
 - **Subtract adjudicated batons too** — a `pulled` baton stays a candidate by design and returns at
   the head of the next read; re-firing it re-runs the wave that just judged it. Fire it again once
@@ -169,7 +169,7 @@ planned right now still reads as needing planning: nothing on disk changes until
 - **A hold that only you remember is not a hold.** Write a standing reason in the trail's
   `RUN-NOTES.md`, and the baton record when it belongs there — a gate read sees that.
 
-**`provisionSidecarCli` is resolved caller-side, by `emit-wave-fire.py`** — launcher first, then
+**`provisionSidecarCli` is resolved caller-side, by `emit-wave-fire`** — launcher first, then
 `--engine-root`'s own `coordinator/bin/`. Pass `--provision-sidecar-cli` only to OVERRIDE that;
 omitting on a box with no install lets a reviewer invent its own sidecar path, losing the findings
 record silently. **A resolved `provision-sidecar` whose findings path carries no `subagent-share`
@@ -187,7 +187,7 @@ the BIND CALL alone and refuses a root that carries a build stamp. Tripwire:
 
 **Every baton carries `executionOpen`, read off `execution_gate.open`.** No default: an XS
 dispatches only when its gate is open; a baton missing the field dispatches nothing and returns as
-a candidate every later wave. `emit-wave-fire.py` derives it and refuses rather than defaults.
+a candidate every later wave. `emit-wave-fire` derives it and refuses rather than defaults.
 
 **Resolve `${CLAUDE_PLUGIN_ROOT}`; never pass a repo-relative path** — the plugin root is
 `coordinator/` in the doctrine repo and the root itself elsewhere, so `coordinator/workflows/...`

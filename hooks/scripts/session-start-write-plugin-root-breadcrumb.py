@@ -22,10 +22,14 @@ coordinator environment loaded: `$TMPDIR` is unset in Git Bash on Windows, and
 `$COORDINATOR_SETTINGS_HOME` is not guaranteed to be exported into the harness's statusline
 environment. `$HOME` resolves identically in Git Bash and every POSIX shell.
 
-KNOWN LIMITS, recorded rather than solved: `disableAllHooks` leaves no breadcrumb, so rows fall
-back to the harness's own default render — degraded, never broken. With two plugin copies on one
-box, the last session to start owns the file; both copies ship the same renderer, so the cost is
-which copy runs, not whether a row renders.
+ONE SOURCE OF TRUTH. The value is the `installPath` of the installed `coordinator@*` record in
+`~/.claude/plugins/installed_plugins.json`, not the running hook's own `__file__`, so sessions
+loaded from a cache and from a source clone write the same bytes. Only when no record resolves
+does the hook fall back to its own root, and never when that root is a non-authoring source
+clone (a consumer profile).
+
+KNOWN LIMIT: `disableAllHooks` leaves no breadcrumb, so rows fall back to the harness's own
+default render — degraded, never broken.
 
 WRITTEN ATOMICALLY, because the reader is a `cat` on a hot path. The consumer runs once per
 statusline refresh tick in every live session, so a plain `write_text` — open, truncate, write,
@@ -69,16 +73,48 @@ except Exception:  # pragma: no cover - partial-deploy defence
         return None
 
 
-def _plugin_root() -> str | None:
-    """The plugin root is name-anchored on the nearest ancestor containing a
-    `.claude-plugin/` directory (`_engine_root._find_plugin_root`), never depth-counted:
-    a fixed `Path.parents[]` count is correct only under the nested plugin layout and is
-    silently wrong under the flat mirror layout this file is ALSO published into.
-    """
+def _own_root() -> str | None:
+    """Name-anchored on the nearest ancestor holding `.claude-plugin/`
+    (`_engine_root._find_plugin_root`), never depth-counted: the flat mirror layout differs
+    from the nested one."""
     root = _find_plugin_root(Path(__file__).resolve().parent)
-    if root is None:
+    return None if root is None else root.as_posix()
+
+
+def _installed_root(home: str) -> str | None:
+    """The `installPath` of the installed `coordinator@*` record: the one source of truth, so
+    concurrent sessions loaded from different trees write identical bytes."""
+    try:
+        from _hook_plane_probe import _load_json_dict, _resolve_install_path
+        config_dir = Path(home) / ".claude"
+        plugins = _load_json_dict(config_dir / "plugins" / "installed_plugins.json").get("plugins")
+        for key in sorted(plugins) if isinstance(plugins, dict) else ():
+            if not key.startswith("coordinator@"):
+                continue
+            install_path, _ = _resolve_install_path(config_dir, key)
+            if install_path and Path(install_path).is_dir():
+                return Path(install_path).as_posix()
+    except Exception:
         return None
-    return root.as_posix()
+    return None
+
+
+def _is_consumer_source_clone(root: str) -> bool:
+    """A git checkout of the plugin that is not the authoring repo (no dev-repo sentinel)."""
+    repo = Path(root).parent
+    return (repo / ".git").exists() and not (repo / ".coordinator-dev-repo").exists()
+
+
+def _plugin_root(home: str | None = None) -> str | None:
+    if home is None:
+        home = os.environ.get("HOME") or os.path.expanduser("~")
+    installed = _installed_root(home)
+    if installed is not None:
+        return installed
+    own = _own_root()
+    if own is None or _is_consumer_source_clone(own):
+        return None
+    return own
 
 
 def _breadcrumb_path() -> Path | None:
@@ -93,7 +129,7 @@ def main() -> int:
         target = _breadcrumb_path()
         if target is None:
             return 0
-        root = _plugin_root()
+        root = _plugin_root(str(target.parents[1]))
         if root is None:
             return 0
         try:

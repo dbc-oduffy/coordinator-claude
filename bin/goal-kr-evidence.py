@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """goal-kr-evidence — read-only per-KR evidence correlator for never-assessed goals.
 
-Ported from DoE-claude `coordinator/bin/goal-kr-evidence.py` (W2-C6,
+Ported from coordinator-content-repo `coordinator/bin/goal-kr-evidence.py` (W2-C6,
 `docs/plans/2026-09-18-doe-holds-no-scripts.md`). Mechanical move except one path-resolution seam:
 DoE's copy loaded the shared `bin/lib/atomic_record.py` primitives by `sys.path`-inserting
 `bin/lib` and importing `load_by_path` from it (that hyphenated-CLI workaround exists because

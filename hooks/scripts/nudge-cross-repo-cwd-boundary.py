@@ -79,7 +79,7 @@ except Exception:
 _REMEDIATION = (
     "[cross-repo boundary] this session just crossed into or out of the claude-klabauter "
     "sibling repo. No standing cross-repo commit grant survives in either direction "
-    "(DoE-claude CLAUDE.md § Subject-matter routing) -- a cross-repo commit needs "
+    "(coordinator-content-repo CLAUDE.md § Subject-matter routing) -- a cross-repo commit needs "
     "per-session PM assent obtained at execution dispatch. When held: scoped commits "
     "only, never `git add -A`/`.`/`commit -a`; no destructive git ops; never leave "
     "the sibling's tests red."

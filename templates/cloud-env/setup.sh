@@ -81,18 +81,13 @@ echo "=== phase 2: engine runtime deps ==="
 
 
 DEPS="pydantic psutil jsonschema PyYAML"
-PYBIN=python3
 if pip3 install --user --quiet $DEPS 2>/dev/null; then
   echo "deps: OK (pip3 --user)"
 elif command -v uv >/dev/null 2>&1 && uv pip install --system --quiet $DEPS 2>/dev/null; then
   echo "deps: OK (uv --system)"
-elif python3 -m venv "$ROOT/venv" 2>/dev/null && "$ROOT/venv/bin/pip" install --quiet $DEPS 2>/dev/null; then
-  PYBIN="$ROOT/venv/bin/python"
-  echo "deps: OK (venv at $ROOT/venv) — note this interpreter is NOT what hooks invoke as python3"
 else
   echo "deps: FAIL — engine will not import; coordinator loads degraded"
 fi
-echo "PYBIN=$PYBIN"
 
 echo "=== phase 3: register the plugin in user settings ==="
 
@@ -210,7 +205,7 @@ if [ "$HAVE_ENGINE" -eq 0 ]; then
   
   ( cd "$ROOT/claude-klabauter" && COORDINATOR_ENGINE_ROOT="$ROOT/claude-klabauter" \
       COORDINATOR_SETTINGS_HOME="$HOME/.coordinator-claude-settings" \
-      "$PYBIN" scripts/setup.py --i-am-agent < /dev/null ) 2>&1 | tail -25
+      python3 scripts/setup.py --i-am-agent < /dev/null ) 2>&1 | tail -25
   rc=${PIPESTATUS[0]}
   
   
@@ -231,12 +226,12 @@ if [ "$HAVE_PLUGIN" -eq 0 ]; then
     && echo "manifest: OK" || echo "manifest: FAIL — wrong directory level for the source path"
 fi
 if [ "$HAVE_ENGINE" -eq 0 ]; then
-  COORDINATOR_ENGINE_ROOT="$ROOT/claude-klabauter" "$PYBIN" -c \
+  COORDINATOR_ENGINE_ROOT="$ROOT/claude-klabauter" python3 -c \
     "import sys; sys.path.insert(0, '$ROOT/claude-klabauter'); import coordinator_core; print('engine import: OK')" \
     2>&1 | tail -1
   
   
-  "$PYBIN" -c "import pydantic, psutil, jsonschema, yaml; print('deps import: OK')" 2>&1 | tail -1
+  python3 -c "import pydantic, psutil, jsonschema, yaml; print('deps import: OK')" 2>&1 | tail -1
 fi
 # The PUBLISHED-engine pointer, written here so the env block never has to carry an override to
 # do this job. The published arm admits a root only if <root>/coordinator_core/_engine_stamp

@@ -55,6 +55,15 @@ A coordinator PreToolUse denial is a stop signal, not an obstacle to route aroun
 
 **Required:** stop, and report the exact command you attempted and the guard that denied it. Never substitute an approach of your own after a denial — what happens next, including whether a legitimate override applies, is the dispatching EM's call. Evading and then disclosing it is still evading; the report is not absolution.
 <!-- END guard-encounter-preamble -->
+<!-- BEGIN do-not-commit (synced from snippets/do-not-commit.md) -->
+## Do Not Commit
+
+Your role does not include creating git commits. Write your edits and run any required validation, then report back — the EM owns the commit step, committing directly or dispatching `coordinator:git-commit-agent` with an explicit pathspec.
+
+**Per-persona override:** a consumer whose remit structurally excludes commits (e.g. a review persona that only writes a sidecar) may narrow this to a bespoke one-liner instead of pasting the block verbatim — an intentional per-persona omission, not drift from this canonical text.
+
+**Doctrine root:** `coordinator/docs/wiki/concurrent-em-git-operations/scoped-safety-commits.md`
+<!-- END do-not-commit -->
 
 ## Pass 0 — Premise & Alternatives
 

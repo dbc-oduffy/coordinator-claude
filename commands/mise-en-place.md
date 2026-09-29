@@ -36,7 +36,7 @@ the successor handoff. No brief → `pickup-assemble brief <path> [AND <path>]..
 "Claimed N batons: [paths]. [M put back down: reason.]" Detail: wiki.
 
 **Aggregate execution baton** (a baton carrying an `aggregate_execution` block): read the roll-up,
-never infer it — `python3 "${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}/skills/pickup/aggregate-rollup.py" <baton>`. `FIRE` (exit 0)
+never infer it — `python3 "${CLAUDE_PLUGIN_ROOT:-${_content_root}/coordinator}/skills/pickup/aggregate-rollup.py" <baton>`. `FIRE` (exit 0)
 fires every constituent; `PARTIAL-FIRE` (exit 1) fires the named subset, and its `excluded` and
 `withheld` rows enter the Phase 1 inventory as items with a named non-terminal disposition;
 `NO-FIRE` (exit 2) fires nothing — put the baton back down. **Exit 1 is a membership fact, not an
@@ -47,7 +47,7 @@ is the drop this shape exists to stop. Contract: wiki.
 
 These live only in the doctrine repo's `coordinator/bin/` and get no settings-home launcher, so
 rung 2 404s. Open every fence below with the exact fence in
-`snippets/resolve-coordinator-bin.md` § CLIs with no launcher — `_doe_root` does not survive from
+`snippets/resolve-coordinator-bin.md` § CLIs with no launcher — `_content_root` does not survive from
 one Bash call to the next.
 
 ## Phase 0: Readiness Gate
@@ -108,7 +108,7 @@ Backlog/plan-sourced items: Haiku agent per item, `still-open` vs `already-fixed
 
 **Falsifier integrity**, same phase, plan-sourced items whose frontmatter carries
 `prime_exit_criterion.falsifier`: one `falsifier-integrity-reviewer` dispatch each. Run
-`python3 "${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}/bin/instrument-can-report-red.py" --json` over the instrument first and pass
+`python3 "${CLAUDE_PLUGIN_ROOT:-${_content_root}/coordinator}/bin/instrument-can-report-red.py" --json` over the instrument first and pass
 the on-disk JSON path as the brief's `can_report_red_report` — a brief field, never an instruction
 to go compute it. Verdict `SOUND` | `BROKEN` | `UNREVIEWABLE`, naming the tell; it reports and
 never refuses. `BROKEN` routes the item out of the wave with the tell named — the existing

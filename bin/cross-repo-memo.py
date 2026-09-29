@@ -7,9 +7,9 @@ for this shape. On Windows, this file's co-located `.cmd` twin wins via
 macOS/Linux `python3` is the right interpreter. Caution: callers must invoke
 via the extensionless name or a resolved-interpreter prefix, never a bareword
 `.py` through git-bash — git-bash DOES honor the shebang and would exec-127
-with no `python3` present. See the carve-out in DoE-claude's
+with no `python3` present. See the carve-out in coordinator-content-repo's
 coordinator/docs/wiki/bash-on-windows-gotchas.md § Carve-out (cross-repo —
-this wiki lives in the DoE-claude repo, not here). There is no `.test.py`
+this wiki lives in the coordinator-content-repo repo, not here). There is no `.test.py`
 sibling and no separate polyglot trampoline line — this file is the
 pure-`.py`-with-`.cmd` shape end to end.
 
@@ -143,7 +143,7 @@ GENERATES = []  # writes ONE dirty memo into the RECEIVER's (sibling) repo tree 
 # cross-repo-memo.py is a member of both
 # gen-launcher-shim.py's _RAW_CMDLINE_ENTRYPOINTS and substrate.py's
 # _RAW_CMDLINE_TARGETS (added alongside scoped-git-commit per
-# cross-repo/inbox/2026-08-07-doe-claude-em-cmd-forwarder-drops-everything-
+# cross-repo/inbox/2026-08-07-coordinator-content-repo-em-cmd-forwarder-drops-everything-
 # after-a-newline.md: this CLI takes multi-line memo bodies as a matter of
 # course, so caret fidelity plausibly matters here too), so its .cmd
 # launcher already captures %CMDCMDLINE% -- but until this fix nothing ever
@@ -323,17 +323,17 @@ _TOPIC_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]*$")
 #
 # Spec backlink: docs/plans/2026-05-23-cross-repo-inbox-archive-restructure.md § B2
 #
-# The DoE-claude repo (repos.doe_claude in the machine-local registry) is the
-# authoritative delivery target for central memos. `--to doe-claude-em` (or a
-# redirect alias) resolves to repos.doe_claude — NOT to ~/.claude. The legacy
+# The coordinator-content-repo repo (repos.content_root in the machine-local registry) is the
+# authoritative delivery target for central memos. `--to coordinator-content-repo-em` (or a
+# redirect alias) resolves to repos.content_root — NOT to ~/.claude. The legacy
 # ids `claude-central-em` / `central-em` / `central` no longer resolve at all:
 # DoE retired them from identity.centralReceiverIds (their b787bf0f0), and a
 # send to one fails loudly on purpose.
 #
 # Guards BOTH the receiver path resolver (_resolve_receiver_path) AND the sender
 # identity (em_id_for_root emits the canonical central identity — see
-# _central_canonical_id() — when the cwd repo matches repos.doe_claude, the
-# canonical set member; anchored on repos.doe_claude, NOT
+# _central_canonical_id() — when the cwd repo matches repos.content_root, the
+# canonical set member; anchored on repos.content_root, NOT
 # ~/.claude — see coordinator_registry.em_id_for_root for resolution order).
 #
 # Single source of truth: schemas/coordinator-registry.manifest.json § identity.centralReceiverIds
@@ -367,14 +367,14 @@ def _is_central_receiver(receiver_em_id: str) -> bool:
 # Spec backlink: cross-repo/inbox/2026-07-21-claude-klabauter-em-check-addressee-op-facade-repoint.md
 #   § "Defect 1 (redirect-alias MATCH)"
 #
-# On a DoE-claude system, ~/.claude and coordinator-claude are the SAME central
+# On a coordinator-content-repo system, ~/.claude and coordinator-claude are the SAME central
 # surface — the Claude Code harness resolves coordinator plugin source live from
-# the DoE-claude repo's coordinator/ tree; ~/.claude is the live-install, not a
+# the coordinator-content-repo repo's coordinator/ tree; ~/.claude is the live-install, not a
 # distinct working tree, and we don't do active work there. `.claude-em` /
 # `claude-home` / `coordinator-claude` / `coordinator-claude-em` must therefore
 # ALWAYS redirect to the canonical central identity (_DOE_CANONICAL_REDIRECT_OWNER),
 # on every machine that installs
-# DoE-claude — this is a structural fact about the repo layout, not a per-machine
+# coordinator-content-repo — this is a structural fact about the repo layout, not a per-machine
 # preference.
 #
 # Originally (R1, 2026-07-15) this was a hardcoded Python constant, deliberately
@@ -436,8 +436,8 @@ def _print_receiver_unresolved_error(to: str) -> int:
     if _is_central_receiver(to):
         print(
             f"cross-repo-memo: cannot deliver to central ('{to}') — "
-            f"repos.doe_claude is not registered on this machine.\n"
-            f"  Remediation: machine-local set repos.doe_claude <path-to-the-coordinator-doctrine-repo>.",
+            f"repos.content_root is not registered on this machine.\n"
+            f"  Remediation: machine-local set repos.content_root <path-to-the-coordinator-doctrine-repo>.",
             file=sys.stderr,
         )
         return 1
@@ -828,8 +828,8 @@ def _known_receiver_ids() -> list[str]:
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from coordinator_registry import _central_canonical_id, repo_key_to_em_id
 
-    # Filter repos.doe_claude from sibling scan; post-flip
-    # repo_key_to_em_id("repos.doe_claude") → the canonical central id (via _central_canonical_id()), already prepended.
+    # Filter repos.content_root from sibling scan; post-flip
+    # repo_key_to_em_id("repos.content_root") → the canonical central id (via _central_canonical_id()), already prepended.
     repo_keys = _machine_local_repos_keys()
     if repo_keys is None:
         print(
@@ -842,7 +842,7 @@ def _known_receiver_ids() -> list[str]:
     sibling_ids = sorted(
         repo_key_to_em_id(k)
         for k in repo_keys
-        if k != "repos.doe_claude"
+        if k != "repos.content_root"
     )
     return [_central_canonical_id()] + sibling_ids
 
@@ -957,12 +957,12 @@ def _render_receiver_listing(candidates: list) -> str:
         if alias_str:
             lines.append(f"{cont_indent}aliases: {alias_str}")
         lines.append(
-            f"{cont_indent}resolves via repos.doe_claude in the "
+            f"{cont_indent}resolves via repos.content_root in the "
             "machine-local registry"
         )
     else:
         lines.append(
-            f"  {cid}   → (repos.doe_claude not registered on this "
+            f"  {cid}   → (repos.content_root not registered on this "
             "machine) (the coordinator doctrine repo — coordinator home)"
         )
     lines.append("")
@@ -1027,15 +1027,15 @@ def _render_receiver_listing(candidates: list) -> str:
 
 
 def _central_receiver_path() -> str | None:
-    """Return the DoE-claude repo path for the central receiver, or None if not registered.
+    """Return the coordinator-content-repo repo path for the central receiver, or None if not registered.
 
-    Central delivery resolves to repos.doe_claude in the machine-local registry
-    (the DoE-claude repo), NOT to ~/.claude. If repos.doe_claude is absent, returns
+    Central delivery resolves to repos.content_root in the machine-local registry
+    (the coordinator-content-repo repo), NOT to ~/.claude. If repos.content_root is absent, returns
     None — the caller must hard-error with a central-specific remediation message.
 
     Spec backlink: docs/plans/2026-05-23-cross-repo-inbox-archive-restructure.md § B2 (DM1)
     """
-    return _machine_local_get("repos.doe_claude")
+    return _machine_local_get("repos.content_root")
 
 
 def _resolve_receiver_path(receiver_em_id: str) -> tuple[str | None, bool]:
@@ -1051,9 +1051,9 @@ def _resolve_receiver_path(receiver_em_id: str) -> tuple[str | None, bool]:
 
     Two-branch resolution, mirroring em_id_for_root on the sender side:
       1. Central special-case: if receiver_em_id is any member of _CENTRAL_RECEIVER_IDS
-         (case/whitespace-normalised), return the DoE-claude repo path via
+         (case/whitespace-normalised), return the coordinator-content-repo repo path via
          _central_receiver_path(). Central is NOT a repos.* sibling key — it resolves
-         to repos.doe_claude specifically. Returns (None, False) when repos.doe_claude
+         to repos.content_root specifically. Returns (None, False) when repos.content_root
          is absent (clean absence — caller hard-errors with a central-specific
          remediation message).
       2. Fall-through: convert receiver_em_id to a repos.<name> key via
@@ -1178,7 +1178,7 @@ def _current_repo_root() -> str | None:
 # `_resolve_receiver_path`, which run this scan strictly after those checks).
 #
 # Operators keep active repos co-located (e.g. `/Users/example-operator/X/` holds
-# DoE-claude, project-rag, claude-klabauter, example-cockpit-repo,
+# coordinator-content-repo, project-rag, claude-klabauter, example-cockpit-repo,
 # example-market-data-repo as sibling git repos) — when the registry itself is
 # unreadable, a same-named sibling directory next to the sender's own repo
 # root is a reasonable fallback guess, PROVIDED it is exact (never
@@ -1490,7 +1490,7 @@ def _sender_em_id() -> str:
     never an EM self-identify step. Inferred from cwd's git root against the
     machine-local repo list (the inverse of receiver resolution).
 
-    Central identity anchored on repos.doe_claude (not ~/.claude) — see
+    Central identity anchored on repos.content_root (not ~/.claude) — see
     coordinator_registry.em_id_for_root for resolution order.
     """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
@@ -1502,8 +1502,8 @@ def _sender_em_id() -> str:
     # classification; a registry-read failure degrades to the unregistered-repo
     # basename fallback in em_id_for_root, which is already a non-fatal path).
     paths = {k: _machine_local_get(k) for k in (_machine_local_repos_keys() or [])}
-    # Ensure repos.doe_claude is present — it's the central identity anchor.
-    paths.setdefault("repos.doe_claude", _machine_local_get("repos.doe_claude"))
+    # Ensure repos.content_root is present — it's the central identity anchor.
+    paths.setdefault("repos.content_root", _machine_local_get("repos.content_root"))
     return em_id_for_root(root, {k: v for k, v in paths.items() if v})
 
 
@@ -1570,16 +1570,16 @@ def _warn_if_unregistered_sender() -> None:
     # _machine_local_repos_keys() returns None on registry-read failure — treat
     # as empty here (same best-effort rationale as _sender_em_id above).
     raw_paths = {k: _machine_local_get(k) for k in (_machine_local_repos_keys() or [])}
-    raw_paths.setdefault("repos.doe_claude", _machine_local_get("repos.doe_claude"))
+    raw_paths.setdefault("repos.content_root", _machine_local_get("repos.content_root"))
     known_paths = {k: v for k, v in raw_paths.items() if v}
     resolved = em_id_for_root(root, known_paths)
-    basename_fallback = os.path.basename(root.rstrip("/\\")) + "-em"
+    basename_fallback = os.path.basename(root.rstrip("/\\")).lower() + "-em"
     is_registered_match = any(_same_path(root, p) for p in known_paths.values())
     if resolved == basename_fallback and not is_registered_match:
         print(
             f"cross-repo-memo: WARNING — sender resolved to '{resolved}' from an "
-            f"UNREGISTERED repo ({root}) — verify this is intended. Register it with "
-            f"`machine-local set repos.<name> {root}` if it should have a stable identity.",
+            f"UNREGISTERED repo ({root}) — this is the repo's own name. Register it with "
+            f"`machine-local set repos.{resolved[:-3].replace('-', '_')} {root}` if it should have a stable identity.",
             file=sys.stderr,
         )
 
@@ -1677,8 +1677,8 @@ def _print_premise_check_advisory(
     nothing pinned has no premise this process can address, so the offer is to
     pin it — not a description of a grep for the sender to go run.
 
-    Lifecycle rule (2026-08-03, doe-claude-em memo — see
-    cross-repo/inbox/2026-08-03-doe-claude-em-premise-check-advisory-fires-
+    Lifecycle rule (2026-08-03, coordinator-content-repo-em memo — see
+    cross-repo/inbox/2026-08-03-coordinator-content-repo-em-premise-check-advisory-fires-
     after-delivery.md): the advisory belongs to the stage that OWNS the
     editable buffer, not to send. `_cmd_draft` and `_cmd_compose` both hold
     the resolved `<topic>.md` draft open for edits at the moment they call
@@ -1696,7 +1696,7 @@ def _print_premise_check_advisory(
     compose never see that path.
 
     That one-shot form gets its OWN receipt arm, `stage="send_oneshot"`
-    (doe-claude-em memo, 2026-08-03): the pins ARE takeable on that form —
+    (coordinator-content-repo-em memo, 2026-08-03): the pins ARE takeable on that form —
     the --scoped-to-* flags parse there and a complete triple short-circuits
     to `_run_scoped_premise_checks` above — so routing it to the generic
     send receipt advised re-running at `draft`/`compose`, a lifecycle that
@@ -2079,10 +2079,10 @@ _OUTBOX_REQUIRED_FIELDS = ("title", "from", "to", "created", "status", "delivery
 # There is no third, peer-owned leg. The Node oracle this comment previously
 # named as authoritative (`coordinator/bin/lib/schema.js`, `validKinds`) was
 # retired in the 2026-07-24 de-node cutover (480ad8f867 / 90de9c3083) and no
-# sibling repo validates `kind` on arrival — DoE-claude's vendored
+# sibling repo validates `kind` on arrival — coordinator-content-repo's vendored
 # `cross-repo-memo.schema.json` declares it as a bare string with no enum.
 # `notice` (klabauter#46/#40, 2026-09-19) therefore round-trips today; nothing
-# is owed by a peer. Confirmed against DoE-claude's tree 2026-09-20.
+# is owed by a peer. Confirmed against coordinator-content-repo's tree 2026-09-20.
 #
 # `friction` (2026-09-22) closes
 # state/improvement-queue/2026-09-05-memo-kind-has-no-friction-value-and-bug-
@@ -2254,7 +2254,25 @@ def _print_route_mutation_failure_reasons(exc: BaseException) -> None:
         op_stderr_stripped = op_stderr.strip() if isinstance(op_stderr, str) else ""
         if op_stderr_stripped and op_stderr_stripped not in str(exc):
             print(f"  op stderr: {op_stderr_stripped}", file=sys.stderr)
+    _echo_summary_cap_refusal_to_stdout(exc)
     _print_stale_engine_kind_diagnosis(exc)
+
+
+_SUMMARY_CAP_REFUSAL_RE = re.compile(r"summary is \d+ chars, cap is \d+[^\n]*")
+
+
+def _echo_summary_cap_refusal_to_stdout(exc: BaseException) -> None:
+    """Repeat an over-cap summary refusal (actual length and cap) on stdout,
+    where a caller reading only stdout sees why the send/compose was refused."""
+    haystack = f"{exc}\n{getattr(exc, 'op_stderr', '')}"
+    result_obj = getattr(exc, "result", None)
+    failed = result_obj.get("failed") if isinstance(result_obj, dict) else None
+    for item in failed if isinstance(failed, list) else []:
+        if isinstance(item, dict):
+            haystack += f"\n{item.get('reason', '')}"
+    match = _SUMMARY_CAP_REFUSAL_RE.search(haystack)
+    if match:
+        print(f"cross-repo-memo: refused: {match.group(0)}")
 
 
 def _print_stale_engine_kind_diagnosis(exc: BaseException) -> None:
@@ -2664,6 +2682,9 @@ def _cmd_draft(args: argparse.Namespace) -> int:
     # Print absolute path to stdout (the op's `id` is already the absolute
     # target_path — see memo_draft.py's build_act_result acted entry).
     print(draft_path)
+    cap_advisory = acted[0].get("summary_cap_advisory") if isinstance(acted[0], dict) else None
+    if cap_advisory:
+        print(f"{cap_advisory} (summary left as the placeholder; original text kept in the draft body)")
     return 0
 
 
@@ -3205,11 +3226,21 @@ def _cmd_send(args: argparse.Namespace) -> int:
     acted_item = acted[0] if isinstance(acted[0], dict) else {}
     receiver_side_path = acted_item.get("id")
     if receiver_side_path:
-        print(f"Receiver-side: {os.path.abspath(receiver_side_path)}")
+        abs_receiver_path = os.path.abspath(receiver_side_path)
+        print(f"Receiver-side: {abs_receiver_path}")
         print(
             "That commit is the channel, not a cross-repo write grant — it "
             "touches cross-repo/ only."
         )
+        # Memo friction item 7 (cross-repo/inbox/2026-09-28-project-rag-em-
+        # memo-send-friction.md): "a memo without PM relay is dropped in a
+        # hole" — the CLI's own docstring/comments elsewhere already claimed
+        # this line existed; it never actually printed. No live-session ping
+        # primitive exists to notify the PM directly (checked
+        # coordinator_core.session.liveness — it can only ask "is session X
+        # live", not deliver to one), so this stays the one line for the
+        # sender to hand the PM, not new infrastructure.
+        print(f"Hand the PM this path for relay: {abs_receiver_path}")
     if acted_item.get("sender_unattributed"):
         # Not a failure: the memo IS delivered. But it carries no sender, so
         # the receiver cannot reply to it by message and the only route back
@@ -3739,7 +3770,7 @@ def _cmd_version() -> int:
     machine-local `~/bin/cross-repo-memo` shim) silently implements retired
     routing while looking like a normal invocation — `command -v` resolves to
     whichever copy PATH finds first, not necessarily the canonical
-    `<doe-root>/coordinator/bin/cross-repo-memo`. `__file__` here always names
+    `<content-root>/coordinator/bin/cross-repo-memo`. `__file__` here always names
     the file actually executing (the shim, if that's what ran), so comparing
     it against the canonical path turns "silently wrong for weeks" into a
     one-line diagnostic instead of the invisible-until-`diff` failure mode the
@@ -3758,20 +3789,20 @@ def _cmd_version() -> int:
     print(f"cross-repo-memo {digest} ({line_count} lines)")
     print(f"running from: {self_path}")
 
-    doe_root_file = os.path.join(
+    content_root_file = os.path.join(
         os.environ.get("CLAUDE_HOME")
         or os.environ.get("HOME")
         or os.environ.get("USERPROFILE")
         or str(Path.home()),
         ".claude",
-        ".doe-root",
+        ".content-root",
     )
     canonical = None
     try:
-        with open(doe_root_file, "r", encoding="utf-8") as fh:
-            doe_root = fh.read().strip()
-        if doe_root:
-            canonical = os.path.join(doe_root, "coordinator", "bin", "cross-repo-memo")
+        with open(content_root_file, "r", encoding="utf-8") as fh:
+            content_root = fh.read().strip()
+        if content_root:
+            canonical = os.path.join(content_root, "coordinator", "bin", "cross-repo-memo")
             # Either content layout — a pointer naming the published flat
             # mirror named a canonical path that cannot exist there. A
             # --version diagnostic must survive an unimportable bin/lib, so
@@ -3780,7 +3811,7 @@ def _cmd_version() -> int:
                 import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
                 from coordinator_data_root import content_root_for
 
-                content = content_root_for(doe_root)
+                content = content_root_for(content_root)
             except Exception:  # noqa: BLE001
                 content = None
             if content is not None:
@@ -3791,7 +3822,7 @@ def _cmd_version() -> int:
     if canonical is None:
         print(
             "canonical source: unresolved "
-            f"({doe_root_file} not found, empty, or unreadable)"
+            f"({content_root_file} not found, empty, or unreadable)"
         )
         return 0
 

@@ -2,7 +2,7 @@
 `coordinator_core.ops.dispatch_emit.cli`.
 
 The published surface (skills/hooks citing
-`${CLAUDE_PLUGIN_ROOT:-${_doe_root}/coordinator}/bin/emit-dispatch-workflow.py`)
+`${CLAUDE_PLUGIN_ROOT:-${_content_root}/coordinator}/bin/emit-dispatch-workflow.py`)
 probes this exact path — the file name and location stay fixed even though
 the emitter it runs now lives entirely in the engine.
 

@@ -52,6 +52,7 @@ Negative spec -- what this deliberately does NOT do:
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -69,6 +70,17 @@ _FRESH_MARKER = "# coordinator coordinator-auto-push hook — installed by git_h
 _FRESH_TAIL = 'exec "$_PY" "$SCRIPT" "$@"'
 
 _BACKUP_SUFFIX = ".retired"
+
+_OLDER_EXEC = re.compile(
+    r'^exec\s+(?:ba)?sh\s+"?(?:\$HOME|~)/\.claude/plugins/coordinator-claude/\S*coordinator-auto-push(?:\.py)?"?'
+    r'(?:\s+"?\$@"?)?\s*$'
+)
+
+
+def _is_older_exec_body(text: str) -> bool:
+    """The older body: shebang, comments, and a lone ``exec bash <marketplace>/coordinator-auto-push``."""
+    code = [ln.strip() for ln in text.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+    return len(code) == 1 and _OLDER_EXEC.match(code[0]) is not None
 
 GENERATES = []
 
@@ -124,6 +136,8 @@ def _classify(text: str):
     if not lines:
         return None, None
     if git_hook_install._has_line(text, _FRESH_MARKER) and lines[-1].strip() == _FRESH_TAIL:
+        return "fresh", None
+    if _is_older_exec_body(text):
         return "fresh", None
     return None, None
 

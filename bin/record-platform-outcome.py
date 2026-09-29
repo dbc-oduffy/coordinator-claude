@@ -16,10 +16,10 @@ test) diverge exactly when a canary run on one machine exercises a surface resol
 from a different repo's clone via `--plugin-dir` (see schema field descriptions for
 both). The surface-providing repo here is always the DoE/coordinator repo — this tool
 lives in `coordinator/bin/`, so the surface it measures is always a DoE-owned surface —
-resolved via `coordinator_registry.doe_root()` (env `DOE_ROOT` -> machine-local
-registry `repos.doe_claude` -> raise), NOT via `.doe-root`-file-read or cwd. `doe_root()`
-delegates to the same machine-local registry the `.doe-root` pointer file itself is
-generated from (`gen-doe-root-pointer.py`) — reusing the existing, already-tested seam
+resolved via `coordinator_registry.content_root()` (env `CONTENT_ROOT` -> machine-local
+registry `repos.content_root` -> raise), NOT via `.content-root`-file-read or cwd. `content_root()`
+delegates to the same machine-local registry the `.content-root` pointer file itself is
+generated from (`gen-content-root-pointer.py`) — reusing the existing, already-tested seam
 is preferred over re-reading the pointer file directly. Per
 `coordinator/docs/wiki/state-placement-law.md`, "state/ is repo-local"; a naive
 cwd-relative write would land the record in the wrong repo whenever `invoking_repo !=`
@@ -75,7 +75,7 @@ import subprocess
 import sys
 
 _BOOTSTRAPPED_NAMES = (
-    "doe_root",
+    "content_root",
     "_DoeUnresolvable",
     "_registry_machine_local_get",
     "require_engine_on_path",
@@ -102,7 +102,7 @@ def _bootstrap_engine() -> None:
         return
     try:
         import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-        from coordinator_registry import doe_root, _DoeUnresolvable, _registry_machine_local_get
+        from coordinator_registry import content_root, _DoeUnresolvable, _registry_machine_local_get
         from cc_invoke import require_engine_on_path
 
         require_engine_on_path(__file__)
@@ -139,7 +139,7 @@ _PLATFORM_MAP = {
 }
 
 
-GENERATES = []  # writes state/platform-outcomes/<platform>/<machine>/<surface>.yaml under _surface_root() == coordinator_registry.doe_root() (the DoE-claude repo), never claude-klabauter's own tree — see module docstring "WRITE-TARGET RESOLUTION"
+GENERATES = []  # writes state/platform-outcomes/<platform>/<machine>/<surface>.yaml under _surface_root() == coordinator_registry.content_root() (the coordinator-content-repo repo), never claude-klabauter's own tree — see module docstring "WRITE-TARGET RESOLUTION"
 
 
 class RecordPlatformOutcomeError(RuntimeError):
@@ -192,11 +192,11 @@ def _resolve_machine() -> str:
 def _surface_root() -> str:
     """Resolve the surface-providing repo root (always the DoE/coordinator repo —
     this tool lives under `coordinator/bin/`, so the surface it measures is always
-    DoE-owned). Delegates entirely to `coordinator_registry.doe_root()`; raises
-    `_DoeUnresolvable` when neither `DOE_ROOT` nor the machine-local registry
+    DoE-owned). Delegates entirely to `coordinator_registry.content_root()`; raises
+    `_DoeUnresolvable` when neither `CONTENT_ROOT` nor the machine-local registry
     resolve it — callers must catch and report, not silently default to cwd."""
     _bootstrap_engine()
-    return doe_root()
+    return content_root()
 
 
 def _git_rev_parse(root: str, *args: str) -> str:
@@ -353,7 +353,7 @@ def main(argv: "list[str] | None" = None) -> int:
     except _DoeUnresolvable as exc:
         print(
             f"record-platform-outcome: error: cannot resolve surface-providing "
-            f"repo root (DOE_ROOT / machine-local repos.doe_claude): {exc}",
+            f"repo root (CONTENT_ROOT / machine-local repos.content_root): {exc}",
             file=sys.stderr,
         )
         return 1

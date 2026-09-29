@@ -1,6 +1,6 @@
 """Run a test command and refuse to report its result unless the corpus held still.
 
-Ported from DoE-claude `coordinator/bin/stable-suite-run.py` (W3-C1,
+Ported from coordinator-content-repo `coordinator/bin/stable-suite-run.py` (W3-C1,
 `docs/plans/2026-09-18-doe-holds-no-scripts.md`) -- mechanical move, no behavioural change. No
 path resolution at all (§ Path resolution): every git call below is run with the default cwd
 (the caller's), and nothing here touches `__file__`.

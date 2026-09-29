@@ -24,7 +24,7 @@ shape cost ~326ms/invocation on Windows versus a direct python3 invocation
 (1306ms via the shim vs 980ms direct, byte-identical output — measured by
 coordinator/bin/check-sh-suffix-polyglot.py's docstring, source-of-record
 state/audits/2026-07-20-sh-suffixed-python-trampolines.md in the
-DoE-claude clone, not this repo — the path is qualified deliberately, and
+Coordinator-content-repo clone, not this repo — the path is qualified deliberately, and
 its absence here is not evidence it is missing), paid unconditionally on
 every call,
 independent of the separate command-substitution hazard

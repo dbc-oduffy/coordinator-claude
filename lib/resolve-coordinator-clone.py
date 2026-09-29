@@ -27,9 +27,9 @@ rung bodies, since git-ops gates oss on .git while content gates oss on the
 
   --clone-root (dev/passthrough mode):
     1. COORDINATOR_CLONE env var (non-empty, must have .git/)
-    2. registry repos.doe_claude (canonical), then
+    2. registry repos.content_root (canonical), then
        plugin.mirrors.coordinator-claude.live_path (fallback)
-    3. Pointer file (settings-home durable, then legacy ~/.claude/.doe-root)
+    3. Pointer file (settings-home durable, then legacy ~/.claude/.content-root)
        -> DoE repo root, gated on -d <root>/.git
     4. Flat layout: ~/.claude/plugins/coordinator-claude, gated on .git/
     5. FAIL-LOUD
@@ -61,7 +61,7 @@ Dev-vs-oss selector (shared Rung-0, run before either verb's ladder):
      unconditionally, regardless of COORDINATOR_SOURCE_MODE.
   2. Explicit COORDINATOR_SOURCE_MODE=dev|oss (any other value fails loud).
   3. Marker auto-discovery: a resolvable candidate clone (pointer file, then
-     registry repos.doe_claude, then registry live_path) carrying
+     registry repos.content_root, then registry live_path) carrying
      .coordinator-dev-repo -> dev, unconditionally. A resolvable candidate
      WITHOUT the marker AND a co-present OSS install (flat
      .claude-plugin/plugin.json) -> fail-loud ambiguity (set
@@ -86,7 +86,7 @@ Public contract surface: CLI entrypoint (this file) and env-var overrides
 are stable. Peer repos (project-rag, project-rag-ue-addon,
 Example-game-workbench-repo) bind here via an out-of-tree entry shim rather than
 each vendoring a cache-glob fallback.
-Spec backlink: DoE-claude:pln-collapse-the-resolvers-into-on-f1120f § C2
+Spec backlink: coordinator-content-repo:pln-collapse-the-resolvers-into-on-f1120f § C2
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md § Wave E2 (E2-c)
 """
 
@@ -164,7 +164,7 @@ def _settings_home_dir() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Registry access — mirrors _rcc_registry_path / _rcc_registry_doe_claude /
+# Registry access — mirrors _rcc_registry_path / _rcc_registry_content_root /
 # _rcc_registry_live_path. Shells out to `claude-home`/`machine-local` on
 # PATH exactly like the bash oracle did (test fixture parity:
 # test_resolve_coordinator_clone.py::test_t3 stubs `claude-home` on PATH,
@@ -204,8 +204,8 @@ def _registry_path() -> str:
     return ""
 
 
-def _registry_doe_claude() -> str:
-    """Resolve repos.doe_claude via the canonical settings-home registry
+def _registry_content_root() -> str:
+    """Resolve repos.content_root via the canonical settings-home registry
     (`coordinator_core.machine_resolver.registry_get`, through this module's
     own `_import_registry_get()` bootstrap — the same rung `_registry_live_path`
     already falls back to) FIRST, zero-spawn. Falls through to the
@@ -215,7 +215,7 @@ def _registry_doe_claude() -> str:
     coordinator_core/tests/test_no_machine_local_cli_read_spawn.py)."""
     registry_get = _import_registry_get()
     if registry_get is not None:
-        value = registry_get("repos.doe_claude")
+        value = registry_get("repos.content_root")
         if value:
             return value
     machine_local_bin = shutil.which("machine-local")
@@ -223,7 +223,7 @@ def _registry_doe_claude() -> str:
         return ""
     try:
         result = subprocess.run(
-            [machine_local_bin, "get", "repos.doe_claude"],
+            [machine_local_bin, "get", "repos.content_root"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -265,16 +265,16 @@ def _registry_live_path() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Doe-root pointer — mirrors read_doe_root_pointer.py::coordinator_read_doe_root_pointer.
+# Content-root pointer.
 # Durable-first (DR-072): settings-home pointer, falling back to the legacy
-# ~/.claude/.doe-root during the transition window.
+# ~/.claude/.content-root during the transition window.
 # ---------------------------------------------------------------------------
 
-def _read_doe_root_pointer() -> str:
+def _read_content_root_pointer() -> str:
     settings_home = _settings_home_dir()
     if settings_home:
         try:
-            root = (Path(settings_home) / "machine-local" / ".doe-root").read_text(encoding="utf-8").strip()
+            root = (Path(settings_home) / "machine-local" / ".content-root").read_text(encoding="utf-8").strip()
             if root:
                 return root
         except OSError:
@@ -283,7 +283,7 @@ def _read_doe_root_pointer() -> str:
     claude_home = _claude_home_dir()
     if claude_home:
         try:
-            root = (Path(claude_home) / ".doe-root").read_text(encoding="utf-8").strip()
+            root = (Path(claude_home) / ".content-root").read_text(encoding="utf-8").strip()
             if root:
                 return root
         except OSError:
@@ -352,7 +352,7 @@ def _resolve_source_mode(verb: str) -> str:
             f'resolve-coordinator-clone: COORDINATOR_SOURCE_MODE is set to "{source_mode}" but must be "dev" or "oss"'
         )
 
-    candidate = _read_doe_root_pointer() or _registry_doe_claude() or _registry_live_path()
+    candidate = _read_content_root_pointer() or _registry_content_root() or _registry_live_path()
     candidate_resolved = bool(candidate) and Path(candidate).is_dir()
 
     dev_marker_present = candidate_resolved and (Path(candidate) / ".coordinator-dev-repo").is_file()
@@ -414,13 +414,13 @@ def resolve_git_ops() -> str:
             f'resolve-coordinator-clone: COORDINATOR_CLONE is set to "{coordinator_clone}" but it has no .git directory'
         )
 
-    live = _registry_doe_claude() or _registry_live_path()
+    live = _registry_content_root() or _registry_live_path()
     if live and (Path(live) / ".git").is_dir():
         return live
 
-    doe_root = _read_doe_root_pointer()
-    if doe_root and (Path(doe_root) / ".git").is_dir():
-        return doe_root
+    content_root = _read_content_root_pointer()
+    if content_root and (Path(content_root) / ".git").is_dir():
+        return content_root
 
     claude_home = _claude_home_dir()
     if claude_home:
@@ -430,9 +430,9 @@ def resolve_git_ops() -> str:
 
     raise ResolutionError(
         "resolve-coordinator-clone --for-git-ops: no git-backed coordinator clone found.\n"
-        "  Tried: COORDINATOR_CLONE env, registry repos.doe_claude (canonical),\n"
+        "  Tried: COORDINATOR_CLONE env, registry repos.content_root (canonical),\n"
         "         registry plugin.mirrors.coordinator-claude.live_path (fallback),\n"
-        "         durable/.doe-root pointer, flat ~/.claude/plugins/coordinator-claude\n"
+        "         durable/.content-root pointer, flat ~/.claude/plugins/coordinator-claude\n"
         "  (no .git in any tried location)\n"
         "  Run: coordinator:install OR set COORDINATOR_CLONE to the clone path."
     )
@@ -486,13 +486,13 @@ def resolve_content() -> str:
     if newest:
         return newest
 
-    doe_root = _read_doe_root_pointer()
-    if doe_root:
+    content_root = _read_content_root_pointer()
+    if content_root:
         # Either content layout — a pointer naming the published flat mirror
         # resolved nothing while this rung knew only `<root>/coordinator`.
         from coordinator_data_root import content_root_for
 
-        pointed = content_root_for(doe_root)
+        pointed = content_root_for(content_root)
         if pointed is not None:
             return str(pointed)
 
@@ -505,7 +505,7 @@ def resolve_content() -> str:
     raise ResolutionError(
         "resolve-coordinator-clone --for-content: no readable coordinator content root found.\n"
         "  Tried: CLAUDE_PLUGIN_ROOT, COORDINATOR_ROOT, registry live_path,\n"
-        "         versioned cache glob, durable/.doe-root pointer,\n"
+        "         versioned cache glob, durable/.content-root pointer,\n"
         "         flat ~/.claude/plugins/coordinator-claude\n"
         "  Run: coordinator:install OR set COORDINATOR_ROOT to the coordinator directory."
     )

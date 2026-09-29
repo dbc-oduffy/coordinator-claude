@@ -589,7 +589,7 @@ GATE_TARGETS = (
     "verify-arch-audit-atlas-refresh",
     "verify-coverage",
     "verify-dist-publish-repo-sync",
-    "verify-doe-root-seam-sync",
+    "verify-content-root-seam-sync",
     "verify-no-console-flash",
     "verify-no-powershell-flash",
     "verify-orientation-cache-sync",

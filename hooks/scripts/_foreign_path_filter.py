@@ -32,7 +32,7 @@ import sys
 from pathlib import Path
 
 _PLANE_REGISTRY_KEYS = (
-    "repos.doe_claude",
+    "repos.content_root",
     "repos.claude_klabauter",
     "repos.claude_klabauter",
 )

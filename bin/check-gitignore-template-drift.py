@@ -7,14 +7,14 @@ propagates to zero already-installed machines until the next full run. Measured 
 AUTHORS the template: nine rules behind on 2026-08-26, fourteen behind on 2026-08-28 — roughly 7
 rules/48h on an active box. This gate is the recurring check that beats that drift rate instead of
 waiting for the next install. See `state/2026-08-28-machine-b-install-dogfood-friction-log.md` F9
-(DoE-claude).
+(coordinator-content-repo).
 
 REPORT-ONLY BY DEFAULT. This runs at a cadence, unattended, against the operator's tracked
 meta-repo. Without `--apply` it only prints and sets its exit code — it never touches
 `~/.claude/.gitignore`. `--apply` appends missing rules (verbatim from the template) and is the
 only mutating path; it still never runs `git rm --cached` for you — an ignore rule added for an
 already-tracked path is inert until untracked, and deciding to untrack a path is not this script's
-call to make unattended. See `docs/wiki/claude-home-tracking-policy.md` (DoE-claude).
+call to make unattended. See `docs/wiki/claude-home-tracking-policy.md` (coordinator-content-repo).
 
 TWO ENTRIES ARE REPLACE, NOT APPEND — carried over from Phase 4's own text, because a template-
 derived line diff gets both wrong by construction:
@@ -32,7 +32,7 @@ derived line diff gets both wrong by construction:
 Zero-spawn: this runs on a machine carrying a dozen-plus concurrent EM sessions, at a cadence
 meant to be cheap enough to run often. No subprocess, stdlib only.
 
-TEMPLATE RESOLUTION. `templates/dotgitignore.tmpl` is a doctrine asset: it stays in DoE-claude and
+TEMPLATE RESOLUTION. `templates/dotgitignore.tmpl` is a doctrine asset: it stays in coordinator-content-repo and
 is published, so it is never at a fixed offset from this file's own location once this CLI lands
 here in claude-klabauter (docs/plans/2026-09-18-doe-holds-no-scripts.md § Path resolution). The default
 template path resolves through the plugin root
@@ -67,7 +67,7 @@ def _default_template_path() -> "Path | None":
     """Resolve `templates/dotgitignore.tmpl` through the coordinator-claude plugin root.
 
     Never `Path(__file__)`-derived: this CLI's own directory (coordinator/bin, in claude-klabauter) no
-    longer has any `templates/` sibling — that content stays in DoE-claude and reaches an
+    longer has any `templates/` sibling — that content stays in coordinator-content-repo and reaches an
     install through the publish pipeline. See module docstring § TEMPLATE RESOLUTION.
 
     Returns None when the plugin root cannot be resolved; the caller reports that as a usage

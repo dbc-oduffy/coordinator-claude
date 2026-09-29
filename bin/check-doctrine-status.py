@@ -3,7 +3,7 @@
 value falls outside the closed vocabulary.
 
 WHY THIS EXISTS. A `contract/doctrine-status-vocabulary.json` closes the
-`status:` frontmatter field to a fixed vocabulary after DoE-claude's C1
+`status:` frontmatter field to a fixed vocabulary after coordinator-content-repo's C1
 repair. Nothing previously branched on the field -- a ninth spelling could
 land tomorrow and nothing would notice. This is that branch.
 
@@ -12,7 +12,7 @@ severity: a page with no frontmatter, a page with frontmatter but no
 `status:` key, and a page whose value is listed in the contract. Only a
 page carrying a `status:` key with an unlisted value is a violation --
 this is the frontmatter-backfill rejection
-(DoE-claude docs/plans/2026-08-30-doctrine-governance-tier-2.md Anti-scope),
+(coordinator-content-repo docs/plans/2026-08-30-doctrine-governance-tier-2.md Anti-scope),
 enforced mechanically rather than left as a convention.
 
 Multi-OS is P0: every path goes through `pathlib`, no separator literals,
@@ -39,7 +39,7 @@ Exit codes:
        strings value); or a wiki page could not be read as valid UTF-8
        (path printed to stderr).
 
-Spec: DoE-claude docs/plans/2026-08-30-doctrine-governance-tier-2.md, chunk C2.
+Spec: coordinator-content-repo docs/plans/2026-08-30-doctrine-governance-tier-2.md, chunk C2.
 docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W3-C2.
 """
 from __future__ import annotations

@@ -74,9 +74,9 @@ Exit codes:
     2 — internal error (not inside a git repo, or the session-liveness
         engine is not importable)
 
-Spec backlink: DoE-claude:pln-reviewer-sidecar-provisioning--6ba704 § C7
+Spec backlink: coordinator-content-repo:pln-reviewer-sidecar-provisioning--6ba704 § C7
 Spec backlink (DR-091 home): docs/decisions/DR-091-agent-citizenship-identity-typed-sidecar-contract.md
-  (repo ROOT of the DoE-claude tree; a same-numbered archived twin exists —
+  (repo ROOT of the coordinator-content-repo tree; a same-numbered archived twin exists —
   see that plan's C1 body for the disambiguation note).
 
 Negative-spec (RAW-PID-LIVENESS): the liveness gate calls
@@ -441,20 +441,35 @@ def main(argv: Optional[list] = None) -> int:
         # file feeds both calls, preserving single-commit atomicity.
         pathspec_file = _write_pathspec_file(tracked_rel)
         try:
-            rm_res = subprocess.run(
-                ["git", "rm", "-q", f"--pathspec-from-file={pathspec_file}"], cwd=repo_root,
-                capture_output=True, text=True, check=False, **no_console_creationflags(),
-            )
+            try:
+                rm_res = subprocess.run(
+                    ["git", "rm", "-q", f"--pathspec-from-file={pathspec_file}"], cwd=repo_root,
+                    capture_output=True, text=True, check=False, timeout=30,
+                    **no_console_creationflags(),
+                )
+            except subprocess.TimeoutExpired:
+                sys.stderr.write("reap-stale-subagent-sidecars.py: git rm timed out\n")
+                return 1
             if rm_res.returncode != 0:
                 sys.stderr.write(rm_res.stderr)
                 return rm_res.returncode
 
             commit_msg = f"reap {len(tracked_to_reap)} stale subagent-share sidecar(s)"
-            commit_res = subprocess.run(
-                ["git", "commit", "-q", "-m", commit_msg, f"--pathspec-from-file={pathspec_file}"],
-                cwd=repo_root,
-                capture_output=True, text=True, check=False, **no_console_creationflags(),
-            )
+            try:
+                commit_res = subprocess.run(
+                    ["git", "commit", "-q", "-m", commit_msg, f"--pathspec-from-file={pathspec_file}"],
+                    cwd=repo_root,
+                    capture_output=True, text=True, check=False, timeout=30,
+                    **no_console_creationflags(),
+                )
+            except subprocess.TimeoutExpired:
+                sys.stderr.write(
+                    f"reap-stale-subagent-sidecars.py: git commit timed out after git rm — "
+                    f"{len(tracked_to_reap)} sidecar(s) staged for deletion, not committed:\n"
+                )
+                for f in tracked_to_reap:
+                    sys.stderr.write(f"  {f}\n")
+                return 1
             if commit_res.returncode != 0:
                 sys.stderr.write(
                     f"reap-stale-subagent-sidecars.py: git commit failed after git rm — "

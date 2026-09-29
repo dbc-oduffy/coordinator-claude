@@ -68,9 +68,8 @@ a sweeping or stale pathspec will not be stopped** — verify the pathspec yours
 **No gate fires inside a commit any more — deliberately, and it is not a capability loss for
 all four.** `run_commit_pipeline` ran four gates immediately before landing: `deletion_block_gate`,
 `dirty_tree_gate`, `carry_gate`, `op_scope_coverage_gate`. It was killed at the 500ms brightline
-and the replacement runs none of them. That is recorded, not accidental: the engine repo
-`docs/plans/2026-08-29-the-push-subsystem-leaves-and-then-the-pipeline-can-go.md` § C4, with the
-exposure tracked at that same repo's `state/bug-backlog/2026-08-29-the-commit-v2-route-runs-none-of-the-fou-3e8811d511b7.yaml`.
+and the replacement runs none of them. That is recorded, not accidental, and the exposure is
+tracked in the engine repo's own bug backlog.
 
 **Unwired is not absent, and the difference decides what you do about it.** Two of the four keep a
 standalone route you can run by hand:

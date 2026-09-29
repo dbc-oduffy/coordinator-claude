@@ -99,7 +99,7 @@ _STRUCTURAL_BUILD_ARTIFACT_SUFFIXES = (".pyc", ".pyo")
 # not exist, which is why this is unconditional rather than platform-branched.
 #
 # Belongs HERE, not in a consumer's per-root override: this is generic engine
-# behaviour, and a downstream override carrying it (DoE-claude
+# behaviour, and a downstream override carrying it (coordinator-content-repo
 # `setup/publish_sync.py`, whose own negative spec forbids engine behaviour in
 # an override) had to keep it only because this module lacked it. That
 # override drops it on its next re-derivation from this file.
@@ -1087,7 +1087,7 @@ def sync_mirror(
 # ---------------------------------------------------------------------------
 # Manifest layout-rewrite transform — declarative, row-supplied, caller-owned.
 #
-# Folds DoE-claude's `setup/publish_sync.py` per-root override (the coordinator
+# Folds coordinator-content-repo's `setup/publish_sync.py` per-root override (the coordinator
 # install-manifest layout transform, `_is_coordinator_install_src` /
 # `_apply_coordinator_install_manifest_transform`) into this engine module —
 # docs/plans/2026-09-18-doe-holds-no-scripts.md chunk W3-C10 / reviewer

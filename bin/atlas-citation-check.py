@@ -2,11 +2,11 @@
 """coordinator/bin/atlas-citation-check.py — mechanical citation/coverage check
 over the architecture atlas (`docs/architecture/`).
 
-Ported from DoE-claude `coordinator/bin/atlas-citation-check.py` (W2-C6,
+Ported from coordinator-content-repo `coordinator/bin/atlas-citation-check.py` (W2-C6,
 `docs/plans/2026-09-18-doe-holds-no-scripts.md`) — mechanical move, no behavioural change.
 `REPO_ROOT` was already "engine" class (§ Path resolution): resolved from this module's own
 `__file__`, unchanged by the move. It checks THIS repo's own `docs/architecture/` atlas, which
-Claude-klabauter carries independently of DoE-claude's.
+Claude-klabauter carries independently of coordinator-content-repo's.
 
 Purpose: AC5 of `docs/plans/2026-08-20-make-the-atlas-mechanical.md`. Every
 citation an atlas page makes (symbol, file, record) is resolved by lookup

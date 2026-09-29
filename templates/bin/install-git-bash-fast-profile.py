@@ -34,7 +34,7 @@ import shutil
 import sys
 from pathlib import Path
 
-BEGIN = b"# >>> claude-code fast profile (DoE-claude) >>>"
+BEGIN = b"# >>> claude-code fast profile (coordinator-content-repo) >>>"
 END = b"# <<< claude-code fast profile <<<"
 BACKUP_SUFFIX = ".pre-claude-fast-profile.bak"
 

@@ -33,7 +33,7 @@ out, no `/etc/os-release` read); the manifest path is derived from `__file__`
 via `pathlib`/`os.path` (no `expanduser("~")`/`HOME` dependency — this script
 never needs the user's home directory, only its own on-disk location).
 
-Spec backlink: DoE-claude:pln-platform-verified-is-a-distinc-a076aa § C4
+Spec backlink: coordinator-content-repo:pln-platform-verified-is-a-distinc-a076aa § C4
 """
 from __future__ import annotations
 

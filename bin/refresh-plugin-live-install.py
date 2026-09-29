@@ -1860,7 +1860,7 @@ def _handle_default(
     # while still living inside `~/.claude`'s own repo, and this leg's
     # `fetch`/`checkout` below would then run against THAT repo — which is
     # exactly what detached the operator's `~/.claude` off its working
-    # branch on 2026-08-18 (cross-repo/archive/2026-08-18-doe-claude-em-
+    # branch on 2026-08-18 (cross-repo/archive/2026-08-18-coordinator-content-repo-em-
     # refresh-git-leg-can-detach-an-unrelated-repo.md). `check-plugin-drift`
     # already detects this shape and downgrades itself to `[info]`; this
     # leg mutates, so it refuses instead.

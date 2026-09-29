@@ -133,7 +133,7 @@ orthogonality assertions: wiki.
 
 Reviewers never commit. A chunk reviewer's footprint on return is exactly its one
 `chunk-<k>.md` — anything else is a contract violation to revert.
-<!-- engine-gap: field=chunks[k].footprint producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=chunks[k].footprint producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
 
 ## Lens-Domain Manifest
 

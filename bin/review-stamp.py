@@ -1,6 +1,6 @@
 """review-stamp.py — CLI trampoline over claude-klabauter's coordinator_core.ops.review_stamp.
 
-DoE-claude docs/plans/2026-09-27-review-inside-execute-plan.md, row MK1. Binds a
+Coordinator-content-repo docs/plans/2026-09-27-review-inside-execute-plan.md, row MK1. Binds a
 plan to the terminal commit its execute-review wave verified, and refuses to
 mint the stamp on any of: a FAIL delivery verdict, a failed/missing build-test
 record, an unresolved finding, a confinement violation, a foreign claim, or

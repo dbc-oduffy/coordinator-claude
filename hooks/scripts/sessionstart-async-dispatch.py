@@ -1,7 +1,7 @@
 """SessionStart async fan-in dispatcher -- two hooks.json SessionStart
 registrations, one interpreter, source-gated. Registered `async: true`.
 
-Folds `session-start-register-doe-claude-root.py` (previously matcher
+Folds `session-start-register-coordinator-content-repo-root.py` (previously matcher
 `startup|resume|clear|compact|fork`) and `session-start-repair-prepare-
 commit-msg-hook.py` (previously matcher `startup` only) into ONE `python3`
 process, registered ASYNC on the union of their prior matchers
@@ -22,7 +22,7 @@ every guard's original blocking behaviour exactly -- a hosting change only,
 never a policy change, matching this repo's fan-in precedent (`stop-
 dispatch.py`, `preuse-agent-dispatch.py`).
 
-SOURCE-GATING. `session-start-register-doe-claude-root.py`'s own matcher
+SOURCE-GATING. `session-start-register-coordinator-content-repo-root.py`'s own matcher
 equalled this dispatcher's matcher exactly (`startup|resume|clear|compact|
 fork`), so it needs no gating -- it always runs. `session-start-repair-
 prepare-commit-msg-hook.py` fired on `startup` only; gated here to
@@ -91,8 +91,8 @@ _UNMATCHED_SOURCE_BREADCRUMB = (
 
 
 REGISTRY: Tuple[StartGuard, ...] = (
-    StartGuard("session_start_register_doe_claude_root",
-               "session-start-register-doe-claude-root.py",
+    StartGuard("session_start_register_content_root_root",
+               "session-start-register-coordinator-content-repo-root.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
     StartGuard("session_start_repair_prepare_commit_msg_hook",
                "session-start-repair-prepare-commit-msg-hook.py",

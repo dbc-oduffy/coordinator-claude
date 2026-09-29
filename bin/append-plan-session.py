@@ -36,7 +36,7 @@ Code releases without that env var. When unresolved, session_id is sent as JSON
 null and the op falls back to its own CLAUDE_CODE_SESSION_ID env read
 (completion_ops.py:591-592) — a no-op in that case since tier 3 already tried it.
 
-Spec backlink: DoE-claude:pln-ceremony-as-pipeline-2-land-th-aa5ace
+Spec backlink: coordinator-content-repo:pln-ceremony-as-pipeline-2-land-th-aa5ace
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md (Wave 1b)
 
 Usage (unchanged from the bash facade — zero caller-arg repoints):

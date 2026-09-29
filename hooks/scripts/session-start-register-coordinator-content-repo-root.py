@@ -1,12 +1,12 @@
-"""SessionStart hook — self-heals `engine.working_repos.doe_claude` AND
-`repos.doe_claude` in the machine-local registry.
+"""SessionStart hook — self-heals `engine.working_repos.content_root` AND
+`repos.content_root` in the machine-local registry.
 
 Purpose: DR-132
 (docs/decisions/DR-132-engine-working-repos-is-its-own-namespace-not-a-repos-star-inference.md,
 Consequences section) records that `engine.working_repos.*` is declared
 `idempotent-regeneratable` as target state, but only `claude_klabauter` self-heals
 today — the engine plane's own installer writes it via
-`scripts/setup.py::register_claude_klabauter_root()`. `doe_claude` is operator-set and has
+`scripts/setup.py::register_claude_klabauter_root()`. `content_root` is operator-set and has
 NO install-time (or session-time) self-registration, so a fresh clone, a wiped
 registry, or an operator typo leaves the key silently wrong or absent, and
 `_engine_root.py`'s working-repo gate (`_is_engine_working_repo()`) can never
@@ -60,12 +60,13 @@ whenever `root` resolves, regardless of whether either registry write below
 succeeds, since it shares no state with them. See that function's own
 docstring for the full contract gap it closes.
 
-Second key, `repos.doe_claude` — write-when-absent-only, not
-write-when-different: this is the engine's own canonical `doe_root`
-resolution anchor (`coordinator_core.trusted_root_guard._doe_root`,
+Second key, `repos.content_root` (with its legacy twin `repos.content_root`, marked
+compat-fallback) — write-when-absent-only, not
+write-when-different: this is the engine's own canonical `content_root`
+resolution anchor (`coordinator_core.trusted_root_guard._content_root`,
 `OperatorConfigError` on `''`), a SEPARATE namespace from
-`engine.working_repos.doe_claude` by design (DR-132 — do not merge them).
-Unlike the `engine.working_repos.*` key above, `repos.doe_claude` is
+`engine.working_repos.content_root` by design (DR-132 — do not merge them).
+Unlike the `engine.working_repos.*` key above, `repos.content_root` is
 operator-set and a box may legitimately hold more than one doctrine-repo clone with
 the operator pointing the sibling map at whichever one they're using —
 this hook only fills the key in when it is absent or empty (the
@@ -75,7 +76,7 @@ the same wrong-repo guard and written through the same
 `_write_registry_value` seam as the first key.
 
 Write path: the sanctioned CLI writer, `machine-local set
-engine.working_repos.doe_claude <path>` — never a hand-edit of the registry
+engine.working_repos.content_root <path>` — never a hand-edit of the registry
 TOML (a concurrent session may be writing it; see
 `docs/wiki/hook-best-practices/machine-local-registry.md` § "Use this instead of editing
 registry files by hand"). Delegated to `_registry_write.machine_local_set`,
@@ -105,7 +106,7 @@ session away from the published engine forever — the exact failure DR-132
 exists to prevent. Chosen guard: presence of `.coordinator-dev-repo` at the
 resolved repo root (a repo-root, not `coordinator/`-relative, sentinel; see
 that file's own header for why its location is load-bearing and must never
-move) AND its `slug: doe-claude` content line matches. Presence-only would
+move) AND its `slug: coordinator-content-repo` content line matches. Presence-only would
 already be sufficient in practice — `.coordinator-dev-repo` is structurally
 absent from every OSS/marketplace install and from every consumer repo,
 since the one-way doctrine-plane->OSS percolation sweep (`coordinator/.percolate-ignore`)
@@ -116,7 +117,7 @@ checks the `slug:` line so that if this SAME hook script is ever percolated
 into another dev-repo class in the future (unlikely today, but the sentinel
 format explicitly supports a `slug:` payload for exactly this kind of
 disambiguation — see `_scan_dev_repo_marker`'s rung-2 autodiscovery use of
-the same field), it still only ever fires for the literal `doe-claude` slug,
+the same field), it still only ever fires for the literal `coordinator-content-repo` slug,
 not merely "some dev repo, whichever one this is."
 
 Matcher (see hooks.json registration): mirrors
@@ -126,7 +127,7 @@ harness emits, not just cold start. Safe to fire on all of them because this
 hook is idempotent by construction (a repeat fire when the key is already
 correct is a single cheap TOML read and nothing else).
 
-Spec backlink: DR-132 Consequences section ("`doe_claude` is NOT [written by
+Spec backlink: DR-132 Consequences section ("`content_root` is NOT [written by
 an installer] ... its key is operator-set and does not yet self-heal").
 """
 
@@ -165,10 +166,11 @@ except Exception:
         return None
 
 
-_REGISTRY_KEY = "engine.working_repos.doe_claude"
-_REPOS_REGISTRY_KEY = "repos.doe_claude"
+_REGISTRY_KEY = "engine.working_repos.content_root"
+_CONTENT_ROOT_REGISTRY_KEY = "repos.content_root"
+_REPOS_REGISTRY_KEY = "repos.content_root"  # compat-fallback: legacy registry key
 _SENTINEL_NAME = ".coordinator-dev-repo"
-_EXPECTED_SLUG = "doe-claude"
+_EXPECTED_SLUG = "coordinator-content-repo"
 
 #: The auto-memory subdirectory name under a session's own project directory
 #: (`~/.claude/projects/<slug>/memory/`) -- see `_ensure_memory_dir_exists`.
@@ -178,7 +180,8 @@ _MEMORY_DIRNAME = "memory"
 #: Pointer files every no-launcher fence reads to find the doctrine clone
 #: (`snippets/resolve-coordinator-bin.md` § CLIs with no launcher). Both are
 #: read there; neither was written by anything before this hook.
-_DOE_ROOT_POINTER_BASENAME = ".doe-root"
+_CONTENT_ROOT_POINTER_BASENAME = ".coordinator-content-root"
+_CONTENT_ROOT_POINTER_BASENAME = ".content-root"  # compat-fallback: legacy pointer name
 
 #: Ceiling on directories stat'd by the rung-1 scan. The scan is a bounded
 #: probe of named positions, never a filesystem walk -- a walk that eventually
@@ -248,7 +251,7 @@ def _payload_cwd() -> "Optional[str]":
     repo — the doctrine clone — in the layout where the running plugin is a
     publish mirror that shares no path prefix with it. Nothing here is
     accepted on the strength of cwd: every candidate still has to clear
-    `_is_genuine_doe_claude_repo`.
+    `_is_genuine_content_root_repo`.
     """
     cwd = _read_stdin_payload().get("cwd")
     return cwd if isinstance(cwd, str) and cwd else None
@@ -276,16 +279,16 @@ def _scan_for_doe_clone(payload_cwd: "Optional[str]") -> "Optional[Path]":
     publish mirror (a `directory` marketplace) while the fleet's real clones
     sit somewhere else entirely — under the session's own working area, with
     no path relation to the mirror. Nothing `__file__`-anchored can reach
-    them, so nothing registered `repos.doe_claude` or wrote `.doe-root`, and
+    them, so nothing registered `repos.content_root` or wrote `.content-root`, and
     every no-launcher fence refused with an installer remedy the container
     has no install to run.
 
     Candidates, in order, capped at `_MAX_SCAN_CANDIDATES`: the payload cwd,
     each of its first three ancestors, and each ancestor's immediate
     subdirectories — which is where sibling fleet clones live. Acceptance is
-    `_is_genuine_doe_claude_repo` and nothing else, so the widened search
+    `_is_genuine_content_root_repo` and nothing else, so the widened search
     cannot widen what is registrable: a directory without the sentinel
-    carrying `slug: doe-claude` is never returned, however it was reached.
+    carrying `slug: coordinator-content-repo` is never returned, however it was reached.
     """
     if not payload_cwd:
         return None
@@ -305,7 +308,7 @@ def _scan_for_doe_clone(payload_cwd: "Optional[str]") -> "Optional[Path]":
             if checked > _MAX_SCAN_CANDIDATES:
                 return None
             try:
-                if _is_genuine_doe_claude_repo(candidate):
+                if _is_genuine_content_root_repo(candidate):
                     return candidate
             except Exception:
                 continue
@@ -320,18 +323,19 @@ def _immediate_subdirs(base: Path) -> "list[Path]":
         return []
 
 
-def _write_doe_root_pointer(root_str: str) -> None:
-    """Write the `.doe-root` pointer to both locations the fences read.
+def _write_content_root_pointer(root_str: str) -> None:
+    """Write the content-root pointer (and its legacy-named twin) to both
+    locations the fences read.
 
     Write-when-absent-or-different: an operator-written pointer that already
     names this clone is left untouched, and a pointer naming a DIFFERENT
     clone is overwritten, because a stale pointer is the failure this closes
-    — unlike `repos.doe_claude`, whose value may legitimately be an
+    — unlike `repos.content_root`, whose value may legitimately be an
     operator's choice among several clones.
 
     Fail open per leg: one unwritable location never stops the other.
     """
-    for pointer in _doe_root_pointer_paths():
+    for pointer in _content_root_pointer_paths():
         try:
             if pointer.is_file() and pointer.read_text(encoding="utf-8").strip() == root_str:
                 continue
@@ -344,34 +348,36 @@ def _write_doe_root_pointer(root_str: str) -> None:
             continue
 
 
-def _doe_root_pointer_paths() -> "list[Path]":
-    """The two pointer locations, in the order the fences try them."""
+def _content_root_pointer_paths() -> "list[Path]":
+    """Every pointer file to keep current: the content-root name first, then
+    the legacy name, each at the two locations the fences try in order."""
     paths: "list[Path]" = []
-    try:
-        reg_dir = _settings_home_registry_dir()
-        if reg_dir is not None:
-            paths.append(Path(reg_dir) / _DOE_ROOT_POINTER_BASENAME)
-    except Exception:
-        pass
-    try:
-        claude_home = os.environ.get("CLAUDE_HOME") or str(Path.home())
-        paths.append(Path(claude_home) / ".claude" / _DOE_ROOT_POINTER_BASENAME)
-    except Exception:
-        pass
+    for basename in (_CONTENT_ROOT_POINTER_BASENAME, _CONTENT_ROOT_POINTER_BASENAME):
+        try:
+            reg_dir = _settings_home_registry_dir()
+            if reg_dir is not None:
+                paths.append(Path(reg_dir) / basename)
+        except Exception:
+            pass
+        try:
+            claude_home = os.environ.get("CLAUDE_HOME") or str(Path.home())
+            paths.append(Path(claude_home) / ".claude" / basename)
+        except Exception:
+            pass
     return paths
 
 
-def _is_genuine_doe_claude_repo(root: Path) -> bool:
+def _is_genuine_content_root_repo(root: Path) -> bool:
     """Wrong-repo guard — see module docstring's "Wrong-repo guard" section
     for the full rationale. Never raises; any read failure is treated as
     "not confirmed", which is the fail-closed direction for a guard whose
     job is preventing a false-positive registration.
 
     Parses the sentinel line-by-line for a `slug:` key and compares the
-    trimmed value for EXACT equality with `doe-claude` — mirrors
+    trimmed value for EXACT equality with `coordinator-content-repo` — mirrors
     `_scan_dev_repo_marker` in `templates/bin/_machine_local.py` (the
     canonical parser for this sentinel format). A substring/`in` check
-    would also match a prefix-sharing slug such as `doe-claude-fork`,
+    would also match a prefix-sharing slug such as `coordinator-content-repo-fork`,
     defeating the guard.
     """
     sentinel = root / _SENTINEL_NAME
@@ -411,7 +417,7 @@ def _resolve_doe_clone() -> Optional[Path]:
     """The confirmed doctrine clone, or None — rung 0 then rung 1.
 
     Both rungs are accepted on the same guard, so this returns only a tree
-    carrying `.coordinator-dev-repo` with `slug: doe-claude`.
+    carrying `.coordinator-dev-repo` with `slug: coordinator-content-repo`.
     """
     try:
         rung0 = _repo_root()
@@ -419,7 +425,7 @@ def _resolve_doe_clone() -> Optional[Path]:
         rung0 = None
     if rung0 is not None:
         try:
-            if _is_genuine_doe_claude_repo(rung0):
+            if _is_genuine_content_root_repo(rung0):
                 return rung0
         except Exception:
             pass
@@ -451,8 +457,8 @@ def _ensure_memory_dir_exists() -> None:
 
     Scoped by call site: `main()` only calls this after `root` has already
     cleared the wrong-repo guard, so this closes the gap for a confirmed
-    DoE-claude session, not a general mechanism for every project on the
-    box.
+    session of this hook's own target repo, not a general mechanism for
+    every project on the box.
 
     Fails open like every other step in this hook: a missing/unreadable
     `transcript_path`, or an unwritable directory, is a silent no-op, never
@@ -490,7 +496,7 @@ def main() -> int:
     root_str = str(root)
 
     try:
-        _write_doe_root_pointer(root_str)
+        _write_content_root_pointer(root_str)
     except Exception:
         pass
 
@@ -500,7 +506,11 @@ def main() -> int:
         current = None
 
     if current == root_str:
-        return 0  # already correct — quiet, no write, no spawn
+        try:
+            _maybe_seed_repos_content_root(reg_dir, root_str)
+        except Exception:
+            pass
+        return 0  # engine key already correct — no write for it
 
     try:
         _write_registry_value(_REGISTRY_KEY, root_str)
@@ -511,27 +521,28 @@ def main() -> int:
         pass
 
     try:
-        _maybe_seed_repos_doe_claude(reg_dir, root_str)
+        _maybe_seed_repos_content_root(reg_dir, root_str)
     except Exception:
         pass
 
     return 0
 
 
-def _maybe_seed_repos_doe_claude(reg_dir, root_str: str) -> None:
-    """Write-when-absent-only seed for `repos.doe_claude` — see module
+def _maybe_seed_repos_content_root(reg_dir, root_str: str) -> None:
+    """Write-when-absent-only seed for `repos.content_root` — see module
     docstring's "Second key" section. Never overwrites an operator-set
     value, whatever it is; only an absent or empty value triggers a write.
     """
-    try:
-        current_repos_value = _engine_registry_value(reg_dir, _REPOS_REGISTRY_KEY)
-    except Exception:
-        current_repos_value = None
+    for key in (_CONTENT_ROOT_REGISTRY_KEY, _REPOS_REGISTRY_KEY):
+        try:
+            current_repos_value = _engine_registry_value(reg_dir, key)
+        except Exception:
+            current_repos_value = None
 
-    if current_repos_value:  # already set, non-empty — operator's choice, leave it
-        return
+        if current_repos_value:  # already set, non-empty — operator's choice, leave it
+            continue
 
-    _write_registry_value(_REPOS_REGISTRY_KEY, root_str)
+        _write_registry_value(key, root_str)
 
 
 if __name__ == "__main__":

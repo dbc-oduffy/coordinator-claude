@@ -8,7 +8,7 @@ consumer repo can register its own opt-in advisory command (e.g. "publish
 settled end-of-day state to an external store or dashboard") without a
 bespoke terminal step per ceremony.
 
-Spec backlink: DoE-claude:pln-generic-per-repo-post-ceremony-25af09
+Spec backlink: coordinator-content-repo:pln-generic-per-repo-post-ceremony-25af09
   § "The seam (contract pinned in C1)", § "Helper shape (C1)"
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md (Wave E3-c)
 

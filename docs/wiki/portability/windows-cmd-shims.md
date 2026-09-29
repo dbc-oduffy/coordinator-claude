@@ -368,7 +368,7 @@ the block early. Two failure modes follow: a parse abort (`%\Git was unexpected 
 — far nastier — an early close that promotes whatever follows into an **unconditional** statement.
 If the line after the early-closed block is `exit /b 1`, that `exit` now fires regardless of the
 block's actual condition, so a guard denies (or a launcher aborts) on every invocation, not just the
-one it was written to catch. This broke `claude-doe.cmd` — the `claude` alias target — completely,
+one it was written to catch. This broke `claude-author.cmd` — the `claude` alias target — completely,
 and no test caught it, because no test executed the *generated* launcher; a `cmd /c` smoke test of
 the rendered file would have.
 

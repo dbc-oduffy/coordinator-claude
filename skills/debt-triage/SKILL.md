@@ -58,7 +58,7 @@ Debt-backlog rows only (the improvement leg's triage runs inside Step 1's emitte
 Dispatch Haiku agents, grouped by system, to mechanically re-confirm each open item against
 current code: history since the finding's `created` date, the cited `file:line` still shows the
 issue. Verdict per item — `still-open` / `already-fixed` / `partially-addressed`.
-<!-- engine-gap: field=debt_triage.haiku_verify_dispatch producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=debt_triage.haiku_verify_dispatch producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
 
 Before any verdict, run a mechanical pre-check per row: do its cited paths exist at HEAD, and
 does a grep for its cited symbol hit? A row whose paths exist and symbol hits cannot be
@@ -165,7 +165,7 @@ ever applied to debt-backlog rows, that governance still applies.
 - Park, won't-do and YAGNI keep their current rules and stamps, after Step 5.
 - Source-row closure is an edit plus a plain rename to `archive/improvement-queue/<YYYY-MM>/`,
   with the committer staging both paths (A-PLAIN-MV-IS-THE-INTENDED-ROUTE-NOT-A-FALLBACK). The
-  row-removal `--declared-revert` follows doe-claude-47's `/bug-blitz` post-run wording, so the
+  row-removal `--declared-revert` follows coordinator-content-repo-47's `/bug-blitz` post-run wording, so the
   two termini read the same.
 
 **Commit shape:** batons, promotes and PM-gated closures are separate commits, each naming the

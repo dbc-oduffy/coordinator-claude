@@ -13,7 +13,7 @@ these codes are the CLI's return codes too).
 Port: docs/plans/2026-07-21-percolate-python-port.md (chunk C-W0).
 
 Cwd-independent: this script self-bootstraps its own `sys.path` (bin/../lib)
-before importing `percolate.resolve_target`, so it requires no DOE_ROOT
+before importing `percolate.resolve_target`, so it requires no CONTENT_ROOT
 injection or particular working directory from callers invoking it as a
 subprocess.
 """

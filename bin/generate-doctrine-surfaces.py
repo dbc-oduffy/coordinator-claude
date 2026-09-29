@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """coordinator/bin/generate-doctrine-surfaces.py — emits
-<DoE-claude>/coordinator/doctrine-surfaces.json, the DoE-supplied
+<coordinator-content-repo>/coordinator/doctrine-surfaces.json, the DoE-supplied
 doctrine-surface manifest consumed by claude-klabauter's
 `coordinator_core.ops.verify_skill_anchor_links`.
 
@@ -8,16 +8,16 @@ WHY THIS EXISTS. That gate resolves each `<path>.md § <section>` citation
 path-directed, against the file it names. A citation naming
 `~/.claude/CLAUDE.md` — a derived artifact with no in-repo file of its own —
 resolves to nothing the gate can check, so it is recorded QUALIFIED and
-skipped rather than genuinely verified. Only DoE-claude knows that its
+skipped rather than genuinely verified. Only coordinator-content-repo knows that its
 in-repo canonical for that derived path is `global-doctrine/CLAUDE.md`.
-Supplying that mapping, plus the full set of doctrine homes DoE-claude owns,
+Supplying that mapping, plus the full set of doctrine homes coordinator-content-repo owns,
 upgrades those citations from QUALIFIED to real OK/DEAD verdicts.
 
 `surfaces` is DERIVED, never hand-listed: a hand-written index rots into
 plausible findings the moment a snippet or wiki page is added or removed
 without updating it in lockstep — the exact failure class this manifest
 exists to prevent on the consumer side. Re-running this generator is the
-only way `surfaces` changes; DoE-claude's own pytest tier fails the moment
+only way `surfaces` changes; coordinator-content-repo's own pytest tier fails the moment
 the committed file drifts from what this generator produces now.
 
 `aliases` carries only mappings that genuinely cannot be derived from a tree
@@ -32,8 +32,8 @@ Usage:
     python coordinator/bin/generate-doctrine-surfaces.py --check   # verify, exit 1 on drift
 
 DOE-INTERNAL. This CLI generates a file that lives and is committed inside
-the DoE-claude checkout (`<doe_root>/coordinator/doctrine-surfaces.json`),
-never anything in this repo — claude-klabauter owns and runs it, DoE-claude is where
+the coordinator-content-repo checkout (`<content_root>/coordinator/doctrine-surfaces.json`),
+never anything in this repo — claude-klabauter owns and runs it, coordinator-content-repo is where
 its output lands.
 
 Path resolution: "doctrine asset" class (§ Path resolution,
@@ -42,11 +42,11 @@ root exactly as that section names: `coordinator_core.warm.caller_context ::
 resolve_caller_context`, falling back to
 `coordinator_core.subagent_sandbox.provision_report :: resolve_plugin_root`'s
 own three-rung ambient probe (`CLAUDE_PLUGIN_ROOT` env var -> plugin dir ->
-`.doe-root` pointer) — the same pair chunk W2-C9's mise-prep-entry.py already
+`.content-root` pointer) — the same pair chunk W2-C9's mise-prep-entry.py already
 uses for its own doctrine-asset seam. The DoE original derived its own repo
 root from `Path(__file__).resolve().parent.parent.parent` — the
-DoE-claude@b644d5a9 lesson this whole wave exists to fix: that resolved
-correctly only so long as the file stayed inside DoE-claude's own
+Coordinator-content-repo@b644d5a9 lesson this whole wave exists to fix: that resolved
+correctly only so long as the file stayed inside coordinator-content-repo's own
 `coordinator/lib/`. Arriving here, `__file__` resolves inside claude-klabauter's own
 tree, which has neither a `global-doctrine/` nor a `coordinator/docs/wiki/`
 to walk. A bare CLI invocation of this script (no warm-server payload in
@@ -55,7 +55,7 @@ front of it) is exactly the "genuinely fresh dispatch" case
 this module calls it with no payload, so it degrades straight to
 `resolve_plugin_root()`'s ambient probe.
 
-Arrived from DoE-claude coordinator/lib/generate-doctrine-surfaces.py
+Arrived from coordinator-content-repo coordinator/lib/generate-doctrine-surfaces.py
 (docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W3-C6).
 Spec backlink: state/plans/2026-08-05-doctrine-surfaces-manifest-emission.md
 """
@@ -80,7 +80,7 @@ SCHEMA_VERSION = 1
 MANIFEST_BASENAME = "doctrine-surfaces.json"
 
 #: Mappings that cannot be computed from a repo-tree walk because the cited
-#: form names a path that does not exist in DoE-claude's repo at all — it
+#: form names a path that does not exist in coordinator-content-repo's repo at all — it
 #: names a DERIVED artifact (a hook-rendered file living outside that repo's
 #: own tree) whose in-repo canonical source lives there under a different
 #: path. `~/.claude/CLAUDE.md` is re-derived from `global-doctrine/CLAUDE.md`
@@ -93,9 +93,9 @@ ALIASES = {
 
 
 def _repo_root() -> Path:
-    """The DoE-claude checkout root this generator walks.
+    """The coordinator-content-repo checkout root this generator walks.
 
-    `resolve_caller_context().plugin_root` is a CONTENT root (DoE-claude's
+    `resolve_caller_context().plugin_root` is a CONTENT root (coordinator-content-repo's
     `coordinator/` subdir) one level below the repo root this generator's
     output paths are relative to — this generator's own `global-doctrine/`
     lookup is a sibling of that subdir, not inside it."""
@@ -108,10 +108,10 @@ def _repo_root() -> Path:
     plugin_root = resolve_caller_context().plugin_root
     if plugin_root is None:
         raise RuntimeError(
-            "generate-doctrine-surfaces: cannot resolve the DoE-claude plugin "
+            "generate-doctrine-surfaces: cannot resolve the coordinator-content-repo plugin "
             "root -- resolve_caller_context().plugin_root returned no result. "
             "Set CLAUDE_PLUGIN_ROOT, or register the coordinator-claude plugin "
-            "install / .doe-root pointer (see resolve_plugin_root())."
+            "install / .content-root pointer (see resolve_plugin_root())."
         )
     return Path(plugin_root).resolve().parent
 
@@ -154,7 +154,7 @@ def _walk_wiki_dir(wiki_dir: Path) -> list[Path]:
 
 
 def compute_surfaces(repo_root: Path) -> list[str]:
-    """Every doctrine home in DoE-claude's repo, repo-relative, sorted for a
+    """Every doctrine home in coordinator-content-repo's repo, repo-relative, sorted for a
     stable diff. `coordinator/CLAUDE.md` is included only when present — it
     does not exist as of this generator's authoring, but doctrine evolves."""
     surfaces: list[str] = []

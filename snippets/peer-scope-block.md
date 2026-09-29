@@ -11,12 +11,12 @@ Used by two callers with different entry shapes for the {{peer_chunks}} placehol
 
   bin/fan-out-integrator.py (integrator wave):
     - <slice-id> (sidecar: <sidecar-path>, files: <comma-separated file list>) — peer integrator
-      is running RIGHT NOW in parallel; do NOT wait for it, do NOT collate its findings with yours,
+      is running RIGHT NOW in parallel; do not wait for it, do not collate its findings with yours,
       your scope is yours alone
 -->
 
-## Out-of-scope — peer work, do NOT touch
+## Out-of-scope — peer work, do not touch
 
 {{peer_chunks}}
 
-If a peer's expected output appears missing on disk, assume a peer is on it — do NOT extend scope to "fix" it, do NOT touch peer files even if your work seems blocked by their absence. If genuinely blocked, return with a blocker report.
+If a peer's expected output appears missing on disk, assume a peer is on it — do not extend scope to "fix" it, do not touch peer files even if your work seems blocked by their absence. If genuinely blocked, return with a blocker report.

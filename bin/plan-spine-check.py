@@ -42,7 +42,7 @@ another row writes (declare `consumes` instead if the output is actually needed)
 path no row writes (orders nothing -- use `reads_at_head`). `LEGACY-READS` is a plain notice on
 any row carrying `reads:`. Paths are normalised from `\` to `/` before comparison.
 
-Arrived from DoE-claude coordinator/bin/plan-spine-check.py (docs/plans/2026-09-18-doe-holds-no-
+Arrived from coordinator-content-repo coordinator/bin/plan-spine-check.py (docs/plans/2026-09-18-doe-holds-no-
 scripts.md, chunk W2-C9; the fourth-class port above from docs/plans/2026-09-27-plan-shape-for-
 width.md C9/C5, requirement-restated as W2-C9 did). Requirement-restated, not carried verbatim:
 the DoE-side `_locate_spine` resolved `coordinator_core` through an `_engine_root` seam because

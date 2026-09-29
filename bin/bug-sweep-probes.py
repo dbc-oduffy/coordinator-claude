@@ -1,6 +1,6 @@
 """bug-sweep-probes.py — naked-Python probes for the /bug-sweep skill.
 
-Ports the genuine imperative logic out of DoE-claude's
+Ports the genuine imperative logic out of coordinator-content-repo's
 coordinator/skills/bug-sweep/SKILL.md so the skill can call a single
 maintained CLI by name instead of carrying inline bash fences. Two
 subcommands, one per ported concern (D2's later repoint wires the skill's
@@ -19,7 +19,7 @@ set difference) with no dependency on the claude-klabauter engine.
 Self-resolving: every path this script touches is either an explicit CLI
 argument or derived from Path(__file__); it never depends on cwd.
 
-Spec backlink: DoE-claude coordinator/skills/bug-sweep/SKILL.md
+Spec backlink: coordinator-content-repo coordinator/skills/bug-sweep/SKILL.md
   § Phase 0 step 1 (lines ~25-33) and § Phase 4 step 0 (lines ~278-290)
   (as of the 2026-07-23 bash-residual-migration read).
 Port backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md

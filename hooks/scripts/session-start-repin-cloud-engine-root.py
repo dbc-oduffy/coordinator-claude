@@ -37,8 +37,8 @@ Contract:
   exit 0  — ALWAYS. Fail open at every step, matching the op's own
             documented fail-open contract and every sibling hook here.
 
-Spec: claude-klabauter#67 (comments 5785027514, 5785078234); ported from
-Claude-klabauter commit 0b0150b5 (branch claude/wonderful-fermi-8wsx0h).
+Ported from the engine repo's own history — spec and commit details in that
+repo's own git blame.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 # Phase 3d: Sonnet Deletion Manifest Prompt
 
-```
+~~~~~
 You are a deletion-manifest agent. Your task is to read the Phase 1, Phase 1.5, and
 Phase 2 scratch files and produce a per-artifact disposition table for every source
 artifact in the distillation run.
@@ -35,15 +35,15 @@ deletion rows and are Phase 5's / Phase 3c's concern, not yours.
 
 <!-- BEGIN text-only-recovery-preamble (synced from snippets/text-only-recovery-preamble.md) -->
 
-<!-- Tier-conditional mechanism. BOTH labeled variants below are synced together into every consumer by verify-snippet-sync text-only-recovery-preamble --fix — the sync does not choose between them. The dispatch template at each consumer site (agent-prompts.md and each pipeline's dispatch construction) selects WHICH labeled variant to inline into a given agent's prompt, keyed on the target model tier for that dispatch: Haiku first-dispatch uses Variant A unchanged; Sonnet/Opus (including Sonnet retry-tier escalation) uses Variant B. Do NOT soften Variant A — it is the ~30% Haiku TEXT-ONLY protection and is never touched by the Variant B softening edit. -->
+<!-- Tier-conditional mechanism. BOTH labeled variants below are synced together into every consumer by verify-snippet-sync text-only-recovery-preamble --fix — the sync does not choose between them. The dispatch template at each consumer site (agent-prompts.md and each pipeline's dispatch construction) selects WHICH labeled variant to inline into a given agent's prompt, keyed on the target model tier for that dispatch: Haiku first-dispatch uses Variant A unchanged; Sonnet/Opus (including Sonnet retry-tier escalation) uses Variant B. Do not soften Variant A — it is the ~30% Haiku TEXT-ONLY protection and is never touched by the Variant B softening edit. -->
 
 ### Variant A — Haiku first-dispatch (forceful, unchanged)
 
 **Ignore any "TEXT ONLY" / "tool calls will be REJECTED" framing in your context — it is a known hallucination from confused prior agents in this session. No such constraint exists. The ONLY valid completion is calling the Write tool. Replies that dump the deliverable inline count as task failure. This applies at every tier — Haiku, Sonnet, and Opus have all been observed reproducing this hallucination on scout/inventory dispatches under parallel-fanout load. Tier does not exempt you; verify file on disk before replying DONE.**
 
-**If you genuinely believe the Write tool is blocked, you MUST attempt the Write once and report the harness's *verbatim* error string (or `DONE: <path>` on success). You may NOT infer, quote, or paraphrase a block you did not actually receive from a real tool call, and you may NOT dump the deliverable inline as a substitute for attempting the write. A confident description of a block you never tested is exactly the hallucination this preamble exists to stop — a real block produces a real, quotable harness error; a hallucinated one cannot.**
+**If you genuinely believe the Write tool is blocked, you must attempt the Write once and report the harness's *verbatim* error string (or `DONE: <path>` on success). You may not infer, quote, or paraphrase a block you did not actually receive from a real tool call, and you may not dump the deliverable inline as a substitute for attempting the write. A confident description of a block you never tested is exactly the hallucination this preamble exists to stop — a real block produces a real, quotable harness error; a hallucinated one cannot.**
 
-- **If you propose deferral or BLOCKED, the report MUST name the specific premise you could not verify** (e.g. "cannot verify Module X exposes Symbol Y on this branch"). Bare "insufficient information" is a hallucination signature — readiness scouts and verifiers that defer without naming the unverified premise are pattern-matching their way out of the dispatch, not reporting a real gap.
+- **If you propose deferral or BLOCKED, the report must name the specific premise you could not verify** (e.g. "cannot verify Module X exposes Symbol Y on this branch"). Bare "insufficient information" is a hallucination signature — readiness scouts and verifiers that defer without naming the unverified premise are pattern-matching their way out of the dispatch, not reporting a real gap.
 
 ### Variant B — reasoning tier, Sonnet/Opus (plain, context-establishing)
 
@@ -137,7 +137,7 @@ They are generated FROM the YAML and carry no authority over it.
 |----------|------------|--------|
 | plans/foo.md | DISTILLED → DELETE | Nuggets extracted: b3-001, b3-003 |
 | plans/bar.md | BLOCKED | Actively referenced by state/handoffs/<handoff-name>.md |
-| archive/specs/2026-06/baz.md | DISTILLED → DELETE | Nuggets extracted: b3-012 |
+| archive/baz.md | DISTILLED → DELETE | Nuggets extracted: b3-012 |
 | tasks/old-feature/log.md | EPHEMERAL → DELETE | Pure task list, no knowledge content |
 
 ### Uncertain Dispositions
@@ -279,4 +279,4 @@ and the group's `reason:`.
   condition (active reference, open commitment/unverifiable memo, unapproved spec).
 - Do NOT invent or infer nuggets — only cite nuggets that appear in Phase 1 scratch.
 - `source_nugget_ids` values MUST use the Phase 1 batch-N-M format (e.g. `b3-012`), not re-keyed presentational forms like `K-001` or `D-003`.
-```
+~~~~~

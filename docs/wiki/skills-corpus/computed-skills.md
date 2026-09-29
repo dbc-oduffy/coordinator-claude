@@ -1234,7 +1234,7 @@ cross-repo engine-repo handoff path; both resolved, returning per-owner
 $ python3 coordinator/bin/session-reachability-cli.py artifact-owner <plan-or-handoff-path>
 {"artifact_path": "...", "owners": [{"session_id": "<session-id>",
  "source_field": "agent_sessions", "outcome": "reachable",
- "address": "doe-claude-ee [5950ee]", "claim_live": null, "claim_stage": null}],
+ "address": "coordinator-content-repo-ee [5950ee]", "claim_live": null, "claim_stage": null}],
  "file_error": null}
 ```
 
