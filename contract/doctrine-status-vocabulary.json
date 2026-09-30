@@ -1,0 +1,8 @@
+{
+  "schema": "doctrine-status-vocabulary",
+  "schema_version": 1,
+  "purpose": "Closes the `status:` frontmatter vocabulary for coordinator/docs/wiki/ pages at exactly five values. Synonym spellings (living, current, canonical) are folded into `active`; this file is the target-state contract a lint checks pages against, not a log of edits already made to page bodies.",
+  "vocabulary": ["active", "deprecated", "distilled", "shipped", "stub"],
+  "retired_spellings": ["living", "current", "canonical"],
+  "retired_spelling_precedent": "Narrow the live vocabulary; tolerate retired spellings only in an archive reader, never in the live corpus itself (per handoff-archived.schema.json's own resolution of the same question, cited against admitting synonyms here)."
+}

@@ -1,0 +1,78 @@
+# Review-roster fragment
+
+`review-roster-fragment.json` names which reviewers a plan's emitted **execute-review** stage
+dispatches, and in what order. `dispatch.emit` (claude-klabauter) reads the `execute_review` block
+from here and composes it as stages of the same emitted workflow every executed plan gets — size
+no longer selects a roster; every plan is reviewed, at every t-shirt size.
+
+## Consumer version
+
+`schema_version: 5` replaces v4's size-selected `tiers` with a single `execute_review` block. The
+stage-aware consumer is claude-klabauter's `review_mint/execute_review.py ::
+compose_execute_review`, which turns `stages` into: one mechanical prep call, one `parallel()`
+review wave, and one single-agent integration call. A v4-shaped reader (`list(tier)`) has nothing
+to key on here — there is no `tiers` key left to misread.
+
+## Stages
+
+`execute_review.stages` is an ORDERED list of exactly three kinds: `prep`, `review-wave`,
+`integration`. Prep runs first (it partitions the diff and provisions every sidecar the rest read).
+The review wave is **one parallel stage**: every agent in it — the per-slice code reviewers, Kira,
+each signal-named persona, and the delivery verifier — runs concurrently. There is no second
+review round and no sequential ordering among reviewers; that already-parallel invariant from v4
+("two or more agents in one stage run in parallel — that is what a stage means") carries over
+unchanged. Integration runs alone, after the wave, and applies only what no slice owner could.
+
+**At most one `integration` stage may exist, and it holds exactly one agent.** N integrations
+would not be "one integration pass"; `tests/test_review_roster_fragment.py` enforces this
+structurally, not just as an accident of the shipped fixture.
+
+`per: slice` fans the `coordinator:code-reviewer` review-wave entry out over prep's own slice
+list at run time — the fragment names one entry, the run dispatches one call per slice.
+
+Every stage entry that carries an `agentType` also carries `model` and `effort`: the roster is
+the one place that pins per-call cost for a review dispatch, so a consumer never has to guess.
+An `accepts_signals` entry carries neither `agentType`, `model` nor `effort` — it has no fixed
+identity of its own. At run time it inherits whichever persona a `review_signals` name resolves
+to (`review-signals.json`), including that persona's own frontmatter `model`/`effort`.
+
+## `brightline`
+
+`execute_review.brightline` names the op that partitions the diff — `review_brightline_gate` —
+and the value `partition_on` returns when the diff is at or above that gate's own thresholds.
+**This fragment never restates the gate's LOC/commit/surface numbers.** They live in
+`review_brightline_gate` alone; a consumer reads them from there, never from a copy here that
+could drift.
+
+## `blocking_verdicts`
+
+Same purpose as v4: it maps every `agentType` an execute-review stage may dispatch — whether
+roster-fixed or signal-selected — to the exact verdict string its own charter declares blocking,
+so a consumer never hardcodes agent names or normalises their vocabulary. `code-reviewer` blocks
+on `BLOCKED`; `delivery-verifier` blocks on `FAIL`; `overengineering-reviewer` and every
+signal-selectable persona (`staff-eng`, `staff-data-sci`, `senior-front-end`, `staff-ux`) block on
+`REJECTED`, their shared reviewer enum's bottom value.
+
+`coordinator:review-integrator`, `coordinator:apm` and `coordinator:eng-director` are not in this
+map. The integrator retired; `apm` and the Director of Engineering (`eng-director`) are plan-altitude reviewers, not code
+reviewers, and this fragment now names code review only. `coordinator:prior-art-checker` and
+`coordinator:docs-checker` are also absent: both were v4's plan-altitude preflight gate, and
+`execute_review` has no preflight stage for them to ride along in.
+
+## What a review_signals entry can put in the wave
+
+Any persona `review-signals.json` marks `"stage": "named"` — `staff-eng` (architecture, backend,
+security), `staff-data-sci` (data-science), `senior-front-end` (front-end), `staff-ux` (ux-flow) —
+can be merged into the review-wave's `accepts_signals: "named"` entry when the plan's own
+`review_signals` selects it. A plan selecting no named signal dispatches the wave's four fixed
+agents (per-slice code-reviewer, Kira, delivery-verifier) plus nothing extra; a mechanical plan is
+never charged a domain specialist it didn't ask for. `coordinator:vp-product` stays PM-directed,
+never signal-matched, and is not part of this fragment.
+
+## Changing it
+
+Every entry carrying an `agentType` must be a real dispatchable one — a name that does not
+resolve to `agents/<name>.md` composes a stage that dispatches nobody, and the run reads as
+reviewed when it wasn't. `tests/test_review_roster_fragment.py` pins each name against `agents/`,
+the stage-kind/order constraints above, and that exactly one single-agent integration stage
+exists.

@@ -1,0 +1,39 @@
+{
+  "schema": "review-roster-fragment",
+  "schema_version": 5,
+  "blocking_verdicts": {
+    "coordinator:code-reviewer": "BLOCKED",
+    "coordinator:overengineering-reviewer": "REJECTED",
+    "coordinator:delivery-verifier": "FAIL",
+    "coordinator:staff-eng": "REJECTED",
+    "coordinator:staff-data-sci": "REJECTED",
+    "coordinator:senior-front-end": "REJECTED",
+    "coordinator:staff-ux": "REJECTED"
+  },
+  "execute_review": {
+    "brightline": { "op": "review_brightline_gate", "partition_on": "PARTITION-MANDATORY" },
+    "stages": [
+      {
+        "kind": "prep",
+        "agents": [
+          { "agentType": "coordinator:test-runner", "model": "haiku", "effort": "low", "schema": "review-prep-result" }
+        ]
+      },
+      {
+        "kind": "review-wave",
+        "agents": [
+          { "agentType": "coordinator:code-reviewer", "model": "opus", "effort": "low", "per": "slice", "applies": "own-slice", "schema": "slice-review-result" },
+          { "agentType": "coordinator:overengineering-reviewer", "model": "opus", "effort": "low", "per": "whole-diff", "applies": "none", "schema": "whole-diff-review-result" },
+          { "accepts_signals": "named", "per": "whole-diff", "applies": "none", "schema": "whole-diff-review-result" },
+          { "agentType": "coordinator:delivery-verifier", "model": "sonnet", "effort": "low", "per": "whole-diff", "applies": "none", "schema": "delivery-verdict" }
+        ]
+      },
+      {
+        "kind": "integration",
+        "agents": [
+          { "agentType": "coordinator:code-reviewer", "model": "opus", "effort": "low", "applies": "residue", "schema": "review-integration-result" }
+        ]
+      }
+    ]
+  }
+}

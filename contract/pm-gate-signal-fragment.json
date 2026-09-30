@@ -1,0 +1,120 @@
+{
+  "schema": "pm-gate-signal-fragment",
+  "schema_version": 1,
+  "emits": "recommendation",
+  "exhaustive": false,
+  "scanned_fields": [
+    {
+      "field": "gate_notes",
+      "status": "current",
+      "note": "advisory prose on an awaiting_gate stub — the field this rule is really about"
+    },
+    {
+      "field": "blocking_notes",
+      "status": "deprecated",
+      "note": "renamed to gate_notes -- the old name claimed a gating role this field never had. Still validates and is written by not-yet-re-vendored consumers, so the corpus carries it and the detector must still scan it during the migration window. Nothing authors new values into it."
+    },
+    {
+      "field": "gate_dependency",
+      "status": "deprecated",
+      "note": "deprecated predecessor of blocked_by/gate_notes; still validates on existing records, so the corpus carries it and the detector must still scan it. Nothing authors new values into it."
+    }
+  ],
+  "excluded_fields": [
+    {
+      "field": "blocked_by",
+      "reason": "resolvable slugs, not prose — a stub_id containing 'scope' would trip the token leg on every scan"
+    }
+  ],
+  "legs": [
+    {
+      "id": "pm-prefix",
+      "match_kind": "prefix",
+      "terms": [
+        "PM "
+      ],
+      "case_sensitive": true,
+      "precision": "high",
+      "description": "An explicitly PM-prefixed gate string. The one leg that is unambiguous by construction — the author wrote the prefix to mean exactly this."
+    },
+    {
+      "id": "named-stakeholder",
+      "match_kind": "judgment",
+      "judgment_required": true,
+      "surfaces_as": "judgment_point",
+      "mechanical_floor": {
+        "match_kind": "term-list",
+        "terms": [
+          "PM",
+          "product owner",
+          "stakeholder",
+          "the human",
+          "VP",
+          "vp-product",
+          "eng-director",
+          "director of engineering"
+        ],
+        "case_sensitive": false,
+        "precision": "high",
+        "note": "Fleet-stable ROLE words only. This is a floor, not the leg."
+      },
+      "description": "Who a gate is addressed to is not derivable by matching. A stakeholder is often a peer TEAM rather than a role word -- 'coordinate with claude-klabauter-em', 'ask whoever owns the ingest path' -- and resolving that takes knowledge of the fleet and of who is actually on the hook, which no term list holds. The mechanical floor catches the role words; everything past it is EM judgment and surfaces as a judgment point offering the candidate, never as a silent yes or no. A consumer that implements only the floor and reports the leg as done has closed a judgment call by omission.",
+      "never": "Do not extend the floor into peer-team or person names -- neither a hardcoded roster nor an inferred one. A fleet roster decays the moment a repo is added or renamed, and the wrong answer here is invisible: a gate silently addressed to nobody."
+    },
+    {
+      "id": "decision-approval-policy-scope",
+      "match_kind": "token",
+      "terms": [
+        "decision needed",
+        "approval needed",
+        "needs approval",
+        "policy",
+        "scope"
+      ],
+      "case_sensitive": false,
+      "precision": "low",
+      "description": "Product-coupling tokens. 'policy' and 'scope' are deliberately high-recall and low-precision — 'out of scope' is common prose. They earn their place because a missed PM gate blocks a roadmap close at Audit 3, while an over-fired row costs the author one dismissal."
+    },
+    {
+      "id": "user-facing",
+      "match_kind": "token",
+      "terms": [
+        "user-facing",
+        "user facing",
+        "end user",
+        "customer-visible"
+      ],
+      "case_sensitive": false,
+      "precision": "high",
+      "description": "User-visible-behaviour language. Product direction by definition, so it surfaces regardless of who authored the stub."
+    }
+  ],
+  "row_template": {
+    "file": "state/roadmap/<run-id>/pm-gates.md",
+    "heading": "# PM Gates — <run-id>",
+    "columns": [
+      "sprint",
+      "stub_id",
+      "gate question",
+      "disposition format",
+      "resolved?"
+    ],
+    "example_row": [
+      "2",
+      "dscov-15",
+      "should consumer_runner emit retry telemetry by default?",
+      "yes/no/defer",
+      "pending"
+    ],
+    "authored_by": "the EM, not the detector — the detector recommends the stub_id; the gate question is authored content"
+  },
+  "cross_check": {
+    "cli": "audit-roadmap <run-id>",
+    "audits": [
+      3,
+      4
+    ],
+    "both_directions": true,
+    "note": "Audit 3: every stub with a 'PM '-prefixed gate has a pm-gates.md row referencing its stub_id. Audit 4: every pending row is referenced by at least one stub. Mismatch blocks Phase 2 close with exit 1. A detector that emits a row without the stub referencing it back therefore breaks close in the other direction."
+  }
+}

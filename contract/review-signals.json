@@ -1,0 +1,57 @@
+{
+  "schema": "review-signals",
+  "schema_version": 1,
+  "signals": {
+    "architecture": {
+      "selects": "coordinator:staff-eng",
+      "stage": "named",
+      "prose_anchor": "the Staff Engineer (staff-eng)",
+      "prose_terms": ["Architectural change"]
+    },
+    "backend": {
+      "selects": "coordinator:staff-eng",
+      "stage": "named",
+      "prose_anchor": "the Staff Engineer (staff-eng)",
+      "prose_terms": ["backend"]
+    },
+    "security": {
+      "selects": "coordinator:staff-eng",
+      "stage": "named",
+      "prose_anchor": "the Staff Engineer (staff-eng)",
+      "prose_terms": ["security"]
+    },
+    "cross-repo-seam": {
+      "selects": "coordinator:eng-director",
+      "stage": "named",
+      "prose_anchor": "the Director of Engineering (eng-director)",
+      "prose_terms": ["cross-repo"]
+    },
+    "data-science": {
+      "selects": "coordinator:staff-data-sci",
+      "stage": "named",
+      "prose_anchor": "the Data Science Reviewer (staff-data-sci)",
+      "prose_terms": ["data modeling"]
+    },
+    "front-end": {
+      "selects": "coordinator:senior-front-end",
+      "stage": "named",
+      "prose_anchor": "the Front-End Reviewer (senior-front-end)",
+      "prose_terms": ["Front-end"]
+    },
+    "ux-flow": {
+      "selects": "coordinator:staff-ux",
+      "stage": "named",
+      "prose_anchor": "the UX Reviewer (staff-ux)",
+      "prose_terms": ["UX flow"]
+    },
+    "external-api-surface": {
+      "selects": "coordinator:docs-checker",
+      "stage": "preflight",
+      "prose_anchor": "docs-checker",
+      "prose_terms": ["API surface"]
+    }
+  },
+  "pm_directed": {
+    "coordinator:vp-product": "the VP-Product Reviewer has no routing.md section — vp-product is PM-directed, not signal-matched, so this entry keeps the closure assertion total instead of carrying a silent exemption."
+  }
+}

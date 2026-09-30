@@ -1,0 +1,6 @@
+vendored_sha: 1bab2e6bf7c5852e09b1deed403084831eb28103
+vendored_date: '2026-07-06'
+contract_version: v1.0
+source_repo: claude-klabauter
+source_path: coordinator_core/contract/deliverable-rollup-producer-contract.md
+note: 'FROZEN v1.0 snapshot. Consumer builds read THIS, never claude-klabauter coordinator_core/contract at live head (§5.1). Re-vendor only on a §5.2 bump memo.'

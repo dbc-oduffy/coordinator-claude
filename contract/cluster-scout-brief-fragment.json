@@ -1,0 +1,52 @@
+{
+  "schema": "cluster-scout-brief-fragment",
+  "schema_version": 1,
+  "dispatch": {
+    "one_per": "cluster carrying a KEEP or MERGE-target verdict in reconciliation.md",
+    "max_concurrent": 8,
+    "agent_type": "general-purpose",
+    "model": "sonnet"
+  },
+  "brief": {
+    "preamble_source": "coordinator/snippets/internet-research-scout.md",
+    "preamble_inlined_verbatim": true,
+    "preamble_text": "Use WebSearch and WebFetch directly to find answers and return a structured brief. Do NOT invoke any skills, the Deep Research pipeline, or spawn agents/teams. Your job is a quick solo web search — 5-10 minutes, a handful of queries, a clear brief back to me.",
+    "appended": "the cluster's own scope text, verbatim from reconciliation.md",
+    "composition": "preamble_text, then a blank line, then the cluster scope. Nothing else — no EM commentary, no per-cluster prompt authoring."
+  },
+  "output": {
+    "path_template": "state/roadmap/<run-id>/research-corpus/<topic-slug>.md",
+    "min_bytes": 2048,
+    "min_bytes_note": "the SKILL's >=2KB floor; a scout returning less has not grounded the cluster"
+  },
+  "depth_disposition": {
+    "source": "the PM's step-1.5.0 disposition — an INPUT to this op, never computed by it",
+    "values": ["solo-scout", "deep-research", "mixed"],
+    "solo-scout": "dispatch per this fragment",
+    "deep-research": "emit a directive naming the cluster; dispatch nothing",
+    "mixed": "per-cluster — the disposition carries which clusters take which"
+  },
+  "excluded_clusters": {
+    "source": "an INPUT to this op — a set of cluster ids the caller has already resolved as ineligible",
+    "never_substitute": true,
+    "note": "The UE-internal-API precondition is the standing producer of this set: a UE cluster whose project-rag probe does not return a hit STOPS, and a web scout is never dispatched in its place. The probe itself is project-rag's capability and is deliberately not this op's job — the op consumes the resolved exclusion set."
+  },
+  "never": [
+    {
+      "id": "no-research-pipeline",
+      "rule": "Never invoke /research or the Deep Research pipeline. It is PM-gated and never EM-auto-invoked, so a deep-research cluster yields a directive, never a dispatch."
+    },
+    {
+      "id": "no-substitute-scout",
+      "rule": "Never dispatch a web scout for an excluded cluster. A confident web brief on a question the web cannot answer is worse than an absent one."
+    },
+    {
+      "id": "no-scout-over-measurement",
+      "rule": "Never dispatch for a cluster whose research-corpus file is measurement-derived. That file is EM-authored ground truth written by hand from probe output, a prior spike, or direct inspection, and it REPLACES the scout outright. Overwriting it with scout output launders measurement into search results."
+    },
+    {
+      "id": "no-brief-authoring",
+      "rule": "Never author or vary the brief per cluster. The preamble is fixed and inlined verbatim; only the appended cluster scope differs."
+    }
+  ]
+}
